@@ -1,16 +1,14 @@
-import React, { forwardRef, memo, useRef, useState } from 'react'
-import { Editor, Text, Path, Element, Node } from 'slate'
-
+import { memo, useRef, useState } from 'react'
+import { Editor, type Element, Node, Path, type Text } from 'slate'
+import { IS_ANDROID, MARK_PLACEHOLDER_SYMBOL } from 'slate-dom'
 import { ReactEditor, useSlateStatic } from '..'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
-import { IS_ANDROID } from 'slate-dom'
-import { MARK_PLACEHOLDER_SYMBOL } from 'slate-dom'
 
 /**
  * Leaf content strings.
  */
 
-const String = (props: {
+const LeafString = (props: {
   isLast: boolean
   leaf: Text
   parent: Element
@@ -33,7 +31,7 @@ const String = (props: {
   // to support expected plain text.
   if (
     leaf.text === '' &&
-    parent.children[parent.children.length - 1] === text &&
+    parent.children.at(-1) === text &&
     !editor.isInline(parent) &&
     Editor.string(editor, parentPath) === ''
   ) {
@@ -93,15 +91,20 @@ const TextString = (props: { text: string; isTrailing?: boolean }) => {
   return <MemoizedText ref={ref}>{initialText}</MemoizedText>
 }
 
-const MemoizedText = memo(
-  forwardRef<HTMLSpanElement, { children: string }>((props, ref) => {
-    return (
-      <span data-slate-string ref={ref}>
-        {props.children}
-      </span>
-    )
-  })
-)
+type MemoizedTextProps = Omit<
+  React.ComponentPropsWithRef<'span'>,
+  'children'
+> & {
+  children: string
+}
+
+const MemoizedText = memo(({ children, ref }: MemoizedTextProps) => {
+  return (
+    <span data-slate-string ref={ref}>
+      {children}
+    </span>
+  )
+})
 
 /**
  * Leaf strings without text, render as zero-width strings.
@@ -143,4 +146,4 @@ export const ZeroWidthString = (props: {
   )
 }
 
-export default String
+export default LeafString

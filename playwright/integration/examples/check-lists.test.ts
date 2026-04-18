@@ -1,8 +1,8 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
 test.describe('Check-lists example', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000/examples/check-lists')
+    await page.goto('/examples/check-lists')
   })
 
   test('checks the bullet when clicked', async ({ page }) => {

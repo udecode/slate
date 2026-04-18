@@ -1,17 +1,21 @@
 /** @jsx jsx */
-// Apply a mark across a range containing text with other marks and one void that supports marks
-import { Editor, Transforms } from 'slate'
+
 import { jsx } from '../../..'
 
-export const run = editor => {
-  editor.markableVoid = node => node.markable
+jsx
+
+// Apply a mark across a range containing text with other marks and one void that supports marks
+import { Editor } from 'slate'
+
+export const run = (editor) => {
+  editor.markableVoid = (node) => node.markable
   Editor.addMark(editor, 'bold', true)
 }
 export const input = (
   <editor>
     <block>
       <text>word</text>
-      <inline void markable>
+      <inline markable void>
         <text />
         <cursor />
       </inline>
@@ -23,7 +27,7 @@ export const output = (
   <editor>
     <block>
       <text>word</text>
-      <inline void markable>
+      <inline markable void>
         <text bold />
         <cursor />
       </inline>

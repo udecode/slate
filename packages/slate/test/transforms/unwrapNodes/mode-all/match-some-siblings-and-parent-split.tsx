@@ -1,9 +1,17 @@
 /** @jsx jsx */
-import { Transforms } from 'slate'
+
 import { jsx } from '../../..'
 
-export const run = editor => {
-  Transforms.unwrapNodes(editor, { match: n => n.a, mode: 'all', split: true })
+jsx
+
+import { Transforms } from 'slate'
+
+export const run = (editor) => {
+  Transforms.unwrapNodes(editor, {
+    match: (n) => n.a,
+    mode: 'all',
+    split: true,
+  })
 }
 export const input = (
   <editor>

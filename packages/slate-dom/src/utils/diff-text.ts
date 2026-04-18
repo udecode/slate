@@ -1,4 +1,4 @@
-import { Editor, Node, Operation, Path, Point, Range } from 'slate'
+import { Editor, Node, type Operation, Path, Point, Range } from 'slate'
 import { EDITOR_TO_PENDING_DIFFS } from './weak-maps'
 
 export type StringDiff = {
@@ -71,9 +71,7 @@ function longestCommonSuffixLength(
   const length = Math.min(str.length, another.length, max)
 
   for (let i = 0; i < length; i++) {
-    if (
-      str.charAt(str.length - i - 1) !== another.charAt(another.length - i - 1)
-    ) {
+    if (str.at(i + 1) !== another.at(i + 1)) {
       return i
     }
   }
@@ -166,7 +164,7 @@ export function normalizePoint(editor: Editor, point: Point): Point | null {
   }
 
   const parentBlock = Editor.above(editor, {
-    match: n => Node.isElement(n) && Editor.isBlock(editor, n),
+    match: (n) => Node.isElement(n) && Editor.isBlock(editor, n),
     at: path,
   })
 

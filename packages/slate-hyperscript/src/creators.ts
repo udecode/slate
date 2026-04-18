@@ -1,12 +1,12 @@
-import { Element, Descendant, Node, Range, Text, Editor } from 'slate'
+import { type Descendant, type Editor, Element, Node, Range, Text } from 'slate'
 import {
   AnchorToken,
-  FocusToken,
-  Token,
   addAnchorToken,
   addFocusToken,
+  FocusToken,
   getAnchorOffset,
   getFocusOffset,
+  Token,
 } from './tokens'
 
 /**
@@ -24,16 +24,17 @@ const resolveDescendants = (children: any[]): Descendant[] => {
       return
     }
 
-    const prev = nodes[nodes.length - 1]
+    let normalizedChild = child
+    const prev = nodes.at(-1)
 
-    if (typeof child === 'string') {
-      const text = { text: child }
+    if (typeof normalizedChild === 'string') {
+      const text = { text: normalizedChild }
       STRINGS.add(text)
-      child = text
+      normalizedChild = text
     }
 
-    if (Text.isText(child)) {
-      const c = child // HACK: fix typescript complaining
+    if (Text.isText(normalizedChild)) {
+      const c = normalizedChild // HACK: fix typescript complaining
 
       if (
         Text.isText(prev) &&
@@ -45,27 +46,27 @@ const resolveDescendants = (children: any[]): Descendant[] => {
       } else {
         nodes.push(c)
       }
-    } else if (Element.isElement(child)) {
-      nodes.push(child)
-    } else if (child instanceof Token) {
-      let n = nodes[nodes.length - 1]
+    } else if (Element.isElement(normalizedChild)) {
+      nodes.push(normalizedChild)
+    } else if (normalizedChild instanceof Token) {
+      let n = nodes.at(-1)
 
       if (!Text.isText(n)) {
         addChild('')
-        n = nodes[nodes.length - 1] as Text
+        n = nodes.at(-1) as Text
       }
 
-      if (child instanceof AnchorToken) {
-        addAnchorToken(n, child)
-      } else if (child instanceof FocusToken) {
-        addFocusToken(n, child)
+      if (normalizedChild instanceof AnchorToken) {
+        addAnchorToken(n, normalizedChild)
+      } else if (normalizedChild instanceof FocusToken) {
+        addFocusToken(n, normalizedChild)
       }
     } else {
-      throw new Error(`Unexpected hyperscript child object: ${child}`)
+      throw new Error(`Unexpected hyperscript child object: ${normalizedChild}`)
     }
   }
 
-  for (const child of children.flat(Infinity)) {
+  for (const child of children.flat(Number.POSITIVE_INFINITY)) {
     addChild(child)
   }
 
@@ -141,18 +142,18 @@ export function createSelection(
   attributes: { [key: string]: any },
   children: any[]
 ): Range {
-  const anchor: AnchorToken = children.find(c => c instanceof AnchorToken)
-  const focus: FocusToken = children.find(c => c instanceof FocusToken)
+  const anchor = children.find((c) => c instanceof AnchorToken)
+  const focus = children.find((c) => c instanceof FocusToken)
 
   if (!anchor || anchor.offset == null || anchor.path == null) {
     throw new Error(
-      `The <selection> hyperscript tag must have an <anchor> tag as a child with \`path\` and \`offset\` attributes defined.`
+      'The <selection> hyperscript tag must have an <anchor> tag as a child with `path` and `offset` attributes defined.'
     )
   }
 
   if (!focus || focus.offset == null || focus.path == null) {
     throw new Error(
-      `The <selection> hyperscript tag must have a <focus> tag as a child with \`path\` and \`offset\` attributes defined.`
+      'The <selection> hyperscript tag must have a <focus> tag as a child with `path` and `offset` attributes defined.'
     )
   }
 
@@ -252,13 +253,13 @@ export const createEditor =
 
     if (selection.anchor && !selection.focus) {
       throw new Error(
-        `Slate hyperscript ranges must have both \`<anchor />\` and \`<focus />\` defined if one is defined, but you only defined \`<anchor />\`. For collapsed selections, use \`<cursor />\` instead.`
+        'Slate hyperscript ranges must have both `<anchor />` and `<focus />` defined if one is defined, but you only defined `<anchor />`. For collapsed selections, use `<cursor />` instead.'
       )
     }
 
     if (!selection.anchor && selection.focus) {
       throw new Error(
-        `Slate hyperscript ranges must have both \`<anchor />\` and \`<focus />\` defined if one is defined, but you only defined \`<focus />\`. For collapsed selections, use \`<cursor />\` instead.`
+        'Slate hyperscript ranges must have both `<anchor />` and `<focus />` defined if one is defined, but you only defined `<focus />`. For collapsed selections, use `<cursor />` instead.'
       )
     }
 

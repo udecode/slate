@@ -1,4 +1,4 @@
-import {
+import type {
   InsertNodeOperation,
   MergeNodeOperation,
   MoveNodeOperation,
@@ -6,7 +6,7 @@ import {
   RemoveNodeOperation,
   SplitNodeOperation,
 } from '..'
-import { TextDirection } from '../types/types'
+import type { TextDirection } from '../types/types'
 
 /**
  * `Path` arrays are a list of indexes that describe a node's exact position in
@@ -256,7 +256,7 @@ export const Path: PathInterface = {
   },
 
   hasPrevious(path: Path): boolean {
-    return path[path.length - 1] > 0
+    return path.at(-1)! > 0
   },
 
   isAfter(path: Path, another: Path): boolean {
@@ -292,7 +292,7 @@ export const Path: PathInterface = {
   },
 
   isPath(value: any): value is Path {
-    return Array.isArray(value) && value.every(n => typeof n === 'number')
+    return Array.isArray(value) && value.every((n) => typeof n === 'number')
   },
 
   isSibling(path: Path, another: Path): boolean {
@@ -302,8 +302,8 @@ export const Path: PathInterface = {
 
     const as = path.slice(0, -1)
     const bs = another.slice(0, -1)
-    const al = path[path.length - 1]
-    const bl = another[another.length - 1]
+    const al = path.at(-1)!
+    const bl = another.at(-1)!
     return al !== bl && Path.equals(as, bs)
   },
 
@@ -329,7 +329,7 @@ export const Path: PathInterface = {
       )
     }
 
-    const last = path[path.length - 1]
+    const last = path.at(-1)!
     return path.slice(0, -1).concat(last + 1)
   },
 
@@ -368,7 +368,7 @@ export const Path: PathInterface = {
       )
     }
 
-    const last = path[path.length - 1]
+    const last = path.at(-1)!
 
     if (last <= 0) {
       throw new Error(
@@ -425,7 +425,8 @@ export const Path: PathInterface = {
 
         if (Path.equals(op, p) || Path.isAncestor(op, p)) {
           return null
-        } else if (Path.endsBefore(op, p)) {
+        }
+        if (Path.endsBefore(op, p)) {
           p[op.length - 1] -= 1
         }
 
@@ -450,7 +451,7 @@ export const Path: PathInterface = {
 
         if (Path.equals(op, p)) {
           if (affinity === 'forward') {
-            p[p.length - 1] += 1
+            p[p.length - 1]! += 1
           } else if (affinity === 'backward') {
             // Nothing, because it still refers to the right path.
           } else {
@@ -482,7 +483,8 @@ export const Path: PathInterface = {
           }
 
           return copy.concat(p.slice(op.length))
-        } else if (
+        }
+        if (
           Path.isSibling(op, onp) &&
           (Path.isAncestor(onp, p) || Path.equals(onp, p))
         ) {

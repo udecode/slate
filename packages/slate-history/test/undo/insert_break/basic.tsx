@@ -1,9 +1,12 @@
 /** @jsx jsx */
-import { Editor } from 'slate'
+
 import { jsx } from '../..'
+
+jsx
+
 import { cloneDeep } from 'lodash'
 
-export const run = editor => {
+export const run = (editor) => {
   editor.insertBreak()
 }
 export const input = (

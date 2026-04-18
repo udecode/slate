@@ -1,8 +1,8 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
 test.describe('table example', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000/examples/tables')
+    await page.goto('/examples/tables')
   })
 
   test('table tag rendered', async ({ page }) => {

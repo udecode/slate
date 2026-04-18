@@ -1,5 +1,5 @@
-import { Range, isObject, Node } from '..'
-import { ExtendedType } from '../types/custom-types'
+import { isObject, Range } from '..'
+import type { ExtendedType } from '../types/custom-types'
 import { isDeepEqual } from '../utils/deep-equal'
 
 /**
@@ -96,7 +96,7 @@ export const Text: TextInterface = {
   },
 
   isTextList(value: any): value is Text[] {
-    return Array.isArray(value) && value.every(val => Text.isText(val))
+    return Array.isArray(value) && value.every((val) => Text.isText(val))
   },
 
   isTextProps(props: any): props is Partial<Text> {
@@ -110,7 +110,7 @@ export const Text: TextInterface = {
       }
 
       if (
-        !text.hasOwnProperty(key) ||
+        !Object.hasOwn(text, key) ||
         text[<keyof Text>key] !== props[<keyof Text>key]
       ) {
         return false
@@ -131,7 +131,7 @@ export const Text: TextInterface = {
     for (const dec of decorations) {
       const { anchor, focus, merge: mergeDecoration, ...rest } = dec
       const [start, end] = Range.edges(dec)
-      const next = []
+      const next: Array<{ leaf: Text; position?: LeafPosition }> = []
       let leafEnd = 0
       const decorationStart = start.offset
       const decorationEnd = end.offset
@@ -165,8 +165,8 @@ export const Text: TextInterface = {
         // and add the range to the middle intersecting section. Do the end
         // split first since we don't need to update the offset that way.
         let middle = leaf
-        let before
-        let after
+        let before: { leaf: Text } | undefined
+        let after: { leaf: Text } | undefined
 
         if (decorationEnd < leafEnd) {
           const off = decorationEnd - leafStart

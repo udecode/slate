@@ -1,6 +1,10 @@
 /** @jsx jsx */
-import { Transforms } from 'slate'
+
 import { jsx } from '../../..'
+
+jsx
+
+import { Transforms } from 'slate'
 
 export const input = <editor />
 export const run = (editor, options = {}) => {

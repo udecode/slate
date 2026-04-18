@@ -1,10 +1,11 @@
-import { test, expect, Page } from '@playwright/test'
+import { expect, Page, test } from '@playwright/test'
 
 test.setTimeout(60 * 1000)
 
 test.describe('code highlighting', () => {
   test.beforeEach(async ({ page }) => {
-    page.goto('http://localhost:3000/examples/code-highlighting')
+    await page.goto('/examples/code-highlighting')
+    await expect(page.getByTestId('code-block-button')).toBeVisible()
   })
 
   for (const testCase of getTestCases()) {

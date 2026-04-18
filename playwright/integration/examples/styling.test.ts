@@ -1,16 +1,13 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
 test.describe('styling example', () => {
-  test.beforeEach(
-    async ({ page }) =>
-      await page.goto('http://localhost:3000/examples/styling')
-  )
+  test.beforeEach(async ({ page }) => await page.goto('/examples/styling'))
 
   test('applies styles to editor from style prop', async ({ page }) => {
     page.waitForLoadState('domcontentloaded')
 
     const editor = page.locator('[data-slate-editor=true]').nth(0)
-    const styles = await editor.evaluate(el => {
+    const styles = await editor.evaluate((el) => {
       const {
         backgroundColor,
         minHeight,
@@ -50,7 +47,7 @@ test.describe('styling example', () => {
     page.waitForLoadState('domcontentloaded')
 
     const editor = page.locator('[data-slate-editor=true]').nth(1)
-    const styles = await editor.evaluate(el => {
+    const styles = await editor.evaluate((el) => {
       const {
         backgroundColor,
         paddingTop,

@@ -1,8 +1,8 @@
-import { test, expect, Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
 test.describe('iframe editor', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000/examples/iframe')
+    await page.goto('/examples/iframe')
   })
 
   test('should be editable', async ({ page }) => {

@@ -1,9 +1,9 @@
 /**
  * Copied from prism-react-renderer repo
  * https://github.com/FormidableLabs/prism-react-renderer/blob/master/src/utils/normalizeTokens.js
- * */
+ */
 
-import Prism from 'prismjs'
+import type Prism from 'prismjs'
 
 type PrismToken = Prism.Token
 type Token = {

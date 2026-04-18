@@ -1,13 +1,13 @@
-import { NodeTransforms } from '../interfaces/transforms/node'
-import { Editor } from '../interfaces/editor'
-import { Path } from '../interfaces/path'
-import { Element } from '../interfaces/element'
-import { Range } from '../interfaces/range'
-import { Transforms } from '../interfaces/transforms'
-import { Text } from '../interfaces/text'
-import { Scrubber } from '../interfaces/scrubber'
-import { Node } from '../interfaces/node'
 import { Location } from '../interfaces'
+import { Editor } from '../interfaces/editor'
+import type { Element } from '../interfaces/element'
+import { Node } from '../interfaces/node'
+import { Path } from '../interfaces/path'
+import { Range } from '../interfaces/range'
+import { Scrubber } from '../interfaces/scrubber'
+import type { Text } from '../interfaces/text'
+import { Transforms } from '../interfaces/transforms'
+import type { NodeTransforms } from '../interfaces/transforms/node'
 
 const hasSingleChildNest = (editor: Editor, node: Node): boolean => {
   return (
@@ -38,9 +38,9 @@ export const mergeNodes: NodeTransforms['mergeNodes'] = (
     if (match == null) {
       if (isPathMerge) {
         const [parent] = Editor.parent(editor, at)
-        match = n => parent.children.includes(n)
+        match = (n) => parent.children.includes(n)
       } else {
-        match = n => Node.isElement(n) && Editor.isBlock(editor, n)
+        match = (n) => Node.isElement(n) && Editor.isBlock(editor, n)
       }
     }
 
@@ -95,12 +95,12 @@ export const mergeNodes: NodeTransforms['mergeNodes'] = (
     const emptyAncestor = Editor.above(editor, {
       at: path,
       mode: 'highest',
-      match: n => levels.includes(n) && hasSingleChildNest(editor, n),
+      match: (n) => levels.includes(n) && hasSingleChildNest(editor, n),
     })
 
     const emptyRef = emptyAncestor && Editor.pathRef(editor, emptyAncestor[1])
-    let properties
-    let position
+    let properties: Partial<Text> | Partial<Element>
+    let position: number
 
     // Ensure that the nodes are equivalent, and figure out what the position
     // and extra properties of the merge will be.

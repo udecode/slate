@@ -1,5 +1,9 @@
 /** @jsx jsx */
+
 import { jsx } from '../..'
+
+jsx
+
 import { cloneDeep } from 'lodash'
 
 const fragment = (
@@ -20,7 +24,7 @@ const fragment = (
     </block>
   </block>
 )
-export const run = editor => {
+export const run = (editor) => {
   editor.insertFragment(fragment)
 }
 export const input = (

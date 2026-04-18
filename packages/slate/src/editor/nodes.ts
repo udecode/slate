@@ -1,6 +1,6 @@
-import { Node, NodeEntry } from '../interfaces/node'
-import { Editor, EditorNodesOptions } from '../interfaces/editor'
+import { Editor, type EditorNodesOptions } from '../interfaces/editor'
 import { Location } from '../interfaces/location'
+import { Node, type NodeEntry } from '../interfaces/node'
 import { Path } from '../interfaces/path'
 
 export function* nodes<T extends Node>(
@@ -25,8 +25,8 @@ export function* nodes<T extends Node>(
     return
   }
 
-  let from
-  let to
+  let from: Path
+  let to: Path
 
   if (Location.isSpan(at)) {
     from = at[0]
@@ -43,7 +43,7 @@ export function* nodes<T extends Node>(
     from,
     to,
     pass: ([node, path]) => {
-      if (pass && pass([node, path])) return true
+      if (pass?.([node, path])) return true
       if (!Node.isElement(node)) return false
       if (
         !voids &&
@@ -72,9 +72,8 @@ export function* nodes<T extends Node>(
       // means the match is not universal.
       if (universal && !isLower && Node.isText(node)) {
         return
-      } else {
-        continue
       }
+      continue
     }
 
     // If there's a match and it's lower than the last, update the hit.

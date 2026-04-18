@@ -1,6 +1,10 @@
 /** @jsx jsx */
-import { Editor } from 'slate'
+
 import { jsx } from '../../../..'
+
+jsx
+
+import { Editor } from 'slate'
 
 export const input = (
   <editor>
@@ -12,9 +16,9 @@ export const input = (
     </block>
   </editor>
 )
-export const test = editor => {
+export const test = (editor) => {
   return Array.from(
-    Editor.nodes(editor, { at: [], match: n => n.a, mode: 'all' })
+    Editor.nodes(editor, { at: [], match: (n) => n.a, mode: 'all' })
   )
 }
 export const output = [

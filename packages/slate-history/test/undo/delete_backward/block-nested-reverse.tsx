@@ -1,7 +1,10 @@
 /** @jsx jsx */
+
 import { jsx } from '../..'
 
-export const run = editor => {
+jsx
+
+export const run = (editor) => {
   editor.deleteBackward()
 }
 export const input = (

@@ -1,8 +1,12 @@
 /** @jsx jsx */
-import { Transforms } from 'slate'
+
 import { jsx } from '../../..'
 
-export const run = editor => {
+jsx
+
+import { Transforms } from 'slate'
+
+export const run = (editor) => {
   Transforms.delete(editor, { unit: 'character', distance: 2, reverse: true })
 }
 export const input = (

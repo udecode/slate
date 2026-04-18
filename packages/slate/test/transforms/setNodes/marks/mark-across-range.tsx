@@ -1,9 +1,13 @@
 /** @jsx jsx */
-// Apply a mark across a range containing text with other marks and a void
-import { Editor, Transforms } from 'slate'
+
 import { jsx } from '../../..'
 
-export const run = editor => {
+jsx
+
+// Apply a mark across a range containing text with other marks and a void
+import { Editor } from 'slate'
+
+export const run = (editor) => {
   Editor.addMark(editor, 'bold', true)
 }
 export const input = (
@@ -32,13 +36,13 @@ export const output = (
         <anchor />
         word{' '}
       </text>
-      <text italic bold>
+      <text bold italic>
         italic words{' '}
       </text>
       <inline void>
         <text />
       </inline>
-      <text underline bold>
+      <text bold underline>
         {' '}
         underlined words
         <focus />

@@ -1,16 +1,21 @@
-import React, { useCallback, useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import {
-  Descendant,
+  createEditor,
+  type Descendant,
   Editor,
   Node,
-  NodeEntry,
-  Element as SlateElement,
+  type NodeEntry,
+  type Element as SlateElement,
   Transforms,
-  createEditor,
 } from 'slate'
 import { withHistory } from 'slate-history'
-import { Editable, RenderElementProps, Slate, withReact } from 'slate-react'
 import {
+  Editable,
+  type RenderElementProps,
+  Slate,
+  withReact,
+} from 'slate-react'
+import type {
   CustomEditor,
   CustomElementType,
   ParagraphElement,
@@ -61,6 +66,7 @@ const withLayout = (editor: CustomEditor) => {
           case 1:
             type = 'paragraph'
             enforceType(type)
+            break
           default:
             break
         }
@@ -85,10 +91,10 @@ const ForcedLayoutExample = () => {
   return (
     <Slate editor={editor} initialValue={initialValue}>
       <Editable
-        renderElement={renderElement}
-        placeholder="Enter a title…"
-        spellCheck
         autoFocus
+        placeholder="Enter a title…"
+        renderElement={renderElement}
+        spellCheck
       />
     </Slate>
   )

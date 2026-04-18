@@ -1,4 +1,3 @@
-/** @jsx jsx */
 import { createHyperscript } from 'slate-hyperscript'
 
 const jsx = createHyperscript({
@@ -6,6 +5,9 @@ const jsx = createHyperscript({
     paragraph: { type: 'paragraph' },
   },
 })
+
+void jsx
+
 export const input = <paragraph>word</paragraph>
 export const output = {
   type: 'paragraph',

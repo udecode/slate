@@ -1,6 +1,10 @@
 /** @jsx jsx */
-import { Editor } from 'slate'
+
 import { jsx } from '../../..'
+
+jsx
+
+import { Editor } from 'slate'
 
 export const input = (
   <editor>
@@ -18,7 +22,7 @@ export const input = (
     <block>block two</block>
   </editor>
 )
-export const test = editor => {
+export const test = (editor) => {
   return Editor.marks(editor)
 }
 export const output = { bold: true }

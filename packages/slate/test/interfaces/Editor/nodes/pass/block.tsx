@@ -1,6 +1,10 @@
 /** @jsx jsx */
-import { Editor } from 'slate'
+
 import { jsx } from '../../../..'
+
+jsx
+
+import { Editor } from 'slate'
 
 export const input = (
   <editor>
@@ -9,17 +13,17 @@ export const input = (
     </block>
     <block>
       <block match>two</block>
-      <block pass match>
+      <block match pass>
         three
       </block>
     </block>
   </editor>
 )
-export const test = editor => {
+export const test = (editor) => {
   return Array.from(
     Editor.nodes(editor, {
       at: [],
-      match: n => !!n.match,
+      match: (n) => !!n.match,
       pass: ([n]) => !!n.pass,
     })
   )
@@ -27,7 +31,7 @@ export const test = editor => {
 export const output = [
   [<block match>two</block>, [1, 0]],
   [
-    <block pass match>
+    <block match pass>
       three
     </block>,
     [1, 1],

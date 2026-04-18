@@ -2,8 +2,15 @@
   "extends": "../../config/typescript/tsconfig.json",
   "include": ["src/**/*"],
   "compilerOptions": {
-    "rootDir": "./src",
-    "outDir": "./lib"
+    "jsx": "react-jsx",
+    "types": ["node", "react", "react-dom"],
+    "paths": {
+      "slate-dom": ["../slate-dom/src/index.ts"],
+      "slate": ["../slate/src/index.ts"]
+    },
+    "rootDir": ".",
+    "outDir": "./lib",
+    "composite": true
   },
   "references": [
     {

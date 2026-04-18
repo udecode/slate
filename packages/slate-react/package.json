@@ -4,11 +4,13 @@
   "version": "0.124.0",
   "license": "MIT",
   "repository": "git://github.com/ianstormtaylor/slate.git",
-  "main": "dist/index.js",
-  "module": "dist/index.es.js",
-  "types": "dist/index.d.ts",
-  "umd": "dist/slate-react.js",
-  "umdMin": "dist/slate-react.min.js",
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "sideEffects": false,
   "files": [
     "dist/"
@@ -16,38 +18,38 @@
   "dependencies": {
     "@juggle/resize-observer": "^3.4.0",
     "direction": "^1.0.4",
-    "is-hotkey": "^0.2.0",
     "lodash": "^4.17.21",
-    "scroll-into-view-if-needed": "^3.1.0",
-    "tiny-invariant": "1.3.1"
+    "scroll-into-view-if-needed": "^3.1.0"
+  },
+  "scripts": {
+    "build": "tsdown --config ../../config/tsdown.config.mts --log-level warn",
+    "clean": "rimraf dist lib",
+    "test": "bun test:vitest",
+    "test:vitest": "vitest run --config ./vitest.config.mjs",
+    "typecheck": "tsc --project tsconfig.build.json --noEmit"
   },
   "devDependencies": {
-    "@babel/runtime": "^7.23.2",
-    "@testing-library/jest-dom": "^6.6.3",
-    "@testing-library/react": "^14.0.0",
-    "@types/is-hotkey": "^0.1.8",
-    "@types/jest": "29.5.6",
-    "@types/jsdom": "^21.1.4",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/lodash": "^4.14.200",
-    "@types/react": "^18.2.41",
-    "@types/react-dom": "^18.2.17",
-    "@types/resize-observer-browser": "^0.1.8",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "slate": "^0.124.0",
-    "slate-dom": "^0.124.0",
-    "slate-hyperscript": "^0.115.0",
-    "source-map-loader": "^4.0.1"
+    "@types/node": "^20.8.7",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "jsdom": "20.0.3",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "slate": "workspace:*",
+    "slate-dom": "workspace:*",
+    "slate-history": "workspace:*",
+    "slate-hyperscript": "workspace:*",
+    "vitest": "^4.1.0"
   },
   "peerDependencies": {
-    "react": ">=18.2.0",
-    "react-dom": ">=18.2.0",
+    "react": ">=19.2.0",
+    "react-dom": ">=19.2.0",
     "slate": ">=0.121.0",
     "slate-dom": ">=0.119.1"
-  },
-  "umdGlobals": {
-    "react": "React",
-    "slate": "Slate"
   },
   "keywords": [
     "canvas",

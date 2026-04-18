@@ -1,6 +1,6 @@
 import { css } from '@emotion/css'
-import React, { useCallback, useMemo, useState } from 'react'
-import { Node, createEditor } from 'slate'
+import { useCallback, useMemo, useState } from 'react'
+import { createEditor, Node } from 'slate'
 import { withHistory } from 'slate-history'
 import { Editable, Slate, withReact } from 'slate-react'
 import { Icon, Toolbar } from './components'
@@ -12,7 +12,7 @@ const SearchHighlightingExample = () => {
     ([node, path]) => {
       const ranges = []
       if (search && Node.isElement(node) && node.children.every(Node.isText)) {
-        const texts = node.children.map(it => it.text)
+        const texts = node.children.map((it) => it.text)
         const str = texts.join('')
         const length = search.length
         let start = str.indexOf(search)
@@ -24,7 +24,7 @@ const SearchHighlightingExample = () => {
             index < texts.length &&
             start >= iterated + texts[index].length
           ) {
-            iterated = iterated + texts[index].length
+            iterated += texts[index].length
             index++
           }
           // Find the index of array and relative position
@@ -39,9 +39,9 @@ const SearchHighlightingExample = () => {
               focus: { path: currentPath, offset: offset + taken },
               highlight: true,
             })
-            remaining = remaining - taken
+            remaining -= taken
             if (remaining > 0) {
-              iterated = iterated + currentText.length
+              iterated += currentText.length
               // Next block will be indexed from 0
               offset = 0
               index++
@@ -74,17 +74,20 @@ const SearchHighlightingExample = () => {
             search
           </Icon>
           <input
-            type="search"
-            placeholder="Search the text..."
-            onChange={e => setSearch(e.target.value)}
             className={css`
               padding-left: 2.5em !important;
               width: 100%;
             `}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search the text..."
+            type="search"
           />
         </div>
       </Toolbar>
-      <Editable decorate={decorate} renderLeaf={props => <Leaf {...props} />} />
+      <Editable
+        decorate={decorate}
+        renderLeaf={(props) => <Leaf {...props} />}
+      />
     </Slate>
   )
 }

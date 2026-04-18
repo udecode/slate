@@ -1,9 +1,9 @@
+import { Editor, type EditorInterface } from '../interfaces/editor'
 import { Node } from '../interfaces/node'
-import { Path } from '../interfaces/path'
+import type { Path } from '../interfaces/path'
 import { Range } from '../interfaces/range'
 import { Transforms } from '../interfaces/transforms'
 import { FLUSHING } from '../utils/weak-maps'
-import { Editor, EditorInterface } from '../interfaces/editor'
 
 export const removeMark: EditorInterface['removeMark'] = (editor, key) => {
   const { selection } = editor
@@ -13,7 +13,7 @@ export const removeMark: EditorInterface['removeMark'] = (editor, key) => {
       if (!Node.isText(node)) {
         return false // marks can only be applied to text
       }
-      const [parentNode, parentPath] = Editor.parent(editor, path)
+      const [parentNode] = Editor.parent(editor, path)
       return !editor.isVoid(parentNode) || editor.markableVoid(parentNode)
     }
     const expandedSelection = Range.isExpanded(selection)

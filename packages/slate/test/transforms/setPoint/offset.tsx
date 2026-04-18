@@ -1,8 +1,12 @@
 /** @jsx jsx */
-import { Editor, Transforms } from 'slate'
+
 import { jsx } from '../..'
 
-export const run = editor => {
+jsx
+
+import { Transforms } from 'slate'
+
+export const run = (editor) => {
   Transforms.move(editor)
   Transforms.setPoint(editor, { offset: 0 }, { edge: 'focus' })
 }

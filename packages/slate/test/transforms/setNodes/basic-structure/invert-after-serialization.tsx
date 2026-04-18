@@ -1,6 +1,10 @@
 /** @jsx jsx */
-import { Editor, Transforms, Operation } from 'slate'
+
 import { jsx } from '../../..'
+
+jsx
+
+import { Editor, Operation, Transforms } from 'slate'
 
 export const run = (editor: Editor) => {
   Transforms.setNodes(editor, { key: true }, { at: [0] })

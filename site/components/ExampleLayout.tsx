@@ -1,36 +1,36 @@
-import React, { useState, ErrorInfo } from 'react'
 import Link from 'next/link'
-import { Icon } from '../examples/ts/components/index'
+import React, { type ErrorInfo, useState } from 'react'
 import { NON_HIDDEN_EXAMPLES } from '../constants/examples'
+import { Icon } from '../examples/ts/components/index'
 
-const Header = (props: React.HTMLAttributes<HTMLDivElement>) => (
+const Header = (props: React.ComponentProps<'div'>) => (
   <div {...props} className="example-header" />
 )
 
-const Title = (props: React.HTMLAttributes<HTMLSpanElement>) => (
+const Title = (props: React.ComponentProps<'span'>) => (
   <span {...props} className="example-title" />
 )
 
-const LinkList = (props: React.HTMLAttributes<HTMLDivElement>) => (
+const LinkList = (props: React.ComponentProps<'div'>) => (
   <div {...props} className="example-link-list" />
 )
 
-const A = (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+const A = (props: React.ComponentProps<'a'>) => (
   <a {...props} className="example-link" />
 )
 
-const Pill = (props: React.HTMLAttributes<HTMLSpanElement>) => (
+const Pill = (props: React.ComponentProps<'span'>) => (
   <span {...props} className="example-pill" />
 )
 
 const TabList = ({
   isVisible,
   ...props
-}: React.HTMLAttributes<HTMLDivElement> & { isVisible?: boolean }) => (
+}: React.ComponentProps<'div'> & { isVisible?: boolean }) => (
   <div
-    role="menu"
-    aria-label="Examples navigation"
     aria-hidden={!isVisible}
+    aria-label="Examples navigation"
+    role="menu"
     {...props}
     className={`example-tab-list ${isVisible ? 'visible' : 'hidden'}`}
   />
@@ -39,57 +39,50 @@ const TabList = ({
 const TabListUnderlay = ({
   isVisible,
   ...props
-}: React.HTMLAttributes<HTMLDivElement> & { isVisible?: boolean }) => (
+}: React.ComponentProps<'div'> & { isVisible?: boolean }) => (
   <div
     {...props}
     className={`example-tab-list-underlay ${isVisible ? 'visible' : 'hidden'}`}
   />
 )
 
-const TabButton = (props: React.HTMLAttributes<HTMLSpanElement>) => (
+const TabButton = (props: React.ComponentProps<'button'>) => (
   <button
     {...props}
-    aria-label="Toggle examples menu"
     aria-haspopup="menu"
+    aria-label="Toggle examples menu"
     className="example-tab-button"
   />
 )
 
-const Tab = React.forwardRef(
-  (
-    {
-      active,
-      href,
-      ...props
-    }: React.AnchorHTMLAttributes<HTMLAnchorElement> & {
-      active: boolean
-    },
-    ref: React.Ref<HTMLAnchorElement>
-  ) => (
-    <a
-      ref={ref}
-      href={href}
-      role="menuitem"
-      aria-current={active ? 'page' : undefined}
-      {...props}
-      className={`example-tab ${active ? 'active' : ''}`}
-    />
-  )
+const Tab = ({
+  active,
+  className,
+  ...props
+}: React.ComponentProps<typeof Link> & {
+  active: boolean
+}) => (
+  <Link
+    aria-current={active ? 'page' : undefined}
+    role="menuitem"
+    {...props}
+    className={`example-tab ${active ? 'active' : ''} ${className ?? ''}`.trim()}
+  />
 )
 
-const ExampleHeader = (props: React.HTMLAttributes<HTMLDivElement>) => (
+const ExampleHeader = (props: React.ComponentProps<'div'>) => (
   <div {...props} className="example-page-header" />
 )
 
-const ExampleTitle = (props: React.HTMLAttributes<HTMLSpanElement>) => (
+const ExampleTitle = (props: React.ComponentProps<'span'>) => (
   <span {...props} className="example-page-title" />
 )
 
-const ExampleContent = (props: React.HTMLAttributes<HTMLDivElement>) => (
+const ExampleContent = (props: React.ComponentProps<'div'>) => (
   <div {...props} className="example-content" />
 )
 
-export const Warning = (props: React.HTMLAttributes<HTMLDivElement>) => (
+export const Warning = (props: React.ComponentProps<'div'>) => (
   <div {...props} className="example-warning" />
 )
 
@@ -123,7 +116,8 @@ export function ExampleLayout({
       {exampleName && examplePath && (
         <ExampleHeader>
           <TabButton
-            onClick={e => {
+            aria-expanded={showTabs}
+            onClick={(e) => {
               e.stopPropagation()
               setShowTabs(!showTabs)
             }}
@@ -132,7 +126,6 @@ export function ExampleLayout({
                 setShowTabs(false)
               }
             }}
-            aria-expanded={showTabs}
           >
             <Icon>menu</Icon>
           </TabButton>
@@ -154,25 +147,20 @@ export function ExampleLayout({
 
       <TabList isVisible={showTabs}>
         {NON_HIDDEN_EXAMPLES.map(([n, p]) => (
-          <Link
-            key={p as string}
-            href="/examples/[example]"
+          <Tab
+            active={p === examplePath}
             as={`/examples/${p}`}
-            legacyBehavior
-            passHref
+            href="/examples/[example]"
+            key={p as string}
+            onClick={() => setShowTabs(false)}
+            onKeyDown={(e: React.KeyboardEvent) => {
+              if (e.key === 'Escape') {
+                setShowTabs(false)
+              }
+            }}
           >
-            <Tab
-              onClick={() => setShowTabs(false)}
-              active={p === examplePath}
-              onKeyDown={(e: React.KeyboardEvent) => {
-                if (e.key === 'Escape') {
-                  setShowTabs(false)
-                }
-              }}
-            >
-              {n}
-            </Tab>
-          </Link>
+            {n}
+          </Tab>
         ))}
       </TabList>
 

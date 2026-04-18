@@ -1,6 +1,5 @@
-import { PlaywrightTestConfig } from '@playwright/test'
-import { devices } from '@playwright/test'
-import * as os from 'os'
+import * as os from 'node:os'
+import { devices, type PlaywrightTestConfig } from '@playwright/test'
 
 const projects = [
   {
@@ -43,8 +42,10 @@ if (os.type() === 'Darwin') {
 const retries = process.env.PLAYWRIGHT_RETRIES
   ? +process.env.PLAYWRIGHT_RETRIES
   : process.env.CI
-  ? 5
-  : 2
+    ? 5
+    : 2
+
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3101'
 
 /**
  * See https://playwright.dev/docs/test-configuration.
@@ -81,7 +82,7 @@ const config: PlaywrightTestConfig = {
     actionTimeout: 0,
     /* Base URL to use in actions like `await page.goto('/')`. */
     // Can be overridden with PLAYWRIGHT_BASE_URL env var (used by Docker tests)
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000',
+    baseURL,
 
     /* Collect trace if the first attempt fails. See https://playwright.dev/docs/trace-viewer */
     trace: 'retain-on-first-failure',
@@ -92,6 +93,15 @@ const config: PlaywrightTestConfig = {
 
   /* Configure projects for major browsers */
   projects,
+
+  webServer: process.env.PLAYWRIGHT_BASE_URL
+    ? undefined
+    : {
+        command: 'bun build:next && bun serve:playwright',
+        reuseExistingServer: !process.env.CI,
+        timeout: 300 * 1000,
+        url: baseURL,
+      },
 
   /* Folder for test artifacts such as screenshots, videos, traces, etc. */
   // outputDir: 'test-results/',

@@ -1,15 +1,15 @@
-import React, {
+import {
   Component,
-  ComponentType,
-  ContextType,
-  ReactNode,
-  RefObject,
+  type ComponentType,
+  type ContextType,
+  type ReactNode,
+  type RefObject,
 } from 'react'
-import { EditorContext } from '../../hooks/use-slate-static'
 import { IS_ANDROID } from 'slate-dom'
+import { EditorContext } from '../../hooks/use-slate-static'
 import {
   createRestoreDomManager,
-  RestoreDOMManager,
+  type RestoreDOMManager,
 } from './restore-dom-manager'
 
 const MUTATION_OBSERVER_CONFIG: MutationObserverInit = {
@@ -22,7 +22,7 @@ const MUTATION_OBSERVER_CONFIG: MutationObserverInit = {
 type RestoreDOMProps = {
   children?: ReactNode
   receivedUserInput: RefObject<boolean>
-  node: RefObject<HTMLDivElement>
+  node: RefObject<HTMLDivElement | null>
 }
 
 // We have to use a class component here since we rely on `getSnapshotBeforeUpdate` which has no FC equivalent

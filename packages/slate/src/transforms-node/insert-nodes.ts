@@ -1,13 +1,13 @@
-import { NodeTransforms } from '../interfaces/transforms/node'
+import { batchDirtyPaths } from '../core/batch-dirty-paths'
+import { updateDirtyPaths } from '../core/update-dirty-paths'
+import { type BaseInsertNodeOperation, Location } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import { Node } from '../interfaces/node'
+import { Path } from '../interfaces/path'
 import { Range } from '../interfaces/range'
 import { Transforms } from '../interfaces/transforms'
-import { Path } from '../interfaces/path'
+import type { NodeTransforms } from '../interfaces/transforms/node'
 import { getDefaultInsertLocation } from '../utils'
-import { batchDirtyPaths } from '../core/batch-dirty-paths'
-import { BaseInsertNodeOperation, Location } from '../interfaces'
-import { updateDirtyPaths } from '../core/update-dirty-paths'
 
 export const insertNodes: NodeTransforms['insertNodes'] = (
   editor,
@@ -22,16 +22,13 @@ export const insertNodes: NodeTransforms['insertNodes'] = (
       batchDirty = true,
     } = options
     let { at, match, select } = options
+    const targetNodes = Node.isNode(nodes) ? [nodes] : nodes
 
-    if (Node.isNode(nodes)) {
-      nodes = [nodes]
-    }
-
-    if (nodes.length === 0) {
+    if (targetNodes.length === 0) {
       return
     }
 
-    const [node] = nodes
+    const [node] = targetNodes
 
     if (!at) {
       at = getDefaultInsertLocation(editor)
@@ -62,11 +59,11 @@ export const insertNodes: NodeTransforms['insertNodes'] = (
     if (Location.isPoint(at)) {
       if (match == null) {
         if (Node.isText(node)) {
-          match = n => Node.isText(n)
+          match = (n) => Node.isText(n)
         } else if (editor.isInline(node)) {
-          match = n => Node.isText(n) || Editor.isInline(editor, n)
+          match = (n) => Node.isText(n) || Editor.isInline(editor, n)
         } else {
-          match = n => Node.isElement(n) && Editor.isBlock(editor, n)
+          match = (n) => Node.isElement(n) && Editor.isBlock(editor, n)
         }
       }
 
@@ -90,7 +87,7 @@ export const insertNodes: NodeTransforms['insertNodes'] = (
     }
 
     const parentPath = Path.parent(at)
-    let index = at[at.length - 1]
+    let index = at.at(-1)!
 
     if (!voids && Editor.void(editor, { at: parentPath })) {
       return
@@ -104,7 +101,7 @@ export const insertNodes: NodeTransforms['insertNodes'] = (
       batchDirtyPaths(
         editor,
         () => {
-          for (const node of nodes as Node[]) {
+          for (const node of targetNodes as Node[]) {
             const path = parentPath.concat(index)
             index++
 
@@ -127,7 +124,7 @@ export const insertNodes: NodeTransforms['insertNodes'] = (
           }
         },
         () => {
-          updateDirtyPaths(editor, newDirtyPaths, p => {
+          updateDirtyPaths(editor, newDirtyPaths, (p) => {
             let newPath: Path | null = p
             for (const op of batchedOps) {
               if (Path.operationCanTransformPath(op)) {
@@ -142,7 +139,7 @@ export const insertNodes: NodeTransforms['insertNodes'] = (
         }
       )
     } else {
-      for (const node of nodes as Node[]) {
+      for (const node of targetNodes as Node[]) {
         const path = parentPath.concat(index)
         index++
 

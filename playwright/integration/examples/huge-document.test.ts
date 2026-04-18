@@ -1,8 +1,11 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
 test.describe('huge document example', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000/examples/huge-document')
+    await page.goto('/examples/huge-document', {
+      waitUntil: 'domcontentloaded',
+    })
+    await expect(page.getByLabel('Blocks')).toHaveValue('10000')
   })
 
   test('uses chunking', async ({ page }) => {

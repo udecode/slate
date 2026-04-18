@@ -4,22 +4,17 @@ export { withDOM } from './plugin/with-dom'
 
 // Utils
 export { TRIPLE_CLICK } from './utils/constants'
-
+export type { StringDiff, TextDiff } from './utils/diff-text'
 export {
   applyStringDiff,
   mergeStringDiffs,
   normalizePoint,
   normalizeRange,
   normalizeStringDiff,
-  StringDiff,
   targetRange,
-  TextDiff,
   verifyDiffState,
 } from './utils/diff-text'
-
-export {
-  closestShadowAware,
-  containsShadowAware,
+export type {
   DOMElement,
   DOMNode,
   DOMPoint,
@@ -27,6 +22,10 @@ export {
   DOMSelection,
   DOMStaticRange,
   DOMText,
+} from './utils/dom'
+export {
+  closestShadowAware,
+  containsShadowAware,
   getActiveElement,
   getDefaultView,
   getSelection,
@@ -49,8 +48,8 @@ export {
   IS_FIREFOX,
   IS_FIREFOX_LEGACY,
   IS_IOS,
-  IS_WEBKIT,
   IS_UC_MOBILE,
+  IS_WEBKIT,
   IS_WECHATBROWSER,
 } from './utils/environment'
 

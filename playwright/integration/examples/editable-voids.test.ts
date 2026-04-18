@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
 test.describe('editable voids', () => {
   const input = 'input[type="text"]'
@@ -9,7 +9,10 @@ test.describe('editable voids', () => {
   ]
 
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3000/examples/editable-voids')
+    await page.goto('/examples/editable-voids', {
+      waitUntil: 'domcontentloaded',
+    })
+    await expect(page.locator(input)).toHaveCount(1)
   })
 
   test('checks for the elements', async ({ page }) => {

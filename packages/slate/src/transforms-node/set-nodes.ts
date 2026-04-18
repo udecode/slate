@@ -1,11 +1,11 @@
-import { NodeTransforms } from '../interfaces/transforms/node'
+import { Location } from '../interfaces'
 import { Editor } from '../interfaces/editor'
-import { matchPath } from '../utils/match-path'
+import { Node } from '../interfaces/node'
 import { Range } from '../interfaces/range'
 import { Transforms } from '../interfaces/transforms'
-import { Node } from '../interfaces/node'
-import { Location } from '../interfaces'
 import { NON_SETTABLE_NODE_PROPERTIES } from '../interfaces/transforms/general'
+import type { NodeTransforms } from '../interfaces/transforms/node'
+import { matchPath } from '../utils/match-path'
 
 export const setNodes: NodeTransforms['setNodes'] = (
   editor,
@@ -13,13 +13,20 @@ export const setNodes: NodeTransforms['setNodes'] = (
   options = {}
 ) => {
   Editor.withoutNormalizing(editor, () => {
-    let { match, at = editor.selection, compare, merge } = options
     const {
+      at: optionAt = editor.selection,
+      compare: optionCompare,
       hanging = false,
+      match: optionMatch,
+      merge: optionMerge,
       mode = 'lowest',
       split = false,
       voids = false,
     } = options
+    let match = optionMatch
+    let at = optionAt
+    let compare = optionCompare
+    const merge = optionMerge
 
     if (!at) {
       return
@@ -28,7 +35,7 @@ export const setNodes: NodeTransforms['setNodes'] = (
     if (match == null) {
       match = Location.isPath(at)
         ? matchPath(editor, at)
-        : n => Node.isElement(n) && Editor.isBlock(editor, n)
+        : (n) => Node.isElement(n) && Editor.isBlock(editor, n)
     }
 
     if (!hanging && Location.isRange(at)) {
@@ -108,9 +115,7 @@ export const setNodes: NodeTransforms['setNodes'] = (
           // Omit properties that have been removed from the new properties list
           if (merge) {
             if (newValue != null) newProperties[k] = merge(value, newValue)
-          } else {
-            if (newValue != null) newProperties[k] = newValue
-          }
+          } else if (newValue != null) newProperties[k] = newValue
         }
       }
 

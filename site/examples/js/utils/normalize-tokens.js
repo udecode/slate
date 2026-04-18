@@ -1,10 +1,10 @@
 /**
  * Copied from prism-react-renderer repo
  * https://github.com/FormidableLabs/prism-react-renderer/blob/master/src/utils/normalizeTokens.js
- * */
+ */
 const newlineRe = /\r\n|\r|\n/
 // Empty lines need to contain a single empty token, denoted with { empty: true }
-const normalizeEmptyLines = line => {
+const normalizeEmptyLines = (line) => {
   if (line.length === 0) {
     line.push({
       types: ['plain'],
@@ -29,7 +29,7 @@ const appendTypes = (types, add) => {
 // are always of type "plain".
 // This is not recursive to avoid exceeding the call-stack limit, since it's unclear
 // how nested Prism's tokens can become
-export const normalizeTokens = tokens => {
+export const normalizeTokens = (tokens) => {
   const typeArrStack = [[]]
   const tokenArrStack = [tokens]
   const tokenArrIndexStack = [0]
