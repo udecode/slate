@@ -5,7 +5,11 @@ export function* levels<T extends Node>(
   editor: Editor,
   options: EditorLevelsOptions<T> = {}
 ): Generator<NodeEntry<T>, void, undefined> {
-  const { at = editor.selection, reverse = false, voids = false } = options
+  const {
+    at = Editor.getSnapshot(editor).selection,
+    reverse = false,
+    voids = false,
+  } = options
   let { match } = options
 
   if (match == null) {

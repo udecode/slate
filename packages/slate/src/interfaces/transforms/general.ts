@@ -1,4 +1,8 @@
 import {
+  getCurrentSelection,
+  setCurrentSelection,
+} from '../../core/public-state'
+import {
   type Descendant,
   type Editor,
   Node,
@@ -19,6 +23,7 @@ import {
   removeChildren,
   replaceChildren,
 } from '../../utils/modify'
+import { inheritRuntimeId } from '../../utils/runtime-ids'
 
 /**
  * The set of properties that cannot be set using set_node.
@@ -41,13 +46,23 @@ export interface GeneralTransforms {
   /**
    * Transform the editor by an operation.
    */
+  applyBatch: (editor: Editor, operations: Operation[]) => void
   transform: (editor: Editor, op: Operation) => void
 }
 
 // eslint-disable-next-line no-redeclare
 export const GeneralTransforms: GeneralTransforms = {
+  applyBatch(editor: Editor, operations: Operation[]): void {
+    editor.withTransaction(() => {
+      for (const operation of operations) {
+        editor.apply(operation)
+      }
+    })
+  },
+
   transform(editor: Editor, op: Operation): void {
     let transformSelection = false
+    let selectionTransformOp = op
 
     switch (op.type) {
       case 'insert_node': {
@@ -120,16 +135,30 @@ export const GeneralTransforms: GeneralTransforms = {
             )
           }
 
+          inheritRuntimeId(newNode, prev)
+
           return replaceChildren(children, prevIndex, 2, newNode)
         })
 
-        transformSelection = true
+        if (getCurrentSelection(editor)) {
+          const selection = getCurrentSelection(editor)
+
+          if (selection) {
+            const nextSelection = Range.transform(selection, op)
+
+            setCurrentSelection(editor, nextSelection)
+          }
+        }
         break
       }
 
       case 'move_node': {
         const { path, newPath } = op
         const index = path.at(-1)!
+
+        if (Path.equals(path, newPath)) {
+          break
+        }
 
         if (Path.isAncestor(path, newPath)) {
           throw new Error(
@@ -147,10 +176,25 @@ export const GeneralTransforms: GeneralTransforms = {
         // the same snapshot in time, there's a mismatch. After either
         // removing the original position, the second step's path can be out
         // of date. So instead of using the `op.newPath` directly, we
-        // transform `op.path` to ascertain what the `newPath` would be after
-        // the operation was applied.
-        const truePath = Path.transform(path, op)!
+        // `newPath` is expressed against the pre-removal tree. When the moved
+        // node is before that destination, compute the effective post-removal
+        // insertion path first.
+        const sameParentForwardMove =
+          path.length === newPath.length &&
+          path.at(-1) != null &&
+          newPath.at(-1) != null &&
+          Path.equals(path.slice(0, -1), newPath.slice(0, -1)) &&
+          path.at(-1)! < newPath.at(-1)!
+
+        const truePath = sameParentForwardMove
+          ? newPath
+          : Path.transform(newPath, {
+              type: 'remove_node',
+              path,
+              node,
+            })!
         const newIndex = truePath.at(-1)!
+        selectionTransformOp = { ...op, newPath: truePath }
 
         modifyChildren(editor, Path.parent(truePath), (children) =>
           insertChildren(children, newIndex, node)
@@ -170,8 +214,10 @@ export const GeneralTransforms: GeneralTransforms = {
 
         // Transform all the points in the value, but if the point was in the
         // node that was removed we need to update the range or remove it.
-        if (editor.selection) {
-          let selection: Selection = { ...editor.selection }
+        const currentSelection = getCurrentSelection(editor)
+
+        if (currentSelection) {
+          let selection: Selection = { ...currentSelection }
 
           for (const [point, key] of Range.points(selection)) {
             const result = Point.transform(point, op)
@@ -214,8 +260,8 @@ export const GeneralTransforms: GeneralTransforms = {
             }
           }
 
-          if (!selection || !Range.equals(selection, editor.selection)) {
-            editor.selection = selection
+          if (!selection || !Range.equals(selection, currentSelection)) {
+            setCurrentSelection(editor, selection)
           }
         }
 
@@ -253,6 +299,9 @@ export const GeneralTransforms: GeneralTransforms = {
           for (const key in newProperties) {
             if (!Object.hasOwn(newProperties, key)) continue
             if (NON_SETTABLE_NODE_PROPERTIES.includes(key)) {
+              if (key === 'children') {
+                throw new Error('set_node does not update child content')
+              }
               throw new Error(`Cannot set the "${key}" property of nodes!`)
             }
 
@@ -293,24 +342,26 @@ export const GeneralTransforms: GeneralTransforms = {
         const { newProperties } = op
 
         if (newProperties == null) {
-          editor.selection = null
+          setCurrentSelection(editor, null)
           break
         }
 
-        if (editor.selection == null) {
+        const currentSelection = getCurrentSelection(editor)
+
+        if (currentSelection == null) {
           if (!(newProperties.anchor && newProperties.focus)) {
             throw new Error(
-              `Cannot apply an incomplete "set_selection" operation properties ${Scrubber.stringify(
+              `set_selection patch requires an existing selection or a full range. Received: ${Scrubber.stringify(
                 newProperties
-              )} when there is no current selection.`
+              )}`
             )
           }
 
-          editor.selection = { ...(newProperties as Range) }
+          setCurrentSelection(editor, newProperties as Range)
           break
         }
 
-        const selection = { ...editor.selection }
+        const selection = { ...currentSelection }
 
         for (const key in newProperties) {
           if (!Object.hasOwn(newProperties, key)) continue
@@ -320,17 +371,11 @@ export const GeneralTransforms: GeneralTransforms = {
             )
           }
 
-          const value = newProperties[<keyof Range>key]
-
-          // Make sure we're not setting `then` to a function, since this will
-          // cause the selection to be treated as a Promise-like object, which
-          // can cause unexpected behaviour when returning the selection from
-          // async functions.
-          if (key === 'then' && typeof value === 'function') {
-            throw new Error(
-              'Cannot set the "then" property of the selection to a function'
-            )
+          if (key !== 'anchor' && key !== 'focus') {
+            continue
           }
+
+          const value = newProperties[<keyof Range>key]
 
           if (value == null) {
             if (key === 'anchor' || key === 'focus') {
@@ -343,7 +388,7 @@ export const GeneralTransforms: GeneralTransforms = {
           }
         }
 
-        editor.selection = selection
+        setCurrentSelection(editor, selection)
 
         break
       }
@@ -374,6 +419,7 @@ export const GeneralTransforms: GeneralTransforms = {
               text: before,
             }
             nextNode = {
+              ...properties,
               text: after,
             }
           } else {
@@ -384,9 +430,18 @@ export const GeneralTransforms: GeneralTransforms = {
               children: before,
             }
             nextNode = {
+              ...(Object.hasOwn(properties, 'type') &&
+              typeof (properties as { type?: unknown }).type === 'string'
+                ? { type: (properties as { type: string }).type }
+                : Object.hasOwn(node, 'type')
+                  ? { type: (node as { type?: unknown }).type }
+                  : {}),
+              ...properties,
               children: after,
             }
           }
+
+          inheritRuntimeId(newNode, node)
 
           for (const key in properties) {
             if (!Object.hasOwn(properties, key)) continue
@@ -414,20 +469,32 @@ export const GeneralTransforms: GeneralTransforms = {
           return replaceChildren(children, index, 1, newNode, nextNode)
         })
 
-        transformSelection = true
+        if (getCurrentSelection(editor)) {
+          const selection = getCurrentSelection(editor)
+
+          if (selection) {
+            const nextSelection = Range.transform(selection, op, {
+              affinity: 'inward',
+            })
+
+            setCurrentSelection(editor, nextSelection)
+          }
+        }
         break
       }
     }
 
-    if (transformSelection && editor.selection) {
-      const selection = { ...editor.selection }
+    const currentSelection = getCurrentSelection(editor)
+
+    if (transformSelection && currentSelection) {
+      const selection = { ...currentSelection }
 
       for (const [point, key] of Range.points(selection)) {
-        selection[key] = Point.transform(point, op)!
+        selection[key] = Point.transform(point, selectionTransformOp)!
       }
 
-      if (!Range.equals(selection, editor.selection)) {
-        editor.selection = selection
+      if (!Range.equals(selection, currentSelection)) {
+        setCurrentSelection(editor, selection)
       }
     }
   },

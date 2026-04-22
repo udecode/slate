@@ -22,16 +22,26 @@ export interface RangeRefInterface {
 // eslint-disable-next-line no-redeclare
 export const RangeRef: RangeRefInterface = {
   transform(ref: RangeRef, op: Operation): void {
-    const { current, affinity } = ref
+    const internalRef = ref as RangeRef & {
+      __draftCurrent?: Range | null
+      __visibility?: 'public' | 'internal'
+    }
+    const current = internalRef.__draftCurrent ?? ref.current
+    const { affinity } = ref
 
     if (current == null) {
       return
     }
 
-    const path = Range.transform(current, op, { affinity })
-    ref.current = path
+    const next = Range.transform(current, op, { affinity })
 
-    if (path == null) {
+    if (internalRef.__visibility === 'public') {
+      internalRef.__draftCurrent = next
+    } else {
+      ref.current = next
+    }
+
+    if (next == null) {
       ref.unref()
     }
   },

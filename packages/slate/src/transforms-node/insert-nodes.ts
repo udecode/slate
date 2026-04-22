@@ -1,11 +1,14 @@
 import { batchDirtyPaths } from '../core/batch-dirty-paths'
 import { updateDirtyPaths } from '../core/update-dirty-paths'
-import { type BaseInsertNodeOperation, Location } from '../interfaces'
-import { Editor } from '../interfaces/editor'
-import { Node } from '../interfaces/node'
-import { Path } from '../interfaces/path'
-import { Range } from '../interfaces/range'
-import { Transforms } from '../interfaces/transforms'
+import {
+  type BaseInsertNodeOperation,
+  Editor,
+  Location,
+  Node,
+  Path,
+  Range,
+  Transforms,
+} from '../interfaces'
 import type { NodeTransforms } from '../interfaces/transforms/node'
 import { getDefaultInsertLocation } from '../utils'
 
@@ -22,13 +25,14 @@ export const insertNodes: NodeTransforms['insertNodes'] = (
       batchDirty = true,
     } = options
     let { at, match, select } = options
-    const targetNodes = Node.isNode(nodes) ? [nodes] : nodes
 
-    if (targetNodes.length === 0) {
+    const nextNodes = Node.isNode(nodes) ? [nodes] : nodes
+
+    if (nextNodes.length === 0) {
       return
     }
 
-    const [node] = targetNodes
+    const [node] = nextNodes
 
     if (!at) {
       at = getDefaultInsertLocation(editor)
@@ -74,16 +78,16 @@ export const insertNodes: NodeTransforms['insertNodes'] = (
         voids,
       })
 
-      if (entry) {
-        const [, matchPath] = entry
-        const pathRef = Editor.pathRef(editor, matchPath)
-        const isAtEnd = Editor.isEnd(editor, at, matchPath)
-        Transforms.splitNodes(editor, { at, match, mode, voids })
-        const path = pathRef.unref()!
-        at = isAtEnd ? Path.next(path) : path
-      } else {
+      if (!entry) {
         return
       }
+
+      const [, matchPath] = entry
+      const pathRef = Editor.pathRef(editor, matchPath)
+      const isAtEnd = Editor.isEnd(editor, at, matchPath)
+      Transforms.splitNodes(editor, { at, match, mode, voids })
+      const path = pathRef.unref()!
+      at = isAtEnd ? Path.next(path) : path
     }
 
     const parentPath = Path.parent(at)
@@ -94,56 +98,59 @@ export const insertNodes: NodeTransforms['insertNodes'] = (
     }
 
     if (batchDirty) {
-      // PERF: batch update dirty paths
-      // batched ops used to transform existing dirty paths
       const batchedOps: BaseInsertNodeOperation[] = []
       const newDirtyPaths: Path[] = Path.levels(parentPath)
+
       batchDirtyPaths(
         editor,
         () => {
-          for (const node of targetNodes as Node[]) {
+          for (const child of nextNodes as Node[]) {
             const path = parentPath.concat(index)
             index++
 
             const op: BaseInsertNodeOperation = {
               type: 'insert_node',
               path,
-              node,
+              node: child,
             }
+
             editor.apply(op)
             at = Path.next(at as Path)
-
             batchedOps.push(op)
-            if (Node.isText(node)) {
+
+            if (Node.isText(child)) {
               newDirtyPaths.push(path)
             } else {
               newDirtyPaths.push(
-                ...Array.from(Node.nodes(node), ([, p]) => path.concat(p))
+                ...Array.from(Node.nodes(child), ([, childPath]) =>
+                  path.concat(childPath)
+                )
               )
             }
           }
         },
         () => {
-          updateDirtyPaths(editor, newDirtyPaths, (p) => {
-            let newPath: Path | null = p
+          updateDirtyPaths(editor, newDirtyPaths, (path) => {
+            let nextPath: Path | null = path
+
             for (const op of batchedOps) {
-              if (Path.operationCanTransformPath(op)) {
-                newPath = Path.transform(newPath, op)
-                if (!newPath) {
-                  return null
-                }
+              nextPath = Path.transform(nextPath, op)
+
+              if (!nextPath) {
+                return null
               }
             }
-            return newPath
+
+            return nextPath
           })
         }
       )
     } else {
-      for (const node of targetNodes as Node[]) {
+      for (const child of nextNodes as Node[]) {
         const path = parentPath.concat(index)
         index++
 
-        editor.apply({ type: 'insert_node', path, node })
+        editor.apply({ type: 'insert_node', path, node: child })
         at = Path.next(at as Path)
       }
     }

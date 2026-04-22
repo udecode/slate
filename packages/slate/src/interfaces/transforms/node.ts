@@ -109,6 +109,7 @@ export interface NodeTransforms {
       mode?: RangeMode
       always?: boolean
       height?: number
+      position?: number
       voids?: boolean
     }
   ) => void

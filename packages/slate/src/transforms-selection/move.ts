@@ -1,10 +1,11 @@
+import { getCurrentSelection } from '../core/public-state'
 import { Editor } from '../interfaces/editor'
 import { Range } from '../interfaces/range'
 import { Transforms } from '../interfaces/transforms'
 import type { SelectionTransforms } from '../interfaces/transforms/selection'
 
 export const move: SelectionTransforms['move'] = (editor, options = {}) => {
-  const { selection } = editor
+  const selection = getCurrentSelection(editor)
   const { distance = 1, unit = 'character', reverse = false } = options
   let { edge = null } = options
 

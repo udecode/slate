@@ -21,7 +21,10 @@ const EXAMPLE_IMPORTERS: Record<
   'custom-placeholder': () => import('../../examples/ts/custom-placeholder'),
   'editable-voids': () => import('../../examples/ts/editable-voids'),
   embeds: () => import('../../examples/ts/embeds'),
+  'external-decoration-sources': () =>
+    import('../../examples/ts/external-decoration-sources'),
   'forced-layout': () => import('../../examples/ts/forced-layout'),
+  'highlighted-text': () => import('../../examples/ts/highlighted-text'),
   'hovering-toolbar': () => import('../../examples/ts/hovering-toolbar'),
   'huge-document': () => import('../../examples/ts/huge-document'),
   images: () => import('../../examples/ts/images'),
@@ -30,8 +33,11 @@ const EXAMPLE_IMPORTERS: Record<
   'markdown-shortcuts': () => import('../../examples/ts/markdown-shortcuts'),
   mentions: () => import('../../examples/ts/mentions'),
   'paste-html': () => import('../../examples/ts/paste-html'),
+  'persistent-annotation-anchors': () =>
+    import('../../examples/ts/persistent-annotation-anchors'),
   plaintext: () => import('../../examples/ts/plaintext'),
   'read-only': () => import('../../examples/ts/read-only'),
+  'review-comments': () => import('../../examples/ts/review-comments'),
   iframe: () => import('../../examples/ts/iframe'),
   richtext: () => import('../../examples/ts/richtext'),
   'search-highlighting': () => import('../../examples/ts/search-highlighting'),

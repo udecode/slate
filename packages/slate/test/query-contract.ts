@@ -1,0 +1,2805 @@
+import assert from 'node:assert/strict'
+
+import { createEditor, type Descendant, Editor, Transforms } from '../src'
+
+const createChildren = (): Descendant[] => [
+  {
+    type: 'paragraph',
+    children: [{ text: 'alpha' }],
+  },
+  {
+    type: 'paragraph',
+    children: [{ text: 'beta' }],
+  },
+]
+
+const createLegacyBlockChildren = (): Descendant[] => [
+  {
+    type: 'paragraph',
+    children: [{ text: 'one' }],
+  },
+  {
+    type: 'paragraph',
+    children: [{ text: 'two' }],
+  },
+]
+
+const createElementSplitChildren = (): Descendant[] => [
+  {
+    type: 'paragraph',
+    data: true,
+    children: [
+      { text: 'before' },
+      {
+        type: 'link',
+        url: 'https://example.com',
+        children: [{ text: 'hyperlink' }],
+      },
+      { text: 'after' },
+    ],
+  } as Descendant,
+]
+
+const createVoidBlockPairChildren = (): Descendant[] => [
+  {
+    type: 'paragraph',
+    void: true,
+    children: [{ text: 'one' }],
+  } as Descendant,
+  {
+    type: 'paragraph',
+    void: true,
+    children: [{ text: 'two' }],
+  } as Descendant,
+]
+
+const createVoidSplitChildren = (): Descendant[] => [
+  {
+    type: 'paragraph',
+    void: true,
+    children: [{ text: 'one' }, { text: 'two' }],
+  } as Descendant,
+]
+
+const createNonSelectableBlockChildren = (): Descendant[] => [
+  {
+    type: 'paragraph',
+    children: [{ text: 'one' }],
+  },
+  {
+    type: 'paragraph',
+    nonSelectable: true,
+    children: [{ text: 'two' }],
+  } as Descendant,
+  {
+    type: 'paragraph',
+    children: [{ text: 'three' }],
+  },
+]
+
+const createLeadingNonSelectableBlockChildren = (): Descendant[] => [
+  {
+    type: 'paragraph',
+    nonSelectable: true,
+    children: [{ text: 'two' }],
+  } as Descendant,
+  {
+    type: 'paragraph',
+    children: [{ text: 'three' }],
+  },
+]
+
+const createTrailingNonSelectableBlockChildren = (): Descendant[] => [
+  {
+    type: 'paragraph',
+    children: [{ text: 'one' }],
+  },
+  {
+    type: 'paragraph',
+    nonSelectable: true,
+    children: [{ text: 'two' }],
+  } as Descendant,
+]
+
+const createNonSelectableInlineChildren = (): Descendant[] => [
+  {
+    type: 'paragraph',
+    children: [
+      { text: 'one' },
+      {
+        type: 'inline',
+        nonSelectable: true,
+        children: [{ text: 'two' }],
+      },
+      { text: 'three' },
+    ],
+  } as Descendant,
+]
+
+const createLeadingNonSelectableInlineChildren = (): Descendant[] => [
+  {
+    type: 'paragraph',
+    children: [
+      {
+        type: 'inline',
+        nonSelectable: true,
+        children: [{ text: 'two' }],
+      },
+      { text: 'three' },
+    ],
+  } as Descendant,
+]
+
+const createTrailingNonSelectableInlineChildren = (): Descendant[] => [
+  {
+    type: 'paragraph',
+    children: [
+      { text: 'one' },
+      {
+        type: 'inline',
+        nonSelectable: true,
+        children: [{ text: 'two' }],
+      },
+    ],
+  } as Descendant,
+]
+
+const createNonSelectableInlineVoidChildren = (): Descendant[] => [
+  {
+    type: 'paragraph',
+    children: [
+      { text: 'one' },
+      {
+        type: 'inline',
+        void: true,
+        nonSelectable: true,
+        children: [{ text: '' }],
+      },
+      { text: 'three' },
+    ],
+  } as Descendant,
+]
+
+const createSingleBlockChildren = (): Descendant[] => [
+  {
+    type: 'block',
+    children: [{ text: 'one' }],
+  } as Descendant,
+]
+
+const createTwoBlockChildren = (): Descendant[] => [
+  {
+    type: 'block',
+    children: [{ text: 'one' }],
+  } as Descendant,
+  {
+    type: 'block',
+    children: [{ text: 'two' }],
+  } as Descendant,
+]
+
+const createNestedBlockChildren = (): Descendant[] => [
+  {
+    type: 'block',
+    children: [
+      {
+        type: 'block',
+        children: [{ text: 'one' }],
+      },
+    ],
+  } as Descendant,
+]
+
+const createInlineBlockChildren = (): Descendant[] => [
+  {
+    type: 'block',
+    children: [
+      { text: 'one' },
+      {
+        type: 'inline',
+        children: [{ text: 'two' }],
+      },
+      { text: 'three' },
+    ],
+  } as Descendant,
+]
+
+const createNestedInlineChildren = (): Descendant[] => [
+  {
+    type: 'block',
+    children: [
+      { text: 'one' },
+      {
+        type: 'inline',
+        children: [
+          { text: 'two' },
+          {
+            type: 'inline',
+            children: [{ text: 'three' }],
+          },
+          { text: 'four' },
+        ],
+      },
+      { text: 'five' },
+    ],
+  } as Descendant,
+]
+
+const createVoidBlockChildren = (): Descendant[] => [
+  {
+    type: 'block',
+    void: true,
+    children: [{ text: 'one' }, { text: 'two' }],
+  } as Descendant,
+]
+
+const createVoidInlineChildren = (): Descendant[] => [
+  {
+    type: 'block',
+    children: [
+      { text: 'one' },
+      {
+        type: 'inline',
+        void: true,
+        children: [{ text: 'two' }],
+      },
+      { text: 'three' },
+    ],
+  } as Descendant,
+]
+
+const createMarkableVoidChildren = (): Descendant[] => [
+  {
+    type: 'block',
+    children: [
+      { text: 'word' },
+      {
+        type: 'inline',
+        void: true,
+        markable: true,
+        children: [{ text: '', bold: true }],
+      },
+      { text: '' },
+    ],
+  } as Descendant,
+]
+
+it('above exposes the current traversal seam', () => {
+  const editor = createEditor()
+  editor.isInline = (element) => element.type === 'link'
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'quote',
+        children: [
+          {
+            type: 'paragraph',
+            children: [
+              { text: 'one ' },
+              {
+                type: 'link',
+                children: [{ text: 'two' }],
+              },
+              { text: ' three' },
+            ],
+          },
+        ],
+      } as Descendant,
+    ],
+    selection: {
+      anchor: { path: [0, 0, 1, 0], offset: 1 },
+      focus: { path: [0, 0, 1, 0], offset: 1 },
+    },
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.above(editor, { at: [0, 0, 1, 0] }), [
+    {
+      type: 'link',
+      children: [{ text: 'two' }],
+    },
+    [0, 0, 1],
+  ])
+  assert.deepEqual(
+    Editor.above(editor, {
+      at: [0, 0, 1, 0],
+      match: (node) =>
+        'type' in node &&
+        (node as Descendant & { type?: string }).type === 'paragraph',
+    }),
+    [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'one ' },
+          {
+            type: 'link',
+            children: [{ text: 'two' }],
+          },
+          { text: ' three' },
+        ],
+      },
+      [0, 0],
+    ]
+  )
+})
+
+it('mirrors the legacy above/block-lowest.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'block',
+        children: [
+          {
+            type: 'block',
+            children: [{ text: 'one ' }],
+          },
+        ],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.above(editor, {
+      at: [0, 0, 0],
+      match: (node) =>
+        'type' in node &&
+        (node as Descendant & { type?: string }).type === 'block' &&
+        Editor.isBlock(editor, node),
+      mode: 'lowest',
+    }),
+    [
+      {
+        type: 'block',
+        children: [{ text: 'one ' }],
+      },
+      [0, 0],
+    ]
+  )
+})
+
+it('mirrors the legacy above/block-highest.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'block',
+        children: [
+          {
+            type: 'block',
+            children: [{ text: 'one' }],
+          },
+        ],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.above(editor, {
+      at: [0, 0, 0],
+      match: (node) =>
+        'type' in node &&
+        (node as Descendant & { type?: string }).type === 'block' &&
+        Editor.isBlock(editor, node),
+      mode: 'highest',
+    }),
+    [
+      {
+        type: 'block',
+        children: [
+          {
+            type: 'block',
+            children: [{ text: 'one' }],
+          },
+        ],
+      },
+      [0],
+    ]
+  )
+})
+
+it('mirrors the legacy above/inline.tsx oracle row', () => {
+  const editor = createEditor()
+  editor.isInline = (element) => element.type === 'inline'
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'block',
+        children: [
+          { text: 'one' },
+          {
+            type: 'inline',
+            children: [{ text: 'two' }],
+          },
+          { text: 'three' },
+        ],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.above(editor, {
+      at: [0, 1, 0],
+      match: (node) =>
+        'type' in node &&
+        (node as Descendant & { type?: string }).type === 'inline' &&
+        Editor.isInline(editor, node),
+    }),
+    [
+      {
+        type: 'inline',
+        children: [{ text: 'two' }],
+      },
+      [0, 1],
+    ]
+  )
+})
+
+it('mirrors the legacy above/point.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'block',
+        children: [
+          {
+            type: 'block',
+            children: [{ text: 'one' }],
+          },
+        ],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.above(editor, { at: { path: [0, 0, 0], offset: 1 } }),
+    [
+      {
+        type: 'block',
+        children: [{ text: 'one' }],
+      },
+      [0, 0],
+    ]
+  )
+})
+
+it('mirrors the legacy above/potential-parent.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'block',
+        children: [
+          {
+            type: 'block',
+            children: [
+              {
+                type: 'block',
+                children: [{ text: 'one' }],
+              },
+            ],
+          },
+          {
+            type: 'block',
+            children: [{ text: 'two' }],
+          },
+        ],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.above(editor, {
+      at: [0, 0, 1],
+      match: (node) =>
+        'type' in node &&
+        (node as Descendant & { type?: string }).type === 'block' &&
+        Editor.isBlock(editor, node),
+    }),
+    [
+      {
+        type: 'block',
+        children: [
+          {
+            type: 'block',
+            children: [{ text: 'one' }],
+          },
+        ],
+      },
+      [0, 0],
+    ]
+  )
+})
+
+it('mirrors the legacy above/range.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'block',
+        children: [
+          {
+            type: 'block',
+            children: [
+              {
+                type: 'block',
+                children: [{ text: 'one' }],
+              },
+            ],
+          },
+          {
+            type: 'block',
+            children: [{ text: 'two' }],
+          },
+        ],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.above(editor, {
+      at: {
+        anchor: { path: [0, 0, 0, 0], offset: 0 },
+        focus: { path: [0, 1, 0], offset: 0 },
+      },
+      match: (node) =>
+        'type' in node &&
+        (node as Descendant & { type?: string }).type === 'block' &&
+        Editor.isBlock(editor, node),
+    }),
+    [
+      {
+        type: 'block',
+        children: [
+          {
+            type: 'block',
+            children: [
+              {
+                type: 'block',
+                children: [{ text: 'one' }],
+              },
+            ],
+          },
+          {
+            type: 'block',
+            children: [{ text: 'two' }],
+          },
+        ],
+      },
+      [0],
+    ]
+  )
+})
+
+it('mirrors the legacy edges/end/start/path/point/node/parent/range oracle rows', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createSingleBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.edges(editor, [0]), [
+    { path: [0, 0], offset: 0 },
+    { path: [0, 0], offset: 3 },
+  ])
+  assert.deepEqual(Editor.edges(editor, { path: [0, 0], offset: 1 }), [
+    { path: [0, 0], offset: 1 },
+    { path: [0, 0], offset: 1 },
+  ])
+  assert.deepEqual(
+    Editor.edges(editor, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 3 },
+    }),
+    [
+      { path: [0, 0], offset: 1 },
+      { path: [0, 0], offset: 3 },
+    ]
+  )
+
+  assert.deepEqual(Editor.start(editor, [0]), { path: [0, 0], offset: 0 })
+  assert.deepEqual(Editor.start(editor, { path: [0, 0], offset: 1 }), {
+    path: [0, 0],
+    offset: 1,
+  })
+  assert.deepEqual(
+    Editor.start(editor, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 3 },
+    }),
+    { path: [0, 0], offset: 1 }
+  )
+
+  assert.deepEqual(Editor.end(editor, [0]), { path: [0, 0], offset: 3 })
+  assert.deepEqual(Editor.end(editor, { path: [0, 0], offset: 1 }), {
+    path: [0, 0],
+    offset: 1,
+  })
+  assert.deepEqual(
+    Editor.end(editor, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 2 },
+    }),
+    { path: [0, 0], offset: 2 }
+  )
+
+  assert.deepEqual(Editor.path(editor, [0]), [0])
+  assert.deepEqual(Editor.path(editor, { path: [0, 0], offset: 1 }), [0, 0])
+  assert.deepEqual(Editor.point(editor, [0]), { path: [0, 0], offset: 0 })
+  assert.deepEqual(Editor.point(editor, [0], { edge: 'end' }), {
+    path: [0, 0],
+    offset: 3,
+  })
+  assert.deepEqual(Editor.point(editor, { path: [0, 0], offset: 1 }), {
+    path: [0, 0],
+    offset: 1,
+  })
+
+  assert.deepEqual(Editor.node(editor, [0]), [
+    {
+      type: 'block',
+      children: [{ text: 'one' }],
+    },
+    [0],
+  ])
+  assert.deepEqual(Editor.node(editor, { path: [0, 0], offset: 1 }), [
+    { text: 'one' },
+    [0, 0],
+  ])
+  assert.deepEqual(Editor.parent(editor, [0, 0]), [
+    {
+      type: 'block',
+      children: [{ text: 'one' }],
+    },
+    [0],
+  ])
+  assert.deepEqual(Editor.parent(editor, { path: [0, 0], offset: 1 }), [
+    {
+      type: 'block',
+      children: [{ text: 'one' }],
+    },
+    [0],
+  ])
+  assert.deepEqual(Editor.range(editor, [0]), {
+    anchor: { path: [0, 0], offset: 0 },
+    focus: { path: [0, 0], offset: 3 },
+  })
+  assert.deepEqual(Editor.range(editor, { path: [0, 0], offset: 1 }), {
+    anchor: { path: [0, 0], offset: 1 },
+    focus: { path: [0, 0], offset: 1 },
+  })
+  assert.deepEqual(
+    Editor.range(editor, {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 1 },
+    }),
+    {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 1 },
+    }
+  )
+
+  Editor.replace(editor, {
+    children: createTwoBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  const spanningRange = {
+    anchor: { path: [0, 0], offset: 1 },
+    focus: { path: [1, 0], offset: 2 },
+  }
+
+  assert.deepEqual(Editor.path(editor, spanningRange), [])
+  assert.deepEqual(
+    Editor.path(editor, spanningRange, { edge: 'start' }),
+    [0, 0]
+  )
+  assert.deepEqual(Editor.path(editor, spanningRange, { edge: 'end' }), [1, 0])
+  assert.deepEqual(Editor.point(editor, spanningRange), {
+    path: [0, 0],
+    offset: 1,
+  })
+  assert.deepEqual(Editor.point(editor, spanningRange, { edge: 'end' }), {
+    path: [1, 0],
+    offset: 2,
+  })
+  const rangeNode = Editor.node(editor, spanningRange)
+  assert.equal(Editor.isEditor(rangeNode[0]), true)
+  assert.deepEqual(rangeNode[1], [])
+  assert.deepEqual(Editor.node(editor, spanningRange, { edge: 'start' }), [
+    { text: 'one' },
+    [0, 0],
+  ])
+  assert.deepEqual(Editor.node(editor, spanningRange, { edge: 'end' }), [
+    { text: 'two' },
+    [1, 0],
+  ])
+  assert.deepEqual(Editor.parent(editor, spanningRange, { edge: 'start' }), [
+    {
+      type: 'block',
+      children: [{ text: 'one' }],
+    },
+    [0],
+  ])
+  assert.deepEqual(Editor.parent(editor, spanningRange, { edge: 'end' }), [
+    {
+      type: 'block',
+      children: [{ text: 'two' }],
+    },
+    [1],
+  ])
+  assert.deepEqual(Editor.range(editor, spanningRange), spanningRange)
+})
+
+it('mirrors the legacy string oracle rows', () => {
+  const editor = createEditor()
+  editor.isInline = (element) => element.type === 'inline'
+  editor.isVoid = (element) => Boolean((element as { void?: boolean }).void)
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'block',
+        children: [{ text: 'one' }, { text: 'two' }],
+      } as Descendant,
+      {
+        type: 'block',
+        children: [{ text: 'three' }, { text: 'four' }],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.equal(Editor.string(editor, [0, 0]), 'one')
+  assert.equal(Editor.string(editor, [0]), 'onetwo')
+  assert.equal(Editor.string(editor, []), 'onetwothreefour')
+
+  Editor.replace(editor, {
+    children: createInlineBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.equal(Editor.string(editor, [0, 1]), 'two')
+
+  Editor.replace(editor, {
+    children: createVoidBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.equal(Editor.string(editor, [0]), '')
+  assert.equal(Editor.string(editor, [0], { voids: true }), 'onetwo')
+})
+
+it('mirrors the legacy has*/is* editor predicate oracle rows', () => {
+  const editor = createEditor()
+  editor.isInline = (element) => element.type === 'inline'
+  editor.isVoid = (element) => Boolean((element as { void?: boolean }).void)
+
+  Editor.replace(editor, {
+    children: createNestedBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  const nestedBlock = Editor.node(editor, [0])[0] as Descendant & {
+    children: Descendant[]
+  }
+  assert.equal(Editor.hasBlocks(editor, nestedBlock), true)
+  assert.equal(Editor.hasInlines(editor, nestedBlock), false)
+  assert.equal(Editor.hasTexts(editor, nestedBlock), false)
+
+  Editor.replace(editor, {
+    children: createSingleBlockChildren(),
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  const block = Editor.node(editor, [0])[0] as Descendant & {
+    children: Descendant[]
+  }
+  assert.equal(Editor.hasBlocks(editor, block), false)
+  assert.equal(Editor.hasInlines(editor, block), true)
+  assert.equal(Editor.hasTexts(editor, block), true)
+  assert.equal(Editor.isBlock(editor, block), true)
+  assert.equal(Editor.isInline(editor, block), false)
+  assert.equal(Editor.isVoid(editor, block), false)
+  assert.equal(
+    Editor.isEmpty(editor, { type: 'block', children: [{ text: '' }] }),
+    true
+  )
+  assert.equal(Editor.isEmpty(editor, { type: 'block', children: [] }), true)
+  assert.equal(Editor.isEmpty(editor, block), false)
+  assert.equal(Editor.isStart(editor, { path: [0, 0], offset: 0 }, [0]), true)
+  assert.equal(Editor.isStart(editor, { path: [0, 0], offset: 2 }, [0]), false)
+  assert.equal(Editor.isEnd(editor, { path: [0, 0], offset: 3 }, [0]), true)
+  assert.equal(Editor.isEnd(editor, { path: [0, 0], offset: 2 }, [0]), false)
+  assert.equal(Editor.isEdge(editor, { path: [0, 0], offset: 0 }, [0]), true)
+  assert.equal(Editor.isEdge(editor, { path: [0, 0], offset: 2 }, [0]), false)
+  assert.equal(Editor.isEdge(editor, { path: [0, 0], offset: 3 }, [0]), true)
+
+  Editor.replace(editor, {
+    children: createInlineBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  const inline = Editor.node(editor, [0, 1])[0] as Descendant & {
+    children: Descendant[]
+  }
+  assert.equal(Editor.hasBlocks(editor, inline), false)
+  assert.equal(Editor.hasInlines(editor, inline), true)
+  assert.equal(Editor.hasTexts(editor, inline), true)
+  assert.equal(Editor.isBlock(editor, inline), false)
+  assert.equal(Editor.isInline(editor, inline), true)
+  assert.equal(Editor.isVoid(editor, inline), false)
+  assert.equal(
+    Editor.isEmpty(editor, { type: 'inline', children: [{ text: '' }] }),
+    true
+  )
+  assert.equal(Editor.isEmpty(editor, { type: 'inline', children: [] }), true)
+  assert.equal(Editor.isEmpty(editor, inline), false)
+
+  Editor.replace(editor, {
+    children: createNestedInlineChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  const nestedInline = Editor.node(editor, [0, 1])[0] as Descendant & {
+    children: Descendant[]
+  }
+  assert.equal(Editor.hasBlocks(editor, nestedInline), false)
+  assert.equal(Editor.hasInlines(editor, nestedInline), true)
+  assert.equal(Editor.hasTexts(editor, nestedInline), false)
+
+  Editor.replace(editor, {
+    children: createVoidBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  const voidBlock = Editor.node(editor, [0])[0] as Descendant & {
+    children: Descendant[]
+  }
+  assert.equal(Editor.isVoid(editor, voidBlock), true)
+  assert.equal(Editor.isEmpty(editor, voidBlock), false)
+
+  Editor.replace(editor, {
+    children: createVoidInlineChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  const voidInline = Editor.node(editor, [0, 1])[0] as Descendant & {
+    children: Descendant[]
+  }
+  assert.equal(Editor.isVoid(editor, voidInline), true)
+  assert.equal(Editor.isEmpty(editor, voidInline), false)
+})
+
+it('mirrors the legacy Editor.marks oracle rows', () => {
+  const editor = createEditor()
+  editor.isInline = (element) => element.type === 'inline'
+  editor.isVoid = (element) => Boolean((element as { void?: boolean }).void)
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'block',
+        children: [
+          { text: 'plain ' },
+          { text: 'bold', bold: true },
+          { text: ' plain' },
+        ],
+      } as Descendant,
+      {
+        type: 'block',
+        children: [{ text: 'block two' }],
+      } as Descendant,
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 6 },
+      focus: { path: [0, 1], offset: 4 },
+    },
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.marks(editor), { bold: true })
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'block',
+        children: [{ text: 'block one' }],
+      } as Descendant,
+      {
+        type: 'block',
+        children: [{ text: 'block two', bold: true }],
+      } as Descendant,
+      {
+        type: 'block',
+        children: [{ text: 'block three', bold: true }],
+      } as Descendant,
+    ],
+    selection: {
+      anchor: { path: [2, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 9 },
+    },
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.marks(editor), { bold: true })
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'block',
+        children: [
+          { text: 'plain' },
+          { text: 'bold text that isbold', bold: true },
+          { text: 'bold italic', bold: true, italic: true },
+        ],
+      } as Descendant,
+      {
+        type: 'block',
+        children: [{ text: 'block two' }],
+      } as Descendant,
+    ],
+    selection: {
+      anchor: { path: [0, 1], offset: 17 },
+      focus: { path: [0, 1], offset: 17 },
+    },
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.marks(editor), { bold: true })
+
+  Editor.replace(editor, {
+    children: createMarkableVoidChildren(),
+    selection: {
+      anchor: { path: [0, 1, 0], offset: 0 },
+      focus: { path: [0, 1, 0], offset: 0 },
+    },
+    marks: null,
+  })
+  editor.markableVoid = (element) =>
+    Boolean((element as { markable?: boolean }).markable)
+
+  assert.deepEqual(Editor.marks(editor), { bold: true })
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'block',
+        children: [
+          { text: 'word' },
+          {
+            type: 'inline',
+            void: true,
+            markable: true,
+            children: [{ text: '', bold: true }],
+          },
+          { text: 'bold', bold: true },
+          {
+            type: 'inline',
+            void: true,
+            markable: true,
+            children: [{ text: '', bold: true, italic: true }],
+          },
+          { text: 'bold italic', bold: true, italic: true },
+          { text: '' },
+        ],
+      } as Descendant,
+    ],
+    selection: {
+      anchor: { path: [0, 1, 0], offset: 0 },
+      focus: { path: [0, 4], offset: 11 },
+    },
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.marks(editor), { bold: true })
+})
+
+it('positions exposes the current point-iteration seam across offset, character, word, and block units', () => {
+  const editor = createEditor()
+  editor.isInline = (element) => element.type === 'link'
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'one' },
+          {
+            type: 'link',
+            children: [{ text: 'two' }],
+          },
+          { text: 'three' },
+        ],
+      } as Descendant,
+      {
+        type: 'paragraph',
+        children: [{ text: 'four five' }],
+      },
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Array.from(Editor.positions(editor, { at: [0] })), [
+    { path: [0, 0], offset: 0 },
+    { path: [0, 0], offset: 1 },
+    { path: [0, 0], offset: 2 },
+    { path: [0, 0], offset: 3 },
+    { path: [0, 1, 0], offset: 0 },
+    { path: [0, 1, 0], offset: 1 },
+    { path: [0, 1, 0], offset: 2 },
+    { path: [0, 1, 0], offset: 3 },
+    { path: [0, 2], offset: 0 },
+    { path: [0, 2], offset: 1 },
+    { path: [0, 2], offset: 2 },
+    { path: [0, 2], offset: 3 },
+    { path: [0, 2], offset: 4 },
+    { path: [0, 2], offset: 5 },
+  ])
+
+  assert.deepEqual(
+    Array.from(Editor.positions(editor, { at: [], unit: 'character' })),
+    [
+      { path: [0, 0], offset: 0 },
+      { path: [0, 0], offset: 1 },
+      { path: [0, 0], offset: 2 },
+      { path: [0, 0], offset: 3 },
+      { path: [0, 1, 0], offset: 1 },
+      { path: [0, 1, 0], offset: 2 },
+      { path: [0, 1, 0], offset: 3 },
+      { path: [0, 2], offset: 1 },
+      { path: [0, 2], offset: 2 },
+      { path: [0, 2], offset: 3 },
+      { path: [0, 2], offset: 4 },
+      { path: [0, 2], offset: 5 },
+      { path: [1, 0], offset: 0 },
+      { path: [1, 0], offset: 1 },
+      { path: [1, 0], offset: 2 },
+      { path: [1, 0], offset: 3 },
+      { path: [1, 0], offset: 4 },
+      { path: [1, 0], offset: 5 },
+      { path: [1, 0], offset: 6 },
+      { path: [1, 0], offset: 7 },
+      { path: [1, 0], offset: 8 },
+      { path: [1, 0], offset: 9 },
+    ]
+  )
+
+  assert.deepEqual(
+    Array.from(Editor.positions(editor, { at: [1], unit: 'word' })),
+    [
+      { path: [1, 0], offset: 0 },
+      { path: [1, 0], offset: 4 },
+      { path: [1, 0], offset: 9 },
+    ]
+  )
+
+  assert.deepEqual(
+    Array.from(
+      Editor.positions(editor, { at: [], unit: 'block', reverse: true })
+    ),
+    [
+      { path: [1, 0], offset: 9 },
+      { path: [1, 0], offset: 0 },
+      { path: [0, 2], offset: 5 },
+      { path: [0, 0], offset: 0 },
+    ]
+  )
+})
+
+it('mirrors the legacy positions/path/inline.tsx oracle row', () => {
+  const editor = createEditor()
+  editor.isInline = (element) => element.type === 'inline'
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'block',
+        children: [
+          { text: 'one' },
+          {
+            type: 'inline',
+            children: [{ text: 'two' }],
+          },
+          { text: 'three' },
+        ],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Array.from(Editor.positions(editor, { at: [0, 1] })), [
+    { path: [0, 1, 0], offset: 0 },
+    { path: [0, 1, 0], offset: 1 },
+    { path: [0, 1, 0], offset: 2 },
+    { path: [0, 1, 0], offset: 3 },
+  ])
+})
+
+it('mirrors the legacy positions/all/inline-fragmentation.tsx oracle row', () => {
+  const editor = createEditor()
+  editor.isInline = (element) => element.type === 'inline'
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'block',
+        children: [
+          { text: '1' },
+          {
+            type: 'inline',
+            children: [{ text: '2' }],
+          },
+          { text: '3' },
+        ],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Array.from(Editor.positions(editor, { at: [] })), [
+    { path: [0, 0], offset: 0 },
+    { path: [0, 0], offset: 1 },
+    { path: [0, 1, 0], offset: 0 },
+    { path: [0, 1, 0], offset: 1 },
+    { path: [0, 2], offset: 0 },
+    { path: [0, 2], offset: 1 },
+  ])
+})
+
+it('unhangRange exposes the current hanging-range seam', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'word' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'another' }],
+      },
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.unhangRange(editor, {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    }),
+    {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 4 },
+    }
+  )
+
+  assert.deepEqual(
+    Editor.unhangRange(editor, {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [1, 0], offset: 0 },
+    }),
+    {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [1, 0], offset: 0 },
+    }
+  )
+})
+
+const unhangOracleCases = [
+  {
+    name: 'mirrors the legacy unhangRange/block-hanging.tsx oracle row',
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'word' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'another' }],
+      },
+    ] as Descendant[],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    },
+    expected: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 4 },
+    },
+  },
+  {
+    name: 'mirrors the legacy unhangRange/collapsed.tsx oracle row',
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'one' }],
+      },
+    ] as Descendant[],
+    selection: {
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    },
+    expected: {
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    },
+  },
+  {
+    name: 'mirrors the legacy unhangRange/text-hanging.tsx oracle row',
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'before' }, { text: 'selected' }, { text: 'after' }],
+      },
+    ] as Descendant[],
+    selection: {
+      anchor: { path: [0, 0], offset: 6 },
+      focus: { path: [0, 2], offset: 0 },
+    },
+    expected: {
+      anchor: { path: [0, 0], offset: 6 },
+      focus: { path: [0, 2], offset: 0 },
+    },
+  },
+  {
+    name: 'mirrors the legacy unhangRange/block-hanging-over-void.tsx oracle row',
+    configure: (editor: ReturnType<typeof createEditor>) => {
+      editor.isVoid = (element) => element.type === 'block'
+    },
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'This is a first paragraph' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'This is the second paragraph' }],
+      },
+      {
+        type: 'block',
+        children: [{ text: 'This void paragraph gets skipped over' }],
+      } as Descendant,
+      {
+        type: 'paragraph',
+        children: [{ text: '' }],
+      },
+    ] as Descendant[],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [3, 0], offset: 0 },
+    },
+    expected: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 28 },
+    },
+  },
+  {
+    name: 'mirrors the legacy unhangRange/block-hanging-over-void-with-voids-option.tsx oracle row',
+    configure: (editor: ReturnType<typeof createEditor>) => {
+      editor.isVoid = (element) => element.type === 'block'
+    },
+    options: { voids: true },
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'This is a first paragraph' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'This is the second paragraph' }],
+      },
+      {
+        type: 'block',
+        children: [{ text: '' }],
+      } as Descendant,
+      {
+        type: 'paragraph',
+        children: [{ text: '' }],
+      },
+    ] as Descendant[],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [3, 0], offset: 0 },
+    },
+    expected: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 28 },
+    },
+  },
+  {
+    name: 'mirrors the legacy unhangRange/block-hanging-over-non-empty-void-with-voids-option.tsx oracle row',
+    configure: (editor: ReturnType<typeof createEditor>) => {
+      editor.isVoid = (element) => element.type === 'block'
+    },
+    options: { voids: true },
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'This is a first paragraph' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'This is the second paragraph' }],
+      },
+      {
+        type: 'block',
+        children: [{ text: 'This is the third paragraph' }],
+      } as Descendant,
+      {
+        type: 'paragraph',
+        children: [{ text: '' }],
+      },
+    ] as Descendant[],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [3, 0], offset: 0 },
+    },
+    expected: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [2, 0], offset: 27 },
+    },
+  },
+  {
+    name: 'mirrors the legacy unhangRange/inline-at-end.tsx oracle row',
+    configure: (editor: ReturnType<typeof createEditor>) => {
+      editor.isInline = (element) => element.type === 'inline'
+      editor.isVoid = (element) =>
+        element.type === 'inline' &&
+        Boolean((element as { void?: boolean }).void)
+    },
+    options: { voids: true },
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'This is a first paragraph' },
+          {
+            type: 'inline',
+            void: true,
+            children: [{ text: '' }],
+          },
+          { text: '' },
+        ],
+      } as Descendant,
+      {
+        type: 'paragraph',
+        children: [{ text: '' }],
+      },
+    ] as Descendant[],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    },
+    expected: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 2], offset: 0 },
+    },
+  },
+  {
+    name: 'mirrors the legacy unhangRange/multi-block-inline-at-end.tsx oracle row',
+    configure: (editor: ReturnType<typeof createEditor>) => {
+      editor.isInline = (element) => element.type === 'inline'
+      editor.isVoid = (element) =>
+        element.type === 'inline' &&
+        Boolean((element as { void?: boolean }).void)
+    },
+    options: { voids: true },
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'This is the first paragraph' },
+          {
+            type: 'inline',
+            void: true,
+            children: [{ text: '' }],
+          },
+          { text: '' },
+        ],
+      } as Descendant,
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'This is the second paragraph' },
+          {
+            type: 'inline',
+            void: true,
+            children: [{ text: '' }],
+          },
+          { text: '' },
+        ],
+      } as Descendant,
+      {
+        type: 'paragraph',
+        children: [{ text: '' }],
+      },
+    ] as Descendant[],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [2, 0], offset: 0 },
+    },
+    expected: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [1, 2], offset: 0 },
+    },
+  },
+  {
+    name: 'mirrors the legacy unhangRange/not-hanging-inline-at-end.tsx oracle row',
+    configure: (editor: ReturnType<typeof createEditor>) => {
+      editor.isInline = (element) => element.type === 'inline'
+      editor.isVoid = (element) =>
+        element.type === 'inline' &&
+        Boolean((element as { void?: boolean }).void)
+    },
+    options: { voids: true },
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'This is the first paragraph' },
+          {
+            type: 'inline',
+            void: true,
+            children: [{ text: '' }],
+          },
+          { text: '' },
+        ],
+      } as Descendant,
+      {
+        type: 'paragraph',
+        children: [{ text: 'This is the second paragraph' }],
+      },
+    ] as Descendant[],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 2], offset: 0 },
+    },
+    expected: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 2], offset: 0 },
+    },
+  },
+  {
+    name: 'mirrors the legacy unhangRange/not-hanging-multi-block-inline-at-end.tsx oracle row',
+    configure: (editor: ReturnType<typeof createEditor>) => {
+      editor.isInline = (element) => element.type === 'inline'
+      editor.isVoid = (element) =>
+        element.type === 'inline' &&
+        Boolean((element as { void?: boolean }).void)
+    },
+    options: { voids: true },
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'This is the first paragraph' },
+          {
+            type: 'inline',
+            void: true,
+            children: [{ text: '' }],
+          },
+          { text: '' },
+        ],
+      } as Descendant,
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'This is the second paragraph' },
+          {
+            type: 'inline',
+            void: true,
+            children: [{ text: '' }],
+          },
+          { text: '' },
+        ],
+      } as Descendant,
+      {
+        type: 'paragraph',
+        children: [{ text: 'This is the third paragraph' }],
+      },
+    ] as Descendant[],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [1, 2], offset: 0 },
+    },
+    expected: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [1, 2], offset: 0 },
+    },
+  },
+  {
+    name: 'mirrors the legacy unhangRange/inline-range-normal.tsx oracle row',
+    configure: (editor: ReturnType<typeof createEditor>) => {
+      editor.isInline = (element) => element.type === 'inline'
+      editor.isVoid = (element) =>
+        element.type === 'inline' &&
+        Boolean((element as { void?: boolean }).void)
+    },
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'Block before' }],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'Some text before ' },
+          {
+            type: 'inline',
+            void: true,
+            children: [{ text: '' }],
+          },
+          { text: '' },
+        ],
+      } as Descendant,
+      {
+        type: 'paragraph',
+        children: [{ text: 'Another block' }],
+      },
+    ] as Descendant[],
+    selection: {
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 1, 0], offset: 0 },
+    },
+    expected: {
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 1, 0], offset: 0 },
+    },
+  },
+]
+
+for (const testCase of unhangOracleCases) {
+  it(testCase.name, () => {
+    const editor = createEditor()
+    testCase.configure?.(editor)
+
+    Editor.replace(editor, {
+      children: testCase.children,
+      selection: null,
+      marks: null,
+    })
+
+    assert.deepEqual(
+      Editor.unhangRange(editor, testCase.selection, testCase.options),
+      testCase.expected
+    )
+  })
+}
+
+it('nodes supports pass and universal on the current traversal seam', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'section',
+        pass: true,
+        children: [
+          {
+            type: 'paragraph',
+            match: true,
+            children: [{ text: 'one' }],
+          },
+        ],
+      } as Descendant,
+      {
+        type: 'section',
+        children: [
+          {
+            type: 'paragraph',
+            match: true,
+            children: [{ text: 'two' }],
+          },
+          {
+            type: 'paragraph',
+            pass: true,
+            match: true,
+            children: [{ text: 'three' }],
+          },
+        ],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Array.from(
+      Editor.nodes(editor, {
+        at: [],
+        match: (node) => !!(node as Record<string, unknown>).match,
+        pass: ([node]) => !!(node as Record<string, unknown>).pass,
+      })
+    ),
+    [
+      [
+        {
+          type: 'paragraph',
+          match: true,
+          children: [{ text: 'two' }],
+        },
+        [1, 0],
+      ],
+      [
+        {
+          type: 'paragraph',
+          pass: true,
+          match: true,
+          children: [{ text: 'three' }],
+        },
+        [1, 1],
+      ],
+    ]
+  )
+
+  assert.deepEqual(
+    Array.from(
+      Editor.nodes(editor, {
+        at: [],
+        match: (node) => !!(node as Record<string, unknown>).match,
+        mode: 'lowest',
+        universal: true,
+      })
+    ),
+    [
+      [
+        {
+          type: 'paragraph',
+          match: true,
+          children: [{ text: 'one' }],
+        },
+        [0, 0],
+      ],
+      [
+        {
+          type: 'paragraph',
+          match: true,
+          children: [{ text: 'two' }],
+        },
+        [1, 0],
+      ],
+      [
+        {
+          type: 'paragraph',
+          pass: true,
+          match: true,
+          children: [{ text: 'three' }],
+        },
+        [1, 1],
+      ],
+    ]
+  )
+})
+
+it('positions enters void content only when the voids option is enabled', () => {
+  const editor = createEditor()
+  editor.isVoid = (element) => element.type === 'mention'
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'mention',
+        children: [
+          { text: 'one' },
+          {
+            type: 'chip',
+            children: [{ text: 'two' }],
+          },
+          { text: 'three' },
+        ],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Array.from(Editor.positions(editor, { at: [] })), [])
+  assert.deepEqual(
+    Array.from(Editor.positions(editor, { at: [], voids: true })),
+    [
+      { path: [0, 0], offset: 0 },
+      { path: [0, 0], offset: 1 },
+      { path: [0, 0], offset: 2 },
+      { path: [0, 0], offset: 3 },
+      { path: [0, 1, 0], offset: 0 },
+      { path: [0, 1, 0], offset: 1 },
+      { path: [0, 1, 0], offset: 2 },
+      { path: [0, 1, 0], offset: 3 },
+      { path: [0, 2], offset: 0 },
+      { path: [0, 2], offset: 1 },
+      { path: [0, 2], offset: 2 },
+      { path: [0, 2], offset: 3 },
+      { path: [0, 2], offset: 4 },
+      { path: [0, 2], offset: 5 },
+    ]
+  )
+})
+
+it('Editor exposes a narrowed static read/query layer for the current public surface', () => {
+  const editor = createEditor()
+  editor.isInline = (element) => element.type === 'link'
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'one ' },
+          {
+            type: 'link',
+            children: [{ text: 'two' }],
+          },
+          { text: ' three' },
+        ],
+      } as Descendant,
+      {
+        type: 'quote',
+        children: [
+          {
+            type: 'paragraph',
+            children: [{ text: 'four' }],
+          },
+        ],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  const paragraph = Editor.node(editor, [0])[0] as Descendant & {
+    children: Descendant[]
+    type: string
+  }
+  const quote = Editor.node(editor, [1])[0] as Descendant & {
+    children: Descendant[]
+    type: string
+  }
+  const sameBlockRange = {
+    anchor: { path: [0, 1, 0], offset: 1 },
+    focus: { path: [0, 2], offset: 2 },
+  }
+  const spanningRange = {
+    anchor: { path: [0, 1, 0], offset: 1 },
+    focus: { path: [1, 0, 0], offset: 2 },
+  }
+
+  assert.deepEqual(Editor.path(editor, sameBlockRange), [0])
+  assert.deepEqual(Editor.path(editor, spanningRange), [])
+  assert.deepEqual(
+    Editor.path(editor, spanningRange, { edge: 'end' }),
+    [1, 0, 0]
+  )
+  assert.deepEqual(Editor.start(editor, [0]), { path: [0, 0], offset: 0 })
+  assert.deepEqual(Editor.end(editor, [0]), { path: [0, 2], offset: 6 })
+  assert.deepEqual(Editor.edges(editor, spanningRange), [
+    { path: [0, 1, 0], offset: 1 },
+    { path: [1, 0, 0], offset: 2 },
+  ])
+  assert.deepEqual(Editor.point(editor, [1], { edge: 'start' }), {
+    path: [1, 0, 0],
+    offset: 0,
+  })
+  assert.deepEqual(Editor.first(editor, spanningRange), [
+    { text: 'two' },
+    [0, 1, 0],
+  ])
+  assert.deepEqual(Editor.last(editor, [1]), [{ text: 'four' }, [1, 0, 0]])
+  assert.deepEqual(Editor.range(editor, [1]), {
+    anchor: { path: [1, 0, 0], offset: 0 },
+    focus: { path: [1, 0, 0], offset: 4 },
+  })
+  assert.deepEqual(Editor.node(editor, sameBlockRange), [paragraph, [0]])
+  assert.deepEqual(Editor.parent(editor, { path: [1, 0, 0], offset: 2 }), [
+    quote.children[0],
+    [1, 0],
+  ])
+  assert.deepEqual(
+    Array.from(
+      Editor.nodes(editor, {
+        at: [],
+        match: (node) =>
+          'type' in node &&
+          (node as Descendant & { type?: string }).type === 'paragraph',
+        mode: 'lowest',
+      })
+    ),
+    [
+      [paragraph, [0]],
+      [quote.children[0], [1, 0]],
+    ]
+  )
+  assert.deepEqual(
+    Array.from(Editor.levels(editor, { at: { path: [0, 1, 0], offset: 1 } })),
+    [
+      [Editor.node(editor, [])[0], []],
+      [paragraph, [0]],
+      [paragraph.children[1], [0, 1]],
+      [{ text: 'two' }, [0, 1, 0]],
+    ]
+  )
+  assert.deepEqual(Editor.next(editor, { at: [0] }), [quote, [1]])
+  assert.deepEqual(Editor.previous(editor, { at: [1] }), [paragraph, [0]])
+  assert.equal(Editor.string(editor, [0]), 'one two three')
+  assert.equal(Editor.string(editor, spanningRange), 'wo threefo')
+  assert.deepEqual(Editor.fragment(editor, [1]), [
+    {
+      type: 'quote',
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'four' }],
+        },
+      ],
+    },
+  ])
+  assert.deepEqual(
+    Editor.fragment(editor, {
+      anchor: { path: [0, 1, 0], offset: 1 },
+      focus: { path: [0, 1, 0], offset: 1 },
+    }),
+    []
+  )
+  assert.equal(Editor.hasPath(editor, [1, 0, 0]), true)
+  assert.equal(Editor.hasPath(editor, [9]), false)
+  assert.equal(Editor.hasInlines(editor, paragraph), true)
+  assert.equal(Editor.hasTexts(editor, paragraph), false)
+  assert.equal(Editor.hasBlocks(editor, quote), true)
+  assert.equal(Editor.isBlock(editor, paragraph), true)
+  assert.equal(
+    Editor.isEmpty(editor, {
+      type: 'paragraph',
+      children: [{ text: '' }],
+    }),
+    true
+  )
+  assert.equal(Editor.isStart(editor, { path: [0, 0], offset: 0 }, [0]), true)
+  assert.equal(Editor.isEnd(editor, { path: [0, 2], offset: 6 }, [0]), true)
+  assert.equal(Editor.isEdge(editor, { path: [0, 2], offset: 6 }, [0]), true)
+})
+
+it('Editor static read/query helpers see the live draft tree inside an outer transaction', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  let observed:
+    | {
+        firstString: string
+        insertedPathExists: boolean
+        shiftedNodeString: string
+        lastPoint: { path: number[]; offset: number }
+      }
+    | undefined
+
+  Editor.withTransaction(editor, () => {
+    Transforms.insertNodes(
+      editor,
+      {
+        type: 'paragraph',
+        children: [{ text: 'zero' }],
+      },
+      { at: [0] }
+    )
+
+    observed = {
+      firstString: Editor.string(editor, [0]),
+      insertedPathExists: Editor.hasPath(editor, [2]),
+      shiftedNodeString: Editor.string(editor, [2]),
+      lastPoint: Editor.end(editor, [2]),
+    }
+  })
+
+  assert.deepEqual(observed, {
+    firstString: 'zero',
+    insertedPathExists: true,
+    shiftedNodeString: 'beta',
+    lastPoint: { path: [2, 0], offset: 4 },
+  })
+})
+
+it('supports Editor.after across supported top-level block boundaries', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.after(editor, { path: [0, 0], offset: 5 }), {
+    path: [1, 0],
+    offset: 0,
+  })
+})
+
+it('mirrors the legacy Editor.levels/success.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'element',
+        children: [{ text: '' }],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Array.from(Editor.levels(editor, { at: [0, 0] })), [
+    [Editor.node(editor, [])[0], []],
+    [
+      {
+        type: 'element',
+        children: [{ text: '' }],
+      },
+      [0],
+    ],
+    [{ text: '' }, [0, 0]],
+  ])
+})
+
+it('mirrors the legacy Editor.levels/reverse.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'element',
+        children: [{ text: '' }],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Array.from(Editor.levels(editor, { at: [0, 0], reverse: true })),
+    [
+      [{ text: '' }, [0, 0]],
+      [
+        {
+          type: 'element',
+          children: [{ text: '' }],
+        },
+        [0],
+      ],
+      [Editor.node(editor, [])[0], []],
+    ]
+  )
+})
+
+it('mirrors the legacy Editor.levels/match.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'element',
+        a: true,
+        children: [{ text: '', a: true }],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Array.from(
+      Editor.levels(editor, {
+        at: [0, 0],
+        match: (node) => Boolean((node as { a?: boolean }).a),
+      })
+    ),
+    [
+      [
+        {
+          type: 'element',
+          a: true,
+          children: [{ text: '', a: true }],
+        },
+        [0],
+      ],
+      [{ text: '', a: true }, [0, 0]],
+    ]
+  )
+})
+
+it('mirrors the legacy Editor.levels/voids-false.tsx oracle row', () => {
+  const editor = createEditor()
+  editor.isVoid = (element) =>
+    Boolean((element as { type?: string }).type) &&
+    Boolean((element as { void?: boolean }).void)
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'element',
+        void: true,
+        children: [{ text: '' }],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Array.from(Editor.levels(editor, { at: [0, 0] })), [
+    [Editor.node(editor, [])[0], []],
+    [
+      {
+        type: 'element',
+        void: true,
+        children: [{ text: '' }],
+      },
+      [0],
+    ],
+  ])
+})
+
+it('mirrors the legacy Editor.levels/voids-true.tsx oracle row', () => {
+  const editor = createEditor()
+  editor.isVoid = (element) =>
+    Boolean((element as { type?: string }).type) &&
+    Boolean((element as { void?: boolean }).void)
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'element',
+        void: true,
+        children: [{ text: '' }],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Array.from(Editor.levels(editor, { at: [0, 0], voids: true })),
+    [
+      [Editor.node(editor, [])[0], []],
+      [
+        {
+          type: 'element',
+          void: true,
+          children: [{ text: '' }],
+        },
+        [0],
+      ],
+      [{ text: '' }, [0, 0]],
+    ]
+  )
+})
+
+it('mirrors the legacy Editor.next/default.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.next(editor, { at: [0] }), [
+    {
+      type: 'paragraph',
+      children: [{ text: 'two' }],
+    },
+    [1],
+  ])
+})
+
+it('mirrors the legacy Editor.next/block.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.next(editor, {
+      at: [0],
+      match: (node) => 'type' in node && Editor.isBlock(editor, node),
+    }),
+    [
+      {
+        type: 'paragraph',
+        children: [{ text: 'two' }],
+      },
+      [1],
+    ]
+  )
+})
+
+it('mirrors the legacy Editor.next/text.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.next(editor, {
+      at: [0],
+      match: (node) => 'text' in node,
+    }),
+    [{ text: 'two' }, [1, 0]]
+  )
+})
+
+it('mirrors the legacy Editor.previous/default.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.previous(editor, { at: [1] }), [
+    {
+      type: 'paragraph',
+      children: [{ text: 'one' }],
+    },
+    [0],
+  ])
+})
+
+it('mirrors the legacy Editor.previous/block.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.previous(editor, {
+      at: [1],
+      match: (node) => 'type' in node && Editor.isBlock(editor, node),
+    }),
+    [
+      {
+        type: 'paragraph',
+        children: [{ text: 'one' }],
+      },
+      [0],
+    ]
+  )
+})
+
+it('mirrors the legacy Editor.previous/text.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.previous(editor, {
+      at: [1],
+      match: (node) => 'text' in node,
+    }),
+    [{ text: 'one' }, [0, 0]]
+  )
+})
+
+it('supports Editor.before across supported top-level block boundaries', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.before(editor, { path: [1, 0], offset: 0 }), {
+    path: [0, 0],
+    offset: 5,
+  })
+})
+
+it('supports Editor.after across top-level block boundaries inside an outer transaction using the live draft tree', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  let point: { path: readonly number[]; offset: number } | undefined
+
+  Editor.withTransaction(editor, () => {
+    Transforms.insertNodes(
+      editor,
+      {
+        type: 'paragraph',
+        children: [{ text: 'gamma' }],
+      },
+      { at: [1] }
+    )
+    point = Editor.after(editor, { path: [0, 0], offset: 5 })
+  })
+
+  assert.deepEqual(point, {
+    path: [1, 0],
+    offset: 0,
+  })
+})
+
+it('supports move helper calls across supported top-level block boundaries', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  Transforms.select(editor, {
+    anchor: { path: [0, 0], offset: 5 },
+    focus: { path: [0, 0], offset: 5 },
+  })
+  Transforms.move(editor, { distance: 1 })
+
+  const after = Editor.getSnapshot(editor)
+
+  assert.deepEqual(after.selection, {
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
+  })
+})
+
+it('supports Editor.after and Editor.before with top-level block paths', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.after(editor, [0]), {
+    path: [1, 0],
+    offset: 0,
+  })
+  assert.deepEqual(Editor.before(editor, [1]), {
+    path: [0, 0],
+    offset: 5,
+  })
+})
+
+it('mirrors the legacy Editor.before/path.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.before(editor, [1, 0]), {
+    path: [0, 0],
+    offset: 3,
+  })
+})
+
+it('mirrors the legacy Editor.after/path.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.after(editor, [0, 0]), {
+    path: [1, 0],
+    offset: 0,
+  })
+})
+
+it('mirrors the legacy Editor.before/point.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren().slice(0, 1),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.before(editor, { path: [0, 0], offset: 1 }), {
+    path: [0, 0],
+    offset: 0,
+  })
+})
+
+it('mirrors the legacy Editor.after/point.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren().slice(0, 1),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.after(editor, { path: [0, 0], offset: 1 }), {
+    path: [0, 0],
+    offset: 2,
+  })
+})
+
+it('supports Editor.after and Editor.before with supported mixed-inline descendant paths', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createElementSplitChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.after(editor, [0, 1]), {
+    path: [0, 2],
+    offset: 0,
+  })
+  assert.deepEqual(Editor.before(editor, [0, 1]), {
+    path: [0, 0],
+    offset: 6,
+  })
+})
+
+it('supports Editor.after with a top-level block path inside an outer transaction using the live draft tree', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  let point: { path: readonly number[]; offset: number } | undefined
+
+  Editor.withTransaction(editor, () => {
+    Transforms.insertNodes(
+      editor,
+      {
+        type: 'paragraph',
+        children: [{ text: 'gamma' }],
+      },
+      { at: [1] }
+    )
+    point = Editor.after(editor, [0])
+  })
+
+  assert.deepEqual(point, {
+    path: [1, 0],
+    offset: 0,
+  })
+})
+
+it('supports Editor.after on a point within the current text node', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.after(editor, { path: [0, 0], offset: 1 }), {
+    path: [0, 0],
+    offset: 2,
+  })
+})
+
+it('supports Editor.before and Editor.after on a range by using the start/end edges', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.before(editor, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [1, 0], offset: 2 },
+    }),
+    { path: [0, 0], offset: 0 }
+  )
+  assert.deepEqual(
+    Editor.after(editor, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [1, 0], offset: 2 },
+    }),
+    { path: [1, 0], offset: 3 }
+  )
+})
+
+it('mirrors the legacy Editor.before/range.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.before(editor, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [1, 0], offset: 2 },
+    }),
+    { path: [0, 0], offset: 0 }
+  )
+})
+
+it('mirrors the legacy Editor.after/range.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.after(editor, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [1, 0], offset: 2 },
+    }),
+    { path: [1, 0], offset: 3 }
+  )
+})
+
+it('returns undefined when Editor.before or Editor.after hits the document boundary', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.equal(Editor.before(editor, { path: [0, 0], offset: 0 }), undefined)
+  assert.equal(Editor.after(editor, { path: [1, 0], offset: 4 }), undefined)
+})
+
+it('mirrors the legacy Editor.before/start.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.equal(Editor.before(editor, [0, 0]), undefined)
+})
+
+it('mirrors the legacy Editor.after/end.tsx oracle row', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.equal(Editor.after(editor, [1, 0]), undefined)
+})
+
+it('supports Editor.after inside an outer transaction using the live draft tree', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  let point: { path: readonly number[]; offset: number } | undefined
+
+  Editor.withTransaction(editor, () => {
+    Transforms.insertText(editor, '!', {
+      at: { path: [0, 0], offset: 5 },
+    })
+    point = Editor.after(editor, { path: [0, 0], offset: 5 })
+  })
+
+  assert.deepEqual(point, { path: [0, 0], offset: 6 })
+})
+
+it('supports Editor.after across mixed-inline sibling text leaves in one block', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createElementSplitChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.after(editor, { path: [0, 0], offset: 6 }), {
+    path: [0, 1, 0],
+    offset: 0,
+  })
+})
+
+it('supports Editor.before across mixed-inline sibling text leaves in one block', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createElementSplitChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.before(editor, { path: [0, 2], offset: 0 }), {
+    path: [0, 1, 0],
+    offset: 9,
+  })
+})
+
+it('supports Editor.after across mixed-inline siblings inside an outer transaction using the live draft tree', () => {})
+
+it('supports Editor.before and Editor.after with voids: true on path and point locations', () => {
+  const editor = createEditor()
+  editor.isVoid = (element) =>
+    Boolean((element as { type?: string }).type) &&
+    Boolean((element as { void?: boolean }).void)
+
+  Editor.replace(editor, {
+    children: createVoidBlockPairChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.before(editor, [1, 0], { voids: true }), {
+    path: [0, 0],
+    offset: 3,
+  })
+  assert.deepEqual(
+    Editor.before(editor, { path: [0, 0], offset: 1 }, { voids: true }),
+    {
+      path: [0, 0],
+      offset: 0,
+    }
+  )
+  assert.deepEqual(
+    Editor.after(editor, { path: [0, 0], offset: 1 }, { voids: true }),
+    {
+      path: [0, 0],
+      offset: 2,
+    }
+  )
+})
+
+it('supports Editor.before and Editor.after with voids: true on range and split-void paths', () => {
+  const editor = createEditor()
+  editor.isVoid = (element) =>
+    Boolean((element as { type?: string }).type) &&
+    Boolean((element as { void?: boolean }).void)
+
+  Editor.replace(editor, {
+    children: createVoidSplitChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.after(editor, [0, 0], { voids: true }), {
+    path: [0, 1],
+    offset: 0,
+  })
+  assert.deepEqual(
+    Editor.before(
+      editor,
+      {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 1], offset: 2 },
+      },
+      { voids: true }
+    ),
+    { path: [0, 0], offset: 0 }
+  )
+  assert.deepEqual(
+    Editor.after(
+      editor,
+      {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 1], offset: 2 },
+      },
+      { voids: true }
+    ),
+    { path: [0, 1], offset: 3 }
+  )
+})
+
+it('supports Editor.before and Editor.after by skipping non-selectable blocks', () => {
+  const editor = createEditor()
+  editor.isSelectable = (element) =>
+    !(element as { nonSelectable?: boolean }).nonSelectable
+
+  Editor.replace(editor, {
+    children: createNonSelectableBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.before(editor, { path: [2, 0], offset: 0 }), {
+    path: [0, 0],
+    offset: 3,
+  })
+  assert.deepEqual(Editor.after(editor, { path: [0, 0], offset: 3 }), {
+    path: [2, 0],
+    offset: 0,
+  })
+
+  Editor.replace(editor, {
+    children: createLeadingNonSelectableBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.equal(Editor.before(editor, { path: [1, 0], offset: 0 }), undefined)
+
+  Editor.replace(editor, {
+    children: createTrailingNonSelectableBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.equal(Editor.after(editor, { path: [0, 0], offset: 3 }), undefined)
+})
+
+it('supports Editor.before and Editor.after by skipping non-selectable inline descendants', () => {
+  const editor = createEditor()
+  editor.isInline = (element) => element.type === 'inline'
+  editor.isSelectable = (element) =>
+    !(element as { nonSelectable?: boolean }).nonSelectable
+
+  Editor.replace(editor, {
+    children: createNonSelectableInlineChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.before(editor, { path: [0, 2], offset: 0 }), {
+    path: [0, 0],
+    offset: 3,
+  })
+  assert.deepEqual(Editor.after(editor, { path: [0, 0], offset: 3 }), {
+    path: [0, 2],
+    offset: 0,
+  })
+
+  Editor.replace(editor, {
+    children: createLeadingNonSelectableInlineChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  let point: { path: readonly number[]; offset: number } | undefined
+
+  Editor.withTransaction(editor, () => {
+    editor.setChildren(createLeadingNonSelectableInlineChildren())
+    point = Editor.before(editor, { path: [0, 1], offset: 0 })
+  })
+
+  assert.equal(point, undefined)
+
+  Editor.replace(editor, {
+    children: createTrailingNonSelectableInlineChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  Editor.withTransaction(editor, () => {
+    editor.setChildren(createTrailingNonSelectableInlineChildren())
+    point = Editor.after(editor, { path: [0, 0], offset: 3 })
+  })
+
+  assert.equal(point, undefined)
+})
+
+it('supports Editor.after by skipping non-selectable inline void descendants', () => {
+  const editor = createEditor()
+  editor.isInline = (element) => element.type === 'inline'
+  editor.isVoid = (element) =>
+    Boolean((element as { type?: string }).type) &&
+    Boolean((element as { void?: boolean }).void)
+  editor.isSelectable = (element) =>
+    !(element as { nonSelectable?: boolean }).nonSelectable
+
+  Editor.replace(editor, {
+    children: createNonSelectableInlineVoidChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.after(editor, { path: [0, 0], offset: 3 }), {
+    path: [0, 2],
+    offset: 0,
+  })
+})
+
+it('supports Editor.before and Editor.after unit-based traversal', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'one two' }],
+      },
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.after(editor, { path: [0, 0], offset: 0 }, { unit: 'word' }),
+    { path: [0, 0], offset: 3 }
+  )
+  assert.deepEqual(
+    Editor.before(editor, { path: [0, 0], offset: 7 }, { unit: 'word' }),
+    { path: [0, 0], offset: 4 }
+  )
+  assert.deepEqual(
+    Editor.after(editor, { path: [0, 0], offset: 0 }, { unit: 'character' }),
+    { path: [0, 0], offset: 1 }
+  )
+})

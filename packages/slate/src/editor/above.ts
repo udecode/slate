@@ -6,7 +6,7 @@ export const above: EditorInterface['above'] = (editor, options = {}) => {
   const {
     voids = false,
     mode = 'lowest',
-    at = editor.selection,
+    at = Editor.getSnapshot(editor).selection,
     match,
   } = options
 

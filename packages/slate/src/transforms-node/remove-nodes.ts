@@ -9,7 +9,7 @@ export const removeNodes: NodeTransforms['removeNodes'] = (
 ) => {
   Editor.withoutNormalizing(editor, () => {
     const { hanging = false, voids = false, mode = 'lowest' } = options
-    let { at = editor.selection, match } = options
+    let { at = Editor.getSnapshot(editor).selection, match } = options
 
     if (!at) {
       return

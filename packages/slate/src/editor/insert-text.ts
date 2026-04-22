@@ -1,3 +1,8 @@
+import {
+  getCurrentMarks,
+  getCurrentSelection,
+  setCurrentMarks,
+} from '../core/public-state'
 import type { EditorInterface } from '../interfaces/editor'
 import { Transforms } from '../interfaces/transforms'
 
@@ -6,7 +11,8 @@ export const insertText: EditorInterface['insertText'] = (
   text,
   options = {}
 ) => {
-  const { selection, marks } = editor
+  const selection = getCurrentSelection(editor)
+  const marks = getCurrentMarks(editor)
 
   if (selection) {
     if (marks) {
@@ -19,6 +25,6 @@ export const insertText: EditorInterface['insertText'] = (
       Transforms.insertText(editor, text, options)
     }
 
-    editor.marks = null
+    setCurrentMarks(editor, null)
   }
 }

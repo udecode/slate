@@ -8,7 +8,7 @@ export function* nodes<T extends Node>(
   options: EditorNodesOptions<T> = {}
 ): Generator<NodeEntry<T>, void, undefined> {
   const {
-    at = editor.selection,
+    at = Editor.getSnapshot(editor).selection,
     mode = 'all',
     universal = false,
     reverse = false,

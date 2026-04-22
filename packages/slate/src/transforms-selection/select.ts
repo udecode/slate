@@ -1,3 +1,4 @@
+import { getCurrentSelection } from '../core/public-state'
 import { Location } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import { Scrubber } from '../interfaces/scrubber'
@@ -5,7 +6,7 @@ import { Transforms } from '../interfaces/transforms'
 import type { SelectionTransforms } from '../interfaces/transforms/selection'
 
 export const select: SelectionTransforms['select'] = (editor, target) => {
-  const { selection } = editor
+  const selection = getCurrentSelection(editor)
   const range = Editor.range(editor, target)
 
   if (selection) {

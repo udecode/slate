@@ -42,6 +42,14 @@ export const unhangRange: EditorInterface['unhangRange'] = (
       continue
     }
 
+    if (
+      node.text === '' &&
+      voids &&
+      Editor.void(editor, { at: path, mode: 'highest' })
+    ) {
+      continue
+    }
+
     if (node.text !== '' || Path.isBefore(path, blockPath)) {
       end = { path, offset: node.text.length }
       break

@@ -1,3 +1,4 @@
+import { getCurrentMarks, getCurrentSelection } from '../core/public-state'
 import type { Point } from '../interfaces'
 import { Editor, type EditorInterface } from '../interfaces/editor'
 import { Node } from '../interfaces/node'
@@ -5,7 +6,8 @@ import { Path } from '../interfaces/path'
 import { Range } from '../interfaces/range'
 
 export const marks: EditorInterface['marks'] = (editor, options = {}) => {
-  const { marks, selection } = editor
+  const marks = getCurrentMarks(editor)
+  const selection = getCurrentSelection(editor)
 
   if (!selection) {
     return null

@@ -1,3 +1,4 @@
+import { getCurrentSelection } from '../core/public-state'
 import { Range } from '../interfaces/range'
 import { Transforms } from '../interfaces/transforms'
 import type { SelectionTransforms } from '../interfaces/transforms/selection'
@@ -7,7 +8,7 @@ export const collapse: SelectionTransforms['collapse'] = (
   options = {}
 ) => {
   const { edge = 'anchor' } = options
-  const { selection } = editor
+  const selection = getCurrentSelection(editor)
 
   if (!selection) {
     return

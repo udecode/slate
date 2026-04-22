@@ -15,37 +15,38 @@ export const setSelection: SelectionTransforms['setSelection'] = (
     return
   }
 
-  for (const k in props) {
-    if (NON_SETTABLE_SELECTION_PROPERTIES.includes(k)) {
+  for (const key in props) {
+    if (NON_SETTABLE_SELECTION_PROPERTIES.includes(key)) {
       continue
     }
 
-    const value = Object.hasOwn(selection, k)
-      ? selection[<keyof Range>k]
+    const value = Object.hasOwn(selection, key)
+      ? selection[<keyof Range>key]
       : undefined
+    const newValue = props[<keyof Range>key]
 
-    const newValue = props[<keyof Range>k]
-
-    if (compareSelectionProps(<keyof Range>k, value, newValue)) {
-      oldProps[<keyof Range>k] = selection[<keyof Range>k]
-      newProps[<keyof Range>k] = props[<keyof Range>k]
+    if (compareSelectionProps(<keyof Range>key, value, newValue)) {
+      oldProps[<keyof Range>key] = selection[<keyof Range>key]
+      newProps[<keyof Range>key] = props[<keyof Range>key]
     }
   }
 
-  if (Object.keys(oldProps).length > 0) {
-    editor.apply({
-      type: 'set_selection',
-      properties: oldProps,
-      newProperties: newProps,
-    })
+  if (Object.keys(oldProps).length === 0) {
+    return
   }
+
+  editor.apply({
+    type: 'set_selection',
+    properties: oldProps,
+    newProperties: newProps,
+  })
 }
 
-function compareSelectionProps(
+const compareSelectionProps = (
   key: keyof Range,
   value: unknown,
   newValue: unknown
-) {
+) => {
   if (
     (key === 'anchor' || key === 'focus') &&
     Point.isPoint(value) &&
@@ -53,5 +54,6 @@ function compareSelectionProps(
   ) {
     return !Point.equals(value, newValue)
   }
+
   return value !== newValue
 }

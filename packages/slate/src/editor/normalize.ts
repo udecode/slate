@@ -1,92 +1,162 @@
+import { batchDirtyPaths } from '../core/batch-dirty-paths'
+import {
+  getChildren,
+  getCurrentMarks,
+  getCurrentSelection,
+  getMutationVersion,
+  isInTransaction,
+  withTransaction,
+} from '../core/public-state'
 import { Editor, type EditorInterface } from '../interfaces/editor'
-import { Node } from '../interfaces/node'
-import type { Path } from '../interfaces/path'
+import { Node, type NodeEntry } from '../interfaces/node'
+import type { Operation } from '../interfaces/operation'
 import { DIRTY_PATH_KEYS, DIRTY_PATHS } from '../utils/weak-maps'
 
 export const normalize: EditorInterface['normalize'] = (
   editor,
   options = {}
 ) => {
-  const { force = false, operation } = options
+  const {
+    explicit = true,
+    force = explicit,
+    operation,
+  } = options as {
+    explicit?: boolean
+    force?: boolean
+    operation?: Operation
+  }
   const getDirtyPaths = (editor: Editor) => {
     return DIRTY_PATHS.get(editor) || []
   }
 
-  const getDirtyPathKeys = (editor: Editor) => {
-    return DIRTY_PATH_KEYS.get(editor) || new Set()
+  const clearDirtyPaths = (editor: Editor) => {
+    DIRTY_PATHS.set(editor, [])
+    DIRTY_PATH_KEYS.set(editor, new Set())
   }
 
-  const popDirtyPath = (editor: Editor): Path => {
-    const path = getDirtyPaths(editor).pop()!
-    const key = path.join(',')
-    getDirtyPathKeys(editor).delete(key)
-    return path
+  const createPassSignature = () =>
+    JSON.stringify({
+      children: getChildren(editor),
+      marks: getCurrentMarks(editor),
+      selection: getCurrentSelection(editor),
+    })
+
+  const collectNormalizeEntries = (): NodeEntry[] =>
+    Array.from(Node.nodes(editor), ([node, path]) => [node, path] as NodeEntry)
+
+  const collectDirtyNormalizeEntries = (): NodeEntry[] =>
+    getDirtyPaths(editor)
+      .filter((path) => Node.has(editor, path))
+      .map((path) => Editor.node(editor, path))
+
+  const runNormalizePasses = () => {
+    if (!Editor.isNormalizing(editor)) {
+      return
+    }
+
+    if (force) {
+      const allPaths = Array.from(Node.nodes(editor), ([, p]) => p)
+      const allPathKeys = new Set(allPaths.map((p) => p.join(',')))
+      DIRTY_PATHS.set(editor, allPaths)
+      DIRTY_PATH_KEYS.set(editor, allPathKeys)
+    }
+
+    if (getDirtyPaths(editor).length === 0) {
+      return
+    }
+
+    const wasNormalizing = Editor.isNormalizing(editor)
+    Editor.setNormalizing(editor, false)
+
+    try {
+      const initialEntryCount = force
+        ? collectNormalizeEntries().length
+        : getDirtyPaths(editor).length
+      const maxIterations = Math.max(8, initialEntryCount * 4)
+      const seenSignatures = new Set<string>()
+      let iteration = 0
+
+      while (true) {
+        const entries = force
+          ? collectNormalizeEntries()
+          : collectDirtyNormalizeEntries()
+
+        if (entries.length === 0) {
+          clearDirtyPaths(editor)
+          return
+        }
+
+        const signature = JSON.stringify({
+          state: createPassSignature(),
+          entries: entries.map(([, path]) => path),
+        })
+
+        if (seenSignatures.has(signature)) {
+          throw new Error(
+            `normalizeNode revisited an earlier draft state after ${iteration} passes without reaching fixpoint`
+          )
+        }
+
+        seenSignatures.add(signature)
+
+        if (
+          !editor.shouldNormalize({
+            explicit,
+            iteration,
+            operation,
+          })
+        ) {
+          return
+        }
+        let changed = false
+
+        for (const entry of entries) {
+          const beforeMutation = getMutationVersion(editor)
+          editor.normalizeNode(entry, { explicit, operation })
+          const afterMutation = getMutationVersion(editor)
+
+          if (beforeMutation !== afterMutation) {
+            changed = true
+
+            if (!explicit) {
+              break
+            }
+          }
+        }
+
+        if (!changed) {
+          clearDirtyPaths(editor)
+          return
+        }
+
+        iteration += 1
+
+        if (iteration > maxIterations) {
+          throw new Error(
+            `normalizeNode exhausted derived pass budget (${maxIterations}) without reaching fixpoint`
+          )
+        }
+      }
+    } finally {
+      Editor.setNormalizing(editor, wasNormalizing)
+    }
   }
 
-  if (!Editor.isNormalizing(editor)) {
+  if (explicit && !isInTransaction(editor)) {
+    withTransaction(
+      editor,
+      () => {
+        normalize(editor, options)
+      },
+      { skipNormalize: true }
+    )
     return
   }
 
   if (force) {
-    const allPaths = Array.from(Node.nodes(editor), ([, p]) => p)
-    const allPathKeys = new Set(allPaths.map((p) => p.join(',')))
-    DIRTY_PATHS.set(editor, allPaths)
-    DIRTY_PATH_KEYS.set(editor, allPathKeys)
-  }
-
-  if (getDirtyPaths(editor).length === 0) {
+    batchDirtyPaths(editor, runNormalizePasses, () => {})
     return
   }
 
-  Editor.withoutNormalizing(editor, () => {
-    /*
-      Fix dirty elements with no children.
-      editor.normalizeNode() does fix this, but some normalization fixes also require it to work.
-      Running an initial pass avoids the catch-22 race condition.
-    */
-    for (const dirtyPath of getDirtyPaths(editor)) {
-      if (Node.has(editor, dirtyPath)) {
-        const entry = Editor.node(editor, dirtyPath)
-        const [node, _] = entry
-
-        /*
-          The default normalizer inserts an empty text node in this scenario, but it can be customised.
-          So there is some risk here.
-
-          As long as the normalizer only inserts child nodes for this case it is safe to do in any order;
-          by definition adding children to an empty node can't cause other paths to change.
-        */
-        if (Node.isElement(node) && node.children.length === 0) {
-          editor.normalizeNode(entry, { operation, force })
-        }
-      }
-    }
-
-    let dirtyPaths = getDirtyPaths(editor)
-    const initialDirtyPathsLength = dirtyPaths.length
-    let iteration = 0
-
-    while (dirtyPaths.length !== 0) {
-      if (
-        !editor.shouldNormalize({
-          dirtyPaths,
-          iteration,
-          initialDirtyPathsLength,
-          operation,
-        })
-      ) {
-        return
-      }
-
-      const dirtyPath = popDirtyPath(editor)
-
-      // If the node doesn't exist in the tree, it does not need to be normalized.
-      if (Node.has(editor, dirtyPath)) {
-        const entry = Editor.node(editor, dirtyPath)
-        editor.normalizeNode(entry, { operation, force })
-      }
-      iteration++
-      dirtyPaths = getDirtyPaths(editor)
-    }
-  })
+  runNormalizePasses()
 }

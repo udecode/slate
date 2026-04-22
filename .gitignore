@@ -8,7 +8,7 @@ dist/
 lib/
 node_modules/
 site/out/
-tmp/
+*tmp/
 test-results/
 coverage
 .DS_Store

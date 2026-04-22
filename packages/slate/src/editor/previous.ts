@@ -3,7 +3,7 @@ import { Location, type Span } from '../interfaces/location'
 
 export const previous: EditorInterface['previous'] = (editor, options = {}) => {
   const { mode = 'lowest', voids = false } = options
-  let { match, at = editor.selection } = options
+  let { match, at = Editor.getSnapshot(editor).selection } = options
 
   if (!at) {
     return

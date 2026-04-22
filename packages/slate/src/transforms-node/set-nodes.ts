@@ -1,3 +1,4 @@
+import { createInternalRangeRef } from '../editor/range-ref'
 import { Location } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import { Node } from '../interfaces/node'
@@ -14,7 +15,7 @@ export const setNodes: NodeTransforms['setNodes'] = (
 ) => {
   Editor.withoutNormalizing(editor, () => {
     const {
-      at: optionAt = editor.selection,
+      at: optionAt = Editor.getSnapshot(editor).selection,
       compare: optionCompare,
       hanging = false,
       match: optionMatch,
@@ -51,7 +52,9 @@ export const setNodes: NodeTransforms['setNodes'] = (
         // set that won't get normalized away
         return
       }
-      const rangeRef = Editor.rangeRef(editor, at, { affinity: 'inward' })
+      const rangeRef = createInternalRangeRef(editor, at, {
+        affinity: 'inward',
+      })
       const [start, end] = Range.edges(at)
       const splitMode = mode === 'lowest' ? 'lowest' : 'highest'
       const endAtEndOfNode = Editor.isEnd(editor, end, end.path)

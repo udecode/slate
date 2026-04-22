@@ -1,5 +1,7 @@
 import type {
   Ancestor,
+  Bookmark,
+  BookmarkOptions,
   Descendant,
   Element,
   ExtendedType,
@@ -49,8 +51,10 @@ export interface BaseEditor {
   // Overrideable core methods.
 
   apply: (operation: Operation) => void
+  getChildren: () => Descendant[]
   getDirtyPaths: (operation: Operation) => Path[]
   getFragment: () => Descendant[]
+  getSnapshot: () => EditorSnapshot
   isElementReadOnly: (element: Element) => boolean
   isSelectable: (element: Element) => boolean
   markableVoid: (element: Element) => boolean
@@ -58,25 +62,26 @@ export interface BaseEditor {
     entry: NodeEntry,
     options?: {
       operation?: Operation
-      fallbackElement?: () => Element
+      fallbackElement?: Element | (() => Element)
+      explicit?: boolean
       force?: boolean
     }
   ) => void
   onChange: (options?: { operation?: Operation }) => void
   shouldNormalize: ({
+    explicit,
     iteration,
-    dirtyPaths,
     operation,
   }: {
+    explicit?: boolean
     iteration: number
-    initialDirtyPathsLength: number
-    dirtyPaths: Path[]
     operation?: Operation
   }) => boolean
 
   // Overrideable core transforms.
 
   addMark: OmitFirstArg<typeof Editor.addMark>
+  bookmark: (range: Range, options?: BookmarkOptions) => Bookmark
   collapse: OmitFirstArg<typeof Transforms.collapse>
   delete: OmitFirstArg<typeof Transforms.delete>
   deleteBackward: (unit: TextUnit) => void
@@ -167,13 +172,19 @@ export interface BaseEditor {
   previous: <T extends Node>(
     options?: EditorPreviousOptions<T>
   ) => NodeEntry<T> | undefined
+  projectRange: (range: Range) => readonly ProjectedRangeSegment[]
   range: OmitFirstArg<typeof Editor.range>
   rangeRef: OmitFirstArg<typeof Editor.rangeRef>
   rangeRefs: OmitFirstArg<typeof Editor.rangeRefs>
+  replace: (input: SnapshotInput) => void
+  reset: (input: SnapshotInput) => void
+  setChildren: (children: Descendant[]) => void
   start: OmitFirstArg<typeof Editor.start>
   string: OmitFirstArg<typeof Editor.string>
+  subscribe: (listener: SnapshotListener) => () => void
   unhangRange: OmitFirstArg<typeof Editor.unhangRange>
   void: OmitFirstArg<typeof Editor.void>
+  withTransaction: (fn: () => void) => void
   shouldMergeNodesRemovePrevNode: OmitFirstArg<
     typeof Editor.shouldMergeNodesRemovePrevNode
   >
@@ -186,6 +197,60 @@ export type BaseSelection = Range | null
 export type Selection = ExtendedType<'Selection', BaseSelection>
 
 export type EditorMarks = Omit<Text, 'text'>
+
+export type RuntimeId = string
+
+export type SnapshotIndex = {
+  idToPath: Record<RuntimeId, Path>
+  pathToId: Record<string, RuntimeId>
+}
+
+export type ProjectedRangeSegment = {
+  path: Path
+  runtimeId: RuntimeId
+  start: number
+  end: number
+}
+
+export type EditorSnapshot = {
+  children: Descendant[]
+  index: SnapshotIndex
+  marks: EditorMarks | null
+  selection: Selection
+  version: number
+}
+
+export type SnapshotChangeClass =
+  | 'text'
+  | 'selection'
+  | 'mark'
+  | 'structural'
+  | 'replace'
+
+export type SnapshotDirtyScope = 'none' | 'paths' | 'all'
+
+export type SnapshotInput = {
+  children: readonly Descendant[]
+  selection?: Selection
+  marks?: EditorMarks | null
+}
+
+export type SnapshotListener = (
+  snapshot: EditorSnapshot,
+  change?: SnapshotChange
+) => void
+
+export type SnapshotChange = {
+  childrenChanged: boolean
+  classes: readonly SnapshotChangeClass[]
+  dirtyPaths: readonly Path[]
+  dirtyScope: SnapshotDirtyScope
+  marksChanged: boolean
+  operations: readonly Operation[]
+  replaceEpoch: number
+  selectionChanged: boolean
+  touchedRuntimeIds: readonly RuntimeId[] | null
+}
 
 export interface EditorAboveOptions<T extends Ancestor> {
   at?: Location
@@ -259,6 +324,7 @@ export interface EditorNodesOptions<T extends Node> {
 }
 
 export interface EditorNormalizeOptions {
+  explicit?: boolean
   force?: boolean
   operation?: Operation
 }
@@ -335,6 +401,15 @@ export interface EditorInterface {
   addMark: (editor: Editor, key: string, value: any) => void
 
   /**
+   * Create a hidden, op-rebased bookmark for a range.
+   */
+  bookmark: (
+    editor: Editor,
+    range: Range,
+    options?: BookmarkOptions
+  ) => Bookmark
+
+  /**
    * Get the point after a location.
    */
   after: (
@@ -400,9 +475,29 @@ export interface EditorInterface {
   first: (editor: Editor, at: Location) => NodeEntry
 
   /**
+   * Get the current children through the public accessor seam.
+   */
+  getChildren: (editor: Editor) => Descendant[]
+
+  /**
    * Get the fragment at a location.
    */
   fragment: (editor: Editor, at: Location) => Descendant[]
+
+  /**
+   * Get the current dirty-path derivation for an operation.
+   */
+  getDirtyPaths: (editor: Editor, operation: Operation) => Path[]
+
+  /**
+   * Get the fragment at the current selection.
+   */
+  getFragment: (editor: Editor) => Descendant[]
+
+  /**
+   * Get the current immutable snapshot of editor state.
+   */
+  getSnapshot: (editor: Editor) => EditorSnapshot
 
   /**
    * Check if a node has block children.
@@ -622,6 +717,11 @@ export interface EditorInterface {
    */
   pointRefs: (editor: Editor) => Set<PointRef>
 
+  projectRange: (
+    editor: Editor,
+    range: Range
+  ) => readonly ProjectedRangeSegment[]
+
   /**
    * Return all the positions in `at` range where a `Point` can be placed.
    *
@@ -667,6 +767,12 @@ export interface EditorInterface {
    */
   rangeRefs: (editor: Editor) => Set<RangeRef>
 
+  replace: (editor: Editor, input: SnapshotInput) => void
+
+  reset: (editor: Editor, input: SnapshotInput) => void
+
+  setChildren: (editor: Editor, children: Descendant[]) => void
+
   /**
    * Remove a custom property from all of the leaf text nodes in the current
    * selection.
@@ -701,6 +807,8 @@ export interface EditorInterface {
     options?: EditorStringOptions
   ) => string
 
+  subscribe: (editor: Editor, listener: SnapshotListener) => () => void
+
   /**
    * Convert a range into a non-hanging one.
    */
@@ -717,6 +825,8 @@ export interface EditorInterface {
     editor: Editor,
     options?: EditorVoidOptions
   ) => NodeEntry<Element> | undefined
+
+  withTransaction: (editor: Editor, fn: () => void) => void
 
   /**
    * Call a function, deferring normalization until after it completes.
@@ -741,6 +851,10 @@ export const Editor: EditorInterface = {
 
   addMark(editor, key, value) {
     editor.addMark(key, value)
+  },
+
+  bookmark(editor, range, options) {
+    return editor.bookmark(range, options)
   },
 
   after(editor, at, options) {
@@ -783,6 +897,22 @@ export const Editor: EditorInterface = {
 
   fragment(editor, at) {
     return editor.fragment(at)
+  },
+
+  getFragment(editor) {
+    return editor.getFragment()
+  },
+
+  getChildren(editor) {
+    return editor.getChildren()
+  },
+
+  getDirtyPaths(editor, operation) {
+    return editor.getDirtyPaths(operation)
+  },
+
+  getSnapshot(editor) {
+    return editor.getSnapshot()
   },
 
   hasBlocks(editor, element) {
@@ -926,6 +1056,10 @@ export const Editor: EditorInterface = {
     return editor.pointRefs()
   },
 
+  projectRange(editor, range) {
+    return editor.projectRange(range)
+  },
+
   positions(editor, options) {
     return editor.positions(options)
   },
@@ -946,8 +1080,20 @@ export const Editor: EditorInterface = {
     return editor.rangeRefs()
   },
 
+  replace(editor, input) {
+    editor.replace(input)
+  },
+
+  reset(editor, input) {
+    editor.reset(input)
+  },
+
   removeMark(editor, key) {
     editor.removeMark(key)
+  },
+
+  setChildren(editor, children) {
+    editor.setChildren(children)
   },
 
   setNormalizing(editor, isNormalizing) {
@@ -962,12 +1108,20 @@ export const Editor: EditorInterface = {
     return editor.string(at, options)
   },
 
+  subscribe(editor, listener) {
+    return editor.subscribe(listener)
+  },
+
   unhangRange(editor, range, options) {
     return editor.unhangRange(range, options)
   },
 
   void(editor, options) {
     return editor.void(options)
+  },
+
+  withTransaction(editor, fn: () => void) {
+    editor.withTransaction(fn)
   },
 
   withoutNormalizing(editor, fn: () => void) {

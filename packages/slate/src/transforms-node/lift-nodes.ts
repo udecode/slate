@@ -1,6 +1,6 @@
-import { Location } from '../interfaces'
+import { getCurrentSelection, withTransaction } from '../core/public-state'
+import { Location, Node, Range } from '../interfaces'
 import { Editor } from '../interfaces/editor'
-import { type Ancestor, Node, type NodeEntry } from '../interfaces/node'
 import { Path } from '../interfaces/path'
 import { Transforms } from '../interfaces/transforms'
 import type { NodeTransforms } from '../interfaces/transforms/node'
@@ -10,52 +10,152 @@ export const liftNodes: NodeTransforms['liftNodes'] = (
   editor,
   options = {}
 ) => {
-  Editor.withoutNormalizing(editor, () => {
-    const { at = editor.selection, mode = 'lowest', voids = false } = options
-    let { match } = options
+  const liftNodeAtPath = (path: Path) => {
+    const [node] = Editor.node(editor, path)
 
-    if (!at) {
+    if (Node.isText(node)) {
+      throw new Error('liftNodes currently supports only element nodes')
+    }
+
+    if (path.length < 2) {
+      throw new Error('liftNodes requires a path with depth of at least 2')
+    }
+
+    const parentPath = path.slice(0, -1)
+    const [parent] = Editor.node(editor, parentPath)
+
+    if (Node.isText(parent)) {
+      throw new Error('liftNodes requires an element parent')
+    }
+
+    const index = path.at(-1)!
+    const childCount = parent.children.length
+
+    if (childCount === 1) {
+      Transforms.moveNodes(editor, {
+        at: path,
+        to: [...parentPath.slice(0, -1), parentPath.at(-1)! + 1],
+      })
+      Transforms.removeNodes(editor, { at: parentPath })
       return
     }
 
-    if (match == null) {
-      match = Location.isPath(at)
-        ? matchPath(editor, at)
-        : (n) => Node.isElement(n) && Editor.isBlock(editor, n)
+    if (index === 0) {
+      Transforms.moveNodes(editor, {
+        at: path,
+        to: parentPath,
+      })
+      return
     }
 
-    const matches = Editor.nodes(editor, { at, match, mode, voids })
-    const pathRefs = Array.from(matches, ([, p]) => Editor.pathRef(editor, p))
-
-    for (const pathRef of pathRefs) {
-      const path = pathRef.unref()!
-
-      if (path.length < 2) {
-        throw new Error(
-          `Cannot lift node at a path [${path}] because it has a depth of less than \`2\`.`
-        )
-      }
-
-      const parentNodeEntry = Editor.node(editor, Path.parent(path))
-      const [parent, parentPath] = parentNodeEntry as NodeEntry<Ancestor>
-      const index = path.at(-1)!
-      const { length } = parent.children
-
-      if (length === 1) {
-        const toPath = Path.next(parentPath)
-        Transforms.moveNodes(editor, { at: path, to: toPath, voids })
-        Transforms.removeNodes(editor, { at: parentPath, voids })
-      } else if (index === 0) {
-        Transforms.moveNodes(editor, { at: path, to: parentPath, voids })
-      } else if (index === length - 1) {
-        const toPath = Path.next(parentPath)
-        Transforms.moveNodes(editor, { at: path, to: toPath, voids })
-      } else {
-        const splitPath = Path.next(path)
-        const toPath = Path.next(parentPath)
-        Transforms.splitNodes(editor, { at: splitPath, voids })
-        Transforms.moveNodes(editor, { at: path, to: toPath, voids })
-      }
+    if (index === childCount - 1) {
+      Transforms.moveNodes(editor, {
+        at: path,
+        to: [...parentPath.slice(0, -1), parentPath.at(-1)! + 1],
+      })
+      return
     }
+
+    editor.apply({
+      type: 'split_node',
+      path: parentPath,
+      position: index + 1,
+      properties: Path.equals(parentPath, []) ? {} : Node.extractProps(parent),
+    })
+
+    Transforms.moveNodes(editor, {
+      at: path,
+      to: [...parentPath.slice(0, -1), parentPath.at(-1)! + 1],
+    })
+  }
+
+  withTransaction(editor, () => {
+    const target = options.at ?? getCurrentSelection(editor)
+    const selectionBefore = getCurrentSelection(editor)
+    const mode = options.mode ?? 'lowest'
+    const voids = options.voids ?? false
+    let { match } = options
+
+    if (!target) {
+      return
+    }
+
+    if (match != null || !Location.isRange(target)) {
+      if (match == null) {
+        match = Location.isPath(target)
+          ? matchPath(editor, target)
+          : (node) => !Node.isText(node) && Editor.isBlock(editor, node)
+      }
+
+      if (Location.isPath(target) && options.match == null) {
+        liftNodeAtPath(target)
+
+        if (selectionBefore == null) {
+          editor.deselect()
+        }
+
+        return
+      }
+
+      const pathRefs = Array.from(
+        Editor.nodes(editor, { at: target, match, mode, voids }),
+        ([, path]) => Editor.pathRef(editor, path)
+      )
+
+      for (const pathRef of pathRefs) {
+        const path = pathRef.unref()
+
+        if (path) {
+          liftNodeAtPath(path)
+        }
+      }
+
+      return
+    }
+
+    const [start, end] = Range.edges(target)
+    const startChildPath = start.path.slice(0, -1)
+    const endChildPath = end.path.slice(0, -1)
+    const startParentPath = startChildPath.slice(0, -1)
+    const endParentPath = endChildPath.slice(0, -1)
+
+    if (
+      startParentPath.length !== 1 ||
+      endParentPath.length !== 1 ||
+      Path.compare(startParentPath, endParentPath) !== 0
+    ) {
+      throw new Error(
+        'liftNodes currently supports only top-level wrapper-child ranges'
+      )
+    }
+
+    const startIndex = startChildPath.at(-1)
+    const endIndex = endChildPath.at(-1)
+
+    if (startIndex == null || endIndex == null) {
+      throw new Error(
+        'liftNodes currently supports only top-level wrapper-child ranges'
+      )
+    }
+
+    const wrapperIndex = startParentPath[0]!
+    const selectedBaseIndex = wrapperIndex + (startIndex > 0 ? 1 : 0)
+
+    for (let childIndex = endIndex; childIndex >= startIndex; childIndex -= 1) {
+      liftNodeAtPath([...startParentPath, childIndex])
+    }
+
+    const mapPoint = (point: typeof start) => ({
+      path: [
+        selectedBaseIndex + (point.path[1]! - startIndex),
+        ...point.path.slice(2),
+      ],
+      offset: point.offset,
+    })
+
+    editor.select({
+      anchor: mapPoint(start),
+      focus: mapPoint(end),
+    })
   })
 }

@@ -11,5 +11,9 @@ export const withoutNormalizing: EditorInterface['withoutNormalizing'] = (
   } finally {
     Editor.setNormalizing(editor, value)
   }
-  Editor.normalize(editor)
+  Editor.normalize(editor, {
+    explicit: false,
+    force: true,
+    operation: editor.operations.at(-1),
+  })
 }

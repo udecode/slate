@@ -82,6 +82,7 @@
       "devDependencies": {
         "@types/is-hotkey": "^0.1.8",
         "@types/node": "^20.8.7",
+        "jsdom": "20.0.3",
         "slate": "workspace:*",
       },
       "peerDependencies": {

@@ -24,7 +24,7 @@ export const mergeNodes: NodeTransforms['mergeNodes'] = (
   options = {}
 ) => {
   Editor.withoutNormalizing(editor, () => {
-    let { match, at = editor.selection } = options
+    let { match, at = Editor.getSnapshot(editor).selection } = options
     const { hanging = false, voids = false, mode = 'lowest' } = options
 
     if (!at) {

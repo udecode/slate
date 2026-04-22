@@ -1,3 +1,8 @@
+export { GeneralTransforms } from './general'
+export { NodeTransforms } from './node'
+export { SelectionTransforms } from './selection'
+export { TextTransforms } from './text'
+
 import { GeneralTransforms } from './general'
 import { NodeTransforms } from './node'
 import { SelectionTransforms } from './selection'

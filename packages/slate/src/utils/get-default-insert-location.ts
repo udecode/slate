@@ -7,8 +7,10 @@ import { Editor, type Location } from '../interfaces'
  * common use case when inserting from a non-selected state.
  */
 export const getDefaultInsertLocation = (editor: Editor): Location => {
-  if (editor.selection) {
-    return editor.selection
+  const selection = Editor.getSnapshot(editor).selection
+
+  if (selection) {
+    return selection
   }
   if (editor.children.length > 0) {
     return Editor.end(editor, [])

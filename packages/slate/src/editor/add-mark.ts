@@ -1,12 +1,17 @@
+import {
+  getCurrentMarks,
+  getCurrentSelection,
+  setCurrentMarks,
+  withTransaction,
+} from '../core/public-state'
 import { Editor, type EditorInterface } from '../interfaces/editor'
 import { Node } from '../interfaces/node'
 import type { Path } from '../interfaces/path'
 import { Range } from '../interfaces/range'
 import { Transforms } from '../interfaces/transforms'
-import { FLUSHING } from '../utils/weak-maps'
 
 export const addMark: EditorInterface['addMark'] = (editor, key, value) => {
-  const { selection } = editor
+  const selection = getCurrentSelection(editor)
 
   if (selection) {
     const match = (node: Node, path: Path) => {
@@ -38,14 +43,13 @@ export const addMark: EditorInterface['addMark'] = (editor, key, value) => {
       )
     } else {
       const marks = {
-        ...(Editor.marks(editor) || {}),
+        ...(getCurrentMarks(editor) || {}),
         [key]: value,
       }
 
-      editor.marks = marks
-      if (!FLUSHING.get(editor)) {
-        editor.onChange()
-      }
+      withTransaction(editor, () => {
+        setCurrentMarks(editor, marks)
+      })
     }
   }
 }

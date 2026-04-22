@@ -23,6 +23,10 @@ export interface TextInsertTextOptions {
   voids?: boolean
 }
 
+export interface TextRemoveTextOptions {
+  at?: { path: number[]; offset: number }
+}
+
 export interface TextTransforms {
   /**
    * Delete content in the editor.
@@ -48,6 +52,15 @@ export interface TextTransforms {
     text: string,
     options?: TextInsertTextOptions
   ) => void
+
+  /**
+   * Remove a string of text at a point or the current selection anchor.
+   */
+  removeText: (
+    editor: Editor,
+    text: string,
+    options?: TextRemoveTextOptions
+  ) => void
 }
 
 // eslint-disable-next-line no-redeclare
@@ -63,8 +76,31 @@ export const TextTransforms: TextTransforms = {
     text: string,
     options: TextInsertTextOptions = {}
   ): void {
+    const { voids = false } = options
+    const defaultAt = options.at ?? getDefaultInsertLocation(editor)
+    const preflightAt = (() => {
+      if (Location.isPath(defaultAt)) {
+        return Editor.range(editor, defaultAt)
+      }
+
+      if (Location.isRange(defaultAt) && Range.isCollapsed(defaultAt)) {
+        return defaultAt.anchor
+      }
+
+      return defaultAt
+    })()
+
+    if (
+      Location.isPoint(preflightAt) &&
+      ((!voids && Editor.void(editor, { at: preflightAt })) ||
+        Editor.elementReadOnly(editor, { at: preflightAt }))
+    ) {
+      return
+    }
+
     Editor.withoutNormalizing(editor, () => {
-      const { voids = false } = options
+      const preserveNullSelection =
+        options.at != null && editor.selection == null
       let { at = getDefaultInsertLocation(editor) } = options
 
       if (Location.isPath(at)) {
@@ -87,7 +123,12 @@ export const TextTransforms: TextTransforms = {
           const endPoint = endRef.unref()
 
           at = startPoint || endPoint!
-          Transforms.setSelection(editor, { anchor: at, focus: at })
+
+          if (options.at == null) {
+            Transforms.setSelection(editor, { anchor: at, focus: at })
+          } else if (preserveNullSelection) {
+            Transforms.deselect(editor)
+          }
         }
       }
 
@@ -101,6 +142,26 @@ export const TextTransforms: TextTransforms = {
       const { path, offset } = at
       if (text.length > 0)
         editor.apply({ type: 'insert_text', path, offset, text })
+    })
+  },
+  removeText(
+    editor: Editor,
+    text: string,
+    options: TextRemoveTextOptions = {}
+  ) {
+    const point = options.at ?? Editor.getSnapshot(editor).selection?.anchor
+
+    if (!point) {
+      throw new Error(
+        'removeText requires a location when the editor has no selection'
+      )
+    }
+
+    editor.apply({
+      type: 'remove_text',
+      path: point.path,
+      offset: point.offset,
+      text,
     })
   },
 }

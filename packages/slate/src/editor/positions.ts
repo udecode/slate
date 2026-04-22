@@ -1,220 +1,244 @@
+import { getCurrentSelection } from '../core/public-state'
 import { Editor, type EditorPositionsOptions } from '../interfaces/editor'
 import { Node } from '../interfaces/node'
 import { Path } from '../interfaces/path'
 import type { Point } from '../interfaces/point'
 import { Range } from '../interfaces/range'
-import {
-  getCharacterDistance,
-  getWordDistance,
-  splitByCharacterDistance,
-} from '../utils/string'
+import { projectRangeInSnapshot } from '../range-projection'
+import { getCharacterDistance, getWordDistance } from '../utils/string'
+
+type PositionSegment = {
+  path: Path
+  start: number
+  end: number
+  text: string
+}
+
+const comparePoints = (left: Point, right: Point) => {
+  const pathComparison = Path.compare(left.path, right.path)
+
+  if (pathComparison !== 0) {
+    return pathComparison
+  }
+
+  if (left.offset === right.offset) {
+    return 0
+  }
+
+  return left.offset < right.offset ? -1 : 1
+}
+
+const isPathInsideVoid = (editor: Editor, path: Path) => {
+  for (let depth = path.length - 1; depth > 0; depth -= 1) {
+    const [ancestor] = Editor.node(editor, path.slice(0, depth))
+
+    if (Node.isElement(ancestor) && editor.isVoid(ancestor)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+const getPositionSegments = (editor: Editor, range: Range): PositionSegment[] =>
+  projectRangeInSnapshot(Editor.getSnapshot(editor), range).map((segment) => ({
+    path: segment.path,
+    start: segment.start,
+    end: segment.end,
+    text: Editor.string(editor, segment.path).slice(segment.start, segment.end),
+  }))
+
+const mapLogicalOffsetToPoint = (
+  segments: PositionSegment[],
+  logicalOffset: number,
+  boundary: 'backward' | 'forward' = 'backward'
+): Point => {
+  let consumed = 0
+
+  for (const segment of segments) {
+    const length = segment.text.length
+    const end = consumed + length
+
+    if (logicalOffset < end) {
+      return {
+        path: segment.path,
+        offset: segment.start + (logicalOffset - consumed),
+      }
+    }
+
+    if (logicalOffset === end) {
+      if (segment === segments.at(-1) || boundary === 'backward') {
+        return {
+          path: segment.path,
+          offset: segment.end,
+        }
+      }
+
+      const next = segments[segments.indexOf(segment) + 1]!
+
+      return {
+        path: next.path,
+        offset: next.start,
+      }
+    }
+
+    consumed = end
+  }
+
+  const last = segments.at(-1)
+
+  if (!last) {
+    throw new Error('Cannot map a logical offset without text segments')
+  }
+
+  return {
+    path: last.path,
+    offset: last.end,
+  }
+}
+
+const groupPositionSegmentsByBlock = (segments: PositionSegment[]) => {
+  const groups: PositionSegment[][] = []
+
+  for (const segment of segments) {
+    const blockIndex = segment.path[0]
+    const lastGroup = groups.at(-1)
+
+    if (!lastGroup || lastGroup[0]?.path[0] !== blockIndex) {
+      groups.push([segment])
+      continue
+    }
+
+    lastGroup.push(segment)
+  }
+
+  return groups
+}
+
+const collectBlockBoundaryPoints = (
+  segments: PositionSegment[],
+  reverse = false
+): Point[] => {
+  const points: Point[] = []
+  const groups = new Map<number, PositionSegment[]>()
+
+  segments.forEach((segment) => {
+    const blockIndex = segment.path[0] ?? 0
+    const group = groups.get(blockIndex) ?? []
+    group.push(segment)
+    groups.set(blockIndex, group)
+  })
+
+  const ordered = Array.from(groups.entries()).sort((left, right) =>
+    reverse ? right[0] - left[0] : left[0] - right[0]
+  )
+
+  ordered.forEach(([, group]) => {
+    const first = group[0]
+    const last = group.at(-1)
+
+    if (!first || !last) {
+      return
+    }
+
+    const blockPoints = reverse
+      ? [
+          { path: last.path, offset: last.end },
+          { path: first.path, offset: first.start },
+        ]
+      : [
+          { path: first.path, offset: first.start },
+          { path: last.path, offset: last.end },
+        ]
+
+    blockPoints.forEach((point) => {
+      const previous = points.at(-1)
+
+      if (!previous || comparePoints(previous, point) !== 0) {
+        points.push(point)
+      }
+    })
+  })
+
+  return points
+}
 
 export function* positions(
   editor: Editor,
   options: EditorPositionsOptions = {}
 ): Generator<Point, void, undefined> {
   const {
-    at = editor.selection,
+    at = getCurrentSelection(editor) ?? [],
     unit = 'offset',
     reverse = false,
     voids = false,
   } = options
 
-  if (!at) {
+  const range = Editor.range(editor, at)
+  const [start, end] = Range.edges(range)
+
+  if (comparePoints(start, end) === 0) {
+    yield { path: [...start.path], offset: start.offset }
     return
   }
 
-  /**
-   * Algorithm notes:
-   *
-   * Each step `distance` is dynamic depending on the underlying text
-   * and the `unit` specified.  Each step, e.g., a line or word, may
-   * span multiple text nodes, so we iterate through the text both on
-   * two levels in step-sync:
-   *
-   * `leafText` stores the text on a text leaf level, and is advanced
-   * through using the counters `leafTextOffset` and `leafTextRemaining`.
-   *
-   * `blockText` stores the text on a block level, and is shortened
-   * by `distance` every time it is advanced.
-   *
-   * We only maintain a window of one blockText and one leafText because
-   * a block node always appears before all of its leaf nodes.
-   */
+  const segments = getPositionSegments(editor, range)
+    .filter((segment) => segment.end >= segment.start)
+    .filter((segment) => voids || !isPathInsideVoid(editor, segment.path))
 
-  const range = Editor.range(editor, at)
-  const [start, end] = Range.edges(range)
-  const first = reverse ? end : start
-  let isNewBlock = false
-  let blockText = ''
-  let distance = 0 // Distance for leafText to catch up to blockText.
-  let leafTextRemaining = 0
-  let leafTextOffset = 0
-  const skippedPaths: Path[] = []
-
-  // Iterate through all nodes in range, grabbing entire textual content
-  // of block nodes in blockText, and text nodes in leafText.
-  // Exploits the fact that nodes are sequenced in such a way that we first
-  // encounter the block node, then all of its text nodes, so when iterating
-  // through the blockText and leafText we just need to remember a window of
-  // one block node and leaf node, respectively.
-  for (const [node, path] of Editor.nodes(editor, {
-    at,
-    reverse,
-    voids,
-  })) {
-    // If the node is inside a skipped ancestor, do not return any points, but
-    // still process its content so that the iteration state remains correct.
-    const hasSkippedAncestor = skippedPaths.some((p) =>
-      Path.isAncestor(p, path)
-    )
-
-    function* maybeYield(point: Point) {
-      if (!hasSkippedAncestor) {
-        yield point
-      }
-    }
-
-    /*
-     * ELEMENT NODE - Yield position(s) for voids, collect blockText for blocks
-     */
-    if (Node.isElement(node)) {
-      if (!editor.isSelectable(node)) {
-        /**
-         * If the node is not selectable, skip it and its descendants
-         */
-        skippedPaths.push(path)
-        if (reverse) {
-          if (Path.hasPrevious(path)) {
-            yield* maybeYield(Editor.end(editor, Path.previous(path)))
-          }
-          continue
-        }
-        const nextPath = Path.next(path)
-        if (Editor.hasPath(editor, nextPath)) {
-          yield* maybeYield(Editor.start(editor, nextPath))
-        }
-        continue
-      }
-
-      // Void nodes are a special case, so by default we will always
-      // yield their first point. If the `voids` option is set to true,
-      // then we will iterate over their content.
-      if (!voids && (editor.isVoid(node) || editor.isElementReadOnly(node))) {
-        yield* maybeYield(Editor.start(editor, path))
-        continue
-      }
-
-      // Inline element nodes are ignored as they don't themselves
-      // contribute to `blockText` or `leafText` - their parent and
-      // children do.
-      if (editor.isInline(node)) continue
-
-      // Block element node - set `blockText` to its text content.
-      if (Editor.hasInlines(editor, node)) {
-        // We always exhaust block nodes before encountering a new one:
-        //   console.assert(blockText === '',
-        //     `blockText='${blockText}' - `+
-        //     `not exhausted before new block node`, path)
-
-        // Ensure range considered is capped to `range`, in the
-        // start/end edge cases where block extends beyond range.
-        // Equivalent to this, but presumably more performant:
-        //   blockRange = Editor.range(editor, ...Editor.edges(editor, path))
-        //   blockRange = Range.intersection(range, blockRange) // intersect
-        //   blockText = Editor.string(editor, blockRange, { voids })
-        const e = Path.isAncestor(path, end.path)
-          ? end
-          : Editor.end(editor, path)
-        const s = Path.isAncestor(path, start.path)
-          ? start
-          : Editor.start(editor, path)
-
-        blockText = Editor.string(editor, { anchor: s, focus: e }, { voids })
-        isNewBlock = true
-      }
-    }
-
-    /*
-     * TEXT LEAF NODE - Iterate through text content, yielding
-     * positions every `distance` offset according to `unit`.
-     */
-    if (Node.isText(node)) {
-      const isFirst = Path.equals(path, first.path)
-
-      // Proof that we always exhaust text nodes before encountering a new one:
-      //   console.assert(leafTextRemaining <= 0,
-      //     `leafTextRemaining=${leafTextRemaining} - `+
-      //     `not exhausted before new leaf text node`, path)
-
-      // Reset `leafText` counters for new text node.
-      if (isFirst) {
-        leafTextRemaining = reverse
-          ? first.offset
-          : node.text.length - first.offset
-        leafTextOffset = first.offset // Works for reverse too.
-      } else {
-        leafTextRemaining = node.text.length
-        leafTextOffset = reverse ? leafTextRemaining : 0
-      }
-
-      // Yield position at the start of node (potentially).
-      if (isFirst || isNewBlock || unit === 'offset') {
-        yield* maybeYield({ path, offset: leafTextOffset })
-        isNewBlock = false
-      }
-
-      // Yield positions every (dynamically calculated) `distance` offset.
-      while (true) {
-        // If `leafText` has caught up with `blockText` (distance=0),
-        // and if blockText is exhausted, break to get another block node,
-        // otherwise advance blockText forward by the new `distance`.
-        if (distance === 0) {
-          if (blockText === '') break
-          distance = calcDistance(blockText, unit, reverse)
-          // Split the string at the previously found distance and use the
-          // remaining string for the next iteration.
-          blockText = splitByCharacterDistance(blockText, distance, reverse)[1]
-        }
-
-        // Advance `leafText` by the current `distance`.
-        leafTextOffset = reverse
-          ? leafTextOffset - distance
-          : leafTextOffset + distance
-        leafTextRemaining -= distance
-
-        // If `leafText` is exhausted, break to get a new leaf node
-        // and set distance to the overflow amount, so we'll (maybe)
-        // catch up to blockText in the next leaf text node.
-        if (leafTextRemaining < 0) {
-          distance = -leafTextRemaining
-          break
-        }
-
-        // Successfully walked `distance` offsets through `leafText`
-        // to catch up with `blockText`, so we can reset `distance`
-        // and yield this position in this node.
-        distance = 0
-        yield* maybeYield({ path, offset: leafTextOffset })
-      }
-    }
+  if (segments.length === 0) {
+    return
   }
-  // Proof that upon completion, we've exahusted both leaf and block text:
-  //   console.assert(leafTextRemaining <= 0, "leafText wasn't exhausted")
-  //   console.assert(blockText === '', "blockText wasn't exhausted")
 
-  // Helper:
-  // Return the distance in offsets for a step of size `unit` on given string.
-  function calcDistance(text: string, unit: string, reverse?: boolean) {
-    if (unit === 'character') {
-      return getCharacterDistance(text, reverse)
+  if (unit === 'block' || unit === 'line') {
+    yield* collectBlockBoundaryPoints(segments, reverse)
+    return
+  }
+
+  if (unit === 'offset') {
+    const orderedSegments = reverse ? [...segments].reverse() : segments
+
+    for (const segment of orderedSegments) {
+      if (reverse) {
+        for (let offset = segment.end; offset >= segment.start; offset -= 1) {
+          yield { path: segment.path, offset }
+        }
+      } else {
+        for (let offset = segment.start; offset <= segment.end; offset += 1) {
+          yield { path: segment.path, offset }
+        }
+      }
     }
-    if (unit === 'word') {
-      return getWordDistance(text, reverse)
+
+    return
+  }
+
+  const orderedGroups = reverse
+    ? groupPositionSegmentsByBlock(segments).reverse()
+    : groupPositionSegmentsByBlock(segments)
+
+  for (const group of orderedGroups) {
+    const text = group.map((segment) => segment.text).join('')
+    const logicalPositions = [reverse ? text.length : 0]
+    let consumed = 0
+
+    while (consumed < text.length) {
+      const remaining = reverse
+        ? text.slice(0, text.length - consumed)
+        : text.slice(consumed)
+      const distance =
+        unit === 'character'
+          ? getCharacterDistance(remaining, reverse)
+          : getWordDistance(remaining, reverse)
+
+      consumed = Math.min(text.length, consumed + distance)
+      logicalPositions.push(reverse ? text.length - consumed : consumed)
     }
-    if (unit === 'line' || unit === 'block') {
-      return text.length
+
+    const boundary = reverse ? 'forward' : 'backward'
+
+    for (const position of logicalPositions) {
+      yield mapLogicalOffsetToPoint(group, position, boundary)
     }
-    return 1
   }
 }

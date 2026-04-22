@@ -7,6 +7,7 @@ import {
   Scrubber,
   type Text,
 } from '../interfaces'
+import { inheritRuntimeId } from './runtime-ids'
 
 export const insertChildren = <T>(
   xs: T[],
@@ -38,6 +39,7 @@ export const modifyDescendant = <N extends Descendant>(
   const node = Node.get(root, path) as N
   const slicedPath = path.slice()
   let modifiedNode: Node = f(node)
+  inheritRuntimeId(modifiedNode, node)
 
   while (slicedPath.length > 1) {
     const index = slicedPath.pop()!
@@ -47,6 +49,7 @@ export const modifyDescendant = <N extends Descendant>(
       ...ancestorNode,
       children: replaceChildren(ancestorNode.children, index, 1, modifiedNode),
     }
+    inheritRuntimeId(modifiedNode, ancestorNode)
   }
 
   const index = slicedPath.pop()!

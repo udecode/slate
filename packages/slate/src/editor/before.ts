@@ -1,4 +1,5 @@
 import { Editor, type EditorInterface } from '../interfaces/editor'
+import { Node } from '../interfaces/node'
 import type { Point } from '../interfaces/point'
 
 export const before: EditorInterface['before'] = (editor, at, options = {}) => {
@@ -14,6 +15,17 @@ export const before: EditorInterface['before'] = (editor, at, options = {}) => {
     at: range,
     reverse: true,
   })) {
+    const insideNonSelectable = Editor.above(editor, {
+      at: p,
+      match: (node) => Node.isElement(node) && !editor.isSelectable(node),
+      mode: 'highest',
+      voids: true,
+    })
+
+    if (insideNonSelectable) {
+      continue
+    }
+
     if (d > distance) {
       break
     }

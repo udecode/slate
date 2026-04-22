@@ -7,6 +7,7 @@ import { createEditor, Editor } from 'slate'
 import { withTest } from './support/with-test.js'
 
 const testsDir = dirname(fileURLToPath(import.meta.url))
+const fixtureFilter = process.env.SLATE_FIXTURE_FILTER?.trim() || null
 
 const isFixtureFile = (file: string) =>
   (file.endsWith('.js') || file.endsWith('.ts') || file.endsWith('.tsx')) &&
@@ -20,7 +21,7 @@ const getFixtureName = (file: string) => file.replace(/\.(tsx|ts|js)$/u, '')
 
 const runFixtureTree = (
   path: string,
-  runFixture: (module: Record<string, any>) => void
+  runFixture: (module: Record<string, any>, fixturePath: string) => void
 ) => {
   describe(basename(path), () => {
     for (const file of readdirSync(path).sort()) {
@@ -33,6 +34,7 @@ const runFixtureTree = (
       }
 
       if (!stat.isFile() || !isFixtureFile(file)) continue
+      if (fixtureFilter && !fixturePath.includes(fixtureFilter)) continue
 
       const name = getFixtureName(file)
       const source = readFileSync(fixturePath, 'utf8')
@@ -45,7 +47,11 @@ const runFixtureTree = (
           pathToFileURL(fixturePath).href
         )) as Record<string, any>
 
-        runFixture(module)
+        if (process.env.SLATE_FIXTURE_DEBUG === '1') {
+          console.log('[fixture]', fixturePath)
+        }
+
+        runFixture(module, fixturePath)
       })
     }
   })
@@ -63,17 +69,28 @@ const withBatchTest = (editor: Editor, dirties: string[]) => {
 }
 
 describe('slate', () => {
-  runFixtureTree(resolve(testsDir, 'interfaces'), (module) => {
+  runFixtureTree(resolve(testsDir, 'interfaces'), (module, fixturePath) => {
     let { input, test, output } = module
 
     if (Editor.isEditor(input)) {
       input = withTest(input)
     }
 
-    assert.deepEqual(test(input), output)
+    const actual = test(input)
+
+    if (process.env.SLATE_FIXTURE_DEBUG === '1') {
+      console.log('[actual]', JSON.stringify(actual))
+      console.log('[expected]', JSON.stringify(output))
+      if (Editor.isEditor(input)) {
+        console.log('[selection]', JSON.stringify(input.selection))
+        console.log('[children]', JSON.stringify(input.children))
+      }
+    }
+
+    assert.deepEqual(actual, output, fixturePath)
   })
 
-  runFixtureTree(resolve(testsDir, 'operations'), (module) => {
+  runFixtureTree(resolve(testsDir, 'operations'), (module, fixturePath) => {
     const { input, operations, output } = module
     const editor = withTest(input)
 
@@ -83,11 +100,11 @@ describe('slate', () => {
       }
     })
 
-    assert.deepEqual(editor.children, output.children)
-    assert.deepEqual(editor.selection, output.selection)
+    assert.deepEqual(editor.children, output.children, fixturePath)
+    assert.deepEqual(editor.selection, output.selection, fixturePath)
   })
 
-  runFixtureTree(resolve(testsDir, 'normalization'), (module) => {
+  runFixtureTree(resolve(testsDir, 'normalization'), (module, fixturePath) => {
     const { input, output, withFallbackElement } = module
     const editor = withTest(input)
 
@@ -101,29 +118,32 @@ describe('slate', () => {
 
     Editor.normalize(editor, { force: true })
 
-    assert.deepEqual(editor.children, output.children)
-    assert.deepEqual(editor.selection, output.selection)
+    assert.deepEqual(editor.children, output.children, fixturePath)
+    assert.deepEqual(editor.selection, output.selection, fixturePath)
   })
 
-  runFixtureTree(resolve(testsDir, 'transforms'), (module) => {
+  runFixtureTree(resolve(testsDir, 'transforms'), (module, fixturePath) => {
     const { input, output, run } = module
     const editor = withTest(input)
 
     run(editor)
 
-    assert.deepEqual(editor.children, output.children)
-    assert.deepEqual(editor.selection, output.selection)
+    assert.deepEqual(editor.children, output.children, fixturePath)
+    assert.deepEqual(editor.selection, output.selection, fixturePath)
   })
 
-  runFixtureTree(resolve(testsDir, 'utils/deep-equal'), (module) => {
-    let { input, test, output } = module
+  runFixtureTree(
+    resolve(testsDir, 'utils/deep-equal'),
+    (module, fixturePath) => {
+      let { input, test, output } = module
 
-    if (Editor.isEditor(input)) {
-      input = withTest(input)
+      if (Editor.isEditor(input)) {
+        input = withTest(input)
+      }
+
+      assert.deepEqual(test(input), output, fixturePath)
     }
-
-    assert.deepEqual(test(input), output)
-  })
+  )
 
   describe('batchDirty', () => {
     const runBatchDirtyTree = (path: string) => {

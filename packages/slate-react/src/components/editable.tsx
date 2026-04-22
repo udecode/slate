@@ -671,6 +671,7 @@ export const Editable = (props: EditableProps) => {
             }
           }
         }
+
         // COMPAT: For the deleting forward/backward input types we don't want
         // to change the selection because it is the range that will be deleted,
         // and those commands determine that for themselves.
@@ -875,7 +876,6 @@ export const Editable = (props: EditableProps) => {
         // not expose the real event on this path.
         node.addEventListener('beforeinput', onDOMBeforeInput)
       }
-
       ref.current = node
       if (typeof forwardedRef === 'function') {
         forwardedRef(node)

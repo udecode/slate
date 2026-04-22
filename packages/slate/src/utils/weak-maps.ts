@@ -1,5 +1,6 @@
 import type { Editor, Path, PathRef, PointRef, RangeRef } from '..'
 
+export const ALL_RANGE_REFS: WeakMap<Editor, Set<RangeRef>> = new WeakMap()
 export const DIRTY_PATHS: WeakMap<Editor, Path[]> = new WeakMap()
 export const DIRTY_PATH_KEYS: WeakMap<Editor, Set<string>> = new WeakMap()
 export const FLUSHING: WeakMap<Editor, boolean> = new WeakMap()

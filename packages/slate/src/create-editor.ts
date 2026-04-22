@@ -2,8 +2,11 @@ import {
   addMark,
   deleteFragment,
   type Editor,
+  getChildren,
   getDirtyPaths,
   getFragment,
+  getSnapshot,
+  initializePublicState,
   insertBreak,
   insertFragment,
   insertNode,
@@ -11,13 +14,18 @@ import {
   insertText,
   normalizeNode,
   removeMark,
+  replaceSnapshot,
+  setChildren,
   shouldNormalize,
+  subscribe,
+  withTransaction,
 } from './'
 import { apply } from './core'
 import {
   above,
   after,
   before,
+  bookmark,
   deleteBackward,
   deleteForward,
   edges,
@@ -53,6 +61,7 @@ import {
   pointRefs,
   positions,
   previous,
+  projectRange,
   range,
   rangeRef,
   rangeRefs,
@@ -95,7 +104,7 @@ export const createEditor = (): Editor => {
     selection: null,
     marks: null,
     isElementReadOnly: () => false,
-    isInline: () => false,
+    isInline: (element) => 'type' in element && element.type === 'link',
     isSelectable: () => true,
     isVoid: () => false,
     markableVoid: () => false,
@@ -106,10 +115,13 @@ export const createEditor = (): Editor => {
 
     // Editor
     addMark: (...args) => addMark(editor, ...args),
+    bookmark: (...args) => bookmark(editor, ...args),
     deleteBackward: (...args) => deleteBackward(editor, ...args),
     deleteForward: (...args) => deleteForward(editor, ...args),
     deleteFragment: (...args) => deleteFragment(editor, ...args),
+    getChildren: (...args) => getChildren(editor, ...args),
     getFragment: (...args) => getFragment(editor, ...args),
+    getSnapshot: (...args) => getSnapshot(editor, ...args),
     insertBreak: (...args) => insertBreak(editor, ...args),
     insertSoftBreak: (...args) => insertSoftBreak(editor, ...args),
     insertFragment: (...args) => insertFragment(editor, ...args),
@@ -164,11 +176,15 @@ export const createEditor = (): Editor => {
     pointRefs: (...args) => pointRefs(editor, ...args),
     positions: (...args) => positions(editor, ...args),
     previous: (...args) => previous(editor, ...args),
+    projectRange: (...args) => projectRange(editor, ...args),
     range: (...args) => range(editor, ...args),
     rangeRef: (...args) => rangeRef(editor, ...args),
     rangeRefs: (...args) => rangeRefs(editor, ...args),
     removeNodes: (...args) => removeNodes(editor, ...args),
     select: (...args) => select(editor, ...args),
+    replace: (...args) => replaceSnapshot(editor, ...args),
+    reset: (...args) => replaceSnapshot(editor, ...args),
+    setChildren: (...args) => setChildren(editor, ...args),
     setNodes: (...args) => setNodes(editor, ...args),
     setNormalizing: (...args) => setNormalizing(editor, ...args),
     setPoint: (...args) => setPoint(editor, ...args),
@@ -176,15 +192,19 @@ export const createEditor = (): Editor => {
     splitNodes: (...args) => splitNodes(editor, ...args),
     start: (...args) => start(editor, ...args),
     string: (...args) => string(editor, ...args),
+    subscribe: (...args) => subscribe(editor, ...args),
     unhangRange: (...args) => unhangRange(editor, ...args),
     unsetNodes: (...args) => unsetNodes(editor, ...args),
     unwrapNodes: (...args) => unwrapNodes(editor, ...args),
     void: (...args) => getVoid(editor, ...args),
     withoutNormalizing: (...args) => withoutNormalizing(editor, ...args),
+    withTransaction: (...args) => withTransaction(editor, ...args),
     wrapNodes: (...args) => wrapNodes(editor, ...args),
     shouldMergeNodesRemovePrevNode: (...args) =>
       shouldMergeNodesRemovePrevNode(editor, ...args),
   }
+
+  initializePublicState(editor)
 
   return editor
 }
