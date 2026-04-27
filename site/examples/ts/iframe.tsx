@@ -2,7 +2,7 @@ import isHotkey from 'is-hotkey'
 import type React from 'react'
 import { type PointerEvent, useCallback, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { createEditor, type Descendant, Editor } from 'slate'
+import { createEditor, Editor } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -15,7 +15,7 @@ import {
 } from 'slate-react'
 
 import { Button, Icon, Toolbar } from './components'
-import type { CustomEditor, CustomTextKey } from './custom-types.d'
+import type { CustomEditor, CustomTextKey, CustomValue } from './custom-types.d'
 
 const HOTKEYS: Record<string, CustomTextKey> = {
   'mod+b': 'bold',
@@ -36,7 +36,7 @@ const IFrameExample = () => {
     []
   )
   const editor = useMemo(
-    () => withHistory(withReact(createEditor())) as CustomEditor,
+    () => withHistory(withReact(createEditor<CustomValue>())) as CustomEditor,
     []
   )
 
@@ -112,7 +112,7 @@ interface MarkButtonProps {
 }
 
 const MarkButton = ({ format, icon }: MarkButtonProps) => {
-  const editor = useSlate()
+  const editor = useSlate<CustomEditor>()
   return (
     <Button
       active={isMarkActive(editor, format)}
@@ -144,7 +144,7 @@ const IFrame = ({ children, ...props }: IFrameProps) => {
   )
 }
 
-const initialValue: Descendant[] = [
+const initialValue: CustomValue = [
   {
     type: 'paragraph',
     children: [

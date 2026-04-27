@@ -1,21 +1,23 @@
 import { expect, test } from '@playwright/test'
 
+import { openExample } from 'slate-browser/playwright'
+
 test.describe('markdown preview', () => {
-  const slateEditor = 'div[data-slate-editor="true"]'
-
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/examples/markdown-preview')
-  })
-
   test('checks for markdown', async ({ page }) => {
     const insertedHeading = '## Added markdown heading'
 
-    await page.locator(slateEditor).click()
-    await page.keyboard.press('End')
-    await page.keyboard.press('Enter')
-    await page.keyboard.type(insertedHeading)
-    await page.keyboard.press('Enter')
+    const editor = await openExample(page, 'markdown-preview', {
+      ready: {
+        editor: 'visible',
+        text: /Try it out for yourself!/,
+      },
+    })
 
-    await expect(page.locator(slateEditor)).toContainText(insertedHeading)
+    await editor.selection.collapse({ path: [2, 0], offset: 24 })
+    await editor.insertBreak()
+    await editor.insertText(insertedHeading)
+    await editor.insertBreak()
+
+    await expect(editor.root).toContainText(insertedHeading)
   })
 })

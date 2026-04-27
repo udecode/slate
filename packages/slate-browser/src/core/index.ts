@@ -18,6 +18,20 @@ export {
   parseDebugSnapshot as parseDebugSnapshotProof,
 } from './proof'
 export {
+  assertSlateBrowserReleaseProof,
+  createBrowserMobileReleaseProofArtifact,
+  createPersistentBrowserSoakProofArtifact,
+  createReleaseDisciplineProofArtifact,
+  SLATE_BROWSER_RELEASE_DISCIPLINE_GUARDS,
+  type SlateBrowserMobileDeviceProofArtifact,
+  type SlateBrowserPersistentSoakProofArtifact,
+  type SlateBrowserReleaseClaim,
+  type SlateBrowserReleaseDisciplineProofArtifact,
+  type SlateBrowserReleaseProofArtifact,
+  type SlateBrowserReleaseProofResult,
+  validateSlateBrowserReleaseProof,
+} from './release-proof'
+export {
   isCollapsed,
   type Path,
   type Point,

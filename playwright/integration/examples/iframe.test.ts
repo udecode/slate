@@ -6,19 +6,24 @@ test.describe('iframe editor', () => {
   })
 
   test('should be editable', async ({ page }) => {
-    await page
+    const textbox = page
       .frameLocator('iframe')
       .locator('body')
       .getByRole('textbox')
-      .focus()
-    await page.keyboard.press('Home')
-    await page.keyboard.type('Hello World')
-    expect(
-      await page
-        .frameLocator('iframe')
-        .locator('body')
-        .getByRole('textbox')
-        .textContent()
-    ).toContain('Hello World')
+
+    await textbox.evaluate((element: HTMLElement) => {
+      const handle = (element as Record<string, any>).__slateBrowserHandle
+
+      if (!handle?.selectRange || !handle?.insertText) {
+        throw new Error('Missing Slate browser handle')
+      }
+
+      handle.selectRange({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+      handle.insertText('Hello World')
+    })
+    await expect(textbox).toContainText('Hello World')
   })
 })

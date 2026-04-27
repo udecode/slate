@@ -1,6 +1,6 @@
 import { css } from '@emotion/css'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { createEditor, type Descendant } from 'slate'
+import { createEditor, type Value } from 'slate'
 import { withHistory } from 'slate-history'
 import { Editable, type RenderLeafProps, Slate, withReact } from 'slate-react'
 
@@ -8,7 +8,7 @@ interface AndroidTestCase {
   id: string
   name: string
   instructions: string
-  value: Descendant[]
+  value: Value
 }
 
 const TEST_CASES: AndroidTestCase[] = [

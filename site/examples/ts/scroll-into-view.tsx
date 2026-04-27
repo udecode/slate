@@ -1,7 +1,7 @@
 import { css } from '@emotion/css'
 import range from 'lodash/range'
 import { useMemo } from 'react'
-import { createEditor, type Descendant } from 'slate'
+import { createEditor, type Value } from 'slate'
 import { withHistory } from 'slate-history'
 import { Editable, Slate, withReact } from 'slate-react'
 
@@ -57,7 +57,7 @@ const PlainTextEditor = () => {
   )
 }
 
-const initialValue: Descendant[] = range(5).map(() => ({
+const initialValue: Value = range(5).map(() => ({
   type: 'paragraph',
   children: [
     {

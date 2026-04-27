@@ -1,3 +1,7 @@
 {
-  "extends": "./tsconfig.build.json"
+  "extends": "../../config/typescript/tsconfig.json",
+  "include": ["src/**/*"],
+  "compilerOptions": {
+    "types": ["node"]
+  }
 }

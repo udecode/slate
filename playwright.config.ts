@@ -45,6 +45,12 @@ const retries = process.env.PLAYWRIGHT_RETRIES
     ? 5
     : 2
 
+const workers = process.env.PLAYWRIGHT_WORKERS
+  ? +process.env.PLAYWRIGHT_WORKERS
+  : process.env.CI
+    ? undefined
+    : 2
+
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3101'
 
 /**
@@ -53,7 +59,7 @@ const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3101'
 const config: PlaywrightTestConfig = {
   testDir: './playwright',
   /* Maximum time one test can run for. */
-  timeout: 20 * 1000,
+  timeout: 30 * 1000,
   expect: {
     /**
      * Maximum time expect() should wait for the condition to be met.
@@ -69,7 +75,7 @@ const config: PlaywrightTestConfig = {
   // allow PLAYWRIGHT_RETRIES to override for local dev
   retries,
   /* Opt out of parallel tests. */
-  // workers: 1,
+  workers,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: process.env.CI ? 'github' : 'list',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */

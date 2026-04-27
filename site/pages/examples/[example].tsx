@@ -27,6 +27,8 @@ const EXAMPLE_IMPORTERS: Record<
   'highlighted-text': () => import('../../examples/ts/highlighted-text'),
   'hovering-toolbar': () => import('../../examples/ts/hovering-toolbar'),
   'huge-document': () => import('../../examples/ts/huge-document'),
+  'large-document-runtime': () =>
+    import('../../examples/ts/large-document-runtime'),
   images: () => import('../../examples/ts/images'),
   inlines: () => import('../../examples/ts/inlines'),
   'markdown-preview': () => import('../../examples/ts/markdown-preview'),
@@ -40,6 +42,7 @@ const EXAMPLE_IMPORTERS: Record<
   'review-comments': () => import('../../examples/ts/review-comments'),
   iframe: () => import('../../examples/ts/iframe'),
   richtext: () => import('../../examples/ts/richtext'),
+  'scroll-into-view': () => import('../../examples/ts/scroll-into-view'),
   'search-highlighting': () => import('../../examples/ts/search-highlighting'),
   'shadow-dom': () => import('../../examples/ts/shadow-dom'),
   styling: () => import('../../examples/ts/styling'),

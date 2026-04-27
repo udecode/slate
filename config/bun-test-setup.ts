@@ -1,4 +1,4 @@
-import { afterEach, mock as bunMock, expect, mock, spyOn } from 'bun:test'
+import { afterEach, expect, mock, spyOn } from 'bun:test'
 import { dirname, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TextEncoder } from 'node:util'
@@ -35,8 +35,6 @@ const getInjectedJsxImport = (path: string) => {
 
   return `import { jsx } from '${specifier}'\n`
 }
-const importWorkspaceModule = (specifier: string) => import(specifier)
-
 Bun.plugin({
   name: 'legacy-hsx-fixtures',
   setup(build) {
@@ -54,22 +52,6 @@ Bun.plugin({
     })
   },
 })
-
-bunMock.module('slate', () =>
-  importWorkspaceModule('../packages/slate/src/index')
-)
-bunMock.module('slate-dom', () =>
-  importWorkspaceModule('../packages/slate-dom/src/index')
-)
-bunMock.module('slate-history', () =>
-  importWorkspaceModule('../packages/slate-history/src/index')
-)
-bunMock.module('slate-hyperscript', () =>
-  importWorkspaceModule('../packages/slate-hyperscript/src/index')
-)
-bunMock.module('slate-react', () =>
-  importWorkspaceModule('../packages/slate-react/src/index')
-)
 
 GlobalRegistrator.register({
   settings: {

@@ -1,7 +1,13 @@
 {
   "extends": "./config/typescript/tsconfig.json",
   "include": ["./**/*.ts", "./**/*.tsx", "./**/*.mts", "./**/*.cts"],
-  "exclude": ["./node_modules", "./packages", "./site"],
+  "exclude": [
+    "./node_modules",
+    "./packages",
+    "./site",
+    "./scripts/benchmarks",
+    "./tmp"
+  ],
   "compilerOptions": {
     "composite": false,
     "lib": ["DOM", "DOM.Iterable", "ESNext"],
@@ -11,12 +17,5 @@
     "skipLibCheck": true,
     "types": ["bun-types", "bun-types/test-globals", "node"]
   },
-  "references": [
-    { "path": "./packages/slate" },
-    { "path": "./packages/slate-browser" },
-    { "path": "./packages/slate-dom" },
-    { "path": "./packages/slate-history" },
-    { "path": "./packages/slate-hyperscript" },
-    { "path": "./packages/slate-react" }
-  ]
+  "references": []
 }

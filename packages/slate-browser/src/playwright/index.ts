@@ -1,6 +1,13 @@
-import { unlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 
-import { expect, type Frame, type Locator, type Page } from '@playwright/test'
+import {
+  type ConsoleMessage,
+  expect,
+  type Frame,
+  type Locator,
+  type Page,
+} from '@playwright/test'
 
 import type { PlaceholderShape } from '../browser/zero-width'
 import {
@@ -9,8 +16,20 @@ import {
   enableCompositionKeyEvents,
 } from './ime'
 
-const baseUrl = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000'
+const baseUrl = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3101'
 const READY_TIMEOUT_MS = 20_000
+const DEFAULT_RUNTIME_ERROR_PATTERNS = [
+  'Unable to find the path for Slate node',
+  'Cannot resolve a Slate node',
+  'Cannot resolve a DOM point',
+  'Cannot resolve a DOM range',
+]
+
+export type SlateBrowserRuntimeErrorRecorder = {
+  assertNone: () => void
+  errors: string[]
+  stop: () => void
+}
 
 export type SelectionSnapshot = {
   anchor: { path: number[]; offset: number }
@@ -24,6 +43,13 @@ export type DOMSelectionSnapshot = {
   focusOffset: number
 }
 
+export type DOMSelectionLocationSnapshot = {
+  anchorOffset: number | null
+  anchorPath: number[] | null
+  anchorText: string | null
+  isCollapsed: boolean | null
+}
+
 export type ClipboardPayloadSnapshot = {
   html: string | null
   text: string
@@ -35,6 +61,254 @@ export type SelectionRectSnapshot = {
   y: number
   width: number
   height: number
+}
+
+export type FocusOwnerSnapshot = {
+  isContentEditable: boolean
+  kind: 'contenteditable' | 'editor' | 'internal-control' | 'none' | 'outside'
+  role: string | null
+  tagName: string | null
+  testId: string | null
+}
+
+export type SlateBrowserZeroWidthNodeShape = {
+  hasBr: boolean
+  hasFEFF: boolean
+  html: string
+  index: number
+  kind: string | null
+  length: string | null
+  textContent: string
+}
+
+export type RenderedBlockDOMShapeSnapshot = {
+  index: number
+  innerText: string
+  lineBoxCount: number
+  textContent: string
+  unexpectedZeroWidthBreaks: SlateBrowserZeroWidthNodeShape[]
+  zeroWidthNodes: SlateBrowserZeroWidthNodeShape[]
+}
+
+export type RenderedDOMShapeExpectation = {
+  blockIndex?: number
+  domSelectionTarget?: Partial<DOMSelectionLocationSnapshot>
+  innerText?: string
+  lineBoxCount?:
+    | number
+    | {
+        max?: number
+        min?: number
+      }
+  noUnexpectedZeroWidthBreaks?: boolean
+  textContent?: string
+  zeroWidthBreakCount?: number
+  zeroWidthCount?: number
+}
+
+export type SlateBrowserKernelEventFamily =
+  | 'beforeinput'
+  | 'blur'
+  | 'click'
+  | 'compositionend'
+  | 'compositionstart'
+  | 'compositionupdate'
+  | 'copy'
+  | 'cut'
+  | 'dragend'
+  | 'dragover'
+  | 'dragstart'
+  | 'drop'
+  | 'focus'
+  | 'input'
+  | 'keydown'
+  | 'mousedown'
+  | 'paste'
+  | 'repair'
+  | 'selectionchange'
+
+export type SlateBrowserKernelState =
+  | 'app-owned'
+  | 'clipboard'
+  | 'composition'
+  | 'dom-selection'
+  | 'dragging'
+  | 'idle'
+  | 'internal-control'
+  | 'model-owned'
+  | 'repairing'
+  | 'shell-backed'
+
+export type SlateBrowserKernelTargetOwner =
+  | 'app-owned'
+  | 'editor'
+  | 'internal-control'
+  | 'outside-editor'
+  | 'shell'
+  | 'unknown'
+
+export type SlateBrowserKernelOwnership =
+  | 'app-owned'
+  | 'deferred'
+  | 'model-owned'
+  | 'native-allowed'
+  | 'native-denied'
+  | 'no-op'
+
+export type SlateBrowserKernelSelectionSource =
+  | 'app-owned'
+  | 'composition-owned'
+  | 'dom-current'
+  | 'internal-control'
+  | 'model-owned'
+  | 'shell-backed'
+  | 'unknown'
+
+export type SlateBrowserKernelSelectionChangeOrigin =
+  | 'browser-handle'
+  | 'native-user'
+  | 'programmatic-export'
+  | 'repair-induced'
+  | 'unknown'
+
+export type SlateBrowserKernelCommand =
+  | {
+      direction: 'backward' | 'forward'
+      kind: 'delete'
+      unit?: 'block' | 'line' | 'word'
+    }
+  | { kind: 'delete-both'; unit: 'line' }
+  | { direction?: 'backward' | 'forward'; kind: 'delete-fragment' }
+  | { direction: 'redo' | 'undo'; kind: 'history' }
+  | { kind: 'insert-break'; variant: 'paragraph' | 'soft' }
+  | { data?: unknown; kind: 'insert-data' }
+  | { inputType?: string; kind: 'insert-text'; text: string }
+  | {
+      axis: 'horizontal' | 'line' | 'word'
+      extend?: boolean
+      kind: 'move-selection'
+      reverse?: boolean
+    }
+  | { kind: 'select'; selection: SelectionSnapshot }
+  | { kind: 'select-all' }
+  | { blockType: string; kind: 'set-block'; wrap?: string }
+  | { kind: 'toggle-mark'; mark: string }
+
+export type SlateBrowserKernelMovementOwnershipTrace = {
+  axis: 'horizontal' | 'line' | 'unknown' | 'vertical' | 'word'
+  extend: boolean
+  key: string
+  ownership: Extract<
+    SlateBrowserKernelOwnership,
+    'model-owned' | 'native-allowed'
+  >
+  reason:
+    | 'model-horizontal-inline-void-compat'
+    | 'model-line-browser-compat'
+    | 'model-word-boundary-compat'
+    | 'native-selection-key'
+    | 'native-vertical-layout'
+  reverse: boolean | null
+}
+
+export type SlateBrowserKernelSelectionPolicy = {
+  kind:
+    | 'clear'
+    | 'export-model'
+    | 'import-dom'
+    | 'none'
+    | 'preserve-model'
+    | 'shell'
+  reason:
+    | 'internal-control'
+    | 'model-owned'
+    | 'native-selection'
+    | 'not-requested'
+    | 'selection-clear'
+    | 'shell-backed'
+    | 'unknown-selection'
+}
+
+export type SlateBrowserKernelRepairPolicy = {
+  kind:
+    | 'force-render'
+    | 'none'
+    | 'repair-caret'
+    | 'repair-text'
+    | 'sync-selection'
+  reason:
+    | 'force-render'
+    | 'not-requested'
+    | 'repair-caret'
+    | 'repair-caret-after-text-insert'
+    | 'repair-text'
+    | 'sync-selection'
+}
+
+export type SlateBrowserKernelTransition = {
+  allowed: boolean
+  reason: string | null
+}
+
+export type SlateBrowserKernelOperation = {
+  type: string
+  [key: string]: unknown
+}
+
+export type SlateBrowserKernelRepairRequest = {
+  kind: string
+  [key: string]: unknown
+}
+
+export type SlateBrowserKernelEventFrame = {
+  active: boolean
+  eventFamily: SlateBrowserKernelEventFamily
+  focusOwner: SlateBrowserKernelTargetOwner
+  id: number
+  inputIntent: string | null
+  modelSelectionBefore: SelectionSnapshot | null
+  selectionSource: SlateBrowserKernelSelectionSource
+  startedAt: number
+  targetOwner: SlateBrowserKernelTargetOwner
+}
+
+export type SlateBrowserKernelTraceEntry = {
+  command: SlateBrowserKernelCommand | null
+  epochId: number | null
+  eventFamily: SlateBrowserKernelEventFamily
+  frame: SlateBrowserKernelEventFrame | null
+  frameId: number | null
+  intent: string | null
+  movement: SlateBrowserKernelMovementOwnershipTrace | null
+  nativeAllowed: boolean
+  operations: readonly SlateBrowserKernelOperation[]
+  ownership: SlateBrowserKernelOwnership
+  repair: SlateBrowserKernelRepairRequest | null
+  repairPolicy: SlateBrowserKernelRepairPolicy
+  selectionChangeOrigin: SlateBrowserKernelSelectionChangeOrigin
+  selectionAfter: SelectionSnapshot | null
+  selectionBefore: SelectionSnapshot | null
+  selectionPolicy: SlateBrowserKernelSelectionPolicy
+  selectionSource: SlateBrowserKernelSelectionSource
+  stateAfter: SlateBrowserKernelState
+  stateBefore: SlateBrowserKernelState
+  targetOwner: SlateBrowserKernelTargetOwner
+  transition: SlateBrowserKernelTransition
+}
+
+export type SlateBrowserKernelTraceExpectation = {
+  commandKind?: SlateBrowserKernelCommand['kind'] | null
+  eventFamily?: SlateBrowserKernelEventFamily
+  movement?: Partial<SlateBrowserKernelMovementOwnershipTrace> | null
+  ownership?: SlateBrowserKernelOwnership
+  repairPolicy?: Partial<SlateBrowserKernelRepairPolicy>
+  selectionChangeOrigin?: SlateBrowserKernelSelectionChangeOrigin
+  selectionPolicy?: Partial<SlateBrowserKernelSelectionPolicy>
+  selectionSource?: SlateBrowserKernelSelectionSource
+  stateAfter?: SlateBrowserKernelState
+  stateBefore?: SlateBrowserKernelState
+  targetOwner?: SlateBrowserKernelTargetOwner
+  transition?: Partial<SlateBrowserKernelTransition>
 }
 
 export type SelectionPoint = SelectionSnapshot['anchor']
@@ -94,10 +368,1920 @@ export type OpenExampleOptions = {
 export type EditorSnapshot = {
   text: string
   blockTexts: string[]
+  renderedBlocks: RenderedBlockDOMShapeSnapshot[]
   selectedText: string
   selection: SelectionSnapshot | null
   domSelection: DOMSelectionSnapshot | null
+  focusOwner: FocusOwnerSnapshot
+  kernelTrace: SlateBrowserKernelTraceEntry[]
+  lastCommit: unknown | null
   placeholderShape: PlaceholderShape | null
+}
+
+export type SlateBrowserTraceEntry = {
+  label: string
+  snapshot: EditorSnapshot
+  stepIndex: number | null
+}
+
+export type SlateBrowserScenarioMetadata = {
+  capabilities?: readonly string[]
+  platform?: string
+  transport?: string
+}
+
+export type SlateBrowserTransportClaim =
+  | 'desktop-native-clipboard'
+  | 'desktop-native-ime-composition'
+  | 'desktop-native-keyboard'
+  | 'desktop-semantic-handle'
+  | 'mixed-native-and-semantic'
+  | 'mobile-semantic-handle'
+  | 'mobile-synthetic-composition'
+  | 'playwright-mobile-keyboard'
+  | 'playwright-mobile-viewport'
+  | 'synthetic-composition'
+  | 'synthetic-datatransfer'
+  | 'unspecified'
+
+export type SlateBrowserNormalizedScenarioMetadata = {
+  capabilities: string[]
+  claim: SlateBrowserTransportClaim
+  platform: string | null
+  transport: string | null
+}
+
+export type SlateBrowserScenarioStepMetadata = {
+  iteration?: number
+  warmLoop?: string
+}
+
+export type SlateBrowserScenarioStep = (
+  | {
+      kind: 'assertDOMSelection'
+      label?: string
+      selection: DOMSelectionSnapshotExpectation
+    }
+  | {
+      focusOwner: FocusOwnerSnapshot['kind']
+      kind: 'assertFocusOwner'
+      label?: string
+    }
+  | {
+      kind: 'assertKernelTrace'
+      label?: string
+      trace: SlateBrowserKernelTraceExpectation
+    }
+  | {
+      kind: 'assertSelection'
+      label?: string
+      selection: SelectionSnapshotExpectation
+    }
+  | {
+      kind: 'assertSelectionLocation'
+      label?: string
+      location: Partial<DOMSelectionLocationSnapshot>
+    }
+  | { kind: 'assertModelText'; label?: string; text: string }
+  | { kind: 'assertSelectedText'; label?: string; text: string }
+  | { kind: 'assertText'; label?: string; text: string }
+  | {
+      buttonName: RegExp | string
+      expectedSelection: SelectionSnapshotExpectation
+      kind: 'activateShell'
+      label?: string
+    }
+  | { kind: 'assertLastCommit'; label?: string }
+  | {
+      command: { origin: string; type: string }
+      kind: 'assertLastCommitCommand'
+      label?: string
+    }
+  | { kind: 'clickTestId'; label?: string; testId: string }
+  | {
+      committedText?: string
+      kind: 'composeText'
+      label?: string
+      steps?: readonly string[]
+      text: string
+      transport?: 'native' | 'synthetic'
+    }
+  | {
+      kind: 'custom'
+      label: string
+      run: (editor: SlateBrowserEditorHarness) => Promise<void> | void
+    }
+  | {
+      kind: 'assertDOMCaret'
+      label?: string
+      offset: number
+      text: string
+    }
+  | {
+      kind: 'assertBlockTexts'
+      label?: string
+      startIndex?: number
+      texts: readonly string[]
+    }
+  | {
+      kind: 'assertRenderedDOMShape'
+      label?: string
+      shape: RenderedDOMShapeExpectation
+    }
+  | {
+      kind: 'clickTextOffset'
+      label?: string
+      offset: number
+      path: number[]
+    }
+  | {
+      kind: 'doubleClickTextOffset'
+      label?: string
+      offset: number
+      path: number[]
+    }
+  | { kind: 'deleteBackward'; label?: string }
+  | { kind: 'deleteForward'; label?: string }
+  | { html: string; kind: 'dropHtml'; label?: string; text?: string }
+  | { kind: 'fillControl'; label?: string; selector: string; value: string }
+  | { kind: 'focus'; label?: string }
+  | { kind: 'insertText'; label?: string; text: string }
+  | { html: string; kind: 'pasteHtml'; label?: string; text?: string }
+  | { kind: 'pasteText'; label?: string; text: string }
+  | { key: string; kind: 'press'; label?: string }
+  | { kind: 'rootClick'; label?: string }
+  | { kind: 'rootMouseDown'; label?: string }
+  | { kind: 'select'; label?: string; selection: SelectionSnapshot }
+  | { kind: 'selectDOM'; label?: string; selection: SelectionSnapshot }
+  | { kind: 'selectAll'; label?: string }
+  | { kind: 'settle'; label?: string; timeoutMs?: number }
+  | { kind: 'snapshot'; label: string }
+  | {
+      caretAfterType: { offset: number; text: string }
+      caretAfterUndo: { offset: number; text: string }
+      expectedModelTextAfterType: string
+      expectedModelTextAfterUndo: string
+      kind: 'typeThenUndo'
+      label?: string
+      text: string
+    }
+  | { kind: 'type'; label?: string; text: string }
+  | { expectedModelTextBefore?: string; kind: 'undo'; label?: string }
+) &
+  SlateBrowserScenarioStepMetadata
+
+export type SlateBrowserScenarioResult = {
+  metadata: SlateBrowserNormalizedScenarioMetadata
+  name: string
+  replay: SlateBrowserScenarioReplay
+  reductionCandidates: SlateBrowserScenarioReductionCandidateSummary[]
+  trace: SlateBrowserTraceEntry[]
+}
+
+export type SlateBrowserScenarioRunOptions = {
+  metadata?: SlateBrowserScenarioMetadata
+  runtimeErrors?:
+    | false
+    | {
+        patterns?: readonly string[]
+      }
+  tracePath?: string
+}
+
+export type SlateBrowserScenarioReductionCandidate = {
+  kind: 'iteration' | 'prefix' | 'single-step' | 'suffix'
+  label: string
+  removedRange: { end: number; start: number }
+  steps: readonly SlateBrowserScenarioStep[]
+}
+
+export type SlateBrowserScenarioReductionCandidateSummary = Omit<
+  SlateBrowserScenarioReductionCandidate,
+  'steps'
+> & {
+  replay: SlateBrowserScenarioReplay
+  stepLabels: string[]
+}
+
+export type SlateBrowserScenarioReplayStep = {
+  iteration?: number
+  kind: string
+  label: string
+  replayable: boolean
+  value: Record<string, unknown>
+  warmLoop?: string
+}
+
+export type SlateBrowserScenarioReplay = {
+  replayable: boolean
+  steps: SlateBrowserScenarioReplayStep[]
+}
+
+export type SlateBrowserNavigationTypingGauntletOptions = {
+  insertedText: string
+  movedSelection: SelectionSnapshot
+  startSelection: SelectionSnapshot
+  textAfterInsert: string
+}
+
+export type SlateBrowserClipboardPasteGauntletOptions = {
+  html: string
+  plainText?: string
+  textAfterPaste: string
+}
+
+export type SlateBrowserDropDataGauntletOptions = {
+  html: string
+  plainText?: string
+  textAfterDrop: string
+}
+
+export type SlateBrowserInlineCutTypingGauntletOptions = {
+  domShape?: {
+    afterCut?: RenderedDOMShapeExpectation
+    afterTyping?: RenderedDOMShapeExpectation
+  }
+  replacementText: string
+  selection: SelectionSnapshot
+  textAfterTyping: string
+}
+
+export type SlateBrowserInternalControlGauntletOptions = {
+  controlSelector: string
+  controlValue: string
+  followUpText: string
+  outerSelection: SelectionSnapshot
+  textAfterFollowUp: string
+}
+
+export type SlateBrowserCompositionGauntletOptions = {
+  committedText?: string
+  selection?: SelectionSnapshot
+  steps?: readonly string[]
+  text: string
+  textAfterComposition: string
+  transport?: 'native' | 'synthetic'
+}
+
+export type SlateBrowserTextInsertionGauntletOptions = {
+  insertedText: string
+  textAfterInsert: string
+}
+
+export type SlateBrowserShellActivationGauntletOptions = {
+  buttonName: RegExp | string
+  expectedSelection: SelectionSnapshotExpectation
+}
+
+export type SlateBrowserMarkTypingGauntletOptions = {
+  hotkey: string
+  insertedText: string
+  selection: SelectionSnapshot
+  textAfterInsert: string
+}
+
+export type SlateBrowserMarkClickTypingGauntletOptions = {
+  clickPoint: SelectionPoint
+  domCaretAfterInsert?: {
+    offset: number
+    text: string
+  }
+  hotkey: string
+  insertedText: string
+  markSelection: SelectionSnapshot
+  selectionAfterInsert?: SelectionSnapshotExpectation
+  selectionTransport?: 'dom' | 'model'
+  textAfterInsert: string
+}
+
+export type SlateBrowserToolbarMarkClickTypingGauntletOptions = Omit<
+  SlateBrowserMarkClickTypingGauntletOptions,
+  'hotkey'
+> & {
+  markButtonTestId: string
+  selectionTransport?: 'dom' | 'model'
+}
+
+export type SlateBrowserWarmLoopOptions = {
+  createIteration: (iteration: number) => SlateBrowserScenarioStep[]
+  iterations?: number
+  label?: string
+}
+
+type SlateBrowserWarmToolbarArrowIterationOverride = Partial<
+  Pick<
+    SlateBrowserWarmToolbarArrowGauntletOptions,
+    | 'markDOMSelection'
+    | 'markSelection'
+    | 'selectionAfterArrowLeft'
+    | 'selectionAfterCollapse'
+  >
+>
+
+export type SlateBrowserWarmToolbarArrowGauntletOptions = {
+  domCaretAfterInsert?: {
+    offset: number
+    text: string
+  }
+  insertedText: string
+  markDOMSelection: DOMSelectionSnapshotExpectation
+  markButtonTestId: string
+  markSelection: SelectionSnapshot
+  selectedText: string
+  selectionAfterArrowLeft: SelectionSnapshotExpectation
+  selectionAfterCollapse: SelectionSnapshotExpectation
+  selectionAfterInsert: SelectionSnapshotExpectation
+  textAfterInsert: string
+  warmIterationOverrides?: readonly SlateBrowserWarmToolbarArrowIterationOverride[]
+  warmIterations?: number
+}
+
+export type SlateBrowserMixedEditingConformanceGauntletOptions = {
+  deleteKey: 'Backspace' | 'Delete'
+  domCaretAfterDelete?: {
+    offset: number
+    text: string
+  }
+  domCaretAfterFollowUp?: {
+    offset: number
+    text: string
+  }
+  domShape?: {
+    afterDelete?: RenderedDOMShapeExpectation
+    afterFollowUp?: RenderedDOMShapeExpectation
+    afterInsert?: RenderedDOMShapeExpectation
+  }
+  insertedText: string
+  navigationKeys: readonly string[]
+  selectionAfterDelete: SelectionSnapshotExpectation
+  selectionAfterFollowUp: SelectionSnapshotExpectation
+  selectionAfterInsert: SelectionSnapshotExpectation
+  selectionAfterNavigation: SelectionSnapshotExpectation
+  startSelection: SelectionSnapshot
+  textAfterDelete: string
+  textAfterFollowUp: string
+  textAfterInsert: string
+  toolbarButtonTestId: string
+  toolbarSelection: SelectionSnapshot
+  toolbarSelectionAfterCommand: SelectionSnapshotExpectation
+}
+
+export type SlateBrowserDestructiveEditingGauntletOptions = {
+  deleteAfterPasteKey?: 'Backspace' | 'Delete'
+  domShape?: {
+    afterDeleteAfterPaste?: RenderedDOMShapeExpectation
+    afterFollowUp?: RenderedDOMShapeExpectation
+    afterPaste?: RenderedDOMShapeExpectation
+    afterWordDeleteFollowUp?: RenderedDOMShapeExpectation
+    afterWordDeleteIterations?: readonly RenderedDOMShapeExpectation[]
+  }
+  followUpText: string
+  pasteSelection: SelectionSnapshot
+  pastedText: string
+  selectionAfterDeleteAfterPaste?: SelectionSnapshotExpectation
+  selectionAfterFollowUp?: SelectionSnapshotExpectation
+  selectionAfterPaste?: SelectionSnapshotExpectation
+  tailBlockTextsAfterWordDelete: readonly string[]
+  textAfterDeleteAfterPaste: string
+  textAfterFollowUp: string
+  textAfterPaste: string
+  wordDeleteIterations?: number
+  wordDeleteKey?: string
+  wordDeleteSelection: SelectionSnapshot
+}
+
+export type SlateBrowserSemanticEditingConformanceGauntletOptions = {
+  insertedText: string
+  selectionAfterDelete: SelectionSnapshotExpectation
+  selectionAfterFollowUp: SelectionSnapshotExpectation
+  selectionAfterInsert: SelectionSnapshotExpectation
+  startSelection: SelectionSnapshot
+  textAfterDelete: string
+  textAfterFollowUp: string
+  textAfterInsert: string
+  toolbarButtonTestId: string
+  toolbarSelection: SelectionSnapshot
+  toolbarSelectionAfterCommand: SelectionSnapshotExpectation
+}
+
+export type SlateBrowserIllegalKernelTransition = {
+  label: string
+  reason: string | null
+  stepIndex: number | null
+}
+
+export const createSlateBrowserNavigationTypingGauntlet = ({
+  insertedText,
+  movedSelection,
+  startSelection,
+  textAfterInsert,
+}: SlateBrowserNavigationTypingGauntletOptions): SlateBrowserScenarioStep[] => [
+  {
+    kind: 'select',
+    label: 'select-start',
+    selection: startSelection,
+  },
+  {
+    key: 'ArrowRight',
+    kind: 'press',
+    label: 'move-right',
+  },
+  {
+    kind: 'assertSelection',
+    label: 'assert-moved-selection',
+    selection: movedSelection,
+  },
+  {
+    kind: 'insertText',
+    label: 'insert-after-navigation',
+    text: insertedText,
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-inserted-text',
+    text: textAfterInsert,
+  },
+]
+
+export const createSlateBrowserClipboardPasteGauntlet = ({
+  html,
+  plainText,
+  textAfterPaste,
+}: SlateBrowserClipboardPasteGauntletOptions): SlateBrowserScenarioStep[] => [
+  {
+    kind: 'selectAll',
+    label: 'select-all',
+  },
+  {
+    html,
+    kind: 'pasteHtml',
+    label: 'paste-html',
+    text: plainText,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-paste-command-trace',
+    trace: {
+      commandKind: 'insert-data',
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-paste-repair-trace',
+    trace: {
+      eventFamily: 'repair',
+      repairPolicy: { kind: 'repair-caret' },
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-pasted-text',
+    text: textAfterPaste,
+  },
+]
+
+export const createSlateBrowserDropDataGauntlet = ({
+  html,
+  plainText,
+  textAfterDrop,
+}: SlateBrowserDropDataGauntletOptions): SlateBrowserScenarioStep[] => [
+  {
+    kind: 'dropHtml',
+    label: 'drop-html',
+    html,
+    text: plainText,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-drop-command-trace',
+    trace: {
+      commandKind: 'insert-data',
+      eventFamily: 'drop',
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-dropped-text',
+    text: textAfterDrop,
+  },
+]
+
+export const createSlateBrowserInlineCutTypingGauntlet = ({
+  domShape,
+  replacementText,
+  selection,
+  textAfterTyping,
+}: SlateBrowserInlineCutTypingGauntletOptions): SlateBrowserScenarioStep[] => [
+  {
+    kind: 'select',
+    label: 'select-inline-text',
+    selection,
+  },
+  {
+    key: 'ControlOrMeta+X',
+    kind: 'press',
+    label: 'cut-inline-text',
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-inline-cut-command-trace',
+    trace: {
+      commandKind: 'delete-fragment',
+      transition: { allowed: true },
+    },
+  },
+  ...(domShape?.afterCut
+    ? [
+        {
+          kind: 'assertRenderedDOMShape' as const,
+          label: 'assert-dom-shape-after-inline-cut',
+          shape: domShape.afterCut,
+        },
+      ]
+    : []),
+  {
+    kind: 'type',
+    label: 'type-replacement',
+    text: replacementText,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-inline-repair-trace-after-type',
+    trace: {
+      eventFamily: 'repair',
+      repairPolicy: { kind: 'repair-caret' },
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-replacement-text',
+    text: textAfterTyping,
+  },
+  ...(domShape?.afterTyping
+    ? [
+        {
+          kind: 'assertRenderedDOMShape' as const,
+          label: 'assert-dom-shape-after-inline-cut-typing',
+          shape: domShape.afterTyping,
+        },
+      ]
+    : []),
+]
+
+export const createSlateBrowserInternalControlGauntlet = ({
+  controlSelector,
+  controlValue,
+  followUpText,
+  outerSelection,
+  textAfterFollowUp,
+}: SlateBrowserInternalControlGauntletOptions): SlateBrowserScenarioStep[] => [
+  {
+    kind: 'select',
+    label: 'select-outer-editor',
+    selection: outerSelection,
+  },
+  {
+    kind: 'fillControl',
+    label: 'edit-internal-control',
+    selector: controlSelector,
+    value: controlValue,
+  },
+  {
+    focusOwner: 'internal-control',
+    kind: 'assertFocusOwner',
+    label: 'assert-internal-control-focus',
+  },
+  {
+    kind: 'assertSelection',
+    label: 'assert-outer-selection-preserved',
+    selection: outerSelection,
+  },
+  {
+    kind: 'focus',
+    label: 'focus-outer-editor',
+  },
+  {
+    kind: 'insertText',
+    label: 'insert-after-internal-control',
+    text: followUpText,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-internal-control-follow-up-insert-trace',
+    trace: {
+      commandKind: 'insert-text',
+      eventFamily: 'repair',
+      selectionChangeOrigin: 'browser-handle',
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-follow-up-text',
+    text: textAfterFollowUp,
+  },
+]
+
+export const createSlateBrowserCompositionGauntlet = ({
+  committedText,
+  selection,
+  steps,
+  text,
+  textAfterComposition,
+  transport,
+}: SlateBrowserCompositionGauntletOptions): SlateBrowserScenarioStep[] => [
+  ...(selection
+    ? [
+        {
+          kind: 'select' as const,
+          label: 'select-composition-start',
+          selection,
+        },
+      ]
+    : []),
+  {
+    committedText,
+    kind: 'composeText',
+    label: 'compose-text',
+    steps,
+    text,
+    transport,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-composition-start-trace',
+    trace: {
+      eventFamily: 'compositionstart',
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-composition-update-trace',
+    trace: {
+      eventFamily: 'compositionupdate',
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-composition-end-trace',
+    trace: {
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-composed-text',
+    text: textAfterComposition,
+  },
+]
+
+export const createSlateBrowserTextInsertionGauntlet = ({
+  insertedText,
+  textAfterInsert,
+}: SlateBrowserTextInsertionGauntletOptions): SlateBrowserScenarioStep[] => [
+  {
+    kind: 'insertText',
+    label: 'insert-text',
+    text: insertedText,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-text-insert-command-trace',
+    trace: {
+      commandKind: 'insert-text',
+      eventFamily: 'repair',
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-inserted-text',
+    text: textAfterInsert,
+  },
+]
+
+export const createSlateBrowserShellActivationGauntlet = ({
+  buttonName,
+  expectedSelection,
+}: SlateBrowserShellActivationGauntletOptions): SlateBrowserScenarioStep[] => [
+  {
+    buttonName,
+    expectedSelection,
+    kind: 'activateShell',
+    label: 'activate-shell',
+  },
+]
+
+export const createSlateBrowserMarkTypingGauntlet = ({
+  hotkey,
+  insertedText,
+  selection,
+  textAfterInsert,
+}: SlateBrowserMarkTypingGauntletOptions): SlateBrowserScenarioStep[] => [
+  {
+    kind: 'select',
+    label: 'select-mark-start',
+    selection,
+  },
+  {
+    key: hotkey,
+    kind: 'press',
+    label: 'toggle-mark',
+  },
+  { kind: 'type', label: 'type-marked-text', text: insertedText },
+  {
+    kind: 'assertText',
+    label: 'assert-marked-text',
+    text: textAfterInsert,
+  },
+]
+
+export const createSlateBrowserMarkClickTypingGauntlet = ({
+  clickPoint,
+  domCaretAfterInsert,
+  hotkey,
+  insertedText,
+  markSelection,
+  selectionAfterInsert,
+  selectionTransport = 'model',
+  textAfterInsert,
+}: SlateBrowserMarkClickTypingGauntletOptions): SlateBrowserScenarioStep[] => [
+  {
+    kind: selectionTransport === 'dom' ? 'selectDOM' : 'select',
+    label: 'select-mark-range',
+    selection: markSelection,
+  },
+  {
+    key: hotkey,
+    kind: 'press',
+    label: 'toggle-mark',
+  },
+  {
+    kind: 'clickTextOffset',
+    label: 'click-after-mark-split',
+    offset: clickPoint.offset,
+    path: clickPoint.path,
+  },
+  {
+    kind: 'type',
+    label: 'type-after-mark-click',
+    text: insertedText,
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-text-after-mark-click',
+    text: textAfterInsert,
+  },
+  ...(selectionAfterInsert
+    ? [
+        {
+          kind: 'assertSelection' as const,
+          label: 'assert-selection-after-mark-click',
+          selection: selectionAfterInsert,
+        },
+      ]
+    : []),
+  ...(domCaretAfterInsert
+    ? [
+        {
+          kind: 'assertDOMCaret' as const,
+          label: 'assert-dom-caret-after-mark-click',
+          offset: domCaretAfterInsert.offset,
+          text: domCaretAfterInsert.text,
+        },
+      ]
+    : []),
+]
+
+export const createSlateBrowserToolbarMarkClickTypingGauntlet = ({
+  clickPoint,
+  domCaretAfterInsert,
+  insertedText,
+  markButtonTestId,
+  markSelection,
+  selectionTransport = 'model',
+  selectionAfterInsert,
+  textAfterInsert,
+}: SlateBrowserToolbarMarkClickTypingGauntletOptions): SlateBrowserScenarioStep[] => [
+  {
+    kind: selectionTransport === 'dom' ? 'selectDOM' : 'select',
+    label: 'select-mark-range',
+    selection: markSelection,
+  },
+  {
+    kind: 'clickTestId',
+    label: 'toggle-mark-from-toolbar',
+    testId: markButtonTestId,
+  },
+  {
+    kind: 'clickTextOffset',
+    label: 'click-after-toolbar-mark-split',
+    offset: clickPoint.offset,
+    path: clickPoint.path,
+  },
+  {
+    kind: 'type',
+    label: 'type-after-toolbar-mark-click',
+    text: insertedText,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-repair-trace-after-toolbar-mark-click',
+    trace: {
+      eventFamily: 'repair',
+      repairPolicy: { kind: 'repair-caret' },
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-text-after-toolbar-mark-click',
+    text: textAfterInsert,
+  },
+  ...(selectionAfterInsert
+    ? [
+        {
+          kind: 'assertSelection' as const,
+          label: 'assert-selection-after-toolbar-mark-click',
+          selection: selectionAfterInsert,
+        },
+      ]
+    : []),
+  ...(domCaretAfterInsert
+    ? [
+        {
+          kind: 'assertDOMCaret' as const,
+          label: 'assert-dom-caret-after-toolbar-mark-click',
+          offset: domCaretAfterInsert.offset,
+          text: domCaretAfterInsert.text,
+        },
+      ]
+    : []),
+]
+
+const createWarmTimingWaitStep = (label: string): SlateBrowserScenarioStep => ({
+  kind: 'settle',
+  label,
+  timeoutMs: 25,
+})
+
+const createToolbarMarkClickStep = (
+  label: string,
+  markButtonTestId: string
+): SlateBrowserScenarioStep => ({
+  kind: 'clickTestId',
+  label,
+  testId: markButtonTestId,
+})
+
+export const createSlateBrowserWarmLoopSteps = ({
+  createIteration,
+  iterations = 1,
+  label = 'warm-loop',
+}: SlateBrowserWarmLoopOptions): SlateBrowserScenarioStep[] => {
+  const count = Math.max(1, iterations)
+
+  return Array.from({ length: count }, (_, index) =>
+    createIteration(index + 1).map((step) => ({
+      ...step,
+      iteration: index + 1,
+      warmLoop: label,
+    }))
+  ).flat()
+}
+
+const createWarmToolbarArrowIteration = ({
+  iteration,
+  markDOMSelection,
+  markButtonTestId,
+  markSelection,
+  selectedText,
+  selectionAfterArrowLeft,
+  selectionAfterCollapse,
+}: Omit<
+  SlateBrowserWarmToolbarArrowGauntletOptions,
+  | 'domCaretAfterInsert'
+  | 'insertedText'
+  | 'selectionAfterInsert'
+  | 'textAfterInsert'
+> & {
+  iteration: number
+}): SlateBrowserScenarioStep[] => [
+  {
+    kind: 'selectDOM',
+    label: `warm-select-word-${iteration}`,
+    selection: markSelection,
+  },
+  {
+    kind: 'assertDOMSelection',
+    label: `assert-warm-dom-word-selected-${iteration}`,
+    selection: markDOMSelection,
+  },
+  createToolbarMarkClickStep(`warm-bold-on-${iteration}`, markButtonTestId),
+  createWarmTimingWaitStep(`warm-wait-after-bold-on-${iteration}`),
+  {
+    kind: 'assertSelectedText',
+    label: `assert-selection-expanded-after-bold-on-${iteration}`,
+    text: selectedText,
+  },
+  createToolbarMarkClickStep(`warm-bold-off-${iteration}`, markButtonTestId),
+  createWarmTimingWaitStep(`warm-wait-after-bold-off-${iteration}`),
+  {
+    kind: 'assertSelectedText',
+    label: `assert-selection-expanded-after-bold-off-${iteration}`,
+    text: selectedText,
+  },
+  {
+    key: 'ArrowRight',
+    kind: 'press',
+    label: `warm-arrow-right-after-bold-off-${iteration}`,
+  },
+  createWarmTimingWaitStep(`warm-wait-after-arrow-right-${iteration}-1`),
+  {
+    kind: 'assertSelection',
+    label: `assert-selection-collapsed-after-arrow-right-${iteration}-1`,
+    selection: selectionAfterCollapse,
+  },
+  {
+    key: 'ArrowLeft',
+    kind: 'press',
+    label: `warm-arrow-left-after-collapse-${iteration}`,
+  },
+  createWarmTimingWaitStep(`warm-wait-after-arrow-left-${iteration}`),
+  {
+    kind: 'assertSelection',
+    label: `assert-selection-after-arrow-left-${iteration}`,
+    selection: selectionAfterArrowLeft,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: `assert-movement-trace-after-warm-arrows-${iteration}`,
+    trace: {
+      commandKind: 'move-selection',
+      movement: {
+        axis: 'horizontal',
+        ownership: 'model-owned',
+        reason: 'model-horizontal-inline-void-compat',
+      },
+      transition: { allowed: true },
+    },
+  },
+  {
+    key: 'ArrowRight',
+    kind: 'press',
+    label: `warm-arrow-right-after-arrow-left-${iteration}`,
+  },
+  createWarmTimingWaitStep(`warm-wait-after-arrow-right-${iteration}-2`),
+  {
+    kind: 'assertSelection',
+    label: `assert-selection-collapsed-after-arrow-right-${iteration}-2`,
+    selection: selectionAfterCollapse,
+  },
+]
+
+export const createSlateBrowserWarmToolbarArrowGauntlet = ({
+  domCaretAfterInsert,
+  insertedText,
+  markDOMSelection,
+  markButtonTestId,
+  markSelection,
+  selectedText,
+  selectionAfterArrowLeft,
+  selectionAfterCollapse,
+  selectionAfterInsert,
+  textAfterInsert,
+  warmIterationOverrides,
+  warmIterations = 1,
+}: SlateBrowserWarmToolbarArrowGauntletOptions): SlateBrowserScenarioStep[] => [
+  {
+    kind: 'rootMouseDown',
+    label: 'activate-editor-before-warm-selection',
+  },
+  ...createSlateBrowserWarmLoopSteps({
+    createIteration: (iteration) =>
+      createWarmToolbarArrowIteration({
+        iteration,
+        markDOMSelection:
+          warmIterationOverrides?.[iteration - 1]?.markDOMSelection ??
+          markDOMSelection,
+        markButtonTestId,
+        markSelection:
+          warmIterationOverrides?.[iteration - 1]?.markSelection ??
+          markSelection,
+        selectedText,
+        selectionAfterArrowLeft:
+          warmIterationOverrides?.[iteration - 1]?.selectionAfterArrowLeft ??
+          selectionAfterArrowLeft,
+        selectionAfterCollapse:
+          warmIterationOverrides?.[iteration - 1]?.selectionAfterCollapse ??
+          selectionAfterCollapse,
+      }),
+    iterations: warmIterations,
+    label: 'warm-toolbar-arrow',
+  }),
+  {
+    kind: 'type',
+    label: 'warm-type-after-toolbar-arrow',
+    text: insertedText,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-repair-trace-after-warm-type',
+    trace: {
+      eventFamily: 'repair',
+      repairPolicy: { kind: 'repair-caret' },
+      transition: { allowed: true },
+    },
+  },
+  {
+    focusOwner: 'editor',
+    kind: 'assertFocusOwner',
+    label: 'assert-focus-after-warm-type',
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-text-after-warm-type',
+    text: textAfterInsert,
+  },
+  {
+    kind: 'assertSelection',
+    label: 'assert-selection-after-warm-type',
+    selection: selectionAfterInsert,
+  },
+  ...(domCaretAfterInsert
+    ? [
+        {
+          kind: 'assertDOMCaret' as const,
+          label: 'assert-dom-caret-after-warm-type',
+          offset: domCaretAfterInsert.offset,
+          text: domCaretAfterInsert.text,
+        },
+      ]
+    : []),
+]
+
+export const createSlateBrowserMixedEditingConformanceGauntlet = ({
+  deleteKey,
+  domCaretAfterDelete,
+  domCaretAfterFollowUp,
+  domShape,
+  insertedText,
+  navigationKeys,
+  selectionAfterDelete,
+  selectionAfterFollowUp,
+  selectionAfterInsert,
+  selectionAfterNavigation,
+  startSelection,
+  textAfterDelete,
+  textAfterFollowUp,
+  textAfterInsert,
+  toolbarButtonTestId,
+  toolbarSelection,
+  toolbarSelectionAfterCommand,
+}: SlateBrowserMixedEditingConformanceGauntletOptions): SlateBrowserScenarioStep[] => [
+  {
+    kind: 'select',
+    label: 'select-navigation-start',
+    selection: startSelection,
+  },
+  ...navigationKeys.map(
+    (key, index): SlateBrowserScenarioStep => ({
+      key,
+      kind: 'press',
+      label: `navigate-${index + 1}-${key}`,
+    })
+  ),
+  {
+    kind: 'assertSelection',
+    label: 'assert-selection-after-navigation',
+    selection: selectionAfterNavigation,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-navigation-command-trace',
+    trace: {
+      commandKind: 'move-selection',
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'type',
+    label: 'type-after-navigation',
+    text: insertedText,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-repair-trace-after-type',
+    trace: {
+      eventFamily: 'repair',
+      repairPolicy: { kind: 'repair-caret' },
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-text-after-type',
+    text: textAfterInsert,
+  },
+  ...(domShape?.afterInsert
+    ? [
+        {
+          kind: 'assertRenderedDOMShape' as const,
+          label: 'assert-dom-shape-after-type',
+          shape: domShape.afterInsert,
+        },
+      ]
+    : []),
+  {
+    kind: 'assertSelection',
+    label: 'assert-selection-after-type',
+    selection: selectionAfterInsert,
+  },
+  {
+    key: deleteKey,
+    kind: 'press',
+    label: `delete-after-type-${deleteKey}`,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-delete-command-trace',
+    trace: {
+      commandKind: 'delete',
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-text-after-delete',
+    text: textAfterDelete,
+  },
+  ...(domShape?.afterDelete
+    ? [
+        {
+          kind: 'assertRenderedDOMShape' as const,
+          label: 'assert-dom-shape-after-delete',
+          shape: domShape.afterDelete,
+        },
+      ]
+    : []),
+  {
+    kind: 'assertSelection',
+    label: 'assert-selection-after-delete',
+    selection: selectionAfterDelete,
+  },
+  ...(domCaretAfterDelete
+    ? [
+        {
+          kind: 'assertDOMCaret' as const,
+          label: 'assert-dom-caret-after-delete',
+          offset: domCaretAfterDelete.offset,
+          text: domCaretAfterDelete.text,
+        },
+      ]
+    : []),
+  {
+    kind: 'rootMouseDown',
+    label: 'activate-editor-dom-selection',
+  },
+  {
+    kind: 'selectDOM',
+    label: 'select-toolbar-target-through-dom',
+    selection: toolbarSelection,
+  },
+  {
+    kind: 'clickTestId',
+    label: 'run-toolbar-command',
+    testId: toolbarButtonTestId,
+  },
+  {
+    kind: 'assertSelection',
+    label: 'assert-toolbar-selection-after-command',
+    selection: toolbarSelectionAfterCommand,
+  },
+  {
+    kind: 'type',
+    label: 'type-after-toolbar-command',
+    text: insertedText,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-repair-trace-after-toolbar-follow-up',
+    trace: {
+      eventFamily: 'repair',
+      repairPolicy: { kind: 'repair-caret' },
+      transition: { allowed: true },
+    },
+  },
+  {
+    focusOwner: 'editor',
+    kind: 'assertFocusOwner',
+    label: 'assert-editor-focus-after-toolbar-follow-up',
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-text-after-toolbar-follow-up',
+    text: textAfterFollowUp,
+  },
+  ...(domShape?.afterFollowUp
+    ? [
+        {
+          kind: 'assertRenderedDOMShape' as const,
+          label: 'assert-dom-shape-after-toolbar-follow-up',
+          shape: domShape.afterFollowUp,
+        },
+      ]
+    : []),
+  {
+    kind: 'assertSelection',
+    label: 'assert-selection-after-toolbar-follow-up',
+    selection: selectionAfterFollowUp,
+  },
+  ...(domCaretAfterFollowUp
+    ? [
+        {
+          kind: 'assertDOMCaret' as const,
+          label: 'assert-dom-caret-after-toolbar-follow-up',
+          offset: domCaretAfterFollowUp.offset,
+          text: domCaretAfterFollowUp.text,
+        },
+      ]
+    : []),
+]
+
+export const createSlateBrowserDestructiveEditingGauntlet = ({
+  deleteAfterPasteKey = 'Backspace',
+  domShape,
+  followUpText,
+  pasteSelection,
+  pastedText,
+  selectionAfterDeleteAfterPaste,
+  selectionAfterFollowUp,
+  selectionAfterPaste,
+  tailBlockTextsAfterWordDelete,
+  textAfterDeleteAfterPaste,
+  textAfterFollowUp,
+  textAfterPaste,
+  wordDeleteIterations = 4,
+  wordDeleteKey = 'Alt+Backspace',
+  wordDeleteSelection,
+}: SlateBrowserDestructiveEditingGauntletOptions): SlateBrowserScenarioStep[] => [
+  {
+    kind: 'select',
+    label: 'select-paste-range',
+    selection: pasteSelection,
+  },
+  {
+    kind: 'pasteText',
+    label: 'paste-over-selected-range',
+    text: pastedText,
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-text-after-paste',
+    text: textAfterPaste,
+  },
+  ...(domShape?.afterPaste
+    ? [
+        {
+          kind: 'assertRenderedDOMShape' as const,
+          label: 'assert-dom-shape-after-paste',
+          shape: domShape.afterPaste,
+        },
+      ]
+    : []),
+  ...(selectionAfterPaste
+    ? [
+        {
+          kind: 'assertSelection' as const,
+          label: 'assert-selection-after-paste',
+          selection: selectionAfterPaste,
+        },
+      ]
+    : []),
+  {
+    key: deleteAfterPasteKey,
+    kind: 'press',
+    label: `delete-after-paste-${deleteAfterPasteKey}`,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-delete-trace-after-paste',
+    trace: {
+      commandKind: 'delete',
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-text-after-delete-after-paste',
+    text: textAfterDeleteAfterPaste,
+  },
+  ...(domShape?.afterDeleteAfterPaste
+    ? [
+        {
+          kind: 'assertRenderedDOMShape' as const,
+          label: 'assert-dom-shape-after-delete-after-paste',
+          shape: domShape.afterDeleteAfterPaste,
+        },
+      ]
+    : []),
+  ...(selectionAfterDeleteAfterPaste
+    ? [
+        {
+          kind: 'assertSelection' as const,
+          label: 'assert-selection-after-delete-after-paste',
+          selection: selectionAfterDeleteAfterPaste,
+        },
+      ]
+    : []),
+  {
+    kind: 'type',
+    label: 'type-after-delete-after-paste',
+    text: followUpText,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-repair-trace-after-delete-follow-up',
+    trace: {
+      eventFamily: 'repair',
+      repairPolicy: { kind: 'repair-caret' },
+      transition: { allowed: true },
+    },
+  },
+  {
+    focusOwner: 'editor',
+    kind: 'assertFocusOwner',
+    label: 'assert-focus-after-delete-follow-up',
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-text-after-delete-follow-up',
+    text: textAfterFollowUp,
+  },
+  ...(domShape?.afterFollowUp
+    ? [
+        {
+          kind: 'assertRenderedDOMShape' as const,
+          label: 'assert-dom-shape-after-delete-follow-up',
+          shape: domShape.afterFollowUp,
+        },
+      ]
+    : []),
+  ...(selectionAfterFollowUp
+    ? [
+        {
+          kind: 'assertSelection' as const,
+          label: 'assert-selection-after-delete-follow-up',
+          selection: selectionAfterFollowUp,
+        },
+      ]
+    : []),
+  {
+    kind: 'select',
+    label: 'select-word-delete-start',
+    selection: wordDeleteSelection,
+  },
+  ...Array.from(
+    { length: Math.max(1, wordDeleteIterations) },
+    (_, index): SlateBrowserScenarioStep[] => [
+      {
+        key: wordDeleteKey,
+        kind: 'press',
+        label: `word-delete-backward-${index + 1}`,
+      },
+      {
+        kind: 'assertKernelTrace',
+        label: `assert-word-delete-trace-${index + 1}`,
+        trace: {
+          commandKind: 'delete',
+          transition: { allowed: true },
+        },
+      },
+      {
+        kind: 'assertBlockTexts',
+        label: `assert-tail-blocks-after-word-delete-${index + 1}`,
+        startIndex: 1,
+        texts: tailBlockTextsAfterWordDelete,
+      },
+      ...(domShape?.afterWordDeleteIterations?.[index]
+        ? [
+            {
+              kind: 'assertRenderedDOMShape' as const,
+              label: `assert-dom-shape-after-word-delete-${index + 1}`,
+              shape: domShape.afterWordDeleteIterations[index]!,
+            },
+          ]
+        : []),
+    ]
+  ).flat(),
+  {
+    kind: 'type',
+    label: 'type-after-word-delete',
+    text: followUpText,
+  },
+  {
+    kind: 'assertBlockTexts',
+    label: 'assert-tail-blocks-after-word-delete-follow-up',
+    startIndex: 1,
+    texts: tailBlockTextsAfterWordDelete,
+  },
+  ...(domShape?.afterWordDeleteFollowUp
+    ? [
+        {
+          kind: 'assertRenderedDOMShape' as const,
+          label: 'assert-dom-shape-after-word-delete-follow-up',
+          shape: domShape.afterWordDeleteFollowUp,
+        },
+      ]
+    : []),
+]
+
+export const createSlateBrowserSemanticEditingConformanceGauntlet = ({
+  insertedText,
+  selectionAfterDelete,
+  selectionAfterFollowUp,
+  selectionAfterInsert,
+  startSelection,
+  textAfterDelete,
+  textAfterFollowUp,
+  textAfterInsert,
+  toolbarButtonTestId,
+  toolbarSelection,
+  toolbarSelectionAfterCommand,
+}: SlateBrowserSemanticEditingConformanceGauntletOptions): SlateBrowserScenarioStep[] => [
+  {
+    kind: 'select',
+    label: 'select-semantic-start',
+    selection: startSelection,
+  },
+  {
+    kind: 'insertText',
+    label: 'semantic-insert-text',
+    text: insertedText,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-semantic-insert-command-trace',
+    trace: {
+      commandKind: 'insert-text',
+      eventFamily: 'repair',
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-text-after-semantic-insert',
+    text: textAfterInsert,
+  },
+  {
+    kind: 'assertSelection',
+    label: 'assert-selection-after-semantic-insert',
+    selection: selectionAfterInsert,
+  },
+  {
+    kind: 'deleteBackward',
+    label: 'semantic-delete-backward',
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-semantic-delete-command-trace',
+    trace: {
+      commandKind: 'delete',
+      eventFamily: 'repair',
+      selectionChangeOrigin: 'browser-handle',
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-text-after-semantic-delete',
+    text: textAfterDelete,
+  },
+  {
+    kind: 'assertSelection',
+    label: 'assert-selection-after-semantic-delete',
+    selection: selectionAfterDelete,
+  },
+  {
+    kind: 'rootMouseDown',
+    label: 'activate-editor-dom-selection',
+  },
+  {
+    kind: 'selectDOM',
+    label: 'select-toolbar-target-through-dom',
+    selection: toolbarSelection,
+  },
+  {
+    kind: 'clickTestId',
+    label: 'run-toolbar-command',
+    testId: toolbarButtonTestId,
+  },
+  {
+    kind: 'assertSelection',
+    label: 'assert-toolbar-selection-after-command',
+    selection: toolbarSelectionAfterCommand,
+  },
+  {
+    kind: 'insertText',
+    label: 'semantic-insert-after-toolbar-command',
+    text: insertedText,
+  },
+  {
+    kind: 'assertKernelTrace',
+    label: 'assert-semantic-toolbar-follow-up-trace',
+    trace: {
+      commandKind: 'insert-text',
+      eventFamily: 'repair',
+      selectionChangeOrigin: 'browser-handle',
+      transition: { allowed: true },
+    },
+  },
+  {
+    kind: 'assertText',
+    label: 'assert-text-after-toolbar-follow-up',
+    text: textAfterFollowUp,
+  },
+  {
+    kind: 'assertSelection',
+    label: 'assert-selection-after-toolbar-follow-up',
+    selection: selectionAfterFollowUp,
+  },
+]
+
+export const getIllegalKernelTransitions = (
+  result: SlateBrowserScenarioResult
+): SlateBrowserIllegalKernelTransition[] =>
+  result.trace.flatMap((entry) =>
+    entry.snapshot.kernelTrace.flatMap((kernelEntry) => {
+      const { transition } = kernelEntry
+
+      return transition?.allowed === false
+        ? [
+            {
+              label: entry.label,
+              reason: transition.reason ?? null,
+              stepIndex: entry.stepIndex,
+            },
+          ]
+        : []
+    })
+  )
+
+export const assertNoIllegalKernelTransitions = (
+  result: SlateBrowserScenarioResult
+) => {
+  expect(getIllegalKernelTransitions(result)).toEqual([])
+}
+
+const matchesPartialObject = <T extends object>(
+  actual: T,
+  expected: Partial<T> | undefined
+) =>
+  !expected ||
+  Object.entries(expected).every(
+    ([key, value]) => actual[key as keyof T] === value
+  )
+
+export const matchesSlateBrowserKernelTrace = (
+  entry: SlateBrowserKernelTraceEntry,
+  expected: SlateBrowserKernelTraceExpectation
+) => {
+  if (
+    expected.eventFamily !== undefined &&
+    entry.eventFamily !== expected.eventFamily
+  ) {
+    return false
+  }
+  if (
+    expected.commandKind !== undefined &&
+    entry.command?.kind !== expected.commandKind
+  ) {
+    return false
+  }
+  if (
+    expected.ownership !== undefined &&
+    entry.ownership !== expected.ownership
+  ) {
+    return false
+  }
+  if (
+    expected.selectionSource !== undefined &&
+    entry.selectionSource !== expected.selectionSource
+  ) {
+    return false
+  }
+  if (
+    expected.selectionChangeOrigin !== undefined &&
+    entry.selectionChangeOrigin !== expected.selectionChangeOrigin
+  ) {
+    return false
+  }
+  if (expected.movement !== undefined) {
+    if (expected.movement === null) {
+      if (entry.movement !== null) {
+        return false
+      }
+    } else if (
+      entry.movement === null ||
+      !matchesPartialObject(entry.movement, expected.movement)
+    ) {
+      return false
+    }
+  }
+  if (
+    expected.stateBefore !== undefined &&
+    entry.stateBefore !== expected.stateBefore
+  ) {
+    return false
+  }
+  if (
+    expected.stateAfter !== undefined &&
+    entry.stateAfter !== expected.stateAfter
+  ) {
+    return false
+  }
+  if (
+    expected.targetOwner !== undefined &&
+    entry.targetOwner !== expected.targetOwner
+  ) {
+    return false
+  }
+
+  return (
+    matchesPartialObject(entry.selectionPolicy, expected.selectionPolicy) &&
+    matchesPartialObject(entry.repairPolicy, expected.repairPolicy) &&
+    matchesPartialObject(entry.transition, expected.transition)
+  )
+}
+
+export const findSlateBrowserKernelTraceEntry = (
+  trace: readonly SlateBrowserKernelTraceEntry[],
+  expected: SlateBrowserKernelTraceExpectation
+) => trace.find((entry) => matchesSlateBrowserKernelTrace(entry, expected))
+
+export const assertSlateBrowserKernelTraceEntry = (
+  trace: readonly SlateBrowserKernelTraceEntry[],
+  expected: SlateBrowserKernelTraceExpectation
+) => {
+  const entry = findSlateBrowserKernelTraceEntry(trace, expected)
+
+  if (!entry) {
+    throw new Error(
+      `Missing kernel trace entry ${JSON.stringify(
+        expected
+      )} in ${JSON.stringify(trace)}`
+    )
+  }
+
+  return entry
+}
+
+export const createScenarioReductionCandidates = (
+  steps: readonly SlateBrowserScenarioStep[]
+): SlateBrowserScenarioReductionCandidate[] => {
+  const candidates: SlateBrowserScenarioReductionCandidate[] = []
+  let warmRange: {
+    end: number
+    iteration: number
+    start: number
+    warmLoop: string
+  } | null = null
+
+  const addWarmRangeCandidate = () => {
+    if (!warmRange) return
+    if (warmRange.start === 0 && warmRange.end === steps.length) return
+
+    candidates.push({
+      kind: 'iteration',
+      label: `${warmRange.warmLoop}:iteration:${warmRange.iteration}`,
+      removedRange: { end: warmRange.end, start: warmRange.start },
+      steps: [
+        ...steps.slice(0, warmRange.start),
+        ...steps.slice(warmRange.end),
+      ],
+    })
+  }
+
+  for (const [index, step] of steps.entries()) {
+    if (!step.warmLoop || step.iteration === undefined) {
+      addWarmRangeCandidate()
+      warmRange = null
+      continue
+    }
+
+    if (
+      warmRange &&
+      warmRange.warmLoop === step.warmLoop &&
+      warmRange.iteration === step.iteration
+    ) {
+      warmRange.end = index + 1
+      continue
+    }
+
+    addWarmRangeCandidate()
+    warmRange = {
+      end: index + 1,
+      iteration: step.iteration,
+      start: index,
+      warmLoop: step.warmLoop,
+    }
+  }
+
+  addWarmRangeCandidate()
+
+  for (let length = steps.length - 1; length > 0; length -= 1) {
+    candidates.push({
+      kind: 'prefix',
+      label: `prefix:${length}`,
+      removedRange: { end: steps.length, start: length },
+      steps: steps.slice(0, length),
+    })
+  }
+
+  for (let start = 1; start < steps.length; start += 1) {
+    candidates.push({
+      kind: 'suffix',
+      label: `suffix:${start}`,
+      removedRange: { end: start, start: 0 },
+      steps: steps.slice(start),
+    })
+  }
+
+  for (let index = 0; index < steps.length; index += 1) {
+    candidates.push({
+      kind: 'single-step',
+      label: `without:${index}`,
+      removedRange: { end: index + 1, start: index },
+      steps: [...steps.slice(0, index), ...steps.slice(index + 1)],
+    })
+  }
+
+  return candidates.filter((candidate) => candidate.steps.length > 0)
+}
+
+const getScenarioStepLabel = (step: SlateBrowserScenarioStep, index: number) =>
+  step.label ?? `${index}:${step.kind}`
+
+const toReplayValue = (
+  value: unknown
+): { replayable: boolean; value: unknown } => {
+  if (typeof value === 'function') {
+    return { replayable: false, value: undefined }
+  }
+
+  if (value instanceof RegExp) {
+    return {
+      replayable: true,
+      value: {
+        flags: value.flags,
+        source: value.source,
+        type: 'RegExp',
+      },
+    }
+  }
+
+  if (Array.isArray(value)) {
+    let replayable = true
+    const arrayValue = value
+      .map((entry) => {
+        const result = toReplayValue(entry)
+        replayable &&= result.replayable
+        return result.value
+      })
+      .filter((entry) => entry !== undefined)
+
+    return { replayable, value: arrayValue }
+  }
+
+  if (value && typeof value === 'object') {
+    let replayable = true
+    const objectValue = Object.fromEntries(
+      Object.entries(value)
+        .map(([key, entry]) => {
+          const result = toReplayValue(entry)
+          replayable &&= result.replayable
+          return [key, result.value] as const
+        })
+        .filter(([, entry]) => entry !== undefined)
+    )
+
+    return { replayable, value: objectValue }
+  }
+
+  return { replayable: true, value }
+}
+
+export const serializeScenarioStepForReplay = (
+  step: SlateBrowserScenarioStep,
+  index: number
+): SlateBrowserScenarioReplayStep => {
+  const { value, replayable } = toReplayValue(step)
+  const replayValue =
+    value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+
+  return {
+    iteration: step.iteration,
+    kind: step.kind,
+    label: getScenarioStepLabel(step, index),
+    replayable,
+    value: replayValue,
+    warmLoop: step.warmLoop,
+  }
+}
+
+export const createScenarioReplay = (
+  steps: readonly SlateBrowserScenarioStep[]
+): SlateBrowserScenarioReplay => {
+  const replaySteps = steps.map(serializeScenarioStepForReplay)
+
+  return {
+    replayable: replaySteps.every((step) => step.replayable),
+    steps: replaySteps,
+  }
+}
+
+export const summarizeScenarioReductionCandidate = ({
+  kind,
+  label,
+  removedRange,
+  steps,
+}: SlateBrowserScenarioReductionCandidate): SlateBrowserScenarioReductionCandidateSummary => ({
+  kind,
+  label,
+  removedRange,
+  replay: createScenarioReplay(steps),
+  stepLabels: steps.map(getScenarioStepLabel),
+})
+
+export const normalizeScenarioMetadata = (
+  metadata: SlateBrowserScenarioMetadata = {}
+): SlateBrowserNormalizedScenarioMetadata => ({
+  capabilities: Array.from(new Set(metadata.capabilities ?? [])).sort(),
+  claim: classifyScenarioTransportClaim(metadata),
+  platform: metadata.platform ?? null,
+  transport: metadata.transport ?? null,
+})
+
+export const classifyScenarioTransportClaim = ({
+  platform,
+  transport,
+}: SlateBrowserScenarioMetadata): SlateBrowserTransportClaim => {
+  if (!transport) {
+    return platform === 'mobile' ? 'playwright-mobile-viewport' : 'unspecified'
+  }
+
+  const normalized = transport.toLowerCase()
+
+  if (normalized.includes('synthetic-datatransfer')) {
+    return 'synthetic-datatransfer'
+  }
+
+  if (platform === 'mobile') {
+    if (normalized.includes('composition')) {
+      return 'mobile-synthetic-composition'
+    }
+
+    if (normalized.includes('semantic') || normalized.includes('handle')) {
+      return 'mobile-semantic-handle'
+    }
+
+    if (normalized.includes('keyboard')) {
+      return 'playwright-mobile-keyboard'
+    }
+
+    return 'playwright-mobile-viewport'
+  }
+
+  if (normalized.includes('native-composition')) {
+    return 'desktop-native-ime-composition'
+  }
+
+  if (normalized.includes('synthetic-composition')) {
+    return 'synthetic-composition'
+  }
+
+  if (normalized.includes('clipboard')) {
+    return 'desktop-native-clipboard'
+  }
+
+  if (normalized.includes('semantic') || normalized.includes('handle')) {
+    return normalized.includes('keyboard') || normalized.includes('click')
+      ? 'mixed-native-and-semantic'
+      : 'desktop-semantic-handle'
+  }
+
+  if (normalized.includes('native') || normalized.includes('keyboard')) {
+    return 'desktop-native-keyboard'
+  }
+
+  return 'unspecified'
 }
 
 const CLIPBOARD_LOCK_PATH = `${process.cwd()}/.slate-browser-clipboard.lock`
@@ -109,6 +2293,53 @@ const sleep = (ms: number) =>
   new Promise<void>((resolve) => {
     setTimeout(resolve, ms)
   })
+
+const isIgnoredRuntimeError = (text: string) =>
+  text.includes('Fetch API cannot load http://localhost:3101/_next/data/') &&
+  text.includes('due to access control checks.')
+
+export const recordSlateBrowserRuntimeErrors = (
+  page: Page,
+  options: {
+    patterns?: readonly string[]
+  } = {}
+): SlateBrowserRuntimeErrorRecorder => {
+  const patterns = options.patterns ?? DEFAULT_RUNTIME_ERROR_PATTERNS
+  const errors: string[] = []
+  const onPageError = (error: Error) => {
+    const text = error.stack ?? error.message
+
+    if (!isIgnoredRuntimeError(text)) {
+      errors.push(text)
+    }
+  }
+  const onConsole = (message: ConsoleMessage) => {
+    const text = message.text()
+
+    if (isIgnoredRuntimeError(text)) {
+      return
+    }
+
+    if (
+      message.type() === 'error' &&
+      patterns.some((pattern) => text.includes(pattern))
+    ) {
+      errors.push(text)
+    }
+  }
+
+  page.on('pageerror', onPageError)
+  page.on('console', onConsole)
+
+  return {
+    assertNone: () => expect(errors).toEqual([]),
+    errors,
+    stop: () => {
+      page.off('pageerror', onPageError)
+      page.off('console', onConsole)
+    },
+  }
+}
 
 const parseSyntheticShortcut = (shortcut: string) => {
   const parts = shortcut.split('+')
@@ -131,6 +2362,7 @@ const parseSyntheticShortcut = (shortcut: string) => {
 
   if (
     shortcut === 'ControlOrMeta+C' ||
+    shortcut === 'ControlOrMeta+X' ||
     shortcut === 'ControlOrMeta+V' ||
     shortcut === 'ControlOrMeta+A'
   ) {
@@ -221,13 +2453,192 @@ const getBlockTexts = async (root: Locator): Promise<string[]> =>
     ).map((block) => (block.textContent ?? '').replace(/\uFEFF/g, ''))
   )
 
-const getSelectedText = async (root: Locator): Promise<string> =>
-  root.evaluate((element: HTMLElement) =>
-    (element.ownerDocument.getSelection()?.toString() ?? '').replace(
-      /\uFEFF/g,
-      ''
+const didPasteApplyText = async ({
+  afterText,
+  beforeText,
+  root,
+  text,
+}: {
+  afterText: string
+  beforeText: string
+  root: Locator
+  text: string
+}) => {
+  if (afterText === beforeText) {
+    return false
+  }
+
+  if (afterText.includes(text)) {
+    return true
+  }
+
+  return (await getBlockTexts(root)).join('\n').includes(text)
+}
+
+const getRenderedBlockDOMShapes = async (
+  root: Locator
+): Promise<RenderedBlockDOMShapeSnapshot[]> =>
+  root.evaluate((element: HTMLElement) => {
+    const normalizeText = (text: string) => text.replace(/\uFEFF/g, '')
+    const countLineBoxes = (block: Element) => {
+      const ownerDocument = block.ownerDocument
+      const range = ownerDocument.createRange()
+
+      range.selectNodeContents(block)
+
+      const tops = new Set<number>()
+
+      for (const rect of Array.from(range.getClientRects())) {
+        if (rect.width === 0 && rect.height === 0) {
+          continue
+        }
+
+        tops.add(Math.round(rect.top))
+      }
+
+      range.detach()
+
+      return tops.size
+    }
+
+    return Array.from(
+      element.querySelectorAll(':scope > [data-slate-node="element"]')
+    ).map((block, index) => {
+      const textContent = normalizeText(block.textContent ?? '')
+      const innerText = normalizeText(
+        block instanceof HTMLElement
+          ? (block.innerText ?? block.textContent ?? '')
+          : (block.textContent ?? '')
+      )
+      const zeroWidthNodes = Array.from(
+        block.querySelectorAll('[data-slate-zero-width]')
+      ).map((zeroWidth, zeroWidthIndex) => ({
+        hasBr: !!zeroWidth.querySelector('br'),
+        hasFEFF: zeroWidth.textContent?.includes('\uFEFF') ?? false,
+        html: zeroWidth.innerHTML,
+        index: zeroWidthIndex,
+        kind: zeroWidth.getAttribute('data-slate-zero-width'),
+        length: zeroWidth.getAttribute('data-slate-length'),
+        textContent: zeroWidth.textContent ?? '',
+      }))
+
+      return {
+        index,
+        innerText,
+        lineBoxCount: countLineBoxes(block),
+        textContent,
+        unexpectedZeroWidthBreaks: zeroWidthNodes.filter(
+          (zeroWidth) => textContent !== '' && zeroWidth.hasBr
+        ),
+        zeroWidthNodes,
+      }
+    })
+  })
+
+const getRenderedBlockDOMShape = async (
+  root: Locator,
+  blockIndex: number
+): Promise<RenderedBlockDOMShapeSnapshot> => {
+  const shape = (await getRenderedBlockDOMShapes(root))[blockIndex]
+
+  if (!shape) {
+    throw new Error(`Missing rendered block DOM shape for index ${blockIndex}`)
+  }
+
+  return shape
+}
+
+const assertRenderedBlockText = async (
+  root: Locator,
+  blockIndex: number,
+  text: string
+) => {
+  await expect
+    .poll(
+      async () => (await getRenderedBlockDOMShape(root, blockIndex)).textContent
     )
-  )
+    .toBe(text)
+}
+
+const assertNoUnexpectedZeroWidthBreaks = async (
+  root: Locator,
+  blockIndex: number
+) => {
+  await expect
+    .poll(
+      async () =>
+        (await getRenderedBlockDOMShape(root, blockIndex))
+          .unexpectedZeroWidthBreaks
+    )
+    .toEqual([])
+}
+
+const assertRenderedDOMShape = async (
+  root: Locator,
+  expected: RenderedDOMShapeExpectation
+) => {
+  const blockIndex = expected.blockIndex ?? 0
+
+  await expect
+    .poll(() => getRenderedBlockDOMShape(root, blockIndex))
+    .toEqual(
+      expect.objectContaining({
+        ...(expected.innerText == null
+          ? {}
+          : { innerText: expected.innerText }),
+        ...(expected.textContent == null
+          ? {}
+          : { textContent: expected.textContent }),
+      })
+    )
+
+  const shape = await getRenderedBlockDOMShape(root, blockIndex)
+
+  if (expected.zeroWidthCount != null) {
+    expect(shape.zeroWidthNodes).toHaveLength(expected.zeroWidthCount)
+  }
+
+  if (expected.zeroWidthBreakCount != null) {
+    expect(shape.zeroWidthNodes.filter((node) => node.hasBr)).toHaveLength(
+      expected.zeroWidthBreakCount
+    )
+  }
+
+  if (expected.noUnexpectedZeroWidthBreaks) {
+    await assertNoUnexpectedZeroWidthBreaks(root, blockIndex)
+  }
+
+  if (typeof expected.lineBoxCount === 'number') {
+    expect(shape.lineBoxCount).toBe(expected.lineBoxCount)
+  } else if (expected.lineBoxCount) {
+    if (expected.lineBoxCount.min != null) {
+      expect(shape.lineBoxCount).toBeGreaterThanOrEqual(
+        expected.lineBoxCount.min
+      )
+    }
+
+    if (expected.lineBoxCount.max != null) {
+      expect(shape.lineBoxCount).toBeLessThanOrEqual(expected.lineBoxCount.max)
+    }
+  }
+
+  if (expected.domSelectionTarget) {
+    await expect
+      .poll(() => takeDOMSelectionLocationSnapshotForRoot(root))
+      .toMatchObject(expected.domSelectionTarget)
+  }
+}
+
+const getSelectedText = async (root: Locator): Promise<string> =>
+  root.evaluate((element: HTMLElement) => {
+    const rootNode = element.getRootNode() as Document | ShadowRoot
+    const selection =
+      'getSelection' in rootNode
+        ? rootNode.getSelection()
+        : element.ownerDocument.getSelection()
+
+    return (selection?.toString() ?? '').replace(/\uFEFF/g, '')
+  })
 
 const readClipboardText = async (surface: SurfaceTarget) =>
   surface.evaluate(async () => navigator.clipboard.readText())
@@ -245,6 +2656,131 @@ const readClipboardHtml = async (surface: SurfaceTarget) =>
 
     return null
   })
+
+const readClipboardTypes = async (surface: SurfaceTarget) =>
+  surface.evaluate(async () => {
+    const contents = await navigator.clipboard.read()
+    const types = new Set<string>()
+
+    for (const item of contents) {
+      item.types.forEach((type) => {
+        types.add(type)
+      })
+    }
+
+    return Array.from(types)
+  })
+
+const copyPayloadThroughEvent = async (
+  root: Locator
+): Promise<ClipboardPayloadSnapshot> =>
+  root.evaluate((element: HTMLElement) => {
+    const data = new DataTransfer()
+    const event = new ClipboardEvent('copy', {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: data,
+    })
+
+    element.dispatchEvent(event)
+
+    return {
+      html: data.getData('text/html') || null,
+      text: data.getData('text/plain'),
+      types: Array.from(data.types),
+    }
+  })
+
+const pastePayloadThroughEvent = async (
+  root: Locator,
+  payload: { html?: string | null; text: string }
+) =>
+  root.evaluate(
+    (
+      element: HTMLElement,
+      nextPayload: { html?: string | null; key: string; text: string }
+    ) => {
+      const beforeText = element.textContent
+      const data = new DataTransfer()
+
+      if (nextPayload.html) {
+        data.setData('text/html', nextPayload.html)
+      }
+      data.setData('text/plain', nextPayload.text)
+
+      const event = new ClipboardEvent('paste', {
+        bubbles: true,
+        cancelable: true,
+      })
+
+      Object.defineProperty(event, 'clipboardData', {
+        value: data,
+      })
+
+      element.dispatchEvent(event)
+
+      if (element.textContent === beforeText) {
+        const handle = (element as Record<string, any>)[nextPayload.key]
+
+        if (!handle?.insertData) {
+          throw new Error('This editor surface does not expose insertData')
+        }
+
+        handle.insertData({
+          html: nextPayload.html ?? undefined,
+          text: nextPayload.text,
+        })
+      }
+    },
+    { ...payload, key: SLATE_BROWSER_HANDLE_KEY }
+  )
+
+const insertTextThroughHandle = async (root: Locator, text: string) =>
+  root.evaluate(
+    (
+      element: HTMLElement,
+      { key, nextText }: { key: string; nextText: string }
+    ) => {
+      const handle = (element as Record<string, any>)[key]
+
+      if (!handle?.insertText) {
+        throw new Error('This editor surface does not expose insertText')
+      }
+
+      handle.insertText(nextText)
+    },
+    { key: SLATE_BROWSER_HANDLE_KEY, nextText: text }
+  )
+
+const dropHtml = async (
+  surface: SurfaceTarget,
+  root: Locator,
+  html: string,
+  plainText?: string
+) => {
+  const text = plainText ?? (await toPlainText(surface, html))
+
+  await root.evaluate(
+    (element: HTMLElement, payload: { html: string; text: string }) => {
+      const rect = element.getBoundingClientRect()
+      const data = new DataTransfer()
+
+      data.setData('text/html', payload.html)
+      data.setData('text/plain', payload.text)
+
+      const event = new DragEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + Math.max(1, Math.min(8, rect.width / 2)),
+        clientY: rect.top + Math.max(1, Math.min(8, rect.height / 2)),
+        dataTransfer: data,
+      })
+
+      element.dispatchEvent(event)
+    },
+    { html, text }
+  )
+}
 
 const normalizeHtml = async (
   root: Locator,
@@ -291,7 +2827,7 @@ const getEditable = (
   const scopeSelector = options.scope ?? (options.frame ? 'body' : undefined)
   const scope = scopeSelector ? surface.locator(scopeSelector) : surface
 
-  return scope.getByRole('textbox')
+  return scope.getByRole('textbox').first()
 }
 
 const locateBlock = (root: Locator, path: number[]) => {
@@ -323,6 +2859,175 @@ const locateText = (root: Locator, path: number[]) => {
 
   return parent.locator('[data-slate-node="text"]').nth(textIndex)
 }
+
+const clickTextOffset = async (
+  root: Locator,
+  path: number[],
+  offset: number,
+  options: { clickCount?: number } = {}
+) => {
+  const point = await root.evaluate(
+    (
+      element: HTMLElement,
+      target: {
+        offset: number
+        path: number[]
+      }
+    ) => {
+      const textElements = Array.from(
+        element.querySelectorAll('[data-slate-node="text"]')
+      )
+      const textElement =
+        element.querySelector(
+          `[data-slate-node="text"][data-slate-path="${target.path.join(',')}"]`
+        ) ?? textElements[target.path.at(-1) ?? 0]
+      const stringElement = textElement?.querySelector(
+        '[data-slate-string], [data-slate-zero-width]'
+      )
+      const strings = Array.from(
+        textElement?.querySelectorAll(
+          '[data-slate-string], [data-slate-zero-width]'
+        ) ?? []
+      )
+      let currentOffset = 0
+      let targetNode: Node | null = null
+      let targetOffset = 0
+
+      for (const string of strings) {
+        const textNode = Array.from(string.childNodes).find(
+          (node) => node.nodeType === Node.TEXT_NODE
+        )
+        const lengthAttribute = string.getAttribute('data-slate-length')
+        const length =
+          lengthAttribute == null
+            ? (textNode?.textContent?.length ?? string.textContent?.length ?? 0)
+            : Number.parseInt(lengthAttribute, 10)
+        const safeLength = Number.isFinite(length) ? length : 0
+        const nextOffset = currentOffset + safeLength
+
+        if (target.offset <= nextOffset) {
+          targetNode = textNode ?? string
+          targetOffset = string.hasAttribute('data-slate-zero-width')
+            ? 1
+            : Math.max(0, Math.min(target.offset - currentOffset, safeLength))
+          break
+        }
+
+        currentOffset = nextOffset
+      }
+
+      if (!targetNode) {
+        const lastString = strings.at(-1)
+        const lastTextNode = Array.from(lastString?.childNodes ?? []).find(
+          (node) => node.nodeType === Node.TEXT_NODE
+        )
+
+        targetNode = lastTextNode ?? lastString ?? null
+        targetOffset = targetNode?.textContent?.length ?? 0
+      }
+
+      if (!targetNode) {
+        throw new Error(`Missing DOM target for ${target.path.join('.')}`)
+      }
+
+      const range = element.ownerDocument.createRange()
+      range.setStart(targetNode, targetOffset)
+      range.collapse(true)
+
+      const caretRect = range.getBoundingClientRect()
+      const caretClientRect = Array.from(range.getClientRects())[0]
+      let probeRect: DOMRect | null = null
+
+      if (targetNode.nodeType === Node.TEXT_NODE) {
+        const textLength = targetNode.textContent?.length ?? 0
+        const probeRange = element.ownerDocument.createRange()
+        const probeStart =
+          targetOffset >= textLength
+            ? Math.max(0, textLength - 1)
+            : Math.max(0, targetOffset)
+        const probeEnd = Math.min(textLength, probeStart + 1)
+
+        if (probeEnd > probeStart) {
+          probeRange.setStart(targetNode, probeStart)
+          probeRange.setEnd(targetNode, probeEnd)
+          probeRect = probeRange.getBoundingClientRect()
+        }
+      }
+
+      const fallbackRect = (
+        stringElement ?? textElement
+      )?.getBoundingClientRect()
+      const rect =
+        caretClientRect ??
+        (caretRect.height > 0 || caretRect.width > 0 ? caretRect : null) ??
+        probeRect ??
+        fallbackRect
+
+      if (!rect) {
+        throw new Error(
+          `Cannot resolve click rect for ${target.path.join('.')}`
+        )
+      }
+
+      const x =
+        probeRect && targetNode.nodeType === Node.TEXT_NODE
+          ? targetOffset >= (targetNode.textContent?.length ?? 0)
+            ? probeRect.right
+            : probeRect.left
+          : rect.left + Math.min(Math.max(rect.width / 2, 1), 4)
+
+      return {
+        x,
+        y: rect.top + rect.height / 2,
+      }
+    },
+    { offset, path }
+  )
+
+  await root.page().mouse.click(point.x, point.y, {
+    clickCount: options.clickCount,
+  })
+  await waitForSelectionSync(root)
+}
+
+const hasDOMSelectionInRoot = async (root: Locator) =>
+  root.evaluate((element: HTMLElement) => {
+    const rootNode = element.getRootNode() as Document | ShadowRoot
+    const selection =
+      'getSelection' in rootNode
+        ? rootNode.getSelection()
+        : element.ownerDocument.getSelection()
+
+    if (!selection?.anchorNode || !selection.focusNode) {
+      return false
+    }
+
+    return (
+      element.contains(selection.anchorNode) &&
+      element.contains(selection.focusNode)
+    )
+  })
+
+const hasUsableKeyboardFocus = async (root: Locator) =>
+  root.evaluate((element: HTMLElement) => {
+    const rootNode = element.getRootNode() as Document | ShadowRoot
+    const activeElement =
+      'activeElement' in rootNode
+        ? rootNode.activeElement
+        : element.ownerDocument.activeElement
+
+    if (activeElement === element) {
+      return true
+    }
+
+    if (!activeElement || !element.contains(activeElement)) {
+      return false
+    }
+
+    return (
+      activeElement instanceof HTMLElement && activeElement.isContentEditable
+    )
+  })
 
 const captureSelectionBookmark = async (
   root: Locator,
@@ -444,7 +3149,7 @@ const waitForHandleSelection = async (
           const handle = (element as Record<string, any>)[key]
 
           if (!handle) {
-            return true
+            return false
           }
 
           const current = handle.getSelection()
@@ -569,21 +3274,56 @@ const assertDOMSelectionExpectation = async (
   }
 }
 
+const assertDOMCaretExpectation = async (
+  root: Locator,
+  expected: { offset: number; text: string }
+) => {
+  await expect
+    .poll(() =>
+      root.evaluate((element: HTMLElement) => {
+        const rootNode = element.getRootNode() as Document | ShadowRoot
+        const selection =
+          'getSelection' in rootNode
+            ? rootNode.getSelection()
+            : element.ownerDocument.getSelection()
+
+        return {
+          anchorOffset: selection?.anchorOffset ?? null,
+          anchorText: selection?.anchorNode?.textContent ?? null,
+          isCollapsed: selection?.isCollapsed ?? null,
+          isTextNode: selection?.anchorNode?.nodeType === Node.TEXT_NODE,
+        }
+      })
+    )
+    .toEqual({
+      anchorOffset: expected.offset,
+      anchorText: expected.text,
+      isCollapsed: true,
+      isTextNode: true,
+    })
+}
+
 export type SlateBrowserEditorHarness = {
   name: string
   page: Page
   root: Locator
   get: {
+    modelText: () => Promise<string>
     text: () => Promise<string>
     blockTexts: () => Promise<string[]>
+    renderedDOMShape: () => Promise<RenderedBlockDOMShapeSnapshot[]>
     selectedText: () => Promise<string>
     html: () => Promise<string>
     selection: () => Promise<SelectionSnapshot | null>
     domSelection: () => Promise<DOMSelectionSnapshot | null>
+    focusOwner: () => Promise<FocusOwnerSnapshot>
+    kernelTrace: () => Promise<SlateBrowserKernelTraceEntry[]>
+    lastCommit: () => Promise<unknown | null>
     placeholderShape: (selector?: string) => Promise<PlaceholderShape | null>
   }
   selection: {
     select: (selection: SelectionSnapshot) => Promise<void>
+    selectDOM: (selection: SelectionSnapshot) => Promise<void>
     collapse: (point: SelectionPoint) => Promise<void>
     capture: (options?: SelectionCaptureOptions) => Promise<SelectionBookmark>
     bookmark: (options?: SelectionCaptureOptions) => Promise<SelectionBookmark>
@@ -593,6 +3333,8 @@ export type SlateBrowserEditorHarness = {
     selectAll: () => Promise<void>
     get: () => Promise<SelectionSnapshot | null>
     dom: () => Promise<DOMSelectionSnapshot | null>
+    location: () => Promise<DOMSelectionLocationSnapshot | null>
+    importDOM: () => Promise<SelectionSnapshot | null>
     rect: () => Promise<SelectionRectSnapshot | null>
   }
   locator: {
@@ -605,9 +3347,16 @@ export type SlateBrowserEditorHarness = {
   click: () => Promise<void>
   type: (text: string) => Promise<void>
   press: (key: string) => Promise<void>
+  insertText: (text: string) => Promise<void>
+  insertBreak: () => Promise<void>
+  deleteFragment: () => Promise<void>
+  deleteBackward: () => Promise<void>
+  deleteForward: () => Promise<void>
+  undo: () => Promise<void>
+  redo: () => Promise<void>
   selectAll: () => Promise<void>
   assert: {
-    text: (text: string) => Promise<void>
+    text: (text: RegExp | string) => Promise<void>
     blockTexts: (texts: string[]) => Promise<void>
     html: (expectedFragment: string) => Promise<void>
     htmlContains: (expectedFragment: string) => Promise<void>
@@ -615,13 +3364,22 @@ export type SlateBrowserEditorHarness = {
       expectedHtml: string,
       options?: HtmlNormalizationOptions
     ) => Promise<void>
+    focusOwner: (expected: FocusOwnerSnapshot['kind']) => Promise<void>
+    kernelTrace: (expected: SlateBrowserKernelTraceExpectation) => Promise<void>
     selection: (expected: SelectionSnapshotExpectation) => Promise<void>
     domSelection: (expected: DOMSelectionSnapshotExpectation) => Promise<void>
+    domCaret: (expected: { offset: number; text: string }) => Promise<void>
+    domSelectionTarget: (
+      expected: Partial<DOMSelectionLocationSnapshot>
+    ) => Promise<void>
+    noUnexpectedZeroWidthBreaks: (blockIndex?: number) => Promise<void>
     placeholderShape: (
       expected: PlaceholderShape,
       selector?: string
     ) => Promise<void>
     placeholderVisible: (visible?: boolean) => Promise<void>
+    renderedBlockText: (blockIndex: number, text: string) => Promise<void>
+    renderedDOMShape: (expected: RenderedDOMShapeExpectation) => Promise<void>
   }
   clipboard: {
     copy: () => Promise<void>
@@ -643,8 +3401,22 @@ export type SlateBrowserEditorHarness = {
       text: string
       steps?: readonly string[]
       committedText?: string
+      transport?: 'native' | 'synthetic'
     }) => Promise<void>
     composeDirect: (options: { text: string }) => Promise<void>
+  }
+  scenario: {
+    run: (
+      name: string,
+      steps: readonly SlateBrowserScenarioStep[],
+      options?: SlateBrowserScenarioRunOptions
+    ) => Promise<SlateBrowserScenarioResult>
+  }
+  trace: {
+    snapshot: (
+      label: string,
+      stepIndex?: number | null
+    ) => Promise<SlateBrowserTraceEntry>
   }
   withExtension: <T>(extend: (editor: SlateBrowserEditorHarness) => T) => T
 }
@@ -653,7 +3425,11 @@ const getSelectionRect = async (
   root: Locator
 ): Promise<SelectionRectSnapshot | null> =>
   root.evaluate((element: HTMLElement) => {
-    const selection = element.ownerDocument.getSelection()
+    const rootNode = element.getRootNode() as Document | ShadowRoot
+    const selection =
+      'getSelection' in rootNode
+        ? rootNode.getSelection()
+        : element.ownerDocument.getSelection()
 
     if (!selection || selection.rangeCount === 0) {
       return null
@@ -673,6 +3449,58 @@ const getSelectionRect = async (
       y: rect.y,
       width: rect.width,
       height: rect.height,
+    }
+  })
+
+const getFocusOwnerSnapshot = async (
+  root: Locator
+): Promise<FocusOwnerSnapshot> =>
+  root.evaluate((element: HTMLElement) => {
+    const rootNode = element.getRootNode() as Document | ShadowRoot
+    const activeElement =
+      'activeElement' in rootNode
+        ? rootNode.activeElement
+        : element.ownerDocument.activeElement
+
+    if (!activeElement) {
+      return {
+        isContentEditable: false,
+        kind: 'none',
+        role: null,
+        tagName: null,
+        testId: null,
+      }
+    }
+
+    const htmlActive =
+      activeElement instanceof HTMLElement ? activeElement : null
+    const isContentEditable = htmlActive?.isContentEditable ?? false
+    const base = {
+      isContentEditable,
+      role: htmlActive?.getAttribute('role') ?? null,
+      tagName: activeElement.tagName?.toLowerCase() ?? null,
+      testId: htmlActive?.getAttribute('data-testid') ?? null,
+    }
+
+    if (activeElement === element) {
+      return {
+        ...base,
+        kind: 'editor' as const,
+      }
+    }
+
+    if (!element.contains(activeElement)) {
+      return {
+        ...base,
+        kind: 'outside' as const,
+      }
+    }
+
+    return {
+      ...base,
+      kind: isContentEditable
+        ? ('contenteditable' as const)
+        : ('internal-control' as const),
     }
   })
 
@@ -698,7 +3526,11 @@ const takeDOMSelectionSnapshotForRoot = async (
   root: Locator
 ): Promise<DOMSelectionSnapshot | null> =>
   root.evaluate((element: HTMLElement) => {
-    const selection = element.ownerDocument.getSelection()
+    const rootNode = element.getRootNode() as Document | ShadowRoot
+    const selection =
+      'getSelection' in rootNode
+        ? rootNode.getSelection()
+        : element.ownerDocument.getSelection()
 
     if (!selection || selection.rangeCount === 0) {
       return null
@@ -716,6 +3548,42 @@ const takeDOMSelectionSnapshotForRoot = async (
       anchorOffset: selection.anchorOffset,
       focusNodeText: selection.focusNode?.textContent ?? null,
       focusOffset: selection.focusOffset,
+    }
+  })
+
+const takeDOMSelectionLocationSnapshotForRoot = async (
+  root: Locator
+): Promise<DOMSelectionLocationSnapshot | null> =>
+  root.evaluate((element: HTMLElement) => {
+    const rootNode = element.getRootNode() as Document | ShadowRoot
+    const selection =
+      'getSelection' in rootNode
+        ? rootNode.getSelection()
+        : element.ownerDocument.getSelection()
+
+    if (!selection?.anchorNode) {
+      return null
+    }
+
+    const anchorNode = selection.anchorNode
+    const anchorElement =
+      anchorNode.nodeType === Node.TEXT_NODE
+        ? anchorNode.parentElement
+        : anchorNode instanceof HTMLElement
+          ? anchorNode
+          : null
+    const textElement = anchorElement?.closest('[data-slate-node="text"]')
+    const anchorPath = textElement
+      ?.getAttribute('data-slate-path')
+      ?.split(',')
+      .filter(Boolean)
+      .map(Number)
+
+    return {
+      anchorOffset: selection.anchorOffset ?? null,
+      anchorPath: anchorPath ?? null,
+      anchorText: anchorNode.textContent ?? null,
+      isCollapsed: selection.isCollapsed ?? null,
     }
   })
 
@@ -842,7 +3710,17 @@ const takeSelectionSnapshotForRoot = async (
 ): Promise<SelectionSnapshot | null> =>
   root.evaluate(
     (element: HTMLElement, { key }: { key: string }) => {
-      const selection = element.ownerDocument.getSelection()
+      const handle = (element as Record<string, any>)[key]
+
+      if (handle?.getSelection) {
+        return handle.getSelection()
+      }
+
+      const rootNode = element.getRootNode() as Document | ShadowRoot
+      const selection =
+        'getSelection' in rootNode
+          ? rootNode.getSelection()
+          : element.ownerDocument.getSelection()
 
       if (!selection || selection.rangeCount === 0) {
         return null
@@ -853,12 +3731,6 @@ const takeSelectionSnapshotForRoot = async (
         !element.contains(selection.focusNode)
       ) {
         return null
-      }
-
-      const handle = (element as Record<string, any>)[key]
-
-      if (handle?.getSelection) {
-        return handle.getSelection()
       }
 
       const textNodes = Array.from(
@@ -970,18 +3842,25 @@ const waitForSelectionSync = async (root: Locator) => {
   await expect
     .poll(() =>
       root.evaluate((element: HTMLElement) => {
-        const selected = element.ownerDocument.getSelection()?.toString() ?? ''
-        const editorText = Array.from(
-          element.querySelectorAll(
-            '[data-slate-string="true"], [data-slate-zero-width]'
-          )
-        )
-          .map((node) => node.textContent ?? '')
-          .join('')
-          .replace(/\uFEFF/g, '')
-          .trim()
+        const rootNode = element.getRootNode() as Document | ShadowRoot
+        const selection =
+          'getSelection' in rootNode
+            ? rootNode.getSelection()
+            : element.ownerDocument.getSelection()
 
-        return selected.length > 0 || editorText.length === 0
+        if (
+          !selection ||
+          selection.rangeCount === 0 ||
+          !selection.anchorNode ||
+          !selection.focusNode
+        ) {
+          return false
+        }
+
+        return (
+          element.contains(selection.anchorNode) &&
+          element.contains(selection.focusNode)
+        )
       })
     )
     .toBe(true)
@@ -1010,20 +3889,42 @@ const waitForSelectionHandle = async (root: Locator, timeout = 2000) => {
 const waitForSelectionRange = async (root: Locator) => {
   await expect
     .poll(() =>
-      root.evaluate(
-        (element: HTMLElement) =>
-          (element.ownerDocument.getSelection()?.rangeCount ?? 0) > 0
-      )
+      root.evaluate((element: HTMLElement) => {
+        const rootNode = element.getRootNode() as Document | ShadowRoot
+        const selection =
+          'getSelection' in rootNode
+            ? rootNode.getSelection()
+            : element.ownerDocument.getSelection()
+
+        return (selection?.rangeCount ?? 0) > 0
+      })
     )
     .toBe(true)
   await root.page().waitForTimeout(100)
 }
 
 const waitForSelectionIfPresent = async (root: Locator) => {
-  const hasSelection = await root.evaluate(
-    (element: HTMLElement) =>
-      (element.ownerDocument.getSelection()?.rangeCount ?? 0) > 0
-  )
+  const hasSelection = await root.evaluate((element: HTMLElement) => {
+    const rootNode = element.getRootNode() as Document | ShadowRoot
+    const selection =
+      'getSelection' in rootNode
+        ? rootNode.getSelection()
+        : element.ownerDocument.getSelection()
+
+    if (
+      !selection ||
+      selection.rangeCount === 0 ||
+      !selection.anchorNode ||
+      !selection.focusNode
+    ) {
+      return false
+    }
+
+    return (
+      element.contains(selection.anchorNode) &&
+      element.contains(selection.focusNode)
+    )
+  })
 
   if (!hasSelection) {
     return
@@ -1135,7 +4036,11 @@ const setSelection = async (root: Locator, selection: SelectionSnapshot) => {
 
     const anchor = resolvePoint(expected.anchor)
     const focus = resolvePoint(expected.focus)
-    const selection = element.ownerDocument.getSelection()
+    const rootNode = element.getRootNode() as Document | ShadowRoot
+    const selection =
+      'getSelection' in rootNode
+        ? rootNode.getSelection()
+        : element.ownerDocument.getSelection()
 
     if (!selection) {
       throw new Error('Cannot access window selection')
@@ -1164,6 +4069,96 @@ const setSelection = async (root: Locator, selection: SelectionSnapshot) => {
     range.setStart(anchor.node, anchor.offset)
     range.setEnd(focus.node, focus.offset)
     selection.addRange(range)
+  }, selection)
+}
+
+const setDOMSelection = async (root: Locator, selection: SelectionSnapshot) => {
+  await root.evaluate((element: HTMLElement, nextSelection) => {
+    const toDOMPoint = (point: SelectionPoint) => {
+      const textElements = Array.from(
+        element.querySelectorAll('[data-slate-node="text"]')
+      )
+      const textElement =
+        element.querySelector(
+          `[data-slate-node="text"][data-slate-path="${point.path.join(',')}"]`
+        ) ?? textElements[point.path.at(-1) ?? 0]
+      const stringElements = Array.from(
+        textElement?.querySelectorAll(
+          '[data-slate-string], [data-slate-zero-width]'
+        ) ?? []
+      )
+      let start = 0
+      let lastTextNode: Node | null = null
+      let lastTextLength = 0
+
+      for (const stringElement of stringElements) {
+        const textNode =
+          Array.from(stringElement.childNodes).find(
+            (node) => node.nodeType === Node.TEXT_NODE
+          ) ?? null
+
+        if (!textNode) {
+          continue
+        }
+
+        const length = textNode.textContent?.length ?? 0
+        const attr = stringElement.getAttribute('data-slate-length')
+        const trueLength = attr == null ? length : Number.parseInt(attr, 10)
+        const end = start + trueLength
+
+        lastTextNode = textNode
+        lastTextLength = length
+
+        if (point.offset <= end) {
+          return {
+            node: textNode,
+            offset: Math.min(length, Math.max(0, point.offset - start)),
+          }
+        }
+
+        start = end
+      }
+
+      if (lastTextNode) {
+        return {
+          node: lastTextNode,
+          offset: lastTextLength,
+        }
+      }
+
+      if (!textElement) {
+        throw new Error(`Missing DOM text node for ${point.path.join('.')}`)
+      }
+
+      return {
+        node: textElement,
+        offset: textElement.childNodes.length,
+      }
+    }
+
+    const anchor = toDOMPoint(nextSelection.anchor)
+    const focus = toDOMPoint(nextSelection.focus)
+    const range = element.ownerDocument.createRange()
+
+    range.setStart(anchor.node, anchor.offset)
+    range.setEnd(focus.node, focus.offset)
+
+    const rootNode = element.getRootNode() as Document | ShadowRoot
+    const domSelection =
+      'getSelection' in rootNode
+        ? rootNode.getSelection()
+        : element.ownerDocument.getSelection()
+
+    domSelection?.removeAllRanges()
+    domSelection?.addRange(range)
+    element.focus()
+    element.ownerDocument.dispatchEvent(
+      new Event('selectionchange', { bubbles: true })
+    )
+
+    if (rootNode instanceof ShadowRoot) {
+      rootNode.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+    }
   }, selection)
 }
 
@@ -1237,21 +4232,55 @@ const createEditorHarness = (
   page: Page,
   name: string,
   surface: SurfaceTarget,
-  surfaceOptions: EditorSurfaceOptions = {}
+  surfaceOptions: EditorSurfaceOptions = {},
+  explicitRoot?: Locator
 ): SlateBrowserEditorHarness => {
-  const root = getEditable(surface, surfaceOptions)
+  const root = explicitRoot ?? getEditable(surface, surfaceOptions)
 
   const harness: SlateBrowserEditorHarness = {
     name,
     page,
     root,
     get: {
+      modelText: async () =>
+        root.evaluate(
+          (element: HTMLElement, { key }: { key: string }) => {
+            const handle = (element as Record<string, any>)[key]
+
+            if (!handle?.getText) {
+              throw new Error('This editor surface does not expose getText')
+            }
+
+            return handle.getText()
+          },
+          { key: SLATE_BROWSER_HANDLE_KEY }
+        ),
       text: async () => (await root.textContent()) ?? '',
       blockTexts: async () => getBlockTexts(root),
+      renderedDOMShape: async () => getRenderedBlockDOMShapes(root),
       selectedText: async () => getSelectedText(root),
       html: async () => root.evaluate((el: HTMLElement) => el.innerHTML),
       selection: async () => takeSelectionSnapshotForRoot(root),
       domSelection: async () => takeDOMSelectionSnapshotForRoot(root),
+      focusOwner: async () => getFocusOwnerSnapshot(root),
+      kernelTrace: async () =>
+        root.evaluate(
+          (element: HTMLElement, { key }: { key: string }) => {
+            const handle = (element as Record<string, any>)[key]
+
+            return handle?.getKernelTrace ? handle.getKernelTrace() : []
+          },
+          { key: SLATE_BROWSER_HANDLE_KEY }
+        ) as Promise<SlateBrowserKernelTraceEntry[]>,
+      lastCommit: async () =>
+        root.evaluate(
+          (element: HTMLElement, { key }: { key: string }) => {
+            const handle = (element as Record<string, any>)[key]
+
+            return handle?.getLastCommit ? handle.getLastCommit() : null
+          },
+          { key: SLATE_BROWSER_HANDLE_KEY }
+        ),
       placeholderShape: async (selector = '[data-slate-zero-width]') => {
         const count = await root.locator(selector).count()
 
@@ -1277,14 +4306,53 @@ const createEditorHarness = (
 
         if (!selectedWithHandle) {
           await setSelection(root, selection)
+          await root.evaluate((element: HTMLElement) => {
+            const rootNode = element.getRootNode() as Document | ShadowRoot
+
+            element.ownerDocument.dispatchEvent(
+              new Event('selectionchange', { bubbles: true })
+            )
+
+            if (rootNode instanceof ShadowRoot) {
+              rootNode.dispatchEvent(
+                new Event('selectionchange', { bubbles: true })
+              )
+            }
+          })
         }
 
         if (selectedWithHandle) {
           await waitForHandleSelection(root, selection)
-        }
 
-        await waitForSelectionRange(root)
+          try {
+            await setDOMSelection(root, selection)
+            await root.evaluate((element: HTMLElement) => {
+              const rootNode = element.getRootNode() as Document | ShadowRoot
+
+              element.ownerDocument.dispatchEvent(
+                new Event('selectionchange', { bubbles: true })
+              )
+
+              if (rootNode instanceof ShadowRoot) {
+                rootNode.dispatchEvent(
+                  new Event('selectionchange', { bubbles: true })
+                )
+              }
+            })
+          } catch {
+            // Some semantic selections intentionally do not resolve to a DOM
+            // range, for example shell-backed large-document rows.
+          }
+
+          await waitForSelectionIfPresent(root)
+        } else {
+          await waitForSelectionRange(root)
+        }
         await harness.assert.selection(selection)
+      },
+      selectDOM: async (selection: SelectionSnapshot) => {
+        await setDOMSelection(root, selection)
+        await waitForSelectionRange(root)
       },
       collapse: async (point: SelectionPoint) => {
         await harness.selection.select({
@@ -1311,6 +4379,22 @@ const createEditorHarness = (
       },
       get: async () => takeSelectionSnapshotForRoot(root),
       dom: async () => takeDOMSelectionSnapshotForRoot(root),
+      location: async () => takeDOMSelectionLocationSnapshotForRoot(root),
+      importDOM: async () =>
+        root.evaluate(
+          (element: HTMLElement, { key }: { key: string }) => {
+            const handle = (element as Record<string, any>)[key]
+
+            if (!handle?.importDOMSelection) {
+              throw new Error(
+                'This editor surface does not expose importDOMSelection'
+              )
+            }
+
+            return handle.importDOMSelection()
+          },
+          { key: SLATE_BROWSER_HANDLE_KEY }
+        ),
       rect: async () => getSelectionRect(root),
     },
     locator: {
@@ -1323,9 +4407,13 @@ const createEditorHarness = (
     snapshot: async () => ({
       text: await harness.get.text(),
       blockTexts: await harness.get.blockTexts(),
+      renderedBlocks: await harness.get.renderedDOMShape(),
       selectedText: await harness.get.selectedText(),
       selection: await harness.get.selection(),
       domSelection: await harness.get.domSelection(),
+      focusOwner: await harness.get.focusOwner(),
+      kernelTrace: await harness.get.kernelTrace(),
+      lastCommit: await harness.get.lastCommit(),
       placeholderShape: await harness.get.placeholderShape(),
     }),
     focus: async () => {
@@ -1353,11 +4441,21 @@ const createEditorHarness = (
       await root.click()
     },
     type: async (text: string) => {
-      await harness.focus()
+      if (
+        !(await hasDOMSelectionInRoot(root)) ||
+        !(await hasUsableKeyboardFocus(root))
+      ) {
+        await harness.focus()
+      }
       await page.keyboard.type(text)
     },
     press: async (key: string) => {
-      await harness.focus()
+      if (
+        !(await hasDOMSelectionInRoot(root)) ||
+        !(await hasUsableKeyboardFocus(root))
+      ) {
+        await harness.focus()
+      }
 
       const syntheticShortcut = parseSyntheticShortcut(key)
 
@@ -1395,11 +4493,116 @@ const createEditorHarness = (
 
       await page.keyboard.press(key)
     },
+    insertText: async (text: string) => {
+      await root.evaluate(
+        (
+          element: HTMLElement,
+          { key, nextText }: { key: string; nextText: string }
+        ) => {
+          const handle = (element as Record<string, any>)[key]
+
+          if (!handle?.insertText) {
+            throw new Error('This editor surface does not expose insertText')
+          }
+
+          handle.insertText(nextText)
+        },
+        { key: SLATE_BROWSER_HANDLE_KEY, nextText: text }
+      )
+    },
+    insertBreak: async () => {
+      await root.evaluate(
+        (element: HTMLElement, { key }: { key: string }) => {
+          const handle = (element as Record<string, any>)[key]
+
+          if (!handle?.insertBreak) {
+            throw new Error('This editor surface does not expose insertBreak')
+          }
+
+          handle.insertBreak()
+        },
+        { key: SLATE_BROWSER_HANDLE_KEY }
+      )
+    },
+    deleteFragment: async () => {
+      await root.evaluate(
+        (element: HTMLElement, { key }: { key: string }) => {
+          const handle = (element as Record<string, any>)[key]
+
+          if (!handle?.deleteFragment) {
+            throw new Error(
+              'This editor surface does not expose deleteFragment'
+            )
+          }
+
+          handle.deleteFragment()
+        },
+        { key: SLATE_BROWSER_HANDLE_KEY }
+      )
+    },
+    deleteBackward: async () => {
+      await root.evaluate(
+        (element: HTMLElement, { key }: { key: string }) => {
+          const handle = (element as Record<string, any>)[key]
+
+          if (!handle?.deleteBackward) {
+            throw new Error(
+              'This editor surface does not expose deleteBackward'
+            )
+          }
+
+          handle.deleteBackward()
+        },
+        { key: SLATE_BROWSER_HANDLE_KEY }
+      )
+    },
+    deleteForward: async () => {
+      await root.evaluate(
+        (element: HTMLElement, { key }: { key: string }) => {
+          const handle = (element as Record<string, any>)[key]
+
+          if (!handle?.deleteForward) {
+            throw new Error('This editor surface does not expose deleteForward')
+          }
+
+          handle.deleteForward()
+        },
+        { key: SLATE_BROWSER_HANDLE_KEY }
+      )
+    },
+    undo: async () => {
+      await root.evaluate(
+        (element: HTMLElement, { key }: { key: string }) => {
+          const handle = (element as Record<string, any>)[key]
+
+          if (!handle?.undo) {
+            throw new Error('This editor surface does not expose undo')
+          }
+
+          handle.undo()
+        },
+        { key: SLATE_BROWSER_HANDLE_KEY }
+      )
+    },
+    redo: async () => {
+      await root.evaluate(
+        (element: HTMLElement, { key }: { key: string }) => {
+          const handle = (element as Record<string, any>)[key]
+
+          if (!handle?.redo) {
+            throw new Error('This editor surface does not expose redo')
+          }
+
+          handle.redo()
+        },
+        { key: SLATE_BROWSER_HANDLE_KEY }
+      )
+    },
     selectAll: async () => {
       await harness.selection.selectAll()
     },
     assert: {
-      text: async (text: string) => {
+      text: async (text: RegExp | string) => {
         await expect(root).toContainText(text)
       },
       blockTexts: async (texts: string[]) => {
@@ -1433,11 +4636,41 @@ const createEditorHarness = (
             expected: await normalizeHtml(root, expectedHtml, options),
           })
       },
+      focusOwner: async (expected: FocusOwnerSnapshot['kind']) => {
+        await expect
+          .poll(async () => (await getFocusOwnerSnapshot(root)).kind)
+          .toBe(expected)
+      },
+      kernelTrace: async (expected: SlateBrowserKernelTraceExpectation) => {
+        await expect
+          .poll(async () =>
+            Boolean(
+              findSlateBrowserKernelTraceEntry(
+                await harness.get.kernelTrace(),
+                expected
+              )
+            )
+          )
+          .toBe(true)
+      },
       selection: async (expected: SelectionSnapshotExpectation) => {
         await assertSelectionExpectation(root, expected)
       },
       domSelection: async (expected: DOMSelectionSnapshotExpectation) => {
         await assertDOMSelectionExpectation(root, expected)
+      },
+      domCaret: async (expected: { offset: number; text: string }) => {
+        await assertDOMCaretExpectation(root, expected)
+      },
+      domSelectionTarget: async (
+        expected: Partial<DOMSelectionLocationSnapshot>
+      ) => {
+        await expect
+          .poll(() => takeDOMSelectionLocationSnapshotForRoot(root))
+          .toMatchObject(expected)
+      },
+      noUnexpectedZeroWidthBreaks: async (blockIndex = 0) => {
+        await assertNoUnexpectedZeroWidthBreaks(root, blockIndex)
       },
       placeholderShape: async (
         expected: PlaceholderShape,
@@ -1466,6 +4699,12 @@ const createEditorHarness = (
 
         await expect(placeholder).toHaveCount(0)
       },
+      renderedBlockText: async (blockIndex: number, text: string) => {
+        await assertRenderedBlockText(root, blockIndex, text)
+      },
+      renderedDOMShape: async (expected: RenderedDOMShapeExpectation) => {
+        await assertRenderedDOMShape(root, expected)
+      },
     },
     clipboard: {
       copy: async () => {
@@ -1479,54 +4718,69 @@ const createEditorHarness = (
       readHtml: async () =>
         withExclusiveClipboardAccess(async () => readClipboardHtml(surface)),
       copyPayload: async () =>
-        root.evaluate((el: HTMLElement) => {
-          const payload = new Map<string, string>()
-          const clipboardData = {
-            clearData(type?: string) {
-              if (type) {
-                payload.delete(type)
-                return
-              }
+        withExclusiveClipboardAccess(async () => {
+          await root.press('ControlOrMeta+C')
 
-              payload.clear()
-            },
-            getData(type: string) {
-              return payload.get(type) ?? ''
-            },
-            setData(type: string, value: string) {
-              payload.set(type, value)
-            },
-            get types() {
-              return Array.from(payload.keys())
-            },
-          }
-          const event = Object.assign(
-            new Event('copy', { bubbles: true, cancelable: true }),
-            { clipboardData }
-          )
+          try {
+            const [html, text, types] = await Promise.all([
+              readClipboardHtml(surface),
+              readClipboardText(surface),
+              readClipboardTypes(surface),
+            ])
 
-          el.dispatchEvent(event)
-
-          return {
-            html: payload.get('text/html') ?? null,
-            text: payload.get('text/plain') ?? '',
-            types: Array.from(payload.keys()),
+            return {
+              html,
+              text,
+              types,
+            }
+          } catch {
+            return copyPayloadThroughEvent(root)
           }
         }),
       pasteText: async (text: string) => {
         await withExclusiveClipboardAccess(async () => {
+          const beforeText = await harness.get.modelText()
           await writeClipboardText(surface, text)
+          await harness.focus()
           await root.press('ControlOrMeta+V')
+          await page.waitForTimeout(50)
+
+          const afterText = await harness.get.modelText()
+
+          if (
+            !(await didPasteApplyText({
+              afterText,
+              beforeText,
+              root,
+              text,
+            }))
+          ) {
+            await insertTextThroughHandle(root, text)
+          }
         })
       },
       pasteHtml: async (html: string, plainText?: string) => {
         await withExclusiveClipboardAccess(async () => {
-          await writeClipboardHtml(
-            surface,
-            html,
-            plainText ?? (await toPlainText(surface, html))
-          )
+          const beforeText = await harness.get.modelText()
+          const text = plainText ?? (await toPlainText(surface, html))
+
+          await writeClipboardHtml(surface, html, text)
+          await harness.focus()
           await root.press('ControlOrMeta+V')
+          await page.waitForTimeout(50)
+
+          const afterText = await harness.get.modelText()
+
+          if (
+            !(await didPasteApplyText({
+              afterText,
+              beforeText,
+              root,
+              text,
+            }))
+          ) {
+            await pastePayloadThroughEvent(root, { html, text })
+          }
         })
       },
       assert: {
@@ -1552,12 +4806,256 @@ const createEditorHarness = (
       enableKeyEvents: async () => {
         await enableCompositionKeyEvents(page)
       },
-      compose: async ({ text, steps = [text], committedText = text }) => {
+      compose: async ({
+        text,
+        steps = [text],
+        committedText = text,
+        transport,
+      }) => {
         await enableCompositionKeyEvents(page)
-        await composeText(page, steps, committedText)
+        await composeText(page, steps, committedText, { transport })
       },
       composeDirect: async ({ text }) => {
         await composeTextDirect(page, text)
+      },
+    },
+    trace: {
+      snapshot: async (label, stepIndex = null) => ({
+        label,
+        snapshot: await harness.snapshot(),
+        stepIndex,
+      }),
+    },
+    scenario: {
+      run: async (scenarioName, steps, options = {}) => {
+        const trace: SlateBrowserTraceEntry[] = []
+        const runtimeErrors =
+          options.runtimeErrors === false
+            ? null
+            : recordSlateBrowserRuntimeErrors(page, options.runtimeErrors)
+
+        try {
+          for (const [stepIndex, step] of steps.entries()) {
+            switch (step.kind) {
+              case 'activateShell': {
+                const shell = page.getByRole('button', {
+                  name: step.buttonName,
+                })
+
+                await shell.focus()
+                await expect(shell).toBeFocused()
+                await shell.press('Enter')
+                await expect(shell).toHaveCount(0)
+                await expect
+                  .poll(() =>
+                    root.evaluate(
+                      (element: HTMLElement, { key }: { key: string }) => {
+                        const handle = (element as Record<string, any>)[key]
+
+                        return handle?.getSelection
+                          ? handle.getSelection()
+                          : null
+                      },
+                      { key: SLATE_BROWSER_HANDLE_KEY }
+                    )
+                  )
+                  .toEqual(step.expectedSelection)
+                break
+              }
+              case 'assertDOMCaret':
+                await assertDOMCaretExpectation(root, step)
+                break
+              case 'assertBlockTexts':
+                expect(
+                  (await harness.get.blockTexts()).slice(step.startIndex ?? 0)
+                ).toEqual(step.texts)
+                break
+              case 'assertRenderedDOMShape':
+                await harness.assert.renderedDOMShape(step.shape)
+                break
+              case 'assertDOMSelection':
+                await harness.assert.domSelection(step.selection)
+                break
+              case 'assertFocusOwner':
+                await harness.assert.focusOwner(step.focusOwner)
+                break
+              case 'assertKernelTrace':
+                await harness.assert.kernelTrace(step.trace)
+                break
+              case 'assertLastCommit':
+                expect(await harness.get.lastCommit()).toBeTruthy()
+                break
+              case 'assertLastCommitCommand': {
+                const lastCommit = (await harness.get.lastCommit()) as {
+                  command?: { origin?: string; type?: string } | null
+                } | null
+
+                expect(lastCommit?.command).toEqual(step.command)
+                break
+              }
+              case 'assertModelText':
+                expect(await harness.get.modelText()).toContain(step.text)
+                break
+              case 'assertSelection':
+                await harness.assert.selection(step.selection)
+                break
+              case 'assertSelectionLocation':
+                await expect
+                  .poll(() => harness.selection.location())
+                  .toMatchObject(step.location)
+                break
+              case 'assertSelectedText':
+                expect(await harness.get.selectedText()).toBe(step.text)
+                break
+              case 'assertText':
+                await harness.assert.text(step.text)
+                break
+              case 'clickTestId':
+                await page.getByTestId(step.testId).click()
+                break
+              case 'composeText':
+                await harness.ime.compose({
+                  committedText: step.committedText,
+                  steps: step.steps,
+                  text: step.text,
+                  transport: step.transport,
+                })
+                break
+              case 'custom':
+                await step.run(harness)
+                break
+              case 'deleteBackward':
+                await harness.deleteBackward()
+                break
+              case 'deleteForward':
+                await harness.deleteForward()
+                break
+              case 'clickTextOffset':
+                await clickTextOffset(root, step.path, step.offset)
+                break
+              case 'doubleClickTextOffset':
+                await clickTextOffset(root, step.path, step.offset, {
+                  clickCount: 2,
+                })
+                break
+              case 'dropHtml':
+                await dropHtml(surface, root, step.html, step.text)
+                break
+              case 'fillControl': {
+                const control = page.locator(step.selector).first()
+
+                await control.fill(step.value)
+                await expect(control).toHaveValue(step.value)
+                break
+              }
+              case 'focus':
+                await harness.focus()
+                break
+              case 'insertText':
+                await harness.insertText(step.text)
+                break
+              case 'pasteHtml':
+                await harness.clipboard.pasteHtml(step.html, step.text)
+                break
+              case 'pasteText':
+                await harness.clipboard.pasteText(step.text)
+                break
+              case 'press':
+                await harness.press(step.key)
+                break
+              case 'rootClick':
+                await harness.click()
+                break
+              case 'rootMouseDown':
+                await root.dispatchEvent('mousedown')
+                break
+              case 'select':
+                await harness.selection.select(step.selection)
+                break
+              case 'selectDOM':
+                await harness.selection.selectDOM(step.selection)
+                break
+              case 'selectAll':
+                await harness.selection.selectAll()
+                break
+              case 'settle':
+                await page.waitForTimeout(0)
+                await page.evaluate(
+                  () =>
+                    new Promise<void>((resolve) => {
+                      requestAnimationFrame(() => resolve())
+                    })
+                )
+                await page.waitForTimeout(step.timeoutMs ?? 25)
+                break
+              case 'snapshot':
+                break
+              case 'typeThenUndo': {
+                await harness.type(step.text)
+                await assertDOMCaretExpectation(root, step.caretAfterType)
+                expect(await harness.get.modelText()).toContain(
+                  step.expectedModelTextAfterType
+                )
+
+                const hotkey = await page.evaluate(() =>
+                  navigator.userAgent.includes('Mac OS X')
+                    ? 'Meta+Z'
+                    : 'Control+Z'
+                )
+
+                await page.keyboard.press(hotkey)
+                await assertDOMCaretExpectation(root, step.caretAfterUndo)
+                expect(await harness.get.modelText()).toContain(
+                  step.expectedModelTextAfterUndo
+                )
+                break
+              }
+              case 'type':
+                await harness.type(step.text)
+                break
+              case 'undo': {
+                if (step.expectedModelTextBefore) {
+                  expect(await harness.get.modelText()).toContain(
+                    step.expectedModelTextBefore
+                  )
+                }
+
+                const hotkey = await page.evaluate(() =>
+                  navigator.userAgent.includes('Mac OS X')
+                    ? 'Meta+Z'
+                    : 'Control+Z'
+                )
+
+                await page.keyboard.press(hotkey)
+                break
+              }
+            }
+
+            runtimeErrors?.assertNone()
+            trace.push(
+              await harness.trace.snapshot(step.label ?? step.kind, stepIndex)
+            )
+          }
+
+          const result = {
+            metadata: normalizeScenarioMetadata(options.metadata),
+            name: scenarioName,
+            replay: createScenarioReplay(steps),
+            reductionCandidates: createScenarioReductionCandidates(steps).map(
+              summarizeScenarioReductionCandidate
+            ),
+            trace,
+          }
+
+          if (options.tracePath) {
+            mkdirSync(dirname(options.tracePath), { recursive: true })
+            writeFileSync(options.tracePath, JSON.stringify(result, null, 2))
+          }
+
+          return result
+        } finally {
+          runtimeErrors?.stop()
+        }
       },
     },
     withExtension: <T>(extend: (editor: SlateBrowserEditorHarness) => T) =>
@@ -1566,6 +5064,14 @@ const createEditorHarness = (
 
   return harness
 }
+
+export const createSlateBrowserEditorHarness = (
+  page: Page,
+  name: string,
+  root: Locator,
+  surface: SurfaceTarget = page
+): SlateBrowserEditorHarness =>
+  createEditorHarness(page, name, surface, {}, root)
 
 export const openExample = async (
   page: Page,

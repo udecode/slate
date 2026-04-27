@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { createEditor, type Descendant } from 'slate'
+import { createEditor, type Value } from 'slate'
 import { withHistory } from 'slate-history'
 import { Editable, Slate, withReact } from 'slate-react'
 
@@ -12,7 +12,7 @@ const PlainTextExample = () => {
   )
 }
 
-const initialValue: Descendant[] = [
+const initialValue: Value = [
   {
     type: 'paragraph',
     children: [

@@ -94,7 +94,7 @@
       "version": "0.115.0",
       "devDependencies": {
         "lodash": "^4.17.21",
-        "slate": "^0.124.0",
+        "slate": "workspace:*",
       },
       "peerDependencies": {
         "slate": ">=0.114.3",

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
-import { createEditor, type Descendant } from 'slate'
+import { createEditor, type Value } from 'slate'
 import { withHistory } from 'slate-history'
 import { Editable, Slate, withReact } from 'slate-react'
 
@@ -38,7 +38,7 @@ const ShadowEditor = () => {
   )
 }
 
-const initialValue: Descendant[] = [
+const initialValue: Value = [
   {
     type: 'paragraph',
     children: [{ text: 'This Editor is rendered within a nested Shadow DOM.' }],
