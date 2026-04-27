@@ -1,0 +1,149 @@
+import {
+  applyOperation,
+  getPublicSelection,
+  syncImplicitTargetToCurrentSelection,
+} from '../core/public-state'
+import {
+  Editor,
+  Location,
+  Range,
+  type Editor as SlateEditor,
+  type Value,
+} from '../interfaces'
+import type {
+  TextInsertTextOptions,
+  TextMutationMethods,
+} from '../interfaces/transforms/text'
+import { getDefaultInsertLocation } from '../utils'
+
+const samePoint = (
+  left: { offset: number; path: readonly number[] },
+  right: { offset: number; path: readonly number[] }
+) =>
+  left.offset === right.offset &&
+  left.path.length === right.path.length &&
+  left.path.every((segment, index) => segment === right.path[index])
+
+const isFullDocumentRange = (editor: SlateEditor, range: Range) => {
+  if (Editor.getChildren(editor).length === 0) {
+    return false
+  }
+
+  const start = Editor.start(editor, [])
+  const end = Editor.end(editor, [])
+
+  return (
+    (samePoint(range.anchor, start) && samePoint(range.focus, end)) ||
+    (samePoint(range.anchor, end) && samePoint(range.focus, start))
+  )
+}
+
+const createFullDocumentTextReplacement = (
+  editor: SlateEditor,
+  text: string
+) => {
+  const first = Editor.getChildren(editor)[0]
+
+  if (first && 'children' in first) {
+    return [
+      {
+        ...first,
+        children: [{ text }],
+      },
+    ]
+  }
+
+  return [{ text }]
+}
+
+export const applyInsertText: TextMutationMethods['insertText'] = (
+  editor,
+  text,
+  options: TextInsertTextOptions = {}
+) => {
+  const { voids = false } = options
+  const defaultAt = options.at ?? getDefaultInsertLocation(editor)
+  const preflightAt = (() => {
+    if (Location.isPath(defaultAt)) {
+      return Editor.range(editor, defaultAt)
+    }
+
+    if (Location.isRange(defaultAt) && Range.isCollapsed(defaultAt)) {
+      return defaultAt.anchor
+    }
+
+    return defaultAt
+  })()
+
+  if (
+    Location.isPoint(preflightAt) &&
+    ((!voids && Editor.void(editor, { at: preflightAt })) ||
+      Editor.elementReadOnly(editor, { at: preflightAt }))
+  ) {
+    return
+  }
+
+  if (
+    text.length > 0 &&
+    Location.isRange(defaultAt) &&
+    !Range.isCollapsed(defaultAt) &&
+    isFullDocumentRange(editor, defaultAt)
+  ) {
+    Editor.replace(editor, {
+      children: createFullDocumentTextReplacement(editor, text) as Value,
+      selection: {
+        anchor: { path: [0, 0], offset: text.length },
+        focus: { path: [0, 0], offset: text.length },
+      },
+    })
+    syncImplicitTargetToCurrentSelection(editor)
+    return
+  }
+
+  Editor.withoutNormalizing(editor, () => {
+    const preserveNullSelection =
+      options.at != null && getPublicSelection(editor) == null
+    let { at = getDefaultInsertLocation(editor) } = options
+
+    if (Location.isPath(at)) {
+      at = Editor.range(editor, at)
+    }
+
+    if (Location.isRange(at)) {
+      if (Range.isCollapsed(at)) {
+        at = at.anchor
+      } else {
+        const end = Range.end(at)
+        if (!voids && Editor.void(editor, { at: end })) {
+          return
+        }
+        const start = Range.start(at)
+        const startRef = Editor.pointRef(editor, start)
+        const endRef = Editor.pointRef(editor, end)
+        editor.delete({ at, voids })
+        const startPoint = startRef.unref()
+        const endPoint = endRef.unref()
+
+        at = startPoint || endPoint!
+
+        if (options.at == null) {
+          editor.setSelection({ anchor: at, focus: at })
+        } else if (preserveNullSelection) {
+          editor.deselect()
+        }
+      }
+    }
+
+    if (
+      (!voids && Editor.void(editor, { at })) ||
+      Editor.elementReadOnly(editor, { at })
+    ) {
+      return
+    }
+
+    const { path, offset } = at
+    if (text.length > 0) {
+      applyOperation(editor, { type: 'insert_text', path, offset, text })
+    }
+  })
+}

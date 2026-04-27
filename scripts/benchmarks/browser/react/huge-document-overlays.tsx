@@ -1,0 +1,556 @@
+import { mkdir, writeFile } from 'node:fs/promises'
+
+import React, { act, memo, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  createEditor,
+  type Descendant,
+  Editor,
+  type EditorSnapshot,
+  type Path,
+  type RuntimeId,
+} from '../../../../packages/slate/src/index.ts'
+import {
+  createSlateProjectionStore,
+  Editable,
+  Slate,
+  type SlateProjectionStore,
+  useSlateProjections,
+  useSlateSelector,
+} from '../../../../packages/slate-react/src/index.ts'
+import {
+  cloneCounts,
+  deltaCounts,
+  increment,
+  mountApp,
+  now,
+  summarizeMetrics,
+} from '../../shared/react-benchmark.tsx'
+
+const iterations = Number(process.env.REACT_HUGE_DOC_BENCH_ITERATIONS || 5)
+const blockCount = Number(process.env.REACT_HUGE_DOC_BLOCKS || 200)
+const islandSize = Number(process.env.REACT_HUGE_DOC_ISLAND_SIZE || 20)
+const activeRadius = Number(process.env.REACT_HUGE_DOC_ACTIVE_RADIUS || 1)
+
+const getIslandCount = () => Math.ceil(blockCount / islandSize)
+const getFarIslandIndex = () =>
+  Math.min(getIslandCount() - 1, Math.max(2, Math.floor(getIslandCount() / 2)))
+const getFarBlockIndex = () =>
+  Math.min(blockCount - 1, getFarIslandIndex() * islandSize)
+
+const createChildren = () =>
+  Array.from({ length: blockCount }, (_, index) => ({
+    type: 'paragraph',
+    children: [{ text: `block-${index + 1}` }],
+  })) as Descendant[]
+
+const getDescendantText = (node: Descendant): string => {
+  if ('text' in node) {
+    return node.text
+  }
+
+  return node.children.map(getDescendantText).join('')
+}
+
+const getTopLevelBlockText = (snapshot: EditorSnapshot, index: number) => {
+  const block = snapshot.children[index]
+
+  if (!block || !('children' in block)) {
+    return ''
+  }
+
+  return block.children.map(getDescendantText).join('')
+}
+
+const createOverlayRanges = (snapshot: EditorSnapshot) => {
+  const start = getFarBlockIndex()
+  const end = Math.min(blockCount, start + 3)
+  const ranges: {
+    data: {
+      highlight: boolean
+    }
+    key: string
+    range: {
+      anchor: {
+        offset: number
+        path: [number, 0]
+      }
+      focus: {
+        offset: number
+        path: [number, 0]
+      }
+    }
+  }[] = []
+
+  for (let index = start; index < end; index += 1) {
+    const text = getTopLevelBlockText(snapshot, index)
+
+    if (!text) {
+      continue
+    }
+
+    ranges.push({
+      data: { highlight: true },
+      key: `far-overlay-${index}`,
+      range: {
+        anchor: { path: [index, 0], offset: 0 },
+        focus: { path: [index, 0], offset: Math.min(8, text.length) },
+      },
+    })
+  }
+
+  return ranges
+}
+
+const getProjectionMetricCounts = (
+  store: Pick<SlateProjectionStore<unknown>, 'getMetrics'> | null | undefined
+) => {
+  const metrics =
+    store && typeof store.getMetrics === 'function' ? store.getMetrics() : null
+
+  return {
+    recomputeCount: metrics?.recomputeCount ?? 0,
+  }
+}
+
+const TopLevelBlockSlice = memo(
+  ({
+    counts,
+    index,
+    slot,
+  }: {
+    counts: Record<string, number>
+    index: number
+    slot: string
+  }) => {
+    const value = useSlateSelector((editor) =>
+      getTopLevelBlockText(Editor.getSnapshot(editor), index)
+    )
+    increment(counts, slot)
+    return <span>{value}</span>
+  }
+)
+
+const ProjectionCountSlice = memo(
+  ({
+    counts,
+    runtimeId,
+    slot,
+  }: {
+    counts: Record<string, number>
+    runtimeId: RuntimeId | null
+    slot: string
+  }) => {
+    const projections = useSlateProjections<{ highlight?: boolean }>(
+      runtimeId ?? ''
+    ) as readonly unknown[]
+
+    increment(counts, slot)
+    return <span>{projections.length}</span>
+  }
+)
+
+const TrackedElement = ({
+  attributes,
+  children,
+  counts,
+  isInline,
+  path,
+}: {
+  attributes: {
+    'data-slate-inline'?: true
+    'data-slate-node': 'element'
+    'data-slate-void'?: true
+    ref: React.RefCallback<HTMLElement>
+  }
+  children: React.ReactNode
+  counts: Record<string, number>
+  isInline: boolean
+  path: Path
+}) => {
+  if (path.length === 1) {
+    if (path[0] === 0) {
+      increment(counts, 'activeElement')
+    }
+
+    if (path[0] === getFarBlockIndex()) {
+      increment(counts, 'farElement')
+    }
+  }
+
+  return React.createElement(isInline ? 'span' : 'div', attributes, children)
+}
+
+const LargeDocumentOverlayApp = ({
+  counts,
+  editor,
+  onProjectionStore,
+}: {
+  counts: Record<string, number>
+  editor: ReturnType<typeof createEditor>
+  onProjectionStore?: (
+    store: SlateProjectionStore<{ highlight?: boolean }>
+  ) => void
+}) => {
+  const [overlayActive, setOverlayActive] = useState(false)
+  const overlayActiveRef = useRef(overlayActive)
+  overlayActiveRef.current = overlayActive
+  const projectionStore = useMemo(
+    () =>
+      createSlateProjectionStore(
+        editor,
+        (snapshot) =>
+          overlayActiveRef.current ? createOverlayRanges(snapshot) : [],
+        {
+          dirtiness: 'external',
+          sourceId: 'huge-document-overlays',
+        }
+      ),
+    [editor]
+  )
+
+  useEffect(() => {
+    onProjectionStore?.(projectionStore)
+  }, [onProjectionStore, projectionStore])
+
+  useEffect(
+    () => () => {
+      projectionStore.destroy()
+    },
+    [projectionStore]
+  )
+
+  useEffect(() => {
+    projectionStore.refresh({ reason: 'external' })
+  }, [overlayActive, projectionStore])
+
+  return (
+    <Slate editor={editor} projectionStore={projectionStore}>
+      <LargeDocumentOverlayInner
+        counts={counts}
+        onToggle={() => {
+          setOverlayActive((value) => !value)
+        }}
+        overlayActive={overlayActive}
+      />
+    </Slate>
+  )
+}
+
+const LargeDocumentOverlayInner = ({
+  counts,
+  onToggle,
+  overlayActive,
+}: {
+  counts: Record<string, number>
+  onToggle: () => void
+  overlayActive: boolean
+}) => {
+  const activeLeafId = useSlateSelector(
+    (editorValue) =>
+      Editor.getSnapshot(editorValue).index.pathToId['0.0'] ?? null
+  )
+  const farLeafId = useSlateSelector(
+    (editorValue) =>
+      Editor.getSnapshot(editorValue).index.pathToId[
+        `${getFarBlockIndex()}.0`
+      ] ?? null
+  )
+
+  return (
+    <>
+      <button id="overlay-toggle" onClick={onToggle} type="button">
+        {overlayActive ? 'on' : 'off'}
+      </button>
+      <span id="active-projection-count">
+        <ProjectionCountSlice
+          counts={counts}
+          runtimeId={activeLeafId}
+          slot="activeProjection"
+        />
+      </span>
+      <span id="far-projection-count">
+        <ProjectionCountSlice
+          counts={counts}
+          runtimeId={farLeafId}
+          slot="farProjection"
+        />
+      </span>
+      <TopLevelBlockSlice counts={counts} index={0} slot="activeText" />
+      <TopLevelBlockSlice
+        counts={counts}
+        index={getFarBlockIndex()}
+        slot="farText"
+      />
+      <Editable
+        id="huge-document-overlays"
+        largeDocument={{
+          activeRadius,
+          enabled: true,
+          islandSize,
+          threshold: 1,
+        }}
+        renderElement={({ attributes, children, isInline, path }) => (
+          <TrackedElement
+            attributes={attributes}
+            counts={counts}
+            isInline={isInline}
+            path={path}
+          >
+            {children}
+          </TrackedElement>
+        )}
+      />
+    </>
+  )
+}
+
+const countMountedTextNodes = (container: HTMLElement) =>
+  container.querySelectorAll('[data-slate-node="text"]').length
+
+const countShells = (container: HTMLElement) =>
+  container.querySelectorAll('[data-slate-large-document-shell="true"]').length
+
+const setupScenario = async () => {
+  const editor = createEditor()
+  const counts: Record<string, number> = {}
+  let projectionStore: SlateProjectionStore<{ highlight?: boolean }> | null =
+    null
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: null,
+  })
+
+  const mounted = await mountApp(
+    <LargeDocumentOverlayApp
+      counts={counts}
+      editor={editor}
+      onProjectionStore={(store) => {
+        projectionStore = store
+      }}
+    />
+  )
+
+  const view = mounted.container.ownerDocument.defaultView
+  const toggle =
+    mounted.container.querySelector<HTMLButtonElement>('#overlay-toggle')
+  const root = mounted.container.querySelector<HTMLElement>(
+    '#huge-document-overlays'
+  )
+
+  if (!view || !toggle || !root || !projectionStore) {
+    throw new Error('Missing large-document overlay benchmark controls')
+  }
+
+  return {
+    counts,
+    editor,
+    mounted,
+    projectionStore,
+    root,
+    toggle,
+    view,
+  }
+}
+
+const measureLane = async (run: () => Promise<Record<string, number>>) => {
+  const samples: Record<string, number>[] = []
+
+  for (let iteration = 0; iteration < iterations + 1; iteration += 1) {
+    const metrics = await run()
+
+    if (iteration > 0) {
+      samples.push(metrics)
+    }
+  }
+
+  return summarizeMetrics(samples)
+}
+
+const measureOverlayToggle = async () =>
+  measureLane(async () => {
+    const { counts, mounted, projectionStore, toggle, view } =
+      await setupScenario()
+    const shellCountBefore = countShells(mounted.container)
+    const mountedTextBefore = countMountedTextNodes(mounted.container)
+    const baseline = cloneCounts(counts)
+    const recomputeBaseline =
+      getProjectionMetricCounts(projectionStore).recomputeCount
+    const start = now()
+
+    await act(async () => {
+      toggle.dispatchEvent(
+        new view.MouseEvent('click', {
+          bubbles: true,
+        })
+      )
+    })
+
+    const overlayToggleMs = now() - start
+    const delta = deltaCounts(counts, baseline)
+    const shellCountAfter = countShells(mounted.container)
+    const mountedTextAfter = countMountedTextNodes(mounted.container)
+    const activeProjectionValue = Number(
+      mounted.container.querySelector('#active-projection-count')
+        ?.textContent ?? 0
+    )
+    const farProjectionValue = Number(
+      mounted.container.querySelector('#far-projection-count')?.textContent ?? 0
+    )
+
+    await mounted.dispose()
+
+    return {
+      activeProjectionCount: activeProjectionValue,
+      activeProjectionRenders: delta.activeProjection ?? 0,
+      farProjectionCount: farProjectionValue,
+      farProjectionRenders: delta.farProjection ?? 0,
+      mountedTextAfter,
+      mountedTextBefore,
+      overlayToggleMs,
+      projectionRecomputeCount:
+        getProjectionMetricCounts(projectionStore).recomputeCount -
+        recomputeBaseline,
+      shellCountAfter,
+      shellCountBefore,
+    }
+  })
+
+const measureActiveEditAfterOverlay = async () =>
+  measureLane(async () => {
+    const { counts, editor, mounted, projectionStore, toggle, view } =
+      await setupScenario()
+
+    await act(async () => {
+      toggle.dispatchEvent(
+        new view.MouseEvent('click', {
+          bubbles: true,
+        })
+      )
+    })
+
+    const shellCountBefore = countShells(mounted.container)
+    const mountedTextBefore = countMountedTextNodes(mounted.container)
+    const baseline = cloneCounts(counts)
+    const recomputeBaseline =
+      getProjectionMetricCounts(projectionStore).recomputeCount
+    const start = now()
+
+    await act(async () => {
+      editor.update(() => {
+        editor.insertText('!', {
+          at: { path: [0, 0], offset: 0 },
+        })
+      })
+    })
+
+    const editMs = now() - start
+    const delta = deltaCounts(counts, baseline)
+    const shellCountAfter = countShells(mounted.container)
+    const mountedTextAfter = countMountedTextNodes(mounted.container)
+
+    await mounted.dispose()
+
+    return {
+      activeElementRenders: delta.activeElement ?? 0,
+      activeProjectionRenders: delta.activeProjection ?? 0,
+      activeTextRenders: delta.activeText ?? 0,
+      editMs,
+      farElementRenders: delta.farElement ?? 0,
+      farProjectionRenders: delta.farProjection ?? 0,
+      farTextRenders: delta.farText ?? 0,
+      mountedTextAfter,
+      mountedTextBefore,
+      projectionRecomputeCount:
+        getProjectionMetricCounts(projectionStore).recomputeCount -
+        recomputeBaseline,
+      shellCountAfter,
+      shellCountBefore,
+    }
+  })
+
+const measureShellPromotion = async () =>
+  measureLane(async () => {
+    const { editor, mounted, projectionStore, toggle, view } =
+      await setupScenario()
+
+    await act(async () => {
+      toggle.dispatchEvent(
+        new view.MouseEvent('click', {
+          bubbles: true,
+        })
+      )
+    })
+
+    const shellCountBefore = countShells(mounted.container)
+    const mountedTextBefore = countMountedTextNodes(mounted.container)
+    const targetShell = mounted.container.querySelector<HTMLElement>(
+      `[data-slate-large-document-shell="true"][data-slate-large-document-island="${getFarIslandIndex()}"]`
+    )
+
+    if (!targetShell) {
+      throw new Error('Missing target shell for promotion')
+    }
+
+    const recomputeBaseline =
+      getProjectionMetricCounts(projectionStore).recomputeCount
+    const start = now()
+
+    await act(async () => {
+      targetShell.dispatchEvent(
+        new view.MouseEvent('mousedown', {
+          bubbles: true,
+        })
+      )
+    })
+
+    const promotionMs = now() - start
+    const shellCountAfter = countShells(mounted.container)
+    const mountedTextAfter = countMountedTextNodes(mounted.container)
+    const selection = Editor.getSnapshot(editor).selection
+
+    await mounted.dispose()
+
+    return {
+      mountedTextAfter,
+      mountedTextBefore,
+      projectionRecomputeCount:
+        getProjectionMetricCounts(projectionStore).recomputeCount -
+        recomputeBaseline,
+      promotionMs,
+      selectionAnchorPathLength: selection?.anchor.path.length ?? 0,
+      selectionAnchorTopLevel: Number(selection?.anchor.path[0] ?? -1),
+      shellCountAfter,
+      shellCountBefore,
+    }
+  })
+
+const main = async () => {
+  const summary = {
+    config: {
+      activeRadius,
+      blockCount,
+      farBlockIndex: getFarBlockIndex(),
+      farIslandIndex: getFarIslandIndex(),
+      islandSize,
+      iterations,
+    },
+    lane: 'slate-react-huge-document-overlays',
+    activeEditAfterOverlay: await measureActiveEditAfterOverlay(),
+    overlayToggle: await measureOverlayToggle(),
+    shellPromotion: await measureShellPromotion(),
+  }
+
+  await mkdir('tmp', { recursive: true })
+  await writeFile(
+    'tmp/slate-react-huge-document-overlays-benchmark.json',
+    JSON.stringify(summary, null, 2)
+  )
+
+  console.log(JSON.stringify(summary, null, 2))
+}
+
+main().catch((error) => {
+  console.error(error)
+  process.exitCode = 1
+})

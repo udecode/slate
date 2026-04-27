@@ -1,0 +1,281 @@
+import { createEditableInputController } from '../src/editable/input-state'
+import {
+  completeEditableSelectionChangeImport,
+  executeEditableSelectionExport,
+  executeEditableSelectionImport,
+  prepareEditableSelectionChangeImport,
+  shouldImportChangedExpandedDOMSelection,
+} from '../src/editable/selection-controller'
+
+test('selection import executes only for import-dom policy', () => {
+  let calls = 0
+  const importSelection = () => {
+    calls++
+  }
+
+  expect(
+    executeEditableSelectionImport({
+      importSelection,
+      selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
+    })
+  ).toBe(false)
+  expect(calls).toBe(0)
+
+  expect(
+    executeEditableSelectionImport({
+      importSelection,
+      selectionPolicy: { kind: 'import-dom', reason: 'native-selection' },
+    })
+  ).toBe(true)
+  expect(calls).toBe(1)
+})
+
+test('selection export executes only for export-model policy', () => {
+  let calls = 0
+  const exportSelection = () => {
+    calls++
+  }
+
+  expect(
+    executeEditableSelectionExport({
+      exportSelection,
+      selectionPolicy: { kind: 'import-dom', reason: 'native-selection' },
+    })
+  ).toBe(false)
+  expect(calls).toBe(0)
+
+  expect(
+    executeEditableSelectionExport({
+      exportSelection,
+      selectionPolicy: { kind: 'export-model', reason: 'model-owned' },
+    })
+  ).toBe(true)
+  expect(calls).toBe(1)
+})
+
+test('native editor-owned selectionchange clears model preference before DOM import', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: null,
+      selectionSource: 'model-owned',
+    },
+  })
+
+  expect(
+    prepareEditableSelectionChangeImport({
+      domSelectionBelongsToEditor: true,
+      inputController,
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe(true)
+  expect(inputController.preferModelSelectionForInputRef.current).toBe(false)
+  expect(inputController.state.selectionSource).toBe('dom-current')
+})
+
+test('native selectionchange outside the editor does not clear model preference', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: null,
+      selectionSource: 'model-owned',
+    },
+  })
+
+  expect(
+    prepareEditableSelectionChangeImport({
+      domSelectionBelongsToEditor: false,
+      inputController,
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe(false)
+  expect(inputController.preferModelSelectionForInputRef.current).toBe(true)
+  expect(inputController.state.selectionSource).toBe('model-owned')
+})
+
+test('repair-induced editor-owned selectionchange does not clear model preference', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: null,
+      selectionSource: 'model-owned',
+    },
+  })
+
+  expect(
+    prepareEditableSelectionChangeImport({
+      domSelectionBelongsToEditor: true,
+      inputController,
+      selectionChangeOrigin: 'repair-induced',
+    })
+  ).toBe(false)
+  expect(inputController.preferModelSelectionForInputRef.current).toBe(true)
+  expect(inputController.state.selectionSource).toBe('model-owned')
+})
+
+test('changed expanded DOM selection can override stale programmatic origin', () => {
+  expect(
+    shouldImportChangedExpandedDOMSelection({
+      currentSelection: {
+        anchor: { path: [0, 1], offset: 8 },
+        focus: { path: [0, 1], offset: 8 },
+      },
+      nextSelection: {
+        anchor: { path: [0, 1], offset: 0 },
+        focus: { path: [0, 1], offset: 8 },
+      },
+      selectionChangeOrigin: 'programmatic-export',
+    })
+  ).toBe(true)
+})
+
+test('changed expanded DOM import ignores same, collapsed, and repair ranges', () => {
+  const currentSelection = {
+    anchor: { path: [0, 1], offset: 8 },
+    focus: { path: [0, 1], offset: 8 },
+  }
+
+  expect(
+    shouldImportChangedExpandedDOMSelection({
+      currentSelection,
+      nextSelection: currentSelection,
+      selectionChangeOrigin: 'programmatic-export',
+    })
+  ).toBe(false)
+  expect(
+    shouldImportChangedExpandedDOMSelection({
+      currentSelection,
+      nextSelection: {
+        anchor: { path: [0, 1], offset: 7 },
+        focus: { path: [0, 1], offset: 7 },
+      },
+      selectionChangeOrigin: 'programmatic-export',
+    })
+  ).toBe(false)
+  expect(
+    shouldImportChangedExpandedDOMSelection({
+      currentSelection,
+      nextSelection: {
+        anchor: { path: [0, 1], offset: 0 },
+        focus: { path: [0, 1], offset: 8 },
+      },
+      selectionChangeOrigin: 'repair-induced',
+    })
+  ).toBe(false)
+})
+
+test('model-owned programmatic selectionchange keeps its ownership guard', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: 'programmatic-export',
+      selectionSource: 'model-owned',
+    },
+  })
+
+  completeEditableSelectionChangeImport({
+    inputController,
+    selectionChangeOrigin: 'programmatic-export',
+  })
+
+  expect(inputController.state.selectionChangeOrigin).toBe(
+    'programmatic-export'
+  )
+  expect(inputController.preferModelSelectionForInputRef.current).toBe(true)
+})
+
+test('model-owned browser-handle selectionchange keeps its ownership guard', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: 'browser-handle',
+      selectionSource: 'model-owned',
+    },
+  })
+
+  completeEditableSelectionChangeImport({
+    inputController,
+    selectionChangeOrigin: 'browser-handle',
+  })
+
+  expect(inputController.state.selectionChangeOrigin).toBe('browser-handle')
+  expect(inputController.preferModelSelectionForInputRef.current).toBe(true)
+})
+
+test('repair-induced selectionchange clears its origin after model repair', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: 'repair-induced',
+      selectionSource: 'model-owned',
+    },
+  })
+
+  completeEditableSelectionChangeImport({
+    inputController,
+    selectionChangeOrigin: 'repair-induced',
+  })
+
+  expect(inputController.state.selectionChangeOrigin).toBe(null)
+  expect(inputController.preferModelSelectionForInputRef.current).toBe(true)
+  expect(inputController.state.selectionSource).toBe('model-owned')
+})
+
+test('native selectionchange clears its origin after import handling', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: 'native-user',
+      selectionSource: 'dom-current',
+    },
+  })
+
+  completeEditableSelectionChangeImport({
+    inputController,
+    selectionChangeOrigin: 'native-user',
+  })
+
+  expect(inputController.state.selectionChangeOrigin).toBe(null)
+})

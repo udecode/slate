@@ -1,0 +1,333 @@
+import { Editor, Range } from 'slate'
+
+import { didSyncTextPathToDOM } from '../hooks/use-slate-node-ref'
+import type { ReactEditor } from '../plugin/react-editor'
+import {
+  beginEditableEventFrame,
+  type EditableCommand,
+  getEditableKernelTrace,
+  recordEditableKernelTrace,
+} from './editing-kernel'
+import type { EditableInputController } from './input-state'
+import { applyEditableCommand } from './mutation-controller'
+import {
+  executeEditableSelectionImport,
+  setEditableModelSelectionPreference,
+  syncEditableDOMSelectionToEditor,
+  syncEditorSelectionFromDOM,
+} from './selection-controller'
+
+export type SlateBrowserHandle = {
+  createRangeRef: (
+    selection: Range,
+    affinity?: 'forward' | 'backward' | 'outward' | 'inward'
+  ) => string
+  deleteBackward: () => void
+  deleteForward: () => void
+  deleteFragment: () => void
+  getKernelTrace: () => unknown[]
+  getLastCommit: () => unknown
+  getSelection: () => Range | null
+  getText: () => string
+  importDOMSelection: () => Range | null
+  insertBreak: () => void
+  insertData: (payload: { html?: string | null; text?: string }) => void
+  insertText: (text: string) => void
+  redo: () => void
+  selectRange: (selection: Range) => void
+  undo: () => void
+  unrefRangeRef: (id: string) => Range | null
+}
+
+export type SlateBrowserHandleElement = HTMLDivElement & {
+  __slateBrowserHandle?: SlateBrowserHandle
+}
+
+type RefBox<T> = {
+  current: T
+}
+
+export const attachSlateBrowserHandle = ({
+  browserHandleNextId,
+  browserHandleRangeRefs,
+  editor,
+  element,
+  inputController,
+  applyInputRules,
+  forceRender,
+  isShellBackedSelection,
+  setExplicitShellBackedSelection,
+}: {
+  applyInputRules?: (input: {
+    data: unknown
+    inputType: string
+    selection: Range | null
+  }) => boolean
+  browserHandleNextId: RefBox<number>
+  browserHandleRangeRefs: RefBox<
+    Map<string, ReturnType<typeof Editor.rangeRef>>
+  >
+  editor: ReactEditor
+  element: SlateBrowserHandleElement
+  inputController: EditableInputController
+  forceRender: () => void
+  isShellBackedSelection: (selection: Range | null) => boolean
+  setExplicitShellBackedSelection: (nextValue: boolean) => void
+}) => {
+  const runCommand = (
+    command: EditableCommand,
+    { forceRenderAfter = true }: { forceRenderAfter?: boolean } = {}
+  ) => {
+    const previousIsUpdatingSelection =
+      inputController.state.isUpdatingSelection
+
+    setEditableModelSelectionPreference({
+      inputController,
+      preferModelSelection: true,
+      selectionSource: 'model-owned',
+    })
+    inputController.state.isUpdatingSelection = true
+    inputController.state.selectionChangeOrigin = 'browser-handle'
+
+    const selectionBefore = Editor.getLiveSelection(editor)
+    beginEditableEventFrame(editor, {
+      eventFamily: 'repair',
+      focusOwner: 'editor',
+      inputIntent: null,
+      modelSelectionBefore: selectionBefore,
+      selectionSource: 'model-owned',
+      targetOwner: 'editor',
+    })
+
+    applyEditableCommand({ command, editor })
+    syncEditableDOMSelectionToEditor({
+      editor,
+      scrollSelectionIntoView: () => {},
+      shellBackedSelection: isShellBackedSelection(
+        Editor.getLiveSelection(editor)
+      ),
+      state: inputController.state,
+    })
+    recordEditableKernelTrace({
+      editor,
+      trace: {
+        command,
+        eventFamily: 'repair',
+        intent: null,
+        nativeAllowed: false,
+        operations: Editor.getOperations(editor),
+        ownership: 'model-owned',
+        repair: null,
+        selectionChangeOrigin: 'browser-handle',
+        selectionAfter: Editor.getLiveSelection(editor),
+        selectionBefore,
+        selectionSource: 'model-owned',
+        stateAfter: 'model-owned',
+        stateBefore: 'model-owned',
+        targetOwner: 'editor',
+      },
+    })
+
+    if (forceRenderAfter) {
+      forceRender()
+    }
+
+    setTimeout(() => {
+      if (inputController.state.selectionChangeOrigin === 'browser-handle') {
+        inputController.state.isUpdatingSelection = previousIsUpdatingSelection
+      }
+    })
+  }
+
+  const handle: SlateBrowserHandle = {
+    createRangeRef: (selection, affinity) => {
+      const id = String(browserHandleNextId.current++)
+      const rangeRef = Editor.rangeRef(editor, selection, {
+        affinity,
+      })
+
+      browserHandleRangeRefs.current.set(id, rangeRef)
+
+      return id
+    },
+    deleteBackward: () => {
+      runCommand({ direction: 'backward', kind: 'delete' })
+    },
+    deleteForward: () => {
+      runCommand({ direction: 'forward', kind: 'delete' })
+    },
+    deleteFragment: () => {
+      runCommand({ kind: 'delete-fragment' })
+    },
+    getKernelTrace: () => [...getEditableKernelTrace(editor)],
+    getLastCommit: () => Editor.getLastCommit(editor),
+    getSelection: () => {
+      const selection = Editor.getLiveSelection(editor)
+
+      return selection
+        ? {
+            anchor: {
+              offset: selection.anchor.offset,
+              path: [...selection.anchor.path],
+            },
+            focus: {
+              offset: selection.focus.offset,
+              path: [...selection.focus.path],
+            },
+          }
+        : null
+    },
+    getText: () => Editor.string(editor, []),
+    importDOMSelection: () => {
+      const selectionBefore = Editor.getLiveSelection(editor)
+
+      executeEditableSelectionImport({
+        importSelection: () => {
+          setEditableModelSelectionPreference({
+            inputController,
+            preferModelSelection: false,
+            selectionSource: 'dom-current',
+          })
+          syncEditorSelectionFromDOM({
+            editor,
+            ignoreModelSelectionPreference: true,
+            inputController,
+          })
+        },
+        selectionPolicy: { kind: 'import-dom', reason: 'unknown-selection' },
+      })
+
+      const selectionAfter = Editor.getLiveSelection(editor)
+
+      recordEditableKernelTrace({
+        editor,
+        trace: {
+          command: null,
+          eventFamily: 'selectionchange',
+          intent: null,
+          nativeAllowed: true,
+          operations: Editor.getOperations(editor),
+          ownership: 'native-allowed',
+          repair: null,
+          selectionChangeOrigin: 'browser-handle',
+          selectionAfter,
+          selectionBefore,
+          selectionPolicy: { kind: 'import-dom', reason: 'unknown-selection' },
+          selectionSource: inputController.state.selectionSource,
+          stateAfter: 'dom-selection',
+          stateBefore: 'idle',
+          targetOwner: 'editor',
+        },
+      })
+
+      return selectionAfter
+    },
+    insertBreak: () => {
+      runCommand({ kind: 'insert-break', variant: 'paragraph' })
+    },
+    insertData: ({ html, text }) => {
+      const data = new DataTransfer()
+
+      if (html) {
+        data.setData('text/html', html)
+      }
+
+      if (text) {
+        data.setData('text/plain', text)
+      }
+
+      runCommand({ data, kind: 'insert-data' })
+    },
+    insertText: (text) => {
+      const selection = Editor.getLiveSelection(editor)
+      if (
+        applyInputRules?.({
+          data: text,
+          inputType: 'insertText',
+          selection,
+        })
+      ) {
+        return
+      }
+
+      const path = selection ? Range.start(selection).path : null
+      runCommand(
+        { kind: 'insert-text', text },
+        {
+          forceRenderAfter: false,
+        }
+      )
+      if (!path || !didSyncTextPathToDOM(editor, path)) {
+        forceRender()
+      }
+    },
+    redo: () => {
+      const maybeHistoryEditor: any = editor
+
+      if (typeof maybeHistoryEditor.redo !== 'function') {
+        throw new Error('Editor does not expose redo')
+      }
+
+      maybeHistoryEditor.redo()
+      forceRender()
+    },
+    selectRange: (selection) => {
+      setEditableModelSelectionPreference({
+        inputController,
+        preferModelSelection: true,
+        selectionSource: 'model-owned',
+      })
+      editor.update(() => {
+        editor.select(selection)
+      })
+      setExplicitShellBackedSelection(isShellBackedSelection(selection))
+    },
+    undo: () => {
+      const maybeHistoryEditor: any = editor
+
+      if (typeof maybeHistoryEditor.undo !== 'function') {
+        throw new Error('Editor does not expose undo')
+      }
+
+      maybeHistoryEditor.undo()
+      forceRender()
+    },
+    unrefRangeRef: (id) => {
+      const rangeRef = browserHandleRangeRefs.current.get(id)
+
+      if (!rangeRef) {
+        return null
+      }
+
+      browserHandleRangeRefs.current.delete(id)
+
+      const selection = rangeRef.unref()
+
+      return selection
+        ? {
+            anchor: {
+              offset: selection.anchor.offset,
+              path: [...selection.anchor.path],
+            },
+            focus: {
+              offset: selection.focus.offset,
+              path: [...selection.focus.path],
+            },
+          }
+        : null
+    },
+  }
+
+  element.__slateBrowserHandle = handle
+
+  return () => {
+    if (element.__slateBrowserHandle === handle) {
+      element.__slateBrowserHandle = undefined
+    }
+
+    browserHandleRangeRefs.current.forEach((rangeRef) => {
+      rangeRef.unref()
+    })
+    browserHandleRangeRefs.current.clear()
+  }
+}

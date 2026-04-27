@@ -1,0 +1,16 @@
+{
+  "extends": "../tsconfig.json",
+  "files": [
+    "./generic-value-contract.ts",
+    "./generic-editor-api-contract.ts",
+    "./generic-extension-contract.ts",
+    "./generic-operation-contract.ts"
+  ],
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "rootDir": "..",
+    "skipLibCheck": true,
+    "types": ["bun-types", "bun-types/test-globals", "node"]
+  }
+}

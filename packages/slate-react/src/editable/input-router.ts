@@ -1,0 +1,348 @@
+import {
+  type ClipboardEvent,
+  type CompositionEvent,
+  type DragEvent,
+  type FocusEvent,
+  type ForwardedRef,
+  type KeyboardEvent,
+  type MouseEvent,
+  type InputEvent as ReactInputEvent,
+  type RefObject,
+  useCallback,
+} from 'react'
+import {
+  EDITOR_TO_ELEMENT,
+  HAS_BEFORE_INPUT_SUPPORT,
+  NODE_TO_ELEMENT,
+} from 'slate-dom'
+
+import { ReactEditor } from '../plugin/react-editor'
+import { isInteractiveInternalTarget } from './input-controller'
+
+type MutableRefBox<T> = {
+  current: T
+}
+
+type CancelableCallback = {
+  cancel: () => void
+}
+
+export type RepairDOMInput = (
+  nativeInput: { data: string | null; inputType: string },
+  rootElement: HTMLElement
+) => void
+
+export type HandleEditablePaste = (
+  event: ClipboardEvent<HTMLDivElement>
+) => void
+
+export type HandleEditableClipboard = (
+  event: ClipboardEvent<HTMLDivElement>
+) => void
+
+export type HandleEditableDrag = (event: DragEvent<HTMLDivElement>) => void
+
+export type HandleEditableComposition = (
+  event: CompositionEvent<HTMLDivElement>
+) => void
+
+export type HandleEditableInput = (
+  event: ReactInputEvent<HTMLDivElement>
+) => void
+
+export type HandleEditableDOMBeforeInput = (event: InputEvent) => void
+
+export type HandleEditableReactBeforeInputFallback = (text: string) => void
+
+export type HandleEditableFocus = (event: FocusEvent<HTMLDivElement>) => void
+
+export type HandleEditableMouse = (event: MouseEvent<HTMLDivElement>) => void
+
+export type HandleEditableKeyboard = (
+  event: KeyboardEvent<HTMLDivElement>
+) => void
+
+export type EditableDragLifecycleState = {
+  isDraggingInternally: boolean
+}
+
+export const attachEditableGlobalDragLifecycleListeners = ({
+  state,
+  targetDocument,
+}: {
+  state: EditableDragLifecycleState
+  targetDocument: Document
+}) => {
+  // Listen for dragend and drop globally. In Firefox, if a drop handler
+  // initiates an operation that causes the originally dragged element to
+  // unmount, that element will not emit a dragend event. (2024/06/21)
+  const stoppedDragging = () => {
+    state.isDraggingInternally = false
+  }
+  targetDocument.addEventListener('dragend', stoppedDragging)
+  targetDocument.addEventListener('drop', stoppedDragging)
+
+  return () => {
+    targetDocument.removeEventListener('dragend', stoppedDragging)
+    targetDocument.removeEventListener('drop', stoppedDragging)
+  }
+}
+
+export const attachEditableNativeInputListeners = ({
+  node,
+  onDOMBeforeInput,
+  onDOMInput,
+}: {
+  node: HTMLElement
+  onDOMBeforeInput: (event: InputEvent) => void
+  onDOMInput: (event: Event) => void
+}) => {
+  // Attach a native DOM event handler for `beforeinput` events, because React's
+  // built-in `onBeforeInput` is actually a leaky polyfill that doesn't expose
+  // real `beforeinput` events sadly... (2019/11/04)
+  // https://github.com/facebook/react/issues/11211
+  // `beforeinput` is attached directly because React's polyfill does
+  // not expose the real event on this path.
+  node.addEventListener('beforeinput', onDOMBeforeInput)
+  node.addEventListener('input', onDOMInput)
+
+  return () => {
+    // `beforeinput` is attached directly because React's polyfill does
+    // not expose the real event on this path.
+    node.removeEventListener('beforeinput', onDOMBeforeInput)
+    node.removeEventListener('input', onDOMInput)
+  }
+}
+
+export const useEditableRootRef = ({
+  detachNativeInputListenersRef,
+  editor,
+  forwardedRef,
+  onDOMBeforeInput,
+  onDOMInput,
+  onDOMSelectionChange,
+  rootRef,
+  scheduleOnDOMSelectionChange,
+}: {
+  detachNativeInputListenersRef: MutableRefBox<(() => void) | null>
+  editor: ReactEditor
+  forwardedRef?: ForwardedRef<HTMLDivElement>
+  onDOMBeforeInput: (event: InputEvent) => void
+  onDOMInput: (event: Event) => void
+  onDOMSelectionChange: CancelableCallback
+  rootRef: MutableRefBox<HTMLDivElement | null>
+  scheduleOnDOMSelectionChange: CancelableCallback
+}) =>
+  useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node == null) {
+        onDOMSelectionChange.cancel()
+        scheduleOnDOMSelectionChange.cancel()
+
+        EDITOR_TO_ELEMENT.delete(editor)
+        NODE_TO_ELEMENT.delete(editor)
+
+        if (rootRef.current) {
+          detachNativeInputListenersRef.current?.()
+          detachNativeInputListenersRef.current = null
+        }
+      } else {
+        detachNativeInputListenersRef.current =
+          attachEditableNativeInputListeners({
+            node,
+            onDOMBeforeInput,
+            onDOMInput,
+          })
+      }
+      rootRef.current = node
+      if (typeof forwardedRef === 'function') {
+        forwardedRef(node)
+      } else if (forwardedRef) {
+        forwardedRef.current = node
+      }
+    },
+    [
+      detachNativeInputListenersRef,
+      editor,
+      forwardedRef,
+      onDOMBeforeInput,
+      onDOMInput,
+      onDOMSelectionChange,
+      rootRef,
+      scheduleOnDOMSelectionChange,
+    ]
+  )
+
+export const useEditableDOMInputHandler = ({
+  editor,
+  repairDOMInput,
+  rootRef,
+}: {
+  editor: ReactEditor
+  repairDOMInput: RepairDOMInput
+  rootRef: RefObject<HTMLElement | null>
+}) =>
+  useCallback(
+    (event: Event) => {
+      const nativeInput = event as InputEvent
+
+      if (isInteractiveInternalTarget(editor, event.target)) {
+        event.stopImmediatePropagation()
+        return
+      }
+
+      if (!rootRef.current || typeof nativeInput.inputType !== 'string') {
+        return
+      }
+
+      repairDOMInput(nativeInput, rootRef.current)
+    },
+    [editor, repairDOMInput, rootRef]
+  )
+
+export const useEditableDOMBeforeInputHandler = ({
+  handleDOMBeforeInput,
+}: {
+  handleDOMBeforeInput: HandleEditableDOMBeforeInput
+}) =>
+  useCallback(
+    (event: InputEvent) => {
+      handleDOMBeforeInput(event)
+    },
+    [handleDOMBeforeInput]
+  )
+
+export const useEditableReactBeforeInputHandler = ({
+  editor,
+  handleFallbackInsertText,
+  onBeforeInput,
+  readOnly,
+}: {
+  editor: ReactEditor
+  handleFallbackInsertText: HandleEditableReactBeforeInputFallback
+  onBeforeInput?:
+    | ((event: React.FormEvent<HTMLDivElement>) => boolean | void)
+    | undefined
+  readOnly: boolean
+}) =>
+  useCallback(
+    (event: React.InputEvent<HTMLDivElement>) => {
+      if (isInteractiveInternalTarget(editor, event.target)) {
+        event.stopPropagation()
+        return
+      }
+
+      // COMPAT: Certain browsers don't support the `beforeinput` event, so we
+      // fall back to React's leaky polyfill instead just for it. It
+      // only works for the `insertText` input type.
+      if (
+        !HAS_BEFORE_INPUT_SUPPORT &&
+        !readOnly &&
+        !(onBeforeInput?.(event) ?? event.defaultPrevented) &&
+        ReactEditor.hasSelectableTarget(editor, event.target)
+      ) {
+        event.preventDefault()
+        if (!ReactEditor.isComposing(editor)) {
+          const text = (event as any).data as string
+          handleFallbackInsertText(text)
+        }
+      }
+    },
+    [editor, handleFallbackInsertText, onBeforeInput, readOnly]
+  )
+
+export const useEditablePasteHandler = ({
+  handlePaste,
+}: {
+  handlePaste: HandleEditablePaste
+}) =>
+  useCallback(
+    (event: ClipboardEvent<HTMLDivElement>) => {
+      handlePaste(event)
+    },
+    [handlePaste]
+  )
+
+export const useEditableClipboardHandler = ({
+  handleClipboard,
+}: {
+  handleClipboard: HandleEditableClipboard
+}) =>
+  useCallback(
+    (event: ClipboardEvent<HTMLDivElement>) => {
+      handleClipboard(event)
+    },
+    [handleClipboard]
+  )
+
+export const useEditableDragHandler = ({
+  handleDrag,
+}: {
+  handleDrag: HandleEditableDrag
+}) =>
+  useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      handleDrag(event)
+    },
+    [handleDrag]
+  )
+
+export const useEditableCompositionHandler = ({
+  handleComposition,
+}: {
+  handleComposition: HandleEditableComposition
+}) =>
+  useCallback(
+    (event: CompositionEvent<HTMLDivElement>) => {
+      handleComposition(event)
+    },
+    [handleComposition]
+  )
+
+export const useEditableInputHandler = ({
+  handleInput,
+}: {
+  handleInput: HandleEditableInput
+}) =>
+  useCallback(
+    (event: ReactInputEvent<HTMLDivElement>) => {
+      handleInput(event)
+    },
+    [handleInput]
+  )
+
+export const useEditableFocusHandler = ({
+  handleFocus,
+}: {
+  handleFocus: HandleEditableFocus
+}) =>
+  useCallback(
+    (event: FocusEvent<HTMLDivElement>) => {
+      handleFocus(event)
+    },
+    [handleFocus]
+  )
+
+export const useEditableMouseHandler = ({
+  handleMouse,
+}: {
+  handleMouse: HandleEditableMouse
+}) =>
+  useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      handleMouse(event)
+    },
+    [handleMouse]
+  )
+
+export const useEditableKeyboardHandler = ({
+  handleKeyboard,
+}: {
+  handleKeyboard: HandleEditableKeyboard
+}) =>
+  useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      handleKeyboard(event)
+    },
+    [handleKeyboard]
+  )

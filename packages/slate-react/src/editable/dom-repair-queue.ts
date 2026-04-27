@@ -1,0 +1,275 @@
+import { Editor, Range } from 'slate'
+import { getSelection, isDOMElement, isDOMText } from 'slate-dom'
+
+import {
+  getSlateNodeElementByPath,
+  getSlateNodePathFromDOMElement,
+} from '../hooks/use-slate-node-ref'
+import { ReactEditor } from '../plugin/react-editor'
+import type { EditableRepairPolicy } from './editing-kernel'
+import {
+  getCurrentEditableEventFrame,
+  recordEditableKernelTrace,
+} from './editing-kernel'
+import type { EditableInputController } from './input-state'
+
+export type DOMInputRepair = {
+  data: string | null
+  inputType: string
+}
+
+export type DOMRepairQueue = {
+  beginFrame: (frameId: number) => void
+  cancelBefore: (frameId: number) => void
+  repairDOMInput: (
+    nativeInput: DOMInputRepair,
+    rootElement: HTMLElement,
+    frameId?: number | null
+  ) => void
+  repair: (repairPolicy: EditableRepairPolicy) => void
+  repairCaretAfterModelOperation: (
+    kind?: 'repair-caret' | 'repair-caret-after-text-insert'
+  ) => void
+  repairCaretAfterModelTextInsert: () => void
+}
+
+export type DOMRepairFrameState = {
+  cancelledBeforeFrameId: number
+  currentFrameId: number | null
+}
+
+export const createDOMRepairFrameState = (): DOMRepairFrameState => ({
+  cancelledBeforeFrameId: 0,
+  currentFrameId: null,
+})
+
+export const beginDOMRepairFrame = (
+  state: DOMRepairFrameState,
+  frameId: number
+) => {
+  state.currentFrameId = frameId
+}
+
+export const cancelDOMRepairBefore = (
+  state: DOMRepairFrameState,
+  frameId: number
+) => {
+  state.cancelledBeforeFrameId = Math.max(state.cancelledBeforeFrameId, frameId)
+}
+
+export const isDOMRepairFrameCurrent = (
+  state: DOMRepairFrameState,
+  frameId: number
+) => state.currentFrameId === frameId && frameId >= state.cancelledBeforeFrameId
+
+export const createDOMRepairQueue = ({
+  editor,
+  inputController,
+}: {
+  editor: ReactEditor
+  inputController: EditableInputController
+  syncDOMSelectionToEditor: () => void
+}): DOMRepairQueue => {
+  const frameState = createDOMRepairFrameState()
+
+  return {
+    beginFrame(frameId) {
+      beginDOMRepairFrame(frameState, frameId)
+    },
+
+    cancelBefore(frameId) {
+      cancelDOMRepairBefore(frameState, frameId)
+    },
+
+    repairDOMInput(nativeInput, rootElement, repairFrameId) {
+      const frameId =
+        repairFrameId ?? getCurrentEditableEventFrame(editor)?.id ?? null
+
+      if (frameId !== null) {
+        beginDOMRepairFrame(frameState, frameId)
+      }
+
+      if (frameId !== null && !isDOMRepairFrameCurrent(frameState, frameId)) {
+        return
+      }
+
+      const modelText = Editor.string(editor, [])
+      const domText =
+        rootElement.textContent?.replace(/\uFEFF/g, '') ?? modelText
+
+      if (
+        nativeInput.inputType !== 'insertText' ||
+        typeof nativeInput.data !== 'string' ||
+        nativeInput.data.length === 0 ||
+        (domText === modelText && modelText.includes(nativeInput.data))
+      ) {
+        return
+      }
+
+      if (frameId !== null && !isDOMRepairFrameCurrent(frameState, frameId)) {
+        return
+      }
+
+      const inputText = nativeInput.data
+      const root = ReactEditor.findDocumentOrShadowRoot(editor)
+      const domSelection = getSelection(root)
+      const anchorNode = domSelection?.anchorNode ?? null
+      const anchorOffset = domSelection?.anchorOffset ?? null
+      const textHost = isDOMText(anchorNode)
+        ? anchorNode.parentElement?.closest('[data-slate-node="text"]')
+        : isDOMElement(anchorNode)
+          ? anchorNode.closest('[data-slate-node="text"]')
+          : null
+      const path = textHost ? getSlateNodePathFromDOMElement(textHost) : null
+      const slateNode = path ? Editor.getLiveText(editor, path) : null
+
+      if (slateNode && anchorOffset != null && path) {
+        const offset = Math.max(
+          0,
+          Math.min(slateNode.text.length, anchorOffset - inputText.length)
+        )
+        editor.update(() => {
+          editor.select({
+            anchor: { path, offset },
+            focus: { path, offset },
+          })
+        })
+      }
+
+      if (frameId !== null && !isDOMRepairFrameCurrent(frameState, frameId)) {
+        return
+      }
+
+      editor.update(() => {
+        Editor.insertText(editor, inputText)
+      })
+    },
+
+    repair(repairPolicy) {
+      if (repairPolicy.kind === 'repair-caret') {
+        this.repairCaretAfterModelOperation(
+          repairPolicy.reason === 'repair-caret-after-text-insert'
+            ? 'repair-caret-after-text-insert'
+            : 'repair-caret'
+        )
+      }
+    },
+
+    repairCaretAfterModelOperation(
+      kind: 'repair-caret' | 'repair-caret-after-text-insert' = 'repair-caret'
+    ) {
+      const frameId = getCurrentEditableEventFrame(editor)?.id ?? null
+
+      if (frameId !== null) {
+        beginDOMRepairFrame(frameState, frameId)
+      }
+
+      const isCurrentRepairFrame = () =>
+        frameId === null || isDOMRepairFrameCurrent(frameState, frameId)
+      const selectionBefore = Editor.getLiveSelection(editor)
+      recordEditableKernelTrace({
+        editor,
+        trace: {
+          command: null,
+          eventFamily: 'repair',
+          intent: null,
+          nativeAllowed: false,
+          ownership: 'model-owned',
+          repair: { kind },
+          selectionChangeOrigin: 'repair-induced',
+          selectionBefore,
+          selectionSource: 'model-owned',
+          stateAfter: 'repairing',
+          stateBefore: 'model-owned',
+          targetOwner: 'editor',
+        },
+      })
+      const repairCollapsedSelectionByPath = () => {
+        if (!isCurrentRepairFrame()) {
+          return
+        }
+
+        const selection = Editor.getLiveSelection(editor)
+
+        if (!selection || !Range.isCollapsed(selection)) {
+          return
+        }
+
+        const { path, offset: slateOffset } = selection.anchor
+        const textHost = getSlateNodeElementByPath(editor, path)
+
+        if (!textHost) {
+          return
+        }
+
+        const root = ReactEditor.findDocumentOrShadowRoot(editor)
+        const domSelection = getSelection(root)
+
+        if (!domSelection) {
+          return
+        }
+
+        const strings = Array.from(
+          textHost.querySelectorAll(
+            '[data-slate-string], [data-slate-zero-width]'
+          )
+        )
+        let offset = 0
+
+        for (const string of strings) {
+          const textNode = Array.from(string.childNodes).find(isDOMText)
+          const lengthAttribute = string.getAttribute('data-slate-length')
+          const length =
+            lengthAttribute == null
+              ? (textNode?.textContent?.length ??
+                string.textContent?.length ??
+                0)
+              : Number.parseInt(lengthAttribute, 10)
+          const nextOffset = offset + (Number.isFinite(length) ? length : 0)
+
+          if (slateOffset <= nextOffset) {
+            const domOffset = string.hasAttribute('data-slate-zero-width')
+              ? 1
+              : Math.max(0, Math.min(slateOffset - offset, length))
+
+            inputController.state.selectionChangeOrigin = 'repair-induced'
+            domSelection.setBaseAndExtent(
+              textNode ?? string,
+              domOffset,
+              textNode ?? string,
+              domOffset
+            )
+            return
+          }
+
+          offset = nextOffset
+        }
+      }
+
+      const retry = (remainingRetries: number) => {
+        requestAnimationFrame(() => {
+          if (!isCurrentRepairFrame()) {
+            return
+          }
+
+          repairCollapsedSelectionByPath()
+          if (remainingRetries > 0) {
+            setTimeout(() => retry(remainingRetries - 1), 25)
+          }
+        })
+      }
+
+      repairCollapsedSelectionByPath()
+      queueMicrotask(repairCollapsedSelectionByPath)
+      setTimeout(repairCollapsedSelectionByPath)
+      retry(8)
+    },
+
+    repairCaretAfterModelTextInsert() {
+      this.repair({
+        kind: 'repair-caret',
+        reason: 'repair-caret-after-text-insert',
+      })
+    },
+  }
+}

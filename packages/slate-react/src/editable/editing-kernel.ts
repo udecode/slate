@@ -1,0 +1,1213 @@
+import type {
+  ClipboardEvent as ReactClipboardEvent,
+  CompositionEvent as ReactCompositionEvent,
+  DragEvent as ReactDragEvent,
+  FocusEvent as ReactFocusEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+} from 'react'
+import { Editor, type Operation, Range } from 'slate'
+import { Hotkeys } from 'slate-dom'
+
+import {
+  ReactEditor,
+  type ReactEditor as ReactEditorInstance,
+} from '../plugin/react-editor'
+import {
+  closeEditableEditingEpochAfterTrace,
+  getEditableEditingEpochForTrace,
+} from './editing-epoch-kernel'
+import {
+  classifyBeforeInputIntent,
+  classifyClipboardIntent,
+  classifyCompositionIntent,
+  classifyKeyboardIntent,
+  isInteractiveInternalTarget,
+} from './input-controller'
+import type {
+  EditableInputController,
+  EditableSelectionSourceTransition,
+  InputIntent,
+  SelectionChangeOrigin,
+  SelectionSource,
+} from './input-state'
+import type { EditableRepairRequest } from './mutation-controller'
+
+export type EditableBrowserEventFamily =
+  | 'beforeinput'
+  | 'blur'
+  | 'click'
+  | 'compositionend'
+  | 'compositionstart'
+  | 'compositionupdate'
+  | 'copy'
+  | 'cut'
+  | 'dragend'
+  | 'dragover'
+  | 'dragstart'
+  | 'drop'
+  | 'focus'
+  | 'input'
+  | 'keydown'
+  | 'mousedown'
+  | 'paste'
+  | 'repair'
+  | 'selectionchange'
+
+export type EditableKernelState =
+  | 'app-owned'
+  | 'clipboard'
+  | 'composition'
+  | 'dom-selection'
+  | 'dragging'
+  | 'idle'
+  | 'internal-control'
+  | 'model-owned'
+  | 'repairing'
+  | 'shell-backed'
+
+export type EditableEventTargetOwner =
+  | 'app-owned'
+  | 'editor'
+  | 'internal-control'
+  | 'outside-editor'
+  | 'shell'
+  | 'unknown'
+
+export type EditableOwnership =
+  | 'app-owned'
+  | 'deferred'
+  | 'model-owned'
+  | 'native-allowed'
+  | 'native-denied'
+  | 'no-op'
+
+export type EditableCommand =
+  | {
+      kind: 'delete'
+      direction: 'backward' | 'forward'
+      unit?: 'block' | 'line' | 'word'
+    }
+  | { kind: 'delete-both'; unit: 'line' }
+  | { kind: 'delete-fragment'; direction?: 'backward' | 'forward' }
+  | { kind: 'history'; direction: 'redo' | 'undo' }
+  | { kind: 'insert-break'; variant: 'paragraph' | 'soft' }
+  | { kind: 'insert-data'; data: DataTransfer }
+  | { kind: 'insert-text'; inputType?: string; text: string }
+  | {
+      kind: 'move-selection'
+      axis: 'horizontal' | 'line' | 'word'
+      extend?: boolean
+      reverse?: boolean
+    }
+  | { kind: 'select'; selection: Range }
+  | { kind: 'select-all' }
+  | { kind: 'set-block'; blockType: string; wrap?: string }
+  | { kind: 'toggle-mark'; mark: string }
+
+export type EditableMovementAxis =
+  | 'horizontal'
+  | 'line'
+  | 'unknown'
+  | 'vertical'
+  | 'word'
+
+export type EditableMovementOwnershipReason =
+  | 'model-horizontal-inline-void-compat'
+  | 'model-line-browser-compat'
+  | 'model-word-boundary-compat'
+  | 'native-selection-key'
+  | 'native-vertical-layout'
+
+export type EditableMovementOwnershipTrace = {
+  axis: EditableMovementAxis
+  extend: boolean
+  key: string
+  ownership: Extract<EditableOwnership, 'model-owned' | 'native-allowed'>
+  reason: EditableMovementOwnershipReason
+  reverse: boolean | null
+}
+
+export type EditableBrowserEvent = {
+  family: EditableBrowserEventFamily
+  nativeEvent: Event
+  target: EventTarget | null
+}
+
+export type EditableEventFrame = {
+  active: boolean
+  eventFamily: EditableBrowserEventFamily
+  focusOwner: EditableEventTargetOwner
+  id: number
+  inputIntent: InputIntent | null
+  modelSelectionBefore: Range | null
+  selectionSource: SelectionSource
+  startedAt: number
+  targetOwner: EditableEventTargetOwner
+}
+
+export type EditableEventFrameInput = {
+  eventFamily: EditableBrowserEventFamily
+  focusOwner?: EditableEventTargetOwner
+  inputIntent?: InputIntent | null
+  modelSelectionBefore?: Range | null
+  selectionSource?: SelectionSource
+  startedAt?: number
+  targetOwner?: EditableEventTargetOwner
+}
+
+export type EditableKernelTraceEntry = {
+  command: EditableCommand | null
+  epochId: number | null
+  eventFamily: EditableBrowserEventFamily
+  frame: EditableEventFrame | null
+  frameId: number | null
+  intent: InputIntent | null
+  movement: EditableMovementOwnershipTrace | null
+  nativeAllowed: boolean
+  operations: readonly Operation[]
+  ownership: EditableOwnership
+  repair: EditableRepairRequest | null
+  repairPolicy: EditableRepairPolicy
+  selectionChangeOrigin: SelectionChangeOrigin
+  selectionAfter: Range | null
+  selectionBefore: Range | null
+  selectionPolicy: EditableSelectionPolicy
+  selectionSource: SelectionSource
+  stateAfter: EditableKernelState
+  stateBefore: EditableKernelState
+  targetOwner: EditableEventTargetOwner
+  transition: EditableKernelTransition
+}
+
+export type EditableSelectionPolicy = {
+  kind:
+    | 'clear'
+    | 'export-model'
+    | 'import-dom'
+    | 'none'
+    | 'preserve-model'
+    | 'shell'
+  reason:
+    | 'internal-control'
+    | 'model-owned'
+    | 'native-selection'
+    | 'not-requested'
+    | 'selection-clear'
+    | 'shell-backed'
+    | 'unknown-selection'
+}
+
+export type EditableRepairPolicy = {
+  kind:
+    | 'force-render'
+    | 'none'
+    | 'repair-caret'
+    | 'repair-text'
+    | 'sync-selection'
+  reason:
+    | 'force-render'
+    | 'not-requested'
+    | 'repair-caret'
+    | 'repair-caret-after-text-insert'
+    | 'repair-text'
+    | 'sync-selection'
+}
+
+export type EditableKernelTransition = {
+  allowed: boolean
+  reason: string | null
+}
+
+export type EditableKernelResult = {
+  command: EditableCommand | null
+  handled: boolean
+  intent: InputIntent | null
+  nativeAllowed: boolean
+  ownership: EditableOwnership
+  repair: EditableRepairRequest | null
+  repairPolicy: EditableRepairPolicy
+  selectionPolicy: EditableSelectionPolicy
+  selectionSource: SelectionSource
+  trace: EditableKernelTraceEntry
+}
+
+export type EditableKernelContext = {
+  editor: ReactEditorInstance
+  inputController: EditableInputController
+}
+
+export type EditableKeyDownKernelDecision = {
+  command: EditableCommand | null
+  intent: InputIntent | null
+  internalTarget: boolean
+  nativeAllowed: boolean
+  ownership: EditableOwnership
+  selectionBefore: Range | null
+  selectionPolicy: EditableSelectionPolicy
+  selectionSourceTransition: EditableSelectionSourceTransition | null
+  shouldForceDOMImport: boolean
+  stateBefore: EditableKernelState
+  targetOwner: EditableEventTargetOwner
+}
+
+export type EditableBeforeInputKernelDecision = {
+  command: EditableCommand | null
+  intent: InputIntent | null
+  internalTarget: boolean
+  nativeAllowed: boolean
+  ownership: EditableOwnership
+  selectionBefore: Range | null
+  selectionPolicy: EditableSelectionPolicy
+  selectionSourceTransition: EditableSelectionSourceTransition | null
+  stateBefore: EditableKernelState
+  targetOwner: EditableEventTargetOwner
+}
+
+export type EditableClipboardKernelDecision = {
+  intent: InputIntent
+  internalTarget: boolean
+  nativeAllowed: boolean
+  ownership: EditableOwnership
+  selectionBefore: Range | null
+  stateBefore: EditableKernelState
+  targetOwner: EditableEventTargetOwner
+}
+
+export type EditableCompositionKernelDecision = {
+  intent: InputIntent
+  internalTarget: boolean
+  nativeAllowed: boolean
+  ownership: EditableOwnership
+  selectionBefore: Range | null
+  stateBefore: EditableKernelState
+  targetOwner: EditableEventTargetOwner
+}
+
+export type EditableFocusMouseKernelDecision = {
+  intent: null
+  internalTarget: boolean
+  nativeAllowed: boolean
+  ownership: EditableOwnership
+  selectionBefore: Range | null
+  stateBefore: EditableKernelState
+  targetOwner: EditableEventTargetOwner
+}
+
+export type EditableInputKernelDecision = {
+  intent: InputIntent | null
+  internalTarget: boolean
+  nativeAllowed: boolean
+  ownership: EditableOwnership
+  selectionBefore: Range | null
+  stateBefore: EditableKernelState
+  targetOwner: EditableEventTargetOwner
+}
+
+export type EditableEditingKernel = {
+  dispatchBrowserEvent: (event: EditableBrowserEvent) => EditableKernelResult
+  editor: Editor
+  state: EditableKernelState
+}
+
+export type EditableKernelTraceInput = Omit<
+  EditableKernelTraceEntry,
+  | 'epochId'
+  | 'frame'
+  | 'frameId'
+  | 'movement'
+  | 'operations'
+  | 'repairPolicy'
+  | 'selectionChangeOrigin'
+  | 'selectionAfter'
+  | 'selectionPolicy'
+  | 'transition'
+> & {
+  operations?: readonly Operation[]
+  movement?: EditableMovementOwnershipTrace | null
+  repairPolicy?: EditableRepairPolicy
+  selectionChangeOrigin?: SelectionChangeOrigin
+  selectionAfter?: Range | null
+  selectionPolicy?: EditableSelectionPolicy
+  transition?: EditableKernelTransition
+}
+
+const EDITOR_TO_KERNEL_TRACE = new WeakMap<Editor, EditableKernelTraceEntry[]>()
+const EDITOR_TO_CURRENT_EVENT_FRAME = new WeakMap<Editor, EditableEventFrame>()
+const EDITOR_TO_NEXT_EVENT_FRAME_ID = new WeakMap<Editor, number>()
+
+export const mapSelectionSourceToKernelState = (
+  source: SelectionSource
+): EditableKernelState => {
+  switch (source) {
+    case 'app-owned':
+      return 'app-owned'
+    case 'composition-owned':
+      return 'composition'
+    case 'dom-current':
+      return 'dom-selection'
+    case 'internal-control':
+      return 'internal-control'
+    case 'model-owned':
+      return 'model-owned'
+    case 'shell-backed':
+      return 'shell-backed'
+    case 'unknown':
+      return 'idle'
+  }
+}
+
+export const getEditableSelectionChangeOwnership = ({
+  selectionChangeOrigin,
+  selectionSource,
+}: {
+  selectionChangeOrigin: SelectionChangeOrigin
+  selectionSource: SelectionSource
+}): EditableOwnership => {
+  if (selectionChangeOrigin === 'native-user') {
+    return 'native-allowed'
+  }
+
+  if (selectionChangeOrigin === 'browser-handle') {
+    return 'native-allowed'
+  }
+
+  if (
+    selectionChangeOrigin === 'programmatic-export' ||
+    selectionChangeOrigin === 'repair-induced'
+  ) {
+    return 'model-owned'
+  }
+
+  return selectionSource === 'dom-current' ? 'native-allowed' : 'no-op'
+}
+
+export const getEditableKernelTrace = (
+  editor: Editor
+): readonly EditableKernelTraceEntry[] =>
+  EDITOR_TO_KERNEL_TRACE.get(editor) ?? []
+
+export const clearEditableKernelTrace = (editor: Editor) => {
+  EDITOR_TO_KERNEL_TRACE.delete(editor)
+}
+
+export const getCurrentEditableEventFrame = (
+  editor: Editor
+): EditableEventFrame | null =>
+  EDITOR_TO_CURRENT_EVENT_FRAME.get(editor) ?? null
+
+export const beginEditableEventFrame = (
+  editor: Editor,
+  input: EditableEventFrameInput
+): EditableEventFrame => {
+  const id = EDITOR_TO_NEXT_EVENT_FRAME_ID.get(editor) ?? 1
+  const frame: EditableEventFrame = {
+    active: true,
+    eventFamily: input.eventFamily,
+    focusOwner: input.focusOwner ?? 'unknown',
+    id,
+    inputIntent: input.inputIntent ?? null,
+    modelSelectionBefore:
+      input.modelSelectionBefore ?? Editor.getLiveSelection(editor),
+    selectionSource: input.selectionSource ?? 'unknown',
+    startedAt: input.startedAt ?? Date.now(),
+    targetOwner: input.targetOwner ?? 'unknown',
+  }
+
+  EDITOR_TO_CURRENT_EVENT_FRAME.set(editor, frame)
+  EDITOR_TO_NEXT_EVENT_FRAME_ID.set(editor, id + 1)
+
+  return frame
+}
+
+export const endEditableEventFrame = (
+  editor: Editor
+): EditableEventFrame | null => {
+  const frame = getCurrentEditableEventFrame(editor)
+
+  if (!frame) {
+    return null
+  }
+
+  const inactiveFrame = { ...frame, active: false }
+  EDITOR_TO_CURRENT_EVENT_FRAME.set(editor, inactiveFrame)
+
+  return inactiveFrame
+}
+
+export const recordEditableKernelTrace = ({
+  editor,
+  trace,
+}: {
+  editor: Editor
+  trace: EditableKernelTraceInput
+}) => {
+  const entry = createEditableKernelTraceEntry({ editor, trace })
+  const traces = EDITOR_TO_KERNEL_TRACE.get(editor) ?? []
+
+  traces.push(entry)
+  EDITOR_TO_KERNEL_TRACE.set(editor, traces)
+  closeEditableEditingEpochAfterTrace(editor, {
+    command: entry.command,
+    epochId: entry.epochId,
+    eventFamily: entry.eventFamily,
+    ownership: entry.ownership,
+    selectionChangeOrigin: entry.selectionChangeOrigin,
+  })
+
+  return entry
+}
+
+export const getEditableKernelTransition = ({
+  command,
+  eventFamily,
+  nativeAllowed,
+  ownership,
+  repairPolicy,
+  selectionChangeOrigin,
+  selectionPolicy,
+  stateAfter,
+  targetOwner,
+}: Pick<
+  EditableKernelTraceEntry,
+  | 'command'
+  | 'eventFamily'
+  | 'nativeAllowed'
+  | 'ownership'
+  | 'repairPolicy'
+  | 'stateAfter'
+  | 'targetOwner'
+> & {
+  selectionChangeOrigin?: SelectionChangeOrigin
+  selectionPolicy?: EditableSelectionPolicy
+}): EditableKernelTransition => {
+  if (command && nativeAllowed) {
+    return {
+      allowed: false,
+      reason: 'command cannot be native-owned',
+    }
+  }
+
+  if (nativeAllowed && ownership !== 'native-allowed') {
+    return {
+      allowed: false,
+      reason: 'nativeAllowed requires native ownership',
+    }
+  }
+
+  if (nativeAllowed && repairPolicy.kind !== 'none') {
+    return {
+      allowed: false,
+      reason: 'native-owned events cannot schedule model repair',
+    }
+  }
+
+  if (targetOwner === 'internal-control' && ownership === 'model-owned') {
+    return {
+      allowed: false,
+      reason: 'internal controls cannot dispatch model commands',
+    }
+  }
+
+  if (eventFamily === 'repair' && stateAfter === 'dom-selection') {
+    return {
+      allowed: false,
+      reason: 'repair cannot hand authority back to stale DOM selection',
+    }
+  }
+
+  if (eventFamily === 'repair' && selectionPolicy?.kind === 'import-dom') {
+    return {
+      allowed: false,
+      reason: 'repair cannot import DOM selection',
+    }
+  }
+
+  if (
+    eventFamily === 'selectionchange' &&
+    nativeAllowed &&
+    (selectionChangeOrigin === 'programmatic-export' ||
+      selectionChangeOrigin === 'repair-induced')
+  ) {
+    return {
+      allowed: false,
+      reason: 'programmatic selectionchange cannot re-import as native intent',
+    }
+  }
+
+  return {
+    allowed: true,
+    reason: null,
+  }
+}
+
+const shouldAssertEditableKernelTransitions = () =>
+  (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process?.env
+    ?.NODE_ENV !== 'production'
+
+const assertEditableKernelTransition = (entry: EditableKernelTraceEntry) => {
+  if (entry.transition.allowed || !shouldAssertEditableKernelTransitions()) {
+    return
+  }
+
+  throw new Error(
+    `Illegal Editable kernel transition: ${entry.transition.reason ?? 'unknown'}`
+  )
+}
+
+export const getEditableSelectionPolicy = ({
+  eventFamily,
+  ownership,
+  selectionSource,
+  targetOwner,
+}: Pick<
+  EditableKernelTraceEntry,
+  'eventFamily' | 'ownership' | 'selectionSource' | 'targetOwner'
+>): EditableSelectionPolicy => {
+  if (targetOwner === 'internal-control') {
+    return { kind: 'none', reason: 'internal-control' }
+  }
+
+  if (selectionSource === 'shell-backed') {
+    return { kind: 'shell', reason: 'shell-backed' }
+  }
+
+  if (eventFamily === 'selectionchange' && ownership === 'native-allowed') {
+    return { kind: 'import-dom', reason: 'native-selection' }
+  }
+
+  if (ownership === 'model-owned') {
+    return { kind: 'preserve-model', reason: 'model-owned' }
+  }
+
+  return { kind: 'none', reason: 'not-requested' }
+}
+
+export const getEditableRepairPolicy = ({
+  repair,
+}: Pick<EditableKernelTraceEntry, 'repair'>): EditableRepairPolicy => {
+  if (!repair || repair.kind === 'none' || repair.kind === 'skip-dom-sync') {
+    return { kind: 'none', reason: 'not-requested' }
+  }
+
+  if (repair.kind === 'force-render') {
+    return { kind: 'force-render', reason: 'force-render' }
+  }
+
+  if (repair.kind === 'sync-selection') {
+    return { kind: 'sync-selection', reason: 'sync-selection' }
+  }
+
+  if (repair.kind === 'repair-caret-after-text-insert') {
+    return {
+      kind: 'repair-caret',
+      reason: 'repair-caret-after-text-insert',
+    }
+  }
+
+  return { kind: 'repair-caret', reason: 'repair-caret' }
+}
+
+export const createEditableKernelTraceEntry = ({
+  editor,
+  trace,
+}: {
+  editor: Editor
+  trace: EditableKernelTraceInput
+}): EditableKernelTraceEntry => {
+  const frame = getCurrentEditableEventFrame(editor)
+  const epoch = getEditableEditingEpochForTrace(editor, {
+    command: trace.command,
+    eventFamily: trace.eventFamily,
+    ownership: trace.ownership,
+    selectionChangeOrigin: trace.selectionChangeOrigin,
+  })
+  const entry = {
+    ...trace,
+    epochId: epoch?.id ?? null,
+    frame,
+    frameId: frame?.id ?? null,
+    movement: trace.movement ?? null,
+    operations: trace.operations ?? [...Editor.getOperations(editor)],
+    repairPolicy:
+      trace.repairPolicy ??
+      getEditableRepairPolicy({
+        repair: trace.repair,
+      }),
+    selectionChangeOrigin: trace.selectionChangeOrigin ?? 'unknown',
+    selectionAfter: trace.selectionAfter ?? Editor.getLiveSelection(editor),
+    selectionPolicy:
+      trace.selectionPolicy ??
+      getEditableSelectionPolicy({
+        eventFamily: trace.eventFamily,
+        ownership: trace.ownership,
+        selectionSource: trace.selectionSource,
+        targetOwner: trace.targetOwner,
+      }),
+  }
+  const traceEntry = {
+    ...entry,
+    transition:
+      trace.transition ??
+      getEditableKernelTransition({
+        command: entry.command,
+        eventFamily: entry.eventFamily,
+        nativeAllowed: entry.nativeAllowed,
+        ownership: entry.ownership,
+        repairPolicy: entry.repairPolicy,
+        selectionChangeOrigin: entry.selectionChangeOrigin,
+        selectionPolicy: entry.selectionPolicy,
+        stateAfter: entry.stateAfter,
+        targetOwner: entry.targetOwner,
+      }),
+  }
+
+  assertEditableKernelTransition(traceEntry)
+
+  return traceEntry
+}
+
+export const createEditableKernelResult = ({
+  editor,
+  handled,
+  trace,
+}: {
+  editor: Editor
+  handled: boolean
+  trace: EditableKernelTraceInput
+}): EditableKernelResult => {
+  const entry = createEditableKernelTraceEntry({ editor, trace })
+
+  return {
+    command: entry.command,
+    handled,
+    intent: entry.intent,
+    nativeAllowed: entry.nativeAllowed,
+    ownership: entry.ownership,
+    repair: entry.repair,
+    repairPolicy: entry.repairPolicy,
+    selectionPolicy: entry.selectionPolicy,
+    selectionSource: entry.selectionSource,
+    trace: entry,
+  }
+}
+
+const deleteFragmentOrCommand = ({
+  direction,
+  selection,
+  unit,
+}: {
+  direction: 'backward' | 'forward'
+  selection: Range | null
+  unit?: 'block' | 'line' | 'word'
+}): EditableCommand =>
+  selection && Range.isExpanded(selection)
+    ? { direction, kind: 'delete-fragment' }
+    : { direction, kind: 'delete', unit }
+
+const getBeforeInputDeleteCommand = ({
+  inputType,
+  selection,
+}: {
+  inputType: string
+  selection: Range | null
+}): EditableCommand | null => {
+  if (
+    selection &&
+    Range.isExpanded(selection) &&
+    inputType.startsWith('delete')
+  ) {
+    return {
+      direction: inputType.endsWith('Backward') ? 'backward' : 'forward',
+      kind: 'delete-fragment',
+    }
+  }
+
+  switch (inputType) {
+    case 'deleteByComposition':
+    case 'deleteByCut':
+    case 'deleteByDrag':
+      return { kind: 'delete-fragment' }
+    case 'deleteContent':
+    case 'deleteContentForward':
+      return { direction: 'forward', kind: 'delete' }
+    case 'deleteContentBackward':
+      return { direction: 'backward', kind: 'delete' }
+    case 'deleteEntireSoftLine':
+      return { kind: 'delete-both', unit: 'line' }
+    case 'deleteHardLineBackward':
+      return { direction: 'backward', kind: 'delete', unit: 'block' }
+    case 'deleteSoftLineBackward':
+      return { direction: 'backward', kind: 'delete', unit: 'line' }
+    case 'deleteHardLineForward':
+      return { direction: 'forward', kind: 'delete', unit: 'block' }
+    case 'deleteSoftLineForward':
+      return { direction: 'forward', kind: 'delete', unit: 'line' }
+    case 'deleteWordBackward':
+      return { direction: 'backward', kind: 'delete', unit: 'word' }
+    case 'deleteWordForward':
+      return { direction: 'forward', kind: 'delete', unit: 'word' }
+    default:
+      return null
+  }
+}
+
+export const getEditableCommandFromBeforeInputType = ({
+  data,
+  inputType,
+  selection,
+}: {
+  data: unknown
+  inputType: string
+  selection: Range | null
+}): EditableCommand | null => {
+  if (inputType === 'historyUndo') {
+    return { direction: 'undo', kind: 'history' }
+  }
+  if (inputType === 'historyRedo') {
+    return { direction: 'redo', kind: 'history' }
+  }
+  if (inputType.startsWith('delete')) {
+    return getBeforeInputDeleteCommand({ inputType, selection })
+  }
+  if (inputType === 'insertLineBreak') {
+    return { kind: 'insert-break', variant: 'soft' }
+  }
+  if (inputType === 'insertParagraph') {
+    return { kind: 'insert-break', variant: 'paragraph' }
+  }
+  if (
+    (inputType === 'insertText' || inputType === 'insertReplacementText') &&
+    typeof data === 'string'
+  ) {
+    return { inputType, kind: 'insert-text', text: data }
+  }
+  if (
+    (inputType === 'insertFromDrop' ||
+      inputType === 'insertFromPaste' ||
+      inputType === 'insertFromYank') &&
+    (data as any)?.constructor?.name === 'DataTransfer'
+  ) {
+    return { data: data as DataTransfer, kind: 'insert-data' }
+  }
+
+  return null
+}
+
+export const getEditableCommandFromBeforeInput = ({
+  event,
+  selection,
+}: {
+  event: InputEvent
+  selection: Range | null
+}): EditableCommand | null =>
+  getEditableCommandFromBeforeInputType({
+    data: (event as any).dataTransfer || event.data,
+    inputType: event.inputType,
+    selection,
+  })
+
+export const getEditableCommandFromKeyDown = ({
+  event,
+  selection,
+}: {
+  event: ReactKeyboardEvent<HTMLDivElement>
+  selection: Range | null
+}): EditableCommand | null => {
+  const { nativeEvent } = event
+
+  if (Hotkeys.isRedo(nativeEvent)) {
+    return { direction: 'redo', kind: 'history' }
+  }
+  if (Hotkeys.isUndo(nativeEvent)) {
+    return { direction: 'undo', kind: 'history' }
+  }
+  if (Hotkeys.isSoftBreak(nativeEvent)) {
+    return { kind: 'insert-break', variant: 'soft' }
+  }
+  if (Hotkeys.isSplitBlock(nativeEvent)) {
+    return { kind: 'insert-break', variant: 'paragraph' }
+  }
+  if (Hotkeys.isDeleteBackward(nativeEvent)) {
+    return deleteFragmentOrCommand({ direction: 'backward', selection })
+  }
+  if (Hotkeys.isDeleteForward(nativeEvent)) {
+    return deleteFragmentOrCommand({ direction: 'forward', selection })
+  }
+  if (Hotkeys.isDeleteLineBackward(nativeEvent)) {
+    return deleteFragmentOrCommand({
+      direction: 'backward',
+      selection,
+      unit: 'line',
+    })
+  }
+  if (Hotkeys.isDeleteLineForward(nativeEvent)) {
+    return deleteFragmentOrCommand({
+      direction: 'forward',
+      selection,
+      unit: 'line',
+    })
+  }
+  if (Hotkeys.isDeleteWordBackward(nativeEvent)) {
+    return deleteFragmentOrCommand({
+      direction: 'backward',
+      selection,
+      unit: 'word',
+    })
+  }
+  if (Hotkeys.isDeleteWordForward(nativeEvent)) {
+    return deleteFragmentOrCommand({
+      direction: 'forward',
+      selection,
+      unit: 'word',
+    })
+  }
+  if (Hotkeys.isMoveLineBackward(nativeEvent)) {
+    return { axis: 'line', kind: 'move-selection', reverse: true }
+  }
+  if (Hotkeys.isMoveLineForward(nativeEvent)) {
+    return { axis: 'line', kind: 'move-selection' }
+  }
+  if (Hotkeys.isExtendLineBackward(nativeEvent)) {
+    return {
+      axis: 'line',
+      extend: true,
+      kind: 'move-selection',
+      reverse: true,
+    }
+  }
+  if (Hotkeys.isExtendLineForward(nativeEvent)) {
+    return { axis: 'line', extend: true, kind: 'move-selection' }
+  }
+  if (Hotkeys.isMoveWordBackward(nativeEvent)) {
+    return { axis: 'word', kind: 'move-selection', reverse: true }
+  }
+  if (Hotkeys.isMoveWordForward(nativeEvent)) {
+    return { axis: 'word', kind: 'move-selection' }
+  }
+  if (Hotkeys.isMoveBackward(nativeEvent)) {
+    return { axis: 'horizontal', kind: 'move-selection', reverse: true }
+  }
+  if (Hotkeys.isMoveForward(nativeEvent)) {
+    return { axis: 'horizontal', kind: 'move-selection' }
+  }
+
+  return null
+}
+
+export const getEditableMovementOwnershipTrace = ({
+  command,
+  intent,
+  key,
+  ownership,
+}: {
+  command: EditableCommand | null
+  intent: InputIntent | null
+  key: string
+  ownership: EditableOwnership
+}): EditableMovementOwnershipTrace | null => {
+  if (command?.kind === 'move-selection' && ownership === 'model-owned') {
+    const reason: EditableMovementOwnershipReason =
+      command.axis === 'line'
+        ? 'model-line-browser-compat'
+        : command.axis === 'word'
+          ? 'model-word-boundary-compat'
+          : 'model-horizontal-inline-void-compat'
+
+    return {
+      axis: command.axis,
+      extend: Boolean(command.extend),
+      key,
+      ownership,
+      reason,
+      reverse: typeof command.reverse === 'boolean' ? command.reverse : null,
+    }
+  }
+
+  if (intent === 'native-selection-move' && ownership === 'native-allowed') {
+    const vertical = key === 'ArrowUp' || key === 'ArrowDown'
+
+    return {
+      axis: vertical ? 'vertical' : 'unknown',
+      extend: false,
+      key,
+      ownership,
+      reason: vertical ? 'native-vertical-layout' : 'native-selection-key',
+      reverse: key === 'ArrowUp' ? true : key === 'ArrowDown' ? false : null,
+    }
+  }
+
+  return null
+}
+
+export const prepareEditableKeyDownKernel = ({
+  editor,
+  event,
+  inputController,
+  largeDocument,
+}: {
+  editor: ReactEditorInstance
+  event: ReactKeyboardEvent<HTMLDivElement>
+  inputController: EditableInputController
+  largeDocument: unknown
+}): EditableKeyDownKernelDecision => {
+  const intent = classifyKeyboardIntent({
+    editor,
+    event,
+    largeDocument,
+  })
+  const selectionBefore = Editor.getLiveSelection(editor)
+  const internalTarget = isInteractiveInternalTarget(editor, event.target)
+  const command = internalTarget
+    ? null
+    : getEditableCommandFromKeyDown({
+        event,
+        selection: selectionBefore,
+      })
+  const targetOwner: EditableEventTargetOwner = internalTarget
+    ? 'internal-control'
+    : ReactEditor.hasEditableTarget(editor, event.target)
+      ? 'editor'
+      : 'unknown'
+  const ownership: EditableOwnership =
+    intent === 'internal-control'
+      ? 'app-owned'
+      : intent === 'native-selection-move'
+        ? 'native-allowed'
+        : intent
+          ? 'model-owned'
+          : 'no-op'
+
+  const shouldForceDOMImport =
+    intent === 'delete' ||
+    intent === 'format' ||
+    intent === 'insert-break' ||
+    intent === 'model-selection-move'
+
+  return {
+    command,
+    intent,
+    internalTarget,
+    nativeAllowed: ownership === 'native-allowed',
+    ownership,
+    selectionBefore,
+    selectionPolicy: internalTarget
+      ? { kind: 'none', reason: 'internal-control' }
+      : {
+          kind: 'import-dom',
+          reason: shouldForceDOMImport
+            ? 'unknown-selection'
+            : 'native-selection',
+        },
+    selectionSourceTransition:
+      intent === 'native-selection-move'
+        ? {
+            preferModelSelection: false,
+            reason: 'native-selection-move',
+            selectionSource: 'dom-current',
+          }
+        : null,
+    shouldForceDOMImport,
+    stateBefore: mapSelectionSourceToKernelState(
+      inputController.state.selectionSource
+    ),
+    targetOwner,
+  }
+}
+
+export const prepareEditableBeforeInputKernel = ({
+  editor,
+  event,
+  inputController,
+}: {
+  editor: ReactEditorInstance
+  event: InputEvent
+  inputController: EditableInputController
+}): EditableBeforeInputKernelDecision => {
+  const intent = classifyBeforeInputIntent({
+    editor,
+    event,
+  })
+  const selectionBefore = Editor.getLiveSelection(editor)
+  const internalTarget = isInteractiveInternalTarget(editor, event.target)
+  const targetOwner: EditableEventTargetOwner = internalTarget
+    ? 'internal-control'
+    : ReactEditor.hasEditableTarget(editor, event.target)
+      ? 'editor'
+      : 'unknown'
+  const ownership: EditableOwnership =
+    intent === 'internal-control'
+      ? 'app-owned'
+      : intent === 'native-selection-move'
+        ? 'native-allowed'
+        : intent
+          ? 'model-owned'
+          : 'no-op'
+
+  return {
+    command: getEditableCommandFromBeforeInput({
+      event,
+      selection: selectionBefore,
+    }),
+    intent,
+    internalTarget,
+    nativeAllowed: ownership === 'native-allowed',
+    ownership,
+    selectionBefore,
+    selectionPolicy:
+      targetOwner === 'internal-control'
+        ? { kind: 'none', reason: 'internal-control' }
+        : ownership === 'model-owned'
+          ? { kind: 'import-dom', reason: 'unknown-selection' }
+          : { kind: 'none', reason: 'not-requested' },
+    selectionSourceTransition: null,
+    stateBefore: mapSelectionSourceToKernelState(
+      inputController.state.selectionSource
+    ),
+    targetOwner,
+  }
+}
+
+export const prepareEditableClipboardKernel = ({
+  editor,
+  event,
+  inputController,
+}: {
+  editor: ReactEditorInstance
+  event: ReactClipboardEvent<HTMLDivElement> | ReactDragEvent<HTMLDivElement>
+  inputController: EditableInputController
+}): EditableClipboardKernelDecision => {
+  const intent = classifyClipboardIntent({
+    editor,
+    event,
+  })
+  const internalTarget = isInteractiveInternalTarget(editor, event.target)
+  const targetOwner: EditableEventTargetOwner = internalTarget
+    ? 'internal-control'
+    : ReactEditor.hasEditableTarget(editor, event.target)
+      ? 'editor'
+      : 'unknown'
+  const ownership: EditableOwnership =
+    intent === 'internal-control' ? 'app-owned' : 'model-owned'
+
+  return {
+    intent,
+    internalTarget,
+    nativeAllowed: false,
+    ownership,
+    selectionBefore: Editor.getLiveSelection(editor),
+    stateBefore: mapSelectionSourceToKernelState(
+      inputController.state.selectionSource
+    ),
+    targetOwner,
+  }
+}
+
+export const prepareEditableCompositionKernel = ({
+  editor,
+  event,
+  inputController,
+}: {
+  editor: ReactEditorInstance
+  event: ReactCompositionEvent<HTMLDivElement>
+  inputController: EditableInputController
+}): EditableCompositionKernelDecision => {
+  const intent = classifyCompositionIntent({
+    editor,
+    event,
+  })
+  const internalTarget = isInteractiveInternalTarget(editor, event.target)
+  const targetOwner: EditableEventTargetOwner = internalTarget
+    ? 'internal-control'
+    : ReactEditor.hasEditableTarget(editor, event.target)
+      ? 'editor'
+      : 'unknown'
+  const ownership: EditableOwnership =
+    intent === 'internal-control' ? 'app-owned' : 'model-owned'
+
+  return {
+    intent,
+    internalTarget,
+    nativeAllowed: false,
+    ownership,
+    selectionBefore: Editor.getLiveSelection(editor),
+    stateBefore: mapSelectionSourceToKernelState(
+      inputController.state.selectionSource
+    ),
+    targetOwner,
+  }
+}
+
+export const prepareEditableFocusMouseKernel = ({
+  editor,
+  event,
+  inputController,
+}: {
+  editor: ReactEditorInstance
+  event: ReactFocusEvent<HTMLDivElement> | ReactMouseEvent<HTMLDivElement>
+  inputController: EditableInputController
+}): EditableFocusMouseKernelDecision => {
+  const internalTarget = isInteractiveInternalTarget(editor, event.target)
+  const targetOwner: EditableEventTargetOwner = internalTarget
+    ? 'internal-control'
+    : ReactEditor.hasEditableTarget(editor, event.target)
+      ? 'editor'
+      : ReactEditor.hasTarget(editor, event.target)
+        ? 'app-owned'
+        : 'unknown'
+  const ownership: EditableOwnership = internalTarget
+    ? 'app-owned'
+    : targetOwner === 'editor'
+      ? 'native-allowed'
+      : 'no-op'
+
+  return {
+    intent: null,
+    internalTarget,
+    nativeAllowed: ownership === 'native-allowed',
+    ownership,
+    selectionBefore: Editor.getLiveSelection(editor),
+    stateBefore: mapSelectionSourceToKernelState(
+      inputController.state.selectionSource
+    ),
+    targetOwner,
+  }
+}
+
+export const prepareEditableInputKernel = ({
+  editor,
+  event,
+  inputController,
+}: {
+  editor: ReactEditorInstance
+  event: React.FormEvent<HTMLDivElement>
+  inputController: EditableInputController
+}): EditableInputKernelDecision => {
+  const internalTarget = isInteractiveInternalTarget(editor, event.target)
+  const intent = internalTarget
+    ? 'internal-control'
+    : inputController.state.activeIntent
+  const targetOwner: EditableEventTargetOwner = internalTarget
+    ? 'internal-control'
+    : ReactEditor.hasEditableTarget(editor, event.target)
+      ? 'editor'
+      : 'unknown'
+  const ownership: EditableOwnership =
+    intent === 'internal-control'
+      ? 'app-owned'
+      : intent
+        ? 'model-owned'
+        : 'deferred'
+
+  return {
+    intent,
+    internalTarget,
+    nativeAllowed: false,
+    ownership,
+    selectionBefore: Editor.getLiveSelection(editor),
+    stateBefore: mapSelectionSourceToKernelState(
+      inputController.state.selectionSource
+    ),
+    targetOwner,
+  }
+}

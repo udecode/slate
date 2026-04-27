@@ -1,13 +1,10 @@
 {
   "extends": "../tsconfig.json",
-  "files": [
-    "./interfaces/CustomTypes/custom-types.ts",
-    "./interfaces/CustomTypes/type-guards.ts"
-  ],
+  "files": ["./generic-history-contract.ts"],
   "compilerOptions": {
     "composite": false,
     "noEmit": true,
-    "rootDir": "..",
+    "rootDir": "../../..",
     "skipLibCheck": true,
     "types": ["bun-types", "bun-types/test-globals", "node"]
   }

@@ -1,0 +1,299 @@
+import type {
+  BrowserMobileProofPlatform,
+  BrowserMobileSupportedClaim,
+  BrowserMobileTransportId,
+  BrowserMobileUnsupportedClaim,
+} from '../transports/contracts'
+import { classifyBrowserMobileTransportProof } from '../transports/contracts'
+import type { ProofEvidenceClass } from './proof'
+
+export type SlateBrowserReleaseClaim =
+  | 'android-chrome-device-browser-text-input'
+  | 'android-chrome-device-browser-ime-commit'
+  | 'ios-safari-device-browser-text-input'
+  | 'ios-safari-device-browser-ime-commit'
+  | 'native-mobile-clipboard'
+  | 'persistent-browser-caret-soak'
+  | 'release-discipline-guards'
+
+export type SlateBrowserMobileReleaseCapability =
+  | BrowserMobileSupportedClaim
+  | BrowserMobileUnsupportedClaim
+
+export type SlateBrowserMobileDeviceProofArtifact = {
+  capabilities: SlateBrowserMobileReleaseCapability[]
+  evidenceClass: ProofEvidenceClass
+  kind: 'mobile-device'
+  passed: boolean
+  platform: BrowserMobileProofPlatform
+  releaseGateCapable: boolean
+  scenario: string
+  transport: BrowserMobileTransportId
+}
+
+export type SlateBrowserPersistentSoakProofArtifact = {
+  browserName: string
+  iterations: number
+  kind: 'persistent-browser-soak'
+  passed: boolean
+  profilePersistence: 'ephemeral' | 'persistent'
+  replayable: boolean
+  scenario: string
+}
+
+export type SlateBrowserReleaseDisciplineProofArtifact = {
+  guards: string[]
+  kind: 'release-discipline'
+  passed: boolean
+}
+
+export type SlateBrowserReleaseProofArtifact =
+  | SlateBrowserMobileDeviceProofArtifact
+  | SlateBrowserPersistentSoakProofArtifact
+  | SlateBrowserReleaseDisciplineProofArtifact
+
+export type SlateBrowserReleaseProofOptions = {
+  artifacts: readonly SlateBrowserReleaseProofArtifact[]
+  claims: readonly SlateBrowserReleaseClaim[]
+  requiredDisciplineGuards?: readonly string[]
+  requiredSoakIterations?: number
+}
+
+export type SlateBrowserReleaseProofResult = {
+  issues: string[]
+  ok: boolean
+}
+
+export const SLATE_BROWSER_RELEASE_DISCIPLINE_GUARDS = [
+  'public-surface-contract',
+  'public-field-hard-cut-contract',
+  'escape-hatch-inventory-contract',
+  'write-boundary-contract',
+  'leaf-lifecycle-contract',
+  'selection-rebase-contract',
+  'rendered-dom-shape-contract',
+  'destructive-leaf-boundary-gauntlet',
+  'legacy-leaf-delete-parity',
+] as const
+
+export const createBrowserMobileReleaseProofArtifact = ({
+  passed,
+  scenario,
+  transport,
+}: {
+  passed: boolean
+  scenario: string
+  transport: BrowserMobileTransportId
+}): SlateBrowserMobileDeviceProofArtifact => {
+  const proof = classifyBrowserMobileTransportProof(transport)
+
+  return {
+    capabilities: proof.supportedClaims,
+    evidenceClass: proof.evidenceClass,
+    kind: 'mobile-device',
+    passed,
+    platform: proof.platform,
+    releaseGateCapable: proof.releaseGateCapable,
+    scenario,
+    transport,
+  }
+}
+
+export const createPersistentBrowserSoakProofArtifact = ({
+  browserName,
+  iterations,
+  passed,
+  profilePersistence,
+  replayable,
+  scenario,
+}: Omit<
+  SlateBrowserPersistentSoakProofArtifact,
+  'kind'
+>): SlateBrowserPersistentSoakProofArtifact => ({
+  browserName,
+  iterations,
+  kind: 'persistent-browser-soak',
+  passed,
+  profilePersistence,
+  replayable,
+  scenario,
+})
+
+export const createReleaseDisciplineProofArtifact = ({
+  guards,
+  passed,
+}: Omit<
+  SlateBrowserReleaseDisciplineProofArtifact,
+  'kind'
+>): SlateBrowserReleaseDisciplineProofArtifact => ({
+  guards: [...guards],
+  kind: 'release-discipline',
+  passed,
+})
+
+const hasDirectMobileProof = (
+  artifacts: readonly SlateBrowserReleaseProofArtifact[],
+  platform: BrowserMobileProofPlatform,
+  capability: SlateBrowserMobileReleaseCapability
+) =>
+  artifacts.some(
+    (artifact) =>
+      artifact.kind === 'mobile-device' &&
+      artifact.passed &&
+      artifact.releaseGateCapable &&
+      artifact.evidenceClass === 'automated-direct' &&
+      artifact.platform === platform &&
+      artifact.capabilities.includes(capability)
+  )
+
+const describeMobileClaim = (
+  platform: BrowserMobileProofPlatform,
+  capability: SlateBrowserMobileReleaseCapability
+) => `${platform} ${capability}`
+
+const validateMobileClaim = (
+  issues: string[],
+  artifacts: readonly SlateBrowserReleaseProofArtifact[],
+  platform: BrowserMobileProofPlatform,
+  capability: SlateBrowserMobileReleaseCapability
+) => {
+  if (!hasDirectMobileProof(artifacts, platform, capability)) {
+    issues.push(
+      `Missing automated-direct release proof for ${describeMobileClaim(
+        platform,
+        capability
+      )}`
+    )
+  }
+}
+
+const validatePersistentSoak = (
+  issues: string[],
+  artifacts: readonly SlateBrowserReleaseProofArtifact[],
+  requiredSoakIterations: number
+) => {
+  const artifact = artifacts.find(
+    (candidate) =>
+      candidate.kind === 'persistent-browser-soak' &&
+      candidate.passed &&
+      candidate.profilePersistence === 'persistent' &&
+      candidate.replayable &&
+      candidate.iterations >= requiredSoakIterations
+  )
+
+  if (!artifact) {
+    issues.push(
+      `Missing persistent browser soak proof with at least ${requiredSoakIterations} replayable iterations`
+    )
+  }
+}
+
+const validateReleaseDiscipline = (
+  issues: string[],
+  artifacts: readonly SlateBrowserReleaseProofArtifact[],
+  requiredDisciplineGuards: readonly string[]
+) => {
+  const artifact = artifacts.find(
+    (candidate) => candidate.kind === 'release-discipline' && candidate.passed
+  )
+
+  if (!artifact || artifact.kind !== 'release-discipline') {
+    issues.push('Missing release discipline proof artifact')
+    return
+  }
+
+  const missing = requiredDisciplineGuards.filter(
+    (guard) => !artifact.guards.includes(guard)
+  )
+
+  if (missing.length > 0) {
+    issues.push(`Missing release discipline guards: ${missing.join(', ')}`)
+  }
+}
+
+export const validateSlateBrowserReleaseProof = ({
+  artifacts,
+  claims,
+  requiredDisciplineGuards = SLATE_BROWSER_RELEASE_DISCIPLINE_GUARDS,
+  requiredSoakIterations = 5,
+}: SlateBrowserReleaseProofOptions): SlateBrowserReleaseProofResult => {
+  const issues: string[] = []
+
+  for (const claim of claims) {
+    switch (claim) {
+      case 'android-chrome-device-browser-text-input':
+        validateMobileClaim(
+          issues,
+          artifacts,
+          'android-chrome',
+          'device-browser-text-input'
+        )
+        break
+      case 'android-chrome-device-browser-ime-commit':
+        validateMobileClaim(
+          issues,
+          artifacts,
+          'android-chrome',
+          'device-browser-ime-commit'
+        )
+        break
+      case 'ios-safari-device-browser-text-input':
+        validateMobileClaim(
+          issues,
+          artifacts,
+          'ios-safari',
+          'device-browser-text-input'
+        )
+        break
+      case 'ios-safari-device-browser-ime-commit':
+        validateMobileClaim(
+          issues,
+          artifacts,
+          'ios-safari',
+          'device-browser-ime-commit'
+        )
+        break
+      case 'native-mobile-clipboard':
+        validateMobileClaim(
+          issues,
+          artifacts,
+          'android-chrome',
+          'native-mobile-clipboard'
+        )
+        validateMobileClaim(
+          issues,
+          artifacts,
+          'ios-safari',
+          'native-mobile-clipboard'
+        )
+        break
+      case 'persistent-browser-caret-soak':
+        validatePersistentSoak(issues, artifacts, requiredSoakIterations)
+        break
+      case 'release-discipline-guards':
+        validateReleaseDiscipline(issues, artifacts, requiredDisciplineGuards)
+        break
+    }
+  }
+
+  return {
+    issues,
+    ok: issues.length === 0,
+  }
+}
+
+export const assertSlateBrowserReleaseProof = (
+  options: SlateBrowserReleaseProofOptions
+) => {
+  const result = validateSlateBrowserReleaseProof(options)
+
+  if (!result.ok) {
+    throw new Error(
+      `Slate browser release proof failed:\n${result.issues
+        .map((issue) => `- ${issue}`)
+        .join('\n')}`
+    )
+  }
+
+  return result
+}

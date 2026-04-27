@@ -1,0 +1,71 @@
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
+
+import { createEditor, type Descendant, Editor, Node, Text } from '../src'
+
+const richTextParagraph = (): Descendant => ({
+  type: 'paragraph',
+  children: [
+    { text: 'This is editable ' },
+    { bold: true, text: 'rich' },
+    { text: ' text, ' },
+    { italic: true, text: 'much' },
+    { text: ' better than a ' },
+    { code: true, text: '<textarea>' },
+    { text: '!' },
+  ],
+})
+
+const setupEditor = () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [richTextParagraph()],
+    selection: {
+      anchor: { path: [0, 6], offset: 1 },
+      focus: { path: [0, 6], offset: 1 },
+    },
+  })
+
+  return editor
+}
+
+const getTextChildren = (editor: ReturnType<typeof createEditor>) => {
+  const block = Editor.getChildren(editor)[0]
+
+  assert(Node.isElement(block))
+
+  return block.children.filter(Text.isText)
+}
+
+describe('leaf lifecycle contract', () => {
+  it('removes removable empty marked leaves after destructive word deletes', () => {
+    const editor = setupEditor()
+
+    editor.update(() => {
+      editor.delete({ reverse: true, unit: 'word' })
+      editor.delete({ reverse: true, unit: 'word' })
+      editor.delete({ reverse: true, unit: 'word' })
+      editor.delete({ reverse: true, unit: 'word' })
+    })
+
+    const children = getTextChildren(editor)
+
+    assert.equal(
+      Editor.string(editor, [0]),
+      'This is editable rich text, much '
+    )
+    assert.deepEqual(
+      children.map((child) => child.text),
+      ['This is editable ', 'rich', ' text, ', 'much', ' ']
+    )
+    assert.equal(
+      children.some((child) => child.text === ''),
+      false
+    )
+    assert.deepEqual(Editor.getLiveSelection(editor), {
+      anchor: { path: [0, 4], offset: 1 },
+      focus: { path: [0, 4], offset: 1 },
+    })
+  })
+})
