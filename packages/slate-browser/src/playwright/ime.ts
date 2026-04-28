@@ -22,11 +22,16 @@ export const enableCompositionKeyEvents = async (page: Page) => {
 export const composeText = async (
   page: Page,
   steps: readonly string[],
-  committedText: string
+  committedText: string,
+  {
+    transport = 'native',
+  }: {
+    transport?: 'native' | 'synthetic'
+  } = {}
 ) => {
   const browserName = page.context().browser()?.browserType().name()
 
-  if (browserName !== 'chromium') {
+  if (browserName !== 'chromium' || transport === 'synthetic') {
     await page.evaluate(
       ({ composedSteps, finalText }) => {
         const active = document.activeElement as HTMLElement | null

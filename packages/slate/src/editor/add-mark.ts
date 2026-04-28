@@ -1,24 +1,32 @@
-import {
-  getCurrentMarks,
-  getCurrentSelection,
-  setCurrentMarks,
-  withTransaction,
-} from '../core/public-state'
+import { executeCommand } from '../core/command-registry'
+import { getCurrentMarks, withTransaction } from '../core/public-state'
 import { Editor, type EditorInterface } from '../interfaces/editor'
 import { Node } from '../interfaces/node'
 import type { Path } from '../interfaces/path'
 import { Range } from '../interfaces/range'
-import { Transforms } from '../interfaces/transforms'
 
-export const addMark: EditorInterface['addMark'] = (editor, key, value) => {
-  const selection = getCurrentSelection(editor)
+type AddMarkCommand = {
+  key: string
+  type: 'add_mark'
+  value: Parameters<EditorInterface['addMark']>[2]
+}
 
-  if (selection) {
+const applyAddMark: EditorInterface['addMark'] = (editor, key, value) => {
+  withTransaction(editor, (tx) => {
+    const selection = tx.resolveTarget()
+
+    if (!selection || !Range.isRange(selection)) {
+      return
+    }
+
     const match = (node: Node, path: Path) => {
       if (!Node.isText(node)) {
         return false // marks can only be applied to text
       }
       const [parentNode] = Editor.parent(editor, path)
+      if (!Node.isElement(parentNode)) {
+        return false
+      }
       return !editor.isVoid(parentNode) || editor.markableVoid(parentNode)
     }
     const expandedSelection = Range.isExpanded(selection)
@@ -28,12 +36,11 @@ export const addMark: EditorInterface['addMark'] = (editor, key, value) => {
       if (selectedNode && match(selectedNode, selectedPath)) {
         const [parentNode] = Editor.parent(editor, selectedPath)
         markAcceptingVoidSelected =
-          parentNode && editor.markableVoid(parentNode)
+          Node.isElement(parentNode) && editor.markableVoid(parentNode)
       }
     }
     if (expandedSelection || markAcceptingVoidSelected) {
-      Transforms.setNodes(
-        editor,
+      editor.setNodes(
         { [key]: value },
         {
           match,
@@ -47,9 +54,19 @@ export const addMark: EditorInterface['addMark'] = (editor, key, value) => {
         [key]: value,
       }
 
-      withTransaction(editor, () => {
-        setCurrentMarks(editor, marks)
-      })
+      tx.setMarks(marks)
     }
-  }
+  })
+}
+
+export const addMark: EditorInterface['addMark'] = (editor, key, value) => {
+  executeCommand<AddMarkCommand>(
+    editor,
+    { key, type: 'add_mark', value },
+    (command) => {
+      applyAddMark(editor, command.key, command.value)
+      return { handled: true }
+    },
+    { implicitUpdate: true }
+  )
 }

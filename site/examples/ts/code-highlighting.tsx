@@ -15,24 +15,27 @@ import {
   type ChangeEvent,
   type PointerEvent,
   useCallback,
+  useEffect,
+  useMemo,
   useState,
 } from 'react'
 import {
   createEditor,
-  type DecoratedRange,
+  type Descendant,
   Editor,
+  type EditorSnapshot,
   Node,
-  type NodeEntry,
+  type RuntimeId,
   type Element as SlateElement,
-  Transforms,
+  type Node as SlateNode,
 } from 'slate'
 import { withHistory } from 'slate-history'
 import {
+  createSlateProjectionStore,
   Editable,
-  ReactEditor,
   type RenderElementProps,
-  type RenderLeafProps,
   Slate,
+  type SlateProjection,
   useSlateStatic,
   withReact,
 } from 'slate-react'
@@ -43,6 +46,7 @@ import type {
   CustomEditor,
   CustomElement,
   CustomText,
+  CustomValue,
 } from './custom-types.d'
 import { normalizeTokens } from './utils/normalize-tokens'
 
@@ -51,19 +55,56 @@ const CodeBlockType = 'code-block'
 const CodeLineType = 'code-line'
 
 const CodeHighlightingExample = () => {
-  const [editor] = useState(() => withHistory(withReact(createEditor())))
+  const [editor] = useState(() => {
+    const nextEditor = withHistory(withReact(createEditor<CustomValue>()))
 
-  const decorate = useDecorate()
+    Editor.replace(nextEditor, {
+      children: initialValue,
+      selection: null,
+    })
+
+    return nextEditor
+  })
+
   const onKeyDown = useOnKeydown(editor)
+  const projectionStore = useMemo(
+    () =>
+      createSlateProjectionStore(
+        editor,
+        (snapshot) => collectCodeProjections(snapshot.children),
+        {
+          dirtiness: ['text', 'node'],
+          runtimeScope: ({ snapshot }) => collectCodeRuntimeScope(snapshot),
+          sourceId: 'code-highlighting',
+        }
+      ),
+    [editor]
+  )
+
+  useEffect(() => () => projectionStore.destroy(), [projectionStore])
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor} projectionStore={projectionStore}>
       <ExampleToolbar />
       <Editable
-        decorate={decorate}
         onKeyDown={onKeyDown}
         renderElement={ElementWrapper}
-        renderLeaf={renderLeaf}
+        renderSegment={(segment, children) => {
+          const data = Object.assign(
+            {},
+            ...segment.slices.map((slice) => slice.data ?? {})
+          )
+          const className = Object.entries(data)
+            .filter(([, value]) => value === true)
+            .map(([key]) => key)
+            .join(' ')
+
+          return className ? (
+            <span className={className}>{children}</span>
+          ) : (
+            children
+          )
+        }}
       />
       <style>{prismThemeCss}</style>
     </Slate>
@@ -71,13 +112,14 @@ const CodeHighlightingExample = () => {
 }
 
 const ElementWrapper = (props: RenderElementProps) => {
-  const { attributes, children, element } = props
-  const editor = useSlateStatic()
+  const { attributes, children, element, path } = props
+  const editor = useSlateStatic<CustomEditor>()
 
   if (element.type === CodeBlockType) {
     const setLanguage = (language: string) => {
-      const path = ReactEditor.findPath(editor, element)
-      Transforms.setNodes(editor, { language }, { at: path })
+      editor.update(() => {
+        editor.setNodes({ language }, { at: path })
+      })
     }
 
     return (
@@ -128,21 +170,25 @@ const ExampleToolbar = () => {
 }
 
 const CodeBlockButton = () => {
-  const editor = useSlateStatic()
+  const editor = useSlateStatic<CustomEditor>()
   const handleClick = () => {
-    Transforms.wrapNodes(
-      editor,
-      { type: CodeBlockType, language: 'html', children: [] },
-      {
-        match: (n) => Node.isElement(n) && n.type === ParagraphType,
-        split: true,
-      }
-    )
-    Transforms.setNodes<SlateElement>(
-      editor,
-      { type: CodeLineType },
-      { match: (n) => Node.isElement(n) && n.type === ParagraphType }
-    )
+    editor.update(() => {
+      editor.wrapNodes(
+        { type: CodeBlockType, language: 'html', children: [] },
+        {
+          match: (n: SlateNode) =>
+            Node.isElement(n) && n.type === ParagraphType,
+          split: true,
+        }
+      )
+      editor.setNodes<SlateElement>(
+        { type: CodeLineType },
+        {
+          match: (n: SlateNode) =>
+            Node.isElement(n) && n.type === ParagraphType,
+        }
+      )
+    })
   }
 
   return (
@@ -159,41 +205,93 @@ const CodeBlockButton = () => {
   )
 }
 
-const renderLeaf = (props: RenderLeafProps) => {
-  const { attributes, children, leaf } = props
-  const { text, ...rest } = leaf
+const collectCodeProjections = (
+  nodes: readonly Descendant[],
+  path: number[] = [],
+  language: string | undefined = undefined
+): SlateProjection<Record<string, true>>[] => {
+  const projections: SlateProjection<Record<string, true>>[] = []
 
-  return (
-    <span {...attributes} className={Object.keys(rest).join(' ')}>
-      {children}
-    </span>
-  )
-}
+  nodes.forEach((node, nodeIndex) => {
+    const nodePath = [...path, nodeIndex]
+    const nodeLanguage =
+      Node.isElement(node) && node.type === CodeBlockType
+        ? (node as CodeBlockElement).language
+        : language
 
-const useDecorate = () => {
-  return useCallback(([node, path]: NodeEntry) => {
-    if (Node.isElement(node) && node.type === CodeBlockType) {
-      return decorateCodeBlock([node, path])
+    if (Node.isText(node) && nodeLanguage) {
+      projections.push(
+        ...collectCodeTextProjections(node.text, nodePath, nodeLanguage)
+      )
     }
 
-    return []
-  }, [])
+    if (Node.isElement(node)) {
+      projections.push(
+        ...collectCodeProjections(node.children, nodePath, nodeLanguage)
+      )
+    }
+  })
+
+  return projections
 }
 
-const decorateCodeBlock = ([
-  block,
-  blockPath,
-]: NodeEntry<CodeBlockElement>): DecoratedRange[] => {
-  const text = block.children.map((line) => Node.string(line)).join('\n')
-  const tokens = Prism.tokenize(text, Prism.languages[block.language])
-  const normalizedTokens = normalizeTokens(tokens) // make tokens flat and grouped by line
-  const decorations: DecoratedRange[] = []
+const collectCodeRuntimeScope = (
+  snapshot: EditorSnapshot,
+  nodes: readonly Descendant[] = snapshot.children,
+  path: number[] = [],
+  language: string | undefined = undefined
+): RuntimeId[] => {
+  const runtimeIds: RuntimeId[] = []
 
-  for (let index = 0; index < normalizedTokens.length; index++) {
-    const tokens = normalizedTokens[index]
+  nodes.forEach((node, nodeIndex) => {
+    const nodePath = [...path, nodeIndex]
+    const nodeLanguage =
+      Node.isElement(node) && node.type === CodeBlockType
+        ? (node as CodeBlockElement).language
+        : language
 
-    let start = 0
-    for (const token of tokens) {
+    if (Node.isText(node) && nodeLanguage) {
+      const runtimeId = snapshot.index.pathToId[nodePath.join('.')]
+
+      if (runtimeId) {
+        runtimeIds.push(runtimeId)
+      }
+      return
+    }
+
+    if (Node.isElement(node)) {
+      runtimeIds.push(
+        ...collectCodeRuntimeScope(
+          snapshot,
+          node.children,
+          nodePath,
+          nodeLanguage
+        )
+      )
+    }
+  })
+
+  return runtimeIds
+}
+
+const collectCodeTextProjections = (
+  text: string,
+  path: number[],
+  language = 'jsx'
+): SlateProjection<Record<string, true>>[] => {
+  const grammar = Prism.languages[language]
+
+  if (!grammar) {
+    return []
+  }
+
+  const tokens = Prism.tokenize(text, grammar)
+  const normalizedTokens = normalizeTokens(tokens)
+  const projections: SlateProjection<Record<string, true>>[] = []
+  let start = 0
+
+  normalizedTokens.forEach((lineTokens, lineIndex) => {
+    for (const token of lineTokens) {
       const length = token.content.length
       if (!length) {
         continue
@@ -201,20 +299,27 @@ const decorateCodeBlock = ([
 
       const end = start + length
 
-      const path = [...blockPath, index, 0]
-
-      decorations.push({
-        anchor: { path, offset: start },
-        focus: { path, offset: end },
-        token: true,
-        ...Object.fromEntries(token.types.map((type) => [type, true])),
+      projections.push({
+        data: {
+          token: true,
+          ...Object.fromEntries(token.types.map((type) => [type, true])),
+        },
+        key: `code:${path.join('.')}:${start}:${end}`,
+        range: {
+          anchor: { path, offset: start },
+          focus: { path, offset: end },
+        },
       })
 
       start = end
     }
-  }
 
-  return decorations
+    if (lineIndex < normalizedTokens.length - 1) {
+      start += 1
+    }
+  })
+
+  return projections
 }
 
 const useOnKeydown = (editor: CustomEditor) => {
@@ -224,7 +329,9 @@ const useOnKeydown = (editor: CustomEditor) => {
         // handle tab key, insert spaces
         e.preventDefault()
 
-        Editor.insertText(editor, '  ')
+        editor.update(() => {
+          editor.insertText('  ')
+        })
       }
     },
     [editor]
@@ -292,7 +399,7 @@ const initialValue = [
 ]
 
 const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+  const [editor] = useState(() => withReact(createEditor<CustomValue>()))
 
   return (
     <Slate editor={editor} initialValue={initialValue}>
@@ -304,26 +411,21 @@ const App = () => {
   {
     type: ParagraphType,
     children: toChildren(
-      'If you are using TypeScript, you will also need to extend the Editor with ReactEditor and add annotations as per the documentation on TypeScript. The example below also includes the custom types required for the rest of this example.'
+      'If you are using TypeScript, create the editor with a value generic and compose plugins from that typed editor. The example below includes the custom types required for the rest of this example.'
     ),
   },
   {
     type: CodeBlockType,
     language: 'typescript',
     children: toCodeLines(`// TypeScript users only add this code
-import { BaseEditor, Descendant } from 'slate'
+import { Descendant, createEditor } from 'slate'
 import { ReactEditor } from 'slate-react'
 
 type CustomElement = { type: 'paragraph'; children: CustomText[] }
 type CustomText = { text: string }
+type CustomValue = CustomElement[]
 
-declare module 'slate' {
-  interface CustomTypes {
-    Editor: BaseEditor & ReactEditor
-    Element: CustomElement
-    Text: CustomText
-  }
-}`),
+const editor = withReact(createEditor<CustomValue>())`),
   },
   {
     type: ParagraphType,

@@ -1,29 +1,39 @@
 /** @jsx jsx */
 
-import { Editor, Transforms } from 'slate'
+import { Editor } from 'slate'
 import { jsx } from '../..'
 
 jsx
 
 export const run = (editor) => {
   // focus at the end
-  Transforms.select(editor, {
-    anchor: { path: [0, 0], offset: 5 },
-    focus: { path: [0, 0], offset: 5 },
+  editor.update(() => {
+    editor.select({
+      anchor: { path: [0, 0], offset: 5 },
+      focus: { path: [0, 0], offset: 5 },
+    })
   })
   // select all
-  Transforms.select(editor, {
-    anchor: { path: [0, 0], offset: 5 },
-    focus: { path: [0, 0], offset: 0 },
+  editor.update(() => {
+    editor.select({
+      anchor: { path: [0, 0], offset: 5 },
+      focus: { path: [0, 0], offset: 0 },
+    })
   })
   // remove
-  Editor.deleteFragment(editor)
+  editor.update(() => {
+    Editor.deleteFragment(editor)
+  })
   // blur
-  Transforms.deselect(editor)
+  editor.update(() => {
+    editor.deselect()
+  })
   // focus back
-  Transforms.select(editor, {
-    anchor: { path: [0, 0], offset: 0 },
-    focus: { path: [0, 0], offset: 0 },
+  editor.update(() => {
+    editor.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
   })
 }
 

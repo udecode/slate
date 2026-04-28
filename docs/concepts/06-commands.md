@@ -1,17 +1,23 @@
 # Commands
 
-While editing richtext content, your users will be doing things like inserting text, deleting text, splitting paragraphs, adding formatting, etc. Under the cover these edits are expressed using transforms and operations. But at a high level we talk about them as "commands".
+While editing richtext content, your users will be doing things like inserting text, deleting text, splitting paragraphs, and adding formatting. Under the cover these edits are expressed as operations. At the public API level, write them with `editor.update(...)` and editor methods.
 
 Commands are the high-level actions that represent a specific intent of the user. They are represented as helper functions on the `Editor` interface. A handful of helpers are included in core for common richtext behaviors, but you are encouraged to write your own that model your specific domain.
 
 For example, here are some of the built-in commands:
 
 ```javascript
-Editor.insertText(editor, 'A new string of text to be inserted.')
+editor.update(() => {
+  editor.insertText('A new string of text to be inserted.')
+})
 
-Editor.deleteBackward(editor, { unit: 'word' })
+editor.update(() => {
+  editor.deleteBackward('word')
+})
 
-Editor.insertBreak(editor)
+editor.update(() => {
+  editor.insertBreak()
+})
 ```
 
 But you can \(and will!\) also define your own custom commands that model your domain. For example, you might want to define a `formatQuote` command, or an `insertImage` command, or a `toggleBold` command depending on what types of content you allow.
@@ -36,42 +42,30 @@ const MyEditor = {
 }
 ```
 
-When writing your own commands, you'll often make use of the `Transforms` helpers that ship with Slate.
-
-## Transforms
-
-Transforms are a specific set of helpers that allow you to perform a wide variety of specific changes to the document, for example:
+When writing your own commands, compose primitive editor methods inside one update:
 
 ```javascript
-// Set a "bold" format on all of the text nodes in a range.
-// Normally you would apply a style like bold using the Editor.addMark() command.
-// The addMark() command performs a similar setNodes transform, but it uses a more
-// complicated match function in order to apply marks within markableVoid elements.
-Transforms.setNodes(
-  editor,
-  { bold: true },
-  {
-    at: range,
-    match: node => Text.isText(node),
-    split: true,
-  }
-)
+editor.update(() => {
+  editor.setNodes(
+    { bold: true },
+    {
+      at: range,
+      match: node => Text.isText(node),
+      split: true,
+    }
+  )
 
-// Wrap the lowest block at a point in the document in a quote block.
-Transforms.wrapNodes(
-  editor,
-  { type: 'quote', children: [] },
-  {
-    at: point,
-    match: node => Editor.isBlock(editor, node),
-    mode: 'lowest',
-  }
-)
+  editor.wrapNodes(
+    { type: 'quote', children: [] },
+    {
+      at: point,
+      match: node => Editor.isBlock(editor, node),
+      mode: 'lowest',
+    }
+  )
 
-// Insert new text to replace the text in a node at a specific path.
-Transforms.insertText(editor, 'A new string of text.', { at: path })
-
-// ...there are many more transforms!
+  editor.insertText('A new string of text.', { at: path })
+})
 ```
 
-The transform helpers are designed to be composed together. So you might use a handful of them for each command.
+Primitive editor methods are designed to be composed together. Keep related writes in the same `editor.update(...)` so selection, operations, history, and React rendering share one commit.

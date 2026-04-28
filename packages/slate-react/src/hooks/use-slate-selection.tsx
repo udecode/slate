@@ -1,5 +1,6 @@
 import { type BaseSelection, Range } from 'slate'
 
+import { readRuntimeSelection } from '../editable/runtime-selection-state'
 import { useSlateSelector } from './use-slate-selector'
 
 /**
@@ -7,7 +8,10 @@ import { useSlateSelector } from './use-slate-selector'
  * Only triggers a rerender when the selection actually changes
  */
 export const useSlateSelection = () => {
-  return useSlateSelector((editor) => editor.selection, isSelectionEqual)
+  return useSlateSelector(
+    (editor) => readRuntimeSelection(editor),
+    isSelectionEqual
+  )
 }
 
 const isSelectionEqual = (a: BaseSelection, b: BaseSelection) => {

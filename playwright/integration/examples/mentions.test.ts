@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test'
-import { openExample } from 'slate-browser/playwright'
+import {
+  installSlateReactRenderProfiler,
+  openExample,
+  resetSlateReactRenderProfiler,
+  takeSlateBrowserRenderStateSnapshot,
+} from 'slate-browser/playwright'
 
 const getEditor = (page: import('@playwright/test').Page) =>
   page.locator('[data-slate-editor="true"]').first()
@@ -54,7 +59,10 @@ const selectMentionInsertionPoint = async (
 }
 
 test.describe('mentions example', () => {
-  test.beforeEach(async ({ page }) => await page.goto('/examples/mentions'))
+  test.beforeEach(async ({ page }) => {
+    await installSlateReactRenderProfiler(page)
+    await page.goto('/examples/mentions')
+  })
 
   test('renders mention element', async ({ page }) => {
     await expect(page.locator('[data-cy="mention-R2-D2"]')).toHaveCount(1)
@@ -105,34 +113,97 @@ test.describe('mentions example', () => {
       offset: beforeFirstMentionText.length,
     })
     await editor.focus()
+    await editor.assert.selection({
+      anchor: { path: [1, 0], offset: beforeFirstMentionText.length },
+      focus: { path: [1, 0], offset: beforeFirstMentionText.length },
+    })
+    await resetSlateReactRenderProfiler(page)
     await editor.root.press('ArrowRight')
     await editor.assert.selection({
       anchor: { path: [1, 2], offset: 0 },
       focus: { path: [1, 2], offset: 0 },
     })
+    let proof = await takeSlateBrowserRenderStateSnapshot(editor)
+
+    expect(proof.selection).toEqual({
+      anchor: { path: [1, 2], offset: 0 },
+      focus: { path: [1, 2], offset: 0 },
+    })
+    expect(proof.domSelection?.anchorOffset).toBe(0)
+    expect(proof.focusOwner.kind).toBe('editor')
+    expect(proof.selectionShells?.anchor.node?.path).toBe('1,2')
+    expect(proof.selectionShells?.anchor.node?.runtimeId).toBeTruthy()
+    expect(proof.selectionShells?.anchor.element?.path).toBe('1')
+    expect(proof.renderCounts.byKind.editable ?? 0).toBe(0)
+    expect(proof.renderCounts.total).toBe(0)
 
     await editor.selection.collapse({ path: [1, 2], offset: 0 })
+    await editor.assert.selection({
+      anchor: { path: [1, 2], offset: 0 },
+      focus: { path: [1, 2], offset: 0 },
+    })
+    await resetSlateReactRenderProfiler(page)
     await editor.root.press('ArrowLeft')
     await editor.assert.selection({
       anchor: { path: [1, 0], offset: beforeFirstMentionText.length },
       focus: { path: [1, 0], offset: beforeFirstMentionText.length },
     })
+    proof = await takeSlateBrowserRenderStateSnapshot(editor)
+
+    expect(proof.selection).toEqual({
+      anchor: { path: [1, 0], offset: beforeFirstMentionText.length },
+      focus: { path: [1, 0], offset: beforeFirstMentionText.length },
+    })
+    expect(proof.selectionShells?.anchor.node?.path).toBe('1,0')
+    expect(proof.renderCounts.byKind.editable ?? 0).toBe(0)
+    expect(proof.renderCounts.total).toBe(0)
 
     await editor.selection.collapse({
       path: [1, 2],
       offset: betweenMentionsText.length,
     })
+    await editor.assert.selection({
+      anchor: { path: [1, 2], offset: betweenMentionsText.length },
+      focus: { path: [1, 2], offset: betweenMentionsText.length },
+    })
+    await resetSlateReactRenderProfiler(page)
     await editor.root.press('ArrowRight')
     await editor.assert.selection({
       anchor: { path: [1, 4], offset: 0 },
       focus: { path: [1, 4], offset: 0 },
     })
+    proof = await takeSlateBrowserRenderStateSnapshot(editor)
+
+    expect(proof.selection).toEqual({
+      anchor: { path: [1, 4], offset: 0 },
+      focus: { path: [1, 4], offset: 0 },
+    })
+    expect(proof.domSelection?.anchorOffset).toBe(0)
+    expect(proof.selectionShells?.anchor.node?.path).toBe('1,4')
+    expect(proof.selectionShells?.anchor.node?.runtimeId).toBeTruthy()
+    expect(proof.selectionShells?.anchor.element?.path).toBe('1')
+    expect(proof.renderCounts.byKind.editable ?? 0).toBe(0)
+    expect(proof.renderCounts.total).toBe(0)
 
     await editor.selection.collapse({ path: [1, 4], offset: 0 })
+    await editor.assert.selection({
+      anchor: { path: [1, 4], offset: 0 },
+      focus: { path: [1, 4], offset: 0 },
+    })
+    await resetSlateReactRenderProfiler(page)
     await editor.root.press('ArrowLeft')
     await editor.assert.selection({
       anchor: { path: [1, 2], offset: betweenMentionsText.length },
       focus: { path: [1, 2], offset: betweenMentionsText.length },
     })
+    proof = await takeSlateBrowserRenderStateSnapshot(editor)
+
+    expect(proof.selection).toEqual({
+      anchor: { path: [1, 2], offset: betweenMentionsText.length },
+      focus: { path: [1, 2], offset: betweenMentionsText.length },
+    })
+    expect(proof.selectionShells?.anchor.node?.path).toBe('1,2')
+    expect(proof.renderCounts.byKind.editable ?? 0).toBe(0)
+    expect(proof.renderCounts.total).toBe(0)
   })
 })

@@ -189,6 +189,13 @@ const selectEndOfFirstBlockWithDOMSelection = async (root: Locator) => {
     selection.removeAllRanges()
     selection.setBaseAndExtent(lastTextNode, offset, lastTextNode, offset)
     document.dispatchEvent(new Event('selectionchange'))
+
+    const handle = (element as Record<string, any>).__slateBrowserHandle
+    const importedSelection = handle?.importDOMSelection?.()
+
+    if (!importedSelection) {
+      throw new Error('Cannot import browser selection into Slate')
+    }
   })
 }
 
@@ -2303,7 +2310,7 @@ test.describe('On richtext example', () => {
           movement: expect.objectContaining({
             axis: 'horizontal',
             ownership: 'model-owned',
-            reason: 'model-horizontal-inline-void-compat',
+            reason: 'model-horizontal-inline-void',
           }),
         }),
         expect.objectContaining({
@@ -2850,7 +2857,7 @@ test.describe('On richtext example', () => {
           movement: expect.objectContaining({
             axis: 'word',
             ownership: 'model-owned',
-            reason: 'model-word-boundary-compat',
+            reason: 'model-word-boundary',
           }),
         }),
       ])
@@ -2890,7 +2897,7 @@ test.describe('On richtext example', () => {
           movement: expect.objectContaining({
             axis: 'word',
             ownership: 'model-owned',
-            reason: 'model-word-boundary-compat',
+            reason: 'model-word-boundary',
           }),
         }),
       ])
@@ -2956,7 +2963,7 @@ test.describe('On richtext example', () => {
               axis: 'line',
               extend: true,
               ownership: 'model-owned',
-              reason: 'model-line-browser-compat',
+              reason: 'model-line-browser',
             }),
           }),
         ])

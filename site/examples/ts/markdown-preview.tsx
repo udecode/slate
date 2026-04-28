@@ -1,129 +1,175 @@
 import { css } from '@emotion/css'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-markdown'
-import { useCallback, useMemo } from 'react'
-import {
-  createEditor,
-  type Descendant,
-  Node,
-  type NodeEntry,
-  type Range,
-} from 'slate'
+import { type ReactNode, useEffect, useMemo } from 'react'
+import { createEditor, type Descendant, Editor, Node } from 'slate'
 import { withHistory } from 'slate-history'
-import { Editable, type RenderLeafProps, Slate, withReact } from 'slate-react'
-import type { CustomEditor } from './custom-types.d'
+import {
+  createSlateProjectionStore,
+  Editable,
+  type SlateProjection,
+  withReact,
+} from 'slate-react'
+import type { CustomEditor, CustomValue } from './custom-types.d'
 
 const MarkdownPreviewExample = () => {
-  const renderLeaf = useCallback(
-    (props: RenderLeafProps) => <Leaf {...props} />,
-    []
-  )
-  const editor = useMemo(
-    () => withHistory(withReact(createEditor())) as CustomEditor,
-    []
-  )
-  const decorate = useCallback(([node, path]: NodeEntry) => {
-    const ranges: Range[] = []
+  const editor = useMemo(() => {
+    const nextEditor = withHistory(
+      withReact(createEditor<CustomValue>())
+    ) as CustomEditor
 
-    if (!Node.isText(node)) {
-      return ranges
-    }
+    Editor.replace(nextEditor, {
+      children: initialValue,
+      selection: null,
+    })
 
-    const getLength = (token: string | Prism.Token): number => {
-      if (typeof token === 'string') {
-        return token.length
-      }
-      if (typeof token.content === 'string') {
-        return token.content.length
-      }
-      return (token.content as Prism.Token[]).reduce(
-        (l, t) => l + getLength(t),
-        0
-      )
-    }
-
-    const tokens = Prism.tokenize(node.text, Prism.languages.markdown)
-    let start = 0
-
-    for (const token of tokens) {
-      const length = getLength(token)
-      const end = start + length
-
-      if (typeof token !== 'string') {
-        ranges.push({
-          [token.type]: true,
-          anchor: { path, offset: start },
-          focus: { path, offset: end },
-        })
-      }
-
-      start = end
-    }
-
-    return ranges
+    return nextEditor
   }, [])
+  const projectionStore = useMemo(
+    () =>
+      createSlateProjectionStore(
+        editor,
+        (snapshot) => collectMarkdownProjections(snapshot.children),
+        {
+          dirtiness: 'text',
+          sourceId: 'markdown-preview',
+        }
+      ),
+    [editor]
+  )
+
+  useEffect(() => () => projectionStore.destroy(), [projectionStore])
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
-      <Editable
-        decorate={decorate}
-        placeholder="Write some markdown..."
-        renderLeaf={renderLeaf}
-      />
-    </Slate>
+    <Editable
+      editor={editor}
+      id="markdown-preview"
+      placeholder="Write some markdown..."
+      projectionStore={projectionStore}
+      renderSegment={(segment, children) => (
+        <MarkdownSegment
+          data={Object.assign(
+            {},
+            ...segment.slices.map((slice) => slice.data ?? {})
+          )}
+        >
+          {children}
+        </MarkdownSegment>
+      )}
+    />
   )
 }
 
-const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
+const getTokenLength = (token: string | Prism.Token): number => {
+  if (typeof token === 'string') {
+    return token.length
+  }
+  if (typeof token.content === 'string') {
+    return token.content.length
+  }
+  return (token.content as Prism.Token[]).reduce(
+    (length, child) => length + getTokenLength(child),
+    0
+  )
+}
+
+const collectMarkdownProjections = (
+  nodes: readonly Descendant[],
+  path: number[] = []
+): SlateProjection<Record<string, true>>[] => {
+  const projections: SlateProjection<Record<string, true>>[] = []
+
+  nodes.forEach((node, nodeIndex) => {
+    const nodePath = [...path, nodeIndex]
+
+    if (Node.isText(node)) {
+      const tokens = Prism.tokenize(node.text, Prism.languages.markdown)
+      let start = 0
+
+      for (const token of tokens) {
+        const length = getTokenLength(token)
+        const end = start + length
+
+        if (typeof token !== 'string') {
+          projections.push({
+            data: { [token.type]: true },
+            key: `markdown:${nodePath.join('.')}:${start}:${end}`,
+            range: {
+              anchor: { path: nodePath, offset: start },
+              focus: { path: nodePath, offset: end },
+            },
+          })
+        }
+
+        start = end
+      }
+    }
+
+    if (Node.isElement(node)) {
+      projections.push(...collectMarkdownProjections(node.children, nodePath))
+    }
+  })
+
+  return projections
+}
+
+const MarkdownSegment = ({
+  children,
+  data,
+}: {
+  children: ReactNode
+  data: Record<string, unknown>
+}) => {
+  const has = (key: string) => Boolean(data[key])
+
   return (
     <span
-      {...attributes}
       className={css`
-        font-weight: ${leaf.bold && 'bold'};
-        font-style: ${leaf.italic && 'italic'};
-        text-decoration: ${leaf.underlined && 'underline'};
+        font-weight: ${has('bold') ? 'bold' : undefined};
+        font-style: ${has('italic') ? 'italic' : undefined};
+        text-decoration: ${has('underlined') ? 'underline' : undefined};
         ${
-          leaf.title &&
+          has('title') &&
           css`
-          display: inline-block;
-          font-weight: bold;
-          font-size: 20px;
-          margin: 20px 0 10px 0;
-        `
+            display: inline-block;
+            font-weight: bold;
+            font-size: 20px;
+            margin: 20px 0 10px 0;
+          `
         }
         ${
-          leaf.list &&
+          has('list') &&
           css`
-          padding-left: 10px;
-          font-size: 20px;
-          line-height: 10px;
-        `
+            padding-left: 10px;
+            font-size: 20px;
+            line-height: 10px;
+          `
         }
         ${
-          leaf.hr &&
+          has('hr') &&
           css`
-          display: block;
-          text-align: center;
-          border-bottom: 2px solid #ddd;
-        `
+            display: block;
+            text-align: center;
+            border-bottom: 2px solid #ddd;
+          `
         }
         ${
-          leaf.blockquote &&
+          has('blockquote') &&
           css`
-          display: inline-block;
-          border-left: 2px solid #ddd;
-          padding-left: 10px;
-          color: #aaa;
-          font-style: italic;
-        `
+            display: inline-block;
+            border-left: 2px solid #ddd;
+            padding-left: 10px;
+            color: #aaa;
+            font-style: italic;
+          `
         }
         ${
-          leaf.code &&
+          has('code') &&
           css`
-          font-family: monospace;
-          background-color: #eee;
-          padding: 3px;
-        `
+            font-family: monospace;
+            background-color: #eee;
+            padding: 3px;
+          `
         }
       `}
     >
@@ -132,7 +178,7 @@ const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
   )
 }
 
-const initialValue: Descendant[] = [
+const initialValue: CustomValue = [
   {
     type: 'paragraph',
     children: [

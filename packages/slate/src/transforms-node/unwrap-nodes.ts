@@ -1,12 +1,20 @@
 import { getCurrentSelection, withTransaction } from '../core/public-state'
 import { createInternalRangeRef } from '../editor/range-ref'
-import { Location, Node, Range } from '../interfaces'
+import {
+  type Ancestor,
+  type Descendant,
+  Location,
+  Node,
+  Range,
+} from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import { Path } from '../interfaces/path'
 import type { Point } from '../interfaces/point'
-import { Transforms } from '../interfaces/transforms'
-import type { NodeTransforms } from '../interfaces/transforms/node'
+import type { NodeMutationMethods } from '../interfaces/transforms/node'
 import { matchPath } from '../utils/match-path'
+
+const getChildren = (editor: Editor, node: Ancestor): Descendant[] =>
+  Node.isEditor(node) ? Editor.getChildren(editor) : node.children
 
 const comparePoints = (left: Point, right: Point) => {
   const pathComparison = Path.compare(left.path, right.path)
@@ -58,7 +66,7 @@ const mergeAdjacentTextRuns = (editor: Editor) => {
   })
 }
 
-export const unwrapNodes: NodeTransforms['unwrapNodes'] = (
+export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
   editor,
   options = {}
 ) => {
@@ -76,24 +84,24 @@ export const unwrapNodes: NodeTransforms['unwrapNodes'] = (
       throw new Error('unwrapNodes requires a non-root path')
     }
 
-    const childCount = node.children.length
+    const childCount = getChildren(editor, node).length
 
     for (let moved = 0; moved < childCount; moved += 1) {
       const wrapperIndex = index + moved
 
-      Transforms.moveNodes(editor, {
+      editor.moveNodes({
         at: [...parentPath, wrapperIndex, 0],
         to: [...parentPath, wrapperIndex],
       })
     }
 
-    Transforms.removeNodes(editor, {
+    editor.removeNodes({
       at: [...parentPath, index + childCount],
     })
   }
 
-  withTransaction(editor, () => {
-    let target = options.at ?? getCurrentSelection(editor)
+  withTransaction(editor, (tx) => {
+    let target = tx.resolveTarget({ at: options.at })
     const mode = options.mode ?? 'lowest'
     const split = options.split ?? false
     const voids = options.voids ?? false
@@ -135,7 +143,11 @@ export const unwrapNodes: NodeTransforms['unwrapNodes'] = (
         const [node] = Editor.node(editor, path)
         let range = Editor.range(editor, path)
 
-        if (!split && !Node.isText(node) && node.children.some(Node.isText)) {
+        if (
+          !split &&
+          !Node.isText(node) &&
+          getChildren(editor, node).some(Node.isText)
+        ) {
           unwrapNodeAtPath(path)
           editor.normalize()
           continue
@@ -152,7 +164,7 @@ export const unwrapNodes: NodeTransforms['unwrapNodes'] = (
           range = intersection
         }
 
-        Transforms.liftNodes(editor, {
+        editor.liftNodes({
           at: range,
           match: (candidate, candidatePath) =>
             !Node.isText(node) &&
@@ -212,14 +224,14 @@ export const unwrapNodes: NodeTransforms['unwrapNodes'] = (
 
       if (
         Node.isText(wrapperNode) ||
-        wrapperNode.children.some((child) => Node.isText(child))
+        getChildren(editor, wrapperNode).some((child) => Node.isText(child))
       ) {
         throw new Error(
           'unwrapNodes currently supports only top-level wrapper blocks with element children'
         )
       }
 
-      wrapperChildCounts.push(wrapperNode.children.length)
+      wrapperChildCounts.push(getChildren(editor, wrapperNode).length)
     }
 
     for (

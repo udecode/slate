@@ -1,5 +1,4 @@
 import { createContext, useContext } from 'react'
-import type { Editor } from 'slate'
 import type { ReactEditor } from '../plugin/react-editor'
 
 /**
@@ -12,7 +11,9 @@ export const EditorContext = createContext<ReactEditor | null>(null)
  * Get the current editor object from the React context.
  */
 
-export const useSlateStatic = (): Editor => {
+export const useSlateStatic = <
+  TEditor extends ReactEditor<any> = ReactEditor<any>,
+>(): TEditor => {
   const editor = useContext(EditorContext)
 
   if (!editor) {
@@ -21,5 +22,5 @@ export const useSlateStatic = (): Editor => {
     )
   }
 
-  return editor
+  return editor as TEditor
 }

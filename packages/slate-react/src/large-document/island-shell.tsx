@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react'
 import React, { useCallback } from 'react'
 import { type Descendant, Editor, type RuntimeId } from 'slate'
 
+import { readRuntimeNode } from '../editable/runtime-live-state'
 import { useSlateStatic } from '../hooks/use-slate-static'
 import {
   classifyIslandKind,
@@ -66,13 +67,18 @@ export const LargeDocumentIslandShell = React.memo(
     const nodes: Descendant[] = []
 
     previewRuntimeIds.forEach((runtimeId) => {
-      const path = Editor.getPathByRuntimeId(editor, runtimeId)
+      const snapshot = Editor.getSnapshot(editor)
+      const path =
+        Editor.getPathByRuntimeId(editor, runtimeId) ??
+        snapshot.index.idToPath[runtimeId]
 
-      if (!path) {
+      if (!path || !Editor.hasPath(editor, path)) {
         return
       }
 
-      const node = Editor.getLiveNode(editor, path) as Descendant | undefined
+      const node =
+        (readRuntimeNode(editor, path) as Descendant | undefined) ??
+        (Editor.node(editor, path)[0] as Descendant)
 
       if (!node) {
         return

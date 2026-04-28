@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { createEditor, type Descendant, Editor, Transforms } from '../src'
+import { createEditor, type Descendant, Editor } from '../src'
 
 const createChildren = (): Descendant[] => [
   {
@@ -88,12 +88,12 @@ describe('slate clipboard contract', () => {
 
     const before = Editor.getSnapshot(editor)
 
-    Transforms.insertFragment(editor, [])
+    editor.insertFragment([])
 
     const after = Editor.getSnapshot(editor)
 
     assert.equal(after, before)
-    assert.equal(editor.operations.length, 0)
+    assert.equal(editor.getOperations().length, 0)
   })
 
   it('inserts a fragment into a collapsed text selection', () => {
@@ -108,7 +108,7 @@ describe('slate clipboard contract', () => {
       marks: null,
     })
 
-    Transforms.insertFragment(editor, [
+    editor.insertFragment([
       {
         type: 'paragraph',
         children: [{ text: 'alpha' }],
@@ -145,7 +145,7 @@ describe('slate clipboard contract', () => {
       marks: null,
     })
 
-    Transforms.insertFragment(editor, [
+    editor.insertFragment([
       {
         type: 'paragraph',
         children: [{ text: 'alpha' }],

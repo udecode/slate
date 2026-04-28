@@ -14,9 +14,13 @@ import {
   type DOMTextSyncOptOutReason,
   getDOMTextSyncCapability,
 } from '../dom-text-sync'
+import {
+  type SlateTextSelectorContext,
+  useMountedTextRenderSelector,
+} from '../hooks/use-node-selector'
 import { useSlateNodeRef } from '../hooks/use-slate-node-ref'
 import { useSlateProjections } from '../hooks/use-slate-projections'
-import { useSlateSelector } from '../hooks/use-slate-selector'
+import { useSlateStatic } from '../hooks/use-slate-static'
 import type { SlateProjectionSlice } from '../projection-store'
 import { SlateLeaf } from './slate-leaf'
 import { getSlatePlaceholderStyle, SlatePlaceholder } from './slate-placeholder'
@@ -440,29 +444,37 @@ const BoundEditableText = <T,>({
   text,
   ...props
 }: EditableTextProps<T>) => {
-  const boundText = useSlateSelector((editor) => {
-    if (!path && !runtimeId) {
-      return EMPTY_BOUND_TEXT
-    }
-
-    const resolvedRuntimeId = path
-      ? Editor.getRuntimeId(editor, path)
-      : runtimeId
-    const resolvedPath =
-      path ??
-      (resolvedRuntimeId
-        ? Editor.getPathByRuntimeId(editor, resolvedRuntimeId)
-        : null)
-    const node = resolvedPath ? Editor.getLiveText(editor, resolvedPath) : null
-
-    return {
-      marks: marks ?? getTextMarks(node),
-      path: resolvedPath,
+  const editor = useSlateStatic()
+  const selectorRuntimeId = path ? Editor.getRuntimeId(editor, path) : runtimeId
+  const selectBoundText = useCallback(
+    ({
+      path: selectorPath,
       runtimeId: resolvedRuntimeId,
-      slateNode: node,
-      text: text ?? node?.text ?? '',
+      text: node,
+    }: SlateTextSelectorContext) => {
+      if (!path && !runtimeId) {
+        return EMPTY_BOUND_TEXT
+      }
+
+      const resolvedPath = path ?? selectorPath
+
+      return {
+        marks: marks ?? getTextMarks(node),
+        path: resolvedPath,
+        runtimeId: resolvedRuntimeId,
+        slateNode: node,
+        text: text ?? node?.text ?? '',
+      }
+    },
+    [marks, path, runtimeId, text]
+  )
+  const boundText = useMountedTextRenderSelector(
+    selectBoundText,
+    sameBoundText,
+    {
+      runtimeId: selectorRuntimeId,
     }
-  }, sameBoundText)
+  )
   const resolvedRuntimeId = boundText.runtimeId
   const boundRef = useSlateNodeRef(resolvedRuntimeId, {
     path: boundText.path,

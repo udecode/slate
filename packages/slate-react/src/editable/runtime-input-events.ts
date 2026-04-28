@@ -1,0 +1,138 @@
+import {
+  type InputEvent as ReactInputEvent,
+  type RefObject,
+  useCallback,
+} from 'react'
+import type { ReactEditor } from '../plugin/react-editor'
+import { prepareEditableInputKernel } from './editing-kernel'
+import {
+  useEditableDOMInputHandler,
+  useEditableInputHandler,
+} from './input-router'
+import type { EditableInputController } from './input-state'
+import { applyEditableInput } from './model-input-strategy'
+import type { EditableEventRuntime } from './runtime-event-engine'
+
+type DeferredOperation = () => void
+type InputHandler = (event: ReactInputEvent<HTMLDivElement>) => boolean | void
+
+export const useRuntimeInputEvents = ({
+  androidInputManagerRef,
+  deferredOperations,
+  editor,
+  handledDOMBeforeInputRef,
+  inputController,
+  onInput,
+  repair,
+  rootRef,
+  trace,
+}: {
+  androidInputManagerRef: EditableEventRuntime['android']['managerRef']
+  deferredOperations: RefObject<DeferredOperation[]>
+  editor: ReactEditor
+  handledDOMBeforeInputRef: RefObject<boolean>
+  inputController: EditableInputController
+  onInput?: InputHandler
+  repair: EditableEventRuntime['repair']
+  rootRef: RefObject<HTMLDivElement | null>
+  trace: EditableEventRuntime['trace']
+}) => {
+  const onRuntimeDOMInput = useEditableDOMInputHandler({
+    editor,
+    repairDOMInput: trace.repairDOMInputWithTrace,
+    rootRef,
+  })
+
+  const handleInput = useCallback(
+    (event: ReactInputEvent<HTMLDivElement>) => {
+      const decision = prepareEditableInputKernel({
+        editor,
+        event,
+        inputController,
+      })
+      if (decision.internalTarget) {
+        trace.recordKernelEventTrace({
+          family: 'input',
+          intent: decision.intent,
+          ownership: decision.ownership,
+          target: event.target,
+        })
+        event.stopPropagation()
+        return
+      }
+
+      trace.recordKernelEventTrace({
+        family: 'input',
+        intent: decision.intent,
+        ownership: decision.ownership,
+        target: event.target,
+      })
+      const inputResult = applyEditableInput({
+        androidInputManagerRef,
+        deferredOperations,
+        editor,
+        event,
+        handledDOMBeforeInputRef,
+        inputController,
+        onInput,
+      })
+      for (const request of inputResult.repairs) {
+        repair.requestEditableRepair(request)
+      }
+    },
+    [
+      androidInputManagerRef,
+      deferredOperations,
+      editor,
+      handledDOMBeforeInputRef,
+      inputController,
+      onInput,
+      repair,
+      trace,
+    ]
+  )
+  const onRuntimeInput = useEditableInputHandler({ handleInput })
+
+  const handleInputCapture = useCallback(
+    (event: ReactInputEvent<HTMLDivElement>) => {
+      const decision = prepareEditableInputKernel({
+        editor,
+        event,
+        inputController,
+      })
+      if (decision.internalTarget) {
+        trace.recordKernelEventTrace({
+          family: 'input',
+          intent: decision.intent,
+          ownership: decision.ownership,
+          target: event.target,
+        })
+        event.stopPropagation()
+        return
+      }
+
+      trace.recordKernelEventTrace({
+        family: 'input',
+        intent: decision.intent,
+        ownership: decision.ownership,
+        target: event.target,
+      })
+
+      const rootElement = event.currentTarget
+      const { data, inputType } = event.nativeEvent as InputEvent
+      const frameId = trace.getCurrentKernelFrameId()
+
+      trace.repairDOMInputAfterFrame({ data, inputType }, rootElement, frameId)
+    },
+    [editor, inputController, trace]
+  )
+  const onRuntimeInputCapture = useEditableInputHandler({
+    handleInput: handleInputCapture,
+  })
+
+  return {
+    onDOMInput: onRuntimeDOMInput,
+    onInput: onRuntimeInput,
+    onInputCapture: onRuntimeInputCapture,
+  }
+}

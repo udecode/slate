@@ -28,7 +28,7 @@ export const input = (
 )
 
 export const test = (editor) => {
-  const range = Editor.unhangRange(editor, editor.selection)
+  const range = Editor.unhangRange(editor, Editor.getSnapshot(editor).selection)
   return range
 }
 

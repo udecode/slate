@@ -42,7 +42,7 @@ describe('selection rebase contract', () => {
     })
 
     assert.equal(Editor.string(editor, [0]), 'This is editable rich text, much')
-    assert.deepEqual(Editor.getLiveSelection(editor), {
+    assert.deepEqual(Editor.getSelection(editor), {
       anchor: { path: [0, 3], offset: 4 },
       focus: { path: [0, 3], offset: 4 },
     })
@@ -70,7 +70,7 @@ describe('selection rebase contract', () => {
     })
 
     assert.equal(Editor.string(editor, [0]), 'This is editable <textarea>')
-    assert.deepEqual(Editor.getLiveSelection(editor), {
+    assert.deepEqual(Editor.getSelection(editor), {
       anchor: { path: [0, 1], offset: '<textarea>'.length },
       focus: { path: [0, 1], offset: '<textarea>'.length },
     })

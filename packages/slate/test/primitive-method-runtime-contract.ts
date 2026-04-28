@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import {
-  createEditor,
-  type Descendant,
-  Editor,
-  Node,
-  setTargetRuntime,
-} from '../src'
+import { createEditor, type Descendant, Editor, Node } from '../src'
+import { setEditorTargetRuntime } from '../src/internal'
 
 const paragraph = (text: string): Descendant => ({
   type: 'paragraph',
@@ -99,7 +94,7 @@ describe('primitive method runtime contract', () => {
     const editor = setupEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -125,7 +120,7 @@ describe('primitive method runtime contract', () => {
     const editor = setupEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -148,7 +143,7 @@ describe('primitive method runtime contract', () => {
     const editor = setupCollapsedEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -175,7 +170,7 @@ describe('primitive method runtime contract', () => {
     const editor = setupCollapsedEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -236,7 +231,7 @@ describe('primitive method runtime contract', () => {
 
     editor.addMark('bold', true)
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -251,7 +246,7 @@ describe('primitive method runtime contract', () => {
       editor.insertText('M')
     })
 
-    setTargetRuntime(editor, null)
+    setEditorTargetRuntime(editor, null)
 
     editor.update(() => {
       editor.insertText('ARK')
@@ -292,7 +287,7 @@ describe('primitive method runtime contract', () => {
       marks: { bold: true },
     })
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -321,7 +316,7 @@ describe('primitive method runtime contract', () => {
     const editor = setupEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -358,7 +353,7 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -384,7 +379,7 @@ describe('primitive method runtime contract', () => {
     const editor = setupEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -410,7 +405,7 @@ describe('primitive method runtime contract', () => {
     const editor = setupCollapsedEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -436,7 +431,7 @@ describe('primitive method runtime contract', () => {
     const editor = setupWrappedEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -464,7 +459,7 @@ describe('primitive method runtime contract', () => {
     const editor = setupWrappedEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -492,7 +487,7 @@ describe('primitive method runtime contract', () => {
     const editor = setupThreeBlockEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -519,7 +514,7 @@ describe('primitive method runtime contract', () => {
     const editor = setupSplitTextEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -547,7 +542,7 @@ describe('primitive method runtime contract', () => {
     const editor = setupCollapsedEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -576,7 +571,7 @@ describe('primitive method runtime contract', () => {
     const editor = setupCollapsedEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -603,7 +598,7 @@ describe('primitive method runtime contract', () => {
     const editor = setupEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -629,7 +624,7 @@ describe('primitive method runtime contract', () => {
     const editor = setupEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -655,7 +650,7 @@ describe('primitive method runtime contract', () => {
     const editor = setupCollapsedEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 

@@ -18,7 +18,7 @@ interface Element {
 
 ## Element Behavior Types
 
-Element nodes behave differently depending on the [Slate editor's configuration](./editor.md#schema-specific-instance-methods-to-override). An element can be:
+Element nodes behave differently depending on the [Slate editor's configuration](./editor.md#schema-specific-instance-methods). An element can be:
 
 - "block" or "inline" as defined by `editor.isInline`
 - either "void" or "not void" as defined by `editor.isVoid`

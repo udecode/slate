@@ -1,13 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import {
-  createEditor,
-  type Descendant,
-  Editor,
-  type Operation,
-  Transforms,
-} from '../src'
+import { createEditor, type Descendant, Editor, type Operation } from '../src'
 
 const paragraph = (
   text: string,
@@ -35,9 +29,9 @@ const runManualTransaction = (
   editor: ReturnType<typeof createEditor>,
   operations: Operation[]
 ) => {
-  Editor.withTransaction(editor, () => {
+  Editor.withTransaction(editor, (tx) => {
     for (const operation of clone(operations)) {
-      editor.apply(operation)
+      tx.apply(operation)
     }
   })
 }
@@ -54,12 +48,11 @@ const getVisibleState = (editor: ReturnType<typeof createEditor>) => {
 }
 
 describe('slate public accessor + transaction seam', () => {
-  it('children accessor routes through getChildren and setChildren', () => {
+  it('getChildren and replace are the public snapshot state path', () => {
     const editor = createEditor() as ReturnType<typeof createEditor> &
       Record<string, unknown>
     const calls: string[] = []
     const originalGetChildren = editor.getChildren
-    const originalSetChildren = editor.setChildren
     const value = [paragraph('one')]
 
     editor.getChildren = () => {
@@ -67,36 +60,24 @@ describe('slate public accessor + transaction seam', () => {
       return originalGetChildren()
     }
 
-    editor.setChildren = (children) => {
-      calls.push('set')
-      originalSetChildren(children)
-    }
-
-    editor.children = value
-    const currentChildren = editor.children
+    Editor.replace(editor, { children: value, selection: null, marks: null })
+    const currentChildren = editor.getChildren()
 
     assert.deepEqual(currentChildren, value)
-    assert.equal(calls[0], 'set')
     assert.equal(calls.includes('get'), true)
     assert.equal(Editor.isEditor(editor, { deep: true }), true)
     assert.deepEqual(Editor.getChildren(editor), value)
+    assert.equal('children' in editor, false)
   })
 
-  it('Editor.setChildren routes through the overrideable instance method', () => {
-    const editor = createEditor() as ReturnType<typeof createEditor> &
-      Record<string, unknown>
-    const calls: unknown[][] = []
-    const originalSetChildren = editor.setChildren
+  it('does not expose setChildren as an overrideable public state method', () => {
+    const editor = createEditor()
     const value = [paragraph('set')]
 
-    editor.setChildren = (children) => {
-      calls.push(['setChildren', children])
-      originalSetChildren(children)
-    }
+    assert.equal('setChildren' in editor, false)
+    assert.equal('setChildren' in Editor, false)
 
-    Editor.setChildren(editor, value)
-
-    assert.deepEqual(calls[0], ['setChildren', value])
+    Editor.replace(editor, { children: value, selection: null, marks: null })
     assert.deepEqual(Editor.getChildren(editor), value)
   })
 
@@ -112,13 +93,17 @@ describe('slate public accessor + transaction seam', () => {
 
     publishedStates.length = 0
 
-    Editor.withTransaction(editor, () => {
-      editor.children = [paragraph('replacement')]
+    Editor.withTransaction(editor, (transaction) => {
+      Editor.replace(editor, {
+        children: [paragraph('replacement')],
+        selection: null,
+        marks: null,
+      })
 
       assert.equal(publishedStates.length, 0)
       assert.equal(Editor.string(editor, [0]), 'replacement')
 
-      editor.apply({
+      transaction.apply({
         type: 'set_node',
         path: [0],
         properties: {},
@@ -183,10 +168,10 @@ describe('slate public accessor + transaction seam', () => {
 
     replaceChildren(batchEditor, children)
     replaceChildren(manualEditor, children)
-    Transforms.select(batchEditor, selection)
-    Transforms.select(manualEditor, selection)
+    batchEditor.select(selection)
+    manualEditor.select(selection)
 
-    Transforms.applyBatch(batchEditor, clone(operations))
+    batchEditor.applyOperations(clone(operations))
     runManualTransaction(manualEditor, operations)
 
     assert.deepEqual(
@@ -228,7 +213,7 @@ describe('slate public accessor + transaction seam', () => {
     replaceChildren(batchEditor, children)
     replaceChildren(manualEditor, children)
 
-    Transforms.applyBatch(batchEditor, clone(operations))
+    batchEditor.applyOperations(clone(operations))
     runManualTransaction(manualEditor, operations)
 
     assert.deepEqual(
@@ -273,7 +258,7 @@ describe('slate public accessor + transaction seam', () => {
     replaceChildren(batchEditor, children)
     replaceChildren(manualEditor, children)
 
-    Transforms.applyBatch(batchEditor, clone(operations))
+    batchEditor.applyOperations(clone(operations))
     runManualTransaction(manualEditor, operations)
 
     assert.deepEqual(
@@ -299,15 +284,15 @@ describe('slate public accessor + transaction seam', () => {
     const before = getVisibleState(editor)
 
     assert.throws(() => {
-      Editor.withTransaction(editor, () => {
-        editor.apply({
+      Editor.withTransaction(editor, (transaction) => {
+        transaction.apply({
           type: 'set_node',
           path: [0],
           properties: {},
           newProperties: { id: 'blue' },
         })
 
-        editor.apply({
+        transaction.apply({
           type: 'set_node',
           path: [0],
           properties: {},

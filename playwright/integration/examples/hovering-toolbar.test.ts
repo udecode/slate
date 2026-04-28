@@ -1,7 +1,14 @@
 import { expect, type Locator, type Page, test } from '@playwright/test'
+import {
+  createSlateBrowserEditorHarness,
+  installSlateReactRenderProfiler,
+  resetSlateReactRenderProfiler,
+  takeSlateBrowserRenderStateSnapshot,
+} from 'slate-browser/playwright'
 
 test.describe('hovering toolbar example', () => {
   test.beforeEach(async ({ page }) => {
+    await installSlateReactRenderProfiler(page)
     await page.goto('/examples/hovering-toolbar')
   })
 
@@ -51,8 +58,15 @@ test.describe('hovering toolbar example', () => {
   test('hovering toolbar appears after real mouse selection', async ({
     page,
   }) => {
+    const editor = createSlateBrowserEditorHarness(
+      page,
+      'hovering-toolbar',
+      page.locator('[data-slate-editor="true"]')
+    )
+
     await expect(page.getByTestId('menu')).toHaveCSS('opacity', '0')
 
+    await resetSlateReactRenderProfiler(page)
     await selectTextWithMouse(
       page.locator('span[data-slate-string="true"]').first()
     )
@@ -64,6 +78,13 @@ test.describe('hovering toolbar example', () => {
     await expect(page.getByTestId('menu')).toHaveCSS('opacity', '1')
     await expect(page.getByTestId('menu')).not.toHaveCSS('top', '-10000px')
     await expect(page.getByTestId('menu')).not.toHaveCSS('left', '-10000px')
+
+    const proof = await takeSlateBrowserRenderStateSnapshot(editor)
+
+    expect(proof.selection).not.toBeNull()
+    expect(proof.focusOwner.kind).toBe('editor')
+    expect(proof.renderCounts.byKind.editable ?? 0).toBe(0)
+    expect(proof.renderCounts.total).toBe(0)
   })
 
   test('hovering toolbar disappears', async ({ page }) => {

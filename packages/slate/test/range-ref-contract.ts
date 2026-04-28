@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { createEditor, type Descendant, Editor, Transforms } from '../src'
+import { createEditor, type Descendant, Editor } from '../src'
 
 const createChildren = (): Descendant[] => [
   {
@@ -46,7 +46,7 @@ describe('slate range ref contract', () => {
     })
 
     Editor.withTransaction(editor, () => {
-      Transforms.insertText(editor, '>', {
+      editor.insertText('>', {
         at: { path: [0, 0], offset: 0 },
       })
 
@@ -76,7 +76,7 @@ describe('slate range ref contract', () => {
       focus: { path: [0, 0], offset: 4 },
     })
 
-    Transforms.insertText(editor, '!', {
+    editor.insertText('!', {
       at: { path: [0, 0], offset: 4 },
     })
 
@@ -101,7 +101,7 @@ describe('slate range ref contract', () => {
     })
 
     Editor.withTransaction(editor, () => {
-      Transforms.moveNodes(editor, {
+      editor.moveNodes({
         at: [0],
         to: [2],
       })
@@ -128,7 +128,7 @@ describe('slate range ref contract', () => {
     })
 
     Editor.withTransaction(editor, () => {
-      Transforms.moveNodes(editor, {
+      editor.moveNodes({
         at: [0],
         to: [2],
       })
@@ -155,7 +155,7 @@ describe('slate range ref contract', () => {
     })
 
     Editor.withTransaction(editor, () => {
-      Transforms.moveNodes(editor, {
+      editor.moveNodes({
         at: [0, 0],
         to: [0, 2],
       })

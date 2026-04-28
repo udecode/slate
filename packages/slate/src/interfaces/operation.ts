@@ -1,15 +1,21 @@
-import { type ExtendedType, isObject, Node, Path, Range } from '..'
+import {
+  type DescendantIn,
+  isObject,
+  Node,
+  type NodeProps,
+  Path,
+  Range,
+  type Value,
+} from '..'
 
-export type BaseInsertNodeOperation = {
+export type BaseInsertNodeOperation<V extends Value = Value> = {
   type: 'insert_node'
   path: Path
-  node: Node
+  node: DescendantIn<V>
 }
 
-export type InsertNodeOperation = ExtendedType<
-  'InsertNodeOperation',
-  BaseInsertNodeOperation
->
+export type InsertNodeOperation<V extends Value = Value> =
+  BaseInsertNodeOperation<V>
 
 export type BaseInsertTextOperation = {
   type: 'insert_text'
@@ -18,22 +24,17 @@ export type BaseInsertTextOperation = {
   text: string
 }
 
-export type InsertTextOperation = ExtendedType<
-  'InsertTextOperation',
-  BaseInsertTextOperation
->
+export type InsertTextOperation = BaseInsertTextOperation
 
-export type BaseMergeNodeOperation = {
+export type BaseMergeNodeOperation<V extends Value = Value> = {
   type: 'merge_node'
   path: Path
   position: number
-  properties: Partial<Node>
+  properties: Partial<NodeProps<DescendantIn<V>>>
 }
 
-export type MergeNodeOperation = ExtendedType<
-  'MergeNodeOperation',
-  BaseMergeNodeOperation
->
+export type MergeNodeOperation<V extends Value = Value> =
+  BaseMergeNodeOperation<V>
 
 export type BaseMoveNodeOperation = {
   type: 'move_node'
@@ -41,21 +42,16 @@ export type BaseMoveNodeOperation = {
   newPath: Path
 }
 
-export type MoveNodeOperation = ExtendedType<
-  'MoveNodeOperation',
-  BaseMoveNodeOperation
->
+export type MoveNodeOperation = BaseMoveNodeOperation
 
-export type BaseRemoveNodeOperation = {
+export type BaseRemoveNodeOperation<V extends Value = Value> = {
   type: 'remove_node'
   path: Path
-  node: Node
+  node: DescendantIn<V>
 }
 
-export type RemoveNodeOperation = ExtendedType<
-  'RemoveNodeOperation',
-  BaseRemoveNodeOperation
->
+export type RemoveNodeOperation<V extends Value = Value> =
+  BaseRemoveNodeOperation<V>
 
 export type BaseRemoveTextOperation = {
   type: 'remove_text'
@@ -64,22 +60,16 @@ export type BaseRemoveTextOperation = {
   text: string
 }
 
-export type RemoveTextOperation = ExtendedType<
-  'RemoveTextOperation',
-  BaseRemoveTextOperation
->
+export type RemoveTextOperation = BaseRemoveTextOperation
 
-export type BaseSetNodeOperation = {
+export type BaseSetNodeOperation<V extends Value = Value> = {
   type: 'set_node'
   path: Path
-  properties: Partial<Node>
-  newProperties: Partial<Node>
+  properties: Partial<NodeProps<DescendantIn<V>>>
+  newProperties: Partial<NodeProps<DescendantIn<V>>>
 }
 
-export type SetNodeOperation = ExtendedType<
-  'SetNodeOperation',
-  BaseSetNodeOperation
->
+export type SetNodeOperation<V extends Value = Value> = BaseSetNodeOperation<V>
 
 export type BaseSetSelectionOperation =
   | {
@@ -98,30 +88,25 @@ export type BaseSetSelectionOperation =
       newProperties: null
     }
 
-export type SetSelectionOperation = ExtendedType<
-  'SetSelectionOperation',
-  BaseSetSelectionOperation
->
+export type SetSelectionOperation = BaseSetSelectionOperation
 
-export type BaseSplitNodeOperation = {
+export type BaseSplitNodeOperation<V extends Value = Value> = {
   type: 'split_node'
   path: Path
   position: number
-  properties: Partial<Node>
+  properties: Partial<NodeProps<DescendantIn<V>>>
 }
 
-export type SplitNodeOperation = ExtendedType<
-  'SplitNodeOperation',
-  BaseSplitNodeOperation
->
+export type SplitNodeOperation<V extends Value = Value> =
+  BaseSplitNodeOperation<V>
 
-export type NodeOperation =
-  | InsertNodeOperation
-  | MergeNodeOperation
+export type NodeOperation<V extends Value = Value> =
+  | InsertNodeOperation<V>
+  | MergeNodeOperation<V>
   | MoveNodeOperation
-  | RemoveNodeOperation
-  | SetNodeOperation
-  | SplitNodeOperation
+  | RemoveNodeOperation<V>
+  | SetNodeOperation<V>
+  | SplitNodeOperation<V>
 
 export type SelectionOperation = SetSelectionOperation
 
@@ -134,24 +119,31 @@ export type TextOperation = InsertTextOperation | RemoveTextOperation
  * collaboration, and other features.
  */
 
-export type BaseOperation = NodeOperation | SelectionOperation | TextOperation
-export type Operation = ExtendedType<'Operation', BaseOperation>
+export type BaseOperation<V extends Value = Value> =
+  | NodeOperation<V>
+  | SelectionOperation
+  | TextOperation
+export type Operation<V extends Value = Value> = BaseOperation<V>
 
 export interface OperationInterface {
   /**
    * Check if a value is a `NodeOperation` object.
    */
-  isNodeOperation: (value: any) => value is NodeOperation
+  isNodeOperation: <V extends Value = Value>(
+    value: any
+  ) => value is NodeOperation<V>
 
   /**
    * Check if a value is an `Operation` object.
    */
-  isOperation: (value: any) => value is Operation
+  isOperation: <V extends Value = Value>(value: any) => value is Operation<V>
 
   /**
    * Check if a value is a list of `Operation` objects.
    */
-  isOperationList: (value: any) => value is Operation[]
+  isOperationList: <V extends Value = Value>(
+    value: any
+  ) => value is Operation<V>[]
 
   /**
    * Check if a value is a `SelectionOperation` object.
@@ -167,16 +159,18 @@ export interface OperationInterface {
    * Invert an operation, returning a new operation that will exactly undo the
    * original when applied.
    */
-  inverse: (op: Operation) => Operation
+  inverse: <V extends Value = Value>(op: Operation<V>) => Operation<V>
 }
 
 // eslint-disable-next-line no-redeclare
 export const Operation: OperationInterface = {
-  isNodeOperation(value: any): value is NodeOperation {
+  isNodeOperation<V extends Value = Value>(
+    value: any
+  ): value is NodeOperation<V> {
     return Operation.isOperation(value) && value.type.endsWith('_node')
   },
 
-  isOperation(value: any): value is Operation {
+  isOperation<V extends Value = Value>(value: any): value is Operation<V> {
     if (!isObject(value)) {
       return false
     }
@@ -229,7 +223,9 @@ export const Operation: OperationInterface = {
     }
   },
 
-  isOperationList(value: any): value is Operation[] {
+  isOperationList<V extends Value = Value>(
+    value: any
+  ): value is Operation<V>[] {
     return (
       Array.isArray(value) && value.every((val) => Operation.isOperation(val))
     )
@@ -243,7 +239,7 @@ export const Operation: OperationInterface = {
     return Operation.isOperation(value) && value.type.endsWith('_text')
   },
 
-  inverse(op: Operation): Operation {
+  inverse<V extends Value = Value>(op: Operation<V>): Operation<V> {
     switch (op.type) {
       case 'insert_node': {
         return { ...op, type: 'remove_node' }
@@ -318,6 +314,11 @@ export const Operation: OperationInterface = {
       case 'split_node': {
         return { ...op, type: 'merge_node', path: Path.next(op.path) }
       }
+
+      default:
+        throw new Error(
+          `Cannot invert unknown operation: ${JSON.stringify(op)}`
+        )
     }
   },
 }

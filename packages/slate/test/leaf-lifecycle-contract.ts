@@ -63,7 +63,7 @@ describe('leaf lifecycle contract', () => {
       children.some((child) => child.text === ''),
       false
     )
-    assert.deepEqual(Editor.getLiveSelection(editor), {
+    assert.deepEqual(Editor.getSelection(editor), {
       anchor: { path: [0, 4], offset: 1 },
       focus: { path: [0, 4], offset: 1 },
     })

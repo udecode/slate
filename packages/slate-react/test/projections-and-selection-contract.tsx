@@ -2,11 +2,9 @@ import { act, type RenderResult, render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import {
   createEditor as createSlateEditor,
-  type DecoratedRange,
   type Descendant,
   Editor,
   Node,
-  type NodeEntry,
   Path,
   Text,
 } from 'slate'
@@ -17,9 +15,11 @@ import {
   type SlateProjection,
   type SlateProjectionSource,
   type SlateProjectionStore,
-  SlateReactCompat,
+  useDecorationSelector,
+  useSlateProjections,
   withReact,
 } from '../src'
+import { ProjectionContext } from '../src/projection-context'
 
 type SegmentLike = {
   slices: readonly { data?: Record<string, unknown> }[]
@@ -72,24 +72,6 @@ const renderProjectedEditor = (
 
   return { ...rendered, store }
 }
-
-interface DecorateConfig {
-  path: Path
-  decorations: (node: Node) => (DecoratedRange & Record<string, unknown>)[]
-}
-
-const decoratePaths =
-  (editor: ReactEditor, configs: DecorateConfig[]) =>
-  ([node, path]: NodeEntry): DecoratedRange[] => {
-    if (Node.get(editor, path) !== node) {
-      throw new Error('decorate was called with an incorrect node entry')
-    }
-
-    const matchingConfig = configs.find(({ path: p }) => Path.equals(path, p))
-    if (!matchingConfig) return []
-
-    return matchingConfig.decorations(node)
-  }
 
 const findTextRangesByText = (
   nodes: readonly Descendant[],
@@ -152,88 +134,6 @@ describe('slate-react projections and selection contract', () => {
     rendered.store.destroy()
   })
 
-  test('adapts legacy decorate callbacks into typed projection sources', () => {
-    const editor = createEditor()
-
-    Editor.replace(editor, {
-      children: [
-        {
-          children: [{ text: 'Hello world!' }],
-        },
-      ],
-      selection: null,
-    })
-
-    const source = SlateReactCompat.createSlateDecorateCompatSource(
-      ([node, path]) =>
-        Text.isText(node) && Path.equals(path, [0, 0])
-          ? [
-              {
-                anchor: { path, offset: 0 },
-                focus: { path, offset: 5 },
-                tone: 'bold',
-              },
-            ]
-          : []
-    )
-    const store = createSlateProjectionStore(editor, source)
-    const runtimeId = Editor.getRuntimeId(editor, [0, 0])
-
-    expect(runtimeId).toBeTruthy()
-    expect(store.getSnapshot()[runtimeId!]).toEqual([
-      {
-        data: { tone: 'bold' },
-        end: 5,
-        key: 'decorate:0.0:0',
-        start: 0,
-      },
-    ])
-
-    store.destroy()
-  })
-
-  test('adapts editor-owned legacy decorate callbacks with live node entries', () => {
-    const editor = createEditor()
-
-    Editor.replace(editor, {
-      children: [
-        {
-          children: [{ text: 'Hello world!' }],
-        },
-      ],
-      selection: null,
-    })
-
-    const source = SlateReactCompat.createSlateDecorateCompatSource(
-      decoratePaths(editor, [
-        {
-          path: [],
-          decorations: () => [
-            {
-              anchor: { path: [0, 0], offset: 0 },
-              focus: { path: [0, 0], offset: 5 },
-              tone: 'root',
-            },
-          ],
-        },
-      ]),
-      { editor }
-    )
-    const store = createSlateProjectionStore(editor, source)
-    const runtimeId = Editor.getRuntimeId(editor, [0, 0])
-
-    expect(store.getSnapshot()[runtimeId!]).toEqual([
-      {
-        data: { tone: 'root' },
-        end: 5,
-        key: 'decorate::0',
-        start: 0,
-      },
-    ])
-
-    store.destroy()
-  })
-
   test('projects editor-owned ranges across adjacent text nodes', () => {
     const editor = createEditor()
     const rendered = renderProjectedEditor(
@@ -288,7 +188,7 @@ describe('slate-react projections and selection contract', () => {
     rendered.store.destroy()
   })
 
-  test('reprojects changed text and changed ancestors without legacy decorate', async () => {
+  test('reprojects changed text and changed ancestors from typed projection sources', async () => {
     const editor = createEditor()
     const rendered = renderProjectedEditor(
       editor,
@@ -397,5 +297,389 @@ describe('slate-react projections and selection contract', () => {
     ])
 
     rendered.store.destroy()
+  })
+
+  test('notifies only subscribers for runtime ids whose projection slices changed', async () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ children: [{ text: 'A' }] }, { children: [{ text: 'B' }] }],
+      selection: null,
+    })
+
+    const snapshot = Editor.getSnapshot(editor)
+    const firstRuntimeId = snapshot.index.pathToId['0.0']
+    const secondRuntimeId = snapshot.index.pathToId['1.0']
+
+    if (!firstRuntimeId || !secondRuntimeId) {
+      throw new Error('Expected runtime ids for projection subscription proof')
+    }
+
+    const store = createSlateProjectionStore(editor, (nextSnapshot) =>
+      nextSnapshot.children.flatMap((node, blockIndex) =>
+        Text.isText(node)
+          ? []
+          : node.children.flatMap((child, textIndex) => {
+              if (!Text.isText(child) || !child.text.startsWith('B')) {
+                return []
+              }
+
+              const path = [blockIndex, textIndex] as Path
+
+              return [
+                {
+                  data: { highlight: true },
+                  key: `starts-with-b:${path.join('.')}`,
+                  range: {
+                    anchor: { path, offset: 0 },
+                    focus: { path, offset: child.text.length },
+                  },
+                },
+              ]
+            })
+      )
+    )
+
+    const renders = {
+      first: 0,
+      second: 0,
+    }
+
+    const ProjectionProbe = ({
+      label,
+      runtimeId,
+    }: {
+      label: keyof typeof renders
+      runtimeId: string
+    }) => {
+      const projections = useSlateProjections(runtimeId)
+
+      renders[label] += 1
+
+      return <span data-testid={label}>{projections.length}</span>
+    }
+
+    const rendered = render(
+      <ProjectionContext.Provider value={store}>
+        <ProjectionProbe label="first" runtimeId={firstRuntimeId} />
+        <ProjectionProbe label="second" runtimeId={secondRuntimeId} />
+      </ProjectionContext.Provider>
+    )
+
+    expect(rendered.getByTestId('first').textContent).toBe('0')
+    expect(rendered.getByTestId('second').textContent).toBe('1')
+    expect(renders).toEqual({ first: 1, second: 1 })
+
+    await act(async () => {
+      editor.update(() => {
+        editor.insertText('!', {
+          at: {
+            anchor: { path: [1, 0], offset: 1 },
+            focus: { path: [1, 0], offset: 1 },
+          },
+        })
+      })
+    })
+
+    expect(rendered.getByTestId('first').textContent).toBe('0')
+    expect(rendered.getByTestId('second').textContent).toBe('1')
+    expect(renders).toEqual({ first: 1, second: 2 })
+
+    store.destroy()
+  })
+
+  test('useDecorationSelector derives one runtime id without rerendering for sibling projections', async () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ children: [{ text: 'A' }] }, { children: [{ text: 'B' }] }],
+      selection: null,
+    })
+
+    const snapshot = Editor.getSnapshot(editor)
+    const firstRuntimeId = snapshot.index.pathToId['0.0']
+    const secondRuntimeId = snapshot.index.pathToId['1.0']
+
+    if (!firstRuntimeId || !secondRuntimeId) {
+      throw new Error('Expected runtime ids for decoration selector proof')
+    }
+
+    const store = createSlateProjectionStore(editor, (nextSnapshot) =>
+      nextSnapshot.children.flatMap((node, blockIndex) =>
+        Text.isText(node)
+          ? []
+          : node.children.flatMap((child, textIndex) => {
+              if (!Text.isText(child)) {
+                return []
+              }
+
+              const path = [blockIndex, textIndex] as Path
+
+              return [
+                {
+                  data: { label: child.text },
+                  key: `label:${path.join('.')}`,
+                  range: {
+                    anchor: { path, offset: 0 },
+                    focus: { path, offset: child.text.length },
+                  },
+                },
+              ]
+            })
+      )
+    )
+    const renders = {
+      first: 0,
+    }
+    const decorationSelector = vi.fn(({ projections }) =>
+      projections.map((projection) => projection.data?.label).join(',')
+    )
+
+    const ProjectionProbe = () => {
+      const label = useDecorationSelector(decorationSelector, undefined, {
+        runtimeId: firstRuntimeId,
+      })
+
+      renders.first += 1
+
+      return <span data-testid="first-decoration">{label}</span>
+    }
+
+    const rendered = render(
+      <ProjectionContext.Provider value={store}>
+        <ProjectionProbe />
+      </ProjectionContext.Provider>
+    )
+
+    expect(rendered.getByTestId('first-decoration').textContent).toBe('A')
+    expect(renders.first).toBe(1)
+    expect(decorationSelector).toBeCalledTimes(2)
+
+    await act(async () => {
+      editor.update(() => {
+        editor.insertText('!', {
+          at: {
+            anchor: { path: [1, 0], offset: 1 },
+            focus: { path: [1, 0], offset: 1 },
+          },
+        })
+      })
+    })
+
+    expect(rendered.getByTestId('first-decoration').textContent).toBe('A')
+    expect(renders.first).toBe(1)
+    expect(decorationSelector).toBeCalledTimes(2)
+
+    await act(async () => {
+      editor.update(() => {
+        editor.insertText('!', {
+          at: {
+            anchor: { path: [0, 0], offset: 1 },
+            focus: { path: [0, 0], offset: 1 },
+          },
+        })
+      })
+    })
+
+    expect(rendered.getByTestId('first-decoration').textContent).toBe('A!')
+    expect(renders.first).toBe(2)
+    expect(decorationSelector).toBeCalledTimes(3)
+
+    expect(store.getRuntimeSnapshot(secondRuntimeId)).toHaveLength(1)
+
+    store.destroy()
+  })
+
+  test('skips source recompute when decoration impact misses the source runtime scope', async () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ children: [{ text: 'A' }] }, { children: [{ text: 'B' }] }],
+      selection: null,
+    })
+
+    const snapshot = Editor.getSnapshot(editor)
+    const firstRuntimeId = snapshot.index.pathToId['0.0']
+
+    if (!firstRuntimeId) {
+      throw new Error('Expected runtime id for source recompute proof')
+    }
+
+    let sourceCalls = 0
+    const store = createSlateProjectionStore(
+      editor,
+      (nextSnapshot) => {
+        sourceCalls += 1
+        const firstText = Node.get(
+          { children: nextSnapshot.children } as never,
+          [0, 0]
+        ) as { text: string }
+
+        return [
+          {
+            data: { scoped: true },
+            key: 'first-text',
+            range: {
+              anchor: { path: [0, 0], offset: 0 },
+              focus: { path: [0, 0], offset: firstText.text.length },
+            },
+          },
+        ]
+      },
+      {
+        dirtiness: 'text',
+        runtimeScope: () => [firstRuntimeId],
+      }
+    )
+
+    expect(sourceCalls).toBe(1)
+    expect(store.getMetrics().recomputeCount).toBe(0)
+
+    await act(async () => {
+      editor.update(() => {
+        editor.insertText('!', {
+          at: {
+            anchor: { path: [1, 0], offset: 1 },
+            focus: { path: [1, 0], offset: 1 },
+          },
+        })
+      })
+    })
+
+    expect(sourceCalls).toBe(1)
+    expect(store.getMetrics().recomputeCount).toBe(0)
+
+    await act(async () => {
+      editor.update(() => {
+        editor.insertText('!', {
+          at: {
+            anchor: { path: [0, 0], offset: 1 },
+            focus: { path: [0, 0], offset: 1 },
+          },
+        })
+      })
+    })
+
+    expect(sourceCalls).toBe(2)
+    expect(store.getMetrics().recomputeCount).toBe(1)
+
+    store.destroy()
+  })
+
+  test('targeted source refresh only recomputes and notifies the matching source id', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ children: [{ text: 'A' }] }],
+      selection: null,
+    })
+
+    const runtimeId = Editor.getRuntimeId(editor, [0, 0])
+
+    if (!runtimeId) {
+      throw new Error('Expected runtime id for source subscription proof')
+    }
+
+    let active = false
+    let sourceCalls = 0
+    let globalNotifications = 0
+    let runtimeNotifications = 0
+    let sourceNotifications = 0
+    const store = createSlateProjectionStore(
+      editor,
+      () => {
+        sourceCalls += 1
+
+        return active
+          ? [
+              {
+                data: { scoped: true },
+                key: 'targeted-source',
+                range: {
+                  anchor: { path: [0, 0], offset: 0 },
+                  focus: { path: [0, 0], offset: 1 },
+                },
+              },
+            ]
+          : []
+      },
+      {
+        dirtiness: 'external',
+        sourceId: 'targeted-source',
+      }
+    )
+
+    store.subscribe(() => {
+      globalNotifications += 1
+    })
+    store.subscribeRuntimeId(runtimeId, () => {
+      runtimeNotifications += 1
+    })
+    store.subscribeSourceId('targeted-source', () => {
+      sourceNotifications += 1
+    })
+    store.subscribeSourceId('other-source', () => {
+      throw new Error('Unexpected source notification')
+    })
+
+    expect(sourceCalls).toBe(1)
+    expect(store.getRuntimeSnapshot(runtimeId)).toEqual([])
+
+    active = true
+    store.refresh({ reason: 'external', sourceId: 'other-source' })
+
+    expect(sourceCalls).toBe(1)
+    expect(globalNotifications).toBe(0)
+    expect(runtimeNotifications).toBe(0)
+    expect(sourceNotifications).toBe(0)
+    expect(store.getRuntimeSnapshot(runtimeId)).toEqual([])
+
+    store.refresh({ reason: 'external', sourceId: 'targeted-source' })
+
+    expect(sourceCalls).toBe(2)
+    expect(globalNotifications).toBe(1)
+    expect(runtimeNotifications).toBe(1)
+    expect(sourceNotifications).toBe(1)
+    expect(store.getRuntimeSnapshot(runtimeId)).toEqual([
+      {
+        data: { scoped: true },
+        end: 1,
+        key: 'targeted-source',
+        start: 0,
+      },
+    ])
+
+    store.destroy()
+  })
+
+  test('force refresh invalidates mounted runtime subscribers even when slices are unchanged', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ children: [{ text: 'A' }] }],
+      selection: null,
+    })
+
+    const runtimeId = Editor.getRuntimeId(editor, [0, 0])
+
+    if (!runtimeId) {
+      throw new Error('Expected runtime id for forced projection refresh proof')
+    }
+
+    let notifications = 0
+    const store = createSlateProjectionStore(editor, () => [], {
+      dirtiness: 'external',
+    })
+
+    store.subscribeRuntimeId(runtimeId, () => {
+      notifications += 1
+    })
+
+    store.refresh({ forceInvalidate: true, reason: 'external' })
+
+    expect(notifications).toBe(1)
+    expect(store.getRuntimeSnapshot(runtimeId)).toEqual([])
+
+    store.destroy()
   })
 })

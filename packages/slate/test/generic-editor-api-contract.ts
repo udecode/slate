@@ -42,7 +42,6 @@ const operations: readonly Operation<CustomValue>[] =
 const commit: EditorCommit<CustomValue> | null = Editor.getLastCommit(editor)
 
 Editor.reset(editor, { children: staticChildren, selection: null, marks })
-Editor.setChildren(editor, staticChildren)
 
 void leaf
 void marks

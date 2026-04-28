@@ -2,15 +2,15 @@ import { getCurrentSelection } from '../core/public-state'
 import { Location } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import { Scrubber } from '../interfaces/scrubber'
-import { Transforms } from '../interfaces/transforms'
-import type { SelectionTransforms } from '../interfaces/transforms/selection'
+import type { SelectionMutationMethods } from '../interfaces/transforms/selection'
+import { executeSetSelectionCommand } from './set-selection'
 
-export const select: SelectionTransforms['select'] = (editor, target) => {
+export const select: SelectionMutationMethods['select'] = (editor, target) => {
   const selection = getCurrentSelection(editor)
   const range = Editor.range(editor, target)
 
   if (selection) {
-    Transforms.setSelection(editor, range)
+    editor.setSelection(range)
     return
   }
 
@@ -22,7 +22,7 @@ export const select: SelectionTransforms['select'] = (editor, target) => {
     )
   }
 
-  editor.apply({
+  executeSetSelectionCommand(editor, {
     type: 'set_selection',
     properties: selection,
     newProperties: range,

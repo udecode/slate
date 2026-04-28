@@ -5,11 +5,10 @@ import { jsx } from '../../..'
 jsx
 
 import _ from 'lodash'
-import { Text, Transforms } from 'slate'
+import { Text } from 'slate'
 
 export const run = (editor) => {
-  Transforms.setNodes(
-    editor,
+  editor.setNodes(
     { a: { b: 2, c: 3 } },
     { at: [0, 0], match: Text.isText, merge: (n, p) => _.defaultsDeep(p, n) }
   )

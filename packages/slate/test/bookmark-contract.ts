@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { createEditor, type Descendant, Editor, Transforms } from '../src'
+import { createEditor, type Descendant, Editor } from '../src'
 
 const createChildren = (): Descendant[] => [
   {
@@ -86,8 +86,10 @@ describe('slate bookmark contract', () => {
       createRange({ path: [0, 0], offset: 1 }, { path: [0, 0], offset: 4 })
     )
 
-    Transforms.insertText(editor, '>', {
-      at: { path: [0, 0], offset: 0 },
+    editor.update(() => {
+      editor.insertText('>', {
+        at: { path: [0, 0], offset: 0 },
+      })
     })
 
     assert.deepEqual(bookmark.resolve(), {
@@ -111,8 +113,10 @@ describe('slate bookmark contract', () => {
       createRange({ path: [0, 0], offset: 1 }, { path: [0, 0], offset: 4 })
     )
 
-    Transforms.insertText(editor, '!', {
-      at: { path: [0, 0], offset: 4 },
+    editor.update(() => {
+      editor.insertText('!', {
+        at: { path: [0, 0], offset: 4 },
+      })
     })
 
     assert.deepEqual(bookmark.resolve(), {
@@ -136,8 +140,10 @@ describe('slate bookmark contract', () => {
       createRange({ path: [0, 0], offset: 1 }, { path: [0, 0], offset: 4 })
     )
 
-    Transforms.splitNodes(editor, {
-      at: { path: [0, 0], offset: 2 },
+    editor.update(() => {
+      editor.splitNodes({
+        at: { path: [0, 0], offset: 2 },
+      })
     })
 
     const resolved = bookmark.resolve()
@@ -164,19 +170,21 @@ describe('slate bookmark contract', () => {
       createRange({ path: [1, 0], offset: 1 }, { path: [1, 0], offset: 3 })
     )
 
-    editor.apply({
-      type: 'merge_node',
-      path: [1],
-      position: 1,
-      properties: { type: 'paragraph' },
-    })
+    editor.applyOperations([
+      {
+        type: 'merge_node',
+        path: [1],
+        position: 1,
+        properties: { type: 'paragraph' },
+      },
+    ])
 
     const resolved = bookmark.resolve()
 
     assert.ok(resolved)
     assert.deepEqual(resolved, {
-      anchor: { path: [0, 0], offset: 6 },
-      focus: { path: [0, 0], offset: 8 },
+      anchor: { path: [0, 1], offset: 1 },
+      focus: { path: [0, 1], offset: 3 },
     })
     assert.equal(Editor.string(editor, resolved), 'et')
   })
@@ -195,7 +203,9 @@ describe('slate bookmark contract', () => {
       createRange({ path: [1, 0], offset: 1 }, { path: [1, 0], offset: 3 })
     )
 
-    Transforms.moveNodes(editor, { at: [1], to: [0] })
+    editor.update(() => {
+      editor.moveNodes({ at: [1], to: [0] })
+    })
 
     const resolved = bookmark.resolve()
 
@@ -227,14 +237,15 @@ describe('slate bookmark contract', () => {
       createRange({ path: [0, 0], offset: 1 }, { path: [0, 0], offset: 4 })
     )
 
-    Transforms.insertNodes(
-      editor,
-      {
-        type: 'inline',
-        children: [{ text: 'beta' }],
-      } as Descendant,
-      { at: [0, 0] }
-    )
+    editor.update(() => {
+      editor.insertNodes(
+        {
+          type: 'inline',
+          children: [{ text: 'beta' }],
+        } as Descendant,
+        { at: [0, 0] }
+      )
+    })
 
     const resolved = bookmark.resolve()
 
@@ -260,7 +271,9 @@ describe('slate bookmark contract', () => {
       createRange({ path: [1, 0], offset: 1 }, { path: [1, 0], offset: 3 })
     )
 
-    Transforms.removeNodes(editor, { at: [1] })
+    editor.update(() => {
+      editor.removeNodes({ at: [1] })
+    })
 
     assert.equal(bookmark.resolve(), null)
   })

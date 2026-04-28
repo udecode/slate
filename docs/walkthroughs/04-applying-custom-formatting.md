@@ -36,11 +36,14 @@ const App = () => {
             const [match] = Editor.nodes(editor, {
               match: n => n.type === 'code',
             })
-            Transforms.setNodes(
-              editor,
-              { type: match ? 'paragraph' : 'code' },
-              { match: n => Element.isElement(n) && Editor.isBlock(editor, n) }
-            )
+            editor.update(() => {
+              editor.setNodes(
+                { type: match ? 'paragraph' : 'code' },
+                {
+                  match: n => Element.isElement(n) && Editor.isBlock(editor, n),
+                }
+              )
+            })
           }
         }}
       />
@@ -87,13 +90,15 @@ const App = () => {
               const [match] = Editor.nodes(editor, {
                 match: n => n.type === 'code',
               })
-              Transforms.setNodes(
-                editor,
-                { type: match ? 'paragraph' : 'code' },
-                {
-                  match: n => Element.isElement(n) && Editor.isBlock(editor, n),
-                }
-              )
+              editor.update(() => {
+                editor.setNodes(
+                  { type: match ? 'paragraph' : 'code' },
+                  {
+                    match: n =>
+                      Element.isElement(n) && Editor.isBlock(editor, n),
+                  }
+                )
+              })
               break
             }
 
@@ -177,13 +182,15 @@ const App = () => {
               const [match] = Editor.nodes(editor, {
                 match: n => n.type === 'code',
               })
-              Transforms.setNodes(
-                editor,
-                { type: match ? null : 'code' },
-                {
-                  match: n => Element.isElement(n) && Editor.isBlock(editor, n),
-                }
-              )
+              editor.update(() => {
+                editor.setNodes(
+                  { type: match ? null : 'code' },
+                  {
+                    match: n =>
+                      Element.isElement(n) && Editor.isBlock(editor, n),
+                  }
+                )
+              })
               break
             }
 

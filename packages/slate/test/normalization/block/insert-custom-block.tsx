@@ -4,7 +4,7 @@ import { jsx } from '../..'
 
 jsx
 
-import { Editor, Element, Transforms } from 'slate'
+import { Editor, Element } from 'slate'
 
 export const input = (
   <editor>
@@ -24,7 +24,7 @@ editor.normalizeNode = (entry) => {
     (node as any).type === 'body'
   ) {
     const child = { type: 'paragraph', children: [] }
-    Transforms.insertNodes(editor, child, {
+    editor.insertNodes(child, {
       at: path.concat(0),
       voids: true,
     })

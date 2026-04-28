@@ -4,10 +4,10 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Editor, Element, Transforms } from 'slate'
+import { Editor, Element } from 'slate'
 
 export const run = (editor) => {
-  Transforms.splitNodes(editor, {
+  editor.splitNodes({
     at: { path: [0, 1, 0], offset: 2 },
     match: (n) => Element.isElement(n) && Editor.isInline(editor, n),
   })

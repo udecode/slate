@@ -14,7 +14,7 @@ export const input = (
   </editor>
 )
 export const test = (editor) => {
-  const inline = editor.children[0].children[1]
+  const inline = Editor.getChildren(editor)[0].children[1]
   return Editor.isEmpty(editor, inline)
 }
 export const output = false

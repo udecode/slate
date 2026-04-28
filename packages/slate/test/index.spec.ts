@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { basename, dirname, resolve } from 'node:path'
+import { basename, dirname, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { cloneDeep } from 'lodash'
 import { createEditor, Editor } from 'slate'
+import {
+  IMPLICIT_CANONICALIZATION_CUT_REASON,
+  isExplicitCutFixture,
+} from './fixture-claim-overrides.js'
 import { withTest } from './support/with-test.js'
 
 const testsDir = dirname(fileURLToPath(import.meta.url))
@@ -38,9 +42,16 @@ const runFixtureTree = (
 
       const name = getFixtureName(file)
       const source = readFileSync(fixturePath, 'utf8')
+      const fixturePathFromTestRoot = relative(
+        testsDir,
+        fixturePath
+      ).replaceAll('\\', '/')
+      const isExplicitCut = isExplicitCutFixture(fixturePathFromTestRoot)
       const testFn = /\bexport const skip\s*=\s*true\b/.test(source)
         ? it.skip
-        : it
+        : isExplicitCut
+          ? it.skip
+          : it
 
       testFn(name, async () => {
         const module = (await import(
@@ -49,6 +60,9 @@ const runFixtureTree = (
 
         if (process.env.SLATE_FIXTURE_DEBUG === '1') {
           console.log('[fixture]', fixturePath)
+          if (isExplicitCut) {
+            console.log('[cut]', IMPLICIT_CANONICALIZATION_CUT_REASON)
+          }
         }
 
         runFixture(module, fixturePath)
@@ -68,6 +82,9 @@ const withBatchTest = (editor: Editor, dirties: string[]) => {
   return editor
 }
 
+const getExpectedSnapshot = (output: any) =>
+  Editor.isEditor(output) ? Editor.getSnapshot(output) : output
+
 describe('slate', () => {
   runFixtureTree(resolve(testsDir, 'interfaces'), (module, fixturePath) => {
     let { input, test, output } = module
@@ -82,8 +99,9 @@ describe('slate', () => {
       console.log('[actual]', JSON.stringify(actual))
       console.log('[expected]', JSON.stringify(output))
       if (Editor.isEditor(input)) {
-        console.log('[selection]', JSON.stringify(input.selection))
-        console.log('[children]', JSON.stringify(input.children))
+        const snapshot = Editor.getSnapshot(input)
+        console.log('[selection]', JSON.stringify(snapshot.selection))
+        console.log('[children]', JSON.stringify(snapshot.children))
       }
     }
 
@@ -94,14 +112,19 @@ describe('slate', () => {
     const { input, operations, output } = module
     const editor = withTest(input)
 
-    Editor.withoutNormalizing(editor, () => {
-      for (const op of operations) {
-        editor.apply(op)
-      }
+    Editor.withTransaction(editor, (transaction) => {
+      Editor.withoutNormalizing(editor, () => {
+        for (const op of operations) {
+          transaction.apply(op)
+        }
+      })
     })
 
-    assert.deepEqual(editor.children, output.children, fixturePath)
-    assert.deepEqual(editor.selection, output.selection, fixturePath)
+    const snapshot = Editor.getSnapshot(editor)
+    const expected = getExpectedSnapshot(output)
+
+    assert.deepEqual(snapshot.children, expected.children, fixturePath)
+    assert.deepEqual(snapshot.selection, expected.selection, fixturePath)
   })
 
   runFixtureTree(resolve(testsDir, 'normalization'), (module, fixturePath) => {
@@ -116,20 +139,30 @@ describe('slate', () => {
       }
     }
 
-    Editor.normalize(editor, { force: true })
+    editor.update(() => {
+      Editor.normalize(editor, { force: true })
+    })
 
-    assert.deepEqual(editor.children, output.children, fixturePath)
-    assert.deepEqual(editor.selection, output.selection, fixturePath)
+    const snapshot = Editor.getSnapshot(editor)
+    const expected = getExpectedSnapshot(output)
+
+    assert.deepEqual(snapshot.children, expected.children, fixturePath)
+    assert.deepEqual(snapshot.selection, expected.selection, fixturePath)
   })
 
   runFixtureTree(resolve(testsDir, 'transforms'), (module, fixturePath) => {
     const { input, output, run } = module
     const editor = withTest(input)
 
-    run(editor)
+    editor.update(() => {
+      run(editor)
+    })
 
-    assert.deepEqual(editor.children, output.children, fixturePath)
-    assert.deepEqual(editor.selection, output.selection, fixturePath)
+    const snapshot = Editor.getSnapshot(editor)
+    const expected = getExpectedSnapshot(output)
+
+    assert.deepEqual(snapshot.children, expected.children, fixturePath)
+    assert.deepEqual(snapshot.selection, expected.selection, fixturePath)
   })
 
   runFixtureTree(
@@ -150,8 +183,13 @@ describe('slate', () => {
       runFixtureTree(path, (module) => {
         const { input, run } = module
         const input2 = createEditor()
-        input2.children = cloneDeep(input.children)
-        input2.selection = cloneDeep(input.selection)
+        const snapshot = Editor.getSnapshot(input)
+
+        Editor.replace(input2, {
+          children: cloneDeep(snapshot.children),
+          selection: cloneDeep(snapshot.selection),
+          marks: cloneDeep(snapshot.marks),
+        })
 
         const dirties1: string[] = []
         const dirties2: string[] = []
@@ -159,8 +197,12 @@ describe('slate', () => {
         const editor1 = withBatchTest(withTest(input), dirties1)
         const editor2 = withBatchTest(withTest(input2), dirties2)
 
-        run(editor1, { batchDirty: true })
-        run(editor2, { batchDirty: false })
+        editor1.update(() => {
+          run(editor1, { batchDirty: true })
+        })
+        editor2.update(() => {
+          run(editor2, { batchDirty: false })
+        })
 
         assert.equal(dirties1.join(' '), dirties2.join(' '))
       })

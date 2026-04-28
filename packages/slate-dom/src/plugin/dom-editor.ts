@@ -6,8 +6,9 @@ import {
   type Point,
   Range,
   Scrubber,
-  Transforms,
+  type Value,
 } from 'slate'
+import { getEditorLiveSelection } from 'slate/internal'
 import type { TextDiff } from '../utils/diff-text'
 import {
   closestShadowAware,
@@ -18,17 +19,16 @@ import {
   type DOMRange,
   type DOMSelection,
   type DOMStaticRange,
-  DOMText,
   getSelection,
-  hasShadowRoot,
   isAfter,
   isBefore,
   isDOMElement,
   isDOMNode,
   isDOMSelection,
+  isDOMText,
   normalizeDOMPoint,
 } from '../utils/dom'
-import { IS_ANDROID, IS_CHROME, IS_FIREFOX } from '../utils/environment'
+import { IS_ANDROID, IS_FIREFOX } from '../utils/environment'
 
 import { Key } from '../utils/key'
 import {
@@ -40,6 +40,7 @@ import {
   ELEMENT_TO_NODE,
   IS_COMPOSING,
   IS_FOCUSED,
+  IS_NODE_MAP_DIRTY,
   IS_READ_ONLY,
   NODE_TO_INDEX,
   NODE_TO_KEY,
@@ -50,7 +51,7 @@ import {
  * A DOM-specific version of the `Editor` interface.
  */
 
-export interface DOMEditor extends BaseEditor {
+export interface DOMEditor<V extends Value = Value> extends BaseEditor<V> {
   hasEditableTarget: (
     editor: DOMEditor,
     target: EventTarget | null
@@ -268,6 +269,16 @@ export interface DOMEditorInterface {
   ) => T extends true ? Range | null : Range
 }
 
+const parseSlateDOMPath = (value: string | null): Path | null => {
+  if (!value) {
+    return null
+  }
+
+  const path = value.split(',').map((part) => Number.parseInt(part, 10))
+
+  return path.every(Number.isFinite) ? (path as Path) : null
+}
+
 // eslint-disable-next-line no-redeclare
 export const DOMEditor: DOMEditorInterface = {
   androidPendingDiffs: (editor) => EDITOR_TO_PENDING_DIFFS.get(editor),
@@ -287,7 +298,7 @@ export const DOMEditor: DOMEditorInterface = {
   },
 
   deselect: (editor) => {
-    const { selection } = editor
+    const selection = editor.getSelection()
     const root = DOMEditor.findDocumentOrShadowRoot(editor)
     const domSelection = getSelection(root)
 
@@ -296,7 +307,9 @@ export const DOMEditor: DOMEditorInterface = {
     }
 
     if (selection) {
-      Transforms.deselect(editor)
+      editor.update(() => {
+        editor.deselect()
+      })
     }
   },
 
@@ -414,7 +427,7 @@ export const DOMEditor: DOMEditorInterface = {
     )
   },
 
-  focus: (editor, options = { retries: 5 }) => {
+  focus: (editor, options = { retries: 50 }) => {
     // Return if already focused
     if (IS_FOCUSED.get(editor)) {
       return
@@ -434,7 +447,7 @@ export const DOMEditor: DOMEditorInterface = {
         'Could not set focus, editor seems stuck with pending operations'
       )
     }
-    if (editor.operations.length > 0) {
+    if (IS_NODE_MAP_DIRTY.get(editor)) {
       setTimeout(() => {
         DOMEditor.focus(editor, { retries: options.retries - 1 })
       }, 10)
@@ -443,23 +456,81 @@ export const DOMEditor: DOMEditorInterface = {
 
     const el = DOMEditor.toDOMNode(editor, editor)
     const root = DOMEditor.findDocumentOrShadowRoot(editor)
-    if (root.activeElement !== el) {
-      // Ensure that the DOM selection state is set to the editor's selection
-      if (editor.selection && root instanceof Document) {
+    const selectionAtFocus = getEditorLiveSelection(editor)
+      ? {
+          anchor: { ...getEditorLiveSelection(editor)!.anchor },
+          focus: { ...getEditorLiveSelection(editor)!.focus },
+        }
+      : null
+    // Create a new selection in the top of the document if missing
+    if (!getEditorLiveSelection(editor)) {
+      editor.update(() => {
+        editor.select(Editor.start(editor, []))
+      })
+    }
+
+    const syncDomSelection = () => {
+      const selection = getEditorLiveSelection(editor)
+
+      if (selection && root instanceof Document) {
         const domSelection = getSelection(root)
-        const domRange = DOMEditor.toDOMRange(editor, editor.selection)
-        domSelection?.removeAllRanges()
-        domSelection?.addRange(domRange)
+        const domRange = DOMEditor.toDOMRange(editor, selection)
+
+        if (domSelection) {
+          if (Range.isBackward(selection)) {
+            domSelection.setBaseAndExtent(
+              domRange.endContainer,
+              domRange.endOffset,
+              domRange.startContainer,
+              domRange.startOffset
+            )
+          } else {
+            domSelection.setBaseAndExtent(
+              domRange.startContainer,
+              domRange.startOffset,
+              domRange.endContainer,
+              domRange.endOffset
+            )
+          }
+        }
       }
-      // Create a new selection in the top of the document if missing
-      if (!editor.selection) {
-        Transforms.select(editor, Editor.start(editor, []))
+    }
+    const trySyncDomSelection = () => {
+      try {
+        syncDomSelection()
+        return true
+      } catch {
+        return false
       }
+    }
+
+    if (root.activeElement !== el) {
       // IS_FOCUSED should be set before calling el.focus() to ensure that
       // FocusedContext is updated to the correct value
       IS_FOCUSED.set(editor, true)
       el.focus({ preventScroll: true })
+      trySyncDomSelection()
+      if (selectionAtFocus && root instanceof Document) {
+        queueMicrotask(() => {
+          if (root.activeElement !== el) {
+            return
+          }
+
+          if (
+            !getEditorLiveSelection(editor) ||
+            !Range.equals(getEditorLiveSelection(editor)!, selectionAtFocus)
+          ) {
+            return
+          }
+
+          trySyncDomSelection()
+        })
+      }
+      return
     }
+
+    IS_FOCUSED.set(editor, true)
+    trySyncDomSelection()
   },
 
   getWindow: (editor) => {
@@ -608,12 +679,14 @@ export const DOMEditor: DOMEditorInterface = {
         const domText = nextText.childNodes[0]
 
         domPoint = [
-          // COMPAT: If we don't explicity set the dom point to be on the actual
-          // dom text element, chrome will put the selection behind the actual dom
-          // text element, causing domRange.getBoundingClientRect() calls on a collapsed
-          // selection to return incorrect zero values (https://bugs.chromium.org/p/chromium/issues/detail?id=435438)
+          // COMPAT: If we don't explicity set the dom point to be on the
+          // actual dom text element, chrome will put the selection behind
+          // the actual dom text element, causing
+          // domRange.getBoundingClientRect() calls on a collapsed selection
+          // to return incorrect zero values
+          // (https://bugs.chromium.org/p/chromium/issues/detail?id=435438)
           // which will cause issues when scrolling to it.
-          domText instanceof DOMText ? domText : nextText,
+          isDOMText(domText) ? domText : nextText,
           nextText.textContent?.startsWith('\uFEFF') ? 1 : 0,
         ]
         break
@@ -887,9 +960,10 @@ export const DOMEditor: DOMEditorInterface = {
         : parentNode.closest('[data-slate-node]')
 
       if (node && DOMEditor.hasDOMNode(editor, node, { editable: true })) {
-        const slateNode = DOMEditor.toSlateNode(editor, node)
+        let slateNode: Node
         let nodePath: Path
         try {
+          slateNode = DOMEditor.toSlateNode(editor, node)
           nodePath = DOMEditor.findPath(editor, slateNode)
         } catch (e) {
           if (suppressThrow) {
@@ -919,11 +993,22 @@ export const DOMEditor: DOMEditorInterface = {
     // COMPAT: If someone is clicking from one Slate editor into another,
     // the select event fires twice, once for the old editor's `element`
     // first, and then afterwards for the correct `element`. (2017/03/03)
-    const slateNode = DOMEditor.toSlateNode(editor, textNode!)
+    let slateNode: Node
     let path: Path
     try {
+      slateNode = DOMEditor.toSlateNode(editor, textNode!)
       path = DOMEditor.findPath(editor, slateNode)
     } catch (e) {
+      const fallbackPath = parseSlateDOMPath(
+        textNode?.getAttribute('data-slate-path') ?? null
+      )
+
+      if (fallbackPath && Editor.hasPath(editor, fallbackPath)) {
+        return { path: fallbackPath, offset } as T extends true
+          ? Point | null
+          : Point
+      }
+
       if (suppressThrow) {
         return null as T extends true ? Point | null : Point
       }
@@ -1024,18 +1109,12 @@ export const DOMEditor: DOMEditorInterface = {
           focusOffset = domRange.focusOffset
         }
 
-        // COMPAT: There's a bug in chrome that always returns `true` for
-        // `isCollapsed` for a Selection that comes from a ShadowRoot.
-        // (2020/08/08)
-        // https://bugs.chromium.org/p/chromium/issues/detail?id=447523
-        // IsCollapsed might not work in firefox, but this will
-        if ((IS_CHROME && hasShadowRoot(anchorNode)) || IS_FIREFOX) {
-          isCollapsed =
-            domRange.anchorNode === domRange.focusNode &&
-            domRange.anchorOffset === domRange.focusOffset
-        } else {
-          isCollapsed = domRange.isCollapsed
-        }
+        // Endpoint equality is the only collapsed signal Slate can trust across
+        // browser timing windows. Some engines expose stale `isCollapsed` while
+        // anchor/focus already describe an expanded selection.
+        isCollapsed =
+          domRange.anchorNode === domRange.focusNode &&
+          domRange.anchorOffset === domRange.focusOffset
       } else {
         anchorNode = domRange.startContainer
         anchorOffset = domRange.startOffset

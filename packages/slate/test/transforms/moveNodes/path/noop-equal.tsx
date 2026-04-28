@@ -4,8 +4,6 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const input = (
   <editor>
     <block>1</block>
@@ -13,7 +11,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  Transforms.moveNodes(editor, { at: [1], to: [1] })
+  editor.moveNodes({ at: [1], to: [1] })
 }
 export const output = (
   <editor>

@@ -2,7 +2,6 @@ import type {
   Ancestor,
   Editor,
   Node,
-  Operation,
   Point,
   Range,
   RangeRef,
@@ -48,15 +47,6 @@ export const IS_COMPOSING: WeakMap<Editor, boolean> = new WeakMap()
 
 export const EDITOR_TO_USER_SELECTION: WeakMap<Editor, RangeRef | null> =
   new WeakMap()
-
-/**
- * Weak map for associating the context `onChange` context with the plugin.
- */
-
-export const EDITOR_TO_ON_CHANGE = new WeakMap<
-  Editor,
-  (options?: { operation?: Operation }) => void
->()
 
 /**
  * Weak maps for saving pending state on composition stage.

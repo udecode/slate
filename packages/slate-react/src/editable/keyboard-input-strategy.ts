@@ -22,8 +22,12 @@ import {
   type EditableRepairRequest,
   isInteractiveInternalTarget,
 } from './input-controller'
-import { applyModelOwnedHistoryIntent } from './model-input-strategy'
+import {
+  applyModelOwnedHistoryIntent,
+  shouldForceRenderAfterModelOwnedHistory,
+} from './model-input-strategy'
 import { applyEditableCommand } from './mutation-controller'
+import { readRuntimeSelection } from './runtime-selection-state'
 
 type EditableKeyboardHandler = (
   event: KeyboardEvent<HTMLDivElement>
@@ -136,7 +140,7 @@ export const applyEditableKeyDown = ({
       return keyDownHandled()
     }
 
-    const selection = Editor.getLiveSelection(editor)
+    const selection = readRuntimeSelection(editor)
     const children = Editor.getChildren(editor)
     const element = children[selection === null ? 0 : selection.focus.path[0]]
     const isRTL = getDirection(Node.string(element)) === 'rtl'
@@ -152,7 +156,8 @@ export const applyEditableKeyDown = ({
         applyModelOwnedHistoryIntent({
           direction: 'redo',
           editor,
-        })
+        }) &&
+        shouldForceRenderAfterModelOwnedHistory(editor)
       ) {
         forceRender()
       }
@@ -167,7 +172,8 @@ export const applyEditableKeyDown = ({
         applyModelOwnedHistoryIntent({
           direction: 'undo',
           editor,
-        })
+        }) &&
+        shouldForceRenderAfterModelOwnedHistory(editor)
       ) {
         forceRender()
       }
@@ -219,6 +225,22 @@ export const applyEditableKeyDown = ({
 
       return keyDownHandled({
         focus: true,
+        kind: 'repair-caret',
+        selectionSourceTransition: {
+          preferModelSelection: true,
+          reason: 'model-command',
+          selectionSource: 'model-owned',
+        },
+      })
+    }
+
+    if (keyDownCommand?.kind === 'insert-break') {
+      event.preventDefault()
+      applyEditableCommand({ command: keyDownCommand, editor })
+
+      return keyDownHandled({
+        focus: true,
+        forceRender: true,
         kind: 'repair-caret',
         selectionSourceTransition: {
           preferModelSelection: true,

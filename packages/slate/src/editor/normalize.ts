@@ -1,5 +1,6 @@
 import { batchDirtyPaths } from '../core/batch-dirty-paths'
 import {
+  canUseTextFastPath,
   getChildren,
   getCurrentMarks,
   getCurrentSelection,
@@ -34,6 +35,28 @@ export const normalize: EditorInterface['normalize'] = (
     DIRTY_PATH_KEYS.set(editor, new Set())
   }
 
+  const canSkipDefaultTextNormalization = () => {
+    if (
+      explicit ||
+      force ||
+      !operation ||
+      (operation.type !== 'insert_text' && operation.type !== 'remove_text') ||
+      !canUseTextFastPath(editor)
+    ) {
+      return false
+    }
+
+    const expectedDirtyPathKeys = new Set(
+      [[], operation.path.slice(0, -1), operation.path].map((path) =>
+        path.join(',')
+      )
+    )
+
+    return getDirtyPaths(editor).every((path) =>
+      expectedDirtyPathKeys.has(path.join(','))
+    )
+  }
+
   const createPassSignature = () =>
     JSON.stringify({
       children: getChildren(editor),
@@ -51,6 +74,11 @@ export const normalize: EditorInterface['normalize'] = (
 
   const runNormalizePasses = () => {
     if (!Editor.isNormalizing(editor)) {
+      return
+    }
+
+    if (canSkipDefaultTextNormalization()) {
+      clearDirtyPaths(editor)
       return
     }
 

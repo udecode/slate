@@ -10,11 +10,10 @@ import {
 } from 'react'
 import {
   createEditor,
-  type Descendant,
+  defineEditorExtension,
   Editor,
   Range,
   type Element as SlateElement,
-  Transforms,
 } from 'slate'
 import { withHistory } from 'slate-history'
 import {
@@ -23,18 +22,16 @@ import {
   type RenderElementProps,
   type RenderLeafProps,
   Slate,
-  useFocused,
-  useSelected,
   withReact,
 } from 'slate-react'
 
 import { Portal } from './components'
 import type {
   CustomEditor,
+  CustomValue,
   MentionElement,
-  RenderElementPropsFor,
+  RenderVoidPropsFor,
 } from './custom-types.d'
-import { IS_MAC } from './utils/environment'
 
 const MentionExample = () => {
   const ref = useRef<HTMLDivElement | null>(null)
@@ -45,12 +42,19 @@ const MentionExample = () => {
     (props: RenderElementProps) => <Element {...props} />,
     []
   )
+  const renderVoid = useCallback(
+    (props: RenderVoidPropsFor<MentionElement>) => <Mention {...props} />,
+    []
+  )
   const renderLeaf = useCallback(
     (props: RenderLeafProps) => <Leaf {...props} />,
     []
   )
   const editor = useMemo(
-    () => withMentions(withReact(withHistory(createEditor()))) as CustomEditor,
+    () =>
+      withMentions(
+        withReact(withHistory(createEditor<CustomValue>()))
+      ) as CustomEditor,
     []
   )
 
@@ -58,33 +62,28 @@ const MentionExample = () => {
     c.toLowerCase().startsWith(search.toLowerCase())
   ).slice(0, 10)
 
-  const onKeyDown = useCallback(
+  const onKeyCommand = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
       if (target && chars.length > 0) {
         switch (event.key) {
           case 'ArrowDown': {
-            event.preventDefault()
             const prevIndex = index >= chars.length - 1 ? 0 : index + 1
             setIndex(prevIndex)
-            break
+            return true
           }
           case 'ArrowUp': {
-            event.preventDefault()
             const nextIndex = index <= 0 ? chars.length - 1 : index - 1
             setIndex(nextIndex)
-            break
+            return true
           }
           case 'Tab':
           case 'Enter':
-            event.preventDefault()
-            Transforms.select(editor, target)
-            insertMention(editor, chars[index])
+            insertMention(editor, chars[index], target)
             setTarget(null)
-            break
+            return true
           case 'Escape':
-            event.preventDefault()
             setTarget(null)
-            break
+            return true
         }
       }
     },
@@ -94,7 +93,12 @@ const MentionExample = () => {
   useEffect(() => {
     if (target && chars.length > 0 && ref.current) {
       const el = ref.current
-      const domRange = ReactEditor.toDOMRange(editor, target)
+      let domRange: globalThis.Range
+      try {
+        domRange = ReactEditor.toDOMRange(editor, target)
+      } catch {
+        return
+      }
       const rect = domRange.getBoundingClientRect()
       el.style.top = `${rect.top + window.pageYOffset + 24}px`
       el.style.left = `${rect.left + window.pageXOffset}px`
@@ -105,8 +109,8 @@ const MentionExample = () => {
     <Slate
       editor={editor}
       initialValue={initialValue}
-      onChange={() => {
-        const { selection } = editor
+      onSnapshotChange={() => {
+        const selection = Editor.getSelection(editor)
 
         if (selection && Range.isCollapsed(selection)) {
           const [start] = Range.edges(selection)
@@ -114,14 +118,19 @@ const MentionExample = () => {
           const before = wordBefore && Editor.before(editor, wordBefore)
           const beforeRange = before && Editor.range(editor, before, start)
           const beforeText = beforeRange && Editor.string(editor, beforeRange)
-          const beforeMatch = beforeText?.match(/^@(\w+)$/)
+          const beforeMatch = beforeText?.match(/(?:^|\s)@(\w+)$/)
           const after = Editor.after(editor, start)
           const afterRange = Editor.range(editor, start, after)
           const afterText = Editor.string(editor, afterRange)
           const afterMatch = afterText.match(/^(\s|$)/)
 
           if (beforeMatch && afterMatch && beforeRange) {
-            setTarget(beforeRange)
+            const mentionStart = {
+              path: start.path,
+              offset: start.offset - beforeMatch[1].length - 1,
+            }
+
+            setTarget(Editor.range(editor, mentionStart, start))
             setSearch(beforeMatch[1])
             setIndex(0)
             return
@@ -132,10 +141,11 @@ const MentionExample = () => {
       }}
     >
       <Editable
-        onKeyDown={onKeyDown}
+        onKeyCommand={onKeyCommand}
         placeholder="Enter some text..."
         renderElement={renderElement}
         renderLeaf={renderLeaf}
+        renderVoid={renderVoid}
       />
       {target && chars.length > 0 && (
         <Portal>
@@ -157,8 +167,7 @@ const MentionExample = () => {
               <div
                 key={char}
                 onClick={(e: MouseEvent) => {
-                  Transforms.select(editor, target)
-                  insertMention(editor, char)
+                  insertMention(editor, char, target)
                   setTarget(null)
                 }}
                 style={{
@@ -178,32 +187,49 @@ const MentionExample = () => {
   )
 }
 
+const mentionsExtension = defineEditorExtension<CustomEditor>({
+  name: 'mentions',
+  methods(editor) {
+    const nextIsInline = editor.isInline
+    const nextIsVoid = editor.isVoid
+    const nextMarkableVoid = editor.markableVoid
+
+    return {
+      isInline(element: SlateElement) {
+        return element.type === 'mention' ? true : nextIsInline(element)
+      },
+      isVoid(element: SlateElement) {
+        return element.type === 'mention' ? true : nextIsVoid(element)
+      },
+      markableVoid(element: SlateElement) {
+        return element.type === 'mention' || nextMarkableVoid(element)
+      },
+    }
+  },
+})
+
 const withMentions = (editor: CustomEditor) => {
-  const { isInline, isVoid, markableVoid } = editor
-
-  editor.isInline = (element: SlateElement) => {
-    return element.type === 'mention' ? true : isInline(element)
-  }
-
-  editor.isVoid = (element: SlateElement) => {
-    return element.type === 'mention' ? true : isVoid(element)
-  }
-
-  editor.markableVoid = (element: SlateElement) => {
-    return element.type === 'mention' || markableVoid(element)
-  }
-
+  editor.extend(mentionsExtension)
   return editor
 }
 
-const insertMention = (editor: CustomEditor, character: string) => {
+const insertMention = (
+  editor: CustomEditor,
+  character: string,
+  target?: Range | null
+) => {
   const mention: MentionElement = {
     type: 'mention',
     character,
     children: [{ text: '' }],
   }
-  Transforms.insertNodes(editor, mention)
-  Transforms.move(editor)
+  editor.update(() => {
+    if (target) {
+      editor.select(target)
+    }
+    editor.insertNodes(mention)
+    editor.move()
+  })
 }
 
 // Borrow Leaf renderer from the Rich Text example.
@@ -229,22 +255,16 @@ const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
 }
 
 const Element = (props: RenderElementProps) => {
-  const { attributes, children, element } = props
-  switch (element.type) {
-    case 'mention':
-      return <Mention {...props} />
-    default:
-      return <p {...attributes}>{children}</p>
-  }
+  const { attributes, children } = props
+
+  return <p {...attributes}>{children}</p>
 }
 
 const Mention = ({
-  attributes,
-  children,
   element,
-}: RenderElementPropsFor<MentionElement>) => {
-  const selected = useSelected()
-  const focused = useFocused()
+  focused,
+  selected,
+}: RenderVoidPropsFor<MentionElement>) => {
   const style: React.CSSProperties = {
     padding: '3px 3px 2px',
     margin: '0 1px',
@@ -264,32 +284,15 @@ const Mention = ({
   }
   return (
     <span
-      {...attributes}
-      contentEditable={false}
       data-cy={`mention-${element.character.replace(' ', '-')}`}
       style={style}
     >
-      {/* Prevent Chromium from interrupting IME when moving the cursor */}
-      {/* 1. span + inline-block 2. div + contenteditable=false */}
-      <div contentEditable={false}>
-        {IS_MAC ? (
-          // Mac OS IME https://github.com/ianstormtaylor/slate/issues/3490
-          <>
-            {children}@{element.character}
-          </>
-        ) : (
-          // Others like Android https://github.com/ianstormtaylor/slate/pull/5360
-          <>
-            @{element.character}
-            {children}
-          </>
-        )}
-      </div>
+      @{element.character}
     </span>
   )
 }
 
-const initialValue: Descendant[] = [
+const initialValue: CustomValue = [
   {
     type: 'paragraph',
     children: [

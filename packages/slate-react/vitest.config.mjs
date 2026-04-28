@@ -4,6 +4,10 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   resolve: {
     alias: {
+      'slate/internal': path.resolve(
+        import.meta.dirname,
+        '../slate/src/internal/index.ts'
+      ),
       slate: path.resolve(import.meta.dirname, '../slate/src/index.ts'),
       'slate-dom': path.resolve(
         import.meta.dirname,

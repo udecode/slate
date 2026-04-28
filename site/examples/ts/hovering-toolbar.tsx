@@ -1,41 +1,53 @@
 import { css } from '@emotion/css'
 import { type MouseEvent, useEffect, useMemo, useRef } from 'react'
-import { createEditor, type Descendant, Editor, Range } from 'slate'
+import { createEditor, Editor, Range } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
+  type EditableInputRule,
   type RenderLeafProps,
   Slate,
   useFocused,
   useSlate,
+  useSlateSelection,
+  useSlateStatic,
   withReact,
 } from 'slate-react'
 
 import { Button, Icon, Menu, Portal } from './components'
-import type { CustomEditor, CustomTextKey } from './custom-types.d'
+import type { CustomEditor, CustomTextKey, CustomValue } from './custom-types.d'
 
 const HoveringMenuExample = () => {
-  const editor = useMemo(() => withHistory(withReact(createEditor())), [])
+  const editor = useMemo(
+    () => withHistory(withReact(createEditor<CustomValue>())),
+    []
+  )
+  const inputRules = useMemo<readonly EditableInputRule[]>(
+    () => [
+      ({ inputType }) => {
+        switch (inputType) {
+          case 'formatBold':
+            toggleMark(editor, 'bold')
+            return true
+          case 'formatItalic':
+            toggleMark(editor, 'italic')
+            return true
+          case 'formatUnderline':
+            toggleMark(editor, 'underline')
+            return true
+        }
+      },
+    ],
+    [editor]
+  )
 
   return (
     <Slate editor={editor} initialValue={initialValue}>
       <HoveringToolbar />
       <Editable
-        onDOMBeforeInput={(event: InputEvent) => {
-          switch (event.inputType) {
-            case 'formatBold':
-              event.preventDefault()
-              return toggleMark(editor, 'bold')
-            case 'formatItalic':
-              event.preventDefault()
-              return toggleMark(editor, 'italic')
-            case 'formatUnderline':
-              event.preventDefault()
-              return toggleMark(editor, 'underline')
-          }
-        }}
+        inputRules={inputRules}
         placeholder="Enter some text..."
-        renderLeaf={(props) => <Leaf {...props} />}
+        renderLeaf={(props: RenderLeafProps) => <Leaf {...props} />}
       />
     </Slate>
   )
@@ -74,12 +86,12 @@ const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
 
 const HoveringToolbar = () => {
   const ref = useRef<HTMLDivElement | null>(null)
-  const editor = useSlate()
+  const editor = useSlateStatic<CustomEditor>()
   const inFocus = useFocused()
+  const selection = useSlateSelection()
 
   useEffect(() => {
     const el = ref.current
-    const { selection } = editor
 
     if (!el) {
       return
@@ -96,14 +108,19 @@ const HoveringToolbar = () => {
     }
 
     const domSelection = window.getSelection()
-    const domRange = domSelection!.getRangeAt(0)
+    if (!domSelection || domSelection.rangeCount === 0) {
+      el.removeAttribute('style')
+      return
+    }
+
+    const domRange = domSelection.getRangeAt(0)
     const rect = domRange.getBoundingClientRect()
     el.style.opacity = '1'
     el.style.top = `${rect.top + window.pageYOffset - el.offsetHeight}px`
     el.style.left = `${
       rect.left + window.pageXOffset - el.offsetWidth / 2 + rect.width / 2
     }px`
-  })
+  }, [editor, inFocus, selection])
 
   return (
     <Portal>
@@ -140,7 +157,7 @@ interface FormatButtonProps {
 }
 
 const FormatButton = ({ format, icon }: FormatButtonProps) => {
-  const editor = useSlate()
+  const editor = useSlate<CustomEditor>()
   return (
     <Button
       active={isMarkActive(editor, format)}
@@ -152,7 +169,7 @@ const FormatButton = ({ format, icon }: FormatButtonProps) => {
   )
 }
 
-const initialValue: Descendant[] = [
+const initialValue: CustomValue = [
   {
     type: 'paragraph',
     children: [

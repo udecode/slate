@@ -85,6 +85,10 @@ details > summary {
   user-select: none;
 }
 
+[data-slate-editor]:focus {
+  outline: none;
+}
+
 [data-slate-editor] > * + *,
 [data-slate-chunk] > * + * {
   margin-top: 1em;

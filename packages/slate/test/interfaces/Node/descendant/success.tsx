@@ -13,4 +13,4 @@ export const input = (
 export const test = (value) => {
   return Node.descendant(value, [0])
 }
-export const output = cloneDeep(input.children[0])
+export const output = cloneDeep(Node.get(input, [0]))

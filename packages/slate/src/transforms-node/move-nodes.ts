@@ -1,17 +1,16 @@
-import { getCurrentSelection, withTransaction } from '../core/public-state'
+import { withTransaction } from '../core/public-state'
 import { Location, Node } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import { Path } from '../interfaces/path'
-import type { NodeTransforms } from '../interfaces/transforms/node'
+import type { NodeMutationMethods } from '../interfaces/transforms/node'
 
-export const moveNodes: NodeTransforms['moveNodes'] = (editor, options) => {
-  withTransaction(editor, () => {
-    const {
-      to,
-      at = getCurrentSelection(editor),
-      mode = 'lowest',
-      voids = false,
-    } = options
+export const moveNodes: NodeMutationMethods['moveNodes'] = (
+  editor,
+  options
+) => {
+  withTransaction(editor, (tx) => {
+    const { to, mode = 'lowest', voids = false } = options
+    const at = tx.resolveTarget({ at: options.at })
     let { match } = options
 
     if (!at) {
@@ -33,16 +32,18 @@ export const moveNodes: NodeTransforms['moveNodes'] = (editor, options) => {
                 ...to.slice(0, -1),
                 Math.min(
                   to.at(-1)!,
-                  (
-                    Editor.node(editor, at.slice(0, -1) as Path)[0] as {
-                      children: unknown[]
-                    }
-                  ).children.length - 1
+                  Node.isEditor(Editor.node(editor, at.slice(0, -1) as Path)[0])
+                    ? Editor.getChildren(editor).length - 1
+                    : (
+                        Editor.node(editor, at.slice(0, -1) as Path)[0] as {
+                          children: unknown[]
+                        }
+                      ).children.length - 1
                 ),
               ]
             : to
 
-          editor.apply({
+          tx.apply({
             type: 'move_node',
             path: at,
             newPath: effectiveTo,
@@ -69,7 +70,7 @@ export const moveNodes: NodeTransforms['moveNodes'] = (editor, options) => {
         continue
       }
 
-      editor.apply({
+      tx.apply({
         type: 'move_node',
         path,
         newPath,

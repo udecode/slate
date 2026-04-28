@@ -29,8 +29,14 @@ const editor = {
 
 The leaf text node would have a path of: `[0, 0]`.
 
-The Editor itself has a path of `[]`. For example, to select the whole contents of the editor, call
-`Transforms.select(editor, [])`
+The Editor itself has a path of `[]`. For example, to select the whole contents
+of the editor:
+
+```javascript
+editor.update(() => {
+  editor.select([])
+})
+```
 
 ## `Point`
 
@@ -121,7 +127,7 @@ For example, to find the lowest block that contains all of the current selection
 
 ```javascript
 function getCommonBlock(editor) {
-  const range = Editor.unhangRange(editor, editor.selection, { voids: true })
+  const range = Editor.unhangRange(editor, Editor.getSelection(editor), { voids: true })
 
   let [common, path] = SlateNode.common(
     editor,

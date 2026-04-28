@@ -1,10 +1,5 @@
 import type { RefObject } from 'react'
-import {
-  Editor,
-  Range,
-  type Selection,
-  type TargetFreshnessRequest,
-} from 'slate'
+import { Range, type Selection, type TargetFreshnessRequest } from 'slate'
 import {
   type DOMRange,
   getActiveElement,
@@ -24,6 +19,10 @@ import type {
   SelectionChangeOrigin,
   SelectionSource,
 } from './input-state'
+import {
+  readLiveSelection,
+  readRuntimeSelection,
+} from './runtime-selection-state'
 
 export type EditableSelectionController = {
   inputController: EditableInputController
@@ -96,7 +95,7 @@ export const syncEditorSelectionFromDOM = ({
     exactMatch: false,
     suppressThrow: true,
   })
-  const selection = Editor.getLiveSelection(editor)
+  const selection = readRuntimeSelection(editor)
 
   if (range && (!selection || !Range.equals(selection, range))) {
     editor.update(() => {
@@ -114,7 +113,7 @@ export const setEditableModelSelectionPreference = ({
   preferModelSelection: boolean
   selectionSource?: SelectionSource
 }) => {
-  // Keep the legacy input guard and the controller's selection provenance in lockstep.
+  // Keep the input guard and the controller's selection provenance in lockstep.
   inputController.preferModelSelectionForInputRef.current = preferModelSelection
   inputController.state.selectionSource =
     selectionSource ?? (preferModelSelection ? 'model-owned' : 'dom-current')
@@ -348,7 +347,7 @@ export const applyEditableDOMSelectionChange = ({
   const shouldImportChangedExpandedSelection =
     domSelectionBelongsToEditor &&
     shouldImportChangedExpandedDOMSelection({
-      currentSelection: Editor.getLiveSelection(editor),
+      currentSelection: readLiveSelection(editor),
       nextSelection: range,
       selectionChangeOrigin,
     })
@@ -414,7 +413,7 @@ export const syncEditableDOMSelectionToEditor = ({
     selectionChangeOrigin?: SelectionChangeOrigin | null
   }
 }) => {
-  const selection = Editor.getLiveSelection(editor)
+  const selection = readRuntimeSelection(editor)
 
   if (shellBackedSelection || !selection) {
     return

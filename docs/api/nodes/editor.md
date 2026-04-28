@@ -4,29 +4,37 @@ The `Editor` object stores all the state of a Slate editor. It can be extended b
 
 ```typescript
 interface Editor {
-  children: Node[]
-  selection: Range | null
-  operations: Operation[]
-  marks: Omit<Text, 'text'> | null
-
   // Schema-specific node behaviors.
   isInline: (element: Element) => boolean
   isVoid: (element: Element) => boolean
   markableVoid: (element: Element) => boolean
   normalizeNode: (entry: NodeEntry) => void
-  onChange: (options?: { operation?: Operation }) => void
 
-  // Overrideable core actions.
+  // Public read/write lifecycle.
+  read: <T>(fn: () => T) => T
+  update: (fn: () => void, options?: EditorUpdateOptions) => void
+  extend: (extension: EditorExtension | EditorExtension[]) => () => void
+  getChildren: () => Node[]
+  getSelection: () => Range | null
+  getOperations: () => readonly Operation[]
+  getSnapshot: () => EditorSnapshot
+  subscribe: (listener: SnapshotListener) => () => void
+
+  // Core actions.
   addMark: (key: string, value: any) => void
-  apply: (operation: Operation) => void
   deleteBackward: (unit: 'character' | 'word' | 'line' | 'block') => void
   deleteForward: (unit: 'character' | 'word' | 'line' | 'block') => void
   deleteFragment: () => void
+  getChildren: () => Node[]
+  getSnapshot: () => EditorSnapshot
   insertBreak: () => void
   insertFragment: (fragment: Node[]) => void
   insertNode: (node: Node) => void
   insertText: (text: string) => void
   removeMark: (key: string) => void
+  replace: (input: SnapshotInput) => void
+  reset: (input: SnapshotInput) => void
+  subscribe: (listener: SnapshotListener) => () => void
 }
 ```
 
@@ -38,10 +46,9 @@ interface Editor {
   - [Normalization methods](editor.md#normalization-methods)
   - [Ref methods](editor.md#ref-methods)
 - [Instance methods](editor.md#instance-methods)
-  - [Schema-specific methods to override](editor.md#schema-specific-instance-methods-to-override)
+  - [Schema-specific instance methods](editor.md#schema-specific-instance-methods)
   - [Element Type Methods](editor.md/#element-type-methods)
   - [Normalize Methods](editor.md/#normalize-methods)
-  - [Callback Method](editor.md/#callback-method)
   - [Mark Methods](editor.md/#mark-methods)
   - [getFragment Method](editor.md/#getfragment-method)
   - [Delete Methods](editor.md/#delete-methods)
@@ -66,7 +73,7 @@ Get the matching ancestor above a location in the document.
 
 Options:
 
-- `at?: Location = editor.selection`: Where to start at which is `editor.selection` by default.
+- `at?: Location = Editor.getSelection(editor)`: Where to start.
 - `match?: NodeMatch = () => true`: Narrow the match
 - `mode?: 'highest' | 'lowest' = 'lowest'`: If `lowest` (default), returns the lowest matching ancestor. If `highest`, returns the highest matching ancestor.
 - `voids?: boolean = false`: When `false` ignore void objects.
@@ -99,9 +106,23 @@ Get the end point of a location.
 
 Get the first node at a location.
 
+#### `Editor.getChildren(editor: Editor) => Descendant[]`
+
+Get the current children through the public accessor.
+
 #### `Editor.fragment(editor: Editor, at: Location) => Descendant[]`
 
 Get the fragment at a location.
+
+#### `Editor.getSnapshot(editor: Editor) => EditorSnapshot`
+
+Get an immutable snapshot of the current editor state, including:
+
+- `children`
+- `selection`
+- `marks`
+- `index.pathToId`
+- `index.idToPath`
 
 #### `Editor.last(editor: Editor, at: Location) => NodeEntry`
 
@@ -181,7 +202,7 @@ Note: By default void nodes are treated as a single point and iteration will not
 
 Options:
 
-- `at?: Location = editor.selection`: The `Location` in which to iterate the positions of.
+- `at?: Location = Editor.getSelection(editor)`: The location in which to iterate the positions of.
 - `unit?: 'offset' | 'character' | 'word' | 'line' | 'block' = 'offset'`:
   - `offset`: Moves to the next offset `Point`. It will include the `Point` at the end of a `Text` object and then move onto the first `Point` (at the 0th offset) of the next `Text` object. This may be counter-intuitive because the end of a `Text` and the beginning of the next `Text` might be thought of as the same position.
   - `character`: Moves to the next `character` but is not always the next `index` in the string. This is because Unicode encodings may require multiple bytes to create one character. Unlike `offset`, `character` will not count the end of a `Text` and the beginning of the next `Text` as separate positions to return. Warning: The character offsets for Unicode characters does not appear to be reliable in some cases like a Smiley Emoji will be identified as 2 characters.
@@ -202,6 +223,14 @@ Options: `{at?: Location, match?: NodeMatch, mode?: 'all' | 'highest' | 'lowest'
 
 Get a range of a location.
 
+#### `Editor.replace(editor: Editor, input: SnapshotInput) => void`
+
+Replace the editor snapshot with new `children`, `selection`, and `marks`.
+
+#### `Editor.reset(editor: Editor, input: SnapshotInput) => void`
+
+Alias of `Editor.replace(...)`.
+
 #### `Editor.start(editor: Editor, at: Location) => Point`
 
 Get the start point of a location.
@@ -220,13 +249,17 @@ Match a void node in the current branch of the editor.
 
 Options: `{at?: Location, mode?: 'highest' | 'lowest', voids?: boolean}`
 
+#### `Editor.subscribe(editor: Editor, listener: SnapshotListener) => () => void`
+
+Subscribe to committed editor snapshots. Returns an unsubscribe function.
+
 ### Manipulation methods
 
 #### `Editor.addMark(editor: Editor, key: string, value: any) => void`
 
 Add a custom property to the leaf text nodes and any nodes that `editor.markableVoid()` allows in the current selection.
 
-If the selection is currently collapsed, the marks will be added to the `editor.marks` property instead, and applied when text is inserted next.
+If the selection is currently collapsed, the marks are stored as pending marks and applied when text is inserted next.
 
 #### `Editor.deleteBackward(editor: Editor, options?) => void`
 
@@ -274,7 +307,7 @@ Options: `{at?: Location, voids?: boolean}`
 
 Remove a custom property from all of the leaf text nodes within non-void nodes or void nodes that `editor.markableVoid()` allows in the current selection.
 
-If the selection is currently collapsed, the removal will be stored on `editor.marks` and applied to the text inserted next.
+If the selection is currently collapsed, the removal updates pending marks and applies to the text inserted next.
 
 #### `Editor.unhangRange(editor: Editor, range: Range, options?) => Range`
 
@@ -388,20 +421,28 @@ Get the set of currently tracked range refs of the editor.
 
 ## Instance Methods
 
-### Schema-specific instance methods to override
+### Schema-specific instance methods
 
-Replace these methods to modify the original behavior of the editor when building [Plugins](../../concepts/08-plugins.md). When modifying behavior, call the original method when appropriate. For example, a plugin that marks image nodes as "void":
+Use [plugins](../../concepts/08-plugins.md) to compose these methods when adding
+schema-specific behavior. When modifying behavior, call the captured method when
+the default behavior should continue. For example, a plugin that marks image
+nodes as void:
 
 ```javascript
-const withImages = editor => {
-  const { isVoid } = editor
+const images = defineEditorExtension({
+  name: 'images',
+  methods(editor) {
+    const nextIsVoid = editor.isVoid
 
-  editor.isVoid = element => {
-    return element.type === 'image' ? true : isVoid(element)
-  }
+    return {
+      isVoid(element) {
+        return element.type === 'image' || nextIsVoid(element)
+      },
+    }
+  },
+})
 
-  return editor
-}
+editor.extend(images)
 ```
 
 ### Element type methods
@@ -428,21 +469,15 @@ Override this method to prevent normalizing the editor.
 
 Options: `{ dirtyPaths: Path[]; initialDirtyPathsLength: number; iteration: number; operation?: Operation }`
 
-### Callback method
-
-#### `onChange(options?: { operation?: Operation }) => void`
-
-Called when there is a change in the editor.
-
 ### Mark methods
 
 #### `markableVoid: (element: Element) => boolean`
 
-Tells which void nodes accept Marks. Slate's default implementation returns `false`, but if some void elements support formatting, override this function to include them.
+Tells which void nodes accept Marks. Slate's default implementation returns `false`, but if some void elements support formatting, compose this method in an extension to include them.
 
 #### `addMark(key: string, value: any) => void`
 
-Add a custom property to the leaf text nodes within non-void nodes or void nodes that `editor.markableVoid()` allows in the current selection. If the selection is currently collapsed, the marks will be added to the `editor.marks` property instead, and applied when text is inserted next.
+Add a custom property to the leaf text nodes within non-void nodes or void nodes that `editor.markableVoid()` allows in the current selection. If the selection is currently collapsed, the marks are stored as pending marks and applied when text is inserted next.
 
 #### `removeMark(key: string) => void`
 
@@ -478,22 +513,20 @@ Insert a fragment at the current selection. If the selection is currently expand
 
 #### `insertBreak() => void`
 
-Insert a block break at the current selection. If the selection is currently expanded, delete it first.
+Inside `editor.update(...)`, insert a block break at the current selection. If
+the selection is expanded, delete it first.
 
 #### `insertSoftBreak() => void`
 
-Insert a soft break at the current selection. If the selection is currently expanded, delete it first.
+Inside `editor.update(...)`, insert a soft break at the current selection. If
+the selection is expanded, delete it first.
 
 #### `insertNode(node: Node) => void`
 
-Insert a node at the current selection. If the selection is currently expanded, delete it first.
+Inside `editor.update(...)`, insert a node at the current selection. If the
+selection is expanded, delete it first.
 
 #### `insertText(text: string) => void`
 
-Insert text at the current selection. If the selection is currently expanded, delete it first.
-
-### Operation handling method
-
-#### `apply(operation: Operation) => void`
-
-Apply an operation in the editor.
+Inside `editor.update(...)`, insert text at the current selection. If the
+selection is expanded, delete it first.

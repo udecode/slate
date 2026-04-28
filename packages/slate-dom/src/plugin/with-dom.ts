@@ -1,14 +1,4 @@
-import {
-  type BaseEditor,
-  Editor,
-  Location,
-  Node,
-  type Operation,
-  Path,
-  type PathRef,
-  Range,
-  Transforms,
-} from 'slate'
+import { Editor, Location, Node, Path, type PathRef, Range } from 'slate'
 import {
   type TextDiff,
   transformPendingPoint,
@@ -24,7 +14,6 @@ import type { Key } from '../utils/key'
 import { findCurrentLineRange } from '../utils/lines'
 import {
   EDITOR_TO_KEY_TO_ELEMENT,
-  EDITOR_TO_ON_CHANGE,
   EDITOR_TO_PENDING_ACTION,
   EDITOR_TO_PENDING_DIFFS,
   EDITOR_TO_PENDING_INSERTION_MARKS,
@@ -39,21 +28,36 @@ import { DOMEditor } from './dom-editor'
 
 const NEWLINE_SPLIT_RE = /\r\n|\r|\n/
 
+const stripRenderOnlyLeafWrappers = (root: ParentNode) => {
+  const candidates = Array.from(
+    root.querySelectorAll(
+      '[data-slate-leaf] span:not([data-slate-string]):not([data-slate-zero-width])'
+    )
+  )
+
+  candidates.forEach((candidate) => {
+    if (candidate.closest('[data-slate-leaf]')) {
+      candidate.replaceWith(...Array.from(candidate.childNodes))
+    }
+  })
+}
+
 /**
  * `withDOM` adds DOM specific behaviors to the editor.
  *
- * If you are using TypeScript, you must extend Slate's CustomTypes to use
- * this plugin.
- *
- * See https://docs.slatejs.org/concepts/11-typescript to learn how.
+ * TypeScript value generics are preserved from the editor passed to this
+ * plugin.
  */
 
-export const withDOM = <T extends BaseEditor>(
-  editor: T,
+export const withDOM = <
+  V extends import('slate').Value,
+  T extends import('slate').BaseEditor<V>,
+>(
+  editor: T & { getChildren: () => V },
   clipboardFormatKey = 'x-slate-fragment'
-): T & DOMEditor => {
-  const e = editor as T & DOMEditor
-  const { apply, onChange, deleteBackward, addMark, removeMark } = e
+): T & DOMEditor<V> => {
+  const e = editor as T & DOMEditor<V>
+  const { deleteBackward, addMark, removeMark } = e
 
   // The WeakMap which maps a key to a specific HTMLElement must be scoped to the editor instance to
   // avoid collisions between editors in the DOM that share the same value.
@@ -96,10 +100,12 @@ export const withDOM = <T extends BaseEditor>(
       return deleteBackward(unit)
     }
 
-    if (e.selection && Range.isCollapsed(e.selection)) {
+    const selection = e.getSelection()
+
+    if (selection && Range.isCollapsed(selection)) {
       const parentBlockEntry = Editor.above(e, {
         match: (n) => Node.isElement(n) && Editor.isBlock(e, n),
-        at: e.selection,
+        at: selection,
       })
 
       if (parentBlockEntry) {
@@ -107,137 +113,142 @@ export const withDOM = <T extends BaseEditor>(
         const parentElementRange = Editor.range(
           e,
           parentBlockPath,
-          e.selection.anchor
+          selection.anchor
         )
 
         const currentLineRange = findCurrentLineRange(e, parentElementRange)
 
         if (!Range.isCollapsed(currentLineRange)) {
-          Transforms.delete(e, { at: currentLineRange })
+          e.delete({ at: currentLineRange })
         }
       }
     }
   }
 
   // This attempts to reset the NODE_TO_KEY entry to the correct value
-  // as apply() changes the object reference and hence invalidates the NODE_TO_KEY entry
-  e.apply = (op: Operation) => {
-    const matches: [Path, Key][] = []
-    const pathRefMatches: [PathRef, Key][] = []
+  // as operation application changes object references and invalidates NODE_TO_KEY.
+  e.extend({
+    name: 'slate-dom-operation-middleware',
+    operationMiddlewares: [
+      ({ operation: op }, next) => {
+        const matches: [Path, Key][] = []
+        const pathRefMatches: [PathRef, Key][] = []
 
-    const pendingDiffs = EDITOR_TO_PENDING_DIFFS.get(e)
-    if (pendingDiffs?.length) {
-      const transformed = pendingDiffs
-        .map((textDiff) => transformTextDiff(textDiff, op))
-        .filter(Boolean) as TextDiff[]
+        const pendingDiffs = EDITOR_TO_PENDING_DIFFS.get(e)
+        if (pendingDiffs?.length) {
+          const transformed = pendingDiffs
+            .map((textDiff) => transformTextDiff(textDiff, op))
+            .filter(Boolean) as TextDiff[]
 
-      EDITOR_TO_PENDING_DIFFS.set(e, transformed)
-    }
-
-    const pendingSelection = EDITOR_TO_PENDING_SELECTION.get(e)
-    if (pendingSelection) {
-      EDITOR_TO_PENDING_SELECTION.set(
-        e,
-        transformPendingRange(e, pendingSelection, op)
-      )
-    }
-
-    const pendingAction = EDITOR_TO_PENDING_ACTION.get(e)
-    if (pendingAction?.at) {
-      const at = Location.isPoint(pendingAction?.at)
-        ? transformPendingPoint(e, pendingAction.at, op)
-        : transformPendingRange(e, pendingAction.at, op)
-
-      EDITOR_TO_PENDING_ACTION.set(e, at ? { ...pendingAction, at } : null)
-    }
-
-    switch (op.type) {
-      case 'insert_text':
-      case 'remove_text':
-      case 'set_node':
-      case 'split_node': {
-        matches.push(...getMatches(e, op.path))
-        break
-      }
-
-      case 'set_selection': {
-        // Selection was manually set, don't restore the user selection after the change.
-        EDITOR_TO_USER_SELECTION.get(e)?.unref()
-        EDITOR_TO_USER_SELECTION.delete(e)
-        break
-      }
-
-      case 'insert_node':
-      case 'remove_node': {
-        matches.push(...getMatches(e, Path.parent(op.path)))
-        break
-      }
-
-      case 'merge_node': {
-        const prevPath = Path.previous(op.path)
-        matches.push(...getMatches(e, prevPath))
-        break
-      }
-
-      case 'move_node': {
-        const commonPath = Path.common(
-          Path.parent(op.path),
-          Path.parent(op.newPath)
-        )
-        matches.push(...getMatches(e, commonPath))
-
-        let changedPath: Path
-        if (Path.isBefore(op.path, op.newPath)) {
-          matches.push(...getMatches(e, Path.parent(op.path)))
-          changedPath = op.newPath
-        } else {
-          matches.push(...getMatches(e, Path.parent(op.newPath)))
-          changedPath = op.path
+          EDITOR_TO_PENDING_DIFFS.set(e, transformed)
         }
 
-        const changedNode = Node.get(editor, Path.parent(changedPath))
-        const changedNodeKey = DOMEditor.findKey(e, changedNode)
-        const changedPathRef = Editor.pathRef(e, Path.parent(changedPath))
-        pathRefMatches.push([changedPathRef, changedNodeKey])
+        const pendingSelection = EDITOR_TO_PENDING_SELECTION.get(e)
+        if (pendingSelection) {
+          EDITOR_TO_PENDING_SELECTION.set(
+            e,
+            transformPendingRange(e, pendingSelection, op)
+          )
+        }
 
-        break
-      }
-    }
+        const pendingAction = EDITOR_TO_PENDING_ACTION.get(e)
+        if (pendingAction?.at) {
+          const at = Location.isPoint(pendingAction?.at)
+            ? transformPendingPoint(e, pendingAction.at, op)
+            : transformPendingRange(e, pendingAction.at, op)
 
-    apply(op)
+          EDITOR_TO_PENDING_ACTION.set(e, at ? { ...pendingAction, at } : null)
+        }
 
-    switch (op.type) {
-      case 'insert_node':
-      case 'remove_node':
-      case 'merge_node':
-      case 'move_node':
-      case 'split_node':
-      case 'insert_text':
-      case 'remove_text':
-      case 'set_selection': {
-        // FIXME: Rename to something like IS_DOM_EDITOR_DESYNCED
-        // to better reflect reality, see #5792
-        IS_NODE_MAP_DIRTY.set(e, true)
-      }
-    }
+        switch (op.type) {
+          case 'insert_text':
+          case 'remove_text':
+          case 'set_node':
+          case 'split_node': {
+            matches.push(...getMatches(e, op.path))
+            break
+          }
 
-    for (const [path, key] of matches) {
-      const [node] = Editor.node(e, path)
-      NODE_TO_KEY.set(node, key)
-    }
+          case 'set_selection': {
+            // Selection was manually set, don't restore the user selection after the change.
+            EDITOR_TO_USER_SELECTION.get(e)?.unref()
+            EDITOR_TO_USER_SELECTION.delete(e)
+            break
+          }
 
-    for (const [pathRef, key] of pathRefMatches) {
-      if (pathRef.current) {
-        const [node] = Editor.node(e, pathRef.current)
-        NODE_TO_KEY.set(node, key)
-      }
+          case 'insert_node':
+          case 'remove_node': {
+            pathRefMatches.push(...getPathRefMatches(e, Path.parent(op.path)))
+            break
+          }
 
-      pathRef.unref()
-    }
-  }
+          case 'merge_node': {
+            const prevPath = Path.previous(op.path)
+            matches.push(...getMatches(e, prevPath))
+            break
+          }
+
+          case 'move_node': {
+            const commonPath = Path.common(
+              Path.parent(op.path),
+              Path.parent(op.newPath)
+            )
+            matches.push(...getMatches(e, commonPath))
+
+            let changedPath: Path
+            if (Path.isBefore(op.path, op.newPath)) {
+              matches.push(...getMatches(e, Path.parent(op.path)))
+              changedPath = op.newPath
+            } else {
+              matches.push(...getMatches(e, Path.parent(op.newPath)))
+              changedPath = op.path
+            }
+
+            const changedNode = Node.get(e, Path.parent(changedPath))
+            const changedNodeKey = DOMEditor.findKey(e, changedNode)
+            const changedPathRef = Editor.pathRef(e, Path.parent(changedPath))
+            pathRefMatches.push([changedPathRef, changedNodeKey])
+
+            break
+          }
+        }
+
+        next(op)
+
+        switch (op.type) {
+          case 'insert_node':
+          case 'remove_node':
+          case 'merge_node':
+          case 'move_node':
+          case 'split_node':
+          case 'insert_text':
+          case 'remove_text':
+          case 'set_selection': {
+            // FIXME: Rename to something like IS_DOM_EDITOR_DESYNCED
+            // to better reflect reality, see #5792
+            IS_NODE_MAP_DIRTY.set(e, true)
+          }
+        }
+
+        for (const [path, key] of matches) {
+          const [node] = Editor.node(e, path)
+          NODE_TO_KEY.set(node, key)
+        }
+
+        for (const [pathRef, key] of pathRefMatches) {
+          if (pathRef.current) {
+            const [node] = Editor.node(e, pathRef.current)
+            NODE_TO_KEY.set(node, key)
+          }
+
+          pathRef.unref()
+        }
+      },
+    ],
+  })
 
   e.setFragmentData = (data: Pick<DataTransfer, 'getData' | 'setData'>) => {
-    const { selection } = e
+    const selection = e.getSelection()
 
     if (!selection) {
       return
@@ -292,6 +303,8 @@ export const withDOM = <T extends BaseEditor>(
       }
     )
 
+    stripRenderOnlyLeafWrappers(contents)
+
     // Set a `data-slate-fragment` attribute on a non-empty node, so it shows up
     // in the HTML, and can be used for intra-Slate pasting. If it's a text
     // node, wrap it in a `<span>` so we have something to set an attribute on.
@@ -307,7 +320,7 @@ export const withDOM = <T extends BaseEditor>(
 
     const fragment = e.getFragment()
     const string = JSON.stringify(fragment)
-    const encoded = window.btoa(encodeURIComponent(string))
+    const encoded = DOMEditor.getWindow(e).btoa(encodeURIComponent(string))
     attach.setAttribute('data-slate-fragment', encoded)
     data.setData(`application/${clipboardFormatKey}`, encoded)
 
@@ -337,8 +350,8 @@ export const withDOM = <T extends BaseEditor>(
       getSlateFragmentAttribute(data)
 
     if (fragment) {
-      const decoded = decodeURIComponent(window.atob(fragment))
-      const parsed = JSON.parse(decoded) as Node[]
+      const decoded = decodeURIComponent(DOMEditor.getWindow(e).atob(fragment))
+      const parsed = JSON.parse(decoded) as import('slate').DescendantIn<V>[]
       e.insertFragment(parsed)
       return true
     }
@@ -354,7 +367,7 @@ export const withDOM = <T extends BaseEditor>(
 
       for (const line of lines) {
         if (split) {
-          Transforms.splitNodes(e, { always: true })
+          e.splitNodes({ always: true })
         }
 
         e.insertText(line)
@@ -365,24 +378,31 @@ export const withDOM = <T extends BaseEditor>(
     return false
   }
 
-  e.onChange = (options) => {
-    const onContextChange = EDITOR_TO_ON_CHANGE.get(e)
-
-    if (onContextChange) {
-      onContextChange(options)
-    }
-
-    onChange(options)
-  }
-
   return e
 }
 
-const getMatches = (e: Editor, path: Path) => {
+const getMatches = (e: DOMEditor, path: Path) => {
   const matches: [Path, Key][] = []
   for (const [n, p] of Editor.levels(e, { at: path })) {
     const key = DOMEditor.findKey(e, n)
     matches.push([p, key])
   }
+  return matches
+}
+
+const getPathRefMatches = (e: DOMEditor, path: Path) => {
+  const matches: [PathRef, Key][] = []
+
+  for (const [n, p] of Editor.nodes(e, {
+    at: path,
+    mode: 'all',
+    voids: true,
+  })) {
+    const key = DOMEditor.findKey(e, n)
+    const pathRef = Editor.pathRef(e, p)
+
+    matches.push([pathRef, key])
+  }
+
   return matches
 }

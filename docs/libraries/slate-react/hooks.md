@@ -24,7 +24,7 @@ Get the current `readOnly` state of the editor.
 
 #### `useSelected(): boolean`
 
-Get the current `selected` state of an element. An element is selected if `editor.selection` exists and overlaps any part of the element.
+Get the current `selected` state of an element. An element is selected if `Editor.getSelection(editor)` exists and overlaps any part of the element.
 
 #### `useSlate(): Editor`
 
@@ -32,7 +32,7 @@ Get the current editor object. Re-renders whenever changes occur in the editor.
 
 #### `useSlateStatic(): Editor`
 
-Get the current editor object from the React context. A version of useSlate that does not re-render the context. Previously called `useEditor`.
+Get the current editor object from the React context without subscribing to editor changes.
 
 #### `useSlateSelection(): (BaseRange & { placeholder?: string | undefined; onPlaceholderResize?: ((node: HTMLElement | null) => void) | undefined }) | null`
 
@@ -49,5 +49,5 @@ If `selector` is memoized using `useCallback`, then it will only be called when 
 Example:
 
 ```typescript
-const isSelectionActive = useSlateSelector(editor => Boolean(editor.selection))
+const isSelectionActive = useSlateSelector(editor => Boolean(Editor.getSelection(editor)))
 ```

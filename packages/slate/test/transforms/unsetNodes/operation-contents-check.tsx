@@ -5,14 +5,14 @@ import { jsx } from '../..'
 jsx
 
 import assert from 'node:assert/strict'
-import { Editor, Transforms } from 'slate'
+import { Editor } from 'slate'
 
 export const run = (editor: Editor) => {
-  Transforms.unsetNodes(editor, 'someKey', { at: [0] })
+  editor.unsetNodes('someKey', { at: [0] })
 
   // unsetNodes uses null to remove properties, but that should not
   // flow through to the operation
-  const [setNode] = editor.operations
+  const [setNode] = editor.getOperations()
 
   if (setNode.type === 'set_node') {
     assert.deepStrictEqual(setNode, {
@@ -23,7 +23,7 @@ export const run = (editor: Editor) => {
     })
   } else {
     // eslint-disable-next-line no-console
-    console.error('operations:', editor.operations)
+    console.error('operations:', editor.getOperations())
     assert.fail('operation was not a set node')
   }
 }

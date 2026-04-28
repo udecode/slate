@@ -6,7 +6,6 @@ import {
   type Descendant,
   Editor,
   type Editor as SlateEditor,
-  Transforms,
 } from 'slate'
 import { History, HistoryEditor, withHistory } from 'slate-history'
 import { createHyperscript } from 'slate-hyperscript'
@@ -54,7 +53,7 @@ describe('slate headless contract', () => {
 
     const ref = Editor.rangeRef(editor, input.selection!)
 
-    Transforms.insertFragment(editor, fragment)
+    editor.insertFragment(fragment)
 
     const snapshot = Editor.getSnapshot(editor)
 

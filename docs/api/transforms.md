@@ -1,17 +1,20 @@
-# Transforms API
+# Editor Method API
 
-Transforms are helper functions operating on the document. They can be used in defining your own commands.
+Slate writes go through `editor.update(...)` and editor methods.
+
+This page lists the flexible primitive method families. They are the public way
+to express custom document changes without inventing a new method for every
+node type.
 
 - [Node options](transforms.md#node-options)
-- [Static methods](transforms.md#static-methods)
-  - [Node transforms](transforms.md#node-transforms)
-  - [Selection transforms](transforms.md#selection-transforms)
-  - [Text transforms](transforms.md#text-transforms)
-  - [Editor transforms](transforms.md#editor-transforms)
+- [Node methods](transforms.md#node-methods)
+- [Selection methods](transforms.md#selection-methods)
+- [Text methods](transforms.md#text-methods)
+- [Operation methods](transforms.md#operation-methods)
 
 ## Node options
 
-All transforms support a parameter `options`. This includes options specific to the transform and general `NodeOptions` to specify which Nodes in the document the transform is applied to.
+Many node methods accept an `options` object.
 
 ```typescript
 interface NodeOptions {
@@ -22,162 +25,118 @@ interface NodeOptions {
 }
 ```
 
-- The `at` option selects a [Location](../concepts/03-locations.md) in the editor. It defaults to the user's current selection. [Learn more about the `at` option](../concepts/04-transforms.md#the-at-option)
+- `at?: Location`: The explicit location to change. When omitted inside
+  `editor.update(...)`, selection-sensitive methods use the transaction target.
+- `match?: (node, path) => boolean`: Filters which nodes are changed.
+- `mode?: 'highest' | 'lowest'`: Controls which matching node level is used.
+- `voids?: boolean`: Includes void elements when `true`.
 
-- The `match` option filters the set of Nodes with a custom function. [Learn more about the `match` option](../concepts/04-transforms.md#the-match-option)
+## Node methods
 
-- The `mode` option also filters the set of nodes.
+Use node methods inside `editor.update(...)`.
 
-- When `voids` is false, [void Elements](./nodes/editor.md#schema-specific-instance-methods-to-override) are filtered out.
+#### `editor.insertFragment(fragment: Node[], options?)`
 
-## Static methods
+Insert a fragment at `options.at` or the transaction target.
 
-### Node transforms
+#### `editor.insertNodes(nodes: Node | Node[], options?)`
 
-These transforms operate on nodes.
-
-#### `Transforms.insertFragment(editor: Editor, fragment: Node[], options?)`
-
-Insert a fragment of nodes at the specified location or (if not defined) the current selection or (if not defined) the end of the document.
-
-Options: `{at?: Location, hanging?: boolean, voids?: boolean}`
-
-#### `Transforms.insertNodes(editor: Editor, nodes: Node | Node[], options?)`
-
-Atomically inserts `nodes` at the specified location or (if not defined) the current selection or (if not defined) the end of the document.
-
-Options supported: `NodeOptions & {hanging?: boolean, select?: boolean}`.
-
-For example, to insert at the very end, without replacing the current selection and regardless of block nesting, use
+Insert nodes at `options.at` or the transaction target.
 
 ```javascript
-Transforms.insertNodes(
-  editor,
-  { type: targetType, children: [{ text: '' }] },
-  { at: [editor.children.length] }
-)
-```
-
-#### `Transforms.removeNodes(editor: Editor, options?)`
-
-Remove nodes at the specified location in the document. If no location is specified, remove the nodes in the selection.
-
-Options supported: `NodeOptions & {hanging?: boolean}`
-
-#### `Transforms.mergeNodes(editor: Editor, options?)`
-
-Merge a node at the specified location with the previous node at the same depth. If no location is specified, use the selection. Resulting empty container nodes are removed.
-
-Options supported: `NodeOptions & {hanging?: boolean}`
-
-#### `Transforms.splitNodes(editor: Editor, options?)`
-
-Split nodes at the specified location. If no location is specified, split the selection.
-
-Options supported: `NodeOptions & {height?: number, always?: boolean}`
-
-#### `Transforms.wrapNodes(editor: Editor, element: Element, options?)`
-
-Wrap nodes at the specified location in the `element` container. If no location is specified, wrap the selection.
-
-Options supported: `NodeOptions & {split?: boolean}`.
-
-- `options.mode`: `'all'` is also supported.
-- `options.split` indicates that it's okay to split a node in order to wrap the location. For example, if `ipsum` was selected in a `Text` node with `lorem ipsum dolar`, `split: true` would wrap the word `ipsum` only, resulting in splitting the `Text` node. If `split: false`, the entire `Text` node `lorem ipsum dolar` would be wrapped.
-
-#### `Transforms.unwrapNodes(editor: Editor, options?)`
-
-Unwrap nodes at the specified location. If necessary, the parent node is split. If no location is specified, use the selection.
-
-Options supported: `NodeOptions & {split?: boolean}`. For `options.mode`, `'all'` is also supported.
-
-#### `Transforms.setNodes(editor: Editor, props: Partial<Node>, options?)`
-
-Set properties of nodes at the specified location. If no location is specified, use the selection.
-
-If `props` contains `undefined` values, the node's corresponding property will also be set to `undefined` as opposed to ignored.
-
-Options supported: `NodeOptions & {hanging?: boolean, split?: boolean}`. For `options.mode`, `'all'` is also supported.
-
-#### `Transforms.unsetNodes(editor: Editor, props: string | string[], options?)`
-
-Unset properties of nodes at the specified location. If no location is specified, use the selection.
-
-Options supported: `NodeOptions & {hanging?: boolean, split?: boolean}`. For `options.mode`, `'all'` is also supported.
-
-#### `Transforms.liftNodes(editor: Editor, options?)`
-
-Lift nodes at the specified location upwards in the document tree. If necessary, the parent node is split. If no location is specified, use the selection.
-
-Options supported: `NodeOptions`. For `options.mode`, `'all'` is also supported.
-
-#### `Transforms.moveNodes(editor: Editor, options)`
-
-Move the nodes from an origin to a destination. A destination must be specified in the `options`. If no origin is specified, move the selection.
-
-Options supported: `NodeOptions & {to: Path}`. For `options.mode`, `'all'` is also supported.
-
-### Selection transforms
-
-Transforms that operate on the document's selection.
-
-#### `Transforms.collapse(editor: Editor, options?)`
-
-Collapse the selection to a single point.
-
-Options: `{edge?: 'anchor' | 'focus' | 'start' | 'end'}`
-
-#### `Transforms.select(editor: Editor, target: Location)`
-
-Set the selection to a new value specified by `target`. When a selection already exists, this method is just a proxy for `setSelection` and will update the existing value.
-
-For example, to set the selection to the entire contents of the editor:
-
-```javascript
-Transforms.select(editor, {
-  anchor: Editor.start(editor, []),
-  focus: Editor.end(editor, []),
+editor.update(() => {
+  editor.insertNodes(
+    { type: targetType, children: [{ text: '' }] },
+    { at: [editor.getChildren().length] }
+  )
 })
 ```
 
-#### `Transforms.deselect(editor: Editor)`
+#### `editor.removeNodes(options?)`
+
+Remove nodes at `options.at` or the transaction target.
+
+#### `editor.mergeNodes(options?)`
+
+Merge a node with the previous node at the same depth.
+
+#### `editor.splitNodes(options?)`
+
+Split nodes at a location.
+
+#### `editor.wrapNodes(element: Element, options?)`
+
+Wrap matching nodes in `element`.
+
+#### `editor.unwrapNodes(options?)`
+
+Unwrap matching nodes.
+
+#### `editor.setNodes(props: Partial<Node>, options?)`
+
+Set properties on matching nodes.
+
+#### `editor.unsetNodes(props: string | string[], options?)`
+
+Unset properties on matching nodes.
+
+#### `editor.liftNodes(options?)`
+
+Lift matching nodes upward in the document tree.
+
+#### `editor.moveNodes(options)`
+
+Move nodes from `options.at` to `options.to`.
+
+## Selection methods
+
+#### `editor.collapse(options?)`
+
+Collapse the selection to a single point.
+
+#### `editor.select(target: Location)`
+
+Set the selection to a new target.
+
+```javascript
+editor.update(() => {
+  editor.select({
+    anchor: Editor.start(editor, []),
+    focus: Editor.end(editor, []),
+  })
+})
+```
+
+#### `editor.deselect()`
 
 Unset the selection.
 
-#### `Transforms.move(editor: Editor, options?)`
+#### `editor.move(options?)`
 
-Move the selection's point forward or backward.
+Move the selection by offset, character, word, line, or block.
 
-Options: `{distance?: number, unit?: 'offset' | 'character' | 'word' | 'line', reverse?: boolean, edge?: 'anchor' | 'focus' | 'start' | 'end'}`
+#### `editor.setPoint(props: Partial<Point>, options?)`
 
-#### `Transforms.setPoint(editor: Editor, props: Partial<Point>, options?)`
+Set properties on one selection point.
 
-Set new properties on one of the selection's points.
+#### `editor.setSelection(props: Partial<Range>)`
 
-Options: `{edge?: 'anchor' | 'focus' | 'start' | 'end'}`
+Set properties on an active selection.
 
-#### `Transforms.setSelection(editor: Editor, props: Partial<Range>)`
+## Text methods
 
-Set new properties on an active selection. Since the value is a `Partial<Range>`, this method can only handle updates to an existing selection. If there is no active selection the operation will be void. Use `select` if you'd like to create a selection when there is none.
+#### `editor.delete(options?)`
 
-### Text transforms
+Delete text at `options.at` or the transaction target.
 
-Transforms that operate on text.
+#### `editor.insertText(text: string, options?)`
 
-#### `Transforms.delete(editor: Editor, options?)`
+Insert text at `options.at` or the transaction target.
 
-Delete text in the document.
+## Operation methods
 
-Options: `{at?: Location, distance?: number, unit?: 'character' | 'word' | 'line' | 'block', reverse?: boolean, hanging?: boolean, voids?: boolean}`
+#### `editor.applyOperations(operations: Operation[], options?)`
 
-#### `Transforms.insertText(editor: Editor, text: string, options?)`
-
-Insert a string of text at the specified location or (if not defined) the current selection or (if not defined) the end of the document.
-
-Options: `{at?: Location, voids?: boolean}`
-
-### Editor transforms
-
-#### `Transforms.transform(editor: Editor, transform: Transform)`
-
-Transform the `editor` by an `operation`.
+Replay operations through one explicit editor write boundary. This is for
+operation replay, history, collaboration, and test fixtures. Prefer
+`editor.update(...)` with editor methods for normal document changes.

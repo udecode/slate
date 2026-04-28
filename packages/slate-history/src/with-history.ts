@@ -1,4 +1,4 @@
-import { Editor, Operation, Path, Transforms } from 'slate'
+import { Editor, executeCommand, Operation, Path, type Value } from 'slate'
 
 import { HistoryEditor } from './history-editor'
 
@@ -6,18 +6,18 @@ import { HistoryEditor } from './history-editor'
  * The `withHistory` plugin keeps track of the operation history of a Slate
  * editor as operations are applied to it, using undo and redo stacks.
  *
- * If you are using TypeScript, you must extend Slate's CustomTypes to use
- * this plugin.
- *
- * See https://docs.slatejs.org/concepts/11-typescript to learn how.
+ * TypeScript value generics are preserved from the editor passed to this
+ * plugin.
  */
 
-export const withHistory = <T extends Editor>(editor: T) => {
-  const e = editor as T & HistoryEditor
-  const { apply } = e
+export const withHistory = <V extends Value, T extends Editor<V>>(
+  editor: T & { getChildren: () => V }
+) => {
+  const e = editor as T & HistoryEditor<V>
   e.history = { undos: [], redos: [] }
+  let previousSnapshot = Editor.getSnapshot(e)
 
-  e.redo = () => {
+  const applyRedo = () => {
     const { history } = e
     const { redos } = history
 
@@ -26,15 +26,15 @@ export const withHistory = <T extends Editor>(editor: T) => {
       return
     }
 
-    if (batch.selectionBefore) {
-      Transforms.setSelection(e, batch.selectionBefore)
-    }
-
     HistoryEditor.withoutSaving(e, () => {
-      Editor.withoutNormalizing(e, () => {
-        for (const op of batch.operations) {
-          e.apply(op)
-        }
+      e.withTransaction(() => {
+        Editor.withoutNormalizing(e, () => {
+          if (batch.selectionBefore) {
+            e.select(batch.selectionBefore)
+          }
+
+          e.applyOperations(batch.operations)
+        })
       })
     })
 
@@ -42,7 +42,7 @@ export const withHistory = <T extends Editor>(editor: T) => {
     e.writeHistory('undos', batch)
   }
 
-  e.undo = () => {
+  const applyUndo = () => {
     const { history } = e
     const { undos } = history
 
@@ -52,15 +52,15 @@ export const withHistory = <T extends Editor>(editor: T) => {
     }
 
     HistoryEditor.withoutSaving(e, () => {
-      Editor.withoutNormalizing(e, () => {
-        const inverseOps = batch.operations.map(Operation.inverse).reverse()
+      e.withTransaction(() => {
+        Editor.withoutNormalizing(e, () => {
+          const inverseOps = batch.operations.map(Operation.inverse).reverse()
 
-        for (const op of inverseOps) {
-          e.apply(op)
-        }
-        if (batch.selectionBefore) {
-          Transforms.setSelection(e, batch.selectionBefore)
-        }
+          e.applyOperations(inverseOps)
+          if (batch.selectionBefore) {
+            e.select(batch.selectionBefore)
+          }
+        })
       })
     })
 
@@ -68,26 +68,44 @@ export const withHistory = <T extends Editor>(editor: T) => {
     history.undos.pop()
   }
 
-  e.apply = (op: Operation) => {
-    const { operations, history } = e
+  e.redo = () => {
+    executeCommand(e, { type: 'history_redo' }, () => {
+      applyRedo()
+      return { handled: true }
+    })
+  }
+
+  e.undo = () => {
+    executeCommand(e, { type: 'history_undo' }, () => {
+      applyUndo()
+      return { handled: true }
+    })
+  }
+
+  const unsubscribe = Editor.subscribe(e, (snapshot, change) => {
+    const committedOps = [...(change?.operations ?? [])] as Operation<V>[]
+
+    if (committedOps.length === 0) {
+      previousSnapshot = snapshot
+      return
+    }
+
+    const { history } = e
     const { undos } = history
     const lastBatch = undos.at(-1)
-    const lastOp = lastBatch?.operations.at(-1)
     let save = HistoryEditor.isSaving(e)
     let merge = HistoryEditor.isMerging(e)
 
     if (save == null) {
-      save = shouldSave(op, lastOp)
+      save = shouldSaveBatch(committedOps)
     }
 
     if (save) {
       if (merge == null) {
         if (lastBatch == null) {
           merge = false
-        } else if (lastOp && operations.includes(lastOp)) {
-          merge = true
         } else {
-          merge = shouldMerge(op, lastOp)
+          merge = shouldMergeBatch(committedOps, lastBatch.operations)
         }
       }
 
@@ -97,11 +115,11 @@ export const withHistory = <T extends Editor>(editor: T) => {
       }
 
       if (lastBatch && merge) {
-        lastBatch.operations.push(op)
+        lastBatch.operations.push(...committedOps)
       } else {
         const batch = {
-          operations: [op],
-          selectionBefore: e.selection,
+          operations: [...committedOps],
+          selectionBefore: previousSnapshot.selection,
         }
         e.writeHistory('undos', batch)
       }
@@ -113,12 +131,15 @@ export const withHistory = <T extends Editor>(editor: T) => {
       history.redos = []
     }
 
-    apply(op)
-  }
+    previousSnapshot = snapshot
+  })
 
   e.writeHistory = (stack: 'undos' | 'redos', batch: any) => {
     e.history[stack].push(batch)
   }
+
+  // Keep the subscription alive for the editor lifetime.
+  void unsubscribe
 
   return e
 }
@@ -155,10 +176,32 @@ const shouldMerge = (op: Operation, prev: Operation | undefined): boolean => {
  * Check whether an operation needs to be saved to the history.
  */
 
-const shouldSave = (op: Operation, prev: Operation | undefined): boolean => {
+const shouldMergeBatch = (
+  operations: readonly Operation[],
+  previousOperations: readonly Operation[]
+): boolean => {
+  const saveableOperations = operations.filter(shouldSave)
+  const previousSaveableOperations = previousOperations.filter(shouldSave)
+  const previousOperation = previousSaveableOperations.at(-1)
+  const previousBatchIsTextOnly =
+    previousOperation != null &&
+    previousSaveableOperations.every(
+      (operation) => operation.type === previousOperation.type
+    )
+
+  return saveableOperations.length === 1
+    ? previousBatchIsTextOnly &&
+        shouldMerge(saveableOperations[0]!, previousOperation)
+    : false
+}
+
+const shouldSave = (op: Operation): boolean => {
   if (op.type === 'set_selection') {
     return false
   }
 
   return true
 }
+
+const shouldSaveBatch = (operations: readonly Operation[]): boolean =>
+  operations.some((operation) => shouldSave(operation))

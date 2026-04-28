@@ -103,6 +103,8 @@ export const classifyKeyboardIntent = ({
     Hotkeys.isMoveLineForward(nativeEvent) ||
     Hotkeys.isExtendLineBackward(nativeEvent) ||
     Hotkeys.isExtendLineForward(nativeEvent) ||
+    Hotkeys.isExtendBackward(nativeEvent) ||
+    Hotkeys.isExtendForward(nativeEvent) ||
     Hotkeys.isMoveBackward(nativeEvent) ||
     Hotkeys.isMoveForward(nativeEvent) ||
     Hotkeys.isMoveWordBackward(nativeEvent) ||

@@ -10,6 +10,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./internal": {
+      "types": "./dist/internal/index.d.ts",
+      "import": "./dist/internal/index.js",
+      "default": "./dist/internal/index.js"
     }
   },
   "main": "./dist/index.js",
@@ -20,7 +25,7 @@
     "dist/"
   ],
   "scripts": {
-    "build": "tsdown --config ../../config/tsdown.config.mts --log-level warn",
+    "build": "tsdown --config ./tsdown.config.mts --log-level warn",
     "clean": "rimraf dist lib",
     "typecheck": "tsc --project tsconfig.json --noEmit"
   },

@@ -8,6 +8,22 @@ type FixtureModule = {
   skip?: boolean
 }
 
+const readFixtureField = (value: Record<string, unknown>, key: string) => {
+  if (key === 'children' && typeof value.getChildren === 'function') {
+    return value.getChildren()
+  }
+
+  if (key === 'selection' && typeof value.getSelection === 'function') {
+    return value.getSelection()
+  }
+
+  if (key === 'marks' && typeof value.getMarks === 'function') {
+    return value.getMarks()
+  }
+
+  return value[key]
+}
+
 const fixturesDir = resolve(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 
 const isFixtureFile = (file: string) =>
@@ -50,7 +66,7 @@ const runFixtures = (path: string) => {
           : Object.fromEntries(
               Object.keys(output).map((key) => [
                 key,
-                (input as Record<string, unknown>)[key],
+                readFixtureField(input as Record<string, unknown>, key),
               ])
             )
 

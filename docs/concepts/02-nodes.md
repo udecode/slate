@@ -104,7 +104,12 @@ But in certain cases, like for links, you might want to make them "inline" flowi
 
 > 🤖 This is a concept borrowed from the DOM's behavior, see [Block Elements](https://developer.mozilla.org/en-US/docs/Web/HTML/Block-level_elements) and [Inline Elements](https://developer.mozilla.org/en-US/docs/Web/HTML/Inline_elements).
 
-You can define which nodes are treated as inline nodes by overriding the `editor.isInline` function. \(By default it always returns `false`.\) Note that inline nodes cannot be the first or last child of a parent block, nor can they be next to another inline node in the `children` array. Slate will automatically space these with `{ text: '' }` children by default with [`normalizeNode`](11-normalizing.md#built-in-constraints).
+You can define which nodes are treated as inline nodes by composing the
+`editor.isInline` method in an extension. \(By default it always returns
+`false`.\) Note that inline nodes cannot be the first or last child of a parent
+block, nor can they be next to another inline node in the `children` array.
+Slate will automatically space these with `{ text: '' }` children by default
+with [`normalizeNode`](11-normalizing.md#built-in-constraints).
 
 Elements can either contain block elements or inline elements intermingled with text nodes as children. But elements **cannot** contain some children that are blocks and some that are inlined.
 
@@ -116,7 +121,10 @@ Elements default to being non-void, meaning that their children are fully editab
 
 > 🤖 This is a concept borrowed from the HTML spec, see [Void Elements](https://www.w3.org/TR/2011/WD-html-markup-20110405/syntax.html#void-element).
 
-You can define which elements are treated as void by overriding the `editor.isVoid` function. \(By default it always returns `false`.\) See [Rendering Void Elements](../api/nodes/element.md#rendering-void-elements) for implementation details.
+You can define which elements are treated as void by composing the
+`editor.isVoid` method in an extension. \(By default it always returns
+`false`.\) See [Rendering Void Elements](../api/nodes/element.md#rendering-void-elements)
+for implementation details.
 
 ## `Text`
 

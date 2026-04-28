@@ -1,7 +1,7 @@
-import { isObject, Operation, type Range } from 'slate'
+import { isObject, Operation, type Range, type Value } from 'slate'
 
-interface Batch {
-  operations: Operation[]
+interface Batch<V extends Value = Value> {
+  operations: Operation<V>[]
   selectionBefore: Range | null
 }
 
@@ -10,9 +10,9 @@ interface Batch {
  * they can be undone or redone as necessary.
  */
 
-export interface History {
-  redos: Batch[]
-  undos: Batch[]
+export interface History<V extends Value = Value> {
+  redos: Batch<V>[]
+  undos: Batch<V>[]
 }
 
 // eslint-disable-next-line no-redeclare

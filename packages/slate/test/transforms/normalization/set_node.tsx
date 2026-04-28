@@ -5,7 +5,7 @@ import { jsx } from '../..'
 jsx
 
 import _ from 'lodash'
-import { Editor, Element, Transforms } from 'slate'
+import { Editor, Element } from 'slate'
 
 export const input = (
   <editor>
@@ -24,8 +24,7 @@ editor.normalizeNode = (entry) => {
     (node as any).type === 'body' &&
     Editor.string(editor, path, { voids: true }) === 'one'
   ) {
-    Transforms.setNodes(
-      editor,
+    editor.setNodes(
       { attr: { a: false } },
       { at: path, compare: (p, n) => !_.isEqual(p, n) }
     )

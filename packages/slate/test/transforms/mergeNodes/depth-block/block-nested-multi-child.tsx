@@ -4,10 +4,8 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const run = (editor) => {
-  Transforms.mergeNodes(editor, {
+  editor.mergeNodes({
     at: {
       path: [0, 1, 1, 0, 0, 0],
       offset: 0,

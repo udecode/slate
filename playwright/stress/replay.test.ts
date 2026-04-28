@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import {
   assertNoIllegalKernelTransitions,
+  installSlateReactRenderProfiler,
   openExample,
 } from 'slate-browser/playwright'
 
@@ -24,8 +25,10 @@ test('replays a generated browser stress artifact', async ({
 
   const artifact = readStressArtifact(replayPath)
   const steps = artifactStepsToScenarioSteps(artifact)
+  await installSlateReactRenderProfiler(page)
   const editor = await openExample(page, artifact.route, {
     ready: { editor: 'visible' },
+    surface: artifact.surface,
   })
   const result = await editor.scenario.run(`${artifact.id}-replay`, steps, {
     metadata: {

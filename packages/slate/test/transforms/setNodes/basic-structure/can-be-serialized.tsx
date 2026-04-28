@@ -5,11 +5,11 @@ import { jsx } from '../../..'
 jsx
 
 import assert from 'node:assert/strict'
-import { Editor, Operation, Transforms } from 'slate'
+import { Editor, Operation } from 'slate'
 
 export const run = (editor: Editor) => {
-  Transforms.setNodes(editor, { someKey: true }, { at: [0] })
-  const [op] = editor.operations
+  editor.setNodes({ someKey: true }, { at: [0] })
+  const [op] = editor.getOperations()
   const roundTrip: Operation = JSON.parse(JSON.stringify(op))
   assert.deepStrictEqual(op, roundTrip)
 }

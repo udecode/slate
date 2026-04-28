@@ -1,4 +1,4 @@
-import { type Ancestor, type DecoratedRange, Editor, Range } from 'slate'
+import { type DecoratedRange, Editor, Range } from 'slate'
 import { DOMEditor } from '../plugin/dom-editor'
 import { PLACEHOLDER_SYMBOL } from './weak-maps'
 
@@ -16,7 +16,8 @@ const isDecorationFlagsEqual = (range: Range, other: Range) => {
   const { anchor: otherAnchor, focus: otherFocus, ...otherOwnProps } = other
 
   return (
-    range[PLACEHOLDER_SYMBOL] === other[PLACEHOLDER_SYMBOL] &&
+    (range as unknown as Record<PropertyKey, unknown>)[PLACEHOLDER_SYMBOL] ===
+      (other as unknown as Record<PropertyKey, unknown>)[PLACEHOLDER_SYMBOL] &&
     shallowCompare(rangeOwnProps, otherOwnProps)
   )
 }
@@ -107,14 +108,12 @@ export const isTextDecorationsEqual = (
  */
 
 export const splitDecorationsByChild = (
-  editor: Editor,
-  node: Ancestor,
+  editor: import('../plugin/dom-editor').DOMEditor,
+  node: import('slate').Ancestor,
   decorations: DecoratedRange[]
 ): DecoratedRange[][] => {
-  const decorationsByChild = Array.from(
-    node.children,
-    (): DecoratedRange[] => []
-  )
+  const children = Editor.isEditor(node) ? editor.getChildren() : node.children
+  const decorationsByChild = Array.from(children, (): DecoratedRange[] => [])
 
   if (decorations.length === 0) {
     return decorationsByChild
@@ -124,7 +123,7 @@ export const splitDecorationsByChild = (
   const level = path.length
   const ancestorRange = Editor.range(editor, path)
 
-  const cachedChildRanges = new Array<Range | undefined>(node.children.length)
+  const cachedChildRanges = new Array<Range | undefined>(children.length)
 
   const getChildRange = (index: number) => {
     const cachedRange = cachedChildRanges[index]

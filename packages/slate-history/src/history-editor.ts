@@ -1,4 +1,4 @@
-import { type BaseEditor, Editor } from 'slate'
+import { type BaseEditor, Editor, type Value } from 'slate'
 import { History } from './history'
 
 /**
@@ -14,8 +14,8 @@ export const SPLITTING_ONCE = new WeakMap<Editor, boolean | undefined>()
  * `HistoryEditor` contains helpers for history-enabled editors.
  */
 
-export interface HistoryEditor extends BaseEditor {
-  history: History
+export interface HistoryEditor<V extends Value = Value> extends BaseEditor<V> {
+  history: History<V>
   undo: () => void
   redo: () => void
   writeHistory: (stack: 'undos' | 'redos', batch: any) => void
@@ -35,7 +35,7 @@ export const HistoryEditor = {
    * Get the merge flag's current value.
    */
 
-  isMerging(editor: HistoryEditor): boolean | undefined {
+  isMerging<V extends Value>(editor: HistoryEditor<V>): boolean | undefined {
     return MERGING.get(editor)
   },
 
@@ -43,11 +43,16 @@ export const HistoryEditor = {
    * Get the splitting once flag's current value.
    */
 
-  isSplittingOnce(editor: HistoryEditor): boolean | undefined {
+  isSplittingOnce<V extends Value>(
+    editor: HistoryEditor<V>
+  ): boolean | undefined {
     return SPLITTING_ONCE.get(editor)
   },
 
-  setSplittingOnce(editor: HistoryEditor, value: boolean | undefined): void {
+  setSplittingOnce<V extends Value>(
+    editor: HistoryEditor<V>,
+    value: boolean | undefined
+  ): void {
     SPLITTING_ONCE.set(editor, value)
   },
 
@@ -55,7 +60,7 @@ export const HistoryEditor = {
    * Get the saving flag's current value.
    */
 
-  isSaving(editor: HistoryEditor): boolean | undefined {
+  isSaving<V extends Value>(editor: HistoryEditor<V>): boolean | undefined {
     return SAVING.get(editor)
   },
 
@@ -63,7 +68,7 @@ export const HistoryEditor = {
    * Redo to the previous saved state.
    */
 
-  redo(editor: HistoryEditor): void {
+  redo<V extends Value>(editor: HistoryEditor<V>): void {
     editor.redo()
   },
 
@@ -71,7 +76,7 @@ export const HistoryEditor = {
    * Undo to the previous saved state.
    */
 
-  undo(editor: HistoryEditor): void {
+  undo<V extends Value>(editor: HistoryEditor<V>): void {
     editor.undo()
   },
 
@@ -79,7 +84,7 @@ export const HistoryEditor = {
    * Apply a series of changes inside a synchronous `fn`, These operations will
    * be merged into the previous history.
    */
-  withMerging(editor: HistoryEditor, fn: () => void): void {
+  withMerging<V extends Value>(editor: HistoryEditor<V>, fn: () => void): void {
     const prev = HistoryEditor.isMerging(editor)
     MERGING.set(editor, true)
     fn()
@@ -91,7 +96,10 @@ export const HistoryEditor = {
    * operation starts a new batch in the history. Subsequent operations will be
    * merged as usual.
    */
-  withNewBatch(editor: HistoryEditor, fn: () => void): void {
+  withNewBatch<V extends Value>(
+    editor: HistoryEditor<V>,
+    fn: () => void
+  ): void {
     const prev = HistoryEditor.isMerging(editor)
     MERGING.set(editor, true)
     SPLITTING_ONCE.set(editor, true)
@@ -105,7 +113,10 @@ export const HistoryEditor = {
    * the new operations into previous save point in the history.
    */
 
-  withoutMerging(editor: HistoryEditor, fn: () => void): void {
+  withoutMerging<V extends Value>(
+    editor: HistoryEditor<V>,
+    fn: () => void
+  ): void {
     const prev = HistoryEditor.isMerging(editor)
     MERGING.set(editor, false)
     fn()
@@ -117,7 +128,10 @@ export const HistoryEditor = {
    * their operations into the history.
    */
 
-  withoutSaving(editor: HistoryEditor, fn: () => void): void {
+  withoutSaving<V extends Value>(
+    editor: HistoryEditor<V>,
+    fn: () => void
+  ): void {
     const prev = HistoryEditor.isSaving(editor)
     SAVING.set(editor, false)
     try {

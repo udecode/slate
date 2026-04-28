@@ -14,6 +14,8 @@ type DOMStaticRange = globalThis.StaticRange
 
 const DOMNode = globalThis.Node
 const DOMText = globalThis.Text
+const DOCUMENT_POSITION_PRECEDING = 2
+const DOCUMENT_POSITION_FOLLOWING = 4
 
 import { DOMEditor } from '../plugin/dom-editor'
 
@@ -238,7 +240,10 @@ export const getPlainText = (domNode: DOMNode) => {
       text += getPlainText(childNode)
     }
 
-    const display = getComputedStyle(domNode).getPropertyValue('display')
+    const display =
+      getDefaultView(domNode)
+        ?.getComputedStyle(domNode)
+        .getPropertyValue('display') ?? ''
 
     if (display === 'block' || display === 'list' || domNode.tagName === 'BR') {
       text += '\n'
@@ -352,19 +357,23 @@ export const getActiveElement = () => {
  * @returns `true` if `otherNode` is before `node` in the document; otherwise, `false`.
  */
 export const isBefore = (node: DOMNode, otherNode: DOMNode): boolean =>
-  Boolean(
-    node.compareDocumentPosition(otherNode) &
-      DOMNode.DOCUMENT_POSITION_PRECEDING
-  )
+  Boolean(node.compareDocumentPosition(otherNode) & getPositionPreceding(node))
 
 /**
  * @returns `true` if `otherNode` is after `node` in the document; otherwise, `false`.
  */
 export const isAfter = (node: DOMNode, otherNode: DOMNode): boolean =>
-  Boolean(
-    node.compareDocumentPosition(otherNode) &
-      DOMNode.DOCUMENT_POSITION_FOLLOWING
-  )
+  Boolean(node.compareDocumentPosition(otherNode) & getPositionFollowing(node))
+
+const getPositionPreceding = (node: DOMNode) =>
+  getDefaultView(node)
+    ? DOCUMENT_POSITION_PRECEDING
+    : node.DOCUMENT_POSITION_PRECEDING
+
+const getPositionFollowing = (node: DOMNode) =>
+  getDefaultView(node)
+    ? DOCUMENT_POSITION_FOLLOWING
+    : node.DOCUMENT_POSITION_FOLLOWING
 
 /**
  * Shadow DOM-aware version of Element.closest()

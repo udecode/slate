@@ -1,16 +1,27 @@
-import { getCurrentSelection, withTransaction } from '../core/public-state'
-import { Location, Node, Range } from '../interfaces'
+import { withTransaction } from '../core/public-state'
+import {
+  type Ancestor,
+  Location,
+  Node,
+  type Operation,
+  Range,
+} from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import { Path } from '../interfaces/path'
-import { Transforms } from '../interfaces/transforms'
-import type { NodeTransforms } from '../interfaces/transforms/node'
+import type { NodeMutationMethods } from '../interfaces/transforms/node'
 import { matchPath } from '../utils/match-path'
 
-export const liftNodes: NodeTransforms['liftNodes'] = (
+const getChildren = (editor: Editor, node: Ancestor) =>
+  Node.isEditor(node) ? Editor.getChildren(editor) : node.children
+
+export const liftNodes: NodeMutationMethods['liftNodes'] = (
   editor,
   options = {}
 ) => {
-  const liftNodeAtPath = (path: Path) => {
+  const liftNodeAtPath = (
+    path: Path,
+    tx: { apply: (operation: Operation) => void }
+  ) => {
     const [node] = Editor.node(editor, path)
 
     if (Node.isText(node)) {
@@ -29,19 +40,19 @@ export const liftNodes: NodeTransforms['liftNodes'] = (
     }
 
     const index = path.at(-1)!
-    const childCount = parent.children.length
+    const childCount = getChildren(editor, parent).length
 
     if (childCount === 1) {
-      Transforms.moveNodes(editor, {
+      editor.moveNodes({
         at: path,
         to: [...parentPath.slice(0, -1), parentPath.at(-1)! + 1],
       })
-      Transforms.removeNodes(editor, { at: parentPath })
+      editor.removeNodes({ at: parentPath })
       return
     }
 
     if (index === 0) {
-      Transforms.moveNodes(editor, {
+      editor.moveNodes({
         at: path,
         to: parentPath,
       })
@@ -49,29 +60,32 @@ export const liftNodes: NodeTransforms['liftNodes'] = (
     }
 
     if (index === childCount - 1) {
-      Transforms.moveNodes(editor, {
+      editor.moveNodes({
         at: path,
         to: [...parentPath.slice(0, -1), parentPath.at(-1)! + 1],
       })
       return
     }
 
-    editor.apply({
+    tx.apply({
       type: 'split_node',
       path: parentPath,
       position: index + 1,
-      properties: Path.equals(parentPath, []) ? {} : Node.extractProps(parent),
+      properties:
+        Path.equals(parentPath, []) || Node.isEditor(parent)
+          ? {}
+          : Node.extractProps(parent),
     })
 
-    Transforms.moveNodes(editor, {
+    editor.moveNodes({
       at: path,
       to: [...parentPath.slice(0, -1), parentPath.at(-1)! + 1],
     })
   }
 
-  withTransaction(editor, () => {
-    const target = options.at ?? getCurrentSelection(editor)
-    const selectionBefore = getCurrentSelection(editor)
+  withTransaction(editor, (tx) => {
+    const target = tx.resolveTarget({ at: options.at })
+    const selectionBefore = tx.getModelSelection()
     const mode = options.mode ?? 'lowest'
     const voids = options.voids ?? false
     let { match } = options
@@ -84,11 +98,11 @@ export const liftNodes: NodeTransforms['liftNodes'] = (
       if (match == null) {
         match = Location.isPath(target)
           ? matchPath(editor, target)
-          : (node) => !Node.isText(node) && Editor.isBlock(editor, node)
+          : (node) => Node.isElement(node) && Editor.isBlock(editor, node)
       }
 
       if (Location.isPath(target) && options.match == null) {
-        liftNodeAtPath(target)
+        liftNodeAtPath(target, tx)
 
         if (selectionBefore == null) {
           editor.deselect()
@@ -106,7 +120,7 @@ export const liftNodes: NodeTransforms['liftNodes'] = (
         const path = pathRef.unref()
 
         if (path) {
-          liftNodeAtPath(path)
+          liftNodeAtPath(path, tx)
         }
       }
 
@@ -142,7 +156,7 @@ export const liftNodes: NodeTransforms['liftNodes'] = (
     const selectedBaseIndex = wrapperIndex + (startIndex > 0 ? 1 : 0)
 
     for (let childIndex = endIndex; childIndex >= startIndex; childIndex -= 1) {
-      liftNodeAtPath([...startParentPath, childIndex])
+      liftNodeAtPath([...startParentPath, childIndex], tx)
     }
 
     const mapPoint = (point: typeof start) => ({

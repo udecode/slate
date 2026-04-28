@@ -167,6 +167,83 @@ describe('scenario helpers', () => {
     })
   })
 
+  test('serializes replayable browser stress assertion steps', () => {
+    const steps: SlateBrowserScenarioStep[] = [
+      {
+        kind: 'dragTextSelection',
+        label: 'drag-toolbar-target',
+        selector: 'span[data-slate-string="true"]',
+        steps: 12,
+      },
+      {
+        kind: 'assertLocatorCount',
+        label: 'assert-highlights',
+        min: 1,
+        selector: '[data-cy="search-highlighted"]',
+      },
+      {
+        kind: 'assertLocatorCss',
+        label: 'assert-toolbar-visible',
+        property: 'opacity',
+        selector: '[data-test-id="menu"]',
+        value: '1',
+      },
+      {
+        afterSelector: 'p',
+        beforeSelector: 'input[type="text"]',
+        kind: 'assertLocatorVerticalGap',
+        label: 'assert-embed-gap',
+        max: 24,
+        min: 12,
+      },
+      {
+        innerSelector: '[contenteditable="false"]',
+        kind: 'assertLocatorVerticalOffset',
+        label: 'assert-image-offset',
+        max: 1,
+        min: 0,
+        selector: '[data-slate-path="1"]',
+      },
+      {
+        kind: 'assertModelSelectionExpanded',
+        label: 'assert-model-selection-expanded',
+      },
+      {
+        kind: 'assertWindowSelectionText',
+        label: 'assert-native-selection',
+        notEmpty: true,
+      },
+      {
+        budget: {
+          byKind: {
+            editable: { max: 0 },
+            element: 0,
+          },
+          total: { max: 2 },
+        },
+        kind: 'assertRenderBudget',
+        label: 'assert-render-budget',
+      },
+      {
+        kind: 'resetRenderProfiler',
+        label: 'reset-render-profiler',
+      },
+    ]
+
+    expect(createScenarioReplay(steps).replayable).toBe(true)
+    expect(createScenarioReplay(steps).steps.map((step) => step.kind)).toEqual([
+      'dragTextSelection',
+      'assertLocatorCount',
+      'assertLocatorCss',
+      'assertLocatorVerticalGap',
+      'assertLocatorVerticalOffset',
+      'assertModelSelectionExpanded',
+      'assertWindowSelectionText',
+      'assertRenderBudget',
+      'resetRenderProfiler',
+    ])
+  })
+
   test('marks custom scenario steps as non-replayable without serializing functions', () => {
     const replay = createScenarioReplay([
       {

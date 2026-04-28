@@ -10,7 +10,6 @@ import {
   type NodeEntry,
   type Editor as SlateEditor,
   type Element as SlateElement,
-  Transforms,
 } from '../src'
 
 const createParagraphChildren = (text = 'alpha'): Descendant[] => [
@@ -68,7 +67,7 @@ const withLinks = <T extends SlateEditor>(editor: T) => {
       return false
     }
 
-    Transforms.wrapNodes(editor, createLinkNode(url, '') as SlateElement, {
+    editor.wrapNodes(createLinkNode(url, '') as SlateElement, {
       split: true,
     })
 
@@ -85,7 +84,7 @@ const withLinks = <T extends SlateEditor>(editor: T) => {
         const after = Editor.after(editor, linkPath)
 
         if (after) {
-          Transforms.select(editor, after)
+          editor.select(after)
         }
       }
     }
@@ -116,8 +115,8 @@ const withMentions = <T extends SlateEditor>(editor: T) => {
     element.type === 'mention' || markableVoid(element)
 
   e.insertMention = (character: string) => {
-    Transforms.insertNodes(editor, createMentionNode(character))
-    Transforms.move(editor)
+    editor.insertNodes(createMentionNode(character))
+    editor.move()
 
     return true
   }
@@ -142,15 +141,18 @@ const withForcedLayout = (editor: ReturnType<typeof createEditor>) => {
     const [_node, path] = entry
 
     if (path.length === 0) {
-      if (editor.children.length <= 1 && Editor.string(editor, [0, 0]) === '') {
-        Transforms.insertNodes(editor, createForcedLayoutTitle(), {
+      if (
+        Editor.getChildren(editor).length <= 1 &&
+        Editor.string(editor, [0, 0]) === ''
+      ) {
+        editor.insertNodes(createForcedLayoutTitle(), {
           at: [...path, 0],
           select: true,
         })
       }
 
-      if (editor.children.length < 2) {
-        Transforms.insertNodes(editor, createForcedLayoutParagraph(), {
+      if (Editor.getChildren(editor).length < 2) {
+        editor.insertNodes(createForcedLayoutParagraph(), {
           at: [...path, 1],
         })
       }
@@ -159,8 +161,7 @@ const withForcedLayout = (editor: ReturnType<typeof createEditor>) => {
         const slateIndex = childPath[0]
         const enforceType = (type: 'title' | 'paragraph') => {
           if (Node.isElement(child) && child.type !== type) {
-            Transforms.setNodes<SlateElement>(
-              editor,
+            editor.setNodes<SlateElement>(
               { type },
               {
                 at: childPath,
@@ -214,7 +215,7 @@ describe('slate extension contract', () => {
     })
   })
 
-  it('keeps editor.apply as the low-level seam under intercepted editors', () => {
+  it('keeps explicit operation replay under extension wrappers', () => {
     const editor = withTrackedInsertBreak(createEditor())
 
     Editor.replace(editor, {
@@ -226,12 +227,14 @@ describe('slate extension contract', () => {
       marks: null,
     })
 
-    editor.apply({
-      type: 'insert_text',
-      path: [0, 0],
-      offset: 5,
-      text: '!',
-    })
+    editor.applyOperations([
+      {
+        type: 'insert_text',
+        path: [0, 0],
+        offset: 5,
+        text: '!',
+      },
+    ])
 
     assert.equal(
       Editor.getSnapshot(editor).children[0].children[0].text,
@@ -324,7 +327,7 @@ describe('slate extension contract', () => {
     })
 
     assert.equal(editor.wrapLinkSelection('https://example.com'), true)
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [0, 2], offset: 0 },
       focus: { path: [0, 2], offset: 0 },
     })

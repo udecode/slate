@@ -1,5 +1,6 @@
 import {
   createEditor,
+  Editor,
   type InsertNodeOperation,
   type Operation,
   type TextOf,
@@ -19,6 +20,12 @@ type CustomValue = ParagraphElement[]
 
 const editor = createEditor<CustomValue>()
 
+Editor.replace(editor, {
+  children: [{ type: 'paragraph', children: [{ text: '' }] }],
+  selection: null,
+  marks: null,
+})
+
 const insertText: Operation<CustomValue> = {
   type: 'insert_text',
   path: [0, 0],
@@ -32,8 +39,7 @@ const insertNode: InsertNodeOperation<CustomValue> = {
   node: { type: 'paragraph', children: [{ text: 'a', bold: true }] },
 }
 
-editor.apply(insertText)
-editor.apply(insertNode)
+editor.applyOperations([insertText, insertNode])
 
 if (!('children' in insertNode.node)) {
   throw new Error('Expected inserted node to be an element')

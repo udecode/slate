@@ -7,14 +7,9 @@ import React, {
   useEffect,
   useState,
 } from 'react'
-import {
-  type Descendant,
-  type Editor,
-  createEditor as slateCreateEditor,
-} from 'slate'
+import { Editor, createEditor as slateCreateEditor, type Value } from 'slate'
 import {
   Editable,
-  type RenderChunkProps,
   type RenderElementProps,
   Slate,
   useSelected,
@@ -32,11 +27,7 @@ const SUPPORTS_LOAF_TIMING =
 
 interface Config {
   blocks: number
-  chunking: boolean
-  chunkSize: number
-  chunkDivs: boolean
-  chunkOutlines: boolean
-  contentVisibilityMode: 'none' | 'element' | 'chunk'
+  contentVisibilityMode: 'none' | 'element'
   showSelectedHeadings: boolean
   strictMode: boolean
 }
@@ -45,8 +36,6 @@ const blocksOptions = [
   2, 1000, 2500, 5000, 7500, 10_000, 15_000, 20_000, 25_000, 30_000, 40_000,
   50_000, 100_000, 200_000,
 ]
-
-const chunkSizeOptions = [3, 10, 100, 1000]
 
 const searchParams =
   typeof document === 'undefined'
@@ -74,14 +63,10 @@ const parseEnum = <T extends string>(
 
 const initialConfig: Config = {
   blocks: parseNumber('blocks', 10_000),
-  chunking: parseBoolean('chunking', true),
-  chunkSize: parseNumber('chunk_size', 1000),
-  chunkDivs: parseBoolean('chunk_divs', true),
-  chunkOutlines: parseBoolean('chunk_outlines', false),
   contentVisibilityMode: parseEnum(
     'content_visibility',
-    ['none', 'element', 'chunk'],
-    'chunk'
+    ['none', 'element'],
+    'element'
   ),
   showSelectedHeadings: parseBoolean('selected_headings', false),
   strictMode: parseBoolean('strict', false),
@@ -90,10 +75,6 @@ const initialConfig: Config = {
 const setSearchParams = (config: Config) => {
   if (searchParams) {
     searchParams.set('blocks', config.blocks.toString())
-    searchParams.set('chunking', config.chunking ? 'true' : 'false')
-    searchParams.set('chunk_size', config.chunkSize.toString())
-    searchParams.set('chunk_divs', config.chunkDivs ? 'true' : 'false')
-    searchParams.set('chunk_outlines', config.chunkOutlines ? 'true' : 'false')
     searchParams.set('content_visibility', config.contentVisibilityMode)
     searchParams.set(
       'selected_headings',
@@ -104,7 +85,7 @@ const setSearchParams = (config: Config) => {
   }
 }
 
-const cachedInitialValue: Descendant[] = []
+const cachedInitialValue: Value = []
 
 const getInitialValue = (blocks: number) => {
   if (cachedInitialValue.length >= blocks) {
@@ -132,22 +113,15 @@ const getInitialValue = (blocks: number) => {
   return cachedInitialValue.slice()
 }
 
-const initialInitialValue =
+const initialInitialValue: Value =
   typeof window === 'undefined' ? [] : getInitialValue(initialConfig.blocks)
 
-const createEditor = (config: Config) => {
-  const editor = withReact(slateCreateEditor())
-
-  editor.getChunkSize = (node) =>
-    config.chunking && node === editor ? config.chunkSize : null
-
-  return editor
-}
+const createEditor = (_config: Config) => withReact(slateCreateEditor())
 
 const HugeDocumentExample = () => {
   const [rendering, setRendering] = useState(false)
   const [config, baseSetConfig] = useState<Config>(initialConfig)
-  const [initialValue, setInitialValue] = useState(initialInitialValue)
+  const [initialValue, setInitialValue] = useState<Value>(initialInitialValue)
   const [editor, setEditor] = useState(() => createEditor(config))
   const [editorVersion, setEditorVersion] = useState(0)
 
@@ -180,17 +154,6 @@ const HugeDocumentExample = () => {
     [config.contentVisibilityMode, config.showSelectedHeadings]
   )
 
-  const renderChunk = useCallback(
-    (props: RenderChunkProps) => (
-      <Chunk
-        {...props}
-        contentVisibilityLowest={config.contentVisibilityMode === 'chunk'}
-        outline={config.chunkOutlines}
-      />
-    ),
-    [config.contentVisibilityMode, config.chunkOutlines]
-  )
-
   const editable = rendering ? (
     <div>Rendering&hellip;</div>
   ) : (
@@ -198,7 +161,6 @@ const HugeDocumentExample = () => {
       <Editable
         autoFocus
         placeholder="Enter some text…"
-        renderChunk={config.chunkDivs ? renderChunk : undefined}
         renderElement={renderElement}
         spellCheck
       />
@@ -221,30 +183,6 @@ const HugeDocumentExample = () => {
 
       {editableWithStrictMode}
     </>
-  )
-}
-
-const Chunk = ({
-  attributes,
-  children,
-  lowest,
-  contentVisibilityLowest,
-  outline,
-}: RenderChunkProps & {
-  contentVisibilityLowest: boolean
-  outline: boolean
-}) => {
-  const style: CSSProperties = {
-    contentVisibility: contentVisibilityLowest && lowest ? 'auto' : undefined,
-    border: outline ? '1px solid red' : undefined,
-    padding: outline ? 20 : undefined,
-    marginBottom: outline ? 20 : undefined,
-  }
-
-  return (
-    <div {...attributes} style={style}>
-      {children}
-    </div>
   )
 }
 
@@ -348,13 +286,12 @@ const PerformanceControls = ({
   useEffect(() => {
     if (!SUPPORTS_LOAF_TIMING) return
 
-    const { apply } = editor
     let afterOperation = false
-
-    editor.apply = (operation) => {
-      apply(operation)
-      afterOperation = true
-    }
+    const unsubscribe = Editor.subscribe(editor, (_snapshot, change) => {
+      if (change?.operations.length) {
+        afterOperation = true
+      }
+    })
 
     const observer = new PerformanceObserver((list) => {
       list.getEntries().forEach((entry) => {
@@ -368,7 +305,10 @@ const PerformanceControls = ({
     // Register the observer for events
     observer.observe({ type: 'long-animation-frame' })
 
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      unsubscribe()
+    }
   }, [editor])
 
   return (
@@ -401,77 +341,6 @@ const PerformanceControls = ({
 
         <p>
           <label>
-            <input
-              checked={config.chunking}
-              onChange={(event) =>
-                setConfig({
-                  chunking: event.target.checked,
-                })
-              }
-              type="checkbox"
-            />{' '}
-            Chunking enabled
-          </label>
-        </p>
-
-        {config.chunking && (
-          <>
-            <p>
-              <label>
-                <input
-                  checked={config.chunkDivs}
-                  onChange={(event) =>
-                    setConfig({
-                      chunkDivs: event.target.checked,
-                    })
-                  }
-                  type="checkbox"
-                />{' '}
-                Render each chunk as a separate <code>&lt;div&gt;</code>
-              </label>
-            </p>
-
-            {config.chunkDivs && (
-              <p>
-                <label>
-                  <input
-                    checked={config.chunkOutlines}
-                    onChange={(event) =>
-                      setConfig({
-                        chunkOutlines: event.target.checked,
-                      })
-                    }
-                    type="checkbox"
-                  />{' '}
-                  Outline each chunk
-                </label>
-              </p>
-            )}
-
-            <p>
-              <label>
-                Chunk size:{' '}
-                <select
-                  onChange={(event) =>
-                    setConfig({
-                      chunkSize: Number.parseInt(event.target.value, 10),
-                    })
-                  }
-                  value={config.chunkSize}
-                >
-                  {chunkSizeOptions.map((chunkSize) => (
-                    <option key={chunkSize} value={chunkSize}>
-                      {chunkSize}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </p>
-          </>
-        )}
-
-        <p>
-          <label>
             Set <code>content-visibility: auto</code> on:{' '}
             <select
               onChange={(event) =>
@@ -483,9 +352,6 @@ const PerformanceControls = ({
             >
               <option value="none">None</option>
               <option value="element">Elements</option>
-              {config.chunking && config.chunkDivs && (
-                <option value="chunk">Lowest chunks</option>
-              )}
             </select>
           </label>
         </p>

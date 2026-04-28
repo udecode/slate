@@ -4,10 +4,8 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const run = (editor, options = {}) => {
-  Transforms.insertFragment(editor, <fragment>fragment</fragment>, options)
+  editor.insertFragment(<fragment>fragment</fragment>, options)
 }
 export const input = (
   <editor>

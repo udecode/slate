@@ -1,10 +1,6 @@
 import {
-  type DecoratedRange,
-  type Descendant,
   Editor,
   type EditorSnapshot,
-  type NodeEntry,
-  type Path,
   type Range,
   type RuntimeId,
   type SnapshotChange,
@@ -17,14 +13,6 @@ export type SlateRangeProjection<T = unknown> = {
 }
 
 export type SlateProjection<T = unknown> = SlateRangeProjection<T>
-
-export type SlateDecorateCompatData = Record<string, unknown>
-
-export type SlateDecorateCompat = (entry: NodeEntry) => DecoratedRange[]
-
-export type SlateDecorateCompatSourceOptions = {
-  editor?: Editor
-}
 
 export type SlateProjectionSlice<T = unknown> = {
   data?: T
@@ -50,6 +38,7 @@ export type SlateSourceDirtinessClass =
 
 export type SlateSourceDirtinessContext = {
   change?: SnapshotChange
+  forceInvalidate?: boolean
   reason: 'annotation' | 'editor' | 'external' | 'refresh'
   snapshot: EditorSnapshot
   sourceId?: string
@@ -59,6 +48,10 @@ export type SlateCustomSourceDirtiness = (
   context: SlateSourceDirtinessContext
 ) => boolean
 
+export type SlateProjectionRuntimeScope =
+  | readonly RuntimeId[]
+  | ((context: SlateSourceDirtinessContext) => readonly RuntimeId[] | null)
+
 export type SlateSourceDirtiness =
   | SlateSourceDirtinessClass
   | readonly SlateSourceDirtinessClass[]
@@ -66,6 +59,7 @@ export type SlateSourceDirtiness =
 
 export type SlateProjectionStoreOptions = {
   dirtiness?: SlateSourceDirtiness
+  runtimeScope?: SlateProjectionRuntimeScope
   sourceId?: string
 }
 
@@ -73,6 +67,7 @@ export type SlateProjectionStoreRefreshOptions = {
   change?: SnapshotChange
   forceInvalidate?: boolean
   reason?: SlateSourceDirtinessContext['reason']
+  sourceId?: string
 }
 
 export type SlateProjectionStoreSnapshot<T = unknown> = Readonly<
@@ -86,9 +81,14 @@ export type SlateProjectionStoreMetrics = Readonly<{
 export type SlateProjectionStore<T = unknown> = {
   destroy: () => void
   getMetrics: () => SlateProjectionStoreMetrics
+  getRuntimeSnapshot: (
+    runtimeId: RuntimeId
+  ) => readonly SlateProjectionSlice<T>[]
   getSnapshot: () => SlateProjectionStoreSnapshot<T>
   refresh: (options?: SlateProjectionStoreRefreshOptions) => void
   subscribe: (listener: () => void) => () => void
+  subscribeRuntimeId: (runtimeId: RuntimeId, listener: () => void) => () => void
+  subscribeSourceId: (sourceId: string, listener: () => void) => () => void
 }
 
 const EMPTY_SNAPSHOT = Object.freeze(
@@ -99,80 +99,12 @@ const EMPTY_METRICS = Object.freeze({
   recomputeCount: 0,
 }) as SlateProjectionStoreMetrics
 
+const EMPTY_RUNTIME_SNAPSHOT = Object.freeze(
+  []
+) as readonly SlateProjectionSlice<unknown>[]
+
 const INVALID_PROJECTION_RANGE_ERROR =
   /Cannot project a range outside the committed snapshot|Point offset .* is outside text bounds/
-
-const pathKey = (path: Path) => path.join('.')
-
-const isElementLike = (
-  value: Descendant
-): value is Exclude<Descendant, { text: string }> =>
-  'children' in value && Array.isArray(value.children)
-
-const toDecorateCompatData = (
-  decoration: DecoratedRange & Record<string, unknown>
-): SlateDecorateCompatData => {
-  const { anchor: _anchor, focus: _focus, merge: _merge, ...data } = decoration
-
-  return data
-}
-
-export const createSlateDecorateCompatSource =
-  (
-    decorate: SlateDecorateCompat,
-    options: SlateDecorateCompatSourceOptions = {}
-  ): SlateProjectionSource<SlateDecorateCompatData> =>
-  (snapshot) => {
-    const projections: SlateProjection<SlateDecorateCompatData>[] = []
-    const rootNode =
-      options.editor ?? ({ children: snapshot.children } as Descendant)
-    const children = options.editor
-      ? Editor.getChildren(options.editor)
-      : snapshot.children
-
-    decorate([rootNode, []] as NodeEntry).forEach(
-      (decoration, decorationIndex) => {
-        projections.push({
-          data: toDecorateCompatData(
-            decoration as DecoratedRange & Record<string, unknown>
-          ),
-          key: `decorate::${decorationIndex}`,
-          range: {
-            anchor: decoration.anchor,
-            focus: decoration.focus,
-          },
-        })
-      }
-    )
-
-    const visit = (nodes: readonly Descendant[], parentPath: Path) => {
-      nodes.forEach((node, index) => {
-        const path = [...parentPath, index] as Path
-        const decorations = decorate([node, path] as NodeEntry)
-
-        decorations.forEach((decoration, decorationIndex) => {
-          projections.push({
-            data: toDecorateCompatData(
-              decoration as DecoratedRange & Record<string, unknown>
-            ),
-            key: `decorate:${pathKey(path)}:${decorationIndex}`,
-            range: {
-              anchor: decoration.anchor,
-              focus: decoration.focus,
-            },
-          })
-        })
-
-        if (isElementLike(node)) {
-          visit(node.children, path)
-        }
-      })
-    }
-
-    visit(children, [])
-
-    return projections
-  }
 
 const isSlateSourceDirtinessList = (
   value: SlateSourceDirtiness
@@ -198,26 +130,20 @@ const areSlicesEqual = <T>(
     )
   })
 
-const areSnapshotsEqual = (
+const getChangedRuntimeIds = (
   left: SlateProjectionStoreSnapshot,
   right: SlateProjectionStoreSnapshot
 ) => {
-  const leftKeys = Object.keys(left)
-  const rightKeys = Object.keys(right)
+  const runtimeIds = new Set([...Object.keys(left), ...Object.keys(right)])
+  const changedRuntimeIds: RuntimeId[] = []
 
-  if (leftKeys.length !== rightKeys.length) return false
-
-  for (const runtimeId of leftKeys) {
-    if (!right[runtimeId]) {
-      return false
-    }
-
+  for (const runtimeId of runtimeIds) {
     if (!areSlicesEqual(left[runtimeId] ?? [], right[runtimeId] ?? [])) {
-      return false
+      changedRuntimeIds.push(runtimeId)
     }
   }
 
-  return true
+  return changedRuntimeIds
 }
 
 const matchesDirtinessClass = (
@@ -257,6 +183,40 @@ export const isSlateSourceDirty = (
     return dirtiness.some((entry) => matchesDirtinessClass(entry, context))
   }
   return matchesDirtinessClass(dirtiness, context)
+}
+
+const getRuntimeScope = (
+  runtimeScope: SlateProjectionRuntimeScope | undefined,
+  context: SlateSourceDirtinessContext
+) => {
+  if (!runtimeScope) {
+    return null
+  }
+
+  return typeof runtimeScope === 'function'
+    ? runtimeScope(context)
+    : runtimeScope
+}
+
+const isRuntimeScopeDirty = (
+  runtimeScope: SlateProjectionRuntimeScope | undefined,
+  context: SlateSourceDirtinessContext
+) => {
+  const decorationImpactRuntimeIds = context.change?.decorationImpactRuntimeIds
+
+  if (!decorationImpactRuntimeIds) {
+    return true
+  }
+
+  const scopedRuntimeIds = getRuntimeScope(runtimeScope, context)
+
+  if (!scopedRuntimeIds) {
+    return true
+  }
+
+  const impactedRuntimeIds = new Set(decorationImpactRuntimeIds)
+
+  return scopedRuntimeIds.some((runtimeId) => impactedRuntimeIds.has(runtimeId))
 }
 
 const buildProjectionSnapshot = <T>(
@@ -311,6 +271,8 @@ export const createSlateProjectionStore = <T>(
   options: SlateProjectionStoreOptions = {}
 ): SlateProjectionStore<T> => {
   const listeners = new Set<() => void>()
+  const runtimeListeners = new Map<RuntimeId, Set<() => void>>()
+  const sourceListeners = new Map<string, Set<() => void>>()
   let destroyed = false
   let metrics = EMPTY_METRICS
   let snapshot = buildProjectionSnapshot(
@@ -323,12 +285,29 @@ export const createSlateProjectionStore = <T>(
       return
     }
 
+    if (
+      !context.forceInvalidate &&
+      !isRuntimeScopeDirty(options.runtimeScope, context)
+    ) {
+      return
+    }
+
     const nextSnapshot = buildProjectionSnapshot(
       editor,
       source(context.snapshot)
     )
 
-    if (areSnapshotsEqual(snapshot, nextSnapshot)) {
+    const changedRuntimeIds = context.forceInvalidate
+      ? Array.from(
+          new Set([
+            ...Object.keys(snapshot),
+            ...Object.keys(nextSnapshot),
+            ...runtimeListeners.keys(),
+          ])
+        )
+      : getChangedRuntimeIds(snapshot, nextSnapshot)
+
+    if (changedRuntimeIds.length === 0) {
       return
     }
 
@@ -339,6 +318,16 @@ export const createSlateProjectionStore = <T>(
     listeners.forEach((listener) => {
       listener()
     })
+    changedRuntimeIds.forEach((runtimeId) => {
+      runtimeListeners.get(runtimeId)?.forEach((listener) => {
+        listener()
+      })
+    })
+    if (options.sourceId) {
+      sourceListeners.get(options.sourceId)?.forEach((listener) => {
+        listener()
+      })
+    }
   }
 
   const unsubscribe = editor.subscribe(
@@ -357,17 +346,35 @@ export const createSlateProjectionStore = <T>(
       if (destroyed) return
       destroyed = true
       listeners.clear()
+      runtimeListeners.clear()
+      sourceListeners.clear()
       unsubscribe()
     },
     getMetrics() {
       return metrics
     },
+    getRuntimeSnapshot(runtimeId) {
+      return (
+        (snapshot[runtimeId] as
+          | readonly SlateProjectionSlice<T>[]
+          | undefined) ??
+        (EMPTY_RUNTIME_SNAPSHOT as readonly SlateProjectionSlice<T>[])
+      )
+    },
     getSnapshot() {
       return snapshot
     },
     refresh(refreshOptions = {}) {
+      if (
+        refreshOptions.sourceId &&
+        refreshOptions.sourceId !== options.sourceId
+      ) {
+        return
+      }
+
       recompute({
         change: refreshOptions.change,
+        forceInvalidate: refreshOptions.forceInvalidate,
         reason: refreshOptions.reason ?? 'refresh',
         snapshot: Editor.getSnapshot(editor),
         sourceId: options.sourceId,
@@ -377,6 +384,30 @@ export const createSlateProjectionStore = <T>(
       listeners.add(listener)
       return () => {
         listeners.delete(listener)
+      }
+    },
+    subscribeRuntimeId(runtimeId, listener) {
+      const listenersForRuntimeId = runtimeListeners.get(runtimeId) ?? new Set()
+      listenersForRuntimeId.add(listener)
+      runtimeListeners.set(runtimeId, listenersForRuntimeId)
+
+      return () => {
+        listenersForRuntimeId.delete(listener)
+        if (listenersForRuntimeId.size === 0) {
+          runtimeListeners.delete(runtimeId)
+        }
+      }
+    },
+    subscribeSourceId(sourceId, listener) {
+      const listenersForSourceId = sourceListeners.get(sourceId) ?? new Set()
+      listenersForSourceId.add(listener)
+      sourceListeners.set(sourceId, listenersForSourceId)
+
+      return () => {
+        listenersForSourceId.delete(listener)
+        if (listenersForSourceId.size === 0) {
+          sourceListeners.delete(sourceId)
+        }
       }
     },
   }

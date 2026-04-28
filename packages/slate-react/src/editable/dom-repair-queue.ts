@@ -12,6 +12,8 @@ import {
   recordEditableKernelTrace,
 } from './editing-kernel'
 import type { EditableInputController } from './input-state'
+import { readRuntimeText } from './runtime-live-state'
+import { readRuntimeSelection } from './runtime-selection-state'
 
 export type DOMInputRepair = {
   data: string | null
@@ -121,7 +123,7 @@ export const createDOMRepairQueue = ({
           ? anchorNode.closest('[data-slate-node="text"]')
           : null
       const path = textHost ? getSlateNodePathFromDOMElement(textHost) : null
-      const slateNode = path ? Editor.getLiveText(editor, path) : null
+      const slateNode = path ? readRuntimeText(editor, path) : null
 
       if (slateNode && anchorOffset != null && path) {
         const offset = Math.max(
@@ -166,7 +168,7 @@ export const createDOMRepairQueue = ({
 
       const isCurrentRepairFrame = () =>
         frameId === null || isDOMRepairFrameCurrent(frameState, frameId)
-      const selectionBefore = Editor.getLiveSelection(editor)
+      const selectionBefore = readRuntimeSelection(editor)
       recordEditableKernelTrace({
         editor,
         trace: {
@@ -189,7 +191,7 @@ export const createDOMRepairQueue = ({
           return
         }
 
-        const selection = Editor.getLiveSelection(editor)
+        const selection = readRuntimeSelection(editor)
 
         if (!selection || !Range.isCollapsed(selection)) {
           return

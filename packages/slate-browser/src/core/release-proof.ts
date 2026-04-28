@@ -73,7 +73,8 @@ export const SLATE_BROWSER_RELEASE_DISCIPLINE_GUARDS = [
   'selection-rebase-contract',
   'rendered-dom-shape-contract',
   'destructive-leaf-boundary-gauntlet',
-  'legacy-leaf-delete-parity',
+  'leaf-delete-parity',
+  'compat-alias-hard-cut-contract',
 ] as const
 
 export const createBrowserMobileReleaseProofArtifact = ({

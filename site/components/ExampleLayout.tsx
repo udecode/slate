@@ -132,14 +132,9 @@ export function ExampleLayout({
           <ExampleTitle>
             {exampleName}
             <A
-              href={`https://github.com/ianstormtaylor/slate/blob/main/site/examples/js/${examplePath}.jsx`}
-            >
-              <Pill>JS Code</Pill>
-            </A>
-            <A
               href={`https://github.com/ianstormtaylor/slate/blob/main/site/examples/ts/${examplePath}.tsx`}
             >
-              <Pill>TS Code</Pill>
+              <Pill>Code</Pill>
             </A>
           </ExampleTitle>
         </ExampleHeader>

@@ -1,4 +1,4 @@
-import { createEditor } from 'slate'
+import { createEditor, Editor } from 'slate'
 
 export const input = createEditor() as any
 
@@ -18,32 +18,33 @@ input.shouldNormalize = (options: any) => {
   return shouldNormalize(options)
 }
 
-input.children = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'Before the collapsible.' }],
-  },
-  {
-    type: 'collapsible',
-    children: [
-      {
-        type: 'collapsible-summary',
-        children: [{ text: 'Summary' }],
-      },
-      {
-        type: 'collapsible-content',
-        children: [
-          {
-            type: 'paragraph',
-            children: [{ text: 'is' }, { text: ' here' }],
-          },
-        ],
-      },
-    ],
-  },
-]
-
-input.selection = null
+Editor.replace(input, {
+  children: [
+    {
+      type: 'paragraph',
+      children: [{ text: 'Before the collapsible.' }],
+    },
+    {
+      type: 'collapsible',
+      children: [
+        {
+          type: 'collapsible-summary',
+          children: [{ text: 'Summary' }],
+        },
+        {
+          type: 'collapsible-content',
+          children: [
+            {
+              type: 'paragraph',
+              children: [{ text: 'is' }, { text: ' here' }],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+  selection: null,
+})
 
 export const output = {
   children: [

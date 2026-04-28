@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { createEditor, type Descendant, Editor, setTargetRuntime } from '../src'
+import { createEditor, type Descendant, Editor } from '../src'
+import { setEditorTargetRuntime } from '../src/internal'
 
 const paragraph = (text: string): Descendant => ({
   type: 'paragraph',
@@ -27,7 +28,7 @@ describe('editor methods', () => {
     const editor = setupEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -68,7 +69,7 @@ describe('editor methods', () => {
       },
     })
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 
@@ -105,7 +106,7 @@ describe('editor methods', () => {
       },
     })
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         return {
           anchor: { path: [1, 0], offset: 0 },
@@ -145,7 +146,7 @@ describe('editor methods', () => {
       },
     })
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         return {
           anchor: { path: [1, 0], offset: 0 },
@@ -186,7 +187,7 @@ describe('editor methods', () => {
       },
     })
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         return {
           anchor: { path: [1, 0], offset: 0 },
@@ -233,7 +234,7 @@ describe('editor methods', () => {
       },
     })
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         return {
           anchor: { path: [1, 0], offset: 0 },

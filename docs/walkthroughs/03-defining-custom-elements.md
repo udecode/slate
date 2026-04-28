@@ -23,7 +23,9 @@ const App = () => {
         onKeyDown={event => {
           if (event.key === '&') {
             event.preventDefault()
-            editor.insertText('and')
+            editor.update(() => {
+              editor.insertText('and')
+            })
           }
         }}
       />
@@ -95,7 +97,9 @@ const App = () => {
         onKeyDown={event => {
           if (event.key === '&') {
             event.preventDefault()
-            editor.insertText('and')
+            editor.update(() => {
+              editor.insertText('and')
+            })
           }
         }}
       />
@@ -119,8 +123,8 @@ const DefaultElement = props => {
 Okay, but now we'll need a way for the user to actually turn a block into a code block. So let's change our `onKeyDown` function to add a `` Ctrl-` `` shortcut that does just that:
 
 ```jsx
-// Import the `Editor` and `Transforms` helpers from Slate.
-import { Editor, Transforms, Element } from 'slate'
+// Import the `Editor` and `Element` helpers from Slate.
+import { Editor, Element } from 'slate'
 
 const initialValue = [
   {
@@ -150,11 +154,14 @@ const App = () => {
             // Prevent the "`" from being inserted by default.
             event.preventDefault()
             // Otherwise, set the currently selected blocks type to "code".
-            Transforms.setNodes(
-              editor,
-              { type: 'code' },
-              { match: n => Element.isElement(n) && Editor.isBlock(editor, n) }
-            )
+            editor.update(() => {
+              editor.setNodes(
+                { type: 'code' },
+                {
+                  match: n => Element.isElement(n) && Editor.isBlock(editor, n),
+                }
+              )
+            })
           }
         }}
       />
@@ -211,11 +218,14 @@ const App = () => {
               match: n => n.type === 'code',
             })
             // Toggle the block type depending on whether there's already a match.
-            Transforms.setNodes(
-              editor,
-              { type: match ? 'paragraph' : 'code' },
-              { match: n => Element.isElement(n) && Editor.isBlock(editor, n) }
-            )
+            editor.update(() => {
+              editor.setNodes(
+                { type: match ? 'paragraph' : 'code' },
+                {
+                  match: n => Element.isElement(n) && Editor.isBlock(editor, n),
+                }
+              )
+            })
           }
         }}
       />

@@ -4,10 +4,10 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Editor, Element, Transforms } from 'slate'
+import { Editor, Element } from 'slate'
 
 export const run = (editor) => {
-  Transforms.moveNodes(editor, {
+  editor.moveNodes({
     match: (n) => Element.isElement(n) && Editor.isBlock(editor, n),
     to: [1],
   })

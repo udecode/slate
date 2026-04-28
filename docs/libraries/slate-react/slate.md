@@ -9,10 +9,10 @@ The `Slate` component must include somewhere in its `children` the `Editable` co
 ```typescript
 type SlateProps = {
   editor: ReactEditor
-  value: Descendant[]
+  initialValue?: Descendant[]
   children: React.ReactNode
-  onChange?: (value: Descendant[]) => void
   onSelectionChange?: (selection: Selection) => void
+  onSnapshotChange?: (snapshot: EditorSnapshot, commit: EditorCommit | null) => void
   onValueChange?: (value: Descendant[]) => void
 }
 ```
@@ -21,26 +21,22 @@ type SlateProps = {
 
 An instance of `ReactEditor`
 
-#### `props.value: Descendant[]`
+#### `props.initialValue?: Descendant[]`
 
-The initial value of the Editor.
-
-This prop is deceptively named.
-
-Slate once was a controlled component (i.e. it's contents were strictly controlled by the `value` prop) but due to features like its edit history which would be corrupted by direct editing of the `value` it is no longer a controlled component.
+The initial value of the editor.
 
 #### `props.children: React.ReactNode`
 
 The `children` which must contain an `Editable` component.
 
-#### `props.onChange: (value: Descendant[]) => void`
-
-An optional callback function which you can use to be notified of changes in the editor's value.
-
 #### `props.onValueChange?: (value: Descendant[]) => void`
 
-`props.onChange` alias.
+A callback that runs after committed document-value changes.
 
 #### `props.onSelectionChange?: (selection: Selection) => void`
 
-An optional callback function which you can use to be notified of changes of the editor's selection.
+A callback that runs after committed selection changes.
+
+#### `props.onSnapshotChange?: (snapshot: EditorSnapshot, commit: EditorCommit | null) => void`
+
+A callback that runs after every committed editor snapshot. Use this when a React integration needs both document and selection updates from the adapter layer.

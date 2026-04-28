@@ -15,6 +15,8 @@ import { ReactEditor } from '../plugin/react-editor'
 import type { EditableCommand } from './editing-kernel'
 import type { EditableRepairRequest } from './input-controller'
 import { applyEditableCommand } from './mutation-controller'
+import { readRuntimeNode } from './runtime-live-state'
+import { readRuntimeSelection } from './runtime-selection-state'
 
 type EditablePasteHandler = (
   event: ClipboardEvent<HTMLDivElement>
@@ -103,7 +105,7 @@ const resolveDragTarget = (editor: ReactEditor, target: EventTarget) => {
       : null
 
   if (path != null) {
-    const node = Editor.getLiveNode(editor, path)
+    const node = readRuntimeNode(editor, path)
 
     if (node) {
       return { node, path }
@@ -393,7 +395,7 @@ export const applyEditableDrop = ({
     event.preventDefault()
 
     // Keep a reference to the dragged range before updating selection
-    const draggedRange = Editor.getLiveSelection(editor)
+    const draggedRange = readRuntimeSelection(editor)
 
     // Find the range where the drop happened
     const range = ReactEditor.findEventRange(editor, event)

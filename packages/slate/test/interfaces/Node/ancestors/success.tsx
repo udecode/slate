@@ -13,5 +13,5 @@ export const test = (value) => {
 }
 export const output = [
   [input, []],
-  [input.children[0], [0]],
+  [Node.get(input, [0]), [0]],
 ]

@@ -1,16 +1,27 @@
-import { getCurrentSelection } from '../core/public-state'
+import {
+  getCurrentSelection,
+  getLiveNode,
+  getLiveText,
+} from '../core/public-state'
 import { Editor, type EditorPositionsOptions } from '../interfaces/editor'
+import type { Descendant } from '../interfaces/node'
 import { Node } from '../interfaces/node'
 import { Path } from '../interfaces/path'
 import type { Point } from '../interfaces/point'
 import { Range } from '../interfaces/range'
-import { projectRangeInSnapshot } from '../range-projection'
 import { getCharacterDistance, getWordDistance } from '../utils/string'
 
 type PositionSegment = {
+  atomic?: boolean
+  groupPath: Path
   path: Path
   start: number
   end: number
+  text: string
+}
+
+type LiveTextEntry = {
+  path: Path
   text: string
 }
 
@@ -28,25 +39,243 @@ const comparePoints = (left: Point, right: Point) => {
   return left.offset < right.offset ? -1 : 1
 }
 
-const isPathInsideVoid = (editor: Editor, path: Path) => {
-  for (let depth = path.length - 1; depth > 0; depth -= 1) {
-    const [ancestor] = Editor.node(editor, path.slice(0, depth))
+const getAtomicNonTraversablePoint = (
+  editor: Editor,
+  path: Path,
+  voids: boolean
+): { isStart: boolean; point: Point } | null => {
+  if (voids) {
+    return null
+  }
 
-    if (Node.isElement(ancestor) && editor.isVoid(ancestor)) {
-      return true
+  const atomicEntry = Editor.above(editor, {
+    at: path,
+    match: (node) =>
+      Node.isElement(node) &&
+      (Editor.isVoid(editor, node) || Editor.isElementReadOnly(editor, node)),
+    mode: 'highest',
+    voids: true,
+  })
+
+  if (!atomicEntry) {
+    return null
+  }
+
+  const [, atomicPath] = atomicEntry
+  const start = Editor.start(editor, atomicPath)
+
+  return {
+    isStart: Path.equals(start.path, path),
+    point: start,
+  }
+}
+
+const assertValidPoint = (entry: LiveTextEntry, point: Point) => {
+  if (point.offset < 0 || point.offset > entry.text.length) {
+    throw new Error(
+      `Point offset ${point.offset} is outside text bounds for ${entry.path.join(
+        '.'
+      )}`
+    )
+  }
+}
+
+const collectTextEntries = (
+  nodes: readonly Descendant[],
+  parentPath: Path = []
+): LiveTextEntry[] => {
+  const entries: LiveTextEntry[] = []
+
+  nodes.forEach((node, index) => {
+    const path = [...parentPath, index] as Path
+
+    if (Node.isText(node)) {
+      entries.push({ path, text: node.text })
+      return
+    }
+
+    entries.push(...collectTextEntries(node.children, path))
+  })
+
+  return entries
+}
+
+const getTextEntriesForTopLevel = (
+  editor: Editor,
+  blockIndex: number
+): LiveTextEntry[] => {
+  const node = getLiveNode(editor, [blockIndex])
+
+  if (!node) {
+    return []
+  }
+
+  if (Node.isText(node)) {
+    return [{ path: [blockIndex] as Path, text: node.text }]
+  }
+
+  if (!Node.isElement(node)) {
+    return []
+  }
+
+  return collectTextEntries(node.children, [blockIndex])
+}
+
+const getTextEntryAtPath = (
+  editor: Editor,
+  path: Path
+): LiveTextEntry | null => {
+  const node = getLiveText(editor, path)
+
+  return node ? { path: [...path] as Path, text: node.text } : null
+}
+
+const getTextBlockPath = (editor: Editor, path: Path): Path => {
+  for (let depth = path.length - 1; depth > 0; depth--) {
+    const candidatePath = path.slice(0, depth) as Path
+    const node = getLiveNode(editor, candidatePath)
+
+    if (
+      node &&
+      Node.isElement(node) &&
+      !Editor.isInline(editor, node) &&
+      Editor.hasInlines(editor, node)
+    ) {
+      return candidatePath
     }
   }
 
-  return false
+  return path[0] == null ? [] : ([path[0]] as Path)
 }
 
-const getPositionSegments = (editor: Editor, range: Range): PositionSegment[] =>
-  projectRangeInSnapshot(Editor.getSnapshot(editor), range).map((segment) => ({
-    path: segment.path,
-    start: segment.start,
-    end: segment.end,
-    text: Editor.string(editor, segment.path).slice(segment.start, segment.end),
-  }))
+const getLiveTextEntriesInRange = (
+  editor: Editor,
+  range: Range
+): LiveTextEntry[] => {
+  const [start, end] = Range.edges(range)
+
+  if (Path.compare(start.path, end.path) === 0) {
+    const entry = getTextEntryAtPath(editor, start.path)
+
+    if (!entry) {
+      throw new Error('Cannot project a range outside the live editor state')
+    }
+
+    assertValidPoint(entry, start)
+    assertValidPoint(entry, end)
+    return [entry]
+  }
+
+  if (start.path[0] != null && start.path[0] === end.path[0]) {
+    return getTextEntriesForTopLevel(editor, start.path[0])
+  }
+
+  return collectTextEntries(Editor.getChildren(editor))
+}
+
+const getPositionSegments = (
+  editor: Editor,
+  range: Range,
+  options: { voids?: boolean } = {}
+): PositionSegment[] => {
+  const { voids = false } = options
+  const [start, end] = Range.edges(range)
+  const entries = getLiveTextEntriesInRange(editor, range)
+  const startEntry = entries.find(
+    (entry) => Path.compare(entry.path, start.path) === 0
+  )
+  const endEntry = entries.find(
+    (entry) => Path.compare(entry.path, end.path) === 0
+  )
+
+  if (!startEntry || !endEntry) {
+    throw new Error('Cannot project a range outside the live editor state')
+  }
+
+  assertValidPoint(startEntry, start)
+  assertValidPoint(endEntry, end)
+
+  return entries.flatMap<PositionSegment>((entry) => {
+    const atomicPoint = getAtomicNonTraversablePoint(editor, entry.path, voids)
+
+    if (atomicPoint) {
+      if (!atomicPoint.isStart) {
+        return []
+      }
+
+      if (
+        comparePoints(atomicPoint.point, start) < 0 ||
+        comparePoints(atomicPoint.point, end) > 0
+      ) {
+        return []
+      }
+
+      return [
+        {
+          atomic: true,
+          groupPath: getTextBlockPath(editor, atomicPoint.point.path),
+          path: atomicPoint.point.path,
+          start: atomicPoint.point.offset,
+          end: atomicPoint.point.offset,
+          text: '',
+        },
+      ]
+    }
+
+    const comparedToStart = Path.compare(entry.path, start.path)
+    const comparedToEnd = Path.compare(entry.path, end.path)
+
+    if (comparedToStart < 0 || comparedToEnd > 0) {
+      return []
+    }
+
+    if (comparedToStart === 0 && comparedToEnd === 0) {
+      return [
+        {
+          groupPath: getTextBlockPath(editor, entry.path),
+          path: entry.path,
+          start: start.offset,
+          end: end.offset,
+          text: entry.text.slice(start.offset, end.offset),
+        },
+      ]
+    }
+
+    if (comparedToStart === 0) {
+      return [
+        {
+          groupPath: getTextBlockPath(editor, entry.path),
+          path: entry.path,
+          start: start.offset,
+          end: entry.text.length,
+          text: entry.text.slice(start.offset),
+        },
+      ]
+    }
+
+    if (comparedToEnd === 0) {
+      return [
+        {
+          groupPath: getTextBlockPath(editor, entry.path),
+          path: entry.path,
+          start: 0,
+          end: end.offset,
+          text: entry.text.slice(0, end.offset),
+        },
+      ]
+    }
+
+    return [
+      {
+        groupPath: getTextBlockPath(editor, entry.path),
+        path: entry.path,
+        start: 0,
+        end: entry.text.length,
+        text: entry.text,
+      },
+    ]
+  })
+}
 
 const mapLogicalOffsetToPoint = (
   segments: PositionSegment[],
@@ -101,10 +330,12 @@ const groupPositionSegmentsByBlock = (segments: PositionSegment[]) => {
   const groups: PositionSegment[][] = []
 
   for (const segment of segments) {
-    const blockIndex = segment.path[0]
     const lastGroup = groups.at(-1)
 
-    if (!lastGroup || lastGroup[0]?.path[0] !== blockIndex) {
+    if (
+      !lastGroup ||
+      !Path.equals(lastGroup[0]?.groupPath ?? [], segment.groupPath)
+    ) {
       groups.push([segment])
       continue
     }
@@ -115,25 +346,137 @@ const groupPositionSegmentsByBlock = (segments: PositionSegment[]) => {
   return groups
 }
 
+const pushUniquePoint = (points: Point[], point: Point) => {
+  const previous = points.at(-1)
+
+  if (!previous || comparePoints(previous, point) !== 0) {
+    points.push(point)
+  }
+}
+
+const getPreviousTraversableSegment = (
+  segments: PositionSegment[],
+  index: number
+): PositionSegment | null => {
+  for (let i = index - 1; i >= 0; i--) {
+    const segment = segments[i]
+
+    if (segment && !segment.atomic) {
+      return segment
+    }
+  }
+
+  return null
+}
+
+const getNextTraversableSegment = (
+  segments: PositionSegment[],
+  index: number
+): PositionSegment | null => {
+  for (let i = index + 1; i < segments.length; i++) {
+    const segment = segments[i]
+
+    if (segment && !segment.atomic) {
+      return segment
+    }
+  }
+
+  return null
+}
+
+const collectCharacterPositions = (
+  segments: PositionSegment[],
+  reverse = false
+): Point[] => {
+  const points: Point[] = []
+  const orderedSegments = reverse ? [...segments].reverse() : segments
+  const firstSegment = orderedSegments[0]
+
+  if (!firstSegment) {
+    return points
+  }
+
+  pushUniquePoint(points, {
+    path: firstSegment.path,
+    offset: reverse ? firstSegment.end : firstSegment.start,
+  })
+
+  for (const segment of orderedSegments) {
+    const index = segments.indexOf(segment)
+
+    if (segment.atomic) {
+      const traversable = reverse
+        ? getPreviousTraversableSegment(segments, index)
+        : getNextTraversableSegment(segments, index)
+
+      pushUniquePoint(points, {
+        path: traversable?.path ?? segment.path,
+        offset: traversable
+          ? reverse
+            ? traversable.end
+            : traversable.start
+          : segment.end,
+      })
+      continue
+    }
+
+    if (reverse) {
+      let logicalOffset = segment.text.length
+
+      while (logicalOffset > 0) {
+        const distance = getCharacterDistance(
+          segment.text.slice(0, logicalOffset),
+          true
+        )
+        logicalOffset = Math.max(0, logicalOffset - distance)
+
+        pushUniquePoint(points, {
+          path: segment.path,
+          offset: segment.start + logicalOffset,
+        })
+      }
+      continue
+    }
+
+    let logicalOffset = 0
+
+    while (logicalOffset < segment.text.length) {
+      const distance = getCharacterDistance(segment.text.slice(logicalOffset))
+      logicalOffset = Math.min(segment.text.length, logicalOffset + distance)
+
+      pushUniquePoint(points, {
+        path: segment.path,
+        offset: segment.start + logicalOffset,
+      })
+    }
+  }
+
+  return points
+}
+
 const collectBlockBoundaryPoints = (
   segments: PositionSegment[],
   reverse = false
 ): Point[] => {
   const points: Point[] = []
-  const groups = new Map<number, PositionSegment[]>()
+  const groups: PositionSegment[][] = []
 
   segments.forEach((segment) => {
-    const blockIndex = segment.path[0] ?? 0
-    const group = groups.get(blockIndex) ?? []
-    group.push(segment)
-    groups.set(blockIndex, group)
+    const group = groups.find((candidate) =>
+      Path.equals(candidate[0]?.groupPath ?? [], segment.groupPath)
+    )
+
+    if (group) {
+      group.push(segment)
+      return
+    }
+
+    groups.push([segment])
   })
 
-  const ordered = Array.from(groups.entries()).sort((left, right) =>
-    reverse ? right[0] - left[0] : left[0] - right[0]
-  )
+  const ordered = reverse ? [...groups].reverse() : groups
 
-  ordered.forEach(([, group]) => {
+  ordered.forEach((group) => {
     const first = group[0]
     const last = group.at(-1)
 
@@ -182,9 +525,9 @@ export function* positions(
     return
   }
 
-  const segments = getPositionSegments(editor, range)
-    .filter((segment) => segment.end >= segment.start)
-    .filter((segment) => voids || !isPathInsideVoid(editor, segment.path))
+  const segments = getPositionSegments(editor, range, { voids }).filter(
+    (segment) => segment.end >= segment.start
+  )
 
   if (segments.length === 0) {
     return
@@ -213,6 +556,18 @@ export function* positions(
     return
   }
 
+  if (unit === 'character') {
+    const orderedGroups = reverse
+      ? groupPositionSegmentsByBlock(segments).reverse()
+      : groupPositionSegmentsByBlock(segments)
+
+    for (const group of orderedGroups) {
+      yield* collectCharacterPositions(group, reverse)
+    }
+
+    return
+  }
+
   const orderedGroups = reverse
     ? groupPositionSegmentsByBlock(segments).reverse()
     : groupPositionSegmentsByBlock(segments)
@@ -226,10 +581,7 @@ export function* positions(
       const remaining = reverse
         ? text.slice(0, text.length - consumed)
         : text.slice(consumed)
-      const distance =
-        unit === 'character'
-          ? getCharacterDistance(remaining, reverse)
-          : getWordDistance(remaining, reverse)
+      const distance = getWordDistance(remaining, reverse)
 
       consumed = Math.min(text.length, consumed + distance)
       logicalPositions.push(reverse ? text.length - consumed : consumed)

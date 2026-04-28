@@ -4,8 +4,6 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const input = (
   <editor>
     <block>
@@ -17,7 +15,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  Transforms.mergeNodes(editor, {
+  editor.mergeNodes({
     at: [1],
     withMatch: ([, p]) => p.length === 1,
   })

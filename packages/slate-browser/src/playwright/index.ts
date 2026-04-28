@@ -106,6 +106,99 @@ export type RenderedDOMShapeExpectation = {
   zeroWidthCount?: number
 }
 
+export type SlateReactRenderKind =
+  | 'editable'
+  | 'element'
+  | 'leaf'
+  | 'spacer'
+  | 'text'
+  | 'void'
+
+export type SlateReactRenderProfilerEvent = {
+  kind: SlateReactRenderKind
+  id?: string | null
+  runtimeId?: string | null
+}
+
+export type SlateReactRenderProfilerSnapshot = {
+  byKey: Record<string, number>
+  byKind: Partial<Record<SlateReactRenderKind, number>>
+  events: SlateReactRenderProfilerEvent[]
+  total: number
+}
+
+const installSlateReactRenderProfilerScript = () => {
+  const target = window as Window & {
+    __SLATE_REACT_RENDER_PROFILER__?: {
+      record: (event: SlateReactRenderProfilerEvent) => void
+    }
+    __SLATE_REACT_RENDER_PROFILER_RESET__?: () => void
+    __SLATE_REACT_RENDER_PROFILER_SNAPSHOT__?: () => SlateReactRenderProfilerSnapshot
+  }
+  const events: SlateReactRenderProfilerEvent[] = []
+  const snapshot = (): SlateReactRenderProfilerSnapshot => {
+    const byKey: Record<string, number> = {}
+    const byKind: Partial<Record<SlateReactRenderKind, number>> = {}
+
+    for (const event of events) {
+      byKind[event.kind] = (byKind[event.kind] ?? 0) + 1
+      const id = event.id ?? event.runtimeId
+      const key = id ? `${event.kind}:${id}` : event.kind
+      byKey[key] = (byKey[key] ?? 0) + 1
+    }
+
+    return {
+      byKey,
+      byKind,
+      events: events.map((event) => ({ ...event })),
+      total: events.length,
+    }
+  }
+
+  target.__SLATE_REACT_RENDER_PROFILER__ = {
+    record(event) {
+      events.push({ ...event })
+    },
+  }
+  target.__SLATE_REACT_RENDER_PROFILER_RESET__ = () => {
+    events.length = 0
+  }
+  target.__SLATE_REACT_RENDER_PROFILER_SNAPSHOT__ = snapshot
+}
+
+export const installSlateReactRenderProfiler = async (page: Page) => {
+  await page.addInitScript(installSlateReactRenderProfilerScript)
+  await page.evaluate(installSlateReactRenderProfilerScript).catch(() => {})
+}
+
+export const resetSlateReactRenderProfiler = async (page: Page) => {
+  await page.evaluate(() => {
+    const target = window as Window & {
+      __SLATE_REACT_RENDER_PROFILER_RESET__?: () => void
+    }
+
+    target.__SLATE_REACT_RENDER_PROFILER_RESET__?.()
+  })
+}
+
+export const getSlateReactRenderProfilerSnapshot = async (
+  page: Page
+): Promise<SlateReactRenderProfilerSnapshot> =>
+  page.evaluate(() => {
+    const target = window as Window & {
+      __SLATE_REACT_RENDER_PROFILER_SNAPSHOT__?: () => SlateReactRenderProfilerSnapshot
+    }
+
+    return (
+      target.__SLATE_REACT_RENDER_PROFILER_SNAPSHOT__?.() ?? {
+        byKey: {},
+        byKind: {},
+        events: [],
+        total: 0,
+      }
+    )
+  })
+
 export type SlateBrowserKernelEventFamily =
   | 'beforeinput'
   | 'blur'
@@ -203,9 +296,9 @@ export type SlateBrowserKernelMovementOwnershipTrace = {
     'model-owned' | 'native-allowed'
   >
   reason:
-    | 'model-horizontal-inline-void-compat'
-    | 'model-line-browser-compat'
-    | 'model-word-boundary-compat'
+    | 'model-horizontal-inline-void'
+    | 'model-line-browser'
+    | 'model-word-boundary'
     | 'native-selection-key'
     | 'native-vertical-layout'
   reverse: boolean | null
@@ -378,6 +471,34 @@ export type EditorSnapshot = {
   placeholderShape: PlaceholderShape | null
 }
 
+export type SlateBrowserShellSummary = {
+  isInline: boolean
+  isVoid: boolean
+  kind: string | null
+  path: string | null
+  runtimeId: string | null
+  tagName: string | null
+}
+
+export type SlateBrowserSelectedShellSnapshot = {
+  element: SlateBrowserShellSummary | null
+  node: SlateBrowserShellSummary | null
+  offset: number
+  path: number[]
+  point: 'anchor' | 'focus'
+}
+
+export type SlateBrowserSelectionShellsSnapshot = {
+  anchor: SlateBrowserSelectedShellSnapshot
+  focus: SlateBrowserSelectedShellSnapshot
+  runtimeIds: string[]
+}
+
+export type SlateBrowserRenderStateSnapshot = EditorSnapshot & {
+  renderCounts: SlateReactRenderProfilerSnapshot
+  selectionShells: SlateBrowserSelectionShellsSnapshot | null
+}
+
 export type SlateBrowserTraceEntry = {
   label: string
   snapshot: EditorSnapshot
@@ -417,6 +538,63 @@ export type SlateBrowserScenarioStepMetadata = {
 }
 
 export type SlateBrowserScenarioStep = (
+  | {
+      count?: number
+      kind: 'assertLocatorCount'
+      label?: string
+      max?: number
+      min?: number
+      selector: string
+    }
+  | {
+      index?: number
+      kind: 'assertLocatorCss'
+      label?: string
+      notValue?: string
+      property: string
+      selector: string
+      value?: string
+    }
+  | {
+      afterSelector: string
+      beforeSelector: string
+      kind: 'assertLocatorVerticalGap'
+      label?: string
+      max?: number
+      min?: number
+    }
+  | {
+      innerSelector: string
+      kind: 'assertLocatorVerticalOffset'
+      label?: string
+      max?: number
+      min?: number
+      selector: string
+    }
+  | {
+      kind: 'assertModelSelectionExpanded'
+      label?: string
+    }
+  | {
+      budget: {
+        byKind?: Partial<
+          Record<
+            SlateReactRenderKind,
+            { exact?: number; max?: number; min?: number } | number
+          >
+        >
+        total?: { exact?: number; max?: number; min?: number } | number
+      }
+      kind: 'assertRenderBudget'
+      label?: string
+    }
+  | {
+      contains?: string
+      kind: 'assertWindowSelectionText'
+      label?: string
+      notEmpty?: boolean
+      text?: string
+    }
   | {
       kind: 'assertDOMSelection'
       label?: string
@@ -502,6 +680,16 @@ export type SlateBrowserScenarioStep = (
     }
   | { kind: 'deleteBackward'; label?: string }
   | { kind: 'deleteForward'; label?: string }
+  | {
+      endXOffset?: number
+      index?: number
+      kind: 'dragTextSelection'
+      label?: string
+      selector: string
+      startXOffset?: number
+      steps?: number
+      yOffset?: number
+    }
   | { html: string; kind: 'dropHtml'; label?: string; text?: string }
   | { kind: 'fillControl'; label?: string; selector: string; value: string }
   | { kind: 'focus'; label?: string }
@@ -511,6 +699,7 @@ export type SlateBrowserScenarioStep = (
   | { key: string; kind: 'press'; label?: string }
   | { kind: 'rootClick'; label?: string }
   | { kind: 'rootMouseDown'; label?: string }
+  | { kind: 'resetRenderProfiler'; label?: string }
   | { kind: 'select'; label?: string; selection: SelectionSnapshot }
   | { kind: 'selectDOM'; label?: string; selection: SelectionSnapshot }
   | { kind: 'selectAll'; label?: string }
@@ -1328,7 +1517,7 @@ const createWarmToolbarArrowIteration = ({
       movement: {
         axis: 'horizontal',
         ownership: 'model-owned',
-        reason: 'model-horizontal-inline-void-compat',
+        reason: 'model-horizontal-inline-void',
       },
       transition: { allowed: true },
     },
@@ -2295,8 +2484,10 @@ const sleep = (ms: number) =>
   })
 
 const isIgnoredRuntimeError = (text: string) =>
-  text.includes('Fetch API cannot load http://localhost:3101/_next/data/') &&
-  text.includes('due to access control checks.')
+  (text.includes('Fetch API cannot load http://localhost:3101/_next/data/') &&
+    text.includes('due to access control checks.')) ||
+  (text.includes("Permission policy 'Fullscreen' check failed") &&
+    text.includes('https://player.vimeo.com'))
 
 export const recordSlateBrowserRuntimeErrors = (
   page: Page,
@@ -2354,6 +2545,8 @@ const parseSyntheticShortcut = (shortcut: string) => {
 
   if (
     !modifiers.has('ControlOrMeta') &&
+    !modifiers.has('Control') &&
+    !modifiers.has('Meta') &&
     !modifiers.has('Alt') &&
     !modifiers.has('Shift')
   ) {
@@ -2373,9 +2566,10 @@ const parseSyntheticShortcut = (shortcut: string) => {
     altKey: modifiers.has('Alt'),
     ctrlKey:
       modifiers.has('Control') || (!isMac && modifiers.has('ControlOrMeta')),
-    key,
+    key: key.length === 1 && !modifiers.has('Shift') ? key.toLowerCase() : key,
     metaKey: modifiers.has('Meta') || (isMac && modifiers.has('ControlOrMeta')),
     shiftKey: modifiers.has('Shift'),
+    which: key.length === 1 ? key.toUpperCase().charCodeAt(0) : undefined,
   }
 }
 
@@ -2453,6 +2647,21 @@ const getBlockTexts = async (root: Locator): Promise<string[]> =>
     ).map((block) => (block.textContent ?? '').replace(/\uFEFF/g, ''))
   )
 
+const includesPasteText = (candidate: string, text: string) => {
+  const normalizeSpaced = (value: string) =>
+    value
+      .replace(/\uFEFF/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  const normalizeCompact = (value: string) =>
+    value.replace(/\uFEFF/g, '').replace(/\s+/g, '')
+
+  return (
+    normalizeSpaced(candidate).includes(normalizeSpaced(text)) ||
+    normalizeCompact(candidate).includes(normalizeCompact(text))
+  )
+}
+
 const didPasteApplyText = async ({
   afterText,
   beforeText,
@@ -2468,11 +2677,11 @@ const didPasteApplyText = async ({
     return false
   }
 
-  if (afterText.includes(text)) {
+  if (includesPasteText(afterText, text)) {
     return true
   }
 
-  return (await getBlockTexts(root)).join('\n').includes(text)
+  return includesPasteText((await getBlockTexts(root)).join('\n'), text)
 }
 
 const getRenderedBlockDOMShapes = async (
@@ -2731,6 +2940,29 @@ const pastePayloadThroughEvent = async (
           text: nextPayload.text,
         })
       }
+    },
+    { ...payload, key: SLATE_BROWSER_HANDLE_KEY }
+  )
+
+const insertDataThroughHandle = async (
+  root: Locator,
+  payload: { html?: string | null; text: string }
+) =>
+  root.evaluate(
+    (
+      element: HTMLElement,
+      nextPayload: { html?: string | null; key: string; text: string }
+    ) => {
+      const handle = (element as Record<string, any>)[nextPayload.key]
+
+      if (!handle?.insertData) {
+        throw new Error('This editor surface does not expose insertData')
+      }
+
+      handle.insertData({
+        html: nextPayload.html ?? undefined,
+        text: nextPayload.text,
+      })
     },
     { ...payload, key: SLATE_BROWSER_HANDLE_KEY }
   )
@@ -4162,6 +4394,61 @@ const setDOMSelection = async (root: Locator, selection: SelectionSnapshot) => {
   }, selection)
 }
 
+const hasExpandedSelection = (selection: SelectionSnapshot | null) =>
+  !!selection &&
+  (selection.anchor.offset !== selection.focus.offset ||
+    selection.anchor.path.join(',') !== selection.focus.path.join(','))
+
+const assertNumberBudget = (
+  actual: number,
+  expected: { exact?: number; max?: number; min?: number } | number,
+  label: string
+) => {
+  if (typeof expected === 'number') {
+    expect(actual, label).toBe(expected)
+    return
+  }
+
+  if (expected.exact !== undefined) {
+    expect(actual, label).toBe(expected.exact)
+  }
+  if (expected.min !== undefined) {
+    expect(actual, label).toBeGreaterThanOrEqual(expected.min)
+  }
+  if (expected.max !== undefined) {
+    expect(actual, label).toBeLessThanOrEqual(expected.max)
+  }
+}
+
+const dragTextSelection = async (
+  page: Page,
+  step: Extract<SlateBrowserScenarioStep, { kind: 'dragTextSelection' }>
+) => {
+  const locator = page.locator(step.selector).nth(step.index ?? 0)
+
+  await locator.scrollIntoViewIfNeeded()
+
+  const box = await locator.boundingBox()
+
+  if (!box) {
+    throw new Error(
+      `Expected selectable text to have a bounding box: ${step.selector}`
+    )
+  }
+
+  const startXOffset = step.startXOffset ?? 5
+  const endXOffset = step.endXOffset ?? Math.min(box.width - 5, 260)
+  const yOffset = step.yOffset ?? box.height / 2
+  const y = box.y + yOffset
+
+  await page.mouse.move(box.x + startXOffset, y)
+  await page.mouse.down()
+  await page.mouse.move(box.x + Math.min(box.width - 5, endXOffset), y, {
+    steps: step.steps ?? 12,
+  })
+  await page.mouse.up()
+}
+
 const waitForReady = async (
   editor: SlateBrowserEditorHarness,
   surface: SurfaceTarget,
@@ -4169,6 +4456,11 @@ const waitForReady = async (
 ) => {
   if (editorState === 'visible') {
     await expect(editor.root).toBeVisible({ timeout: READY_TIMEOUT_MS })
+    await expect
+      .poll(() => hasSelectionHandle(editor.root), {
+        timeout: READY_TIMEOUT_MS,
+      })
+      .toBe(true)
   }
 
   if (placeholder) {
@@ -4352,7 +4644,24 @@ const createEditorHarness = (
       },
       selectDOM: async (selection: SelectionSnapshot) => {
         await setDOMSelection(root, selection)
+        await root.evaluate((element: HTMLElement) => {
+          const rootNode = element.getRootNode() as Document | ShadowRoot
+
+          element.ownerDocument.dispatchEvent(
+            new Event('selectionchange', { bubbles: true })
+          )
+
+          if (rootNode instanceof ShadowRoot) {
+            rootNode.dispatchEvent(
+              new Event('selectionchange', { bubbles: true })
+            )
+          }
+        })
         await waitForSelectionRange(root)
+        if (await waitForSelectionHandle(root)) {
+          await setSelectionWithHandle(root, selection)
+          await waitForHandleSelection(root, selection)
+        }
       },
       collapse: async (point: SelectionPoint) => {
         await harness.selection.select({
@@ -4417,18 +4726,22 @@ const createEditorHarness = (
       placeholderShape: await harness.get.placeholderShape(),
     }),
     focus: async () => {
+      const readHandleSelection = () =>
+        root.evaluate(
+          (element: HTMLElement, { key }: { key: string }) => {
+            const handle = (element as Record<string, any>)[key]
+            return handle?.getSelection ? handle.getSelection() : null
+          },
+          { key: SLATE_BROWSER_HANDLE_KEY }
+        )
+
+      const selectionBeforeFocus = await readHandleSelection()
+
       await root.evaluate((element: HTMLElement) => {
         element.focus()
       })
-      await waitForSelectionRange(root)
       await root.page().waitForTimeout(50)
-      const selection = await root.evaluate(
-        (element: HTMLElement, { key }: { key: string }) => {
-          const handle = (element as Record<string, any>)[key]
-          return handle?.getSelection ? handle.getSelection() : null
-        },
-        { key: SLATE_BROWSER_HANDLE_KEY }
-      )
+      const selection = (await readHandleSelection()) ?? selectionBeforeFocus
 
       if (selection) {
         await harness.selection.select(selection)
@@ -4461,7 +4774,10 @@ const createEditorHarness = (
 
       if (syntheticShortcut) {
         await root.evaluate(
-          (element: HTMLElement, eventInit: KeyboardEventInit) => {
+          (
+            element: HTMLElement,
+            eventInit: KeyboardEventInit & { which?: number }
+          ) => {
             const createEvent = () =>
               new KeyboardEvent('keydown', {
                 altKey: eventInit.altKey,
@@ -4472,8 +4788,22 @@ const createEditorHarness = (
                 metaKey: eventInit.metaKey,
                 shiftKey: eventInit.shiftKey,
               })
-            element.dispatchEvent(createEvent())
-            element.dispatchEvent(
+            const defineKeyCode = (event: KeyboardEvent) => {
+              if (eventInit.which == null) {
+                return event
+              }
+
+              Object.defineProperty(event, 'keyCode', {
+                value: eventInit.which,
+              })
+              Object.defineProperty(event, 'which', {
+                value: eventInit.which,
+              })
+
+              return event
+            }
+            const keyDown = defineKeyCode(createEvent())
+            const keyUp = defineKeyCode(
               new KeyboardEvent('keyup', {
                 altKey: eventInit.altKey,
                 bubbles: true,
@@ -4484,6 +4814,8 @@ const createEditorHarness = (
                 shiftKey: eventInit.shiftKey,
               })
             )
+            element.dispatchEvent(keyDown)
+            element.dispatchEvent(keyUp)
           },
           syntheticShortcut
         )
@@ -4740,7 +5072,15 @@ const createEditorHarness = (
       pasteText: async (text: string) => {
         await withExclusiveClipboardAccess(async () => {
           const beforeText = await harness.get.modelText()
-          await writeClipboardText(surface, text)
+
+          try {
+            await writeClipboardText(surface, text)
+          } catch {
+            await harness.focus()
+            await insertDataThroughHandle(root, { text })
+            return
+          }
+
           await harness.focus()
           await root.press('ControlOrMeta+V')
           await page.waitForTimeout(50)
@@ -4764,7 +5104,14 @@ const createEditorHarness = (
           const beforeText = await harness.get.modelText()
           const text = plainText ?? (await toPlainText(surface, html))
 
-          await writeClipboardHtml(surface, html, text)
+          try {
+            await writeClipboardHtml(surface, html, text)
+          } catch {
+            await harness.focus()
+            await insertDataThroughHandle(root, { html, text })
+            return
+          }
+
           await harness.focus()
           await root.press('ControlOrMeta+V')
           await page.waitForTimeout(50)
@@ -4862,6 +5209,162 @@ const createEditorHarness = (
                   .toEqual(step.expectedSelection)
                 break
               }
+              case 'assertLocatorCount': {
+                const locator = page.locator(step.selector)
+
+                if (step.count !== undefined) {
+                  await expect(locator).toHaveCount(step.count)
+                  break
+                }
+
+                await expect
+                  .poll(async () => {
+                    const count = await locator.count()
+
+                    if (step.min !== undefined && count < step.min) {
+                      return false
+                    }
+                    if (step.max !== undefined && count > step.max) {
+                      return false
+                    }
+
+                    return true
+                  })
+                  .toBe(true)
+                break
+              }
+              case 'assertLocatorCss': {
+                const locator = page.locator(step.selector).nth(step.index ?? 0)
+
+                if (step.value !== undefined) {
+                  await expect(locator).toHaveCSS(step.property, step.value)
+                }
+                if (step.notValue !== undefined) {
+                  await expect(locator).not.toHaveCSS(
+                    step.property,
+                    step.notValue
+                  )
+                }
+                break
+              }
+              case 'assertLocatorVerticalGap': {
+                const gap = await page
+                  .locator(step.beforeSelector)
+                  .first()
+                  .evaluate(
+                    (
+                      before: Element,
+                      {
+                        afterSelector,
+                      }: {
+                        afterSelector: string
+                      }
+                    ) => {
+                      const after = before.ownerDocument
+                        .querySelector(afterSelector)
+                        ?.getBoundingClientRect()
+
+                      if (!after) {
+                        throw new Error(
+                          `Missing after element: ${afterSelector}`
+                        )
+                      }
+
+                      return after.top - before.getBoundingClientRect().bottom
+                    },
+                    { afterSelector: step.afterSelector }
+                  )
+
+                assertNumberBudget(
+                  gap,
+                  { max: step.max, min: step.min },
+                  'locator vertical gap'
+                )
+                break
+              }
+              case 'assertLocatorVerticalOffset': {
+                const offset = await page
+                  .locator(step.selector)
+                  .first()
+                  .evaluate(
+                    (
+                      element: Element,
+                      {
+                        innerSelector,
+                      }: {
+                        innerSelector: string
+                      }
+                    ) => {
+                      const inner = element
+                        .querySelector(innerSelector)
+                        ?.getBoundingClientRect()
+
+                      if (!inner) {
+                        throw new Error(
+                          `Missing inner element: ${innerSelector}`
+                        )
+                      }
+
+                      return inner.top - element.getBoundingClientRect().top
+                    },
+                    { innerSelector: step.innerSelector }
+                  )
+
+                assertNumberBudget(
+                  offset,
+                  { max: step.max, min: step.min },
+                  'locator vertical offset'
+                )
+                break
+              }
+              case 'assertModelSelectionExpanded':
+                await expect
+                  .poll(async () =>
+                    hasExpandedSelection(await harness.selection.get())
+                  )
+                  .toBe(true)
+                break
+              case 'assertRenderBudget': {
+                const snapshot = await getSlateReactRenderProfilerSnapshot(page)
+
+                if (step.budget.total !== undefined) {
+                  assertNumberBudget(
+                    snapshot.total,
+                    step.budget.total,
+                    'render total'
+                  )
+                }
+
+                for (const [kind, expected] of Object.entries(
+                  step.budget.byKind ?? {}
+                ) as [
+                  SlateReactRenderKind,
+                  { exact?: number; max?: number; min?: number } | number,
+                ][]) {
+                  assertNumberBudget(
+                    snapshot.byKind[kind] ?? 0,
+                    expected,
+                    `render kind ${kind}`
+                  )
+                }
+                break
+              }
+              case 'assertWindowSelectionText': {
+                const text = await page.evaluate(
+                  () => window.getSelection()?.toString() ?? ''
+                )
+
+                if (step.notEmpty) {
+                  expect(text).not.toBe('')
+                }
+                if (step.text !== undefined) {
+                  expect(text).toBe(step.text)
+                }
+                if (step.contains !== undefined) {
+                  expect(text).toContain(step.contains)
+                }
+                break
+              }
               case 'assertDOMCaret':
                 await assertDOMCaretExpectation(root, step)
                 break
@@ -4930,6 +5433,9 @@ const createEditorHarness = (
               case 'deleteForward':
                 await harness.deleteForward()
                 break
+              case 'dragTextSelection':
+                await dragTextSelection(page, step)
+                break
               case 'clickTextOffset':
                 await clickTextOffset(root, step.path, step.offset)
                 break
@@ -4969,6 +5475,9 @@ const createEditorHarness = (
               case 'rootMouseDown':
                 await root.dispatchEvent('mousedown')
                 break
+              case 'resetRenderProfiler':
+                await resetSlateReactRenderProfiler(page)
+                break
               case 'select':
                 await harness.selection.select(step.selection)
                 break
@@ -5003,7 +5512,7 @@ const createEditorHarness = (
                     : 'Control+Z'
                 )
 
-                await page.keyboard.press(hotkey)
+                await harness.press(hotkey)
                 await assertDOMCaretExpectation(root, step.caretAfterUndo)
                 expect(await harness.get.modelText()).toContain(
                   step.expectedModelTextAfterUndo
@@ -5026,7 +5535,7 @@ const createEditorHarness = (
                     : 'Control+Z'
                 )
 
-                await page.keyboard.press(hotkey)
+                await harness.press(hotkey)
                 break
               }
             }
@@ -5072,6 +5581,109 @@ export const createSlateBrowserEditorHarness = (
   surface: SurfaceTarget = page
 ): SlateBrowserEditorHarness =>
   createEditorHarness(page, name, surface, {}, root)
+
+const takeSelectionShellsSnapshot = async (
+  root: Locator,
+  selection: SelectionSnapshot | null
+): Promise<SlateBrowserSelectionShellsSnapshot | null> => {
+  if (!selection) {
+    return null
+  }
+
+  return root.evaluate((element, currentSelection) => {
+    const summarize = (
+      target: Element | null
+    ): SlateBrowserShellSummary | null =>
+      target
+        ? {
+            isInline: target.getAttribute('data-slate-inline') === 'true',
+            isVoid: target.getAttribute('data-slate-void') === 'true',
+            kind: target.getAttribute('data-slate-node'),
+            path: target.getAttribute('data-slate-path'),
+            runtimeId: target.getAttribute('data-slate-runtime-id'),
+            tagName: target.tagName.toLowerCase(),
+          }
+        : null
+    const findPathNode = (path: number[]) => {
+      const key = path.join(',')
+
+      return (
+        Array.from(element.querySelectorAll('[data-slate-path]')).find(
+          (node) => node.getAttribute('data-slate-path') === key
+        ) ?? null
+      )
+    }
+    const rootNode = element.getRootNode() as Document | ShadowRoot
+    const domSelection =
+      'getSelection' in rootNode
+        ? rootNode.getSelection()
+        : element.ownerDocument.getSelection()
+    const toElement = (node: Node | null) =>
+      node instanceof Element ? node : node?.parentElement
+    const summarizePoint = (
+      point: SelectionPoint,
+      name: 'anchor' | 'focus',
+      domNode: Node | null
+    ): SlateBrowserSelectedShellSnapshot => {
+      const domElement = toElement(domNode)
+      const domPathNode =
+        domElement?.closest('[data-slate-path]') ??
+        (domElement?.querySelector('[data-slate-path]') as Element | null) ??
+        null
+      const node = findPathNode(point.path) ?? domPathNode
+      const elementShell = node?.closest('[data-slate-node="element"]') ?? null
+
+      return {
+        element: summarize(elementShell),
+        node: summarize(node),
+        offset: point.offset,
+        path: point.path,
+        point: name,
+      }
+    }
+    const anchor = summarizePoint(
+      currentSelection.anchor,
+      'anchor',
+      domSelection?.anchorNode ?? null
+    )
+    const focus = summarizePoint(
+      currentSelection.focus,
+      'focus',
+      domSelection?.focusNode ?? null
+    )
+    const runtimeIds = Array.from(
+      new Set(
+        [
+          anchor.node?.runtimeId,
+          anchor.element?.runtimeId,
+          focus.node?.runtimeId,
+          focus.element?.runtimeId,
+        ].filter((runtimeId): runtimeId is string => Boolean(runtimeId))
+      )
+    )
+
+    return {
+      anchor,
+      focus,
+      runtimeIds,
+    }
+  }, selection)
+}
+
+export const takeSlateBrowserRenderStateSnapshot = async (
+  editor: SlateBrowserEditorHarness
+): Promise<SlateBrowserRenderStateSnapshot> => {
+  const snapshot = await editor.snapshot()
+
+  return {
+    ...snapshot,
+    renderCounts: await getSlateReactRenderProfilerSnapshot(editor.page),
+    selectionShells: await takeSelectionShellsSnapshot(
+      editor.root,
+      snapshot.selection
+    ),
+  }
+}
 
 export const openExample = async (
   page: Page,

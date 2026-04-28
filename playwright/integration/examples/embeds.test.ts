@@ -1,10 +1,16 @@
 import { expect, test } from '@playwright/test'
-import { openExample } from 'slate-browser/playwright'
+import {
+  installSlateReactRenderProfiler,
+  openExample,
+  resetSlateReactRenderProfiler,
+  takeSlateBrowserRenderStateSnapshot,
+} from 'slate-browser/playwright'
 
 test.describe('embeds example', () => {
   const slateEditor = 'div[data-slate-editor="true"]'
 
   test.beforeEach(async ({ page }) => {
+    await installSlateReactRenderProfiler(page)
     await page.goto('/examples/embeds')
   })
 
@@ -63,6 +69,7 @@ test.describe('embeds example', () => {
       isCollapsed: true,
     })
 
+    await resetSlateReactRenderProfiler(page)
     await page.keyboard.press('ArrowRight')
     await expect
       .poll(() => editor.selection.get())
@@ -76,6 +83,24 @@ test.describe('embeds example', () => {
       isCollapsed: true,
     })
 
+    const embedProof = await takeSlateBrowserRenderStateSnapshot(editor)
+
+    expect(embedProof.selection).toEqual({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    })
+    expect(embedProof.focusOwner.kind).toBe('editor')
+    expect(embedProof.selectionShells?.anchor.node?.path).toBe('1,0')
+    expect(embedProof.selectionShells?.anchor.node?.runtimeId).toBeTruthy()
+    expect(embedProof.selectionShells?.anchor.element?.path).toBe('1')
+    expect(embedProof.selectionShells?.anchor.element?.isVoid).toBe(true)
+    expect(
+      embedProof.selectionShells?.runtimeIds.length
+    ).toBeGreaterThanOrEqual(2)
+    expect(embedProof.renderCounts.byKind.editable ?? 0).toBe(0)
+    expect(embedProof.renderCounts.total).toBe(0)
+
+    await resetSlateReactRenderProfiler(page)
     await page.keyboard.press('ArrowRight')
     await expect
       .poll(() => editor.selection.get())
@@ -88,5 +113,17 @@ test.describe('embeds example', () => {
       anchorPath: [2, 0],
       isCollapsed: true,
     })
+
+    const afterEmbedProof = await takeSlateBrowserRenderStateSnapshot(editor)
+
+    expect(afterEmbedProof.selection).toEqual({
+      anchor: { path: [2, 0], offset: 0 },
+      focus: { path: [2, 0], offset: 0 },
+    })
+    expect(afterEmbedProof.selectionShells?.anchor.node?.path).toBe('2,0')
+    expect(afterEmbedProof.selectionShells?.anchor.element?.path).toBe('2')
+    expect(afterEmbedProof.selectionShells?.anchor.element?.isVoid).toBe(false)
+    expect(afterEmbedProof.renderCounts.byKind.editable ?? 0).toBe(0)
+    expect(afterEmbedProof.renderCounts.total).toBe(0)
   })
 })

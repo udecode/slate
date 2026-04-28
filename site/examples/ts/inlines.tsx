@@ -2,19 +2,13 @@ import { css } from '@emotion/css'
 import { isKeyHotkey } from 'is-hotkey'
 import isUrl from 'is-url'
 import type React from 'react'
-import { type PointerEvent, useMemo } from 'react'
-import {
-  createEditor,
-  type Descendant,
-  Editor,
-  Node,
-  Range,
-  Transforms,
-} from 'slate'
+import { type ClipboardEvent, type PointerEvent, useMemo } from 'react'
+import { createEditor, defineEditorExtension, Editor, Node, Range } from 'slate'
 import { withHistory } from 'slate-history'
 import * as SlateReact from 'slate-react'
 import {
   Editable,
+  type EditableInputRule,
   type RenderElementProps,
   type RenderLeafProps,
   useSelected,
@@ -27,11 +21,12 @@ import type {
   ButtonElement,
   CustomEditor,
   CustomElement,
+  CustomValue,
   LinkElement,
   RenderElementPropsFor,
 } from './custom-types.d'
 
-const initialValue: Descendant[] = [
+const initialValue: CustomValue = [
   {
     type: 'paragraph',
     children: [
@@ -81,12 +76,33 @@ const initialValue: Descendant[] = [
 ]
 const InlinesExample = () => {
   const editor = useMemo(
-    () => withInlines(withHistory(withReact(createEditor()))) as CustomEditor,
+    () =>
+      withInlines(
+        withHistory(withReact(createEditor<CustomValue>()))
+      ) as CustomEditor,
     []
   )
+  const inputRules = useMemo<readonly EditableInputRule[]>(
+    () => [
+      ({ data, editor: ruleEditor, inputType }) =>
+        inputType === 'insertText' &&
+        typeof data === 'string' &&
+        isUrl(data) &&
+        wrapLink(ruleEditor as CustomEditor, data),
+    ],
+    []
+  )
+  const onPaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    const text = event.clipboardData.getData('text/plain')
 
-  const onKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (event) => {
-    const { selection } = editor
+    if (text && isUrl(text)) {
+      event.preventDefault()
+      wrapLink(editor, text)
+    }
+  }
+
+  const onKeyCommand = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const selection = editor.getSelection()
 
     // Default left/right behavior is unit:'character'.
     // This fails to distinguish between two cursor positions, such as
@@ -97,14 +113,16 @@ const InlinesExample = () => {
     if (selection && Range.isCollapsed(selection)) {
       const { nativeEvent } = event
       if (isKeyHotkey('left', nativeEvent)) {
-        event.preventDefault()
-        Transforms.move(editor, { unit: 'offset', reverse: true })
-        return
+        editor.update(() => {
+          editor.move({ unit: 'offset', reverse: true })
+        })
+        return true
       }
       if (isKeyHotkey('right', nativeEvent)) {
-        event.preventDefault()
-        Transforms.move(editor, { unit: 'offset' })
-        return
+        editor.update(() => {
+          editor.move({ unit: 'offset' })
+        })
+        return true
       }
     }
   }
@@ -117,57 +135,54 @@ const InlinesExample = () => {
         <ToggleEditableButtonButton />
       </Toolbar>
       <Editable
-        onKeyDown={onKeyDown}
+        inputRules={inputRules}
+        onKeyCommand={onKeyCommand}
+        onPaste={onPaste}
         placeholder="Enter some text..."
-        renderElement={(props) => <Element {...props} />}
-        renderLeaf={(props) => <Text {...props} />}
+        renderElement={(props: RenderElementProps) => <Element {...props} />}
+        renderLeaf={(props: RenderLeafProps) => <Text {...props} />}
       />
     </SlateReact.Slate>
   )
 }
 
+const inlinesExtension = defineEditorExtension<CustomEditor>({
+  name: 'inlines',
+  methods(editor) {
+    const nextIsElementReadOnly = editor.isElementReadOnly
+    const nextIsInline = editor.isInline
+    const nextIsSelectable = editor.isSelectable
+
+    return {
+      isElementReadOnly(element: CustomElement) {
+        return element.type === 'badge' || nextIsElementReadOnly(element)
+      },
+      isInline(element: CustomElement) {
+        return (
+          ['link', 'button', 'badge'].includes(element.type) ||
+          nextIsInline(element)
+        )
+      },
+      isSelectable(element: CustomElement) {
+        return element.type !== 'badge' && nextIsSelectable(element)
+      },
+    }
+  },
+})
+
 const withInlines = (editor: CustomEditor) => {
-  const { insertData, insertText, isInline, isElementReadOnly, isSelectable } =
-    editor
-
-  editor.isInline = (element: CustomElement) =>
-    ['link', 'button', 'badge'].includes(element.type) || isInline(element)
-
-  editor.isElementReadOnly = (element: CustomElement) =>
-    element.type === 'badge' || isElementReadOnly(element)
-
-  editor.isSelectable = (element: CustomElement) =>
-    element.type !== 'badge' && isSelectable(element)
-
-  editor.insertText = (text) => {
-    if (text && isUrl(text)) {
-      wrapLink(editor, text)
-    } else {
-      insertText(text)
-    }
-  }
-
-  editor.insertData = (data) => {
-    const text = data.getData('text/plain')
-
-    if (text && isUrl(text)) {
-      wrapLink(editor, text)
-    } else {
-      insertData(data)
-    }
-  }
-
+  editor.extend(inlinesExtension)
   return editor
 }
 
 const insertLink = (editor: CustomEditor, url: string) => {
-  if (editor.selection) {
+  if (Editor.getSelection(editor)) {
     wrapLink(editor, url)
   }
 }
 
 const insertButton = (editor: CustomEditor) => {
-  if (editor.selection) {
+  if (Editor.getSelection(editor)) {
     wrapButton(editor)
   }
 }
@@ -187,14 +202,18 @@ const isButtonActive = (editor: CustomEditor): boolean => {
 }
 
 const unwrapLink = (editor: CustomEditor) => {
-  Transforms.unwrapNodes(editor, {
-    match: (n) => Node.isElement(n) && n.type === 'link',
+  editor.update(() => {
+    editor.unwrapNodes({
+      match: (n) => Node.isElement(n) && n.type === 'link',
+    })
   })
 }
 
 const unwrapButton = (editor: CustomEditor) => {
-  Transforms.unwrapNodes(editor, {
-    match: (n) => Node.isElement(n) && n.type === 'button',
+  editor.update(() => {
+    editor.unwrapNodes({
+      match: (n) => Node.isElement(n) && n.type === 'button',
+    })
   })
 }
 
@@ -203,7 +222,7 @@ const wrapLink = (editor: CustomEditor, url: string) => {
     unwrapLink(editor)
   }
 
-  const { selection } = editor
+  const selection = editor.getSelection()
   const isCollapsed = selection && Range.isCollapsed(selection)
   const link: LinkElement = {
     type: 'link',
@@ -211,12 +230,16 @@ const wrapLink = (editor: CustomEditor, url: string) => {
     children: isCollapsed ? [{ text: url }] : [],
   }
 
-  if (isCollapsed) {
-    Transforms.insertNodes(editor, link)
-  } else {
-    Transforms.wrapNodes(editor, link, { split: true })
-    Transforms.collapse(editor, { edge: 'end' })
-  }
+  editor.update(() => {
+    if (isCollapsed) {
+      editor.insertNodes(link)
+    } else {
+      editor.wrapNodes(link, { split: true })
+      editor.collapse({ edge: 'end' })
+    }
+  })
+
+  return true
 }
 
 const wrapButton = (editor: CustomEditor) => {
@@ -224,19 +247,21 @@ const wrapButton = (editor: CustomEditor) => {
     unwrapButton(editor)
   }
 
-  const { selection } = editor
+  const selection = editor.getSelection()
   const isCollapsed = selection && Range.isCollapsed(selection)
   const button: ButtonElement = {
     type: 'button',
     children: isCollapsed ? [{ text: 'Edit me!' }] : [],
   }
 
-  if (isCollapsed) {
-    Transforms.insertNodes(editor, button)
-  } else {
-    Transforms.wrapNodes(editor, button, { split: true })
-    Transforms.collapse(editor, { edge: 'end' })
-  }
+  editor.update(() => {
+    if (isCollapsed) {
+      editor.insertNodes(button)
+    } else {
+      editor.wrapNodes(button, { split: true })
+      editor.collapse({ edge: 'end' })
+    }
+  })
 }
 
 // Put this at the start and end of an inline component to work around this Chromium bug:
@@ -392,7 +417,7 @@ const Text = (props: RenderLeafProps) => {
 }
 
 const AddLinkButton = () => {
-  const editor = useSlate()
+  const editor = useSlate<CustomEditor>()
   return (
     <Button
       active={isLinkActive(editor)}
@@ -411,7 +436,7 @@ const AddLinkButton = () => {
 }
 
 const RemoveLinkButton = () => {
-  const editor = useSlate()
+  const editor = useSlate<CustomEditor>()
 
   return (
     <Button
@@ -431,7 +456,7 @@ const RemoveLinkButton = () => {
 }
 
 const ToggleEditableButtonButton = () => {
-  const editor = useSlate()
+  const editor = useSlate<CustomEditor>()
   return (
     <Button
       active

@@ -1,27 +1,18 @@
-import React, {
-  type CSSProperties,
-  type ReactNode,
-  type Ref,
-  useCallback,
-  useContext,
-} from 'react'
+import React, { type ReactNode, type Ref, useCallback, useContext } from 'react'
 
 import { NodeRuntimeIdContext } from '../context'
 import { useSlateNodeRef } from '../hooks/use-slate-node-ref'
+import { recordSlateReactRender } from '../render-profiler'
+import { getSlateElementShellAttributes } from '../shell-runtime'
 
 type IntrinsicTag = keyof HTMLElementTagNameMap
 
-type SlateElementProps = {
+type SlateElementProps = Omit<React.HTMLAttributes<HTMLElement>, 'children'> & {
   as?: IntrinsicTag
   children?: ReactNode
-  className?: string
-  id?: string
   isInline?: boolean
   isVoid?: boolean
-  onClick?: React.MouseEventHandler<HTMLElement>
-  onFocus?: React.FocusEventHandler<HTMLElement>
   ref?: Ref<HTMLElement>
-  style?: CSSProperties
 }
 
 const assignRef = (
@@ -45,13 +36,14 @@ export const SlateElement = ({
   id,
   isInline = false,
   isVoid = false,
-  onClick,
-  onFocus,
   ref,
   style,
+  ...domProps
 }: SlateElementProps) => {
   const runtimeId = useContext(NodeRuntimeIdContext)
   const boundRef = useSlateNodeRef(runtimeId)
+
+  recordSlateReactRender({ id, kind: 'element', runtimeId })
 
   const combinedRef = useCallback(
     (node: HTMLElement | null) => {
@@ -64,13 +56,10 @@ export const SlateElement = ({
   return React.createElement(
     Component,
     {
+      ...domProps,
       className,
-      'data-slate-inline': isInline ? true : undefined,
-      'data-slate-node': 'element',
-      'data-slate-void': isVoid ? true : undefined,
+      ...getSlateElementShellAttributes({ isInline, isVoid }),
       id,
-      onClick,
-      onFocus,
       ref: combinedRef,
       style,
     },

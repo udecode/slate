@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { Editor } from 'slate'
 import { History, withHistory } from '..'
 
 const testsDir = dirname(fileURLToPath(import.meta.url))
@@ -73,12 +74,24 @@ describe('slate-history', () => {
   runFixtureTree(resolve(testsDir, 'undo'), (module) => {
     const { input, output, run } = module
     const editor = withTest(withHistory(input))
+    const initialSnapshot = Editor.getSnapshot(editor)
+    const initialExpected = {
+      children: structuredClone(initialSnapshot.children),
+      selection: structuredClone(initialSnapshot.selection),
+    }
 
     run(editor)
     editor.undo()
 
-    assert.deepEqual(editor.children, output.children)
-    assert.deepEqual(editor.selection, output.selection)
+    const snapshot = Editor.getSnapshot(editor)
+    const expected = Editor.isEditor(output)
+      ? Editor.getSnapshot(output)
+      : output?.children !== undefined || output?.selection !== undefined
+        ? output
+        : initialExpected
+
+    assert.deepEqual(snapshot.children, expected.children)
+    assert.deepEqual(snapshot.selection, expected.selection)
   })
 
   runFixtureTree(resolve(testsDir, 'isHistory'), (module) => {

@@ -1,4 +1,4 @@
-import { useContext, useSyncExternalStore } from 'react'
+import { useCallback, useContext, useSyncExternalStore } from 'react'
 import { ProjectionContext } from '../projection-context'
 
 export interface SlateProjectionEntry<T = unknown> {
@@ -12,29 +12,47 @@ export interface SlateProjectionStore<T = unknown> {
   getSnapshot: () => Readonly<
     Record<string, readonly SlateProjectionEntry<T>[]>
   >
+  getRuntimeSnapshot?: (runtimeId: string) => readonly SlateProjectionEntry<T>[]
   subscribe: (listener: () => void) => () => void
+  subscribeRuntimeId?: (runtimeId: string, listener: () => void) => () => void
+  subscribeSourceId?: (sourceId: string, listener: () => void) => () => void
 }
 
-const EMPTY_PROJECTIONS: readonly SlateProjectionEntry[] = Object.freeze([])
-const EMPTY_SNAPSHOT = Object.freeze({}) as Readonly<
-  Record<string, readonly SlateProjectionEntry[]>
->
+const EMPTY_PROJECTIONS = Object.freeze(
+  []
+) as readonly SlateProjectionEntry<never>[]
 const subscribeEmpty = () => () => {}
-const getEmptySnapshot = () => EMPTY_SNAPSHOT
+const getEmptyRuntimeSnapshot = () => EMPTY_PROJECTIONS
 
 export function useSlateProjections<T = unknown>(
   runtimeId: string
 ): readonly SlateProjectionEntry<T>[] {
   const store = useContext(ProjectionContext)
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      if (store?.subscribeRuntimeId) {
+        return store.subscribeRuntimeId(runtimeId, listener)
+      }
 
-  const snapshot = useSyncExternalStore(
-    store?.subscribe ?? subscribeEmpty,
-    store?.getSnapshot ?? getEmptySnapshot,
-    store?.getSnapshot ?? getEmptySnapshot
+      return store?.subscribe(listener) ?? subscribeEmpty()
+    },
+    [runtimeId, store]
+  )
+  const getSnapshot = useCallback(
+    () =>
+      (store?.getRuntimeSnapshot?.(runtimeId) as
+        | readonly SlateProjectionEntry<T>[]
+        | undefined) ??
+      ((store?.getSnapshot()[runtimeId] as
+        | readonly SlateProjectionEntry<T>[]
+        | undefined) ||
+        EMPTY_PROJECTIONS),
+    [runtimeId, store]
   )
 
-  return (
-    (snapshot[runtimeId] as readonly SlateProjectionEntry<T>[]) ??
-    EMPTY_PROJECTIONS
+  return useSyncExternalStore(
+    store ? subscribe : subscribeEmpty,
+    store ? getSnapshot : getEmptyRuntimeSnapshot,
+    store ? getSnapshot : getEmptyRuntimeSnapshot
   )
 }

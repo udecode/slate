@@ -4,11 +4,10 @@ import { jsx } from '../../..'
 
 jsx
 
-import { cloneDeep } from 'lodash'
-import { Transforms } from 'slate'
+import { Editor } from 'slate'
 
 export const run = (editor) => {
-  Transforms.delete(editor, { unit: 'line' })
+  editor.delete({ unit: 'line' })
 }
 export const input = (
   <editor>
@@ -18,4 +17,4 @@ export const input = (
     </block>
   </editor>
 )
-export const output = cloneDeep(input)
+export const output = Editor.getSnapshot(input)

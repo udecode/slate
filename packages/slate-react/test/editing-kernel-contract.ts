@@ -134,7 +134,7 @@ test('movement ownership trace records model-owned horizontal reason', () => {
     extend: false,
     key: 'ArrowRight',
     ownership: 'model-owned',
-    reason: 'model-horizontal-inline-void-compat',
+    reason: 'model-horizontal-inline-void',
     reverse: null,
   })
 })

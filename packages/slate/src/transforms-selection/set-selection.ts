@@ -1,13 +1,34 @@
+import { executeCommand } from '../core/command-registry'
+import { applyOperation, getCurrentSelection } from '../core/public-state'
+import type { Operation } from '../interfaces/operation'
 import { Point } from '../interfaces/point'
 import type { Range } from '../interfaces/range'
 import { NON_SETTABLE_SELECTION_PROPERTIES } from '../interfaces/transforms/general'
-import type { SelectionTransforms } from '../interfaces/transforms/selection'
+import type { SelectionMutationMethods } from '../interfaces/transforms/selection'
 
-export const setSelection: SelectionTransforms['setSelection'] = (
+export type SetSelectionCommand = Extract<Operation, { type: 'set_selection' }>
+
+export const applySetSelectionCommand = (
+  editor: Parameters<SelectionMutationMethods['setSelection']>[0],
+  command: SetSelectionCommand
+) => {
+  applyOperation(editor, command)
+}
+
+export const executeSetSelectionCommand = (
+  editor: Parameters<SelectionMutationMethods['setSelection']>[0],
+  command: SetSelectionCommand
+) =>
+  executeCommand<SetSelectionCommand>(editor, command, (nextCommand) => {
+    applySetSelectionCommand(editor, nextCommand)
+    return { handled: true }
+  })
+
+export const setSelection: SelectionMutationMethods['setSelection'] = (
   editor,
   props
 ) => {
-  const { selection } = editor
+  const selection = getCurrentSelection(editor)
   const oldProps: Partial<Range> = {}
   const newProps: Partial<Range> = {}
 
@@ -35,7 +56,7 @@ export const setSelection: SelectionTransforms['setSelection'] = (
     return
   }
 
-  editor.apply({
+  executeSetSelectionCommand(editor, {
     type: 'set_selection',
     properties: oldProps,
     newProperties: newProps,

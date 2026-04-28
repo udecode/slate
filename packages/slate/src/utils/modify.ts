@@ -1,6 +1,8 @@
+import { setChildren as setEditorChildren } from '../core/public-state'
 import {
   type Ancestor,
   type Descendant,
+  Editor,
   type Element,
   Node,
   type Path,
@@ -8,6 +10,18 @@ import {
   type Text,
 } from '../interfaces'
 import { inheritRuntimeId } from './runtime-ids'
+
+const setChildren = (root: Ancestor, children: Descendant[]) => {
+  if (Node.isEditor(root)) {
+    setEditorChildren(root, children)
+    return
+  }
+
+  ;(root as { children: Descendant[] }).children = children
+}
+
+const getChildren = (root: Ancestor): Descendant[] =>
+  Node.isEditor(root) ? Editor.getChildren(root) : root.children
 
 export const insertChildren = <T>(
   xs: T[],
@@ -38,22 +52,30 @@ export const modifyDescendant = <N extends Descendant>(
 
   const node = Node.get(root, path) as N
   const slicedPath = path.slice()
-  let modifiedNode: Node = f(node)
+  let modifiedNode: Descendant = f(node)
   inheritRuntimeId(modifiedNode, node)
 
   while (slicedPath.length > 1) {
     const index = slicedPath.pop()!
     const ancestorNode = Node.get(root, slicedPath) as Ancestor
+    if (Node.isEditor(ancestorNode)) {
+      throw new Error('Cannot modify the editor as a descendant')
+    }
 
     modifiedNode = {
       ...ancestorNode,
-      children: replaceChildren(ancestorNode.children, index, 1, modifiedNode),
+      children: replaceChildren(
+        getChildren(ancestorNode),
+        index,
+        1,
+        modifiedNode
+      ),
     }
     inheritRuntimeId(modifiedNode, ancestorNode)
   }
 
   const index = slicedPath.pop()!
-  root.children = replaceChildren(root.children, index, 1, modifiedNode)
+  setChildren(root, replaceChildren(getChildren(root), index, 1, modifiedNode))
 }
 
 /**
@@ -65,7 +87,7 @@ export const modifyChildren = (
   f: (children: Descendant[]) => Descendant[]
 ) => {
   if (path.length === 0) {
-    root.children = f(root.children)
+    setChildren(root, f(getChildren(root)))
   } else {
     modifyDescendant<Element>(root, path, (node) => {
       if (Node.isText(node)) {

@@ -4,7 +4,7 @@ import {
   type RefObject,
   useCallback,
 } from 'react'
-import { Editor, Node, Path, Range, setCurrentSelection } from 'slate'
+import { Editor, Node, Path, Range } from 'slate'
 import {
   containsShadowAware,
   type DOMElement,
@@ -34,12 +34,14 @@ import { ReactEditor } from '../plugin/react-editor'
 import {
   type EditableInputController,
   executeEditableSelectionExport,
-  isEditableModelSelectionPreferred,
   isInteractiveInternalTarget,
   type SelectionChangeOrigin,
   setEditableModelSelectionPreference,
   syncEditableDOMSelectionToEditor,
 } from './input-controller'
+import { readRuntimeNode, readRuntimeText } from './runtime-live-state'
+import { writeRuntimeSelection } from './runtime-mutation-state'
+import { readRuntimeSelection } from './runtime-selection-state'
 
 export const toSlateCollapsedRangeFromDOMSelection = (
   editor: Editor,
@@ -66,7 +68,7 @@ export const toSlateCollapsedRangeFromDOMSelection = (
   }
 
   const path = getSlateNodePathFromDOMElement(textHost)
-  const slateNode = path ? Editor.getLiveText(editor, path) : null
+  const slateNode = path ? readRuntimeText(editor, path) : null
 
   if (!path || !slateNode) return null
 
@@ -339,10 +341,15 @@ const resolveEditableClickTarget = (
       : null
 
   if (path != null) {
-    const liveNode = Editor.getLiveNode(editor, path)
+    const liveNode = readRuntimeNode(editor, path)
 
     if (liveNode) {
       return { node: liveNode, path }
+    }
+
+    if (Editor.hasPath(editor, path)) {
+      const [node] = Editor.node(editor, path)
+      return { node, path }
     }
   }
 
@@ -367,6 +374,48 @@ const resolveEditableClickTarget = (
   }
 }
 
+const resolveEditableVoidClickTarget = (
+  editor: ReactEditor,
+  target: EventTarget
+) => {
+  const resolvedTarget = resolveEditableClickTarget(editor, target)
+
+  if (
+    resolvedTarget &&
+    Node.isElement(resolvedTarget.node) &&
+    Editor.isVoid(editor, resolvedTarget.node)
+  ) {
+    return resolvedTarget
+  }
+
+  return null
+}
+
+const preferModelSelectionForVoidTarget = ({
+  editor,
+  inputController,
+  target,
+}: {
+  editor: ReactEditor
+  inputController: EditableInputController
+  target: EventTarget | null
+}) => {
+  if (
+    !isDOMNode(target) ||
+    !ReactEditor.isTargetInsideNonReadonlyVoid(editor, target)
+  ) {
+    return false
+  }
+
+  setEditableModelSelectionPreference({
+    inputController,
+    preferModelSelection: true,
+    selectionSource: 'model-owned',
+  })
+  inputController.state.selectionChangeOrigin = 'programmatic-export'
+  return true
+}
+
 export const applyEditableClick = ({
   editor,
   event,
@@ -389,17 +438,26 @@ export const applyEditableClick = ({
     return
   }
 
-  setEditableModelSelectionPreference({
+  const voidTarget = isDOMNode(event.target)
+    ? resolveEditableVoidClickTarget(editor, event.target)
+    : null
+  const voidTargetOwnsSelection = preferModelSelectionForVoidTarget({
+    editor,
     inputController,
-    preferModelSelection: false,
-    selectionSource: 'dom-current',
+    target: event.target,
   })
 
-  if (
-    ReactEditor.hasTarget(editor, event.target) &&
-    !isReactEventHandled({ event, handler: onClick })
-  ) {
-    const target = resolveEditableClickTarget(editor, event.target)
+  if (!voidTargetOwnsSelection) {
+    setEditableModelSelectionPreference({
+      inputController,
+      preferModelSelection: false,
+      selectionSource: 'dom-current',
+    })
+  }
+
+  if (!isReactEventHandled({ event, handler: onClick })) {
+    const target =
+      voidTarget ?? resolveEditableClickTarget(editor, event.target)
 
     if (!target) {
       return
@@ -436,6 +494,7 @@ export const applyEditableClick = ({
 
     if (startVoid && endVoid && Path.equals(startVoid[1], endVoid[1])) {
       const range = Editor.range(editor, start)
+      ReactEditor.focus(editor)
       editor.update(() => {
         editor.select(range)
       })
@@ -464,11 +523,32 @@ export const applyEditableMouseDown = ({
     return
   }
 
-  setEditableModelSelectionPreference({
+  const voidTarget = isDOMNode(event.target)
+    ? resolveEditableVoidClickTarget(editor, event.target)
+    : null
+  const voidTargetOwnsSelection = preferModelSelectionForVoidTarget({
+    editor,
     inputController,
-    preferModelSelection: false,
-    selectionSource: 'dom-current',
+    target: event.target,
   })
+
+  if (voidTargetOwnsSelection && voidTarget) {
+    const start = Editor.start(editor, voidTarget.path)
+    const range = Editor.range(editor, start)
+
+    ReactEditor.focus(editor)
+    editor.update(() => {
+      editor.select(range)
+    })
+  }
+
+  if (!voidTargetOwnsSelection) {
+    setEditableModelSelectionPreference({
+      inputController,
+      preferModelSelection: false,
+      selectionSource: 'dom-current',
+    })
+  }
   onMouseDown?.(event)
 }
 
@@ -628,8 +708,8 @@ export const restoreUserSelectionAfterBeforeInput = ({
 
   if (
     toRestore &&
-    (!Editor.getLiveSelection(editor) ||
-      !Range.equals(Editor.getLiveSelection(editor)!, toRestore))
+    (!readRuntimeSelection(editor) ||
+      !Range.equals(readRuntimeSelection(editor)!, toRestore))
   ) {
     editor.update(() => {
       editor.select(toRestore)
@@ -725,10 +805,7 @@ export const useEditableSelectionReconciler = ({
       return
     }
 
-    if (
-      isEditableModelSelectionPreferred(inputController) ||
-      isInteractiveInternalTarget(editor, root.activeElement)
-    ) {
+    if (isInteractiveInternalTarget(editor, root.activeElement)) {
       return
     }
 
@@ -808,7 +885,7 @@ export const useEditableSelectionReconciler = ({
       // but Slate's value is not being updated through any operation
       // and thus it doesn't transform selection on its own
       if (selection && !ReactEditor.hasRange(editor, selection)) {
-        setCurrentSelection(
+        writeRuntimeSelection(
           editor,
           ReactEditor.toSlateRange(editor, domSelection, {
             exactMatch: false,

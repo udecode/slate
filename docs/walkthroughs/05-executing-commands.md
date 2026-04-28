@@ -50,13 +50,15 @@ const App = () => {
               const [match] = Editor.nodes(editor, {
                 match: n => n.type === 'code',
               })
-              Transforms.setNodes(
-                editor,
-                { type: match ? null : 'code' },
-                {
-                  match: n => Element.isElement(n) && Editor.isBlock(editor, n),
-                }
-              )
+              editor.update(() => {
+                editor.setNodes(
+                  { type: match ? null : 'code' },
+                  {
+                    match: n =>
+                      Element.isElement(n) && Editor.isBlock(editor, n),
+                  }
+                )
+              })
               break
             }
 
@@ -104,11 +106,12 @@ const CustomEditor = {
 
   toggleCodeBlock(editor) {
     const isActive = CustomEditor.isCodeBlockActive(editor)
-    Transforms.setNodes(
-      editor,
-      { type: isActive ? null : 'code' },
-      { match: n => Element.isElement(n) && Editor.isBlock(editor, n) }
-    )
+    editor.update(() => {
+      editor.setNodes(
+        { type: isActive ? null : 'code' },
+        { match: n => Element.isElement(n) && Editor.isBlock(editor, n) }
+      )
+    })
   },
 }
 

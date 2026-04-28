@@ -103,7 +103,7 @@ const getTextEntryAtPath = (
   path: Path
 ): TextEntry | null => {
   let current: Descendant | undefined
-  let children = snapshot.children
+  let children: readonly Descendant[] = snapshot.children
 
   for (const segment of path) {
     current = children[segment]

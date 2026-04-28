@@ -29,7 +29,7 @@ That will render a basic Slate editor on your page, and when you type things wil
 
 What we need to do is save the changes you make somewhere. For this example, we'll just be using [Local Storage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage), but it will give you an idea for where you'd need to add your own database hooks.
 
-So, in our `onChange` handler, we need to save the `value` if anything besides the selection was changed:
+Use `onValueChange` to save committed document changes:
 
 ```jsx
 const initialValue = [
@@ -46,15 +46,9 @@ const App = () => {
     <Slate
       editor={editor}
       initialValue={initialValue}
-      onChange={value => {
-        const isAstChange = editor.operations.some(
-          op => 'set_selection' !== op.type
-        )
-        if (isAstChange) {
-          // Save the value to Local Storage.
-          const content = JSON.stringify(value)
-          localStorage.setItem('content', content)
-        }
+      onValueChange={value => {
+        const content = JSON.stringify(value)
+        localStorage.setItem('content', content)
       }}
     >
       <Editable />
@@ -86,15 +80,9 @@ const App = () => {
     <Slate
       editor={editor}
       initialValue={initialValue}
-      onChange={value => {
-        const isAstChange = editor.operations.some(
-          op => 'set_selection' !== op.type
-        )
-        if (isAstChange) {
-          // Save the value to Local Storage.
-          const content = JSON.stringify(value)
-          localStorage.setItem('content', content)
-        }
+      onValueChange={value => {
+        const content = JSON.stringify(value)
+        localStorage.setItem('content', content)
       }}
     >
       <Editable />
@@ -146,14 +134,8 @@ const App = () => {
     <Slate
       editor={editor}
       initialValue={initialValue}
-      onChange={value => {
-        const isAstChange = editor.operations.some(
-          op => 'set_selection' !== op.type
-        )
-        if (isAstChange) {
-          // Serialize the value and save the string value to Local Storage.
-          localStorage.setItem('content', serialize(value))
-        }
+      onValueChange={value => {
+        localStorage.setItem('content', serialize(value))
       }}
     >
       <Editable />
@@ -168,7 +150,7 @@ You can emulate this strategy for any format you like. You can serialize to HTML
 
 > 🤖 Note that even though you _can_ serialize your content however you like, there are tradeoffs. The serialization process has a cost itself, and certain formats may be harder to work with than others. In general we recommend writing your own format only if your use case has a specific need for it. Otherwise, you're often better leaving the data in the format Slate uses.
 
-If you want to update the editor's content in response to events from outside of Slate, you need to change the children property directly. The simplest way is to replace the value of editor.children `editor.children = newValue` and trigger a re-rendering (e.g. by calling `editor.onChange()` in the example above). Alternatively, you can use Slate's internal operations to transform the value, for example:
+If you want to update the editor's content in response to events from outside of Slate, replace the editor value through an explicit editor API.
 
 ```javascript
   /**
@@ -182,22 +164,25 @@ If you want to update the editor's content in response to events from outside of
       at?: Location
     } = {}
   ): void {
-    const children = [...editor.children]
+    const nodes = options.nodes
+      ? Node.isNode(options.nodes)
+        ? [options.nodes]
+        : options.nodes
+      : []
 
-    children.forEach((node) => editor.apply({ type: 'remove_node', path: [0], node }))
-
-    if (options.nodes) {
-      const nodes = Node.isNode(options.nodes) ? [options.nodes] : options.nodes
-
-      nodes.forEach((node, i) => editor.apply({ type: 'insert_node', path: [i], node: node }))
-    }
+    Editor.replace(editor, {
+      children: nodes,
+      selection: null,
+    })
 
     const point = options.at && Point.isPoint(options.at)
       ? options.at
       : Editor.end(editor, [])
 
     if (point) {
-      Transforms.select(editor, point)
+      editor.update(() => {
+        editor.select(point)
+      })
     }
   }
 ```

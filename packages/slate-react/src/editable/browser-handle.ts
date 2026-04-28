@@ -10,6 +10,7 @@ import {
 } from './editing-kernel'
 import type { EditableInputController } from './input-state'
 import { applyEditableCommand } from './mutation-controller'
+import { readRuntimeSelection } from './runtime-selection-state'
 import {
   executeEditableSelectionImport,
   setEditableModelSelectionPreference,
@@ -89,7 +90,7 @@ export const attachSlateBrowserHandle = ({
     inputController.state.isUpdatingSelection = true
     inputController.state.selectionChangeOrigin = 'browser-handle'
 
-    const selectionBefore = Editor.getLiveSelection(editor)
+    const selectionBefore = readRuntimeSelection(editor)
     beginEditableEventFrame(editor, {
       eventFamily: 'repair',
       focusOwner: 'editor',
@@ -104,7 +105,7 @@ export const attachSlateBrowserHandle = ({
       editor,
       scrollSelectionIntoView: () => {},
       shellBackedSelection: isShellBackedSelection(
-        Editor.getLiveSelection(editor)
+        readRuntimeSelection(editor)
       ),
       state: inputController.state,
     })
@@ -119,7 +120,7 @@ export const attachSlateBrowserHandle = ({
         ownership: 'model-owned',
         repair: null,
         selectionChangeOrigin: 'browser-handle',
-        selectionAfter: Editor.getLiveSelection(editor),
+        selectionAfter: readRuntimeSelection(editor),
         selectionBefore,
         selectionSource: 'model-owned',
         stateAfter: 'model-owned',
@@ -162,7 +163,7 @@ export const attachSlateBrowserHandle = ({
     getKernelTrace: () => [...getEditableKernelTrace(editor)],
     getLastCommit: () => Editor.getLastCommit(editor),
     getSelection: () => {
-      const selection = Editor.getLiveSelection(editor)
+      const selection = readRuntimeSelection(editor)
 
       return selection
         ? {
@@ -179,7 +180,7 @@ export const attachSlateBrowserHandle = ({
     },
     getText: () => Editor.string(editor, []),
     importDOMSelection: () => {
-      const selectionBefore = Editor.getLiveSelection(editor)
+      const selectionBefore = readRuntimeSelection(editor)
 
       executeEditableSelectionImport({
         importSelection: () => {
@@ -197,7 +198,7 @@ export const attachSlateBrowserHandle = ({
         selectionPolicy: { kind: 'import-dom', reason: 'unknown-selection' },
       })
 
-      const selectionAfter = Editor.getLiveSelection(editor)
+      const selectionAfter = readRuntimeSelection(editor)
 
       recordEditableKernelTrace({
         editor,
@@ -239,7 +240,7 @@ export const attachSlateBrowserHandle = ({
       runCommand({ data, kind: 'insert-data' })
     },
     insertText: (text) => {
-      const selection = Editor.getLiveSelection(editor)
+      const selection = readRuntimeSelection(editor)
       if (
         applyInputRules?.({
           data: text,
@@ -277,6 +278,7 @@ export const attachSlateBrowserHandle = ({
         preferModelSelection: true,
         selectionSource: 'model-owned',
       })
+      inputController.state.selectionChangeOrigin = 'browser-handle'
       editor.update(() => {
         editor.select(selection)
       })

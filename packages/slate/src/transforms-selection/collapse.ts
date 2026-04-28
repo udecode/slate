@@ -1,9 +1,8 @@
 import { getCurrentSelection } from '../core/public-state'
 import { Range } from '../interfaces/range'
-import { Transforms } from '../interfaces/transforms'
-import type { SelectionTransforms } from '../interfaces/transforms/selection'
+import type { SelectionMutationMethods } from '../interfaces/transforms/selection'
 
-export const collapse: SelectionTransforms['collapse'] = (
+export const collapse: SelectionMutationMethods['collapse'] = (
   editor,
   options = {}
 ) => {
@@ -14,14 +13,14 @@ export const collapse: SelectionTransforms['collapse'] = (
     return
   }
   if (edge === 'anchor') {
-    Transforms.select(editor, selection.anchor)
+    editor.select(selection.anchor)
   } else if (edge === 'focus') {
-    Transforms.select(editor, selection.focus)
+    editor.select(selection.focus)
   } else if (edge === 'start') {
     const [start] = Range.edges(selection)
-    Transforms.select(editor, start)
+    editor.select(start)
   } else if (edge === 'end') {
     const [, end] = Range.edges(selection)
-    Transforms.select(editor, end)
+    editor.select(end)
   }
 }

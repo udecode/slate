@@ -10,21 +10,21 @@ import { isObject } from './is-object'
   Slate objects are designed to be serialised, so
   missing keys are deliberately normalised to undefined.
  */
-export const isDeepEqual = (
-  node: Record<string, any>,
-  another: Record<string, any>
-): boolean => {
+export const isDeepEqual = (node: object, another: object): boolean => {
+  const nodeRecord = node as Record<string, unknown>
+  const anotherRecord = another as Record<string, unknown>
+
   for (const key in node) {
     if (!Object.hasOwn(node, key)) continue
-    const a = Object.hasOwn(node, key) ? node[key] : undefined
-    const b = Object.hasOwn(another, key) ? another[key] : undefined
+    const a = Object.hasOwn(node, key) ? nodeRecord[key] : undefined
+    const b = Object.hasOwn(another, key) ? anotherRecord[key] : undefined
     if (Array.isArray(a) && Array.isArray(b)) {
       if (a.length !== b.length) return false
       for (let i = 0; i < a.length; i++) {
         if (a[i] !== b[i]) return false
       }
     } else if (isObject(a) && isObject(b)) {
-      if (!isDeepEqual(a, b)) return false
+      if (!isDeepEqual(a as object, b as object)) return false
     } else if (a !== b) {
       return false
     }
@@ -38,7 +38,7 @@ export const isDeepEqual = (
 
   for (const key in another) {
     if (!Object.hasOwn(another, key)) continue
-    if (node[key] === undefined && another[key] !== undefined) {
+    if (nodeRecord[key] === undefined && anotherRecord[key] !== undefined) {
       return false
     }
   }

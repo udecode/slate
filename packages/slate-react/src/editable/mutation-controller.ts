@@ -31,6 +31,20 @@ export const applyModelOwnedHistoryIntent = ({
   return true
 }
 
+export const shouldForceRenderAfterModelOwnedHistory = (editor: Editor) => {
+  const commit = Editor.getLastCommit(editor)
+
+  return (
+    !commit ||
+    commit.operations.some(
+      (operation) =>
+        operation.type !== 'insert_text' &&
+        operation.type !== 'remove_text' &&
+        operation.type !== 'set_selection'
+    )
+  )
+}
+
 export const applyModelOwnedNativeHistoryEvent = ({
   editor,
   event,

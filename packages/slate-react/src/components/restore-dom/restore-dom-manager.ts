@@ -19,13 +19,17 @@ export const createRestoreDomManager = (
   }
 
   const registerMutations = (mutations: MutationRecord[]) => {
-    if (!receivedUserInput.current) {
-      return
-    }
-
     const trackedMutations = mutations.filter((mutation) =>
       isTrackedMutation(editor, mutation, mutations)
     )
+
+    if (trackedMutations.length === 0) {
+      return
+    }
+
+    if (!receivedUserInput.current) {
+      return
+    }
 
     bufferedMutations.push(...trackedMutations)
   }
@@ -40,11 +44,22 @@ export const createRestoreDomManager = (
         }
 
         mutation.removedNodes.forEach((node) => {
-          mutation.target.insertBefore(node, mutation.nextSibling)
+          if (node.parentNode === mutation.target) {
+            return
+          }
+
+          mutation.target.insertBefore(
+            node,
+            mutation.nextSibling?.parentNode === mutation.target
+              ? mutation.nextSibling
+              : null
+          )
         })
 
         mutation.addedNodes.forEach((node) => {
-          mutation.target.removeChild(node)
+          if (node.parentNode === mutation.target) {
+            mutation.target.removeChild(node)
+          }
         })
       })
 

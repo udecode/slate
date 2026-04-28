@@ -189,7 +189,7 @@ test.describe('shadow-dom example', () => {
           movement: expect.objectContaining({
             axis: 'horizontal',
             ownership: 'model-owned',
-            reason: 'model-horizontal-inline-void-compat',
+            reason: 'model-horizontal-inline-void',
           }),
         }),
       ])

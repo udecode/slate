@@ -10,7 +10,7 @@ Slate editors come with a few built-in constraints out of the box. These constra
 
 1. **All `Element` nodes must contain at least one `Text` descendant** &mdash; even [Void Elements](./02-nodes.md#voids). If an element node does not contain any children, an empty text node will be added as its only child. This constraint exists to ensure that the selection's anchor and focus points \(which rely on referencing text nodes\) can always be placed inside any node. Without this, empty elements \(or void elements\) wouldn't be selectable.
 2. **Two adjacent texts with the same custom properties will be merged.** If two adjacent text nodes have the same formatting, they're merged into a single text node with a combined text string of the two. This exists to prevent the text nodes from only ever expanding in count in the document, since both adding and removing formatting results in splitting text nodes.
-3. **Block nodes can only contain other blocks, or inline and text nodes.** For example, a `paragraph` block cannot have another `paragraph` block element _and_ a `link` inline element as children at the same time. The type of children allowed is determined by the first child. Any other non-conforming children are tried to be converted (if possible) or removed. This ensures that common richtext behaviors like "splitting a block in two" function consistently. Conversion of block nodes is done by unwrapping the block node; conversion of inline/text nodes is performed by wrapping such nodes into a `fallbackElement` if specified in the `normalizeNode` options. The `fallbackElement` can be specified by editors overriding the `normalizeNode` function.
+3. **Block nodes can only contain other blocks, or inline and text nodes.** For example, a `paragraph` block cannot have another `paragraph` block element _and_ a `link` inline element as children at the same time. The type of children allowed is determined by the first child. Any other non-conforming children are tried to be converted (if possible) or removed. This ensures that common richtext behaviors like "splitting a block in two" function consistently. Conversion of block nodes is done by unwrapping the block node; conversion of inline/text nodes is performed by wrapping such nodes into a `fallbackElement` if specified in the `normalizeNode` options. The `fallbackElement` can be specified by composing `normalizeNode` in an editor extension.
 4. **Inline nodes cannot be the first or last child of a parent block, nor can it be next to another inline node in the children array.** If this is the case, an empty text node will be added to correct this to be in compliance with the constraint.
 5. **The top-level editor node can only contain block nodes.** If any of the top-level children are inline or text nodes they will be removed. This ensures that there are always block nodes in the editor so that behaviors like "splitting a block in two" work as expected.
 6. **Nodes must be JSON-serializable.** For example, avoid using `undefined` in your data model. This ensures that [operations](./05-operations.md) are also JSON-serializable, a property which is assumed by collaboration libraries.
@@ -24,35 +24,41 @@ These default constraints are all mandated because they make working with Slate 
 
 The built-in constraints are fairly generic. But you can also add your own constraints on top of the built-in ones that are specific to your domain.
 
-To do this, you extend the `normalizeNode` function on the editor. The `normalizeNode` function gets called every time an operation is applied that inserts or updates a node \(or its descendants\), giving you the opportunity to ensure that the changes didn't leave it in an invalid state, and correcting the node if so.
+To do this, compose the `normalizeNode` method in an editor extension. The
+`normalizeNode` method gets called every time an operation inserts or updates a
+node \(or its descendants\), giving you the opportunity to ensure that the
+change did not leave it in an invalid state, and correcting the node if so.
 
 For example here's a plugin that ensures `paragraph` blocks only have text or inline elements as children:
 
 ```javascript
-import { Transforms, Element, Node } from 'slate'
+import { defineEditorExtension, Element, Node } from 'slate'
 
-const withParagraphs = editor => {
-  const { normalizeNode } = editor
+const paragraphs = defineEditorExtension({
+  name: 'paragraphs',
+  methods(editor) {
+    const nextNormalizeNode = editor.normalizeNode
 
-  editor.normalizeNode = (entry, options) => {
-    const [node, path] = entry
+    return {
+      normalizeNode(entry, options) {
+        const [node, path] = entry
 
-    // If the element is a paragraph, ensure its children are valid.
-    if (Element.isElement(node) && node.type === 'paragraph') {
-      for (const [child, childPath] of Node.children(editor, path)) {
-        if (Element.isElement(child) && !editor.isInline(child)) {
-          Transforms.unwrapNodes(editor, { at: childPath })
-          return
+        // If the element is a paragraph, ensure its children are valid.
+        if (Element.isElement(node) && node.type === 'paragraph') {
+          for (const [child, childPath] of Node.children(editor, path)) {
+            if (Element.isElement(child) && !editor.isInline(child)) {
+              editor.unwrapNodes({ at: childPath })
+              return
+            }
+          }
         }
-      }
+
+        // Fall back to the captured `normalizeNode` to enforce other constraints.
+        nextNormalizeNode(entry, options)
+      },
     }
-
-    // Fall back to the original `normalizeNode` to enforce other constraints.
-    normalizeNode(entry, options)
-  }
-
-  return editor
-}
+  },
+})
 ```
 
 This example is fairly simple. Whenever `normalizeNode` gets called on a paragraph element, it loops through each of its children ensuring that none of them are block elements. And if one is a block element, it gets unwrapped, so that the block is removed and its children take its place. The node is "fixed".
@@ -67,7 +73,7 @@ If you check the example above again, you'll notice the `return` statement:
 
 ```javascript
 if (Element.isElement(child) && !editor.isInline(child)) {
-  Transforms.unwrapNodes(editor, { at: childPath })
+  editor.unwrapNodes({ at: childPath })
   return
 }
 ```
@@ -76,7 +82,7 @@ You might at first think this is odd, because with the `return` there, the origi
 
 But, there's a slight "trick" to normalizing.
 
-When you do call `Transforms.unwrapNodes`, you're actually changing the content of the node that is currently being normalized. So even though you're ending the current normalization pass, by making a change to the node you're kicking off a _new_ normalization pass. This results in a sort of _recursive_ normalizing.
+When you call `editor.unwrapNodes`, you're actually changing the content of the node that is currently being normalized. So even though you're ending the current normalization pass, by making a change to the node you're kicking off a _new_ normalization pass. This results in a sort of _recursive_ normalizing.
 
 This multi-pass characteristic makes it _much_ easier to write normalizations, because you only ever have to worry about fixing a single issue at once, and not fixing _every_ possible issue that could be putting a node in an invalid state.
 
@@ -132,27 +138,30 @@ For example, consider a normalization that ensured `link` elements have a valid 
 
 ```javascript
 // WARNING: this is an example of incorrect behavior!
-const withLinks = editor => {
-  const { normalizeNode } = editor
+const links = defineEditorExtension({
+  name: 'links',
+  methods(editor) {
+    const nextNormalizeNode = editor.normalizeNode
 
-  editor.normalizeNode = (entry, options) => {
-    const [node, path] = entry
+    return {
+      normalizeNode(entry, options) {
+        const [node, path] = entry
 
-    if (
-      Element.isElement(node) &&
-      node.type === 'link' &&
-      typeof node.url !== 'string'
-    ) {
-      // ERROR: null is not a valid value for a url
-      Transforms.setNodes(editor, { url: null }, { at: path })
-      return
+        if (
+          Element.isElement(node) &&
+          node.type === 'link' &&
+          typeof node.url !== 'string'
+        ) {
+          // ERROR: null is not a valid value for a url.
+          editor.setNodes({ url: null }, { at: path })
+          return
+        }
+
+        nextNormalizeNode(entry, options)
+      },
     }
-
-    normalizeNode(entry, options)
-  }
-
-  return editor
-}
+  },
+})
 ```
 
 This fix is incorrectly written. It wants to ensure that all `link` elements have a `url` property string. But to fix invalid links it sets the `url` to `null`, which is still not a string!
@@ -161,34 +170,36 @@ In this case you'd either want to unwrap the link, removing it entirely. _Or_ ex
 
 ## Implications for Other Code
 
-Sequences of Transforms may need to be wrapped in [`Editor.withoutNormalizing`](../api/nodes/editor.md#editorwithoutnormalizingeditor-editor-fn---void--void) if the node tree should _not_ be normalized between Transforms.
-This is frequently the case when you `unwrapNodes` followed by `wrapNodes`.
+Sequences of editor methods may need to be wrapped in [`Editor.withoutNormalizing`](../api/nodes/editor.md#editorwithoutnormalizingeditor-editor-fn---void--void) if the node tree should _not_ be normalized between method calls.
+This is frequently the case when you call `unwrapNodes` followed by `wrapNodes`.
 For example, you might write a function to change the type of a block as follows:
 
 ```javascript
 const LIST_TYPES = ['numbered-list', 'bulleted-list']
 
 function changeBlockType(editor, type) {
-  Editor.withoutNormalizing(editor, () => {
-    const isActive = isBlockActive(editor, type)
-    const isList = LIST_TYPES.includes(type)
+  editor.update(() => {
+    Editor.withoutNormalizing(editor, () => {
+      const isActive = isBlockActive(editor, type)
+      const isList = LIST_TYPES.includes(type)
 
-    Transforms.unwrapNodes(editor, {
-      match: n =>
-        LIST_TYPES.includes(
-          !Editor.isEditor(n) && SlateElement.isElement(n) && n.type
-        ),
-      split: true,
+      editor.unwrapNodes({
+        match: n =>
+          LIST_TYPES.includes(
+            !Editor.isEditor(n) && SlateElement.isElement(n) && n.type
+          ),
+        split: true,
+      })
+      const newProperties = {
+        type: isActive ? 'paragraph' : isList ? 'list-item' : type,
+      }
+      editor.setNodes(newProperties)
+
+      if (!isActive && isList) {
+        const block = { type: type, children: [] }
+        editor.wrapNodes(block)
+      }
     })
-    const newProperties = {
-      type: isActive ? 'paragraph' : isList ? 'list-item' : type,
-    }
-    Transforms.setNodes(editor, newProperties)
-
-    if (!isActive && isList) {
-      const block = { type: type, children: [] }
-      Transforms.wrapNodes(editor, block)
-    }
   })
 }
 ```

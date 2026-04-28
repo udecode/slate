@@ -1,9 +1,9 @@
 /** @jsx jsx */
 
-import { Editor, Element, Transforms } from 'slate'
+import { Editor, Element } from 'slate'
 
 export const run = (editor) => {
-  Transforms.splitNodes(editor, {
+  editor.splitNodes({
     match: (n) => Element.isElement(n) && Editor.isInline(editor, n),
   })
 }

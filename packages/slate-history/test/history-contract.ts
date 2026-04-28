@@ -200,6 +200,31 @@ describe('slate-history contract', () => {
     assert.deepEqual(getVisibleState(editor), before)
   })
 
+  it('does not merge follow-up typing into a structural text batch', () => {
+    const editor = withHistoryTest()
+
+    replace(editor, [paragraph('Alpha')], {
+      anchor: { path: [0, 0], offset: 5 },
+      focus: { path: [0, 0], offset: 5 },
+    })
+
+    write(editor, () => {
+      editor.insertBreak()
+      editor.insertText('Beta')
+    })
+    const afterStructuralBatch = getVisibleState(editor)
+
+    write(editor, () => {
+      editor.insertText('!')
+    })
+
+    assert.equal(editor.history.undos.length, 2)
+
+    editor.undo()
+
+    assert.deepEqual(getVisibleState(editor), afterStructuralBatch)
+  })
+
   it('restores the saved expanded selection after deleteFragment, blur, refocus, and undo', () => {
     const editor = withHistoryTest()
 

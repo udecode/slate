@@ -6,14 +6,7 @@ import {
   useCallback,
   useMemo,
 } from 'react'
-import {
-  createEditor,
-  type Descendant,
-  Editor,
-  Node,
-  type Element as SlateElement,
-  Transforms,
-} from 'slate'
+import { createEditor, Editor, Node, type Element as SlateElement } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -26,10 +19,10 @@ import {
 import { Button, Icon, Toolbar } from './components'
 import type {
   CustomEditor,
-  CustomElement,
   CustomElementType,
   CustomElementWithAlign,
   CustomTextKey,
+  CustomValue,
 } from './custom-types.d'
 
 const HOTKEYS: Record<string, CustomTextKey> = {
@@ -55,7 +48,10 @@ const RichTextExample = () => {
     (props: RenderLeafProps) => <Leaf {...props} />,
     []
   )
-  const editor = useMemo(() => withHistory(withReact(createEditor())), [])
+  const editor = useMemo(
+    () => withHistory(withReact(createEditor<CustomValue>())),
+    []
+  )
 
   return (
     <Slate editor={editor} initialValue={initialValue}>
@@ -76,12 +72,12 @@ const RichTextExample = () => {
       </Toolbar>
       <Editable
         autoFocus
-        onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+        onKeyCommand={(event: KeyboardEvent<HTMLDivElement>) => {
           for (const hotkey in HOTKEYS) {
             if (isHotkey(hotkey, event as any)) {
-              event.preventDefault()
               const mark = HOTKEYS[hotkey]
               toggleMark(editor, mark)
+              return true
             }
           }
         }}
@@ -95,44 +91,21 @@ const RichTextExample = () => {
 }
 
 const toggleBlock = (editor: CustomEditor, format: CustomElementFormat) => {
-  const isActive = isBlockActive(
-    editor,
-    format,
-    isAlignType(format) ? 'align' : 'type'
-  )
-  const isList = isListType(format)
-
-  Transforms.unwrapNodes(editor, {
-    match: (n) =>
-      Node.isElement(n) && isListType(n.type) && !isAlignType(format),
-    split: true,
-  })
-  let newProperties: Partial<SlateElement>
   if (isAlignType(format)) {
-    newProperties = {
-      align: isActive ? undefined : format,
-    }
-  } else {
-    newProperties = {
-      type: isActive ? 'paragraph' : isList ? 'list-item' : format,
-    }
+    editor.toggleAlignment(format)
+    return
   }
-  Transforms.setNodes<SlateElement>(editor, newProperties)
 
-  if (!isActive && isList) {
-    const block = { type: format, children: [] }
-    Transforms.wrapNodes(editor, block)
+  if (isListType(format)) {
+    editor.toggleList(format)
+    return
   }
+
+  editor.toggleBlock(format)
 }
 
 const toggleMark = (editor: CustomEditor, format: CustomTextKey) => {
-  const isActive = isMarkActive(editor, format)
-
-  if (isActive) {
-    Editor.removeMark(editor, format)
-  } else {
-    Editor.addMark(editor, format, true)
-  }
+  editor.toggleMark(format)
 }
 
 const isBlockActive = (
@@ -140,7 +113,7 @@ const isBlockActive = (
   format: CustomElementFormat,
   blockType: 'type' | 'align' = 'type'
 ) => {
-  const { selection } = editor
+  const selection = editor.getSelection()
   if (!selection) return false
 
   const [match] = Array.from(
@@ -162,7 +135,7 @@ const isBlockActive = (
 }
 
 const isMarkActive = (editor: CustomEditor, format: CustomTextKey) => {
-  const marks = Editor.marks(editor)
+  const marks = editor.getMarks()
   return marks ? marks[format] === true : false
 }
 
@@ -243,7 +216,7 @@ interface BlockButtonProps {
 }
 
 const BlockButton = ({ format, icon }: BlockButtonProps) => {
-  const editor = useSlate()
+  const editor = useSlate<CustomEditor>()
   return (
     <Button
       active={isBlockActive(
@@ -268,10 +241,11 @@ interface MarkButtonProps {
 }
 
 const MarkButton = ({ format, icon }: MarkButtonProps) => {
-  const editor = useSlate()
+  const editor = useSlate<CustomEditor>()
   return (
     <Button
       active={isMarkActive(editor, format)}
+      data-test-id={`mark-button-${format}`}
       onClick={() => toggleMark(editor, format)}
       onPointerDown={(event: PointerEvent<HTMLButtonElement>) =>
         event.preventDefault()
@@ -291,12 +265,12 @@ const isListType = (format: CustomElementFormat): format is ListType => {
 }
 
 const isAlignElement = (
-  element: CustomElement
+  element: SlateElement
 ): element is CustomElementWithAlign => {
   return 'align' in element
 }
 
-const initialValue: Descendant[] = [
+const initialValue: CustomValue = [
   {
     type: 'paragraph',
     children: [

@@ -12,7 +12,7 @@ export const getDefaultInsertLocation = (editor: Editor): Location => {
   if (selection) {
     return selection
   }
-  if (editor.children.length > 0) {
+  if (Editor.getChildren(editor).length > 0) {
     return Editor.end(editor, [])
   }
   return [0]

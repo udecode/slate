@@ -175,7 +175,7 @@ test.describe('slate highlighted text', () => {
           movement: expect.objectContaining({
             axis: 'horizontal',
             ownership: 'model-owned',
-            reason: 'model-horizontal-inline-void-compat',
+            reason: 'model-horizontal-inline-void',
           }),
         }),
       ])

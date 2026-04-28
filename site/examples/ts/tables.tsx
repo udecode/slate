@@ -1,22 +1,16 @@
 import { css } from '@emotion/css'
 import { useCallback, useMemo } from 'react'
-import {
-  createEditor,
-  type Descendant,
-  Editor,
-  Node,
-  Point,
-  Range,
-} from 'slate'
+import { createEditor, Editor, Node, Point, Range } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
+  type EditableKeyCommandHandler,
   type RenderElementProps,
   type RenderLeafProps,
   Slate,
   withReact,
 } from 'slate-react'
-import type { CustomEditor } from './custom-types.d'
+import type { CustomEditor, CustomValue } from './custom-types.d'
 
 const TablesExample = () => {
   const renderElement = useCallback(
@@ -28,78 +22,55 @@ const TablesExample = () => {
     []
   )
   const editor = useMemo(
-    () => withTables(withHistory(withReact(createEditor()))) as CustomEditor,
+    () => withHistory(withReact(createEditor<CustomValue>())) as CustomEditor,
     []
   )
+  const handleKeyCommand = useCallback<EditableKeyCommandHandler>(
+    (event) => applyTableBoundaryCommand(editor, event.key),
+    [editor]
+  )
+
   return (
     <Slate editor={editor} initialValue={initialValue}>
-      <Editable renderElement={renderElement} renderLeaf={renderLeaf} />
+      <Editable
+        onKeyCommand={handleKeyCommand}
+        renderElement={renderElement}
+        renderLeaf={renderLeaf}
+      />
     </Slate>
   )
 }
 
-const withTables = (editor: CustomEditor) => {
-  const { deleteBackward, deleteForward, insertBreak } = editor
+const applyTableBoundaryCommand = (editor: CustomEditor, key: string) => {
+  const selection = editor.getSelection()
 
-  editor.deleteBackward = (unit: 'character' | 'word' | 'line' | 'block') => {
-    const { selection } = editor
-
-    if (selection && Range.isCollapsed(selection)) {
-      const [cell] = Editor.nodes(editor, {
-        match: (n) => Node.isElement(n) && n.type === 'table-cell',
-      })
-
-      if (cell) {
-        const [, cellPath] = cell
-        const start = Editor.start(editor, cellPath)
-
-        if (Point.equals(selection.anchor, start)) {
-          return
-        }
-      }
-    }
-
-    deleteBackward(unit)
+  if (!selection || !Range.isCollapsed(selection)) {
+    return false
   }
 
-  editor.deleteForward = (unit) => {
-    const { selection } = editor
+  const [cell] = Editor.nodes(editor, {
+    match: (n) => Node.isElement(n) && n.type === 'table-cell',
+  })
 
-    if (selection && Range.isCollapsed(selection)) {
-      const [cell] = Editor.nodes(editor, {
-        match: (n) => Node.isElement(n) && n.type === 'table-cell',
-      })
-
-      if (cell) {
-        const [, cellPath] = cell
-        const end = Editor.end(editor, cellPath)
-
-        if (Point.equals(selection.anchor, end)) {
-          return
-        }
-      }
-    }
-
-    deleteForward(unit)
+  if (!cell) {
+    return false
   }
 
-  editor.insertBreak = () => {
-    const { selection } = editor
+  const [, cellPath] = cell
 
-    if (selection) {
-      const [table] = Editor.nodes(editor, {
-        match: (n) => Node.isElement(n) && n.type === 'table',
-      })
-
-      if (table) {
-        return
-      }
-    }
-
-    insertBreak()
+  if (key === 'Backspace') {
+    return Point.equals(selection.anchor, Editor.start(editor, cellPath))
   }
 
-  return editor
+  if (key === 'Delete') {
+    return Point.equals(selection.anchor, Editor.end(editor, cellPath))
+  }
+
+  if (key === 'Enter') {
+    return true
+  }
+
+  return false
 }
 
 const Element = ({ attributes, children, element }: RenderElementProps) => {
@@ -132,7 +103,7 @@ const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
   return <span {...attributes}>{children}</span>
 }
 
-const initialValue: Descendant[] = [
+const initialValue: CustomValue = [
   {
     type: 'paragraph',
     children: [

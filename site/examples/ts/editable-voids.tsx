@@ -1,7 +1,7 @@
 import { css } from '@emotion/css'
 import type React from 'react'
 import { type PointerEvent, useMemo, useState } from 'react'
-import { createEditor, type Descendant, Transforms } from 'slate'
+import { createEditor, defineEditorExtension } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -12,12 +12,17 @@ import {
 } from 'slate-react'
 
 import { Button, Icon, Toolbar } from './components'
-import type { CustomEditor, EditableVoidElement } from './custom-types.d'
+import type {
+  CustomEditor,
+  CustomValue,
+  EditableVoidElement,
+} from './custom-types.d'
 import RichTextEditor from './richtext'
 
 const EditableVoidsExample = () => {
   const editor = useMemo(
-    () => withEditableVoids(withHistory(withReact(createEditor()))),
+    () =>
+      withEditableVoids(withHistory(withReact(createEditor<CustomValue>()))),
     []
   )
 
@@ -29,19 +34,28 @@ const EditableVoidsExample = () => {
 
       <Editable
         placeholder="Enter some text..."
-        renderElement={(props) => <Element {...props} />}
+        renderElement={(props: RenderElementProps) => <Element {...props} />}
+        renderVoid={() => <EditableVoid />}
       />
     </Slate>
   )
 }
 
+const editableVoidsExtension = defineEditorExtension<CustomEditor>({
+  name: 'editable-voids',
+  methods(editor) {
+    const nextIsVoid = editor.isVoid
+
+    return {
+      isVoid(element) {
+        return element.type === 'editable-void' ? true : nextIsVoid(element)
+      },
+    }
+  },
+})
+
 const withEditableVoids = (editor: CustomEditor) => {
-  const { isVoid } = editor
-
-  editor.isVoid = (element) => {
-    return element.type === 'editable-void' ? true : isVoid(element)
-  }
-
+  editor.extend(editableVoidsExtension)
   return editor
 }
 
@@ -51,84 +65,73 @@ const insertEditableVoid = (editor: CustomEditor) => {
     type: 'editable-void',
     children: [text],
   }
-  Transforms.insertNodes(editor, voidNode)
+  editor.update(() => {
+    editor.insertNodes(voidNode)
+  })
 }
 
 const Element = (props: RenderElementProps) => {
-  const { attributes, children, element } = props
+  const { attributes, children } = props
 
-  switch (element.type) {
-    case 'editable-void':
-      return <EditableVoid {...props} />
-    default:
-      return <p {...attributes}>{children}</p>
-  }
+  return <p {...attributes}>{children}</p>
 }
 
 const unsetWidthStyle = css`
   width: unset;
 `
 
-const EditableVoid = ({
-  attributes,
-  children,
-  element,
-}: RenderElementProps) => {
+const EditableVoid = () => {
   const [inputValue, setInputValue] = useState('')
 
   return (
-    // Need contentEditable=false or Firefox has issues with certain input types.
-    <div {...attributes} contentEditable={false}>
+    <div
+      className={css`
+        box-shadow: 0 0 0 3px #ddd;
+        padding: 8px;
+      `}
+    >
+      <h4>Name:</h4>
+      <input
+        className={css`
+          margin: 8px 0;
+        `}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+          setInputValue(e.target.value)
+        }}
+        type="text"
+        value={inputValue}
+      />
+      <h4>Left or right handed:</h4>
+      <input
+        className={unsetWidthStyle}
+        name="handedness"
+        type="radio"
+        value="left"
+      />{' '}
+      Left
+      <br />
+      <input
+        className={unsetWidthStyle}
+        name="handedness"
+        type="radio"
+        value="right"
+      />{' '}
+      Right
+      <h4>Tell us about yourself:</h4>
       <div
         className={css`
-          box-shadow: 0 0 0 3px #ddd;
-          padding: 8px;
+          padding: 20px;
+          border: 2px solid #ddd;
         `}
       >
-        <h4>Name:</h4>
-        <input
-          className={css`
-            margin: 8px 0;
-          `}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-            setInputValue(e.target.value)
-          }}
-          type="text"
-          value={inputValue}
-        />
-        <h4>Left or right handed:</h4>
-        <input
-          className={unsetWidthStyle}
-          name="handedness"
-          type="radio"
-          value="left"
-        />{' '}
-        Left
-        <br />
-        <input
-          className={unsetWidthStyle}
-          name="handedness"
-          type="radio"
-          value="right"
-        />{' '}
-        Right
-        <h4>Tell us about yourself:</h4>
-        <div
-          className={css`
-            padding: 20px;
-            border: 2px solid #ddd;
-          `}
-        >
-          <RichTextEditor />
-        </div>
+        <RichTextEditor />
       </div>
-      {children}
     </div>
   )
 }
 
 const InsertEditableVoidButton = () => {
-  const editor = useSlateStatic()
+  const editor = useSlateStatic<CustomEditor>()
   return (
     <Button
       onClick={() => insertEditableVoid(editor)}
@@ -141,7 +144,7 @@ const InsertEditableVoidButton = () => {
   )
 }
 
-const initialValue: Descendant[] = [
+const initialValue: CustomValue = [
   {
     type: 'paragraph',
     children: [

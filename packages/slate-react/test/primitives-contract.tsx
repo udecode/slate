@@ -9,7 +9,6 @@ import {
   SlateSpacer,
   SlateText,
   TextString,
-  VoidElement,
   ZeroWidthString,
 } from '../src'
 
@@ -132,26 +131,13 @@ describe('slate-react primitives contract', () => {
     expect(spacer?.textContent).toBe('\uFEFF')
   })
 
-  test('EditableElement and VoidElement expose the minimal public wrapper shapes', () => {
+  test('EditableElement exposes the minimal public wrapper shape', () => {
     const rendered = render(
-      <>
-        <EditableElement as="section" id="editable-element">
-          child
-        </EditableElement>
-        <VoidElement
-          as="article"
-          content={<span>void</span>}
-          id="void-element"
-          spacer={<ZeroWidthString length={2} />}
-        />
-      </>
+      <EditableElement as="section" id="editable-element">
+        child
+      </EditableElement>
     )
 
     expect(rendered.container.querySelector('#editable-element')).toBeTruthy()
-    expect(rendered.container.querySelector('#void-element')).toBeTruthy()
-    expect(
-      rendered.container.querySelector('#void-element [data-slate-spacer]')
-        ?.textContent
-    ).toBe('\uFEFF')
   })
 })

@@ -1,34 +1,50 @@
 import { transformBookmarks } from '../editor/bookmark'
 import { allRangeRefs, publishRangeRefDrafts } from '../editor/range-ref'
 import { Editor } from '../interfaces/editor'
+import type { Operation } from '../interfaces/operation'
 import { Path } from '../interfaces/path'
 import { PathRef } from '../interfaces/path-ref'
 import { PointRef } from '../interfaces/point-ref'
 import { RangeRef } from '../interfaces/range-ref'
-import { Transforms } from '../interfaces/transforms'
-import type { WithEditorFirstArg } from '../utils/types'
+import { transform } from '../interfaces/transforms/general'
 import { isBatchingDirtyPaths } from './batch-dirty-paths'
 import {
+  appendOperation,
+  assertCanStartEditorWrite,
   buildSnapshotChange,
   canUseTextFastPath,
+  getCommandContext,
+  getCurrentMarks,
+  getCurrentSelection,
+  getOperationDirtiness,
   getSnapshot,
+  getSnapshotVersion,
   hasListeners,
   incrementVersion,
   isInTransaction,
   markTransactionChanged,
   notifyListeners,
   setCurrentMarks,
+  transformImplicitTarget,
   withTransaction,
 } from './public-state'
 import { updateDirtyPaths } from './update-dirty-paths'
 
-export const apply: WithEditorFirstArg<Editor['apply']> = (editor, op) => {
+export const apply = (editor: Editor, op: Operation) => {
+  if (!isInTransaction(editor)) {
+    assertCanStartEditorWrite(editor)
+  }
+
   if (
     !isInTransaction(editor) &&
     (op.type === 'insert_text' || op.type === 'remove_text') &&
     canUseTextFastPath(editor)
   ) {
+    const previousVersion = getSnapshotVersion(editor)
     const previousSnapshot = hasListeners(editor) ? getSnapshot(editor) : null
+    const previousSelection =
+      previousSnapshot?.selection ?? getCurrentSelection(editor)
+    const previousMarks = previousSnapshot?.marks ?? getCurrentMarks(editor)
 
     for (const ref of Editor.pointRefs(editor)) {
       PointRef.transform(ref, op)
@@ -39,13 +55,10 @@ export const apply: WithEditorFirstArg<Editor['apply']> = (editor, op) => {
     }
 
     transformBookmarks(editor, op)
+    transformImplicitTarget(editor, op)
 
-    if (!isBatchingDirtyPaths(editor)) {
-      updateDirtyPaths(editor, editor.getDirtyPaths(op))
-    }
-
-    Transforms.transform(editor, op)
-    editor.operations.push(op)
+    transform(editor, op)
+    appendOperation(editor, op)
     publishRangeRefDrafts(editor)
     incrementVersion(editor)
 
@@ -53,14 +66,43 @@ export const apply: WithEditorFirstArg<Editor['apply']> = (editor, op) => {
       editor,
       previousSnapshot
         ? buildSnapshotChange({
+            command: getCommandContext(editor),
             nextSnapshot: getSnapshot(editor),
             operations: [op],
             previousSnapshot,
             reason: null,
           })
-        : undefined
+        : getOperationDirtiness(editor, [op], {
+            command: getCommandContext(editor),
+            previousVersion,
+            marksBefore: previousMarks,
+            selectionBefore: previousSelection,
+          })
     )
 
+    return
+  }
+
+  if (
+    !isInTransaction(editor) &&
+    op.type === 'set_selection' &&
+    !hasListeners(editor)
+  ) {
+    const previousVersion = getSnapshotVersion(editor)
+    const previousSelection = getCurrentSelection(editor)
+    const previousMarks = getCurrentMarks(editor)
+    transform(editor, op)
+    appendOperation(editor, op)
+    incrementVersion(editor)
+    setCurrentMarks(editor, null)
+    notifyListeners(
+      editor,
+      getOperationDirtiness(editor, [op], {
+        previousVersion,
+        marksBefore: previousMarks,
+        selectionBefore: previousSelection,
+      })
+    )
     return
   }
 
@@ -84,6 +126,7 @@ export const apply: WithEditorFirstArg<Editor['apply']> = (editor, op) => {
   }
 
   transformBookmarks(editor, op)
+  transformImplicitTarget(editor, op)
 
   // update dirty paths
   if (!isBatchingDirtyPaths(editor)) {
@@ -93,8 +136,8 @@ export const apply: WithEditorFirstArg<Editor['apply']> = (editor, op) => {
     updateDirtyPaths(editor, editor.getDirtyPaths(op), transform)
   }
 
-  Transforms.transform(editor, op)
-  editor.operations.push(op)
+  transform(editor, op)
+  appendOperation(editor, op)
 
   // Clear any formats applied to the cursor if the selection changes.
   if (op.type === 'set_selection' && !isInTransaction(editor)) {

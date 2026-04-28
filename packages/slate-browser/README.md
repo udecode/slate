@@ -38,15 +38,21 @@ Secondary public surface:
 - `withExclusiveClipboardAccess(...)`
 - `slate-browser/transports`
   - browser-mobile transport descriptors
+  - proof-scope classifiers for mobile transport claims
   - current adapter builders for:
     - `agent-browser` iOS
     - Appium Android
+    - Appium iOS
 
 Freeze rule:
 
 - keep `slate-browser` as proof infrastructure, not product API
 - keep the current subpath surface and `ready` contract as the stable package shape
 - keep transport identity explicit; no fake universal driver
+- Appium descriptors can close automated device-browser input/IME proof only
+  when the device gate actually runs; `agent-browser` iOS is proxy evidence,
+  and the current automated surface does not claim native mobile clipboard,
+  human soft-keyboard, glide typing, or voice input proof
 
 Use the `ready` contract for maintained callsites and examples.
 

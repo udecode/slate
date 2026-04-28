@@ -7,7 +7,6 @@ import {
   Editor,
   type Element,
   Node,
-  Transforms,
 } from '../src'
 
 const collapsedSelection = (path: number[], offset: number) => ({
@@ -28,7 +27,7 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    Transforms.moveNodes(editor, { at: [1], to: [1] })
+    editor.moveNodes({ at: [1], to: [1] })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [
       { type: 'block', children: [{ text: '1' }] },
@@ -54,7 +53,7 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    Transforms.moveNodes(editor, { at: [0], to: [1, 1] })
+    editor.moveNodes({ at: [0], to: [1, 1] })
 
     const after = Editor.getSnapshot(editor)
 
@@ -89,8 +88,7 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    Transforms.setNodes(
-      editor,
+    editor.setNodes(
       { someKey: true },
       {
         match: (node) => 'children' in node && Editor.isInline(editor, node),
@@ -123,7 +121,7 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    Transforms.setNodes<Element>(editor, { type: 'heading-one' }, { at: [0] })
+    editor.setNodes<Element>({ type: 'heading-one' }, { at: [0] })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [
       {
@@ -159,8 +157,7 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    Transforms.setNodes(
-      editor,
+    editor.setNodes(
       { someKey: true },
       {
         match: (node) => 'children' in node && Editor.isInline(editor, node),
@@ -206,7 +203,7 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    Transforms.wrapNodes(editor, { type: 'quote', children: [] } as Element, {
+    editor.wrapNodes({ type: 'quote', children: [] } as Element, {
       split: true,
     })
 
@@ -241,7 +238,7 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    Transforms.wrapNodes(editor, { type: 'quote', children: [] } as Element, {
+    editor.wrapNodes({ type: 'quote', children: [] } as Element, {
       match: (node, currentPath) => {
         if ('noneditable' in node && node.noneditable === true) return false
 
@@ -288,7 +285,7 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    Transforms.unwrapNodes(editor, {
+    editor.unwrapNodes({
       match: (node) => 'a' in node && node.a === true,
       mode: 'all',
     })
@@ -314,7 +311,9 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    Transforms.liftNodes(editor, { at: [0, 0], voids: true })
+    editor.update(() => {
+      editor.liftNodes({ at: [0, 0], voids: true })
+    })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [
       { type: 'block', children: [{ text: 'word' }] },

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { createEditor, type Descendant, Editor } from '../src'
+import { createEditor, type Descendant, Editor, type Operation } from '../src'
 
 const moveChildren = (): Descendant[] => [
   {
@@ -19,6 +19,13 @@ const collapsedSelection = (path: number[], offset: number) => ({
   focus: { path, offset },
 })
 
+const applyOperation = (
+  editor: ReturnType<typeof createEditor>,
+  operation: Operation
+) => {
+  editor.applyOperations([operation])
+}
+
 describe('slate operations contract', () => {
   it('treats move_node as a no-op when path equals newPath', () => {
     const editor = createEditor()
@@ -29,7 +36,7 @@ describe('slate operations contract', () => {
       marks: null,
     })
 
-    editor.apply({
+    applyOperation(editor, {
       type: 'move_node',
       path: [0],
       newPath: [0],
@@ -47,7 +54,7 @@ describe('slate operations contract', () => {
       marks: null,
     })
 
-    editor.apply({
+    applyOperation(editor, {
       type: 'move_node',
       path: [0],
       newPath: [2],
@@ -74,7 +81,7 @@ describe('slate operations contract', () => {
       marks: null,
     })
 
-    editor.apply({
+    applyOperation(editor, {
       type: 'move_node',
       path: [0],
       newPath: [2],
@@ -104,7 +111,7 @@ describe('slate operations contract', () => {
       marks: null,
     })
 
-    editor.apply({
+    applyOperation(editor, {
       type: 'insert_node',
       path: [0],
       node: {
@@ -144,7 +151,7 @@ describe('slate operations contract', () => {
       marks: null,
     })
 
-    editor.apply({
+    applyOperation(editor, {
       type: 'set_selection',
       properties: {
         anchor: { path: [0, 0], offset: 0 },
@@ -172,7 +179,7 @@ describe('slate operations contract', () => {
 
     assert.throws(
       () =>
-        editor.apply({
+        applyOperation(editor, {
           type: 'set_selection',
           properties: null,
           newProperties: {
@@ -197,7 +204,7 @@ describe('slate operations contract', () => {
       marks: null,
     })
 
-    editor.apply({
+    applyOperation(editor, {
       type: 'split_node',
       path: [0, 0],
       position: 5,
@@ -206,7 +213,7 @@ describe('slate operations contract', () => {
       },
     })
 
-    editor.apply({
+    applyOperation(editor, {
       type: 'split_node',
       path: [0],
       position: 1,
@@ -248,7 +255,7 @@ describe('slate operations contract', () => {
       marks: null,
     })
 
-    editor.apply({
+    applyOperation(editor, {
       type: 'split_node',
       path: [0],
       position: 1,
@@ -292,7 +299,7 @@ describe('slate operations contract', () => {
       marks: null,
     })
 
-    editor.apply({
+    applyOperation(editor, {
       type: 'remove_node',
       path: [0, 0],
       node: { text: '' },
@@ -323,7 +330,7 @@ describe('slate operations contract', () => {
       marks: null,
     })
 
-    editor.apply({
+    applyOperation(editor, {
       type: 'remove_node',
       path: [0, 1],
       node: { text: '' },
@@ -362,7 +369,7 @@ describe('slate operations contract', () => {
       marks: null,
     })
 
-    editor.apply({
+    applyOperation(editor, {
       type: 'remove_node',
       path: [0, 2],
       node: { text: '' },
@@ -403,7 +410,7 @@ describe('slate operations contract', () => {
       marks: null,
     })
 
-    editor.apply({
+    applyOperation(editor, {
       type: 'remove_text',
       path: [0, 0],
       offset: 1,
@@ -433,7 +440,7 @@ describe('slate operations contract', () => {
       marks: null,
     })
 
-    editor.apply({
+    applyOperation(editor, {
       type: 'set_node',
       path: [0, 0],
       properties: { someKey: true },
@@ -462,7 +469,7 @@ describe('slate operations contract', () => {
       marks: null,
     })
 
-    editor.apply({
+    applyOperation(editor, {
       type: 'split_node',
       path: [0, 0],
       position: 5,
@@ -500,7 +507,7 @@ describe('slate operations contract', () => {
       marks: null,
     })
 
-    editor.apply({
+    applyOperation(editor, {
       type: 'split_node',
       path: [0],
       position: 1,

@@ -1,9 +1,8 @@
 import { getCurrentSelection } from '../core/public-state'
 import { Range } from '../interfaces/range'
-import { Transforms } from '../interfaces/transforms'
-import type { SelectionTransforms } from '../interfaces/transforms/selection'
+import type { SelectionMutationMethods } from '../interfaces/transforms/selection'
 
-export const setPoint: SelectionTransforms['setPoint'] = (
+export const setPoint: SelectionMutationMethods['setPoint'] = (
   editor,
   props,
   options = {}
@@ -26,7 +25,7 @@ export const setPoint: SelectionTransforms['setPoint'] = (
   const { anchor, focus } = selection
   const point = edge === 'anchor' ? anchor : focus
 
-  Transforms.setSelection(editor, {
+  editor.setSelection({
     [edge === 'anchor' ? 'anchor' : 'focus']: { ...point, ...props },
   })
 }

@@ -1,14 +1,12 @@
-import { type MutableRefObject, useContext, useMemo, useReducer } from 'react'
-import type { Editor } from 'slate'
+import { useContext, useReducer } from 'react'
+import type { ReactEditor } from '../plugin/react-editor'
 import { useIsomorphicLayoutEffect } from './use-isomorphic-layout-effect'
 import { SlateSelectorContext } from './use-slate-selector'
 import { useSlateStatic } from './use-slate-static'
 
-/**
- * Get the current editor object and re-render whenever it changes.
- */
-
-export const useSlate = (): Editor => {
+export const useSlate = <
+  TEditor extends ReactEditor<any> = ReactEditor<any>,
+>(): TEditor => {
   const { addEventListener } = useContext(SlateSelectorContext)
   const [, forceRender] = useReducer((s) => s + 1, 0)
 
@@ -23,42 +21,22 @@ export const useSlate = (): Editor => {
     [addEventListener]
   )
 
-  return useSlateStatic()
+  return useSlateStatic<TEditor>()
 }
 
-const EDITOR_TO_V = new WeakMap<Editor, MutableRefObject<number>>()
+export const useSlateWithV = <
+  TEditor extends ReactEditor<any> = ReactEditor<any>,
+>(): {
+  editor: TEditor
+  v: number
+} => {
+  const editor = useSlate<TEditor>()
+  const [v, incrementVersion] = useReducer((state) => state + 1, 0)
 
-const getEditorVersionRef = (editor: Editor): MutableRefObject<number> => {
-  let v = EDITOR_TO_V.get(editor)
+  useIsomorphicLayoutEffect(
+    () => editor.subscribe(() => incrementVersion()),
+    [editor]
+  )
 
-  if (v) {
-    return v
-  }
-
-  v = { current: 0 }
-  EDITOR_TO_V.set(editor, v)
-
-  // Register the `onChange` handler exactly once per editor
-  const { onChange } = editor
-
-  editor.onChange = (options) => {
-    v!.current++
-    onChange(options)
-  }
-
-  return v
-}
-
-/**
- * Get the current editor object and its version, which increments on every
- * change.
- *
- * @deprecated The `v` counter is no longer used except for this hook, and may
- * be removed in a future version.
- */
-
-export const useSlateWithV = (): { editor: Editor; v: number } => {
-  const editor = useSlate()
-  const vRef = useMemo(() => getEditorVersionRef(editor), [editor])
-  return { editor, v: vRef.current }
+  return { editor, v }
 }

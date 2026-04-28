@@ -1,6 +1,8 @@
 import { Editor, Path, Range, Scrubber, Text } from '..'
 import { modifyChildren, modifyLeaf, removeChildren } from '../utils/modify'
-import { Element, type ElementEntry } from './element'
+import type { Editor as EditorType, Value } from './editor'
+import { Element, type ElementEntry, type ElementOf } from './element'
+import type { TextOf } from './text'
 
 /**
  * The `Node` union type represents all of the different types of nodes that
@@ -9,6 +11,45 @@ import { Element, type ElementEntry } from './element'
 
 export type BaseNode = Editor | Element | Text
 export type Node = Editor | Element | Text
+export type TNode = Node
+
+export type DescendantOf<N> = N extends { getChildren: () => infer V }
+  ? V extends readonly (infer Child)[]
+    ? ElementOf<Child> | TextOf<Child>
+    : never
+  : N extends Element
+    ? ElementOf<N> | TextOf<N>
+    : N extends Text
+      ? N
+      : never
+
+export type AncestorOf<N> = N extends { getChildren: () => infer V }
+  ? N | (V extends readonly (infer Child)[] ? ElementOf<Child> : never)
+  : N extends Element
+    ? N | ElementOf<N>
+    : never
+
+export type NodeOf<N> = N | ElementOf<N> | TextOf<N>
+
+export type DescendantIn<V extends Value> = DescendantOf<V[number]>
+
+export type AncestorIn<V extends Value> = AncestorOf<EditorType<V> | V[number]>
+
+export type NodeIn<V extends Value> = Element[] extends V
+  ? Node
+  : NodeOf<EditorType<V> | V[number]>
+
+export type ChildOf<N, I extends number = number> = N extends {
+  children: readonly unknown[]
+}
+  ? N['children'][I]
+  : never
+
+export type NodeProps<N = Node> = N extends { children: unknown }
+  ? Omit<N, 'children'>
+  : N extends { text: string }
+    ? Omit<N, 'text'>
+    : Omit<N, 'getChildren'>
 
 export interface NodeAncestorsOptions {
   reverse?: boolean
@@ -127,10 +168,7 @@ export interface NodeInterface {
   /**
    * Get the sliced fragment represented by a range inside a root node.
    */
-  fragment: <T extends Ancestor = Editor>(
-    root: T,
-    range: Range
-  ) => T['children']
+  fragment: <T extends Ancestor = Editor>(root: T, range: Range) => Descendant[]
 
   /**
    * Get the descendant node referred to by a specific path. If the path is an
@@ -238,6 +276,9 @@ export interface NodeInterface {
   ) => Generator<NodeEntry<Text>, void, undefined>
 }
 
+const getAncestorChildren = (node: Ancestor): Descendant[] =>
+  Node.isEditor(node) ? Editor.getChildren(node) : node.children
+
 // eslint-disable-next-line no-redeclare
 export const Node: NodeInterface = {
   ancestor(root: Node, path: Path): Ancestor {
@@ -277,7 +318,7 @@ export const Node: NodeInterface = {
       throw new Error('Expected index to be a number')
     }
 
-    const c = root.children[index] as Descendant
+    const c = getAncestorChildren(root)[index] as Descendant
 
     if (c == null) {
       throw new Error(
@@ -297,7 +338,7 @@ export const Node: NodeInterface = {
   ): Generator<NodeEntry<Descendant>, void, undefined> {
     const { reverse = false } = options
     const ancestor = Node.ancestor(root, path)
-    const { children } = ancestor
+    const children = getAncestorChildren(ancestor)
     let index = reverse ? children.length - 1 : 0
 
     while (reverse ? index >= 0 : index < children.length) {
@@ -358,7 +399,9 @@ export const Node: NodeInterface = {
 
       return properties
     }
-    const { children, ...properties } = node
+    const { children, ...properties } = Node.isEditor(node)
+      ? { children: getAncestorChildren(node) }
+      : node
 
     return properties
   },
@@ -368,21 +411,26 @@ export const Node: NodeInterface = {
     let n = Node.get(root, p)
 
     while (n) {
-      if (Node.isText(n) || n.children.length === 0) {
+      if (Node.isText(n)) {
         break
       }
-      n = n.children[0]
+      const children = getAncestorChildren(n)
+
+      if (children.length === 0) {
+        break
+      }
+      n = children[0]
       p.push(0)
     }
 
     return [n, p]
   },
 
-  fragment<T extends Ancestor = Editor>(root: T, range: Range): T['children'] {
-    const newRoot = { children: root.children }
+  fragment<T extends Ancestor = Editor>(root: T, range: Range): Descendant[] {
+    const newRoot = { children: getAncestorChildren(root) }
 
     const [start, end] = Range.edges(range)
-    const nodeEntries = Node.nodes(newRoot, {
+    const nodeEntries = Node.nodes(newRoot as Ancestor, {
       reverse: true,
       pass: ([, path]) => !Range.includes(range, path),
     })
@@ -391,20 +439,20 @@ export const Node: NodeInterface = {
       if (!Range.includes(range, path)) {
         const index = path.at(-1)!
 
-        modifyChildren(newRoot, Path.parent(path), (children) =>
+        modifyChildren(newRoot as Ancestor, Path.parent(path), (children) =>
           removeChildren(children, index, 1)
         )
       }
 
       if (Path.equals(path, end.path)) {
-        modifyLeaf(newRoot, path, (node) => {
+        modifyLeaf(newRoot as Ancestor, path, (node) => {
           const before = node.text.slice(0, end.offset)
           return { ...node, text: before }
         })
       }
 
       if (Path.equals(path, start.path)) {
-        modifyLeaf(newRoot, path, (node) => {
+        modifyLeaf(newRoot as Ancestor, path, (node) => {
           const before = node.text.slice(start.offset)
           return { ...node, text: before }
         })
@@ -434,11 +482,17 @@ export const Node: NodeInterface = {
         throw new Error('Got non-numeric path index')
       }
 
-      if (Node.isText(node) || !node.children[p]) {
+      if (Node.isText(node)) {
         return
       }
 
-      node = node.children[p]
+      const child = getAncestorChildren(node)[p]
+
+      if (!child) {
+        return
+      }
+
+      node = child
     }
 
     return node
@@ -452,11 +506,17 @@ export const Node: NodeInterface = {
         throw new Error('Got non-numeric path index')
       }
 
-      if (Node.isText(node) || !node.children[p]) {
+      if (Node.isText(node)) {
         return false
       }
 
-      node = node.children[p]
+      const child = getAncestorChildren(node)[p]
+
+      if (!child) {
+        return false
+      }
+
+      node = child
     }
 
     return true
@@ -467,14 +527,11 @@ export const Node: NodeInterface = {
   },
 
   isEditor(node: Node): node is Editor {
-    return typeof (node as Editor).apply === 'function'
+    return Editor.isEditor(node)
   },
 
   isElement(node: Node): node is Element {
-    return (
-      Array.isArray((node as Element).children) &&
-      typeof (node as Editor).apply !== 'function'
-    )
+    return Array.isArray((node as Element).children) && !Editor.isEditor(node)
   },
 
   isNode(value: any, { deep = false }: NodeIsNodeOptions = {}): value is Node {
@@ -503,11 +560,16 @@ export const Node: NodeInterface = {
     let n = Node.get(root, p)
 
     while (n) {
-      if (Node.isText(n) || n.children.length === 0) {
+      if (Node.isText(n)) {
         break
       }
-      const i = n.children.length - 1
-      n = n.children[i]
+      const children = getAncestorChildren(n)
+
+      if (children.length === 0) {
+        break
+      }
+      const i = children.length - 1
+      n = children[i]
       p.push(i)
     }
 
@@ -573,11 +635,12 @@ export const Node: NodeInterface = {
       if (
         !visited.has(n) &&
         !Node.isText(n) &&
-        n.children.length !== 0 &&
+        getAncestorChildren(n).length !== 0 &&
         (pass == null || pass([n, p]) === false)
       ) {
         visited.add(n)
-        let nextIndex = reverse ? n.children.length - 1 : 0
+        const children = getAncestorChildren(n)
+        let nextIndex = reverse ? children.length - 1 : 0
 
         if (Path.isAncestor(p, from)) {
           nextIndex = from[p.length]
@@ -637,7 +700,7 @@ export const Node: NodeInterface = {
     if (Node.isText(node)) {
       return node.text
     }
-    return node.children.map(Node.string).join('')
+    return getAncestorChildren(node).map(Node.string).join('')
   },
 
   *texts(
@@ -674,12 +737,28 @@ export type Ancestor = Editor | Element
  * node in the document.
  */
 
-export type NodeEntry<T extends Node = Node> = [T, Path]
+export type NodeEntry<T = Node> = [T, Path]
 
-/**
- * Convenience type for returning the props of a node.
- */
-export type NodeProps =
-  | Omit<Editor, 'children'>
-  | Omit<Element, 'children'>
-  | Omit<Text, 'text'>
+export type AncestorEntry<N = Node> = NodeEntry<AncestorOf<N>>
+
+export type DescendantEntry<N = Node> = NodeEntry<DescendantOf<N>>
+
+export type NodeChildEntry<N = Node> = NodeEntry<ChildOf<N>>
+
+export type NodeEntryIn<V extends Value> = NodeEntry<NodeIn<V>>
+
+export type NodeEntryOf<E> = NodeEntry<NodeOf<E>>
+
+export type ElementEntryOf<E> = NodeEntry<ElementOf<E>>
+
+export type TextEntry<N = Node> = NodeEntry<TextOf<N>>
+
+export type TextEntryIn<V extends Value> = NodeEntry<TextOf<V[number]>>
+
+export type TextEntryOf<E> = NodeEntry<TextOf<E>>
+
+export type AncestorEntryOf<E> = NodeEntry<AncestorOf<E>>
+
+export type DescendantEntryIn<V extends Value> = NodeEntry<DescendantIn<V>>
+
+export type DescendantEntryOf<E> = NodeEntry<DescendantOf<E>>

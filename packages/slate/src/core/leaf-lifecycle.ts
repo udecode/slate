@@ -7,6 +7,7 @@ import {
   Text,
 } from '../interfaces'
 import { removeNodes } from '../transforms-node'
+import { getLiveSelection } from './public-state'
 
 const getChildren = (editor: Editor, node: Editor | Element): Descendant[] =>
   Node.isEditor(node) ? Editor.getChildren(editor) : node.children
@@ -48,7 +49,7 @@ const maybeRebaseSelectionBeforeRemoval = (
   path: Path,
   affinity: 'backward' | 'forward'
 ) => {
-  const selection = Editor.getLiveSelection(editor)
+  const selection = getLiveSelection(editor)
 
   if (
     !selection ||

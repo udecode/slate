@@ -1,12 +1,5 @@
 import { type CompositionEvent, type RefObject, useEffect } from 'react'
-import {
-  Editor,
-  type EditorMarks,
-  Node,
-  Range,
-  setCurrentMarks,
-  Text,
-} from 'slate'
+import { Editor, type EditorMarks, Node, Range, Text } from 'slate'
 import {
   EDITOR_TO_PENDING_INSERTION_MARKS,
   EDITOR_TO_USER_MARKS,
@@ -22,6 +15,7 @@ import {
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { ReactEditor } from '../plugin/react-editor'
 import type { EditableCompositionStateSetter } from './input-controller'
+import { writeRuntimeMarks } from './runtime-mutation-state'
 
 type EditableCompositionHandler = (
   event: CompositionEvent<HTMLDivElement>
@@ -102,7 +96,7 @@ export const commitChromeCompositionEndFallback = ({
   // Ensure we insert text with the marks the user was actually seeing
   if (placeholderMarks !== undefined) {
     EDITOR_TO_USER_MARKS.set(editor, editor.getMarks())
-    setCurrentMarks(editor, placeholderMarks)
+    writeRuntimeMarks(editor, placeholderMarks)
   }
 
   editor.update(() => {
@@ -112,7 +106,7 @@ export const commitChromeCompositionEndFallback = ({
   const userMarks = EDITOR_TO_USER_MARKS.get(editor)
   EDITOR_TO_USER_MARKS.delete(editor)
   if (userMarks !== undefined) {
-    setCurrentMarks(editor, userMarks)
+    writeRuntimeMarks(editor, userMarks)
   }
 }
 

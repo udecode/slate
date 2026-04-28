@@ -1,7 +1,9 @@
 import { readdirSync, readFileSync } from 'node:fs'
-import { relative, resolve } from 'node:path'
+import { dirname, relative, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const repoRoot = resolve(import.meta.dir, '../../..')
+const testDir = dirname(fileURLToPath(import.meta.url))
+const repoRoot = resolve(testDir, '../../..')
 const slateReactRoot = resolve(repoRoot, 'packages/slate-react/src')
 const sourceFiles = [
   resolve(slateReactRoot, 'components/editable.tsx'),
@@ -18,6 +20,23 @@ const getMatchesByFile = (pattern: RegExp) =>
         const matches = source.match(pattern)
 
         return [relative(repoRoot, file), matches ? matches.length : 0] as const
+      })
+      .filter(([, count]) => count > 0)
+      .sort(([a], [b]) => a.localeCompare(b))
+  )
+
+const getMatchesByRelativeFile = (pattern: RegExp, files: readonly string[]) =>
+  Object.fromEntries(
+    files
+      .map((file) => {
+        const absoluteFile = resolve(slateReactRoot, file)
+        const source = readFileSync(absoluteFile, 'utf8')
+        const matches = source.match(pattern)
+
+        return [
+          relative(repoRoot, absoluteFile),
+          matches ? matches.length : 0,
+        ] as const
       })
       .filter(([, count]) => count > 0)
       .sort(([a], [b]) => a.localeCompare(b))
@@ -52,14 +71,509 @@ const expectAuthorityInventory = (
   ).toBe(true)
 }
 
+type EditableHotPolicyInventory = Record<
+  string,
+  {
+    count: number
+    next: 'burn-down' | 'central-owner' | 'root-source'
+    owner: string
+    rationale: string
+  }
+>
+
+const expectEditableHotPolicyInventory = (
+  inventory: EditableHotPolicyInventory
+) => {
+  const editableSource = readFileSync(
+    resolve(slateReactRoot, 'components/editable.tsx'),
+    'utf8'
+  )
+  const actual = Object.fromEntries(
+    Object.entries(inventory).map(([pattern]) => {
+      const expression = new RegExp(pattern, 'g')
+      const matches = editableSource.match(expression)
+
+      return [pattern, matches ? matches.length : 0] as const
+    })
+  )
+
+  expect(actual).toEqual(
+    Object.fromEntries(
+      Object.entries(inventory).map(([pattern, entry]) => [
+        pattern,
+        entry.count,
+      ])
+    )
+  )
+  expect(
+    Object.values(inventory).every(
+      (entry) =>
+        entry.owner.length > 0 &&
+        entry.rationale.length > 0 &&
+        entry.next.length > 0
+    )
+  ).toBe(true)
+}
+
+type EditableEventRuntimeInventory = Record<
+  string,
+  {
+    count: number
+    next:
+      | 'event-runtime'
+      | 'runtime-facade'
+      | 'root-wiring'
+      | 'temporary-bridge'
+    owner: string
+    rationale: string
+  }
+>
+
+const expectEditableEventRuntimeInventory = (
+  inventory: EditableEventRuntimeInventory
+) => {
+  const editableSource = readFileSync(
+    resolve(slateReactRoot, 'components/editable.tsx'),
+    'utf8'
+  )
+  const actual = Object.fromEntries(
+    Object.entries(inventory).map(([pattern]) => {
+      const expression = new RegExp(pattern, 'g')
+      const matches = editableSource.match(expression)
+
+      return [pattern, matches ? matches.length : 0] as const
+    })
+  )
+
+  expect(actual).toEqual(
+    Object.fromEntries(
+      Object.entries(inventory).map(([pattern, entry]) => [
+        pattern,
+        entry.count,
+      ])
+    )
+  )
+  expect(
+    Object.values(inventory).every(
+      (entry) =>
+        entry.owner.length > 0 &&
+        entry.rationale.length > 0 &&
+        entry.next.length > 0
+    )
+  ).toBe(true)
+}
+
+type SourceOwnershipInventory = Record<
+  string,
+  {
+    count: number
+    next: 'burn-down' | 'node-source' | 'root-runtime' | 'root-source'
+    owner: string
+    rationale: string
+  }
+>
+
+const expectSourceOwnershipInventory = (
+  pattern: RegExp,
+  files: readonly string[],
+  inventory: SourceOwnershipInventory
+) => {
+  expect(getMatchesByRelativeFile(pattern, files)).toEqual(
+    Object.fromEntries(
+      Object.entries(inventory).map(([file, entry]) => [file, entry.count])
+    )
+  )
+  expect(
+    Object.values(inventory).every(
+      (entry) =>
+        entry.owner.length > 0 &&
+        entry.rationale.length > 0 &&
+        entry.next.length > 0
+    )
+  ).toBe(true)
+}
+
+const editableRootRuntimeFiles = [
+  'components/editable.tsx',
+  'components/editable-text-blocks.tsx',
+  'editable/root-selector-sources.ts',
+] as const
+
+test('EditableDOMRoot hot policy ownership has an explicit burn-down inventory', () => {
+  expectEditableHotPolicyInventory({
+    '\\bEDITOR_TO_FORCE_RENDER\\.set\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Runtime repair/view engine',
+      rationale:
+        'Editable must not register the root wakeup callback directly; repair/view runtime owns forced render requests.',
+    },
+    '\\bcompleteEditableSelectionChangeImport\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Runtime selection engine',
+      rationale:
+        'Selectionchange import completion belongs with the selectionchange runtime controller.',
+    },
+    '\\bcreateDOMRepairQueue\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Runtime repair engine',
+      rationale:
+        'Editable must not construct the repair queue directly; repair lifecycle policy belongs behind runtime ownership.',
+    },
+    '\\bdomRepairQueue\\.cancelBefore\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Runtime repair engine',
+      rationale:
+        'Event-frame repair cancellation should be routed through the repair engine instead of component-local calls.',
+    },
+    '\\bgetEditableSelectionChangeOwnership\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Runtime selection engine',
+      rationale:
+        'Selectionchange ownership classification is hot policy and should not live inside React component closures.',
+    },
+    '\\bsetEditableComposingState\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Runtime composition engine',
+      rationale:
+        'Editable must not own composition state transitions directly; runtime composition engine owns them.',
+    },
+    '\\buseAndroidInputManager\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Runtime Android engine',
+      rationale:
+        'Editable must not construct the Android input manager directly; runtime Android engine owns it.',
+    },
+    '\\buseSlateSelector\\(': {
+      count: 0,
+      next: 'root-source',
+      owner: 'Editable root source selector',
+      rationale:
+        'Editable root commit wakeup is tolerated only until a named source/view selector owns it.',
+    },
+  })
+})
+
+test('root selector source ownership is fenced to named source modules', () => {
+  expectSourceOwnershipInventory(
+    /\buseSlateSelector\(/g,
+    editableRootRuntimeFiles,
+    {
+      'packages/slate-react/src/editable/root-selector-sources.ts': {
+        count: 4,
+        next: 'root-source',
+        owner: 'Editable root selector sources',
+        rationale:
+          'Generic root selector calls are allowed only inside the named root selector source module.',
+      },
+    }
+  )
+
+  expectSourceOwnershipInventory(
+    /\bEditor\.getSnapshot\(/g,
+    editableRootRuntimeFiles,
+    {
+      'packages/slate-react/src/components/editable-text-blocks.tsx': {
+        count: 1,
+        next: 'node-source',
+        owner: 'Mounted node render selector',
+        rationale:
+          'This snapshot read resolves mounted child runtime ids inside the node render selector, not root render facts.',
+      },
+      'packages/slate-react/src/editable/root-selector-sources.ts': {
+        count: 2,
+        next: 'root-source',
+        owner: 'Editable root selector sources',
+        rationale:
+          'Root snapshot reads belong beside the named root selector predicates and equality functions.',
+      },
+    }
+  )
+})
+
+test('EditableDOMRoot root runtime orchestration has an explicit next-owner inventory', () => {
+  expectEditableHotPolicyInventory({
+    '\\battachEditableGlobalDragLifecycleListeners\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Editable root runtime',
+      rationale:
+        'Global drag lifecycle listener attachment should move behind the root runtime facade.',
+    },
+    '\\battachEditableSelectionChangeListener\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Editable root runtime',
+      rationale:
+        'Global selectionchange listener attachment should move behind the root runtime facade.',
+    },
+    '\\bcreateRuntimeSelectionChangeHandler\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Runtime selection engine',
+      rationale:
+        'Selectionchange handler construction should be composed by the root runtime facade.',
+    },
+    '\\bcreateRuntimeSelectionChangeScheduler\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Runtime selection engine',
+      rationale:
+        'Selectionchange throttling should be composed by the root runtime facade.',
+    },
+    '\\bcreateRuntimeSelectionImportController\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Runtime selection engine',
+      rationale:
+        'Selection import controller construction should be composed by the root runtime facade.',
+    },
+    '\\bsubscribeSelectionOnlyDOMExport\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Runtime selection engine',
+      rationale:
+        'Selection-only DOM export subscription should be owned by the root runtime facade.',
+    },
+    '\\buseEditableRootCommitWakeup\\(': {
+      count: 0,
+      next: 'root-source',
+      owner: 'Editable root selector sources',
+      rationale:
+        'Root commit wakeup is a named source hook but should be called through the root runtime facade.',
+    },
+    '\\buseEditableRootRuntime\\(': {
+      count: 1,
+      next: 'central-owner',
+      owner: 'Editable root runtime facade',
+      rationale:
+        'EditableDOMRoot should enter root policy through one root runtime facade.',
+    },
+    '\\buseEditableSelectionReconciler\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Runtime selection reconciler',
+      rationale:
+        'Selection reconciler setup should move behind the root runtime facade.',
+    },
+    '\\buseRuntimeAndroidEngine\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Runtime Android engine',
+      rationale:
+        'Android input lifecycle should move behind the root runtime facade.',
+    },
+    '\\buseRuntimeKernelTraceEngine\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Runtime kernel trace engine',
+      rationale:
+        'Kernel trace runtime setup should move behind the root runtime facade.',
+    },
+    '\\buseRuntimeRepairEngine\\(': {
+      count: 0,
+      next: 'central-owner',
+      owner: 'Runtime repair engine',
+      rationale:
+        'Repair runtime setup should move behind the root runtime facade.',
+    },
+  })
+})
+
+test('EditableDOMRoot event-worker imports have an explicit event-runtime inventory', () => {
+  expectEditableEventRuntimeInventory({
+    "\\bfrom '../editable/browser-handle'": {
+      count: 0,
+      next: 'event-runtime',
+      owner: 'Runtime browser handle events',
+      rationale:
+        'Browser proof handle attachment should be routed through the event runtime instead of the React root component.',
+    },
+    "\\bfrom '../editable/clipboard-input-strategy'": {
+      count: 0,
+      next: 'event-runtime',
+      owner: 'Runtime clipboard events',
+      rationale:
+        'Clipboard handler assembly belongs to the event runtime; the strategy module remains the worker.',
+    },
+    "\\bfrom '../editable/composition-state'": {
+      count: 0,
+      next: 'event-runtime',
+      owner: 'Runtime composition events',
+      rationale:
+        'Composition event handler assembly and adjacent pending mark effects belong to runtime owners, not EditableDOMRoot.',
+    },
+    "\\bfrom '../editable/editing-kernel'": {
+      count: 0,
+      next: 'event-runtime',
+      owner: 'Runtime keyboard events',
+      rationale:
+        'Kernel preparation calls should be made by event family owners, not by EditableDOMRoot closures.',
+    },
+    "\\bfrom '../editable/input-router'": {
+      count: 0,
+      next: 'runtime-facade',
+      owner: 'Editable event runtime facade',
+      rationale:
+        'Root event wrapper hooks may stay as low-level adapters, but their assembly belongs behind runtime facades.',
+    },
+    "\\bfrom '../editable/runtime-clipboard-events'": {
+      count: 0,
+      next: 'runtime-facade',
+      owner: 'Editable event runtime facade',
+      rationale:
+        'Clipboard event family assembly is in a runtime module and should be composed by the facade in the final shape.',
+    },
+    "\\bfrom '../editable/runtime-before-input-events'": {
+      count: 0,
+      next: 'runtime-facade',
+      owner: 'Editable event runtime facade',
+      rationale:
+        'Beforeinput event family assembly is in a runtime module and should be composed by the facade in the final shape.',
+    },
+    "\\bfrom '../editable/runtime-browser-handle-events'": {
+      count: 0,
+      next: 'runtime-facade',
+      owner: 'Editable event runtime facade',
+      rationale:
+        'Browser handle setup is behind a runtime module and should be composed by the facade in the final shape.',
+    },
+    "\\bfrom '../editable/runtime-composition-events'": {
+      count: 0,
+      next: 'runtime-facade',
+      owner: 'Editable event runtime facade',
+      rationale:
+        'Composition event family assembly is in a runtime module and should be composed by the facade in the final shape.',
+    },
+    "\\bfrom '../editable/runtime-drag-events'": {
+      count: 0,
+      next: 'runtime-facade',
+      owner: 'Editable event runtime facade',
+      rationale:
+        'Drag/drop event family assembly is in a runtime module and should be composed by the facade in the final shape.',
+    },
+    "\\bfrom '../editable/runtime-event-engine'": {
+      count: 0,
+      next: 'runtime-facade',
+      owner: 'Editable event runtime facade',
+      rationale:
+        'EditableDOMRoot consumes the root runtime facade, which composes the event runtime facade.',
+    },
+    "\\bfrom '../editable/runtime-focus-mouse-events'": {
+      count: 0,
+      next: 'runtime-facade',
+      owner: 'Editable event runtime facade',
+      rationale:
+        'Focus/mouse event family assembly is in a runtime module and should be composed by the facade in the final shape.',
+    },
+    "\\bfrom '../editable/runtime-input-events'": {
+      count: 0,
+      next: 'runtime-facade',
+      owner: 'Editable event runtime facade',
+      rationale:
+        'Input event family assembly is in a runtime module and should be composed by the facade in the final shape.',
+    },
+    "\\bfrom '../editable/runtime-keyboard-events'": {
+      count: 0,
+      next: 'runtime-facade',
+      owner: 'Editable event runtime facade',
+      rationale:
+        'Keyboard event family assembly is in a runtime module and should be composed by the facade in the final shape.',
+    },
+    "\\bfrom '../editable/runtime-root-engine'": {
+      count: 1,
+      next: 'runtime-facade',
+      owner: 'Editable root runtime facade',
+      rationale:
+        'EditableDOMRoot may import the root runtime facade as the root policy owner.',
+    },
+    "\\bfrom '../editable/runtime-target-bridge'": {
+      count: 0,
+      next: 'runtime-facade',
+      owner: 'Editable event runtime facade',
+      rationale:
+        'Implicit target bridge setup is behind a runtime module and should be composed by the facade in the final shape.',
+    },
+    "\\bfrom '../editable/keyboard-input-strategy'": {
+      count: 0,
+      next: 'event-runtime',
+      owner: 'Runtime keyboard events',
+      rationale:
+        'Keyboard event assembly belongs to the event runtime; the keyboard strategy module remains the worker.',
+    },
+    "\\bfrom '../editable/model-input-strategy'": {
+      count: 0,
+      next: 'event-runtime',
+      owner: 'Runtime beforeinput/input events',
+      rationale:
+        'Beforeinput and input event assembly should call model-input workers from runtime event owners, not from EditableDOMRoot.',
+    },
+    "\\bfrom '../editable/native-input-strategy'": {
+      count: 0,
+      next: 'event-runtime',
+      owner: 'Runtime beforeinput events',
+      rationale:
+        'Native beforeinput decisions are part of event-runtime orchestration.',
+    },
+    "\\bfrom '../editable/selection-reconciler'": {
+      count: 0,
+      next: 'event-runtime',
+      owner: 'Runtime selection and focus/mouse events',
+      rationale:
+        'Selection/focus helpers should be consumed by runtime owners rather than the root React component.',
+    },
+  })
+})
+
+test('EditableDOMRoot event handler assembly has an explicit burn-down inventory', () => {
+  expectEditableEventRuntimeInventory({
+    '\\bconst handle(DOMBeforeInput|ReactBeforeInputFallback|Paste|Copy|Cut|DragEnd|DragOver|DragStart|Drop|CompositionEnd|CompositionStart|CompositionUpdate|Input|InputCapture|Blur|Focus|Click|MouseDown|MouseUp|KeyDown)\\b':
+      {
+        count: 0,
+        next: 'event-runtime',
+        owner: 'Editable event runtime family modules',
+        rationale:
+          'Root event handlers should be assembled by event family modules and returned to EditableDOMRoot as stable bindings.',
+      },
+    '\\bconst on(DOMBeforeInput|DOMInput|ReactBeforeInput|Paste|Copy|Cut|DragEnd|DragOver|DragStart|Drop|CompositionEnd|CompositionStart|CompositionUpdate|Input|InputCapture|Blur|Focus|Click|MouseDown|MouseUp|KeyDown)\\b':
+      {
+        count: 0,
+        next: 'runtime-facade',
+        owner: 'Editable event runtime facade',
+        rationale:
+          'Root handler wrapper constants should be returned by the event runtime facade instead of assembled directly in EditableDOMRoot.',
+      },
+    '\\battachSlateBrowserHandle\\(': {
+      count: 0,
+      next: 'event-runtime',
+      owner: 'Runtime browser handle events',
+      rationale:
+        'Browser handle setup is an event/proof bridge and should be attached behind a runtime event capability.',
+    },
+    '\\bwriteTargetRuntime\\(': {
+      count: 0,
+      next: 'event-runtime',
+      owner: 'Runtime target bridge',
+      rationale:
+        'Implicit target runtime setup is root event capability wiring and should move behind the event runtime facade.',
+    },
+  })
+})
+
 test('kernel frame and trace ownership remains centralized', () => {
   expectAuthorityInventory(/\bbeginEditableEventFrame\(/g, {
-    'packages/slate-react/src/components/editable.tsx': {
-      count: 4,
+    'packages/slate-react/src/editable/runtime-kernel-trace.ts': {
+      count: 3,
       next: 'central-owner',
-      owner: 'Editable event owner',
+      owner: 'Runtime kernel trace engine',
       rationale:
-        'Editable opens runtime event frames before strategy workers run.',
+        'Non-selectionchange event frames are owned by the runtime kernel trace engine.',
     },
     'packages/slate-react/src/editable/browser-handle.ts': {
       count: 1,
@@ -68,15 +582,22 @@ test('kernel frame and trace ownership remains centralized', () => {
       rationale:
         'The test-only browser handle imports explicit DOM selections through a named bridge.',
     },
+    'packages/slate-react/src/editable/runtime-selection-engine.ts': {
+      count: 1,
+      next: 'central-owner',
+      owner: 'Runtime selection engine',
+      rationale:
+        'Selectionchange event frames are owned by the runtime selection engine.',
+    },
   })
 
   expectAuthorityInventory(/\brecordEditableKernelTrace\(/g, {
-    'packages/slate-react/src/components/editable.tsx': {
+    'packages/slate-react/src/editable/runtime-kernel-trace.ts': {
       count: 3,
       next: 'central-owner',
-      owner: 'Editable event owner',
+      owner: 'Runtime kernel trace engine',
       rationale:
-        'Editable records user-event command traces after workers run.',
+        'Non-selectionchange user-event command traces are owned by the runtime kernel trace engine.',
     },
     'packages/slate-react/src/editable/browser-handle.ts': {
       count: 2,
@@ -91,6 +612,13 @@ test('kernel frame and trace ownership remains centralized', () => {
       owner: 'DOM repair queue',
       rationale: 'The repair executor emits repair traces when it mutates DOM.',
     },
+    'packages/slate-react/src/editable/runtime-selection-engine.ts': {
+      count: 1,
+      next: 'central-owner',
+      owner: 'Runtime selection engine',
+      rationale:
+        'Selectionchange traces are owned by the runtime selection engine.',
+    },
   })
 })
 
@@ -98,19 +626,19 @@ test('selection bridge authority has an explicit remaining inventory', () => {
   expectAuthorityInventory(
     /\b(syncEditorSelectionFromDOM|syncEditableDOMSelectionToEditor)\(/g,
     {
-      'packages/slate-react/src/components/editable.tsx': {
-        count: 1,
-        next: 'central-owner',
-        owner: 'Editable event owner',
-        rationale:
-          'Editable owns the main DOM-selection export/import boundary.',
-      },
       'packages/slate-react/src/editable/browser-handle.ts': {
         count: 2,
         next: 'explicit-bridge',
         owner: 'Browser proof handle',
         rationale:
           'The browser handle is the explicit semantic test bridge, not app runtime mutation.',
+      },
+      'packages/slate-react/src/editable/runtime-selection-engine.ts': {
+        count: 2,
+        next: 'central-owner',
+        owner: 'Runtime selection engine',
+        rationale:
+          'DOM-to-model selection import policy for editable events is owned by the runtime selection engine.',
       },
       'packages/slate-react/src/editable/selection-reconciler.ts': {
         count: 1,
@@ -131,7 +659,7 @@ test('selection bridge authority has an explicit remaining inventory', () => {
         'Explicit browser proof may set model selection through the bridge.',
     },
     'packages/slate-react/src/editable/caret-engine.ts': {
-      count: 12,
+      count: 14,
       next: 'central-owner',
       owner: 'Caret engine',
       rationale:
@@ -158,7 +686,7 @@ test('selection bridge authority has an explicit remaining inventory', () => {
         'Selection controller is the central model selection bridge worker.',
     },
     'packages/slate-react/src/editable/selection-reconciler.ts': {
-      count: 8,
+      count: 9,
       next: 'central-owner',
       owner: 'Selection reconciler',
       rationale:
@@ -205,12 +733,6 @@ test('mutation and repair authority has an explicit remaining inventory', () => 
   expectAuthorityInventory(
     /\b(requestRepair|applyEditableRepairRequest|repairDOMInput|domRepairQueue\.repair|repairCaretAfterModelOperation|repairCaretAfterModelTextInsert)\(/g,
     {
-      'packages/slate-react/src/components/editable.tsx': {
-        count: 3,
-        next: 'central-owner',
-        owner: 'Editable event owner',
-        rationale: 'Editable applies repair decisions returned by strategies.',
-      },
       'packages/slate-react/src/editable/dom-repair-queue.ts': {
         count: 4,
         next: 'central-owner',
@@ -231,6 +753,46 @@ test('mutation and repair authority has an explicit remaining inventory', () => 
         rationale:
           'Mutation controller may request model-owned repair after mutations.',
       },
+      'packages/slate-react/src/editable/runtime-kernel-trace.ts': {
+        count: 2,
+        next: 'central-owner',
+        owner: 'Runtime kernel trace engine',
+        rationale:
+          'Runtime kernel trace engine routes DOM input repair through traced event frames.',
+      },
+      'packages/slate-react/src/editable/runtime-repair-engine.ts': {
+        count: 1,
+        next: 'central-owner',
+        owner: 'Runtime repair/view engine',
+        rationale:
+          'Runtime repair engine owns the root repair request application bridge.',
+      },
     }
   )
+})
+
+test('direct force render calls have explicit runtime owners', () => {
+  expectAuthorityInventory(/\bforceRender\(/g, {
+    'packages/slate-react/src/editable/browser-handle.ts': {
+      count: 4,
+      next: 'explicit-bridge',
+      owner: 'Browser proof handle',
+      rationale:
+        'Browser proof handles may force the view after explicit semantic test actions until proof transport is split from runtime repair.',
+    },
+    'packages/slate-react/src/editable/keyboard-input-strategy.ts': {
+      count: 3,
+      next: 'worker',
+      owner: 'Keyboard input worker',
+      rationale:
+        'Keyboard worker still directly forces render for caret movement fallbacks before repair/view runtime owns those requests.',
+    },
+    'packages/slate-react/src/editable/mutation-controller.ts': {
+      count: 1,
+      next: 'central-owner',
+      owner: 'Mutation repair executor',
+      rationale:
+        'Mutation repair executor invokes the root wakeup passed by the runtime repair engine.',
+    },
+  })
 })

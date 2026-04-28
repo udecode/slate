@@ -55,7 +55,7 @@ export const run = (editor) => {
       },
       { type: 'insert_node', path: [2, 1], node: { text: '' } },
     ]
-    operations.forEach(editor.apply)
+    editor.applyOperations(operations)
   })
 }
 export const output = (

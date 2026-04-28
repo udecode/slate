@@ -190,7 +190,10 @@ const ExternalDecorationSourcesExample = () => {
     setExternalSnapshot(next)
     setMode(nextMode)
     setTone(nextToneValue)
-    projectionStore.refresh({ reason: 'external' })
+    projectionStore.refresh({
+      reason: 'external',
+      sourceId: 'external-diagnostics',
+    })
   }
 
   return (
@@ -200,7 +203,9 @@ const ExternalDecorationSourcesExample = () => {
         only consumes projected slices. Each button mutates external state, then
         calls{' '}
         <code>
-          projectionStore.refresh({'{'} reason: 'external' {'}'})
+          {
+            'projectionStore.refresh({ reason: "external", sourceId: "external-diagnostics" })'
+          }
         </code>{' '}
         to prove the explicit external refresh path.
       </Instruction>
@@ -260,7 +265,9 @@ const ExternalDecorationSourcesExample = () => {
           tone:{tone}
         </span>
         <span className={codeCss} id="external-decoration-update">
-          last-update:refresh({'{'} reason: 'external' {'}'})
+          {
+            'last-update:refresh({ reason: "external", sourceId: "external-diagnostics" })'
+          }
         </span>
         <span className={codeCss} id="external-decoration-snapshot">
           {formatSnapshot(externalSnapshot)}

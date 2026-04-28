@@ -32,6 +32,10 @@ import type {
   SelectionSource,
 } from './input-state'
 import type { EditableRepairRequest } from './mutation-controller'
+import {
+  readLiveSelection,
+  readRuntimeSelection,
+} from './runtime-selection-state'
 
 export type EditableBrowserEventFamily =
   | 'beforeinput'
@@ -113,9 +117,9 @@ export type EditableMovementAxis =
   | 'word'
 
 export type EditableMovementOwnershipReason =
-  | 'model-horizontal-inline-void-compat'
-  | 'model-line-browser-compat'
-  | 'model-word-boundary-compat'
+  | 'model-horizontal-inline-void'
+  | 'model-line-browser'
+  | 'model-word-boundary'
   | 'native-selection-key'
   | 'native-vertical-layout'
 
@@ -408,7 +412,7 @@ export const beginEditableEventFrame = (
     id,
     inputIntent: input.inputIntent ?? null,
     modelSelectionBefore:
-      input.modelSelectionBefore ?? Editor.getLiveSelection(editor),
+      input.modelSelectionBefore ?? readLiveSelection(editor),
     selectionSource: input.selectionSource ?? 'unknown',
     startedAt: input.startedAt ?? Date.now(),
     targetOwner: input.targetOwner ?? 'unknown',
@@ -635,7 +639,7 @@ export const createEditableKernelTraceEntry = ({
         repair: trace.repair,
       }),
     selectionChangeOrigin: trace.selectionChangeOrigin ?? 'unknown',
-    selectionAfter: trace.selectionAfter ?? Editor.getLiveSelection(editor),
+    selectionAfter: trace.selectionAfter ?? readRuntimeSelection(editor),
     selectionPolicy:
       trace.selectionPolicy ??
       getEditableSelectionPolicy({
@@ -879,6 +883,17 @@ export const getEditableCommandFromKeyDown = ({
   if (Hotkeys.isExtendLineForward(nativeEvent)) {
     return { axis: 'line', extend: true, kind: 'move-selection' }
   }
+  if (Hotkeys.isExtendBackward(nativeEvent)) {
+    return {
+      axis: 'horizontal',
+      extend: true,
+      kind: 'move-selection',
+      reverse: true,
+    }
+  }
+  if (Hotkeys.isExtendForward(nativeEvent)) {
+    return { axis: 'horizontal', extend: true, kind: 'move-selection' }
+  }
   if (Hotkeys.isMoveWordBackward(nativeEvent)) {
     return { axis: 'word', kind: 'move-selection', reverse: true }
   }
@@ -909,10 +924,10 @@ export const getEditableMovementOwnershipTrace = ({
   if (command?.kind === 'move-selection' && ownership === 'model-owned') {
     const reason: EditableMovementOwnershipReason =
       command.axis === 'line'
-        ? 'model-line-browser-compat'
+        ? 'model-line-browser'
         : command.axis === 'word'
-          ? 'model-word-boundary-compat'
-          : 'model-horizontal-inline-void-compat'
+          ? 'model-word-boundary'
+          : 'model-horizontal-inline-void'
 
     return {
       axis: command.axis,
@@ -956,7 +971,7 @@ export const prepareEditableKeyDownKernel = ({
     event,
     largeDocument,
   })
-  const selectionBefore = Editor.getLiveSelection(editor)
+  const selectionBefore = readRuntimeSelection(editor)
   const internalTarget = isInteractiveInternalTarget(editor, event.target)
   const command = internalTarget
     ? null
@@ -1028,7 +1043,7 @@ export const prepareEditableBeforeInputKernel = ({
     editor,
     event,
   })
-  const selectionBefore = Editor.getLiveSelection(editor)
+  const selectionBefore = readRuntimeSelection(editor)
   const internalTarget = isInteractiveInternalTarget(editor, event.target)
   const targetOwner: EditableEventTargetOwner = internalTarget
     ? 'internal-control'
@@ -1095,7 +1110,7 @@ export const prepareEditableClipboardKernel = ({
     internalTarget,
     nativeAllowed: false,
     ownership,
-    selectionBefore: Editor.getLiveSelection(editor),
+    selectionBefore: readLiveSelection(editor),
     stateBefore: mapSelectionSourceToKernelState(
       inputController.state.selectionSource
     ),
@@ -1130,7 +1145,7 @@ export const prepareEditableCompositionKernel = ({
     internalTarget,
     nativeAllowed: false,
     ownership,
-    selectionBefore: Editor.getLiveSelection(editor),
+    selectionBefore: readLiveSelection(editor),
     stateBefore: mapSelectionSourceToKernelState(
       inputController.state.selectionSource
     ),
@@ -1166,7 +1181,7 @@ export const prepareEditableFocusMouseKernel = ({
     internalTarget,
     nativeAllowed: ownership === 'native-allowed',
     ownership,
-    selectionBefore: Editor.getLiveSelection(editor),
+    selectionBefore: readLiveSelection(editor),
     stateBefore: mapSelectionSourceToKernelState(
       inputController.state.selectionSource
     ),
@@ -1204,7 +1219,7 @@ export const prepareEditableInputKernel = ({
     internalTarget,
     nativeAllowed: false,
     ownership,
-    selectionBefore: Editor.getLiveSelection(editor),
+    selectionBefore: readLiveSelection(editor),
     stateBefore: mapSelectionSourceToKernelState(
       inputController.state.selectionSource
     ),

@@ -1,24 +1,22 @@
 import { createContext, useCallback, useContext, useMemo, useRef } from 'react'
-import type { Editor } from 'slate'
+import type { Operation, SnapshotChange, ValueOf } from 'slate'
+import type { ReactEditor } from '../plugin/react-editor'
 import { useGenericSelector } from './use-generic-selector'
 import { useIsomorphicLayoutEffect } from './use-isomorphic-layout-effect'
 import { useSlateStatic } from './use-slate-static'
 
-type Callback = () => void
+type Callback = (
+  operations?: readonly Operation[],
+  change?: SnapshotChange
+) => void
 
 export interface SlateSelectorOptions {
-  /**
-   * If true, defer calling the selector function until after `Editable` has
-   * finished rendering. This ensures that `ReactEditor.findPath` won't return
-   * an outdated path if called inside the selector.
-   */
   deferred?: boolean
+  shouldUpdate?: (
+    operations?: readonly Operation[],
+    change?: SnapshotChange
+  ) => boolean
 }
-
-/**
- * A React context for sharing the editor selector context in a way to control
- * re-renders.
- */
 
 export const SlateSelectorContext = createContext<{
   addEventListener: (
@@ -30,25 +28,23 @@ export const SlateSelectorContext = createContext<{
 
 const refEquality = (a: any, b: any) => a === b
 
-/**
- * Use redux style selectors to prevent re-rendering on every keystroke.
- *
- * Bear in mind re-rendering can only prevented if the returned value is a value
- * type or for reference types (e.g. objects and arrays) add a custom equality
- * function.
- *
- * If `selector` is memoized using `useCallback`, then it will only be called
- * when it or the editor state changes. Otherwise, `selector` will be called
- * every time the component renders.
- *
- * @example
- * const isSelectionActive = useSlateSelector(editor => Boolean(editor.selection))
- */
+const scheduleMicrotask =
+  typeof queueMicrotask === 'function'
+    ? queueMicrotask
+    : (callback: () => void) => {
+        Promise.resolve().then(callback)
+      }
 
-export function useSlateSelector<T>(
-  selector: (editor: Editor) => T,
+export function useSlateSelector<
+  T,
+  TEditor extends ReactEditor<any> = ReactEditor<any>,
+>(
+  selector: (
+    editor: TEditor,
+    operations?: readonly Operation<ValueOf<TEditor>>[]
+  ) => T,
   equalityFn: (a: T | null, b: T) => boolean = refEquality,
-  { deferred }: SlateSelectorOptions = {}
+  { deferred, shouldUpdate }: SlateSelectorOptions = {}
 ): T {
   const context = useContext(SlateSelectorContext)
   if (!context) {
@@ -58,53 +54,100 @@ export function useSlateSelector<T>(
   }
   const { addEventListener } = context
 
-  const editor = useSlateStatic()
+  const editor = useSlateStatic<TEditor>()
+  const latestOperations = useRef<readonly Operation[] | undefined>(undefined)
   const genericSelector = useCallback(
-    () => selector(editor),
+    () =>
+      selector(
+        editor,
+        latestOperations.current as
+          | readonly Operation<ValueOf<TEditor>>[]
+          | undefined
+      ),
     [editor, selector]
   )
   const [selectedState, update] = useGenericSelector(
     genericSelector,
     equalityFn
   )
+  const updateWithOperations = useCallback(
+    (operations?: readonly Operation[]) => {
+      latestOperations.current = operations
+      try {
+        update()
+      } finally {
+        latestOperations.current = undefined
+      }
+    },
+    [update]
+  )
 
   useIsomorphicLayoutEffect(() => {
-    const unsubscribe = addEventListener(update, { deferred })
+    const unsubscribe = addEventListener(updateWithOperations, {
+      deferred,
+      shouldUpdate,
+    })
     update()
     return unsubscribe
-  }, [addEventListener, update, deferred])
+  }, [addEventListener, update, updateWithOperations, deferred, shouldUpdate])
 
   return selectedState
 }
 
-/**
- * Create selector context with editor updating on every editor change
- */
 export function useSelectorContext() {
   const eventListeners = useRef(new Set<Callback>())
   const deferredEventListeners = useRef(new Set<Callback>())
-
-  const onChange = useCallback(() => {
-    eventListeners.current.forEach((listener) => {
-      listener()
-    })
-  }, [])
+  const deferredFlushScheduled = useRef(false)
 
   const flushDeferred = useCallback(() => {
+    deferredFlushScheduled.current = false
     deferredEventListeners.current.forEach((listener) => {
       listener()
     })
     deferredEventListeners.current.clear()
   }, [])
 
+  const scheduleDeferredFlush = useCallback(() => {
+    if (deferredFlushScheduled.current) {
+      return
+    }
+
+    deferredFlushScheduled.current = true
+    scheduleMicrotask(flushDeferred)
+  }, [flushDeferred])
+
+  const onChange = useCallback(
+    (operations?: readonly Operation[], change?: SnapshotChange) => {
+      eventListeners.current.forEach((listener) => {
+        listener(operations, change)
+      })
+      if (deferredEventListeners.current.size > 0) {
+        scheduleDeferredFlush()
+      }
+    },
+    [scheduleDeferredFlush]
+  )
+
   const addEventListener = useCallback(
     (
       callbackProp: Callback,
-      { deferred = false }: SlateSelectorOptions = {}
+      { deferred = false, shouldUpdate }: SlateSelectorOptions = {}
     ) => {
+      const shouldNotify = (
+        operations?: readonly Operation[],
+        change?: SnapshotChange
+      ) => (shouldUpdate ? shouldUpdate(operations, change) : true)
       const callback = deferred
-        ? () => deferredEventListeners.current.add(callbackProp)
-        : callbackProp
+        ? (operations?: readonly Operation[], change?: SnapshotChange) => {
+            if (shouldNotify(operations, change)) {
+              deferredEventListeners.current.add(callbackProp)
+            }
+          }
+        : (operations?: readonly Operation[], change?: SnapshotChange) => {
+            if (shouldNotify(operations, change)) {
+              callbackProp(operations, change)
+            }
+          }
 
       eventListeners.current.add(callback)
 

@@ -1,7 +1,5 @@
+import { hasInternalEditorState } from '../core/public-state'
 import type { Editor, EditorInterface } from '../interfaces/editor'
-import { Node } from '../interfaces/node'
-import { Operation } from '../interfaces/operation'
-import { Range } from '../interfaces/range'
 import { isObject } from '../utils'
 
 export const isEditor: EditorInterface['isEditor'] = (
@@ -16,7 +14,6 @@ export const isEditor: EditorInterface['isEditor'] = (
     typeof value.above === 'function' &&
     typeof value.addMark === 'function' &&
     typeof value.after === 'function' &&
-    typeof value.apply === 'function' &&
     typeof value.before === 'function' &&
     typeof value.collapse === 'function' &&
     typeof value.delete === 'function' &&
@@ -65,7 +62,6 @@ export const isEditor: EditorInterface['isEditor'] = (
     typeof value.nodes === 'function' &&
     typeof value.normalize === 'function' &&
     typeof value.normalizeNode === 'function' &&
-    typeof value.onChange === 'function' &&
     typeof value.parent === 'function' &&
     typeof value.path === 'function' &&
     typeof value.pathRef === 'function' &&
@@ -75,6 +71,7 @@ export const isEditor: EditorInterface['isEditor'] = (
     typeof value.pointRefs === 'function' &&
     typeof value.positions === 'function' &&
     typeof value.previous === 'function' &&
+    typeof value.read === 'function' &&
     typeof value.range === 'function' &&
     typeof value.rangeRef === 'function' &&
     typeof value.rangeRefs === 'function' &&
@@ -82,6 +79,7 @@ export const isEditor: EditorInterface['isEditor'] = (
     typeof value.removeNodes === 'function' &&
     typeof value.select === 'function' &&
     typeof value.setNodes === 'function' &&
+    typeof value.setBlock === 'function' &&
     typeof value.setNormalizing === 'function' &&
     typeof value.setPoint === 'function' &&
     typeof value.setSelection === 'function' &&
@@ -90,18 +88,18 @@ export const isEditor: EditorInterface['isEditor'] = (
     typeof value.splitNodes === 'function' &&
     typeof value.start === 'function' &&
     typeof value.string === 'function' &&
+    typeof value.toggleAlignment === 'function' &&
+    typeof value.toggleBlock === 'function' &&
+    typeof value.toggleList === 'function' &&
+    typeof value.toggleMark === 'function' &&
+    typeof value.update === 'function' &&
     typeof value.unhangRange === 'function' &&
     typeof value.unsetNodes === 'function' &&
     typeof value.unwrapNodes === 'function' &&
     typeof value.void === 'function' &&
     typeof value.withoutNormalizing === 'function' &&
     typeof value.wrapNodes === 'function' &&
-    (value.marks === null || isObject(value.marks)) &&
-    (value.selection === null || Range.isRange(value.selection)) &&
-    (deep
-      ? Node.isNodeList(value.children) &&
-        Operation.isOperationList(value.operations)
-      : Array.isArray(value.children) && Array.isArray(value.operations))
+    (deep ? hasInternalEditorState(value) : hasInternalEditorState(value))
 
   return isEditor
 }

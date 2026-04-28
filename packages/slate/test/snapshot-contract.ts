@@ -3,10 +3,17 @@ import {
   createEditor,
   type Descendant,
   Editor,
+  type Operation,
   Path,
   type SnapshotChange,
-  Transforms,
 } from '../src'
+
+const applyOperation = (
+  editor: ReturnType<typeof createEditor>,
+  operation: Operation
+) => {
+  editor.applyOperations([operation])
+}
 
 const createChildren = (): Descendant[] => [
   {
@@ -380,7 +387,9 @@ it('withoutNormalizing suppresses custom normalization until manual normalize', 
   assert.equal(runsInsideCallback, 0)
   assert.equal(runs > 0, true)
 
-  Editor.normalize(editor)
+  editor.update(() => {
+    Editor.normalize(editor)
+  })
 
   assert.equal(runs > 0, true)
 })
@@ -413,15 +422,15 @@ it('mirrors the legacy transforms/normalization/split_node-and-insert_node.tsx o
   })
 
   Editor.withoutNormalizing(editor, () => {
-    Transforms.splitNodes(editor, {
+    editor.splitNodes({
       at: [0],
       position: 1,
     })
-    Transforms.splitNodes(editor, {
+    editor.splitNodes({
       at: [2],
       position: 1,
     })
-    editor.apply({
+    applyOperation(editor, {
       type: 'insert_node',
       path: [2, 1],
       node: { text: '' },
@@ -474,7 +483,7 @@ it('shouldMergeNodesRemovePrevNode can remove an empty previous sibling during m
     marks: null,
   })
 
-  Transforms.mergeNodes(editor, { at: [1] })
+  editor.mergeNodes({ at: [1] })
 
   assert.deepEqual(Editor.getSnapshot(editor).children, [
     {
@@ -531,9 +540,8 @@ it('shouldNormalize can skip a custom normalization pass for the current transac
   editor.normalizeNode = (entry, options) => {
     const [node] = entry
 
-    if (Editor.isEditor(node) && node.children.length < 2) {
-      Transforms.insertNodes(
-        editor,
+    if (Editor.isEditor(node) && Editor.getChildren(editor).length < 2) {
+      editor.insertNodes(
         {
           type: 'paragraph',
           children: [{ text: '' }],
@@ -601,9 +609,8 @@ it('fails intentionally when custom normalization revisits an earlier draft stat
       return
     }
 
-    if (node.children.length === 1) {
-      Transforms.insertNodes(
-        editor,
+    if (Editor.getChildren(editor).length === 1) {
+      editor.insertNodes(
         {
           type: 'paragraph',
           children: [{ text: '' }],
@@ -613,7 +620,7 @@ it('fails intentionally when custom normalization revisits an earlier draft stat
       return
     }
 
-    Transforms.removeNodes(editor, { at: [1] })
+    editor.removeNodes({ at: [1] })
   }
 
   assert.throws(() => {
@@ -644,7 +651,7 @@ it('treats semantic id prop changes as normalization progress', () => {
       node.type === 'paragraph' &&
       (node as Descendant & { id?: string }).id !== 'kept'
     ) {
-      Transforms.setNodes(editor, { id: 'kept' }, { at: path })
+      editor.setNodes({ id: 'kept' }, { at: path })
       return
     }
 
@@ -676,8 +683,7 @@ it('normalizeNode can enforce a descendant-level node rewrite with supported tra
     const [node, path] = entry
 
     if (path.length > 0 && 'children' in node && node.type === 'heading') {
-      Transforms.setNodes(
-        editor,
+      editor.setNodes(
         {
           type: 'paragraph',
         },
@@ -832,7 +838,7 @@ it('normalizeNode removes a stray top-level text child after insertNodes', () =>
     marks: null,
   })
 
-  Transforms.insertNodes(editor, { text: 'stray' }, { at: [0] })
+  editor.insertNodes({ text: 'stray' }, { at: [0] })
 
   assert.deepEqual(Editor.getSnapshot(editor).children, [
     {
@@ -867,8 +873,7 @@ it('normalizeNode removes a stray block-only inline child after insertNodes', ()
     marks: null,
   })
 
-  Transforms.insertNodes(
-    editor,
+  editor.insertNodes(
     {
       type: 'link',
       children: [{ text: 'stray' }],
@@ -1046,8 +1051,7 @@ it('normalizeNode flattens a direct block child inserted into an inline-style co
     marks: null,
   })
 
-  Transforms.insertNodes(
-    editor,
+  editor.insertNodes(
     {
       type: 'paragraph',
       children: [{ text: 'beta' }],
@@ -1121,7 +1125,9 @@ it('insertBreak splits the current top-level block and moves selection into the 
     marks: null,
   })
 
-  editor.insertBreak()
+  editor.update(() => {
+    editor.insertBreak()
+  })
 
   const snapshot = Editor.getSnapshot(editor)
 
@@ -1145,6 +1151,57 @@ it('insertBreak splits the current top-level block and moves selection into the 
   })
 })
 
+it('insertBreak inside a nested block splits the nested block without splitting its container', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'code-block',
+        language: 'javascript',
+        children: [
+          {
+            type: 'code-line',
+            children: [{ text: 'const value = true' }],
+          },
+        ],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0, 0], offset: 11 },
+      focus: { path: [0, 0, 0], offset: 11 },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    editor.insertBreak()
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'code-block',
+      language: 'javascript',
+      children: [
+        {
+          type: 'code-line',
+          children: [{ text: 'const value' }],
+        },
+        {
+          type: 'code-line',
+          children: [{ text: ' = true' }],
+        },
+      ],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [0, 1, 0], offset: 0 },
+    focus: { path: [0, 1, 0], offset: 0 },
+  })
+})
+
 it('insertSoftBreak currently aliases insertBreak on the proved block split seam', () => {
   const editor = createEditor()
 
@@ -1157,7 +1214,9 @@ it('insertSoftBreak currently aliases insertBreak on the proved block split seam
     marks: null,
   })
 
-  editor.insertSoftBreak()
+  editor.update(() => {
+    editor.insertSoftBreak()
+  })
 
   const snapshot = Editor.getSnapshot(editor)
 
@@ -1206,8 +1265,8 @@ it('publishes once after a transaction and keeps same-version reads stable', () 
   assert.equal(before, beforeAgain)
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertText(editor, '!', { at: { path: [0, 0], offset: 5 } })
-    Transforms.select(editor, {
+    editor.insertText('!', { at: { path: [0, 0], offset: 5 } })
+    editor.select({
       anchor: { path: [0, 0], offset: 6 },
       focus: { path: [0, 0], offset: 6 },
     })
@@ -1238,8 +1297,11 @@ it('publishes touched runtime ids for collapsed insert_text operations', () => {
     marks: null,
   })
 
-  const runtimeId = Editor.getSnapshot(editor).index.pathToId['0.0']
+  const snapshot = Editor.getSnapshot(editor)
+  const blockRuntimeId = snapshot.index.pathToId['0']
+  const runtimeId = snapshot.index.pathToId['0.0']
 
+  assert.ok(blockRuntimeId)
   assert.ok(runtimeId)
 
   Editor.subscribe(editor, (_snapshot, change) => {
@@ -1248,11 +1310,13 @@ it('publishes touched runtime ids for collapsed insert_text operations', () => {
     }
   })
 
-  editor.apply({
-    type: 'insert_text',
-    path: [0, 0],
-    offset: 5,
-    text: '!',
+  editor.update(() => {
+    applyOperation(editor, {
+      type: 'insert_text',
+      path: [0, 0],
+      offset: 5,
+      text: '!',
+    })
   })
 
   assert.equal(changes.length, 1)
@@ -1263,6 +1327,53 @@ it('publishes touched runtime ids for collapsed insert_text operations', () => {
   assert.equal(changes[0]?.selectionChanged, false)
   assert.equal(changes[0]?.marksChanged, false)
   assert.deepEqual(changes[0]?.touchedRuntimeIds, [runtimeId])
+  assert.deepEqual(changes[0]?.nodeImpactRuntimeIds, [
+    blockRuntimeId,
+    runtimeId,
+  ])
+  assert.deepEqual(changes[0]?.decorationImpactRuntimeIds, [
+    blockRuntimeId,
+    runtimeId,
+  ])
+})
+
+it('notifies snapshot subscribers with commit metadata for operation replay', () => {
+  const editor = createEditor()
+  const callOrder: string[] = []
+  const changes: SnapshotChange[] = []
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: {
+      anchor: { path: [0, 0], offset: 5 },
+      focus: { path: [0, 0], offset: 5 },
+    },
+    marks: null,
+  })
+
+  Editor.subscribe(editor, (_snapshot, change) => {
+    callOrder.push('subscribe')
+    if (change) {
+      changes.push(change)
+    }
+  })
+
+  editor.applyOperations([
+    {
+      type: 'insert_text',
+      path: [0, 0],
+      offset: 5,
+      text: '!',
+    },
+  ])
+
+  assert.deepEqual(callOrder, ['subscribe'])
+  assert.equal(changes.length, 1)
+  assert.deepEqual(changes[0]?.classes, ['text'])
+  assert.equal(
+    Editor.getSnapshot(editor).children[0].children[0].text,
+    'alpha!'
+  )
 })
 
 it('publishes selection-only dirtiness without touched runtime ids', () => {
@@ -1271,9 +1382,16 @@ it('publishes selection-only dirtiness without touched runtime ids', () => {
 
   Editor.replace(editor, {
     children: createChildren(),
-    selection: null,
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
     marks: null,
   })
+
+  const initialSnapshot = Editor.getSnapshot(editor)
+  const initialBlockRuntimeId = initialSnapshot.index.pathToId['0']
+  const initialTextRuntimeId = initialSnapshot.index.pathToId['0.0']
 
   Editor.subscribe(editor, (_snapshot, change) => {
     if (change) {
@@ -1281,10 +1399,16 @@ it('publishes selection-only dirtiness without touched runtime ids', () => {
     }
   })
 
-  Transforms.select(editor, {
-    anchor: { path: [1, 0], offset: 1 },
-    focus: { path: [1, 0], offset: 1 },
+  editor.update(() => {
+    editor.select({
+      anchor: { path: [1, 0], offset: 1 },
+      focus: { path: [1, 0], offset: 1 },
+    })
   })
+
+  const snapshot = Editor.getSnapshot(editor)
+  const selectedBlockRuntimeId = snapshot.index.pathToId['1']
+  const selectedTextRuntimeId = snapshot.index.pathToId['1.0']
 
   assert.equal(changes.length, 1)
   assert.deepEqual(changes[0]?.classes, ['selection'])
@@ -1294,6 +1418,17 @@ it('publishes selection-only dirtiness without touched runtime ids', () => {
   assert.equal(changes[0]?.selectionChanged, true)
   assert.equal(changes[0]?.marksChanged, false)
   assert.deepEqual(changes[0]?.touchedRuntimeIds, [])
+  assert.deepEqual(changes[0]?.nodeImpactRuntimeIds, [])
+  assert.deepEqual(changes[0]?.selectionImpactRuntimeIds, [
+    initialTextRuntimeId,
+    initialBlockRuntimeId,
+    selectedTextRuntimeId,
+    selectedBlockRuntimeId,
+  ])
+  assert.deepEqual(
+    changes[0]?.decorationImpactRuntimeIds,
+    changes[0]?.selectionImpactRuntimeIds
+  )
 })
 
 it('publishes replace-level broad invalidation for Editor.replace', () => {
@@ -1331,6 +1466,8 @@ it('publishes replace-level broad invalidation for Editor.replace', () => {
   assert.equal(changes[0]?.selectionChanged, false)
   assert.equal(changes[0]?.marksChanged, false)
   assert.equal(changes[0]?.touchedRuntimeIds, null)
+  assert.equal(changes[0]?.nodeImpactRuntimeIds, null)
+  assert.equal(changes[0]?.decorationImpactRuntimeIds, null)
 })
 
 it('publishes marks-only dirtiness without pretending the document paths changed', () => {
@@ -1362,9 +1499,10 @@ it('publishes marks-only dirtiness without pretending the document paths changed
   assert.equal(changes[0]?.selectionChanged, false)
   assert.equal(changes[0]?.marksChanged, true)
   assert.deepEqual(changes[0]?.touchedRuntimeIds, [])
+  assert.deepEqual(changes[0]?.nodeImpactRuntimeIds, [])
 })
 
-it('keeps selection null for direct insert_text apply just like the transaction path', () => {
+it('keeps selection null for replayed insert_text just like the transaction path', () => {
   const directEditor = createEditor()
   const transactionEditor = createEditor()
 
@@ -1379,7 +1517,7 @@ it('keeps selection null for direct insert_text apply just like the transaction 
     marks: null,
   })
 
-  directEditor.apply({
+  applyOperation(directEditor, {
     type: 'insert_text',
     path: [0, 0],
     offset: 5,
@@ -1387,7 +1525,7 @@ it('keeps selection null for direct insert_text apply just like the transaction 
   })
 
   Editor.withTransaction(transactionEditor, () => {
-    transactionEditor.apply({
+    applyOperation(transactionEditor, {
       type: 'insert_text',
       path: [0, 0],
       offset: 5,
@@ -1416,7 +1554,7 @@ it('publishes an immutable cloned selection for direct insert_text apply', () =>
     marks: null,
   })
 
-  editor.apply({
+  applyOperation(editor, {
     type: 'insert_text',
     path: [0, 0],
     offset: 5,
@@ -1460,7 +1598,7 @@ it('falls back to the transaction path for direct text ops when custom normaliza
       (node as Descendant & { normalized?: boolean }).normalized !== true &&
       node.children.some((child) => 'text' in child && child.text.includes('!'))
     ) {
-      Transforms.setNodes(editor, { normalized: true }, { at: path })
+      editor.setNodes({ normalized: true }, { at: path })
       return
     }
 
@@ -1473,7 +1611,7 @@ it('falls back to the transaction path for direct text ops when custom normaliza
     marks: null,
   })
 
-  editor.apply({
+  applyOperation(editor, {
     type: 'insert_text',
     path: [0, 0],
     offset: 5,
@@ -1717,7 +1855,7 @@ it('preserves runtime ids when moving a node inside the proof subset', () => {
   assert.ok(firstId)
 
   Editor.withTransaction(editor, () => {
-    Transforms.moveNodes(editor, {
+    editor.moveNodes({
       at: [0],
       to: [2],
     })
@@ -1729,7 +1867,7 @@ it('preserves runtime ids when moving a node inside the proof subset', () => {
   assert.equal(after.children[1].children[0].text, 'alpha')
 })
 
-it('mirrors the legacy transforms/normalization/move_node.tsx oracle row', () => {
+it('keeps adjacent compatible text siblings separate after move_node until normalization is explicit', () => {
   const editor = createEditor()
 
   Editor.replace(editor, {
@@ -1747,7 +1885,7 @@ it('mirrors the legacy transforms/normalization/move_node.tsx oracle row', () =>
     marks: null,
   })
 
-  Transforms.moveNodes(editor, { at: [0, 0], to: [1, 0] })
+  editor.moveNodes({ at: [0, 0], to: [1, 0] })
 
   assert.deepEqual(Editor.getSnapshot(editor).children, [
     {
@@ -1761,7 +1899,7 @@ it('mirrors the legacy transforms/normalization/move_node.tsx oracle row', () =>
   ])
 })
 
-it('supports insert_node and remove_node through editor.apply and keeps sibling ids stable', () => {
+it('supports insert_node and remove_node operation replay while keeping sibling ids stable', () => {
   const editor = createEditor()
 
   Editor.replace(editor, {
@@ -1775,7 +1913,7 @@ it('supports insert_node and remove_node through editor.apply and keeps sibling 
   assert.ok(alphaId)
   assert.ok(betaId)
 
-  editor.apply({
+  applyOperation(editor, {
     type: 'insert_node',
     path: [0],
     node: {
@@ -1794,7 +1932,7 @@ it('supports insert_node and remove_node through editor.apply and keeps sibling 
   assert.equal(afterInsert.index.pathToId['1'], alphaId)
   assert.equal(afterInsert.index.pathToId['2'], betaId)
 
-  editor.apply({
+  applyOperation(editor, {
     type: 'remove_node',
     path: [1],
     node: afterInsert.children[1]!,
@@ -1819,8 +1957,7 @@ it('supports path-based insertNodes/removeNodes transforms in one outer transact
   const betaId = before.index.pathToId['1']
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertNodes(
-      editor,
+    editor.insertNodes(
       [
         {
           type: 'paragraph',
@@ -1833,7 +1970,7 @@ it('supports path-based insertNodes/removeNodes transforms in one outer transact
       ],
       { at: [0] }
     )
-    Transforms.removeNodes(editor, { at: [3] })
+    editor.removeNodes({ at: [3] })
   })
 
   const after = Editor.getSnapshot(editor)
@@ -1859,7 +1996,7 @@ it('supports set_node and path-based setNodes while keeping runtime ids stable',
   const blockId = before.index.pathToId['0']
   const textId = before.index.pathToId['0.0']
 
-  editor.apply({
+  applyOperation(editor, {
     type: 'set_node',
     path: [0],
     newProperties: {
@@ -1869,8 +2006,7 @@ it('supports set_node and path-based setNodes while keeping runtime ids stable',
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.setNodes(
-      editor,
+    editor.setNodes(
       {
         italic: true,
       },
@@ -1906,7 +2042,7 @@ it('supports property removal through set_node and path-based unsetNodes while k
   const blockId = before.index.pathToId['0']
   const textId = before.index.pathToId['0.0']
 
-  editor.apply({
+  applyOperation(editor, {
     type: 'set_node',
     path: [0],
     properties: {
@@ -1916,7 +2052,7 @@ it('supports property removal through set_node and path-based unsetNodes while k
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.unsetNodes(editor, 'bold', { at: [0, 0] })
+    editor.unsetNodes('bold', { at: [0, 0] })
   })
 
   const after = Editor.getSnapshot(editor)
@@ -1931,7 +2067,7 @@ it('supports property removal through set_node and path-based unsetNodes while k
   assert.equal(after.index.pathToId['0.0'], textId)
 })
 
-it('supports remove_text through editor.apply and rebases selection inward', () => {
+it('supports remove_text operation replay and rebases selection inward', () => {
   const editor = createEditor()
 
   Editor.replace(editor, {
@@ -1946,7 +2082,7 @@ it('supports remove_text through editor.apply and rebases selection inward', () 
   const before = Editor.getSnapshot(editor)
   const textId = before.index.pathToId['0.0']
 
-  editor.apply({
+  applyOperation(editor, {
     type: 'remove_text',
     path: [0, 0],
     offset: 1,
@@ -1963,7 +2099,7 @@ it('supports remove_text through editor.apply and rebases selection inward', () 
   assert.equal(after.index.pathToId['0.0'], textId)
 })
 
-it('supports exact removeText helper calls while keeping runtime ids stable', () => {
+it('supports exact remove_text operation replay while keeping runtime ids stable', () => {
   const editor = createEditor()
 
   Editor.replace(editor, {
@@ -1975,9 +2111,14 @@ it('supports exact removeText helper calls while keeping runtime ids stable', ()
   const before = Editor.getSnapshot(editor)
   const textId = before.index.pathToId['1.0']
 
-  Transforms.removeText(editor, 'et', {
-    at: { path: [1, 0], offset: 1 },
-  })
+  editor.applyOperations([
+    {
+      type: 'remove_text',
+      path: [1, 0],
+      offset: 1,
+      text: 'et',
+    },
+  ])
 
   const after = Editor.getSnapshot(editor)
 
@@ -2001,7 +2142,7 @@ it('supports split_node on a text path and keeps the original id on the left bra
   const before = Editor.getSnapshot(editor)
   const leftId = before.index.pathToId['0.0']
 
-  editor.apply({
+  applyOperation(editor, {
     type: 'split_node',
     path: [0, 0],
     position: 3,
@@ -2020,7 +2161,7 @@ it('supports split_node on a text path and keeps the original id on the left bra
   })
 })
 
-it('supports point-based splitNodes helper calls on text nodes and keeps sibling ids stable', () => {
+it('supports point-based splitNodes helper calls on text nodes, splits the containing block, and keeps left-branch ids stable', () => {
   const editor = createEditor()
 
   Editor.replace(editor, {
@@ -2032,20 +2173,17 @@ it('supports point-based splitNodes helper calls on text nodes and keeps sibling
   const before = Editor.getSnapshot(editor)
   const leftId = before.index.pathToId['1.0']
 
-  Transforms.splitNodes(editor, {
+  editor.splitNodes({
     at: { path: [1, 0], offset: 2 },
   })
 
   const after = Editor.getSnapshot(editor)
 
   assert.equal(after.children[1].children[0].text, 'be')
-  assert.equal(after.children[1].children[1].text, 'ta')
+  assert.equal(after.children[2].children[0].text, 'ta')
   assert.equal(after.index.pathToId['1.0'], leftId)
-  assert.notEqual(after.index.pathToId['1.1'], leftId)
-  assert.deepEqual(after.selection, {
-    anchor: { path: [1, 1], offset: 0 },
-    focus: { path: [1, 1], offset: 0 },
-  })
+  assert.notEqual(after.index.pathToId['2.0'], leftId)
+  assert.equal(after.selection, null)
 })
 
 it('supports split_node on an element path, keeps the legacy leading empty text, and preserves moved descendant ids', () => {
@@ -2065,7 +2203,7 @@ it('supports split_node on an element path, keeps the legacy leading empty text,
   const linkId = before.index.pathToId['0.1']
   const trailingTextId = before.index.pathToId['0.2']
 
-  editor.apply({
+  applyOperation(editor, {
     type: 'split_node',
     path: [0],
     position: 1,
@@ -2107,7 +2245,7 @@ it('supports path-based splitNodes helper calls on element nodes with the legacy
   const leftId = before.index.pathToId['0']
   const linkId = before.index.pathToId['0.1']
 
-  Transforms.splitNodes(editor, {
+  editor.splitNodes({
     at: [0],
     position: 1,
   })
@@ -2145,7 +2283,7 @@ it('supports merge_node on a text path and keeps the left branch id', () => {
   const leftId = before.index.pathToId['0.0']
   const rightId = before.index.pathToId['0.1']
 
-  editor.apply({
+  applyOperation(editor, {
     type: 'merge_node',
     path: [0, 1],
     position: 2,
@@ -2184,7 +2322,7 @@ it('supports path-based mergeNodes helper calls on text nodes and keeps the left
   const before = Editor.getSnapshot(editor)
   const leftId = before.index.pathToId['0.0']
 
-  Transforms.mergeNodes(editor, { at: [0, 1] })
+  editor.mergeNodes({ at: [0, 1] })
 
   const after = Editor.getSnapshot(editor)
   const firstText = after.children[0].children[0] as Descendant & {
@@ -2220,7 +2358,7 @@ it('supports merge_node on an element path and preserves moved descendant ids', 
   const movedLinkId = before.index.pathToId['1.1']
   const movedTextId = before.index.pathToId['1.2']
 
-  editor.apply({
+  applyOperation(editor, {
     type: 'merge_node',
     path: [1],
     position: 1,
@@ -2261,7 +2399,7 @@ it('supports path-based mergeNodes helper calls on element nodes', () => {
   const movedSpacerId = before.index.pathToId['1.0']
   const movedLinkId = before.index.pathToId['1.1']
 
-  Transforms.mergeNodes(editor, { at: [1] })
+  editor.mergeNodes({ at: [1] })
 
   const after = Editor.getSnapshot(editor)
   const block = after.children[0] as Descendant & { data?: boolean }
@@ -2278,7 +2416,7 @@ it('supports path-based mergeNodes helper calls on element nodes', () => {
   })
 })
 
-it('supports setSelection helper calls against the live transaction selection', () => {
+it('supports setSelection helper calls once the live transaction selection has been seeded explicitly', () => {
   const editor = createEditor()
 
   Editor.replace(editor, {
@@ -2288,10 +2426,14 @@ it('supports setSelection helper calls against the live transaction selection', 
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertText(editor, '!', {
+    editor.insertText('!', {
       at: { path: [0, 0], offset: 5 },
     })
-    Transforms.setSelection(editor, {
+    editor.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 6 },
+    })
+    editor.setSelection({
       anchor: { path: [0, 0], offset: 1 },
     })
   })
@@ -2314,10 +2456,10 @@ it('supports deselect helper calls against the live transaction selection', () =
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertText(editor, '!', {
+    editor.insertText('!', {
       at: { path: [1, 0], offset: 4 },
     })
-    Transforms.deselect(editor)
+    editor.deselect()
   })
 
   const after = Editor.getSnapshot(editor)
@@ -2335,11 +2477,11 @@ it('supports collapse helper calls to the anchor against the live transaction se
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [0, 0], offset: 1 },
       focus: { path: [1, 0], offset: 3 },
     })
-    Transforms.collapse(editor, { edge: 'anchor' })
+    editor.collapse({ edge: 'anchor' })
   })
 
   const after = Editor.getSnapshot(editor)
@@ -2363,14 +2505,14 @@ it('supports collapse helper calls to the end against the live transaction selec
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertText(editor, '!', {
+    editor.insertText('!', {
       at: { path: [1, 0], offset: 4 },
     })
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [1, 0], offset: 1 },
       focus: { path: [1, 0], offset: 5 },
     })
-    Transforms.collapse(editor, { edge: 'end' })
+    editor.collapse({ edge: 'end' })
   })
 
   const after = Editor.getSnapshot(editor)
@@ -2391,12 +2533,11 @@ it('supports setPoint helper calls on the focus edge against the live transactio
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [0, 0], offset: 1 },
       focus: { path: [1, 0], offset: 3 },
     })
-    Transforms.setPoint(
-      editor,
+    editor.setPoint(
       {
         offset: 2,
       },
@@ -2425,12 +2566,11 @@ it('supports setPoint helper calls on the start edge against a backward live sel
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [1, 0], offset: 3 },
       focus: { path: [0, 0], offset: 2 },
     })
-    Transforms.setPoint(
-      editor,
+    editor.setPoint(
       {
         offset: 0,
       },
@@ -2455,11 +2595,11 @@ it('supports move helper calls on both edges within the current text node', () =
     marks: null,
   })
 
-  Transforms.select(editor, {
+  editor.select({
     anchor: { path: [0, 0], offset: 1 },
     focus: { path: [0, 0], offset: 3 },
   })
-  Transforms.move(editor, { distance: 2 })
+  editor.move({ distance: 2 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2481,7 +2621,7 @@ it('mirrors the legacy move/anchor/basic.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'anchor' })
+  editor.move({ edge: 'anchor' })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2503,7 +2643,7 @@ it('mirrors the legacy move/both/distance.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { distance: 6 })
+  editor.move({ distance: 6 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2525,7 +2665,7 @@ it('mirrors the legacy move/anchor/backward.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'anchor' })
+  editor.move({ edge: 'anchor' })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2547,7 +2687,7 @@ it('mirrors the legacy move/focus/distance.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'focus', distance: 4 })
+  editor.move({ edge: 'focus', distance: 4 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2569,7 +2709,7 @@ it('mirrors the legacy move/start/backward.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'start' })
+  editor.move({ edge: 'start' })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2591,7 +2731,7 @@ it('mirrors the legacy move/end/distance.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'end', distance: 3 })
+  editor.move({ edge: 'end', distance: 3 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2613,7 +2753,7 @@ it('mirrors the legacy move/anchor/distance.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'anchor', distance: 3 })
+  editor.move({ edge: 'anchor', distance: 3 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2635,7 +2775,7 @@ it('mirrors the legacy move/anchor/reverse-basic.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'anchor', reverse: true })
+  editor.move({ edge: 'anchor', reverse: true })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2657,7 +2797,7 @@ it('mirrors the legacy move/both/backward.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor)
+  editor.move()
 
   const after = Editor.getSnapshot(editor)
 
@@ -2679,7 +2819,7 @@ it('mirrors the legacy move/both/basic-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { reverse: true })
+  editor.move({ reverse: true })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2701,7 +2841,7 @@ it('mirrors the legacy move/end/backward.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'end' })
+  editor.move({ edge: 'end' })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2723,7 +2863,7 @@ it('mirrors the legacy move/focus/expanded.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'focus' })
+  editor.move({ edge: 'focus' })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2745,7 +2885,7 @@ it('mirrors the legacy move/start/expanded.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'start' })
+  editor.move({ edge: 'start' })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2767,7 +2907,7 @@ it('mirrors the legacy move/end/expanded.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'end' })
+  editor.move({ edge: 'end' })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2789,7 +2929,7 @@ it('mirrors the legacy move/anchor/reverse-distance.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'anchor', reverse: true, distance: 3 })
+  editor.move({ edge: 'anchor', reverse: true, distance: 3 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2811,7 +2951,7 @@ it('mirrors the legacy move/both/distance-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { reverse: true, distance: 6 })
+  editor.move({ reverse: true, distance: 6 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2833,7 +2973,7 @@ it('mirrors the legacy move/end/distance-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'end', reverse: true, distance: 3 })
+  editor.move({ edge: 'end', reverse: true, distance: 3 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2855,7 +2995,7 @@ it('mirrors the legacy move/start/distance-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'start', reverse: true, distance: 3 })
+  editor.move({ edge: 'start', reverse: true, distance: 3 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2877,7 +3017,7 @@ it('mirrors the legacy move/focus/distance-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'focus', reverse: true, distance: 6 })
+  editor.move({ edge: 'focus', reverse: true, distance: 6 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2899,7 +3039,7 @@ it('mirrors the legacy move/end/backward-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'end', reverse: true })
+  editor.move({ edge: 'end', reverse: true })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2921,7 +3061,7 @@ it('mirrors the legacy move/focus/backward.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'focus', distance: 7 })
+  editor.move({ edge: 'focus', distance: 7 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2943,7 +3083,7 @@ it('mirrors the legacy move/start/distance.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'start', distance: 3 })
+  editor.move({ edge: 'start', distance: 3 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2965,7 +3105,7 @@ it('mirrors the legacy move/anchor/reverse-backward.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'anchor', reverse: true })
+  editor.move({ edge: 'anchor', reverse: true })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2987,7 +3127,7 @@ it('mirrors the legacy move/start/backward-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'start', reverse: true })
+  editor.move({ edge: 'start', reverse: true })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3009,7 +3149,7 @@ it('mirrors the legacy move/both/backward-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { reverse: true })
+  editor.move({ reverse: true })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3031,7 +3171,7 @@ it('mirrors the legacy move/both/expanded.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor)
+  editor.move()
 
   const after = Editor.getSnapshot(editor)
 
@@ -3053,7 +3193,7 @@ it('mirrors the legacy move/both/expanded-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { reverse: true })
+  editor.move({ reverse: true })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3075,7 +3215,7 @@ it('mirrors the legacy move/end/to-backward-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'end', reverse: true, distance: 6 })
+  editor.move({ edge: 'end', reverse: true, distance: 6 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3097,7 +3237,7 @@ it('mirrors the legacy move/start/from-backward.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'start', distance: 7 })
+  editor.move({ edge: 'start', distance: 7 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3119,7 +3259,7 @@ it('mirrors the legacy move/start/to-backward.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'start', distance: 8 })
+  editor.move({ edge: 'start', distance: 8 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3141,7 +3281,7 @@ it('mirrors the legacy move/anchor/collapsed.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'anchor' })
+  editor.move({ edge: 'anchor' })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3163,7 +3303,7 @@ it('mirrors the legacy move/both/collapsed.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor)
+  editor.move()
 
   const after = Editor.getSnapshot(editor)
 
@@ -3185,7 +3325,7 @@ it('mirrors the legacy move/end/collapsed-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'end', reverse: true })
+  editor.move({ edge: 'end', reverse: true })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3207,7 +3347,7 @@ it('mirrors the legacy move/focus/collapsed-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'focus', reverse: true })
+  editor.move({ edge: 'focus', reverse: true })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3229,7 +3369,7 @@ it('mirrors the legacy move/end/expanded-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'end', reverse: true })
+  editor.move({ edge: 'end', reverse: true })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3251,7 +3391,7 @@ it('mirrors the legacy move/focus/expanded-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'focus', reverse: true })
+  editor.move({ edge: 'focus', reverse: true })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3273,7 +3413,7 @@ it('mirrors the legacy move/start/expanded-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'start', reverse: true })
+  editor.move({ edge: 'start', reverse: true })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3295,7 +3435,7 @@ it('mirrors the legacy move/end/from-backward-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'end', reverse: true, distance: 7 })
+  editor.move({ edge: 'end', reverse: true, distance: 7 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3317,7 +3457,7 @@ it('mirrors the legacy move/focus/to-backward-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor, { edge: 'focus', reverse: true, distance: 10 })
+  editor.move({ edge: 'focus', reverse: true, distance: 10 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3336,11 +3476,11 @@ it('supports move helper calls on the start edge of a backward selection', () =>
     marks: null,
   })
 
-  Transforms.select(editor, {
+  editor.select({
     anchor: { path: [0, 0], offset: 4 },
     focus: { path: [0, 0], offset: 1 },
   })
-  Transforms.move(editor, { edge: 'start', distance: 1, reverse: true })
+  editor.move({ edge: 'start', distance: 1, reverse: true })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3360,11 +3500,11 @@ it('supports move helper calls inside an outer transaction using the live draft 
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [0, 0], offset: 1 },
       focus: { path: [0, 0], offset: 1 },
     })
-    Transforms.move(editor, { distance: 2 })
+    editor.move({ distance: 2 })
   })
 
   const after = Editor.getSnapshot(editor)
@@ -3384,11 +3524,11 @@ it('supports move helper calls across mixed-inline sibling text leaves in one bl
     marks: null,
   })
 
-  Transforms.select(editor, {
+  editor.select({
     anchor: { path: [0, 0], offset: 6 },
     focus: { path: [0, 0], offset: 6 },
   })
-  Transforms.move(editor, { distance: 1 })
+  editor.move({ distance: 1 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3407,11 +3547,11 @@ it('supports reverse move helper calls across mixed-inline sibling text leaves i
     marks: null,
   })
 
-  Transforms.select(editor, {
+  editor.select({
     anchor: { path: [0, 2], offset: 0 },
     focus: { path: [0, 2], offset: 0 },
   })
-  Transforms.move(editor, { reverse: true, distance: 1 })
+  editor.move({ reverse: true, distance: 1 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -3431,14 +3571,14 @@ it('supports move helper calls across mixed-inline siblings inside an outer tran
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertText(editor, '!', {
+    editor.insertText('!', {
       at: { path: [0, 0], offset: 6 },
     })
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [0, 0], offset: 7 },
       focus: { path: [0, 0], offset: 7 },
     })
-    Transforms.move(editor, { distance: 1 })
+    editor.move({ distance: 1 })
   })
 
   const after = Editor.getSnapshot(editor)
@@ -3458,7 +3598,7 @@ it('supports select helper calls with a point and creates a collapsed selection'
     marks: null,
   })
 
-  Transforms.select(editor, {
+  editor.select({
     path: [1, 0],
     offset: 2,
   })
@@ -3484,10 +3624,10 @@ it('supports select helper calls with a point inside an outer transaction', () =
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertText(editor, '!', {
+    editor.insertText('!', {
       at: { path: [1, 0], offset: 4 },
     })
-    Transforms.select(editor, {
+    editor.select({
       path: [1, 0],
       offset: 5,
     })
@@ -3510,7 +3650,7 @@ it('supports select helper calls with a path and creates a node range', () => {
     marks: null,
   })
 
-  Transforms.select(editor, [0])
+  editor.select([0])
 
   const after = Editor.getSnapshot(editor)
 
@@ -3530,15 +3670,14 @@ it('supports select helper calls with a path inside an outer transaction using t
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertNodes(
-      editor,
+    editor.insertNodes(
       {
         type: 'paragraph',
         children: [{ text: 'gamma' }],
       },
       { at: [2] }
     )
-    Transforms.select(editor, [2])
+    editor.select([2])
   })
 
   const after = Editor.getSnapshot(editor)
@@ -3561,7 +3700,7 @@ it('mirrors the legacy select/path.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.select(editor, [0, 0])
+  editor.select([0, 0])
 
   const after = Editor.getSnapshot(editor)
 
@@ -3583,7 +3722,7 @@ it('mirrors the legacy select/point.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.select(editor, {
+  editor.select({
     path: [0, 0],
     offset: 1,
   })
@@ -3608,7 +3747,7 @@ it('mirrors the legacy select/range.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.select(editor, {
+  editor.select({
     anchor: { path: [0, 0], offset: 0 },
     focus: { path: [0, 0], offset: 3 },
   })
@@ -3638,9 +3777,8 @@ it('mirrors the legacy setPoint/offset.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.move(editor)
-  Transforms.setPoint(
-    editor,
+  editor.move()
+  editor.setPoint(
     {
       offset: 0,
     },
@@ -3667,7 +3805,7 @@ it('mirrors the legacy deselect/basic.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.deselect(editor)
+  editor.deselect()
 
   const after = Editor.getSnapshot(editor)
 
@@ -3689,8 +3827,7 @@ it('supports path-based wrapNodes helper calls and preserves the moved node id',
   const before = Editor.getSnapshot(editor)
   const paragraphId = before.index.pathToId['0']
 
-  Transforms.wrapNodes(
-    editor,
+  editor.wrapNodes(
     {
       type: 'quote',
       children: [],
@@ -3722,8 +3859,7 @@ it('supports range-based wrapNodes helper calls across top-level block spans and
   const firstId = before.index.pathToId['0']
   const secondId = before.index.pathToId['1']
 
-  Transforms.wrapNodes(
-    editor,
+  editor.wrapNodes(
     {
       type: 'quote',
       children: [],
@@ -3760,16 +3896,14 @@ it('supports path-based wrapNodes inside an outer transaction using the live dra
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertNodes(
-      editor,
+    editor.insertNodes(
       {
         type: 'paragraph',
         children: [{ text: 'gamma' }],
       },
       { at: [2] }
     )
-    Transforms.wrapNodes(
-      editor,
+    editor.wrapNodes(
       {
         type: 'quote',
         children: [],
@@ -3798,8 +3932,7 @@ it('mirrors the legacy wrapNodes/path/block.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.wrapNodes(
-    editor,
+  editor.wrapNodes(
     {
       type: 'quote',
       a: true,
@@ -3835,7 +3968,7 @@ it('mirrors the legacy wrapNodes/block/block.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.wrapNodes(editor, {
+  editor.wrapNodes({
     type: 'quote',
     a: true,
     children: [],
@@ -3868,7 +4001,7 @@ it('mirrors the legacy wrapNodes/block/block-across.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.wrapNodes(editor, {
+  editor.wrapNodes({
     type: 'quote',
     a: true,
     children: [],
@@ -3902,7 +4035,7 @@ it('mirrors the legacy wrapNodes/block/block-end.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.wrapNodes(editor, {
+  editor.wrapNodes({
     type: 'quote',
     a: true,
     children: [],
@@ -3934,19 +4067,18 @@ it('supports selection-based wrapNodes inside an outer transaction using the liv
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertNodes(
-      editor,
+    editor.insertNodes(
       {
         type: 'paragraph',
         children: [{ text: 'gamma' }],
       },
       { at: [2] }
     )
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [1, 0], offset: 1 },
       focus: { path: [2, 0], offset: 3 },
     })
-    Transforms.wrapNodes(editor, {
+    editor.wrapNodes({
       type: 'quote',
       children: [],
     })
@@ -3977,9 +4109,9 @@ it('supports list formatting flows by turning selected top-level blocks into lis
     marks: null,
   })
 
-  Transforms.setNodes(editor, { type: 'list-item' }, { at: [0] })
-  Transforms.setNodes(editor, { type: 'list-item' }, { at: [1] })
-  Transforms.wrapNodes(editor, {
+  editor.setNodes({ type: 'list-item' }, { at: [0] })
+  editor.setNodes({ type: 'list-item' }, { at: [1] })
+  editor.wrapNodes({
     type: 'bulleted-list',
     children: [],
   })
@@ -4023,7 +4155,7 @@ it('supports path-based unwrapNodes helper calls and preserves moved child ids',
   const firstChildId = before.index.pathToId['0.0']
   const secondChildId = before.index.pathToId['0.1']
 
-  Transforms.unwrapNodes(editor, { at: [0] })
+  editor.unwrapNodes({ at: [0] })
 
   const after = Editor.getSnapshot(editor)
 
@@ -4049,7 +4181,7 @@ it('supports range-based unwrapNodes helper calls across top-level wrapper spans
   const betaId = before.index.pathToId['0.1']
   const gammaId = before.index.pathToId['1.0']
 
-  Transforms.unwrapNodes(editor, {
+  editor.unwrapNodes({
     at: {
       anchor: { path: [0, 0, 0], offset: 2 },
       focus: { path: [1, 0, 0], offset: 2 },
@@ -4077,7 +4209,7 @@ it('mirrors the legacy unwrapNodes/path/block.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.unwrapNodes(editor, { at: [0] })
+  editor.unwrapNodes({ at: [0] })
 
   const after = Editor.getSnapshot(editor)
 
@@ -4097,7 +4229,7 @@ it('mirrors the legacy unwrapNodes/match-block/block.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.unwrapNodes(editor)
+  editor.unwrapNodes()
 
   const after = Editor.getSnapshot(editor)
 
@@ -4121,7 +4253,7 @@ it('mirrors the legacy unwrapNodes/match-block/block-across.tsx oracle row', () 
     marks: null,
   })
 
-  Transforms.unwrapNodes(editor)
+  editor.unwrapNodes()
 
   const after = Editor.getSnapshot(editor)
 
@@ -4151,7 +4283,7 @@ it('mirrors the legacy unwrapNodes/match-block/block-end.tsx oracle row', () => 
     marks: null,
   })
 
-  Transforms.unwrapNodes(editor)
+  editor.unwrapNodes()
 
   const after = Editor.getSnapshot(editor)
 
@@ -4187,7 +4319,7 @@ it('mirrors the legacy unwrapNodes/match-block/block-middle.tsx oracle row', () 
     marks: null,
   })
 
-  Transforms.unwrapNodes(editor)
+  editor.unwrapNodes()
 
   const after = Editor.getSnapshot(editor)
 
@@ -4217,7 +4349,7 @@ it('mirrors the legacy unwrapNodes/match-block/block-start.tsx oracle row', () =
     marks: null,
   })
 
-  Transforms.unwrapNodes(editor)
+  editor.unwrapNodes()
 
   const after = Editor.getSnapshot(editor)
 
@@ -4245,15 +4377,14 @@ it('supports path-based unwrapNodes inside an outer transaction using the live d
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.wrapNodes(
-      editor,
+    editor.wrapNodes(
       {
         type: 'quote',
         children: [],
       },
       { at: [1] }
     )
-    Transforms.unwrapNodes(editor, { at: [1] })
+    editor.unwrapNodes({ at: [1] })
   })
 
   const after = Editor.getSnapshot(editor)
@@ -4270,7 +4401,7 @@ it('mirrors the legacy unwrapNodes/path/block-multiple.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.unwrapNodes(editor, { at: [0] })
+  editor.unwrapNodes({ at: [0] })
 
   const after = Editor.getSnapshot(editor)
 
@@ -4287,15 +4418,15 @@ it('supports selection-based unwrapNodes inside an outer transaction using the l
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [1, 0], offset: 1 },
       focus: { path: [1, 0], offset: 1 },
     })
-    Transforms.wrapNodes(editor, {
+    editor.wrapNodes({
       type: 'quote',
       children: [],
     })
-    Transforms.unwrapNodes(editor)
+    editor.unwrapNodes()
   })
 
   const after = Editor.getSnapshot(editor)
@@ -4322,7 +4453,7 @@ it('supports path-based liftNodes helper calls for an only child and preserves t
   const before = Editor.getSnapshot(editor)
   const paragraphId = before.index.pathToId['0.0']
 
-  Transforms.liftNodes(editor, { at: [0, 0] })
+  editor.liftNodes({ at: [0, 0] })
 
   const after = Editor.getSnapshot(editor)
 
@@ -4343,7 +4474,7 @@ it('supports path-based liftNodes helper calls for a first child', () => {
   const before = Editor.getSnapshot(editor)
   const firstChildId = before.index.pathToId['0.0']
 
-  Transforms.liftNodes(editor, { at: [0, 0] })
+  editor.liftNodes({ at: [0, 0] })
 
   const after = Editor.getSnapshot(editor)
   const trailingWrapper = after.children[1] as Descendant & { type: string }
@@ -4367,7 +4498,7 @@ it('mirrors the legacy liftNodes/path/block.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.liftNodes(editor, { at: [0, 0] })
+  editor.liftNodes({ at: [0, 0] })
 
   const after = Editor.getSnapshot(editor)
 
@@ -4384,7 +4515,7 @@ it('mirrors the legacy liftNodes/path/first-block.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.liftNodes(editor, { at: [0, 0] })
+  editor.liftNodes({ at: [0, 0] })
 
   const after = Editor.getSnapshot(editor)
   const trailingWrapper = after.children[1] as Descendant & { type: string }
@@ -4403,7 +4534,7 @@ it('mirrors the legacy liftNodes/path/last-block.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.liftNodes(editor, { at: [0, 1] })
+  editor.liftNodes({ at: [0, 1] })
 
   const after = Editor.getSnapshot(editor)
   const leadingWrapper = after.children[0] as Descendant & { type: string }
@@ -4422,7 +4553,7 @@ it('mirrors the legacy liftNodes/path/middle-block.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.liftNodes(editor, { at: [0, 1] })
+  editor.liftNodes({ at: [0, 1] })
 
   const after = Editor.getSnapshot(editor)
   const leadingWrapper = after.children[0] as Descendant & { type: string }
@@ -4447,7 +4578,7 @@ it('mirrors the legacy liftNodes/selection/block-full.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.liftNodes(editor)
+  editor.liftNodes()
 
   const after = Editor.getSnapshot(editor)
 
@@ -4477,7 +4608,7 @@ it('supports path-based liftNodes helper calls for a middle child', () => {
   const before = Editor.getSnapshot(editor)
   const middleChildId = before.index.pathToId['0.1']
 
-  Transforms.liftNodes(editor, { at: [0, 1] })
+  editor.liftNodes({ at: [0, 1] })
 
   const after = Editor.getSnapshot(editor)
   const leadingWrapper = after.children[0] as Descendant & { type: string }
@@ -4510,7 +4641,7 @@ it('supports path-based liftNodes helper calls for a last child', () => {
   const before = Editor.getSnapshot(editor)
   const lastChildId = before.index.pathToId['0.2']
 
-  Transforms.liftNodes(editor, { at: [0, 2] })
+  editor.liftNodes({ at: [0, 2] })
 
   const after = Editor.getSnapshot(editor)
   const leadingWrapper = after.children[0] as Descendant & { type: string }
@@ -4541,7 +4672,7 @@ it('supports range-based liftNodes helper calls across top-level wrapper-child s
   const firstId = before.index.pathToId['0.0']
   const secondId = before.index.pathToId['0.1']
 
-  Transforms.liftNodes(editor, {
+  editor.liftNodes({
     at: {
       anchor: { path: [0, 0, 0], offset: 1 },
       focus: { path: [0, 1, 0], offset: 2 },
@@ -4572,23 +4703,21 @@ it('supports path-based liftNodes inside an outer transaction using the live dra
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertNodes(
-      editor,
+    editor.insertNodes(
       {
         type: 'paragraph',
         children: [{ text: 'gamma' }],
       },
       { at: [2] }
     )
-    Transforms.wrapNodes(
-      editor,
+    editor.wrapNodes(
       {
         type: 'quote',
         children: [],
       },
       { at: [2] }
     )
-    Transforms.liftNodes(editor, { at: [2, 0] })
+    editor.liftNodes({ at: [2, 0] })
   })
 
   const after = Editor.getSnapshot(editor)
@@ -4606,15 +4735,15 @@ it('supports selection-based liftNodes inside an outer transaction using the liv
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [0, 0], offset: 1 },
       focus: { path: [1, 0], offset: 2 },
     })
-    Transforms.wrapNodes(editor, {
+    editor.wrapNodes({
       type: 'quote',
       children: [],
     })
-    Transforms.liftNodes(editor)
+    editor.liftNodes()
   })
 
   const after = Editor.getSnapshot(editor)
@@ -4638,9 +4767,9 @@ it('supports list outdent flows by lifting selected list items and restoring par
     marks: null,
   })
 
-  Transforms.liftNodes(editor)
-  Transforms.setNodes(editor, { type: 'paragraph' }, { at: [0] })
-  Transforms.setNodes(editor, { type: 'paragraph' }, { at: [1] })
+  editor.liftNodes()
+  editor.setNodes({ type: 'paragraph' }, { at: [0] })
+  editor.setNodes({ type: 'paragraph' }, { at: [1] })
 
   const snapshot = Editor.getSnapshot(editor)
 
@@ -4672,7 +4801,7 @@ it('supports delete helper calls with an exact block path and preserves survivin
   const before = Editor.getSnapshot(editor)
   const firstId = before.index.pathToId['0']
 
-  Transforms.delete(editor, { at: [1] })
+  editor.delete({ at: [1] })
 
   const after = Editor.getSnapshot(editor)
 
@@ -4691,7 +4820,7 @@ it('mirrors the legacy delete/path/block.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.delete(editor, { at: [1] })
+  editor.delete({ at: [1] })
 
   const after = Editor.getSnapshot(editor)
 
@@ -4709,15 +4838,14 @@ it('supports delete helper calls with an exact path inside an outer transaction 
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertNodes(
-      editor,
+    editor.insertNodes(
       {
         type: 'paragraph',
         children: [{ text: 'gamma' }],
       },
       { at: [2] }
     )
-    Transforms.delete(editor, { at: [2] })
+    editor.delete({ at: [2] })
   })
 
   const after = Editor.getSnapshot(editor)
@@ -4738,7 +4866,7 @@ it('supports delete helper calls with an exact point and removes one forward cha
   const before = Editor.getSnapshot(editor)
   const textId = before.index.pathToId['0.0']
 
-  Transforms.delete(editor, {
+  editor.delete({
     at: { path: [0, 0], offset: 2 },
   })
 
@@ -4760,7 +4888,7 @@ it('supports delete helper calls with an exact point, reverse, and distance insi
   const before = Editor.getSnapshot(editor)
   const textId = before.index.pathToId['0.0']
 
-  Transforms.delete(editor, {
+  editor.delete({
     at: { path: [0, 0], offset: 3 },
     reverse: true,
     distance: 2,
@@ -4781,7 +4909,7 @@ it('supports delete helper calls with an exact point across mixed-inline sibling
     marks: null,
   })
 
-  Transforms.delete(editor, {
+  editor.delete({
     at: { path: [0, 0], offset: 6 },
     distance: 1,
   })
@@ -4810,7 +4938,7 @@ it('supports delete helper calls with an exact point across an adjacent top-leve
   const before = Editor.getSnapshot(editor)
   const firstBlockId = before.index.pathToId['0']
 
-  Transforms.delete(editor, {
+  editor.delete({
     at: { path: [0, 0], offset: 5 },
     distance: 1,
   })
@@ -4823,6 +4951,59 @@ it('supports delete helper calls with an exact point across an adjacent top-leve
   assert.deepEqual(after.selection, {
     anchor: { path: [0, 0], offset: 5 },
     focus: { path: [0, 0], offset: 5 },
+  })
+})
+
+it('supports delete helper calls across adjacent nested block boundaries without splitting the container', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'code-block',
+        children: [
+          {
+            type: 'code-line',
+            children: [{ text: 'alpha' }],
+          },
+          {
+            type: 'code-line',
+            children: [{ text: 'beta' }],
+          },
+        ],
+      },
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  const before = Editor.getSnapshot(editor)
+  const codeBlockId = before.index.pathToId['0']
+  const firstLineId = before.index.pathToId['0.0']
+
+  editor.update(() => {
+    editor.delete({
+      at: { path: [0, 0, 0], offset: 5 },
+      distance: 1,
+    })
+  })
+
+  const after = Editor.getSnapshot(editor)
+  const codeBlock = after.children[0] as Descendant & {
+    type: string
+    children: Array<Descendant & { type: string; children: Descendant[] }>
+  }
+
+  assert.equal(after.children.length, 1)
+  assert.equal(codeBlock.type, 'code-block')
+  assert.equal(codeBlock.children.length, 1)
+  assert.equal(codeBlock.children[0].type, 'code-line')
+  assert.deepEqual(codeBlock.children[0].children, [{ text: 'alphabeta' }])
+  assert.equal(after.index.pathToId['0'], codeBlockId)
+  assert.equal(after.index.pathToId['0.0'], firstLineId)
+  assert.deepEqual(after.selection, {
+    anchor: { path: [0, 0, 0], offset: 5 },
+    focus: { path: [0, 0, 0], offset: 5 },
   })
 })
 
@@ -4839,10 +5020,10 @@ it('supports delete helper calls with an exact point inside an outer transaction
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertText(editor, '!', {
+    editor.insertText('!', {
       at: { path: [1, 0], offset: 4 },
     })
-    Transforms.delete(editor, {
+    editor.delete({
       at: { path: [1, 0], offset: 4 },
     })
   })
@@ -4871,7 +5052,7 @@ it('supports delete helper calls with the current same-text selection and collap
   const before = Editor.getSnapshot(editor)
   const textId = before.index.pathToId['0.0']
 
-  Transforms.delete(editor)
+  editor.delete()
 
   const after = Editor.getSnapshot(editor)
 
@@ -4900,7 +5081,7 @@ it('mirrors the legacy delete/selection/character-middle.tsx oracle row', () => 
     marks: null,
   })
 
-  Transforms.delete(editor)
+  editor.delete()
 
   const after = Editor.getSnapshot(editor)
 
@@ -4923,7 +5104,7 @@ it('mirrors the legacy delete/point/basic.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.delete(editor)
+  editor.delete()
 
   const after = Editor.getSnapshot(editor)
 
@@ -4946,7 +5127,7 @@ it('mirrors the legacy delete/point/basic-reverse.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.delete(editor, { reverse: true })
+  editor.delete({ reverse: true })
 
   const after = Editor.getSnapshot(editor)
 
@@ -4969,7 +5150,7 @@ it('mirrors the legacy delete/point/inline.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.delete(editor)
+  editor.delete()
 
   const after = Editor.getSnapshot(editor)
 
@@ -5006,7 +5187,7 @@ it('mirrors the legacy delete/selection/character-start.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.delete(editor)
+  editor.delete()
 
   const after = Editor.getSnapshot(editor)
 
@@ -5034,7 +5215,7 @@ it('mirrors the legacy delete/selection/character-end.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.delete(editor)
+  editor.delete()
 
   const after = Editor.getSnapshot(editor)
 
@@ -5070,7 +5251,7 @@ it('mirrors the legacy delete/selection/block-middle.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.delete(editor)
+  editor.delete()
 
   const after = Editor.getSnapshot(editor)
 
@@ -5093,7 +5274,7 @@ it('mirrors the legacy delete/selection/block-across.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.delete(editor)
+  editor.delete()
 
   const after = Editor.getSnapshot(editor)
 
@@ -5116,7 +5297,7 @@ it('mirrors the legacy delete/selection/inline-inside.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.delete(editor)
+  editor.delete()
 
   const after = Editor.getSnapshot(editor)
   const link = after.children[0].children[1] as Descendant & {
@@ -5142,7 +5323,7 @@ it('mirrors the legacy delete/selection/inline-over.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.delete(editor)
+  editor.delete()
 
   const after = Editor.getSnapshot(editor)
   const remainingTexts = after.children[0].children
@@ -5168,7 +5349,7 @@ it('mirrors the legacy delete/selection/inline-whole.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.delete(editor)
+  editor.delete()
 
   const after = Editor.getSnapshot(editor)
   const link = after.children[0].children[1] as Descendant & {
@@ -5194,7 +5375,7 @@ it('mirrors the legacy delete/selection/inline-after.tsx oracle row', () => {
     marks: null,
   })
 
-  Transforms.delete(editor)
+  editor.delete()
 
   const after = Editor.getSnapshot(editor)
 
@@ -5222,7 +5403,7 @@ it('supports delete helper calls with an explicit non-empty range across adjacen
     marks: null,
   })
 
-  Transforms.delete(editor, {
+  editor.delete({
     at: {
       anchor: { path: [0, 0], offset: 4 },
       focus: { path: [0, 1, 0], offset: 2 },
@@ -5251,7 +5432,7 @@ it('supports delete helper calls with an explicit non-empty range across a fully
     marks: null,
   })
 
-  Transforms.delete(editor, {
+  editor.delete({
     at: {
       anchor: { path: [0, 0], offset: 4 },
       focus: { path: [0, 2], offset: 2 },
@@ -5280,7 +5461,7 @@ it('supports delete helper calls with an explicit non-empty range across an adja
   const before = Editor.getSnapshot(editor)
   const firstBlockId = before.index.pathToId['0']
 
-  Transforms.delete(editor, {
+  editor.delete({
     at: {
       anchor: { path: [0, 0], offset: 4 },
       focus: { path: [1, 0], offset: 2 },
@@ -5308,14 +5489,14 @@ it('supports delete helper calls with the current same-text selection inside an 
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertText(editor, '!', {
+    editor.insertText('!', {
       at: { path: [0, 0], offset: 5 },
     })
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [0, 0], offset: 1 },
       focus: { path: [0, 0], offset: 4 },
     })
-    Transforms.delete(editor)
+    editor.delete()
   })
 
   const after = Editor.getSnapshot(editor)
@@ -5337,14 +5518,14 @@ it('supports delete helper calls with the current non-empty selection across adj
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertText(editor, '!', {
+    editor.insertText('!', {
       at: { path: [0, 0], offset: 6 },
     })
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [0, 0], offset: 6 },
       focus: { path: [0, 1, 0], offset: 1 },
     })
-    Transforms.delete(editor)
+    editor.delete()
   })
 
   const after = Editor.getSnapshot(editor)
@@ -5370,14 +5551,14 @@ it('supports delete helper calls with the current non-empty selection across a f
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertText(editor, '!', {
+    editor.insertText('!', {
       at: { path: [0, 0], offset: 6 },
     })
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [0, 0], offset: 7 },
       focus: { path: [0, 2], offset: 1 },
     })
-    Transforms.delete(editor)
+    editor.delete()
   })
 
   const after = Editor.getSnapshot(editor)
@@ -5400,14 +5581,14 @@ it('supports delete helper calls with the current non-empty selection across an 
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertText(editor, '!', {
+    editor.insertText('!', {
       at: { path: [1, 0], offset: 4 },
     })
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [0, 0], offset: 5 },
       focus: { path: [1, 0], offset: 2 },
     })
-    Transforms.delete(editor)
+    editor.delete()
   })
 
   const after = Editor.getSnapshot(editor)
@@ -5430,14 +5611,14 @@ it('supports delete helper calls with the current collapsed selection, reverse, 
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertText(editor, '!', {
+    editor.insertText('!', {
       at: { path: [0, 0], offset: 5 },
     })
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [0, 0], offset: 5 },
       focus: { path: [0, 0], offset: 5 },
     })
-    Transforms.delete(editor, { reverse: true, distance: 2 })
+    editor.delete({ reverse: true, distance: 2 })
   })
 
   const after = Editor.getSnapshot(editor)
@@ -5459,11 +5640,11 @@ it('supports delete helper calls with the current collapsed selection across mix
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [0, 2], offset: 0 },
       focus: { path: [0, 2], offset: 0 },
     })
-    Transforms.delete(editor, { reverse: true, distance: 1 })
+    editor.delete({ reverse: true, distance: 1 })
   })
 
   const after = Editor.getSnapshot(editor)
@@ -5488,14 +5669,14 @@ it('supports delete helper calls with the current collapsed selection across an 
   })
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertText(editor, '!', {
+    editor.insertText('!', {
       at: { path: [1, 0], offset: 4 },
     })
-    Transforms.select(editor, {
+    editor.select({
       anchor: { path: [1, 0], offset: 0 },
       focus: { path: [1, 0], offset: 0 },
     })
-    Transforms.delete(editor, { reverse: true, distance: 1 })
+    editor.delete({ reverse: true, distance: 1 })
   })
 
   const after = Editor.getSnapshot(editor)
@@ -5508,14 +5689,14 @@ it('supports delete helper calls with the current collapsed selection across an 
   })
 })
 
-it('supports editor.apply through implicit transactions', () => {
+it('supports operation replay through implicit transactions', () => {
   const editor = createEditor()
 
   Editor.replace(editor, {
     children: createChildren(),
   })
 
-  editor.apply({
+  applyOperation(editor, {
     type: 'insert_text',
     path: [1, 0],
     offset: 4,
@@ -5526,7 +5707,7 @@ it('supports editor.apply through implicit transactions', () => {
 
   assert.equal(snapshot.children[1].children[0].text, 'beta!')
   assert.equal(snapshot.version, 2)
-  assert.equal(editor.operations.length, 1)
+  assert.equal(editor.getOperations().length, 1)
 })
 
 it('stages replacement inside the active transaction', () => {
@@ -5547,7 +5728,7 @@ it('stages replacement inside the active transaction', () => {
       selection: null,
     })
 
-    Transforms.insertText(editor, '!', {
+    editor.insertText('!', {
       at: { path: [0, 0], offset: 5 },
     })
   })
@@ -5578,12 +5759,16 @@ it('publishes immutable snapshots detached from public editor fields', () => {
   assert.throws(() => {
     ;(snapshot.index.pathToId as Record<string, string>)['0'] = 'broken'
   })
-  ;(editor as { children: Descendant[] }).children = [
-    {
-      type: 'paragraph',
-      children: [{ text: 'mutated' }],
-    },
-  ]
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'mutated' }],
+      },
+    ],
+    selection: null,
+    marks: null,
+  })
 
   const reread = Editor.getSnapshot(editor)
 
@@ -5643,7 +5828,47 @@ it('deep-freezes nested marks instead of sharing nested payloads', () => {
   })
 })
 
-it('reads selection from the committed snapshot instead of the mutable public copy', () => {
+it('uses addMark as the active mark write path', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'plain' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 5 },
+      focus: { path: [0, 0], offset: 5 },
+    },
+    marks: null,
+  })
+
+  editor.addMark('bold', true)
+
+  assert.deepEqual(Editor.getSnapshot(editor).marks, { bold: true })
+  assert.deepEqual(Editor.marks(editor), { bold: true })
+
+  Editor.insertText(editor, '!')
+
+  const snapshot = Editor.getSnapshot(editor)
+  const firstBlock = snapshot.children[0] as Descendant & {
+    children: Array<Descendant & { bold?: boolean }>
+  }
+
+  assert.deepEqual(snapshot.marks, null)
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [0, 1], offset: 1 },
+    focus: { path: [0, 1], offset: 1 },
+  })
+  assert.deepEqual(firstBlock.children, [
+    { text: 'plain' },
+    { text: '!', bold: true },
+  ])
+})
+
+it('uses select as the selection write path', () => {
   const editor = createEditor()
 
   Editor.replace(editor, {
@@ -5653,19 +5878,19 @@ it('reads selection from the committed snapshot instead of the mutable public co
       focus: { path: [1, 0], offset: 4 },
     },
   })
-  ;(editor as { selection: typeof editor.selection }).selection = {
-    anchor: { path: [99, 99], offset: 0 },
-    focus: { path: [99, 99], offset: 0 },
-  }
+  editor.select({
+    anchor: { path: [0, 0], offset: 0 },
+    focus: { path: [0, 0], offset: 0 },
+  })
 
-  Transforms.insertText(editor, '!')
+  editor.insertText('!')
 
   const snapshot = Editor.getSnapshot(editor)
 
-  assert.equal(snapshot.children[1].children[0].text, 'beta!')
+  assert.equal(snapshot.children[0].children[0].text, '!alpha')
   assert.deepEqual(snapshot.selection, {
-    anchor: { path: [1, 0], offset: 5 },
-    focus: { path: [1, 0], offset: 5 },
+    anchor: { path: [0, 0], offset: 1 },
+    focus: { path: [0, 0], offset: 1 },
   })
 })
 

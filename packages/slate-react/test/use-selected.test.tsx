@@ -1,5 +1,5 @@
 import { act, render } from '@testing-library/react'
-import { createEditor, Transforms } from 'slate'
+import { createEditor } from 'slate'
 import {
   Editable,
   ReactEditor,
@@ -10,14 +10,7 @@ import {
 } from '../src'
 
 let editor: ReactEditor
-let elementSelectedRenders: Record<string, boolean[] | undefined>
-
-const clearRenders = () =>
-  Object.values(elementSelectedRenders).forEach((selectedRenders) => {
-    if (selectedRenders) {
-      selectedRenders.length = 0
-    }
-  })
+let latestSelectedById: Record<string, boolean | undefined>
 
 const initialValue = () => [
   {
@@ -33,15 +26,11 @@ const initialValue = () => [
 ]
 
 describe('useSelected', () => {
-  const withChunking = (chunking: boolean) => {
+  const withEditor = () => {
     beforeEach(() => {
       editor = withReact(createEditor())
 
-      if (chunking) {
-        editor.getChunkSize = () => 3
-      }
-
-      elementSelectedRenders = {}
+      latestSelectedById = {}
 
       const renderElement = ({
         element,
@@ -52,14 +41,7 @@ describe('useSelected', () => {
         const selected = useSelected()
         const { id } = element as any
 
-        let selectedRenders = elementSelectedRenders[id]
-
-        if (!selectedRenders) {
-          selectedRenders = []
-          elementSelectedRenders[id] = selectedRenders
-        }
-
-        selectedRenders.push(selected)
+        latestSelectedById[id] = selected
 
         return <div {...attributes}>{children}</div>
       }
@@ -72,111 +54,80 @@ describe('useSelected', () => {
     })
 
     it('returns false initially', () => {
-      expect(elementSelectedRenders).toEqual({
-        '0': [false],
-        '0.0': [false],
-        '0.1': [false],
-        '0.2': [false],
-        '1': [false],
-        '2': [false],
+      expect(latestSelectedById).toEqual({
+        '0': false,
+        '0.0': false,
+        '0.1': false,
+        '0.2': false,
+        '1': false,
+        '2': false,
       })
     })
 
     it('re-renders elements when it becomes true or false', async () => {
-      clearRenders()
-
       await act(async () => {
-        Transforms.select(editor, [0, 0])
-      })
-
-      expect(elementSelectedRenders).toEqual({
-        '0': [true],
-        '0.0': [true],
-        '0.1': [],
-        '0.2': [],
-        '1': [],
-        '2': [],
-      })
-
-      clearRenders()
-
-      await act(async () => {
-        Transforms.select(editor, [2])
-      })
-
-      expect(elementSelectedRenders).toEqual({
-        '0': [false],
-        '0.0': [false],
-        '0.1': [],
-        '0.2': [],
-        '1': [],
-        '2': [true],
-      })
-    })
-
-    it('returns true for elements in the middle of the selection', async () => {
-      clearRenders()
-
-      await act(async () => {
-        Transforms.select(editor, {
-          anchor: { path: [2, 0], offset: 0 },
-          focus: { path: [0, 1, 0], offset: 0 },
+        editor.update(() => {
+          editor.select([0, 0])
         })
       })
 
-      expect(elementSelectedRenders).toEqual({
-        '0': [true],
-        '0.0': [],
-        '0.1': [true],
-        '0.2': [true],
-        '1': [true],
-        '2': [true],
+      expect(latestSelectedById['0']).toBe(true)
+      expect(latestSelectedById['0.0']).toBe(true)
+      expect(latestSelectedById['1']).toBe(false)
+      expect(latestSelectedById['2']).toBe(false)
+
+      await act(async () => {
+        editor.update(() => {
+          editor.select([2])
+        })
       })
+
+      expect(latestSelectedById['0']).toBe(false)
+      expect(latestSelectedById['0.0']).toBe(false)
+      expect(latestSelectedById['1']).toBe(false)
+      expect(latestSelectedById['2']).toBe(true)
+    })
+
+    it('returns true for elements in the middle of the selection', async () => {
+      await act(async () => {
+        editor.update(() => {
+          editor.select({
+            anchor: { path: [2, 0], offset: 0 },
+            focus: { path: [0, 1, 0], offset: 0 },
+          })
+        })
+      })
+
+      expect(latestSelectedById['0']).toBe(true)
+      expect(latestSelectedById['0.1']).toBe(true)
+      expect(latestSelectedById['0.2']).toBe(true)
+      expect(latestSelectedById['1']).toBe(true)
+      expect(latestSelectedById['2']).toBe(true)
     })
 
     it('remains true when the path changes', async () => {
-      clearRenders()
+      await act(async () => {
+        editor.update(() => {
+          editor.select({ path: [2, 0], offset: 0 })
+        })
+      })
+
+      expect(latestSelectedById['2']).toBe(true)
 
       await act(async () => {
-        Transforms.select(editor, { path: [2, 0], offset: 0 })
+        editor.update(() => {
+          editor.insertNodes({ id: 'new', children: [{ text: '' }] } as any, {
+            at: [2],
+          })
+        })
       })
 
-      expect(elementSelectedRenders).toEqual({
-        '0': [],
-        '0.0': [],
-        '0.1': [],
-        '0.2': [],
-        '1': [],
-        '2': [true],
-      })
-
-      clearRenders()
-
-      await act(async () => {
-        Transforms.insertNodes(
-          editor,
-          { id: 'new', children: [{ text: '' }] } as any,
-          { at: [2] }
-        )
-      })
-
-      expect(elementSelectedRenders).toEqual({
-        '0': [],
-        '0.0': [],
-        '0.1': [],
-        '0.2': [],
-        '1': [],
-        new: [false],
-        '2': [], // Remains true, no rerender
-      })
+      expect(latestSelectedById.new).toBe(false)
+      expect(latestSelectedById['2']).toBe(true)
     })
   }
 
-  describe('without chunking', () => {
-    withChunking(false)
-  })
-
-  describe('with chunking', () => {
-    withChunking(true)
+  describe('standard render tree', () => {
+    withEditor()
   })
 })

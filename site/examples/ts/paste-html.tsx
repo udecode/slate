@@ -1,7 +1,7 @@
 import { css } from '@emotion/css'
 import type React from 'react'
 import { useCallback, useMemo } from 'react'
-import { createEditor, type Descendant, Transforms } from 'slate'
+import { createEditor, type Descendant, defineEditorExtension } from 'slate'
 import { withHistory } from 'slate-history'
 import { jsx } from 'slate-hyperscript'
 import {
@@ -9,8 +9,6 @@ import {
   type RenderElementProps,
   type RenderLeafProps,
   Slate,
-  useFocused,
-  useSelected,
   withReact,
 } from 'slate-react'
 
@@ -18,8 +16,9 @@ import type {
   CustomEditor,
   CustomElement,
   CustomElementType,
+  CustomValue,
   ImageElement as ImageElementType,
-  RenderElementPropsFor,
+  RenderVoidPropsFor,
 } from './custom-types.d'
 
 interface ElementAttributes {
@@ -63,6 +62,46 @@ const TEXT_TAGS: Record<string, () => TextAttributes> = {
   U: () => ({ underline: true }),
 }
 
+const INLINE_ELEMENT_TYPES = new Set<CustomElementType>(['link'])
+
+const isTopLevelBlock = (node: unknown): node is CustomElement =>
+  typeof node === 'object' &&
+  node != null &&
+  'children' in node &&
+  'type' in node &&
+  !INLINE_ELEMENT_TYPES.has((node as CustomElement).type)
+
+const normalizeBodyFragment = (children: any[]): Descendant[] => {
+  const fragment: Descendant[] = []
+  let inlineChildren: any[] = []
+
+  const flushInlineChildren = () => {
+    if (inlineChildren.length === 0) {
+      return
+    }
+
+    fragment.push({
+      type: 'paragraph',
+      children: inlineChildren,
+    })
+    inlineChildren = []
+  }
+
+  for (const child of children) {
+    if (isTopLevelBlock(child)) {
+      flushInlineChildren()
+      fragment.push(child)
+      continue
+    }
+
+    inlineChildren.push(child)
+  }
+
+  flushInlineChildren()
+
+  return fragment
+}
+
 export const deserialize = (el: HTMLElement | ChildNode): any => {
   if (el.nodeType === 3) {
     return el.textContent
@@ -91,7 +130,7 @@ export const deserialize = (el: HTMLElement | ChildNode): any => {
   }
 
   if (el.nodeName === 'BODY') {
-    return jsx('fragment', {}, children)
+    return jsx('fragment', {}, normalizeBodyFragment(children))
   }
 
   if (ELEMENT_TAGS[nodeName]) {
@@ -117,7 +156,10 @@ const PasteHtmlExample = () => {
     []
   )
   const editor = useMemo(
-    () => withHtml(withReact(withHistory(createEditor()))) as CustomEditor,
+    () =>
+      withHtml(
+        withReact(withHistory(createEditor<CustomValue>()))
+      ) as CustomEditor,
     []
   )
   return (
@@ -126,35 +168,46 @@ const PasteHtmlExample = () => {
         placeholder="Paste in some HTML..."
         renderElement={renderElement}
         renderLeaf={renderLeaf}
+        renderVoid={(props) => (
+          <ImageElement {...(props as RenderVoidPropsFor<ImageElementType>)} />
+        )}
       />
     </Slate>
   )
 }
 
-const withHtml = (editor: CustomEditor) => {
-  const { insertData, isInline, isVoid } = editor
+const htmlPasteExtension = defineEditorExtension<CustomEditor>({
+  name: 'html-paste',
+  methods(editor) {
+    const nextInsertData = editor.insertData
+    const nextIsInline = editor.isInline
+    const nextIsVoid = editor.isVoid
 
-  editor.isInline = (element: CustomElement) => {
-    return element.type === 'link' ? true : isInline(element)
-  }
+    return {
+      insertData(data) {
+        const html = data.getData('text/html')
 
-  editor.isVoid = (element: CustomElement) => {
-    return element.type === 'image' ? true : isVoid(element)
-  }
+        if (html) {
+          const parsed = new DOMParser().parseFromString(html, 'text/html')
+          const fragment = deserialize(parsed.body)
+          this.insertFragment(fragment)
+          return
+        }
 
-  editor.insertData = (data) => {
-    const html = data.getData('text/html')
-
-    if (html) {
-      const parsed = new DOMParser().parseFromString(html, 'text/html')
-      const fragment = deserialize(parsed.body)
-      Transforms.insertFragment(editor, fragment)
-      return
+        nextInsertData(data)
+      },
+      isInline(element: CustomElement) {
+        return element.type === 'link' ? true : nextIsInline(element)
+      },
+      isVoid(element: CustomElement) {
+        return element.type === 'image' ? true : nextIsVoid(element)
+      },
     }
+  },
+})
 
-    insertData(data)
-  }
-
+const withHtml = (editor: CustomEditor) => {
+  editor.extend(htmlPasteExtension)
   return editor
 }
 
@@ -194,8 +247,6 @@ const Element = (props: RenderElementProps) => {
           {children}
         </SafeLink>
       )
-    case 'image':
-      return <ImageElement {...props} />
     default:
       return <p {...attributes}>{children}</p>
   }
@@ -230,25 +281,20 @@ const SafeLink = ({ children, href, attributes }: SafeLinkProps) => {
 }
 
 const ImageElement = ({
-  attributes,
-  children,
   element,
-}: RenderElementPropsFor<ImageElementType>) => {
-  const selected = useSelected()
-  const focused = useFocused()
+  focused,
+  selected,
+}: RenderVoidPropsFor<ImageElementType>) => {
   return (
-    <div {...attributes}>
-      {children}
-      <img
-        className={css`
-          display: block;
-          max-width: 100%;
-          max-height: 20em;
-          box-shadow: ${selected && focused ? '0 0 0 2px blue;' : 'none'};
-        `}
-        src={element.url}
-      />
-    </div>
+    <img
+      className={css`
+        display: block;
+        max-width: 100%;
+        max-height: 20em;
+        box-shadow: ${selected && focused ? '0 0 0 2px blue;' : 'none'};
+      `}
+      src={element.url}
+    />
   )
 }
 
@@ -276,7 +322,7 @@ const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
   return <span {...attributes}>{children}</span>
 }
 
-const initialValue: Descendant[] = [
+const initialValue: CustomValue = [
   {
     type: 'paragraph',
     children: [

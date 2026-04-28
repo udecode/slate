@@ -9,7 +9,6 @@ export {
   type SlateAnnotationSnapshot,
   type SlateAnnotationStore,
 } from './annotation-store'
-export * as SlateReactCompat from './compat'
 export type {
   EditableInputRule,
   EditableKeyCommandHandler,
@@ -27,6 +26,7 @@ export type {
 export { EditableText } from './components/editable-text'
 export type {
   EditableRenderElementProps as RenderElementProps,
+  EditableRenderVoidProps as RenderVoidProps,
   EditableTextBlocksProps as EditableProps,
   EditableTextBlocksProps,
 } from './components/editable-text-blocks'
@@ -41,13 +41,23 @@ export { SlatePlaceholder } from './components/slate-placeholder'
 export { SlateSpacer } from './components/slate-spacer'
 export { SlateText } from './components/slate-text'
 export { TextString } from './components/text-string'
-export { VoidElement } from './components/void-element'
 export { ZeroWidthString } from './components/zero-width-string'
 export { useComposing } from './hooks/use-composing'
+export {
+  type SlateDecorationSelectorContext,
+  type SlateDecorationSelectorOptions,
+  useDecorationSelector,
+} from './hooks/use-decoration-selector'
 // Hooks
-export { useEditor } from './hooks/use-editor'
 export { useElement, useElementIf } from './hooks/use-element'
 export { useFocused } from './hooks/use-focused'
+export {
+  type SlateNodeSelectorContext,
+  type SlateRuntimeSelectorOptions,
+  type SlateTextSelectorContext,
+  useNodeSelector,
+  useTextSelector,
+} from './hooks/use-node-selector'
 export { useReadOnly } from './hooks/use-read-only'
 export { useSelected } from './hooks/use-selected'
 export { useSlate, useSlateWithV } from './hooks/use-slate'
@@ -72,6 +82,7 @@ export {
   isSlateSourceDirty,
   type SlateCustomSourceDirtiness,
   type SlateProjection,
+  type SlateProjectionRuntimeScope,
   type SlateProjectionSlice,
   type SlateProjectionSource,
   type SlateProjectionStoreMetrics,

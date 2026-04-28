@@ -42,7 +42,7 @@ Commands are triggered by calling the `editor.*` core functions. And they travel
 
 ### Plugins
 
-Plugins are now plain functions that augment the `Editor` object they receive and return it again. For example, they can augment the command execution by composing the `editor.exec` function or listen to operations by composing `editor.apply`. Previously they relied on a custom middleware stack, and they were just bags of handlers that got merged onto an editor. Now we're using plain old function composition \(aka wrapping\) instead.
+Plugins are plain functions that augment the `Editor` object they receive and return it again. For example, they can augment command execution through editor extension methods, operation middleware, and commit listeners.
 
 ### Elements
 

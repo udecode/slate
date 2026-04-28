@@ -17,10 +17,12 @@ import {
   applyModelOwnedNativeHistoryEvent,
   applyModelOwnedTextInput,
 } from './mutation-controller'
+import { readRuntimeText } from './runtime-live-state'
 
 export {
   applyModelOwnedHistoryIntent,
   applyModelOwnedNativeHistoryEvent,
+  shouldForceRenderAfterModelOwnedHistory,
 } from './mutation-controller'
 
 type RefBox<T> = {
@@ -131,7 +133,7 @@ export const applyEditableInput = ({
         ? anchorNode.closest('[data-slate-node="text"]')
         : null
     const path = textHost ? getSlateNodePathFromDOMElement(textHost) : null
-    const slateNode = path ? Editor.getLiveText(editor, path) : null
+    const slateNode = path ? readRuntimeText(editor, path) : null
 
     if (slateNode && anchorOffset != null && path) {
       const offset = Math.max(

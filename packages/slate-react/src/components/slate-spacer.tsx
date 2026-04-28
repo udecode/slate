@@ -1,11 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react'
 
-const defaultSpacerStyle: CSSProperties = {
-  height: '0',
-  color: 'transparent',
-  outline: 'none',
-  position: 'absolute',
-}
+import { recordSlateReactRender } from '../render-profiler'
+import { getSlateSpacerShellAttributes } from '../shell-runtime'
 
 export const SlateSpacer = ({
   children,
@@ -13,8 +9,8 @@ export const SlateSpacer = ({
 }: {
   children: ReactNode
   style?: CSSProperties
-}) => (
-  <span data-slate-spacer style={{ ...defaultSpacerStyle, ...style }}>
-    {children}
-  </span>
-)
+}) => {
+  recordSlateReactRender({ kind: 'spacer' })
+
+  return <span {...getSlateSpacerShellAttributes({ style })}>{children}</span>
+}

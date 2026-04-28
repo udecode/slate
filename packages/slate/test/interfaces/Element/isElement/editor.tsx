@@ -6,7 +6,7 @@ export const input = {
   selection: null,
   marks: null,
   addMark() {},
-  apply() {},
+  applyOperations() {},
   deleteBackward() {},
   deleteForward() {},
   deleteFragment() {},
@@ -20,7 +20,6 @@ export const input = {
   isSelectable() {},
   isVoid() {},
   normalizeNode() {},
-  onChange() {},
   removeMark() {},
   getDirtyPaths() {},
 }

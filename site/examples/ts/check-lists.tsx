@@ -2,18 +2,16 @@ import { css } from '@emotion/css'
 import { type ChangeEvent, useCallback, useMemo } from 'react'
 import {
   createEditor,
-  type Descendant,
   Editor,
   Node,
   Point,
   Range,
   type Element as SlateElement,
-  Transforms,
 } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  ReactEditor,
+  type EditableKeyCommandHandler,
   type RenderElementProps,
   Slate,
   useReadOnly,
@@ -23,10 +21,11 @@ import {
 import type {
   CheckListItemElement as CheckListItemType,
   CustomEditor,
+  CustomValue,
   RenderElementPropsFor,
 } from './custom-types.d'
 
-const initialValue: Descendant[] = [
+const initialValue: CustomValue = [
   {
     type: 'paragraph',
     children: [
@@ -77,14 +76,23 @@ const CheckListsExample = () => {
     []
   )
   const editor = useMemo(
-    () => withChecklists(withHistory(withReact(createEditor()))),
+    () => withHistory(withReact(createEditor<CustomValue>())),
     []
+  )
+  const handleKeyCommand = useCallback<EditableKeyCommandHandler>(
+    (event) => {
+      if (event.key === 'Backspace') {
+        return applyChecklistBackspaceStart(editor)
+      }
+    },
+    [editor]
   )
 
   return (
     <Slate editor={editor} initialValue={initialValue}>
       <Editable
         autoFocus
+        onKeyCommand={handleKeyCommand}
         placeholder="Get to work…"
         renderElement={renderElement}
         spellCheck
@@ -93,37 +101,38 @@ const CheckListsExample = () => {
   )
 }
 
-const withChecklists = (editor: CustomEditor) => {
-  const { deleteBackward } = editor
+const applyChecklistBackspaceStart = (editor: CustomEditor) => {
+  const selection = editor.getSelection()
 
-  editor.deleteBackward = (...args) => {
-    const { selection } = editor
-
-    if (selection && Range.isCollapsed(selection)) {
-      const [match] = Editor.nodes(editor, {
-        match: (n) => Node.isElement(n) && n.type === 'check-list-item',
-      })
-
-      if (match) {
-        const [, path] = match
-        const start = Editor.start(editor, path)
-
-        if (Point.equals(selection.anchor, start)) {
-          const newProperties: Partial<SlateElement> = {
-            type: 'paragraph',
-          }
-          Transforms.setNodes(editor, newProperties, {
-            match: (n) => Node.isElement(n) && n.type === 'check-list-item',
-          })
-          return
-        }
-      }
-    }
-
-    deleteBackward(...args)
+  if (!selection || !Range.isCollapsed(selection)) {
+    return false
   }
 
-  return editor
+  const [match] = Editor.nodes(editor, {
+    match: (n) => Node.isElement(n) && n.type === 'check-list-item',
+  })
+
+  if (!match) {
+    return false
+  }
+
+  const [, path] = match
+  const start = Editor.start(editor, path)
+
+  if (!Point.equals(selection.anchor, start)) {
+    return false
+  }
+
+  const newProperties: Partial<SlateElement> = {
+    type: 'paragraph',
+  }
+  editor.update(() => {
+    editor.setNodes(newProperties, {
+      match: (n) => Node.isElement(n) && n.type === 'check-list-item',
+    })
+    editor.select(start)
+  })
+  return true
 }
 
 const Element = (props: RenderElementProps) => {
@@ -141,9 +150,10 @@ const CheckListItemElement = ({
   attributes,
   children,
   element,
+  path,
 }: RenderElementPropsFor<CheckListItemType>) => {
   const { checked } = element
-  const editor = useSlateStatic()
+  const editor = useSlateStatic<CustomEditor>()
   const readOnly = useReadOnly()
   return (
     <div
@@ -167,11 +177,12 @@ const CheckListItemElement = ({
         <input
           checked={checked}
           onChange={(event: ChangeEvent<HTMLInputElement>) => {
-            const path = ReactEditor.findPath(editor, element)
             const newProperties: Partial<SlateElement> = {
               checked: event.target.checked,
             }
-            Transforms.setNodes(editor, newProperties, { at: path })
+            editor.update(() => {
+              editor.setNodes(newProperties, { at: path })
+            })
           }}
           type="checkbox"
         />

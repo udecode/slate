@@ -2,6 +2,8 @@ import {
   Component,
   type ComponentType,
   type ContextType,
+  createElement,
+  Fragment,
   type ReactNode,
   type RefObject,
 } from 'react'
@@ -81,4 +83,4 @@ class RestoreDOMComponent extends Component<RestoreDOMProps> {
 
 export const RestoreDOM: ComponentType<RestoreDOMProps> = IS_ANDROID
   ? RestoreDOMComponent
-  : ({ children }) => <>{children}</>
+  : ({ children }) => createElement(Fragment, null, children)

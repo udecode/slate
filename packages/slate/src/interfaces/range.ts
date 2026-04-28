@@ -1,5 +1,4 @@
 import {
-  type ExtendedType,
   isObject,
   Location,
   type Operation,
@@ -20,7 +19,7 @@ export interface BaseRange {
   focus: Point
 }
 
-export type Range = ExtendedType<'Range', BaseRange>
+export type Range = BaseRange
 
 export interface RangeEdgesOptions {
   reverse?: boolean

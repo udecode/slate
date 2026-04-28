@@ -39,7 +39,7 @@ test.describe('external decoration sources', () => {
       'tone:cool'
     )
     await expect(page.locator('#external-decoration-update')).toHaveText(
-      "last-update:refresh({ reason: 'external' })"
+      'last-update:refresh({ reason: "external", sourceId: "external-diagnostics" })'
     )
     await expect(page.locator('[data-external-tone="cool"]')).toHaveCount(2)
 

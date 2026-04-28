@@ -26,12 +26,15 @@ type NormalizeNodeOptions = {
   force?: boolean
 }
 
+const getNodeChildren = (editor: Editor, node: Editor | Element) =>
+  Node.isEditor(node) ? Editor.getChildren(editor) : node.children
+
 const shouldHaveInlineChildren = (editor: Editor, node: Editor | Element) => {
   if (Node.isEditor(node)) {
     return false
   }
 
-  const firstChild = node.children[0]
+  const firstChild = getNodeChildren(editor, node)[0]
 
   return (
     editor.isInline(node) ||
@@ -75,8 +78,10 @@ const normalizeExplicitInlineChildren = (
   while (true) {
     let mutatedThisRound = false
 
-    for (let index = currentNode.children.length - 1; index >= 0; index -= 1) {
-      const child = currentNode.children[index]!
+    const currentChildren = getNodeChildren(editor, currentNode)
+
+    for (let index = currentChildren.length - 1; index >= 0; index -= 1) {
+      const child = currentChildren[index]!
 
       if (isTextChild(child) || isInlineChild(editor, child)) {
         continue
@@ -101,12 +106,12 @@ const normalizeExplicitInlineChildren = (
 
     const skippedIndexes = new Set<number>()
 
-    for (let index = currentNode.children.length - 1; index > 0; index -= 1) {
+    for (let index = currentChildren.length - 1; index > 0; index -= 1) {
       if (skippedIndexes.has(index)) {
         continue
       }
 
-      const child = currentNode.children[index]!
+      const child = currentChildren[index]!
 
       if (!isTextChild(child)) {
         continue
@@ -118,7 +123,7 @@ const normalizeExplicitInlineChildren = (
         continue
       }
 
-      const prev = currentNode.children[prevIndex]!
+      const prev = currentChildren[prevIndex]!
 
       if (!isTextChild(prev)) {
         continue
@@ -155,13 +160,13 @@ const normalizeExplicitInlineChildren = (
 
     const spacerInsertions = new Set<number>()
 
-    for (const [index, child] of currentNode.children.entries()) {
+    for (const [index, child] of currentChildren.entries()) {
       if (!isInlineChild(editor, child)) {
         continue
       }
 
-      const prev = currentNode.children[index - 1]
-      const next = currentNode.children[index + 1]
+      const prev = currentChildren[index - 1]
+      const next = currentChildren[index + 1]
 
       if (!prev || !isTextChild(prev)) {
         spacerInsertions.add(index)
@@ -191,16 +196,6 @@ const isDirectChildPath = (
 ) =>
   childPath.length === parentPath.length + 1 &&
   parentPath.every((segment, index) => segment === childPath[index])
-
-const insertsDirectBlockOnlyChild = (
-  editor: Editor,
-  path: readonly number[],
-  operation?: Operation
-) =>
-  operation?.type === 'insert_node' &&
-  isDirectChildPath(path, operation.path) &&
-  !Text.isText(operation.node) &&
-  !isInlineChild(editor, operation.node)
 
 const getBlockOnlyChildIndexesToValidate = (
   path: readonly number[],
@@ -260,6 +255,7 @@ export const normalizeNode = (
   )
   const allowBroadBlockOnlyScan =
     Array.isArray(directChildIndexes) && directChildIndexes.length === 0
+  const nodeChildren = getNodeChildren(editor, node)
 
   if (shouldHaveInlineChildren(editor, node)) {
     if (
@@ -269,18 +265,16 @@ export const normalizeNode = (
       return
     }
 
-    for (const [index, child] of node.children.entries()) {
-      const prev = node.children[index - 1]
-      const next = node.children[index + 1]
+    for (const [index, child] of nodeChildren.entries()) {
+      const prev = nodeChildren[index - 1]
+      const next = nodeChildren[index + 1]
       const touchesDirectChildCleanup =
         !options.explicit &&
         Array.isArray(directChildIndexes) &&
-        insertsDirectBlockOnlyChild(editor, path, options.operation) &&
         (directChildIndexes.includes(index) ||
           directChildIndexes.includes(index - 1))
       const canCanonicalizeAdjacentText =
-        (options.explicit || options.operation != null) &&
-        !touchesDirectChildCleanup
+        options.explicit && !touchesDirectChildCleanup
 
       if (Text.isText(child) && Text.isText(prev)) {
         if (
@@ -295,7 +289,7 @@ export const normalizeNode = (
         if (
           canCanonicalizeAdjacentText &&
           prev.text === '' &&
-          (!node.children[index - 2] || Text.isText(node.children[index - 2]!))
+          (!nodeChildren[index - 2] || Text.isText(nodeChildren[index - 2]!))
         ) {
           removeNodes(editor, { at: [...path, index - 1], voids: true })
           return
@@ -379,7 +373,7 @@ export const normalizeNode = (
     }
 
     for (const index of directChildIndexes) {
-      const child = node.children[index]
+      const child = nodeChildren[index]
 
       if (!child || (!Text.isText(child) && !isInlineChild(editor, child))) {
         continue
@@ -411,7 +405,7 @@ export const normalizeNode = (
     return
   }
 
-  for (const [index, child] of node.children.entries()) {
+  for (const [index, child] of getNodeChildren(editor, node).entries()) {
     if (!Text.isText(child) && !isInlineChild(editor, child)) {
       continue
     }

@@ -3,15 +3,12 @@ import imageExtensions from 'image-extensions'
 import isHotkey from 'is-hotkey'
 import isUrl from 'is-url'
 import { type PointerEvent, useMemo } from 'react'
-import { createEditor, type Descendant, Transforms } from 'slate'
+import { createEditor, defineEditorExtension } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  ReactEditor,
   type RenderElementProps,
   Slate,
-  useFocused,
-  useSelected,
   useSlateStatic,
   withReact,
 } from 'slate-react'
@@ -19,14 +16,18 @@ import {
 import { Button, Icon, Toolbar } from './components'
 import type {
   CustomEditor,
+  CustomValue,
   ImageElement,
   ParagraphElement,
-  RenderElementPropsFor,
+  RenderVoidPropsFor,
 } from './custom-types.d'
 
 const ImagesExample = () => {
   const editor = useMemo(
-    () => withImages(withHistory(withReact(createEditor()))) as CustomEditor,
+    () =>
+      withImages(
+        withHistory(withReact(createEditor<CustomValue>()))
+      ) as CustomEditor,
     []
   )
 
@@ -36,126 +37,125 @@ const ImagesExample = () => {
         <InsertImageButton />
       </Toolbar>
       <Editable
-        onKeyDown={(event) => {
+        onKeyCommand={(event) => {
           if (isHotkey('mod+a', event)) {
-            event.preventDefault()
-            Transforms.select(editor, [])
+            editor.update(() => {
+              editor.select([])
+            })
+            return true
           }
         }}
         placeholder="Enter some text..."
         renderElement={(props: RenderElementProps) => <Element {...props} />}
+        renderVoid={(props) => (
+          <Image {...(props as RenderVoidPropsFor<ImageElement>)} />
+        )}
       />
     </Slate>
   )
 }
 
-const withImages = (editor: CustomEditor) => {
-  const { insertData, isVoid } = editor
+const imagesExtension = defineEditorExtension<CustomEditor>({
+  name: 'images',
+  methods(editor) {
+    const nextInsertData = editor.insertData
+    const nextIsVoid = editor.isVoid
 
-  editor.isVoid = (element) => {
-    return element.type === 'image' ? true : isVoid(element)
-  }
+    return {
+      insertData(data: DataTransfer) {
+        const text = data.getData('text/plain')
+        const { files } = data
 
-  editor.insertData = (data) => {
-    const text = data.getData('text/plain')
-    const { files } = data
+        if (files && files.length > 0) {
+          Array.from(files).forEach((file) => {
+            const reader = new FileReader()
+            const [mime] = file.type.split('/')
 
-    if (files && files.length > 0) {
-      Array.from(files).forEach((file) => {
-        const reader = new FileReader()
-        const [mime] = file.type.split('/')
+            if (mime === 'image') {
+              reader.addEventListener('load', () => {
+                const url = reader.result
+                insertImage(this, url as string)
+              })
 
-        if (mime === 'image') {
-          reader.addEventListener('load', () => {
-            const url = reader.result
-            insertImage(editor, url as string)
+              reader.readAsDataURL(file)
+            }
           })
-
-          reader.readAsDataURL(file)
+        } else if (isImageUrl(text)) {
+          insertImage(this, text)
+        } else {
+          nextInsertData(data)
         }
-      })
-    } else if (isImageUrl(text)) {
-      insertImage(editor, text)
-    } else {
-      insertData(data)
+      },
+      isVoid(element) {
+        return element.type === 'image' ? true : nextIsVoid(element)
+      },
     }
-  }
+  },
+})
 
+const withImages = (editor: CustomEditor) => {
+  editor.extend(imagesExtension)
   return editor
 }
 
 const insertImage = (editor: CustomEditor, url: string) => {
   const text = { text: '' }
   const image: ImageElement = { type: 'image', url, children: [text] }
-  Transforms.insertNodes(editor, image)
   const paragraph: ParagraphElement = {
     type: 'paragraph',
     children: [{ text: '' }],
   }
-  Transforms.insertNodes(editor, paragraph)
+  editor.update(() => {
+    editor.insertNodes(image)
+    editor.insertNodes(paragraph)
+  })
 }
 
 const Element = (props: RenderElementProps) => {
-  const { attributes, children, element } = props
+  const { attributes, children } = props
 
-  switch (element.type) {
-    case 'image':
-      return <Image {...props} />
-    default:
-      return <p {...attributes}>{children}</p>
-  }
+  return <p {...attributes}>{children}</p>
 }
 
 const Image = ({
-  attributes,
-  children,
+  actions,
   element,
-}: RenderElementPropsFor<ImageElement>) => {
-  const editor = useSlateStatic()
-  const path = ReactEditor.findPath(editor, element)
-  const selected = useSelected()
-  const focused = useFocused()
+  focused,
+  selected,
+}: RenderVoidPropsFor<ImageElement>) => {
   return (
-    <div {...attributes}>
-      {children}
-      <div
+    <div style={{ position: 'relative' }}>
+      <img
         className={css`
-          position: relative;
+          display: block;
+          max-width: 100%;
+          max-height: 20em;
+          box-shadow: ${selected && focused ? '0 0 0 3px #B4D5FF' : 'none'};
         `}
-        contentEditable={false}
+        src={element.url}
+      />
+      <Button
+        active
+        className={css`
+          display: ${selected && focused ? 'inline' : 'none'};
+          position: absolute;
+          top: 0.5em;
+          left: 0.5em;
+          background-color: white;
+        `}
+        onClick={() => actions.remove()}
+        onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
+          event.preventDefault()
+        }}
       >
-        <img
-          className={css`
-            display: block;
-            max-width: 100%;
-            max-height: 20em;
-            box-shadow: ${selected && focused ? '0 0 0 3px #B4D5FF' : 'none'};
-          `}
-          src={element.url}
-        />
-        <Button
-          active
-          className={css`
-            display: ${selected && focused ? 'inline' : 'none'};
-            position: absolute;
-            top: 0.5em;
-            left: 0.5em;
-            background-color: white;
-          `}
-          onClick={() => Transforms.removeNodes(editor, { at: path })}
-          onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
-            event.preventDefault()
-          }}
-        >
-          <Icon>delete</Icon>
-        </Button>
-      </div>
+        <Icon>delete</Icon>
+      </Button>
     </div>
   )
 }
 
 const InsertImageButton = () => {
-  const editor = useSlateStatic()
+  const editor = useSlateStatic<CustomEditor>()
   return (
     <Button
       onClick={() => {
@@ -182,7 +182,7 @@ const isImageUrl = (url: string): boolean => {
   return imageExtensions.includes(ext!)
 }
 
-const initialValue: Descendant[] = [
+const initialValue: CustomValue = [
   {
     type: 'paragraph',
     children: [

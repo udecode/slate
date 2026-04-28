@@ -1,12 +1,11 @@
 import {
   addMark,
+  type BaseEditor,
   deleteFragment,
   type Editor,
-  getChildren,
+  extendEditor,
   getDirtyPaths,
   getFragment,
-  getSnapshot,
-  initializePublicState,
   insertBreak,
   insertFragment,
   insertNode,
@@ -14,13 +13,32 @@ import {
   insertText,
   normalizeNode,
   removeMark,
-  replaceSnapshot,
-  setChildren,
+  setBlock,
   shouldNormalize,
-  subscribe,
-  withTransaction,
+  toggleAlignment,
+  toggleBlock,
+  toggleList,
+  toggleMark,
 } from './'
 import { apply } from './core'
+import {
+  applyOperations,
+  getChildren,
+  getLastCommit,
+  getLiveSelection,
+  getOperationDirtiness,
+  getOperations,
+  getPathByRuntimeId,
+  getRuntimeId,
+  getSnapshot,
+  initializePublicState,
+  readEditor,
+  replaceSnapshot,
+  setBaseApply,
+  subscribe,
+  updateEditor,
+  withTransaction,
+} from './core/public-state'
 import {
   above,
   after,
@@ -72,6 +90,7 @@ import {
   unhangRange,
   withoutNormalizing,
 } from './editor'
+import type { Value } from './interfaces'
 import {
   insertNodes,
   liftNodes,
@@ -97,21 +116,19 @@ import { deleteText } from './transforms-text'
 /**
  * Create a new Slate `Editor` object.
  */
-export const createEditor = (): Editor => {
-  const editor: Editor = {
-    children: [],
-    operations: [],
-    selection: null,
-    marks: null,
+export const createEditor = <V extends Value = Value>(): Editor<V> => {
+  let editor!: Editor<V>
+  const runtimeEditor = () => editor as Editor<any>
+
+  const baseEditor: BaseEditor<any> = {
     isElementReadOnly: () => false,
-    isInline: (element) => 'type' in element && element.type === 'link',
+    isInline: (element) => (element as { type?: unknown }).type === 'link',
     isSelectable: () => true,
     isVoid: () => false,
     markableVoid: () => false,
-    onChange: () => {},
 
     // Core
-    apply: (...args) => apply(editor, ...args),
+    applyOperations: (...args) => applyOperations(editor, ...args),
 
     // Editor
     addMark: (...args) => addMark(editor, ...args),
@@ -121,14 +138,26 @@ export const createEditor = (): Editor => {
     deleteFragment: (...args) => deleteFragment(editor, ...args),
     getChildren: (...args) => getChildren(editor, ...args),
     getFragment: (...args) => getFragment(editor, ...args),
+    getLastCommit: (...args) => getLastCommit(editor, ...args),
+    getOperationDirtiness: (...args) => getOperationDirtiness(editor, ...args),
+    getOperations: (...args) => getOperations(editor, ...args),
+    getPathByRuntimeId: (...args) => getPathByRuntimeId(editor, ...args),
+    getRuntimeId: (...args) => getRuntimeId(editor, ...args),
+    read: (...args) => readEditor(editor, ...args),
+    getSelection: (...args) => getLiveSelection(editor, ...args),
     getSnapshot: (...args) => getSnapshot(editor, ...args),
     insertBreak: (...args) => insertBreak(editor, ...args),
     insertSoftBreak: (...args) => insertSoftBreak(editor, ...args),
-    insertFragment: (...args) => insertFragment(editor, ...args),
-    insertNode: (...args) => insertNode(editor, ...args),
+    insertFragment: (...args) => insertFragment(runtimeEditor(), ...args),
+    insertNode: (...args) => insertNode(runtimeEditor(), ...args),
     insertText: (...args) => insertText(editor, ...args),
     normalizeNode: (...args) => normalizeNode(editor, ...args),
     removeMark: (...args) => removeMark(editor, ...args),
+    setBlock: (...args) => setBlock(editor, ...args),
+    toggleAlignment: (...args) => toggleAlignment(editor, ...args),
+    toggleBlock: (...args) => toggleBlock(editor, ...args),
+    toggleList: (...args) => toggleList(editor, ...args),
+    toggleMark: (...args) => toggleMark(editor, ...args),
     getDirtyPaths: (...args) => getDirtyPaths(editor, ...args),
     shouldNormalize: (...args) => shouldNormalize(editor, ...args),
 
@@ -137,7 +166,7 @@ export const createEditor = (): Editor => {
     after: (...args) => after(editor, ...args),
     before: (...args) => before(editor, ...args),
     collapse: (...args) => collapse(editor, ...args),
-    delete: (...args) => deleteText(editor, ...args),
+    delete: (...args) => deleteText(runtimeEditor(), ...args),
     deselect: (...args) => deselect(editor, ...args),
     edges: (...args) => edges(editor, ...args),
     elementReadOnly: (...args) => elementReadOnly(editor, ...args),
@@ -149,7 +178,7 @@ export const createEditor = (): Editor => {
     hasInlines: (...args) => hasInlines(editor, ...args),
     hasPath: (...args) => hasPath(editor, ...args),
     hasTexts: (...args) => hasTexts(editor, ...args),
-    insertNodes: (...args) => insertNodes(editor, ...args),
+    insertNodes: (...args) => insertNodes(runtimeEditor(), ...args),
     isBlock: (...args) => isBlock(editor, ...args),
     isEdge: (...args) => isEdge(editor, ...args),
     isEmpty: (...args) => isEmpty(editor, ...args),
@@ -159,10 +188,10 @@ export const createEditor = (): Editor => {
     last: (...args) => last(editor, ...args),
     leaf: (...args) => leaf(editor, ...args),
     levels: (...args) => levels(editor, ...args),
-    liftNodes: (...args) => liftNodes(editor, ...args),
-    mergeNodes: (...args) => mergeNodes(editor, ...args),
+    liftNodes: (...args) => liftNodes(runtimeEditor(), ...args),
+    mergeNodes: (...args) => mergeNodes(runtimeEditor(), ...args),
     move: (...args) => move(editor, ...args),
-    moveNodes: (...args) => moveNodes(editor, ...args),
+    moveNodes: (...args) => moveNodes(runtimeEditor(), ...args),
     next: (...args) => next(editor, ...args),
     node: (...args) => node(editor, ...args),
     nodes: (...args) => nodes(editor, ...args),
@@ -180,29 +209,35 @@ export const createEditor = (): Editor => {
     range: (...args) => range(editor, ...args),
     rangeRef: (...args) => rangeRef(editor, ...args),
     rangeRefs: (...args) => rangeRefs(editor, ...args),
-    removeNodes: (...args) => removeNodes(editor, ...args),
+    removeNodes: (...args) => removeNodes(runtimeEditor(), ...args),
     select: (...args) => select(editor, ...args),
     replace: (...args) => replaceSnapshot(editor, ...args),
     reset: (...args) => replaceSnapshot(editor, ...args),
-    setChildren: (...args) => setChildren(editor, ...args),
-    setNodes: (...args) => setNodes(editor, ...args),
+    setNodes: (...args) => setNodes(runtimeEditor(), ...args),
     setNormalizing: (...args) => setNormalizing(editor, ...args),
     setPoint: (...args) => setPoint(editor, ...args),
     setSelection: (...args) => setSelection(editor, ...args),
-    splitNodes: (...args) => splitNodes(editor, ...args),
+    splitNodes: (...args) => splitNodes(runtimeEditor(), ...args),
     start: (...args) => start(editor, ...args),
     string: (...args) => string(editor, ...args),
     subscribe: (...args) => subscribe(editor, ...args),
+    update: (...args) => updateEditor(editor, ...args),
+    extend: (...args) => extendEditor(editor, ...args),
     unhangRange: (...args) => unhangRange(editor, ...args),
-    unsetNodes: (...args) => unsetNodes(editor, ...args),
-    unwrapNodes: (...args) => unwrapNodes(editor, ...args),
+    unsetNodes: (...args) => unsetNodes(runtimeEditor(), ...args),
+    unwrapNodes: (...args) => unwrapNodes(runtimeEditor(), ...args),
     void: (...args) => getVoid(editor, ...args),
     withoutNormalizing: (...args) => withoutNormalizing(editor, ...args),
-    withTransaction: (...args) => withTransaction(editor, ...args),
-    wrapNodes: (...args) => wrapNodes(editor, ...args),
+    withTransaction: (fn) =>
+      withTransaction(editor, fn, { authority: 'explicit' }),
+    wrapNodes: (...args) => wrapNodes(runtimeEditor(), ...args),
     shouldMergeNodesRemovePrevNode: (...args) =>
       shouldMergeNodesRemovePrevNode(editor, ...args),
   }
+
+  editor = baseEditor as Editor<V>
+
+  setBaseApply(editor, (...args) => apply(editor, ...args))
 
   initializePublicState(editor)
 

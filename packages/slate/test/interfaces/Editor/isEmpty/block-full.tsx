@@ -12,7 +12,7 @@ export const input = (
   </editor>
 )
 export const test = (editor) => {
-  const block = editor.children[0]
+  const block = Editor.getChildren(editor)[0]
   return Editor.isEmpty(editor, block)
 }
 export const output = false

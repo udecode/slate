@@ -10,10 +10,7 @@ import {
 
 type UseAndroidInputManagerOptions = {
   node: RefObject<HTMLElement | null>
-} & Omit<
-  CreateAndroidInputManagerOptions,
-  'editor' | 'onUserInput' | 'receivedUserInput'
->
+} & Omit<CreateAndroidInputManagerOptions, 'editor'>
 
 const MUTATION_OBSERVER_CONFIG: MutationObserverInit = {
   subtree: true,

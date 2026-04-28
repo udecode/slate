@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { createEditor, type Descendant, Editor, Transforms } from '../src'
+import { createEditor, type Descendant, Editor } from '../src'
 
 const createChildren = (): Descendant[] => [
   {
@@ -59,6 +59,21 @@ const createVoidSplitChildren = (): Descendant[] => [
     void: true,
     children: [{ text: 'one' }, { text: 'two' }],
   } as Descendant,
+]
+
+const createSelectableVoidBetweenBlocksChildren = (): Descendant[] => [
+  {
+    type: 'paragraph',
+    children: [{ text: 'one' }],
+  },
+  {
+    type: 'video',
+    children: [{ text: '' }],
+  } as Descendant,
+  {
+    type: 'paragraph',
+    children: [{ text: 'two' }],
+  },
 ]
 
 const createNonSelectableBlockChildren = (): Descendant[] => [
@@ -1712,7 +1727,7 @@ it('nodes supports pass and universal on the current traversal seam', () => {
   )
 })
 
-it('positions enters void content only when the voids option is enabled', () => {
+it('positions exposes selectable voids atomically and enters void content only when enabled', () => {
   const editor = createEditor()
   editor.isVoid = (element) => element.type === 'mention'
 
@@ -1734,7 +1749,9 @@ it('positions enters void content only when the voids option is enabled', () => 
     marks: null,
   })
 
-  assert.deepEqual(Array.from(Editor.positions(editor, { at: [] })), [])
+  assert.deepEqual(Array.from(Editor.positions(editor, { at: [] })), [
+    { path: [0, 0], offset: 0 },
+  ])
   assert.deepEqual(
     Array.from(Editor.positions(editor, { at: [], voids: true })),
     [
@@ -1754,6 +1771,46 @@ it('positions enters void content only when the voids option is enabled', () => 
       { path: [0, 2], offset: 5 },
     ]
   )
+})
+
+it('moves from a text block into a selectable block void before the following block', () => {
+  const editor = createEditor()
+  editor.isVoid = (element) => element.type === 'video'
+
+  Editor.replace(editor, {
+    children: createSelectableVoidBetweenBlocksChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.after(editor, { path: [0, 0], offset: 3 }), {
+    path: [1, 0],
+    offset: 0,
+  })
+  assert.deepEqual(Editor.before(editor, { path: [2, 0], offset: 0 }), {
+    path: [1, 0],
+    offset: 0,
+  })
+
+  editor.update(() => {
+    editor.select({
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    })
+    editor.move()
+  })
+  assert.deepEqual(Editor.getSelection(editor), {
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
+  })
+
+  editor.update(() => {
+    editor.move()
+  })
+  assert.deepEqual(Editor.getSelection(editor), {
+    anchor: { path: [2, 0], offset: 0 },
+    focus: { path: [2, 0], offset: 0 },
+  })
 })
 
 it('Editor exposes a narrowed static read/query layer for the current public surface', () => {
@@ -1917,8 +1974,7 @@ it('Editor static read/query helpers see the live draft tree inside an outer tra
     | undefined
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertNodes(
-      editor,
+    editor.insertNodes(
       {
         type: 'paragraph',
         children: [{ text: 'zero' }],
@@ -2263,8 +2319,7 @@ it('supports Editor.after across top-level block boundaries inside an outer tran
   let point: { path: readonly number[]; offset: number } | undefined
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertNodes(
-      editor,
+    editor.insertNodes(
       {
         type: 'paragraph',
         children: [{ text: 'gamma' }],
@@ -2289,11 +2344,13 @@ it('supports move helper calls across supported top-level block boundaries', () 
     marks: null,
   })
 
-  Transforms.select(editor, {
-    anchor: { path: [0, 0], offset: 5 },
-    focus: { path: [0, 0], offset: 5 },
+  Editor.withTransaction(editor, () => {
+    editor.select({
+      anchor: { path: [0, 0], offset: 5 },
+      focus: { path: [0, 0], offset: 5 },
+    })
+    editor.move({ distance: 1 })
   })
-  Transforms.move(editor, { distance: 1 })
 
   const after = Editor.getSnapshot(editor)
 
@@ -2413,8 +2470,7 @@ it('supports Editor.after with a top-level block path inside an outer transactio
   let point: { path: readonly number[]; offset: number } | undefined
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertNodes(
-      editor,
+    editor.insertNodes(
       {
         type: 'paragraph',
         children: [{ text: 'gamma' }],
@@ -2555,7 +2611,7 @@ it('supports Editor.after inside an outer transaction using the live draft tree'
   let point: { path: readonly number[]; offset: number } | undefined
 
   Editor.withTransaction(editor, () => {
-    Transforms.insertText(editor, '!', {
+    editor.insertText('!', {
       at: { path: [0, 0], offset: 5 },
     })
     point = Editor.after(editor, { path: [0, 0], offset: 5 })
@@ -2735,7 +2791,11 @@ it('supports Editor.before and Editor.after by skipping non-selectable inline de
   let point: { path: readonly number[]; offset: number } | undefined
 
   Editor.withTransaction(editor, () => {
-    editor.setChildren(createLeadingNonSelectableInlineChildren())
+    Editor.replace(editor, {
+      children: createLeadingNonSelectableInlineChildren(),
+      selection: null,
+      marks: null,
+    })
     point = Editor.before(editor, { path: [0, 1], offset: 0 })
   })
 
@@ -2748,7 +2808,11 @@ it('supports Editor.before and Editor.after by skipping non-selectable inline de
   })
 
   Editor.withTransaction(editor, () => {
-    editor.setChildren(createTrailingNonSelectableInlineChildren())
+    Editor.replace(editor, {
+      children: createTrailingNonSelectableInlineChildren(),
+      selection: null,
+      marks: null,
+    })
     point = Editor.after(editor, { path: [0, 0], offset: 3 })
   })
 
@@ -2776,6 +2840,56 @@ it('supports Editor.after by skipping non-selectable inline void descendants', (
   })
 })
 
+it('supports character movement around inline voids as atomic boundaries', () => {
+  const editor = createEditor()
+  editor.isInline = (element) => element.type === 'inline'
+  editor.isVoid = (element) =>
+    Boolean((element as { type?: string }).type) &&
+    Boolean((element as { void?: boolean }).void)
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'one' },
+          {
+            type: 'inline',
+            void: true,
+            children: [{ text: '' }],
+          },
+          { text: 'two' },
+          {
+            type: 'inline',
+            void: true,
+            children: [{ text: '' }],
+          },
+          { text: '!' },
+        ],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.after(editor, { path: [0, 0], offset: 3 }, { unit: 'character' }),
+    { path: [0, 2], offset: 0 }
+  )
+  assert.deepEqual(
+    Editor.before(editor, { path: [0, 2], offset: 0 }, { unit: 'character' }),
+    { path: [0, 0], offset: 3 }
+  )
+  assert.deepEqual(
+    Editor.after(editor, { path: [0, 2], offset: 3 }, { unit: 'character' }),
+    { path: [0, 4], offset: 0 }
+  )
+  assert.deepEqual(
+    Editor.before(editor, { path: [0, 4], offset: 0 }, { unit: 'character' }),
+    { path: [0, 2], offset: 3 }
+  )
+})
+
 it('supports Editor.before and Editor.after unit-based traversal', () => {
   const editor = createEditor()
 
@@ -2801,5 +2915,43 @@ it('supports Editor.before and Editor.after unit-based traversal', () => {
   assert.deepEqual(
     Editor.after(editor, { path: [0, 0], offset: 0 }, { unit: 'character' }),
     { path: [0, 0], offset: 1 }
+  )
+})
+
+it('supports Editor.after character traversal across nested text-block boundaries', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'table',
+        children: [
+          {
+            type: 'table-row',
+            children: [
+              {
+                type: 'table-cell',
+                children: [{ text: '' }],
+              },
+              {
+                type: 'table-cell',
+                children: [{ text: 'Human' }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Editor.after(
+      editor,
+      { path: [0, 0, 0, 0], offset: 0 },
+      { unit: 'character' }
+    ),
+    { path: [0, 0, 1, 0], offset: 0 }
   )
 })

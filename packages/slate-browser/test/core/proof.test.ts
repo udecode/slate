@@ -3,6 +3,10 @@ import {
   extractAgentBrowserDebugSnapshot,
   extractAppiumDebugSnapshot,
 } from '../../src/core/proof'
+import {
+  classifyBrowserMobileTransportProof,
+  getBrowserMobileTransportProofMatrix,
+} from '../../src/transports/contracts'
 
 describe('proof helpers', () => {
   it('extracts debug snapshot from an agent-browser batch result', () => {
@@ -142,5 +146,64 @@ describe('proof helpers', () => {
 
     expect(evaluation.ok).toBe(true)
     expect(evaluation.issues).toEqual([])
+  })
+
+  it('classifies mobile transport proof scope without upgrading proxies to release proof', () => {
+    expect(classifyBrowserMobileTransportProof('appium-android')).toEqual({
+      evidenceClass: 'automated-direct',
+      platform: 'android-chrome',
+      releaseGateCapable: true,
+      supportedClaims: [
+        'device-browser-text-input',
+        'device-browser-ime-commit',
+        'debug-snapshot',
+      ],
+      transport: 'appium-android',
+      unsupportedClaims: [
+        'native-mobile-clipboard',
+        'human-soft-keyboard',
+        'glide-typing',
+        'voice-input',
+      ],
+    })
+
+    expect(classifyBrowserMobileTransportProof('appium-ios')).toEqual({
+      evidenceClass: 'automated-direct',
+      platform: 'ios-safari',
+      releaseGateCapable: true,
+      supportedClaims: [
+        'device-browser-text-input',
+        'device-browser-ime-commit',
+        'debug-snapshot',
+      ],
+      transport: 'appium-ios',
+      unsupportedClaims: [
+        'native-mobile-clipboard',
+        'human-soft-keyboard',
+        'glide-typing',
+        'voice-input',
+      ],
+    })
+
+    expect(classifyBrowserMobileTransportProof('agent-browser-ios')).toEqual({
+      evidenceClass: 'automated-proxy',
+      platform: 'ios-safari',
+      releaseGateCapable: false,
+      supportedClaims: ['device-browser-text-input', 'debug-snapshot'],
+      transport: 'agent-browser-ios',
+      unsupportedClaims: [
+        'native-mobile-clipboard',
+        'device-browser-ime-commit',
+        'human-soft-keyboard',
+        'glide-typing',
+        'voice-input',
+      ],
+    })
+
+    expect(
+      getBrowserMobileTransportProofMatrix().every((entry) =>
+        entry.unsupportedClaims.includes('native-mobile-clipboard')
+      )
+    ).toBe(true)
   })
 })

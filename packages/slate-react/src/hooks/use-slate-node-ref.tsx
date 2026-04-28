@@ -132,6 +132,10 @@ export const syncTextOperationsToDOM = (
       continue
     }
 
+    if (!Editor.hasPath(editor, path)) {
+      continue
+    }
+
     const [node] = Editor.node(editor, path)
     const text =
       'text' in node && typeof node.text === 'string' ? node.text : null
@@ -200,6 +204,7 @@ export const useSlateNodeRef = (
     ELEMENT_TO_NODE.set(node, slateNode)
     ELEMENT_TO_PATH.set(node, [...path] as Path)
     node.setAttribute('data-slate-path', path.join(','))
+    node.setAttribute('data-slate-runtime-id', runtimeId)
     getPathElementMap(editor).set(nextPathKey, node)
 
     return () => {
@@ -222,6 +227,10 @@ export const useSlateNodeRef = (
 
       if (node.getAttribute('data-slate-path') === path.join(',')) {
         node.removeAttribute('data-slate-path')
+      }
+
+      if (node.getAttribute('data-slate-runtime-id') === runtimeId) {
+        node.removeAttribute('data-slate-runtime-id')
       }
 
       const pathElementMap = getPathElementMap(editor)

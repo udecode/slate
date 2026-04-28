@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import {
-  createEditor,
-  type Descendant,
-  Editor,
-  Node,
-  setTargetRuntime,
-} from '../src'
+import { createEditor, type Descendant, Editor, Node } from '../src'
+import { setEditorTargetRuntime } from '../src/internal'
 
 const paragraph = (text: string, props: Record<string, unknown> = {}) =>
   ({
@@ -35,7 +30,7 @@ describe('transaction target runtime', () => {
     const editor = setupEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget(_editor, request) {
         calls += 1
         assert.deepEqual(request.fallback, {
@@ -57,7 +52,7 @@ describe('transaction target runtime', () => {
     assert.equal(calls, 1)
     assert.equal((Editor.getChildren(editor)[0] as any).type, 'paragraph')
     assert.equal((Editor.getChildren(editor)[1] as any).type, 'heading-one')
-    assert.deepEqual(Editor.getLiveSelection(editor), {
+    assert.deepEqual(Editor.getSelection(editor), {
       anchor: { path: [1, 0], offset: 0 },
       focus: { path: [1, 0], offset: 0 },
     })
@@ -67,7 +62,7 @@ describe('transaction target runtime', () => {
     const editor = setupEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
         return null
@@ -160,7 +155,7 @@ describe('transaction target runtime', () => {
       const editor = setupEditor()
       let calls = 0
 
-      setTargetRuntime(editor, {
+      setEditorTargetRuntime(editor, {
         resolveImplicitTarget() {
           calls += 1
           return null
@@ -178,9 +173,9 @@ describe('transaction target runtime', () => {
   it('exposes model selection reads without target freshness', () => {
     const editor = setupEditor()
     let calls = 0
-    let selection = null as ReturnType<typeof Editor.getLiveSelection>
+    let selection = null as ReturnType<typeof Editor.getSelection>
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
         return {
@@ -205,7 +200,7 @@ describe('transaction target runtime', () => {
     const editor = setupEditor()
     let calls = 0
 
-    setTargetRuntime(editor, {
+    setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
         calls += 1
 

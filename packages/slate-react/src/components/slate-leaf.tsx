@@ -1,4 +1,10 @@
 import { createElement, type ReactNode } from 'react'
 
-export const SlateLeaf = ({ children }: { children: ReactNode }) =>
-  createElement('span', { 'data-slate-leaf': true }, children)
+import { recordSlateReactRender } from '../render-profiler'
+import { getSlateLeafShellAttributes } from '../shell-runtime'
+
+export const SlateLeaf = ({ children }: { children: ReactNode }) => {
+  recordSlateReactRender({ kind: 'leaf' })
+
+  return createElement('span', getSlateLeafShellAttributes(), children)
+}

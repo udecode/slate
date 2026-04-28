@@ -4,20 +4,21 @@ All of the behaviors, content and state of a Slate editor is rolled up into a si
 
 ```typescript
 interface Editor {
-  // Current editor state
-  children: Node[]
-  selection: Range | null
-  operations: Operation[]
-  marks: Omit<Text, 'text'> | null
   // Schema-specific node behaviors.
   isInline: (element: Element) => boolean
   isVoid: (element: Element) => boolean
   markableVoid: (element: Element) => boolean
   normalizeNode: (entry: NodeEntry) => void
-  onChange: (options?: { operation?: Operation }) => void
-  // Overrideable core actions.
+  // Public read/write lifecycle.
+  read: <T>(fn: () => T) => T
+  update: (fn: () => void, options?: EditorUpdateOptions) => void
+  getChildren: () => Node[]
+  getSelection: () => Range | null
+  getOperations: () => readonly Operation[]
+  getSnapshot: () => EditorSnapshot
+  subscribe: (listener: SnapshotListener) => () => void
+  // Core actions.
   addMark: (key: string, value: any) => void
-  apply: (operation: Operation) => void
   deleteBackward: (unit: 'character' | 'word' | 'line' | 'block') => void
   deleteForward: (unit: 'character' | 'word' | 'line' | 'block') => void
   deleteFragment: () => void
@@ -32,79 +33,129 @@ interface Editor {
 
 It is slightly more complex than the others, because it contains all of the top-level functions that define your custom, domain-specific behaviors.
 
-The `children` property contains the document tree of nodes that make up the editor's content.
+Read editor state through methods. Use `editor.getChildren()` for the document
+tree, `editor.getSelection()` for the current selection,
+`editor.getOperations()` for committed operations, and `editor.getMarks()` for
+active marks.
 
-The `selection` property contains the user's current selection, if any.
-Don't set it directly; use [Transforms.select](04-transforms.md#selection-transforms)
-
-The `operations` property contains all of the operations that have been applied since the last "change" was flushed. \(Since Slate batches operations up into ticks of the event loop.\)
-
-The `marks` property stores formatting to be applied when the editor inserts text. If `marks` is `null`, the formatting will be taken from the current selection.
-Don't set it directly; use `Editor.addMark` and `Editor.removeMark`.
-
-## Overriding Behaviors
-
-In previous guides we've already hinted at this, but you can override any of the behaviors of an editor by overriding its function properties.
-
-For example, if you want to define link elements that are inline nodes:
+Write document and selection state through `editor.update(...)`:
 
 ```javascript
-const { isInline } = editor
-
-editor.isInline = element => {
-  return element.type === 'link' ? true : isInline(element)
-}
+editor.update(() => {
+  editor.select(Editor.end(editor, []))
+  editor.insertText('!')
+})
 ```
 
-Or maybe you want to override the `insertText` behavior to "linkify" URLs:
+The editor also exposes accessor and subscription helpers on the public surface:
+
+- `editor.getChildren()`
+- `editor.replace({ children, selection, marks })`
+- `Editor.getSnapshot(editor)`
+- `Editor.subscribe(editor, listener)`
+
+## Extending Behaviors
+
+Use named editor extensions to package reusable behavior. Extensions add domain
+methods and compose existing methods through `editor.extend(...)`.
+
+For example, link elements can be modeled as inline nodes:
 
 ```javascript
-const { insertText } = editor
+const links = defineEditorExtension({
+  name: 'links',
+  methods(editor) {
+    const nextIsInline = editor.isInline
 
-editor.insertText = text => {
-  if (isUrl(text)) {
-    // ...
-    return
-  }
+    return {
+      isInline(element) {
+        return element.type === 'link' || nextIsInline(element)
+      },
+    }
+  },
+})
 
-  insertText(text)
-}
+editor.extend(links)
+```
+
+Or you can compose `insertText` behavior to linkify URLs:
+
+```javascript
+const smartLinks = defineEditorExtension({
+  name: 'smart-links',
+  dependencies: ['links'],
+  methods(editor) {
+    const nextInsertText = editor.insertText
+
+    return {
+      insertText(text, options) {
+        if (isUrl(text)) {
+          editor.update(() => {
+            editor.insertNode({
+              type: 'link',
+              url: text,
+              children: [{ text }],
+            })
+          })
+          return
+        }
+
+        nextInsertText(text, options)
+      },
+    }
+  },
+})
 ```
 
 If you have void "mention" elements that can accept marks like bold or italic:
 
 ```javascript
-const { isVoid, markableVoid } = editor
+const mentions = defineEditorExtension({
+  name: 'mentions',
+  methods(editor) {
+    const nextIsVoid = editor.isVoid
+    const nextMarkableVoid = editor.markableVoid
 
-editor.isVoid = element => {
-  return element.type === 'mention' ? true : isVoid(element)
-}
-
-editor.markableVoid = element => {
-  return element.type === 'mention' || markableVoid(element)
-}
+    return {
+      isVoid(element) {
+        return element.type === 'mention' || nextIsVoid(element)
+      },
+      markableVoid(element) {
+        return element.type === 'mention' || nextMarkableVoid(element)
+      },
+    }
+  },
+})
 ```
 
 Or you can even define custom "normalizations" that take place to ensure that links obey certain constraints:
 
 ```javascript
-const { normalizeNode } = editor
+const linkNormalization = defineEditorExtension({
+  name: 'link-normalization',
+  methods(editor) {
+    const nextNormalizeNode = editor.normalizeNode
 
-editor.normalizeNode = (entry, options) => {
-  const [node, path] = entry
+    return {
+      normalizeNode(entry, options) {
+        const [node, path] = entry
 
-  if (Element.isElement(node) && node.type === 'link') {
-    // ...
-    return
-  }
+        if (Element.isElement(node) && node.type === 'link') {
+          // ...
+          return
+        }
 
-  normalizeNode(entry, options)
-}
+        nextNormalizeNode(entry, options)
+      },
+    }
+  },
+})
 ```
 
-Whenever you override behaviors, be sure to call the existing functions as a fallback mechanism for the default behavior. Unless you really do want to completely remove the default behaviors \(which is rarely a good idea\).
+Whenever you compose behaviors, call the captured method when the default
+behavior should continue.
 
-> 🤖 For more info, check out the [Editor Instance Methods to Override API Reference](../api/nodes/editor.md#schema-specific-instance-methods-to-override)
+> 🤖 For more info, check out the [Editor Instance Methods API Reference](../api/nodes/editor.md#schema-specific-instance-methods)
 
 ## Helper Functions
 

@@ -1,5 +1,6 @@
 import { Editor, type EditorInterface } from '../interfaces/editor'
 import { Location, type Span } from '../interfaces/location'
+import { Node } from '../interfaces/node'
 
 export const previous: EditorInterface['previous'] = (editor, options = {}) => {
   const { mode = 'lowest', voids = false } = options
@@ -28,7 +29,10 @@ export const previous: EditorInterface['previous'] = (editor, options = {}) => {
   if (match == null) {
     if (Location.isPath(at)) {
       const [parent] = Editor.parent(editor, at)
-      match = (n) => parent.children.includes(n)
+      const children = Node.isEditor(parent)
+        ? Editor.getChildren(editor)
+        : parent.children
+      match = (n) => !Node.isEditor(n) && children.includes(n)
     } else {
       match = () => true
     }

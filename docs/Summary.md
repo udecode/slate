@@ -19,7 +19,7 @@
 - [Interfaces](concepts/01-interfaces.md)
 - [Nodes](concepts/02-nodes.md)
 - [Locations](concepts/03-locations.md)
-- [Transforms](concepts/04-transforms.md)
+- [Editor Methods](concepts/04-transforms.md)
 - [Operations](concepts/05-operations.md)
 - [Commands](concepts/06-commands.md)
 - [Editor](concepts/07-editor.md)
@@ -32,7 +32,7 @@
 
 ## API
 
-- [Transforms](api/transforms.md)
+- [Editor Methods](api/transforms.md)
 - [Node Types](api/nodes/README.md)
   - [Editor](api/nodes/editor.md)
   - [Element](api/nodes/element.md)

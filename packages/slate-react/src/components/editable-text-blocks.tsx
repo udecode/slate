@@ -3,7 +3,7 @@ import React, { type CSSProperties, type ReactNode } from 'react'
 import type {
   Ancestor,
   Descendant,
-  Operation,
+  NodeProps,
   Path,
   RuntimeId,
   Element as SlateElementNode,
@@ -23,17 +23,19 @@ import {
   NodeRuntimeIdContext,
 } from '../context'
 import {
-  didSyncTextPathToDOM,
-  useSlateNodeRef,
-} from '../hooks/use-slate-node-ref'
-import { useSlateSelector } from '../hooks/use-slate-selector'
+  type LargeDocumentRootConfig,
+  useLargeDocumentRootSources,
+  usePlaceholderValue,
+} from '../editable/root-selector-sources'
+import { readRuntimeNode } from '../editable/runtime-live-state'
+import { useFocused } from '../hooks/use-focused'
+import { useMountedNodeRenderSelector } from '../hooks/use-node-selector'
+import { useSelected } from '../hooks/use-selected'
+import { useSlateNodeRef } from '../hooks/use-slate-node-ref'
 import { useSlateStatic } from '../hooks/use-slate-static'
-import {
-  createIslandPlan,
-  type LargeDocumentOptions,
-} from '../large-document/create-island-plan'
+import type { LargeDocumentOptions } from '../large-document/create-island-plan'
 import { LargeDocumentIslandShell } from '../large-document/island-shell'
-import type { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor } from '../plugin/react-editor'
 import type { SlateProjectionStore } from '../projection-store'
 import {
   EditableDOMRoot,
@@ -49,31 +51,14 @@ import {
   type EditableTextSegment,
 } from './editable-text'
 import { Slate } from './slate'
+import { SlateInlineVoidShell, SlateVoidShell } from './slate-void-shell'
 
 const isText = (value: Descendant): value is SlateTextNode =>
   typeof (value as SlateTextNode).text === 'string'
 
-const isElement = (
-  value: Descendant
-): value is Exclude<Descendant, SlateTextNode> => !isText(value)
-
 const EMPTY_RUNTIME_IDS = Object.freeze([]) as readonly RuntimeId[]
 
-const isTextOperation = (operation: Operation | undefined) =>
-  operation?.type === 'insert_text' || operation?.type === 'remove_text'
-
-const isSelectionOperation = (operation: Operation | undefined) =>
-  operation?.type === 'set_selection'
-
-const hasNoOperations = (operations: readonly Operation[] | undefined) =>
-  !operations || operations.length === 0
-
-const shouldUpdateTopLevelRuntimeIds = (operations?: readonly Operation[]) =>
-  hasNoOperations(operations) ||
-  (operations ?? []).some(
-    (operation) =>
-      !isTextOperation(operation) && !isSelectionOperation(operation)
-  )
+const getSnapshotPathKey = (path: Path) => path.join('.')
 
 const samePath = (left: Path | null, right: Path | null) => {
   if (left === right) return true
@@ -151,7 +136,7 @@ const getNearestEditableBlockText = (editor: Editor, path: Path) => {
     const ancestor =
       ancestorPath.length === 0
         ? editor
-        : (Editor.getLiveNode(editor, ancestorPath) as Ancestor | undefined)
+        : (readRuntimeNode(editor, ancestorPath) as Ancestor | undefined)
 
     if (!ancestor || !('children' in ancestor)) {
       continue
@@ -205,26 +190,69 @@ const EditableRenderedElement = <
   renderElement: RenderElementRenderer<TElement>
 }) => <>{renderElement(props)}</>
 
-const shouldUpdateDescendantBinding =
-  (editor: Editor, currentPathRef: React.MutableRefObject<Path | null>) =>
-  (operations?: readonly Operation[]) => {
-    if (hasNoOperations(operations)) return true
+const EditableRenderedVoid = <
+  TElement extends SlateElementNode = SlateElementNode,
+>({
+  children,
+  element,
+  isInline,
+  path,
+  renderVoid,
+}: {
+  children: ReactNode
+  element: TElement
+  isInline: boolean
+  path: Path
+  renderVoid?: RenderVoidRenderer<TElement>
+}) => {
+  const editor = useSlateStatic()
+  const focused = useFocused()
+  const selected = useSelected()
+  const pathRef = React.useRef(path)
 
-    return (operations ?? []).some((operation) => {
-      if (isSelectionOperation(operation)) return false
-      if (!isTextOperation(operation)) return true
+  pathRef.current = path
 
-      const currentPath = currentPathRef.current
+  const actions = React.useMemo<EditableRenderVoidActions<TElement>>(
+    () => ({
+      focus: () => {
+        ReactEditor.focus(editor as ReactEditor)
+      },
+      remove: () => {
+        editor.update(() => {
+          editor.removeNodes({ at: pathRef.current, voids: true })
+        })
+      },
+      select: () => {
+        editor.update(() => {
+          editor.select(Editor.range(editor, pathRef.current))
+        })
+      },
+      setElement: (properties) => {
+        editor.update(() => {
+          editor.setNodes<TElement>(properties, {
+            at: pathRef.current,
+            voids: true,
+          })
+        })
+      },
+    }),
+    [editor]
+  )
 
-      return Boolean(
-        currentPath &&
-          'path' in operation &&
-          Array.isArray(operation.path) &&
-          samePath(operation.path, currentPath) &&
-          !didSyncTextPathToDOM(editor, currentPath)
-      )
-    })
-  }
+  const content =
+    renderVoid?.({
+      actions,
+      element,
+      focused,
+      selected,
+    }) ?? null
+
+  return isInline ? (
+    <SlateInlineVoidShell content={content}>{children}</SlateInlineVoidShell>
+  ) : (
+    <SlateVoidShell content={content}>{children}</SlateVoidShell>
+  )
+}
 
 export type EditableRenderElementProps<
   TElement extends SlateElementNode = any,
@@ -246,6 +274,26 @@ export type EditableRenderElementProps<
 
 export type RenderElementRenderer<TElement extends SlateElementNode = any> = (
   props: EditableRenderElementProps<TElement>
+) => ReactNode
+
+export type EditableRenderVoidActions<
+  TElement extends SlateElementNode = SlateElementNode,
+> = {
+  focus: () => void
+  remove: () => void
+  select: () => void
+  setElement: (properties: Partial<NodeProps<TElement>>) => void
+}
+
+export type EditableRenderVoidProps<TElement extends SlateElementNode = any> = {
+  actions: EditableRenderVoidActions<TElement>
+  element: TElement
+  focused: boolean
+  selected: boolean
+}
+
+export type RenderVoidRenderer<TElement extends SlateElementNode = any> = (
+  props: EditableRenderVoidProps<TElement>
 ) => ReactNode
 
 export type EditableTextBlocksProps<
@@ -276,6 +324,7 @@ export type EditableTextBlocksProps<
     children: ReactNode
   ) => ReactNode
   renderText?: (props: EditableTextRenderTextProps) => ReactNode
+  renderVoid?: RenderVoidRenderer<TElement>
   scrollSelectionIntoView?: (editor: Editor, domRange: globalThis.Range) => void
   spellCheck?: boolean
   style?: CSSProperties
@@ -299,34 +348,6 @@ export type EditableTextBlocksProps<
   | 'style'
 >
 
-const getDescendantAtPath = (
-  children: readonly Descendant[],
-  path: Path
-): Descendant | null => {
-  let current: Descendant | undefined
-  let cursor: readonly Descendant[] = children
-
-  for (let index = 0; index < path.length; index += 1) {
-    current = cursor[path[index]!]
-
-    if (!current) {
-      return null
-    }
-
-    if (index === path.length - 1) {
-      return current
-    }
-
-    if (!isElement(current)) {
-      return null
-    }
-
-    cursor = current.children
-  }
-
-  return null
-}
-
 const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
   isInline,
   placeholder,
@@ -336,6 +357,7 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
   renderPlaceholder,
   renderSegment,
   renderText,
+  renderVoid,
   runtimeId,
   zeroWidth,
 }: {
@@ -350,6 +372,7 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
     children: ReactNode
   ) => ReactNode
   renderText?: (props: EditableTextRenderTextProps) => ReactNode
+  renderVoid?: RenderVoidRenderer<TElement>
   runtimeId: RuntimeId
   zeroWidth?: {
     includeSentinel?: boolean
@@ -359,35 +382,10 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
   }
 }) => {
   const editor = useSlateStatic()
-  const currentPathRef = React.useRef<Path | null>(null)
 
-  const binding = useSlateSelector(
-    (editorValue, operations) => {
-      const currentPath = currentPathRef.current
-
-      if (
-        currentPath &&
-        operations?.some(
-          (operation) =>
-            isTextOperation(operation) &&
-            'path' in operation &&
-            Array.isArray(operation.path) &&
-            samePath(operation.path, currentPath)
-        )
-      ) {
-        return {
-          childRuntimeIds: EMPTY_RUNTIME_IDS,
-          node: getDescendantAtPath(
-            Editor.getChildren(editorValue),
-            currentPath
-          ),
-          path: currentPath,
-        }
-      }
-
-      const path = Editor.getPathByRuntimeId(editorValue, runtimeId)
-
-      if (!path) {
+  const binding = useMountedNodeRenderSelector(
+    ({ editor: editorValue, node, path }) => {
+      if (!path || !node || Editor.isEditor(node)) {
         return {
           childRuntimeIds: EMPTY_RUNTIME_IDS,
           node: null,
@@ -395,34 +393,35 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
         }
       }
 
-      const node = getDescendantAtPath(Editor.getChildren(editorValue), path)
+      const descendant = node as Descendant
+      const snapshot = Editor.getSnapshot(editorValue)
 
       return {
-        childRuntimeIds:
-          node && !isText(node)
-            ? (node.children
-                .map(
-                  (_, index) =>
-                    Editor.getRuntimeId(editorValue, [
-                      ...path,
-                      index,
-                    ] as Path) ?? ''
+        childRuntimeIds: isText(descendant)
+          ? EMPTY_RUNTIME_IDS
+          : (descendant.children
+              .map((_, index) => {
+                const childPath = [...path, index] as Path
+
+                return (
+                  snapshot.index.pathToId[getSnapshotPathKey(childPath)] ??
+                  Editor.getRuntimeId(editorValue, childPath) ??
+                  ''
                 )
-                .filter(Boolean) as RuntimeId[])
-            : EMPTY_RUNTIME_IDS,
-        node,
+              })
+              .filter(Boolean) as RuntimeId[]),
+        node: descendant,
         path,
       }
     },
     sameDescendantBinding,
-    { shouldUpdate: shouldUpdateDescendantBinding(editor, currentPathRef) }
+    { runtimeId }
   )
 
   const { childRuntimeIds, node, path } = binding
   const bindNodeRef = useSlateNodeRef(runtimeId, { path, slateNode: node })
-  currentPathRef.current = path
 
-  if (!node) {
+  if (!node || !path) {
     return null
   }
 
@@ -431,7 +430,7 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
     const parent =
       parentPath.length === 0
         ? editor
-        : (Editor.getLiveNode(editor, parentPath) as Ancestor | undefined)
+        : (readRuntimeNode(editor, parentPath) as Ancestor | undefined)
 
     if (parent && 'children' in parent) {
       NODE_TO_INDEX.set(node, path.at(-1) ?? 0)
@@ -480,10 +479,34 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
       renderPlaceholder={renderPlaceholder}
       renderSegment={renderSegment}
       renderText={renderText}
+      renderVoid={renderVoid}
       runtimeId={childRuntimeId}
       zeroWidth={zeroWidth}
     />
   ))
+
+  if (voidNode) {
+    if (!path) {
+      return null
+    }
+
+    return (
+      <NodeRuntimeIdContext.Provider key={runtimeId} value={runtimeId}>
+        <ElementPathContext.Provider value={path}>
+          <ElementContext.Provider value={node}>
+            <EditableRenderedVoid
+              element={node as TElement}
+              isInline={inline}
+              path={path}
+              renderVoid={renderVoid}
+            >
+              {children}
+            </EditableRenderedVoid>
+          </ElementContext.Provider>
+        </ElementPathContext.Provider>
+      </NodeRuntimeIdContext.Provider>
+    )
+  }
 
   if (renderElement) {
     if (!path) {
@@ -550,6 +573,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   renderPlaceholder,
   renderSegment,
   renderText,
+  renderVoid,
   scrollSelectionIntoView,
   spellCheck,
   style,
@@ -564,54 +588,28 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     number | null
   >(null)
   const placeholderResizeObserverRef = React.useRef<ResizeObserver | null>(null)
-  const topLevelRuntimeIds = useSlateSelector(
-    (editorValue) => {
-      return Editor.getChildren(editorValue)
-        .map(
-          (_node: unknown, index: number) =>
-            Editor.getRuntimeId(editorValue, [index] as Path) ?? ''
-        )
-        .filter(Boolean) as RuntimeId[]
-    },
-    (left, right) => left != null && sameRuntimeIds(left as RuntimeId[], right),
-    { shouldUpdate: shouldUpdateTopLevelRuntimeIds }
+  const largeDocumentConfig = React.useMemo<LargeDocumentRootConfig | null>(
+    () =>
+      largeDocument?.enabled === true
+        ? {
+            activeRadius: Math.max(0, largeDocument.activeRadius ?? 0),
+            islandSize: Math.max(1, largeDocument.islandSize ?? 100),
+            previewChars: Math.max(16, largeDocument.previewChars ?? 96),
+            threshold: Math.max(1, largeDocument.threshold ?? 2000),
+          }
+        : null,
+    [largeDocument]
   )
-  const largeDocumentConfig =
-    largeDocument?.enabled === true
-      ? {
-          activeRadius: Math.max(0, largeDocument.activeRadius ?? 0),
-          islandSize: Math.max(1, largeDocument.islandSize ?? 100),
-          previewChars: Math.max(16, largeDocument.previewChars ?? 96),
-          threshold: Math.max(1, largeDocument.threshold ?? 2000),
-        }
-      : null
+  const {
+    islandPlan,
+    mountedTopLevelRanges,
+    mountedTopLevelRuntimeIds,
+    topLevelRuntimeIds,
+  } = useLargeDocumentRootSources({
+    largeDocumentConfig,
+    promotedIslandIndex,
+  })
   const largeDocumentIslandSize = largeDocumentConfig?.islandSize ?? null
-  const islandPlan =
-    largeDocumentConfig &&
-    topLevelRuntimeIds.length >= largeDocumentConfig.threshold
-      ? createIslandPlan({
-          activeRadius: largeDocumentConfig.activeRadius,
-          defaultActiveIslandIndex: 0,
-          islandSize: largeDocumentConfig.islandSize,
-          promotedIslandIndex,
-          topLevelRuntimeIds,
-        })
-      : null
-  const mountedTopLevelRuntimeIds = islandPlan
-    ? new Set(
-        islandPlan.islands.flatMap((island) =>
-          island.isActive ? island.mountedRuntimeIds : []
-        )
-      )
-    : null
-  const mountedTopLevelRanges = islandPlan
-    ? islandPlan.islands
-        .filter((island) => island.isActive)
-        .map((island) => ({
-          endIndex: island.endIndex,
-          startIndex: island.startIndex,
-        }))
-    : null
   const handlePromoteIsland = React.useCallback(
     (islandIndex: number, options: { select?: boolean } = {}) => {
       setPromotedIslandIndex(islandIndex)
@@ -633,14 +631,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     },
     [editor, largeDocumentIslandSize]
   )
-  const placeholderValue = useSlateSelector((editorValue) =>
-    placeholder &&
-    Editor.getChildren(editorValue).length === 1 &&
-    Array.from(Node.texts(editorValue)).length === 1 &&
-    Node.string(editorValue) === ''
-      ? placeholder
-      : undefined
-  )
+  const placeholderValue = usePlaceholderValue(placeholder)
   const placeholderRef = React.useCallback(
     (placeholderElement: HTMLElement | null) => {
       placeholderResizeObserverRef.current?.disconnect()
@@ -721,6 +712,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
                   renderPlaceholder={renderPlaceholder}
                   renderSegment={renderSegment}
                   renderText={renderText}
+                  renderVoid={renderVoid}
                   runtimeId={runtimeId}
                   zeroWidth={zeroWidth}
                 />
@@ -748,6 +740,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
               renderPlaceholder={renderPlaceholder}
               renderSegment={renderSegment}
               renderText={renderText}
+              renderVoid={renderVoid}
               runtimeId={runtimeId}
               zeroWidth={zeroWidth}
             />

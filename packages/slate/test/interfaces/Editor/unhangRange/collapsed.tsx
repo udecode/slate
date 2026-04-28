@@ -15,7 +15,7 @@ export const input = (
   </editor>
 )
 export const test = (editor) => {
-  return Editor.unhangRange(editor, editor.selection)
+  return Editor.unhangRange(editor, Editor.getSnapshot(editor).selection)
 }
 export const output = {
   anchor: { path: [0, 0], offset: 3 },

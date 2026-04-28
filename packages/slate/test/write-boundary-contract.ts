@@ -39,16 +39,6 @@ describe('editor write boundary', () => {
               focus: { path: [0, 0], offset: 3 },
             }),
         ],
-        [
-          'apply',
-          (editor) =>
-            editor.apply({
-              offset: 3,
-              path: [0, 0],
-              text: '!',
-              type: 'insert_text',
-            }),
-        ],
       ]
 
     for (const [name, write] of cases) {
@@ -66,6 +56,8 @@ describe('editor write boundary', () => {
 
   it('keeps applyOperations as the explicit operation replay writer', () => {
     const editor = createSeededEditor()
+
+    assert.equal('apply' in editor, false)
 
     editor.applyOperations([
       {

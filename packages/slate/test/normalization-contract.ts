@@ -8,7 +8,6 @@ import {
   Node,
   type NodeEntry,
   type Element as SlateElement,
-  Transforms,
 } from '../src'
 
 const bodyParagraph = (text = ''): Descendant => ({
@@ -33,15 +32,18 @@ const withForcedLayout = (editor: ReturnType<typeof createEditor>) => {
     const [_node, path] = entry
 
     if (path.length === 0) {
-      if (editor.children.length <= 1 && Editor.string(editor, [0, 0]) === '') {
-        Transforms.insertNodes(editor, createForcedLayoutTitle(), {
+      if (
+        Editor.getChildren(editor).length <= 1 &&
+        Editor.string(editor, [0, 0]) === ''
+      ) {
+        editor.insertNodes(createForcedLayoutTitle(), {
           at: [...path, 0],
           select: true,
         })
       }
 
-      if (editor.children.length < 2) {
-        Transforms.insertNodes(editor, createForcedLayoutParagraph(), {
+      if (Editor.getChildren(editor).length < 2) {
+        editor.insertNodes(createForcedLayoutParagraph(), {
           at: [...path, 1],
         })
       }
@@ -50,8 +52,7 @@ const withForcedLayout = (editor: ReturnType<typeof createEditor>) => {
         const slateIndex = childPath[0]
         const enforceType = (type: 'title' | 'paragraph') => {
           if (Node.isElement(child) && child.type !== type) {
-            Transforms.setNodes<SlateElement>(
-              editor,
+            editor.setNodes<SlateElement>(
               { type },
               {
                 at: childPath,
@@ -107,7 +108,7 @@ describe('slate normalization contract', () => {
         node.type === 'body' &&
         node.children.length === 0
       ) {
-        Transforms.insertNodes(editor, bodyParagraph(), { at: [...path, 0] })
+        editor.insertNodes(bodyParagraph(), { at: [...path, 0] })
         return
       }
 
@@ -156,11 +157,10 @@ describe('slate normalization contract', () => {
     const originalNormalizeNode = editor.normalizeNode
 
     editor.normalizeNode = (entry, options) => {
-      const [_node, path] = entry
+      const [node, path] = entry
 
       if (path.length > 0 && 'children' in node && node.type === 'heading') {
-        Transforms.setNodes<SlateElement>(
-          editor,
+        editor.setNodes<SlateElement>(
           {
             type: 'paragraph',
           },
@@ -275,7 +275,7 @@ describe('slate normalization contract', () => {
       marks: null,
     })
 
-    Transforms.insertNodes(editor, { text: 'stray' }, { at: [0] })
+    editor.insertNodes({ text: 'stray' }, { at: [0] })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [
       {
@@ -358,8 +358,7 @@ describe('slate normalization contract', () => {
       marks: null,
     })
 
-    Transforms.insertNodes(
-      editor,
+    editor.insertNodes(
       {
         type: 'paragraph',
         children: [{ text: 'beta' }],

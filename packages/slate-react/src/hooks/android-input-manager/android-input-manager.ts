@@ -1,13 +1,6 @@
 import type { DebouncedFunc } from 'lodash'
-import {
-  Editor,
-  Location,
-  Node,
-  Path,
-  type Point,
-  Range,
-  Transforms,
-} from 'slate'
+import type { RefObject } from 'react'
+import { Editor, Location, Node, Path, type Point, Range } from 'slate'
 import {
   applyStringDiff,
   EDITOR_TO_FORCE_RENDER,
@@ -19,7 +12,9 @@ import {
   EDITOR_TO_USER_MARKS,
   IS_COMPOSING,
   IS_NODE_MAP_DIRTY,
+  isDOMElement,
   isDOMSelection,
+  isDOMText,
   isTrackedMutation,
   mergeStringDiffs,
   normalizePoint,
@@ -29,7 +24,15 @@ import {
   targetRange,
   verifyDiffState,
 } from 'slate-dom'
+import {
+  type EditableCommand,
+  getEditableCommandFromBeforeInputType,
+} from '../../editable/editing-kernel'
+import { applyEditableCommand } from '../../editable/mutation-controller'
+import { writeRuntimeMarks } from '../../editable/runtime-mutation-state'
+import { readRuntimeSelection } from '../../editable/runtime-selection-state'
 import { ReactEditor } from '../../plugin/react-editor'
+import { isDOMTextSyncMutation } from '../use-slate-node-ref'
 
 export type Action = { at?: Point | Range; run: () => void }
 
@@ -50,8 +53,19 @@ const debug = (..._: unknown[]) => {}
 const isDataTransfer = (value: any): value is DataTransfer =>
   value?.constructor.name === 'DataTransfer'
 
+const clonePoint = (point: Point): Point => ({
+  path: [...point.path],
+  offset: point.offset,
+})
+
+const cloneRange = (range: Range): Range => ({
+  anchor: clonePoint(range.anchor),
+  focus: clonePoint(range.focus),
+})
+
 export type CreateAndroidInputManagerOptions = {
   editor: ReactEditor
+  receivedUserInput: RefObject<boolean>
 
   scheduleOnDOMSelectionChange: DebouncedFunc<() => void>
   onDOMSelectionChange: DebouncedFunc<() => void>
@@ -80,6 +94,7 @@ export type AndroidInputManager = {
 
 export function createAndroidInputManager({
   editor,
+  receivedUserInput,
   scheduleOnDOMSelectionChange,
   onDOMSelectionChange,
 }: CreateAndroidInputManagerOptions): AndroidInputManager {
@@ -96,13 +111,15 @@ export function createAndroidInputManager({
     EDITOR_TO_PENDING_SELECTION.delete(editor)
 
     if (pendingSelection) {
-      const { selection } = editor
+      const selection = readRuntimeSelection(editor)
       const normalized = normalizeRange(editor, pendingSelection)
 
       debug('apply pending selection', pendingSelection, normalized)
 
       if (normalized && (!selection || !Range.equals(normalized, selection))) {
-        Transforms.select(editor, normalized)
+        editor.update(() => {
+          editor.select(normalized)
+        })
       }
     }
   }
@@ -124,8 +141,11 @@ export function createAndroidInputManager({
       }
 
       const targetRange = Editor.range(editor, target)
-      if (!editor.selection || !Range.equals(editor.selection, targetRange)) {
-        Transforms.select(editor, target)
+      const selection = readRuntimeSelection(editor)
+      if (!selection || !Range.equals(selection, targetRange)) {
+        editor.update(() => {
+          editor.select(target)
+        })
       }
     }
 
@@ -157,10 +177,11 @@ export function createAndroidInputManager({
       flushing = 'action'
     }
 
+    const liveSelection = readRuntimeSelection(editor)
     const selectionRef =
-      editor.selection &&
-      Editor.rangeRef(editor, editor.selection, { affinity: 'forward' })
-    EDITOR_TO_USER_MARKS.set(editor, editor.marks)
+      liveSelection &&
+      Editor.rangeRef(editor, liveSelection, { affinity: 'forward' })
+    EDITOR_TO_USER_MARKS.set(editor, editor.getMarks())
 
     debug(
       'flush',
@@ -177,7 +198,7 @@ export function createAndroidInputManager({
 
       if (pendingMarks !== undefined) {
         EDITOR_TO_PENDING_INSERTION_MARKS.delete(editor)
-        editor.marks = pendingMarks
+        writeRuntimeMarks(editor, pendingMarks)
       }
 
       if (pendingMarks && insertPositionHint === false) {
@@ -186,14 +207,23 @@ export function createAndroidInputManager({
       }
 
       const range = targetRange(diff)
-      if (!editor.selection || !Range.equals(editor.selection, range)) {
-        Transforms.select(editor, range)
+      const selection = readRuntimeSelection(editor)
+      if (!selection || !Range.equals(selection, range)) {
+        editor.update(() => {
+          editor.select(range)
+        })
       }
 
       if (diff.diff.text) {
-        Editor.insertText(editor, diff.diff.text)
+        applyEditableCommand({
+          command: { kind: 'insert-text', text: diff.diff.text },
+          editor,
+        })
       } else {
-        Editor.deleteFragment(editor)
+        applyEditableCommand({
+          command: { kind: 'delete-fragment' },
+          editor,
+        })
       }
 
       // Remove diff only after we have applied it to account for it when transforming
@@ -225,9 +255,12 @@ export function createAndroidInputManager({
     if (
       selection &&
       !EDITOR_TO_PENDING_SELECTION.get(editor) &&
-      (!editor.selection || !Range.equals(selection, editor.selection))
+      (!readRuntimeSelection(editor) ||
+        !Range.equals(selection, readRuntimeSelection(editor)!))
     ) {
-      Transforms.select(editor, selection)
+      editor.update(() => {
+        editor.select(selection)
+      })
     }
 
     if (hasPendingAction()) {
@@ -251,8 +284,9 @@ export function createAndroidInputManager({
     const userMarks = EDITOR_TO_USER_MARKS.get(editor)
     EDITOR_TO_USER_MARKS.delete(editor)
     if (userMarks !== undefined) {
-      editor.marks = userMarks
-      editor.onChange()
+      editor.update(() => {
+        writeRuntimeMarks(editor, userMarks)
+      })
     }
   }
 
@@ -329,6 +363,28 @@ export function createAndroidInputManager({
     }
   }
 
+  const canStoreDOMTextDiffAtRange = (range: Range) => {
+    if (IS_NODE_MAP_DIRTY.get(editor)) {
+      return false
+    }
+
+    const [start] = Range.edges(range)
+
+    try {
+      const [domNode] = ReactEditor.toDOMPoint(editor, start)
+      const element = isDOMText(domNode)
+        ? domNode.parentElement
+        : isDOMElement(domNode)
+          ? domNode
+          : null
+      const textHost = element?.closest('[data-slate-node="text"]')
+
+      return textHost?.getAttribute('data-slate-dom-sync') === 'true'
+    } catch {
+      return false
+    }
+  }
+
   const scheduleAction = (
     run: () => void,
     { at }: { at?: Point | Range } = {}
@@ -350,6 +406,13 @@ export function createAndroidInputManager({
     // (no input) and doesn't perform any dom mutations. Without a flush timeout we would never flush
     // in this case and thus never actually perform the action.
     actionTimeoutId = setTimeout(flush)
+  }
+
+  const scheduleCommand = (
+    command: EditableCommand,
+    { at }: { at?: Point | Range } = {}
+  ) => {
+    scheduleAction(() => applyEditableCommand({ command, editor }), { at })
   }
 
   const handleDOMBeforeInput = (event: InputEvent): void => {
@@ -395,7 +458,7 @@ export function createAndroidInputManager({
       })
     }
 
-    targetRange = targetRange ?? editor.selection
+    targetRange = targetRange ?? readRuntimeSelection(editor)
     if (!targetRange) {
       return
     }
@@ -406,6 +469,12 @@ export function createAndroidInputManager({
     // scenarios where we cannot safely store the text diff and must instead
     // schedule an action to let Slate normalize the editor state.
     let canStoreDiff = true
+    const commandForTargetRange = () =>
+      getEditableCommandFromBeforeInputType({
+        data,
+        inputType: type,
+        selection: targetRange,
+      })
 
     if (type.startsWith('delete')) {
       const direction = type.endsWith('Backward') ? 'backward' : 'forward'
@@ -474,9 +543,10 @@ export function createAndroidInputManager({
           return
         }
 
-        scheduleAction(() => Editor.deleteFragment(editor, { direction }), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
     }
@@ -485,9 +555,10 @@ export function createAndroidInputManager({
       case 'deleteByComposition':
       case 'deleteByCut':
       case 'deleteByDrag': {
-        scheduleAction(() => Editor.deleteFragment(editor), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
@@ -507,9 +578,10 @@ export function createAndroidInputManager({
           }
         }
 
-        scheduleAction(() => Editor.deleteForward(editor), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
@@ -537,76 +609,82 @@ export function createAndroidInputManager({
           return
         }
 
-        scheduleAction(() => Editor.deleteBackward(editor), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'deleteEntireSoftLine': {
-        scheduleAction(
-          () => {
-            Editor.deleteBackward(editor, { unit: 'line' })
-            Editor.deleteForward(editor, { unit: 'line' })
-          },
-          { at: targetRange }
-        )
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'deleteHardLineBackward': {
-        scheduleAction(() => Editor.deleteBackward(editor, { unit: 'block' }), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'deleteSoftLineBackward': {
-        scheduleAction(() => Editor.deleteBackward(editor, { unit: 'line' }), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'deleteHardLineForward': {
-        scheduleAction(() => Editor.deleteForward(editor, { unit: 'block' }), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'deleteSoftLineForward': {
-        scheduleAction(() => Editor.deleteForward(editor, { unit: 'line' }), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'deleteWordBackward': {
-        scheduleAction(() => Editor.deleteBackward(editor, { unit: 'word' }), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'deleteWordForward': {
-        scheduleAction(() => Editor.deleteForward(editor, { unit: 'word' }), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'insertLineBreak': {
-        scheduleAction(() => Editor.insertSoftBreak(editor), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
 
       case 'insertParagraph': {
-        scheduleAction(() => Editor.insertBreak(editor), {
-          at: targetRange,
-        })
+        const command = commandForTargetRange()
+        if (command) {
+          scheduleCommand(command, { at: targetRange })
+        }
         return
       }
       case 'insertCompositionText':
@@ -618,9 +696,7 @@ export function createAndroidInputManager({
       case 'insertReplacementText':
       case 'insertText': {
         if (isDataTransfer(data)) {
-          scheduleAction(() => ReactEditor.insertData(editor, data), {
-            at: targetRange,
-          })
+          scheduleCommand({ data, kind: 'insert-data' }, { at: targetRange })
           return
         }
 
@@ -647,10 +723,16 @@ export function createAndroidInputManager({
               const parts = text.split('\n')
               parts.forEach((line, i) => {
                 if (line) {
-                  Editor.insertText(editor, line)
+                  applyEditableCommand({
+                    command: { kind: 'insert-text', text: line },
+                    editor,
+                  })
                 }
                 if (i !== parts.length - 1) {
-                  Editor.insertSoftBreak(editor)
+                  applyEditableCommand({
+                    command: { kind: 'insert-break', variant: 'soft' },
+                    editor,
+                  })
                 }
               })
             },
@@ -662,6 +744,11 @@ export function createAndroidInputManager({
         }
 
         if (Path.equals(targetRange.anchor.path, targetRange.focus.path)) {
+          canStoreDiff = canStoreDiff && canStoreDOMTextDiffAtRange(targetRange)
+          if (!canStoreDiff && event.cancelable) {
+            event.preventDefault()
+          }
+
           const [start, end] = Range.edges(targetRange)
 
           const diff = {
@@ -716,7 +803,7 @@ export function createAndroidInputManager({
           }
 
           if (canStoreDiff) {
-            const currentSelection = editor.selection
+            const currentSelection = readRuntimeSelection(editor)
             storeDiff(start.path, diff)
 
             if (currentSelection) {
@@ -727,9 +814,11 @@ export function createAndroidInputManager({
 
               scheduleAction(
                 () => {
-                  Transforms.select(editor, {
-                    anchor: newPoint,
-                    focus: newPoint,
+                  editor.update(() => {
+                    editor.select({
+                      anchor: newPoint,
+                      focus: newPoint,
+                    })
                   })
                 },
                 { at: newPoint }
@@ -739,9 +828,16 @@ export function createAndroidInputManager({
           }
         }
 
-        scheduleAction(() => Editor.insertText(editor, text), {
-          at: targetRange,
-        })
+        scheduleCommand(
+          { kind: 'insert-text', text },
+          {
+            at: cloneRange(
+              canStoreDiff
+                ? targetRange
+                : (readRuntimeSelection(editor) ?? targetRange)
+            ),
+          }
+        )
         return
       }
     }
@@ -771,7 +867,7 @@ export function createAndroidInputManager({
       flushTimeoutId = null
     }
 
-    const { selection } = editor
+    const selection = editor.getSelection()
     if (!range) {
       return
     }
@@ -824,9 +920,15 @@ export function createAndroidInputManager({
       return
     }
 
+    if (!receivedUserInput.current) {
+      return
+    }
+
     if (
-      mutations.some((mutation) =>
-        isTrackedMutation(editor, mutation, mutations)
+      mutations.some(
+        (mutation) =>
+          !isDOMTextSyncMutation(mutation) &&
+          isTrackedMutation(editor, mutation, mutations)
       )
     ) {
       // Cause a re-render to restore the dom state if we encounter tracked mutations without

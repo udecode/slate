@@ -31,7 +31,7 @@ test.describe('code highlighting', () => {
 
     await editor.selection.collapse({ path: [1, 0, 0], offset: 6 })
     await editor.focus()
-    await editor.root.press('Enter')
+    await editor.press('Enter')
 
     await expect(
       editor.root.locator(':scope > [data-slate-node="element"]')

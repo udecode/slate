@@ -13,12 +13,17 @@ interface RangeRef {
 For example:
 
 ```typescript
-const selectionRef = Editor.rangeRef(editor, editor.selection, {
+const selectionRef = Editor.rangeRef(editor, Editor.getSelection(editor), {
   affinity: 'inward',
 })
 // Allow the user to do stuff which might change the selection
-Transforms.unwrapNodes(editor)
-Transforms.select(editor, selectionRef.unref())
+editor.update(() => {
+  editor.unwrapNodes()
+  const selection = selectionRef.unref()
+  if (selection) {
+    editor.select(selection)
+  }
+})
 ```
 
 - [Instance methods](range-ref.md#instance-methods)

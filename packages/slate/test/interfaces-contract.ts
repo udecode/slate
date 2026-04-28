@@ -71,15 +71,17 @@ describe('slate interfaces contract', () => {
     )
   })
 
-  it('mirrors the legacy Editor/legacy-minimal.tsx oracle row', () => {
+  it('recognizes editor instances without stale public state fields', () => {
     const editor = createEditor() as ReturnType<typeof createEditor> & {
       exec?: () => void
     }
 
     editor.exec = () => {}
 
-    assert.equal(typeof editor.apply, 'function')
-    assert.equal(Array.isArray(editor.children), true)
-    assert.equal(editor.selection, null)
+    assert.equal('apply' in editor, false)
+    assert.equal(Array.isArray(editor.getChildren()), true)
+    assert.equal(editor.getSelection(), null)
+    assert.equal('children' in editor, false)
+    assert.equal('selection' in editor, false)
   })
 })

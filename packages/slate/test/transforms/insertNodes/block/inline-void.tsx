@@ -4,11 +4,8 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Transforms } from 'slate'
-
 export const run = (editor, options = {}) => {
-  Transforms.insertNodes(
-    editor,
+  editor.insertNodes(
     <block>
       <text />
     </block>,

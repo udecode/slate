@@ -76,7 +76,7 @@ describe('slate-react ReactEditor contract', () => {
   test('ReactEditor.focus does not trigger onValueChange', async () => {
     const editor = withReact(createEditor())
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
-    const onChange = jest.fn()
+    const onSnapshotChange = jest.fn()
     const onValueChange = jest.fn()
     const onSelectionChange = jest.fn()
 
@@ -85,8 +85,8 @@ describe('slate-react ReactEditor contract', () => {
         <Slate
           editor={editor}
           initialValue={initialValue}
-          onChange={onChange}
           onSelectionChange={onSelectionChange}
+          onSnapshotChange={onSnapshotChange}
           onValueChange={onValueChange}
         >
           <Editable />
@@ -102,7 +102,15 @@ describe('slate-react ReactEditor contract', () => {
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 0 },
     })
-    expect(onChange).toHaveBeenCalled()
+    expect(onSnapshotChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selection: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 0 },
+        },
+      }),
+      expect.objectContaining({ selectionChanged: true })
+    )
     expect(onSelectionChange).toHaveBeenCalled()
     expect(onValueChange).not.toHaveBeenCalled()
   })

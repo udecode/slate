@@ -11,7 +11,6 @@ export type EditableCaretMovementResult = {
 }
 
 const selectionSyncRepair = (): EditableRepairRequest => ({
-  forceRender: true,
   kind: 'sync-selection',
   selectionSourceTransition: {
     preferModelSelection: true,
@@ -76,6 +75,28 @@ export const applyEditableCaretMovement = ({
     event.preventDefault()
     editor.update(() => {
       editor.move({ unit: 'line', edge: 'focus' })
+    })
+    return caretMovementHandled()
+  }
+
+  if (Hotkeys.isExtendBackward(nativeEvent)) {
+    event.preventDefault()
+    editor.update(() => {
+      editor.move({
+        edge: 'focus',
+        reverse: !isRTL,
+      })
+    })
+    return caretMovementHandled()
+  }
+
+  if (Hotkeys.isExtendForward(nativeEvent)) {
+    event.preventDefault()
+    editor.update(() => {
+      editor.move({
+        edge: 'focus',
+        reverse: isRTL,
+      })
     })
     return caretMovementHandled()
   }

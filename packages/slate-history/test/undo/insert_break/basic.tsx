@@ -7,7 +7,9 @@ jsx
 import { cloneDeep } from 'lodash'
 
 export const run = (editor) => {
-  editor.insertBreak()
+  editor.update(() => {
+    editor.insertBreak()
+  })
 }
 export const input = (
   <editor>

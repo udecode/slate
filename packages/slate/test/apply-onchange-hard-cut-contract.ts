@@ -28,17 +28,11 @@ describe('apply/onChange hard cuts', () => {
     assert.equal((editor as Record<string, unknown>).onChange, undefined)
   })
 
-  it('seals editor.apply against direct method replacement', () => {
+  it('does not expose editor.apply as an instance extension point', () => {
     const editor = createEditor()
-    const descriptor = Object.getOwnPropertyDescriptor(editor, 'apply')
 
-    assert.equal(descriptor?.writable, false)
-    assert.equal(descriptor?.configurable, false)
-    assert.throws(() => {
-      Object.defineProperty(editor, 'apply', {
-        value: () => {},
-      })
-    }, /Cannot redefine property|readonly property/)
+    assert.equal('apply' in editor, false)
+    assert.equal((editor as Record<string, unknown>).apply, undefined)
   })
 
   it('imports operations through applyOperations and publishes one commit', () => {

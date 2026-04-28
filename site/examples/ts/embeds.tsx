@@ -1,61 +1,67 @@
 import React, { type ChangeEvent, useMemo } from 'react'
-import {
-  createEditor,
-  type Descendant,
-  type Element as SlateElement,
-  Transforms,
-} from 'slate'
+import { createEditor, defineEditorExtension } from 'slate'
+import { withHistory } from 'slate-history'
 import {
   Editable,
-  ReactEditor,
   type RenderElementProps,
   Slate,
-  useSlateStatic,
   withReact,
 } from 'slate-react'
 import type {
   CustomEditor,
-  RenderElementPropsFor,
+  CustomValue,
+  RenderVoidPropsFor,
   VideoElement as VideoElementType,
 } from './custom-types.d'
 
 const EmbedsExample = () => {
-  const editor = useMemo(() => withEmbeds(withReact(createEditor())), [])
+  const editor = useMemo(
+    () => withEmbeds(withHistory(withReact(createEditor<CustomValue>()))),
+    []
+  )
   return (
     <Slate editor={editor} initialValue={initialValue}>
       <Editable
         placeholder="Enter some text..."
         renderElement={(props) => <Element {...props} />}
+        renderVoid={(props) => (
+          <VideoElement {...(props as RenderVoidPropsFor<VideoElementType>)} />
+        )}
       />
     </Slate>
   )
 }
 
+const embedsExtension = defineEditorExtension<CustomEditor>({
+  name: 'embeds',
+  methods(editor) {
+    const nextIsVoid = editor.isVoid
+
+    return {
+      isVoid(element) {
+        return element.type === 'video' ? true : nextIsVoid(element)
+      },
+    }
+  },
+})
+
 const withEmbeds = (editor: CustomEditor) => {
-  const { isVoid } = editor
-  editor.isVoid = (element) =>
-    element.type === 'video' ? true : isVoid(element)
+  editor.extend(embedsExtension)
   return editor
 }
 
 const Element = (props: RenderElementProps) => {
-  const { attributes, children, element } = props
-  switch (element.type) {
-    case 'video':
-      return <VideoElement {...props} />
-    default:
-      return <p {...attributes}>{children}</p>
-  }
+  const { attributes, children } = props
+
+  return <p {...attributes}>{children}</p>
 }
 
 const allowedSchemes = ['http:', 'https:']
 
 const VideoElement = ({
-  attributes,
-  children,
+  actions,
   element,
-}: RenderElementPropsFor<VideoElementType>) => {
-  const editor = useSlateStatic()
+}: RenderVoidPropsFor<VideoElementType>) => {
   const { url } = element
 
   const safeUrl = useMemo(() => {
@@ -71,41 +77,32 @@ const VideoElement = ({
   }, [url])
 
   return (
-    <div {...attributes}>
-      <div contentEditable={false}>
-        <div
+    <>
+      <div
+        style={{
+          padding: '75% 0 0 0',
+          position: 'relative',
+        }}
+      >
+        <iframe
+          frameBorder="0"
+          src={`${safeUrl}?title=0&byline=0&portrait=0`}
           style={{
-            padding: '75% 0 0 0',
-            position: 'relative',
+            position: 'absolute',
+            top: '0',
+            left: '0',
+            width: '100%',
+            height: '100%',
           }}
-        >
-          <iframe
-            frameBorder="0"
-            src={`${safeUrl}?title=0&byline=0&portrait=0`}
-            style={{
-              position: 'absolute',
-              top: '0',
-              left: '0',
-              width: '100%',
-              height: '100%',
-            }}
-          />
-        </div>
-        <UrlInput
-          onChange={(val) => {
-            const path = ReactEditor.findPath(editor, element)
-            const newProperties: Partial<SlateElement> = {
-              url: val,
-            }
-            Transforms.setNodes<SlateElement>(editor, newProperties, {
-              at: path,
-            })
-          }}
-          url={url}
         />
       </div>
-      {children}
-    </div>
+      <UrlInput
+        onChange={(val) => {
+          actions.setElement({ url: val })
+        }}
+        url={url}
+      />
+    </>
   )
 }
 
@@ -134,7 +131,7 @@ const UrlInput = ({ url, onChange }: UrlInputProps) => {
   )
 }
 
-const initialValue: Descendant[] = [
+const initialValue: CustomValue = [
   {
     type: 'paragraph',
     children: [

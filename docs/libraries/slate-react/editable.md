@@ -10,17 +10,27 @@ It takes as its props, any props accepted by a Textarea element plus the followi
 
 ```typescript
 type EditableProps = {
-  decorate?: (entry: NodeEntry) => Range[]
+  editor?: Editor
+  isInline?: (element: Element) => boolean
+  largeDocument?: {
+    activeRadius?: number
+    enabled: boolean
+    islandSize?: number
+    previewChars?: number
+    threshold?: number
+  }
   onDOMBeforeInput?: (event: InputEvent) => void
   placeholder?: string
+  projectionStore?: SlateProjectionStore | null
   readOnly?: boolean
   role?: string
   style?: React.CSSProperties
   renderElement?: (props: RenderElementProps) => React.JSX.Element
   renderLeaf?: (props: RenderLeafProps) => React.JSX.Element
   renderPlaceholder?: (props: RenderPlaceholderProps) => React.JSX.Element
+  renderSegment?: (segment: EditableTextSegment, children: React.ReactNode) => React.ReactNode
+  renderText?: (props: RenderTextProps) => React.JSX.Element
   scrollSelectionIntoView?: (editor: ReactEditor, domRange: DOMRange) => void
-  as?: React.ElementType
   disableDefaultStyles?: boolean
 } & React.TextareaHTMLAttributes<HTMLDivElement>
 ```
@@ -133,6 +143,42 @@ export interface RenderLeafProps {
   }
 }
 ```
+
+#### `projectionStore?: SlateProjectionStore | null`
+
+The projection store provides render-time overlays such as decorations,
+annotations, widgets, diagnostics, and search results. Use
+`createSlateProjectionStore` with one or more projection sources, then pass the
+store to `Editable` or to the surrounding `Slate` provider.
+
+Projection sources are the overlay API. Represent decorations, annotations,
+diagnostics, and search results as typed projection ranges, then pass the
+projection store to the editor.
+
+#### `renderSegment?: (segment: EditableTextSegment, children: React.ReactNode) => React.ReactNode`
+
+The `renderSegment` prop renders a text segment after projection slices split a
+text node. Use it to apply overlay-specific markup without changing the Slate
+document.
+
+```tsx
+<Editable
+  projectionStore={projectionStore}
+  renderSegment={(segment, children) =>
+    segment.slices.length > 0 ? (
+      <span data-overlay="true">{children}</span>
+    ) : (
+      children
+    )
+  }
+/>
+```
+
+#### `largeDocument?: LargeDocumentOptions | null`
+
+The `largeDocument` option enables semantic islands for huge documents. Inactive
+regions render as accessible shells, while the active corridor mounts editable
+content. This keeps typing, selection, and overlay work local.
 
 Example usage:
 

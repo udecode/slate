@@ -43,7 +43,7 @@ This is how to connect to a collaborative Yjs document, ready to be used in your
 
 ```jsx
 import { useEffect, useMemo, useState } from 'react'
-import { createEditor, Editor, Transforms } from 'slate'
+import { createEditor, Editor } from 'slate'
 import { Editable, Slate, withReact } from 'slate-react'
 import * as Y from 'yjs'
 
@@ -99,7 +99,7 @@ helpful later.
 
 ```jsx
 import { useEffect, useMemo, useState } from 'react'
-import { createEditor, Editor, Transforms } from 'slate'
+import { createEditor, Editor } from 'slate'
 import { Editable, Slate, withReact } from 'slate-react'
 import { withYjs, YjsEditor } from '@slate-yjs/core'
 import * as Y from 'yjs'
@@ -152,7 +152,7 @@ const SlateEditor = ({ sharedType, provider }) => {
         return normalizeNode(entry, options)
       }
 
-      Transforms.insertNodes(editor, initialValue, { at: [0] })
+      editor.insertNodes(initialValue, { at: [0] })
     }
 
     return e
@@ -345,7 +345,7 @@ component we've just created.
 
 ```jsx
 import { useEffect, useMemo, useState } from 'react'
-import { createEditor, Editor, Transforms } from 'slate'
+import { createEditor, Editor } from 'slate'
 import { Editable, Slate, withReact } from 'slate-react'
 import { withCursors, withYjs, YjsEditor } from '@slate-yjs/core'
 import { Cursors } from './Cursors'
@@ -376,7 +376,7 @@ const SlateEditor = ({ sharedType, provider }) => {
         return normalizeNode(entry, options)
       }
 
-      Transforms.insertNodes(editor, initialValue, { at: [0] })
+      editor.insertNodes(initialValue, { at: [0] })
     }
 
     return e

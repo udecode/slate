@@ -90,7 +90,7 @@ const inventoryRules: InventoryRule[] = [
       'Generated lib output is not hand-edited, but it remains visible to package consumers until rebuilt.',
   },
   {
-    expected: { primitive: 6, stale: 37 },
+    expected: { primitive: 6, stale: 40 },
     gate: 'historical docs are not the current API contract',
     id: 'historical-changelog',
     next: 'historical-only',
@@ -110,7 +110,7 @@ const inventoryRules: InventoryRule[] = [
       'Normalizer examples run under the normalization/update lifecycle, not app UI command handlers.',
   },
   {
-    expected: { primitive: 44, stale: 106 },
+    expected: { primitive: 45, stale: 125 },
     gate: 'browser proof handles must stay explicitly classified as proof transport',
     id: 'browser-proof-rows',
     next: 'explicit-proof-bridge',
@@ -130,7 +130,7 @@ const inventoryRules: InventoryRule[] = [
       'The slate-browser README documents the proof harness selection API.',
   },
   {
-    expected: { primitive: 10 },
+    expected: { primitive: 9 },
     gate: 'semantic editor methods stay thin over primitive/update runtime',
     id: 'core-editor-methods',
     next: 'central-owner',
@@ -147,10 +147,10 @@ const inventoryRules: InventoryRule[] = [
     owner: 'central-runtime',
     path: /^packages\/slate\/src\/interfaces\/editor\.ts$/,
     rationale:
-      'The editor interface defines compatibility mirrors and primitive methods in one place.',
+      'The editor interface defines central editor methods in one place.',
   },
   {
-    expected: { primitive: 34, stale: 2 },
+    expected: { primitive: 31 },
     gate: 'core transform implementations own structural mutation internals',
     id: 'core-transform-runtime',
     next: 'central-owner',
@@ -170,7 +170,7 @@ const inventoryRules: InventoryRule[] = [
       'Slate DOM owns DOM bridge compatibility and selection import/export helpers.',
   },
   {
-    expected: { bridge: 26, stale: 2 },
+    expected: { bridge: 27, stale: 1 },
     gate: 'React runtime escape hatches must stay under kernel/runtime owners',
     id: 'react-runtime',
     next: 'central-owner',
@@ -180,7 +180,7 @@ const inventoryRules: InventoryRule[] = [
       'Slate React owns editable input, IME, repair, and bridge workers behind the kernel.',
   },
   {
-    expected: { primitive: 285, stale: 2 },
+    expected: { primitive: 285 },
     gate: 'legacy transform fixtures are not public runtime law',
     id: 'slate-legacy-transform-fixtures',
     next: 'legacy-fixture',
@@ -190,17 +190,17 @@ const inventoryRules: InventoryRule[] = [
       'Legacy transform fixtures preserve upstream behavior coverage while primary docs move to editor methods.',
   },
   {
-    expected: { primitive: 187, stale: 46 },
+    expected: { primitive: 166, stale: 2 },
     gate: 'core contract tests may exercise compatibility, but only as tests',
     id: 'slate-core-contract-tests',
     next: 'keep-as-contract',
     owner: 'contract-test',
     path: /^packages\/slate\/test\//,
     rationale:
-      'Core contracts intentionally cover compatibility mirrors, snapshots, and update/runtime behavior.',
+      'Core contracts intentionally cover snapshots and update/runtime behavior.',
   },
   {
-    expected: { primitive: 25 },
+    expected: { primitive: 28 },
     gate: 'history tests may cover legacy fixtures while history runtime burns down compatibility',
     id: 'slate-history-tests',
     next: 'keep-as-contract',
@@ -218,16 +218,6 @@ const inventoryRules: InventoryRule[] = [
     path: /^packages\/slate-react\/test\//,
     rationale:
       'React contracts prove bridge, selection, projection, and update behavior without teaching app DX.',
-  },
-  {
-    expected: { stale: 3 },
-    gate: 'DOM tests may seed maps and bridge fixtures explicitly',
-    id: 'slate-dom-tests',
-    next: 'keep-as-contract',
-    owner: 'contract-test',
-    path: /^packages\/slate-dom\/test\//,
-    rationale:
-      'DOM bridge tests seed editor/node maps and prove DOM conversion behavior.',
   },
 ]
 

@@ -1,4 +1,4 @@
-import { type ExtendedType, isObject, type Operation, Path } from '..'
+import { isObject, type Operation, Path } from '..'
 import type { TextDirection } from '../types/types'
 
 /**
@@ -13,7 +13,7 @@ export interface BasePoint {
   offset: number
 }
 
-export type Point = ExtendedType<'Point', BasePoint>
+export type Point = BasePoint
 
 export interface PointTransformOptions {
   affinity?: TextDirection | null

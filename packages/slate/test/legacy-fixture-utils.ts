@@ -247,16 +247,20 @@ export const runLegacyTransformFixture = async (filename: string) => {
   }
 
   const editor = withLegacyTestBehaviors(fixture.input)
+  const initialSnapshot = Slate.Editor.getSnapshot(editor)
+
   Slate.Editor.replace(editor, {
-    children: editor.children,
-    selection: editor.selection,
-    marks: editor.marks,
+    children: initialSnapshot.children,
+    selection: initialSnapshot.selection,
+    marks: initialSnapshot.marks,
   })
   fixture.run(editor)
 
+  const snapshot = Slate.Editor.getSnapshot(editor)
+
   return {
-    actualChildren: normalizeLegacyValue(editor.children),
-    actualSelection: normalizeLegacyValue(editor.selection),
+    actualChildren: normalizeLegacyValue(snapshot.children),
+    actualSelection: normalizeLegacyValue(snapshot.selection),
     expectedChildren: normalizeLegacyValue(
       Slate.Editor.isEditor(fixture.output)
         ? fixture.output.children

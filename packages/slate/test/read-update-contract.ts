@@ -101,7 +101,7 @@ describe('read/update contract', () => {
     )
   })
 
-  it('rejects raw apply writes inside a plain read', () => {
+  it('rejects replay writes inside a plain read', () => {
     const editor = createEditor()
 
     Editor.replace(editor, {
@@ -115,14 +115,16 @@ describe('read/update contract', () => {
     assert.throws(
       () =>
         editor.read(() => {
-          editor.apply({
-            offset: 3,
-            path: [0, 0],
-            text: '!',
-            type: 'insert_text',
-          })
+          editor.applyOperations([
+            {
+              offset: 3,
+              path: [0, 0],
+              text: '!',
+              type: 'insert_text',
+            },
+          ])
         }),
-      /editor writes cannot be started inside editor\.read/
+      /editor\.update cannot be started inside editor\.read/
     )
   })
 })

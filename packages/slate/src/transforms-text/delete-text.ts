@@ -1,7 +1,10 @@
+import { cleanupTextLeafLifecycle } from '../core/leaf-lifecycle'
 import { getCurrentSelection, withTransaction } from '../core/public-state'
 import {
+  type Descendant,
   Location,
   Node as NodeApi,
+  type Operation,
   type Path,
   Path as PathApi,
   Point as PointApi,
@@ -9,8 +12,7 @@ import {
   type Element as SlateElement,
 } from '../interfaces'
 import { type Editor, Editor as EditorApi } from '../interfaces/editor'
-import type { TextTransforms } from '../interfaces/transforms/text'
-import { createSetSelectionOperation } from '../selection-operation'
+import type { TextMutationMethods } from '../interfaces/transforms/text'
 import { mergeNodes } from '../transforms-node'
 
 const COMPLEX_SCRIPT_CHARACTER_REGEX =
@@ -137,30 +139,8 @@ const hasSingleChildNest = (
   )
 }
 
-const cleanupEmptyAncestors = (editor: Editor, path: Path) => {
-  const refs = Array.from({ length: path.length - 1 }, (_, index) =>
-    editor.pathRef(path.slice(0, index + 1) as Path)
-  )
-
-  refs
-    .reverse()
-    .map((ref) => ref.unref())
-    .filter((entry): entry is Path => entry !== null)
-    .forEach((entry) => {
-      if (!editor.hasPath(entry)) {
-        return
-      }
-
-      const node = getCurrentNode(editor, entry)
-
-      if (NodeApi.isElement(node) && node.children.length === 0) {
-        editor.removeNodes({ at: entry })
-      }
-    })
-}
-
 const mergeAdjacentTextRuns = (editor: Editor) => {
-  if (editor.children.length === 0) {
+  if (EditorApi.getChildren(editor).length === 0) {
     return
   }
 
@@ -238,7 +218,7 @@ const removeEmptyStructuralArtifacts = (
       NodeApi.isElement(node) &&
       NodeApi.string(node) === '' &&
       hasSingleChildNest(editor, node) &&
-      (!isTopLevelBlock || editor.children.length > 1)
+      (!isTopLevelBlock || EditorApi.getChildren(editor).length > 1)
     ) {
       const parentPath = path.slice(0, -1) as Path
       const parent =
@@ -263,8 +243,8 @@ const restorePreservedEmptyStartBlock = (
   }
 
   const shouldRestore =
-    (editor.children.length === 1 &&
-      NodeApi.string(editor.children[0]!) !== '') ||
+    (EditorApi.getChildren(editor).length === 1 &&
+      NodeApi.string(EditorApi.getChildren(editor)[0]!) !== '') ||
     !editor.hasPath(preservePath) ||
     NodeApi.string(getCurrentNode(editor, preservePath)) !== ''
 
@@ -286,6 +266,10 @@ type DeletePathTarget = {
   path: Path
   fallbackPoint?: DeletePoint
   initialAt: DeleteOptions['at']
+}
+type TransactionWriter = {
+  apply: (operation: Operation) => void
+  setSelection: (selection: import('../interfaces').Range | null) => void
 }
 type DeleteRangePlan = {
   kind: 'range'
@@ -335,7 +319,9 @@ const resolveRemovalEndPoint = (
   const liveStartPoint = getLivePoint(editor, startPoint)
 
   if (!liveStartPoint) {
-    return editor.children.length > 0 ? EditorApi.start(editor, []) : null
+    return EditorApi.getChildren(editor).length > 0
+      ? EditorApi.start(editor, [])
+      : null
   }
 
   const nextPoint = EditorApi.after(editor, liveStartPoint, {
@@ -588,7 +574,8 @@ const shouldPreserveEmptyStartBlockForHangingRange = (
 
 const resolveDeleteTarget = (
   editor: Editor,
-  options: DeleteOptions = {}
+  options: DeleteOptions = {},
+  resolvedAt?: Location | null
 ): DeletePathTarget | DeleteRangePlan | null => {
   const {
     reverse = false,
@@ -596,7 +583,8 @@ const resolveDeleteTarget = (
     distance = 1,
     voids = false,
   } = options
-  let { at = getCurrentSelection(editor), hanging = false } = options
+  let { at = resolvedAt ?? getCurrentSelection(editor), hanging = false } =
+    options
   const initialAt = at ?? undefined
 
   if (!at) {
@@ -802,11 +790,15 @@ const resolveDeleteTarget = (
   }
 }
 
-const deletePathTarget = (editor: Editor, target: DeletePathTarget) => {
-  editor.apply({
+const deletePathTarget = (
+  editor: Editor,
+  target: DeletePathTarget,
+  tx: TransactionWriter
+) => {
+  tx.apply({
     type: 'remove_node',
     path: target.path,
-    node: getCurrentNode(editor, target.path),
+    node: getCurrentNode(editor, target.path) as Descendant,
   })
 
   if (editor.hasPath(target.path)) {
@@ -814,12 +806,10 @@ const deletePathTarget = (editor: Editor, target: DeletePathTarget) => {
   }
 
   if (target.fallbackPoint) {
-    editor.apply(
-      createSetSelectionOperation(getCurrentSelection(editor), {
-        anchor: target.fallbackPoint,
-        focus: target.fallbackPoint,
-      })
-    )
+    tx.setSelection({
+      anchor: target.fallbackPoint,
+      focus: target.fallbackPoint,
+    })
   }
 }
 
@@ -866,7 +856,11 @@ const collectDeleteMatchPaths = (editor: Editor, plan: DeleteRangePlan) => {
   return matches
 }
 
-const removeDeleteContents = (editor: Editor, plan: DeleteRangePlan) => {
+const removeDeleteContents = (
+  editor: Editor,
+  plan: DeleteRangePlan,
+  tx: TransactionWriter
+) => {
   const pathRefs = collectDeleteMatchPaths(editor, plan).map((path) =>
     editor.pathRef(path)
   )
@@ -880,7 +874,7 @@ const removeDeleteContents = (editor: Editor, plan: DeleteRangePlan) => {
     const text = node.text.slice(plan.start.offset)
 
     if (text.length > 0) {
-      editor.apply({
+      tx.apply({
         type: 'remove_text',
         path: point.path,
         offset: plan.start.offset,
@@ -896,10 +890,10 @@ const removeDeleteContents = (editor: Editor, plan: DeleteRangePlan) => {
     .map((ref) => ref.unref())
     .filter((path): path is Path => path !== null)
     .forEach((path) => {
-      editor.apply({
+      tx.apply({
         type: 'remove_node',
         path,
-        node: getCurrentNode(editor, path),
+        node: getCurrentNode(editor, path) as Descendant,
       })
     })
 
@@ -917,7 +911,7 @@ const removeDeleteContents = (editor: Editor, plan: DeleteRangePlan) => {
     const text = node.text.slice(offset, plan.end.offset)
 
     if (text.length > 0) {
-      editor.apply({
+      tx.apply({
         type: 'remove_text',
         path: point.path,
         offset,
@@ -995,7 +989,8 @@ const reconcileDeleteStructure = (
 const resolveDeleteSelection = (
   editor: Editor,
   plan: DeleteRangePlan,
-  removal: ReturnType<typeof removeDeleteContents>
+  removal: ReturnType<typeof removeDeleteContents>,
+  tx: TransactionWriter
 ) => {
   let complexScriptSelection: DeletePoint | null = null
 
@@ -1006,15 +1001,17 @@ const resolveDeleteSelection = (
     removal.removedText.length > 1 &&
     COMPLEX_SCRIPT_CHARACTER_REGEX.test(removal.removedText)
   ) {
-    EditorApi.insertText(
-      editor,
-      removal.removedText.slice(0, removal.removedText.length - plan.distance)
+    const restoredText = removal.removedText.slice(
+      0,
+      removal.removedText.length - plan.distance
     )
 
-    const currentSelection = getCurrentSelection(editor)
-
-    if (currentSelection && RangeApi.isCollapsed(currentSelection)) {
-      complexScriptSelection = currentSelection.anchor
+    if (restoredText.length > 0) {
+      EditorApi.insertText(editor, restoredText, { at: plan.start })
+      complexScriptSelection = {
+        path: [...plan.start.path],
+        offset: plan.start.offset + restoredText.length,
+      }
     }
   }
 
@@ -1095,12 +1092,10 @@ const resolveDeleteSelection = (
   }
 
   if ((!plan.initialAt || !Location.isPath(plan.initialAt)) && point) {
-    editor.apply(
-      createSetSelectionOperation(getCurrentSelection(editor), {
-        anchor: point,
-        focus: point,
-      })
-    )
+    tx.setSelection({
+      anchor: point,
+      focus: point,
+    })
   }
 
   const finalSelection = getCurrentSelection(editor)
@@ -1144,14 +1139,18 @@ const resolveDeleteSelection = (
       normalizedSelectionPoint &&
       !PointApi.equals(normalizedSelectionPoint, finalSelection.anchor)
     ) {
-      editor.apply(
-        createSetSelectionOperation(finalSelection, {
-          anchor: normalizedSelectionPoint,
-          focus: normalizedSelectionPoint,
-        })
-      )
+      tx.setSelection({
+        anchor: normalizedSelectionPoint,
+        focus: normalizedSelectionPoint,
+      })
     }
   }
+}
+
+const cleanupDeleteLeafLifecycle = (editor: Editor, plan: DeleteRangePlan) => {
+  cleanupTextLeafLifecycle(editor, {
+    affinity: plan.reverse ? 'backward' : 'forward',
+  })
 }
 
 const normalizeFinalDeletePoint = (
@@ -1164,7 +1163,9 @@ const normalizeFinalDeletePoint = (
   }
 
   if (!editor.hasPath(point.path as Path)) {
-    return editor.children.length > 0 ? EditorApi.start(editor, []) : point
+    return EditorApi.getChildren(editor).length > 0
+      ? EditorApi.start(editor, [])
+      : point
   }
 
   if (point.offset === 0 && point.path.length > 0) {
@@ -1544,115 +1545,39 @@ const mergeBlocksAtPoint = (
   point: import('../interfaces').Point,
   voids: boolean
 ) => {
-  const match = (node: import('../interfaces').Node) =>
-    NodeApi.isElement(node) && editor.isBlock(node)
-  const current = EditorApi.above(editor, {
+  mergeNodes(editor, {
     at: point,
-    match,
-    mode: 'lowest',
+    hanging: true,
     voids,
   })
-
-  if (!current) {
-    return
-  }
-
-  const [_node, path] = current
-  const prev = EditorApi.previous(editor, {
-    at: path,
-    match,
-    mode: 'lowest',
-    voids,
-  })
-
-  if (!prev) {
-    return
-  }
-
-  const [_prevNode, prevPath] = prev
-
-  if (path.length === 0 || prevPath.length === 0) {
-    return
-  }
-
-  const newPath = PathApi.next(prevPath)
-  const commonPath = PathApi.common(path, prevPath)
-  const isPreviousSibling = PathApi.isSibling(path, prevPath)
-  const levels = Array.from(
-    EditorApi.levels(editor, { at: path }),
-    ([entry]) => entry
-  )
-    .slice(commonPath.length)
-    .slice(0, -1)
-
-  const emptyAncestor = EditorApi.above(editor, {
-    at: path,
-    mode: 'highest',
-    match: (entry) =>
-      levels.includes(entry) && hasSingleChildNest(editor, entry),
-  })
-
-  const emptyRef = emptyAncestor ? editor.pathRef(emptyAncestor[1]) : null
-
-  if (!isPreviousSibling) {
-    editor.moveNodes({ at: path, to: newPath })
-  }
-
-  if (emptyRef?.current) {
-    editor.removeNodes({ at: emptyRef.current })
-  }
-
-  const movedCurrentPath = isPreviousSibling ? path : newPath
-  const movedCurrent = getCurrentNode(editor, movedCurrentPath)
-  const previous = getCurrentNode(editor, prevPath)
-
-  if (!NodeApi.isElement(movedCurrent) || !NodeApi.isElement(previous)) {
-    emptyRef?.unref()
-    return
-  }
-
-  if (
-    editor.shouldMergeNodesRemovePrevNode(
-      [previous, prevPath],
-      [movedCurrent, movedCurrentPath]
-    )
-  ) {
-    editor.removeNodes({ at: prevPath })
-    emptyRef?.unref()
-    return
-  }
-
-  editor.apply({
-    type: 'merge_node',
-    path: movedCurrentPath,
-    position: previous.children.length,
-    properties: Object.fromEntries(
-      Object.entries(movedCurrent).filter(
-        ([key]) => key !== 'type' && key !== 'children'
-      )
-    ),
-  })
-
-  cleanupEmptyAncestors(editor, path)
-  emptyRef?.unref()
 }
 
-export const deleteText: TextTransforms['delete'] = (editor, options = {}) => {
-  withTransaction(editor, () => {
-    const target = resolveDeleteTarget(editor, options)
+export const deleteText: TextMutationMethods['delete'] = (
+  editor,
+  options = {}
+) => {
+  withTransaction(editor, (tx) => {
+    const at = tx.resolveTarget({ at: options.at })
+
+    if (!at) {
+      return
+    }
+
+    const target = resolveDeleteTarget(editor, options, at)
 
     if (!target) {
       return
     }
 
     if (target.kind === 'path') {
-      deletePathTarget(editor, target)
+      deletePathTarget(editor, target, tx)
       return
     }
 
-    const removal = removeDeleteContents(editor, target)
+    const removal = removeDeleteContents(editor, target, tx)
 
     reconcileDeleteStructure(editor, target, removal)
-    resolveDeleteSelection(editor, target, removal)
+    cleanupDeleteLeafLifecycle(editor, target)
+    resolveDeleteSelection(editor, target, removal, tx)
   })
 }

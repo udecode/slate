@@ -1,12 +1,11 @@
 import { useCallback, useMemo } from 'react'
 import {
   createEditor,
-  type Descendant,
+  defineEditorExtension,
   Editor,
   Node,
   type NodeEntry,
   type Element as SlateElement,
-  Transforms,
 } from 'slate'
 import { withHistory } from 'slate-history'
 import {
@@ -18,64 +17,78 @@ import {
 import type {
   CustomEditor,
   CustomElementType,
+  CustomValue,
   ParagraphElement,
   TitleElement,
 } from './custom-types.d'
 
-const withLayout = (editor: CustomEditor) => {
-  const { normalizeNode } = editor
+const layoutExtension = defineEditorExtension<CustomEditor>({
+  name: 'forced-layout',
+  methods(editor) {
+    const nextNormalizeNode = editor.normalizeNode
 
-  editor.normalizeNode = ([node, path]: NodeEntry) => {
-    if (path.length === 0) {
-      if (editor.children.length <= 1 && Editor.string(editor, [0, 0]) === '') {
-        const title: TitleElement = {
-          type: 'title',
-          children: [{ text: 'Untitled' }],
-        }
-        Transforms.insertNodes(editor, title, {
-          at: path.concat(0),
-          select: true,
-        })
-      }
+    return {
+      normalizeNode(entry: NodeEntry) {
+        const [, path] = entry
 
-      if (editor.children.length < 2) {
-        const paragraph: ParagraphElement = {
-          type: 'paragraph',
-          children: [{ text: '' }],
-        }
-        Transforms.insertNodes(editor, paragraph, { at: path.concat(1) })
-      }
-
-      for (const [child, childPath] of Node.children(editor, path)) {
-        let type: CustomElementType
-        const slateIndex = childPath[0]
-        const enforceType = (type: CustomElementType) => {
-          if (Node.isElement(child) && child.type !== type) {
-            const newProperties: Partial<SlateElement> = { type }
-            Transforms.setNodes<SlateElement>(editor, newProperties, {
-              at: childPath,
+        if (path.length === 0) {
+          if (
+            Editor.getChildren(editor).length <= 1 &&
+            Editor.string(editor, [0, 0]) === ''
+          ) {
+            const title: TitleElement = {
+              type: 'title',
+              children: [{ text: 'Untitled' }],
+            }
+            editor.insertNodes(title, {
+              at: path.concat(0),
+              select: true,
             })
+          }
+
+          if (Editor.getChildren(editor).length < 2) {
+            const paragraph: ParagraphElement = {
+              type: 'paragraph',
+              children: [{ text: '' }],
+            }
+            editor.insertNodes(paragraph, { at: path.concat(1) })
+          }
+
+          for (const [child, childPath] of Node.children(editor, path)) {
+            let type: CustomElementType
+            const slateIndex = childPath[0]
+            const enforceType = (type: CustomElementType) => {
+              if (Node.isElement(child) && child.type !== type) {
+                const newProperties: Partial<SlateElement> = { type }
+                editor.setNodes<SlateElement>(newProperties, {
+                  at: childPath,
+                })
+              }
+            }
+
+            switch (slateIndex) {
+              case 0:
+                type = 'title'
+                enforceType(type)
+                break
+              case 1:
+                type = 'paragraph'
+                enforceType(type)
+                break
+              default:
+                break
+            }
           }
         }
 
-        switch (slateIndex) {
-          case 0:
-            type = 'title'
-            enforceType(type)
-            break
-          case 1:
-            type = 'paragraph'
-            enforceType(type)
-            break
-          default:
-            break
-        }
-      }
+        return nextNormalizeNode(entry)
+      },
     }
+  },
+})
 
-    return normalizeNode([node, path])
-  }
-
+const withLayout = (editor: CustomEditor) => {
+  editor.extend(layoutExtension)
   return editor
 }
 
@@ -85,7 +98,7 @@ const ForcedLayoutExample = () => {
     []
   )
   const editor = useMemo(
-    () => withLayout(withHistory(withReact(createEditor()))),
+    () => withLayout(withHistory(withReact(createEditor<CustomValue>()))),
     []
   )
   return (
@@ -109,7 +122,7 @@ const Element = ({ attributes, children, element }: RenderElementProps) => {
   }
 }
 
-const initialValue: Descendant[] = [
+const initialValue: CustomValue = [
   {
     type: 'title',
     children: [{ text: 'Enforce Your Layout!' }],

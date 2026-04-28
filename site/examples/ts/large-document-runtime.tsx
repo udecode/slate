@@ -259,13 +259,6 @@ const renderMixedElement = ({
           {children}
         </a>
       )
-    case 'runtime-void':
-      return (
-        <div {...attributes} contentEditable={false} data-runtime-void="true">
-          <span>void card</span>
-          <span style={{ display: 'none' }}>{children}</span>
-        </div>
-      )
     case 'runtime-table':
       return (
         <table data-runtime-table="true">
@@ -278,6 +271,23 @@ const renderMixedElement = ({
       return <td {...attributes}>{children}</td>
     default:
       return <p {...attributes}>{children}</p>
+  }
+}
+
+const renderMixedVoid = ({
+  element,
+}: {
+  element: { type?: string; url?: string }
+}) => {
+  switch (element.type) {
+    case 'runtime-void':
+      return (
+        <div data-runtime-void="true">
+          <span>void card</span>
+        </div>
+      )
+    default:
+      return null
   }
 }
 
@@ -403,6 +413,7 @@ const LargeDocumentRuntimeExample = () => {
           id="large-document-runtime-mixed"
           largeDocument={largeDocumentOptions}
           renderElement={renderMixedElement}
+          renderVoid={renderMixedVoid}
           style={editorStyle}
         />
       </section>
@@ -414,6 +425,7 @@ const LargeDocumentRuntimeExample = () => {
           id="large-document-runtime-void"
           largeDocument={largeDocumentOptions}
           renderElement={renderMixedElement}
+          renderVoid={renderMixedVoid}
           style={editorStyle}
         />
       </section>

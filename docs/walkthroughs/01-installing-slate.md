@@ -47,23 +47,17 @@ const App = () => {
 
 Of course we haven't rendered anything, so you won't see any changes.
 
-> If you are using TypeScript, you will also need to extend the `Editor` with `ReactEditor` and add annotations as per the documentation on [TypeScript](../concepts/12-typescript.md). The example below also includes the custom types required for the rest of this example.
+> If you are using TypeScript, create the editor with a value generic and compose plugins from that typed editor. The example below also includes the custom types required for the rest of this example.
 
 ```typescript
-// TypeScript users only add this code
-import { BaseEditor, Descendant } from 'slate'
-import { ReactEditor } from 'slate-react'
+import { createEditor } from 'slate'
+import { withReact } from 'slate-react'
 
 type CustomElement = { type: 'paragraph'; children: CustomText[] }
 type CustomText = { text: string }
+type CustomValue = CustomElement[]
 
-declare module 'slate' {
-  interface CustomTypes {
-    Editor: BaseEditor & ReactEditor
-    Element: CustomElement
-    Text: CustomText
-  }
-}
+const editor = withReact(createEditor<CustomValue>())
 ```
 
 Next up is to render a `<Slate>` context provider.
@@ -87,7 +81,7 @@ const App = () => {
 
 You can think of the `<Slate>` component as providing a context to every component underneath it.
 
-> Slate Provider's "value" prop is only used as initial state for editor.children. If your code relies on replacing editor.children you should do so by replacing it directly instead of relying on the "value" prop to do this for you. See [Slate PR 4540](https://github.com/ianstormtaylor/slate/pull/4540) for a more in-depth discussion.
+> Slate Provider's `initialValue` prop seeds the editor's initial document. To replace the document after initialization, use an explicit editor API such as `Editor.replace`.
 
 This is a slightly different mental model than things like `<input>` or `<textarea>`, because richtext documents are more complex. You'll often want to include toolbars, or live previews, or other complex components next to your editable content.
 
