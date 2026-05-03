@@ -1,7 +1,6 @@
 import type { KeyboardEvent } from 'react'
 import { Range } from 'slate'
 import { Hotkeys } from 'slate-dom'
-
 import type { ReactEditor } from '../plugin/react-editor'
 import type { EditableRepairRequest } from './mutation-controller'
 
@@ -45,24 +44,24 @@ export const applyEditableCaretMovement = ({
   // selection isn't properly collapsed. (2017/10/17)
   if (Hotkeys.isMoveLineBackward(nativeEvent)) {
     event.preventDefault()
-    editor.update(() => {
-      editor.move({ unit: 'line', reverse: true })
+    editor.update((tx) => {
+      tx.selection.move({ unit: 'line', reverse: true })
     })
     return caretMovementHandled()
   }
 
   if (Hotkeys.isMoveLineForward(nativeEvent)) {
     event.preventDefault()
-    editor.update(() => {
-      editor.move({ unit: 'line' })
+    editor.update((tx) => {
+      tx.selection.move({ unit: 'line' })
     })
     return caretMovementHandled()
   }
 
   if (Hotkeys.isExtendLineBackward(nativeEvent)) {
     event.preventDefault()
-    editor.update(() => {
-      editor.move({
+    editor.update((tx) => {
+      tx.selection.move({
         unit: 'line',
         edge: 'focus',
         reverse: true,
@@ -73,16 +72,16 @@ export const applyEditableCaretMovement = ({
 
   if (Hotkeys.isExtendLineForward(nativeEvent)) {
     event.preventDefault()
-    editor.update(() => {
-      editor.move({ unit: 'line', edge: 'focus' })
+    editor.update((tx) => {
+      tx.selection.move({ unit: 'line', edge: 'focus' })
     })
     return caretMovementHandled()
   }
 
   if (Hotkeys.isExtendBackward(nativeEvent)) {
     event.preventDefault()
-    editor.update(() => {
-      editor.move({
+    editor.update((tx) => {
+      tx.selection.move({
         edge: 'focus',
         reverse: !isRTL,
       })
@@ -92,8 +91,8 @@ export const applyEditableCaretMovement = ({
 
   if (Hotkeys.isExtendForward(nativeEvent)) {
     event.preventDefault()
-    editor.update(() => {
-      editor.move({
+    editor.update((tx) => {
+      tx.selection.move({
         edge: 'focus',
         reverse: isRTL,
       })
@@ -107,11 +106,11 @@ export const applyEditableCaretMovement = ({
   if (Hotkeys.isMoveBackward(nativeEvent)) {
     event.preventDefault()
 
-    editor.update(() => {
+    editor.update((tx) => {
       if (selection && Range.isCollapsed(selection)) {
-        editor.move({ reverse: !isRTL })
+        tx.selection.move({ reverse: !isRTL })
       } else {
-        editor.collapse({
+        tx.selection.collapse({
           edge: isRTL ? 'end' : 'start',
         })
       }
@@ -123,11 +122,11 @@ export const applyEditableCaretMovement = ({
   if (Hotkeys.isMoveForward(nativeEvent)) {
     event.preventDefault()
 
-    editor.update(() => {
+    editor.update((tx) => {
       if (selection && Range.isCollapsed(selection)) {
-        editor.move({ reverse: isRTL })
+        tx.selection.move({ reverse: isRTL })
       } else {
-        editor.collapse({
+        tx.selection.collapse({
           edge: isRTL ? 'start' : 'end',
         })
       }
@@ -139,12 +138,12 @@ export const applyEditableCaretMovement = ({
   if (Hotkeys.isMoveWordBackward(nativeEvent)) {
     event.preventDefault()
 
-    editor.update(() => {
+    editor.update((tx) => {
       if (selection && Range.isExpanded(selection)) {
-        editor.collapse({ edge: 'focus' })
+        tx.selection.collapse({ edge: 'focus' })
       }
 
-      editor.move({
+      tx.selection.move({
         unit: 'word',
         reverse: !isRTL,
       })
@@ -155,12 +154,12 @@ export const applyEditableCaretMovement = ({
   if (Hotkeys.isMoveWordForward(nativeEvent)) {
     event.preventDefault()
 
-    editor.update(() => {
+    editor.update((tx) => {
       if (selection && Range.isExpanded(selection)) {
-        editor.collapse({ edge: 'focus' })
+        tx.selection.collapse({ edge: 'focus' })
       }
 
-      editor.move({
+      tx.selection.move({
         unit: 'word',
         reverse: isRTL,
       })

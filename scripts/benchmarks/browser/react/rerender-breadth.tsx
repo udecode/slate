@@ -16,11 +16,11 @@ import {
   type Bookmark,
   createEditor,
   type Descendant,
-  Editor,
   type EditorSnapshot,
   type Range,
   type RuntimeId,
 } from '../../../../packages/slate/src/index.ts'
+import { Editor } from '../../../../packages/slate/src/internal/index.ts'
 import {
   createSlateProjectionStore,
   Editable,
@@ -31,14 +31,15 @@ import {
   type SlateProjectionStore,
   type SlateWidget,
   type SlateWidgetStore,
-  useSlate,
+  useEditor as useSlate,
   useSlateAnnotationStore,
   useSlateAnnotations,
   useSlateProjections,
-  useSlateSelection,
-  useSlateSelector,
+  useEditorSelection as useSlateSelection,
+  useEditorSelector as useSlateSelector,
   useSlateWidgetStore,
   useSlateWidgets,
+  withReact,
 } from '../../../../packages/slate-react/src/index.ts'
 import {
   cloneCounts,
@@ -49,8 +50,8 @@ import {
 } from '../../shared/react-benchmark.tsx'
 
 const select = (editor: ReturnType<typeof createEditor>, target: Range) => {
-  editor.update(() => {
-    editor.select(target)
+  editor.update((tx) => {
+    tx.selection.set(target)
   })
 }
 
@@ -59,8 +60,8 @@ const insertText = (
   text: string,
   options: Parameters<ReturnType<typeof createEditor>['insertText']>[1]
 ) => {
-  editor.update(() => {
-    editor.insertText(text, options)
+  editor.update((tx) => {
+    tx.text.insert(text, options)
   })
 }
 
@@ -85,7 +86,15 @@ const getProjectionMetricCounts = (
     store && typeof store.getMetrics === 'function' ? store.getMetrics() : null
 
   return {
+    changedRuntimeBucketCount: metrics?.changedRuntimeBucketCount ?? 0,
+    fullFallbackCount: metrics?.fullFallbackCount ?? 0,
+    globalSubscriberWakeCount: metrics?.globalSubscriberWakeCount ?? 0,
+    invalidRangeDropCount: metrics?.invalidRangeDropCount ?? 0,
+    projectedRangeCount: metrics?.projectedRangeCount ?? 0,
     recomputeCount: metrics?.recomputeCount ?? 0,
+    runtimeSubscriberWakeCount: metrics?.runtimeSubscriberWakeCount ?? 0,
+    sourceReadCount: metrics?.sourceReadCount ?? 0,
+    sourceSubscriberWakeCount: metrics?.sourceSubscriberWakeCount ?? 0,
   }
 }
 
@@ -510,7 +519,7 @@ const DecorationSourceToggleApp = ({
   }, [active, projectionStore])
 
   return (
-    <Slate editor={editor} projectionStore={projectionStore}>
+    <Slate decorationSources={[projectionStore]} editor={editor}>
       <button
         id="overlay-toggle"
         onClick={() => {
@@ -800,7 +809,7 @@ const AnnotationWidgetBreadthApp = ({
   }, [annotationStore, onStores, widgetStore])
 
   return (
-    <Slate editor={editor} projectionStore={annotationStore.projectionStore}>
+    <Slate annotationStores={[annotationStore]} editor={editor}>
       <AnnotationWidgetBreadthSlices
         annotationStore={annotationStore}
         counts={counts}
@@ -892,7 +901,7 @@ const measureLane = async (run: () => Promise<Record<string, number>>) => {
 
 const measureSelectionBreadth = async () =>
   measureLane(async () => {
-    const editor = createEditor()
+    const editor = withReact(createEditor())
     const counts: Record<string, number> = {}
 
     Editor.replace(editor, {
@@ -937,7 +946,7 @@ const measureSelectionBreadth = async () =>
 
 const measureManyLeafBreadth = async () =>
   measureLane(async () => {
-    const editor = createEditor()
+    const editor = withReact(createEditor())
     const blockCounts: Record<string, number> = {}
     const leafCounts: Record<string, number> = {}
     const targetLeafKey = `leaf-${targetLeafIndex}`
@@ -999,7 +1008,7 @@ const measureManyLeafBreadth = async () =>
 
 const measureDeepAncestorBreadth = async () =>
   measureLane(async () => {
-    const editor = createEditor()
+    const editor = withReact(createEditor())
     const elementCounts: Record<string, number> = {}
     const leafCounts: Record<string, number> = {}
     const { ancestorKeys, children, deepTextPath } =
@@ -1056,7 +1065,7 @@ const measureDeepAncestorBreadth = async () =>
 
 const measureDecorationSourceToggleBreadth = async () =>
   measureLane(async () => {
-    const editor = createEditor()
+    const editor = withReact(createEditor())
     const counts: Record<string, number> = {}
     let projectionStore: SlateProjectionStore<{
       highlight?: boolean
@@ -1114,7 +1123,7 @@ const measureDecorationSourceToggleBreadth = async () =>
 
 const measureHiddenPanelActivity = async () =>
   measureLane(async () => {
-    const editor = createEditor()
+    const editor = withReact(createEditor())
     const counts: Record<string, number> = {}
 
     Editor.replace(editor, {
@@ -1128,7 +1137,7 @@ const measureHiddenPanelActivity = async () =>
     })
     const annotations = [
       {
-        bookmark,
+        anchor: bookmark,
         data: {
           label: 'Hidden panel annotation',
         },
@@ -1215,7 +1224,7 @@ const measureHiddenPanelActivity = async () =>
 
 const measureAnnotationWidgetBreadth = async () =>
   measureLane(async () => {
-    const editor = createEditor()
+    const editor = withReact(createEditor())
     const counts: Record<string, number> = {}
     let annotationStore: SlateAnnotationStore<{
       kind: string
@@ -1244,13 +1253,17 @@ const measureAnnotationWidgetBreadth = async () =>
     })
     const annotations = [
       {
-        bookmark,
+        anchor: bookmark,
         data: {
           kind: 'annotation',
           label: 'Comment 1',
           tone: 'persistent',
         },
         id: 'comment-1',
+        projection: {
+          kind: 'annotation',
+          tone: 'persistent',
+        },
       },
     ] as const
     const widgets = [
@@ -1289,16 +1302,19 @@ const measureAnnotationWidgetBreadth = async () =>
 
     const editMs = now() - start
     const delta = deltaCounts(counts, baseline)
-    const annotationMetrics = getProjectionMetricCounts(
-      annotationStore?.projectionStore
-    )
+    const annotationMetrics = annotationStore?.getMetrics()
 
     await mounted.dispose()
     bookmark.unref()
 
     return {
       annotationProjectionRenders: delta.annotationProjection ?? 0,
-      annotationProjectionRecomputeCount: annotationMetrics.recomputeCount,
+      annotationProjectCount: annotationMetrics?.annotationProjectCount ?? 0,
+      annotationProjectionRecomputeCount:
+        annotationMetrics?.recomputeCount ?? 0,
+      annotationResolveCount: annotationMetrics?.annotationResolveCount ?? 0,
+      annotationRuntimeSubscriberWakeCount:
+        annotationMetrics?.runtimeSubscriberWakeCount ?? 0,
       annotationSidebarRenders: delta.annotationSidebar ?? 0,
       annotationWidgetRenders: delta.annotationWidget ?? 0,
       editMs,
@@ -1310,7 +1326,7 @@ const measureAnnotationWidgetBreadth = async () =>
 
 const measureSourceScopedInvalidation = async () =>
   measureLane(async () => {
-    const editor = createEditor()
+    const editor = withReact(createEditor())
     const counts: Record<string, number> = {}
     const externalActiveRef = { current: false }
 

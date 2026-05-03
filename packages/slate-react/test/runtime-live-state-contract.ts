@@ -1,4 +1,5 @@
-import { createEditor, Editor, Text } from 'slate'
+import { createEditor, Text } from 'slate'
+import { Editor } from 'slate/internal'
 import {
   readRuntimeNode,
   readRuntimeNodeById,
@@ -62,6 +63,6 @@ describe('slate-react runtime live state facade', () => {
     expect(readRuntimeSelection(editor)).toEqual(selection)
 
     writeRuntimeMarks(editor, { bold: true })
-    expect(editor.getMarks()).toEqual({ bold: true })
+    expect(editor.read((state) => state.marks.get())).toEqual({ bold: true })
   })
 })

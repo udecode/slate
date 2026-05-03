@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { Editor } from 'slate/internal'
 
-import { createEditor, type Descendant, Editor } from '../src'
+import { createEditor, type Descendant } from '../src'
 
 const createChildren = (): Descendant[] => [
   {
@@ -27,12 +28,15 @@ describe('slate clipboard contract', () => {
       marks: null,
     })
 
-    assert.deepEqual(Editor.getFragment(editor), [
-      {
-        type: 'paragraph',
-        children: [{ text: 'alpha' }],
-      },
-    ])
+    assert.deepEqual(
+      editor.read((state) => state.fragment.get()),
+      [
+        {
+          type: 'paragraph',
+          children: [{ text: 'alpha' }],
+        },
+      ]
+    )
   })
 
   it('extracts a mixed inline fragment from a single top-level block selection', () => {
@@ -59,19 +63,22 @@ describe('slate clipboard contract', () => {
       marks: null,
     })
 
-    assert.deepEqual(Editor.getFragment(editor), [
-      {
-        type: 'paragraph',
-        children: [
-          { text: 'ha ' },
-          {
-            type: 'chip',
-            children: [{ text: 'beta' }],
-          },
-          { text: ' ga' },
-        ],
-      },
-    ])
+    assert.deepEqual(
+      editor.read((state) => state.fragment.get()),
+      [
+        {
+          type: 'paragraph',
+          children: [
+            { text: 'ha ' },
+            {
+              type: 'chip',
+              children: [{ text: 'beta' }],
+            },
+            { text: ' ga' },
+          ],
+        },
+      ]
+    )
   })
 
   it('treats an empty fragment insert as a no-op', () => {
@@ -88,12 +95,14 @@ describe('slate clipboard contract', () => {
 
     const before = Editor.getSnapshot(editor)
 
-    editor.insertFragment([])
+    editor.update((tx) => {
+      tx.fragment.insert([])
+    })
 
     const after = Editor.getSnapshot(editor)
 
     assert.equal(after, before)
-    assert.equal(editor.getOperations().length, 0)
+    assert.equal(Editor.getOperations(editor).length, 0)
   })
 
   it('inserts a fragment into a collapsed text selection', () => {
@@ -108,12 +117,14 @@ describe('slate clipboard contract', () => {
       marks: null,
     })
 
-    editor.insertFragment([
-      {
-        type: 'paragraph',
-        children: [{ text: 'alpha' }],
-      },
-    ])
+    editor.update((tx) => {
+      tx.fragment.insert([
+        {
+          type: 'paragraph',
+          children: [{ text: 'alpha' }],
+        },
+      ])
+    })
 
     const snapshot = Editor.getSnapshot(editor)
 
@@ -145,12 +156,14 @@ describe('slate clipboard contract', () => {
       marks: null,
     })
 
-    editor.insertFragment([
-      {
-        type: 'paragraph',
-        children: [{ text: 'alpha' }],
-      },
-    ])
+    editor.update((tx) => {
+      tx.fragment.insert([
+        {
+          type: 'paragraph',
+          children: [{ text: 'alpha' }],
+        },
+      ])
+    })
 
     const snapshot = Editor.getSnapshot(editor)
 

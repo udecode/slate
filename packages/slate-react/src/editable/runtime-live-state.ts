@@ -1,5 +1,4 @@
 import {
-  Editor,
   type Node,
   type Path,
   type RuntimeId,
@@ -7,7 +6,11 @@ import {
   type Text as SlateText,
   Text,
 } from 'slate'
-import { getEditorLiveNode, getEditorLiveText } from 'slate/internal'
+import {
+  Editor,
+  getEditorLiveNode,
+  getEditorLiveText,
+} from './runtime-editor-api'
 
 export type RuntimeNodeBinding = {
   node: Node | null

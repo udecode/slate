@@ -1,37 +1,41 @@
 import { executeCommand } from '../core/command-registry'
-import { withTransaction } from '../core/public-state'
-import { Editor, type EditorInterface } from '../interfaces/editor'
+import { runEditorTransaction } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import type { EditorStaticApi } from '../interfaces/editor'
 import { Range } from '../interfaces/range'
 
 type ToggleMarkCommand = {
   key: string
   type: 'toggle_mark'
-  value: Parameters<EditorInterface['toggleMark']>[2]
+  value: Parameters<EditorStaticApi['toggleMark']>[2]
 }
 
-const applyToggleMark: EditorInterface['toggleMark'] = (
+const applyToggleMark: EditorStaticApi['toggleMark'] = (
   editor,
   key,
   value = true
 ) => {
-  withTransaction(editor, (tx) => {
+  runEditorTransaction(editor, (tx) => {
     const selection = tx.resolveTarget()
 
     if (!selection || !Range.isRange(selection)) {
       return
     }
 
-    const marks = Editor.marks(editor) as Record<string, unknown> | null
+    const marks = editor.read((state) => state.marks.get()) as Record<
+      string,
+      unknown
+    > | null
 
     if (marks?.[key] === value) {
-      editor.removeMark(key)
+      getEditorTransformRegistry(editor).removeMark(key)
     } else {
-      editor.addMark(key, value)
+      getEditorTransformRegistry(editor).addMark(key, value)
     }
   })
 }
 
-export const toggleMark: EditorInterface['toggleMark'] = (
+export const toggleMark: EditorStaticApi['toggleMark'] = (
   editor,
   key,
   value = true

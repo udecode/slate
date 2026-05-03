@@ -21,7 +21,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.delete({ voids: true })
+  editor.text.delete({ voids: true })
 }
 export const output = (
   <editor>

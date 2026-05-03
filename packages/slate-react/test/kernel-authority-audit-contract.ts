@@ -42,6 +42,33 @@ const getMatchesByRelativeFile = (pattern: RegExp, files: readonly string[]) =>
       .sort(([a], [b]) => a.localeCompare(b))
   )
 
+const collectSourceFiles = (directory: string): string[] =>
+  readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const absolutePath = resolve(directory, entry.name)
+
+    if (entry.isDirectory()) {
+      return collectSourceFiles(absolutePath)
+    }
+
+    return entry.isFile() &&
+      (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx'))
+      ? [absolutePath]
+      : []
+  })
+
+const getMatchesByFiles = (pattern: RegExp, files: readonly string[]) =>
+  Object.fromEntries(
+    files
+      .map((file) => {
+        const source = readFileSync(file, 'utf8')
+        const matches = source.match(pattern)
+
+        return [relative(repoRoot, file), matches ? matches.length : 0] as const
+      })
+      .filter(([, count]) => count > 0)
+      .sort(([a], [b]) => a.localeCompare(b))
+  )
+
 type AuthorityInventory = Record<
   string,
   {
@@ -250,7 +277,7 @@ test('EditableDOMRoot hot policy ownership has an explicit burn-down inventory',
       rationale:
         'Editable must not construct the Android input manager directly; runtime Android engine owns it.',
     },
-    '\\buseSlateSelector\\(': {
+    '\\buseEditorSelector\\(': {
       count: 0,
       next: 'root-source',
       owner: 'Editable root source selector',
@@ -262,11 +289,11 @@ test('EditableDOMRoot hot policy ownership has an explicit burn-down inventory',
 
 test('root selector source ownership is fenced to named source modules', () => {
   expectSourceOwnershipInventory(
-    /\buseSlateSelector\(/g,
+    /\buseEditorSelector\(/g,
     editableRootRuntimeFiles,
     {
       'packages/slate-react/src/editable/root-selector-sources.ts': {
-        count: 4,
+        count: 5,
         next: 'root-source',
         owner: 'Editable root selector sources',
         rationale:
@@ -285,13 +312,6 @@ test('root selector source ownership is fenced to named source modules', () => {
         owner: 'Mounted node render selector',
         rationale:
           'This snapshot read resolves mounted child runtime ids inside the node render selector, not root render facts.',
-      },
-      'packages/slate-react/src/editable/root-selector-sources.ts': {
-        count: 2,
-        next: 'root-source',
-        owner: 'Editable root selector sources',
-        rationale:
-          'Root snapshot reads belong beside the named root selector predicates and equality functions.',
       },
     }
   )
@@ -347,6 +367,13 @@ test('EditableDOMRoot root runtime orchestration has an explicit next-owner inve
       owner: 'Editable root selector sources',
       rationale:
         'Root commit wakeup is a named source hook but should be called through the root runtime facade.',
+    },
+    '\\buseFlushDeferredSelectorsOnRender\\(': {
+      count: 0,
+      next: 'root-source',
+      owner: 'Editable root runtime facade',
+      rationale:
+        'Deferred selector flushing is a root runtime wakeup and should not be called directly by EditableDOMRoot.',
     },
     '\\buseEditableRootRuntime\\(': {
       count: 1,
@@ -549,6 +576,13 @@ test('EditableDOMRoot event handler assembly has an explicit burn-down inventory
         rationale:
           'Root handler wrapper constants should be returned by the event runtime facade instead of assembled directly in EditableDOMRoot.',
       },
+    '\\beventRuntime\\.handlers\\b': {
+      count: 0,
+      next: 'runtime-facade',
+      owner: 'Editable root runtime facade',
+      rationale:
+        'EditableDOMRoot should receive stable root event bindings from the root runtime facade instead of unpacking event families.',
+    },
     '\\battachSlateBrowserHandle\\(': {
       count: 0,
       next: 'event-runtime',
@@ -650,91 +684,20 @@ test('selection bridge authority has an explicit remaining inventory', () => {
     }
   )
 
-  expectAuthorityInventory(/\beditor\.(select|deselect|move|collapse)\(/g, {
-    'packages/slate-react/src/editable/browser-handle.ts': {
-      count: 1,
-      next: 'explicit-bridge',
-      owner: 'Browser proof handle',
-      rationale:
-        'Explicit browser proof may set model selection through the bridge.',
-    },
-    'packages/slate-react/src/editable/caret-engine.ts': {
-      count: 14,
-      next: 'central-owner',
-      owner: 'Caret engine',
-      rationale:
-        'Caret movement is centralized here instead of scattered handlers.',
-    },
-    'packages/slate-react/src/editable/dom-repair-queue.ts': {
-      count: 1,
-      next: 'central-owner',
-      owner: 'DOM repair queue',
-      rationale: 'Repair execution may restore model-owned caret selection.',
-    },
-    'packages/slate-react/src/editable/mutation-controller.ts': {
-      count: 1,
-      next: 'central-owner',
-      owner: 'Mutation controller',
-      rationale:
-        'Mutation controller is the intended central model mutation worker.',
-    },
-    'packages/slate-react/src/editable/selection-controller.ts': {
-      count: 5,
-      next: 'central-owner',
-      owner: 'Selection controller',
-      rationale:
-        'Selection controller is the central model selection bridge worker.',
-    },
-    'packages/slate-react/src/editable/selection-reconciler.ts': {
-      count: 9,
-      next: 'central-owner',
-      owner: 'Selection reconciler',
-      rationale:
-        'Selection reconciler applies audited DOM/model selection reconciliation.',
-    },
-  })
+  expectAuthorityInventory(/\beditor\.(select|deselect|move|collapse)\(/g, {})
 })
 
 test('mutation and repair authority has an explicit remaining inventory', () => {
   expectAuthorityInventory(
     /\b(Editor\.(insertText|deleteBackward|deleteForward|deleteFragment|insertBreak|insertSoftBreak)|ReactEditor\.insertData|editor\.(delete|removeNodes))\(/g,
-    {
-      'packages/slate-react/src/editable/clipboard-input-strategy.ts': {
-        count: 3,
-        next: 'worker',
-        owner: 'Clipboard worker',
-        rationale:
-          'Clipboard keeps structural cut/drop cleanup after event ownership, selection import, repair, and trace are owned by Editable.',
-      },
-      'packages/slate-react/src/editable/composition-state.ts': {
-        count: 2,
-        next: 'worker',
-        owner: 'Composition state',
-        rationale:
-          'Composition owns active IME buffer mutations under composition mode.',
-      },
-      'packages/slate-react/src/editable/dom-repair-queue.ts': {
-        count: 1,
-        next: 'central-owner',
-        owner: 'DOM repair queue',
-        rationale:
-          'DOM input repair may reconcile text through the repair executor.',
-      },
-      'packages/slate-react/src/editable/mutation-controller.ts': {
-        count: 9,
-        next: 'central-owner',
-        owner: 'Mutation controller',
-        rationale:
-          'Mutation controller is the intended owner for model mutation execution.',
-      },
-    }
+    {}
   )
 
   expectAuthorityInventory(
     /\b(requestRepair|applyEditableRepairRequest|repairDOMInput|domRepairQueue\.repair|repairCaretAfterModelOperation|repairCaretAfterModelTextInsert)\(/g,
     {
       'packages/slate-react/src/editable/dom-repair-queue.ts': {
-        count: 4,
+        count: 5,
         next: 'central-owner',
         owner: 'DOM repair queue',
         rationale: 'Repair queue is the central DOM repair executor.',
@@ -771,14 +734,26 @@ test('mutation and repair authority has an explicit remaining inventory', () => 
   )
 })
 
+test('transform registry access is fenced to tx and extension override bridges', () => {
+  expect(
+    getMatchesByFiles(
+      /\b(getEditorTransformRegistry|setEditorTransformRegistry)\b/g,
+      collectSourceFiles(slateReactRoot)
+    )
+  ).toEqual({
+    'packages/slate-react/src/editable/runtime-editor-api.ts': 2,
+    'packages/slate-react/src/plugin/with-react.ts': 4,
+  })
+})
+
 test('direct force render calls have explicit runtime owners', () => {
   expectAuthorityInventory(/\bforceRender\(/g, {
     'packages/slate-react/src/editable/browser-handle.ts': {
-      count: 4,
+      count: 5,
       next: 'explicit-bridge',
       owner: 'Browser proof handle',
       rationale:
-        'Browser proof handles may force the view after explicit semantic test actions until proof transport is split from runtime repair.',
+        'Browser proof handles may force the view after explicit semantic test actions and remote operation replay until proof transport is split from runtime repair.',
     },
     'packages/slate-react/src/editable/keyboard-input-strategy.ts': {
       count: 3,

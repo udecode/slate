@@ -1,10 +1,11 @@
-import {
-  Editor,
-  type EditorSnapshot,
-  type Range,
-  type RuntimeId,
-  type SnapshotChange,
+import type {
+  EditorCommitSource,
+  EditorSnapshot,
+  Range,
+  RuntimeId,
+  SnapshotChange,
 } from 'slate'
+import { Editor } from './editable/runtime-editor-api'
 
 export type SlateRangeProjection<T = unknown> = {
   data?: T
@@ -75,7 +76,15 @@ export type SlateProjectionStoreSnapshot<T = unknown> = Readonly<
 >
 
 export type SlateProjectionStoreMetrics = Readonly<{
+  changedRuntimeBucketCount: number
+  fullFallbackCount: number
+  globalSubscriberWakeCount: number
+  invalidRangeDropCount: number
+  projectedRangeCount: number
   recomputeCount: number
+  runtimeSubscriberWakeCount: number
+  sourceReadCount: number
+  sourceSubscriberWakeCount: number
 }>
 
 export type SlateProjectionStore<T = unknown> = {
@@ -96,7 +105,15 @@ const EMPTY_SNAPSHOT = Object.freeze(
 ) as SlateProjectionStoreSnapshot<unknown>
 
 const EMPTY_METRICS = Object.freeze({
+  changedRuntimeBucketCount: 0,
+  fullFallbackCount: 0,
+  globalSubscriberWakeCount: 0,
+  invalidRangeDropCount: 0,
+  projectedRangeCount: 0,
   recomputeCount: 0,
+  runtimeSubscriberWakeCount: 0,
+  sourceReadCount: 0,
+  sourceSubscriberWakeCount: 0,
 }) as SlateProjectionStoreMetrics
 
 const EMPTY_RUNTIME_SNAPSHOT = Object.freeze(
@@ -105,6 +122,46 @@ const EMPTY_RUNTIME_SNAPSHOT = Object.freeze(
 
 const INVALID_PROJECTION_RANGE_ERROR =
   /Cannot project a range outside the committed snapshot|Point offset .* is outside text bounds/
+
+const addEditorSourceForDirtinessClass = (
+  sources: Set<EditorCommitSource>,
+  dirtiness: SlateSourceDirtinessClass
+) => {
+  switch (dirtiness) {
+    case 'always':
+    case 'mark':
+      sources.add('commit')
+      break
+    case 'selection':
+      sources.add('selection')
+      break
+    case 'text':
+      sources.add('text')
+      break
+    case 'node':
+      sources.add('node')
+      break
+  }
+}
+
+const getEditorSourcesForDirtiness = (
+  dirtiness: SlateSourceDirtiness | undefined
+): readonly EditorCommitSource[] => {
+  if (!dirtiness || typeof dirtiness === 'function') {
+    return ['commit']
+  }
+
+  const sources = new Set<EditorCommitSource>()
+  const entries = isSlateSourceDirtinessList(dirtiness)
+    ? dirtiness
+    : [dirtiness]
+
+  entries.forEach((entry) => {
+    addEditorSourceForDirtinessClass(sources, entry)
+  })
+
+  return [...sources]
+}
 
 const isSlateSourceDirtinessList = (
   value: SlateSourceDirtiness
@@ -222,17 +279,28 @@ const isRuntimeScopeDirty = (
 const buildProjectionSnapshot = <T>(
   editor: Editor,
   projections: readonly SlateProjection<T>[]
-): SlateProjectionStoreSnapshot<T> => {
+): {
+  invalidRangeDropCount: number
+  projectedRangeCount: number
+  snapshot: SlateProjectionStoreSnapshot<T>
+} => {
   if (projections.length === 0) {
-    return EMPTY_SNAPSHOT as SlateProjectionStoreSnapshot<T>
+    return {
+      invalidRangeDropCount: 0,
+      projectedRangeCount: 0,
+      snapshot: EMPTY_SNAPSHOT as SlateProjectionStoreSnapshot<T>,
+    }
   }
 
   const projectionByRuntimeId: Record<string, SlateProjectionSlice<T>[]> =
     Object.create(null)
+  let invalidRangeDropCount = 0
+  let projectedRangeCount = 0
 
   projections.forEach((projection) => {
     try {
       const segments = Editor.projectRange(editor, projection.range)
+      projectedRangeCount += 1
 
       segments.forEach((segment) => {
         const entries = projectionByRuntimeId[segment.runtimeId] ?? []
@@ -249,6 +317,7 @@ const buildProjectionSnapshot = <T>(
         error instanceof Error &&
         INVALID_PROJECTION_RANGE_ERROR.test(error.message)
       ) {
+        invalidRangeDropCount += 1
         return
       }
 
@@ -262,7 +331,13 @@ const buildProjectionSnapshot = <T>(
     ) as SlateProjectionSlice<T>[]
   })
 
-  return Object.freeze(projectionByRuntimeId) as SlateProjectionStoreSnapshot<T>
+  return {
+    invalidRangeDropCount,
+    projectedRangeCount,
+    snapshot: Object.freeze(
+      projectionByRuntimeId
+    ) as SlateProjectionStoreSnapshot<T>,
+  }
 }
 
 export const createSlateProjectionStore = <T>(
@@ -274,11 +349,17 @@ export const createSlateProjectionStore = <T>(
   const runtimeListeners = new Map<RuntimeId, Set<() => void>>()
   const sourceListeners = new Map<string, Set<() => void>>()
   let destroyed = false
-  let metrics = EMPTY_METRICS
-  let snapshot = buildProjectionSnapshot(
+  const initialBuild = buildProjectionSnapshot(
     editor,
     source(Editor.getSnapshot(editor))
   )
+  let metrics = Object.freeze({
+    ...EMPTY_METRICS,
+    invalidRangeDropCount: initialBuild.invalidRangeDropCount,
+    projectedRangeCount: initialBuild.projectedRangeCount,
+    sourceReadCount: 1,
+  }) as SlateProjectionStoreMetrics
+  let snapshot = initialBuild.snapshot
 
   const recompute = (context: SlateSourceDirtinessContext) => {
     if (!isSlateSourceDirty(options.dirtiness, context)) {
@@ -292,10 +373,22 @@ export const createSlateProjectionStore = <T>(
       return
     }
 
-    const nextSnapshot = buildProjectionSnapshot(
-      editor,
-      source(context.snapshot)
-    )
+    const nextBuild = buildProjectionSnapshot(editor, source(context.snapshot))
+    const nextSnapshot = nextBuild.snapshot
+    const fullFallbackCount =
+      context.forceInvalidate || !getRuntimeScope(options.runtimeScope, context)
+        ? 1
+        : 0
+
+    metrics = Object.freeze({
+      ...metrics,
+      fullFallbackCount: metrics.fullFallbackCount + fullFallbackCount,
+      invalidRangeDropCount:
+        metrics.invalidRangeDropCount + nextBuild.invalidRangeDropCount,
+      projectedRangeCount:
+        metrics.projectedRangeCount + nextBuild.projectedRangeCount,
+      sourceReadCount: metrics.sourceReadCount + 1,
+    })
 
     const changedRuntimeIds = context.forceInvalidate
       ? Array.from(
@@ -311,9 +404,27 @@ export const createSlateProjectionStore = <T>(
       return
     }
 
+    const runtimeSubscriberWakeCount = changedRuntimeIds.reduce(
+      (count, runtimeId) =>
+        count + (runtimeListeners.get(runtimeId)?.size ?? 0),
+      0
+    )
+    const sourceSubscriberWakeCount = options.sourceId
+      ? (sourceListeners.get(options.sourceId)?.size ?? 0)
+      : 0
+
     snapshot = nextSnapshot
     metrics = Object.freeze({
+      ...metrics,
+      changedRuntimeBucketCount:
+        metrics.changedRuntimeBucketCount + changedRuntimeIds.length,
+      globalSubscriberWakeCount:
+        metrics.globalSubscriberWakeCount + listeners.size,
       recomputeCount: metrics.recomputeCount + 1,
+      runtimeSubscriberWakeCount:
+        metrics.runtimeSubscriberWakeCount + runtimeSubscriberWakeCount,
+      sourceSubscriberWakeCount:
+        metrics.sourceSubscriberWakeCount + sourceSubscriberWakeCount,
     })
     listeners.forEach((listener) => {
       listener()
@@ -330,16 +441,27 @@ export const createSlateProjectionStore = <T>(
     }
   }
 
-  const unsubscribe = editor.subscribe(
-    (nextSnapshot: EditorSnapshot, change?: SnapshotChange) => {
-      recompute({
-        change,
-        reason: 'editor',
-        snapshot: nextSnapshot,
-        sourceId: options.sourceId,
-      })
-    }
+  const unsubscribeEditorSources = getEditorSourcesForDirtiness(
+    options.dirtiness
+  ).map((editorSource) =>
+    Editor.subscribeSource(
+      editor,
+      editorSource,
+      (nextSnapshot: EditorSnapshot, change?: SnapshotChange) => {
+        recompute({
+          change,
+          reason: 'editor',
+          snapshot: nextSnapshot,
+          sourceId: options.sourceId,
+        })
+      }
+    )
   )
+  const unsubscribe = () => {
+    unsubscribeEditorSources.forEach((unsubscribeEditorSource) => {
+      unsubscribeEditorSource()
+    })
+  }
 
   return {
     destroy() {

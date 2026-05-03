@@ -1,12 +1,12 @@
 import {
   createEditor,
-  Editor,
   type EditorCommit,
   type EditorMarksOf,
   type ElementOf,
   type Operation,
   type TextOf,
 } from 'slate'
+import { Editor } from 'slate/internal'
 
 type CustomText = {
   text: string
@@ -28,10 +28,10 @@ type CustomValue = (ParagraphElement | QuoteElement)[]
 
 const editor = createEditor<CustomValue>()
 
-editor.update(() => {
-  editor.setNodes<ElementOf<typeof editor>>({ type: 'quote' })
-  editor.addMark('bold' satisfies keyof EditorMarksOf<typeof editor>, true)
-  editor.insertText('typed')
+editor.update((tx) => {
+  tx.nodes.set<ElementOf<typeof editor>>({ type: 'quote' })
+  tx.marks.add('bold' satisfies keyof EditorMarksOf<typeof editor>, true)
+  tx.text.insert('typed')
 })
 
 const leaf: TextOf<typeof editor> = { text: 'typed', bold: true }

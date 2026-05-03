@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { Editor } from 'slate/internal'
 
-import { createEditor, type Descendant, Editor } from '../src'
+import { createEditor, type Descendant } from '../src'
 
 const createChildren = (): Descendant[] => [
   {
@@ -45,8 +46,8 @@ describe('slate range ref contract', () => {
       focus: { path: [0, 0], offset: 4 },
     })
 
-    Editor.withTransaction(editor, () => {
-      editor.insertText('>', {
+    editor.update((tx) => {
+      tx.text.insert('>', {
         at: { path: [0, 0], offset: 0 },
       })
 
@@ -76,8 +77,10 @@ describe('slate range ref contract', () => {
       focus: { path: [0, 0], offset: 4 },
     })
 
-    editor.insertText('!', {
-      at: { path: [0, 0], offset: 4 },
+    editor.update((tx) => {
+      tx.text.insert('!', {
+        at: { path: [0, 0], offset: 4 },
+      })
     })
 
     assert.deepEqual(ref.current, {
@@ -100,8 +103,8 @@ describe('slate range ref contract', () => {
       focus: { path: [1, 0], offset: 3 },
     })
 
-    Editor.withTransaction(editor, () => {
-      editor.moveNodes({
+    editor.update((tx) => {
+      tx.nodes.move({
         at: [0],
         to: [2],
       })
@@ -127,8 +130,8 @@ describe('slate range ref contract', () => {
       focus: { path: [0, 0], offset: 4 },
     })
 
-    Editor.withTransaction(editor, () => {
-      editor.moveNodes({
+    editor.update((tx) => {
+      tx.nodes.move({
         at: [0],
         to: [2],
       })
@@ -154,8 +157,8 @@ describe('slate range ref contract', () => {
       focus: { path: [0, 1, 0], offset: 3 },
     })
 
-    Editor.withTransaction(editor, () => {
-      editor.moveNodes({
+    editor.update((tx) => {
+      tx.nodes.move({
         at: [0, 0],
         to: [0, 2],
       })

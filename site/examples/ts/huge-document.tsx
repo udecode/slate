@@ -7,12 +7,16 @@ import React, {
   useEffect,
   useState,
 } from 'react'
-import { Editor, createEditor as slateCreateEditor, type Value } from 'slate'
+import {
+  type Editor,
+  createEditor as slateCreateEditor,
+  type Value,
+} from 'slate'
 import {
   Editable,
   type RenderElementProps,
   Slate,
-  useSelected,
+  useElementSelected,
   withReact,
 } from 'slate-react'
 
@@ -197,7 +201,7 @@ const Heading = ({
 }) => {
   // Fine since the editor is remounted if the config changes
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  const selected = showSelectedHeadings ? useSelected() : false
+  const selected = showSelectedHeadings ? useElementSelected() : false
   const style = { ...styleProp, color: selected ? 'green' : undefined }
   return <h1 ref={ref} {...props} aria-selected={selected} style={style} />
 }
@@ -287,7 +291,7 @@ const PerformanceControls = ({
     if (!SUPPORTS_LOAF_TIMING) return
 
     let afterOperation = false
-    const unsubscribe = Editor.subscribe(editor, (_snapshot, change) => {
+    const unsubscribe = editor.subscribe((_snapshot, change) => {
       if (change?.operations.length) {
         afterOperation = true
       }
@@ -367,7 +371,7 @@ const PerformanceControls = ({
               }
               type="checkbox"
             />{' '}
-            Call <code>useSelected</code> in each heading
+            Call <code>useElementSelected</code> in each heading
           </label>
         </p>
 

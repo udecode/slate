@@ -1,9 +1,11 @@
 import type { CSSProperties } from 'react'
 import React, { useCallback } from 'react'
-import { type Descendant, Editor, type RuntimeId } from 'slate'
+import type { Descendant, RuntimeId } from 'slate'
+import { IS_COMPOSING } from 'slate-dom'
+import { Editor } from '../editable/runtime-editor-api'
 
 import { readRuntimeNode } from '../editable/runtime-live-state'
-import { useSlateStatic } from '../hooks/use-slate-static'
+import { useEditor } from '../hooks/use-editor'
 import {
   classifyIslandKind,
   type LargeDocumentIslandKind,
@@ -61,7 +63,7 @@ export const LargeDocumentIslandShell = React.memo(
     runtimeIds: readonly RuntimeId[]
     startIndex: number
   }) => {
-    const editor = useSlateStatic()
+    const editor = useEditor()
     const previewRuntimeIds = runtimeIds.slice(0, MAX_PREVIEW_LINES)
     const lines: string[] = []
     const nodes: Descendant[] = []
@@ -78,7 +80,7 @@ export const LargeDocumentIslandShell = React.memo(
 
       const node =
         (readRuntimeNode(editor, path) as Descendant | undefined) ??
-        (Editor.node(editor, path)[0] as Descendant)
+        (editor.read((state) => state.nodes.get(path))[0] as Descendant)
 
       if (!node) {
         return
@@ -101,6 +103,11 @@ export const LargeDocumentIslandShell = React.memo(
     const handleMouseDown = useCallback(
       (event: React.MouseEvent<HTMLDivElement>) => {
         event.preventDefault()
+
+        if (IS_COMPOSING.get(editor)) {
+          return
+        }
+
         onPromote?.(islandIndex, { select: true })
         const editorElement = event.currentTarget.closest(
           '[data-slate-editor="true"]'
@@ -109,7 +116,7 @@ export const LargeDocumentIslandShell = React.memo(
           editorElement?.focus()
         })
       },
-      [islandIndex, onPromote]
+      [editor, islandIndex, onPromote]
     )
 
     const handleKeyDown = useCallback(
@@ -119,6 +126,11 @@ export const LargeDocumentIslandShell = React.memo(
         }
 
         event.preventDefault()
+
+        if (IS_COMPOSING.get(editor)) {
+          return
+        }
+
         onPromote?.(islandIndex, { select: true })
         const editorElement = event.currentTarget.closest(
           '[data-slate-editor="true"]'
@@ -127,7 +139,7 @@ export const LargeDocumentIslandShell = React.memo(
           editorElement?.focus()
         })
       },
-      [islandIndex, onPromote]
+      [editor, islandIndex, onPromote]
     )
 
     const firstLine = preview.lines[0]

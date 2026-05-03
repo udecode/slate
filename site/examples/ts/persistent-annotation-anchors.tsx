@@ -3,7 +3,6 @@ import { useMemo, useState } from 'react'
 import {
   type Bookmark,
   createEditor,
-  Editor,
   type Path,
   type Point,
   type Range,
@@ -11,9 +10,9 @@ import {
 } from 'slate'
 import {
   Slate,
+  useEditorSelector,
   useSlateAnnotationStore,
   useSlateAnnotations,
-  useSlateSelector,
   useSlateWidgetStore,
   useSlateWidgets,
   withReact,
@@ -38,10 +37,8 @@ type BlockRowDescriptor = {
   text: string
 }
 
-const getBlockRows = (
-  snapshot: ReturnType<typeof Editor.getSnapshot>
-): BlockRowDescriptor[] =>
-  snapshot.children.flatMap((node, index) => {
+const getBlockRows = (value: Value): BlockRowDescriptor[] =>
+  value.flatMap((node, index) => {
     if (!('children' in node)) {
       return []
     }
@@ -67,9 +64,9 @@ const getLeafPathByText = (
   editor: ReturnType<typeof createEditor>,
   match: (text: string) => boolean
 ) => {
-  const snapshot = Editor.getSnapshot(editor)
+  const value = editor.read((state) => state.value.get())
 
-  for (const [blockIndex, node] of snapshot.children.entries()) {
+  for (const [blockIndex, node] of value.entries()) {
     if (!('children' in node)) {
       continue
     }
@@ -88,9 +85,9 @@ const getPointBeforeText = (
   editor: ReturnType<typeof createEditor>,
   textToFind: string
 ): Point => {
-  const snapshot = Editor.getSnapshot(editor)
+  const value = editor.read((state) => state.value.get())
 
-  for (const [blockIndex, node] of snapshot.children.entries()) {
+  for (const [blockIndex, node] of value.entries()) {
     if (!('children' in node)) {
       continue
     }
@@ -111,13 +108,11 @@ const getPointBeforeText = (
   throw new Error(`Missing text: ${textToFind}`)
 }
 
-const getBlockRowByText = (
-  snapshot: ReturnType<typeof Editor.getSnapshot>,
-  match: (text: string) => boolean
-) => getBlockRows(snapshot).find((row) => match(row.text)) ?? null
+const getBlockRowByText = (value: Value, match: (text: string) => boolean) =>
+  getBlockRows(value).find((row) => match(row.text)) ?? null
 
-const getOutline = (snapshot: ReturnType<typeof Editor.getSnapshot>) =>
-  getBlockRows(snapshot)
+const getOutline = (value: Value) =>
+  getBlockRows(value)
     .map((row) => row.text)
     .join('|')
 
@@ -224,8 +219,8 @@ const ProjectionRow = ({
 }
 
 const Outline = () => {
-  const outline = useSlateSelector((editor) =>
-    getOutline(Editor.getSnapshot(editor))
+  const outline = useEditorSelector((editor) =>
+    getOutline(editor.read((state) => state.value.get()))
   )
 
   return (
@@ -268,8 +263,8 @@ const AnnotationSidebar = ({
   >
 }) => {
   const snapshot = useSlateAnnotations(store)
-  const rows = useSlateSelector((editor) =>
-    getBlockRows(Editor.getSnapshot(editor))
+  const rows = useEditorSelector((editor) =>
+    getBlockRows(editor.read((state) => state.value.get()))
   )
 
   return (
@@ -356,10 +351,11 @@ const AnchoredProjectionContent = ({
     >
   >
 }) => {
-  const alphaRow = useSlateSelector(
+  const alphaRow = useEditorSelector(
     (editor) =>
-      getBlockRowByText(Editor.getSnapshot(editor), (text) =>
-        text.includes('alpha')
+      getBlockRowByText(
+        editor.read((state) => state.value.get()),
+        (text) => text.includes('alpha')
       ) ?? null,
     (left, right) =>
       left != null &&
@@ -367,10 +363,10 @@ const AnchoredProjectionContent = ({
       left.text === right.text &&
       left.path.join('.') === right.path.join('.')
   )
-  const betaRow = useSlateSelector(
+  const betaRow = useEditorSelector(
     (editor) =>
       getBlockRowByText(
-        Editor.getSnapshot(editor),
+        editor.read((state) => state.value.get()),
         (text) => text === 'beta'
       ) ?? null,
     (left, right) =>
@@ -400,10 +396,12 @@ const AnchoredProjectionContent = ({
             setAnnotation(
               (current) =>
                 current ??
-                Editor.bookmark(editor, {
-                  anchor: { path, offset: 1 },
-                  focus: { path, offset: 4 },
-                })
+                editor.read((state) =>
+                  state.ranges.bookmark({
+                    anchor: { path, offset: 1 },
+                    focus: { path, offset: 4 },
+                  })
+                )
             )
           }}
           type="button"
@@ -419,24 +417,21 @@ const AnchoredProjectionContent = ({
             )
             const at = { path, offset: 0 }
 
-            editor.update(() => {
-              editor.select({
+            editor.update((tx) => {
+              tx.selection.set({
                 anchor: at,
                 focus: at,
               })
-              editor.insertFragment(
-                [
-                  {
-                    type: 'paragraph',
-                    children: [{ text: 'intro-a' }],
-                  },
-                  {
-                    type: 'paragraph',
-                    children: [{ text: 'intro-b' }],
-                  },
-                ],
-                { at }
-              )
+              tx.fragment.insert([
+                {
+                  type: 'paragraph',
+                  children: [{ text: 'intro-a' }],
+                },
+                {
+                  type: 'paragraph',
+                  children: [{ text: 'intro-b' }],
+                },
+              ])
             })
           }}
           type="button"
@@ -449,8 +444,8 @@ const AnchoredProjectionContent = ({
           onClick={() => {
             const at = getPointBeforeText(editor, 'alpha')
 
-            editor.update(() => {
-              editor.insertText('>', {
+            editor.update((tx) => {
+              tx.text.insert('>', {
                 at,
               })
             })
@@ -492,9 +487,11 @@ const PersistentAnnotationAnchorsExample = () => {
   const [editor] = useState(() => {
     const nextEditor = withReact(createEditor())
 
-    Editor.replace(nextEditor, {
-      children: createChildren(),
-      selection: null,
+    nextEditor.update((tx) => {
+      tx.value.replace({
+        children: createChildren(),
+        selection: null,
+      })
     })
 
     return nextEditor
@@ -505,13 +502,17 @@ const PersistentAnnotationAnchorsExample = () => {
       annotation
         ? [
             {
-              bookmark: annotation,
+              anchor: annotation,
               data: {
                 kind: 'annotation',
                 label: 'Comment anchor',
                 tone: 'persistent',
               },
               id: 'comment-anchor',
+              projection: {
+                kind: 'annotation',
+                tone: 'persistent',
+              },
             },
           ]
         : [],
@@ -539,7 +540,7 @@ const PersistentAnnotationAnchorsExample = () => {
   const widgetStore = useSlateWidgetStore(editor, widgets, annotationStore)
 
   return (
-    <Slate editor={editor} projectionStore={annotationStore.projectionStore}>
+    <Slate annotationStores={[annotationStore]} editor={editor}>
       <AnchoredProjectionContent
         annotation={annotation}
         annotationStore={annotationStore}

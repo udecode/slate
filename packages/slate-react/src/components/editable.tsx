@@ -1,4 +1,4 @@
-import React from 'react'
+import type React from 'react'
 import scrollIntoView from 'scroll-into-view-if-needed'
 import {
   type Element,
@@ -17,10 +17,9 @@ import {
 import type { EditableRepairRequest } from '../editable/input-controller'
 import { useEditableRootRuntime } from '../editable/runtime-root-engine'
 import { readLiveSelection } from '../editable/runtime-selection-state'
-import { ComposingContext } from '../hooks/use-composing'
-import { ReadOnlyContext } from '../hooks/use-read-only'
-import { useFlushDeferredSelectorsOnRender } from '../hooks/use-slate-selector'
-import { useSlateStatic } from '../hooks/use-slate-static'
+import { useEditor } from '../hooks/use-editor'
+import { ComposingContext } from '../hooks/use-editor-composing'
+import { ReadOnlyContext } from '../hooks/use-editor-read-only'
 import type { MountedTopLevelRange } from '../large-document/large-document-commands'
 import type { ReactEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
@@ -83,16 +82,17 @@ export type EditableDOMRootProps = {
   children?: React.ReactNode
   inputRules?: readonly EditableInputRule[]
   largeDocument?: {
+    mode: 'dom-present' | 'shell'
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
   } | null
   onDOMBeforeInput?: (event: InputEvent) => void
-  onKeyCommand?: EditableKeyCommandHandler
+  onKeyDown?: EditableKeyDownHandler
   readOnly?: boolean
   scrollSelectionIntoView?: (editor: ReactEditor, domRange: DOMRange) => void
   as?: React.ElementType
   disableDefaultStyles?: boolean
-} & Omit<React.ComponentPropsWithRef<'div'>, 'children'>
+} & Omit<React.ComponentPropsWithRef<'div'>, 'children' | 'onKeyDown'>
 
 export type EditableInputRuleContext = {
   data: unknown
@@ -108,8 +108,13 @@ export type EditableInputRule = (
   context: EditableInputRuleContext
 ) => EditableInputRuleResult
 
-export type EditableKeyCommandHandler = (
-  event: React.KeyboardEvent<HTMLDivElement>
+export type EditableKeyDownContext = {
+  editor: ReactEditor
+}
+
+export type EditableKeyDownHandler = (
+  event: React.KeyboardEvent<HTMLDivElement>,
+  context: EditableKeyDownContext
 ) => EditableInputRuleResult
 
 /**
@@ -125,7 +130,7 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     children: customChildren,
     inputRules,
     largeDocument = null,
-    onKeyCommand,
+    onKeyDown: propsOnKeyDown,
     onDOMBeforeInput: propsOnDOMBeforeInput,
     readOnly = false,
     scrollSelectionIntoView = defaultScrollSelectionIntoView,
@@ -134,7 +139,7 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     disableDefaultStyles = false,
     ...attributes
   } = editableProps
-  const editor = useSlateStatic()
+  const editor = useEditor()
   const rootRuntime = useEditableRootRuntime({
     autoFocus,
     callbacks: attributes,
@@ -143,123 +148,80 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     inputRules,
     largeDocument,
     onDOMBeforeInput: propsOnDOMBeforeInput,
-    onKeyCommand,
+    onKeyDown: propsOnKeyDown,
     readOnly,
     scrollSelectionIntoView,
   })
   const {
-    eventRuntime,
+    editableEventBindings,
     isComposing,
     receivedUserInput,
     rootRef: ref,
     shellBackedSelection,
   } = rootRuntime
-  const {
-    onBlur,
-    onClick,
-    onCompositionEnd,
-    onCompositionStart,
-    onCompositionUpdate,
-    onCopy,
-    onCut,
-    onDragEnd,
-    onDragOver,
-    onDragStart,
-    onDrop,
-    onFocus,
-    onInput,
-    onInputCapture,
-    onKeyDown,
-    onMouseDown,
-    onMouseUp,
-    onPaste,
-    onReactBeforeInput,
-  } = eventRuntime.handlers
-  const { callbackRef } = rootRuntime
 
-  useFlushDeferredSelectorsOnRender()
-
-  return React.createElement(
-    ReadOnlyContext.Provider,
-    { value: readOnly },
-    <ComposingContext.Provider value={isComposing}>
-      <RestoreDOM node={ref} receivedUserInput={receivedUserInput}>
-        <Component
-          aria-multiline={readOnly ? undefined : true}
-          role={readOnly ? undefined : 'textbox'}
-          translate="no"
-          {...attributes}
-          autoCapitalize={
-            HAS_BEFORE_INPUT_SUPPORT || !CAN_USE_DOM
-              ? attributes.autoCapitalize
-              : 'false'
-          }
-          autoCorrect={
-            HAS_BEFORE_INPUT_SUPPORT || !CAN_USE_DOM
-              ? attributes.autoCorrect
-              : 'false'
-          }
-          // explicitly set this
-          contentEditable={!readOnly}
-          data-slate-editor
-          data-slate-large-document-selection={
-            shellBackedSelection ? 'shell-backed' : undefined
-          }
-          data-slate-node="value"
-          onBeforeInput={onReactBeforeInput}
-          onBlur={onBlur}
-          onClick={onClick}
-          onCompositionEnd={onCompositionEnd}
-          onCompositionStart={onCompositionStart}
-          onCompositionUpdate={onCompositionUpdate}
-          onCopy={onCopy}
-          onCut={onCut}
-          onDragEnd={onDragEnd}
-          onDragOver={onDragOver}
-          onDragStart={onDragStart}
-          onDrop={onDrop}
-          onFocus={onFocus}
-          onInput={onInput}
-          onInputCapture={onInputCapture}
-          onKeyDown={onKeyDown}
-          onMouseDown={onMouseDown}
-          onMouseUp={onMouseUp}
-          onPaste={onPaste}
-          ref={callbackRef}
-          // COMPAT: Certain browsers don't support the `beforeinput` event, so we'd
-          // have to use hacks to make these replacement-based features work.
-          // For SSR situations HAS_BEFORE_INPUT_SUPPORT is false and results in prop
-          // mismatch warning app moves to browser. Pass-through consumer props when
-          // not CAN_USE_DOM (SSR) and default to falsy value
-          spellCheck={
-            HAS_BEFORE_INPUT_SUPPORT || !CAN_USE_DOM
-              ? attributes.spellCheck
-              : false
-          }
-          style={{
-            ...(disableDefaultStyles
-              ? {}
-              : {
-                  // Allow positioning relative to the editable element.
-                  position: 'relative',
-                  // Preserve adjacent whitespace and new lines.
-                  whiteSpace: 'pre-wrap',
-                  // Allow words to break if they are too long.
-                  wordWrap: 'break-word',
-                }),
-            // Allow for passed-in styles to override anything.
-            ...userStyle,
-          }}
-          suppressContentEditableWarning
-          // in some cases, a decoration needs access to the range / selection to decorate a text node,
-          // then you will select the whole text node when you select part the of text
-          // this magic zIndex="-1" will fix it
-          zindex={-1}
-        >
-          {customChildren}
-        </Component>
-      </RestoreDOM>
-    </ComposingContext.Provider>
+  return (
+    <ReadOnlyContext.Provider value={readOnly}>
+      <ComposingContext.Provider value={isComposing}>
+        <RestoreDOM node={ref} receivedUserInput={receivedUserInput}>
+          <Component
+            aria-multiline={readOnly ? undefined : true}
+            role={readOnly ? undefined : 'textbox'}
+            translate="no"
+            {...attributes}
+            autoCapitalize={
+              HAS_BEFORE_INPUT_SUPPORT || !CAN_USE_DOM
+                ? attributes.autoCapitalize
+                : 'false'
+            }
+            autoCorrect={
+              HAS_BEFORE_INPUT_SUPPORT || !CAN_USE_DOM
+                ? attributes.autoCorrect
+                : 'false'
+            }
+            // explicitly set this
+            contentEditable={!readOnly}
+            data-slate-editor
+            data-slate-large-document-selection={
+              shellBackedSelection ? 'shell-backed' : undefined
+            }
+            data-slate-node="value"
+            {...editableEventBindings}
+            // COMPAT: Certain browsers don't support the `beforeinput` event, so we'd
+            // have to use hacks to make these replacement-based features work.
+            // For SSR situations HAS_BEFORE_INPUT_SUPPORT is false and results in prop
+            // mismatch warning app moves to browser. Pass-through consumer props when
+            // not CAN_USE_DOM (SSR) and default to falsy value
+            spellCheck={
+              HAS_BEFORE_INPUT_SUPPORT || !CAN_USE_DOM
+                ? attributes.spellCheck
+                : false
+            }
+            style={{
+              ...(disableDefaultStyles
+                ? {}
+                : {
+                    // Allow positioning relative to the editable element.
+                    position: 'relative',
+                    // Preserve adjacent whitespace and new lines.
+                    whiteSpace: 'pre-wrap',
+                    // Allow words to break if they are too long.
+                    wordWrap: 'break-word',
+                  }),
+              // Allow for passed-in styles to override anything.
+              ...userStyle,
+            }}
+            suppressContentEditableWarning
+            // in some cases, a decoration needs access to the range / selection to decorate a text node,
+            // then you will select the whole text node when you select part the of text
+            // this magic zIndex="-1" will fix it
+            zindex={-1}
+          >
+            {customChildren}
+          </Component>
+        </RestoreDOM>
+      </ComposingContext.Provider>
+    </ReadOnlyContext.Provider>
   )
 }
 

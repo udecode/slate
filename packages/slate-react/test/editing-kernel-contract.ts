@@ -3,7 +3,11 @@ import { createEditor } from 'slate'
 import {
   beginEditableEventFrame,
   createEditableKernelResult,
+  EDITABLE_COMMAND_DEFINITIONS,
   getCurrentEditableEventFrame,
+  getEditableCommandDefinition,
+  getEditableCommandFromBeforeInputType,
+  getEditableCommandFromKeyDown,
   getEditableKernelTransition,
   getEditableMovementOwnershipTrace,
   getEditableSelectionChangeOwnership,
@@ -76,6 +80,82 @@ test('kernel traces attach the current editable event frame', () => {
   expect(getCurrentEditableEventFrame(editor)).toEqual(frame)
   expect(result.trace.frame).toEqual(frame)
   expect(result.trace.frameId).toBe(frame.id)
+})
+
+test('kernel traces attach typed command definitions', () => {
+  const command = {
+    inputType: 'insertText',
+    kind: 'insert-text' as const,
+    text: 'x',
+  }
+  const result = createEditableKernelResult({
+    editor: createEditor(),
+    handled: true,
+    trace: {
+      ...createBaseTrace(),
+      command,
+      eventFamily: 'beforeinput',
+      intent: 'insert-text',
+      nativeAllowed: false,
+      ownership: 'model-owned',
+      stateAfter: 'model-owned',
+      stateBefore: 'dom-selection',
+    },
+  })
+
+  expect(result.trace.commandDefinition).toBe(
+    EDITABLE_COMMAND_DEFINITIONS['insert-text']
+  )
+  expect(getEditableCommandDefinition(command)).toBe(
+    EDITABLE_COMMAND_DEFINITIONS['insert-text']
+  )
+})
+
+test('editable command definitions cover every command kind', () => {
+  expect(Object.keys(EDITABLE_COMMAND_DEFINITIONS).sort()).toEqual([
+    'delete',
+    'delete-both',
+    'delete-fragment',
+    'history',
+    'insert-break',
+    'insert-data',
+    'insert-text',
+    'move-selection',
+    'select',
+    'select-all',
+    'set-block',
+    'toggle-mark',
+  ])
+})
+
+test('beforeinput and keydown commands resolve through typed definitions', () => {
+  const beforeInputCommand = getEditableCommandFromBeforeInputType({
+    data: null,
+    inputType: 'deleteContentBackward',
+    selection: null,
+  })
+  const keyDownCommand = getEditableCommandFromKeyDown({
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: false,
+        key: 'Enter',
+        metaKey: false,
+        shiftKey: false,
+        which: 13,
+      },
+    } as any,
+    selection: null,
+  })
+
+  expect(beforeInputCommand?.kind).toBe('delete')
+  expect(
+    getEditableCommandDefinition(beforeInputCommand)?.inputFamilies
+  ).toContain('beforeinput')
+  expect(keyDownCommand?.kind).toBe('insert-break')
+  expect(getEditableCommandDefinition(keyDownCommand)?.inputFamilies).toContain(
+    'keydown'
+  )
 })
 
 test('repair kernel results preserve model selection by default', () => {

@@ -5,10 +5,9 @@ import { jsx } from '../../..'
 jsx
 
 // Apply a mark across a range containing text with other marks and a void
-import { Editor } from 'slate'
 
 export const run = (editor) => {
-  Editor.addMark(editor, 'bold', true)
+  editor.marks.add('bold', true)
 }
 export const input = (
   <editor>

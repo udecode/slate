@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-
-import { createEditor, type Descendant, Editor } from '../src'
+import { Editor } from 'slate/internal'
+import { createEditor, type Descendant } from '../src'
+import { extendTestSchema } from './support/schema'
 
 const createChildren = (): Descendant[] => [
   {
@@ -72,6 +73,38 @@ describe('slate bookmark contract', () => {
     assert.deepEqual(bookmark.unref(), range)
   })
 
+  it('exposes bookmarks through the public read state range group', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: createChildren(),
+      selection: {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 4 },
+      },
+      marks: null,
+    })
+
+    const bookmark = editor.read((state) => {
+      const selection = state.selection.get()
+
+      assert.ok(selection)
+
+      return state.ranges.bookmark(selection, { affinity: 'inward' })
+    })
+
+    editor.update((tx) => {
+      tx.text.insert('>', {
+        at: { path: [0, 0], offset: 0 },
+      })
+    })
+
+    assert.deepEqual(bookmark.unref(), {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 5 },
+    })
+  })
+
   it('maps through text inserted before the anchor range without mounted DOM', () => {
     const editor = createEditor()
 
@@ -86,8 +119,8 @@ describe('slate bookmark contract', () => {
       createRange({ path: [0, 0], offset: 1 }, { path: [0, 0], offset: 4 })
     )
 
-    editor.update(() => {
-      editor.insertText('>', {
+    editor.update((tx) => {
+      tx.text.insert('>', {
         at: { path: [0, 0], offset: 0 },
       })
     })
@@ -113,8 +146,8 @@ describe('slate bookmark contract', () => {
       createRange({ path: [0, 0], offset: 1 }, { path: [0, 0], offset: 4 })
     )
 
-    editor.update(() => {
-      editor.insertText('!', {
+    editor.update((tx) => {
+      tx.text.insert('!', {
         at: { path: [0, 0], offset: 4 },
       })
     })
@@ -140,8 +173,8 @@ describe('slate bookmark contract', () => {
       createRange({ path: [0, 0], offset: 1 }, { path: [0, 0], offset: 4 })
     )
 
-    editor.update(() => {
-      editor.splitNodes({
+    editor.update((tx) => {
+      tx.nodes.split({
         at: { path: [0, 0], offset: 2 },
       })
     })
@@ -170,14 +203,16 @@ describe('slate bookmark contract', () => {
       createRange({ path: [1, 0], offset: 1 }, { path: [1, 0], offset: 3 })
     )
 
-    editor.applyOperations([
-      {
-        type: 'merge_node',
-        path: [1],
-        position: 1,
-        properties: { type: 'paragraph' },
-      },
-    ])
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          type: 'merge_node',
+          path: [1],
+          position: 1,
+          properties: { type: 'paragraph' },
+        },
+      ])
+    })
 
     const resolved = bookmark.resolve()
 
@@ -203,8 +238,8 @@ describe('slate bookmark contract', () => {
       createRange({ path: [1, 0], offset: 1 }, { path: [1, 0], offset: 3 })
     )
 
-    editor.update(() => {
-      editor.moveNodes({ at: [1], to: [0] })
+    editor.update((tx) => {
+      tx.nodes.move({ at: [1], to: [0] })
     })
 
     const resolved = bookmark.resolve()
@@ -219,7 +254,7 @@ describe('slate bookmark contract', () => {
 
   it('rebases across normalization-driven spacer insertion', () => {
     const editor = createEditor()
-    editor.isInline = (element) => element.type === 'inline'
+    extendTestSchema(editor, { type: 'inline', inline: true })
 
     Editor.replace(editor, {
       children: [
@@ -237,8 +272,8 @@ describe('slate bookmark contract', () => {
       createRange({ path: [0, 0], offset: 1 }, { path: [0, 0], offset: 4 })
     )
 
-    editor.update(() => {
-      editor.insertNodes(
+    editor.update((tx) => {
+      tx.nodes.insert(
         {
           type: 'inline',
           children: [{ text: 'beta' }],
@@ -271,8 +306,8 @@ describe('slate bookmark contract', () => {
       createRange({ path: [1, 0], offset: 1 }, { path: [1, 0], offset: 3 })
     )
 
-    editor.update(() => {
-      editor.removeNodes({ at: [1] })
+    editor.update((tx) => {
+      tx.nodes.remove({ at: [1] })
     })
 
     assert.equal(bookmark.resolve(), null)

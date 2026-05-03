@@ -14,13 +14,13 @@ const EMPTY_PROJECTIONS = Object.freeze(
   []
 ) as readonly SlateProjectionEntry<never>[]
 
-export type SlateDecorationSelectorContext<TData = unknown> = {
+export type EditorDecorationSelectorContext<TData = unknown> = {
   projections: readonly SlateProjectionEntry<TData>[]
   runtimeId: RuntimeId | null
   store: SlateProjectionStore<TData> | null
 }
 
-export type SlateDecorationSelectorOptions = {
+export type EditorDecorationSelectorOptions = {
   runtimeId?: RuntimeId | null
 }
 
@@ -40,9 +40,9 @@ const getRuntimeProjections = <TData,>(
 }
 
 export function useDecorationSelector<TSelected, TData = unknown>(
-  selector: (context: SlateDecorationSelectorContext<TData>) => TSelected,
+  selector: (context: EditorDecorationSelectorContext<TData>) => TSelected,
   equalityFn: (a: TSelected | null, b: TSelected) => boolean = refEquality,
-  { runtimeId: runtimeIdProp }: SlateDecorationSelectorOptions = {}
+  { runtimeId: runtimeIdProp }: EditorDecorationSelectorOptions = {}
 ): TSelected {
   const store = useContext(
     ProjectionContext

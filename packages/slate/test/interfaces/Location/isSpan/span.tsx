@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 import { Location, Span } from 'slate'
 
 export const input: Span = [

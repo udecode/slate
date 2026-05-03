@@ -1,5 +1,5 @@
 import { type CompositionEvent, type RefObject, useEffect } from 'react'
-import { Editor, type EditorMarks, Node, Range, Text } from 'slate'
+import { type EditorMarks, Node, Range, Text } from 'slate'
 import {
   EDITOR_TO_PENDING_INSERTION_MARKS,
   EDITOR_TO_USER_MARKS,
@@ -11,10 +11,10 @@ import {
   IS_WECHATBROWSER,
   isDOMNode,
 } from 'slate-dom'
-
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { ReactEditor } from '../plugin/react-editor'
 import type { EditableCompositionStateSetter } from './input-controller'
+import type { Editor } from './runtime-editor-api'
 import { writeRuntimeMarks } from './runtime-mutation-state'
 
 type EditableCompositionHandler = (
@@ -95,12 +95,15 @@ export const commitChromeCompositionEndFallback = ({
 
   // Ensure we insert text with the marks the user was actually seeing
   if (placeholderMarks !== undefined) {
-    EDITOR_TO_USER_MARKS.set(editor, editor.getMarks())
+    EDITOR_TO_USER_MARKS.set(
+      editor,
+      editor.read((state) => state.marks.get())
+    )
     writeRuntimeMarks(editor, placeholderMarks)
   }
 
-  editor.update(() => {
-    Editor.insertText(editor, text)
+  editor.update((tx) => {
+    tx.text.insert(text)
   })
 
   const userMarks = EDITOR_TO_USER_MARKS.get(editor)
@@ -177,10 +180,10 @@ export const applyEditableCompositionStart = ({
 
     setComposing(true)
 
-    const selection = editor.getSelection()
+    const selection = editor.read((state) => state.selection.get())
     if (selection && Range.isExpanded(selection)) {
-      editor.update(() => {
-        Editor.deleteFragment(editor)
+      editor.update((tx) => {
+        tx.fragment.delete()
       })
       return
     }
@@ -219,7 +222,7 @@ export const usePendingInsertionMarksEffect = ({
   // before we receive the composition end event.
   useEffect(() => {
     setTimeout(() => {
-      const selection = editor.getSelection()
+      const selection = editor.read((state) => state.selection.get())
       if (selection) {
         const { anchor } = selection
         const text = Node.leaf(editor, anchor.path)

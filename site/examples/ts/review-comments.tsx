@@ -1,19 +1,14 @@
 import { css } from '@emotion/css'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  type Bookmark,
-  createEditor,
-  Editor,
-  type Range,
-  type Value,
-} from 'slate'
+import { type Bookmark, createEditor, type Range, type Value } from 'slate'
 import {
   Editable,
   type ReactEditor,
   Slate,
+  type SlateAnnotationStore,
+  useEditorSelection,
   useSlateAnnotationStore,
   useSlateAnnotations,
-  useSlateSelection,
   useSlateWidgetStore,
   useSlateWidgets,
   withReact,
@@ -24,8 +19,8 @@ import { Instruction } from './components'
 type CommentTone = 'question' | 'review'
 
 type CommentThread = {
+  anchor: Bookmark
   body: string
-  bookmark: Bookmark
   id: string
   label: string
   tone: CommentTone
@@ -168,26 +163,18 @@ const commentBackground = (tone: CommentTone, overlapCount: number) => ({
 })
 
 const ReviewCommentsContent = ({
+  annotationStore,
   comments,
   editor,
   setComments,
 }: {
+  annotationStore: SlateAnnotationStore<any>
   comments: readonly CommentThread[]
   editor: ReactEditor
   setComments: React.Dispatch<React.SetStateAction<CommentThread[]>>
 }) => {
   const nextCommentId = useRef(1)
-  const selection = useSlateSelection()
-  const annotations = useMemo(
-    () =>
-      comments.map((comment) => ({
-        bookmark: comment.bookmark,
-        data: comment,
-        id: comment.id,
-      })),
-    [comments]
-  )
-  const annotationStore = useSlateAnnotationStore(editor, annotations)
+  const selection = useEditorSelection()
   const annotationSnapshot = useSlateAnnotations(annotationStore)
   const widgets = useMemo(
     () =>
@@ -213,7 +200,7 @@ const ReviewCommentsContent = ({
   useEffect(() => {
     return () => {
       commentsRef.current.forEach((comment) => {
-        comment.bookmark.unref()
+        comment.anchor.unref()
       })
     }
   }, [])
@@ -228,16 +215,19 @@ const ReviewCommentsContent = ({
     const tone: CommentTone =
       nextCommentId.current % 2 === 0 ? 'question' : 'review'
     const snippet =
-      Editor.string(editor, range).replace(/\s+/g, ' ').trim() || 'selection'
-    const bookmark = Editor.bookmark(editor, range)
+      editor
+        .read((state) => state.text.string(range))
+        .replace(/\s+/g, ' ')
+        .trim() || 'selection'
+    const bookmark = editor.read((state) => state.ranges.bookmark(range))
 
     nextCommentId.current += 1
 
     setComments((current) => [
       ...current,
       {
+        anchor: bookmark,
         body: `Discuss: ${snippet.slice(0, 56)}`,
-        bookmark,
         id,
         label: `Comment ${current.length + 1}`,
         tone,
@@ -264,7 +254,7 @@ const ReviewCommentsContent = ({
     setComments((current) => {
       const target = current.find((comment) => comment.id === id)
 
-      target?.bookmark.unref()
+      target?.anchor.unref()
 
       return current.filter((comment) => comment.id !== id)
     })
@@ -273,11 +263,24 @@ const ReviewCommentsContent = ({
   const clearComments = () => {
     setComments((current) => {
       current.forEach((comment) => {
-        comment.bookmark.unref()
+        comment.anchor.unref()
       })
 
       return []
     })
+  }
+
+  const retoneFirstComment = () => {
+    setComments((current) =>
+      current.map((comment, index) =>
+        index === 0
+          ? {
+              ...comment,
+              tone: comment.tone === 'review' ? 'question' : 'review',
+            }
+          : comment
+      )
+    )
   }
 
   const insertPrefixBeforeFirstComment = () => {
@@ -287,8 +290,8 @@ const ReviewCommentsContent = ({
 
     const path = firstAnnotation.range.anchor.path
 
-    editor.update(() => {
-      editor.insertText('>', {
+    editor.update((tx) => {
+      tx.text.insert('>', {
         at: {
           offset: 0,
           path,
@@ -307,12 +310,12 @@ const ReviewCommentsContent = ({
       path: firstAnnotation.range.anchor.path,
     }
 
-    editor.update(() => {
-      editor.select({
+    editor.update((tx) => {
+      tx.selection.set({
         anchor: at,
         focus: at,
       })
-      editor.insertFragment(
+      tx.nodes.insert(
         [
           {
             type: 'paragraph',
@@ -331,8 +334,8 @@ const ReviewCommentsContent = ({
       <Instruction>
         This is the feature-grade comments path: selection creates a
         <code> Bookmark</code>, the annotation store owns durable comment data,
-        the projection store paints inline slices, and the widget lane exposes
-        comment UI without shoving everything through one decorate callback.
+        the runtime paints inline slices, and the widget lane exposes comment UI
+        without shoving everything through one decorate callback.
       </Instruction>
       <div className={controlsCss}>
         <button
@@ -365,6 +368,14 @@ const ReviewCommentsContent = ({
         <button
           className={buttonCss}
           disabled={comments.length === 0}
+          onClick={retoneFirstComment}
+          type="button"
+        >
+          Retone first comment
+        </button>
+        <button
+          className={buttonCss}
+          disabled={comments.length === 0}
           onClick={clearComments}
           type="button"
         >
@@ -374,9 +385,7 @@ const ReviewCommentsContent = ({
       <div className={layoutCss}>
         <div className={editorPanelCss}>
           <Editable
-            editor={editor}
             id="review-comments"
-            projectionStore={annotationStore.projectionStore as any}
             renderSegment={(segment, children) => {
               if (segment.slices.length === 0) {
                 return children
@@ -484,22 +493,42 @@ const ReviewCommentsExample = () => {
   const [editor] = useState(() => {
     const nextEditor = withReact(createEditor())
 
-    Editor.replace(nextEditor, {
-      children: initialChildren,
-      selection: {
-        anchor: { path: [0, 0], offset: 0 },
-        focus: { path: [0, 0], offset: 0 },
-      },
+    nextEditor.update((tx) => {
+      tx.value.replace({
+        children: initialChildren,
+        selection: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 0 },
+        },
+      })
     })
 
     return nextEditor
   })
   const [comments, setComments] = useState<CommentThread[]>([])
+  const annotations = useMemo(
+    () =>
+      comments.map((comment) => ({
+        anchor: comment.anchor,
+        data: {
+          body: comment.body,
+          label: comment.label,
+          tone: comment.tone,
+        },
+        id: comment.id,
+        projection: {
+          tone: comment.tone,
+        },
+      })),
+    [comments]
+  )
+  const annotationStore = useSlateAnnotationStore(editor, annotations)
 
   return (
-    <Slate editor={editor}>
+    <Slate annotationStores={[annotationStore]} editor={editor}>
       <div className={panelCss}>
         <ReviewCommentsContent
+          annotationStore={annotationStore}
           comments={comments}
           editor={editor}
           setComments={setComments}

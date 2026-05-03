@@ -4,23 +4,19 @@ import React, {
   type Ref,
   useCallback,
 } from 'react'
-import {
-  Editor,
-  type Path,
-  type RuntimeId,
-  type Text as SlateTextNode,
-} from 'slate'
+import type { Path, RuntimeId, Text as SlateTextNode } from 'slate'
 import {
   type DOMTextSyncOptOutReason,
   getDOMTextSyncCapability,
 } from '../dom-text-sync'
+import { Editor } from '../editable/runtime-editor-api'
+import { useEditor } from '../hooks/use-editor'
 import {
-  type SlateTextSelectorContext,
+  type EditorTextSelectorContext,
   useMountedTextRenderSelector,
 } from '../hooks/use-node-selector'
 import { useSlateNodeRef } from '../hooks/use-slate-node-ref'
 import { useSlateProjections } from '../hooks/use-slate-projections'
-import { useSlateStatic } from '../hooks/use-slate-static'
 import type { SlateProjectionSlice } from '../projection-store'
 import { SlateLeaf } from './slate-leaf'
 import { getSlatePlaceholderStyle, SlatePlaceholder } from './slate-placeholder'
@@ -121,6 +117,8 @@ export type EditableTextRenderTextProps = {
   attributes: {
     'data-slate-node': 'text'
     'data-slate-dom-sync-reason'?: DOMTextSyncOptOutReason
+    'data-slate-path'?: string
+    'data-slate-runtime-id'?: RuntimeId
     ref?: Ref<HTMLSpanElement>
   }
   children: ReactNode
@@ -271,6 +269,7 @@ const RenderEditableText = <T,>({
   placeholderDir,
   placeholderRef,
   placeholderStyle,
+  path,
   projections,
   ref: textRef,
   renderLeaf,
@@ -279,6 +278,7 @@ const RenderEditableText = <T,>({
   renderText,
   resolvedMarks,
   resolvedText,
+  runtimeId,
   zeroWidth,
 }: EditableTextProps<T> & {
   projections: readonly SlateProjectionSlice<T>[]
@@ -308,6 +308,8 @@ const RenderEditableText = <T,>({
   const textAttributes = {
     'data-slate-dom-sync-reason': domTextSync.reason ?? undefined,
     'data-slate-node': 'text' as const,
+    'data-slate-path': path ? path.join(',') : undefined,
+    'data-slate-runtime-id': runtimeId ?? undefined,
     ref: textRef,
   }
   const placeholderAttributes = {
@@ -429,7 +431,9 @@ const RenderEditableText = <T,>({
     <SlateText
       domSync={domTextSync.enabled}
       domSyncReason={domTextSync.reason}
+      path={path}
       ref={textRef}
+      runtimeId={runtimeId}
     >
       {content}
     </SlateText>
@@ -444,14 +448,14 @@ const BoundEditableText = <T,>({
   text,
   ...props
 }: EditableTextProps<T>) => {
-  const editor = useSlateStatic()
+  const editor = useEditor()
   const selectorRuntimeId = path ? Editor.getRuntimeId(editor, path) : runtimeId
   const selectBoundText = useCallback(
     ({
       path: selectorPath,
       runtimeId: resolvedRuntimeId,
       text: node,
-    }: SlateTextSelectorContext) => {
+    }: EditorTextSelectorContext) => {
       if (!path && !runtimeId) {
         return EMPTY_BOUND_TEXT
       }
@@ -495,10 +499,12 @@ const BoundEditableText = <T,>({
   return (
     <RenderEditableText
       {...props}
+      path={boundText.path ?? undefined}
       projections={projections}
       ref={combinedRef}
       resolvedMarks={boundText.marks}
       resolvedText={boundText.text}
+      runtimeId={resolvedRuntimeId}
     />
   )
 }
@@ -528,10 +534,12 @@ const ProjectedEditableText = <T,>({
   return (
     <RenderEditableText
       {...props}
+      path={path}
       projections={projections}
       ref={combinedRef}
       resolvedMarks={marks}
       resolvedText={text}
+      runtimeId={runtimeId}
     />
   )
 }

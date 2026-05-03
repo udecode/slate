@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 jsx
 
 export const run = (editor) => {
-  editor.setNodes({ key: 'a' }, { at: [0, 0] })
+  editor.nodes.set({ key: 'a' }, { at: [0, 0] })
 }
 export const input = (
   <editor>

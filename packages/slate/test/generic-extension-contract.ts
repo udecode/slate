@@ -24,7 +24,9 @@ const extension = defineEditorExtension<typeof editor>({
   operationMiddlewares: [
     (context, next) => {
       const operation: Operation<CustomValue> = context.operation
-      const value: ValueOf<typeof context.editor> = context.editor.getChildren()
+      const value: ValueOf<typeof context.editor> = context.editor.read(
+        (state) => state.value.get()
+      )
 
       next(operation)
       void value

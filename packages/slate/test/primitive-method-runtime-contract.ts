@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-
-import { createEditor, type Descendant, Editor, Node } from '../src'
+import { Editor } from 'slate/internal'
+import { createEditor, type Descendant, Node } from '../src'
 import { setEditorTargetRuntime } from '../src/internal'
+import { extendTestSchema } from './support/schema'
 
 const paragraph = (text: string): Descendant => ({
   type: 'paragraph',
@@ -105,8 +106,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.wrapNodes({ type: 'quote', children: [] } as never)
+    editor.update((tx) => {
+      tx.nodes.wrap({ type: 'quote', children: [] } as never)
     })
 
     assert.equal(calls, 1)
@@ -131,8 +132,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.removeNodes()
+    editor.update((tx) => {
+      tx.nodes.remove()
     })
 
     assert.equal(calls, 1)
@@ -154,8 +155,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.splitNodes()
+    editor.update((tx) => {
+      tx.nodes.split()
     })
 
     assert.equal(calls, 1)
@@ -181,8 +182,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.insertText('X')
+    editor.update((tx) => {
+      tx.text.insert('X')
     })
 
     assert.equal(calls, 1)
@@ -190,7 +191,7 @@ describe('primitive method runtime contract', () => {
       paragraph('one'),
       paragraph('tXwo'),
     ])
-    assert.deepEqual(editor.getSelection(), {
+    assert.deepEqual(Editor.getSelection(editor), {
       anchor: { path: [1, 0], offset: 2 },
       focus: { path: [1, 0], offset: 2 },
     })
@@ -207,8 +208,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.insertText('U')
+    editor.update((tx) => {
+      tx.text.insert('U')
     })
 
     const commit = Editor.getLastCommit(editor)
@@ -229,7 +230,9 @@ describe('primitive method runtime contract', () => {
     const editor = setupCollapsedEditor()
     let calls = 0
 
-    editor.addMark('bold', true)
+    editor.update((tx) => {
+      tx.marks.add('bold', true)
+    })
 
     setEditorTargetRuntime(editor, {
       resolveImplicitTarget() {
@@ -242,14 +245,14 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.insertText('M')
+    editor.update((tx) => {
+      tx.text.insert('M')
     })
 
     setEditorTargetRuntime(editor, null)
 
-    editor.update(() => {
-      editor.insertText('ARK')
+    editor.update((tx) => {
+      tx.text.insert('ARK')
     })
 
     assert.equal(calls, 1)
@@ -260,7 +263,7 @@ describe('primitive method runtime contract', () => {
         children: [{ text: 't' }, { bold: true, text: 'MARK' }, { text: 'wo' }],
       },
     ])
-    assert.deepEqual(editor.getSelection(), {
+    assert.deepEqual(Editor.getSelection(editor), {
       anchor: { path: [1, 1], offset: 4 },
       focus: { path: [1, 1], offset: 4 },
     })
@@ -270,7 +273,7 @@ describe('primitive method runtime contract', () => {
     const editor = createEditor()
     let calls = 0
 
-    editor.isElementReadOnly = (element) => element.type === 'read-only'
+    extendTestSchema(editor, { type: 'read-only', readOnly: true })
 
     Editor.replace(editor, {
       children: [
@@ -298,8 +301,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.insertText('X')
+    editor.update((tx) => {
+      tx.text.insert('X')
     })
 
     assert.equal(calls, 1)
@@ -327,8 +330,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.setNodes({ type: 'heading-one' } as never)
+    editor.update((tx) => {
+      tx.nodes.set({ type: 'heading-one' } as never)
     })
 
     assert.equal(calls, 1)
@@ -364,8 +367,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.unsetNodes('align' as never)
+    editor.update((tx) => {
+      tx.nodes.unset('align' as never)
     })
 
     assert.equal(calls, 1)
@@ -390,8 +393,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.delete()
+    editor.update((tx) => {
+      tx.text.delete()
     })
 
     assert.equal(calls, 1)
@@ -416,8 +419,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.insertFragment([{ text: 'X' }])
+    editor.update((tx) => {
+      tx.fragment.insert([{ text: 'X' }])
     })
 
     assert.equal(calls, 1)
@@ -442,8 +445,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.unwrapNodes({
+    editor.update((tx) => {
+      tx.nodes.unwrap({
         match: (node) => Node.isElement(node) && node.type === 'quote',
       })
     })
@@ -470,8 +473,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.liftNodes({
+    editor.update((tx) => {
+      tx.nodes.lift({
         match: (node) => Node.isElement(node) && node.type === 'paragraph',
       })
     })
@@ -498,8 +501,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.moveNodes({ to: [0] })
+    editor.update((tx) => {
+      tx.nodes.move({ to: [0] })
     })
 
     assert.equal(calls, 1)
@@ -525,8 +528,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.mergeNodes({ match: (node) => Node.isText(node) })
+    editor.update((tx) => {
+      tx.nodes.merge({ match: (node) => Node.isText(node) })
     })
 
     assert.equal(calls, 1)
@@ -553,8 +556,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.insertNodes({ text: 'X' })
+    editor.update((tx) => {
+      tx.nodes.insert({ text: 'X' })
     })
 
     assert.equal(calls, 1)
@@ -582,8 +585,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.insertBreak()
+    editor.update((tx) => {
+      Editor.insertBreak(editor)
     })
 
     assert.equal(calls, 1)
@@ -609,8 +612,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.deleteBackward('character')
+    editor.update((tx) => {
+      Editor.deleteBackward(editor, 'character')
     })
 
     assert.equal(calls, 1)
@@ -635,8 +638,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.deleteForward('character')
+    editor.update((tx) => {
+      Editor.deleteForward(editor, 'character')
     })
 
     assert.equal(calls, 1)
@@ -661,8 +664,8 @@ describe('primitive method runtime contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.deleteFragment()
+    editor.update((tx) => {
+      Editor.deleteFragment(editor)
     })
 
     assert.equal(calls, 1)

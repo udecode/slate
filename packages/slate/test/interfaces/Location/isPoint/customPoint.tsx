@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 import { Location, Point } from 'slate'
 
 export const input: Point & { custom: string } = {

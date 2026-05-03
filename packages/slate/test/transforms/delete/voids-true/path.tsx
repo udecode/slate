@@ -12,7 +12,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.delete({ at: [0, 0], voids: true })
+  editor.text.delete({ at: [0, 0], voids: true })
 }
 export const output = (
   <editor>

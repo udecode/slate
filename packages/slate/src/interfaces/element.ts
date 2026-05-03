@@ -104,7 +104,16 @@ const isElement = (
 ): value is Element => {
   if (!isObject(value)) return false
 
-  if (Node.isEditor(value) || typeof value.applyOperations === 'function') {
+  if (Node.isEditor(value)) {
+    return false
+  }
+
+  if (
+    Array.isArray(value.children) &&
+    Array.isArray(value.operations) &&
+    'selection' in value &&
+    'marks' in value
+  ) {
     return false
   }
 

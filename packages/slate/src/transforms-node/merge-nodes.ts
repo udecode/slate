@@ -1,4 +1,7 @@
-import { applyOperation, withTransaction } from '../core/public-state'
+import { applyOperation, runEditorTransaction } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import { node as getNode } from '../editor/node'
+import { nodes as getNodes } from '../editor/nodes'
 import { Location } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import type { Element } from '../interfaces/element'
@@ -27,8 +30,9 @@ export const mergeNodes: NodeMutationMethods['mergeNodes'] = (
   editor,
   options = {}
 ) => {
-  withTransaction(editor, (tx) => {
+  runEditorTransaction(editor, (tx) => {
     Editor.withoutNormalizing(editor, () => {
+      const transforms = getEditorTransformRegistry(editor)
       let { match } = options
       let at = tx.resolveTarget({ at: options.at })
       const { hanging = false, voids = false, mode = 'lowest' } = options
@@ -61,22 +65,22 @@ export const mergeNodes: NodeMutationMethods['mergeNodes'] = (
         } else {
           const [, end] = Range.edges(at)
           const pointRef = Editor.pointRef(editor, end)
-          editor.delete({ at })
+          transforms.delete({ at })
           at = pointRef.unref()!
 
           if (options.at == null) {
-            editor.select(at)
+            transforms.select(at)
           }
         }
       }
 
-      const [current] = Editor.nodes(editor, { at, match, voids, mode })
+      const [current] = getNodes(editor, { at, match, voids, mode })
       const previousPath =
         usesDefaultSiblingMatch && pathAt && Path.hasPrevious(pathAt)
           ? Path.previous(pathAt)
           : null
       const prev = previousPath
-        ? Editor.node(editor, previousPath)
+        ? getNode(editor, previousPath)
         : Editor.previous(editor, { at, match, voids, mode })
 
       if (!current || !prev) {
@@ -130,17 +134,17 @@ export const mergeNodes: NodeMutationMethods['mergeNodes'] = (
       // If the node isn't already the next sibling of the previous node, move
       // it so that it is before merging.
       if (!isPreviousSibling) {
-        editor.moveNodes({ at: path, to: newPath, voids })
+        transforms.moveNodes({ at: path, to: newPath, voids })
       }
 
       // If there was going to be an empty ancestor of the node that was merged,
       // we remove it from the tree.
       if (emptyRef) {
-        editor.removeNodes({ at: emptyRef.current!, voids })
+        transforms.removeNodes({ at: emptyRef.current!, voids })
       }
 
       if (Editor.shouldMergeNodesRemovePrevNode(editor, prev, current)) {
-        editor.removeNodes({ at: prevPath, voids })
+        transforms.removeNodes({ at: prevPath, voids })
       } else {
         applyOperation(editor, {
           type: 'merge_node',

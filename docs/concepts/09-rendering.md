@@ -142,9 +142,9 @@ Decorations are different from Marks in that they are not stored on editor state
 
 ## Toolbars, Menus, Overlays, and more!
 
-In addition to controlling the rendering of nodes inside Slate, you can also retrieve the current editor context from inside other components using the `useSlate` hook.
+In addition to controlling the rendering of nodes inside Slate, you can retrieve the editor from other components with `useEditor()`.
 
-That way other components can execute commands, query the editor state, or anything else.
+Use editor-level hooks for shell UI such as toolbars. Keep broad editor subscriptions out of rendered document nodes.
 
 A common use case for this is rendering a toolbar with formatting buttons that are highlighted based on the current selection:
 
@@ -160,17 +160,20 @@ const MyEditor = () => {
 }
 
 const Toolbar = () => {
-  const editor = useSlate()
+  const isBold = useEditorState(state => {
+    return state.marks.get()?.bold === true
+  })
+
   return (
     <div>
-      <Button active={isBoldActive(editor)}>B</Button>
-      <Button active={isItalicActive(editor)}>I</Button>
+      <Button active={isBold}>B</Button>
+      <Button>I</Button>
     </div>
   )
 }
 ```
 
-Because the `<Toolbar>` uses the `useSlate` hook to retrieve the context, it will re-render whenever the editor changes, so that the active state of the buttons stays in sync.
+Because the toolbar draws editor-level state, `useEditorState` is the right level of subscription. It runs the selector inside `editor.read` and re-renders only when the selected result changes. Element renderers should prefer target-scoped hooks such as `useElementSelected(target)`, `useNodeSelector`, `useTextSelector`, and `useDecorationSelector`.
 
 ## Editor Styling
 

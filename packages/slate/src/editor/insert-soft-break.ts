@@ -1,5 +1,6 @@
-import type { EditorInterface } from '../interfaces/editor'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import type { EditorStaticApi } from '../interfaces/editor'
 
-export const insertSoftBreak: EditorInterface['insertSoftBreak'] = (editor) => {
-  editor.splitNodes({ always: true })
+export const insertSoftBreak: EditorStaticApi['insertSoftBreak'] = (editor) => {
+  getEditorTransformRegistry(editor).splitNodes({ always: true })
 }

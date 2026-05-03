@@ -1,6 +1,7 @@
-import { Editor, type EditorInterface } from '../interfaces/editor'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
+import { node } from './node'
 
-export const first: EditorInterface['first'] = (editor, at) => {
+export const first: EditorStaticApi['first'] = (editor, at) => {
   const path = Editor.path(editor, at, { edge: 'start' })
-  return Editor.node(editor, path)
+  return node(editor, path)
 }

@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { Editor } from 'slate'
-import { History, withHistory } from '..'
+import { Editor, getEditorTransformRegistry } from 'slate/internal'
+import { History, withHistory } from '../src'
 
 const testsDir = dirname(fileURLToPath(import.meta.url))
 
@@ -50,6 +50,29 @@ const runFixtureTree = (
 
 const withTest = (editor: any) => {
   const { isInline, isVoid, isElementReadOnly, isSelectable } = editor
+  const transforms = () => getEditorTransformRegistry(editor)
+
+  Object.defineProperties(editor, {
+    delete: { value: (...args: any[]) => transforms().delete(...args) },
+    deleteBackward: {
+      value: (...args: any[]) => transforms().deleteBackward(...args),
+    },
+    deleteForward: {
+      value: (...args: any[]) => transforms().deleteForward(...args),
+    },
+    deselect: { value: (...args: any[]) => transforms().deselect(...args) },
+    insertBreak: {
+      value: (...args: any[]) => transforms().insertBreak(...args),
+    },
+    insertFragment: {
+      value: (...args: any[]) => transforms().insertFragment(...args),
+    },
+    insertText: {
+      value: (...args: any[]) => transforms().insertText(...args),
+    },
+    move: { value: (...args: any[]) => transforms().move(...args) },
+    select: { value: (...args: any[]) => transforms().select(...args) },
+  })
 
   editor.isInline = (element: any) => {
     return element.inline === true ? true : isInline(element)

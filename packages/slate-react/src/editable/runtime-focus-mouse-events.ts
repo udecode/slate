@@ -1,7 +1,11 @@
-import { type FocusEvent, type MouseEvent, useCallback } from 'react'
-import type { ReactEditor } from '../plugin/react-editor'
+import { type FocusEvent, type MouseEvent, useCallback, useRef } from 'react'
+import { ReactEditor } from '../plugin/react-editor'
 import { prepareEditableFocusMouseKernel } from './editing-kernel'
-import { isInteractiveInternalTarget } from './input-controller'
+import {
+  isInteractiveInternalTarget,
+  isNativeInternalControlTarget,
+  setEditableModelSelectionPreference,
+} from './input-controller'
 import {
   useEditableFocusHandler,
   useEditableMouseHandler,
@@ -30,6 +34,7 @@ export const useRuntimeFocusMouseEvents = ({
   readOnly,
   selection,
   state,
+  syncDOMSelectionToEditor,
   trace,
 }: {
   editor: ReactEditor
@@ -42,8 +47,12 @@ export const useRuntimeFocusMouseEvents = ({
   readOnly: boolean
   selection: EditableEventRuntime['selection']
   state: EditableSelectionReconcilerState
+  syncDOMSelectionToEditor: () => void
   trace: EditableEventRuntime['trace']
 }) => {
+  const nativeInternalFocusRef = useRef(false)
+  const nativePointerFocusRef = useRef(false)
+
   const handleBlur = useCallback(
     (event: FocusEvent<HTMLDivElement>) => {
       const decision = prepareEditableFocusMouseKernel({
@@ -57,6 +66,14 @@ export const useRuntimeFocusMouseEvents = ({
         ownership: decision.ownership,
         target: event.target,
       })
+      if (
+        isNativeInternalControlTarget(editor, event.target) &&
+        !nativePointerFocusRef.current
+      ) {
+        nativeInternalFocusRef.current = false
+        syncDOMSelectionToEditor()
+      }
+
       applyEditableBlur({
         editor,
         event,
@@ -65,7 +82,15 @@ export const useRuntimeFocusMouseEvents = ({
         state,
       })
     },
-    [editor, inputController, onBlur, readOnly, state, trace]
+    [
+      editor,
+      inputController,
+      onBlur,
+      readOnly,
+      state,
+      syncDOMSelectionToEditor,
+      trace,
+    ]
   )
   const onRuntimeBlur = useEditableFocusHandler({ handleFocus: handleBlur })
 
@@ -82,15 +107,52 @@ export const useRuntimeFocusMouseEvents = ({
         ownership: decision.ownership,
         target: event.target,
       })
-      applyEditableFocus({
+      if (isNativeInternalControlTarget(editor, event.target)) {
+        setEditableModelSelectionPreference({
+          inputController,
+          preferModelSelection: true,
+          selectionSource: 'internal-control',
+        })
+        nativeInternalFocusRef.current = true
+        return
+      }
+
+      if (
+        nativeInternalFocusRef.current &&
+        !nativePointerFocusRef.current &&
+        isInteractiveInternalTarget(editor, event.target)
+      ) {
+        nativeInternalFocusRef.current = false
+        syncDOMSelectionToEditor()
+        return
+      }
+
+      const handled = applyEditableFocus({
         editor,
         event,
         onFocus,
         readOnly,
         state,
       })
+
+      if (
+        handled &&
+        event.target === ReactEditor.toDOMNode(editor, editor) &&
+        !nativePointerFocusRef.current
+      ) {
+        nativeInternalFocusRef.current = false
+        syncDOMSelectionToEditor()
+      }
     },
-    [editor, inputController, onFocus, readOnly, state, trace]
+    [
+      editor,
+      inputController,
+      onFocus,
+      readOnly,
+      state,
+      syncDOMSelectionToEditor,
+      trace,
+    ]
   )
   const onRuntimeFocus = useEditableFocusHandler({ handleFocus })
 
@@ -125,6 +187,13 @@ export const useRuntimeFocusMouseEvents = ({
         editor,
         event,
         inputController,
+      })
+      nativePointerFocusRef.current = !isInteractiveInternalTarget(
+        editor,
+        event.target
+      )
+      setTimeout(() => {
+        nativePointerFocusRef.current = false
       })
       trace.recordKernelEventTrace({
         family: 'mousedown',

@@ -1,9 +1,10 @@
 import { css } from '@emotion/css'
 import { type CSSProperties, useMemo, useRef, useState } from 'react'
-import { createEditor, Editor, type Value } from 'slate'
+import { createEditor, type Value } from 'slate'
 import {
-  createSlateProjectionStore,
+  createDecorationSource,
   Editable,
+  Slate,
   type SlateProjection,
   withReact,
 } from 'slate-react'
@@ -158,9 +159,11 @@ const ExternalDecorationSourcesExample = () => {
   const [editor] = useState(() => {
     const nextEditor = withReact(createEditor())
 
-    Editor.replace(nextEditor, {
-      children: initialChildren,
-      selection: null,
+    nextEditor.update((tx) => {
+      tx.value.replace({
+        children: initialChildren,
+        selection: null,
+      })
     })
 
     return nextEditor
@@ -172,11 +175,12 @@ const ExternalDecorationSourcesExample = () => {
   >(() => buildSnapshot('alpha', 'warm'))
   const externalSnapshotRef = useRef(externalSnapshot)
 
-  const projectionStore = useMemo(
+  const externalSource = useMemo(
     () =>
-      createSlateProjectionStore(editor, () => externalSnapshotRef.current, {
+      createDecorationSource(editor, {
         dirtiness: 'external',
-        sourceId: 'external-diagnostics',
+        id: 'external-diagnostics',
+        read: () => externalSnapshotRef.current,
       }),
     [editor]
   )
@@ -190,7 +194,7 @@ const ExternalDecorationSourcesExample = () => {
     setExternalSnapshot(next)
     setMode(nextMode)
     setTone(nextToneValue)
-    projectionStore.refresh({
+    externalSource.refresh({
       reason: 'external',
       sourceId: 'external-diagnostics',
     })
@@ -273,34 +277,34 @@ const ExternalDecorationSourcesExample = () => {
           {formatSnapshot(externalSnapshot)}
         </span>
       </div>
-      <Editable
-        editor={editor}
-        id="external-decoration-sources"
-        projectionStore={projectionStore}
-        renderSegment={(segment, children) => {
-          const slice =
-            (segment.slices[0]?.data as
-              | {
-                  tone?: Tone
-                }
-              | undefined) ?? null
+      <Slate decorationSources={[externalSource]} editor={editor}>
+        <Editable
+          id="external-decoration-sources"
+          renderSegment={(segment, children) => {
+            const slice =
+              (segment.slices[0]?.data as
+                | {
+                    tone?: Tone
+                  }
+                | undefined) ?? null
 
-          return segment.slices.length > 0 ? (
-            <span
-              data-external-tone={slice?.tone ?? 'none'}
-              style={{
-                borderRadius: 4,
-                ...toneStyles[slice?.tone ?? 'warm'],
-              }}
-            >
-              {children}
-            </span>
-          ) : (
-            children
-          )
-        }}
-        style={{ minHeight: 96 }}
-      />
+            return segment.slices.length > 0 ? (
+              <span
+                data-external-tone={slice?.tone ?? 'none'}
+                style={{
+                  borderRadius: 4,
+                  ...toneStyles[slice?.tone ?? 'warm'],
+                }}
+              >
+                {children}
+              </span>
+            ) : (
+              children
+            )
+          }}
+          style={{ minHeight: 96 }}
+        />
+      </Slate>
     </div>
   )
 }

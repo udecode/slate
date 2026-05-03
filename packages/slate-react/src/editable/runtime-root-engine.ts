@@ -1,7 +1,6 @@
 import {
   type ComponentPropsWithRef,
   type ForwardedRef,
-  type KeyboardEvent,
   useCallback,
   useContext,
   useEffect,
@@ -9,14 +8,17 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { Editor, Range, RuntimeId } from 'slate'
+import type { Range, RuntimeId } from 'slate'
 import { type DOMRange, IS_READ_ONLY } from 'slate-dom'
 import type {
   EditableInputRule,
-  EditableKeyCommandHandler,
+  EditableKeyDownHandler,
 } from '../components/editable'
+import {
+  EditorSelectorContext,
+  useFlushDeferredSelectorsOnRender,
+} from '../hooks/use-editor-selector'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
-import { SlateSelectorContext } from '../hooks/use-slate-selector'
 import { useTrackUserInput } from '../hooks/use-track-user-input'
 import type { MountedTopLevelRange } from '../large-document/large-document-commands'
 import { isSelectionShellBacked } from '../large-document/large-document-commands'
@@ -37,6 +39,7 @@ import {
   useRuntimeAndroidEngine,
 } from './runtime-android-engine'
 import { useRuntimeCompositionEngine } from './runtime-composition-engine'
+import type { Editor } from './runtime-editor-api'
 import { useEditableEventRuntime } from './runtime-event-engine'
 import { useRuntimeKernelTraceEngine } from './runtime-kernel-trace'
 import { useRuntimeRepairEngine } from './runtime-repair-engine'
@@ -70,10 +73,33 @@ type EditableRootCallbackProps = Pick<
   | 'onDrop'
   | 'onFocus'
   | 'onInput'
+  | 'onMouseDown'
+  | 'onMouseUp'
+  | 'onPaste'
+>
+
+type EditableRootEventBindings = Pick<
+  ComponentPropsWithRef<'div'>,
+  | 'onBeforeInput'
+  | 'onBlur'
+  | 'onClick'
+  | 'onCompositionEnd'
+  | 'onCompositionStart'
+  | 'onCompositionUpdate'
+  | 'onCopy'
+  | 'onCut'
+  | 'onDragEnd'
+  | 'onDragOver'
+  | 'onDragStart'
+  | 'onDrop'
+  | 'onFocus'
+  | 'onInput'
+  | 'onInputCapture'
   | 'onKeyDown'
   | 'onMouseDown'
   | 'onMouseUp'
   | 'onPaste'
+  | 'ref'
 >
 
 export const useEditableRootRuntime = ({
@@ -84,7 +110,7 @@ export const useEditableRootRuntime = ({
   inputRules,
   largeDocument,
   onDOMBeforeInput,
-  onKeyCommand,
+  onKeyDown,
   readOnly,
   scrollSelectionIntoView,
 }: {
@@ -94,15 +120,17 @@ export const useEditableRootRuntime = ({
   forwardedRef?: ForwardedRef<HTMLDivElement>
   inputRules?: readonly EditableInputRule[]
   largeDocument: {
+    mode: 'dom-present' | 'shell'
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
   } | null
   onDOMBeforeInput?: (event: InputEvent) => boolean | void
-  onKeyCommand?: EditableKeyCommandHandler
+  onKeyDown?: EditableKeyDownHandler
   readOnly: boolean
   scrollSelectionIntoView: (editor: ReactEditor, domRange: DOMRange) => void
 }) => {
   useEditableRootCommitWakeup()
+  useFlushDeferredSelectorsOnRender()
 
   const [isComposing, setIsComposing] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -118,6 +146,16 @@ export const useEditableRootRuntime = ({
   const processing = useRef(false)
   const { onUserInput, receivedUserInput } = useTrackUserInput()
 
+  useEffect(
+    () => () => {
+      browserHandleRangeRefs.current.forEach((rangeRef) => {
+        rangeRef.unref()
+      })
+      browserHandleRangeRefs.current.clear()
+    },
+    []
+  )
+
   IS_READ_ONLY.set(editor, readOnly)
 
   const largeDocumentRef = useRef(largeDocument)
@@ -128,7 +166,7 @@ export const useEditableRootRuntime = ({
   const isShellBackedSelection = useCallback((selection: Range | null) => {
     const currentLargeDocument = largeDocumentRef.current
 
-    return currentLargeDocument
+    return currentLargeDocument?.mode === 'shell'
       ? isSelectionShellBacked(
           selection,
           currentLargeDocument.mountedTopLevelRuntimeIds,
@@ -136,7 +174,10 @@ export const useEditableRootRuntime = ({
         )
       : false
   }, [])
-  const shellBackedSelection = explicitShellBackedSelection
+  const modelSelection = readRuntimeSelection(editor)
+  const modelShellBackedSelection = isShellBackedSelection(modelSelection)
+  const shellBackedSelection =
+    explicitShellBackedSelection || modelShellBackedSelection
 
   const controllerState = useMemo(createEditableInputControllerState, [])
   const inputController = useMemo(
@@ -212,20 +253,24 @@ export const useEditableRootRuntime = ({
     shellBackedSelection,
     state,
   })
-  const { addEventListener: addSelectorEventListener } =
-    useContext(SlateSelectorContext)
+  const { addEventListener: addSelectorEventListener } = useContext(
+    EditorSelectorContext
+  )
 
   useIsomorphicLayoutEffect(() => {
     return subscribeSelectionOnlyDOMExport({
       addSelectorEventListener,
       getModelSelection: () => readRuntimeSelection(editor),
       inputController,
+      shouldSkipDOMExport: (modelSelection) =>
+        isShellBackedSelection(modelSelection),
       syncDOMSelectionToEditor,
     })
   }, [
     addSelectorEventListener,
     editor,
     inputController,
+    isShellBackedSelection,
     syncDOMSelectionToEditor,
   ])
 
@@ -304,9 +349,7 @@ export const useEditableRootRuntime = ({
     isShellBackedSelection,
     largeDocument,
     onDOMBeforeInput,
-    onKeyCommand: onKeyCommand as
-      | ((event: KeyboardEvent<HTMLDivElement>) => boolean | void)
-      | undefined,
+    onKeyDown,
     onUserInput,
     processing,
     readOnly,
@@ -331,6 +374,32 @@ export const useEditableRootRuntime = ({
     rootRef,
     scheduleOnDOMSelectionChange,
   })
+  const editableEventBindings = useMemo<EditableRootEventBindings>(() => {
+    const handlers = eventRuntime.handlers
+
+    return {
+      onBeforeInput: handlers.onReactBeforeInput,
+      onBlur: handlers.onBlur,
+      onClick: handlers.onClick,
+      onCompositionEnd: handlers.onCompositionEnd,
+      onCompositionStart: handlers.onCompositionStart,
+      onCompositionUpdate: handlers.onCompositionUpdate,
+      onCopy: handlers.onCopy,
+      onCut: handlers.onCut,
+      onDragEnd: handlers.onDragEnd,
+      onDragOver: handlers.onDragOver,
+      onDragStart: handlers.onDragStart,
+      onDrop: handlers.onDrop,
+      onFocus: handlers.onFocus,
+      onInput: handlers.onInput,
+      onInputCapture: handlers.onInputCapture,
+      onKeyDown: handlers.onKeyDown,
+      onMouseDown: handlers.onMouseDown,
+      onMouseUp: handlers.onMouseUp,
+      onPaste: handlers.onPaste,
+      ref: callbackRef,
+    }
+  }, [callbackRef, eventRuntime.handlers])
 
   useIsomorphicLayoutEffect(() => {
     const window = ReactEditor.getWindow(editor)
@@ -352,12 +421,11 @@ export const useEditableRootRuntime = ({
     }
   }, [editor, scheduleOnDOMSelectionChange, state])
 
-  const marks = editor.getMarks()
+  const marks = editor.read((state) => state.marks.get())
   usePendingInsertionMarksEffect({ editor, marks })
 
   return {
-    callbackRef,
-    eventRuntime,
+    editableEventBindings,
     isComposing,
     receivedUserInput,
     rootRef,

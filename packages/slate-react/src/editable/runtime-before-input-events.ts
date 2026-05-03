@@ -1,6 +1,7 @@
 import { type FormEvent, type RefObject, useCallback } from 'react'
 import type { Range } from 'slate'
 import { ReactEditor } from '../plugin/react-editor'
+import { recordSlateReactRender } from '../render-profiler'
 import { shouldSkipDuplicateEditableEditingEpochCommand } from './editing-epoch-kernel'
 import { prepareEditableBeforeInputKernel } from './editing-kernel'
 import { isEditableModelSelectionPreferred } from './input-controller'
@@ -41,6 +42,26 @@ type DOMBeforeInputHandler = (event: InputEvent) => boolean | void
 type ReactBeforeInputHandler = (
   event: FormEvent<HTMLDivElement>
 ) => boolean | void
+
+const now = () => globalThis.performance?.now?.() ?? Date.now()
+
+const profileBeforeInputDuration = <T>(id: string, callback: () => T): T => {
+  if (!globalThis.__SLATE_REACT_RENDER_PROFILER__) {
+    return callback()
+  }
+
+  const start = now()
+
+  try {
+    return callback()
+  } finally {
+    recordSlateReactRender({
+      duration: now() - start,
+      id,
+      kind: 'runtime-time',
+    })
+  }
+}
 
 const isDOMEventHandled = <E extends Event>(
   event: E,
@@ -98,19 +119,23 @@ export const useRuntimeBeforeInputEvents = ({
 }) => {
   const handleDOMBeforeInput = useCallback(
     (event: InputEvent) => {
-      const decision = prepareEditableBeforeInputKernel({
-        editor,
-        event,
-        inputController,
-      })
+      const decision = profileBeforeInputDuration('beforeinput-prepare', () =>
+        prepareEditableBeforeInputKernel({
+          editor,
+          event,
+          inputController,
+        })
+      )
       inputController.state.activeIntent = decision.intent
-      trace.recordKernelEventTrace({
-        command: decision.command,
-        family: 'beforeinput',
-        intent: decision.intent,
-        ownership: decision.ownership,
-        target: event.target,
-      })
+      profileBeforeInputDuration('beforeinput-trace', () =>
+        trace.recordKernelEventTrace({
+          command: decision.command,
+          family: 'beforeinput',
+          intent: decision.intent,
+          ownership: decision.ownership,
+          target: event.target,
+        })
+      )
       if (decision.internalTarget) {
         event.stopImmediatePropagation()
         return
@@ -127,8 +152,12 @@ export const useRuntimeBeforeInputEvents = ({
         handledDOMBeforeInputRef.current = true
         return
       }
-      const el = ReactEditor.toDOMNode(editor, editor)
-      const root = el.getRootNode()
+      const el = profileBeforeInputDuration('beforeinput-root-node', () =>
+        ReactEditor.toDOMNode(editor, editor)
+      )
+      const root = profileBeforeInputDuration('beforeinput-root-owner', () =>
+        el.getRootNode()
+      )
 
       if (
         handleWebKitShadowDOMBeforeInput({
@@ -153,18 +182,27 @@ export const useRuntimeBeforeInputEvents = ({
           return androidInputManagerRef.current.handleDOMBeforeInput(event)
         }
 
-        selection.flushSelectionChange()
+        profileBeforeInputDuration('beforeinput-flush-selection', () =>
+          selection.flushSelectionChange()
+        )
 
-        let currentSelection = readLiveSelection(editor)
+        let currentSelection = profileBeforeInputDuration(
+          'beforeinput-read-selection',
+          () => readLiveSelection(editor)
+        )
         const hasAppInputPolicy = Boolean(
           onDOMBeforeInput || onBeforeInput || onInput || onKeyDown
         )
-        const beforeInputDecision = getNativeBeforeInputDecision({
-          editor,
-          event,
-          hasAppInputPolicy,
-          selection: currentSelection,
-        })
+        const beforeInputDecision = profileBeforeInputDuration(
+          'beforeinput-native-decision',
+          () =>
+            getNativeBeforeInputDecision({
+              editor,
+              event,
+              hasAppInputPolicy,
+              selection: currentSelection,
+            })
+        )
         const {
           data,
           inputType: type,
@@ -189,22 +227,26 @@ export const useRuntimeBeforeInputEvents = ({
 
         let native = beforeInputDecision.native
 
-        const beforeInputSelection = syncSelectionForBeforeInput({
-          allowDOMSelectionImport: selection.allowDOMSelectionImport(
-            decision.selectionPolicy
-          ),
-          data,
-          editor,
-          editorElement: el,
-          event,
-          inputType: type,
-          isCompositionChange,
-          native,
-          preferModelSelectionForInput:
-            isEditableModelSelectionPreferred(inputController),
-          root,
-          selection: currentSelection,
-        })
+        const beforeInputSelection = profileBeforeInputDuration(
+          'beforeinput-sync-selection',
+          () =>
+            syncSelectionForBeforeInput({
+              allowDOMSelectionImport: selection.allowDOMSelectionImport(
+                decision.selectionPolicy
+              ),
+              data,
+              editor,
+              editorElement: el,
+              event,
+              inputType: type,
+              isCompositionChange,
+              native,
+              preferModelSelectionForInput:
+                isEditableModelSelectionPreferred(inputController),
+              root,
+              selection: currentSelection,
+            })
+        )
         native = beforeInputSelection.native
         currentSelection = beforeInputSelection.selection
 
@@ -213,12 +255,14 @@ export const useRuntimeBeforeInputEvents = ({
         }
 
         if (
-          applyInputRules({
-            data,
-            event,
-            inputType: type,
-            selection: currentSelection,
-          })
+          profileBeforeInputDuration('beforeinput-input-rules', () =>
+            applyInputRules({
+              data,
+              event,
+              inputType: type,
+              selection: currentSelection,
+            })
+          )
         ) {
           return
         }
@@ -227,17 +271,24 @@ export const useRuntimeBeforeInputEvents = ({
           event.preventDefault()
         }
 
-        const request = applyModelOwnedBeforeInputOperation({
-          data,
-          deferredOperations,
-          editor,
-          inputType: type,
-          native,
-          selection: currentSelection,
-          setComposing,
-        })
+        const request = profileBeforeInputDuration(
+          'beforeinput-apply-model',
+          () =>
+            applyModelOwnedBeforeInputOperation({
+              command: decision.command,
+              data,
+              deferredOperations,
+              editor,
+              inputType: type,
+              native,
+              selection: currentSelection,
+              setComposing,
+            })
+        )
         if (request) {
-          repair.requestEditableRepair(request)
+          profileBeforeInputDuration('beforeinput-request-repair', () =>
+            repair.requestEditableRepair(request)
+          )
         }
 
         if (!decision.command) {
@@ -272,6 +323,7 @@ export const useRuntimeBeforeInputEvents = ({
   const handleReactBeforeInputFallback = useCallback(
     (text: string) => {
       const request = applyModelOwnedBeforeInputOperation({
+        command: { inputType: 'insertText', kind: 'insert-text', text },
         data: text,
         deferredOperations,
         editor,

@@ -1,6 +1,6 @@
-import { Editor } from 'slate'
-
+import { Range } from 'slate'
 import { ReactEditor } from '../plugin/react-editor'
+import { recordSlateReactRender } from '../render-profiler'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import {
   type EditableCommand,
@@ -11,7 +11,31 @@ import type {
   EditableInputController,
   EditableSelectionSourceTransition,
 } from './input-state'
+import type { Editor } from './runtime-editor-api'
 import { setEditableModelSelectionPreference } from './selection-controller'
+
+const now = () => globalThis.performance?.now?.() ?? Date.now()
+
+const profileEditableMutationDuration = <T>(
+  id: string,
+  callback: () => T
+): T => {
+  if (!globalThis.__SLATE_REACT_RENDER_PROFILER__) {
+    return callback()
+  }
+
+  const start = now()
+
+  try {
+    return callback()
+  } finally {
+    recordSlateReactRender({
+      duration: now() - start,
+      id,
+      kind: 'runtime-time',
+    })
+  }
+}
 
 export const applyModelOwnedHistoryIntent = ({
   direction,
@@ -32,7 +56,7 @@ export const applyModelOwnedHistoryIntent = ({
 }
 
 export const shouldForceRenderAfterModelOwnedHistory = (editor: Editor) => {
-  const commit = Editor.getLastCommit(editor)
+  const commit = editor.read((state) => state.value.lastCommit())
 
   return (
     !commit ||
@@ -76,13 +100,13 @@ export const applyModelOwnedDeleteIntent = ({
   editor: Editor
   unit?: 'block' | 'line' | 'word'
 }) => {
-  editor.update(() => {
+  editor.update((tx) => {
     if (direction === 'backward') {
-      Editor.deleteBackward(editor, unit ? { unit } : undefined)
+      tx.text.deleteBackward({ unit: unit ?? 'character' })
       return
     }
 
-    Editor.deleteForward(editor, unit ? { unit } : undefined)
+    tx.text.deleteForward({ unit: unit ?? 'character' })
   })
 }
 
@@ -93,8 +117,8 @@ export const applyModelOwnedExpandedDelete = ({
   direction: 'backward' | 'forward'
   editor: Editor
 }) => {
-  editor.update(() => {
-    Editor.deleteFragment(editor, { direction })
+  editor.update((tx) => {
+    tx.fragment.delete({ direction })
   })
 }
 
@@ -105,13 +129,13 @@ export const applyModelOwnedLineBreak = ({
   editor: Editor
   kind: 'paragraph' | 'soft'
 }) => {
-  editor.update(() => {
+  editor.update((tx) => {
     if (kind === 'paragraph') {
-      Editor.insertBreak(editor)
+      tx.break.insert()
       return
     }
 
-    Editor.insertSoftBreak(editor)
+    tx.break.insertSoft()
   })
 }
 
@@ -145,9 +169,8 @@ export const applyEditableCommand = ({
       return true
 
     case 'delete-fragment':
-      editor.update(() => {
-        Editor.deleteFragment(
-          editor,
+      editor.update((tx) => {
+        tx.fragment.delete(
           command.direction ? { direction: command.direction } : undefined
         )
       })
@@ -168,25 +191,27 @@ export const applyEditableCommand = ({
 
     case 'insert-data':
       editor.update(() => {
-        ReactEditor.insertData(editor as ReactEditor, command.data)
+        const domEditor = editor as ReactEditor
+
+        domEditor.dom.clipboard.insertData(command.data)
       })
       return true
 
     case 'insert-text':
-      editor.update(() => {
-        Editor.insertText(editor, command.text)
+      editor.update((tx) => {
+        tx.text.insert(command.text)
       })
       return true
 
     case 'select':
     case 'select-all':
-      editor.update(() => {
-        editor.select(
+      editor.update((tx) => {
+        tx.selection.set(
           command.kind === 'select'
             ? command.selection
             : {
-                anchor: Editor.start(editor, []),
-                focus: Editor.end(editor, []),
+                anchor: tx.points.start([]),
+                focus: tx.points.end([]),
               }
         )
       })
@@ -207,7 +232,7 @@ export const applyModelOwnedDataTransferInput = ({
   editor: ReactEditor
 }) => {
   editor.update(() => {
-    ReactEditor.insertData(editor, data)
+    editor.dom.clipboard.insertData(data)
   })
 }
 
@@ -245,15 +270,37 @@ export const applyModelOwnedTextInput = ({
   data,
   editor,
   inputType,
+  selection,
 }: {
   data: string
   editor: Editor
   inputType: string
+  selection?: Range | null
 }): EditableRepairRequest => {
-  applyEditableCommand({
-    command: { inputType, kind: 'insert-text', text: data },
-    editor,
-  })
+  const canUseSyncedCollapsedTarget =
+    inputType === 'insertText' &&
+    selection &&
+    Range.isCollapsed(selection) &&
+    !profileEditableMutationDuration('model-text-input-read-marks', () =>
+      editor.read((state) => state.marks.get())
+    )
+
+  if (canUseSyncedCollapsedTarget) {
+    profileEditableMutationDuration(
+      'model-text-input-insert-at-selection',
+      () =>
+        editor.update((tx) => {
+          tx.text.insert(data, { at: selection })
+        })
+    )
+  } else {
+    profileEditableMutationDuration('model-text-input-apply-command', () =>
+      applyEditableCommand({
+        command: { inputType, kind: 'insert-text', text: data },
+        editor,
+      })
+    )
+  }
 
   if (inputType === 'insertText') {
     return {

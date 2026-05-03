@@ -16,7 +16,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.insertText('x', { at: { path: [0, 0], offset: 0 } })
+  editor.text.insert('x', { at: { path: [0, 0], offset: 0 } })
 }
 export const output = (
   <editor>

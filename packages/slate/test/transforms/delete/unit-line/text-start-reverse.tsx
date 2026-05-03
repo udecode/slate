@@ -1,13 +1,12 @@
+import { Editor } from 'slate/internal'
 /** @jsx jsx */
 
 import { jsx } from '../../..'
 
 jsx
 
-import { Editor } from 'slate'
-
 export const run = (editor) => {
-  editor.delete({ unit: 'line', reverse: true })
+  editor.text.delete({ unit: 'line', reverse: true })
 }
 export const input = (
   <editor>

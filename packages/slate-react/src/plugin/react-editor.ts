@@ -1,5 +1,5 @@
 import type { Value } from 'slate'
-import { DOMEditor, type DOMEditorInterface } from 'slate-dom'
+import { DOMEditor, type DOMEditorInterface } from 'slate-dom/internal'
 
 /**
  * A React and DOM-specific version of the `Editor` interface.

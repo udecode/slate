@@ -2,13 +2,11 @@ import {
   Component,
   type ComponentType,
   type ContextType,
-  createElement,
-  Fragment,
   type ReactNode,
   type RefObject,
 } from 'react'
 import { IS_ANDROID } from 'slate-dom'
-import { EditorContext } from '../../hooks/use-slate-static'
+import { EditorContext } from '../../hooks/use-editor'
 import {
   createRestoreDomManager,
   type RestoreDOMManager,
@@ -83,4 +81,4 @@ class RestoreDOMComponent extends Component<RestoreDOMProps> {
 
 export const RestoreDOM: ComponentType<RestoreDOMProps> = IS_ANDROID
   ? RestoreDOMComponent
-  : ({ children }) => createElement(Fragment, null, children)
+  : ({ children }) => <>{children}</>

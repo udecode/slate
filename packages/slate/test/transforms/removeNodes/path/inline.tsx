@@ -16,7 +16,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.removeNodes({ at: [0, 1] })
+  editor.nodes.remove({ at: [0, 1] })
 }
 export const output = (
   <editor>

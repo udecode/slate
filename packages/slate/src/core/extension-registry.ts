@@ -1,22 +1,83 @@
 import type {
   Editor,
   EditorCommitListener,
+  EditorElementSpec,
+  EditorExtensionEditorGroup,
+  EditorExtensionStateGroup,
+  EditorExtensionTxGroup,
   EditorOperationMiddleware,
   RegisteredEditorExtension,
   ValueOf,
 } from '../interfaces/editor'
 
+export type EditorStateGroupRegistration<TEditor extends Editor = Editor> = {
+  extensionName: string
+  factory: EditorExtensionStateGroup<TEditor>
+}
+
+export type EditorEditorGroupRegistration<TEditor extends Editor = Editor> = {
+  extensionName: string
+  factory: EditorExtensionEditorGroup<TEditor>
+}
+
+export type EditorTxGroupRegistration<TEditor extends Editor = Editor> = {
+  extensionName: string
+  factory: EditorExtensionTxGroup<TEditor>
+}
+
 export type ExtensionRegistry<TEditor extends Editor = Editor> = {
   capabilities: Map<string, unknown[]>
   commands: Map<string, unknown[]>
   commitListeners: Set<EditorCommitListener<ValueOf<TEditor>>>
+  elementMatchers: EditorElementSpecRegistration[]
+  elementSpecs: Map<string, EditorElementSpecRegistration>
+  editorGroups: Map<string, EditorEditorGroupRegistration<TEditor>>
   extensions: Map<string, RegisteredEditorExtension>
-  methodNames: Set<string>
   normalizers: Map<string, unknown>
   operationMiddlewares: Set<EditorOperationMiddleware<TEditor>>
+  stateGroups: Map<string, EditorStateGroupRegistration<TEditor>>
+  txGroups: Map<string, EditorTxGroupRegistration<TEditor>>
 }
 
+export type EditorElementSpecRegistration = {
+  extensionName: string
+  spec: EditorElementSpec
+}
+
+const reservedElementPropertyNames = new Set([
+  '__proto__',
+  'children',
+  'constructor',
+  'prototype',
+  'type',
+])
+
 const EXTENSION_REGISTRIES = new WeakMap<Editor, ExtensionRegistry>()
+
+const reservedStateGroupNames = new Set([
+  'marks',
+  'nodes',
+  'operations',
+  'points',
+  'ranges',
+  'schema',
+  'selection',
+  'text',
+  'value',
+])
+
+const reservedEditorGroupNames = new Set([
+  'extend',
+  'read',
+  'subscribe',
+  'update',
+])
+
+const reservedTxGroupNames = new Set([
+  ...reservedStateGroupNames,
+  'normalize',
+  'withoutNormalizing',
+])
 
 export const getExtensionRegistry = <TEditor extends Editor>(
   editor: TEditor
@@ -28,15 +89,76 @@ export const getExtensionRegistry = <TEditor extends Editor>(
       capabilities: new Map(),
       commands: new Map(),
       commitListeners: new Set(),
+      elementMatchers: [],
+      elementSpecs: new Map(),
+      editorGroups: new Map(),
       extensions: new Map(),
-      methodNames: new Set(),
       normalizers: new Map(),
       operationMiddlewares: new Set(),
+      stateGroups: new Map(),
+      txGroups: new Map(),
     }
     EXTENSION_REGISTRIES.set(editor, registry)
   }
 
   return registry as ExtensionRegistry<TEditor>
+}
+
+export const registerElementSpec = (
+  editor: Editor,
+  extensionName: string,
+  spec: EditorElementSpec
+) => {
+  const registry = getExtensionRegistry(editor)
+  const existing = registry.elementSpecs.get(spec.type)
+
+  if (existing) {
+    throw new Error(
+      `Editor element spec "${spec.type}" from "${extensionName}" conflicts with "${existing.extensionName}".`
+    )
+  }
+
+  for (const property of Object.keys(spec.properties ?? {})) {
+    if (reservedElementPropertyNames.has(property)) {
+      throw new Error(
+        `Editor element spec "${spec.type}" from "${extensionName}" cannot define reserved element property "${property}".`
+      )
+    }
+  }
+
+  const properties = spec.properties
+    ? Object.freeze(
+        Object.fromEntries(
+          Object.entries(spec.properties).map(([property, descriptor]) => [
+            property,
+            Object.freeze({ ...descriptor }),
+          ])
+        )
+      )
+    : undefined
+
+  const frozenSpec = properties
+    ? Object.freeze({ ...spec, properties })
+    : Object.freeze({ ...spec })
+
+  const registration = {
+    extensionName,
+    spec: frozenSpec,
+  }
+  registry.elementSpecs.set(spec.type, registration)
+  if (spec.match) {
+    registry.elementMatchers.push(registration)
+  }
+
+  return () => {
+    if (registry.elementSpecs.get(spec.type) === registration) {
+      registry.elementSpecs.delete(spec.type)
+    }
+    const matcherIndex = registry.elementMatchers.indexOf(registration)
+    if (matcherIndex !== -1) {
+      registry.elementMatchers.splice(matcherIndex, 1)
+    }
+  }
 }
 
 export const registerCapability = (
@@ -105,4 +227,113 @@ export const registerOperationMiddleware = <TEditor extends Editor>(
   return () => {
     registry.operationMiddlewares.delete(middleware)
   }
+}
+
+const registerViewGroup = <TRegistration>(
+  groups: Map<string, { extensionName: string; factory: TRegistration }>,
+  reservedNames: Set<string>,
+  kind: 'editor' | 'state' | 'tx',
+  extensionName: string,
+  groupName: string,
+  factory: TRegistration
+) => {
+  if (reservedNames.has(groupName)) {
+    throw new Error(
+      `Editor extension "${extensionName}" ${kind} group "${groupName}" is reserved by Slate core.`
+    )
+  }
+
+  const existing = groups.get(groupName)
+
+  if (existing) {
+    throw new Error(
+      `Editor extension ${kind} group "${groupName}" from "${extensionName}" conflicts with "${existing.extensionName}".`
+    )
+  }
+
+  const registration = { extensionName, factory }
+  groups.set(groupName, registration)
+
+  return () => {
+    if (groups.get(groupName) === registration) {
+      groups.delete(groupName)
+    }
+  }
+}
+
+export const registerStateGroup = <TEditor extends Editor>(
+  editor: TEditor,
+  extensionName: string,
+  groupName: string,
+  factory: EditorExtensionStateGroup<TEditor>
+) => {
+  const registry = getExtensionRegistry(editor)
+
+  return registerViewGroup(
+    registry.stateGroups,
+    reservedStateGroupNames,
+    'state',
+    extensionName,
+    groupName,
+    factory
+  )
+}
+
+export const registerEditorGroup = <TEditor extends Editor>(
+  editor: TEditor,
+  extensionName: string,
+  groupName: string,
+  factory: EditorExtensionEditorGroup<TEditor>
+) => {
+  const registry = getExtensionRegistry(editor)
+  const editorRecord = editor as unknown as Record<string, unknown>
+
+  if (groupName in editorRecord) {
+    throw new Error(
+      `Editor extension "${extensionName}" editor group "${groupName}" conflicts with an existing editor property.`
+    )
+  }
+
+  const cleanupRegistration = registerViewGroup(
+    registry.editorGroups,
+    reservedEditorGroupNames,
+    'editor',
+    extensionName,
+    groupName,
+    factory
+  )
+  let group: unknown
+
+  try {
+    group = Object.freeze(factory(editor))
+    editorRecord[groupName] = group
+  } catch (error) {
+    cleanupRegistration()
+    throw error
+  }
+
+  return () => {
+    if (editorRecord[groupName] === group) {
+      delete editorRecord[groupName]
+    }
+    cleanupRegistration()
+  }
+}
+
+export const registerTxGroup = <TEditor extends Editor>(
+  editor: TEditor,
+  extensionName: string,
+  groupName: string,
+  factory: EditorExtensionTxGroup<TEditor>
+) => {
+  const registry = getExtensionRegistry(editor)
+
+  return registerViewGroup(
+    registry.txGroups,
+    reservedTxGroupNames,
+    'tx',
+    extensionName,
+    groupName,
+    factory
+  )
 }

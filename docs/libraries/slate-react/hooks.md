@@ -1,53 +1,103 @@
 # Slate React Hooks
 
-#### `useComposing(): boolean`
+#### `useEditor(): Editor`
 
-Get the current `composing` state of the editor. It deals with `compositionstart`, `compositionupdate`, `compositionend` events.
+Get the current editor object from React context.
 
-Composition events are triggered by typing (composing) with a language that uses a composition character (e.g. Chinese, Japanese, Korean, etc.) [example](https://en.wikipedia.org/wiki/Input_method#/media/File:Typing_%EC%9E%88%EC%8A%B5%EB%8B%88%EB%8B%A4_in_Dubeolsik_keyboard_layout.gif).
+#### `useEditorComposing(): boolean`
+
+Get whether the editor is currently handling a composition session.
+
+#### `useEditorFocused(): boolean`
+
+Get whether the editor is focused. Use this for toolbar or shell UI, not for
+every rendered node in a large document.
+
+#### `useEditorReadOnly(): boolean`
+
+Get whether the current editor is read-only.
+
+#### `useEditorSelection(): Range | null`
+
+Get the current editor selection. This hook re-renders when the selection
+changes, so keep it out of large rendered node trees.
+
+#### `useEditorState<T>(selector, options?): T`
+
+Subscribe to a derived editor-state value. The selector runs inside
+`editor.read`, so toolbar and shell UI do not need to open a read boundary by
+hand.
+
+```typescript
+const isBold = useEditorState(state => {
+  return state.marks.get()?.bold === true
+})
+```
+
+Use `options.shouldUpdate` to skip commits that cannot affect the selected
+value.
+
+```typescript
+const selection = useEditorState(state => state.selection.get(), {
+  shouldUpdate: change => Boolean(change?.selectionChanged),
+})
+```
+
+Pass `options.deps` when the selector closes over component props.
+
+```typescript
+const matchingText = useEditorState(
+  state => state.text.string([]).includes(query),
+  { deps: [query] }
+)
+```
+
+#### `useEditorSelector<T>(selector, equalityFn?, options?): T`
+
+Subscribe to a low-level derived editor value.
+
+Use `useEditorState` for normal app-level editor reads. Use
+`useEditorSelector` when you intentionally need the editor object or operation
+batch passed to the selector. Prefer node-, text-, decoration-, or
+element-scoped hooks when rendering editor content.
+
+```typescript
+const latestOperationCount = useEditorSelector((_editor, operations) => {
+  return operations?.length ?? 0
+})
+```
 
 #### `useElement(): Element`
 
-Get the current element object. Re-renders whenever the element or any of its descendants changes.
+Get the current element object inside an element renderer.
 
 #### `useElementIf(): Element | null`
 
-The same as `useElement()` but returns `null` instead of throwing an error when not inside an element.
+Get the current element object, or `null` when the component is not inside an
+element renderer.
 
-#### `useFocused(): boolean`
+#### `useElementSelected(target?: Path): boolean`
 
-Get the current `focused` state of the editor.
+Subscribe to whether a specific element target intersects the current
+selection. Use this only when the component actually draws selected UI.
 
-#### `useReadOnly(): boolean`
+#### `useNodeSelector<T>(selector, equalityFn?, options?): T`
 
-Get the current `readOnly` state of the editor.
+Subscribe to a value derived from one mounted node.
 
-#### `useSelected(): boolean`
+Pass `options.runtimeId` to target a specific node, or call it inside an editor
+node renderer to use that renderer's runtime target.
 
-Get the current `selected` state of an element. An element is selected if `Editor.getSelection(editor)` exists and overlaps any part of the element.
+#### `useTextSelector<T>(selector, equalityFn?, options?): T`
 
-#### `useSlate(): Editor`
+Subscribe to a value derived from one mounted text node.
 
-Get the current editor object. Re-renders whenever changes occur in the editor.
+Pass `options.runtimeId` to target a specific text node, or call it inside an
+editor text renderer to use that renderer's runtime target.
 
-#### `useSlateStatic(): Editor`
+#### `useDecorationSelector<T>(selector, equalityFn?, options?): T`
 
-Get the current editor object from the React context without subscribing to editor changes.
+Subscribe to decoration/projection data for one mounted runtime target.
 
-#### `useSlateSelection(): (BaseRange & { placeholder?: string | undefined; onPlaceholderResize?: ((node: HTMLElement | null) => void) | undefined }) | null`
-
-Get the current editor selection. Only re-renders when the selection changes.
-
-#### `useSlateSelector<T>(selector: (editor: Editor) => T, equalityFn?: (a: T, b: T) => boolean): T`
-
-Use redux style selectors to prevent re-rendering on every keystroke.
-
-Bear in mind re-rendering can only prevented if the returned value is a value type or for reference types (e.g. objects and arrays) add a custom equality function.
-
-If `selector` is memoized using `useCallback`, then it will only be called when it or the editor state changes. Otherwise, `selector` will be called every time the component renders.
-
-Example:
-
-```typescript
-const isSelectionActive = useSlateSelector(editor => Boolean(Editor.getSelection(editor)))
-```
+Pass `options.runtimeId` to target a specific runtime node, or call it inside a
+renderer that already has runtime target context.

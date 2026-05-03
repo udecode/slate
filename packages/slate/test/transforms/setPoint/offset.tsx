@@ -5,8 +5,8 @@ import { jsx } from '../..'
 jsx
 
 export const run = (editor) => {
-  editor.move()
-  editor.setPoint({ offset: 0 }, { edge: 'focus' })
+  editor.selection.move()
+  editor.selection.setPoint({ offset: 0 }, { edge: 'focus' })
 }
 export const input = (
   <editor>

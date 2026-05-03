@@ -1,6 +1,6 @@
 import type { DebouncedFunc } from 'lodash'
 import type { RefObject } from 'react'
-import { Editor, Location, Node, Path, type Point, Range } from 'slate'
+import { Location, Node, Path, type Point, Range } from 'slate'
 import {
   applyStringDiff,
   EDITOR_TO_FORCE_RENDER,
@@ -29,6 +29,7 @@ import {
   getEditableCommandFromBeforeInputType,
 } from '../../editable/editing-kernel'
 import { applyEditableCommand } from '../../editable/mutation-controller'
+import { Editor } from '../../editable/runtime-editor-api'
 import { writeRuntimeMarks } from '../../editable/runtime-mutation-state'
 import { readRuntimeSelection } from '../../editable/runtime-selection-state'
 import { ReactEditor } from '../../plugin/react-editor'
@@ -117,8 +118,8 @@ export function createAndroidInputManager({
       debug('apply pending selection', pendingSelection, normalized)
 
       if (normalized && (!selection || !Range.equals(normalized, selection))) {
-        editor.update(() => {
-          editor.select(normalized)
+        editor.update((tx) => {
+          tx.selection.set(normalized)
         })
       }
     }
@@ -143,8 +144,8 @@ export function createAndroidInputManager({
       const targetRange = Editor.range(editor, target)
       const selection = readRuntimeSelection(editor)
       if (!selection || !Range.equals(selection, targetRange)) {
-        editor.update(() => {
-          editor.select(target)
+        editor.update((tx) => {
+          tx.selection.set(target)
         })
       }
     }
@@ -181,7 +182,10 @@ export function createAndroidInputManager({
     const selectionRef =
       liveSelection &&
       Editor.rangeRef(editor, liveSelection, { affinity: 'forward' })
-    EDITOR_TO_USER_MARKS.set(editor, editor.getMarks())
+    EDITOR_TO_USER_MARKS.set(
+      editor,
+      editor.read((state) => state.marks.get())
+    )
 
     debug(
       'flush',
@@ -209,8 +213,8 @@ export function createAndroidInputManager({
       const range = targetRange(diff)
       const selection = readRuntimeSelection(editor)
       if (!selection || !Range.equals(selection, range)) {
-        editor.update(() => {
-          editor.select(range)
+        editor.update((tx) => {
+          tx.selection.set(range)
         })
       }
 
@@ -258,8 +262,8 @@ export function createAndroidInputManager({
       (!readRuntimeSelection(editor) ||
         !Range.equals(selection, readRuntimeSelection(editor)!))
     ) {
-      editor.update(() => {
-        editor.select(selection)
+      editor.update((tx) => {
+        tx.selection.set(selection)
       })
     }
 
@@ -814,8 +818,8 @@ export function createAndroidInputManager({
 
               scheduleAction(
                 () => {
-                  editor.update(() => {
-                    editor.select({
+                  editor.update((tx) => {
+                    tx.selection.set({
                       anchor: newPoint,
                       focus: newPoint,
                     })
@@ -867,7 +871,7 @@ export function createAndroidInputManager({
       flushTimeoutId = null
     }
 
-    const selection = editor.getSelection()
+    const selection = editor.read((state) => state.selection.get())
     if (!range) {
       return
     }

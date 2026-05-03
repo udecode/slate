@@ -10,6 +10,15 @@ import {
 } from '@playwright/test'
 
 import type { PlaceholderShape } from '../browser/zero-width'
+
+export {
+  createSlateBrowserPluginContractRegistry,
+  defineSlateBrowserPluginContract,
+  type SlateBrowserPluginContractDefinition,
+  type SlateBrowserPluginContractRegistry,
+  type SlateBrowserPluginContractRow,
+} from '../core/plugin-contracts'
+
 import {
   composeText,
   composeTextDirect,
@@ -454,6 +463,10 @@ export type EditorSurfaceOptions = {
 }
 
 export type OpenExampleOptions = {
+  query?:
+    | Record<string, boolean | null | number | string | undefined>
+    | URLSearchParams
+    | string
   ready?: ReadyOptions
   surface?: EditorSurfaceOptions
 }
@@ -539,6 +552,12 @@ export type SlateBrowserScenarioStepMetadata = {
 
 export type SlateBrowserScenarioStep = (
   | {
+      kind: 'applyOperations'
+      label?: string
+      operations: readonly Record<string, unknown>[]
+      tag?: string | string[]
+    }
+  | {
       count?: number
       kind: 'assertLocatorCount'
       label?: string
@@ -574,6 +593,12 @@ export type SlateBrowserScenarioStep = (
   | {
       kind: 'assertModelSelectionExpanded'
       label?: string
+    }
+  | {
+      kind: 'assertCapturedRuntimeIdPath'
+      label?: string
+      name: string
+      path: number[] | null
     }
   | {
       budget: {
@@ -621,6 +646,13 @@ export type SlateBrowserScenarioStep = (
       location: Partial<DOMSelectionLocationSnapshot>
     }
   | { kind: 'assertModelText'; label?: string; text: string }
+  | {
+      contains?: string
+      kind: 'assertLocatorText'
+      label?: string
+      selector: string
+      text?: string
+    }
   | { kind: 'assertSelectedText'; label?: string; text: string }
   | { kind: 'assertText'; label?: string; text: string }
   | {
@@ -630,12 +662,15 @@ export type SlateBrowserScenarioStep = (
       label?: string
     }
   | { kind: 'assertLastCommit'; label?: string }
+  | { kind: 'assertLastCommitTags'; label?: string; tags: readonly string[] }
   | {
       command: { origin: string; type: string }
       kind: 'assertLastCommitCommand'
       label?: string
     }
   | { kind: 'clickTestId'; label?: string; testId: string }
+  | { kind: 'clickSelector'; label?: string; selector: string }
+  | { kind: 'captureRuntimeId'; label?: string; name: string; path: number[] }
   | {
       committedText?: string
       kind: 'composeText'
@@ -3615,6 +3650,7 @@ export type SlateBrowserEditorHarness = {
   }
   clipboard: {
     copy: () => Promise<void>
+    copyEventPayload: () => Promise<ClipboardPayloadSnapshot>
     copyPayload: () => Promise<ClipboardPayloadSnapshot>
     readText: () => Promise<string>
     readHtml: () => Promise<string | null>
@@ -5049,24 +5085,40 @@ const createEditorHarness = (
         withExclusiveClipboardAccess(async () => readClipboardText(surface)),
       readHtml: async () =>
         withExclusiveClipboardAccess(async () => readClipboardHtml(surface)),
+      copyEventPayload: async () => copyPayloadThroughEvent(root),
       copyPayload: async () =>
         withExclusiveClipboardAccess(async () => {
           await root.press('ControlOrMeta+C')
 
-          try {
-            const [html, text, types] = await Promise.all([
+          let html: string | null = null
+          let text = ''
+          let types: string[] = []
+
+          for (let attempt = 0; attempt < 5; attempt++) {
+            const payload = await Promise.all([
               readClipboardHtml(surface),
               readClipboardText(surface),
               readClipboardTypes(surface),
             ])
+            html = payload[0]
+            text = payload[1]
+            types = payload[2]
 
-            return {
-              html,
-              text,
-              types,
+            if (html || text || types.length > 0) {
+              break
             }
-          } catch {
-            return copyPayloadThroughEvent(root)
+
+            await new Promise((resolve) => setTimeout(resolve, 20))
+          }
+
+          if (!html && !text && types.length === 0) {
+            throw new Error('Clipboard stayed empty after copy shortcut')
+          }
+
+          return {
+            html,
+            text,
+            types,
           }
         }),
       pasteText: async (text: string) => {
@@ -5176,6 +5228,7 @@ const createEditorHarness = (
     scenario: {
       run: async (scenarioName, steps, options = {}) => {
         const trace: SlateBrowserTraceEntry[] = []
+        const capturedRuntimeIds = new Map<string, string>()
         const runtimeErrors =
           options.runtimeErrors === false
             ? null
@@ -5184,6 +5237,37 @@ const createEditorHarness = (
         try {
           for (const [stepIndex, step] of steps.entries()) {
             switch (step.kind) {
+              case 'applyOperations':
+                await root.evaluate(
+                  (
+                    element: HTMLElement,
+                    {
+                      key,
+                      operations,
+                      tag,
+                    }: {
+                      key: string
+                      operations: readonly Record<string, unknown>[]
+                      tag?: string | string[]
+                    }
+                  ) => {
+                    const handle = (element as Record<string, any>)[key]
+
+                    if (!handle?.applyOperations) {
+                      throw new Error(
+                        'This editor surface does not expose applyOperations'
+                      )
+                    }
+
+                    handle.applyOperations(operations, { tag })
+                  },
+                  {
+                    key: SLATE_BROWSER_HANDLE_KEY,
+                    operations: step.operations,
+                    tag: step.tag,
+                  }
+                )
+                break
               case 'activateShell': {
                 const shell = page.getByRole('button', {
                   name: step.buttonName,
@@ -5324,6 +5408,36 @@ const createEditorHarness = (
                   )
                   .toBe(true)
                 break
+              case 'assertCapturedRuntimeIdPath': {
+                const runtimeId = capturedRuntimeIds.get(step.name)
+
+                if (!runtimeId) {
+                  throw new Error(`No captured runtime id named "${step.name}"`)
+                }
+
+                await expect
+                  .poll(() =>
+                    root.evaluate(
+                      (
+                        element: HTMLElement,
+                        { key, runtimeId }: { key: string; runtimeId: string }
+                      ) => {
+                        const handle = (element as Record<string, any>)[key]
+
+                        if (!handle?.getPathByRuntimeId) {
+                          throw new Error(
+                            'This editor surface does not expose getPathByRuntimeId'
+                          )
+                        }
+
+                        return handle.getPathByRuntimeId(runtimeId)
+                      },
+                      { key: SLATE_BROWSER_HANDLE_KEY, runtimeId }
+                    )
+                  )
+                  .toEqual(step.path)
+                break
+              }
               case 'assertRenderBudget': {
                 const snapshot = await getSlateReactRenderProfilerSnapshot(page)
 
@@ -5388,6 +5502,14 @@ const createEditorHarness = (
               case 'assertLastCommit':
                 expect(await harness.get.lastCommit()).toBeTruthy()
                 break
+              case 'assertLastCommitTags': {
+                const lastCommit = (await harness.get.lastCommit()) as {
+                  tags?: readonly string[]
+                } | null
+
+                expect(lastCommit?.tags).toEqual(step.tags)
+                break
+              }
               case 'assertLastCommitCommand': {
                 const lastCommit = (await harness.get.lastCommit()) as {
                   command?: { origin?: string; type?: string } | null
@@ -5399,6 +5521,17 @@ const createEditorHarness = (
               case 'assertModelText':
                 expect(await harness.get.modelText()).toContain(step.text)
                 break
+              case 'assertLocatorText': {
+                const locator = page.locator(step.selector).first()
+
+                if (step.text !== undefined) {
+                  await expect(locator).toHaveText(step.text)
+                }
+                if (step.contains !== undefined) {
+                  await expect(locator).toContainText(step.contains)
+                }
+                break
+              }
               case 'assertSelection':
                 await harness.assert.selection(step.selection)
                 break
@@ -5416,6 +5549,37 @@ const createEditorHarness = (
               case 'clickTestId':
                 await page.getByTestId(step.testId).click()
                 break
+              case 'clickSelector':
+                await page.locator(step.selector).first().click()
+                break
+              case 'captureRuntimeId': {
+                const runtimeId = await root.evaluate(
+                  (
+                    element: HTMLElement,
+                    { key, path }: { key: string; path: number[] }
+                  ) => {
+                    const handle = (element as Record<string, any>)[key]
+
+                    if (!handle?.getRuntimeId) {
+                      throw new Error(
+                        'This editor surface does not expose getRuntimeId'
+                      )
+                    }
+
+                    return handle.getRuntimeId(path)
+                  },
+                  { key: SLATE_BROWSER_HANDLE_KEY, path: step.path }
+                )
+
+                if (!runtimeId) {
+                  throw new Error(
+                    `Could not capture runtime id for ${step.path.join('.')}`
+                  )
+                }
+
+                capturedRuntimeIds.set(step.name, runtimeId)
+                break
+              }
               case 'composeText':
                 await harness.ime.compose({
                   committedText: step.committedText,
@@ -5694,9 +5858,9 @@ export const openExample = async (
 export const openExampleWithOptions = async (
   page: Page,
   name: string,
-  { ready, surface }: OpenExampleOptions
+  { query, ready, surface }: OpenExampleOptions
 ) => {
-  await page.goto(`${baseUrl}/examples/${name}`)
+  await page.goto(`${baseUrl}/examples/${name}${formatExampleQuery(query)}`)
   const resolvedSurface = await resolveSurface(page, surface)
   const editor = createEditorHarness(page, name, resolvedSurface, surface)
 
@@ -5709,4 +5873,31 @@ export const openExampleWithOptions = async (
   }
 
   return editor
+}
+
+const formatExampleQuery = (query: OpenExampleOptions['query']) => {
+  if (!query) {
+    return ''
+  }
+
+  if (typeof query === 'string') {
+    return query.startsWith('?') ? query : `?${query}`
+  }
+
+  const params =
+    query instanceof URLSearchParams ? query : new URLSearchParams()
+
+  if (!(query instanceof URLSearchParams)) {
+    for (const [key, value] of Object.entries(query)) {
+      if (value == null) {
+        continue
+      }
+
+      params.set(key, String(value))
+    }
+  }
+
+  const serialized = params.toString()
+
+  return serialized ? `?${serialized}` : ''
 }

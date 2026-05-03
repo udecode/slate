@@ -1,7 +1,16 @@
-import { Editor, type EditorInterface } from '../interfaces/editor'
-import { Node } from '../interfaces/node'
+import {
+  Editor,
+  type EditorNodeOptions,
+  type Editor as SlateEditor,
+} from '../interfaces/editor'
+import type { Location } from '../interfaces/location'
+import { Node, type NodeEntry } from '../interfaces/node'
 
-export const node: EditorInterface['node'] = (editor, at, options = {}) => {
+export const node = (
+  editor: SlateEditor,
+  at: Location,
+  options: EditorNodeOptions = {}
+): NodeEntry => {
   const path = Editor.path(editor, at, options)
   const node = Node.get(editor, path)
   return [node, path]

@@ -4,6 +4,7 @@ import {
   createEditableInputControllerState,
 } from '../src/editable/input-controller'
 import {
+  isTextInputSelectionHandledByCaretRepair,
   shouldExportModelSelectionToDOM,
   shouldSyncModelSelectionAfterCommit,
   subscribeSelectionOnlyDOMExport,
@@ -12,7 +13,16 @@ import {
 describe('selection runtime', () => {
   const createChange = (
     change: Pick<SnapshotChange, 'childrenChanged' | 'selectionChanged'> &
-      Partial<Pick<SnapshotChange, 'command'>>
+      Partial<
+        Pick<
+          SnapshotChange,
+          | 'command'
+          | 'fullDocumentChanged'
+          | 'rootRuntimeIdsChanged'
+          | 'structureChanged'
+          | 'topLevelOrderChanged'
+        >
+      >
   ) => change as SnapshotChange
 
   const createInputController = () =>
@@ -78,7 +88,7 @@ describe('selection runtime', () => {
     ).toBe(false)
   })
 
-  test('subscribes to model selection changes even when content changes', () => {
+  test('subscribes to model selection and structural changes only', () => {
     expect(
       shouldSyncModelSelectionAfterCommit(
         undefined,
@@ -105,6 +115,67 @@ describe('selection runtime', () => {
           selectionChanged: false,
         })
       )
+    ).toBe(false)
+    expect(
+      shouldSyncModelSelectionAfterCommit(
+        undefined,
+        createChange({
+          childrenChanged: true,
+          selectionChanged: false,
+          structureChanged: true,
+        })
+      )
+    ).toBe(true)
+  })
+
+  test('skips DOM export when text input caret repair owns collapsed selection', () => {
+    const inputController = createInputController()
+    inputController.state.activeIntent = 'text-insert'
+    inputController.state.selectionSource = 'model-owned'
+
+    const textCommit = createChange({
+      childrenChanged: true,
+      selectionChanged: true,
+    })
+
+    expect(
+      isTextInputSelectionHandledByCaretRepair(inputController, textCommit)
+    ).toBe(true)
+    expect(
+      shouldSyncModelSelectionAfterCommit(
+        undefined,
+        textCommit,
+        inputController
+      )
+    ).toBe(false)
+
+    expect(
+      shouldSyncModelSelectionAfterCommit(
+        undefined,
+        createChange({
+          childrenChanged: true,
+          selectionChanged: true,
+          structureChanged: true,
+        }),
+        inputController
+      )
+    ).toBe(true)
+  })
+
+  test('composition text input still exports model selection normally', () => {
+    const inputController = createInputController()
+    inputController.state.activeIntent = 'text-insert'
+    inputController.state.isComposing = true
+
+    expect(
+      shouldSyncModelSelectionAfterCommit(
+        undefined,
+        createChange({
+          childrenChanged: true,
+          selectionChanged: true,
+        }),
+        inputController
+      )
     ).toBe(true)
   })
 
@@ -122,6 +193,9 @@ describe('selection runtime', () => {
         }
       },
       inputController,
+      scheduleDOMExport(callback) {
+        callback()
+      },
       syncDOMSelectionToEditor() {
         syncCalls += 1
       },
@@ -175,5 +249,142 @@ describe('selection runtime', () => {
 
     scheduled?.()
     expect(syncCalls).toBe(1)
+  })
+
+  test('does not notify DOM export listener for repaired text input commits', () => {
+    const inputController = createInputController()
+    inputController.state.activeIntent = 'text-insert'
+    inputController.state.selectionSource = 'model-owned'
+    let listener:
+      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | null = null
+    let syncCalls = 0
+
+    subscribeSelectionOnlyDOMExport({
+      addSelectorEventListener(nextListener, options) {
+        listener = (operations, change) => {
+          if (options?.shouldUpdate?.(operations, change) ?? true) {
+            nextListener(operations, change)
+          }
+        }
+
+        return () => {}
+      },
+      inputController,
+      scheduleDOMExport(callback) {
+        callback()
+      },
+      syncDOMSelectionToEditor() {
+        syncCalls += 1
+      },
+    })
+
+    listener?.(
+      undefined,
+      createChange({
+        childrenChanged: true,
+        selectionChanged: true,
+      })
+    )
+
+    expect(syncCalls).toBe(0)
+  })
+
+  test('does not notify DOM export listener for synced text-only selection commits', () => {
+    const inputController = createInputController()
+    inputController.state.selectionSource = 'model-owned'
+    let listener:
+      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | null = null
+    let syncCalls = 0
+
+    subscribeSelectionOnlyDOMExport({
+      addSelectorEventListener(nextListener, options) {
+        listener = (operations, change) => {
+          if (options?.shouldUpdate?.(operations, change) ?? true) {
+            nextListener(operations, change)
+          }
+        }
+
+        return () => {}
+      },
+      inputController,
+      scheduleDOMExport(callback) {
+        callback()
+      },
+      syncDOMSelectionToEditor() {
+        syncCalls += 1
+      },
+    })
+
+    listener?.(
+      [
+        { offset: 0, path: [0, 0], text: 'x', type: 'insert_text' },
+        {
+          newProperties: collapsedSelection,
+          properties: null,
+          type: 'set_selection',
+        },
+      ] as readonly Operation[],
+      createChange({
+        childrenChanged: true,
+        selectionChanged: true,
+      })
+    )
+
+    expect(syncCalls).toBe(0)
+  })
+
+  test('composition still exports synced text-only selection commits', () => {
+    const inputController = createInputController()
+    inputController.state.isComposing = true
+
+    expect(
+      shouldSyncModelSelectionAfterCommit(
+        [{ offset: 0, path: [0, 0], text: 'x', type: 'insert_text' }] as any,
+        createChange({
+          childrenChanged: true,
+          selectionChanged: true,
+        }),
+        inputController
+      )
+    ).toBe(true)
+  })
+
+  test('skips DOM export for selections owned by a synthetic shell lane', () => {
+    const inputController = createInputController()
+    inputController.state.selectionSource = 'model-owned'
+    let listener:
+      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | null = null
+    let syncCalls = 0
+
+    subscribeSelectionOnlyDOMExport({
+      addSelectorEventListener(nextListener, options) {
+        listener = (operations, change) => {
+          if (options?.shouldUpdate?.(operations, change) ?? true) {
+            nextListener(operations, change)
+          }
+        }
+
+        return () => {}
+      },
+      getModelSelection: () => expandedSelection,
+      inputController,
+      shouldSkipDOMExport: (selection) => selection === expandedSelection,
+      syncDOMSelectionToEditor() {
+        syncCalls += 1
+      },
+    })
+
+    listener?.(
+      undefined,
+      createChange({
+        childrenChanged: false,
+        selectionChanged: true,
+      })
+    )
+
+    expect(syncCalls).toBe(0)
   })
 })

@@ -12,7 +12,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.insertText('x', { at: { path: [0, 0], offset: 2 } })
+  editor.text.insert('x', { at: { path: [0, 0], offset: 2 } })
 }
 export const output = (
   <editor>

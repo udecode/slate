@@ -72,6 +72,32 @@ export const isInteractiveInternalTarget = (
   )
 }
 
+export const isNativeInternalControlTarget = (
+  editor: ReactEditor,
+  target: EventTarget | null
+) => {
+  const element = isDOMElement(target)
+    ? target
+    : isDOMText(target)
+      ? target.parentElement
+      : null
+
+  if (!element) {
+    return false
+  }
+
+  const control = element.closest(
+    'input, textarea, select, button, [role="button"]'
+  )
+
+  return (
+    control instanceof HTMLElement &&
+    control !== ReactEditor.toDOMNode(editor, editor) &&
+    ReactEditor.hasDOMNode(editor, control) &&
+    !ReactEditor.hasEditableTarget(editor, control)
+  )
+}
+
 const isPlainTextKeyboardIntent = (event: KeyboardEvent) =>
   event.key.length === 1 && !event.altKey && !event.ctrlKey && !event.metaKey
 
@@ -138,11 +164,13 @@ export const classifyKeyboardIntent = ({
 export const classifyBeforeInputIntent = ({
   editor,
   event,
+  internalTarget = isInteractiveInternalTarget(editor, event.target),
 }: {
   editor: ReactEditor
   event: InputEvent
+  internalTarget?: boolean
 }): InputIntent | null => {
-  if (isInteractiveInternalTarget(editor, event.target)) {
+  if (internalTarget) {
     return 'internal-control'
   }
 

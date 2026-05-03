@@ -1,27 +1,24 @@
 import { executeCommand } from '../core/command-registry'
 import {
   getCurrentMarks,
+  runEditorTransaction,
   setCurrentMarks,
-  withTransaction,
 } from '../core/public-state'
-import {
-  Editor,
-  Location,
-  Range,
-  type Location as SlateLocation,
-} from '../interfaces'
-import type { EditorInterface } from '../interfaces/editor'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import { Location, Range, type Location as SlateLocation } from '../interfaces'
+import type { EditorStaticApi } from '../interfaces/editor'
+import { Editor } from '../interfaces/editor'
 import type { TextInsertTextOptions } from '../interfaces/transforms/text'
 import { applyInsertText } from '../transforms-text/insert-text'
 
 type InsertTextCommand = {
-  options: Parameters<EditorInterface['insertText']>[2]
+  options: Parameters<EditorStaticApi['insertText']>[2]
   text: string
   type: 'insert_text'
 }
 
 const shouldIgnoreTarget = (
-  editor: Parameters<EditorInterface['insertText']>[0],
+  editor: Parameters<EditorStaticApi['insertText']>[0],
   at: SlateLocation | null | undefined,
   options: TextInsertTextOptions | undefined
 ) => {
@@ -40,7 +37,7 @@ const shouldIgnoreTarget = (
   )
 }
 
-export const insertText: EditorInterface['insertText'] = (
+export const insertText: EditorStaticApi['insertText'] = (
   editor,
   text,
   options = {}
@@ -51,7 +48,7 @@ export const insertText: EditorInterface['insertText'] = (
     (command) => {
       let handled = false
 
-      withTransaction(editor, (tx) => {
+      runEditorTransaction(editor, (tx) => {
         const hasExplicitAt = command.options?.at !== undefined
         const target = tx.resolveTarget({ at: command.options?.at })
         const marks = getCurrentMarks(editor)
@@ -67,7 +64,7 @@ export const insertText: EditorInterface['insertText'] = (
 
         if (marks && !hasExplicitAt) {
           const node = { text: command.text, ...marks }
-          editor.insertNodes(node, {
+          getEditorTransformRegistry(editor).insertNodes(node, {
             at: target,
             select: !hasExplicitAt,
             voids: command.options?.voids,

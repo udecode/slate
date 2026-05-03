@@ -83,6 +83,19 @@ const dispatchPaste = async (
       const data = new DataTransfer()
       data.setData('text/html', payload.html)
       data.setData('text/plain', payload.text)
+      const shouldUseHandleFallback = /Firefox/.test(navigator.userAgent)
+
+      if (shouldUseHandleFallback) {
+        const handle = (element as Record<string, any>).__slateBrowserHandle
+
+        if (!handle?.insertData) {
+          throw new Error('Missing Slate browser insertData handle')
+        }
+
+        handle.importDOMSelection?.()
+        handle.insertData(payload)
+        return
+      }
 
       const event = new ClipboardEvent('paste', {
         bubbles: true,
@@ -92,15 +105,14 @@ const dispatchPaste = async (
 
       element.dispatchEvent(event)
 
-      const shouldForceHandleFallback = /Firefox/.test(navigator.userAgent)
-
-      if (shouldForceHandleFallback || !event.defaultPrevented) {
+      if (!event.defaultPrevented) {
         const handle = (element as Record<string, any>).__slateBrowserHandle
 
         if (!handle?.insertData) {
           throw new Error('Missing Slate browser insertData handle')
         }
 
+        handle.importDOMSelection?.()
         handle.insertData(payload)
       }
     },
@@ -249,6 +261,61 @@ test.describe('large document runtime example', () => {
       await page.keyboard.type('!')
       await projectionEditor.assert.text('projection block 1!')
     }
+  })
+
+  test('proves DOM-present large-document input can use real browser-native typing', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'real native keyboard insertion proof is owned by desktop browser projects'
+    )
+
+    const blockIndex = 0
+    const blockText = `dom-native block ${blockIndex + 1}`
+    const editor = await openExample(page, 'large-document-runtime', {
+      query: {
+        blocks: 1200,
+        runtime_mode: 'dom-present-native-input',
+      },
+      ready: {
+        editor: 'visible',
+        text: /dom-native block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="dom-present-native"]' },
+    })
+
+    const block = editor.root.getByText(blockText).first()
+
+    await expect(block).toBeVisible()
+    await clickTextEnd(block)
+    await editor.assert.domCaret({
+      offset: blockText.length,
+      text: blockText,
+    })
+
+    await page.keyboard.type('a')
+
+    await editor.assert.text(`${blockText}a`)
+    await expect
+      .poll(() => editor.get.selection())
+      .toEqual({
+        anchor: { path: [0, 0], offset: blockText.length + 1 },
+        focus: { path: [0, 0], offset: blockText.length + 1 },
+      })
+    await editor.assert.domCaret({
+      offset: blockText.length + 1,
+      text: `${blockText}a`,
+    })
+    expect(await editor.get.kernelTrace()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventFamily: 'input',
+          nativeAllowed: true,
+          ownership: 'native-allowed',
+        }),
+      ])
+    )
   })
 
   test('commits IME composition through the browser editing path', async ({
@@ -514,6 +581,62 @@ test.describe('large document runtime example', () => {
     assertNoIllegalKernelTransitions(result)
   })
 
+  test('imports native mouse drag selection inside mounted large-document content', async ({
+    page,
+  }, testInfo) => {
+    const editor = await openExample(page, 'large-document-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+
+    const result = await editor.scenario.run(
+      'large-document-native-drag-selection',
+      [
+        {
+          kind: 'dragTextSelection',
+          selector:
+            '[data-runtime-editor="default"] span[data-slate-string="true"]',
+          steps: 12,
+        },
+      ],
+      {
+        metadata: {
+          capabilities: ['kernel-trace', 'large-document', 'selection'],
+          platform: testInfo.project.name,
+          transport: 'mouse',
+        },
+        tracePath: testInfo.outputPath(
+          'large-document-native-drag-selection.json'
+        ),
+      }
+    )
+
+    await expect.poll(() => editor.get.selectedText()).toContain('block')
+    await expect
+      .poll(() => editor.selection.get())
+      .toMatchObject({
+        anchor: { path: [0, 0] },
+        focus: { path: [0, 0] },
+      })
+    await expect
+      .poll(() =>
+        editor.root.evaluate(
+          (element) =>
+            element.getAttribute('data-slate-large-document-selection') ?? ''
+        )
+      )
+      .not.toBe('shell-backed')
+
+    const selection = await editor.selection.get()
+
+    expect(selection).not.toBeNull()
+    expect(selection?.anchor.offset).not.toBe(selection?.focus.offset)
+    assertNoIllegalKernelTransitions(result)
+  })
+
   test('preserves Slate fragment paste over shell-backed selection', async ({
     page,
   }) => {
@@ -553,6 +676,148 @@ test.describe('large document runtime example', () => {
     )
 
     await editor.assert.text('fragment marker')
+  })
+
+  test('copies full shell-backed selection through Slate clipboard data', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'large-document-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+
+    await editor.root.evaluate((element: HTMLElement) => {
+      element.focus()
+    })
+    await page.keyboard.press('ControlOrMeta+A')
+
+    await expect(editor.root).toHaveAttribute(
+      'data-slate-large-document-selection',
+      'shell-backed'
+    )
+    const payload = await editor.clipboard.copyEventPayload()
+
+    expect(payload.text).toContain('default block 1')
+    expect(payload.text).toContain('default block 6')
+    expect(payload.types).toEqual(
+      expect.arrayContaining(['text/html', 'text/plain'])
+    )
+    expect(payload.html).toContain('data-slate-fragment')
+  })
+
+  test('copies partial shell-backed selection through Slate clipboard data', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'large-document-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+
+    await editor.selection.select({
+      anchor: { path: [2, 0], offset: 0 },
+      focus: { path: [2, 0], offset: 'default block 3'.length },
+    })
+
+    await expect(editor.root).toHaveAttribute(
+      'data-slate-large-document-selection',
+      'shell-backed'
+    )
+
+    const payload = await editor.clipboard.copyEventPayload()
+
+    expect(payload.text).toBe('default block 3')
+    expect(payload.types).toEqual(
+      expect.arrayContaining(['text/html', 'text/plain'])
+    )
+    expect(payload.html).toContain('data-slate-fragment')
+  })
+
+  test('rebases shell-backed selection bookmarks through remote text operations', async ({
+    page,
+  }, testInfo) => {
+    const editor = await openExample(page, 'large-document-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+
+    await editor.selection.select({
+      anchor: { path: [2, 0], offset: 1 },
+      focus: { path: [2, 0], offset: 'default '.length },
+    })
+
+    await expect(editor.root).toHaveAttribute(
+      'data-slate-large-document-selection',
+      'shell-backed'
+    )
+
+    const bookmark = await editor.selection.capture({ affinity: 'inward' })
+
+    const result = await editor.scenario.run(
+      'large-document-shell-bookmark-remote-rebase',
+      [
+        {
+          kind: 'applyOperations',
+          operations: [
+            {
+              offset: 0,
+              path: [2, 0],
+              text: 'remote ',
+              type: 'insert_text',
+            },
+          ],
+          tag: 'remote-import',
+        },
+      ],
+      {
+        metadata: {
+          capabilities: [
+            'collaboration',
+            'large-document',
+            'range-ref',
+            'selection',
+          ],
+          platform: testInfo.project.name,
+          transport: 'semantic-handle',
+        },
+        tracePath: testInfo.outputPath(
+          'large-document-shell-bookmark-remote-rebase.json'
+        ),
+      }
+    )
+
+    const expectedSelection = {
+      anchor: { path: [2, 0], offset: 'remote '.length + 1 },
+      focus: { path: [2, 0], offset: 'remote default '.length },
+    }
+
+    await expect
+      .poll(() => editor.selection.resolve(bookmark))
+      .toEqual(expectedSelection)
+
+    await editor.selection.restore(bookmark)
+    await expect
+      .poll(() =>
+        editor.root.evaluate(
+          (element) =>
+            element.getAttribute('data-slate-large-document-selection') ?? ''
+        )
+      )
+      .not.toBe('shell-backed')
+
+    const payload = await editor.clipboard.copyPayload()
+
+    expect(payload.text).toBe('efault ')
+    expect(await editor.selection.unref(bookmark)).toEqual(expectedSelection)
+    assertNoIllegalKernelTransitions(result)
   })
 
   test('preserves Slate fragment paste over partial shelled selection', async ({
@@ -617,6 +882,12 @@ test.describe('large document runtime example', () => {
       'data-slate-large-document-selection',
       'shell-backed'
     )
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [5, 0], offset: 'rich block 6'.length },
+      })
 
     await dispatchPaste(editor.root, {
       html: '<strong>rich marker</strong>',

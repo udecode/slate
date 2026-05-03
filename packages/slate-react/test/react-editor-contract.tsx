@@ -1,9 +1,11 @@
 import { act, render } from '@testing-library/react'
-import { createEditor, Editor } from 'slate'
-import { Editable, ReactEditor, Slate, withReact } from '../src'
+import { createEditor } from 'slate'
+import { Editor } from 'slate/internal'
+import { Editable, Slate, withReact } from '../src'
+import { ReactEditor } from '../src/plugin/react-editor'
 
-describe('slate-react ReactEditor contract', () => {
-  test('ReactEditor.focus initializes a null selection at the top of the document', async () => {
+describe('slate-react DOM capability contract', () => {
+  test('editor.dom.focus initializes a null selection at the top of the document', async () => {
     const editor = withReact(createEditor())
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
     const expectedSelection = {
@@ -22,12 +24,12 @@ describe('slate-react ReactEditor contract', () => {
     expect(Editor.getSelection(editor)).toBe(null)
 
     await act(async () => {
-      ReactEditor.focus(editor)
+      editor.dom.focus()
     })
 
     expect(Editor.getSelection(editor)).toEqual(expectedSelection)
 
-    const windowSelection = ReactEditor.getWindow(editor).getSelection()
+    const windowSelection = editor.dom.getWindow().getSelection()
 
     expect(windowSelection?.focusNode?.textContent).toBe('test')
     expect(windowSelection?.anchorNode?.textContent).toBe('test')
@@ -35,7 +37,7 @@ describe('slate-react ReactEditor contract', () => {
     expect(windowSelection?.focusOffset).toBe(expectedSelection.focus.offset)
   })
 
-  test('ReactEditor.focus stays safe when called mid-transform', async () => {
+  test('editor.dom.focus stays safe when called mid-transform', async () => {
     const editor = withReact(createEditor())
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
     const propagatedValue = [
@@ -56,37 +58,37 @@ describe('slate-react ReactEditor contract', () => {
     })
 
     await act(async () => {
-      editor.update(() => {
-        editor.removeNodes({ at: [0] })
-        editor.insertNodes(propagatedValue)
-        editor.select(expectedSelection)
+      editor.update((tx) => {
+        tx.nodes.remove({ at: [0] })
+        tx.nodes.insert(propagatedValue)
+        tx.selection.set(expectedSelection)
       })
-      ReactEditor.focus(editor)
+      editor.dom.focus()
     })
 
     expect(Editor.getSelection(editor)).toEqual(expectedSelection)
 
     await act(async () => {
-      ReactEditor.focus(editor)
+      editor.dom.focus()
     })
 
     expect(Editor.getSelection(editor)).toEqual(expectedSelection)
   })
 
-  test('ReactEditor.focus does not trigger onValueChange', async () => {
+  test('editor.dom.focus reports a selection change without a value change', async () => {
     const editor = withReact(createEditor())
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
-    const onSnapshotChange = jest.fn()
-    const onValueChange = jest.fn()
+    const onChange = jest.fn()
     const onSelectionChange = jest.fn()
+    const onValueChange = jest.fn()
 
     act(() => {
       render(
         <Slate
           editor={editor}
           initialValue={initialValue}
+          onChange={onChange}
           onSelectionChange={onSelectionChange}
-          onSnapshotChange={onSnapshotChange}
           onValueChange={onValueChange}
         >
           <Editable />
@@ -95,23 +97,134 @@ describe('slate-react ReactEditor contract', () => {
     })
 
     await act(async () => {
-      ReactEditor.focus(editor)
+      editor.dom.focus()
     })
 
     expect(Editor.getSelection(editor)).toEqual({
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 0 },
     })
-    expect(onSnapshotChange).toHaveBeenCalledWith(
+    const expectedSelection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    }
+
+    expect(onChange).toHaveBeenCalledWith(
+      initialValue,
       expect.objectContaining({
-        selection: {
-          anchor: { path: [0, 0], offset: 0 },
-          focus: { path: [0, 0], offset: 0 },
-        },
-      }),
+        selection: expectedSelection,
+        selectionChanged: true,
+        valueChanged: false,
+      })
+    )
+    expect(onSelectionChange).toHaveBeenCalledWith(
+      expectedSelection,
       expect.objectContaining({ selectionChanged: true })
     )
-    expect(onSelectionChange).toHaveBeenCalled()
     expect(onValueChange).not.toHaveBeenCalled()
+  })
+
+  test('DOM-present selection export uses direct endpoints for common model selections', async () => {
+    const editor = withReact(createEditor())
+    const initialValue = [
+      { type: 'block', children: [{ text: 'alpha' }] },
+      { type: 'block', children: [{ text: 'bravo' }] },
+    ]
+
+    const mounted = render(
+      <Slate editor={editor} initialValue={initialValue}>
+        <Editable />
+      </Slate>
+    )
+    const editable = mounted.container.querySelector('[data-slate-editor]')!
+    const toDOMRange = jest.spyOn(ReactEditor, 'toDOMRange')
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.selection.set({
+          anchor: { path: [1, 0], offset: 2 },
+          focus: { path: [1, 0], offset: 2 },
+        })
+      })
+    })
+
+    expect(toDOMRange).not.toHaveBeenCalled()
+    expect(document.getSelection()?.anchorNode?.textContent).toBe('bravo')
+    expect(document.getSelection()?.anchorOffset).toBe(2)
+
+    toDOMRange.mockClear()
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.selection.set({
+          anchor: tx.points.start([]),
+          focus: tx.points.end([]),
+        })
+      })
+    })
+
+    expect(toDOMRange).not.toHaveBeenCalled()
+    expect(document.getSelection()?.anchorNode).toBe(editable)
+    expect(document.getSelection()?.anchorOffset).toBe(0)
+    expect(document.getSelection()?.focusNode).toBe(editable)
+    expect(document.getSelection()?.focusOffset).toBe(
+      editable.childNodes.length
+    )
+
+    toDOMRange.mockRestore()
+  })
+
+  test('large full-document selections stay model-backed instead of selecting every DOM child', async () => {
+    const editor = withReact(createEditor())
+    const initialValue = Array.from({ length: 1001 }, (_, index) => ({
+      type: 'block',
+      children: [{ text: `block-${index}` }],
+    }))
+
+    const mounted = render(
+      <Slate editor={editor} initialValue={initialValue}>
+        <Editable />
+      </Slate>
+    )
+    const editable = mounted.container.querySelector('[data-slate-editor]')!
+    const toDOMRange = jest.spyOn(ReactEditor, 'toDOMRange')
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.selection.set({
+          anchor: tx.points.start([]),
+          focus: tx.points.end([]),
+        })
+      })
+    })
+
+    expect(toDOMRange).not.toHaveBeenCalled()
+    expect(document.getSelection()?.anchorNode).not.toBe(editable)
+    expect(document.getSelection()?.focusNode).not.toBe(editable)
+
+    toDOMRange.mockRestore()
+  })
+
+  test('browser handle resolves mounted elements by Slate path without DOM scans', () => {
+    const editor = withReact(createEditor())
+    const initialValue = [{ type: 'block', children: [{ text: 'lookup' }] }]
+
+    const mounted = render(
+      <Slate editor={editor} initialValue={initialValue}>
+        <Editable />
+      </Slate>
+    )
+    const editable = mounted.container.querySelector('[data-slate-editor]') as
+      | (HTMLDivElement & {
+          __slateBrowserHandle?: {
+            getElementByPath: (path: number[]) => HTMLElement | null
+          }
+        })
+      | null
+    const textElement = editable?.__slateBrowserHandle?.getElementByPath([0, 0])
+
+    expect(textElement).toBeInstanceOf(HTMLElement)
+    expect(textElement).toHaveAttribute('data-slate-node', 'text')
+    expect(textElement?.textContent).toContain('lookup')
   })
 })

@@ -1,4 +1,5 @@
-import { type DecoratedRange, Editor, Range } from 'slate'
+import { type DecoratedRange, Range } from 'slate'
+import { Editor } from 'slate/internal'
 import { DOMEditor } from '../plugin/dom-editor'
 import { PLACEHOLDER_SYMBOL } from './weak-maps'
 
@@ -112,7 +113,9 @@ export const splitDecorationsByChild = (
   node: import('slate').Ancestor,
   decorations: DecoratedRange[]
 ): DecoratedRange[][] => {
-  const children = Editor.isEditor(node) ? editor.getChildren() : node.children
+  const children = Editor.isEditor(node)
+    ? editor.read((state) => state.value.get())
+    : node.children
   const decorationsByChild = Array.from(children, (): DecoratedRange[] => [])
 
   if (decorations.length === 0) {
@@ -121,14 +124,16 @@ export const splitDecorationsByChild = (
 
   const path = DOMEditor.findPath(editor, node)
   const level = path.length
-  const ancestorRange = Editor.range(editor, path)
+  const ancestorRange = editor.read((state) => state.ranges.get(path))
 
   const cachedChildRanges = new Array<Range | undefined>(children.length)
 
   const getChildRange = (index: number) => {
     const cachedRange = cachedChildRanges[index]
     if (cachedRange) return cachedRange
-    const childRange = Editor.range(editor, [...path, index])
+    const childRange = editor.read((state) =>
+      state.ranges.get([...path, index])
+    )
     cachedChildRanges[index] = childRange
     return childRange
   }

@@ -5,7 +5,8 @@ import { jsx } from '../..'
 jsx
 
 import _ from 'lodash'
-import { Editor, Element } from 'slate'
+import { Element } from 'slate'
+import { Editor, getEditorRuntime } from 'slate/internal'
 
 export const input = (
   <editor>
@@ -16,15 +17,17 @@ export const input = (
 )
 
 const editor = input as unknown as Editor
-const defaultNormalize = editor.normalizeNode
-editor.normalizeNode = (entry) => {
+const runtime = getEditorRuntime(editor)
+const defaultNormalize = runtime.normalizeNode
+runtime.normalizeNode = (entry) => {
   const [node, path] = entry
   if (
     Element.isElement(node) &&
     (node as any).type === 'body' &&
     Editor.string(editor, path, { voids: true }) === 'one'
   ) {
-    editor.setNodes(
+    Editor.setNodes(
+      editor,
       { attr: { a: false } },
       { at: path, compare: (p, n) => !_.isEqual(p, n) }
     )
@@ -34,7 +37,7 @@ editor.normalizeNode = (entry) => {
 }
 
 export const run = (editor) => {
-  Editor.normalize(editor, { force: true })
+  editor.normalize({ force: true })
 }
 
 export const output = (

@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import type { Descendant, Operation, Editor as SlateEditor } from 'slate'
-import { createEditor, Editor } from 'slate'
+import type {
+  Descendant,
+  Operation,
+  Selection,
+  Editor as SlateEditor,
+} from 'slate'
+import { createEditor } from 'slate'
+import { Editor } from 'slate/internal'
 
-import { HistoryEditor, withHistory } from '..'
+import { HistoryEditor, withHistory } from '../src'
 
 const paragraph = (text: string): Descendant => ({
   type: 'paragraph',
@@ -12,25 +18,13 @@ const paragraph = (text: string): Descendant => ({
 })
 
 const withHistoryTest = () => {
-  const editor = withHistory(createEditor())
-  const { isInline, isVoid, isElementReadOnly, isSelectable } = editor
-
-  editor.isInline = (element: any) =>
-    element.inline === true ? true : isInline(element)
-  editor.isVoid = (element: any) =>
-    element.void === true ? true : isVoid(element)
-  editor.isElementReadOnly = (element: any) =>
-    element.readOnly === true ? true : isElementReadOnly(element)
-  editor.isSelectable = (element: any) =>
-    element.nonSelectable === true ? false : isSelectable(element)
-
-  return editor
+  return withHistory(createEditor())
 }
 
 const replace = (
   editor: SlateEditor,
   children: Descendant[],
-  selection: SlateEditor['selection'] = null
+  selection: Selection = null
 ) => {
   Editor.replace(editor, {
     children: structuredClone(children),
@@ -52,7 +46,10 @@ const getVisibleState = (editor: SlateEditor) => {
   }
 }
 
-const write = (editor: SlateEditor, fn: () => void) => {
+const write = (
+  editor: SlateEditor,
+  fn: Parameters<SlateEditor['update']>[0]
+) => {
   editor.update(fn)
 }
 
@@ -67,19 +64,9 @@ describe('slate-history integrity contract', () => {
 
     const before = getVisibleState(editor)
 
-    Editor.withTransaction(editor, (tx) => {
-      tx.apply({
-        type: 'insert_text',
-        path: [0, 0],
-        offset: 3,
-        text: 'a',
-      })
-      tx.apply({
-        type: 'insert_text',
-        path: [0, 0],
-        offset: 4,
-        text: 'b',
-      })
+    editor.update((tx) => {
+      tx.text.insert('a')
+      tx.text.insert('b')
     })
 
     assert.equal(editor.history.undos.length, 1)
@@ -99,14 +86,14 @@ describe('slate-history integrity contract', () => {
       focus: { path: [0, 0], offset: 3 },
     })
 
-    write(editor, () => {
-      editor.insertText('a')
+    write(editor, (tx) => {
+      tx.text.insert('a')
     })
 
     HistoryEditor.withNewBatch(editor, () => {
-      write(editor, () => {
-        editor.insertText('b')
-        editor.insertText('c')
+      write(editor, (tx) => {
+        tx.text.insert('b')
+        tx.text.insert('c')
       })
     })
 
@@ -129,13 +116,13 @@ describe('slate-history integrity contract', () => {
       focus: { path: [0, 0], offset: 3 },
     })
 
-    write(editor, () => {
-      editor.insertText('a')
+    write(editor, (tx) => {
+      tx.text.insert('a')
     })
 
     HistoryEditor.withoutMerging(editor, () => {
-      write(editor, () => {
-        editor.insertText('b')
+      write(editor, (tx) => {
+        tx.text.insert('b')
       })
     })
 
@@ -157,8 +144,8 @@ describe('slate-history integrity contract', () => {
     })
 
     HistoryEditor.withoutSaving(editor, () => {
-      write(editor, () => {
-        editor.insertText('a')
+      write(editor, (tx) => {
+        tx.text.insert('a')
       })
     })
 
@@ -184,8 +171,8 @@ describe('slate-history integrity contract', () => {
       }
     )
 
-    write(editor, () => {
-      editor.select({
+    write(editor, (tx) => {
+      tx.selection.set({
         anchor: { path: [0, 0], offset: 3 },
         focus: { path: [0, 0], offset: 3 },
       })
@@ -215,8 +202,8 @@ describe('slate-history integrity contract', () => {
       }
     )
 
-    write(editor, () => {
-      editor.move()
+    write(editor, (tx) => {
+      tx.selection.move()
     })
     unsubscribe()
 
@@ -269,8 +256,8 @@ describe('slate-history integrity contract', () => {
       originalWriteHistory(stack, batch)
     }
 
-    write(editor, () => {
-      editor.insertText('a')
+    write(editor, (tx) => {
+      tx.text.insert('a')
     })
     editor.undo()
 
@@ -294,24 +281,28 @@ describe('slate-history integrity contract', () => {
       const offset = ((snapshot.children[0] as any)?.children?.[0]?.text
         .length ?? 0) as number
 
-      editor.applyOperations([
+      editor.update((tx) => {
+        tx.operations.replay([
+          {
+            type: 'insert_text',
+            path: [0, 0],
+            offset,
+            text: '!',
+          },
+        ])
+      })
+    })
+
+    editor.update((tx) => {
+      tx.operations.replay([
         {
           type: 'insert_text',
           path: [0, 0],
-          offset,
-          text: '!',
+          offset: 3,
+          text: 'a',
         },
       ])
     })
-
-    editor.applyOperations([
-      {
-        type: 'insert_text',
-        path: [0, 0],
-        offset: 3,
-        text: 'a',
-      },
-    ])
     unsubscribe()
 
     assert.equal(editor.history.undos.length, 1)
@@ -350,8 +341,8 @@ describe('slate-history integrity contract', () => {
       }
     })
 
-    write(editor, () => {
-      editor.insertText('!')
+    write(editor, (tx) => {
+      tx.text.insert('!')
     })
     unsubscribe()
 

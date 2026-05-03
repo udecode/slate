@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { Editor } from 'slate/internal'
 
-import { createEditor, type Descendant, Editor } from '../src'
+import { createEditor, type Descendant } from '../src'
 
 const paragraphWithEmptySuffixLeaves = (): Descendant => ({
   type: 'paragraph',
@@ -37,8 +38,8 @@ describe('selection rebase contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.delete({ reverse: true, unit: 'character' })
+    editor.update((tx) => {
+      tx.text.delete({ reverse: true, unit: 'character' })
     })
 
     assert.equal(Editor.string(editor, [0]), 'This is editable rich text, much')
@@ -65,8 +66,8 @@ describe('selection rebase contract', () => {
       },
     })
 
-    editor.update(() => {
-      editor.delete({ unit: 'character' })
+    editor.update((tx) => {
+      tx.text.delete({ unit: 'character' })
     })
 
     assert.equal(Editor.string(editor, [0]), 'This is editable <textarea>')

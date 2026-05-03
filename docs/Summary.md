@@ -10,8 +10,7 @@
 - [Applying Custom Formatting](walkthroughs/04-applying-custom-formatting.md)
 - [Executing Commands](walkthroughs/05-executing-commands.md)
 - [Saving to a Database](walkthroughs/06-saving-to-a-database.md)
-- [Enabling Collaborative Editing](walkthroughs/07-enabling-collaborative-editing.md)
-- [Using the Bundled Source](walkthroughs/08-using-the-bundled-source.md)
+- [Collaborative Editing Substrate](walkthroughs/07-enabling-collaborative-editing.md)
 - [Improving Performance](walkthroughs/09-performance.md)
 
 ## Concepts
@@ -19,7 +18,7 @@
 - [Interfaces](concepts/01-interfaces.md)
 - [Nodes](concepts/02-nodes.md)
 - [Locations](concepts/03-locations.md)
-- [Editor Methods](concepts/04-transforms.md)
+- [Transforms](concepts/04-transforms.md)
 - [Operations](concepts/05-operations.md)
 - [Commands](concepts/06-commands.md)
 - [Editor](concepts/07-editor.md)
@@ -28,11 +27,10 @@
 - [Serializing](concepts/10-serializing.md)
 - [Normalizing](concepts/11-normalizing.md)
 - [TypeScript](concepts/12-typescript.md)
-- [Migrating](concepts/xx-migrating.md)
 
 ## API
 
-- [Editor Methods](api/transforms.md)
+- [Transforms](api/transforms.md)
 - [Node Types](api/nodes/README.md)
   - [Editor](api/nodes/editor.md)
   - [Element](api/nodes/element.md)
@@ -57,7 +55,7 @@
 
 - [Slate React](libraries/slate-react/README.md)
   - [withReact](libraries/slate-react/with-react.md)
-  - [ReactEditor](libraries/slate-react/react-editor.md)
+  - [React Editor](libraries/slate-react/react-editor.md)
   - [Hooks](libraries/slate-react/hooks.md)
   - [Slate Component](libraries/slate-react/slate.md)
   - [Editable Component](libraries/slate-react/editable.md)
@@ -72,5 +70,5 @@
 
 - [Resources](general/resources.md)
 - [Contributing](general/contributing.md)
-- [Changelog](general/changelog.md)
+- [Changelog (historical)](general/changelog.md)
 - [FAQ](general/faq.md)

@@ -1,4 +1,5 @@
 import { batchDirtyPaths } from '../core/batch-dirty-paths'
+import { getEditorRuntime } from '../core/editor-runtime'
 import {
   canUseTextFastPath,
   getChildren,
@@ -6,14 +7,15 @@ import {
   getCurrentSelection,
   getMutationVersion,
   isInTransaction,
-  withTransaction,
+  runEditorTransaction,
 } from '../core/public-state'
-import { Editor, type EditorInterface } from '../interfaces/editor'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
 import { Node, type NodeEntry } from '../interfaces/node'
 import type { Operation } from '../interfaces/operation'
 import { DIRTY_PATH_KEYS, DIRTY_PATHS } from '../utils/weak-maps'
+import { node } from './node'
 
-export const normalize: EditorInterface['normalize'] = (
+export const normalize: EditorStaticApi['normalize'] = (
   editor,
   options = {}
 ) => {
@@ -70,7 +72,7 @@ export const normalize: EditorInterface['normalize'] = (
   const collectDirtyNormalizeEntries = (): NodeEntry[] =>
     getDirtyPaths(editor)
       .filter((path) => Node.has(editor, path))
-      .map((path) => Editor.node(editor, path))
+      .map((path) => node(editor, path))
 
   const runNormalizePasses = () => {
     if (!Editor.isNormalizing(editor)) {
@@ -128,7 +130,7 @@ export const normalize: EditorInterface['normalize'] = (
         seenSignatures.add(signature)
 
         if (
-          !editor.shouldNormalize({
+          !getEditorRuntime(editor).shouldNormalize({
             explicit,
             iteration,
             operation,
@@ -140,7 +142,7 @@ export const normalize: EditorInterface['normalize'] = (
 
         for (const entry of entries) {
           const beforeMutation = getMutationVersion(editor)
-          editor.normalizeNode(entry, { explicit, operation })
+          getEditorRuntime(editor).normalizeNode(entry, { explicit, operation })
           const afterMutation = getMutationVersion(editor)
 
           if (beforeMutation !== afterMutation) {
@@ -171,7 +173,7 @@ export const normalize: EditorInterface['normalize'] = (
   }
 
   if (explicit && !isInTransaction(editor)) {
-    withTransaction(
+    runEditorTransaction(
       editor,
       () => {
         normalize(editor, options)

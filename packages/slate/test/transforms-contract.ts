@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { Editor } from 'slate/internal'
 
 import {
   createEditor,
   type Descendant,
-  Editor,
+  defineEditorExtension,
   type Element,
   Node,
 } from '../src'
@@ -27,7 +28,9 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    editor.moveNodes({ at: [1], to: [1] })
+    editor.update((tx) => {
+      tx.nodes.move({ at: [1], to: [1] })
+    })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [
       { type: 'block', children: [{ text: '1' }] },
@@ -53,7 +56,9 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    editor.moveNodes({ at: [0], to: [1, 1] })
+    editor.update((tx) => {
+      tx.nodes.move({ at: [0], to: [1, 1] })
+    })
 
     const after = Editor.getSnapshot(editor)
 
@@ -71,7 +76,12 @@ describe('slate transforms contract', () => {
 
   it('setNodes can target the selected inline element through match without an explicit path', () => {
     const editor = createEditor()
-    editor.isInline = (element) => element.type === 'inline'
+    editor.extend(
+      defineEditorExtension({
+        elements: [{ inline: true, type: 'inline' }],
+        name: 'inline',
+      })
+    )
 
     Editor.replace(editor, {
       children: [
@@ -88,12 +98,14 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    editor.setNodes(
-      { someKey: true },
-      {
-        match: (node) => 'children' in node && Editor.isInline(editor, node),
-      }
-    )
+    editor.update((tx) => {
+      tx.nodes.set(
+        { someKey: true },
+        {
+          match: (node) => 'children' in node && tx.schema.isInline(node),
+        }
+      )
+    })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [
       {
@@ -107,7 +119,7 @@ describe('slate transforms contract', () => {
     ])
   })
 
-  it('setNodes still accepts the legacy generic props contract', () => {
+  it('setNodes accepts typed element props through the transaction API', () => {
     const editor = createEditor()
 
     Editor.replace(editor, {
@@ -121,7 +133,9 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    editor.setNodes<Element>({ type: 'heading-one' }, { at: [0] })
+    editor.update((tx) => {
+      tx.nodes.set<Element>({ type: 'heading-one' }, { at: [0] })
+    })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [
       {
@@ -133,7 +147,12 @@ describe('slate transforms contract', () => {
 
   it('setNodes can target the highest matching inline when mode is highest', () => {
     const editor = createEditor()
-    editor.isInline = (element) => element.type === 'inline'
+    editor.extend(
+      defineEditorExtension({
+        elements: [{ inline: true, type: 'inline' }],
+        name: 'inline',
+      })
+    )
 
     Editor.replace(editor, {
       children: [
@@ -157,13 +176,15 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    editor.setNodes(
-      { someKey: true },
-      {
-        match: (node) => 'children' in node && Editor.isInline(editor, node),
-        mode: 'highest',
-      }
-    )
+    editor.update((tx) => {
+      tx.nodes.set(
+        { someKey: true },
+        {
+          match: (node) => 'children' in node && tx.schema.isInline(node),
+          mode: 'highest',
+        }
+      )
+    })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [
       {
@@ -203,8 +224,10 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    editor.wrapNodes({ type: 'quote', children: [] } as Element, {
-      split: true,
+    editor.update((tx) => {
+      tx.nodes.wrap({ type: 'quote', children: [] } as Element, {
+        split: true,
+      })
     })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [
@@ -238,18 +261,20 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    editor.wrapNodes({ type: 'quote', children: [] } as Element, {
-      match: (node, currentPath) => {
-        if ('noneditable' in node && node.noneditable === true) return false
+    editor.update((tx) => {
+      tx.nodes.wrap({ type: 'quote', children: [] } as Element, {
+        match: (node, currentPath) => {
+          if ('noneditable' in node && node.noneditable === true) return false
 
-        for (const [ancestor] of Node.ancestors(editor, currentPath)) {
-          if ('noneditable' in ancestor && ancestor.noneditable === true) {
-            return false
+          for (const [ancestor] of Node.ancestors(editor, currentPath)) {
+            if ('noneditable' in ancestor && ancestor.noneditable === true) {
+              return false
+            }
           }
-        }
 
-        return true
-      },
+          return true
+        },
+      })
     })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [
@@ -285,9 +310,11 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    editor.unwrapNodes({
-      match: (node) => 'a' in node && node.a === true,
-      mode: 'all',
+    editor.update((tx) => {
+      tx.nodes.unwrap({
+        match: (node) => 'a' in node && node.a === true,
+        mode: 'all',
+      })
     })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [
@@ -297,7 +324,18 @@ describe('slate transforms contract', () => {
 
   it('liftNodes can target inside a void element when voids is true', () => {
     const editor = createEditor()
-    editor.isVoid = (element) => element.void === true
+    editor.extend(
+      defineEditorExtension({
+        elements: [
+          {
+            type: 'void-flag',
+            match: (element) => element.void === true,
+            void: 'block',
+          },
+        ],
+        name: 'void-flag',
+      })
+    )
 
     Editor.replace(editor, {
       children: [
@@ -311,8 +349,8 @@ describe('slate transforms contract', () => {
       marks: null,
     })
 
-    editor.update(() => {
-      editor.liftNodes({ at: [0, 0], voids: true })
+    editor.update((tx) => {
+      tx.nodes.lift({ at: [0, 0], voids: true })
     })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [

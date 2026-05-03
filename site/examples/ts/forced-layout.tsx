@@ -1,12 +1,11 @@
 import { useCallback, useMemo } from 'react'
 import {
   createEditor,
-  defineEditorExtension,
-  Editor,
   Node,
   type NodeEntry,
   type Element as SlateElement,
 } from 'slate'
+import { getEditorRuntime } from 'slate/internal'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -22,73 +21,75 @@ import type {
   TitleElement,
 } from './custom-types.d'
 
-const layoutExtension = defineEditorExtension<CustomEditor>({
-  name: 'forced-layout',
-  methods(editor) {
-    const nextNormalizeNode = editor.normalizeNode
+const withLayout = (editor: CustomEditor) => {
+  const runtime = getEditorRuntime(editor)
+  const nextNormalizeNode = runtime.normalizeNode
 
-    return {
-      normalizeNode(entry: NodeEntry) {
-        const [, path] = entry
+  runtime.normalizeNode = (
+    entry: NodeEntry,
+    options: Parameters<typeof nextNormalizeNode>[1]
+  ) => {
+    const [, path] = entry
 
-        if (path.length === 0) {
-          if (
-            Editor.getChildren(editor).length <= 1 &&
-            Editor.string(editor, [0, 0]) === ''
-          ) {
-            const title: TitleElement = {
-              type: 'title',
-              children: [{ text: 'Untitled' }],
-            }
-            editor.insertNodes(title, {
-              at: path.concat(0),
-              select: true,
+    if (path.length === 0) {
+      if (runtime.getChildren().length <= 1 && runtime.string([0, 0]) === '') {
+        const title: TitleElement = {
+          type: 'title',
+          children: [{ text: 'Untitled' }],
+        }
+        editor.update((tx) => {
+          tx.nodes.insert(title, {
+            at: path.concat(0),
+            select: true,
+          })
+        })
+      }
+
+      if (runtime.getChildren().length < 2) {
+        const paragraph: ParagraphElement = {
+          type: 'paragraph',
+          children: [{ text: '' }],
+        }
+        editor.update((tx) => {
+          tx.nodes.insert(paragraph, { at: path.concat(1) })
+        })
+      }
+
+      for (const [child, childPath] of Node.children(
+        { children: runtime.getChildren() } as SlateElement,
+        path
+      )) {
+        let type: CustomElementType
+        const slateIndex = childPath[0]
+        const enforceType = (type: CustomElementType) => {
+          if (Node.isElement(child) && child.type !== type) {
+            const newProperties: Partial<SlateElement> = { type }
+            editor.update((tx) => {
+              tx.nodes.set(newProperties, {
+                at: childPath,
+              })
             })
-          }
-
-          if (Editor.getChildren(editor).length < 2) {
-            const paragraph: ParagraphElement = {
-              type: 'paragraph',
-              children: [{ text: '' }],
-            }
-            editor.insertNodes(paragraph, { at: path.concat(1) })
-          }
-
-          for (const [child, childPath] of Node.children(editor, path)) {
-            let type: CustomElementType
-            const slateIndex = childPath[0]
-            const enforceType = (type: CustomElementType) => {
-              if (Node.isElement(child) && child.type !== type) {
-                const newProperties: Partial<SlateElement> = { type }
-                editor.setNodes<SlateElement>(newProperties, {
-                  at: childPath,
-                })
-              }
-            }
-
-            switch (slateIndex) {
-              case 0:
-                type = 'title'
-                enforceType(type)
-                break
-              case 1:
-                type = 'paragraph'
-                enforceType(type)
-                break
-              default:
-                break
-            }
           }
         }
 
-        return nextNormalizeNode(entry)
-      },
+        switch (slateIndex) {
+          case 0:
+            type = 'title'
+            enforceType(type)
+            break
+          case 1:
+            type = 'paragraph'
+            enforceType(type)
+            break
+          default:
+            break
+        }
+      }
     }
-  },
-})
 
-const withLayout = (editor: CustomEditor) => {
-  editor.extend(layoutExtension)
+    return nextNormalizeNode(entry, options)
+  }
+
   return editor
 }
 
@@ -98,7 +99,10 @@ const ForcedLayoutExample = () => {
     []
   )
   const editor = useMemo(
-    () => withLayout(withHistory(withReact(createEditor<CustomValue>()))),
+    () =>
+      withLayout(
+        withHistory(withReact(createEditor<CustomValue>())) as CustomEditor
+      ),
     []
   )
   return (

@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 import { Location, Path } from 'slate'
 
 export const input: Path = []

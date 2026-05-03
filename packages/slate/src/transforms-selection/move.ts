@@ -1,5 +1,6 @@
 import { executeCommand } from '../core/command-registry'
 import { getCurrentSelection } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
 import { Editor } from '../interfaces/editor'
 import { Range } from '../interfaces/range'
 import type { SelectionMutationMethods } from '../interfaces/transforms/selection'
@@ -50,7 +51,7 @@ const applyMove: SelectionMutationMethods['move'] = (editor, options = {}) => {
     }
   }
 
-  editor.setSelection(props)
+  getEditorTransformRegistry(editor).setSelection(props)
 }
 
 export const move: SelectionMutationMethods['move'] = (

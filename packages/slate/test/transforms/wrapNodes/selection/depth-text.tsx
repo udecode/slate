@@ -18,7 +18,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.wrapNodes(<block new />, { match: Text.isText })
+  editor.nodes.wrap(<block new />, { match: Text.isText })
 }
 export const output = (
   <editor>

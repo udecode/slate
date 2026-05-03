@@ -1,3 +1,4 @@
+import { getEditorTransformRegistry } from '../core/transform-registry'
 import type { NodeMutationMethods } from '../interfaces/transforms/node'
 
 export const unsetNodes: NodeMutationMethods['unsetNodes'] = (
@@ -13,5 +14,5 @@ export const unsetNodes: NodeMutationMethods['unsetNodes'] = (
     obj[key] = null
   }
 
-  editor.setNodes(obj, options)
+  getEditorTransformRegistry(editor).setNodes(obj, options)
 }

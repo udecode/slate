@@ -2,11 +2,12 @@ import { css } from '@emotion/css'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-markdown'
 import { type ReactNode, useEffect, useMemo } from 'react'
-import { createEditor, type Descendant, Editor, Node } from 'slate'
+import { createEditor, type Descendant, Node } from 'slate'
 import { withHistory } from 'slate-history'
 import {
-  createSlateProjectionStore,
+  createDecorationSource,
   Editable,
+  Slate,
   type SlateProjection,
   withReact,
 } from 'slate-react'
@@ -18,45 +19,44 @@ const MarkdownPreviewExample = () => {
       withReact(createEditor<CustomValue>())
     ) as CustomEditor
 
-    Editor.replace(nextEditor, {
-      children: initialValue,
-      selection: null,
+    nextEditor.update((tx) => {
+      tx.value.replace({
+        children: initialValue,
+        selection: null,
+      })
     })
 
     return nextEditor
   }, [])
-  const projectionStore = useMemo(
+  const markdownSource = useMemo(
     () =>
-      createSlateProjectionStore(
-        editor,
-        (snapshot) => collectMarkdownProjections(snapshot.children),
-        {
-          dirtiness: 'text',
-          sourceId: 'markdown-preview',
-        }
-      ),
+      createDecorationSource<Record<string, true>>(editor, {
+        id: 'markdown-preview',
+        dirtiness: 'text',
+        read: ({ snapshot }) => collectMarkdownProjections(snapshot.children),
+      }),
     [editor]
   )
 
-  useEffect(() => () => projectionStore.destroy(), [projectionStore])
+  useEffect(() => () => markdownSource.destroy(), [markdownSource])
 
   return (
-    <Editable
-      editor={editor}
-      id="markdown-preview"
-      placeholder="Write some markdown..."
-      projectionStore={projectionStore}
-      renderSegment={(segment, children) => (
-        <MarkdownSegment
-          data={Object.assign(
-            {},
-            ...segment.slices.map((slice) => slice.data ?? {})
-          )}
-        >
-          {children}
-        </MarkdownSegment>
-      )}
-    />
+    <Slate decorationSources={[markdownSource]} editor={editor}>
+      <Editable
+        id="markdown-preview"
+        placeholder="Write some markdown..."
+        renderSegment={(segment, children) => (
+          <MarkdownSegment
+            data={Object.assign(
+              {},
+              ...segment.slices.map((slice) => slice.data ?? {})
+            )}
+          >
+            {children}
+          </MarkdownSegment>
+        )}
+      />
+    </Slate>
   )
 }
 

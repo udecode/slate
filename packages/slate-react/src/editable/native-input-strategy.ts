@@ -1,9 +1,12 @@
-import { Editor, Node, Range } from 'slate'
+import { Node, Range } from 'slate'
 import { type DOMText, IS_NODE_MAP_DIRTY } from 'slate-dom'
-
 import { ReactEditor } from '../plugin/react-editor'
+import { Editor } from './runtime-editor-api'
 
 const NATIVE_CHAR_RE = /[a-z ]/i
+
+const hasNativeBlockingMarks = (marks: Record<string, unknown> | null) =>
+  marks != null && Object.keys(marks).length > 0
 
 export const canUseNativeSingleCharacterInput = ({
   editor,
@@ -36,7 +39,7 @@ export const canUseNativeSingleCharacterInput = ({
 
   // Skip native if there are marks, as
   // `insertText` will insert a node, not just text.
-  if (Editor.marks(editor)) {
+  if (hasNativeBlockingMarks(editor.read((state) => state.marks.get()))) {
     return false
   }
 

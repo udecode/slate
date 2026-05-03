@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 jsx
 
 export const run = (editor) => {
-  editor.move({ distance: 6 })
+  editor.selection.move({ distance: 6 })
 }
 export const input = (
   <editor>

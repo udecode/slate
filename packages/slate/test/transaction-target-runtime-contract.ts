@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { Editor } from 'slate/internal'
 
-import { createEditor, type Descendant, Editor, Node } from '../src'
+import { createEditor, type Descendant, Node } from '../src'
+
 import { setEditorTargetRuntime } from '../src/internal'
 
 const paragraph = (text: string, props: Record<string, unknown> = {}) =>
@@ -45,8 +47,8 @@ describe('transaction target runtime', () => {
       },
     })
 
-    editor.update(() => {
-      editor.setNodes({ type: 'heading-one' } as never)
+    editor.update((tx) => {
+      tx.nodes.set({ type: 'heading-one' } as never)
     })
 
     assert.equal(calls, 1)
@@ -69,8 +71,8 @@ describe('transaction target runtime', () => {
       },
     })
 
-    editor.update(() => {
-      editor.setNodes({ type: 'heading-one' } as never, { at: [1] })
+    editor.update((tx) => {
+      tx.nodes.set({ type: 'heading-one' } as never, { at: [1] })
     })
 
     assert.equal(calls, 0)
@@ -80,31 +82,30 @@ describe('transaction target runtime', () => {
 
   it('does not invoke target runtime for explicit primitive targets', () => {
     const cases: Array<{
-      run: (editor: ReturnType<typeof setupEditor>) => void
+      run: Parameters<ReturnType<typeof setupEditor>['update']>[0]
       name: string
     }> = [
       {
         name: 'select',
-        run: (editor) =>
-          editor.select({
+        run: (tx) =>
+          tx.selection.set({
             anchor: { path: [1, 0], offset: 0 },
             focus: { path: [1, 0], offset: 0 },
           }),
       },
       {
         name: 'setNodes',
-        run: (editor) =>
-          editor.setNodes({ type: 'heading-one' } as never, { at: [1] }),
+        run: (tx) =>
+          tx.nodes.set({ type: 'heading-one' } as never, { at: [1] }),
       },
       {
         name: 'insertText',
-        run: (editor) =>
-          editor.insertText('!', { at: { path: [1, 0], offset: 3 } }),
+        run: (tx) => tx.text.insert('!', { at: { path: [1, 0], offset: 3 } }),
       },
       {
         name: 'delete',
-        run: (editor) =>
-          editor.delete({
+        run: (tx) =>
+          tx.text.delete({
             at: {
               anchor: { path: [1, 0], offset: 0 },
               focus: { path: [1, 0], offset: 1 },
@@ -113,37 +114,34 @@ describe('transaction target runtime', () => {
       },
       {
         name: 'insertFragment',
-        run: (editor) =>
-          editor.insertFragment([{ text: '!' }], {
+        run: (tx) =>
+          tx.fragment.insert([{ text: '!' }], {
             at: { path: [1, 0], offset: 3 },
           }),
       },
       {
         name: 'insertNodes',
-        run: (editor) =>
-          editor.insertNodes(
-            { text: '!' },
-            { at: { path: [1, 0], offset: 3 } }
-          ),
+        run: (tx) =>
+          tx.nodes.insert({ text: '!' }, { at: { path: [1, 0], offset: 3 } }),
       },
       {
         name: 'removeNodes',
-        run: (editor) => editor.removeNodes({ at: [1] }),
+        run: (tx) => tx.nodes.remove({ at: [1] }),
       },
       {
         name: 'wrapNodes',
-        run: (editor) =>
-          editor.wrapNodes({ type: 'quote', children: [] } as never, {
+        run: (tx) =>
+          tx.nodes.wrap({ type: 'quote', children: [] } as never, {
             at: [1],
           }),
       },
       {
         name: 'unwrapNodes',
-        run: (editor) => {
-          editor.wrapNodes({ type: 'quote', children: [] } as never, {
+        run: (tx) => {
+          tx.nodes.wrap({ type: 'quote', children: [] } as never, {
             at: [1],
           })
-          editor.unwrapNodes({
+          tx.nodes.unwrap({
             at: [1, 0],
             match: (node) => Node.isElement(node) && node.type === 'quote',
           })
@@ -162,8 +160,8 @@ describe('transaction target runtime', () => {
         },
       })
 
-      editor.update(() => {
-        run(editor)
+      editor.update((tx) => {
+        run(tx)
       })
 
       assert.equal(calls, 0, name)
@@ -185,8 +183,8 @@ describe('transaction target runtime', () => {
       },
     })
 
-    Editor.withTransaction(editor, (tx) => {
-      selection = tx.getModelSelection()
+    editor.update((tx) => {
+      selection = tx.selection.get()
     })
 
     assert.equal(calls, 0)
@@ -194,34 +192,5 @@ describe('transaction target runtime', () => {
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 0 },
     })
-  })
-
-  it('resolves an implicit target only once per transaction', () => {
-    const editor = setupEditor()
-    let calls = 0
-
-    setEditorTargetRuntime(editor, {
-      resolveImplicitTarget() {
-        calls += 1
-
-        return {
-          anchor: { path: [1, 0], offset: 0 },
-          focus: { path: [1, 0], offset: 0 },
-        }
-      },
-    })
-
-    Editor.withTransaction(editor, (tx) => {
-      assert.deepEqual(tx.resolveTarget(), {
-        anchor: { path: [1, 0], offset: 0 },
-        focus: { path: [1, 0], offset: 0 },
-      })
-      assert.deepEqual(tx.resolveTarget(), {
-        anchor: { path: [1, 0], offset: 0 },
-        focus: { path: [1, 0], offset: 0 },
-      })
-    })
-
-    assert.equal(calls, 1)
   })
 })

@@ -1,7 +1,6 @@
 import { type KeyboardEvent, useCallback, useMemo } from 'react'
 import {
   createEditor,
-  Editor,
   Node,
   Point,
   Range,
@@ -11,7 +10,6 @@ import { withHistory } from 'slate-history'
 import {
   Editable,
   type EditableInputRule,
-  ReactEditor,
   type RenderElementProps,
   Slate,
   withReact,
@@ -48,18 +46,18 @@ const MarkdownShortcutsExample = () => {
   )
   const inputRules = useMemo<readonly EditableInputRule[]>(
     () => [
-      ({ data, editor: ruleEditor, inputType }) =>
-        inputType === 'insertText' &&
-        typeof data === 'string' &&
-        applyMarkdownTextShortcut(ruleEditor as CustomEditor, data),
+      ({ data, inputType }) => {
+        if (inputType === 'insertText' && typeof data === 'string') {
+          return applyMarkdownTextShortcut(editor, data)
+        }
+      },
     ],
-    []
+    [editor]
   )
-
   const handleDOMBeforeInput = useCallback(
     (e: InputEvent) => {
       queueMicrotask(() => {
-        const pendingDiffs = ReactEditor.androidPendingDiffs(editor)
+        const pendingDiffs = editor.dom.androidPendingDiffs()
 
         const scheduleFlush = pendingDiffs?.some(({ diff, path }) => {
           if (!diff.text.endsWith(' ')) {
@@ -72,26 +70,29 @@ const MarkdownShortcutsExample = () => {
             return false
           }
 
-          const blockEntry = Editor.above(editor, {
-            at: path,
-            match: (n) => Node.isElement(n) && Editor.isBlock(editor, n),
-          })
+          const blockEntry = editor.read((state) =>
+            state.nodes.above({
+              at: path,
+              match: (n) => Node.isElement(n) && state.nodes.isBlock(n),
+            })
+          )
           if (!blockEntry) {
             return false
           }
 
           const [, blockPath] = blockEntry
-          return Editor.isStart(editor, Editor.start(editor, path), blockPath)
+          const start = editor.read((state) => state.points.start(path))
+          return editor.read((state) => state.points.isStart(start, blockPath))
         })
 
         if (scheduleFlush) {
-          ReactEditor.androidScheduleFlush(editor)
+          editor.dom.androidScheduleFlush()
         }
       })
     },
     [editor]
   )
-  const handleKeyCommand = useCallback(
+  const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
       if (event.key === 'Backspace' && applyMarkdownBackspaceShortcut(editor)) {
         return true
@@ -106,7 +107,7 @@ const MarkdownShortcutsExample = () => {
         autoFocus
         inputRules={inputRules}
         onDOMBeforeInput={handleDOMBeforeInput}
-        onKeyCommand={handleKeyCommand}
+        onKeyDown={handleKeyDown}
         placeholder="Write some markdown..."
         renderElement={renderElement}
         spellCheck
@@ -116,20 +117,23 @@ const MarkdownShortcutsExample = () => {
 }
 
 const applyMarkdownTextShortcut = (editor: CustomEditor, text: string) => {
-  const selection = editor.getSelection()
+  const selection = editor.read((state) => state.selection.get())
 
   if (!text.endsWith(' ') || !selection || !Range.isCollapsed(selection)) {
     return false
   }
 
   const { anchor } = selection
-  const block = Editor.above(editor, {
-    match: (n) => Node.isElement(n) && Editor.isBlock(editor, n),
-  })
+  const block = editor.read((state) =>
+    state.nodes.above({
+      match: (n) => Node.isElement(n) && state.nodes.isBlock(n),
+    })
+  )
   const path = block ? block[1] : []
-  const start = Editor.start(editor, path)
+  const start = editor.read((state) => state.points.start(path))
   const range = { anchor, focus: start }
-  const beforeText = Editor.string(editor, range) + text.slice(0, -1)
+  const beforeText =
+    editor.read((state) => state.text.string(range)) + text.slice(0, -1)
   const type = SHORTCUTS[beforeText]
 
   if (!type) {
@@ -140,15 +144,15 @@ const applyMarkdownTextShortcut = (editor: CustomEditor, text: string) => {
     type,
   }
 
-  editor.update(() => {
-    editor.select(range)
+  editor.update((tx) => {
+    tx.selection.set(range)
 
     if (!Range.isCollapsed(range)) {
-      editor.delete()
+      tx.text.delete()
     }
 
-    editor.setNodes<SlateElement>(newProperties, {
-      match: (n) => Node.isElement(n) && Editor.isBlock(editor, n),
+    tx.nodes.set(newProperties, {
+      match: (n) => Node.isElement(n) && tx.nodes.isBlock(n),
     })
 
     if (type === 'list-item') {
@@ -156,35 +160,37 @@ const applyMarkdownTextShortcut = (editor: CustomEditor, text: string) => {
         type: 'bulleted-list',
         children: [],
       }
-      editor.wrapNodes(list, {
+      tx.nodes.wrap(list, {
         match: (n) => Node.isElement(n) && n.type === 'list-item',
       })
     }
 
     selectCurrentBlockStart(editor)
   })
-  ReactEditor.focus(editor)
+  editor.dom.focus()
 
   return true
 }
 
 const applyMarkdownBackspaceShortcut = (editor: CustomEditor) => {
-  const selection = editor.getSelection()
+  const selection = editor.read((state) => state.selection.get())
 
   if (!selection || !Range.isCollapsed(selection)) {
     return false
   }
 
-  const match = Editor.above(editor, {
-    match: (n) => Node.isElement(n) && Editor.isBlock(editor, n),
-  })
+  const match = editor.read((state) =>
+    state.nodes.above({
+      match: (n) => Node.isElement(n) && state.nodes.isBlock(n),
+    })
+  )
 
   if (!match) {
     return false
   }
 
   const [block, path] = match
-  const start = Editor.start(editor, path)
+  const start = editor.read((state) => state.points.start(path))
 
   if (
     !Node.isElement(block) ||
@@ -197,11 +203,11 @@ const applyMarkdownBackspaceShortcut = (editor: CustomEditor) => {
   const newProperties: Partial<SlateElement> = {
     type: 'paragraph',
   }
-  editor.update(() => {
-    editor.setNodes(newProperties)
+  editor.update((tx) => {
+    tx.nodes.set(newProperties)
 
     if (block.type === 'list-item') {
-      editor.unwrapNodes({
+      tx.nodes.unwrap({
         match: (n) => Node.isElement(n) && n.type === 'bulleted-list',
         split: true,
       })
@@ -209,19 +215,23 @@ const applyMarkdownBackspaceShortcut = (editor: CustomEditor) => {
 
     selectCurrentBlockStart(editor)
   })
-  ReactEditor.focus(editor)
+  editor.dom.focus()
 
   return true
 }
 
 const selectCurrentBlockStart = (editor: CustomEditor) => {
-  const block = Editor.above(editor, {
-    match: (n) => Node.isElement(n) && Editor.isBlock(editor, n),
-  })
+  const block = editor.read((state) =>
+    state.nodes.above({
+      match: (n) => Node.isElement(n) && state.nodes.isBlock(n),
+    })
+  )
 
   if (block) {
-    editor.update(() => {
-      editor.select(Editor.start(editor, block[1]))
+    const start = editor.read((state) => state.points.start(block[1]))
+
+    editor.update((tx) => {
+      tx.selection.set(start)
     })
   }
 }

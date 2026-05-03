@@ -1,12 +1,14 @@
 import type { InputEvent as ReactInputEvent, RefObject } from 'react'
-import { Editor, type Range } from 'slate'
+import type { Range } from 'slate'
 import { getSelection, isDOMElement, isDOMText } from 'slate-dom'
-
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { ReactEditor } from '../plugin/react-editor'
 import { commitInsertFromComposition } from './composition-state'
-import { getEditableCommandFromBeforeInputType } from './editing-kernel'
+import {
+  type EditableCommand,
+  getEditableCommandFromBeforeInputType,
+} from './editing-kernel'
 import type {
   EditableCompositionStateSetter,
   EditableRepairRequest,
@@ -113,7 +115,7 @@ export const applyEditableInput = ({
   }
 
   const nativeInput = event.nativeEvent as InputEvent
-  const modelText = Editor.string(editor, [])
+  const modelText = editor.read((state) => state.text.string([]))
   const domText =
     event.currentTarget.textContent?.replace(/\uFEFF/g, '') ?? modelText
 
@@ -191,6 +193,7 @@ export const applyEditableInput = ({
 }
 
 export const applyModelOwnedBeforeInputOperation = ({
+  command: preparedCommand,
   data,
   deferredOperations,
   editor,
@@ -199,6 +202,7 @@ export const applyModelOwnedBeforeInputOperation = ({
   selection,
   setComposing,
 }: {
+  command?: EditableCommand | null
   data: unknown
   deferredOperations: RefBox<DeferredOperation[]>
   editor: ReactEditor
@@ -207,11 +211,16 @@ export const applyModelOwnedBeforeInputOperation = ({
   selection: Range | null
   setComposing: EditableCompositionStateSetter
 }): EditableRepairRequest | null => {
-  const command = getEditableCommandFromBeforeInputType({
-    data,
-    inputType: type,
-    selection,
-  })
+  const parsedCommand = () =>
+    getEditableCommandFromBeforeInputType({
+      data,
+      inputType: type,
+      selection,
+    })
+  const command =
+    preparedCommand === undefined || type.startsWith('delete')
+      ? (parsedCommand() ?? preparedCommand ?? null)
+      : preparedCommand
 
   switch (type) {
     case 'deleteByComposition':
@@ -273,27 +282,33 @@ export const applyModelOwnedBeforeInputOperation = ({
       // use a weak comparison instead of 'instanceof' to allow
       // programmatic access of paste events coming from external windows
       // like cypress where cy.window does not work realibly
+      if (command?.kind === 'insert-data') {
+        applyModelOwnedDataTransferInput({ data: command.data, editor })
+        return { kind: 'repair-caret' }
+      }
       if ((data as any)?.constructor.name === 'DataTransfer') {
         applyModelOwnedDataTransferInput({ data: data as DataTransfer, editor })
         return { kind: 'repair-caret' }
       }
-      if (typeof data === 'string') {
+      const textCommand =
+        command?.kind === 'insert-text'
+          ? command
+          : typeof data === 'string'
+            ? ({ inputType: type, kind: 'insert-text', text: data } as const)
+            : null
+
+      if (textCommand) {
         // Only insertText operations use the native functionality, for now.
         // Potentially expand to single character deletes, as well.
         if (native) {
-          deferredOperations.current.push(() => {
-            applyEditableCommand({
-              command: { inputType: type, kind: 'insert-text', text: data },
-              editor,
-            })
-          })
-        } else {
-          return applyModelOwnedTextInput({
-            data,
-            editor,
-            inputType: type,
-          })
+          return null
         }
+        return applyModelOwnedTextInput({
+          data: textCommand.text,
+          editor,
+          inputType: textCommand.inputType ?? type,
+          selection,
+        })
       }
     }
   }

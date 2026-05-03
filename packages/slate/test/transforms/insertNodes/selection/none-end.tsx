@@ -10,7 +10,7 @@ export const input = (
   </editor>
 )
 export const run = (editor, options = {}) => {
-  editor.insertNodes(<block>two</block>, options)
+  editor.nodes.insert(<block>two</block>, options)
 }
 export const output = (
   <editor>

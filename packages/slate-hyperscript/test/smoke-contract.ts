@@ -1,4 +1,5 @@
 import { createEditor as createSlateEditor } from 'slate'
+import { Editor } from 'slate/internal'
 
 import {
   createEditor,
@@ -11,8 +12,8 @@ describe('slate-hyperscript smoke contract', () => {
   it('creates an empty editor tree through the default jsx factory', () => {
     const editor = slateJsx('editor')
 
-    expect(editor.getChildren()).toEqual([])
-    expect(editor.getSelection()).toBeNull()
+    expect(Editor.getChildren(editor)).toEqual([])
+    expect(Editor.getSelection(editor)).toBeNull()
   })
 
   it('creates a custom element shorthand through createHyperscript', () => {
@@ -38,7 +39,7 @@ describe('slate-hyperscript smoke contract', () => {
     const makeEditor = createEditor(createSlateEditor)
     const editor = makeEditor('editor', {}, [])
 
-    expect(editor.getChildren()).toEqual([])
-    expect(editor.getSelection()).toBeNull()
+    expect(Editor.getChildren(editor)).toEqual([])
+    expect(Editor.getSelection(editor)).toBeNull()
   })
 })

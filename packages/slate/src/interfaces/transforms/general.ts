@@ -1,11 +1,11 @@
 import {
   getCurrentSelection,
+  runEditorTransaction,
   setCurrentSelection,
   syncImplicitTargetToCurrentSelection,
 } from '../../core/public-state'
 import {
   type Descendant,
-  Editor,
   Node,
   type NodeEntry,
   type Operation,
@@ -25,6 +25,7 @@ import {
   replaceChildren,
 } from '../../utils/modify'
 import { inheritRuntimeId } from '../../utils/runtime-ids'
+import { Editor } from '../editor'
 
 /**
  * The set of properties that cannot be set using set_node.
@@ -55,7 +56,7 @@ export const applyBatch: OperationTransformMethods['applyBatch'] = (
   editor,
   operations
 ) => {
-  editor.withTransaction((tx) => {
+  runEditorTransaction(editor, (tx) => {
     for (const operation of operations) {
       tx.apply(operation)
     }

@@ -1,10 +1,10 @@
 import { css } from '@emotion/css'
 import { useCallback, useMemo } from 'react'
-import { createEditor, Editor, Node, Point, Range } from 'slate'
+import { createEditor, Node, Point, Range } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  type EditableKeyCommandHandler,
+  type EditableKeyDownHandler,
   type RenderElementProps,
   type RenderLeafProps,
   Slate,
@@ -25,7 +25,7 @@ const TablesExample = () => {
     () => withHistory(withReact(createEditor<CustomValue>())) as CustomEditor,
     []
   )
-  const handleKeyCommand = useCallback<EditableKeyCommandHandler>(
+  const handleKeyDown = useCallback<EditableKeyDownHandler>(
     (event) => applyTableBoundaryCommand(editor, event.key),
     [editor]
   )
@@ -33,7 +33,7 @@ const TablesExample = () => {
   return (
     <Slate editor={editor} initialValue={initialValue}>
       <Editable
-        onKeyCommand={handleKeyCommand}
+        onKeyDown={handleKeyDown}
         renderElement={renderElement}
         renderLeaf={renderLeaf}
       />
@@ -42,15 +42,19 @@ const TablesExample = () => {
 }
 
 const applyTableBoundaryCommand = (editor: CustomEditor, key: string) => {
-  const selection = editor.getSelection()
+  const selection = editor.read((state) => state.selection.get())
 
   if (!selection || !Range.isCollapsed(selection)) {
     return false
   }
 
-  const [cell] = Editor.nodes(editor, {
-    match: (n) => Node.isElement(n) && n.type === 'table-cell',
-  })
+  const [cell] = editor.read((state) =>
+    Array.from(
+      state.nodes.match({
+        match: (n) => Node.isElement(n) && n.type === 'table-cell',
+      })
+    )
+  )
 
   if (!cell) {
     return false
@@ -59,11 +63,13 @@ const applyTableBoundaryCommand = (editor: CustomEditor, key: string) => {
   const [, cellPath] = cell
 
   if (key === 'Backspace') {
-    return Point.equals(selection.anchor, Editor.start(editor, cellPath))
+    const start = editor.read((state) => state.points.start(cellPath))
+    return Point.equals(selection.anchor, start)
   }
 
   if (key === 'Delete') {
-    return Point.equals(selection.anchor, Editor.end(editor, cellPath))
+    const end = editor.read((state) => state.points.end(cellPath))
+    return Point.equals(selection.anchor, end)
   }
 
   if (key === 'Enter') {

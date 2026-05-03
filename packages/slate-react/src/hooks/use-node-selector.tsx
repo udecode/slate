@@ -10,22 +10,22 @@ import {
 import { NodeRuntimeIdContext } from '../context'
 import { readRuntimeNodeById } from '../editable/runtime-live-state'
 import type { ReactEditor } from '../plugin/react-editor'
-import { useSlateSelector } from './use-slate-selector'
+import { useEditorSelector } from './use-editor-selector'
 
 const refEquality = (a: unknown, b: unknown) => a === b
 
-export type SlateNodeSelectorContext = {
+export type EditorNodeSelectorContext = {
   editor: ReactEditor
   node: Node | null
   path: Path | null
   runtimeId: RuntimeId | null
 }
 
-export type SlateTextSelectorContext = SlateNodeSelectorContext & {
+export type EditorTextSelectorContext = EditorNodeSelectorContext & {
   text: Text | null
 }
 
-export type SlateRuntimeSelectorOptions = {
+export type EditorRuntimeSelectorOptions = {
   deferred?: boolean
   runtimeId?: RuntimeId | null
 }
@@ -34,7 +34,7 @@ type SlateRuntimeSelectorUpdatePolicy =
   | 'model-truth'
   | 'skip-synced-text-render'
 
-type InternalSlateRuntimeSelectorOptions = SlateRuntimeSelectorOptions & {
+type InternalEditorRuntimeSelectorOptions = EditorRuntimeSelectorOptions & {
   updatePolicy?: SlateRuntimeSelectorUpdatePolicy
 }
 
@@ -70,13 +70,13 @@ const shouldUpdateRuntimeNode = (
 }
 
 function useRuntimeNodeSelector<T>(
-  selector: (context: SlateNodeSelectorContext) => T,
+  selector: (context: EditorNodeSelectorContext) => T,
   equalityFn: (a: T | null, b: T) => boolean = refEquality,
   {
     deferred = false,
     runtimeId: runtimeIdProp,
     updatePolicy = 'model-truth',
-  }: InternalSlateRuntimeSelectorOptions = {}
+  }: InternalEditorRuntimeSelectorOptions = {}
 ): T {
   const contextRuntimeId = useContext(NodeRuntimeIdContext)
   const runtimeId = runtimeIdProp ?? contextRuntimeId
@@ -99,24 +99,26 @@ function useRuntimeNodeSelector<T>(
     [runtimeId, updatePolicy]
   )
 
-  return useSlateSelector(nodeSelector, equalityFn, {
+  return useEditorSelector(nodeSelector, equalityFn, {
     deferred,
+    profileId: runtimeId ? 'runtime-node' : 'runtime-node-missing-id',
+    runtimeId,
     shouldUpdate,
   })
 }
 
 export function useNodeSelector<T>(
-  selector: (context: SlateNodeSelectorContext) => T,
+  selector: (context: EditorNodeSelectorContext) => T,
   equalityFn: (a: T | null, b: T) => boolean = refEquality,
-  options: SlateRuntimeSelectorOptions = {}
+  options: EditorRuntimeSelectorOptions = {}
 ): T {
   return useRuntimeNodeSelector(selector, equalityFn, options)
 }
 
 export function useMountedNodeRenderSelector<T>(
-  selector: (context: SlateNodeSelectorContext) => T,
+  selector: (context: EditorNodeSelectorContext) => T,
   equalityFn: (a: T | null, b: T) => boolean = refEquality,
-  options: SlateRuntimeSelectorOptions = {}
+  options: EditorRuntimeSelectorOptions = {}
 ): T {
   return useRuntimeNodeSelector(selector, equalityFn, {
     ...options,
@@ -125,12 +127,12 @@ export function useMountedNodeRenderSelector<T>(
 }
 
 export function useTextSelector<T>(
-  selector: (context: SlateTextSelectorContext) => T,
+  selector: (context: EditorTextSelectorContext) => T,
   equalityFn: (a: T | null, b: T) => boolean = refEquality,
-  options: SlateRuntimeSelectorOptions = {}
+  options: EditorRuntimeSelectorOptions = {}
 ): T {
   const textSelector = useCallback(
-    (context: SlateNodeSelectorContext) =>
+    (context: EditorNodeSelectorContext) =>
       selector({
         ...context,
         text: context.node && Text.isText(context.node) ? context.node : null,
@@ -142,12 +144,12 @@ export function useTextSelector<T>(
 }
 
 export function useMountedTextRenderSelector<T>(
-  selector: (context: SlateTextSelectorContext) => T,
+  selector: (context: EditorTextSelectorContext) => T,
   equalityFn: (a: T | null, b: T) => boolean = refEquality,
-  options: SlateRuntimeSelectorOptions = {}
+  options: EditorRuntimeSelectorOptions = {}
 ): T {
   const textSelector = useCallback(
-    (context: SlateNodeSelectorContext) =>
+    (context: EditorNodeSelectorContext) =>
       selector({
         ...context,
         text: context.node && Text.isText(context.node) ? context.node : null,

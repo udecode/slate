@@ -1,186 +1,167 @@
 # Editor
 
-All of the behaviors, content and state of a Slate editor is rolled up into a single, top-level `Editor` object. It has an interface of:
+The `Editor` object is the runtime for one Slate document. It owns the document value, selection, operations, schema behavior, extensions, and subscriptions.
 
-```typescript
-interface Editor {
-  // Schema-specific node behaviors.
-  isInline: (element: Element) => boolean
-  isVoid: (element: Element) => boolean
-  markableVoid: (element: Element) => boolean
-  normalizeNode: (entry: NodeEntry) => void
-  // Public read/write lifecycle.
-  read: <T>(fn: () => T) => T
-  update: (fn: () => void, options?: EditorUpdateOptions) => void
-  getChildren: () => Node[]
-  getSelection: () => Range | null
-  getOperations: () => readonly Operation[]
-  getSnapshot: () => EditorSnapshot
-  subscribe: (listener: SnapshotListener) => () => void
-  // Core actions.
-  addMark: (key: string, value: any) => void
-  deleteBackward: (unit: 'character' | 'word' | 'line' | 'block') => void
-  deleteForward: (unit: 'character' | 'word' | 'line' | 'block') => void
-  deleteFragment: () => void
-  insertBreak: () => void
-  insertSoftBreak: () => void
-  insertFragment: (fragment: Node[]) => void
-  insertNode: (node: Node) => void
-  insertText: (text: string) => void
-  removeMark: (key: string) => void
-}
-```
+Most application code touches the editor in three ways:
 
-It is slightly more complex than the others, because it contains all of the top-level functions that define your custom, domain-specific behaviors.
+- read committed state with `editor.read(...)`
+- write through `editor.update((tx) => ...)`
+- install reusable behavior with `editor.extend(...)`
 
-Read editor state through methods. Use `editor.getChildren()` for the document
-tree, `editor.getSelection()` for the current selection,
-`editor.getOperations()` for committed operations, and `editor.getMarks()` for
-active marks.
+## Reading State
 
-Write document and selection state through `editor.update(...)`:
+Use `editor.read(...)` when you need a consistent view of editor state. Slate passes a grouped `state` object into the callback.
 
 ```javascript
-editor.update(() => {
-  editor.select(Editor.end(editor, []))
-  editor.insertText('!')
+const info = editor.read((state) => {
+  return {
+    selection: state.selection.get(),
+    text: state.text.string([]),
+    value: state.value.get(),
+  }
 })
 ```
 
-The editor also exposes accessor and subscription helpers on the public surface:
+The callback is read-only. Starting a write from inside a read is rejected because it would mix two different editor snapshots.
 
-- `editor.getChildren()`
-- `editor.replace({ children, selection, marks })`
-- `Editor.getSnapshot(editor)`
-- `Editor.subscribe(editor, listener)`
+## Writing State
 
-## Extending Behaviors
-
-Use named editor extensions to package reusable behavior. Extensions add domain
-methods and compose existing methods through `editor.extend(...)`.
-
-For example, link elements can be modeled as inline nodes:
+Use `editor.update(...)` when you need to change the document or selection. Slate passes a transaction object into the callback.
 
 ```javascript
-const links = defineEditorExtension({
-  name: 'links',
-  methods(editor) {
-    const nextIsInline = editor.isInline
+editor.update((tx) => {
+  tx.text.insert('!')
+  tx.nodes.set({ type: 'heading-one' }, { at: [0] })
+  tx.selection.set(tx.points.end([]))
+})
+```
 
-    return {
-      isInline(element) {
-        return element.type === 'link' || nextIsInline(element)
-      },
-    }
+All writes in the callback become one commit. That gives history, operation replay, collaboration adapters, and React rendering one consistent change to observe.
+
+## Snapshots And Commits
+
+Slate exposes committed state through subscriptions. Most application reads
+should use narrow state groups like `state.value`, `state.selection`, and
+extension-owned state.
+
+```javascript
+const unsubscribe = editor.subscribe((nextSnapshot, commit) => {
+  if (commit?.childrenChanged) {
+    saveDocument(nextSnapshot.children)
+  }
+})
+```
+
+Use subscriptions for app services that need to observe commits. Use React hooks from `slate-react` for UI that renders editor state.
+
+Full snapshots are runtime observer data. Use them for debug, replay, and test
+tooling that intentionally needs the whole document, selection, marks,
+operation index, and runtime id index.
+
+```javascript
+const snapshot = editor.read((state) => state.runtime.snapshot())
+```
+
+## Preserving Ranges
+
+Use bookmarks when you need a local range to survive document edits.
+
+```javascript
+const bookmark = editor.read((state) => {
+  const selection = state.selection.get()
+
+  return selection
+    ? state.ranges.bookmark(selection, { affinity: 'inward' })
+    : null
+})
+
+editor.update((tx) => {
+  tx.nodes.unwrap()
+
+  const selection = bookmark?.unref()
+
+  if (selection) {
+    tx.selection.set(selection)
+  }
+})
+```
+
+Bookmarks are local runtime anchors. Store shared document state as document
+values, operations, and commits.
+
+## Extending The Editor
+
+Extensions package reusable behavior without mutating random fields onto the editor object. They can register read namespaces with `state`, write namespaces with `tx`, schema specs, commit listeners, operation middleware, normalizer entries, and optional runtime registration.
+
+Here's a small extension that adds a table namespace:
+
+```javascript
+import { createEditor, defineEditorExtension } from 'slate'
+
+const tables = defineEditorExtension({
+  name: 'tables',
+  state: {
+    table(state) {
+      return {
+        rowCount() {
+          return state.value.get().length
+        },
+      }
+    },
   },
-})
-
-editor.extend(links)
-```
-
-Or you can compose `insertText` behavior to linkify URLs:
-
-```javascript
-const smartLinks = defineEditorExtension({
-  name: 'smart-links',
-  dependencies: ['links'],
-  methods(editor) {
-    const nextInsertText = editor.insertText
-
-    return {
-      insertText(text, options) {
-        if (isUrl(text)) {
-          editor.update(() => {
-            editor.insertNode({
-              type: 'link',
-              url: text,
+  tx: {
+    table(tx) {
+      return {
+        insertRow(text = 'row') {
+          tx.nodes.insert(
+            {
+              type: 'paragraph',
               children: [{ text }],
-            })
-          })
-          return
-        }
-
-        nextInsertText(text, options)
-      },
-    }
+            },
+            { at: [tx.value.get().length] }
+          )
+        },
+      }
+    },
   },
+})
+
+const editor = createEditor()
+editor.extend(tables)
+```
+
+The extension adds helpers to the read and write callbacks, not to the editor object itself.
+
+```javascript
+const rows = editor.read((state) => state.table.rowCount())
+
+editor.update((tx) => {
+  tx.table.insertRow()
 })
 ```
 
-If you have void "mention" elements that can accept marks like bold or italic:
+This keeps extension behavior scoped to the runtime phase where it is valid.
+
+## Schema Behavior
+
+Schema checks live on the read and transaction views. Use element specs and
+extension-owned schema policy to decide how Slate treats your node types.
+
+For example, image elements can be treated as block voids, and mention elements can be treated as inline markable voids. The React renderer uses those schema facts to render the correct DOM shell.
+
+## Query Groups
+
+The read callback exposes grouped helpers for common reads and queries.
 
 ```javascript
-const mentions = defineEditorExtension({
-  name: 'mentions',
-  methods(editor) {
-    const nextIsVoid = editor.isVoid
-    const nextMarkableVoid = editor.markableVoid
+const point = editor.read(state => state.points.start([0, 0]))
+const text = editor.read(state => state.text.string(range))
 
-    return {
-      isVoid(element) {
-        return element.type === 'mention' || nextIsVoid(element)
-      },
-      markableVoid(element) {
-        return element.type === 'mention' || nextMarkableVoid(element)
-      },
-    }
-  },
-})
-```
-
-Or you can even define custom "normalizations" that take place to ensure that links obey certain constraints:
-
-```javascript
-const linkNormalization = defineEditorExtension({
-  name: 'link-normalization',
-  methods(editor) {
-    const nextNormalizeNode = editor.normalizeNode
-
-    return {
-      normalizeNode(entry, options) {
-        const [node, path] = entry
-
-        if (Element.isElement(node) && node.type === 'link') {
-          // ...
-          return
-        }
-
-        nextNormalizeNode(entry, options)
-      },
-    }
-  },
-})
-```
-
-Whenever you compose behaviors, call the captured method when the default
-behavior should continue.
-
-> 🤖 For more info, check out the [Editor Instance Methods API Reference](../api/nodes/editor.md#schema-specific-instance-methods)
-
-## Helper Functions
-
-The `Editor` interface, like all Slate interfaces, exposes helper functions that are useful when implementing certain behaviors. There are many, many editor-related helpers. For example:
-
-```javascript
-// Get the start point of a specific node at path.
-const point = Editor.start(editor, [0, 0])
-
-// Get the fragment (a slice of the document) at a range.
-const fragment = Editor.fragment(editor, range)
-```
-
-There are also many iterator-based helpers, for example:
-
-```javascript
-// Iterate over every node in a range.
-for (const [node, path] of Editor.nodes(editor, { at: range })) {
-  // ...
-}
-
-// Iterate over every point in every text node in the current selection.
-for (const point of Editor.positions(editor)) {
+for (const [node, path] of editor.read(state =>
+  state.nodes.match({ at: range })
+)) {
   // ...
 }
 ```
 
-> 🤖 For more info, check out the [Editor Static Methods API Reference](../api/nodes/editor.md#static-methods)
+These helpers are useful inside commands, renderers, and app services. Keep document writes inside `editor.update(...)`.

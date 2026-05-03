@@ -1,401 +1,214 @@
-# Enabling Collaborative Editing
+# Collaborative Editing Substrate
 
-A common use case for text editors is collaborative editing, and the Slate editor was designed with this in
-mind. You can enable multiplayer editing with [Yjs](https://github.com/yjs/yjs), a network-agnostic CRDT implementation
-that allows you to share data among connected users. Because Yjs is network-agnostic, each project requires
-a [communication provider](https://github.com/yjs/yjs#providers) set up on the back end to link users together.
+Collaborative editing in Slate starts with operations and commits. Slate does
+not choose your network layer, CRDT, persistence model, or awareness protocol.
+This walkthrough shows the raw substrate an adapter can build on.
 
-In this guide, we'll show you how to set up a collaborative Slate editor using a Yjs provider. We'll also be
-adding [slate-yjs](https://github.com/BitPhinix/slate-yjs) which allows you to add multiplayer features to Slate, such
-as live cursors.
+## Start with a local editor
 
-Let's start with a basic editor:
+We'll use a normal editor first. Local writes still happen through
+`editor.update`, and the runtime records one commit for the whole update.
 
-```jsx
-import { Slate } from 'slate-react'
+```tsx
+import { createEditor } from 'slate'
 
-const initialValue = {
-  children: [{ text: '' }],
-}
+const editor = createEditor()
 
-export const CollaborativeEditor = () => {
-  return <SlateEditor />
-}
-
-const SlateEditor = () => {
-  const [editor] = useState(() => withReact(createEditor()))
-
-  return (
-    <Slate editor={editor} initialValue={initialValue}>
-      <Editable />
-    </Slate>
-  )
-}
-```
-
-Yjs is network-agnostic, which means each Yjs provider is set up in a slightly different way. For
-example [@liveblocks/yjs](https://liveblocks.io/docs/api-reference/liveblocks-yjs) is
-fully-hosted, whereas others such as [y-websocket](https://github.com/yjs/y-websocket) require you to host your own
-WebSocket server. Because of this, we'll use code snippets that work for each provider, without going into too much
-detail about setting up the provider itself.
-
-This is how to connect to a collaborative Yjs document, ready to be used in your Slate editor.
-
-```jsx
-import { useEffect, useMemo, useState } from 'react'
-import { createEditor, Editor } from 'slate'
-import { Editable, Slate, withReact } from 'slate-react'
-import * as Y from 'yjs'
-
-const initialValue = {
-  children: [{ text: '' }],
-}
-
-export const CollaborativeEditor = () => {
-  const [connected, setConnected] = useState(false)
-  const [sharedType, setSharedType] = useState()
-  const [provider, setProvider] = useState()
-
-  // Set up your Yjs provider and document
-  useEffect(() => {
-    const yDoc = new Y.Doc()
-    const sharedDoc = yDoc.get('slate', Y.XmlText)
-
-    // Set up your Yjs provider. This line of code is different for each provider.
-    const yProvider = new YjsProvider(/* ... */)
-
-    yProvider.on('sync', setConnected)
-    setSharedType(sharedDoc)
-    setProvider(yProvider)
-
-    return () => {
-      yDoc?.destroy()
-      yProvider?.off('sync', setConnected)
-      yProvider?.destroy()
-    }
-  }, [])
-
-  if (!connected || !sharedType || !provider) {
-    return <div>Loading…</div>
-  }
-
-  return <SlateEditor />
-}
-
-const SlateEditor = () => {
-  const [editor] = useState(() => withReact(createEditor()))
-
-  return (
-    <Slate editor={editor} initialValue={initialValue}>
-      <Editable />
-    </Slate>
-  )
-}
-```
-
-After setting up your Yjs document like this, you can then link it your editor by passing down `sharedType`, which
-contains the multiplayer text, and by using functions from `slate-yjs`. We're also passing down `provider` which will be
-helpful later.
-
-```jsx
-import { useEffect, useMemo, useState } from 'react'
-import { createEditor, Editor } from 'slate'
-import { Editable, Slate, withReact } from 'slate-react'
-import { withYjs, YjsEditor } from '@slate-yjs/core'
-import * as Y from 'yjs'
-
-const initialValue = {
-  children: [{ text: '' }],
-}
-
-export const CollaborativeEditor = () => {
-  const [connected, setConnected] = useState(false)
-  const [sharedType, setSharedType] = useState()
-  const [provider, setProvider] = useState()
-
-  // Connect to your Yjs provider and document
-  useEffect(() => {
-    const yDoc = new Y.Doc()
-    const sharedDoc = yDoc.get('slate', Y.XmlText)
-
-    // Set up your Yjs provider. This line of code is different for each provider.
-    const yProvider = new YjsProvider(/* ... */)
-
-    yProvider.on('sync', setConnected)
-    setSharedType(sharedDoc)
-    setProvider(yProvider)
-
-    return () => {
-      yDoc?.destroy()
-      yProvider?.off('sync', setConnected)
-      yProvider?.destroy()
-    }
-  }, [])
-
-  if (!connected || !sharedType || !provider) {
-    return <div>Loading…</div>
-  }
-
-  return <SlateEditor sharedType={sharedType} provider={provider} />
-}
-
-const SlateEditor = ({ sharedType, provider }) => {
-  const editor = useMemo(() => {
-    const e = withReact(withYjs(createEditor(), sharedType))
-
-    // Ensure editor always has at least 1 valid child
-    const { normalizeNode } = e
-    e.normalizeNode = (entry, options) => {
-      const [node] = entry
-
-      if (!Editor.isEditor(node) || node.children.length > 0) {
-        return normalizeNode(entry, options)
-      }
-
-      editor.insertNodes(initialValue, { at: [0] })
-    }
-
-    return e
-  }, [])
-
-  useEffect(() => {
-    YjsEditor.connect(editor)
-    return () => YjsEditor.disconnect(editor)
-  }, [editor])
-
-  return (
-    <Slate editor={editor} initialValue={initialValue}>
-      <Editable />
-    </Slate>
-  )
-}
-```
-
-That's all you need to attach Yjs to Slate!
-
-Let's look at a real-world example of setting up Yjs—here's a code snippet for setting up
-a [Liveblocks provider](https://liveblocks.io/docs/get-started/yjs-slate-react). Liveblocks uses the concept of rooms,
-spaces where users can
-collaborative. To use a Liveblocks provider, you join a multiplayer room with `RoomProvider`, then pass the room
-to `new LiveblocksProvider`, along with the Yjs document.
-
-```jsx
-import LiveblocksProvider from '@liveblocks/yjs'
-import { RoomProvider, useRoom } from '../liveblocks.config'
-
-// Join a Liveblocks room and show the editor after connecting
-export const App = () => {
-  return (
-    <RoomProvider id="my-room-name" initialPresence={{}}>
-      <ClientSideSuspense fallback={<div>Loading…</div>}>
-        {() => <CollaborativeEditor />}
-      </ClientSideSuspense>
-    </RoomProvider>
-  )
-}
-
-export const CollaborativeEditor = () => {
-  const room = useRoom()
-  const [connected, setConnected] = useState(false)
-  const [sharedType, setSharedType] = useState()
-  const [provider, setProvider] = useState()
-
-  // Connect to your Yjs provider and document
-  useEffect(() => {
-    const yDoc = new Y.Doc()
-    const sharedDoc = yDoc.get('slate', Y.XmlText)
-
-    // Set up your Liveblocks provider with the current room and document
-    const yProvider = new LiveblocksProvider(room, yDoc)
-
-    yProvider.on('sync', setConnected)
-    setSharedType(sharedDoc)
-    setProvider(yProvider)
-
-    return () => {
-      yDoc?.destroy()
-      yProvider?.off('sync', setConnected)
-      yProvider?.destroy()
-    }
-  }, [room])
-
-  if (!connected || !sharedType || !provider) {
-    return <div>Loading…</div>
-  }
-
-  return <SlateEditor sharedType={sharedType} provider={provider} />
-}
-
-const SlateEditor = ({ sharedType, provider }) => {
-  // ...
-}
-```
-
-Unlike other providers, Liveblocks hosts your Yjs back end for you, which means you don't need to run your own server
-to get this working. For more information on setting up Liveblocks providers, make sure to read
-their [Slate getting started](https://liveblocks.io/docs/get-started/yjs-slate-react) guide.
-
-> Note that Liveblocks is independent of the Slate project, and isn't required for collaboration, but it may be
-> convenient depending on your needs. [Other providers](https://github.com/yjs/yjs#providers) are available
-> should you wish to set up and host a Yjs back end yourself.
-
-After setting up Yjs, it's possible to add multiplayer cursors to your app. You can do this with hooks supplied by
-[slate-yjs](), which allow you to find the cursor positions of other users. Here's an example of setting up a cursor
-component.
-
-```jsx
-import {
-  CursorOverlayData,
-  useRemoteCursorOverlayPositions,
-} from '@slate-yjs/react'
-import { useRef } from 'react'
-
-export function Cursors({ children }) {
-  const containerRef = useRef(null)
-  const [cursors] = useRemoteCursorOverlayPositions({ containerRef })
-
-  return (
-    <div className="cursors" ref={containerRef}>
-      {children}
-      {cursors.map(cursor => (
-        <Selection key={cursor.clientId} {...cursor} />
-      ))}
-    </div>
-  )
-}
-
-function Selection({ data, selectionRects, caretPosition }) {
-  if (!data) {
-    return null
-  }
-
-  const selectionStyle = {
-    backgroundColor: data.color,
-  }
-
-  return (
-    <>
-      {selectionRects.map((position, i) => (
-        <div
-          style={{ ...selectionStyle, ...position }}
-          className="selection"
-          key={i}
-        />
-      ))}
-      {caretPosition && <Caret caretPosition={caretPosition} data={data} />}
-    </>
-  )
-}
-
-function Caret({ caretPosition, data }) {
-  const caretStyle = {
-    ...caretPosition,
-    background: data?.color,
-  }
-
-  const labelStyle = {
-    transform: 'translateY(-100%)',
-    background: data?.color,
-  }
-
-  return (
-    <div style={caretStyle} className="caretMarker">
-      <div className="caret" style={labelStyle}>
-        {data?.name}
-      </div>
-    </div>
-  )
-}
-```
-
-With some matching styles to set up the positioning:
-
-```css
-.cursors {
-  position: relative;
-}
-
-.caretMarker {
-  position: absolute;
-  width: 2px;
-}
-
-.caret {
-  position: absolute;
-  font-size: 14px;
-  color: #fff;
-  white-space: nowrap;
-  top: 0;
-  border-radius: 6px;
-  border-bottom-left-radius: 0;
-  padding: 2px 6px;
-  pointer-events: none;
-}
-
-.selection {
-  position: absolute;
-  pointer-events: none;
-  opacity: 0.2;
-}
-```
-
-You can then import this into your `SlateEditor` component. Notice that we're using `withCursors` from `slate-yjs`,
-adding `provider.awareness` and the current user's name to it. We're then wrapping `<Editable>` in the new `<Cursors>`
-component we've just created.
-
-```jsx
-import { useEffect, useMemo, useState } from 'react'
-import { createEditor, Editor } from 'slate'
-import { Editable, Slate, withReact } from 'slate-react'
-import { withCursors, withYjs, YjsEditor } from '@slate-yjs/core'
-import { Cursors } from './Cursors'
-import * as Y from 'yjs'
-
-export const CollaborativeEditor = () => {
-  // ...
-}
-
-const SlateEditor = ({ sharedType, provider }) => {
-  const editor = useMemo(() => {
-    const e = withReact(
-      withCursors(withYjs(createEditor(), sharedType), provider.awareness, {
-        // The current user's name and color
-        data: {
-          name: 'Chris',
-          color: '#00ff00',
-        },
-      })
+editor.update(
+  (tx) => {
+    tx.text.insert('!')
+    tx.nodes.insert(
+      { type: 'paragraph', children: [{ text: 'four' }] },
+      { at: [3] }
     )
+  },
+  { tag: ['local-edit', 'collab-export'] }
+)
 
-    // Ensure editor always has at least 1 valid child
-    const { normalizeNode } = e
-    e.normalizeNode = (entry, options) => {
-      const [node] = entry
+const commit = editor.read((state) => state.value.lastCommit())
+```
 
-      if (!Editor.isEditor(node) || node.children.length > 0) {
-        return normalizeNode(entry, options)
-      }
+The `tag` option is a cheap lifecycle label. `metadata` is the typed policy
+channel for history, collaboration, and selection behavior.
 
-      editor.insertNodes(initialValue, { at: [0] })
-    }
+## Export operations
 
-    return e
-  }, [])
+A commit contains the operations that changed the document plus the metadata
+Slate computed while applying them.
 
-  useEffect(() => {
-    YjsEditor.connect(editor)
-    return () => YjsEditor.disconnect(editor)
-  }, [editor])
+```tsx
+const commit = editor.read((state) => state.value.lastCommit())
 
-  return (
-    <Slate editor={editor} initialValue={initialValue}>
-      <Cursors>
-        <Editable />
-      </Cursors>
-    </Slate>
-  )
+if (commit) {
+  sendToPeers({
+    metadata: commit.metadata,
+    operations: commit.operations,
+    tags: commit.tags,
+    selectionBefore: commit.selectionBefore,
+    selectionAfter: commit.selectionAfter,
+  })
 }
 ```
 
-You should now be seeing multiplayer cursors! To learn more, make sure to read
-the [slate-yjs documentation](https://docs.slate-yjs.dev/).
+The operations are the document replay contract. Your adapter can translate
+them into its own transport format, persist them, batch them, or merge them
+with a CRDT. Slate only requires that the operations you replay are valid Slate
+operations.
+
+## Import remote operations
+
+Remote operations enter through `tx.operations.replay(...)`. This is the
+explicit operation replay path.
+
+```tsx
+editor.update(tx => {
+  tx.operations.replay(message.operations)
+}, {
+  tag: ['collaboration', 'remote-import'],
+  metadata: {
+    collab: { origin: 'remote', saveToHistory: false },
+    history: { mode: 'skip' },
+    selection: { dom: 'preserve' },
+  },
+})
+```
+
+Importing operations produces a normal commit. Subscribers, history, extension
+listeners, and React projection code all observe the same commit shape.
+
+## Subscribe to commits
+
+Use `editor.subscribe` when an adapter needs to observe committed state. The
+listener receives the snapshot and the commit that produced it.
+
+```tsx
+const unsubscribe = editor.subscribe((snapshot, commit) => {
+  if (!commit) return
+
+  persist({
+    children: snapshot.children,
+    operations: commit.operations,
+    tags: commit.tags,
+    dirty: commit.dirty,
+  })
+})
+```
+
+Call the returned function when the adapter disconnects.
+
+```tsx
+unsubscribe()
+```
+
+That's the adapter loop: local `update`, export the commit operations, import
+remote operations with `tx.operations.replay(...)`, and subscribe to committed
+snapshots.
+
+## Commit metadata
+
+The commit is the unit adapters should reason about. It groups every primitive
+write inside one `editor.update` call.
+
+| Field | Use |
+| --- | --- |
+| `operations` | The Slate operations that changed the document. |
+| `tags` | Adapter/app metadata such as `local-edit` or `remote-import`. |
+| `metadata` | Typed policy for history, collaboration, selection, and origin. |
+| `classes` | Runtime classification, such as text or structural changes. |
+| `selectionBefore` | The model selection before the commit. |
+| `selectionAfter` | The model selection after the commit. |
+| `dirty.paths` | Paths touched by the commit. |
+| `dirty.runtimeIds` | Local runtime ids touched by the commit. |
+| `dirty.topLevelRange` | Top-level document range affected by the commit. |
+| `snapshotChanged` | Whether the document snapshot changed. |
+| `selectionChanged` | Whether the model selection changed. |
+| `textChanged` | Whether text content changed. |
+
+Adapters should treat this as an observation contract. If your collaboration
+layer needs a different representation, derive it from the commit instead of
+reading mutable editor fields.
+
+## Runtime ids are local
+
+Runtime ids are useful inside one editor instance because they survive local
+path changes. They are not part of the operation payload and should not be
+stored as collaboration identifiers.
+
+```tsx
+const { path, runtimeId } = editor.read((state) => {
+  const runtimeId = state.runtime.idAt([1])
+
+  return {
+    path: runtimeId ? state.runtime.pathOf(runtimeId) : null,
+    runtimeId,
+  }
+})
+```
+
+Use runtime ids for local projection, target rebasing, and DOM/runtime lookup.
+Use your adapter's own document positions or awareness ids for remote cursors,
+presence, and persistence.
+
+## Adapter ownership
+
+Slate owns the document model, operations, snapshots, commits, runtime ids, and
+transaction boundaries. Your adapter owns the distributed system around them.
+
+| Owner | Responsibilities |
+| --- | --- |
+| Slate | Apply operations, produce commits, normalize the document, expose snapshots, rebase local runtime targets. |
+| Adapter | Choose the network layer, translate operations if needed, resolve concurrent edits, persist remote state, own awareness and presence. |
+| React | Render the current projection and subscribe to the runtime through Slate React. |
+
+Keeping those owners separate is what lets Plate, CRDT adapters, custom
+storage, and local-only editors share the same raw Slate substrate without
+making the editor object grow adapter-specific namespaces.
+
+## Extension backbone
+
+Extensions can add grouped `state` and `tx` helpers for higher-level behavior.
+They should not add adapter-shaped namespaces directly to the editor object.
+
+```tsx
+import { defineEditorExtension } from 'slate'
+
+editor.extend(
+  defineEditorExtension({
+    name: 'table-backbone',
+    state: {
+      table(state) {
+        return {
+          rowCount() {
+            return state.value.get().length
+          },
+        }
+      },
+    },
+    tx: {
+      table(tx) {
+        return {
+          insertRow(text: string) {
+            tx.nodes.insert(
+              { type: 'paragraph', children: [{ text }] },
+              { at: [tx.value.get().length] }
+            )
+          },
+        }
+      },
+    },
+  })
+)
+```
+
+That shape gives product frameworks a migration backbone without turning raw
+Slate into a framework adapter.
+
+## What this page does not cover
+
+This page does not provide a full multiplayer recipe. It does not configure a
+provider, draw remote cursors, or define a CRDT merge policy. Those belong in
+adapter packages that can prove their behavior against Slate's operation and
+browser contracts.
+
+You now have the contract those adapters build on: commits for observation,
+operations for replay, tags for routing, and local runtime ids for projection.

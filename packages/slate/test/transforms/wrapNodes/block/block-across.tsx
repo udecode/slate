@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 jsx
 
 export const run = (editor) => {
-  editor.wrapNodes(<block a />)
+  editor.nodes.wrap(<block a />)
 }
 export const input = (
   <editor>

@@ -5,11 +5,19 @@ import { jsx } from '../../..'
 jsx
 
 // Apply a mark across a range containing text with other marks and one void that supports marks
-import { Editor } from 'slate'
 
 export const run = (editor) => {
-  editor.markableVoid = (node) => node.markable
-  Editor.addMark(editor, 'bold', true)
+  editor.extend({
+    name: 'markable-void-collapsed-fixture',
+    elements: [
+      {
+        type: 'markable-flag',
+        match: (node) => node.markable === true,
+        void: 'markable-inline',
+      },
+    ],
+  })
+  editor.marks.add('bold', true)
 }
 export const input = (
   <editor>

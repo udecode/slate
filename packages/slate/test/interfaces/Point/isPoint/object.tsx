@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 import { Point } from 'slate'
 
 export const input = {}

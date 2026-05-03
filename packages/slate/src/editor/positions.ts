@@ -1,3 +1,4 @@
+import { getEditorSchema } from '../core/editor-runtime'
 import {
   getCurrentSelection,
   getLiveNode,
@@ -52,7 +53,8 @@ const getAtomicNonTraversablePoint = (
     at: path,
     match: (node) =>
       Node.isElement(node) &&
-      (Editor.isVoid(editor, node) || Editor.isElementReadOnly(editor, node)),
+      (getEditorSchema(editor).isAtom(node) ||
+        Editor.isElementReadOnly(editor, node)),
     mode: 'highest',
     voids: true,
   })
@@ -62,7 +64,7 @@ const getAtomicNonTraversablePoint = (
   }
 
   const [, atomicPath] = atomicEntry
-  const start = Editor.start(editor, atomicPath)
+  const start = Editor.point(editor, atomicPath, { edge: 'start' })
 
   return {
     isStart: Path.equals(start.path, path),

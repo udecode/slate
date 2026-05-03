@@ -1,4 +1,4 @@
-import type { EditorInterface } from '../interfaces/editor'
+import type { EditorStaticApi } from '../interfaces/editor'
 import type { Range } from '../interfaces/range'
 import type { RangeRef } from '../interfaces/range-ref'
 import { ALL_RANGE_REFS, RANGE_REFS } from '../utils/weak-maps'
@@ -23,7 +23,7 @@ const cloneRange = (range: Range | null) =>
     : null
 
 const getAllRangeRefs = (
-  editor: Parameters<EditorInterface['rangeRef']>[0]
+  editor: Parameters<EditorStaticApi['rangeRef']>[0]
 ) => {
   let refs = ALL_RANGE_REFS.get(editor)
 
@@ -36,7 +36,7 @@ const getAllRangeRefs = (
 }
 
 const getPublicRangeRefs = (
-  editor: Parameters<EditorInterface['rangeRef']>[0]
+  editor: Parameters<EditorStaticApi['rangeRef']>[0]
 ) => {
   let refs = RANGE_REFS.get(editor)
 
@@ -49,7 +49,7 @@ const getPublicRangeRefs = (
 }
 
 const createRangeRef = (
-  editor: Parameters<EditorInterface['rangeRef']>[0],
+  editor: Parameters<EditorStaticApi['rangeRef']>[0],
   range: Range,
   options: {
     affinity?: RangeRef['affinity']
@@ -88,23 +88,23 @@ const createRangeRef = (
 }
 
 export const createInternalRangeRef = (
-  editor: Parameters<EditorInterface['rangeRef']>[0],
+  editor: Parameters<EditorStaticApi['rangeRef']>[0],
   range: Range,
   options: { affinity?: RangeRef['affinity'] } = {}
 ) => createRangeRef(editor, range, { ...options, visibility: 'internal' })
 
-export const rangeRef: EditorInterface['rangeRef'] = (
+export const rangeRef: EditorStaticApi['rangeRef'] = (
   editor,
   range,
   options = {}
 ) => createRangeRef(editor, range, { ...options, visibility: 'public' })
 
 export const allRangeRefs = (
-  editor: Parameters<EditorInterface['rangeRef']>[0]
+  editor: Parameters<EditorStaticApi['rangeRef']>[0]
 ) => getAllRangeRefs(editor)
 
 export const publishRangeRefDrafts = (
-  editor: Parameters<EditorInterface['rangeRef']>[0]
+  editor: Parameters<EditorStaticApi['rangeRef']>[0]
 ) => {
   for (const ref of getAllRangeRefs(editor)) {
     const internalRef = ref as InternalRangeRef
@@ -126,7 +126,7 @@ export const publishRangeRefDrafts = (
 }
 
 export const resetRangeRefDrafts = (
-  editor: Parameters<EditorInterface['rangeRef']>[0]
+  editor: Parameters<EditorStaticApi['rangeRef']>[0]
 ) => {
   for (const ref of getAllRangeRefs(editor)) {
     const internalRef = ref as InternalRangeRef

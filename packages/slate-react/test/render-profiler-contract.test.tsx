@@ -3,11 +3,11 @@ import React from 'react'
 import {
   SlateElement,
   SlateLeaf,
-  SlateSpacer,
   SlateText,
   TextString,
   ZeroWidthString,
 } from '../src'
+import { SlateSpacer } from '../src/components/slate-spacer'
 import {
   createSlateReactRenderCounter,
   recordSlateReactRender,

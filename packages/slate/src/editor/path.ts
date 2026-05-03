@@ -1,12 +1,12 @@
 import {
-  type EditorInterface,
+  type EditorStaticApi,
   Location,
   Node,
   Path,
   Range,
 } from '../interfaces'
 
-export const path: EditorInterface['path'] = (editor, at, options = {}) => {
+export const path: EditorStaticApi['path'] = (editor, at, options = {}) => {
   const { depth, edge } = options
   let resolvedAt = at
 

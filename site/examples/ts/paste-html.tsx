@@ -1,14 +1,21 @@
 import { css } from '@emotion/css'
 import type React from 'react'
 import { useCallback, useMemo } from 'react'
-import { createEditor, type Descendant, defineEditorExtension } from 'slate'
+import {
+  createEditor,
+  type Descendant,
+  type Element as SlateElement,
+} from 'slate'
 import { withHistory } from 'slate-history'
 import { jsx } from 'slate-hyperscript'
 import {
   Editable,
   type RenderElementProps,
   type RenderLeafProps,
+  type RenderVoidProps,
   Slate,
+  useEditorFocused,
+  useElementSelected,
   withReact,
 } from 'slate-react'
 
@@ -18,7 +25,6 @@ import type {
   CustomElementType,
   CustomValue,
   ImageElement as ImageElementType,
-  RenderVoidPropsFor,
 } from './custom-types.d'
 
 interface ElementAttributes {
@@ -168,47 +174,45 @@ const PasteHtmlExample = () => {
         placeholder="Paste in some HTML..."
         renderElement={renderElement}
         renderLeaf={renderLeaf}
-        renderVoid={(props) => (
-          <ImageElement {...(props as RenderVoidPropsFor<ImageElementType>)} />
-        )}
+        renderVoid={(props) =>
+          isImageElement(props.element) ? (
+            <ImageElement element={props.element} target={props.target} />
+          ) : null
+        }
       />
     </Slate>
   )
 }
 
-const htmlPasteExtension = defineEditorExtension<CustomEditor>({
-  name: 'html-paste',
-  methods(editor) {
-    const nextInsertData = editor.insertData
-    const nextIsInline = editor.isInline
-    const nextIsVoid = editor.isVoid
-
-    return {
-      insertData(data) {
-        const html = data.getData('text/html')
-
-        if (html) {
-          const parsed = new DOMParser().parseFromString(html, 'text/html')
-          const fragment = deserialize(parsed.body)
-          this.insertFragment(fragment)
-          return
-        }
-
-        nextInsertData(data)
-      },
-      isInline(element: CustomElement) {
-        return element.type === 'link' ? true : nextIsInline(element)
-      },
-      isVoid(element: CustomElement) {
-        return element.type === 'image' ? true : nextIsVoid(element)
-      },
-    }
-  },
-})
-
 const withHtml = (editor: CustomEditor) => {
-  editor.extend(htmlPasteExtension)
+  editor.extend({
+    name: 'paste-html',
+    capabilities: {
+      'dom.clipboard.insertData': (_editor: unknown, data: DataTransfer) =>
+        insertHtmlData(editor, data),
+    },
+    elements: [
+      { inline: true, type: 'link' },
+      { type: 'image', void: 'block' },
+    ],
+  })
+
   return editor
+}
+
+const insertHtmlData = (editor: CustomEditor, data: DataTransfer) => {
+  const html = data.getData('text/html')
+
+  if (!html) {
+    return false
+  }
+
+  const parsed = new DOMParser().parseFromString(html, 'text/html')
+  const fragment = deserialize(parsed.body)
+  editor.update((tx) => {
+    tx.nodes.insert(fragment)
+  })
+  return true
 }
 
 const Element = (props: RenderElementProps) => {
@@ -282,9 +286,11 @@ const SafeLink = ({ children, href, attributes }: SafeLinkProps) => {
 
 const ImageElement = ({
   element,
-  focused,
-  selected,
-}: RenderVoidPropsFor<ImageElementType>) => {
+  target,
+}: RenderVoidProps<ImageElementType>) => {
+  const focused = useEditorFocused()
+  const selected = useElementSelected(target)
+
   return (
     <img
       className={css`
@@ -297,6 +303,9 @@ const ImageElement = ({
     />
   )
 }
+
+const isImageElement = (element: SlateElement): element is ImageElementType =>
+  element.type === 'image'
 
 const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
   if (leaf.bold) {

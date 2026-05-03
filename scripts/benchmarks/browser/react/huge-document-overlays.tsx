@@ -108,7 +108,15 @@ const getProjectionMetricCounts = (
     store && typeof store.getMetrics === 'function' ? store.getMetrics() : null
 
   return {
+    changedRuntimeBucketCount: metrics?.changedRuntimeBucketCount ?? 0,
+    fullFallbackCount: metrics?.fullFallbackCount ?? 0,
+    globalSubscriberWakeCount: metrics?.globalSubscriberWakeCount ?? 0,
+    invalidRangeDropCount: metrics?.invalidRangeDropCount ?? 0,
+    projectedRangeCount: metrics?.projectedRangeCount ?? 0,
     recomputeCount: metrics?.recomputeCount ?? 0,
+    runtimeSubscriberWakeCount: metrics?.runtimeSubscriberWakeCount ?? 0,
+    sourceReadCount: metrics?.sourceReadCount ?? 0,
+    sourceSubscriberWakeCount: metrics?.sourceSubscriberWakeCount ?? 0,
   }
 }
 
@@ -285,7 +293,7 @@ const LargeDocumentOverlayInner = ({
         id="huge-document-overlays"
         largeDocument={{
           activeRadius,
-          enabled: true,
+          mode: 'shell',
           islandSize,
           threshold: 1,
         }}

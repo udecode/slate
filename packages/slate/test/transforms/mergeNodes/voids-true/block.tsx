@@ -13,7 +13,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.mergeNodes({ at: [0, 1], voids: true })
+  editor.nodes.merge({ at: [0, 1], voids: true })
 }
 export const output = (
   <editor>

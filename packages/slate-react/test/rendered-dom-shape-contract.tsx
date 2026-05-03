@@ -1,8 +1,9 @@
 import { act, render, waitFor } from '@testing-library/react'
 import React from 'react'
-import { createEditor, Editor } from 'slate'
+import { createEditor } from 'slate'
+import { Editor } from 'slate/internal'
 
-import { Editable, withReact } from '../src'
+import { Editable, Slate, withReact } from '../src'
 
 const getFirstElement = (container: HTMLElement) => {
   const element = container.querySelector('[data-slate-node="element"]')
@@ -20,6 +21,39 @@ const getZeroWidthLineBreaks = (element: HTMLElement) =>
   )
 
 describe('rendered DOM shape contract', () => {
+  test('custom element and text renderers include mounted path metadata', () => {
+    const editor = withReact(createEditor())
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'path metadata' }],
+        },
+      ],
+      selection: null,
+    })
+
+    const rendered = render(
+      <Slate editor={editor}>
+        <Editable
+          id="rendered-dom-shape-path-metadata"
+          renderElement={({ attributes, children }) => (
+            <p {...attributes}>{children}</p>
+          )}
+          renderLeaf={({ attributes, children }) => (
+            <span {...attributes}>{children}</span>
+          )}
+        />
+      </Slate>
+    )
+    const block = getFirstElement(rendered.container)
+    const text = rendered.container.querySelector('[data-slate-node="text"]')
+
+    expect(block.getAttribute('data-slate-path')).toBe('0')
+    expect(text?.getAttribute('data-slate-path')).toBe('0,0')
+  })
+
   test('non-empty blocks do not render empty marked leaves as visual line breaks', () => {
     const editor = withReact(createEditor())
 
@@ -42,7 +76,9 @@ describe('rendered DOM shape contract', () => {
     })
 
     const rendered = render(
-      <Editable editor={editor} id="rendered-dom-shape-invalid-empty-leaves" />
+      <Slate editor={editor}>
+        <Editable id="rendered-dom-shape-invalid-empty-leaves" />
+      </Slate>
     )
     const block = getFirstElement(rendered.container)
 
@@ -66,7 +102,9 @@ describe('rendered DOM shape contract', () => {
     })
 
     const rendered = render(
-      <Editable editor={editor} id="rendered-dom-shape-empty-block" />
+      <Slate editor={editor}>
+        <Editable id="rendered-dom-shape-empty-block" />
+      </Slate>
     )
     const block = getFirstElement(rendered.container)
 
@@ -110,17 +148,18 @@ describe('rendered DOM shape contract', () => {
       })
 
       const rendered = render(
-        <Editable
-          editor={editor}
-          id="rendered-dom-shape-custom-placeholder-height"
-          placeholder="Type something"
-          renderPlaceholder={({ attributes, children }) => (
-            <div {...attributes}>
-              <p>{children}</p>
-              <pre>custom placeholder</pre>
-            </div>
-          )}
-        />
+        <Slate editor={editor}>
+          <Editable
+            id="rendered-dom-shape-custom-placeholder-height"
+            placeholder="Type something"
+            renderPlaceholder={({ attributes, children }) => (
+              <div {...attributes}>
+                <p>{children}</p>
+                <pre>custom placeholder</pre>
+              </div>
+            )}
+          />
+        </Slate>
       )
       const editable = rendered.container.querySelector(
         '[data-slate-editor="true"]'
@@ -172,17 +211,18 @@ describe('rendered DOM shape contract', () => {
       })
 
       const rendered = render(
-        <Editable
-          editor={editor}
-          id="rendered-dom-shape-custom-placeholder-delete-empty"
-          placeholder="Type something"
-          renderPlaceholder={({ attributes, children }) => (
-            <div {...attributes}>
-              <p>{children}</p>
-              <pre>custom placeholder</pre>
-            </div>
-          )}
-        />
+        <Slate editor={editor}>
+          <Editable
+            id="rendered-dom-shape-custom-placeholder-delete-empty"
+            placeholder="Type something"
+            renderPlaceholder={({ attributes, children }) => (
+              <div {...attributes}>
+                <p>{children}</p>
+                <pre>custom placeholder</pre>
+              </div>
+            )}
+          />
+        </Slate>
       )
       const editable = rendered.container.querySelector(
         '[data-slate-editor="true"]'
@@ -198,8 +238,8 @@ describe('rendered DOM shape contract', () => {
       })
 
       await act(async () => {
-        editor.update(() => {
-          editor.insertText('abc', { at: { path: [0, 0], offset: 0 } })
+        editor.update((tx) => {
+          tx.text.insert('abc', { at: { path: [0, 0], offset: 0 } })
         })
       })
 
@@ -211,8 +251,8 @@ describe('rendered DOM shape contract', () => {
       })
 
       await act(async () => {
-        editor.update(() => {
-          editor.delete({
+        editor.update((tx) => {
+          tx.text.delete({
             at: {
               anchor: { path: [0, 0], offset: 0 },
               focus: { path: [0, 0], offset: 3 },

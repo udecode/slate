@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 jsx
 
 export const run = (editor) => {
-  editor.unwrapNodes({ at: [0] })
+  editor.nodes.unwrap({ at: [0] })
 }
 export const input = (
   <editor>

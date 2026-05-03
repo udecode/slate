@@ -1,5 +1,5 @@
 import type { ClipboardEvent, DragEvent } from 'react'
-import { Editor, Node, Range } from 'slate'
+import { Node, Range } from 'slate'
 import {
   HAS_BEFORE_INPUT_SUPPORT,
   IS_WEBKIT,
@@ -8,13 +8,13 @@ import {
   isDOMText,
   isPlainTextOnlyPaste,
 } from 'slate-dom'
-
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { isFullDocumentSelection } from '../large-document/large-document-commands'
 import { ReactEditor } from '../plugin/react-editor'
 import type { EditableCommand } from './editing-kernel'
 import type { EditableRepairRequest } from './input-controller'
 import { applyEditableCommand } from './mutation-controller'
+import { Editor } from './runtime-editor-api'
 import { readRuntimeNode } from './runtime-live-state'
 import { readRuntimeSelection } from './runtime-selection-state'
 
@@ -157,7 +157,7 @@ export const applyEditableCopy = ({
     !isClipboardEventTargetInput({ event })
   ) {
     event.preventDefault()
-    ReactEditor.setFragmentData(editor, clipboardData, 'copy')
+    editor.dom.clipboard.writeSelection(clipboardData)
   }
 }
 
@@ -184,8 +184,8 @@ export const applyEditableCut = ({
     !isClipboardEventTargetInput({ event })
   ) {
     event.preventDefault()
-    ReactEditor.setFragmentData(editor, clipboardData, 'cut')
-    const selection = editor.getSelection()
+    editor.dom.clipboard.writeSelection(clipboardData)
+    const selection = editor.read((state) => state.selection.get())
 
     if (selection) {
       if (Range.isExpanded(selection)) {
@@ -206,7 +206,9 @@ export const applyEditableCut = ({
           inlinePath &&
           Editor.hasPath(editor, inlinePath) &&
           (() => {
-            const [inlineNode] = Editor.node(editor, inlinePath)
+            const [inlineNode] = editor.read((state) =>
+              state.nodes.get(inlinePath)
+            )
             return (
               Node.isElement(inlineNode) &&
               Editor.isInline(editor, inlineNode) &&
@@ -215,8 +217,11 @@ export const applyEditableCut = ({
           })()
 
         if (shouldRemoveEmptyInline && inlinePath && inlineBeforePoint) {
-          editor.update(() => {
-            editor.removeNodes({ at: inlinePath, voids: true })
+          editor.update((tx) => {
+            tx.nodes.remove({
+              at: inlinePath,
+              voids: true,
+            })
           })
           applyEditableCommand({
             command: {
@@ -271,8 +276,8 @@ export const applyEditableCut = ({
       }
       const node = Node.parent(editor, selection.anchor.path)
       if (Node.isElement(node) && Editor.isVoid(editor, node)) {
-        editor.update(() => {
-          editor.delete()
+        editor.update((tx) => {
+          tx.text.delete()
         })
       }
     }
@@ -370,7 +375,7 @@ export const applyEditableDragStart = ({
 
     state.isDraggingInternally = true
 
-    ReactEditor.setFragmentData(editor, event.dataTransfer, 'drag')
+    editor.dom.clipboard.writeSelection(event.dataTransfer)
   }
 }
 
@@ -413,8 +418,8 @@ export const applyEditableDrop = ({
       !Range.equals(draggedRange, range) &&
       !Editor.void(editor, { at: range, voids: true })
     ) {
-      editor.update(() => {
-        editor.delete({
+      editor.update((tx) => {
+        tx.text.delete({
           at: draggedRange,
         })
       })
@@ -465,7 +470,7 @@ export const applyEditablePaste = ({
 
   if (shellBackedSelection && event.clipboardData && canHandlePaste) {
     const text = event.clipboardData.getData('text/plain')
-    const selection = Editor.getSnapshot(editor).selection
+    const selection = editor.read((state) => state.selection.get())
     const isFullDocumentShellSelection = isFullDocumentSelection(
       editor,
       selection
@@ -477,17 +482,19 @@ export const applyEditablePaste = ({
       isPlainTextOnlyPaste(event.nativeEvent)
     ) {
       event.preventDefault()
-      Editor.replace(editor, {
-        children: [
-          {
-            type: 'paragraph',
-            children: [{ text }],
-          } as any,
-        ],
-        selection: {
-          anchor: { path: [0, 0], offset: text.length },
-          focus: { path: [0, 0], offset: text.length },
-        },
+      editor.update((tx) => {
+        tx.value.replace({
+          children: [
+            {
+              type: 'paragraph',
+              children: [{ text }],
+            } as any,
+          ],
+          selection: {
+            anchor: { path: [0, 0], offset: text.length },
+            focus: { path: [0, 0], offset: text.length },
+          },
+        })
       })
 
       return clipboardResult({

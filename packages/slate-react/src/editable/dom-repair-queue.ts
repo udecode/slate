@@ -1,6 +1,5 @@
-import { Editor, Range } from 'slate'
+import { Range } from 'slate'
 import { getSelection, isDOMElement, isDOMText } from 'slate-dom'
-
 import {
   getSlateNodeElementByPath,
   getSlateNodePathFromDOMElement,
@@ -95,7 +94,7 @@ export const createDOMRepairQueue = ({
         return
       }
 
-      const modelText = Editor.string(editor, [])
+      const modelText = editor.read((state) => state.text.string([]))
       const domText =
         rootElement.textContent?.replace(/\uFEFF/g, '') ?? modelText
 
@@ -130,21 +129,17 @@ export const createDOMRepairQueue = ({
           0,
           Math.min(slateNode.text.length, anchorOffset - inputText.length)
         )
-        editor.update(() => {
-          editor.select({
-            anchor: { path, offset },
-            focus: { path, offset },
+        const nextOffset = offset + inputText.length
+        editor.update((tx) => {
+          tx.text.insert(inputText, { at: { path, offset } })
+          tx.selection.set({
+            anchor: { path, offset: nextOffset },
+            focus: { path, offset: nextOffset },
           })
         })
-      }
 
-      if (frameId !== null && !isDOMRepairFrameCurrent(frameState, frameId)) {
-        return
+        this.repairCaretAfterModelTextInsert()
       }
-
-      editor.update(() => {
-        Editor.insertText(editor, inputText)
-      })
     },
 
     repair(repairPolicy) {

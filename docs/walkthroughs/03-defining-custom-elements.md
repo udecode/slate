@@ -23,8 +23,8 @@ const App = () => {
         onKeyDown={event => {
           if (event.key === '&') {
             event.preventDefault()
-            editor.update(() => {
-              editor.insertText('and')
+            editor.update((tx) => {
+              tx.text.insert('and')
             })
           }
         }}
@@ -97,8 +97,8 @@ const App = () => {
         onKeyDown={event => {
           if (event.key === '&') {
             event.preventDefault()
-            editor.update(() => {
-              editor.insertText('and')
+            editor.update((tx) => {
+              tx.text.insert('and')
             })
           }
         }}
@@ -123,8 +123,8 @@ const DefaultElement = props => {
 Okay, but now we'll need a way for the user to actually turn a block into a code block. So let's change our `onKeyDown` function to add a `` Ctrl-` `` shortcut that does just that:
 
 ```jsx
-// Import the `Editor` and `Element` helpers from Slate.
-import { Editor, Element } from 'slate'
+// Import the `Element` helper from Slate.
+import { Element } from 'slate'
 
 const initialValue = [
   {
@@ -154,11 +154,11 @@ const App = () => {
             // Prevent the "`" from being inserted by default.
             event.preventDefault()
             // Otherwise, set the currently selected blocks type to "code".
-            editor.update(() => {
-              editor.setNodes(
+            editor.update((tx) => {
+              tx.nodes.set(
                 { type: 'code' },
                 {
-                  match: n => Element.isElement(n) && Editor.isBlock(editor, n),
+                  match: n => Element.isElement(n) && tx.schema.isBlock(n),
                 }
               )
             })
@@ -214,15 +214,17 @@ const App = () => {
           if (event.key === '`' && event.ctrlKey) {
             event.preventDefault()
             // Determine whether any of the currently selected blocks are code blocks.
-            const [match] = Editor.nodes(editor, {
-              match: n => n.type === 'code',
-            })
+            const [match] = editor.read(state =>
+              state.nodes.match({
+                match: n => n.type === 'code',
+              })
+            )
             // Toggle the block type depending on whether there's already a match.
-            editor.update(() => {
-              editor.setNodes(
+            editor.update((tx) => {
+              tx.nodes.set(
                 { type: match ? 'paragraph' : 'code' },
                 {
-                  match: n => Element.isElement(n) && Editor.isBlock(editor, n),
+                  match: n => Element.isElement(n) && tx.schema.isBlock(n),
                 }
               )
             })

@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 jsx
 
 export const run = (editor, options = {}) => {
-  editor.insertFragment(<fragment>fragment</fragment>, options)
+  editor.fragment.insert(<fragment>fragment</fragment>, options)
 }
 export const input = (
   <editor>

@@ -1,13 +1,14 @@
+import { Editor } from 'slate/internal'
 /** @jsx jsx */
 
 import { jsx } from '../../..'
 
 jsx
 
-import { Editor, Element } from 'slate'
+import { Element } from 'slate'
 
 export const run = (editor) => {
-  editor.moveNodes({
+  editor.nodes.move({
     match: (n) => Element.isElement(n) && Editor.isBlock(editor, n),
     to: [0],
   })

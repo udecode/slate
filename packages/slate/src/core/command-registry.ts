@@ -1,8 +1,10 @@
 import type {
   Editor,
   EditorCommand,
+  EditorCommandDefinition,
   EditorCommandHandler,
   EditorCommandOptions,
+  EditorCommandReference,
   EditorCommandResult,
 } from '../interfaces/editor'
 import { getExtensionRegistry } from './extension-registry'
@@ -23,13 +25,22 @@ let commandOrder = 0
 const getCommandRegistry = (editor: Editor) =>
   getExtensionRegistry(editor).commands as Map<string, RegisteredCommand[]>
 
+const getCommandType = <TCommand extends EditorCommand>(
+  command: EditorCommandReference<TCommand>
+) => (typeof command === 'string' ? command : command.type)
+
+export const defineCommand = <TCommand extends EditorCommand>(
+  type: TCommand['type']
+): EditorCommandDefinition<TCommand> => Object.freeze({ type })
+
 export const registerCommand = <TCommand extends EditorCommand>(
   editor: Editor,
-  type: TCommand['type'],
+  command: EditorCommandReference<TCommand>,
   handler: EditorCommandHandler<TCommand>,
   { priority = 0 }: EditorCommandOptions = {}
 ) => {
   const commands = getCommandRegistry(editor)
+  const type = getCommandType(command)
   const handlers = commands.get(type) ?? []
   const registration = {
     handler,

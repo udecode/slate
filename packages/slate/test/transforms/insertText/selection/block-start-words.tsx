@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 jsx
 
 export const run = (editor) => {
-  editor.insertText('a few words')
+  editor.text.insert('a few words')
 }
 export const input = (
   <editor>

@@ -1,6 +1,7 @@
-import { Editor, Path, Range, Scrubber, Text } from '..'
+import { Path, Range, Scrubber, Text } from '..'
 import { modifyChildren, modifyLeaf, removeChildren } from '../utils/modify'
 import type { Editor as EditorType, Value } from './editor'
+import { Editor } from './editor'
 import { Element, type ElementEntry, type ElementOf } from './element'
 import type { TextOf } from './text'
 

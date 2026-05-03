@@ -22,21 +22,19 @@ import {
 import {
   createEditor,
   type Descendant,
-  Editor,
   type EditorSnapshot,
   Node,
   type RuntimeId,
-  type Element as SlateElement,
   type Node as SlateNode,
 } from 'slate'
 import { withHistory } from 'slate-history'
 import {
-  createSlateProjectionStore,
+  createDecorationSource,
   Editable,
   type RenderElementProps,
   Slate,
   type SlateProjection,
-  useSlateStatic,
+  useEditor,
   withReact,
 } from 'slate-react'
 import { Button, Icon, Toolbar } from './components'
@@ -56,35 +54,39 @@ const CodeLineType = 'code-line'
 
 const CodeHighlightingExample = () => {
   const [editor] = useState(() => {
-    const nextEditor = withHistory(withReact(createEditor<CustomValue>()))
+    const nextEditor = withHistory(
+      withReact(createEditor<CustomValue>())
+    ) as CustomEditor
 
-    Editor.replace(nextEditor, {
-      children: initialValue,
-      selection: null,
+    nextEditor.update((tx) => {
+      tx.value.replace({
+        children: initialValue,
+        selection: null,
+      })
     })
 
     return nextEditor
   })
 
   const onKeyDown = useOnKeydown(editor)
-  const projectionStore = useMemo(
+  const codeHighlightingSource = useMemo(
     () =>
-      createSlateProjectionStore(
-        editor,
-        (snapshot) => collectCodeProjections(snapshot.children),
-        {
-          dirtiness: ['text', 'node'],
-          runtimeScope: ({ snapshot }) => collectCodeRuntimeScope(snapshot),
-          sourceId: 'code-highlighting',
-        }
-      ),
+      createDecorationSource(editor, {
+        id: 'code-highlighting',
+        dirtiness: ['text', 'node'],
+        read: ({ snapshot }) => collectCodeProjections(snapshot.children),
+        runtimeScope: ({ snapshot }) => collectCodeRuntimeScope(snapshot),
+      }),
     [editor]
   )
 
-  useEffect(() => () => projectionStore.destroy(), [projectionStore])
+  useEffect(
+    () => () => codeHighlightingSource.destroy(),
+    [codeHighlightingSource]
+  )
 
   return (
-    <Slate editor={editor} projectionStore={projectionStore}>
+    <Slate decorationSources={[codeHighlightingSource]} editor={editor}>
       <ExampleToolbar />
       <Editable
         onKeyDown={onKeyDown}
@@ -113,12 +115,12 @@ const CodeHighlightingExample = () => {
 
 const ElementWrapper = (props: RenderElementProps) => {
   const { attributes, children, element, path } = props
-  const editor = useSlateStatic<CustomEditor>()
+  const editor = useEditor<CustomEditor>()
 
   if (element.type === CodeBlockType) {
     const setLanguage = (language: string) => {
-      editor.update(() => {
-        editor.setNodes({ language }, { at: path })
+      editor.update((tx) => {
+        tx.nodes.set({ language }, { at: path })
       })
     }
 
@@ -153,7 +155,9 @@ const ElementWrapper = (props: RenderElementProps) => {
     )
   }
 
-  const Tag = editor.isInline(element) ? 'span' : 'div'
+  const Tag = editor.read((state) => state.schema.isInline(element))
+    ? 'span'
+    : 'div'
   return (
     <Tag {...attributes} style={{ position: 'relative' }}>
       {children}
@@ -170,10 +174,10 @@ const ExampleToolbar = () => {
 }
 
 const CodeBlockButton = () => {
-  const editor = useSlateStatic<CustomEditor>()
+  const editor = useEditor<CustomEditor>()
   const handleClick = () => {
-    editor.update(() => {
-      editor.wrapNodes(
+    editor.update((tx) => {
+      tx.nodes.wrap(
         { type: CodeBlockType, language: 'html', children: [] },
         {
           match: (n: SlateNode) =>
@@ -181,7 +185,7 @@ const CodeBlockButton = () => {
           split: true,
         }
       )
-      editor.setNodes<SlateElement>(
+      tx.nodes.set(
         { type: CodeLineType },
         {
           match: (n: SlateNode) =>
@@ -329,8 +333,8 @@ const useOnKeydown = (editor: CustomEditor) => {
         // handle tab key, insert spaces
         e.preventDefault()
 
-        editor.update(() => {
-          editor.insertText('  ')
+        editor.update((tx) => {
+          tx.text.insert('  ')
         })
       }
     },
@@ -399,7 +403,9 @@ const initialValue = [
 ]
 
 const App = () => {
-  const [editor] = useState(() => withReact(createEditor<CustomValue>()))
+  const [editor] = useState(
+    () => withReact(createEditor<CustomValue>()) as CustomEditor
+  )
 
   return (
     <Slate editor={editor} initialValue={initialValue}>
@@ -419,7 +425,7 @@ const App = () => {
     language: 'typescript',
     children: toCodeLines(`// TypeScript users only add this code
 import { Descendant, createEditor } from 'slate'
-import { ReactEditor } from 'slate-react'
+import type { ReactEditor } from 'slate-react'
 
 type CustomElement = { type: 'paragraph'; children: CustomText[] }
 type CustomText = { text: string }

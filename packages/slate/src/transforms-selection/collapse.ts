@@ -1,4 +1,5 @@
 import { getCurrentSelection } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
 import { Range } from '../interfaces/range'
 import type { SelectionMutationMethods } from '../interfaces/transforms/selection'
 
@@ -13,14 +14,14 @@ export const collapse: SelectionMutationMethods['collapse'] = (
     return
   }
   if (edge === 'anchor') {
-    editor.select(selection.anchor)
+    getEditorTransformRegistry(editor).select(selection.anchor)
   } else if (edge === 'focus') {
-    editor.select(selection.focus)
+    getEditorTransformRegistry(editor).select(selection.focus)
   } else if (edge === 'start') {
     const [start] = Range.edges(selection)
-    editor.select(start)
+    getEditorTransformRegistry(editor).select(start)
   } else if (edge === 'end') {
     const [, end] = Range.edges(selection)
-    editor.select(end)
+    getEditorTransformRegistry(editor).select(end)
   }
 }

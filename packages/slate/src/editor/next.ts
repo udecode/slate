@@ -1,8 +1,9 @@
-import { Editor, type EditorInterface } from '../interfaces/editor'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
 import { Location, type Span } from '../interfaces/location'
 import { Node } from '../interfaces/node'
+import { nodes } from './nodes'
 
-export const next: EditorInterface['next'] = (editor, options = {}) => {
+export const next: EditorStaticApi['next'] = (editor, options = {}) => {
   const { mode = 'lowest', voids = false } = options
   let { match, at = Editor.getSnapshot(editor).selection } = options
 
@@ -34,6 +35,6 @@ export const next: EditorInterface['next'] = (editor, options = {}) => {
     }
   }
 
-  const [next] = Editor.nodes(editor, { at: span, match, mode, voids })
+  const [next] = nodes(editor, { at: span, match, mode, voids })
   return next
 }

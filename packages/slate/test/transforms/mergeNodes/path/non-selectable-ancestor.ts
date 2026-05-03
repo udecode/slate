@@ -1,17 +1,19 @@
-import { createEditor, Editor } from 'slate'
+import { createEditor } from 'slate'
 
 export const input = createEditor() as any
 
 export const run = (editor) => {
-  const { isSelectable } = editor
+  editor.extend({
+    name: 'non-selectable-ancestor-fixture',
+    elements: [
+      {
+        type: 'collapsible-content',
+        selectable: false,
+      },
+    ],
+  })
 
-  editor.isSelectable = (element: any) => {
-    return element.type === 'collapsible-content'
-      ? false
-      : isSelectable(element)
-  }
-
-  Editor.replace(editor, {
+  editor.value.replace({
     children: [
       {
         type: 'paragraph',
@@ -40,7 +42,7 @@ export const run = (editor) => {
     marks: null,
   })
 
-  editor.mergeNodes({ at: [1, 1, 0, 1], voids: true })
+  editor.nodes.merge({ at: [1, 1, 0, 1], voids: true })
 }
 
 export const output = {

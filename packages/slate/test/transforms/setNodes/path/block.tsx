@@ -10,7 +10,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.setNodes({ key: 'a' }, { at: [0] })
+  editor.nodes.set({ key: 'a' }, { at: [0] })
 }
 export const output = (
   <editor>

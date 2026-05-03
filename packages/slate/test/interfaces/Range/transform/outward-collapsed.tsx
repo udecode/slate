@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 import { Range } from 'slate'
 
 /**

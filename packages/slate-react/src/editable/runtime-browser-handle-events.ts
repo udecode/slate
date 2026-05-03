@@ -1,5 +1,5 @@
 import type { RefObject } from 'react'
-import type { Editor, Range } from 'slate'
+import type { Range } from 'slate'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import type { ReactEditor } from '../plugin/react-editor'
 import {
@@ -7,6 +7,7 @@ import {
   type SlateBrowserHandleElement,
 } from './browser-handle'
 import type { EditableInputController } from './input-state'
+import type { Editor } from './runtime-editor-api'
 
 type DeferredInputRule = ({
   data,

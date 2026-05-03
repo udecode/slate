@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import type { Descendant, Editor as SlateEditor } from 'slate'
-import { createEditor, Editor } from 'slate'
+import type { Descendant, Selection, Editor as SlateEditor } from 'slate'
+import { createEditor } from 'slate'
+import { Editor } from 'slate/internal'
 
-import { History, withHistory } from '..'
+import { History, withHistory } from '../src'
 
 const paragraph = (
   text: string,
@@ -16,25 +17,13 @@ const paragraph = (
 })
 
 const withHistoryTest = () => {
-  const editor = withHistory(createEditor())
-  const { isInline, isVoid, isElementReadOnly, isSelectable } = editor
-
-  editor.isInline = (element: any) =>
-    element.inline === true ? true : isInline(element)
-  editor.isVoid = (element: any) =>
-    element.void === true ? true : isVoid(element)
-  editor.isElementReadOnly = (element: any) =>
-    element.readOnly === true ? true : isElementReadOnly(element)
-  editor.isSelectable = (element: any) =>
-    element.nonSelectable === true ? false : isSelectable(element)
-
-  return editor
+  return withHistory(createEditor())
 }
 
 const replace = (
   editor: SlateEditor,
   children: Descendant[],
-  selection: SlateEditor['selection'] = null
+  selection: Selection = null
 ) => {
   Editor.replace(editor, {
     children: structuredClone(children),
@@ -52,7 +41,10 @@ const getVisibleState = (editor: SlateEditor) => {
   }
 }
 
-const write = (editor: SlateEditor, fn: () => void) => {
+const write = (
+  editor: SlateEditor,
+  fn: Parameters<SlateEditor['update']>[0]
+) => {
   editor.update(fn)
 }
 
@@ -67,8 +59,8 @@ describe('slate-history contract', () => {
 
     assert.equal(History.isHistory(editor.history), true)
 
-    write(editor, () => {
-      editor.insertText(' additional text')
+    write(editor, (tx) => {
+      tx.text.insert(' additional text')
     })
     assert.equal(History.isHistory(editor.history), true)
 
@@ -89,8 +81,8 @@ describe('slate-history contract', () => {
 
     const before = getVisibleState(editor)
 
-    write(editor, () => {
-      editor.insertText('text')
+    write(editor, (tx) => {
+      tx.text.insert('text')
     })
     editor.undo()
 
@@ -123,8 +115,8 @@ describe('slate-history contract', () => {
       }
     )
 
-    write(editor, () => {
-      editor.insertText('!')
+    write(editor, (tx) => {
+      tx.text.insert('!')
     })
     editor.undo()
     editor.redo()
@@ -145,14 +137,14 @@ describe('slate-history contract', () => {
 
     const before = getVisibleState(editor)
 
-    write(editor, () => {
-      editor.insertText('t')
+    write(editor, (tx) => {
+      tx.text.insert('t')
     })
-    write(editor, () => {
-      editor.insertText('w')
+    write(editor, (tx) => {
+      tx.text.insert('w')
     })
-    write(editor, () => {
-      editor.insertText('o')
+    write(editor, (tx) => {
+      tx.text.insert('o')
     })
 
     assert.equal(editor.history.undos.length, 1)
@@ -162,36 +154,100 @@ describe('slate-history contract', () => {
     assert.deepEqual(getVisibleState(editor), before)
   })
 
+  it('uses update metadata to push, merge, and skip history batches', () => {
+    const pushEditor = withHistoryTest()
+
+    replace(pushEditor, [paragraph('')], {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+
+    pushEditor.update((tx) => {
+      tx.text.insert('a')
+    })
+    pushEditor.update(
+      (tx) => {
+        tx.text.insert('b')
+      },
+      { metadata: { history: { mode: 'push' } } }
+    )
+
+    assert.equal(pushEditor.history.undos.length, 2)
+
+    const mergeEditor = withHistoryTest()
+
+    replace(mergeEditor, [paragraph('')], {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+
+    mergeEditor.update((tx) => {
+      tx.text.insert('a')
+    })
+    mergeEditor.update(
+      (tx) => {
+        tx.selection.set({
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 0 },
+        })
+        tx.text.insert('b')
+      },
+      { metadata: { history: { mode: 'merge' } } }
+    )
+
+    assert.equal(mergeEditor.history.undos.length, 1)
+
+    const skipEditor = withHistoryTest()
+
+    replace(skipEditor, [paragraph('')], {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+
+    skipEditor.update(
+      (tx) => {
+        tx.text.insert('a')
+      },
+      { metadata: { history: { mode: 'skip' } } }
+    )
+
+    assert.equal(skipEditor.history.undos.length, 0)
+  })
+
   it('merges contiguous text commits when selection import shares a text commit', () => {
     const editor = withHistoryTest()
 
     replace(editor, [paragraph('')], null)
     const before = getVisibleState(editor)
 
-    editor.applyOperations([
-      {
-        offset: 0,
-        path: [0, 0],
-        text: 'U',
-        type: 'insert_text',
-      },
-    ])
-    editor.applyOperations([
-      {
-        newProperties: {
-          anchor: { path: [0, 0], offset: 1 },
-          focus: { path: [0, 0], offset: 1 },
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          offset: 0,
+          path: [0, 0],
+          text: 'U',
+          type: 'insert_text',
         },
-        properties: null,
-        type: 'set_selection',
-      },
-      {
-        offset: 1,
-        path: [0, 0],
-        text: 'n',
-        type: 'insert_text',
-      },
-    ])
+      ])
+    })
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          newProperties: {
+            anchor: { path: [0, 0], offset: 1 },
+            focus: { path: [0, 0], offset: 1 },
+          },
+          properties: null,
+          type: 'set_selection',
+        },
+        {
+          offset: 1,
+          path: [0, 0],
+          text: 'n',
+          type: 'insert_text',
+        },
+      ])
+    })
 
     assert.equal(editor.history.undos.length, 1)
 
@@ -208,14 +264,14 @@ describe('slate-history contract', () => {
       focus: { path: [0, 0], offset: 5 },
     })
 
-    write(editor, () => {
-      editor.insertBreak()
-      editor.insertText('Beta')
+    write(editor, (tx) => {
+      Editor.insertBreak(editor)
+      tx.text.insert('Beta')
     })
     const afterStructuralBatch = getVisibleState(editor)
 
-    write(editor, () => {
-      editor.insertText('!')
+    write(editor, (tx) => {
+      tx.text.insert('!')
     })
 
     assert.equal(editor.history.undos.length, 2)
@@ -233,14 +289,14 @@ describe('slate-history contract', () => {
       focus: { path: [0, 0], offset: 0 },
     })
 
-    write(editor, () => {
-      editor.select({
+    write(editor, (tx) => {
+      tx.selection.set({
         anchor: { path: [0, 0], offset: 5 },
         focus: { path: [0, 0], offset: 5 },
       })
     })
-    write(editor, () => {
-      editor.select({
+    write(editor, (tx) => {
+      tx.selection.set({
         anchor: { path: [0, 0], offset: 5 },
         focus: { path: [0, 0], offset: 0 },
       })
@@ -249,11 +305,11 @@ describe('slate-history contract', () => {
     write(editor, () => {
       Editor.deleteFragment(editor)
     })
-    write(editor, () => {
-      editor.deselect()
+    write(editor, (tx) => {
+      tx.selection.clear()
     })
-    write(editor, () => {
-      editor.select({
+    write(editor, (tx) => {
+      tx.selection.set({
         anchor: { path: [0, 0], offset: 0 },
         focus: { path: [0, 0], offset: 0 },
       })
@@ -279,7 +335,7 @@ describe('slate-history contract', () => {
     const before = getVisibleState(editor)
 
     write(editor, () => {
-      editor.deleteBackward()
+      Editor.deleteBackward(editor)
     })
     editor.undo()
 
@@ -307,7 +363,7 @@ describe('slate-history contract', () => {
     const before = getVisibleState(editor)
 
     write(editor, () => {
-      editor.deleteBackward()
+      Editor.deleteBackward(editor)
     })
     editor.undo()
 
@@ -324,8 +380,8 @@ describe('slate-history contract', () => {
 
     const before = getVisibleState(editor)
 
-    write(editor, () => {
-      editor.delete({ reverse: true })
+    write(editor, (tx) => {
+      tx.text.delete({ reverse: true })
     })
     editor.undo()
 
@@ -346,8 +402,8 @@ describe('slate-history contract', () => {
 
     const before = getVisibleState(editor)
 
-    write(editor, () => {
-      editor.delete()
+    write(editor, (tx) => {
+      tx.text.delete()
     })
     editor.undo()
 
@@ -374,7 +430,7 @@ describe('slate-history contract', () => {
     const before = getVisibleState(editor)
 
     write(editor, () => {
-      editor.insertBreak()
+      Editor.insertBreak(editor)
     })
     editor.undo()
 

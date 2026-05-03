@@ -6,14 +6,15 @@ import {
   useCallback,
   useMemo,
 } from 'react'
-import { createEditor, Editor, Node, type Element as SlateElement } from 'slate'
+import { createEditor, Node, type Element as SlateElement } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
   type RenderLeafProps,
   Slate,
-  useSlate,
+  useEditor,
+  useEditorSelector,
   withReact,
 } from 'slate-react'
 import { Button, Icon, Toolbar } from './components'
@@ -49,7 +50,7 @@ const RichTextExample = () => {
     []
   )
   const editor = useMemo(
-    () => withHistory(withReact(createEditor<CustomValue>())),
+    () => withHistory(withReact(createEditor<CustomValue>())) as CustomEditor,
     []
   )
 
@@ -72,7 +73,7 @@ const RichTextExample = () => {
       </Toolbar>
       <Editable
         autoFocus
-        onKeyCommand={(event: KeyboardEvent<HTMLDivElement>) => {
+        onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
           for (const hotkey in HOTKEYS) {
             if (isHotkey(hotkey, event as any)) {
               const mark = HOTKEYS[hotkey]
@@ -91,21 +92,44 @@ const RichTextExample = () => {
 }
 
 const toggleBlock = (editor: CustomEditor, format: CustomElementFormat) => {
-  if (isAlignType(format)) {
-    editor.toggleAlignment(format)
-    return
-  }
+  const isActive = isBlockActive(
+    editor,
+    format,
+    isAlignType(format) ? 'align' : 'type'
+  )
+  const isList = isListType(format)
 
-  if (isListType(format)) {
-    editor.toggleList(format)
-    return
-  }
+  editor.update((tx) => {
+    if (isAlignType(format)) {
+      tx.nodes.set(
+        { align: isActive ? undefined : format },
+        { match: (n) => Node.isElement(n) && tx.nodes.isBlock(n) }
+      )
+      return
+    }
 
-  editor.toggleBlock(format)
+    tx.nodes.unwrap({
+      match: (n) =>
+        Node.isElement(n) &&
+        isListType((n as SlateElement).type as CustomElementFormat),
+      split: true,
+    })
+
+    tx.nodes.set(
+      { type: isActive ? 'paragraph' : isList ? 'list-item' : format },
+      { match: (n) => Node.isElement(n) && tx.nodes.isBlock(n) }
+    )
+
+    if (!isActive && isList) {
+      tx.nodes.wrap({ type: format, children: [] })
+    }
+  })
 }
 
 const toggleMark = (editor: CustomEditor, format: CustomTextKey) => {
-  editor.toggleMark(format)
+  editor.update((tx) => {
+    tx.marks.toggle(format)
+  })
 }
 
 const isBlockActive = (
@@ -113,29 +137,31 @@ const isBlockActive = (
   format: CustomElementFormat,
   blockType: 'type' | 'align' = 'type'
 ) => {
-  const selection = editor.getSelection()
+  const selection = editor.read((state) => state.selection.get())
   if (!selection) return false
 
-  const [match] = Array.from(
-    Editor.nodes(editor, {
-      at: Editor.unhangRange(editor, selection),
-      match: (n) => {
-        if (Node.isElement(n)) {
-          if (blockType === 'align' && isAlignElement(n)) {
-            return n.align === format
+  const [match] = editor.read((state) =>
+    Array.from(
+      state.nodes.match({
+        at: state.ranges.unhang(selection),
+        match: (n) => {
+          if (Node.isElement(n)) {
+            if (blockType === 'align' && isAlignElement(n)) {
+              return n.align === format
+            }
+            return n.type === format
           }
-          return n.type === format
-        }
-        return false
-      },
-    })
+          return false
+        },
+      })
+    )
   )
 
   return !!match
 }
 
 const isMarkActive = (editor: CustomEditor, format: CustomTextKey) => {
-  const marks = editor.getMarks()
+  const marks = editor.read((state) => state.marks.get())
   return marks ? marks[format] === true : false
 }
 
@@ -216,14 +242,13 @@ interface BlockButtonProps {
 }
 
 const BlockButton = ({ format, icon }: BlockButtonProps) => {
-  const editor = useSlate<CustomEditor>()
+  const editor = useEditor<CustomEditor>()
+  const active = useEditorSelector<boolean, CustomEditor>((editor) =>
+    isBlockActive(editor, format, isAlignType(format) ? 'align' : 'type')
+  )
   return (
     <Button
-      active={isBlockActive(
-        editor,
-        format,
-        isAlignType(format) ? 'align' : 'type'
-      )}
+      active={active}
       data-test-id={`block-button-${format}`}
       onClick={() => toggleBlock(editor, format)}
       onPointerDown={(event: PointerEvent<HTMLButtonElement>) =>
@@ -241,10 +266,13 @@ interface MarkButtonProps {
 }
 
 const MarkButton = ({ format, icon }: MarkButtonProps) => {
-  const editor = useSlate<CustomEditor>()
+  const editor = useEditor<CustomEditor>()
+  const active = useEditorSelector<boolean, CustomEditor>((editor) =>
+    isMarkActive(editor, format)
+  )
   return (
     <Button
-      active={isMarkActive(editor, format)}
+      active={active}
       data-test-id={`mark-button-${format}`}
       onClick={() => toggleMark(editor, format)}
       onPointerDown={(event: PointerEvent<HTMLButtonElement>) =>

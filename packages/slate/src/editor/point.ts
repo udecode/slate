@@ -1,10 +1,10 @@
 import { Location } from '../interfaces'
-import type { EditorInterface } from '../interfaces/editor'
+import type { EditorStaticApi } from '../interfaces/editor'
 import { Node } from '../interfaces/node'
 import type { Path } from '../interfaces/path'
 import { Range } from '../interfaces/range'
 
-export const point: EditorInterface['point'] = (editor, at, options = {}) => {
+export const point: EditorStaticApi['point'] = (editor, at, options = {}) => {
   const { edge = 'start' } = options
 
   if (Location.isPath(at)) {

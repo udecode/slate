@@ -1,22 +1,22 @@
 # Commands
 
-While editing richtext content, your users will be doing things like inserting text, deleting text, splitting paragraphs, and adding formatting. Under the cover these edits are expressed as operations. At the public API level, write them with `editor.update(...)` and editor methods.
+While editing richtext content, your users will be doing things like inserting text, deleting text, splitting paragraphs, and adding formatting. Under the cover these edits are expressed as operations. At the public API level, write them with `editor.update(...)` and transaction methods.
 
-Commands are the high-level actions that represent a specific intent of the user. They are represented as helper functions on the `Editor` interface. A handful of helpers are included in core for common richtext behaviors, but you are encouraged to write your own that model your specific domain.
+Commands are the high-level actions that represent a specific intent of the user. In Slate, command helpers are ordinary functions that run related transaction writes inside `editor.update(...)`.
 
 For example, here are some of the built-in commands:
 
 ```javascript
-editor.update(() => {
-  editor.insertText('A new string of text to be inserted.')
+editor.update((tx) => {
+  tx.text.insert('A new string of text to be inserted.')
 })
 
-editor.update(() => {
-  editor.deleteBackward('word')
+editor.update((tx) => {
+  tx.text.delete({ reverse: true, unit: 'word' })
 })
 
-editor.update(() => {
-  editor.insertBreak()
+editor.update((tx) => {
+  tx.nodes.split({ always: true })
 })
 ```
 
@@ -30,23 +30,21 @@ Under the covers, Slate takes care of converting each command into a set of low-
 
 ## Custom Commands
 
-When defining custom commands, you can create your own namespace:
+When defining custom commands, pass the editor into a function and keep the writes grouped:
 
 ```javascript
-const MyEditor = {
-  ...Editor,
-
-  insertParagraph(editor) {
-    // ...
-  },
+function insertParagraph(editor) {
+  editor.update((tx) => {
+    tx.nodes.insert({ type: 'paragraph', children: [{ text: '' }] })
+  })
 }
 ```
 
-When writing your own commands, compose primitive editor methods inside one update:
+When writing your own commands, compose transaction methods inside one update:
 
 ```javascript
-editor.update(() => {
-  editor.setNodes(
+editor.update((tx) => {
+  tx.nodes.set(
     { bold: true },
     {
       at: range,
@@ -55,17 +53,17 @@ editor.update(() => {
     }
   )
 
-  editor.wrapNodes(
+  tx.nodes.wrap(
     { type: 'quote', children: [] },
     {
       at: point,
-      match: node => Editor.isBlock(editor, node),
+      match: node => Element.isElement(node) && tx.schema.isBlock(node),
       mode: 'lowest',
     }
   )
 
-  editor.insertText('A new string of text.', { at: path })
+  tx.text.insert('A new string of text.', { at: path })
 })
 ```
 
-Primitive editor methods are designed to be composed together. Keep related writes in the same `editor.update(...)` so selection, operations, history, and React rendering share one commit.
+Transaction methods are designed to be composed together. Keep related writes in the same `editor.update(...)` so selection, operations, history, and React rendering share one commit.

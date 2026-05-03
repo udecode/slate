@@ -1,4 +1,4 @@
-import { Editor, type EditorInterface, type Value } from '../interfaces/editor'
+import { Editor, type EditorStaticApi, type Value } from '../interfaces/editor'
 import type { DescendantIn } from '../interfaces/node'
 import { Node } from '../interfaces/node'
 import { Range } from '../interfaces/range'
@@ -14,4 +14,4 @@ export const fragment = (<V extends Value>(
   }
 
   return Node.fragment(editor, range) as DescendantIn<V>[]
-}) satisfies EditorInterface['fragment']
+}) satisfies EditorStaticApi['fragment']

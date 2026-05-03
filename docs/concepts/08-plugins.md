@@ -1,165 +1,255 @@
 # Plugins
 
-Plugins package editor behavior into named extensions. An extension can add
-domain methods, compose existing editor methods, register capabilities, install
-normalizers, listen to commits, or register command middleware.
+Slate plugins are named editor extensions. They package behavior that should be installed, ordered, and removed as one unit.
 
-Define extensions with `defineEditorExtension(...)` and install them with
-`editor.extend(...)`.
+Use `defineEditorExtension(...)` to define an extension and `editor.extend(...)` to install it.
 
 ```javascript
 import { createEditor, defineEditorExtension } from 'slate'
 
-const images = defineEditorExtension({
-  name: 'images',
-  capabilities: {
-    void: { type: 'image' },
-  },
-  methods(editor) {
-    const nextIsVoid = editor.isVoid
-
-    return {
-      insertImage(url) {
-        editor.update(() => {
-          editor.insertNode({
-            type: 'image',
-            url,
-            children: [{ text: '' }],
-          })
-        })
-      },
-      isVoid(element) {
-        return element.type === 'image' || nextIsVoid(element)
-      },
-    }
-  },
-})
-
 const editor = createEditor()
-const unextendImages = editor.extend(images)
-```
 
-Extensions are named so Slate can compose them deterministically. Dependencies
-run before dependents, even when they are passed in a different order:
-
-```javascript
 const links = defineEditorExtension({
   name: 'links',
-  methods(editor) {
-    const nextIsInline = editor.isInline
-
-    return {
-      isInline(element) {
-        return element.type === 'link' || nextIsInline(element)
-      },
-    }
+  state: {
+    link(state) {
+      return {
+        selectedHref() {
+          const selection = state.selection.get()
+          return selection ? findSelectedLinkHref(selection) : null
+        },
+      }
+    },
+  },
+  tx: {
+    link(tx) {
+      return {
+        setHref(href) {
+          tx.nodes.set({ url: href })
+        },
+      }
+    },
   },
 })
 
+editor.extend(links)
+```
+
+The `state` group is available inside `editor.read(...)`. The `tx` group is available inside `editor.update(...)`.
+
+```javascript
+const href = editor.read((state) => state.link.selectedHref())
+
+editor.update((tx) => {
+  tx.link.setHref('https://example.com')
+})
+```
+
+## Extension Order
+
+Extensions are named so Slate can compose them deterministically. Use `dependencies` when one extension needs another extension installed first.
+
+```javascript
 const mentions = defineEditorExtension({
   name: 'mentions',
   dependencies: ['links'],
-  methods(editor) {
-    const nextIsInline = editor.isInline
-    const nextIsVoid = editor.isVoid
-
-    return {
-      insertMention(character) {
-        editor.update(() => {
-          editor.insertNode({
+  tx: {
+    mention(tx) {
+      return {
+        insert(character) {
+          tx.nodes.insert({
             type: 'mention',
             character,
             children: [{ text: '' }],
           })
-        })
-      },
-      isInline(element) {
-        return element.type === 'mention' || nextIsInline(element)
-      },
-      isVoid(element) {
-        return element.type === 'mention' || nextIsVoid(element)
-      },
-    }
+        },
+      }
+    },
   },
 })
 
 editor.extend([mentions, links])
 ```
 
-## Domain Methods
+Slate installs `links` before `mentions` because `mentions` declares the dependency.
 
-Domain methods should be ordinary editor methods. Put writes inside
-`editor.update(...)` so selection, operations, history, collaboration, and
-rendering observe one commit.
+## Runtime Registration
+
+Use `register(context)` when an extension needs install-time options,
+extension-local runtime state, cleanup, or hooks that share one setup context.
+The returned slots are the same raw Slate slots as top-level `state`, `tx`,
+`commitListeners`, `operationMiddlewares`, and `capabilities`.
 
 ```javascript
-const todos = defineEditorExtension({
-  name: 'todos',
-  methods(editor) {
+const tables = defineEditorExtension({
+  name: 'tables',
+  peerDependencies: ['collaboration'],
+  conflicts: ['legacy-tables'],
+  options: {
+    navigation: 'cell-boundary',
+  },
+  register(context) {
+    const mode = context.runtimeState('text')
+
+    context.signal.addEventListener('abort', () => {
+      mode.set('text')
+    })
+
     return {
-      toggleTodo(checked = true) {
-        editor.update(() => {
-          editor.setNodes({ type: 'todo', checked })
-        })
+      state: {
+        table(state) {
+          return {
+            currentCell() {
+              return mode.get() === 'cell'
+                ? findCurrentCell(state.selection.get())
+                : null
+            },
+          }
+        },
       },
+      tx: {
+        table(tx) {
+          return {
+            insertRow() {
+              tx.nodes.insert({
+                type: 'table-row',
+                children: [{ type: 'table-cell', children: [{ text: '' }] }],
+              })
+            },
+          }
+        },
+      },
+      commitListeners: [
+        (commit) => {
+          if (commit.tags.includes('collaboration')) {
+            syncTableOverlay(commit)
+          }
+          if (commit.selectionChanged) {
+            mode.set('cell')
+          }
+        },
+      ],
     }
   },
 })
 ```
 
-Primitive methods stay flexible for custom node types. Use them inside your
-domain method instead of waiting for Slate core to grow a semantic helper for
-every schema.
+`dependencies` control install order. `peerDependencies` require a companion
+extension without forcing order. `conflicts` prevents incompatible extensions
+from being installed together. The cleanup function returned by
+`editor.extend(...)` aborts `context.signal`, runs registration cleanup, removes
+extension-local state, and unregisters the extension slots.
 
-## Method Composition
+## State And Tx Groups
 
-When an extension changes an existing method, capture the current method from
-the `methods(editor)` factory and call it when the default behavior should
-continue.
+Use `state` for read helpers.
 
 ```javascript
-const smartLinks = defineEditorExtension({
-  name: 'smart-links',
-  methods(editor) {
-    const nextInsertText = editor.insertText
+const comments = defineEditorExtension({
+  name: 'comments',
+  state: {
+    comments(state) {
+      return {
+        hasSelection() {
+          return state.selection.get() !== null
+        },
+      }
+    },
+  },
+})
+```
 
-    return {
-      insertText(text, options) {
-        if (isUrl(text)) {
-          editor.update(() => {
-            editor.insertNode({
-              type: 'link',
-              url: text,
-              children: [{ text }],
-            })
+Use `tx` for write helpers.
+
+```javascript
+const media = defineEditorExtension({
+  name: 'media',
+  tx: {
+    media(tx) {
+      return {
+        insertImage(src) {
+          tx.nodes.insert({
+            type: 'image',
+            src,
+            children: [{ text: '' }],
           })
-          return
-        }
-
-        nextInsertText(text, options)
-      },
-    }
+        },
+      }
+    },
   },
 })
 ```
 
-This keeps extension order explicit and avoids ad-hoc method replacement in app
-setup code.
+This split matters. Read helpers cannot accidentally write, and write helpers can read transaction-local state after earlier writes in the same update.
+
+## Element Specs
+
+Use `elements` when an extension owns editor behavior for an element type.
+
+```javascript
+import { defineEditorExtension, elementProperty } from 'slate'
+
+const tables = defineEditorExtension({
+  name: 'tables',
+  elements: [
+    {
+      type: 'table-cell',
+      isolating: true,
+      keyboardSelectable: true,
+      properties: {
+        colSpan: elementProperty.number({ default: 1 }),
+        rowSpan: elementProperty.number({ default: 1 }),
+      },
+    },
+  ],
+  state: {
+    table(state) {
+      return {
+        selectedCellColSpan(element) {
+          return state.schema.getElementProperty(element, 'colSpan')
+        },
+      }
+    },
+  },
+})
+```
+
+Specs can describe behavior such as `inline`, `void`, `atom`, `isolating`,
+`keyboardSelectable`, `readOnly`, `selectable`, and `markableVoid`.
+`void: 'editable-island'` keeps the element void for rendering policy while
+allowing Slate cursor projection to enter its text children.
+
+`properties` are descriptors for extension-owned element fields. A descriptor
+can provide a default and equality function. Defaults are read through
+`state.schema` or `tx.schema`; they do not mutate the document unless a
+transaction writes the property.
+
+## Other Extension Slots
+
+Extensions can also register lower-level runtime hooks:
+
+| Slot | Use it for |
+| --- | --- |
+| `elements` | element schema specs |
+| `normalizers` | named normalizer entries |
+| `commitListeners` | observing committed changes |
+| `operationMiddlewares` | operation import/export policy |
+| `capabilities` | extension-owned metadata |
+
+Keep product-specific APIs above these raw slots. Plate, for example, can build richer plugin conventions on top of Slate's smaller extension substrate.
 
 ## Helper Namespaces
 
-You can still create helper namespaces for pure checks and shared utilities:
+You can still create plain helper namespaces for stateless checks.
 
 ```javascript
 import { Element } from 'slate'
 
 const MyElement = {
-  ...Element,
-  isImageElement(value) {
+  isImage(value) {
     return Element.isElement(value) && value.type === 'image'
   },
 }
 ```
 
-Use namespaces for stateless helpers. Use `editor.extend(...)` for behavior
-that changes the editor.
+Use helper namespaces for pure utilities. Use `editor.extend(...)` for behavior that changes how the editor reads, writes, normalizes, or renders content.

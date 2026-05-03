@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 jsx
 
 export const run = (editor) => {
-  editor.move({ edge: 'focus', reverse: true })
+  editor.selection.move({ edge: 'focus', reverse: true })
 }
 export const input = (
   <editor>

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { Editor } from 'slate/internal'
 
-import { createEditor, type Descendant, Editor } from '../src'
+import { createEditor, type Descendant } from '../src'
 import { setEditorTargetRuntime } from '../src/internal'
 
 const paragraph = (text: string): Descendant => ({
@@ -39,7 +40,9 @@ describe('editor methods', () => {
       },
     })
 
-    editor.addMark('bold', true)
+    editor.update((tx) => {
+      tx.marks.add('bold', true)
+    })
 
     assert.equal(calls, 1)
     assert.deepEqual(Editor.getChildren(editor), [
@@ -80,7 +83,9 @@ describe('editor methods', () => {
       },
     })
 
-    editor.removeMark('bold')
+    editor.update((tx) => {
+      tx.marks.remove('bold')
+    })
 
     assert.equal(calls, 1)
     assert.deepEqual(Editor.getChildren(editor), [
@@ -115,7 +120,9 @@ describe('editor methods', () => {
       },
     })
 
-    editor.toggleMark('bold')
+    editor.update((tx) => {
+      tx.marks.toggle('bold', true)
+    })
 
     assert.deepEqual(Editor.getChildren(editor), [
       {
@@ -125,144 +132,6 @@ describe('editor methods', () => {
       {
         type: 'paragraph',
         children: [{ text: 'two', bold: true }],
-      },
-    ])
-  })
-
-  it('toggles blocks from the transaction-resolved implicit target', () => {
-    const editor = createEditor()
-
-    Editor.replace(editor, {
-      children: [
-        {
-          type: 'heading-one',
-          children: [{ text: 'one' }],
-        },
-        paragraph('two'),
-      ],
-      selection: {
-        anchor: { path: [0, 0], offset: 0 },
-        focus: { path: [0, 0], offset: 3 },
-      },
-    })
-
-    setEditorTargetRuntime(editor, {
-      resolveImplicitTarget() {
-        return {
-          anchor: { path: [1, 0], offset: 0 },
-          focus: { path: [1, 0], offset: 3 },
-        }
-      },
-    })
-
-    editor.toggleBlock('heading-one')
-
-    assert.deepEqual(Editor.getChildren(editor), [
-      {
-        type: 'heading-one',
-        children: [{ text: 'one' }],
-      },
-      {
-        type: 'heading-one',
-        children: [{ text: 'two' }],
-      },
-    ])
-  })
-
-  it('toggles alignment from the transaction-resolved implicit target', () => {
-    const editor = createEditor()
-
-    Editor.replace(editor, {
-      children: [
-        {
-          type: 'paragraph',
-          align: 'center',
-          children: [{ text: 'one' }],
-        },
-        paragraph('two'),
-      ],
-      selection: {
-        anchor: { path: [0, 0], offset: 0 },
-        focus: { path: [0, 0], offset: 3 },
-      },
-    })
-
-    setEditorTargetRuntime(editor, {
-      resolveImplicitTarget() {
-        return {
-          anchor: { path: [1, 0], offset: 0 },
-          focus: { path: [1, 0], offset: 3 },
-        }
-      },
-    })
-
-    editor.toggleAlignment('center')
-
-    assert.deepEqual(Editor.getChildren(editor), [
-      {
-        type: 'paragraph',
-        align: 'center',
-        children: [{ text: 'one' }],
-      },
-      {
-        type: 'paragraph',
-        align: 'center',
-        children: [{ text: 'two' }],
-      },
-    ])
-  })
-
-  it('toggles lists from the transaction-resolved implicit target', () => {
-    const editor = createEditor()
-
-    Editor.replace(editor, {
-      children: [
-        {
-          type: 'bulleted-list',
-          children: [
-            {
-              type: 'list-item',
-              children: [{ text: 'one' }],
-            },
-          ],
-        },
-        paragraph('two'),
-      ],
-      selection: {
-        anchor: { path: [0, 0, 0], offset: 0 },
-        focus: { path: [0, 0, 0], offset: 3 },
-      },
-    })
-
-    setEditorTargetRuntime(editor, {
-      resolveImplicitTarget() {
-        return {
-          anchor: { path: [1, 0], offset: 0 },
-          focus: { path: [1, 0], offset: 3 },
-        }
-      },
-    })
-
-    editor.toggleList('bulleted-list')
-
-    assert.deepEqual(Editor.getChildren(editor), [
-      {
-        type: 'bulleted-list',
-        children: [
-          {
-            type: 'list-item',
-            children: [{ text: 'one' }],
-          },
-        ],
-      },
-      {
-        type: 'bulleted-list',
-        children: [
-          {
-            type: 'list-item',
-            children: [{ text: 'two' }],
-          },
-        ],
       },
     ])
   })

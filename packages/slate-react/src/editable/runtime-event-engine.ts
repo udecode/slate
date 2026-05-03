@@ -1,12 +1,12 @@
 import {
   type ComponentPropsWithRef,
   type FormEvent,
-  type KeyboardEvent,
   type InputEvent as ReactInputEvent,
   type RefObject,
   useMemo,
 } from 'react'
-import type { Editor, Range, RuntimeId } from 'slate'
+import type { Range, RuntimeId } from 'slate'
+import type { EditableKeyDownHandler } from '../components/editable'
 import type { MountedTopLevelRange } from '../large-document/large-document-commands'
 import type { ReactEditor } from '../plugin/react-editor'
 import type { DOMRepairQueue } from './dom-repair-queue'
@@ -21,6 +21,7 @@ import { useRuntimeBrowserHandle } from './runtime-browser-handle-events'
 import { useRuntimeClipboardEvents } from './runtime-clipboard-events'
 import { useRuntimeCompositionEvents } from './runtime-composition-events'
 import { useRuntimeDragEvents } from './runtime-drag-events'
+import type { Editor } from './runtime-editor-api'
 import { useRuntimeFocusMouseEvents } from './runtime-focus-mouse-events'
 import { useRuntimeInputEvents } from './runtime-input-events'
 import type { useRuntimeKernelTraceEngine } from './runtime-kernel-trace'
@@ -42,10 +43,6 @@ type ApplyInputRules = ({
   selection: Range | null
 }) => boolean
 
-type EditableKeyCommandHandler = (
-  event: KeyboardEvent<HTMLDivElement>
-) => boolean | EditableRepairRequest | void
-
 type EditableRootCallbackProps = Pick<
   ComponentPropsWithRef<'div'>,
   | 'onBeforeInput'
@@ -62,7 +59,6 @@ type EditableRootCallbackProps = Pick<
   | 'onDrop'
   | 'onFocus'
   | 'onInput'
-  | 'onKeyDown'
   | 'onMouseDown'
   | 'onMouseUp'
   | 'onPaste'
@@ -115,7 +111,7 @@ export const useEditableEventRuntime = ({
   isShellBackedSelection,
   largeDocument,
   onDOMBeforeInput,
-  onKeyCommand,
+  onKeyDown,
   onUserInput,
   processing,
   readOnly,
@@ -144,11 +140,12 @@ export const useEditableEventRuntime = ({
   inputController: EditableInputController
   isShellBackedSelection: (selection: Range | null) => boolean
   largeDocument: {
+    mode: 'dom-present' | 'shell'
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
   } | null
   onDOMBeforeInput?: (event: InputEvent) => boolean | void
-  onKeyCommand?: EditableKeyCommandHandler
+  onKeyDown?: EditableKeyDownHandler
   onUserInput: () => void
   processing: RefObject<boolean>
   readOnly: boolean
@@ -206,7 +203,7 @@ export const useEditableEventRuntime = ({
       | undefined,
     onDOMBeforeInput,
     onInput: callbacks.onInput,
-    onKeyDown: callbacks.onKeyDown,
+    onKeyDown,
     onUserInput,
     processing,
     readOnly,
@@ -273,17 +270,18 @@ export const useEditableEventRuntime = ({
     readOnly,
     selection: runtime.selection,
     state,
+    syncDOMSelectionToEditor,
     trace: runtime.trace,
   })
   const keyboardHandlers = useRuntimeKeyboardEvents({
     editor,
     inputController,
     largeDocument,
-    onKeyCommand,
-    onKeyDown: callbacks.onKeyDown,
+    onKeyDown,
     readOnly,
     runtime,
     setExplicitShellBackedSelection,
+    shellBackedSelection,
   })
   const handlers = useMemo(
     () => ({

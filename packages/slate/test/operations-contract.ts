@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-
-import { createEditor, type Descendant, Editor, type Operation } from '../src'
+import { Editor } from 'slate/internal'
+import { createEditor, type Descendant, type Operation } from '../src'
+import { extendTestSchema } from './support/schema'
 
 const moveChildren = (): Descendant[] => [
   {
@@ -23,7 +24,9 @@ const applyOperation = (
   editor: ReturnType<typeof createEditor>,
   operation: Operation
 ) => {
-  editor.applyOperations([operation])
+  editor.update((tx) => {
+    tx.operations.replay([operation])
+  })
 }
 
 describe('slate operations contract', () => {
@@ -234,7 +237,7 @@ describe('slate operations contract', () => {
 
   it('splits an element node with element-level split_node properties', () => {
     const editor = createEditor()
-    editor.isInline = (element) => element.type === 'inline'
+    extendTestSchema(editor, { type: 'inline', inline: true })
 
     Editor.replace(editor, {
       children: [
@@ -349,7 +352,7 @@ describe('slate operations contract', () => {
 
   it('rebases selection into the adjacent inline when remove_node deletes the selected trailing spacer text', () => {
     const editor = createEditor()
-    editor.isInline = (element) => element.type === 'inline'
+    extendTestSchema(editor, { type: 'inline', inline: true })
 
     Editor.replace(editor, {
       children: [
@@ -486,7 +489,7 @@ describe('slate operations contract', () => {
 
   it('splits an element node with empty split_node properties and clears the right branch props', () => {
     const editor = createEditor()
-    editor.isInline = (element) => element.type === 'inline'
+    extendTestSchema(editor, { type: 'inline', inline: true })
 
     Editor.replace(editor, {
       children: [

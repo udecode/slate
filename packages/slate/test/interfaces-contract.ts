@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { Editor } from 'slate/internal'
 
 import { createEditor, Element, Node, Operation, Range, Text } from '../src'
 
@@ -79,8 +80,8 @@ describe('slate interfaces contract', () => {
     editor.exec = () => {}
 
     assert.equal('apply' in editor, false)
-    assert.equal(Array.isArray(editor.getChildren()), true)
-    assert.equal(editor.getSelection(), null)
+    assert.equal(Array.isArray(editor.read((state) => state.value.get())), true)
+    assert.equal(Editor.getSelection(editor), null)
     assert.equal('children' in editor, false)
     assert.equal('selection' in editor, false)
   })

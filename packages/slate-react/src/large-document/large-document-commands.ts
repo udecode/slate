@@ -1,5 +1,5 @@
 import type { Editor, EditorSnapshot, RuntimeId } from 'slate'
-import { Editor as SlateEditor } from 'slate'
+import { Editor as SlateEditor } from '../editable/runtime-editor-api'
 
 export type MountedTopLevelRange = {
   endIndex: number
@@ -16,8 +16,8 @@ const samePoint = (
 ) => left.offset === right.offset && samePath(left.path, right.path)
 
 export const getFullDocumentRange = (editor: Editor) => ({
-  anchor: SlateEditor.start(editor, []),
-  focus: SlateEditor.end(editor, []),
+  anchor: SlateEditor.point(editor, [], { edge: 'start' }),
+  focus: SlateEditor.point(editor, [], { edge: 'end' }),
 })
 
 export const isFullDocumentSelection = (

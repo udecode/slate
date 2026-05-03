@@ -1,9 +1,5 @@
 import { Descendant, Range, Element } from 'slate'
-import {
-  ReactEditor,
-  type RenderElementProps,
-  type RenderVoidProps,
-} from 'slate-react'
+import type { ReactEditor, RenderElementProps } from 'slate-react'
 import { HistoryEditor } from 'slate-history'
 
 export type BlockQuoteElement = {
@@ -181,7 +177,6 @@ export type EmptyText = {
 }
 
 export type RenderElementPropsFor<T extends Element> = RenderElementProps<any>
-export type RenderVoidPropsFor<T extends Element> = RenderVoidProps<T>
 
 export type CustomEditor = ReactEditor<CustomValue> &
   HistoryEditor<CustomValue> & {

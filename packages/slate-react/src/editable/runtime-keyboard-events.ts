@@ -1,39 +1,36 @@
 import { type KeyboardEvent, useCallback } from 'react'
 import type { RuntimeId } from 'slate'
+import type { EditableKeyDownHandler } from '../components/editable'
 import type { MountedTopLevelRange } from '../large-document/large-document-commands'
 import type { ReactEditor } from '../plugin/react-editor'
 import { prepareEditableKeyDownKernel } from './editing-kernel'
-import type { EditableRepairRequest } from './input-controller'
 import { useEditableKeyboardHandler } from './input-router'
 import type { EditableInputController } from './input-state'
 import { applyEditableKeyDown } from './keyboard-input-strategy'
 import type { EditableEventRuntimeCore } from './runtime-event-engine'
 
-type EditableKeyCommandHandler = (
-  event: KeyboardEvent<HTMLDivElement>
-) => boolean | EditableRepairRequest | void
-
 export const useRuntimeKeyboardEvents = ({
   editor,
   inputController,
   largeDocument,
-  onKeyCommand,
   onKeyDown,
   readOnly,
   runtime,
   setExplicitShellBackedSelection,
+  shellBackedSelection,
 }: {
   editor: ReactEditor
   inputController: EditableInputController
   largeDocument: {
+    mode: 'dom-present' | 'shell'
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
   } | null
-  onKeyCommand?: EditableKeyCommandHandler
-  onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => boolean | void
+  onKeyDown?: EditableKeyDownHandler
   readOnly: boolean
   runtime: EditableEventRuntimeCore
   setExplicitShellBackedSelection: (nextValue: boolean) => void
+  shellBackedSelection: boolean
 }) => {
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
@@ -52,11 +49,11 @@ export const useRuntimeKeyboardEvents = ({
         event,
         forceRender: runtime.repair.forceRender,
         largeDocument,
-        onKeyCommand,
         onKeyDown,
         readOnly,
         setExplicitShellBackedSelection,
         setComposing: runtime.composition.setComposing,
+        shellBackedSelection,
       })
       if (keyDownWorkerResult.repair) {
         runtime.repair.requestEditableRepair(keyDownWorkerResult.repair)
@@ -80,11 +77,11 @@ export const useRuntimeKeyboardEvents = ({
       editor,
       inputController,
       largeDocument,
-      onKeyCommand,
       onKeyDown,
       readOnly,
       runtime,
       setExplicitShellBackedSelection,
+      shellBackedSelection,
     ]
   )
 

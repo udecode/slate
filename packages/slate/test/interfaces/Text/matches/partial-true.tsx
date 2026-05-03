@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 import { Text } from 'slate'
 
 export const input = {

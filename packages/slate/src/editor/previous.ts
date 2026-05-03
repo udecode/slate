@@ -1,8 +1,9 @@
-import { Editor, type EditorInterface } from '../interfaces/editor'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
 import { Location, type Span } from '../interfaces/location'
 import { Node } from '../interfaces/node'
+import { nodes } from './nodes'
 
-export const previous: EditorInterface['previous'] = (editor, options = {}) => {
+export const previous: EditorStaticApi['previous'] = (editor, options = {}) => {
   const { mode = 'lowest', voids = false } = options
   let { match, at = Editor.getSnapshot(editor).selection } = options
 
@@ -38,7 +39,7 @@ export const previous: EditorInterface['previous'] = (editor, options = {}) => {
     }
   }
 
-  const [previous] = Editor.nodes(editor, {
+  const [previous] = nodes(editor, {
     reverse: true,
     at: span,
     match,

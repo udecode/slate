@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 jsx
 
 export const run = (editor) => {
-  editor.splitNodes()
+  editor.nodes.split()
 }
 export const input = (
   <editor>

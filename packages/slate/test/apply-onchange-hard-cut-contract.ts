@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { Editor } from 'slate/internal'
 
 import {
   createEditor,
   type Descendant,
-  Editor,
   type Editor as EditorType,
 } from '../src'
 
@@ -35,7 +35,7 @@ describe('apply/onChange hard cuts', () => {
     assert.equal((editor as Record<string, unknown>).apply, undefined)
   })
 
-  it('imports operations through applyOperations and publishes one commit', () => {
+  it('imports operations through tx.operations.replay and publishes one commit', () => {
     const editor = createEditor()
     const commits: NonNullable<ReturnType<typeof Editor.getLastCommit>>[] = []
     const unsubscribe = editor.subscribe((_snapshot, commit) => {
@@ -44,7 +44,7 @@ describe('apply/onChange hard cuts', () => {
       }
     })
 
-    editor.replace({
+    Editor.replace(editor, {
       children: [paragraph('one')],
       selection: {
         anchor: { path: [0, 0], offset: 3 },
@@ -54,17 +54,19 @@ describe('apply/onChange hard cuts', () => {
     })
     commits.length = 0
 
-    editor.applyOperations(
-      [
-        {
-          type: 'insert_text',
-          path: [0, 0],
-          offset: 3,
-          text: '!',
-        },
-      ],
-      { tag: 'remote-import' }
-    )
+    editor.update((tx) => {
+      tx.operations.replay(
+        [
+          {
+            type: 'insert_text',
+            path: [0, 0],
+            offset: 3,
+            text: '!',
+          },
+        ],
+        { tag: 'remote-import' }
+      )
+    })
 
     unsubscribe()
 
@@ -81,7 +83,7 @@ describe('apply/onChange hard cuts', () => {
     const editor = createEditor()
     const events: string[] = []
 
-    editor.replace({
+    Editor.replace(editor, {
       children: [paragraph('one')],
       selection: {
         anchor: { path: [0, 0], offset: 3 },
@@ -102,9 +104,9 @@ describe('apply/onChange hard cuts', () => {
       }
     )
 
-    editor.update(() => {
-      editor.insertText('!')
-      editor.insertText('?')
+    editor.update((tx) => {
+      tx.text.insert('!')
+      tx.text.insert('?')
     })
 
     unsubscribeSubscribe()

@@ -8,7 +8,7 @@ import _ from 'lodash'
 import { Text } from 'slate'
 
 export const run = (editor) => {
-  editor.setNodes(
+  editor.nodes.set(
     { a: { b: 2, c: 3 } },
     { at: [0, 0], match: Text.isText, merge: (n, p) => _.defaultsDeep(p, n) }
   )

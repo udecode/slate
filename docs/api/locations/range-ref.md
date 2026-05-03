@@ -1,6 +1,6 @@
 # RangeRef API
 
-`RangeRef` objects keep a specific range in a document synced over time as new operations are applied to the editor. It is created using the `Editor.rangeRef` method. You can access their property `current` at any time for the up-to-date `Range` value. When you no longer need to track this location, call `unref()` to free the resources. The `affinity` refers to the direction the `RangeRef` will go when a user inserts content at the edges of the `Range`. `inward` means that the `Range` tends to stay the same size when content is inserted at its edges, and `outward` means that the `Range` tends to grow when content is inserted at its edges.
+`RangeRef` objects keep a specific range synced over time as operations are applied. They are low-level location values used by Slate internals and advanced runtime code. You can access their property `current` for the up-to-date `Range` value. When you no longer need to track this location, call `unref()` to free the resources. The `affinity` refers to the direction the `RangeRef` will go when content is inserted at the edges of the `Range`. `inward` means that the `Range` tends to stay the same size when content is inserted at its edges, and `outward` means that the `Range` tends to grow when content is inserted at its edges.
 
 ```typescript
 interface RangeRef {
@@ -8,22 +8,6 @@ interface RangeRef {
   affinity: 'forward' | 'backward' | 'outward' | 'inward' | null
   unref(): Range | null
 }
-```
-
-For example:
-
-```typescript
-const selectionRef = Editor.rangeRef(editor, Editor.getSelection(editor), {
-  affinity: 'inward',
-})
-// Allow the user to do stuff which might change the selection
-editor.update(() => {
-  editor.unwrapNodes()
-  const selection = selectionRef.unref()
-  if (selection) {
-    editor.select(selection)
-  }
-})
 ```
 
 - [Instance methods](range-ref.md#instance-methods)

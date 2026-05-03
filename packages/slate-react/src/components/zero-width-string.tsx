@@ -1,5 +1,3 @@
-import { createElement } from 'react'
-
 export const ZeroWidthString = ({
   length = 0,
   isLineBreak = false,
@@ -26,14 +24,18 @@ export const ZeroWidthString = ({
 
   if (isLineBreak) {
     if (includeSentinel) {
-      return createElement('span', attributes, '\uFEFF', createElement('br'))
+      return (
+        <span {...attributes}>
+          {'\uFEFF'}
+          <br />
+        </span>
+      )
     }
 
-    return createElement('span', {
-      ...attributes,
-      dangerouslySetInnerHTML: { __html: '<br />' },
-    })
+    return (
+      <span {...attributes} dangerouslySetInnerHTML={{ __html: '<br />' }} />
+    )
   }
 
-  return createElement('span', attributes, '\uFEFF')
+  return <span {...attributes}>{'\uFEFF'}</span>
 }

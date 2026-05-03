@@ -1,18 +1,20 @@
+import { node as getNode } from '../editor/node'
 import {
   type Descendant,
-  Editor,
   Element,
   Node,
   type NodeEntry,
   type Operation,
   Text,
 } from '../interfaces'
+import { Editor } from '../interfaces/editor'
 import {
   insertNodes,
   mergeNodes,
   removeNodes,
   wrapNodes,
 } from '../transforms-node'
+import { getEditorSchema } from './editor-runtime'
 
 const resolveFallbackElement = (
   fallbackElement: NormalizeNodeOptions['fallbackElement']
@@ -37,14 +39,15 @@ const shouldHaveInlineChildren = (editor: Editor, node: Editor | Element) => {
   const firstChild = getNodeChildren(editor, node)[0]
 
   return (
-    editor.isInline(node) ||
+    getEditorSchema(editor).isInline(node) ||
     Text.isText(firstChild) ||
-    (Element.isElement(firstChild) && editor.isInline(firstChild))
+    (Element.isElement(firstChild) &&
+      getEditorSchema(editor).isInline(firstChild))
   )
 }
 
 const isInlineChild = (editor: Editor, node: Descendant) =>
-  Element.isElement(node) && editor.isInline(node)
+  Element.isElement(node) && getEditorSchema(editor).isInline(node)
 
 const isTextChild = (
   node: Descendant
@@ -72,7 +75,7 @@ const normalizeExplicitInlineChildren = (
   let currentNode: Editor | Element = node
 
   const refreshNode = () => {
-    currentNode = Editor.node(editor, [...path])[0] as Editor | Element
+    currentNode = getNode(editor, [...path])[0] as Editor | Element
   }
 
   while (true) {

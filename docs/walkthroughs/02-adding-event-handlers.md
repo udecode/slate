@@ -77,9 +77,9 @@ const App = () => {
           if (event.key === '&') {
             // Prevent the ampersand character from being inserted.
             event.preventDefault()
-            // Execute the `insertText` method when the event occurs.
-            editor.update(() => {
-              editor.insertText('and')
+            // Execute the transaction text method when the event occurs.
+            editor.update((tx) => {
+              tx.text.insert('and')
             })
           }
         }}

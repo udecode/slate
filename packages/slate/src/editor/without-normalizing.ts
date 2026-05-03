@@ -3,9 +3,9 @@ import {
   getLatestOperation,
   getOperationCount,
 } from '../core/public-state'
-import { Editor, type EditorInterface } from '../interfaces/editor'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
 
-export const withoutNormalizing: EditorInterface['withoutNormalizing'] = (
+export const withoutNormalizing: EditorStaticApi['withoutNormalizing'] = (
   editor,
   fn
 ) => {

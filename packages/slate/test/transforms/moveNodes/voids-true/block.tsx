@@ -12,7 +12,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.moveNodes({
+  editor.nodes.move({
     at: [1, 0],
     to: [2, 0],
     voids: true,

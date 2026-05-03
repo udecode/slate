@@ -8,16 +8,19 @@ import {
 } from '../annotation-store'
 import { useIsomorphicLayoutEffect } from './use-isomorphic-layout-effect'
 
-export const useSlateAnnotationStore = <T extends Record<string, unknown>>(
+export const useSlateAnnotationStore = <
+  TData = unknown,
+  TProjection extends Record<string, unknown> = Record<string, unknown>,
+>(
   editor: Editor,
-  annotations: readonly SlateAnnotation<T>[]
-): SlateAnnotationStore<T> => {
+  annotations: readonly SlateAnnotation<TData, TProjection>[]
+): SlateAnnotationStore<TData, TProjection> => {
   const annotationsRef = useRef(annotations)
   annotationsRef.current = annotations
 
   const storeRef = useRef<{
     editor: Editor
-    store: SlateAnnotationStore<T>
+    store: SlateAnnotationStore<TData, TProjection>
   } | null>(null)
 
   if (!storeRef.current || storeRef.current.editor !== editor) {

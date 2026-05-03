@@ -1,7 +1,19 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { Editor } from 'slate/internal'
 
-import { createEditor, type Descendant, Editor, type Operation } from '../src'
+import { createEditor, type Descendant, type Operation } from '../src'
+import { runEditorTransaction as runInternalEditorTransaction } from '../src/core/public-state'
+
+const runEditorTransaction = (
+  editor: Parameters<typeof runInternalEditorTransaction>[0],
+  fn: Parameters<typeof runInternalEditorTransaction>[1],
+  options: Parameters<typeof runInternalEditorTransaction>[2] = {}
+) =>
+  runInternalEditorTransaction(editor, fn, {
+    authority: 'explicit',
+    ...options,
+  })
 
 const paragraph = (
   text: string,
@@ -29,7 +41,7 @@ const runManualTransaction = (
   editor: ReturnType<typeof createEditor>,
   operations: Operation[]
 ) => {
-  Editor.withTransaction(editor, (tx) => {
+  editor.update((tx) => {
     for (const operation of clone(operations)) {
       tx.apply(operation)
     }
@@ -48,26 +60,18 @@ const getVisibleState = (editor: ReturnType<typeof createEditor>) => {
 }
 
 describe('slate public accessor + transaction seam', () => {
-  it('getChildren and replace are the public snapshot state path', () => {
-    const editor = createEditor() as ReturnType<typeof createEditor> &
-      Record<string, unknown>
-    const calls: string[] = []
-    const originalGetChildren = editor.getChildren
+  it('read and replace are the public snapshot state path', () => {
+    const editor = createEditor()
     const value = [paragraph('one')]
 
-    editor.getChildren = () => {
-      calls.push('get')
-      return originalGetChildren()
-    }
-
     Editor.replace(editor, { children: value, selection: null, marks: null })
-    const currentChildren = editor.getChildren()
+    const currentChildren = editor.read((state) => state.value.get())
 
     assert.deepEqual(currentChildren, value)
-    assert.equal(calls.includes('get'), true)
     assert.equal(Editor.isEditor(editor, { deep: true }), true)
     assert.deepEqual(Editor.getChildren(editor), value)
     assert.equal('children' in editor, false)
+    assert.equal('getChildren' in editor, false)
   })
 
   it('does not expose setChildren as an overrideable public state method', () => {
@@ -81,7 +85,7 @@ describe('slate public accessor + transaction seam', () => {
     assert.deepEqual(Editor.getChildren(editor), value)
   })
 
-  it('withTransaction keeps direct replacement draft-visible and publishes once on exit', () => {
+  it('internal transaction keeps direct replacement draft-visible and publishes once on exit', () => {
     const editor = createEditor()
     const publishedStates: ReturnType<typeof getVisibleState>[] = []
 
@@ -93,7 +97,7 @@ describe('slate public accessor + transaction seam', () => {
 
     publishedStates.length = 0
 
-    Editor.withTransaction(editor, (transaction) => {
+    runEditorTransaction(editor, (transaction) => {
       Editor.replace(editor, {
         children: [paragraph('replacement')],
         selection: null,
@@ -132,7 +136,7 @@ describe('slate public accessor + transaction seam', () => {
     ])
   })
 
-  it('applyBatch matches manual withTransaction for mixed text, selection, and node ops', () => {
+  it('applyBatch matches manual transaction for mixed text, selection, and node ops', () => {
     const children = [paragraph('abcd')]
     const selection = {
       anchor: { path: [0, 0], offset: 0 },
@@ -171,7 +175,9 @@ describe('slate public accessor + transaction seam', () => {
     batchEditor.select(selection)
     manualEditor.select(selection)
 
-    batchEditor.applyOperations(clone(operations))
+    batchEditor.update((tx) => {
+      tx.operations.replay(clone(operations))
+    })
     runManualTransaction(manualEditor, operations)
 
     assert.deepEqual(
@@ -191,7 +197,7 @@ describe('slate public accessor + transaction seam', () => {
     })
   })
 
-  it('applyBatch matches manual withTransaction for duplicate exact-path set_node writes', () => {
+  it('applyBatch matches manual transaction for duplicate exact-path set_node writes', () => {
     const children = [paragraph('one'), paragraph('two'), paragraph('three')]
     const batchEditor = createEditor()
     const manualEditor = createEditor()
@@ -213,7 +219,9 @@ describe('slate public accessor + transaction seam', () => {
     replaceChildren(batchEditor, children)
     replaceChildren(manualEditor, children)
 
-    batchEditor.applyOperations(clone(operations))
+    batchEditor.update((tx) => {
+      tx.operations.replay(clone(operations))
+    })
     runManualTransaction(manualEditor, operations)
 
     assert.deepEqual(
@@ -232,7 +240,7 @@ describe('slate public accessor + transaction seam', () => {
     ])
   })
 
-  it('applyBatch matches manual withTransaction for structural insert, move, and set batches', () => {
+  it('applyBatch matches manual transaction for structural insert, move, and set batches', () => {
     const children = [paragraph('zero'), paragraph('one')]
     const batchEditor = createEditor()
     const manualEditor = createEditor()
@@ -258,7 +266,9 @@ describe('slate public accessor + transaction seam', () => {
     replaceChildren(batchEditor, children)
     replaceChildren(manualEditor, children)
 
-    batchEditor.applyOperations(clone(operations))
+    batchEditor.update((tx) => {
+      tx.operations.replay(clone(operations))
+    })
     runManualTransaction(manualEditor, operations)
 
     assert.deepEqual(
@@ -276,7 +286,7 @@ describe('slate public accessor + transaction seam', () => {
     ])
   })
 
-  it('withTransaction rolls back staged changes when a later operation throws', () => {
+  it('internal transaction rolls back staged changes when a later operation throws', () => {
     const editor = createEditor()
 
     replaceChildren(editor, [paragraph('one'), paragraph('two')])
@@ -284,7 +294,7 @@ describe('slate public accessor + transaction seam', () => {
     const before = getVisibleState(editor)
 
     assert.throws(() => {
-      Editor.withTransaction(editor, (transaction) => {
+      runEditorTransaction(editor, (transaction) => {
         transaction.apply({
           type: 'set_node',
           path: [0],

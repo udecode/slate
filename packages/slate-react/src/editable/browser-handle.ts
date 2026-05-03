@@ -1,6 +1,14 @@
-import { Editor, Range } from 'slate'
-
-import { didSyncTextPathToDOM } from '../hooks/use-slate-node-ref'
+import {
+  type EditorApplyOperationsOptions,
+  type Operation,
+  type Path,
+  Range,
+  type RuntimeId,
+} from 'slate'
+import {
+  didSyncTextPathToDOM,
+  getSlateNodeElementByPath,
+} from '../hooks/use-slate-node-ref'
 import type { ReactEditor } from '../plugin/react-editor'
 import {
   beginEditableEventFrame,
@@ -10,6 +18,7 @@ import {
 } from './editing-kernel'
 import type { EditableInputController } from './input-state'
 import { applyEditableCommand } from './mutation-controller'
+import { Editor } from './runtime-editor-api'
 import { readRuntimeSelection } from './runtime-selection-state'
 import {
   executeEditableSelectionImport,
@@ -19,6 +28,10 @@ import {
 } from './selection-controller'
 
 export type SlateBrowserHandle = {
+  applyOperations: (
+    operations: readonly Operation[],
+    options?: EditorApplyOperationsOptions
+  ) => void
   createRangeRef: (
     selection: Range,
     affinity?: 'forward' | 'backward' | 'outward' | 'inward'
@@ -28,6 +41,9 @@ export type SlateBrowserHandle = {
   deleteFragment: () => void
   getKernelTrace: () => unknown[]
   getLastCommit: () => unknown
+  getElementByPath: (path: Path) => HTMLElement | null
+  getPathByRuntimeId: (runtimeId: RuntimeId) => Path | null
+  getRuntimeId: (path: Path) => RuntimeId | null
   getSelection: () => Range | null
   getText: () => string
   importDOMSelection: () => Range | null
@@ -35,6 +51,7 @@ export type SlateBrowserHandle = {
   insertData: (payload: { html?: string | null; text?: string }) => void
   insertText: (text: string) => void
   redo: () => void
+  resolveRangeRef: (id: string) => Range | null
   selectRange: (selection: Range) => void
   undo: () => void
   unrefRangeRef: (id: string) => Range | null
@@ -141,6 +158,12 @@ export const attachSlateBrowserHandle = ({
   }
 
   const handle: SlateBrowserHandle = {
+    applyOperations: (operations, options) => {
+      editor.update((tx) => {
+        tx.operations.replay(operations, options)
+      })
+      forceRender()
+    },
     createRangeRef: (selection, affinity) => {
       const id = String(browserHandleNextId.current++)
       const rangeRef = Editor.rangeRef(editor, selection, {
@@ -162,6 +185,10 @@ export const attachSlateBrowserHandle = ({
     },
     getKernelTrace: () => [...getEditableKernelTrace(editor)],
     getLastCommit: () => Editor.getLastCommit(editor),
+    getElementByPath: (path) => getSlateNodeElementByPath(editor, path),
+    getPathByRuntimeId: (runtimeId) =>
+      Editor.getPathByRuntimeId(editor, runtimeId),
+    getRuntimeId: (path) => Editor.getRuntimeId(editor, path),
     getSelection: () => {
       const selection = readRuntimeSelection(editor)
 
@@ -272,6 +299,23 @@ export const attachSlateBrowserHandle = ({
       maybeHistoryEditor.redo()
       forceRender()
     },
+    resolveRangeRef: (id) => {
+      const rangeRef = browserHandleRangeRefs.current.get(id)
+      const selection = rangeRef?.current ?? null
+
+      return selection
+        ? {
+            anchor: {
+              offset: selection.anchor.offset,
+              path: [...selection.anchor.path],
+            },
+            focus: {
+              offset: selection.focus.offset,
+              path: [...selection.focus.path],
+            },
+          }
+        : null
+    },
     selectRange: (selection) => {
       setEditableModelSelectionPreference({
         inputController,
@@ -279,8 +323,8 @@ export const attachSlateBrowserHandle = ({
         selectionSource: 'model-owned',
       })
       inputController.state.selectionChangeOrigin = 'browser-handle'
-      editor.update(() => {
-        editor.select(selection)
+      editor.update((tx) => {
+        tx.selection.set(selection)
       })
       setExplicitShellBackedSelection(isShellBackedSelection(selection))
     },
@@ -326,10 +370,5 @@ export const attachSlateBrowserHandle = ({
     if (element.__slateBrowserHandle === handle) {
       element.__slateBrowserHandle = undefined
     }
-
-    browserHandleRangeRefs.current.forEach((rangeRef) => {
-      rangeRef.unref()
-    })
-    browserHandleRangeRefs.current.clear()
   }
 }

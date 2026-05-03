@@ -1,5 +1,6 @@
-import type { EditorInterface } from '../interfaces/editor'
+import { getEditorSchema } from '../core/editor-runtime'
+import type { EditorStaticApi } from '../interfaces/editor'
 
-export const isBlock: EditorInterface['isBlock'] = (editor, value) => {
-  return !editor.isInline(value)
+export const isBlock: EditorStaticApi['isBlock'] = (editor, value) => {
+  return !getEditorSchema(editor).isInline(value)
 }

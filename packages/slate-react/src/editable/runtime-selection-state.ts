@@ -1,5 +1,5 @@
-import { Editor, type Selection } from 'slate'
-import { getEditorLiveSelection } from 'slate/internal'
+import type { Selection } from 'slate'
+import { Editor, getEditorLiveSelection } from './runtime-editor-api'
 
 export const readLiveSelection = (editor: Editor): Selection =>
   getEditorLiveSelection(editor)

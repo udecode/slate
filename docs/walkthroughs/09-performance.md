@@ -42,7 +42,13 @@ Ensure that function props such as `renderElement`, `renderLeaf`, `renderText`, 
 
 If unmodified elements are being re-rendered, check to see if they are subscribing to any contexts or hooks that are causing unnecessary re-renders. You can also apply these techniques to any toolbars or other non-element React components that may be re-rendering in response to changes in the editor.
 
-The `useSlate`, `useSlateSelection`, `useSlateSelector`, `useSelected` and `useFocused` hooks cause React components to re-render in various circumstances. If you're using `useSlate`, consider if you can use `useSlateStatic` (which does not cause re-renders) instead. If you're using `useSlateSelection`, consider using `Editor.getSelection(editor)`. If you only care about some value derived from the editor (such as whether a given mark is active), use `useSlateSelector` to only re-render when this value changes.
+Hot editor UI should subscribe to the narrowest source it needs. Use
+`useEditor()` to access the editor object, `useEditorSelection()` for
+selection-aware shell UI, and `useEditorSelector()` for derived editor-level
+toolbar state. Inside rendered editor content, prefer target-scoped hooks such
+as `useElementSelected()`, `useNodeSelector()`, `useTextSelector()`, and
+`useDecorationSelector()` so selection or decoration changes dirty only the
+affected runtime targets.
 
 If your components depend on custom React contexts containing non-primitive values (such as objects or arrays), ensure that these values are properly memoized so that components only re-render when these values change. In some circumstances, you may instead want to consider passing a ref object or an unchanging getter function to retrieve the latest value.
 
@@ -61,15 +67,17 @@ const onClick = () => {
 }
 ```
 
-### Enable Large Document Islands
+### Shell Large Document Mode
 
-For very large documents, use `Editable`'s `largeDocument` option. The runtime keeps the active editing corridor mounted and replaces far-away regions with semantic shells. This keeps React work focused on the user-visible editing lane.
+`Editable` uses DOM-present large-document grouping automatically. Use `largeDocument="dom-present"` to lock that safe behavior explicitly, or `largeDocument="off"` to disable automatic grouping while debugging.
+
+For very large documents that need aggressive mounting control, set `largeDocument` to shell mode. The runtime keeps the active editing corridor mounted and replaces far-away regions with semantic shells. This keeps React work focused on the user-visible editing lane.
 
 ```tsx
 <Editable
   largeDocument={{
     activeRadius: 0,
-    enabled: true,
+    mode: 'shell',
     islandSize: 100,
     previewChars: 96,
     threshold: 2000,
@@ -85,7 +93,7 @@ In Chrome and Safari, painting large numbers of DOM nodes can be extremely slow,
 
 The best way of speeding up painting large documents is to use the [`content-visibility`](https://developer.mozilla.org/en-US/docs/Web/CSS/content-visibility) CSS property. When set to `auto`, this property instructs browsers not to paint content that is off-screen. However, it also comes with a performance overhead proportional to the number of DOM nodes it is applied to, which is especially bad in Safari. When rendering large documents in Safari, applying `content-visibility: auto` to each Slate element individually is often slower than not using it at all.
 
-The recommended solution is to enable [large document islands](#enable-large-document-islands). The runtime occludes inactive regions and keeps the mounted editor corridor small.
+For aggressive mounting control, use [shell large document mode](#shell-large-document-mode). The runtime occludes inactive regions and keeps the mounted editor corridor small.
 
 Use a CSS rule like this to apply spacing between top-level blocks:
 

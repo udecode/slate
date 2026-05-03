@@ -1,52 +1,89 @@
-import React, { useEffect, useRef, useState } from 'react'
+import type React from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
+import { type EditorCommit, type EditorSnapshot, Node, type Value } from 'slate'
+import type { SlateAnnotationStore } from '../annotation-store'
 import {
-  Editor,
-  type EditorCommit,
-  type EditorSnapshot,
-  Node,
-  type Selection,
-  type Value,
-} from 'slate'
-import { FocusedContext } from '../hooks/use-focused'
+  composeDecorationSources,
+  composeProjectionSources,
+  type SlateDecorationSource,
+} from '../decoration-source'
+import { Editor } from '../editable/runtime-editor-api'
+import { EditorContext } from '../hooks/use-editor'
+import { FocusedContext } from '../hooks/use-editor-focused'
+import {
+  EditorSelectorContext,
+  useEditorSelectorContext,
+} from '../hooks/use-editor-selector'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { syncTextOperationsToDOM } from '../hooks/use-slate-node-ref'
-import type { SlateProjectionStore } from '../hooks/use-slate-projections'
-import {
-  SlateSelectorContext,
-  useSelectorContext,
-} from '../hooks/use-slate-selector'
-import { EditorContext } from '../hooks/use-slate-static'
 import { ReactEditor } from '../plugin/react-editor'
 import { ProjectionContext } from '../projection-context'
+import { recordSlateReactRender } from '../render-profiler'
 import { REACT_MAJOR_VERSION } from '../utils/environment'
 
 const INITIALIZED_EDITORS = new WeakSet<Editor>()
+
+const now = () => globalThis.performance?.now?.() ?? Date.now()
+
+const profileRuntimeDuration = <T,>(id: string, callback: () => T): T => {
+  if (!globalThis.__SLATE_REACT_RENDER_PROFILER__) {
+    return callback()
+  }
+
+  const start = now()
+
+  try {
+    return callback()
+  } finally {
+    recordSlateReactRender({
+      duration: now() - start,
+      id,
+      kind: 'runtime-time',
+    })
+  }
+}
+
+export type SlateChange<V extends Value = Value> = {
+  commit: EditorCommit<V>
+  marksChanged: boolean
+  operations: EditorCommit<V>['operations']
+  selection: EditorSnapshot<V>['selection']
+  selectionChanged: boolean
+  snapshot: EditorSnapshot<V>
+  tags: EditorCommit<V>['tags']
+  value: V
+  valueChanged: boolean
+}
+
+export type SlateProps<V extends Value = Value> = {
+  editor: ReactEditor<V>
+  initialValue?: V
+  annotationStores?: readonly SlateAnnotationStore<any>[] | null
+  children: React.ReactNode
+  decorationSources?: readonly SlateDecorationSource<any>[] | null
+  onChange?: (value: V, change: SlateChange<V>) => void
+  onSelectionChange?: (
+    selection: EditorSnapshot<V>['selection'],
+    change: SlateChange<V>
+  ) => void
+  onValueChange?: (value: V, change: SlateChange<V>) => void
+}
 
 /**
  * A wrapper around the provider to publish committed editor snapshots, because
  * the editor is a mutable singleton.
  */
 
-export const Slate = (props: {
-  editor: ReactEditor
-  initialValue?: Value
-  children: React.ReactNode
-  onSelectionChange?: (selection: Selection) => void
-  onSnapshotChange?: (
-    snapshot: EditorSnapshot,
-    commit: EditorCommit | null
-  ) => void
-  projectionStore?: SlateProjectionStore<any> | null
-  onValueChange?: (value: Value) => void
-}) => {
+export const Slate = <V extends Value = Value>(props: SlateProps<V>) => {
   const {
+    annotationStores = null,
+    decorationSources = null,
     editor,
     children,
+    onChange,
     onSelectionChange,
-    onSnapshotChange,
     onValueChange,
-    projectionStore = null,
     initialValue,
   } = props
 
@@ -72,7 +109,7 @@ export const Slate = (props: {
   }
 
   const { selectorContext, onChange: handleSelectorChange } =
-    useSelectorContext()
+    useEditorSelectorContext()
   const lastOperationCountRef = useRef(Editor.getOperations(editor).length)
 
   useEffect(() => {
@@ -91,38 +128,67 @@ export const Slate = (props: {
       lastOperationCountRef.current = Editor.getOperations(editor).length
 
       maybeBatchUpdates(() => {
-        setIsFocused(ReactEditor.isFocused(editor))
-        const textSync = syncTextOperationsToDOM(editor, nextOperations)
+        profileRuntimeDuration('focused-state', () => {
+          setIsFocused(ReactEditor.isFocused(editor))
+        })
+        const textSync = profileRuntimeDuration('dom-text-sync', () =>
+          syncTextOperationsToDOM(editor, nextOperations)
+        )
         const hasUnsyncedTextOperation =
           textSync.textOperationCount > textSync.syncedTextOperationCount
 
-        onSnapshotChange?.(snapshot, commit ?? null)
+        profileRuntimeDuration('change-callbacks', () => {
+          if (!commit) {
+            return
+          }
 
-        if (onSelectionChange && commit?.selectionChanged) {
-          onSelectionChange(snapshot.selection)
-        }
+          const value = snapshot.children as V
+          const change: SlateChange<V> = {
+            commit: commit as EditorCommit<V>,
+            marksChanged: commit.marksChanged,
+            operations: commit.operations as EditorCommit<V>['operations'],
+            selection: snapshot.selection,
+            selectionChanged: commit.selectionChanged,
+            snapshot: snapshot as EditorSnapshot<V>,
+            tags: commit.tags,
+            value,
+            valueChanged: commit.childrenChanged,
+          }
 
-        if (onValueChange && commit?.childrenChanged) {
-          onValueChange(snapshot.children)
-        }
+          onChange?.(value, change)
 
-        handleSelectorChange(
-          hasUnsyncedTextOperation ? undefined : nextOperations,
-          commit
+          if (commit.childrenChanged) {
+            onValueChange?.(value, change)
+          }
+
+          if (commit.selectionChanged) {
+            onSelectionChange?.(snapshot.selection, change)
+          }
+        })
+
+        profileRuntimeDuration('selector-dispatch', () =>
+          handleSelectorChange(
+            hasUnsyncedTextOperation ? undefined : nextOperations,
+            commit
+          )
         )
       })
     }
 
-    return Editor.subscribe(editor, onContextChange)
-  }, [
-    editor,
-    handleSelectorChange,
-    onSelectionChange,
-    onSnapshotChange,
-    onValueChange,
-  ])
+    return editor.subscribe(onContextChange)
+  }, [editor, handleSelectorChange, onChange, onSelectionChange, onValueChange])
 
   const [isFocused, setIsFocused] = useState(ReactEditor.isFocused(editor))
+  const projectionContextValue = useMemo(() => {
+    if (!annotationStores || annotationStores.length === 0) {
+      return composeDecorationSources(decorationSources)
+    }
+
+    return composeProjectionSources([
+      ...(decorationSources ?? []),
+      ...annotationStores.map((store) => store.projectionStore),
+    ])
+  }, [annotationStores, decorationSources])
 
   useEffect(() => {
     setIsFocused(ReactEditor.isFocused(editor))
@@ -154,15 +220,15 @@ export const Slate = (props: {
     }
   }, [editor])
 
-  return React.createElement(
-    SlateSelectorContext.Provider,
-    { value: selectorContext },
-    <ProjectionContext.Provider value={projectionStore}>
-      <EditorContext.Provider value={editor}>
-        <FocusedContext.Provider value={isFocused}>
-          {children}
-        </FocusedContext.Provider>
-      </EditorContext.Provider>
-    </ProjectionContext.Provider>
+  return (
+    <EditorSelectorContext.Provider value={selectorContext}>
+      <ProjectionContext.Provider value={projectionContextValue}>
+        <EditorContext.Provider value={editor}>
+          <FocusedContext.Provider value={isFocused}>
+            {children}
+          </FocusedContext.Provider>
+        </EditorContext.Provider>
+      </ProjectionContext.Provider>
+    </EditorSelectorContext.Provider>
   )
 }

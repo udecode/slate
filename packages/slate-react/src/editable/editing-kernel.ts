@@ -6,9 +6,8 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
 } from 'react'
-import { Editor, type Operation, Range } from 'slate'
+import { type Operation, Range } from 'slate'
 import { Hotkeys } from 'slate-dom'
-
 import {
   ReactEditor,
   type ReactEditor as ReactEditorInstance,
@@ -32,6 +31,7 @@ import type {
   SelectionSource,
 } from './input-state'
 import type { EditableRepairRequest } from './mutation-controller'
+import { Editor } from './runtime-editor-api'
 import {
   readLiveSelection,
   readRuntimeSelection,
@@ -109,6 +109,96 @@ export type EditableCommand =
   | { kind: 'set-block'; blockType: string; wrap?: string }
   | { kind: 'toggle-mark'; mark: string }
 
+export type EditableCommandKind = EditableCommand['kind']
+
+export type EditableCommandDefinition<
+  TKind extends EditableCommandKind = EditableCommandKind,
+> = Readonly<{
+  inputFamilies: readonly EditableBrowserEventFamily[]
+  kind: TKind
+  modelOwned: boolean
+}>
+
+const defineEditableCommand = <TKind extends EditableCommandKind>(
+  definition: EditableCommandDefinition<TKind>
+) => Object.freeze(definition)
+
+export const EDITABLE_COMMAND_DEFINITIONS = {
+  delete: defineEditableCommand({
+    inputFamilies: ['beforeinput', 'keydown'],
+    kind: 'delete',
+    modelOwned: true,
+  }),
+  'delete-both': defineEditableCommand({
+    inputFamilies: ['beforeinput'],
+    kind: 'delete-both',
+    modelOwned: true,
+  }),
+  'delete-fragment': defineEditableCommand({
+    inputFamilies: ['beforeinput', 'copy', 'cut', 'keydown'],
+    kind: 'delete-fragment',
+    modelOwned: true,
+  }),
+  history: defineEditableCommand({
+    inputFamilies: ['beforeinput', 'keydown'],
+    kind: 'history',
+    modelOwned: true,
+  }),
+  'insert-break': defineEditableCommand({
+    inputFamilies: ['beforeinput', 'keydown'],
+    kind: 'insert-break',
+    modelOwned: true,
+  }),
+  'insert-data': defineEditableCommand({
+    inputFamilies: ['beforeinput', 'drop', 'paste'],
+    kind: 'insert-data',
+    modelOwned: true,
+  }),
+  'insert-text': defineEditableCommand({
+    inputFamilies: ['beforeinput', 'input'],
+    kind: 'insert-text',
+    modelOwned: true,
+  }),
+  'move-selection': defineEditableCommand({
+    inputFamilies: ['keydown'],
+    kind: 'move-selection',
+    modelOwned: true,
+  }),
+  select: defineEditableCommand({
+    inputFamilies: ['copy', 'cut', 'drop', 'paste'],
+    kind: 'select',
+    modelOwned: true,
+  }),
+  'select-all': defineEditableCommand({
+    inputFamilies: ['keydown'],
+    kind: 'select-all',
+    modelOwned: true,
+  }),
+  'set-block': defineEditableCommand({
+    inputFamilies: ['keydown'],
+    kind: 'set-block',
+    modelOwned: false,
+  }),
+  'toggle-mark': defineEditableCommand({
+    inputFamilies: ['keydown'],
+    kind: 'toggle-mark',
+    modelOwned: false,
+  }),
+} satisfies {
+  [K in EditableCommandKind]: EditableCommandDefinition<K>
+}
+
+export function getEditableCommandDefinition<TCommand extends EditableCommand>(
+  command: TCommand
+): EditableCommandDefinition<TCommand['kind']>
+export function getEditableCommandDefinition(command: null): null
+export function getEditableCommandDefinition(
+  command: EditableCommand | null
+): EditableCommandDefinition | null
+export function getEditableCommandDefinition(command: EditableCommand | null) {
+  return command ? EDITABLE_COMMAND_DEFINITIONS[command.kind] : null
+}
+
 export type EditableMovementAxis =
   | 'horizontal'
   | 'line'
@@ -162,6 +252,7 @@ export type EditableEventFrameInput = {
 
 export type EditableKernelTraceEntry = {
   command: EditableCommand | null
+  commandDefinition: EditableCommandDefinition | null
   epochId: number | null
   eventFamily: EditableBrowserEventFamily
   frame: EditableEventFrame | null
@@ -319,6 +410,7 @@ export type EditableKernelTraceInput = Omit<
   | 'epochId'
   | 'frame'
   | 'frameId'
+  | 'commandDefinition'
   | 'movement'
   | 'operations'
   | 'repairPolicy'
@@ -628,6 +720,7 @@ export const createEditableKernelTraceEntry = ({
   })
   const entry = {
     ...trace,
+    commandDefinition: getEditableCommandDefinition(trace.command),
     epochId: epoch?.id ?? null,
     frame,
     frameId: frame?.id ?? null,
@@ -1039,12 +1132,13 @@ export const prepareEditableBeforeInputKernel = ({
   event: InputEvent
   inputController: EditableInputController
 }): EditableBeforeInputKernelDecision => {
+  const internalTarget = isInteractiveInternalTarget(editor, event.target)
   const intent = classifyBeforeInputIntent({
     editor,
     event,
+    internalTarget,
   })
   const selectionBefore = readRuntimeSelection(editor)
-  const internalTarget = isInteractiveInternalTarget(editor, event.target)
   const targetOwner: EditableEventTargetOwner = internalTarget
     ? 'internal-control'
     : ReactEditor.hasEditableTarget(editor, event.target)

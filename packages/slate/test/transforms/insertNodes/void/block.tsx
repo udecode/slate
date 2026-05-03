@@ -13,7 +13,7 @@ export const input = (
   </editor>
 )
 export const run = (editor, options = {}) => {
-  editor.insertNodes(
+  editor.nodes.insert(
     <block void>
       <text>two</text>
     </block>,

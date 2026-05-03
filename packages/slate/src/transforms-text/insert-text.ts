@@ -3,13 +3,14 @@ import {
   getPublicSelection,
   syncImplicitTargetToCurrentSelection,
 } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
 import {
-  Editor,
   Location,
   Range,
   type Editor as SlateEditor,
   type Value,
 } from '../interfaces'
+import { Editor } from '../interfaces/editor'
 import type {
   TextInsertTextOptions,
   TextMutationMethods,
@@ -29,8 +30,8 @@ const isFullDocumentRange = (editor: SlateEditor, range: Range) => {
     return false
   }
 
-  const start = Editor.start(editor, [])
-  const end = Editor.end(editor, [])
+  const start = Editor.point(editor, [], { edge: 'start' })
+  const end = Editor.point(editor, [], { edge: 'end' })
 
   return (
     (samePoint(range.anchor, start) && samePoint(range.focus, end)) ||
@@ -101,6 +102,7 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
   }
 
   Editor.withoutNormalizing(editor, () => {
+    const transforms = getEditorTransformRegistry(editor)
     const preserveNullSelection =
       options.at != null && getPublicSelection(editor) == null
     let { at = getDefaultInsertLocation(editor) } = options
@@ -120,16 +122,16 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
         const start = Range.start(at)
         const startRef = Editor.pointRef(editor, start)
         const endRef = Editor.pointRef(editor, end)
-        editor.delete({ at, voids })
+        transforms.delete({ at, voids })
         const startPoint = startRef.unref()
         const endPoint = endRef.unref()
 
         at = startPoint || endPoint!
 
         if (options.at == null) {
-          editor.setSelection({ anchor: at, focus: at })
+          transforms.setSelection({ anchor: at, focus: at })
         } else if (preserveNullSelection) {
-          editor.deselect()
+          transforms.deselect()
         }
       }
     }

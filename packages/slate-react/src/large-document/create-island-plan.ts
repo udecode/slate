@@ -1,12 +1,16 @@
 import type { RuntimeId } from 'slate'
 
-export type LargeDocumentOptions = {
-  activeRadius?: number
-  enabled?: boolean
-  islandSize?: number
-  previewChars?: number
-  threshold?: number
-}
+export type LargeDocumentMode = 'auto' | 'dom-present' | 'off' | 'shell'
+
+export type LargeDocumentOptions =
+  | LargeDocumentMode
+  | {
+      activeRadius?: number
+      islandSize?: number
+      mode: 'shell'
+      previewChars?: number
+      threshold?: number
+    }
 
 export type LargeDocumentIsland = {
   endIndex: number
@@ -32,7 +36,6 @@ export const createIslandPlan = ({
 }) => {
   const islands: LargeDocumentIsland[] = []
   const activeIslandIndex = promotedIslandIndex ?? defaultActiveIslandIndex
-  const activeTopLevelIndex = activeIslandIndex * islandSize
   const activeStart = Math.max(0, activeIslandIndex - activeRadius)
   const activeEnd = activeIslandIndex + activeRadius
 
@@ -45,19 +48,15 @@ export const createIslandPlan = ({
       topLevelRuntimeIds.length - 1,
       startIndex + islandSize - 1
     )
+    const isActive = islandIndex >= activeStart && islandIndex <= activeEnd
+    const runtimeIds = topLevelRuntimeIds.slice(startIndex, endIndex + 1)
 
     islands.push({
       endIndex,
       islandIndex,
-      isActive: islandIndex >= activeStart && islandIndex <= activeEnd,
-      mountedRuntimeIds:
-        islandIndex === activeIslandIndex
-          ? topLevelRuntimeIds.slice(
-              activeTopLevelIndex,
-              activeTopLevelIndex + 1
-            )
-          : [],
-      runtimeIds: topLevelRuntimeIds.slice(startIndex, endIndex + 1),
+      isActive,
+      mountedRuntimeIds: isActive ? runtimeIds : [],
+      runtimeIds,
       startIndex,
     })
   }

@@ -1,10 +1,10 @@
 import {
   createEditor,
-  Editor,
   type InsertNodeOperation,
   type Operation,
   type TextOf,
 } from 'slate'
+import { Editor } from 'slate/internal'
 
 type CustomText = {
   text: string
@@ -39,7 +39,9 @@ const insertNode: InsertNodeOperation<CustomValue> = {
   node: { type: 'paragraph', children: [{ text: 'a', bold: true }] },
 }
 
-editor.applyOperations([insertText, insertNode])
+editor.update((tx) => {
+  tx.operations.replay([insertText, insertNode])
+})
 
 if (!('children' in insertNode.node)) {
   throw new Error('Expected inserted node to be an element')

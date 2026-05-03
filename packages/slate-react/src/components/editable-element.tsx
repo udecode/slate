@@ -1,4 +1,4 @@
-import React, { type CSSProperties, type ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 
 import { SlateElement } from './slate-element'
 
@@ -18,15 +18,14 @@ export const EditableElement = ({
   id?: string
   isInline?: boolean
   style?: CSSProperties
-}) =>
-  React.createElement(
-    SlateElement,
-    {
-      as,
-      className,
-      id,
-      isInline,
-      style: { position: 'relative', ...style },
-    },
-    children
-  )
+}) => (
+  <SlateElement
+    as={as}
+    className={className}
+    id={id}
+    isInline={isInline}
+    style={{ position: 'relative', ...style }}
+  >
+    {children}
+  </SlateElement>
+)

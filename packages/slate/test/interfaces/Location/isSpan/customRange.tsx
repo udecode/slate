@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 import { Location, Range } from 'slate'
 
 export const input: Range & { custom: string } = {

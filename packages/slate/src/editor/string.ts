@@ -1,15 +1,16 @@
 import { Node } from '../interfaces'
-import { Editor, type EditorInterface } from '../interfaces/editor'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
 import { Path } from '../interfaces/path'
 import { Range } from '../interfaces/range'
+import { nodes } from './nodes'
 
-export const string: EditorInterface['string'] = (editor, at, options = {}) => {
+export const string: EditorStaticApi['string'] = (editor, at, options = {}) => {
   const { voids = false } = options
   const range = Editor.range(editor, at)
   const [start, end] = Range.edges(range)
   let text = ''
 
-  for (const [node, path] of Editor.nodes(editor, {
+  for (const [node, path] of nodes(editor, {
     at: range,
     match: Node.isText,
     voids,

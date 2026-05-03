@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 import { Path } from 'slate'
 
 const path = [0, 1]

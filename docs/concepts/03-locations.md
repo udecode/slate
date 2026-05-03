@@ -33,8 +33,8 @@ The Editor itself has a path of `[]`. For example, to select the whole contents
 of the editor:
 
 ```javascript
-editor.update(() => {
-  editor.select([])
+editor.update((tx) => {
+  tx.selection.set([])
 })
 ```
 
@@ -127,21 +127,28 @@ For example, to find the lowest block that contains all of the current selection
 
 ```javascript
 function getCommonBlock(editor) {
-  const range = Editor.unhangRange(editor, Editor.getSelection(editor), { voids: true })
+  return editor.read((state) => {
+    const selection = state.selection.get()
+    if (!selection) return null
 
-  let [common, path] = SlateNode.common(
-    editor,
-    range.anchor.path,
-    range.focus.path
-  )
+    const range = state.ranges.unhang(selection, { voids: true })
+    const [common, path] = SlateNode.common(
+      editor,
+      range.anchor.path,
+      range.focus.path
+    )
 
-  if (Editor.isBlock(editor, common) || Editor.isEditor(common)) {
-    return [common, path]
-  } else {
-    return Editor.above(editor, {
+    if (
+      path.length === 0 ||
+      (SlateElement.isElement(common) && state.schema.isBlock(common))
+    ) {
+      return [common, path]
+    }
+
+    return state.nodes.above({
       at: path,
-      match: n => Editor.isBlock(editor, n) || Editor.isEditor(n),
+      match: n => SlateElement.isElement(n) && state.schema.isBlock(n),
     })
-  }
+  })
 }
 ```

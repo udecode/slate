@@ -1,4 +1,5 @@
-import { Editor, Node, type Operation, Path, Point, Range } from 'slate'
+import { Node, type Operation, Path, Point, Range } from 'slate'
+import { Editor } from 'slate/internal'
 import { EDITOR_TO_PENDING_DIFFS } from './weak-maps'
 
 export type StringDiff = {
@@ -17,7 +18,10 @@ export type TextDiff = {
  * Check whether a text diff was applied in a way we can perform the pending action on /
  * recover the pending selection.
  */
-export function verifyDiffState(editor: Editor, textDiff: TextDiff): boolean {
+export function verifyDiffState(
+  editor: Editor<any>,
+  textDiff: TextDiff
+): boolean {
   const { path, diff } = textDiff
   if (!Editor.hasPath(editor, path)) {
     return false
@@ -152,7 +156,10 @@ export function targetRange(textDiff: TextDiff): Range {
  * marks we have to 'walk' the offset from the starting position to ensure we still
  * have a valid point inside the document
  */
-export function normalizePoint(editor: Editor, point: Point): Point | null {
+export function normalizePoint(
+  editor: Editor<any>,
+  point: Point
+): Point | null {
   let { path, offset } = point
   if (!Editor.hasPath(editor, path)) {
     return null
@@ -189,7 +196,10 @@ export function normalizePoint(editor: Editor, point: Point): Point | null {
 /**
  * Normalize a 'pending selection' to ensure it's valid in the current document state.
  */
-export function normalizeRange(editor: Editor, range: Range): Range | null {
+export function normalizeRange(
+  editor: Editor<any>,
+  range: Range
+): Range | null {
   const anchor = normalizePoint(editor, range.anchor)
   if (!anchor) {
     return null
@@ -208,7 +218,7 @@ export function normalizeRange(editor: Editor, range: Range): Range | null {
 }
 
 export function transformPendingPoint(
-  editor: Editor,
+  editor: Editor<any>,
   point: Point,
   op: Operation
 ): Point | null {
@@ -268,7 +278,7 @@ export function transformPendingPoint(
 }
 
 export function transformPendingRange(
-  editor: Editor,
+  editor: Editor<any>,
   range: Range,
   op: Operation
 ): Range | null {

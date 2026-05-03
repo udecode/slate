@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createEditor, Editor } from 'slate'
+import { createEditor } from 'slate'
+import { Editor } from 'slate/internal'
 
 const withNavigator = async (userAgent: string, run: () => Promise<void>) => {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
@@ -50,13 +51,17 @@ test('withReact clears pending selection before Android insertText bridge calls'
         focus: { path: [0, 0], offset: 0 },
       })
 
-      editor.update(() => {
+      editor.update((tx) => {
         Editor.insertText(editor, '!')
       })
 
       assert.equal(EDITOR_TO_PENDING_SELECTION.has(editor), false)
       assert.equal(
-        (Editor.node(editor, [0, 0])[0] as { text: string }).text,
+        (
+          editor.read((state) => state.nodes.get([0, 0]))[0] as {
+            text: string
+          }
+        ).text,
         'alpha!'
       )
     }

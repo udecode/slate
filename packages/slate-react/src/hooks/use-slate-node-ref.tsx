@@ -1,19 +1,14 @@
 import { useCallback, useContext, useState } from 'react'
+import type { Path, RuntimeId, Node as SlateNode } from 'slate'
 import {
-  Editor,
-  type Path,
-  type RuntimeId,
-  type Node as SlateNode,
-} from 'slate'
-import {
-  DOMEditor,
   EDITOR_TO_KEY_TO_ELEMENT,
   ELEMENT_TO_NODE,
   IS_COMPOSING,
   NODE_TO_ELEMENT,
 } from 'slate-dom'
-
 import { EditorContext } from '../context'
+import { Editor } from '../editable/runtime-editor-api'
+import { recordSlateReactRender } from '../render-profiler'
 import { useIsomorphicLayoutEffect } from './use-isomorphic-layout-effect'
 
 const EDITOR_TO_PATH_TO_ELEMENT = new WeakMap<
@@ -25,6 +20,13 @@ const ELEMENT_TO_PATH = new WeakMap<HTMLElement, Path>()
 const DOM_TEXT_SYNC_MUTATION_TARGETS = new WeakSet<Node>()
 
 const pathKey = (path: readonly number[]) => path.join('.')
+
+const recordDOMTextSyncProfile = (id: string) => {
+  recordSlateReactRender({
+    id,
+    kind: 'dom-text-sync',
+  })
+}
 
 const parsePathKey = (key: string): Path =>
   (key === ''
@@ -98,12 +100,18 @@ export const syncTextOperationsToDOM = (
     textOperationCount,
   })
 
+  if (textOperationCount > 0) {
+    recordDOMTextSyncProfile('attempt')
+  }
+
   if (IS_COMPOSING.get(editor)) {
+    recordDOMTextSyncProfile('skip-composition')
     EDITOR_TO_SYNCED_TEXT_PATHS.set(editor, synced)
     return result()
   }
 
   if (!pathToElement) {
+    recordDOMTextSyncProfile('skip-no-path-map')
     EDITOR_TO_SYNCED_TEXT_PATHS.set(editor, synced)
     return result()
   }
@@ -116,11 +124,13 @@ export const syncTextOperationsToDOM = (
     const path = operation.path
 
     if (!path) {
+      recordDOMTextSyncProfile('skip-no-path')
       continue
     }
 
     const element = pathToElement.get(pathKey(path))
     if (!element?.isConnected) {
+      recordDOMTextSyncProfile('skip-no-element')
       continue
     }
 
@@ -129,18 +139,21 @@ export const syncTextOperationsToDOM = (
     const strings = element?.querySelectorAll('[data-slate-string="true"]')
 
     if (!canUseDOMTextSync || !element || strings?.length !== 1) {
+      recordDOMTextSyncProfile('skip-disabled')
       continue
     }
 
     if (!Editor.hasPath(editor, path)) {
+      recordDOMTextSyncProfile('skip-missing-path')
       continue
     }
 
-    const [node] = Editor.node(editor, path)
+    const [node] = editor.read((state) => state.nodes.get(path))
     const text =
       'text' in node && typeof node.text === 'string' ? node.text : null
 
     if (!text) {
+      recordDOMTextSyncProfile('skip-empty-text')
       continue
     }
 
@@ -158,6 +171,7 @@ export const syncTextOperationsToDOM = (
     }
 
     synced.add(pathKey(path))
+    recordDOMTextSyncProfile('success')
   }
 
   EDITOR_TO_SYNCED_TEXT_PATHS.set(editor, synced)
@@ -190,9 +204,10 @@ export const useSlateNodeRef = (
       return
     }
 
-    const slateNode = providedSlateNode ?? Editor.node(editor, path)[0]
+    const slateNode =
+      providedSlateNode ?? editor.read((state) => state.nodes.get(path))[0]
     const nextPathKey = pathKey(path)
-    const key = DOMEditor.findKey(editor, slateNode)
+    const key = editor.dom.findKey(slateNode)
     const keyToElement = EDITOR_TO_KEY_TO_ELEMENT.get(editor) ?? new WeakMap()
 
     if (!EDITOR_TO_KEY_TO_ELEMENT.has(editor)) {

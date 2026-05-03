@@ -1,10 +1,13 @@
 import { act, render } from '@testing-library/react'
-import { createEditor, type Descendant, Editor } from 'slate'
+import type React from 'react'
+import { createEditor, type Descendant } from 'slate'
+import { Editor } from 'slate/internal'
 
 import {
-  createSlateProjectionStore,
+  createDecorationSource,
   Editable,
   EditableElement,
+  Slate,
   withReact,
 } from '../src'
 
@@ -18,6 +21,17 @@ const createChildren = (left = 'alpha', right = 'beta'): Descendant[] => [
     children: [{ text: right }],
   },
 ]
+
+const TestEditorSurface = ({
+  editor,
+  ...props
+}: React.ComponentProps<typeof Editable> & {
+  editor: React.ComponentProps<typeof Slate>['editor']
+}) => (
+  <Slate editor={editor}>
+    <Editable {...props} />
+  </Slate>
+)
 
 describe('slate-react app-owned customization', () => {
   test('Editable supports app-owned markdown preview projections', async () => {
@@ -71,9 +85,9 @@ describe('slate-react app-owned customization', () => {
       selection: null,
     })
 
-    const projectionStore = createSlateProjectionStore<{ type: string }>(
-      editor,
-      (snapshot) =>
+    const markdownSource = createDecorationSource<{ type: string }>(editor, {
+      id: 'markdown-preview',
+      read: ({ snapshot }) =>
         (snapshot.children[0] &&
         'children' in snapshot.children[0] &&
         snapshot.children[0].children[0] &&
@@ -82,20 +96,20 @@ describe('slate-react app-owned customization', () => {
               snapshot.children[0].children[0].text,
               [0, 0]
             )
-          : []) as any
-    )
+          : []) as any,
+    })
 
     const rendered = render(
-      <Editable
-        editor={editor}
-        id="markdown-preview-runtime"
-        projectionStore={projectionStore}
-        renderSegment={(segment, children) => {
-          const type = segment.slices[0]?.data?.type
+      <Slate decorationSources={[markdownSource]} editor={editor}>
+        <Editable
+          id="markdown-preview-runtime"
+          renderSegment={(segment, children) => {
+            const type = segment.slices[0]?.data?.type
 
-          return type ? <span data-token={type}>{children}</span> : children
-        }}
-      />
+            return type ? <span data-token={type}>{children}</span> : children
+          }}
+        />
+      </Slate>
     )
 
     expect(
@@ -118,22 +132,24 @@ describe('slate-react app-owned customization', () => {
       rendered.container.querySelector('[data-token="title"]')?.textContent
     ).toBe('## Heading')
 
-    projectionStore.destroy()
+    markdownSource.destroy()
   })
 
   test('Editable supports app-owned markdown shortcuts', async () => {
     const editor = withReact(createEditor())
     const applyShortcut = (type: 'block-quote' | 'list-item', at: number[]) => {
-      if (type === 'list-item') {
-        editor.setNodes({ type: 'list-item' }, { at })
-        editor.wrapNodes({
-          type: 'bulleted-list',
-          children: [],
-        } as never)
-        return
-      }
+      editor.update((tx) => {
+        if (type === 'list-item') {
+          tx.nodes.set({ type: 'list-item' }, { at })
+          tx.nodes.wrap({
+            type: 'bulleted-list',
+            children: [],
+          } as never)
+          return
+        }
 
-      editor.setNodes({ type } as never, { at })
+        tx.nodes.set({ type } as never, { at })
+      })
     }
 
     Editor.replace(editor, {
@@ -154,7 +170,7 @@ describe('slate-react app-owned customization', () => {
     })
 
     const rendered = render(
-      <Editable
+      <TestEditorSurface
         editor={editor}
         id="markdown-shortcuts-runtime"
         renderElement={({ children, element }) => {
@@ -173,12 +189,12 @@ describe('slate-react app-owned customization', () => {
     )
 
     await act(async () => {
-      editor.update(() => {
-        editor.select({
+      editor.update((tx) => {
+        tx.selection.set({
           anchor: { path: [0, 0], offset: 0 },
           focus: { path: [0, 0], offset: 1 },
         })
-        editor.delete()
+        tx.text.delete()
         applyShortcut('block-quote', [0])
       })
     })
@@ -198,12 +214,12 @@ describe('slate-react app-owned customization', () => {
           focus: { path: [0, 0], offset: 1 },
         },
       })
-      editor.update(() => {
-        editor.select({
+      editor.update((tx) => {
+        tx.selection.set({
           anchor: { path: [0, 0], offset: 0 },
           focus: { path: [0, 0], offset: 1 },
         })
-        editor.delete()
+        tx.text.delete()
         applyShortcut('list-item', [0])
       })
     })
@@ -270,7 +286,7 @@ describe('slate-react app-owned customization', () => {
     }
 
     const rendered = render(
-      <Editable
+      <TestEditorSurface
         editor={editor}
         id="forced-layout-runtime"
         renderElement={({ children, element }) => {
@@ -319,7 +335,7 @@ describe('slate-react app-owned customization', () => {
     })
 
     render(
-      <Editable
+      <TestEditorSurface
         editor={editor}
         id="scroll-forwarding"
         scrollSelectionIntoView={(_editor, domRange) => {
@@ -329,8 +345,8 @@ describe('slate-react app-owned customization', () => {
     )
 
     await act(async () => {
-      editor.update(() => {
-        editor.select({
+      editor.update((tx) => {
+        tx.selection.set({
           anchor: { path: [1, 0], offset: 1 },
           focus: { path: [1, 0], offset: 4 },
         })

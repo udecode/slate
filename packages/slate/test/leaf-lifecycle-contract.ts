@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { Editor } from 'slate/internal'
 
-import { createEditor, type Descendant, Editor, Node, Text } from '../src'
+import { createEditor, type Descendant, Node, Text } from '../src'
 
 const richTextParagraph = (): Descendant => ({
   type: 'paragraph',
@@ -42,11 +43,11 @@ describe('leaf lifecycle contract', () => {
   it('removes removable empty marked leaves after destructive word deletes', () => {
     const editor = setupEditor()
 
-    editor.update(() => {
-      editor.delete({ reverse: true, unit: 'word' })
-      editor.delete({ reverse: true, unit: 'word' })
-      editor.delete({ reverse: true, unit: 'word' })
-      editor.delete({ reverse: true, unit: 'word' })
+    editor.update((tx) => {
+      tx.text.delete({ reverse: true, unit: 'word' })
+      tx.text.delete({ reverse: true, unit: 'word' })
+      tx.text.delete({ reverse: true, unit: 'word' })
+      tx.text.delete({ reverse: true, unit: 'word' })
     })
 
     const children = getTextChildren(editor)

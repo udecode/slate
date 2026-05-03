@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 import { Element } from 'slate'
 
 export const input = [
@@ -7,7 +9,6 @@ export const input = [
     selection: null,
     marks: null,
     addMark() {},
-    applyOperations() {},
     deleteBackward() {},
     deleteForward() {},
     deleteFragment() {},

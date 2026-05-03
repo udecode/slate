@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 jsx
 
 export const run = (editor) => {
-  editor.delete({ unit: 'character', distance: 3 })
+  editor.text.delete({ unit: 'character', distance: 3 })
 }
 export const input = (
   <editor>

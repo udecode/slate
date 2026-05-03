@@ -1,7 +1,7 @@
-import type { EditorInterface } from '../interfaces/editor'
+import type { EditorStaticApi } from '../interfaces/editor'
 import { PATH_REFS } from '../utils/weak-maps'
 
-export const pathRefs: EditorInterface['pathRefs'] = (editor) => {
+export const pathRefs: EditorStaticApi['pathRefs'] = (editor) => {
   let refs = PATH_REFS.get(editor)
 
   if (!refs) {

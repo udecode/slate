@@ -9,9 +9,10 @@ import {
 } from 'slate'
 import { withHistory } from 'slate-history'
 import {
-  createSlateProjectionStore,
+  createDecorationSource,
   Editable,
   type EditableProps,
+  Slate,
   type SlateProjection,
   withReact,
 } from 'slate-react'
@@ -27,29 +28,28 @@ const SearchHighlightingExample = () => {
       withReact(createEditor<CustomValue>())
     ) as CustomEditor
 
-    nextEditor.replace({
-      children: initialValue,
-      selection: null,
+    nextEditor.update((tx) => {
+      tx.value.replace({
+        children: initialValue,
+        selection: null,
+      })
     })
 
     return nextEditor
   }, [])
-  const projectionStore = useMemo(
+  const searchSource = useMemo(
     () =>
-      createSlateProjectionStore(
-        editor,
-        (snapshot) =>
+      createDecorationSource<{ highlight: true }>(editor, {
+        id: 'search-highlighting',
+        dirtiness: ['text', 'external'],
+        read: ({ snapshot }) =>
           collectSearchProjections(snapshot.children, searchRef.current),
-        {
-          dirtiness: ['text', 'external'],
-          runtimeScope: ({ snapshot }) => collectTextRuntimeScope(snapshot),
-          sourceId: 'search-highlighting',
-        }
-      ),
+        runtimeScope: ({ snapshot }) => collectTextRuntimeScope(snapshot),
+      }),
     [editor]
   )
 
-  useEffect(() => () => projectionStore.destroy(), [projectionStore])
+  useEffect(() => () => searchSource.destroy(), [searchSource])
   useEffect(() => {
     const input = searchInputRef.current
 
@@ -59,7 +59,7 @@ const SearchHighlightingExample = () => {
 
     const handleSearchInput = () => {
       searchRef.current = input.value
-      projectionStore.refresh({
+      searchSource.refresh({
         forceInvalidate: true,
         reason: 'external',
         sourceId: 'search-highlighting',
@@ -71,7 +71,7 @@ const SearchHighlightingExample = () => {
     return () => {
       input.removeEventListener('input', handleSearchInput)
     }
-  }, [projectionStore])
+  }, [searchSource])
 
   return (
     <>
@@ -102,26 +102,29 @@ const SearchHighlightingExample = () => {
           />
         </div>
       </Toolbar>
-      <Editable
-        editor={editor}
-        id="search-highlighting"
-        projectionStore={projectionStore}
-        renderLeaf={(props: SearchLeafProps) => <Leaf {...props} />}
-        renderSegment={(segment, children) =>
-          segment.slices.some((slice) => slice.data?.highlight) ? (
-            <span
-              className={css`
-                background-color: #ffeeba;
-              `}
-              data-cy="search-highlighted"
-            >
-              {children}
-            </span>
-          ) : (
-            children
-          )
-        }
-      />
+      <Slate decorationSources={[searchSource]} editor={editor}>
+        <Editable
+          id="search-highlighting"
+          renderLeaf={(props: SearchLeafProps) => <Leaf {...props} />}
+          renderSegment={(segment, children) =>
+            segment.slices.some(
+              (slice) =>
+                (slice.data as { highlight?: true } | undefined)?.highlight
+            ) ? (
+              <span
+                className={css`
+                  background-color: #ffeeba;
+                `}
+                data-cy="search-highlighted"
+              >
+                {children}
+              </span>
+            ) : (
+              children
+            )
+          }
+        />
+      </Slate>
     </>
   )
 }
@@ -242,7 +245,7 @@ const Leaf = ({ attributes, children, leaf }: SearchLeafProps) => {
   )
 }
 
-const initialValue: Descendant[] = [
+const initialValue: CustomValue = [
   {
     type: 'paragraph',
     children: [

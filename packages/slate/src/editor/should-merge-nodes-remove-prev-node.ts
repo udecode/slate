@@ -1,6 +1,7 @@
-import { Editor, type EditorInterface, Node } from '../interfaces'
+import { Node } from '../interfaces'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
 
-export const shouldMergeNodesRemovePrevNode: EditorInterface['shouldMergeNodesRemovePrevNode'] =
+export const shouldMergeNodesRemovePrevNode: EditorStaticApi['shouldMergeNodesRemovePrevNode'] =
   (editor, [prevNode, prevPath], [curNode, curNodePath]) => {
     // If the target node that we're merging with is empty, remove it instead
     // of merging the two. This is a common rich text editor behavior to

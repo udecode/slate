@@ -2,13 +2,13 @@ import { setChildren as setEditorChildren } from '../core/public-state'
 import {
   type Ancestor,
   type Descendant,
-  Editor,
   type Element,
   Node,
   type Path,
   Scrubber,
   type Text,
 } from '../interfaces'
+import { Editor } from '../interfaces/editor'
 import { inheritRuntimeId } from './runtime-ids'
 
 const setChildren = (root: Ancestor, children: Descendant[]) => {

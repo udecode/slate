@@ -1,4 +1,5 @@
-import { Editor, executeCommand, Operation, Path, type Value } from 'slate'
+import { Operation, Path, type SnapshotChange, type Value } from 'slate'
+import { Editor, executeCommand } from 'slate/internal'
 
 import { HistoryEditor } from './history-editor'
 
@@ -11,9 +12,9 @@ import { HistoryEditor } from './history-editor'
  */
 
 export const withHistory = <V extends Value, T extends Editor<V>>(
-  editor: T & { getChildren: () => V }
+  editor: T
 ) => {
-  const e = editor as T & HistoryEditor<V>
+  const e = editor as unknown as T & HistoryEditor<V>
   e.history = { undos: [], redos: [] }
   let previousSnapshot = Editor.getSnapshot(e)
 
@@ -27,13 +28,13 @@ export const withHistory = <V extends Value, T extends Editor<V>>(
     }
 
     HistoryEditor.withoutSaving(e, () => {
-      e.withTransaction(() => {
+      e.update((tx) => {
         Editor.withoutNormalizing(e, () => {
           if (batch.selectionBefore) {
-            e.select(batch.selectionBefore)
+            tx.selection.set(batch.selectionBefore)
           }
 
-          e.applyOperations(batch.operations)
+          tx.operations.replay(batch.operations)
         })
       })
     })
@@ -52,13 +53,13 @@ export const withHistory = <V extends Value, T extends Editor<V>>(
     }
 
     HistoryEditor.withoutSaving(e, () => {
-      e.withTransaction(() => {
+      e.update((tx) => {
         Editor.withoutNormalizing(e, () => {
           const inverseOps = batch.operations.map(Operation.inverse).reverse()
 
-          e.applyOperations(inverseOps)
+          tx.operations.replay(inverseOps)
           if (batch.selectionBefore) {
-            e.select(batch.selectionBefore)
+            tx.selection.set(batch.selectionBefore)
           }
         })
       })
@@ -97,13 +98,21 @@ export const withHistory = <V extends Value, T extends Editor<V>>(
     let merge = HistoryEditor.isMerging(e)
 
     if (save == null) {
-      save = shouldSaveBatch(committedOps)
+      save = shouldSaveCommit(change, committedOps)
     }
 
     if (save) {
       if (merge == null) {
         if (lastBatch == null) {
           merge = false
+        } else if (change?.metadata.history?.mode === 'push') {
+          merge = false
+        } else if (change?.metadata.history?.mode === 'merge') {
+          merge = true
+        } else if (change?.tags.includes('history-push')) {
+          merge = false
+        } else if (change?.tags.includes('history-merge')) {
+          merge = true
         } else {
           merge = shouldMergeBatch(committedOps, lastBatch.operations)
         }
@@ -205,3 +214,29 @@ const shouldSave = (op: Operation): boolean => {
 
 const shouldSaveBatch = (operations: readonly Operation[]): boolean =>
   operations.some((operation) => shouldSave(operation))
+
+const shouldSaveCommit = (
+  change: SnapshotChange | undefined,
+  operations: readonly Operation[]
+): boolean => {
+  if (change?.metadata.history?.mode === 'skip') {
+    return false
+  }
+
+  if (change?.metadata.collab?.saveToHistory === false) {
+    return false
+  }
+
+  if (
+    change?.metadata.collab?.origin === 'remote' &&
+    change.metadata.collab.saveToHistory !== true
+  ) {
+    return false
+  }
+
+  if (change?.tags.includes('historic')) {
+    return false
+  }
+
+  return shouldSaveBatch(operations)
+}

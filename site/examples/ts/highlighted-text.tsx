@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { createEditor, Editor, type Value } from 'slate'
+import { createEditor, type EditorSnapshot, type Value } from 'slate'
 import {
-  createSlateProjectionStore,
+  createDecorationSource,
   Editable,
+  Slate,
   type SlateProjection,
   withReact,
 } from 'slate-react'
@@ -15,7 +16,7 @@ const initialChildren: Value = [
 ]
 
 const collectHighlightProjections = (
-  snapshot: ReturnType<typeof Editor.getSnapshot>
+  snapshot: EditorSnapshot
 ): SlateProjection<{ tone: string }>[] => {
   const firstBlock = snapshot.children[0]
 
@@ -44,49 +45,55 @@ const HighlightedTextExample = () => {
   const [editor] = useState(() => {
     const nextEditor = withReact(createEditor())
 
-    Editor.replace(nextEditor, {
-      children: initialChildren,
-      selection: null,
+    nextEditor.update((tx) => {
+      tx.value.replace({
+        children: initialChildren,
+        selection: null,
+      })
     })
 
     return nextEditor
   })
 
-  const projectionStore = useMemo(
-    () => createSlateProjectionStore(editor, collectHighlightProjections),
+  const highlightSource = useMemo(
+    () =>
+      createDecorationSource(editor, {
+        id: 'highlighted-text',
+        read: ({ snapshot }) => collectHighlightProjections(snapshot),
+      }),
     [editor]
   )
 
   return (
-    <Editable
-      editor={editor}
-      id="highlighted-text"
-      projectionStore={projectionStore}
-      renderSegment={(segment, children) =>
-        segment.slices.length > 0 ? (
-          <span
-            data-tone={
-              (
-                segment.slices[0]?.data as
-                  | {
-                      tone?: string
-                    }
-                  | undefined
-              )?.tone ?? 'none'
-            }
-            style={{
-              background: '#fde68a',
-              borderRadius: 4,
-            }}
-          >
-            {children}
-          </span>
-        ) : (
-          children
-        )
-      }
-      style={{ minHeight: 48 }}
-    />
+    <Slate decorationSources={[highlightSource]} editor={editor}>
+      <Editable
+        id="highlighted-text"
+        renderSegment={(segment, children) =>
+          segment.slices.length > 0 ? (
+            <span
+              data-tone={
+                (
+                  segment.slices[0]?.data as
+                    | {
+                        tone?: string
+                      }
+                    | undefined
+                )?.tone ?? 'none'
+              }
+              style={{
+                background: '#fde68a',
+                borderRadius: 4,
+              }}
+            >
+              {children}
+            </span>
+          ) : (
+            children
+          )
+        }
+        style={{ minHeight: 48 }}
+      />
+    </Slate>
   )
 }
 

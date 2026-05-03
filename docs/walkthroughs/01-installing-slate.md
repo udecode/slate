@@ -1,106 +1,51 @@
 # Installing Slate
 
-Slate is a monorepo divided up into multiple npm packages, so to install it you do:
+Slate is split into small packages. For a React editor, install the core editor, the DOM helpers, the React renderer, and React itself.
 
 ```text
-yarn add slate slate-react
+npm install slate slate-dom slate-react react react-dom
 ```
 
-You'll also need to be sure to install Slate's peer dependencies:
+Use the equivalent command for your package manager if your project uses pnpm, Yarn, or Bun.
 
-```text
-yarn add react react-dom
+Once the packages are installed, import the editor factory from `slate` and the React pieces from `slate-react`.
+
+```tsx
+import { useState } from 'react'
+import { createEditor, type Value } from 'slate'
+import { Editable, Slate, withReact } from 'slate-react'
 ```
 
-_Note, if you'd rather use a pre-bundled version of Slate, you can `yarn add slate` and retrieve the bundled `dist/slate.js` file! Check out the_ [_Using the Bundled Source_](xx-using-the-bundled-source.md) _guide for more information._
+Before we render anything, let's define the document shape for this editor.
 
-Once you've installed Slate, you'll need to import it.
-
-```jsx
-// Import React dependencies.
-import React, { useState } from 'react'
-// Import the Slate editor factory.
-import { createEditor } from 'slate'
-
-// Import the Slate components and React plugin.
-import { Slate, Editable, withReact } from 'slate-react'
-```
-
-Before we use those imports, let's start with an empty `<App>` component:
-
-```jsx
-// Define our app...
-const App = () => {
-  return null
-}
-```
-
-The next step is to create a new `Editor` object. We want the editor to be stable across renders, so we use the `useState` hook [without a setter](https://github.com/ianstormtaylor/slate/pull/3925#issuecomment-781179930):
-
-```jsx
-const App = () => {
-  // Create a Slate editor object that won't change across renders.
-  const [editor] = useState(() => withReact(createEditor()))
-  return null
-}
-```
-
-Of course we haven't rendered anything, so you won't see any changes.
-
-> If you are using TypeScript, create the editor with a value generic and compose plugins from that typed editor. The example below also includes the custom types required for the rest of this example.
-
-```typescript
-import { createEditor } from 'slate'
-import { withReact } from 'slate-react'
-
-type CustomElement = { type: 'paragraph'; children: CustomText[] }
+```tsx
 type CustomText = { text: string }
-type CustomValue = CustomElement[]
+type ParagraphElement = { type: 'paragraph'; children: CustomText[] }
+type CustomValue = ParagraphElement[]
 
-const editor = withReact(createEditor<CustomValue>())
-```
-
-Next up is to render a `<Slate>` context provider.
-
-The provider component keeps track of your Slate editor, its plugins, its value, its selection, and any changes that occur. It **must** be rendered above any `<Editable>` components. But it can also provide the editor state to other components like toolbars, menus, etc. using the `useSlate` hook.
-
-```jsx
-const initialValue = [
+const initialValue: CustomValue = [
   {
     type: 'paragraph',
     children: [{ text: 'A line of text in a paragraph.' }],
   },
 ]
-
-const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
-  // Render the Slate context.
-  return <Slate editor={editor} initialValue={initialValue} />
-}
 ```
 
-You can think of the `<Slate>` component as providing a context to every component underneath it.
+`CustomValue` is the TypeScript shape of this editor's document. Passing it to `createEditor` keeps element and text types attached to the editor API.
 
-> Slate Provider's `initialValue` prop seeds the editor's initial document. To replace the document after initialization, use an explicit editor API such as `Editor.replace`.
+```tsx
+const [editor] = useState(() => withReact(createEditor<CustomValue>()))
+```
 
-This is a slightly different mental model than things like `<input>` or `<textarea>`, because richtext documents are more complex. You'll often want to include toolbars, or live previews, or other complex components next to your editable content.
+We create the editor inside `useState` so React keeps the same editor object for the lifetime of the component.
 
-By having a shared context, those other components can execute commands, query the editor's state, etc.
+Now we can render the editor with `<Slate>` and `<Editable>`.
 
-The next step is to render the `<Editable>` component itself. The component acts like `contenteditable`; anywhere you render it will render an editable richtext document for the nearest editor context.
-
-```jsx
-const initialValue = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'A line of text in a paragraph.' }],
-  },
-]
-
+```tsx
 const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+  const [editor] = useState(() => withReact(createEditor<CustomValue>()))
+
   return (
-    // Add the editable component inside the context.
     <Slate editor={editor} initialValue={initialValue}>
       <Editable />
     </Slate>
@@ -108,6 +53,38 @@ const App = () => {
 }
 ```
 
-There you have it!
+`<Slate>` provides the editor to everything underneath it. `initialValue` seeds the document when the editor is first mounted, and `<Editable>` renders the editable document surface.
 
-That's the most basic example of Slate. If you render that onto the page, you should see a paragraph with the text `A line of text in a paragraph.` And when you type, you should see the text change!
+This is the smallest useful Slate editor. If you render `App`, you should see a paragraph with the text `A line of text in a paragraph.` When you type, Slate updates the document through the editor runtime.
+
+## Listening for changes
+
+Most applications save the document value somewhere. Pass `onChange` to `<Slate>` and save when `change.valueChanged` is true.
+
+```tsx
+const App = () => {
+  const [editor] = useState(() => withReact(createEditor<CustomValue>()))
+
+  const handleChange = (nextValue: Value, change: SlateChange) => {
+    if (!change.valueChanged) return
+
+    localStorage.setItem('content', JSON.stringify(nextValue))
+  }
+
+  return (
+    <Slate
+      editor={editor}
+      initialValue={initialValue}
+      onChange={handleChange}
+    >
+      <Editable />
+    </Slate>
+  )
+}
+```
+
+Use `initialValue` as the initial document. If your app needs to replace the whole document after the editor is mounted, use an explicit editor update instead of treating `<Slate>` like a controlled `<textarea>`.
+
+## Next steps
+
+The editor is rendering plain text. Next, we'll add event handlers so the editor can respond to keyboard shortcuts.

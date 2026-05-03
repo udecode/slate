@@ -1,7 +1,7 @@
-import { Editor, type EditorInterface } from '../interfaces/editor'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
 import type { PathRef } from '../interfaces/path-ref'
 
-export const pathRef: EditorInterface['pathRef'] = (
+export const pathRef: EditorStaticApi['pathRef'] = (
   editor,
   path,
   options = {}

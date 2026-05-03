@@ -18,7 +18,11 @@ const EXAMPLE_IMPORTERS: Record<
   'android-tests': () => import('../../examples/ts/android-tests'),
   'check-lists': () => import('../../examples/ts/check-lists'),
   'code-highlighting': () => import('../../examples/ts/code-highlighting'),
+  'collaborative-comments': () =>
+    import('../../examples/ts/collaborative-comments'),
   'custom-placeholder': () => import('../../examples/ts/custom-placeholder'),
+  'dom-coverage-boundaries': () =>
+    import('../../examples/ts/dom-coverage-boundaries'),
   'editable-voids': () => import('../../examples/ts/editable-voids'),
   embeds: () => import('../../examples/ts/embeds'),
   'external-decoration-sources': () =>

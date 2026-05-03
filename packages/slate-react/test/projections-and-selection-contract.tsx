@@ -3,18 +3,20 @@ import type { ReactNode } from 'react'
 import {
   createEditor as createSlateEditor,
   type Descendant,
-  Editor,
   Node,
   Path,
   Text,
 } from 'slate'
+import { Editor } from 'slate/internal'
 import {
+  createDecorationSource,
   createSlateProjectionStore,
   Editable,
-  ReactEditor,
+  type ReactEditor,
+  Slate,
+  type SlateDecorationSource,
   type SlateProjection,
   type SlateProjectionSource,
-  type SlateProjectionStore,
   useDecorationSelector,
   useSlateProjections,
   withReact,
@@ -26,7 +28,7 @@ type SegmentLike = {
 }
 
 type RenderedProjectionEditor = RenderResult & {
-  store: SlateProjectionStore<Record<string, unknown>>
+  store: SlateDecorationSource<Record<string, unknown>>
 }
 
 const createEditor = () => withReact(createSlateEditor())
@@ -61,13 +63,14 @@ const renderProjectedEditor = (
     selection: null,
   })
 
-  const store = createSlateProjectionStore(editor, source)
+  const store = createDecorationSource(editor, {
+    id: 'test-source',
+    read: ({ snapshot }) => source(snapshot),
+  })
   const rendered = render(
-    <Editable
-      editor={editor}
-      projectionStore={store}
-      renderSegment={renderSegment}
-    />
+    <Slate decorationSources={[store]} editor={editor}>
+      <Editable renderSegment={renderSegment} />
+    </Slate>
   )
 
   return { ...rendered, store }
@@ -100,6 +103,52 @@ const findTextRangesByText = (
   })
 
 describe('slate-react projections and selection contract', () => {
+  test('registers product-noun decoration sources without a projectionStore prop', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          children: [{ text: 'Hello' }, { text: 'world' }],
+        },
+      ],
+      selection: null,
+    })
+
+    const search = createDecorationSource(editor, {
+      id: 'search',
+      read: ({ snapshot }) =>
+        findTextRangesByText(snapshot.children, 'Hello').map((projection) => ({
+          ...projection,
+          data: { search: true },
+          key: `search:${projection.key}`,
+        })),
+    })
+    const spelling = createDecorationSource(editor, {
+      id: 'spelling',
+      read: ({ snapshot }) =>
+        findTextRangesByText(snapshot.children, 'world').map((projection) => ({
+          ...projection,
+          data: { spelling: true },
+          key: `spelling:${projection.key}`,
+        })),
+    })
+
+    const rendered = render(
+      <Slate decorationSources={[search, spelling]} editor={editor}>
+        <Editable renderSegment={renderSegment} />
+      </Slate>
+    )
+
+    expect(getProjectedSegments(rendered.container)).toEqual([
+      { text: 'Hello', decorations: ['search'] },
+      { text: 'world', decorations: ['spelling'] },
+    ])
+
+    search.destroy()
+    spelling.destroy()
+  })
+
   test('keeps overlapping inline payloads multiplicity-safe in one text node', () => {
     const editor = createEditor()
     const rendered = renderProjectedEditor(
@@ -242,8 +291,8 @@ describe('slate-react projections and selection contract', () => {
     ])
 
     await act(async () => {
-      editor.update(() => {
-        editor.setNodes({ bold: true } as never, { at: [0] })
+      editor.update((tx) => {
+        tx.nodes.set({ bold: true } as never, { at: [0] })
       })
     })
 
@@ -252,8 +301,8 @@ describe('slate-react projections and selection contract', () => {
     ])
 
     await act(async () => {
-      editor.update(() => {
-        editor.insertText('b', {
+      editor.update((tx) => {
+        tx.text.insert('b', {
           at: {
             anchor: { path: [0, 0, 0], offset: 8 },
             focus: { path: [0, 0, 0], offset: 9 },
@@ -283,8 +332,8 @@ describe('slate-react projections and selection contract', () => {
     ])
 
     await act(async () => {
-      editor.update(() => {
-        editor.insertNodes({ children: [{ text: '0' }] } as never, {
+      editor.update((tx) => {
+        tx.nodes.insert({ children: [{ text: '0' }] } as never, {
           at: [0],
         })
       })
@@ -297,6 +346,103 @@ describe('slate-react projections and selection contract', () => {
     ])
 
     rendered.store.destroy()
+  })
+
+  test('mapped projection runtime buckets follow structural path changes through the source bus', async () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ children: [{ text: 'A' }] }, { children: [{ text: 'B' }] }],
+      selection: null,
+    })
+
+    const snapshot = Editor.getSnapshot(editor)
+    const firstRuntimeId = snapshot.index.pathToId['0.0']
+    const secondRuntimeId = snapshot.index.pathToId['1.0']
+
+    if (!firstRuntimeId || !secondRuntimeId) {
+      throw new Error('Expected runtime ids for mapped projection proof')
+    }
+
+    let sourceCalls = 0
+    let firstRuntimeNotifications = 0
+    let secondRuntimeNotifications = 0
+    const store = createSlateProjectionStore(
+      editor,
+      (nextSnapshot) => {
+        sourceCalls += 1
+
+        return nextSnapshot.children.flatMap((node, blockIndex) =>
+          Text.isText(node)
+            ? []
+            : node.children.flatMap((child, textIndex) => {
+                if (!Text.isText(child) || child.text !== 'B') {
+                  return []
+                }
+
+                const path = [blockIndex, textIndex] as Path
+
+                return [
+                  {
+                    data: { blockIndex },
+                    key: `mapped:${child.text}`,
+                    range: {
+                      anchor: { path, offset: 0 },
+                      focus: { path, offset: child.text.length },
+                    },
+                  },
+                ]
+              })
+        )
+      },
+      {
+        dirtiness: 'node',
+        sourceId: 'mapped-node-source',
+      }
+    )
+
+    store.subscribeRuntimeId(firstRuntimeId, () => {
+      firstRuntimeNotifications += 1
+    })
+    store.subscribeRuntimeId(secondRuntimeId, () => {
+      secondRuntimeNotifications += 1
+    })
+
+    expect(store.getRuntimeSnapshot(secondRuntimeId)).toEqual([
+      {
+        data: { blockIndex: 1 },
+        end: 1,
+        key: 'mapped:B',
+        start: 0,
+      },
+    ])
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.nodes.move({ at: [1], to: [0] })
+      })
+    })
+
+    expect(Editor.getPathByRuntimeId(editor, secondRuntimeId)).toEqual([0, 0])
+    expect(store.getRuntimeSnapshot(secondRuntimeId)).toEqual([
+      {
+        data: { blockIndex: 0 },
+        end: 1,
+        key: 'mapped:B',
+        start: 0,
+      },
+    ])
+    expect(sourceCalls).toBe(2)
+    expect(firstRuntimeNotifications).toBe(0)
+    expect(secondRuntimeNotifications).toBe(1)
+    expect(store.getMetrics()).toMatchObject({
+      changedRuntimeBucketCount: 1,
+      recomputeCount: 1,
+      runtimeSubscriberWakeCount: 1,
+      sourceReadCount: 2,
+    })
+
+    store.destroy()
   })
 
   test('notifies only subscribers for runtime ids whose projection slices changed', async () => {
@@ -371,8 +517,8 @@ describe('slate-react projections and selection contract', () => {
     expect(renders).toEqual({ first: 1, second: 1 })
 
     await act(async () => {
-      editor.update(() => {
-        editor.insertText('!', {
+      editor.update((tx) => {
+        tx.text.insert('!', {
           at: {
             anchor: { path: [1, 0], offset: 1 },
             focus: { path: [1, 0], offset: 1 },
@@ -456,8 +602,8 @@ describe('slate-react projections and selection contract', () => {
     expect(decorationSelector).toBeCalledTimes(2)
 
     await act(async () => {
-      editor.update(() => {
-        editor.insertText('!', {
+      editor.update((tx) => {
+        tx.text.insert('!', {
           at: {
             anchor: { path: [1, 0], offset: 1 },
             focus: { path: [1, 0], offset: 1 },
@@ -471,8 +617,8 @@ describe('slate-react projections and selection contract', () => {
     expect(decorationSelector).toBeCalledTimes(2)
 
     await act(async () => {
-      editor.update(() => {
-        editor.insertText('!', {
+      editor.update((tx) => {
+        tx.text.insert('!', {
           at: {
             anchor: { path: [0, 0], offset: 1 },
             focus: { path: [0, 0], offset: 1 },
@@ -536,8 +682,8 @@ describe('slate-react projections and selection contract', () => {
     expect(store.getMetrics().recomputeCount).toBe(0)
 
     await act(async () => {
-      editor.update(() => {
-        editor.insertText('!', {
+      editor.update((tx) => {
+        tx.text.insert('!', {
           at: {
             anchor: { path: [1, 0], offset: 1 },
             focus: { path: [1, 0], offset: 1 },
@@ -550,8 +696,8 @@ describe('slate-react projections and selection contract', () => {
     expect(store.getMetrics().recomputeCount).toBe(0)
 
     await act(async () => {
-      editor.update(() => {
-        editor.insertText('!', {
+      editor.update((tx) => {
+        tx.text.insert('!', {
           at: {
             anchor: { path: [0, 0], offset: 1 },
             focus: { path: [0, 0], offset: 1 },
@@ -564,6 +710,69 @@ describe('slate-react projections and selection contract', () => {
     expect(store.getMetrics().recomputeCount).toBe(1)
 
     store.destroy()
+  })
+
+  test('projection stores receive editor changes through the source bus', async () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ children: [{ text: 'A' }] }],
+      selection: null,
+    })
+
+    const originalSubscribe = editor.subscribe
+    editor.subscribe = (() => {
+      throw new Error('Unexpected broad editor.subscribe fan-in')
+    }) as typeof editor.subscribe
+
+    let sourceCalls = 0
+    const store = createSlateProjectionStore(
+      editor,
+      (nextSnapshot) => {
+        sourceCalls += 1
+        const text = Node.get(
+          { children: nextSnapshot.children } as never,
+          [0, 0]
+        ) as { text: string }
+
+        return [
+          {
+            data: { text: true },
+            key: 'text-source',
+            range: {
+              anchor: { path: [0, 0], offset: 0 },
+              focus: {
+                path: [0, 0],
+                offset: text.text.length,
+              },
+            },
+          },
+        ]
+      },
+      {
+        dirtiness: 'text',
+        sourceId: 'text-source',
+      }
+    )
+
+    try {
+      await act(async () => {
+        editor.update((tx) => {
+          tx.text.insert('!', {
+            at: {
+              anchor: { path: [0, 0], offset: 1 },
+              focus: { path: [0, 0], offset: 1 },
+            },
+          })
+        })
+      })
+
+      expect(sourceCalls).toBe(2)
+      expect(store.getMetrics().recomputeCount).toBe(1)
+    } finally {
+      store.destroy()
+      editor.subscribe = originalSubscribe
+    }
   })
 
   test('targeted source refresh only recomputes and notifies the matching source id', () => {
@@ -640,6 +849,15 @@ describe('slate-react projections and selection contract', () => {
     expect(globalNotifications).toBe(1)
     expect(runtimeNotifications).toBe(1)
     expect(sourceNotifications).toBe(1)
+    expect(store.getMetrics()).toMatchObject({
+      changedRuntimeBucketCount: 1,
+      globalSubscriberWakeCount: 1,
+      projectedRangeCount: 1,
+      recomputeCount: 1,
+      runtimeSubscriberWakeCount: 1,
+      sourceReadCount: 2,
+      sourceSubscriberWakeCount: 1,
+    })
     expect(store.getRuntimeSnapshot(runtimeId)).toEqual([
       {
         data: { scoped: true },

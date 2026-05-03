@@ -25,7 +25,9 @@ const fragment = (
   </block>
 )
 export const run = (editor) => {
-  editor.insertFragment(fragment)
+  editor.update(() => {
+    editor.insertFragment(fragment)
+  })
 }
 export const input = (
   <editor>

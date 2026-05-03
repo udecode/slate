@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 import { Operation } from 'slate'
 // This test covers moving a child to the location of where the current parent is (not becoming its parent).
 // When the move happens the child is inserted infront of its old parent causing its former parent's index to shiftp

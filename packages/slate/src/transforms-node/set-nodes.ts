@@ -1,4 +1,6 @@
-import { applyOperation, withTransaction } from '../core/public-state'
+import { applyOperation, runEditorTransaction } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import { nodes as getNodes } from '../editor/nodes'
 import { createInternalRangeRef } from '../editor/range-ref'
 import { Location } from '../interfaces'
 import { Editor } from '../interfaces/editor'
@@ -13,8 +15,9 @@ export const setNodes: NodeMutationMethods['setNodes'] = (
   props: Partial<Node>,
   options = {}
 ) => {
-  withTransaction(editor, (tx) => {
+  runEditorTransaction(editor, (tx) => {
     Editor.withoutNormalizing(editor, () => {
+      const transforms = getEditorTransformRegistry(editor)
       const {
         at: optionAt,
         compare: optionCompare,
@@ -59,7 +62,7 @@ export const setNodes: NodeMutationMethods['setNodes'] = (
         const [start, end] = Range.edges(at)
         const splitMode = mode === 'lowest' ? 'lowest' : 'highest'
         const endAtEndOfNode = Editor.isEnd(editor, end, end.path)
-        editor.splitNodes({
+        transforms.splitNodes({
           at: end,
           match,
           mode: splitMode,
@@ -67,7 +70,7 @@ export const setNodes: NodeMutationMethods['setNodes'] = (
           always: !endAtEndOfNode,
         })
         const startAtStartOfNode = Editor.isStart(editor, start, start.path)
-        editor.splitNodes({
+        transforms.splitNodes({
           at: start,
           match,
           mode: splitMode,
@@ -77,7 +80,7 @@ export const setNodes: NodeMutationMethods['setNodes'] = (
         at = rangeRef.unref()!
 
         if (options.at == null) {
-          editor.select(at)
+          transforms.select(at)
         }
       }
 
@@ -85,7 +88,7 @@ export const setNodes: NodeMutationMethods['setNodes'] = (
         compare = (prop, nodeProp) => prop !== nodeProp
       }
 
-      for (const [node, path] of Editor.nodes(editor, {
+      for (const [node, path] of getNodes(editor, {
         at,
         match,
         mode,

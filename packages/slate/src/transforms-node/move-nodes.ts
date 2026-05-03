@@ -1,4 +1,6 @@
-import { withTransaction } from '../core/public-state'
+import { runEditorTransaction } from '../core/public-state'
+import { node as getNode } from '../editor/node'
+import { nodes as getNodes } from '../editor/nodes'
 import { Location, Node } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import { Path } from '../interfaces/path'
@@ -8,7 +10,7 @@ export const moveNodes: NodeMutationMethods['moveNodes'] = (
   editor,
   options
 ) => {
-  withTransaction(editor, (tx) => {
+  runEditorTransaction(editor, (tx) => {
     const { to, mode = 'lowest', voids = false } = options
     const at = tx.resolveTarget({ at: options.at })
     let { match } = options
@@ -32,10 +34,10 @@ export const moveNodes: NodeMutationMethods['moveNodes'] = (
                 ...to.slice(0, -1),
                 Math.min(
                   to.at(-1)!,
-                  Node.isEditor(Editor.node(editor, at.slice(0, -1) as Path)[0])
+                  Node.isEditor(getNode(editor, at.slice(0, -1) as Path)[0])
                     ? Editor.getChildren(editor).length - 1
                     : (
-                        Editor.node(editor, at.slice(0, -1) as Path)[0] as {
+                        getNode(editor, at.slice(0, -1) as Path)[0] as {
                           children: unknown[]
                         }
                       ).children.length - 1
@@ -58,7 +60,7 @@ export const moveNodes: NodeMutationMethods['moveNodes'] = (
 
     const toRef = Editor.pathRef(editor, to)
     const pathRefs = Array.from(
-      Editor.nodes(editor, { at, match, mode, voids }),
+      getNodes(editor, { at, match, mode, voids }),
       ([, path]) => Editor.pathRef(editor, path)
     )
 

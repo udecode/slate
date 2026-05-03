@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 jsx
 
 export const run = (editor) => {
-  editor.mergeNodes({
+  editor.nodes.merge({
     at: {
       path: [0, 1, 1, 0, 0, 0],
       offset: 0,

@@ -5,7 +5,7 @@ import { jsx } from '../..'
 jsx
 
 export const run = (editor) => {
-  editor.select({
+  editor.selection.set({
     anchor: {
       path: [0, 0],
       offset: 0,

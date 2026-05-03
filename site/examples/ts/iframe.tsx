@@ -2,15 +2,15 @@ import isHotkey from 'is-hotkey'
 import type React from 'react'
 import { type PointerEvent, useCallback, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { createEditor, Editor } from 'slate'
+import { createEditor } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  ReactEditor,
   type RenderElementProps,
   type RenderLeafProps,
   Slate,
-  useSlate,
+  useEditor,
+  useEditorSelector,
   withReact,
 } from 'slate-react'
 
@@ -40,7 +40,7 @@ const IFrameExample = () => {
     []
   )
 
-  const handleBlur = useCallback(() => ReactEditor.deselect(editor), [editor])
+  const handleBlur = useCallback(() => editor.dom.deselect(), [editor])
 
   return (
     <Slate editor={editor} initialValue={initialValue}>
@@ -73,16 +73,13 @@ const IFrameExample = () => {
 }
 
 const toggleMark = (editor: CustomEditor, format: CustomTextKey) => {
-  const isActive = isMarkActive(editor, format)
-  if (isActive) {
-    Editor.removeMark(editor, format)
-  } else {
-    Editor.addMark(editor, format, true)
-  }
+  editor.update((tx) => {
+    tx.marks.toggle(format)
+  })
 }
 
 const isMarkActive = (editor: CustomEditor, format: CustomTextKey) => {
-  const marks = Editor.marks(editor)
+  const marks = editor.read((state) => state.marks.get())
   return marks ? marks[format] === true : false
 }
 
@@ -112,10 +109,13 @@ interface MarkButtonProps {
 }
 
 const MarkButton = ({ format, icon }: MarkButtonProps) => {
-  const editor = useSlate<CustomEditor>()
+  const editor = useEditor<CustomEditor>()
+  const active = useEditorSelector<boolean, CustomEditor>((editor) =>
+    isMarkActive(editor, format)
+  )
   return (
     <Button
-      active={isMarkActive(editor, format)}
+      active={active}
       onClick={() => toggleMark(editor, format)}
       onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
         event.preventDefault()

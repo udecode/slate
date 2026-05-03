@@ -1,7 +1,6 @@
 import debounce from 'lodash/debounce'
 import throttle from 'lodash/throttle'
 import type { RefObject } from 'react'
-import { Editor } from 'slate'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import type { ReactEditor } from '../plugin/react-editor'
 import type { DOMRepairQueue } from './dom-repair-queue'
@@ -13,6 +12,7 @@ import {
   recordEditableKernelTrace,
 } from './editing-kernel'
 import type { EditableInputController } from './input-state'
+import { Editor } from './runtime-editor-api'
 import { readLiveSelection } from './runtime-selection-state'
 import {
   applyEditableDOMSelectionChange,

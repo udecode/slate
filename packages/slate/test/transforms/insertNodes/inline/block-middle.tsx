@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 jsx
 
 export const run = (editor, options = {}) => {
-  editor.insertNodes(
+  editor.nodes.insert(
     <inline void>
       <text />
     </inline>,

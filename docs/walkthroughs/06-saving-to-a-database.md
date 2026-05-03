@@ -2,7 +2,7 @@
 
 Now that you've learned the basics of how to add functionality to the Slate editor, you might be wondering how you'd go about saving the content you've been editing, such that you can come back to your app later and have it load.
 
-In this guide, we'll show you how to add logic to save your Slate content to a database for storage and retrieval later.
+We'll add the logic that saves Slate content and loads it again later.
 
 Let's start with a basic editor:
 
@@ -29,7 +29,7 @@ That will render a basic Slate editor on your page, and when you type things wil
 
 What we need to do is save the changes you make somewhere. For this example, we'll just be using [Local Storage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage), but it will give you an idea for where you'd need to add your own database hooks.
 
-Use `onValueChange` to save committed document changes:
+Use `onChange` to save committed document changes:
 
 ```jsx
 const initialValue = [
@@ -46,7 +46,9 @@ const App = () => {
     <Slate
       editor={editor}
       initialValue={initialValue}
-      onValueChange={value => {
+      onChange={(value, change) => {
+        if (!change.valueChanged) return
+
         const content = JSON.stringify(value)
         localStorage.setItem('content', content)
       }}
@@ -80,7 +82,9 @@ const App = () => {
     <Slate
       editor={editor}
       initialValue={initialValue}
-      onValueChange={value => {
+      onChange={(value, change) => {
+        if (!change.valueChanged) return
+
         const content = JSON.stringify(value)
         localStorage.setItem('content', content)
       }}
@@ -134,7 +138,9 @@ const App = () => {
     <Slate
       editor={editor}
       initialValue={initialValue}
-      onValueChange={value => {
+      onChange={(value, change) => {
+        if (!change.valueChanged) return
+
         localStorage.setItem('content', serialize(value))
       }}
     >
@@ -152,37 +158,12 @@ You can emulate this strategy for any format you like. You can serialize to HTML
 
 If you want to update the editor's content in response to events from outside of Slate, replace the editor value through an explicit editor API.
 
-```javascript
-  /**
-  * resetNodes resets the value of the editor.
-  * It should be noted that passing the `at` parameter may cause a "Cannot resolve a DOM point from Slate point" error.
-  */
-  resetNodes<T extends Node>(
-    editor: Editor,
-    options: {
-      nodes?: Node | Node[],
-      at?: Location
-    } = {}
-  ): void {
-    const nodes = options.nodes
-      ? Node.isNode(options.nodes)
-        ? [options.nodes]
-        : options.nodes
-      : []
-
-    Editor.replace(editor, {
-      children: nodes,
-      selection: null,
-    })
-
-    const point = options.at && Point.isPoint(options.at)
-      ? options.at
-      : Editor.end(editor, [])
-
-    if (point) {
-      editor.update(() => {
-        editor.select(point)
-      })
-    }
-  }
+```tsx
+editor.update((tx) => {
+  tx.value.replace({
+    children: nextValue,
+    marks: null,
+    selection: null,
+  })
+})
 ```

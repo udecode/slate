@@ -1,7 +1,19 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { Editor } from 'slate/internal'
 
-import { createEditor, type Descendant, Editor, type Operation } from '../src'
+import { createEditor, type Descendant, type Operation } from '../src'
+import { runEditorTransaction as runInternalEditorTransaction } from '../src/core/public-state'
+
+const runEditorTransaction = (
+  editor: Parameters<typeof runInternalEditorTransaction>[0],
+  fn: Parameters<typeof runInternalEditorTransaction>[1],
+  options: Parameters<typeof runInternalEditorTransaction>[2] = {}
+) =>
+  runInternalEditorTransaction(editor, fn, {
+    authority: 'explicit',
+    ...options,
+  })
 
 const paragraph = (
   text: string,
@@ -15,6 +27,9 @@ const paragraph = (
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
+
+const getMarks = (editor: ReturnType<typeof createEditor>) =>
+  editor.read((state) => state.marks.get())
 
 const replaceChildren = (
   editor: ReturnType<typeof createEditor>,
@@ -31,8 +46,8 @@ const selectEditor = (
   editor: ReturnType<typeof createEditor>,
   selection: NonNullable<ReturnType<typeof Editor.getSelection>>
 ) => {
-  editor.update(() => {
-    editor.select(selection)
+  editor.update((tx) => {
+    tx.selection.set(selection)
   })
 }
 
@@ -40,10 +55,8 @@ const runManualTransaction = (
   editor: ReturnType<typeof createEditor>,
   operations: Operation[]
 ) => {
-  Editor.withTransaction(editor, (tx) => {
-    for (const operation of clone(operations)) {
-      tx.apply(operation)
-    }
+  editor.update((tx) => {
+    tx.operations.replay(clone(operations))
   })
 }
 
@@ -59,7 +72,7 @@ const getVisibleState = (editor: ReturnType<typeof createEditor>) => {
 }
 
 describe('slate transaction contract', () => {
-  it('applyBatch matches manual withTransaction for duplicate exact-path set_node writes', () => {
+  it('applyBatch matches manual transaction for duplicate exact-path set_node writes', () => {
     const children = [paragraph('one'), paragraph('two'), paragraph('three')]
     const batchEditor = createEditor()
     const manualEditor = createEditor()
@@ -81,7 +94,9 @@ describe('slate transaction contract', () => {
     replaceChildren(batchEditor, children)
     replaceChildren(manualEditor, children)
 
-    batchEditor.applyOperations(clone(operations))
+    batchEditor.update((tx) => {
+      tx.operations.replay(clone(operations))
+    })
     runManualTransaction(manualEditor, operations)
 
     assert.deepEqual(
@@ -100,7 +115,7 @@ describe('slate transaction contract', () => {
     ])
   })
 
-  it('applyBatch matches manual withTransaction for mixed text, selection, and node ops', () => {
+  it('applyBatch matches manual transaction for mixed text, selection, and node ops', () => {
     const children = [paragraph('abcd')]
     const selection = {
       anchor: { path: [0, 0], offset: 0 },
@@ -139,7 +154,9 @@ describe('slate transaction contract', () => {
     selectEditor(batchEditor, selection)
     selectEditor(manualEditor, selection)
 
-    batchEditor.applyOperations(clone(operations))
+    batchEditor.update((tx) => {
+      tx.operations.replay(clone(operations))
+    })
     runManualTransaction(manualEditor, operations)
 
     assert.deepEqual(
@@ -159,7 +176,7 @@ describe('slate transaction contract', () => {
     })
   })
 
-  it('applyBatch matches manual withTransaction for structural insert, move, and set batches', () => {
+  it('applyBatch matches manual transaction for structural insert, move, and set batches', () => {
     const children = [paragraph('zero'), paragraph('one')]
     const batchEditor = createEditor()
     const manualEditor = createEditor()
@@ -185,7 +202,9 @@ describe('slate transaction contract', () => {
     replaceChildren(batchEditor, children)
     replaceChildren(manualEditor, children)
 
-    batchEditor.applyOperations(clone(operations))
+    batchEditor.update((tx) => {
+      tx.operations.replay(clone(operations))
+    })
     runManualTransaction(manualEditor, operations)
 
     assert.deepEqual(
@@ -203,7 +222,7 @@ describe('slate transaction contract', () => {
     ])
   })
 
-  it('withTransaction keeps direct replacement draft-visible and publishes once on exit', () => {
+  it('internal transaction keeps direct replacement draft-visible and publishes once on exit', () => {
     const editor = createEditor()
     const publishedStates: ReturnType<typeof getVisibleState>[] = []
 
@@ -215,7 +234,7 @@ describe('slate transaction contract', () => {
 
     publishedStates.length = 0
 
-    Editor.withTransaction(editor, (transaction) => {
+    runEditorTransaction(editor, (transaction) => {
       Editor.replace(editor, {
         children: [paragraph('replacement')],
         selection: null,
@@ -254,35 +273,34 @@ describe('slate transaction contract', () => {
     ])
   })
 
-  it('withTransaction exposes live draft state through the transaction argument', () => {
+  it('internal transaction exposes live draft state through the transaction argument', () => {
     const editor = createEditor()
 
     replaceChildren(editor, [paragraph('one'), paragraph('two')])
 
-    Editor.withTransaction(editor, (transaction) => {
-      assert.deepEqual(transaction.children, [
-        paragraph('one'),
-        paragraph('two'),
+    editor.update((tx) => {
+      assert.deepEqual(tx.value.get(), [paragraph('one'), paragraph('two')])
+      assert.equal(tx.selection.get(), null)
+      assert.deepEqual(tx.value.operations(), [])
+
+      tx.operations.replay([
+        {
+          type: 'insert_text',
+          path: [0, 0],
+          offset: 3,
+          text: '!',
+        },
       ])
-      assert.equal(transaction.selection, null)
-      assert.deepEqual(transaction.operations, [])
 
-      transaction.apply({
-        type: 'insert_text',
-        path: [0, 0],
-        offset: 3,
-        text: '!',
-      })
+      assert.equal(tx.value.get()[0]?.children[0]?.text, 'one!')
+      assert.equal(tx.value.operations().length, 1)
 
-      assert.equal(transaction.children[0]?.children[0]?.text, 'one!')
-      assert.equal(transaction.operations.length, 1)
-
-      editor.select({
+      tx.selection.set({
         anchor: { path: [0, 0], offset: 4 },
         focus: { path: [0, 0], offset: 4 },
       })
 
-      assert.deepEqual(transaction.selection, {
+      assert.deepEqual(tx.selection.get(), {
         anchor: { path: [0, 0], offset: 4 },
         focus: { path: [0, 0], offset: 4 },
       })
@@ -294,12 +312,12 @@ describe('slate transaction contract', () => {
     )
   })
 
-  it('withTransaction exposes tx.apply as the transaction-owned write seam', () => {
+  it('internal transaction exposes tx.apply as the transaction-owned write seam', () => {
     const editor = createEditor()
 
     replaceChildren(editor, [paragraph('one')])
 
-    Editor.withTransaction(editor, (transaction) => {
+    runEditorTransaction(editor, (transaction) => {
       transaction.apply({
         type: 'insert_text',
         path: [0, 0],
@@ -332,8 +350,8 @@ describe('slate transaction contract', () => {
     assert.equal(replaceCommit.dirty.wholeDocument, true)
     assert.equal(replaceCommit.dirty.topLevelRange, null)
 
-    editor.update(() => {
-      editor.insertText('!', {
+    editor.update((tx) => {
+      tx.text.insert('!', {
         at: { path: [0, 0], offset: 3 },
       })
     })
@@ -368,8 +386,8 @@ describe('slate transaction contract', () => {
       }
     })
 
-    editor.update(() => {
-      editor.insertText('!', {
+    editor.update((tx) => {
+      tx.text.insert('!', {
         at: { path: [0, 0], offset: 3 },
       })
     })
@@ -398,7 +416,7 @@ describe('slate transaction contract', () => {
       ],
     })
 
-    Editor.withTransaction(editor, (transaction) => {
+    runEditorTransaction(editor, (transaction) => {
       transaction.apply({
         type: 'insert_text',
         path: [0, 0],
@@ -413,14 +431,16 @@ describe('slate transaction contract', () => {
       'one!'
     )
 
-    editor.applyOperations([
-      {
-        type: 'insert_text',
-        path: [0, 0],
-        offset: 4,
-        text: '?',
-      },
-    ])
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          type: 'insert_text',
+          path: [0, 0],
+          offset: 4,
+          text: '?',
+        },
+      ])
+    })
 
     unextend()
 
@@ -443,7 +463,7 @@ describe('slate transaction contract', () => {
 
     publishedStates.length = 0
 
-    Editor.withTransaction(editor, (transaction) => {
+    runEditorTransaction(editor, (transaction) => {
       transaction.apply({
         type: 'insert_text',
         path: [0, 0],
@@ -465,7 +485,7 @@ describe('slate transaction contract', () => {
     )
   })
 
-  it('withTransaction exposes tx.setMarks as the transaction-owned marks seam', () => {
+  it('internal transaction exposes tx.setMarks as the transaction-owned marks seam', () => {
     const editor = createEditor()
 
     Editor.replace(editor, {
@@ -477,17 +497,17 @@ describe('slate transaction contract', () => {
       marks: null,
     })
 
-    Editor.withTransaction(editor, (transaction) => {
+    runEditorTransaction(editor, (transaction) => {
       transaction.setMarks({ bold: true })
 
       assert.deepEqual(transaction.marks, { bold: true })
-      assert.deepEqual(Editor.marks(editor), { bold: true })
+      assert.deepEqual(getMarks(editor), { bold: true })
     })
 
     assert.deepEqual(Editor.getSnapshot(editor).marks, { bold: true })
   })
 
-  it('withTransaction exposes tx.setSelection as the transaction-owned selection seam', () => {
+  it('internal transaction exposes tx.setSelection as the transaction-owned selection seam', () => {
     const editor = createEditor()
 
     Editor.replace(editor, {
@@ -499,7 +519,7 @@ describe('slate transaction contract', () => {
       marks: null,
     })
 
-    Editor.withTransaction(editor, (transaction) => {
+    runEditorTransaction(editor, (transaction) => {
       transaction.setSelection({
         anchor: { path: [0, 0], offset: 3 },
         focus: { path: [0, 0], offset: 3 },
@@ -517,7 +537,7 @@ describe('slate transaction contract', () => {
     })
   })
 
-  it('withTransaction rolls back staged changes when a later operation throws', () => {
+  it('internal transaction rolls back staged changes when a later operation throws', () => {
     const editor = createEditor()
 
     replaceChildren(editor, [paragraph('one'), paragraph('two')])
@@ -525,7 +545,7 @@ describe('slate transaction contract', () => {
     const before = getVisibleState(editor)
 
     assert.throws(() => {
-      Editor.withTransaction(editor, (transaction) => {
+      runEditorTransaction(editor, (transaction) => {
         transaction.apply({
           type: 'set_node',
           path: [0],
@@ -550,8 +570,8 @@ describe('slate transaction contract', () => {
     const seenCommands: unknown[] = []
 
     replaceChildren(editor, [paragraph('one')])
-    editor.update(() => {
-      editor.select({
+    editor.update((tx) => {
+      tx.selection.set({
         anchor: { path: [0, 0], offset: 3 },
         focus: { path: [0, 0], offset: 3 },
       })
@@ -569,7 +589,7 @@ describe('slate transaction contract', () => {
       }
     )
 
-    editor.update(() => {
+    editor.update((tx) => {
       Editor.insertText(editor, '?')
     })
     unsubscribe()
@@ -613,14 +633,14 @@ describe('slate transaction contract', () => {
     const editor = createEditor()
 
     replaceChildren(editor, [paragraph('one')])
-    editor.update(() => {
-      editor.select({
+    editor.update((tx) => {
+      tx.selection.set({
         anchor: { path: [0, 0], offset: 3 },
         focus: { path: [0, 0], offset: 3 },
       })
     })
 
-    editor.update(() => {
+    editor.update((tx) => {
       Editor.insertText(editor, '!')
     })
 
@@ -647,8 +667,8 @@ describe('slate transaction contract', () => {
     const seenCommands: unknown[] = []
 
     replaceChildren(editor, [paragraph('one')])
-    editor.update(() => {
-      editor.select({
+    editor.update((tx) => {
+      tx.selection.set({
         anchor: { path: [0, 0], offset: 1 },
         focus: { path: [0, 0], offset: 1 },
       })
@@ -663,7 +683,7 @@ describe('slate transaction contract', () => {
       }
     )
 
-    editor.update(() => {
+    editor.update((tx) => {
       Editor.insertBreak(editor)
     })
     unsubscribe()
@@ -869,8 +889,8 @@ describe('slate transaction contract', () => {
       }
     )
 
-    editor.update(() => {
-      editor.move()
+    editor.update((tx) => {
+      tx.selection.move()
     })
     unsubscribe()
 
@@ -922,7 +942,7 @@ describe('slate transaction contract', () => {
       }
     )
 
-    editor.update(() => {
+    editor.update((tx) => {
       Editor.addMark(editor, 'bold', true)
     })
     unsubscribeAdd()
@@ -934,7 +954,7 @@ describe('slate transaction contract', () => {
       type: 'add_mark',
       value: true,
     })
-    assert.deepEqual(Editor.marks(editor), { italic: true })
+    assert.deepEqual(getMarks(editor), { italic: true })
     assert(addCommit)
     assert.deepEqual(addCommit.classes, ['mark'])
     assert.deepEqual(addCommit.marksBefore, null)
@@ -953,7 +973,7 @@ describe('slate transaction contract', () => {
       }
     )
 
-    editor.update(() => {
+    editor.update((tx) => {
       Editor.removeMark(editor, 'bold')
     })
     unsubscribeRemove()
@@ -964,7 +984,7 @@ describe('slate transaction contract', () => {
       key: 'bold',
       type: 'remove_mark',
     })
-    assert.deepEqual(Editor.marks(editor), {})
+    assert.deepEqual(getMarks(editor), {})
     assert(removeCommit)
     assert.deepEqual(removeCommit.classes, ['mark'])
     assert.deepEqual(removeCommit.marksBefore, { italic: true })
@@ -995,7 +1015,7 @@ describe('slate transaction contract', () => {
     assert.equal(Editor.getExtensionRegistry(editor), registry)
     assert.equal(registry.commands.get('insert_text')?.length, 1)
 
-    editor.update(() => {
+    editor.update((tx) => {
       Editor.insertText(editor, '!')
     })
     unsubscribe()
@@ -1008,6 +1028,69 @@ describe('slate transaction contract', () => {
       },
     ])
     assert.equal(registry.commands.get('insert_text')?.length, 0)
+  })
+
+  it('registers typed internal command definitions with deterministic priority order', () => {
+    type InsertTextCommand = {
+      options: Record<string, never>
+      text: string
+      type: 'insert_text'
+    }
+
+    const editor = createEditor()
+    const insertTextCommand =
+      Editor.defineCommand<InsertTextCommand>('insert_text')
+    const seenCommands: string[] = []
+
+    replaceChildren(editor, [paragraph('one')])
+    selectEditor(editor, {
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    })
+
+    const unsubscribeEarly = Editor.registerCommand(
+      editor,
+      insertTextCommand,
+      (context, next) => {
+        const text: string = context.command.text
+
+        seenCommands.push(`early:${text}`)
+        return next()
+      },
+      { priority: 1 }
+    )
+    const unsubscribeLate = Editor.registerCommand(
+      editor,
+      insertTextCommand,
+      (context, next) => {
+        seenCommands.push(`late:${context.command.text}`)
+        return next()
+      },
+      { priority: 1 }
+    )
+    const unsubscribeHigh = Editor.registerCommand(
+      editor,
+      insertTextCommand,
+      (context, next) => {
+        seenCommands.push(`high:${context.command.text}`)
+        return next()
+      },
+      { priority: 2 }
+    )
+
+    editor.update(() => {
+      Editor.insertText(editor, '!')
+    })
+
+    unsubscribeEarly()
+    unsubscribeLate()
+    unsubscribeHigh()
+
+    assert.deepEqual(seenCommands, ['high:!', 'early:!', 'late:!'])
+    assert.equal(
+      Editor.getExtensionRegistry(editor).commands.get('insert_text')?.length,
+      0
+    )
   })
 
   it('exposes stable extension registry slots beyond commands', () => {
@@ -1068,8 +1151,8 @@ describe('slate transaction contract', () => {
       }
     )
 
-    editor.update(() => {
-      editor.insertFragment([{ text: '?' }])
+    editor.update((tx) => {
+      tx.fragment.insert([{ text: '?' }])
     })
     unsubscribe()
 
@@ -1123,12 +1206,12 @@ describe('slate transaction contract', () => {
       }
     )
 
-    editor.update(() => {
+    editor.update((tx) => {
       Editor.insertText(editor, '!')
     })
     unsubscribeCommitListener()
     unsubscribeSubscriber()
-    editor.update(() => {
+    editor.update((tx) => {
       Editor.insertText(editor, '?')
     })
 

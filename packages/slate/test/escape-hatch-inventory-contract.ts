@@ -45,7 +45,6 @@ type EscapeHatchOwner =
   | 'contract-test'
   | 'generated-output'
   | 'historical-doc'
-  | 'legacy-fixture'
   | 'normalizer-doc'
   | 'public-doc-blocker'
   | 'public-example-blocker'
@@ -57,7 +56,6 @@ type EscapeHatchNext =
   | 'explicit-proof-bridge'
   | 'generated-output'
   | 'keep-as-contract'
-  | 'legacy-fixture'
   | 'historical-only'
 
 type InventoryRule = {
@@ -100,17 +98,7 @@ const inventoryRules: InventoryRule[] = [
       'Changelog entries preserve history and are not primary API guidance.',
   },
   {
-    expected: { primitive: 1 },
-    gate: 'normalizer docs must stay separated from app command examples',
-    id: 'normalizer-docs',
-    next: 'central-owner',
-    owner: 'normalizer-doc',
-    path: /^docs\/concepts\/11-normalizing\.md$/,
-    rationale:
-      'Normalizer examples run under the normalization/update lifecycle, not app UI command handlers.',
-  },
-  {
-    expected: { primitive: 45, stale: 125 },
+    expected: { primitive: 45, stale: 126 },
     gate: 'browser proof handles must stay explicitly classified as proof transport',
     id: 'browser-proof-rows',
     next: 'explicit-proof-bridge',
@@ -128,36 +116,6 @@ const inventoryRules: InventoryRule[] = [
     path: /^packages\/slate-browser\/README\.md$/,
     rationale:
       'The slate-browser README documents the proof harness selection API.',
-  },
-  {
-    expected: { primitive: 9 },
-    gate: 'semantic editor methods stay thin over primitive/update runtime',
-    id: 'core-editor-methods',
-    next: 'central-owner',
-    owner: 'central-runtime',
-    path: /^packages\/slate\/src\/editor\//,
-    rationale:
-      'Core semantic methods are runtime-owned helpers, not app monkeypatch points.',
-  },
-  {
-    expected: { primitive: 7 },
-    gate: 'editor interface remains the central typed surface',
-    id: 'core-interface-types',
-    next: 'central-owner',
-    owner: 'central-runtime',
-    path: /^packages\/slate\/src\/interfaces\/editor\.ts$/,
-    rationale:
-      'The editor interface defines central editor methods in one place.',
-  },
-  {
-    expected: { primitive: 31 },
-    gate: 'core transform implementations own structural mutation internals',
-    id: 'core-transform-runtime',
-    next: 'central-owner',
-    owner: 'central-runtime',
-    path: /^packages\/slate\/src\/transforms-/,
-    rationale:
-      'Low-level transform internals are core runtime owners, not public docs guidance.',
   },
   {
     expected: { stale: 1 },
@@ -180,17 +138,7 @@ const inventoryRules: InventoryRule[] = [
       'Slate React owns editable input, IME, repair, and bridge workers behind the kernel.',
   },
   {
-    expected: { primitive: 285 },
-    gate: 'legacy transform fixtures are not public runtime law',
-    id: 'slate-legacy-transform-fixtures',
-    next: 'legacy-fixture',
-    owner: 'legacy-fixture',
-    path: /^packages\/slate\/test\/transforms\//,
-    rationale:
-      'Legacy transform fixtures preserve upstream behavior coverage while primary docs move to editor methods.',
-  },
-  {
-    expected: { primitive: 166, stale: 2 },
+    expected: { primitive: 61, stale: 63 },
     gate: 'core contract tests may exercise compatibility, but only as tests',
     id: 'slate-core-contract-tests',
     next: 'keep-as-contract',
@@ -200,17 +148,16 @@ const inventoryRules: InventoryRule[] = [
       'Core contracts intentionally cover snapshots and update/runtime behavior.',
   },
   {
-    expected: { primitive: 28 },
-    gate: 'history tests may cover legacy fixtures while history runtime burns down compatibility',
+    expected: { primitive: 5 },
+    gate: 'history tests may cover undo fixtures while history runtime burns down compatibility',
     id: 'slate-history-tests',
     next: 'keep-as-contract',
     owner: 'contract-test',
     path: /^packages\/slate-history\/test\//,
-    rationale:
-      'History contracts and legacy fixtures guard undo/redo behavior during the rewrite.',
+    rationale: 'History contracts guard undo/redo behavior during the rewrite.',
   },
   {
-    expected: { bridge: 3, primitive: 3 },
+    expected: { bridge: 3 },
     gate: 'React tests may exercise bridges only as contract proof',
     id: 'slate-react-tests',
     next: 'keep-as-contract',

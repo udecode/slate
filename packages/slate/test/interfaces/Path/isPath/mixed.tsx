@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 import { Path } from 'slate'
 
 export const input = [2, 4, 'b']

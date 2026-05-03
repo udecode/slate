@@ -1,3 +1,4 @@
+import { Editor } from 'slate/internal'
 /** @jsx jsx */
 
 import { jsx } from '../../..'
@@ -5,7 +6,6 @@ import { jsx } from '../../..'
 jsx
 
 /* The starting selection range is not hanging, so should not be adjusted */
-import { Editor } from 'slate'
 
 export const input = (
   <editor>

@@ -7,7 +7,7 @@ jsx
 import { Node } from 'slate'
 
 export const run = (editor) => {
-  editor.wrapNodes(<block a />, {
+  editor.nodes.wrap(<block a />, {
     match: (node, currentPath) => {
       // reject all nodes inside blocks tagged `noneditable`. Which is everything.
       if (node.noneditable) return false

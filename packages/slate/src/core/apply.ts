@@ -24,9 +24,9 @@ import {
   isInTransaction,
   markTransactionChanged,
   notifyListeners,
+  runEditorTransaction,
   setCurrentMarks,
   transformImplicitTarget,
-  withTransaction,
 } from './public-state'
 import { updateDirtyPaths } from './update-dirty-paths'
 
@@ -107,7 +107,7 @@ export const apply = (editor: Editor, op: Operation) => {
   }
 
   if (!isInTransaction(editor)) {
-    withTransaction(editor, () => {
+    runEditorTransaction(editor, () => {
       apply(editor, op)
     })
     return
@@ -133,7 +133,7 @@ export const apply = (editor: Editor, op: Operation) => {
     const transform = Path.operationCanTransformPath(op)
       ? (p: Path) => Path.transform(p, op)
       : undefined
-    updateDirtyPaths(editor, editor.getDirtyPaths(op), transform)
+    updateDirtyPaths(editor, Editor.getDirtyPaths(editor, op), transform)
   }
 
   transform(editor, op)

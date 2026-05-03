@@ -3,7 +3,7 @@ import { isKeyHotkey } from 'is-hotkey'
 import isUrl from 'is-url'
 import type React from 'react'
 import { type ClipboardEvent, type PointerEvent, useMemo } from 'react'
-import { createEditor, defineEditorExtension, Editor, Node, Range } from 'slate'
+import { createEditor, Node, Range } from 'slate'
 import { withHistory } from 'slate-history'
 import * as SlateReact from 'slate-react'
 import {
@@ -11,8 +11,9 @@ import {
   type EditableInputRule,
   type RenderElementProps,
   type RenderLeafProps,
-  useSelected,
-  useSlate,
+  useEditor,
+  useEditorSelector,
+  useElementSelected,
   withReact,
 } from 'slate-react'
 
@@ -20,7 +21,6 @@ import { Button, Icon, Toolbar } from './components'
 import type {
   ButtonElement,
   CustomEditor,
-  CustomElement,
   CustomValue,
   LinkElement,
   RenderElementPropsFor,
@@ -84,13 +84,17 @@ const InlinesExample = () => {
   )
   const inputRules = useMemo<readonly EditableInputRule[]>(
     () => [
-      ({ data, editor: ruleEditor, inputType }) =>
-        inputType === 'insertText' &&
-        typeof data === 'string' &&
-        isUrl(data) &&
-        wrapLink(ruleEditor as CustomEditor, data),
+      ({ data, inputType }) => {
+        if (
+          inputType === 'insertText' &&
+          typeof data === 'string' &&
+          isUrl(data)
+        ) {
+          return wrapLink(editor, data)
+        }
+      },
     ],
-    []
+    [editor]
   )
   const onPaste = (event: ClipboardEvent<HTMLDivElement>) => {
     const text = event.clipboardData.getData('text/plain')
@@ -101,8 +105,8 @@ const InlinesExample = () => {
     }
   }
 
-  const onKeyCommand = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    const selection = editor.getSelection()
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const selection = editor.read((state) => state.selection.get())
 
     // Default left/right behavior is unit:'character'.
     // This fails to distinguish between two cursor positions, such as
@@ -113,14 +117,14 @@ const InlinesExample = () => {
     if (selection && Range.isCollapsed(selection)) {
       const { nativeEvent } = event
       if (isKeyHotkey('left', nativeEvent)) {
-        editor.update(() => {
-          editor.move({ unit: 'offset', reverse: true })
+        editor.update((tx) => {
+          tx.selection.move({ unit: 'offset', reverse: true })
         })
         return true
       }
       if (isKeyHotkey('right', nativeEvent)) {
-        editor.update(() => {
-          editor.move({ unit: 'offset' })
+        editor.update((tx) => {
+          tx.selection.move({ unit: 'offset' })
         })
         return true
       }
@@ -136,7 +140,7 @@ const InlinesExample = () => {
       </Toolbar>
       <Editable
         inputRules={inputRules}
-        onKeyCommand={onKeyCommand}
+        onKeyDown={onKeyDown}
         onPaste={onPaste}
         placeholder="Enter some text..."
         renderElement={(props: RenderElementProps) => <Element {...props} />}
@@ -146,72 +150,64 @@ const InlinesExample = () => {
   )
 }
 
-const inlinesExtension = defineEditorExtension<CustomEditor>({
-  name: 'inlines',
-  methods(editor) {
-    const nextIsElementReadOnly = editor.isElementReadOnly
-    const nextIsInline = editor.isInline
-    const nextIsSelectable = editor.isSelectable
-
-    return {
-      isElementReadOnly(element: CustomElement) {
-        return element.type === 'badge' || nextIsElementReadOnly(element)
-      },
-      isInline(element: CustomElement) {
-        return (
-          ['link', 'button', 'badge'].includes(element.type) ||
-          nextIsInline(element)
-        )
-      },
-      isSelectable(element: CustomElement) {
-        return element.type !== 'badge' && nextIsSelectable(element)
-      },
-    }
-  },
-})
-
 const withInlines = (editor: CustomEditor) => {
-  editor.extend(inlinesExtension)
+  editor.extend({
+    name: 'inlines',
+    elements: [
+      { inline: true, type: 'link' },
+      { inline: true, type: 'button' },
+      { inline: true, readOnly: true, selectable: false, type: 'badge' },
+    ],
+  })
+
   return editor
 }
 
 const insertLink = (editor: CustomEditor, url: string) => {
-  if (Editor.getSelection(editor)) {
+  if (editor.read((state) => state.selection.get())) {
     wrapLink(editor, url)
   }
 }
 
 const insertButton = (editor: CustomEditor) => {
-  if (Editor.getSelection(editor)) {
+  if (editor.read((state) => state.selection.get())) {
     wrapButton(editor)
   }
 }
 
 const isLinkActive = (editor: CustomEditor): boolean => {
-  const [link] = Editor.nodes(editor, {
-    match: (n) => Node.isElement(n) && n.type === 'link',
-  })
+  const [link] = editor.read((state) =>
+    Array.from(
+      state.nodes.match({
+        match: (n) => Node.isElement(n) && n.type === 'link',
+      })
+    )
+  )
   return !!link
 }
 
 const isButtonActive = (editor: CustomEditor): boolean => {
-  const [button] = Editor.nodes(editor, {
-    match: (n) => Node.isElement(n) && n.type === 'button',
-  })
+  const [button] = editor.read((state) =>
+    Array.from(
+      state.nodes.match({
+        match: (n) => Node.isElement(n) && n.type === 'button',
+      })
+    )
+  )
   return !!button
 }
 
 const unwrapLink = (editor: CustomEditor) => {
-  editor.update(() => {
-    editor.unwrapNodes({
+  editor.update((tx) => {
+    tx.nodes.unwrap({
       match: (n) => Node.isElement(n) && n.type === 'link',
     })
   })
 }
 
 const unwrapButton = (editor: CustomEditor) => {
-  editor.update(() => {
-    editor.unwrapNodes({
+  editor.update((tx) => {
+    tx.nodes.unwrap({
       match: (n) => Node.isElement(n) && n.type === 'button',
     })
   })
@@ -222,7 +218,7 @@ const wrapLink = (editor: CustomEditor, url: string) => {
     unwrapLink(editor)
   }
 
-  const selection = editor.getSelection()
+  const selection = editor.read((state) => state.selection.get())
   const isCollapsed = selection && Range.isCollapsed(selection)
   const link: LinkElement = {
     type: 'link',
@@ -230,12 +226,12 @@ const wrapLink = (editor: CustomEditor, url: string) => {
     children: isCollapsed ? [{ text: url }] : [],
   }
 
-  editor.update(() => {
+  editor.update((tx) => {
     if (isCollapsed) {
-      editor.insertNodes(link)
+      tx.nodes.insert(link)
     } else {
-      editor.wrapNodes(link, { split: true })
-      editor.collapse({ edge: 'end' })
+      tx.nodes.wrap(link, { split: true })
+      tx.selection.collapse({ edge: 'end' })
     }
   })
 
@@ -247,19 +243,19 @@ const wrapButton = (editor: CustomEditor) => {
     unwrapButton(editor)
   }
 
-  const selection = editor.getSelection()
+  const selection = editor.read((state) => state.selection.get())
   const isCollapsed = selection && Range.isCollapsed(selection)
   const button: ButtonElement = {
     type: 'button',
     children: isCollapsed ? [{ text: 'Edit me!' }] : [],
   }
 
-  editor.update(() => {
+  editor.update((tx) => {
     if (isCollapsed) {
-      editor.insertNodes(button)
+      tx.nodes.insert(button)
     } else {
-      editor.wrapNodes(button, { split: true })
-      editor.collapse({ edge: 'end' })
+      tx.nodes.wrap(button, { split: true })
+      tx.selection.collapse({ edge: 'end' })
     }
   })
 }
@@ -284,7 +280,7 @@ const LinkComponent = ({
   children,
   element,
 }: RenderElementPropsFor<LinkElement>) => {
-  const selected = useSelected()
+  const selected = useElementSelected()
   const safeUrl = useMemo(() => {
     let parsedUrl: URL | null = null
     try {
@@ -356,7 +352,7 @@ const BadgeComponent = ({
   children,
   element,
 }: RenderElementProps) => {
-  const selected = useSelected()
+  const selected = useElementSelected()
 
   return (
     <span
@@ -417,10 +413,13 @@ const Text = (props: RenderLeafProps) => {
 }
 
 const AddLinkButton = () => {
-  const editor = useSlate<CustomEditor>()
+  const editor = useEditor<CustomEditor>()
+  const active = useEditorSelector<boolean, CustomEditor>((editor) =>
+    isLinkActive(editor)
+  )
   return (
     <Button
-      active={isLinkActive(editor)}
+      active={active}
       onClick={() => {
         const url = window.prompt('Enter the URL of the link:')
         if (!url) return
@@ -436,11 +435,14 @@ const AddLinkButton = () => {
 }
 
 const RemoveLinkButton = () => {
-  const editor = useSlate<CustomEditor>()
+  const editor = useEditor<CustomEditor>()
+  const active = useEditorSelector<boolean, CustomEditor>((editor) =>
+    isLinkActive(editor)
+  )
 
   return (
     <Button
-      active={isLinkActive(editor)}
+      active={active}
       onClick={() => {
         if (isLinkActive(editor)) {
           unwrapLink(editor)
@@ -456,7 +458,7 @@ const RemoveLinkButton = () => {
 }
 
 const ToggleEditableButtonButton = () => {
-  const editor = useSlate<CustomEditor>()
+  const editor = useEditor<CustomEditor>()
   return (
     <Button
       active

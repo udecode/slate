@@ -1,15 +1,12 @@
 import type { Editor } from '../interfaces/editor'
 import { Node } from '../interfaces/node'
+import type { Operation } from '../interfaces/operation'
 import { Path } from '../interfaces/path'
-import type { WithEditorFirstArg } from '../utils/types'
 
 /**
  * Get the "dirty" paths generated from an operation.
  */
-export const getDirtyPaths: WithEditorFirstArg<Editor['getDirtyPaths']> = (
-  editor,
-  op
-) => {
+export const getDirtyPaths = (editor: Editor, op: Operation): Path[] => {
   switch (op.type) {
     case 'insert_text':
     case 'remove_text':

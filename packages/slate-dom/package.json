@@ -6,7 +6,12 @@
   "repository": "git://github.com/ianstormtaylor/slate.git",
   "type": "module",
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./dist/index.js",
+    "./internal": {
+      "types": "./dist/internal/index.d.ts",
+      "import": "./dist/internal/index.js",
+      "default": "./dist/internal/index.js"
+    }
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",

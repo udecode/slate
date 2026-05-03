@@ -1,105 +1,121 @@
-# ReactEditor
+# React Editor
 
-`ReactEditor` is added to `Editor` when it is instantiated using the `withReact` method.
+`withReact` returns an editor with React and DOM host capabilities installed.
+Use the `ReactEditor` export as a type, and use `editor.dom` for host work.
 
 ```typescript
-const [editor] = useState(() => withReact(withHistory(createEditor())))
+import { createEditor } from 'slate'
+import { withReact, type ReactEditor } from 'slate-react'
+
+const editor: ReactEditor = withReact(createEditor())
+
+editor.dom.focus()
 ```
 
-- [Static methods](react-editor.md#static-methods)
-  - [Check methods](react-editor.md#check-methods)
-  - [Focus and selection methods](react-editor.md#focus-and-selection-methods)
-  - [DOM translation methods](react-editor.md#dom-translation-methods)
-  - [DataTransfer methods](react-editor.md#datatransfer-methods)
+- [Checks](react-editor.md#checks)
+- [Focus And Selection](react-editor.md#focus-and-selection)
+- [DOM Translation](react-editor.md#dom-translation)
+- [DataTransfer](react-editor.md#datatransfer)
 
-## Static methods
+## Checks
 
-### Check methods
-
-#### `ReactEditor.isComposing(editor: ReactEditor): boolean`
+#### `editor.dom.isComposing(): boolean`
 
 Check if the user is currently composing inside the editor.
 
-#### `ReactEditor.isFocused(editor: ReactEditor): boolean`
+#### `editor.dom.isFocused(): boolean`
 
 Check if the editor is focused.
 
-#### `ReactEditor.isReadOnly(editor: ReactEditor): boolean`
+#### `editor.dom.isReadOnly(): boolean`
 
 Check if the editor is in read-only mode.
 
-### Focus and selection methods
+## Focus And Selection
 
-#### `ReactEditor.blur(editor: ReactEditor): void`
+#### `editor.dom.blur(): void`
 
 Blur the editor.
 
-#### `ReactEditor.focus(editor: ReactEditor): void`
+#### `editor.dom.focus(options?: { retries: number }): void`
 
 Focus the editor.
 
-#### `ReactEditor.deselect(editor: ReactEditor): void`
+#### `editor.dom.deselect(): void`
 
-Deselect the editor.
+Clear the native DOM selection and the Slate selection.
 
-### DOM translation methods
+## DOM Translation
 
-#### `ReactEditor.findKey(editor: ReactEditor, node: Node): Key`
+#### `editor.dom.findKey(node: Node): Key`
 
 Find a key for a Slate node.
 
-Returns an instance of `Key` which looks like `{ id: string }`
+#### `editor.dom.findPath(node: Node): Path`
 
-#### `ReactEditor.findPath(editor: ReactEditor, node: Node): Path`
+Find the path of a Slate node.
 
-Find the path of Slate node.
-
-#### `ReactEditor.hasDOMNode(editor: ReactEditor, target: DOMNode, options: { editable?: boolean } = {}): boolean`
+#### `editor.dom.hasDOMNode(target: DOMNode, options?: { editable?: boolean }): boolean`
 
 Check if a DOM node is within the editor.
 
-#### `ReactEditor.toDOMNode(editor: ReactEditor, node: Node): HTMLElement`
+#### `editor.dom.hasEditableTarget(target: EventTarget | null): target is DOMNode`
 
-Find the native DOM element from a Slate node.
+Check if the target is editable and in the editor.
 
-#### `ReactEditor.toDOMPoint(editor: ReactEditor, point: Point): DOMPoint`
+#### `editor.dom.hasSelectableTarget(target: EventTarget | null): boolean`
+
+Check if the target can be selected by the editor.
+
+#### `editor.dom.hasTarget(target: EventTarget | null): target is DOMNode`
+
+Check if the target is in the editor.
+
+#### `editor.dom.toDOMNode(node: Node): HTMLElement`
+
+Find the native DOM element for a Slate node.
+
+#### `editor.dom.toDOMPoint(point: Point): DOMPoint`
 
 Find a native DOM selection point from a Slate point.
 
-#### `ReactEditor.toDOMRange(editor: ReactEditor, range: Range): DOMRange`
+#### `editor.dom.toDOMRange(range: Range): DOMRange`
 
-Find a native DOM range from a Slate `range`.
+Find a native DOM range from a Slate range.
 
-#### `ReactEditor.toSlateNode(editor: ReactEditor, domNode: DOMNode): Node`
+#### `editor.dom.toSlateNode(domNode: DOMNode): Node`
 
-Find a Slate node from a native DOM `element`.
+Find a Slate node from a native DOM node.
 
-#### `ReactEditor.findEventRange(editor: ReactEditor, event: any): Range`
+#### `editor.dom.findEventRange(event: unknown): Range`
 
-Get the target range from a DOM `event`.
+Get the target range from a DOM event.
 
-#### `ReactEditor.toSlatePoint(editor: ReactEditor, domPoint: DOMPoint): Point | null`
+#### `editor.dom.toSlatePoint(domPoint: DOMPoint, options: { exactMatch: boolean; searchDirection?: 'backward' | 'forward'; suppressThrow?: boolean }): Point | null`
 
-Find a Slate point from a DOM selection's `domNode` and `domOffset`.
+Find a Slate point from a DOM point.
 
-#### `ReactEditor.toSlateRange(editor: ReactEditor, domRange: DOMRange | DOMStaticRange | DOMSelection, options?: { exactMatch?: boolean } = {}): Range | null`
+#### `editor.dom.toSlateRange(domRange: DOMRange | DOMStaticRange | DOMSelection, options: { exactMatch: boolean; suppressThrow?: boolean }): Range | null`
 
 Find a Slate range from a DOM range or selection.
 
-### DataTransfer methods
+## DataTransfer
 
-#### `ReactEditor.insertData(editor: ReactEditor, data: DataTransfer): void`
+#### `editor.dom.clipboard.insertData(data: DataTransfer): void`
 
-Insert data from a `DataTransfer` into the editor. This is a proxy method to call in this order `insertFragmentData(editor: ReactEditor, data: DataTransfer)` and then `insertTextData(editor: ReactEditor, data: DataTransfer)`.
+Insert data from a `DataTransfer` into the editor. This tries Slate fragment
+data first, then plain text.
 
-#### `ReactEditor.insertFragmentData(editor: ReactEditor, data: DataTransfer): true`
+#### `editor.dom.clipboard.insertFragmentData(data: DataTransfer): boolean`
 
-Insert fragment data from a `DataTransfer` into the editor. Returns true if some content has been effectively inserted.
+Insert Slate fragment data from a `DataTransfer`. Returns `true` when fragment
+content was inserted.
 
-#### `ReactEditor.insertTextData(editor: ReactEditor, data: DataTransfer): true`
+#### `editor.dom.clipboard.insertTextData(data: DataTransfer): boolean`
 
-Insert text data from a `DataTransfer` into the editor. Returns true if some content has been effectively inserted.
+Insert plain text data from a `DataTransfer`. Returns `true` when text content
+was inserted.
 
-#### `ReactEditor.setFragmentData(editor: ReactEditor, data: DataTransfer, originEvent?: 'drag' | 'copy' | 'cut'): void`
+#### `editor.dom.clipboard.writeSelection(data: Pick<DataTransfer, 'getData' | 'setData'>): void`
 
-Sets data from the currently selected fragment on a `DataTransfer`.
+Write the current selection to a `DataTransfer`.

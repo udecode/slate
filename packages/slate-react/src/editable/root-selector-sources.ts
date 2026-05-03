@@ -1,9 +1,10 @@
-import { type ReactNode, useCallback, useMemo } from 'react'
-import type { Operation, Path, RuntimeId } from 'slate'
-import { Editor, Node } from 'slate'
-import { useSlateSelector } from '../hooks/use-slate-selector'
+import { type ReactNode, useCallback, useMemo, useRef } from 'react'
+import type { Operation, Path, RuntimeId, SnapshotChange } from 'slate'
+import { Node } from 'slate'
+import { useEditorSelector } from '../hooks/use-editor-selector'
 import { createIslandPlan } from '../large-document/create-island-plan'
 import type { ReactEditor } from '../plugin/react-editor'
+import { recordSlateReactRender } from '../render-profiler'
 
 export type LargeDocumentRootConfig = {
   activeRadius: number
@@ -21,32 +22,70 @@ const isSelectionOperation = (operation: Operation | undefined) =>
 const hasNoOperations = (operations: readonly Operation[] | undefined) =>
   !operations || operations.length === 0
 
-const getRootPathKey = (path: Path) => path.join('.')
+const topLevelRangesIncludeIndex = (
+  ranges: readonly (readonly [number, number])[] | null | undefined,
+  index: number
+) =>
+  ranges == null ||
+  ranges.some(([start, end]) => start <= index && end >= index)
 
-const shouldUpdateRootRuntimeIds = (operations?: readonly Operation[]) =>
-  hasNoOperations(operations) ||
-  (operations ?? []).some(
-    (operation) =>
-      !isTextOperation(operation) && !isSelectionOperation(operation)
-  )
+const shouldUpdateRootRuntimeIds = (
+  operations?: readonly Operation[],
+  change?: SnapshotChange
+) =>
+  change
+    ? change.rootRuntimeIdsChanged
+    : hasNoOperations(operations) ||
+      (operations ?? []).some(
+        (operation) =>
+          !isTextOperation(operation) && !isSelectionOperation(operation)
+      )
 
-const shouldUpdateSelectedTopLevelIndex = (operations?: readonly Operation[]) =>
-  hasNoOperations(operations) ||
-  (operations ?? []).some(
-    (operation) =>
-      isSelectionOperation(operation) || !isTextOperation(operation)
-  )
+const shouldUpdateSelectedTopLevelIndex = (
+  operations?: readonly Operation[],
+  change?: SnapshotChange
+) =>
+  change
+    ? (change.selectionChanged && change.selectionImpactRuntimeIds !== null) ||
+      change.rootRuntimeIdsChanged ||
+      change.topLevelOrderChanged
+    : hasNoOperations(operations) ||
+      (operations ?? []).some(
+        (operation) =>
+          isSelectionOperation(operation) || !isTextOperation(operation)
+      )
 
-const shouldUpdatePlaceholderValue = (operations?: readonly Operation[]) =>
-  hasNoOperations(operations) ||
-  (operations ?? []).some((operation) => !isSelectionOperation(operation))
+const shouldUpdatePlaceholderValue = (
+  operations?: readonly Operation[],
+  change?: SnapshotChange
+) =>
+  change
+    ? change.fullDocumentChanged ||
+      change.topLevelOrderChanged ||
+      (change.textChanged &&
+        topLevelRangesIncludeIndex(change.dirtyTopLevelRanges, 0))
+    : hasNoOperations(operations) ||
+      (operations ?? []).some((operation) => !isSelectionOperation(operation))
 
-const shouldUpdateEditableRootCommit = (operations?: readonly Operation[]) =>
-  hasNoOperations(operations) ||
-  (operations ?? []).some(
-    (operation) =>
-      !isTextOperation(operation) && !isSelectionOperation(operation)
-  )
+const shouldUpdateEditableRootCommit = (
+  operations?: readonly Operation[],
+  change?: SnapshotChange
+) =>
+  change
+    ? change.fullDocumentChanged ||
+      change.rootRuntimeIdsChanged ||
+      change.structureChanged ||
+      change.topLevelOrderChanged
+    : hasNoOperations(operations) ||
+      (operations ?? []).some(
+        (operation) =>
+          !isTextOperation(operation) && !isSelectionOperation(operation)
+      )
+
+const shouldUpdateRootDocumentEpoch = (
+  operations?: readonly Operation[],
+  change?: SnapshotChange
+) => (change ? change.fullDocumentChanged : hasNoOperations(operations))
 
 const sameRuntimeIds = (
   left: readonly RuntimeId[],
@@ -56,39 +95,60 @@ const sameRuntimeIds = (
   left.every((runtimeId, index) => runtimeId === right[index])
 
 const selectRootRuntimeIds = (editor: ReactEditor) => {
-  const snapshot = Editor.getSnapshot(editor)
+  return editor.read((state) => {
+    return state.value
+      .get()
+      .map((_node: unknown, index: number) => {
+        const path = [index] as Path
 
-  return snapshot.children
-    .map((_node: unknown, index: number) => {
-      const path = [index] as Path
-      const pathKey = getRootPathKey(path)
-
-      return (
-        snapshot.index.pathToId[pathKey] ?? Editor.getRuntimeId(editor, path)
-      )
-    })
-    .filter(Boolean) as RuntimeId[]
+        return state.runtime.idAt(path)
+      })
+      .filter(Boolean) as RuntimeId[]
+  })
 }
 
 export const useRootRuntimeIds = () =>
-  useSlateSelector(
+  useEditorSelector(
     selectRootRuntimeIds,
     (left, right) => {
       return left != null && sameRuntimeIds(left as RuntimeId[], right)
     },
     {
+      profileId: 'root-runtime-ids',
       shouldUpdate: shouldUpdateRootRuntimeIds,
     }
   )
 
-export const useSelectedTopLevelIndex = (enabled: boolean) => {
+export const useRootDocumentEpoch = () => {
+  const lastEpochRef = useRef(0)
+  const selector = useCallback(
+    (editor: ReactEditor) =>
+      editor.read((state) => {
+        const commit = state.value.lastCommit()
+
+        if (commit?.fullDocumentChanged) {
+          lastEpochRef.current = commit.version
+        }
+
+        return lastEpochRef.current
+      }),
+    []
+  )
+
+  return useEditorSelector(selector, Object.is, {
+    profileId: 'root-document-epoch',
+    shouldUpdate: shouldUpdateRootDocumentEpoch,
+  })
+}
+
+export const useTopLevelSelectionIndex = (enabled: boolean) => {
   const selector = useCallback(
     (editor: ReactEditor) => {
       if (!enabled) {
         return null
       }
 
-      const selection = Editor.getSnapshot(editor).selection
+      const selection = editor.read((state) => state.selection.get())
       const anchorIndex = selection?.anchor.path[0]
       const focusIndex = selection?.focus.path[0]
 
@@ -101,36 +161,45 @@ export const useSelectedTopLevelIndex = (enabled: boolean) => {
     [enabled]
   )
   const shouldUpdate = useCallback(
-    (operations?: readonly Operation[]) =>
-      enabled && shouldUpdateSelectedTopLevelIndex(operations),
+    (operations?: readonly Operation[], change?: SnapshotChange) =>
+      enabled && shouldUpdateSelectedTopLevelIndex(operations, change),
     [enabled]
   )
 
-  return useSlateSelector(selector, Object.is, { shouldUpdate })
+  return useEditorSelector(selector, Object.is, {
+    profileId: 'top-level-selection-index',
+    shouldUpdate,
+  })
 }
 
 export const usePlaceholderValue = (placeholder?: ReactNode) => {
   const selector = useCallback(
     (editor: ReactEditor) =>
-      placeholder &&
-      Editor.getChildren(editor).length === 1 &&
-      Array.from(Node.texts(editor)).length === 1 &&
-      Node.string(editor) === ''
+      editor.read(
+        (state) =>
+          placeholder &&
+          state.value.get().length === 1 &&
+          Array.from(Node.texts(editor)).length === 1 &&
+          Node.string(editor) === ''
+      )
         ? placeholder
         : undefined,
     [placeholder]
   )
 
-  return useSlateSelector(selector, Object.is, {
+  return useEditorSelector(selector, Object.is, {
+    profileId: 'placeholder',
     shouldUpdate: shouldUpdatePlaceholderValue,
   })
 }
 
 export const useEditableRootCommitWakeup = () => {
-  useSlateSelector(
-    (editor: ReactEditor) => Editor.getLastCommit(editor)?.version ?? 0,
+  useEditorSelector(
+    (editor: ReactEditor) =>
+      editor.read((state) => state.value.lastCommit()?.version ?? 0),
     Object.is,
     {
+      profileId: 'editable-root-commit',
       shouldUpdate: shouldUpdateEditableRootCommit,
     }
   )
@@ -144,11 +213,16 @@ export const useLargeDocumentRootSources = ({
   promotedIslandIndex: number | null
 }) => {
   const topLevelRuntimeIds = useRootRuntimeIds()
-  const selectedTopLevelIndex = useSelectedTopLevelIndex(
+  const selectedTopLevelIndex = useTopLevelSelectionIndex(
     largeDocumentConfig != null
   )
 
   return useMemo(() => {
+    recordSlateReactRender({
+      id: largeDocumentConfig ? 'large-document-root-sources' : 'root-sources',
+      kind: 'root-plan',
+    })
+
     const islandPlan =
       largeDocumentConfig &&
       topLevelRuntimeIds.length >= largeDocumentConfig.threshold

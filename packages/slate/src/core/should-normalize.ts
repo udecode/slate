@@ -1,7 +1,11 @@
 import type { Editor } from '../interfaces/editor'
-import type { WithEditorFirstArg } from '../utils/types'
+import type { Operation } from '../interfaces/operation'
 
-export const shouldNormalize: WithEditorFirstArg<Editor['shouldNormalize']> = (
-  _editor,
-  _options
-) => true
+export const shouldNormalize = (
+  _editor: Editor,
+  _options: {
+    explicit?: boolean
+    iteration: number
+    operation?: Operation
+  }
+): boolean => true

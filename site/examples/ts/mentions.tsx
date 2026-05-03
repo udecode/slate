@@ -8,20 +8,16 @@ import {
   useRef,
   useState,
 } from 'react'
-import {
-  createEditor,
-  defineEditorExtension,
-  Editor,
-  Range,
-  type Element as SlateElement,
-} from 'slate'
+import { createEditor, Range } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  ReactEditor,
   type RenderElementProps,
   type RenderLeafProps,
+  type RenderVoidProps,
   Slate,
+  useEditorFocused,
+  useElementSelected,
   withReact,
 } from 'slate-react'
 
@@ -30,7 +26,6 @@ import type {
   CustomEditor,
   CustomValue,
   MentionElement,
-  RenderVoidPropsFor,
 } from './custom-types.d'
 
 const MentionExample = () => {
@@ -43,7 +38,7 @@ const MentionExample = () => {
     []
   )
   const renderVoid = useCallback(
-    (props: RenderVoidPropsFor<MentionElement>) => <Mention {...props} />,
+    (props: RenderVoidProps<MentionElement>) => <Mention {...props} />,
     []
   )
   const renderLeaf = useCallback(
@@ -62,7 +57,7 @@ const MentionExample = () => {
     c.toLowerCase().startsWith(search.toLowerCase())
   ).slice(0, 10)
 
-  const onKeyCommand = useCallback(
+  const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
       if (target && chars.length > 0) {
         switch (event.key) {
@@ -95,7 +90,7 @@ const MentionExample = () => {
       const el = ref.current
       let domRange: globalThis.Range
       try {
-        domRange = ReactEditor.toDOMRange(editor, target)
+        domRange = editor.dom.toDOMRange(target)
       } catch {
         return
       }
@@ -109,39 +104,50 @@ const MentionExample = () => {
     <Slate
       editor={editor}
       initialValue={initialValue}
-      onSnapshotChange={() => {
-        const selection = Editor.getSelection(editor)
+      onChange={() => {
+        const match = editor.read((state) => {
+          const selection = state.selection.get()
 
-        if (selection && Range.isCollapsed(selection)) {
-          const [start] = Range.edges(selection)
-          const wordBefore = Editor.before(editor, start, { unit: 'word' })
-          const before = wordBefore && Editor.before(editor, wordBefore)
-          const beforeRange = before && Editor.range(editor, before, start)
-          const beforeText = beforeRange && Editor.string(editor, beforeRange)
-          const beforeMatch = beforeText?.match(/(?:^|\s)@(\w+)$/)
-          const after = Editor.after(editor, start)
-          const afterRange = Editor.range(editor, start, after)
-          const afterText = Editor.string(editor, afterRange)
-          const afterMatch = afterText.match(/^(\s|$)/)
+          if (selection && Range.isCollapsed(selection)) {
+            const [start] = Range.edges(selection)
+            const wordBefore = state.points.before(start, { unit: 'word' })
+            const before = wordBefore && state.points.before(wordBefore)
+            const beforeRange = before && state.ranges.get(before, start)
+            const beforeText = beforeRange && state.text.string(beforeRange)
+            const beforeMatch = beforeText?.match(/(?:^|\s)@(\w+)$/)
+            const after = state.points.after(start)
+            const afterRange = after && state.ranges.get(start, after)
+            const afterText = afterRange && state.text.string(afterRange)
+            const afterMatch = afterText?.match(/^(\s|$)/)
 
-          if (beforeMatch && afterMatch && beforeRange) {
-            const mentionStart = {
-              path: start.path,
-              offset: start.offset - beforeMatch[1].length - 1,
+            if (beforeMatch && afterMatch && beforeRange) {
+              const mentionStart = {
+                path: start.path,
+                offset: start.offset - beforeMatch[1].length - 1,
+              }
+
+              return {
+                range: state.ranges.get(mentionStart, start),
+                search: beforeMatch[1],
+              }
             }
-
-            setTarget(Editor.range(editor, mentionStart, start))
-            setSearch(beforeMatch[1])
-            setIndex(0)
-            return
           }
+
+          return null
+        })
+
+        if (match) {
+          setTarget(match.range)
+          setSearch(match.search)
+          setIndex(0)
+          return
         }
 
         setTarget(null)
       }}
     >
       <Editable
-        onKeyCommand={onKeyCommand}
+        onKeyDown={onKeyDown}
         placeholder="Enter some text..."
         renderElement={renderElement}
         renderLeaf={renderLeaf}
@@ -187,29 +193,12 @@ const MentionExample = () => {
   )
 }
 
-const mentionsExtension = defineEditorExtension<CustomEditor>({
-  name: 'mentions',
-  methods(editor) {
-    const nextIsInline = editor.isInline
-    const nextIsVoid = editor.isVoid
-    const nextMarkableVoid = editor.markableVoid
-
-    return {
-      isInline(element: SlateElement) {
-        return element.type === 'mention' ? true : nextIsInline(element)
-      },
-      isVoid(element: SlateElement) {
-        return element.type === 'mention' ? true : nextIsVoid(element)
-      },
-      markableVoid(element: SlateElement) {
-        return element.type === 'mention' || nextMarkableVoid(element)
-      },
-    }
-  },
-})
-
 const withMentions = (editor: CustomEditor) => {
-  editor.extend(mentionsExtension)
+  editor.extend({
+    name: 'mentions',
+    elements: [{ type: 'mention', void: 'markable-inline' }],
+  })
+
   return editor
 }
 
@@ -223,12 +212,12 @@ const insertMention = (
     character,
     children: [{ text: '' }],
   }
-  editor.update(() => {
+  editor.update((tx) => {
     if (target) {
-      editor.select(target)
+      tx.selection.set(target)
     }
-    editor.insertNodes(mention)
-    editor.move()
+    tx.nodes.insert(mention)
+    tx.selection.move()
   })
 }
 
@@ -260,11 +249,9 @@ const Element = (props: RenderElementProps) => {
   return <p {...attributes}>{children}</p>
 }
 
-const Mention = ({
-  element,
-  focused,
-  selected,
-}: RenderVoidPropsFor<MentionElement>) => {
+const Mention = ({ element, target }: RenderVoidProps<MentionElement>) => {
+  const focused = useEditorFocused()
+  const selected = useElementSelected(target)
   const style: React.CSSProperties = {
     padding: '3px 3px 2px',
     margin: '0 1px',

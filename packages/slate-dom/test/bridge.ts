@@ -2,18 +2,19 @@ import { JSDOM } from 'jsdom'
 import {
   createEditor,
   type Descendant,
-  Editor,
   type Node,
   type Point,
   Element as SlateElement,
 } from 'slate'
+import { Editor } from 'slate/internal'
 
 import {
-  DOMEditor,
+  type DOMEditor,
   EDITOR_TO_ELEMENT,
   EDITOR_TO_KEY_TO_ELEMENT,
   EDITOR_TO_WINDOW,
   ELEMENT_TO_NODE,
+  IS_NODE_MAP_DIRTY,
   NODE_TO_ELEMENT,
   NODE_TO_INDEX,
   NODE_TO_PARENT,
@@ -32,7 +33,14 @@ const createParagraphEditor = (text = 'alpha beta') => {
     ] satisfies Descendant[],
   })
 
-  seedNodeMaps(editor, editor.getChildren())
+  seedNodeMaps(
+    editor,
+    editor.read((state) =>
+      state.value
+        .get()
+        .map((_, index) => state.nodes.get([index])[0] as Descendant)
+    )
+  )
 
   return editor
 }
@@ -94,11 +102,15 @@ const mountEditorRoot = (
   return root
 }
 
-const bindTextOwner = (editor: Editor, path: number[], owner: HTMLElement) => {
+const bindTextOwner = (
+  editor: DOMEditor,
+  path: number[],
+  owner: HTMLElement
+) => {
   owner.setAttribute('data-slate-node', 'text')
 
-  const [node] = Editor.node(editor, path)
-  const key = DOMEditor.findKey(editor, node)
+  const [node] = editor.read((state) => state.nodes.get(path))
+  const key = editor.dom.findKey(node)
 
   EDITOR_TO_KEY_TO_ELEMENT.get(editor)!.set(key, owner)
   ELEMENT_TO_NODE.set(owner, node)
@@ -106,6 +118,78 @@ const bindTextOwner = (editor: Editor, path: number[], owner: HTMLElement) => {
 }
 
 describe('slate-dom bridge', () => {
+  it('does not mark node maps dirty for selection-only operations', () => {
+    const editor = createParagraphEditor()
+
+    IS_NODE_MAP_DIRTY.set(editor, false)
+
+    editor.update((tx) => {
+      tx.selection.set({ path: [0, 0], offset: 5 })
+    })
+
+    expect(IS_NODE_MAP_DIRTY.get(editor)).toBe(false)
+
+    editor.update((tx) => {
+      tx.text.insert('!')
+    })
+
+    expect(IS_NODE_MAP_DIRTY.get(editor)).toBe(true)
+  })
+
+  it('resolves mounted Slate DOM nodes by path when weak maps are missing', () => {
+    withDom(({ document }) => {
+      const editor = createParagraphEditor()
+      const root = mountEditorRoot(editor, document)
+      const paragraph = document.createElement('p')
+      const textOwner = document.createElement('span')
+      const [paragraphNode] = editor.read((state) => state.nodes.get([0]))
+      const [textNode] = editor.read((state) => state.nodes.get([0, 0]))
+
+      paragraph.setAttribute('data-slate-node', 'element')
+      paragraph.setAttribute('data-slate-path', '0')
+      textOwner.setAttribute('data-slate-node', 'text')
+      textOwner.setAttribute('data-slate-path', '0,0')
+      paragraph.appendChild(textOwner)
+      root.appendChild(paragraph)
+
+      expect(editor.dom.toSlateNode(paragraph)).toBe(paragraphNode)
+      expect(editor.dom.toSlateNode(textOwner)).toBe(textNode)
+    })
+  })
+
+  it('does not resolve path-tagged DOM nodes outside the editor', () => {
+    withDom(({ document }) => {
+      const editor = createParagraphEditor()
+      mountEditorRoot(editor, document)
+
+      const foreign = document.createElement('p')
+      foreign.setAttribute('data-slate-node', 'element')
+      foreign.setAttribute('data-slate-path', '0')
+
+      expect(() => editor.dom.toSlateNode(foreign)).toThrow(
+        'Cannot resolve a Slate node from DOM node'
+      )
+    })
+  })
+
+  it('treats editor-owned unmapped DOM targets as non-void instead of throwing', () => {
+    withDom(({ document }) => {
+      const editor = createParagraphEditor()
+      const root = mountEditorRoot(editor, document)
+      const staleParagraph = document.createElement('p')
+
+      staleParagraph.setAttribute('data-slate-node', 'element')
+      root.appendChild(staleParagraph)
+
+      expect(() =>
+        editor.dom.isTargetInsideNonReadonlyVoid(staleParagraph)
+      ).not.toThrow()
+      expect(editor.dom.isTargetInsideNonReadonlyVoid(staleParagraph)).toBe(
+        false
+      )
+    })
+  })
+
   it('maps a zero-width DOM point back to the Slate start offset', () => {
     withDom(({ document }) => {
       const editor = createParagraphEditor()
@@ -125,7 +209,7 @@ describe('slate-dom bridge', () => {
       bindTextOwner(editor, [0, 0], owner)
 
       expect(
-        DOMEditor.toSlatePoint(editor, [textNode, 1], {
+        editor.dom.toSlatePoint([textNode, 1], {
           exactMatch: false,
           suppressThrow: false,
         })
@@ -163,9 +247,10 @@ describe('slate-dom bridge', () => {
       root.appendChild(owner)
       bindTextOwner(editor, [0, 0], owner)
 
-      expect(
-        DOMEditor.toDOMPoint(editor, { path: [0, 0], offset: 10 })
-      ).toEqual([placeholderText, 1])
+      expect(editor.dom.toDOMPoint({ path: [0, 0], offset: 10 })).toEqual([
+        placeholderText,
+        1,
+      ])
     })
   })
 
@@ -207,7 +292,7 @@ describe('slate-dom bridge', () => {
       range.setEnd(lastText, 2)
 
       expect(
-        DOMEditor.toSlateRange(editor, range, {
+        editor.dom.toSlateRange(range, {
           exactMatch: false,
           suppressThrow: false,
         })
@@ -236,7 +321,7 @@ describe('slate-dom bridge', () => {
       root.appendChild(owner)
       bindTextOwner(editor, [0, 0], owner)
 
-      const domRange = DOMEditor.toDOMRange(editor, {
+      const domRange = editor.dom.toDOMRange({
         anchor: { path: [0, 0], offset: 0 },
         focus: { path: [0, 0], offset: 0 },
       })

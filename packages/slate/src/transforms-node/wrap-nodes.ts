@@ -1,4 +1,7 @@
-import { withTransaction } from '../core/public-state'
+import { getEditorSchema } from '../core/editor-runtime'
+import { runEditorTransaction } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import { nodes as getNodes } from '../editor/nodes'
 import { createInternalRangeRef } from '../editor/range-ref'
 import { Location, Node, type Point, Range } from '../interfaces'
 import { Editor } from '../interfaces/editor'
@@ -14,8 +17,9 @@ export const wrapNodes: NodeMutationMethods['wrapNodes'] = (
   element,
   options = {}
 ) => {
-  withTransaction(editor, (tx) => {
+  runEditorTransaction(editor, (tx) => {
     Editor.withoutNormalizing(editor, () => {
+      const transforms = getEditorTransformRegistry(editor)
       let target = tx.resolveTarget({ at: options.at })
       const mode = options.mode ?? 'lowest'
       const split = options.split ?? false
@@ -33,9 +37,10 @@ export const wrapNodes: NodeMutationMethods['wrapNodes'] = (
       if (match == null) {
         if (Location.isPath(target)) {
           match = matchPath(editor, target)
-        } else if (editor.isInline(element)) {
+        } else if (getEditorSchema(editor).isInline(element)) {
           match = (node) =>
-            (Node.isElement(node) && editor.isInline(node)) || Node.isText(node)
+            (Node.isElement(node) && getEditorSchema(editor).isInline(node)) ||
+            Node.isText(node)
         } else {
           match = (node) => Node.isElement(node) && Editor.isBlock(editor, node)
         }
@@ -110,14 +115,14 @@ export const wrapNodes: NodeMutationMethods['wrapNodes'] = (
         }
 
         if (options.at == null) {
-          editor.select(target)
+          transforms.select(target)
         }
       }
 
       const roots = Array.from(
-        Editor.nodes(editor, {
+        getNodes(editor, {
           at: target,
-          match: editor.isInline(element)
+          match: getEditorSchema(editor).isInline(element)
             ? (node) => Node.isElement(node) && Editor.isBlock(editor, node)
             : (node) => Node.isEditor(node),
           mode: 'lowest',
@@ -141,7 +146,7 @@ export const wrapNodes: NodeMutationMethods['wrapNodes'] = (
         }
 
         const matches = Array.from(
-          Editor.nodes(editor, { at: scopedTarget, match, mode, voids })
+          getNodes(editor, { at: scopedTarget, match, mode, voids })
         )
 
         if (matches.length === 0) {
@@ -170,7 +175,7 @@ export const wrapNodes: NodeMutationMethods['wrapNodes'] = (
         )
         const pathRefs = movePaths.map((path) => Editor.pathRef(editor, path))
 
-        editor.insertNodes({ ...wrapper }, { at: wrapperPath, voids })
+        transforms.insertNodes({ ...wrapper }, { at: wrapperPath, voids })
         const wrapperRef = Editor.pathRef(editor, wrapperPath)
 
         try {
@@ -224,7 +229,7 @@ export const wrapNodes: NodeMutationMethods['wrapNodes'] = (
       }
 
       if (nextSelection) {
-        editor.select(nextSelection)
+        transforms.select(nextSelection)
       }
     })
   })

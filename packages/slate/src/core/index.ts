@@ -1,6 +1,6 @@
 export * from './apply'
-export * from './command-registry'
 export * from './editor-extension'
+export * from './element-property'
 export * from './extension-registry'
 export * from './get-dirty-paths'
 export * from './get-fragment'

@@ -1,4 +1,5 @@
 import { getCurrentSelection } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
 import { Range } from '../interfaces/range'
 import type { SelectionMutationMethods } from '../interfaces/transforms/selection'
 
@@ -25,7 +26,7 @@ export const setPoint: SelectionMutationMethods['setPoint'] = (
   const { anchor, focus } = selection
   const point = edge === 'anchor' ? anchor : focus
 
-  editor.setSelection({
+  getEditorTransformRegistry(editor).setSelection({
     [edge === 'anchor' ? 'anchor' : 'focus']: { ...point, ...props },
   })
 }

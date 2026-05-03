@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 jsx
 
 export const run = (editor) => {
-  editor.splitNodes({
+  editor.nodes.split({
     at: { path: [0, 0], offset: 2 },
   })
 }

@@ -1,16 +1,15 @@
 import {
-  Editor,
   Point,
   type Range,
   type RuntimeId,
   type Editor as SlateEditor,
   type SnapshotChange,
 } from 'slate'
-
 import type {
   SlateAnnotationStore,
   SlateResolvedAnnotation,
 } from './annotation-store'
+import { Editor } from './editable/runtime-editor-api'
 import { isSlateSourceDirty } from './projection-store'
 
 export type SlateWidgetAnchor =
@@ -58,18 +57,31 @@ export type SlateWidgetStore<
   destroy: () => void
   getMetrics: () => SlateWidgetStoreMetrics
   getSnapshot: () => SlateWidgetSnapshot<T, TAnnotation>
+  getWidget: (id: string) => SlateResolvedWidget<T, TAnnotation> | null
   refresh: () => void
   subscribe: (listener: () => void) => () => void
+  subscribeWidget: (id: string, listener: () => void) => () => void
 }
 
 export type SlateWidgetStoreMetrics = Readonly<{
+  changedWidgetCount: number
+  fullFallbackCount: number
   recomputeCount: number
+  widgetResolveCount: number
+  widgetSubscriberWakeCount: number
 }>
 
 const EMPTY_WIDGET_SNAPSHOT = Object.freeze({
   allIds: Object.freeze([]),
   byId: new Map(),
 }) as SlateWidgetSnapshot<Record<string, never>, Record<string, never>>
+const EMPTY_METRICS = Object.freeze({
+  changedWidgetCount: 0,
+  fullFallbackCount: 0,
+  recomputeCount: 0,
+  widgetResolveCount: 0,
+  widgetSubscriberWakeCount: 0,
+}) as SlateWidgetStoreMetrics
 
 const sameRange = (left: Range | null, right: Range | null) => {
   if (!left && !right) {
@@ -88,6 +100,49 @@ const sameRange = (left: Range | null, right: Range | null) => {
 
 const isVisibleSelection = (range: Range | null) =>
   !!range && !Point.equals(range.anchor, range.focus)
+
+const addMappedListener = (
+  listeners: Map<string, Set<() => void>>,
+  id: string,
+  listener: () => void
+) => {
+  let listenersForId = listeners.get(id)
+
+  if (!listenersForId) {
+    listenersForId = new Set()
+    listeners.set(id, listenersForId)
+  }
+
+  listenersForId.add(listener)
+
+  return () => {
+    listenersForId.delete(listener)
+
+    if (listenersForId.size === 0) {
+      listeners.delete(id)
+    }
+  }
+}
+
+const notifyListeners = (listeners: Iterable<() => void>) => {
+  for (const listener of listeners) {
+    listener()
+  }
+}
+
+const notifyMappedListeners = (
+  listeners: Map<string, Set<() => void>>,
+  ids: readonly string[]
+) => {
+  for (const id of ids) {
+    notifyListeners(listeners.get(id) ?? [])
+  }
+}
+
+const countMappedListeners = (
+  listeners: Map<string, Set<() => void>>,
+  ids: readonly string[]
+) => ids.reduce((count, id) => count + (listeners.get(id)?.size ?? 0), 0)
 
 const shouldRecomputeForEditorChange = <T extends Record<string, unknown>>(
   widgets: readonly SlateWidget<T>[],
@@ -199,6 +254,36 @@ const buildWidgetSnapshot = <
   }) as SlateWidgetSnapshot<T, TAnnotation>
 }
 
+const getChangedWidgetIds = <
+  T extends Record<string, unknown>,
+  TAnnotation extends Record<string, unknown>,
+>(
+  left: SlateWidgetSnapshot<T, TAnnotation>,
+  right: SlateWidgetSnapshot<T, TAnnotation>
+) => {
+  const ids = new Set([...left.allIds, ...right.allIds])
+  const changedIds: string[] = []
+
+  ids.forEach((id) => {
+    const leftWidget = left.byId.get(id)
+    const rightWidget = right.byId.get(id)
+
+    if (
+      !leftWidget ||
+      !rightWidget ||
+      leftWidget.anchor !== rightWidget.anchor ||
+      leftWidget.annotation !== rightWidget.annotation ||
+      !Object.is(leftWidget.data, rightWidget.data) ||
+      !sameRange(leftWidget.range, rightWidget.range) ||
+      leftWidget.visible !== rightWidget.visible
+    ) {
+      changedIds.push(id)
+    }
+  })
+
+  return changedIds
+}
+
 export const createSlateWidgetStore = <
   T extends Record<string, unknown>,
   TAnnotation extends Record<string, unknown>,
@@ -208,14 +293,35 @@ export const createSlateWidgetStore = <
   annotationStore?: SlateAnnotationStore<TAnnotation> | null
 ): SlateWidgetStore<T, TAnnotation> => {
   const listeners = new Set<() => void>()
+  const widgetListeners = new Map<string, Set<() => void>>()
   let destroyed = false
-  let metrics = Object.freeze({
-    recomputeCount: 0,
-  }) as SlateWidgetStoreMetrics
+  let metrics = EMPTY_METRICS
   let snapshot = EMPTY_WIDGET_SNAPSHOT as unknown as SlateWidgetSnapshot<
     T,
     TAnnotation
   >
+
+  const commitSnapshot = (
+    nextSnapshot: SlateWidgetSnapshot<T, TAnnotation>
+  ) => {
+    if (nextSnapshot === snapshot) {
+      return
+    }
+
+    const changedWidgetIds = getChangedWidgetIds(snapshot, nextSnapshot)
+    snapshot = nextSnapshot
+    metrics = Object.freeze({
+      ...metrics,
+      changedWidgetCount: metrics.changedWidgetCount + changedWidgetIds.length,
+      recomputeCount: metrics.recomputeCount + 1,
+      widgetSubscriberWakeCount:
+        metrics.widgetSubscriberWakeCount +
+        listeners.size +
+        countMappedListeners(widgetListeners, changedWidgetIds),
+    })
+    notifyListeners(listeners)
+    notifyMappedListeners(widgetListeners, changedWidgetIds)
+  }
 
   const recomputeSnapshot = () => {
     const widgets = getWidgets()
@@ -226,17 +332,12 @@ export const createSlateWidgetStore = <
       annotationStore
     )
 
-    if (nextSnapshot === snapshot) {
-      return
-    }
-
-    snapshot = nextSnapshot
     metrics = Object.freeze({
-      recomputeCount: metrics.recomputeCount + 1,
+      ...metrics,
+      fullFallbackCount: metrics.fullFallbackCount + 1,
+      widgetResolveCount: metrics.widgetResolveCount + widgets.length,
     })
-    listeners.forEach((listener) => {
-      listener()
-    })
+    commitSnapshot(nextSnapshot)
   }
 
   const unsubscribeEditor = editor.subscribe((snapshotValue, change) => {
@@ -257,17 +358,12 @@ export const createSlateWidgetStore = <
       annotationStore
     )
 
-    if (nextSnapshot === snapshot) {
-      return
-    }
-
-    snapshot = nextSnapshot
     metrics = Object.freeze({
-      recomputeCount: metrics.recomputeCount + 1,
+      ...metrics,
+      fullFallbackCount: metrics.fullFallbackCount + 1,
+      widgetResolveCount: metrics.widgetResolveCount + widgets.length,
     })
-    listeners.forEach((listener) => {
-      listener()
-    })
+    commitSnapshot(nextSnapshot)
   })
 
   const unsubscribeAnnotation = annotationStore?.subscribe(() => {
@@ -290,12 +386,16 @@ export const createSlateWidgetStore = <
       unsubscribeEditor()
       unsubscribeAnnotation?.()
       listeners.clear()
+      widgetListeners.clear()
     },
     getMetrics() {
       return metrics
     },
     getSnapshot() {
       return snapshot
+    },
+    getWidget(id) {
+      return snapshot.byId.get(id) ?? null
     },
     refresh() {
       if (destroyed) {
@@ -310,6 +410,9 @@ export const createSlateWidgetStore = <
       return () => {
         listeners.delete(listener)
       }
+    },
+    subscribeWidget(id, listener) {
+      return addMappedListener(widgetListeners, id, listener)
     },
   }
 }

@@ -1,19 +1,17 @@
-import {
-  type Descendant,
-  Editor,
-  Element,
-  Node,
-  Path,
-  Text,
-} from '../interfaces'
+import { node as getNode } from '../editor/node'
+import { nodes } from '../editor/nodes'
+import { type Descendant, Element, Node, Path, Text } from '../interfaces'
+import { Editor } from '../interfaces/editor'
 import { removeNodes } from '../transforms-node'
+import { getEditorSchema } from './editor-runtime'
 import { getLiveSelection } from './public-state'
+import { getEditorTransformRegistry } from './transform-registry'
 
 const getChildren = (editor: Editor, node: Editor | Element): Descendant[] =>
   Node.isEditor(node) ? Editor.getChildren(editor) : node.children
 
 const isInlineElement = (editor: Editor, node: Node | undefined) =>
-  Element.isElement(node) && editor.isInline(node)
+  Element.isElement(node) && getEditorSchema(editor).isInline(node)
 
 const isRequiredInlineSpacer = (
   editor: Editor,
@@ -65,7 +63,10 @@ const maybeRebaseSelectionBeforeRemoval = (
     return
   }
 
-  editor.setSelection({ anchor: point, focus: point })
+  getEditorTransformRegistry(editor).setSelection({
+    anchor: point,
+    focus: point,
+  })
 }
 
 export const cleanupTextLeafLifecycle = (
@@ -77,7 +78,7 @@ export const cleanupTextLeafLifecycle = (
   } = {}
 ) => {
   const elementPaths = Array.from(
-    Editor.nodes(editor, {
+    nodes(editor, {
       at: [],
       match: (node) => Node.isEditor(node) || Element.isElement(node),
       mode: 'all',
@@ -88,11 +89,11 @@ export const cleanupTextLeafLifecycle = (
   )
 
   for (const path of elementPaths) {
-    if (!editor.hasPath(path)) {
+    if (!Editor.hasPath(editor, path)) {
       continue
     }
 
-    const node = path.length === 0 ? editor : Editor.node(editor, path)[0]
+    const node = path.length === 0 ? editor : getNode(editor, path)[0]
 
     if (!Node.isEditor(node) && !Element.isElement(node)) {
       continue

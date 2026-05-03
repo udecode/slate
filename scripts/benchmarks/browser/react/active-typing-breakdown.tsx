@@ -110,7 +110,7 @@ const createMountedEditor = async () => {
         id="active-typing-breakdown"
         largeDocument={{
           activeRadius,
-          enabled: true,
+          mode: 'shell',
           islandSize,
           threshold: 1,
         }}

@@ -9,6 +9,10 @@ export default defineConfig({
         '../slate/src/internal/index.ts'
       ),
       slate: path.resolve(import.meta.dirname, '../slate/src/index.ts'),
+      'slate-dom/internal': path.resolve(
+        import.meta.dirname,
+        '../slate-dom/src/internal/index.ts'
+      ),
       'slate-dom': path.resolve(
         import.meta.dirname,
         '../slate-dom/src/index.ts'

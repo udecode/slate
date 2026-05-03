@@ -4,7 +4,7 @@ import {
   type RefObject,
   useCallback,
 } from 'react'
-import { Editor, Node, Path, Range } from 'slate'
+import { Node, Path, Range } from 'slate'
 import {
   containsShadowAware,
   type DOMElement,
@@ -26,7 +26,6 @@ import {
   NODE_TO_ELEMENT,
   TRIPLE_CLICK,
 } from 'slate-dom'
-
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
@@ -39,6 +38,7 @@ import {
   setEditableModelSelectionPreference,
   syncEditableDOMSelectionToEditor,
 } from './input-controller'
+import { Editor } from './runtime-editor-api'
 import { readRuntimeNode, readRuntimeText } from './runtime-live-state'
 import { writeRuntimeSelection } from './runtime-mutation-state'
 import { readRuntimeSelection } from './runtime-selection-state'
@@ -185,7 +185,7 @@ export const attachEditableSelectionChangeListener = ({
   // <textarea> elements are appended to the DOM, causing
   // `editor.selection` to be overwritten in some circumstances.
   // (2025/01/16) https://issues.chromium.org/issues/389368412
-  const onSelectionChange = ({ target }: Event) => {
+  const handleNativeSelectionChange = ({ target }: Event) => {
     const targetElement = target instanceof HTMLElement ? target : null
     const targetTagName = targetElement?.tagName
     if (targetTagName === 'INPUT' || targetTagName === 'TEXTAREA') {
@@ -199,10 +199,16 @@ export const attachEditableSelectionChangeListener = ({
   // a leaky polyfill that only fires on keypresses or clicks. Instead, we
   // want to fire for any change to the selection inside the editor.
   // (2019/11/04) https://github.com/facebook/react/issues/5785
-  targetDocument.addEventListener('selectionchange', onSelectionChange)
+  targetDocument.addEventListener(
+    'selectionchange',
+    handleNativeSelectionChange
+  )
 
   return () => {
-    targetDocument.removeEventListener('selectionchange', onSelectionChange)
+    targetDocument.removeEventListener(
+      'selectionchange',
+      handleNativeSelectionChange
+    )
   }
 }
 
@@ -267,7 +273,7 @@ export const applyEditableBlur = ({
     try {
       const node = ReactEditor.toSlateNode(editor, relatedTarget)
 
-      if (Node.isElement(node) && !editor.isVoid(node)) {
+      if (Node.isElement(node) && !Editor.isVoid(editor, node)) {
         return
       }
     } catch {
@@ -318,7 +324,10 @@ export const applyEditableFocus = ({
     }
 
     IS_FOCUSED.set(editor, true)
+    return true
   }
+
+  return false
 }
 
 const resolveEditableClickTarget = (
@@ -348,7 +357,7 @@ const resolveEditableClickTarget = (
     }
 
     if (Editor.hasPath(editor, path)) {
-      const [node] = Editor.node(editor, path)
+      const [node] = editor.read((state) => state.nodes.get(path))
       return { node, path }
     }
   }
@@ -477,8 +486,8 @@ export const applyEditableClick = ({
       }
 
       const range = Editor.range(editor, blockPath)
-      editor.update(() => {
-        editor.select(range)
+      editor.update((tx) => {
+        tx.selection.set(range)
       })
       return
     }
@@ -487,16 +496,16 @@ export const applyEditableClick = ({
       return
     }
 
-    const start = Editor.start(editor, path)
-    const end = Editor.end(editor, path)
+    const start = Editor.point(editor, path, { edge: 'start' })
+    const end = Editor.point(editor, path, { edge: 'end' })
     const startVoid = Editor.void(editor, { at: start })
     const endVoid = Editor.void(editor, { at: end })
 
     if (startVoid && endVoid && Path.equals(startVoid[1], endVoid[1])) {
       const range = Editor.range(editor, start)
       ReactEditor.focus(editor)
-      editor.update(() => {
-        editor.select(range)
+      editor.update((tx) => {
+        tx.selection.set(range)
       })
     }
   }
@@ -533,12 +542,12 @@ export const applyEditableMouseDown = ({
   })
 
   if (voidTargetOwnsSelection && voidTarget) {
-    const start = Editor.start(editor, voidTarget.path)
+    const start = Editor.point(editor, voidTarget.path, { edge: 'start' })
     const range = Editor.range(editor, start)
 
     ReactEditor.focus(editor)
-    editor.update(() => {
-      editor.select(range)
+    editor.update((tx) => {
+      tx.selection.set(range)
     })
   }
 
@@ -610,8 +619,8 @@ export const syncSelectionForBeforeInput = ({
           nextSelection &&
           Editor.rangeRef(editor, nextSelection)
 
-        editor.update(() => {
-          editor.select(range)
+        editor.update((tx) => {
+          tx.selection.set(range)
         })
         nextSelection = range
 
@@ -647,8 +656,8 @@ export const syncSelectionForBeforeInput = ({
 
       if (range && (!nextSelection || !Range.equals(nextSelection, range))) {
         nextNative = false
-        editor.update(() => {
-          editor.select(range)
+        editor.update((tx) => {
+          tx.selection.set(range)
         })
         nextSelection = range
       }
@@ -658,16 +667,16 @@ export const syncSelectionForBeforeInput = ({
   if (
     type === 'insertText' &&
     typeof data === 'string' &&
-    Editor.string(editor, []) === '' &&
-    (!nextSelection || !Editor.hasPath(editor, nextSelection.anchor.path))
+    (!nextSelection || !Editor.hasPath(editor, nextSelection.anchor.path)) &&
+    Editor.string(editor, []) === ''
   ) {
     const firstText = Array.from(Node.texts(editor))[0]
 
     if (firstText) {
       const [, path] = firstText
       const range = Editor.range(editor, { path, offset: 0 })
-      editor.update(() => {
-        editor.select(range)
+      editor.update((tx) => {
+        tx.selection.set(range)
       })
       nextSelection = range
     }
@@ -684,8 +693,8 @@ export const syncSelectionForBeforeInput = ({
       : null
 
     if (range && (!nextSelection || !Range.equals(nextSelection, range))) {
-      editor.update(() => {
-        editor.select(range)
+      editor.update((tx) => {
+        tx.selection.set(range)
       })
       nextSelection = range
     }
@@ -711,8 +720,8 @@ export const restoreUserSelectionAfterBeforeInput = ({
     (!readRuntimeSelection(editor) ||
       !Range.equals(readRuntimeSelection(editor)!, toRestore))
   ) {
-    editor.update(() => {
-      editor.select(toRestore)
+    editor.update((tx) => {
+      tx.selection.set(toRestore)
     })
   }
 }
@@ -756,8 +765,8 @@ export const handleWebKitShadowDOMBeforeInput = ({
     return true
   }
 
-  editor.update(() => {
-    editor.select(slateRange)
+  editor.update((tx) => {
+    tx.selection.set(slateRange)
   })
 
   event.preventDefault()
@@ -797,7 +806,7 @@ export const useEditableSelectionReconciler = ({
     }
 
     // Make sure the DOM selection state is in sync.
-    const selection = editor.getSelection()
+    const selection = editor.read((state) => state.selection.get())
     const root = ReactEditor.findDocumentOrShadowRoot(editor)
     const domSelection = getSelection(root)
 

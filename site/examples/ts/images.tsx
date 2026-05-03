@@ -3,13 +3,15 @@ import imageExtensions from 'image-extensions'
 import isHotkey from 'is-hotkey'
 import isUrl from 'is-url'
 import { type PointerEvent, useMemo } from 'react'
-import { createEditor, defineEditorExtension } from 'slate'
+import { createEditor, type Path, type Element as SlateElement } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
   Slate,
-  useSlateStatic,
+  useEditor,
+  useEditorFocused,
+  useElementSelected,
   withReact,
 } from 'slate-react'
 
@@ -19,7 +21,6 @@ import type {
   CustomValue,
   ImageElement,
   ParagraphElement,
-  RenderVoidPropsFor,
 } from './custom-types.d'
 
 const ImagesExample = () => {
@@ -37,65 +38,63 @@ const ImagesExample = () => {
         <InsertImageButton />
       </Toolbar>
       <Editable
-        onKeyCommand={(event) => {
+        onKeyDown={(event) => {
           if (isHotkey('mod+a', event)) {
-            editor.update(() => {
-              editor.select([])
+            editor.update((tx) => {
+              tx.selection.set([])
             })
             return true
           }
         }}
         placeholder="Enter some text..."
         renderElement={(props: RenderElementProps) => <Element {...props} />}
-        renderVoid={(props) => (
-          <Image {...(props as RenderVoidPropsFor<ImageElement>)} />
-        )}
+        renderVoid={(props) =>
+          isImageElement(props.element) ? (
+            <Image element={props.element} target={props.target} />
+          ) : null
+        }
       />
     </Slate>
   )
 }
 
-const imagesExtension = defineEditorExtension<CustomEditor>({
-  name: 'images',
-  methods(editor) {
-    const nextInsertData = editor.insertData
-    const nextIsVoid = editor.isVoid
-
-    return {
-      insertData(data: DataTransfer) {
-        const text = data.getData('text/plain')
-        const { files } = data
-
-        if (files && files.length > 0) {
-          Array.from(files).forEach((file) => {
-            const reader = new FileReader()
-            const [mime] = file.type.split('/')
-
-            if (mime === 'image') {
-              reader.addEventListener('load', () => {
-                const url = reader.result
-                insertImage(this, url as string)
-              })
-
-              reader.readAsDataURL(file)
-            }
-          })
-        } else if (isImageUrl(text)) {
-          insertImage(this, text)
-        } else {
-          nextInsertData(data)
-        }
-      },
-      isVoid(element) {
-        return element.type === 'image' ? true : nextIsVoid(element)
-      },
-    }
-  },
-})
-
 const withImages = (editor: CustomEditor) => {
-  editor.extend(imagesExtension)
+  editor.extend({
+    name: 'images',
+    capabilities: {
+      'dom.clipboard.insertData': (_editor: unknown, data: DataTransfer) =>
+        insertImageData(editor, data),
+    },
+    elements: [{ type: 'image', void: 'block' }],
+  })
+
   return editor
+}
+
+const insertImageData = (editor: CustomEditor, data: DataTransfer) => {
+  const text = data.getData('text/plain')
+  const imageFiles = Array.from(data.files ?? []).filter(
+    (file) => file.type.split('/')[0] === 'image'
+  )
+
+  if (imageFiles.length > 0) {
+    imageFiles.forEach((file) => {
+      const reader = new FileReader()
+
+      reader.addEventListener('load', () => {
+        const url = reader.result
+        insertImage(editor, url as string)
+      })
+
+      reader.readAsDataURL(file)
+    })
+    return true
+  }
+
+  if (isImageUrl(text)) {
+    insertImage(editor, text)
+    return true
+  }
 }
 
 const insertImage = (editor: CustomEditor, url: string) => {
@@ -105,11 +104,14 @@ const insertImage = (editor: CustomEditor, url: string) => {
     type: 'paragraph',
     children: [{ text: '' }],
   }
-  editor.update(() => {
-    editor.insertNodes(image)
-    editor.insertNodes(paragraph)
+  editor.update((tx) => {
+    tx.nodes.insert(image)
+    tx.nodes.insert(paragraph)
   })
 }
+
+const isImageElement = (element: SlateElement): element is ImageElement =>
+  element.type === 'image'
 
 const Element = (props: RenderElementProps) => {
   const { attributes, children } = props
@@ -118,11 +120,16 @@ const Element = (props: RenderElementProps) => {
 }
 
 const Image = ({
-  actions,
   element,
-  focused,
-  selected,
-}: RenderVoidPropsFor<ImageElement>) => {
+  target,
+}: {
+  element: ImageElement
+  target: Path
+}) => {
+  const editor = useEditor<CustomEditor>()
+  const focused = useEditorFocused()
+  const selected = useElementSelected(target)
+
   return (
     <div style={{ position: 'relative' }}>
       <img
@@ -143,7 +150,11 @@ const Image = ({
           left: 0.5em;
           background-color: white;
         `}
-        onClick={() => actions.remove()}
+        onClick={() => {
+          editor.update((tx) => {
+            tx.nodes.remove({ at: target, voids: true })
+          })
+        }}
         onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
           event.preventDefault()
         }}
@@ -155,7 +166,7 @@ const Image = ({
 }
 
 const InsertImageButton = () => {
-  const editor = useSlateStatic<CustomEditor>()
+  const editor = useEditor<CustomEditor>()
   return (
     <Button
       onClick={() => {

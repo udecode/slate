@@ -10,7 +10,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.insertText('x', { at: [0], voids: true })
+  editor.text.insert('x', { at: [0], voids: true })
 }
 export const output = (
   <editor>

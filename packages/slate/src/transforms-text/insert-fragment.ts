@@ -1,5 +1,8 @@
 import { executeCommand } from '../core/command-registry'
-import { getOperationCount } from '../core/public-state'
+import { getEditorSchema } from '../core/editor-runtime'
+import { getOperationCount, runEditorTransaction } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import { nodes as getNodes } from '../editor/nodes'
 import { Location } from '../interfaces'
 import type { Value } from '../interfaces/editor'
 import { Editor } from '../interfaces/editor'
@@ -38,8 +41,8 @@ const isFullDocumentRange = (editor: Editor, range: Range) => {
     return false
   }
 
-  const start = Editor.start(editor, [])
-  const end = Editor.end(editor, [])
+  const start = Editor.point(editor, [], { edge: 'start' })
+  const end = Editor.point(editor, [], { edge: 'end' })
 
   return (
     (samePoint(range.anchor, start) && samePoint(range.focus, end)) ||
@@ -62,10 +65,11 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
   fragment,
   options = {}
 ) => {
-  editor.withTransaction((tx) => {
+  runEditorTransaction(editor, (tx) => {
     const operationCount = getOperationCount(editor)
 
     Editor.withoutNormalizing(editor, () => {
+      const transforms = getEditorTransformRegistry(editor)
       const { hanging = false, voids = false } = options
       const { batchDirty = true } = options
       let at = tx.resolveTarget({ at: options.at })
@@ -105,11 +109,11 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
           }
 
           const pointRef = Editor.pointRef(editor, end)
-          editor.delete({ at })
+          transforms.delete({ at })
           at = pointRef.unref()!
         }
       } else if (Location.isPath(at)) {
-        at = Editor.start(editor, at)
+        at = Editor.point(editor, at, { edge: 'start' })
       }
 
       if (!voids && Editor.void(editor, { at })) {
@@ -173,8 +177,8 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
           !isBlockStart &&
           Path.isAncestor(p, firstLeafPath) &&
           Node.isElement(n) &&
-          !editor.isVoid(n) &&
-          !editor.isInline(n)
+          !getEditorSchema(editor).isVoid(n) &&
+          !getEditorSchema(editor).isInline(n)
         ) {
           return false
         }
@@ -185,8 +189,8 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
           !isBlockEnd &&
           Path.isAncestor(p, lastLeafPath) &&
           Node.isElement(n) &&
-          !editor.isVoid(n) &&
-          !editor.isInline(n)
+          !getEditorSchema(editor).isVoid(n) &&
+          !getEditorSchema(editor).isInline(n)
         ) {
           return false
         }
@@ -222,14 +226,14 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         if (
           starting &&
           Node.isElement(node) &&
-          !editor.isInline(node) &&
+          !getEditorSchema(editor).isInline(node) &&
           !Path.isAncestor(path, firstLeafPath)
         ) {
           starting = false
         }
 
         if (shouldInsert(entry)) {
-          if (Node.isElement(node) && !editor.isInline(node)) {
+          if (Node.isElement(node) && !getEditorSchema(editor).isInline(node)) {
             starting = false
             middles.push(node)
           } else if (starting) {
@@ -240,7 +244,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         }
       }
 
-      const [inlineMatch] = Editor.nodes(editor, {
+      const [inlineMatch] = getNodes(editor, {
         at,
         match: (n) =>
           Node.isText(n) || (Node.isElement(n) && Editor.isInline(editor, n)),
@@ -266,7 +270,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
       // destination block.
       const splitBlock = ends.length > 0
 
-      editor.splitNodes({
+      transforms.splitNodes({
         at,
         match: (n) =>
           splitBlock
@@ -288,7 +292,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
           : inlinePath
       )
 
-      editor.insertNodes(starts, {
+      transforms.insertNodes(starts, {
         at: startRef.current!,
         match: (n) =>
           Node.isText(n) || (Node.isElement(n) && Editor.isInline(editor, n)),
@@ -298,10 +302,10 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
       })
 
       if (isBlockEmpty && !starts.length && middles.length && !ends.length) {
-        editor.delete({ at: blockPath, voids })
+        transforms.delete({ at: blockPath, voids })
       }
 
-      editor.insertNodes(middles, {
+      transforms.insertNodes(middles, {
         at: middleRef.current!,
         match: (n) => Node.isElement(n) && Editor.isBlock(editor, n),
         mode: 'lowest',
@@ -309,7 +313,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         batchDirty,
       })
 
-      editor.insertNodes(ends, {
+      transforms.insertNodes(ends, {
         at: endRef.current!,
         match: (n) =>
           Node.isText(n) || (Node.isElement(n) && Editor.isInline(editor, n)),
@@ -330,8 +334,8 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         }
 
         if (path) {
-          const end = Editor.end(editor, path)
-          editor.select(end)
+          const end = Editor.point(editor, path, { edge: 'end' })
+          transforms.select(end)
         }
       }
 

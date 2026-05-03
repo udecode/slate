@@ -27,7 +27,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.splitNodes()
+  editor.nodes.split()
 }
 export const output = (
   <editor>

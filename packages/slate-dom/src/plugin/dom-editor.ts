@@ -1,14 +1,5 @@
-import {
-  type BaseEditor,
-  Editor,
-  Node,
-  type Path,
-  type Point,
-  Range,
-  Scrubber,
-  type Value,
-} from 'slate'
-import { getEditorLiveSelection } from 'slate/internal'
+import { Node, type Path, type Point, Range, Scrubber, type Value } from 'slate'
+import { Editor, getEditorLiveSelection } from 'slate/internal'
 import type { TextDiff } from '../utils/diff-text'
 import {
   closestShadowAware,
@@ -42,39 +33,113 @@ import {
   IS_FOCUSED,
   IS_NODE_MAP_DIRTY,
   IS_READ_ONLY,
+  NODE_TO_ELEMENT,
   NODE_TO_INDEX,
   NODE_TO_KEY,
   NODE_TO_PARENT,
 } from '../utils/weak-maps'
+import {
+  insertDOMData,
+  insertDOMFragmentData,
+  insertDOMTextData,
+  writeDOMSelectionData,
+} from './dom-clipboard-runtime'
+import { DOMCoverage } from './dom-coverage'
 
 /**
  * A DOM-specific version of the `Editor` interface.
  */
 
-export interface DOMEditor<V extends Value = Value> extends BaseEditor<V> {
-  hasEditableTarget: (
-    editor: DOMEditor,
-    target: EventTarget | null
-  ) => target is DOMNode
-  hasRange: (editor: DOMEditor, range: Range) => boolean
-  hasSelectableTarget: (
-    editor: DOMEditor,
-    target: EventTarget | null
-  ) => boolean
-  hasTarget: (
-    editor: DOMEditor,
-    target: EventTarget | null
-  ) => target is DOMNode
+export interface DOMEditor<V extends Value = Value> extends Editor<V> {
+  dom: DOMEditorCapability
+}
+
+export interface DOMEditorCapability {
+  androidPendingDiffs: () => TextDiff[] | undefined
+  androidScheduleFlush: () => void
+  blur: () => void
+  deselect: () => void
+  findDocumentOrShadowRoot: () => Document | ShadowRoot
+  findEventRange: (event: any) => Range
+  findKey: (node: Node) => Key
+  findPath: (node: Node) => Path
+  focus: (options?: { retries: number }) => void
+  getWindow: () => Window
+  hasDOMNode: (target: DOMNode, options?: { editable?: boolean }) => boolean
+  hasEditableTarget: (target: EventTarget | null) => target is DOMNode
+  hasRange: (range: Range) => boolean
+  hasSelectableTarget: (target: EventTarget | null) => boolean
+  hasTarget: (target: EventTarget | null) => target is DOMNode
+  clipboard: DOMEditorClipboardCapability
+  isComposing: () => boolean
+  isFocused: () => boolean
+  isReadOnly: () => boolean
+  isTargetInsideNonReadonlyVoid: (target: EventTarget | null) => boolean
+  toDOMNode: (node: Node) => HTMLElement
+  toDOMPoint: (point: Point) => DOMPoint
+  toDOMRange: (range: Range) => DOMRange
+  toSlateNode: (domNode: DOMNode) => Node
+  toSlatePoint: <T extends boolean>(
+    domPoint: DOMPoint,
+    options: {
+      exactMatch: T
+      searchDirection?: 'backward' | 'forward'
+      suppressThrow?: boolean
+    }
+  ) => T extends true ? Point : Point | null
+  toSlateRange: <T extends boolean>(
+    domRange: DOMRange | DOMSelection | DOMStaticRange | globalThis.Selection,
+    options: {
+      exactMatch: T
+      suppressThrow?: boolean
+    }
+  ) => T extends true ? Range : Range | null
+}
+
+export interface DOMEditorClipboardCapability {
+  /**
+   * Insert data from a `DataTransfer` into the editor.
+   */
   insertData: (data: DataTransfer) => void
+
+  /**
+   * Insert fragment data from a `DataTransfer` into the editor.
+   */
   insertFragmentData: (data: DataTransfer) => boolean
+
+  /**
+   * Insert text data from a `DataTransfer` into the editor.
+   */
   insertTextData: (data: DataTransfer) => boolean
-  isTargetInsideNonReadonlyVoid: (
-    editor: DOMEditor,
-    target: EventTarget | null
-  ) => boolean
-  setFragmentData: (
-    data: DataTransfer,
-    originEvent?: 'drag' | 'copy' | 'cut'
+
+  /**
+   * Write the current selection to a `DataTransfer`.
+   */
+  writeSelection: (data: Pick<DataTransfer, 'getData' | 'setData'>) => void
+}
+
+export interface DOMEditorClipboardInterface {
+  /**
+   * Insert data from a `DataTransfer` into the editor.
+   */
+  insertData: (editor: DOMEditor<any>, data: DataTransfer) => void
+
+  /**
+   * Insert fragment data from a `DataTransfer` into the editor.
+   */
+  insertFragmentData: (editor: DOMEditor<any>, data: DataTransfer) => boolean
+
+  /**
+   * Insert text data from a `DataTransfer` into the editor.
+   */
+  insertTextData: (editor: DOMEditor<any>, data: DataTransfer) => boolean
+
+  /**
+   * Write the currently selected fragment to a `DataTransfer`.
+   */
+  writeSelection: (
+    editor: DOMEditor<any>,
+    data: Pick<DataTransfer, 'getData' | 'setData'>
   ) => void
 }
 
@@ -82,58 +147,58 @@ export interface DOMEditorInterface {
   /**
    * Experimental and android specific: Get pending diffs
    */
-  androidPendingDiffs: (editor: Editor) => TextDiff[] | undefined
+  androidPendingDiffs: (editor: Editor<any>) => TextDiff[] | undefined
 
   /**
    * Experimental and android specific: Flush all pending diffs and cancel composition at the next possible time.
    */
-  androidScheduleFlush: (editor: Editor) => void
+  androidScheduleFlush: (editor: Editor<any>) => void
 
   /**
    * Blur the editor.
    */
-  blur: (editor: DOMEditor) => void
+  blur: (editor: DOMEditor<any>) => void
 
   /**
    * Deselect the editor.
    */
-  deselect: (editor: DOMEditor) => void
+  deselect: (editor: DOMEditor<any>) => void
 
   /**
    * Find the DOM node that implements DocumentOrShadowRoot for the editor.
    */
-  findDocumentOrShadowRoot: (editor: DOMEditor) => Document | ShadowRoot
+  findDocumentOrShadowRoot: (editor: DOMEditor<any>) => Document | ShadowRoot
 
   /**
    * Get the target range from a DOM `event`.
    */
-  findEventRange: (editor: DOMEditor, event: any) => Range
+  findEventRange: (editor: DOMEditor<any>, event: any) => Range
 
   /**
    * Find a key for a Slate node.
    */
-  findKey: (editor: DOMEditor, node: Node) => Key
+  findKey: (editor: DOMEditor<any>, node: Node) => Key
 
   /**
    * Find the path of Slate node.
    */
-  findPath: (editor: DOMEditor, node: Node) => Path
+  findPath: (editor: DOMEditor<any>, node: Node) => Path
 
   /**
    * Focus the editor.
    */
-  focus: (editor: DOMEditor, options?: { retries: number }) => void
+  focus: (editor: DOMEditor<any>, options?: { retries: number }) => void
 
   /**
    * Return the host window of the current editor.
    */
-  getWindow: (editor: DOMEditor) => Window
+  getWindow: (editor: DOMEditor<any>) => Window
 
   /**
    * Check if a DOM node is within the editor.
    */
   hasDOMNode: (
-    editor: DOMEditor,
+    editor: DOMEditor<any>,
     target: DOMNode,
     options?: { editable?: boolean }
   ) => boolean
@@ -142,20 +207,20 @@ export interface DOMEditorInterface {
    * Check if the target is editable and in the editor.
    */
   hasEditableTarget: (
-    editor: DOMEditor,
+    editor: DOMEditor<any>,
     target: EventTarget | null
   ) => target is DOMNode
 
   /**
    *
    */
-  hasRange: (editor: DOMEditor, range: Range) => boolean
+  hasRange: (editor: DOMEditor<any>, range: Range) => boolean
 
   /**
    * Check if the target can be selectable
    */
   hasSelectableTarget: (
-    editor: DOMEditor,
+    editor: DOMEditor<any>,
     target: EventTarget | null
   ) => boolean
 
@@ -163,66 +228,44 @@ export interface DOMEditorInterface {
    * Check if the target is in the editor.
    */
   hasTarget: (
-    editor: DOMEditor,
+    editor: DOMEditor<any>,
     target: EventTarget | null
   ) => target is DOMNode
 
-  /**
-   * Insert data from a `DataTransfer` into the editor.
-   */
-  insertData: (editor: DOMEditor, data: DataTransfer) => void
-
-  /**
-   * Insert fragment data from a `DataTransfer` into the editor.
-   */
-  insertFragmentData: (editor: DOMEditor, data: DataTransfer) => boolean
-
-  /**
-   * Insert text data from a `DataTransfer` into the editor.
-   */
-  insertTextData: (editor: DOMEditor, data: DataTransfer) => boolean
+  clipboard: DOMEditorClipboardInterface
 
   /**
    * Check if the user is currently composing inside the editor.
    */
-  isComposing: (editor: DOMEditor) => boolean
+  isComposing: (editor: DOMEditor<any>) => boolean
 
   /**
    * Check if the editor is focused.
    */
-  isFocused: (editor: DOMEditor) => boolean
+  isFocused: (editor: DOMEditor<any>) => boolean
 
   /**
    * Check if the editor is in read-only mode.
    */
-  isReadOnly: (editor: DOMEditor) => boolean
+  isReadOnly: (editor: DOMEditor<any>) => boolean
 
   /**
    * Check if the target is inside void and in an non-readonly editor.
    */
   isTargetInsideNonReadonlyVoid: (
-    editor: DOMEditor,
+    editor: DOMEditor<any>,
     target: EventTarget | null
   ) => boolean
 
   /**
-   * Sets data from the currently selected fragment on a `DataTransfer`.
-   */
-  setFragmentData: (
-    editor: DOMEditor,
-    data: DataTransfer,
-    originEvent?: 'drag' | 'copy' | 'cut'
-  ) => void
-
-  /**
    * Find the native DOM element from a Slate node.
    */
-  toDOMNode: (editor: DOMEditor, node: Node) => HTMLElement
+  toDOMNode: (editor: DOMEditor<any>, node: Node) => HTMLElement
 
   /**
    * Find a native DOM selection point from a Slate point.
    */
-  toDOMPoint: (editor: DOMEditor, point: Point) => DOMPoint
+  toDOMPoint: (editor: DOMEditor<any>, point: Point) => DOMPoint
 
   /**
    * Find a native DOM range from a Slate `range`.
@@ -232,18 +275,18 @@ export interface DOMEditorInterface {
    * there is no way to create a reverse DOM Range using Range.setStart/setEnd
    * according to https://dom.spec.whatwg.org/#concept-range-bp-set.
    */
-  toDOMRange: (editor: DOMEditor, range: Range) => DOMRange
+  toDOMRange: (editor: DOMEditor<any>, range: Range) => DOMRange
 
   /**
    * Find a Slate node from a native DOM `element`.
    */
-  toSlateNode: (editor: DOMEditor, domNode: DOMNode) => Node
+  toSlateNode: (editor: DOMEditor<any>, domNode: DOMNode) => Node
 
   /**
    * Find a Slate point from a DOM selection's `domNode` and `domOffset`.
    */
   toSlatePoint: <T extends boolean>(
-    editor: DOMEditor,
+    editor: DOMEditor<any>,
     domPoint: DOMPoint,
     options: {
       exactMatch: boolean
@@ -260,7 +303,7 @@ export interface DOMEditorInterface {
    * Find a Slate range from a DOM range or selection.
    */
   toSlateRange: <T extends boolean>(
-    editor: DOMEditor,
+    editor: DOMEditor<any>,
     domRange: DOMRange | DOMStaticRange | DOMSelection,
     options: {
       exactMatch: boolean
@@ -277,6 +320,36 @@ const parseSlateDOMPath = (value: string | null): Path | null => {
   const path = value.split(',').map((part) => Number.parseInt(part, 10))
 
   return path.every(Number.isFinite) ? (path as Path) : null
+}
+
+const toSlatePointFromDOMCoverageBoundary = (
+  editor: DOMEditor<any>,
+  domPoint: DOMPoint
+): Point | null => {
+  const boundaryPoint = DOMCoverage.toSlatePointFromBoundary(editor, domPoint)
+
+  if (boundaryPoint?.type !== 'boundary-point') {
+    return null
+  }
+
+  const [coveredRange] = boundaryPoint.boundary.coveredPathRanges
+  let targetPath: Path | undefined
+
+  if (boundaryPoint.edge === 'owner') {
+    targetPath = boundaryPoint.boundary.ownerPath
+  } else if (boundaryPoint.edge === 'focus') {
+    targetPath = coveredRange?.focus
+  } else {
+    targetPath = coveredRange?.anchor
+  }
+
+  if (!targetPath || !Editor.hasPath(editor, targetPath)) {
+    return null
+  }
+
+  return Editor.point(editor, targetPath, {
+    edge: boundaryPoint.edge === 'focus' ? 'end' : 'start',
+  })
 }
 
 // eslint-disable-next-line no-redeclare
@@ -298,7 +371,7 @@ export const DOMEditor: DOMEditorInterface = {
   },
 
   deselect: (editor) => {
-    const selection = editor.getSelection()
+    const selection = editor.read((state) => state.selection.get())
     const root = DOMEditor.findDocumentOrShadowRoot(editor)
     const domSelection = getSelection(root)
 
@@ -307,8 +380,8 @@ export const DOMEditor: DOMEditorInterface = {
     }
 
     if (selection) {
-      editor.update(() => {
-        editor.deselect()
+      editor.update((tx) => {
+        tx.selection.clear()
       })
     }
   },
@@ -341,7 +414,7 @@ export const DOMEditor: DOMEditorInterface = {
     // coordinates are closest to.
     if (Node.isElement(node) && Editor.isVoid(editor, node)) {
       const rect = target.getBoundingClientRect()
-      const isPrev = editor.isInline(node)
+      const isPrev = Editor.isInline(editor, node)
         ? x - rect.left < rect.left + rect.width - x
         : y - rect.top < rect.top + rect.height - y
 
@@ -464,8 +537,8 @@ export const DOMEditor: DOMEditorInterface = {
       : null
     // Create a new selection in the top of the document if missing
     if (!getEditorLiveSelection(editor)) {
-      editor.update(() => {
-        editor.select(Editor.start(editor, []))
+      editor.update((tx) => {
+        tx.selection.set(Editor.point(editor, [], { edge: 'start' }))
       })
     }
 
@@ -597,13 +670,19 @@ export const DOMEditor: DOMEditorInterface = {
   hasTarget: (editor, target): target is DOMNode =>
     isDOMNode(target) && DOMEditor.hasDOMNode(editor, target),
 
-  insertData: (editor, data) => {
-    editor.insertData(data)
+  clipboard: {
+    insertData: (editor, data) => {
+      insertDOMData(editor, data)
+    },
+
+    insertFragmentData: (editor, data) => insertDOMFragmentData(editor, data),
+
+    insertTextData: (editor, data) => insertDOMTextData(editor, data),
+
+    writeSelection: (editor, data) => {
+      writeDOMSelectionData(editor, data)
+    },
   },
-
-  insertFragmentData: (editor, data) => editor.insertFragmentData(data),
-
-  insertTextData: (editor, data) => editor.insertTextData(data),
 
   isComposing: (editor) => {
     return !!IS_COMPOSING.get(editor)
@@ -617,12 +696,15 @@ export const DOMEditor: DOMEditorInterface = {
     if (IS_READ_ONLY.get(editor)) return false
     if (!DOMEditor.hasTarget(editor, target)) return false
 
-    const slateNode = DOMEditor.toSlateNode(editor, target)
+    let slateNode: Node
+    try {
+      slateNode = DOMEditor.toSlateNode(editor, target)
+    } catch {
+      return false
+    }
+
     return Node.isElement(slateNode) && Editor.isVoid(editor, slateNode)
   },
-
-  setFragmentData: (editor, data, originEvent) =>
-    editor.setFragmentData(data, originEvent),
 
   toDOMNode: (editor, node) => {
     const domNode =
@@ -645,7 +727,7 @@ export const DOMEditor: DOMEditorInterface = {
     const resolvedPoint = Editor.void(editor, { at: point })
       ? { path: point.path, offset: 0 }
       : point
-    const [node] = Editor.node(editor, resolvedPoint.path)
+    const [node] = editor.read((state) => state.nodes.get(resolvedPoint.path))
     const el = DOMEditor.toDOMNode(editor, node)
     let domPoint: DOMPoint | undefined
 
@@ -754,15 +836,39 @@ export const DOMEditor: DOMEditorInterface = {
 
     const node = domEl ? ELEMENT_TO_NODE.get(domEl as HTMLElement) : null
 
-    if (!node) {
-      throw new Error(`Cannot resolve a Slate node from DOM node: ${domEl}`)
+    if (node) {
+      return node
     }
 
-    return node
+    const fallbackPath =
+      domEl && DOMEditor.hasDOMNode(editor, domEl)
+        ? parseSlateDOMPath(domEl.getAttribute('data-slate-path'))
+        : null
+
+    if (fallbackPath && Editor.hasPath(editor, fallbackPath)) {
+      const [fallbackNode] = editor.read((state) =>
+        state.nodes.get(fallbackPath)
+      )
+      const fallbackElement = domEl as HTMLElement
+      const key = DOMEditor.findKey(editor, fallbackNode)
+      const keyToElement = EDITOR_TO_KEY_TO_ELEMENT.get(editor) ?? new WeakMap()
+
+      if (!EDITOR_TO_KEY_TO_ELEMENT.has(editor)) {
+        EDITOR_TO_KEY_TO_ELEMENT.set(editor, keyToElement)
+      }
+
+      keyToElement.set(key, fallbackElement)
+      ELEMENT_TO_NODE.set(fallbackElement, fallbackNode)
+      NODE_TO_ELEMENT.set(fallbackNode, fallbackElement)
+
+      return fallbackNode
+    }
+
+    throw new Error(`Cannot resolve a Slate node from DOM node: ${domEl}`)
   },
 
   toSlatePoint: <T extends boolean>(
-    editor: DOMEditor,
+    editor: DOMEditor<any>,
     domPoint: DOMPoint,
     options: {
       exactMatch: boolean
@@ -771,6 +877,15 @@ export const DOMEditor: DOMEditorInterface = {
     }
   ): T extends true ? Point | null : Point => {
     const { exactMatch, suppressThrow } = options
+    const boundarySlatePoint = toSlatePointFromDOMCoverageBoundary(
+      editor,
+      domPoint
+    )
+
+    if (boundarySlatePoint) {
+      return boundarySlatePoint as T extends true ? Point | null : Point
+    }
+
     const [nearestNode, nearestOffset] = exactMatch
       ? domPoint
       : normalizeDOMPoint(domPoint)
@@ -874,6 +989,15 @@ export const DOMEditor: DOMEditorInterface = {
           offset = 1
         }
       } else if (nonEditableNode) {
+        const boundarySlatePoint = toSlatePointFromDOMCoverageBoundary(editor, [
+          nonEditableNode,
+          0,
+        ])
+
+        if (boundarySlatePoint) {
+          return boundarySlatePoint as T extends true ? Point | null : Point
+        }
+
         // Find the edge of the nearest leaf in `searchDirection`
         const getLeafNodes = (node: DOMElement | null | undefined) =>
           node
@@ -971,7 +1095,9 @@ export const DOMEditor: DOMEditorInterface = {
           }
           throw e
         }
-        let { path, offset } = Editor.start(editor, nodePath)
+        let { path, offset } = Editor.point(editor, nodePath, {
+          edge: 'start',
+        })
 
         if (!node.querySelector('[data-slate-leaf]')) {
           offset = nearestOffset
@@ -1018,7 +1144,7 @@ export const DOMEditor: DOMEditorInterface = {
   },
 
   toSlateRange: <T extends boolean>(
-    editor: DOMEditor,
+    editor: DOMEditor<any>,
     domRange: DOMRange | DOMStaticRange | DOMSelection,
     options: {
       exactMatch: boolean
@@ -1184,4 +1310,72 @@ export const DOMEditor: DOMEditorInterface = {
 
     return range as unknown as T extends true ? Range | null : Range
   },
+}
+
+export const createDOMEditorCapability = (
+  editor: DOMEditor<any>
+): DOMEditorCapability => {
+  const capability: DOMEditorCapability = {
+    androidPendingDiffs: () => DOMEditor.androidPendingDiffs(editor),
+    androidScheduleFlush: () => DOMEditor.androidScheduleFlush(editor),
+    blur: () => DOMEditor.blur(editor),
+    deselect: () => DOMEditor.deselect(editor),
+    findDocumentOrShadowRoot: () => DOMEditor.findDocumentOrShadowRoot(editor),
+    findEventRange: (event) => DOMEditor.findEventRange(editor, event),
+    findKey: (node) => DOMEditor.findKey(editor, node),
+    findPath: (node) => DOMEditor.findPath(editor, node),
+    focus: (options) => DOMEditor.focus(editor, options),
+    getWindow: () => DOMEditor.getWindow(editor),
+    hasDOMNode: (target, options) =>
+      DOMEditor.hasDOMNode(editor, target, options),
+    hasEditableTarget: (target) => DOMEditor.hasEditableTarget(editor, target),
+    hasRange: (range) => DOMEditor.hasRange(editor, range),
+    hasSelectableTarget: (target) =>
+      DOMEditor.hasSelectableTarget(editor, target),
+    hasTarget: (target) => DOMEditor.hasTarget(editor, target),
+    clipboard: Object.freeze({
+      insertData: (data: DataTransfer) =>
+        DOMEditor.clipboard.insertData(editor, data),
+      insertFragmentData: (data: DataTransfer) =>
+        DOMEditor.clipboard.insertFragmentData(editor, data),
+      insertTextData: (data: DataTransfer) =>
+        DOMEditor.clipboard.insertTextData(editor, data),
+      writeSelection: (data: Pick<DataTransfer, 'getData' | 'setData'>) =>
+        DOMEditor.clipboard.writeSelection(editor, data),
+    }),
+    isComposing: () => DOMEditor.isComposing(editor),
+    isFocused: () => DOMEditor.isFocused(editor),
+    isReadOnly: () => DOMEditor.isReadOnly(editor),
+    isTargetInsideNonReadonlyVoid: (target) =>
+      DOMEditor.isTargetInsideNonReadonlyVoid(editor, target),
+    toDOMNode: (node) => DOMEditor.toDOMNode(editor, node),
+    toDOMPoint: (point) => DOMEditor.toDOMPoint(editor, point),
+    toDOMRange: (range) => DOMEditor.toDOMRange(editor, range),
+    toSlateNode: (domNode) => DOMEditor.toSlateNode(editor, domNode),
+    toSlatePoint: <T extends boolean>(
+      domPoint: DOMPoint,
+      options: {
+        exactMatch: T
+        searchDirection?: 'backward' | 'forward'
+        suppressThrow?: boolean
+      }
+    ) =>
+      DOMEditor.toSlatePoint(editor, domPoint, {
+        ...options,
+        suppressThrow: options.suppressThrow ?? false,
+      }) as T extends true ? Point : Point | null,
+    toSlateRange: <T extends boolean>(
+      domRange: DOMRange | DOMSelection | DOMStaticRange | globalThis.Selection,
+      options: {
+        exactMatch: T
+        suppressThrow?: boolean
+      }
+    ) =>
+      DOMEditor.toSlateRange(editor, domRange, {
+        ...options,
+        suppressThrow: options.suppressThrow ?? false,
+      }) as T extends true ? Range : Range | null,
+  }
+
+  return Object.freeze(capability)
 }

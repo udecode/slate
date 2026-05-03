@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import {
+  assertSlateBrowserFirstPartyParityContracts,
+  SLATE_BROWSER_FIRST_LEGACY_PARITY_FAMILIES,
+  SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY,
+} from '../../src/core'
 import {
   classifyScenarioTransportClaim,
   createScenarioReductionCandidates,
@@ -9,11 +15,13 @@ import {
   createSlateBrowserInlineCutTypingGauntlet,
   createSlateBrowserInternalControlGauntlet,
   createSlateBrowserMixedEditingConformanceGauntlet,
+  createSlateBrowserPluginContractRegistry,
   createSlateBrowserSemanticEditingConformanceGauntlet,
   createSlateBrowserShellActivationGauntlet,
   createSlateBrowserToolbarMarkClickTypingGauntlet,
   createSlateBrowserWarmLoopSteps,
   createSlateBrowserWarmToolbarArrowGauntlet,
+  defineSlateBrowserPluginContract,
   normalizeScenarioMetadata,
   type SlateBrowserScenarioStep,
   serializeScenarioStepForReplay,
@@ -60,6 +68,124 @@ describe('scenario helpers', () => {
     ]
 
     expect(createScenarioReductionCandidates(steps)).toEqual([])
+  })
+
+  test('registers first-party plugin browser contract rows', () => {
+    const registry = createSlateBrowserPluginContractRegistry([
+      defineSlateBrowserPluginContract({
+        plugin: 'media',
+        rows: [
+          {
+            assertions: [
+              'model and DOM selections enter and leave block voids',
+              'visible void content has no hidden-anchor layout gap',
+            ],
+            family: 'block-void-navigation',
+            routes: ['images', 'embeds'],
+          },
+        ],
+      }),
+      defineSlateBrowserPluginContract({
+        plugin: 'table',
+        rows: [
+          {
+            assertions: [
+              'table cell boundary arrows land at offset 0',
+              'model and DOM selection agree',
+            ],
+            family: 'table-cell-boundary-navigation',
+            routes: ['tables'],
+          },
+        ],
+      }),
+    ])
+
+    expect(registry.rows.map((row) => [row.plugin, row.family])).toEqual([
+      ['media', 'block-void-navigation'],
+      ['table', 'table-cell-boundary-navigation'],
+    ])
+    expect(registry.rowByFamily.get('block-void-navigation')).toMatchObject({
+      plugin: 'media',
+      routes: ['images', 'embeds'],
+    })
+    expect(() =>
+      createSlateBrowserPluginContractRegistry([
+        defineSlateBrowserPluginContract({
+          plugin: 'first',
+          rows: [
+            {
+              assertions: ['one'],
+              family: 'duplicate-family',
+              routes: ['richtext'],
+            },
+          ],
+        }),
+        defineSlateBrowserPluginContract({
+          plugin: 'second',
+          rows: [
+            {
+              assertions: ['two'],
+              family: 'duplicate-family',
+              routes: ['plaintext'],
+            },
+          ],
+        }),
+      ])
+    ).toThrow(/registered more than once/)
+  })
+
+  test('locks the first legacy parity slice into a fast contract guard', () => {
+    const result = assertSlateBrowserFirstPartyParityContracts()
+    const parityFamilies = SLATE_BROWSER_FIRST_LEGACY_PARITY_FAMILIES.map(
+      (family) => family.family
+    )
+
+    expect(result.parityFamilies).toEqual(parityFamilies)
+    expect(parityFamilies).toEqual([
+      'inline-void-boundary-navigation',
+      'block-void-navigation',
+      'external-decoration-refresh',
+      'mouse-selection-toolbar',
+      'table-cell-boundary-navigation',
+    ])
+    expect(
+      SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY.rows.map((row) => [
+        row.plugin,
+        row.family,
+        row.routes,
+      ])
+    ).toEqual(
+      expect.arrayContaining([
+        ['mentions', 'inline-void-boundary-navigation', ['mentions']],
+        ['media', 'block-void-navigation', ['images', 'embeds']],
+        [
+          'external-decorations',
+          'external-decoration-refresh',
+          ['search-highlighting'],
+        ],
+        ['selection-ui', 'mouse-selection-toolbar', ['hovering-toolbar']],
+        ['table', 'table-cell-boundary-navigation', ['tables']],
+      ])
+    )
+  })
+
+  test('keeps generated stress parity out of the default check script', () => {
+    const packageJsonPath = fileURLToPath(
+      new URL('../../../../package.json', import.meta.url)
+    )
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const scripts = packageJson.scripts
+
+    expect(scripts.check).not.toContain('test:stress')
+    expect(scripts.check).not.toContain('test:integration-local')
+    expect(scripts.check).not.toContain('check:full')
+    expect(scripts['test:stress']).toContain(
+      'playwright/stress/generated-editing.test.ts'
+    )
+    expect(scripts['test:stress']).toContain('PLAYWRIGHT_RETRIES=0')
+    expect(scripts['check:full']).toContain('test:integration-local')
   })
 
   test('summarizes reduction candidates without serializing step functions', () => {
@@ -209,6 +335,46 @@ describe('scenario helpers', () => {
         label: 'assert-model-selection-expanded',
       },
       {
+        contains: 'mode:both',
+        kind: 'assertLocatorText',
+        label: 'assert-overlay-mode',
+        selector: '#external-decoration-mode',
+      },
+      {
+        kind: 'clickSelector',
+        label: 'click-overlay-button',
+        selector: 'button:has-text("Show both diagnostics")',
+      },
+      {
+        kind: 'captureRuntimeId',
+        label: 'capture-image-runtime-id',
+        name: 'image',
+        path: [1],
+      },
+      {
+        kind: 'applyOperations',
+        label: 'remote-remove-image',
+        operations: [
+          {
+            type: 'remove_node',
+            path: [1],
+            node: { type: 'image', url: 'image.png', children: [{ text: '' }] },
+          },
+        ],
+        tag: 'remote-import',
+      },
+      {
+        kind: 'assertCapturedRuntimeIdPath',
+        label: 'assert-image-runtime-id-null',
+        name: 'image',
+        path: null,
+      },
+      {
+        kind: 'assertLastCommitTags',
+        label: 'assert-remote-tags',
+        tags: ['remote-import'],
+      },
+      {
         kind: 'assertWindowSelectionText',
         label: 'assert-native-selection',
         notEmpty: true,
@@ -238,6 +404,12 @@ describe('scenario helpers', () => {
       'assertLocatorVerticalGap',
       'assertLocatorVerticalOffset',
       'assertModelSelectionExpanded',
+      'assertLocatorText',
+      'clickSelector',
+      'captureRuntimeId',
+      'applyOperations',
+      'assertCapturedRuntimeIdPath',
+      'assertLastCommitTags',
       'assertWindowSelectionText',
       'assertRenderBudget',
       'resetRenderProfiler',

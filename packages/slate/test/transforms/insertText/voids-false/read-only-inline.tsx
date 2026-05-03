@@ -16,7 +16,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.insertText('x')
+  editor.text.insert('x')
 }
 export const output = (
   <editor>

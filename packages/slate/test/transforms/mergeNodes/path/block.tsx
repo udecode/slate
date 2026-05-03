@@ -11,7 +11,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.mergeNodes({ at: [1] })
+  editor.nodes.merge({ at: [1] })
 }
 export const output = (
   <editor>

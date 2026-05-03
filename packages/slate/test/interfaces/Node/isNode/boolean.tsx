@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 import { Node } from 'slate'
 
 export const input = true

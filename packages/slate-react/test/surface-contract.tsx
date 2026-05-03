@@ -1,19 +1,22 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { join, relative, resolve, sep } from 'node:path'
 import { act, render } from '@testing-library/react'
 import { useEffect } from 'react'
 import { createEditor } from 'slate'
 import {
   Editable,
-  ReactEditor,
-  RenderElementProps,
-  RenderVoidProps,
+  type ReactEditor,
+  type RenderElementProps,
+  type RenderVoidProps,
   Slate,
-  useSelected,
+  useElementSelected,
   withReact,
 } from '../src'
 
-const packageRoot = process.cwd()
+const cwd = process.cwd()
+const packageRoot = cwd.endsWith(`${sep}packages${sep}slate-react`)
+  ? cwd
+  : resolve(cwd, 'packages/slate-react')
 const repoRoot = resolve(packageRoot, '../..')
 const sourceFilePattern = /\.(md|ts|tsx)$/
 
@@ -47,6 +50,7 @@ const listSourceFiles = (roots: readonly string[]) => {
 }
 
 const allowedSlateInternalImportFiles = new Set([
+  'packages/slate-react/src/editable/runtime-editor-api.ts',
   'packages/slate-react/src/editable/runtime-live-state.ts',
   'packages/slate-react/src/editable/runtime-mutation-state.ts',
   'packages/slate-react/src/editable/runtime-selection-state.ts',
@@ -143,15 +147,15 @@ describe('slate-react surface contract', () => {
 
   test('generic slate selectors have an explicit ownership inventory', () => {
     expectSurfaceInventory(
-      /\buseSlateSelector\(/g,
+      /\buseEditorSelector\(/g,
       ['packages/slate-react/src'],
       {
         'packages/slate-react/src/editable/root-selector-sources.ts': {
-          count: 4,
+          count: 5,
           next: 'root-source',
           owner: 'Editable root selector sources',
           rationale:
-            'Top-level runtime ids, selected top-level index, placeholder visibility, and the editable root commit wakeup are owned by named root source selectors.',
+            'Top-level runtime ids, root document epoch, selected top-level index, placeholder visibility, and the editable root commit wakeup are owned by named root source selectors.',
         },
         'packages/slate-react/src/hooks/use-node-selector.tsx': {
           count: 1,
@@ -160,14 +164,14 @@ describe('slate-react surface contract', () => {
           rationale:
             'Public node/text selectors intentionally delegate through one model-truth selector wrapper.',
         },
-        'packages/slate-react/src/hooks/use-selected.ts': {
+        'packages/slate-react/src/hooks/use-element-selected.ts': {
           count: 1,
           next: 'public-hook',
           owner: 'Public selected hook',
           rationale:
             'The hook exposes selection state to app code through the public selector contract.',
         },
-        'packages/slate-react/src/hooks/use-slate-selection.tsx': {
+        'packages/slate-react/src/hooks/use-editor-selection.tsx': {
           count: 1,
           next: 'public-hook',
           owner: 'Public selection hook',
@@ -195,7 +199,31 @@ describe('slate-react surface contract', () => {
 
     expect(packageIndex).not.toMatch(/\bVoidElement\b/)
     expect(packageIndex).not.toMatch(/\bInlineVoidElement\b/)
+    expect(packageIndex).not.toMatch(/\bSlateSpacer\b/)
     expect(exampleViolations).toEqual([])
+  })
+
+  test('public host authoring uses installed DOM capabilities', () => {
+    const packageIndex = readFileSync(
+      resolve(packageRoot, 'src/index.ts'),
+      'utf8'
+    )
+    const publicHostStaticCalls = listSourceFiles([
+      'docs/api',
+      'docs/concepts',
+      'docs/libraries',
+      'docs/walkthroughs',
+      'site/examples/ts',
+    ]).flatMap((absolutePath) => {
+      const contents = readFileSync(absolutePath, 'utf8')
+
+      return /\b(?:ReactEditor|DOMEditor)\./.test(contents)
+        ? [relative(repoRoot, absolutePath)]
+        : []
+    })
+
+    expect(packageIndex).not.toMatch(/export\s*\{\s*ReactEditor\b/)
+    expect(publicHostStaticCalls).toEqual([])
   })
 
   test('Editable defaults translate="no" and allows override', () => {
@@ -246,8 +274,8 @@ describe('slate-react surface contract', () => {
     )
 
     await act(async () => {
-      editor.update(() => {
-        editor.splitNodes({ at: { path: [0, 0], offset: 2 } })
+      editor.update((tx) => {
+        tx.nodes.split({ at: { path: [0, 0], offset: 2 } })
       })
     })
 
@@ -275,15 +303,15 @@ describe('slate-react surface contract', () => {
     )
 
     await act(async () => {
-      mergeEditor.update(() => {
-        mergeEditor.mergeNodes({ at: { path: [0, 0], offset: 0 } })
+      mergeEditor.update((tx) => {
+        tx.nodes.merge({ at: { path: [0, 0], offset: 0 } })
       })
     })
 
     expect(mergeMounts).toHaveBeenCalledTimes(2)
   })
 
-  test('useSelected remains stable when the selected element path shifts after structural edits', async () => {
+  test('useElementSelected remains stable when the selected element path shifts after structural edits', async () => {
     const editor = withReact(createEditor()) as ReactEditor
     const elementSelectedRenders: Record<string, boolean[] | undefined> = {}
 
@@ -293,7 +321,7 @@ describe('slate-react surface contract', () => {
       children,
     }: RenderElementProps) => {
       // eslint-disable-next-line react-hooks/rules-of-hooks
-      const selected = useSelected()
+      const selected = useElementSelected()
       const { id } = element as { id: string }
 
       let selectedRenders = elementSelectedRenders[id]
@@ -333,8 +361,8 @@ describe('slate-react surface contract', () => {
     })
 
     await act(async () => {
-      editor.update(() => {
-        editor.select({ path: [2, 0], offset: 0 })
+      editor.update((tx) => {
+        tx.selection.set({ path: [2, 0], offset: 0 })
       })
     })
 
@@ -352,8 +380,8 @@ describe('slate-react surface contract', () => {
     })
 
     await act(async () => {
-      editor.update(() => {
-        editor.insertNodes({ id: 'new', children: [{ text: '' }] } as never, {
+      editor.update((tx) => {
+        tx.nodes.insert({ id: 'new', children: [{ text: '' }] } as never, {
           at: [2],
         })
       })
@@ -377,7 +405,10 @@ describe('slate-react surface contract', () => {
       return <p>{children}</p>
     })
 
-    editor.isVoid = (element) => element.type === 'image'
+    editor.extend({
+      elements: [{ type: 'image', void: 'block' }],
+      name: 'test-block-void',
+    })
 
     const renderVoid = (props: RenderVoidProps) => {
       renderVoidProps = props
@@ -405,8 +436,10 @@ describe('slate-react surface contract', () => {
     expect(renderElement).not.toHaveBeenCalled()
     expect(renderVoidProps).toBeTruthy()
     expect(renderVoidProps?.element.type).toBe('image')
-    expect(renderVoidProps?.selected).toBe(false)
-    expect(renderVoidProps?.focused).toBe(false)
+    expect(renderVoidProps?.target).toEqual([0])
+    expect('actions' in (renderVoidProps as object)).toBe(false)
+    expect('selected' in (renderVoidProps as object)).toBe(false)
+    expect('focused' in (renderVoidProps as object)).toBe(false)
     expect('children' in (renderVoidProps as object)).toBe(false)
     expect('attributes' in (renderVoidProps as object)).toBe(false)
     expect(voidElement).toBeTruthy()
@@ -419,8 +452,10 @@ describe('slate-react surface contract', () => {
     const editor = withReact(createEditor()) as ReactEditor
     let renderVoidProps: RenderVoidProps | null = null
 
-    editor.isInline = (element) => element.type === 'mention'
-    editor.isVoid = (element) => element.type === 'mention'
+    editor.extend({
+      elements: [{ type: 'mention', void: 'inline' }],
+      name: 'test-inline-void',
+    })
 
     const renderElement = jest.fn(({ children }: RenderElementProps) => {
       return <p>{children}</p>
@@ -461,6 +496,10 @@ describe('slate-react surface contract', () => {
     expect(renderElement).toHaveBeenCalledTimes(1)
     expect(renderVoidProps).toBeTruthy()
     expect(renderVoidProps?.element.type).toBe('mention')
+    expect(renderVoidProps?.target).toEqual([0, 1])
+    expect('actions' in (renderVoidProps as object)).toBe(false)
+    expect('selected' in (renderVoidProps as object)).toBe(false)
+    expect('focused' in (renderVoidProps as object)).toBe(false)
     expect('children' in (renderVoidProps as object)).toBe(false)
     expect('attributes' in (renderVoidProps as object)).toBe(false)
     expect(mention?.querySelector('[data-cy="visible-mention"]')).toBeTruthy()

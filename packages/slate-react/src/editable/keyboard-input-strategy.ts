@@ -1,13 +1,13 @@
 import getDirection from 'direction'
 import type { KeyboardEvent, RefObject } from 'react'
-import { Editor, Node, Range } from 'slate'
+import { Node, Range } from 'slate'
 import {
   HAS_BEFORE_INPUT_SUPPORT,
   Hotkeys,
   IS_CHROME,
   IS_WEBKIT,
 } from 'slate-dom'
-
+import type { EditableKeyDownHandler } from '../components/editable'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { isSelectAllHotkey } from '../large-document/large-document-commands'
 import { ReactEditor } from '../plugin/react-editor'
@@ -27,14 +27,9 @@ import {
   shouldForceRenderAfterModelOwnedHistory,
 } from './model-input-strategy'
 import { applyEditableCommand } from './mutation-controller'
+import { Editor } from './runtime-editor-api'
 import { readRuntimeSelection } from './runtime-selection-state'
 
-type EditableKeyboardHandler = (
-  event: KeyboardEvent<HTMLDivElement>
-) => boolean | void
-type EditableKeyCommandHandler = (
-  event: KeyboardEvent<HTMLDivElement>
-) => boolean | EditableRepairRequest | void
 export type EditableKeyDownResult = {
   handled: boolean
   repair?: EditableRepairRequest | null
@@ -45,26 +40,55 @@ const keyDownHandled = (
 ): EditableKeyDownResult => ({ handled: true, repair })
 const keyDownUnhandled = (): EditableKeyDownResult => ({ handled: false })
 
-const isKeyboardEventHandled = ({
+const DEFAULT_MODEL_COMMAND_REPAIR: EditableRepairRequest = {
+  focus: true,
+  kind: 'repair-caret',
+  selectionSourceTransition: {
+    preferModelSelection: true,
+    reason: 'model-command',
+    selectionSource: 'model-owned',
+  },
+}
+
+const isShellLargeDocument = (largeDocument: unknown) =>
+  typeof largeDocument === 'object' &&
+  largeDocument !== null &&
+  (largeDocument as { mode?: unknown }).mode === 'shell'
+
+const applyUserKeyDownHandler = ({
+  editor,
   event,
   handler,
 }: {
+  editor: ReactEditor
   event: KeyboardEvent<HTMLDivElement>
-  handler?: EditableKeyboardHandler
-}) => {
+  handler?: EditableKeyDownHandler
+}): EditableKeyDownResult => {
   if (!handler) {
-    return false
+    return keyDownUnhandled()
   }
 
   // The custom event handler may return a boolean to specify whether the event
   // shall be treated as being handled or not.
-  const shouldTreatEventAsHandled = handler(event)
+  const shouldTreatEventAsHandled = handler(event, { editor })
 
   if (shouldTreatEventAsHandled != null) {
-    return shouldTreatEventAsHandled
+    if (!shouldTreatEventAsHandled) {
+      return keyDownUnhandled()
+    }
+
+    event.preventDefault()
+
+    return keyDownHandled(
+      shouldTreatEventAsHandled === true
+        ? DEFAULT_MODEL_COMMAND_REPAIR
+        : shouldTreatEventAsHandled
+    )
   }
 
   return event.isDefaultPrevented() || event.isPropagationStopped()
+    ? keyDownHandled()
+    : keyDownUnhandled()
 }
 
 export const applyEditableKeyDown = ({
@@ -73,22 +97,22 @@ export const applyEditableKeyDown = ({
   event,
   forceRender,
   largeDocument,
-  onKeyCommand,
   onKeyDown,
   readOnly,
   setExplicitShellBackedSelection,
   setComposing,
+  shellBackedSelection,
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
   editor: ReactEditor
   event: KeyboardEvent<HTMLDivElement>
   forceRender: () => void
   largeDocument: unknown
-  onKeyCommand?: EditableKeyCommandHandler
-  onKeyDown?: EditableKeyboardHandler
+  onKeyDown?: EditableKeyDownHandler
   readOnly: boolean
   setExplicitShellBackedSelection: (nextValue: boolean) => void
   setComposing: EditableCompositionStateSetter
+  shellBackedSelection: boolean
 }): EditableKeyDownResult => {
   if (isInteractiveInternalTarget(editor, event.target)) {
     event.stopPropagation()
@@ -107,41 +131,29 @@ export const applyEditableKeyDown = ({
       setComposing(false)
     }
 
-    if (
-      isKeyboardEventHandled({ event, handler: onKeyDown }) ||
-      ReactEditor.isComposing(editor)
-    ) {
-      return keyDownHandled()
+    const userKeyDownResult = applyUserKeyDownHandler({
+      editor,
+      event,
+      handler: onKeyDown,
+    })
+    if (userKeyDownResult.handled) {
+      return userKeyDownResult
     }
 
-    const keyCommandResult = onKeyCommand?.(event)
-    if (keyCommandResult) {
-      event.preventDefault()
-      return keyDownHandled(
-        keyCommandResult === true
-          ? {
-              focus: true,
-              kind: 'repair-caret',
-              selectionSourceTransition: {
-                preferModelSelection: true,
-                reason: 'model-command',
-                selectionSource: 'model-owned',
-              },
-            }
-          : keyCommandResult
-      )
+    if (ReactEditor.isComposing(editor)) {
+      return keyDownHandled()
     }
 
     if (isSelectAllHotkey(nativeEvent)) {
       event.preventDefault()
       applyEditableCommand({ command: { kind: 'select-all' }, editor })
-      setExplicitShellBackedSelection(Boolean(largeDocument))
+      setExplicitShellBackedSelection(isShellLargeDocument(largeDocument))
       forceRender()
       return keyDownHandled()
     }
 
     const selection = readRuntimeSelection(editor)
-    const children = Editor.getChildren(editor)
+    const children = editor.read((state) => state.value.get())
     const element = children[selection === null ? 0 : selection.focus.path[0]]
     const isRTL = getDirection(Node.string(element)) === 'rtl'
 
@@ -182,9 +194,9 @@ export const applyEditableKeyDown = ({
     }
 
     if (
-      largeDocument &&
+      isShellLargeDocument(largeDocument) &&
+      shellBackedSelection &&
       selection &&
-      Range.isCollapsed(selection) &&
       nativeEvent.key.length === 1 &&
       !nativeEvent.altKey &&
       !nativeEvent.ctrlKey &&

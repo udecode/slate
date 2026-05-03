@@ -1,5 +1,6 @@
 import { act, render } from '@testing-library/react'
-import { createEditor, Editor, type Range } from 'slate'
+import { createEditor, type Range } from 'slate'
+import { Editor } from 'slate/internal'
 import { Editable, Slate, withReact } from '../src'
 import {
   createEditableInputController,
@@ -54,8 +55,8 @@ test('target runtime imports the current DOM selection for implicit editor comma
   })
 
   await act(async () => {
-    editor.update(() => {
-      editor.select(fallbackSelection)
+    editor.update((tx) => {
+      tx.selection.set(fallbackSelection)
     })
   })
 
@@ -94,15 +95,17 @@ test('Editable target runtime routes implicit block commands to the current DOM 
   })
 
   await act(async () => {
-    editor.update(() => {
-      editor.select(fallbackSelection)
+    editor.update((tx) => {
+      tx.selection.set(fallbackSelection)
     })
   })
 
   domSelectionForText('two')
 
   await act(async () => {
-    editor.setBlock({ type: 'heading-one' })
+    editor.update((tx) => {
+      tx.nodes.set({ type: 'heading-one' } as never)
+    })
   })
 
   expect(Editor.getChildren(editor)).toEqual([

@@ -1,0 +1,160 @@
+import type { ReactNode } from 'react'
+import { useContext } from 'react'
+import type {
+  DOMCoverageCopyPolicy,
+  DOMCoverageFindPolicy,
+  DOMCoverageReason,
+  DOMCoverageSelectionPolicy,
+} from 'slate-dom/internal'
+import { DOMCoverage } from 'slate-dom/internal'
+
+import { ElementPathContext, NodeRuntimeIdContext } from '../context'
+import { Editor } from '../editable/runtime-editor-api'
+import { useEditor } from '../hooks/use-editor'
+import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
+
+type DOMCoverageBoundaryBaseProps = {
+  boundaryId: string
+  children?: ReactNode
+  content?: ReactNode
+  copyPolicy?: DOMCoverageCopyPolicy
+  findPolicy?: DOMCoverageFindPolicy
+  hidden?: boolean
+  reason?: DOMCoverageReason
+  selectionPolicy?: DOMCoverageSelectionPolicy
+}
+
+export type DOMCoverageBoundaryRangeProps = DOMCoverageBoundaryBaseProps & {
+  from: number
+  to?: number
+}
+
+export const DOMCoverageBoundaryRange = ({
+  boundaryId,
+  children,
+  content,
+  copyPolicy = 'include-model',
+  findPolicy = 'not-native-until-mounted',
+  from,
+  hidden = true,
+  reason = 'app-collapse',
+  selectionPolicy = 'boundary',
+  to = from,
+}: DOMCoverageBoundaryRangeProps) => {
+  const editor = useEditor()
+  const ownerPath = useContext(ElementPathContext)
+  const ownerRuntimeId = useContext(NodeRuntimeIdContext)
+  const anchorPath = ownerPath ? [...ownerPath, from] : null
+  const focusPath = ownerPath ? [...ownerPath, to] : null
+  const anchorRuntimeId = anchorPath
+    ? Editor.getRuntimeId(editor, anchorPath)
+    : null
+  const focusRuntimeId = focusPath
+    ? Editor.getRuntimeId(editor, focusPath)
+    : null
+  const boundary =
+    ownerPath && ownerRuntimeId
+      ? {
+          anchor: { type: 'placeholder' as const },
+          boundaryId,
+          copyPolicy,
+          coveredPathRanges: [
+            {
+              anchor: anchorPath!,
+              focus: focusPath!,
+            },
+          ],
+          coveredRuntimeRanges:
+            anchorRuntimeId && focusRuntimeId
+              ? [{ anchor: anchorRuntimeId, focus: focusRuntimeId }]
+              : [],
+          findPolicy,
+          ownerPath,
+          ownerRuntimeId,
+          reason,
+          selectionPolicy,
+          state: 'intentionally-hidden' as const,
+          version: 1,
+        }
+      : null
+
+  useIsomorphicLayoutEffect(() => {
+    if (!hidden || !boundary) {
+      return
+    }
+
+    return DOMCoverage.registerBoundary(editor, boundary)
+  }, [boundary, editor, hidden])
+
+  if (!hidden) {
+    return <>{content}</>
+  }
+
+  return (
+    <span
+      contentEditable={false}
+      data-slate-dom-coverage-boundary={boundaryId}
+      data-slate-dom-coverage-edge="anchor"
+    >
+      {children}
+    </span>
+  )
+}
+
+export type DOMCoverageSelfBoundaryProps = DOMCoverageBoundaryBaseProps
+
+export const DOMCoverageSelfBoundary = ({
+  boundaryId,
+  children,
+  content,
+  copyPolicy = 'exclude',
+  findPolicy = 'not-native-until-mounted',
+  hidden = true,
+  reason = 'app-hidden',
+  selectionPolicy = 'boundary',
+}: DOMCoverageSelfBoundaryProps) => {
+  const editor = useEditor()
+  const ownerPath = useContext(ElementPathContext)
+  const ownerRuntimeId = useContext(NodeRuntimeIdContext)
+  const boundary =
+    ownerPath && ownerRuntimeId
+      ? {
+          anchor: { type: 'placeholder' as const },
+          boundaryId,
+          copyPolicy,
+          coveredPathRanges: [{ anchor: ownerPath, focus: ownerPath }],
+          coveredRuntimeRanges: [
+            { anchor: ownerRuntimeId, focus: ownerRuntimeId },
+          ],
+          findPolicy,
+          ownerPath,
+          ownerRuntimeId,
+          reason,
+          selectionPolicy,
+          state: 'intentionally-hidden' as const,
+          version: 1,
+        }
+      : null
+
+  useIsomorphicLayoutEffect(() => {
+    if (!hidden || !boundary) {
+      return
+    }
+
+    return DOMCoverage.registerBoundary(editor, boundary)
+  }, [boundary, editor, hidden])
+
+  if (!hidden) {
+    return <>{content}</>
+  }
+
+  return (
+    <span
+      contentEditable={false}
+      data-slate-dom-coverage-boundary={boundaryId}
+      data-slate-dom-coverage-edge="owner"
+    >
+      {children}
+    </span>
+  )
+}

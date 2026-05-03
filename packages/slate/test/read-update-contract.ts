@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { Editor } from 'slate/internal'
 
-import { createEditor, type Descendant, Editor } from '../src'
+import { createEditor, type Descendant } from '../src'
 
 const paragraph = (text: string): Descendant => ({
   type: 'paragraph',
@@ -20,9 +21,9 @@ describe('read/update contract', () => {
       },
     })
 
-    const state = editor.read(() => ({
-      children: editor.getChildren(),
-      selection: editor.getSelection(),
+    const state = editor.read((state) => ({
+      children: state.value.get(),
+      selection: state.selection.get(),
     }))
 
     assert.deepEqual(state.children, [paragraph('one')])
@@ -32,8 +33,8 @@ describe('read/update contract', () => {
     })
 
     editor.update(
-      () => {
-        editor.insertText('!')
+      (tx) => {
+        tx.text.insert('!')
       },
       { tag: ['history-push', 'paste'] }
     )
@@ -54,14 +55,14 @@ describe('read/update contract', () => {
       () =>
         Editor.read(editor, () => {
           Editor.update(editor, () => {
-            editor.insertText('x')
+            tx.text.insert('x')
           })
         }),
       /editor\.update cannot be started inside editor\.read/
     )
   })
 
-  it('rejects direct primitive writes inside a plain read', () => {
+  it('rejects nested transaction writes inside a plain read', () => {
     const editor = createEditor()
 
     Editor.replace(editor, {
@@ -75,29 +76,11 @@ describe('read/update contract', () => {
     assert.throws(
       () =>
         editor.read(() => {
-          editor.insertText('!')
+          editor.update((tx) => {
+            tx.text.insert('!')
+          })
         }),
-      /editor writes cannot be started inside editor\.read/
-    )
-  })
-
-  it('rejects compatibility transform writes inside a plain read', () => {
-    const editor = createEditor()
-
-    Editor.replace(editor, {
-      children: [paragraph('one')],
-      selection: {
-        anchor: { path: [0, 0], offset: 3 },
-        focus: { path: [0, 0], offset: 3 },
-      },
-    })
-
-    assert.throws(
-      () =>
-        editor.read(() => {
-          editor.insertText('!')
-        }),
-      /editor writes cannot be started inside editor\.read/
+      /editor\.update cannot be started inside editor\.read/
     )
   })
 
@@ -115,14 +98,16 @@ describe('read/update contract', () => {
     assert.throws(
       () =>
         editor.read(() => {
-          editor.applyOperations([
-            {
-              offset: 3,
-              path: [0, 0],
-              text: '!',
-              type: 'insert_text',
-            },
-          ])
+          editor.update((tx) => {
+            tx.operations.replay([
+              {
+                offset: 3,
+                path: [0, 0],
+                text: '!',
+                type: 'insert_text',
+              },
+            ])
+          })
         }),
       /editor\.update cannot be started inside editor\.read/
     )

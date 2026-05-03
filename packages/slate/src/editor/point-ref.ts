@@ -1,7 +1,7 @@
-import { Editor, type EditorInterface } from '../interfaces/editor'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
 import type { PointRef } from '../interfaces/point-ref'
 
-export const pointRef: EditorInterface['pointRef'] = (
+export const pointRef: EditorStaticApi['pointRef'] = (
   editor,
   point,
   options = {}

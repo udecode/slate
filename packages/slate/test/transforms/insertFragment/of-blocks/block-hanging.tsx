@@ -11,7 +11,7 @@ const fragment = (
   </fragment>
 )
 export const run = (editor, options = {}) => {
-  editor.insertFragment(fragment, options)
+  editor.fragment.insert(fragment, options)
 }
 export const input = (
   <editor>

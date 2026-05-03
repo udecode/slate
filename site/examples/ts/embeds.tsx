@@ -1,22 +1,25 @@
 import React, { type ChangeEvent, useMemo } from 'react'
-import { createEditor, defineEditorExtension } from 'slate'
+import { createEditor, type Path, type Element as SlateElement } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
   Slate,
+  useEditor,
   withReact,
 } from 'slate-react'
 import type {
   CustomEditor,
   CustomValue,
-  RenderVoidPropsFor,
   VideoElement as VideoElementType,
 } from './custom-types.d'
 
 const EmbedsExample = () => {
   const editor = useMemo(
-    () => withEmbeds(withHistory(withReact(createEditor<CustomValue>()))),
+    () =>
+      withEmbeds(
+        withHistory(withReact(createEditor<CustomValue>())) as CustomEditor
+      ),
     []
   )
   return (
@@ -24,29 +27,22 @@ const EmbedsExample = () => {
       <Editable
         placeholder="Enter some text..."
         renderElement={(props) => <Element {...props} />}
-        renderVoid={(props) => (
-          <VideoElement {...(props as RenderVoidPropsFor<VideoElementType>)} />
-        )}
+        renderVoid={(props) =>
+          isVideoElement(props.element) ? (
+            <VideoElement element={props.element} target={props.target} />
+          ) : null
+        }
       />
     </Slate>
   )
 }
 
-const embedsExtension = defineEditorExtension<CustomEditor>({
-  name: 'embeds',
-  methods(editor) {
-    const nextIsVoid = editor.isVoid
-
-    return {
-      isVoid(element) {
-        return element.type === 'video' ? true : nextIsVoid(element)
-      },
-    }
-  },
-})
-
 const withEmbeds = (editor: CustomEditor) => {
-  editor.extend(embedsExtension)
+  editor.extend({
+    name: 'embeds',
+    elements: [{ type: 'video', void: 'block' }],
+  })
+
   return editor
 }
 
@@ -56,12 +52,19 @@ const Element = (props: RenderElementProps) => {
   return <p {...attributes}>{children}</p>
 }
 
+const isVideoElement = (element: SlateElement): element is VideoElementType =>
+  element.type === 'video'
+
 const allowedSchemes = ['http:', 'https:']
 
 const VideoElement = ({
-  actions,
   element,
-}: RenderVoidPropsFor<VideoElementType>) => {
+  target,
+}: {
+  element: VideoElementType
+  target: Path
+}) => {
+  const editor = useEditor<CustomEditor>()
   const { url } = element
 
   const safeUrl = useMemo(() => {
@@ -98,7 +101,9 @@ const VideoElement = ({
       </div>
       <UrlInput
         onChange={(val) => {
-          actions.setElement({ url: val })
+          editor.update((tx) => {
+            tx.nodes.set({ url: val }, { at: target, voids: true })
+          })
         }}
         url={url}
       />

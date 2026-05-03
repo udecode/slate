@@ -1,15 +1,18 @@
 import { batchDirtyPaths } from '../core/batch-dirty-paths'
-import { applyOperation, withTransaction } from '../core/public-state'
+import { getEditorSchema } from '../core/editor-runtime'
+import { applyOperation, runEditorTransaction } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
 import { updateDirtyPaths } from '../core/update-dirty-paths'
+import { nodes as getNodes } from '../editor/nodes'
 import {
   type BaseInsertNodeOperation,
   type Descendant,
-  Editor,
   Location,
   Node,
   Path,
   Range,
 } from '../interfaces'
+import { Editor } from '../interfaces/editor'
 import type { NodeMutationMethods } from '../interfaces/transforms/node'
 import { getDefaultInsertLocation } from '../utils'
 
@@ -18,8 +21,9 @@ export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
   nodes,
   options = {}
 ) => {
-  withTransaction(editor, (tx) => {
+  runEditorTransaction(editor, (tx) => {
     Editor.withoutNormalizing(editor, () => {
+      const transforms = getEditorTransformRegistry(editor)
       const {
         hanging = false,
         voids = false,
@@ -67,7 +71,7 @@ export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
         } else {
           const [, end] = Range.edges(at)
           const pointRef = Editor.pointRef(editor, end)
-          editor.delete({ at })
+          transforms.delete({ at })
           at = pointRef.unref()!
         }
       }
@@ -76,7 +80,10 @@ export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
         if (match == null) {
           if (Node.isText(node)) {
             match = (n) => Node.isText(n)
-          } else if (Node.isElement(node) && editor.isInline(node)) {
+          } else if (
+            Node.isElement(node) &&
+            getEditorSchema(editor).isInline(node)
+          ) {
             match = (n) =>
               Node.isText(n) ||
               (Node.isElement(n) && Editor.isInline(editor, n))
@@ -85,7 +92,7 @@ export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
           }
         }
 
-        const [entry] = Editor.nodes(editor, {
+        const [entry] = getNodes(editor, {
           at: at.path,
           match,
           mode,
@@ -99,7 +106,7 @@ export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
         const [, matchPath] = entry
         const pathRef = Editor.pathRef(editor, matchPath)
         const isAtEnd = Editor.isEnd(editor, at, matchPath)
-        editor.splitNodes({ at, match, mode, voids })
+        transforms.splitNodes({ at, match, mode, voids })
         const path = pathRef.unref()!
         at = isAtEnd ? Path.next(path) : path
       }
@@ -176,10 +183,10 @@ export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
       at = Path.previous(at)
 
       if (select) {
-        const point = Editor.end(editor, at)
+        const point = Editor.point(editor, at, { edge: 'end' })
 
         if (point) {
-          editor.select(point)
+          transforms.select(point)
         }
       }
     })

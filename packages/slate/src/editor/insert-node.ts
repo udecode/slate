@@ -1,9 +1,10 @@
-import type { EditorInterface } from '../interfaces/editor'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import type { EditorStaticApi } from '../interfaces/editor'
 
-export const insertNode: EditorInterface['insertNode'] = (
+export const insertNode: EditorStaticApi['insertNode'] = (
   editor,
   node,
   options
 ) => {
-  editor.insertNodes(node, options)
+  getEditorTransformRegistry(editor).insertNodes(node, options)
 }

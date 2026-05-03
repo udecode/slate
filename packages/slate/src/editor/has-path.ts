@@ -1,6 +1,6 @@
-import type { EditorInterface } from '../interfaces/editor'
+import type { EditorStaticApi } from '../interfaces/editor'
 import { Node } from '../interfaces/node'
 
-export const hasPath: EditorInterface['hasPath'] = (editor, path) => {
+export const hasPath: EditorStaticApi['hasPath'] = (editor, path) => {
   return Node.has(editor, path)
 }

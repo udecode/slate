@@ -28,6 +28,12 @@ export const output = (
   </editor>
 )
 
-output.update(() => {
-  output.setSelection({ custom: 123 })
+output.update((tx) => {
+  tx.operations.replay([
+    {
+      type: 'set_selection',
+      properties: {},
+      newProperties: { custom: 123 },
+    },
+  ])
 })

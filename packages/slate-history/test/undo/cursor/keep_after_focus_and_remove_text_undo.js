@@ -1,6 +1,6 @@
 /** @jsx jsx */
 
-import { Editor } from 'slate'
+import { Editor } from 'slate/internal'
 import { jsx } from '../..'
 
 jsx

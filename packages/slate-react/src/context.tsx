@@ -1,11 +1,11 @@
 import { createContext } from 'react'
 import type { Path, RuntimeId } from 'slate'
 
-export { ComposingContext } from './hooks/use-composing'
+export { EditorContext } from './hooks/use-editor'
+export { ComposingContext } from './hooks/use-editor-composing'
+export { FocusedContext } from './hooks/use-editor-focused'
+export { ReadOnlyContext } from './hooks/use-editor-read-only'
 export { ElementContext } from './hooks/use-element'
-export { FocusedContext } from './hooks/use-focused'
-export { ReadOnlyContext } from './hooks/use-read-only'
-export { EditorContext } from './hooks/use-slate-static'
 
 export const ElementPathContext = createContext<Path | null>(null)
 export const NodeRuntimeIdContext = createContext<RuntimeId | null>(null)

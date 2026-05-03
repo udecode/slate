@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test'
 import {
+  assertSlateBrowserFirstPartyParityContracts,
+  SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY,
+} from 'slate-browser/core'
+import {
   assertNoIllegalKernelTransitions,
   createSlateBrowserInternalControlGauntlet,
   type EditorSurfaceOptions,
@@ -12,7 +16,6 @@ import {
 import {
   createStressArtifact,
   type StressCase,
-  type StressFamilyContract,
   stressArtifactPath,
   stressResultPath,
   writeStressArtifact,
@@ -40,121 +43,10 @@ const routeEnabled = (route: string) =>
 const familyEnabled = (family: string) =>
   enabledFamilies.size === 0 || enabledFamilies.has(family)
 
-const operationFamilyContracts = [
-  {
-    assertions: [
-      'model selection lands on the next inline void from both sides',
-      'DOM selection stays collapsed at the void boundary',
-      'focus remains editor-owned',
-      'selection movement stays inside the render budget',
-    ],
-    family: 'inline-void-boundary-navigation',
-    routes: ['mentions'],
-  },
-  {
-    assertions: [
-      'markable inline void visible content keeps mark styling',
-      'hidden anchor is owned by the runtime shell',
-      'model and DOM selections land on the inline void',
-      'selection movement stays inside the render budget',
-    ],
-    family: 'markable-inline-void-formatting',
-    routes: ['mentions'],
-  },
-  {
-    assertions: [
-      'model and DOM selections enter and leave block voids',
-      'visible void content has no hidden-anchor layout gap',
-      'focus remains editor-owned',
-      'selection movement stays inside the render budget',
-    ],
-    family: 'block-void-navigation',
-    routes: ['images', 'embeds'],
-  },
-  {
-    assertions: [
-      'pasted HTML image becomes a runtime-owned block void',
-      'visible image content is contentEditable=false',
-      'hidden spacer is owned by the runtime shell',
-      'focus remains editor-owned after paste',
-    ],
-    family: 'paste-html-image-void',
-    routes: ['paste-html'],
-  },
-  {
-    assertions: [
-      'editable island visible content stays inside a runtime-owned block void',
-      'internal input focus remains native-owned',
-      'outer editor selection is preserved while the native control edits',
-      'follow-up editor typing records a legal insert-text transition',
-    ],
-    family: 'editable-island-native-focus',
-    routes: ['editable-voids'],
-  },
-  {
-    assertions: [
-      'large-document runtime void uses the same runtime-owned shell',
-      'hidden spacer is present without visible layout ownership',
-      'scoped runtime editor selection lands on the void text anchor',
-      'stress replay preserves the scoped editor surface',
-    ],
-    family: 'large-document-runtime-void-shell',
-    routes: ['large-document-runtime'],
-  },
-  {
-    assertions: [
-      'table cell boundary arrows land at offset 0',
-      'model and DOM selection agree',
-      'focus remains editor-owned',
-      'selection movement does not rerender the editable root',
-    ],
-    family: 'table-cell-boundary-navigation',
-    routes: ['tables'],
-  },
-  {
-    assertions: [
-      'external decoration refresh updates rendered highlights',
-      'search input keeps focus ownership',
-      'editor root and element nodes stay inside the render budget',
-    ],
-    family: 'external-decoration-refresh',
-    routes: ['search-highlighting'],
-  },
-  {
-    assertions: [
-      'real mouse drag creates native and model selections',
-      'hovering toolbar becomes visible',
-      'focus remains editor-owned',
-      'selection movement does not rerender Slate nodes',
-    ],
-    family: 'mouse-selection-toolbar',
-    routes: ['hovering-toolbar'],
-  },
-  {
-    assertions: [
-      'paste normalizes multiline content',
-      'follow-up typing commits',
-      'undo replays the last edit',
-      'artifact can replay the generated steps',
-    ],
-    family: 'paste-normalize-undo',
-    routes: ['richtext', 'plaintext', 'forced-layout'],
-  },
-  {
-    assertions: [
-      'composition commits through the browser scenario runner',
-      'model text includes the composed text',
-      'focus remains editor-owned',
-      'artifact can replay the generated steps',
-    ],
-    family: 'selection-repair-ime',
-    routes: ['richtext'],
-  },
-] satisfies StressFamilyContract[]
+assertSlateBrowserFirstPartyParityContracts()
 
-const contractByFamily = new Map(
-  operationFamilyContracts.map((contract) => [contract.family, contract])
-)
+const contractByFamily =
+  SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY.rowByFamily
 
 const point = (path: number[], offset: number) => ({ path, offset })
 
@@ -512,6 +404,96 @@ const blockVoidNavigation = (route: 'embeds' | 'images'): StressCase => {
   })
 }
 
+const staleTargetRemoteRebase = (): StressCase =>
+  createStressCase({
+    family: 'stale-target-remote-rebase',
+    route: 'images',
+    steps: [
+      {
+        kind: 'captureRuntimeId',
+        label: 'capture-first-image-runtime-id',
+        name: 'first-image',
+        path: [1],
+      },
+      {
+        kind: 'captureRuntimeId',
+        label: 'capture-first-image-text-runtime-id',
+        name: 'first-image-text',
+        path: [1, 0],
+      },
+      {
+        kind: 'captureRuntimeId',
+        label: 'capture-second-image-runtime-id',
+        name: 'second-image',
+        path: [4],
+      },
+      {
+        kind: 'select',
+        label: 'select-first-image-before-remote-remove',
+        selection: collapsedSelection([1, 0], 0),
+      },
+      {
+        kind: 'applyOperations',
+        label: 'remote-remove-first-image-and-move-second-image',
+        operations: [
+          {
+            type: 'remove_node',
+            path: [1],
+            node: {
+              type: 'image',
+              url: 'https://source.unsplash.com/kFrdX5IeQzI',
+              children: [{ text: '' }],
+            },
+          },
+          {
+            type: 'move_node',
+            path: [3],
+            newPath: [1],
+          },
+        ],
+        tag: 'remote-rebase',
+      },
+      {
+        kind: 'assertCapturedRuntimeIdPath',
+        label: 'assert-first-image-runtime-id-null',
+        name: 'first-image',
+        path: null,
+      },
+      {
+        kind: 'assertCapturedRuntimeIdPath',
+        label: 'assert-first-image-text-runtime-id-null',
+        name: 'first-image-text',
+        path: null,
+      },
+      {
+        kind: 'assertCapturedRuntimeIdPath',
+        label: 'assert-second-image-runtime-id-rebased',
+        name: 'second-image',
+        path: [1],
+      },
+      {
+        kind: 'assertLastCommitTags',
+        label: 'assert-remote-rebase-tags',
+        tags: ['remote-rebase'],
+      },
+      {
+        kind: 'select',
+        label: 'select-after-remote-rebase',
+        selection: collapsedSelection([2, 0], 0),
+      },
+      { kind: 'type', label: 'type-after-remote-rebase', text: 'After ' },
+      {
+        kind: 'assertBlockTexts',
+        label: 'assert-follow-up-type-after-rebase',
+        startIndex: 2,
+        texts: [
+          'After This example shows images in action. It features two ways to add images. You can either add an image via the toolbar icon above, or if you want in on a little secret, copy an image URL to your clipboard and paste it anywhere in the editor!',
+          'You can delete images with the cross in the top left. Try deleting this sheep:',
+        ],
+      },
+    ],
+  })
+
 const pasteHtmlImageVoid = (): StressCase =>
   createStressCase({
     family: 'paste-html-image-void',
@@ -695,6 +677,239 @@ const externalDecorationRefresh = (): StressCase =>
     ],
   })
 
+const overlayManyDecorationSources = (): StressCase =>
+  createStressCase({
+    family: 'overlay-many-decoration-sources',
+    route: 'external-decoration-sources',
+    steps: [
+      { kind: 'resetRenderProfiler', label: 'reset-render-before-overlays' },
+      {
+        kind: 'clickSelector',
+        label: 'show-both-diagnostics',
+        selector: 'button:has-text("Show both diagnostics")',
+      },
+      {
+        contains: 'mode:both',
+        kind: 'assertLocatorText',
+        label: 'assert-both-diagnostics-mode',
+        selector: '#external-decoration-mode',
+      },
+      {
+        kind: 'assertLocatorCount',
+        label: 'assert-many-decoration-slices',
+        min: 2,
+        selector: '[data-external-tone]',
+      },
+      {
+        budget: { byKind: { editable: { max: 1 } } },
+        kind: 'assertRenderBudget',
+        label: 'assert-many-decoration-render-budget',
+      },
+    ],
+  })
+
+const addReviewCommentSteps = (): SlateBrowserScenarioStep[] => [
+  {
+    kind: 'select',
+    label: 'select-review-comment-range',
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 24 },
+    },
+  },
+  {
+    kind: 'clickSelector',
+    label: 'add-comment',
+    selector: 'button:has-text("Add comment on selection")',
+  },
+  {
+    count: 1,
+    kind: 'assertLocatorCount',
+    label: 'assert-review-comment-slice',
+    selector: '[data-comment-tone="review"]',
+  },
+  {
+    count: 1,
+    kind: 'assertLocatorCount',
+    label: 'assert-review-comment-widget',
+    selector: 'text=comment-1-widget:Comment 1',
+  },
+]
+
+const overlayAnnotationMetadataOnly = (): StressCase =>
+  createStressCase({
+    family: 'overlay-annotation-metadata-only',
+    route: 'review-comments',
+    steps: [
+      ...addReviewCommentSteps(),
+      { kind: 'resetRenderProfiler', label: 'reset-render-before-retone' },
+      {
+        kind: 'clickSelector',
+        label: 'retone-comment',
+        selector: 'button:has-text("Retone first comment")',
+      },
+      {
+        count: 1,
+        kind: 'assertLocatorCount',
+        label: 'assert-question-comment-slice',
+        selector: '[data-comment-tone="question"]',
+      },
+      {
+        count: 1,
+        kind: 'assertLocatorCount',
+        label: 'assert-comment-card-stable',
+        selector: '#comment-card-comment-1',
+      },
+      {
+        count: 1,
+        kind: 'assertLocatorCount',
+        label: 'assert-retone-widget-stable',
+        selector: 'text=comment-1-widget:Comment 1',
+      },
+    ],
+  })
+
+const overlayAnnotationBookmarkRebase = (): StressCase =>
+  createStressCase({
+    family: 'overlay-annotation-bookmark-rebase',
+    route: 'review-comments',
+    steps: [
+      ...addReviewCommentSteps(),
+      {
+        kind: 'clickSelector',
+        label: 'insert-prefix-before-bookmark',
+        selector: 'button:has-text("Insert prefix before first comment")',
+      },
+      {
+        contains: 'range:0.0:1|0.0:25',
+        kind: 'assertLocatorText',
+        label: 'assert-rebased-comment-range',
+        selector: '#comment-card-comment-1',
+      },
+      {
+        count: 1,
+        kind: 'assertLocatorCount',
+        label: 'assert-rebased-inline-comment',
+        selector: '[data-comment-tone="review"]',
+      },
+      {
+        count: 1,
+        kind: 'assertLocatorCount',
+        label: 'assert-rebased-widget-visible',
+        selector: 'text=comment-1-widget:Comment 1',
+      },
+    ],
+  })
+
+const overlayWidgetDirtyId = (): StressCase =>
+  createStressCase({
+    family: 'overlay-widget-dirty-id',
+    route: 'review-comments',
+    steps: [
+      ...addReviewCommentSteps(),
+      {
+        kind: 'resetRenderProfiler',
+        label: 'reset-render-before-widget-retone',
+      },
+      {
+        kind: 'clickSelector',
+        label: 'retone-widget-comment',
+        selector: 'button:has-text("Retone first comment")',
+      },
+      {
+        count: 1,
+        kind: 'assertLocatorCount',
+        label: 'assert-widget-survives-metadata-update',
+        selector: 'text=comment-1-widget:Comment 1',
+      },
+      {
+        kind: 'clickSelector',
+        label: 'clear-widget-comment',
+        selector: 'button:has-text("Clear comments")',
+      },
+      {
+        count: 0,
+        kind: 'assertLocatorCount',
+        label: 'assert-widget-cleared',
+        selector: 'text=comment-1-widget:Comment 1',
+      },
+    ],
+  })
+
+const overlayMixedUpdate = (): StressCase =>
+  createStressCase({
+    family: 'overlay-mixed-update',
+    route: 'review-comments',
+    steps: [
+      ...addReviewCommentSteps(),
+      {
+        kind: 'clickSelector',
+        label: 'insert-prefix-before-comment',
+        selector: 'button:has-text("Insert prefix before first comment")',
+      },
+      {
+        count: 1,
+        kind: 'assertLocatorCount',
+        label: 'assert-mixed-inline-comment',
+        selector: '[data-comment-tone]',
+      },
+      {
+        count: 1,
+        kind: 'assertLocatorCount',
+        label: 'assert-mixed-widget-visible',
+        selector: 'text=comment-1-widget:Comment 1',
+      },
+      {
+        kind: 'clickSelector',
+        label: 'clear-mixed-comment',
+        selector: 'button:has-text("Clear comments")',
+      },
+      {
+        count: 0,
+        kind: 'assertLocatorCount',
+        label: 'assert-mixed-inline-cleared',
+        selector: '[data-comment-tone]',
+      },
+      {
+        count: 0,
+        kind: 'assertLocatorCount',
+        label: 'assert-mixed-widget-cleared',
+        selector: 'text=comment-1-widget:Comment 1',
+      },
+    ],
+  })
+
+const overlayLargeDocumentBudget = (): StressCase =>
+  createStressCase({
+    family: 'overlay-large-document-budget',
+    route: 'large-document-runtime',
+    steps: [
+      {
+        count: 1,
+        kind: 'assertLocatorCount',
+        label: 'assert-large-document-projection-visible',
+        selector: '[data-runtime-projection="true"]',
+      },
+      { kind: 'resetRenderProfiler', label: 'reset-large-projection-render' },
+      {
+        kind: 'select',
+        label: 'select-large-projection-text',
+        selection: collapsedSelection([0, 0], 4),
+      },
+      {
+        focusOwner: 'editor',
+        kind: 'assertFocusOwner',
+        label: 'assert-large-projection-focus',
+      },
+      {
+        budget: { byKind: { editable: { max: 1 } } },
+        kind: 'assertRenderBudget',
+        label: 'assert-large-projection-render-budget',
+      },
+    ],
+    surface: { scope: '[data-runtime-editor="projection"]' },
+  })
+
 const mouseSelectionToolbar = (): StressCase =>
   createStressCase({
     family: 'mouse-selection-toolbar',
@@ -782,11 +997,18 @@ const stressCases: StressCase[] = [
   inlineVoidBoundaryNavigation(),
   markableInlineVoidFormatting(),
   ...(['images', 'embeds'] as const).map(blockVoidNavigation),
+  staleTargetRemoteRebase(),
   pasteHtmlImageVoid(),
   editableIslandNativeFocus(),
   largeDocumentRuntimeVoidShell(),
   tableCellBoundaryNavigation(),
   externalDecorationRefresh(),
+  overlayManyDecorationSources(),
+  overlayAnnotationMetadataOnly(),
+  overlayAnnotationBookmarkRebase(),
+  overlayWidgetDirtyId(),
+  overlayMixedUpdate(),
+  overlayLargeDocumentBudget(),
   mouseSelectionToolbar(),
   ...['plaintext', 'richtext', 'forced-layout'].map(pasteNormalizeUndo),
   selectionRepairIme(),

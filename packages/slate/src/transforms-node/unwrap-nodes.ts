@@ -1,4 +1,7 @@
-import { getCurrentSelection, withTransaction } from '../core/public-state'
+import { getCurrentSelection, runEditorTransaction } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import { node as getNode } from '../editor/node'
+import { nodes as getNodes } from '../editor/nodes'
 import { createInternalRangeRef } from '../editor/range-ref'
 import {
   type Ancestor,
@@ -31,8 +34,9 @@ const comparePoints = (left: Point, right: Point) => {
 }
 
 const mergeAdjacentTextRuns = (editor: Editor) => {
+  const transforms = getEditorTransformRegistry(editor)
   const textPaths = Array.from(
-    Editor.nodes(editor, {
+    getNodes(editor, {
       at: [],
       reverse: true,
       match: (node) => Node.isText(node),
@@ -42,18 +46,22 @@ const mergeAdjacentTextRuns = (editor: Editor) => {
   )
 
   textPaths.forEach((path) => {
-    if (!editor.hasPath(path) || path.length === 0 || path.at(-1) === 0) {
+    if (
+      !Editor.hasPath(editor, path) ||
+      path.length === 0 ||
+      path.at(-1) === 0
+    ) {
       return
     }
 
     const previousPath = Path.previous(path)
 
-    if (!editor.hasPath(previousPath)) {
+    if (!Editor.hasPath(editor, previousPath)) {
       return
     }
 
-    const [node] = Editor.node(editor, path)
-    const [previous] = Editor.node(editor, previousPath)
+    const [node] = getNode(editor, path)
+    const [previous] = getNode(editor, previousPath)
 
     if (
       Node.isText(node) &&
@@ -61,7 +69,7 @@ const mergeAdjacentTextRuns = (editor: Editor) => {
       JSON.stringify(Node.extractProps(node)) ===
         JSON.stringify(Node.extractProps(previous))
     ) {
-      editor.mergeNodes({ at: path })
+      transforms.mergeNodes({ at: path })
     }
   })
 }
@@ -71,7 +79,8 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
   options = {}
 ) => {
   const unwrapNodeAtPath = (path: Path) => {
-    const [node] = Editor.node(editor, path)
+    const transforms = getEditorTransformRegistry(editor)
+    const [node] = getNode(editor, path)
 
     if (Node.isText(node)) {
       throw new Error('unwrapNodes currently supports only element nodes')
@@ -89,18 +98,18 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
     for (let moved = 0; moved < childCount; moved += 1) {
       const wrapperIndex = index + moved
 
-      editor.moveNodes({
+      transforms.moveNodes({
         at: [...parentPath, wrapperIndex, 0],
         to: [...parentPath, wrapperIndex],
       })
     }
 
-    editor.removeNodes({
+    transforms.removeNodes({
       at: [...parentPath, index + childCount],
     })
   }
 
-  withTransaction(editor, (tx) => {
+  runEditorTransaction(editor, (tx) => {
     let target = tx.resolveTarget({ at: options.at })
     const mode = options.mode ?? 'lowest'
     const split = options.split ?? false
@@ -118,7 +127,7 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
       if (match == null) {
         match = Location.isPath(target)
           ? matchPath(editor, target)
-          : (node) => Node.isElement(node) && editor.isBlock(node)
+          : (node) => Node.isElement(node) && Editor.isBlock(editor, node)
       }
 
       if (Location.isPath(target)) {
@@ -129,7 +138,7 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
         ? createInternalRangeRef(editor, target)
         : null
       const pathRefs = Array.from(
-        Editor.nodes(editor, { at: target, match, mode, voids }),
+        getNodes(editor, { at: target, match, mode, voids }),
         ([, path]) => Editor.pathRef(editor, path)
       ).reverse()
 
@@ -140,7 +149,7 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
           continue
         }
 
-        const [node] = Editor.node(editor, path)
+        const [node] = getNode(editor, path)
         let range = Editor.range(editor, path)
 
         if (
@@ -149,7 +158,7 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
           getChildren(editor, node).some(Node.isText)
         ) {
           unwrapNodeAtPath(path)
-          editor.normalize()
+          getEditorTransformRegistry(editor).normalize()
           continue
         }
 
@@ -164,7 +173,7 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
           range = intersection
         }
 
-        editor.liftNodes({
+        getEditorTransformRegistry(editor).liftNodes({
           at: range,
           match: (candidate, candidatePath) =>
             !Node.isText(node) &&
@@ -220,7 +229,7 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
       wrapperIndex <= endWrapperIndex;
       wrapperIndex += 1
     ) {
-      const [wrapperNode] = Editor.node(editor, [wrapperIndex])
+      const [wrapperNode] = getNode(editor, [wrapperIndex])
 
       if (
         Node.isText(wrapperNode) ||
@@ -254,7 +263,7 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
       offset: point.offset,
     })
 
-    editor.select({
+    getEditorTransformRegistry(editor).select({
       anchor: mapPoint(start),
       focus: mapPoint(end),
     })

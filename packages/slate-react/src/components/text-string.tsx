@@ -1,5 +1,3 @@
-import { createElement } from 'react'
-
 export const TextString = ({
   text,
   isTrailing = false,
@@ -7,9 +5,7 @@ export const TextString = ({
   text: string
   isTrailing?: boolean
 }) => {
-  return createElement(
-    'span',
-    { 'data-slate-string': true },
-    `${text ?? ''}${isTrailing ? '\n' : ''}`
+  return (
+    <span data-slate-string>{`${text ?? ''}${isTrailing ? '\n' : ''}`}</span>
   )
 }

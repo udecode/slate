@@ -1,4 +1,7 @@
-import { Editor, Element } from 'slate'
+import { Editor } from 'slate/internal'
+/** @jsx jsx */
+
+import { Element } from 'slate'
 
 // `above` can never return the location passed into it, and shouldnt care if it exists, only if its parent exists.
 

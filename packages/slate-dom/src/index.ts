@@ -1,5 +1,9 @@
 // Plugin
-export { DOMEditor, type DOMEditorInterface } from './plugin/dom-editor'
+export type {
+  DOMEditor,
+  DOMEditorCapability,
+  DOMEditorClipboardCapability,
+} from './plugin/dom-editor'
 export { withDOM } from './plugin/with-dom'
 
 // Utils

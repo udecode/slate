@@ -13,7 +13,7 @@ export const input = (
   </editor>
 )
 export const run = (editor, options = {}) => {
-  editor.insertNodes(<text>two</text>, {
+  editor.nodes.insert(<text>two</text>, {
     at: [0, 1],
     voids: true,
     options,

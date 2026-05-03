@@ -1,12 +1,4 @@
-import {
-  type Descendant,
-  type Editor,
-  Editor as EditorApi,
-  Element,
-  Node,
-  Range,
-  Text,
-} from 'slate'
+import { type Descendant, type Editor, Element, Node, Range, Text } from 'slate'
 import { setEditorChildren } from 'slate/internal'
 import {
   AnchorToken,
@@ -272,10 +264,12 @@ export const createEditor =
     }
 
     if (selectionChild != null || Range.isRange(selection)) {
-      EditorApi.replace(editor, {
-        children: descendants,
-        selection: selectionChild ?? (selection as Range),
-        marks: null,
+      editor.update((tx) => {
+        tx.value.replace({
+          children: descendants,
+          selection: selectionChild ?? (selection as Range),
+          marks: null,
+        })
       })
     } else {
       setEditorChildren(editor, descendants as Element[])

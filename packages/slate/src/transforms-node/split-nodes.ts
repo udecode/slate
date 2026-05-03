@@ -1,4 +1,8 @@
-import { applyOperation, withTransaction } from '../core/public-state'
+import { getEditorSchema } from '../core/editor-runtime'
+import { applyOperation, runEditorTransaction } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import { node as getNode } from '../editor/node'
+import { nodes as getNodes } from '../editor/nodes'
 import { Location } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import { Node } from '../interfaces/node'
@@ -15,7 +19,7 @@ const deleteRange = (editor: Editor, range: Range): Point | null => {
 
   const [, end] = Range.edges(range)
   const pointRef = Editor.pointRef(editor, end)
-  editor.delete({ at: range })
+  getEditorTransformRegistry(editor).delete({ at: range })
   return pointRef.unref()
 }
 
@@ -23,8 +27,9 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
   editor,
   options = {}
 ) => {
-  withTransaction(editor, (tx) => {
+  runEditorTransaction(editor, (tx) => {
     Editor.withoutNormalizing(editor, () => {
+      const transforms = getEditorTransformRegistry(editor)
       const { mode = 'lowest', voids = false } = options
       let { match, height = 0, always = false } = options
       let at = tx.resolveTarget({ at: options.at })
@@ -47,7 +52,7 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
       if (Location.isPath(at)) {
         if (options.position != null) {
           const path = at
-          const [node] = Editor.node(editor, path)
+          const [node] = getNode(editor, path)
 
           applyOperation(editor, {
             type: 'split_node',
@@ -79,7 +84,7 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
       let afterRef: PointRef | undefined
 
       try {
-        const [highest] = Editor.nodes(editor, { at, match, mode, voids })
+        const [highest] = getNodes(editor, { at, match, mode, voids })
 
         if (!highest) {
           return
@@ -90,13 +95,13 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
         if (!voids && voidMatch) {
           const [voidNode, voidPath] = voidMatch
 
-          if (editor.isInline(voidNode)) {
+          if (getEditorSchema(editor).isInline(voidNode)) {
             let after = Editor.after(editor, voidPath)
 
             if (!after) {
               const text = { text: '' }
               const afterPath = Path.next(voidPath)
-              editor.insertNodes(text, { at: afterPath, voids })
+              transforms.insertNodes(text, { at: afterPath, voids })
               after = Editor.point(editor, afterPath)!
             }
 
@@ -147,8 +152,9 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
         }
 
         if (options.at == null) {
-          const point = afterRef.current || Editor.end(editor, [])
-          editor.select(point)
+          const point =
+            afterRef.current || Editor.point(editor, [], { edge: 'end' })
+          transforms.select(point)
         }
       } finally {
         beforeRef.unref()

@@ -1,13 +1,13 @@
 import { css } from '@emotion/css'
 import type React from 'react'
 import { type PointerEvent, useMemo, useState } from 'react'
-import { createEditor, defineEditorExtension } from 'slate'
+import { createEditor } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
   Slate,
-  useSlateStatic,
+  useEditor,
   withReact,
 } from 'slate-react'
 
@@ -22,7 +22,9 @@ import RichTextEditor from './richtext'
 const EditableVoidsExample = () => {
   const editor = useMemo(
     () =>
-      withEditableVoids(withHistory(withReact(createEditor<CustomValue>()))),
+      withEditableVoids(
+        withHistory(withReact(createEditor<CustomValue>())) as CustomEditor
+      ),
     []
   )
 
@@ -41,21 +43,12 @@ const EditableVoidsExample = () => {
   )
 }
 
-const editableVoidsExtension = defineEditorExtension<CustomEditor>({
-  name: 'editable-voids',
-  methods(editor) {
-    const nextIsVoid = editor.isVoid
-
-    return {
-      isVoid(element) {
-        return element.type === 'editable-void' ? true : nextIsVoid(element)
-      },
-    }
-  },
-})
-
 const withEditableVoids = (editor: CustomEditor) => {
-  editor.extend(editableVoidsExtension)
+  editor.extend({
+    name: 'editable-voids',
+    elements: [{ type: 'editable-void', void: 'editable-island' }],
+  })
+
   return editor
 }
 
@@ -65,8 +58,8 @@ const insertEditableVoid = (editor: CustomEditor) => {
     type: 'editable-void',
     children: [text],
   }
-  editor.update(() => {
-    editor.insertNodes(voidNode)
+  editor.update((tx) => {
+    tx.nodes.insert(voidNode)
   })
 }
 
@@ -131,7 +124,7 @@ const EditableVoid = () => {
 }
 
 const InsertEditableVoidButton = () => {
-  const editor = useSlateStatic<CustomEditor>()
+  const editor = useEditor<CustomEditor>()
   return (
     <Button
       onClick={() => insertEditableVoid(editor)}

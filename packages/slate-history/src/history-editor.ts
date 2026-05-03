@@ -1,4 +1,5 @@
-import { type BaseEditor, Editor, type Value } from 'slate'
+import type { Value } from 'slate'
+import { Editor } from 'slate/internal'
 import { History } from './history'
 
 /**
@@ -14,7 +15,7 @@ export const SPLITTING_ONCE = new WeakMap<Editor, boolean | undefined>()
  * `HistoryEditor` contains helpers for history-enabled editors.
  */
 
-export interface HistoryEditor<V extends Value = Value> extends BaseEditor<V> {
+export interface HistoryEditor<V extends Value = Value> extends Editor<V> {
   history: History<V>
   undo: () => void
   redo: () => void

@@ -1,5 +1,10 @@
 import type { RefObject } from 'react'
-import { Range, type Selection, type TargetFreshnessRequest } from 'slate'
+import {
+  Point,
+  Range,
+  type Selection,
+  type TargetFreshnessRequest,
+} from 'slate'
 import {
   type DOMRange,
   getActiveElement,
@@ -9,9 +14,11 @@ import {
   IS_NODE_MAP_DIRTY,
   IS_WEBKIT,
   isDOMNode,
+  isDOMText,
 } from 'slate-dom'
-
+import { DOMCoverage } from 'slate-dom/internal'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
+import { getSlateNodeElementByPath } from '../hooks/use-slate-node-ref'
 import { ReactEditor } from '../plugin/react-editor'
 import type { EditableSelectionPolicy } from './editing-kernel'
 import type {
@@ -27,6 +34,8 @@ import {
 export type EditableSelectionController = {
   inputController: EditableInputController
 }
+
+const MODEL_BACKED_FULL_DOCUMENT_CHILD_THRESHOLD = 1000
 
 export const executeEditableSelectionImport = ({
   importSelection,
@@ -55,6 +64,174 @@ export const executeEditableSelectionExport = ({
   }
 
   exportSelection()
+  return true
+}
+
+const getDOMPointForSlateTextPoint = (
+  editor: ReactEditor,
+  point: Point
+): { node: globalThis.Node; offset: number } | null => {
+  const textHost = getSlateNodeElementByPath(editor, point.path)
+
+  if (!textHost) {
+    return null
+  }
+
+  const strings = Array.from(
+    textHost.querySelectorAll('[data-slate-string], [data-slate-zero-width]')
+  )
+  let offset = 0
+
+  for (const string of strings) {
+    const textNode = Array.from(string.childNodes).find(isDOMText)
+    const lengthAttribute = string.getAttribute('data-slate-length')
+    const length =
+      lengthAttribute == null
+        ? (textNode?.textContent?.length ?? string.textContent?.length ?? 0)
+        : Number.parseInt(lengthAttribute, 10)
+    const nextOffset = offset + (Number.isFinite(length) ? length : 0)
+
+    if (point.offset <= nextOffset) {
+      return {
+        node: textNode ?? string,
+        offset: string.hasAttribute('data-slate-zero-width')
+          ? 1
+          : Math.max(0, Math.min(point.offset - offset, length)),
+      }
+    }
+
+    offset = nextOffset
+  }
+
+  return null
+}
+
+const isFullDocumentSelection = (editor: ReactEditor, selection: Range) => {
+  try {
+    const [start, end] = Range.edges(selection)
+    const [documentStart, documentEnd] = editor.read((state) => [
+      state.points.start([]),
+      state.points.end([]),
+    ])
+
+    return Point.equals(start, documentStart) && Point.equals(end, documentEnd)
+  } catch {
+    return false
+  }
+}
+
+const shouldKeepFullDocumentSelectionModelBacked = ({
+  editor,
+  editorElement,
+  selection,
+}: {
+  editor: ReactEditor
+  editorElement: HTMLElement
+  selection: Range
+}) => {
+  const rootChildCount = editor.read((state) => state.value.get().length)
+
+  return (
+    (rootChildCount > MODEL_BACKED_FULL_DOCUMENT_CHILD_THRESHOLD ||
+      editorElement.childNodes.length >
+        MODEL_BACKED_FULL_DOCUMENT_CHILD_THRESHOLD) &&
+    isFullDocumentSelection(editor, selection)
+  )
+}
+
+const createDOMSelectionRangeFromEndpoints = ({
+  editorElement,
+  end,
+  start,
+}: {
+  editorElement: HTMLElement
+  end: { node: globalThis.Node; offset: number }
+  start: { node: globalThis.Node; offset: number }
+}) => {
+  const range = editorElement.ownerDocument.createRange()
+
+  range.setStart(start.node, start.offset)
+  range.setEnd(end.node, end.offset)
+
+  return range
+}
+
+const isSamePath = (left: readonly number[], right: readonly number[]) =>
+  left.length === right.length &&
+  left.every((part, index) => part === right[index])
+
+const createFastDOMSelectionRange = ({
+  editor,
+  editorElement,
+  selection,
+}: {
+  editor: ReactEditor
+  editorElement: HTMLElement
+  selection: Range
+}): DOMRange | null => {
+  if (isFullDocumentSelection(editor, selection)) {
+    return createDOMSelectionRangeFromEndpoints({
+      editorElement,
+      end: {
+        node: editorElement,
+        offset: editorElement.childNodes.length,
+      },
+      start: {
+        node: editorElement,
+        offset: 0,
+      },
+    })
+  }
+
+  const [start, end] = Range.edges(selection)
+
+  if (!isSamePath(start.path, end.path)) {
+    return null
+  }
+
+  const startDOMPoint = getDOMPointForSlateTextPoint(editor, start)
+  const endDOMPoint = getDOMPointForSlateTextPoint(editor, end)
+
+  if (!startDOMPoint || !endDOMPoint) {
+    return null
+  }
+
+  return createDOMSelectionRangeFromEndpoints({
+    editorElement,
+    end: endDOMPoint,
+    start: startDOMPoint,
+  })
+}
+
+const materializeOrModelBackDOMCoverageSelection = ({
+  domSelection,
+  editor,
+  selection,
+}: {
+  domSelection: globalThis.Selection
+  editor: ReactEditor
+  selection: Range
+}) => {
+  const boundaries = DOMCoverage.getBoundariesForRange(editor, selection)
+
+  if (boundaries.length === 0) {
+    return false
+  }
+
+  for (const boundary of boundaries) {
+    if (boundary.selectionPolicy === 'materialize') {
+      DOMCoverage.materializeBoundary(
+        editor,
+        boundary.boundaryId,
+        'selection',
+        {
+          range: selection,
+        }
+      )
+    }
+  }
+
+  domSelection.removeAllRanges()
   return true
 }
 
@@ -98,8 +275,8 @@ export const syncEditorSelectionFromDOM = ({
   const selection = readRuntimeSelection(editor)
 
   if (range && (!selection || !Range.equals(selection, range))) {
-    editor.update(() => {
-      editor.select(range)
+    editor.update((tx) => {
+      tx.selection.set(range)
     })
   }
 }
@@ -281,8 +458,8 @@ export const applyEditableDOMSelectionChange = ({
     if (active) {
       document.execCommand('indent')
     } else {
-      editor.update(() => {
-        editor.deselect()
+      editor.update((tx) => {
+        tx.selection.clear()
       })
     }
 
@@ -323,8 +500,8 @@ export const applyEditableDOMSelectionChange = ({
       preferModelSelection: false,
       selectionSource: 'unknown',
     })
-    editor.update(() => {
-      editor.deselect()
+    editor.update((tx) => {
+      tx.selection.clear()
     })
     return
   }
@@ -378,8 +555,8 @@ export const applyEditableDOMSelectionChange = ({
       !androidInputManager?.hasPendingChanges() &&
       !androidInputManager?.isFlushing()
     ) {
-      editor.update(() => {
-        editor.select(range)
+      editor.update((tx) => {
+        tx.selection.set(range)
       })
     } else {
       androidInputManager?.handleUserSelect(range)
@@ -393,8 +570,8 @@ export const applyEditableDOMSelectionChange = ({
       preferModelSelection: false,
       selectionSource: 'unknown',
     })
-    editor.update(() => {
-      editor.deselect()
+    editor.update((tx) => {
+      tx.selection.clear()
     })
   }
 }
@@ -422,11 +599,39 @@ export const syncEditableDOMSelectionToEditor = ({
   try {
     const root = ReactEditor.findDocumentOrShadowRoot(editor)
     const domSelection = getSelection(root)
-    const domRange = ReactEditor.toDOMRange(editor, selection)
 
     if (!domSelection) {
       return
     }
+
+    const editorElement = ReactEditor.toDOMNode(editor, editor)
+
+    if (
+      shouldKeepFullDocumentSelectionModelBacked({
+        editor,
+        editorElement,
+        selection,
+      })
+    ) {
+      return
+    }
+
+    if (
+      materializeOrModelBackDOMCoverageSelection({
+        domSelection,
+        editor,
+        selection,
+      })
+    ) {
+      return
+    }
+
+    const domRange =
+      createFastDOMSelectionRange({
+        editor,
+        editorElement,
+        selection,
+      }) ?? ReactEditor.toDOMRange(editor, selection)
 
     state.isUpdatingSelection = true
     state.selectionChangeOrigin = 'programmatic-export'

@@ -13,7 +13,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.mergeNodes({ at: [1, 0], match: Text.isText })
+  editor.nodes.merge({ at: [1, 0], match: Text.isText })
 }
 export const output = (
   <editor>

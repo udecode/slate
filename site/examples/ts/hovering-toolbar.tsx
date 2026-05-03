@@ -1,16 +1,15 @@
 import { css } from '@emotion/css'
 import { type MouseEvent, useEffect, useMemo, useRef } from 'react'
-import { createEditor, Editor, Range } from 'slate'
+import { createEditor, Range } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  type EditableInputRule,
   type RenderLeafProps,
   Slate,
-  useFocused,
-  useSlate,
-  useSlateSelection,
-  useSlateStatic,
+  useEditor,
+  useEditorFocused,
+  useEditorSelection,
+  useEditorSelector,
   withReact,
 } from 'slate-react'
 
@@ -19,25 +18,26 @@ import type { CustomEditor, CustomTextKey, CustomValue } from './custom-types.d'
 
 const HoveringMenuExample = () => {
   const editor = useMemo(
-    () => withHistory(withReact(createEditor<CustomValue>())),
+    () => withHistory(withReact(createEditor<CustomValue>())) as CustomEditor,
     []
   )
-  const inputRules = useMemo<readonly EditableInputRule[]>(
-    () => [
-      ({ inputType }) => {
-        switch (inputType) {
-          case 'formatBold':
-            toggleMark(editor, 'bold')
-            return true
-          case 'formatItalic':
-            toggleMark(editor, 'italic')
-            return true
-          case 'formatUnderline':
-            toggleMark(editor, 'underline')
-            return true
-        }
-      },
-    ],
+  const handleDOMBeforeInput = useMemo(
+    () => (event: InputEvent) => {
+      switch (event.inputType) {
+        case 'formatBold':
+          event.preventDefault()
+          toggleMark(editor, 'bold')
+          return true
+        case 'formatItalic':
+          event.preventDefault()
+          toggleMark(editor, 'italic')
+          return true
+        case 'formatUnderline':
+          event.preventDefault()
+          toggleMark(editor, 'underline')
+          return true
+      }
+    },
     [editor]
   )
 
@@ -45,7 +45,7 @@ const HoveringMenuExample = () => {
     <Slate editor={editor} initialValue={initialValue}>
       <HoveringToolbar />
       <Editable
-        inputRules={inputRules}
+        onDOMBeforeInput={handleDOMBeforeInput}
         placeholder="Enter some text..."
         renderLeaf={(props: RenderLeafProps) => <Leaf {...props} />}
       />
@@ -54,17 +54,13 @@ const HoveringMenuExample = () => {
 }
 
 const toggleMark = (editor: CustomEditor, format: CustomTextKey) => {
-  const isActive = isMarkActive(editor, format)
-
-  if (isActive) {
-    Editor.removeMark(editor, format)
-  } else {
-    Editor.addMark(editor, format, true)
-  }
+  editor.update((tx) => {
+    tx.marks.toggle(format)
+  })
 }
 
 const isMarkActive = (editor: CustomEditor, format: CustomTextKey) => {
-  const marks = Editor.marks(editor)
+  const marks = editor.read((state) => state.marks.get())
   return marks ? marks[format] === true : false
 }
 
@@ -86,9 +82,9 @@ const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
 
 const HoveringToolbar = () => {
   const ref = useRef<HTMLDivElement | null>(null)
-  const editor = useSlateStatic<CustomEditor>()
-  const inFocus = useFocused()
-  const selection = useSlateSelection()
+  const editor = useEditor<CustomEditor>()
+  const inFocus = useEditorFocused()
+  const selection = useEditorSelection()
 
   useEffect(() => {
     const el = ref.current
@@ -101,7 +97,7 @@ const HoveringToolbar = () => {
       !selection ||
       !inFocus ||
       Range.isCollapsed(selection) ||
-      Editor.string(editor, selection) === ''
+      editor.read((state) => state.text.string(selection)) === ''
     ) {
       el.removeAttribute('style')
       return
@@ -157,13 +153,12 @@ interface FormatButtonProps {
 }
 
 const FormatButton = ({ format, icon }: FormatButtonProps) => {
-  const editor = useSlate<CustomEditor>()
+  const editor = useEditor<CustomEditor>()
+  const active = useEditorSelector<boolean, CustomEditor>((editor) =>
+    isMarkActive(editor, format)
+  )
   return (
-    <Button
-      active={isMarkActive(editor, format)}
-      onClick={() => toggleMark(editor, format)}
-      reversed
-    >
+    <Button active={active} onClick={() => toggleMark(editor, format)} reversed>
       <Icon>{icon}</Icon>
     </Button>
   )

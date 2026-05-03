@@ -1,9 +1,10 @@
 import { Node } from '../interfaces'
-import { Editor, type EditorInterface } from '../interfaces/editor'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
 import { Path } from '../interfaces/path'
 import { Range } from '../interfaces/range'
+import { nodes } from './nodes'
 
-export const unhangRange: EditorInterface['unhangRange'] = (
+export const unhangRange: EditorStaticApi['unhangRange'] = (
   editor,
   range,
   options = {}
@@ -27,11 +28,11 @@ export const unhangRange: EditorInterface['unhangRange'] = (
     voids,
   })
   const blockPath = endBlock ? endBlock[1] : []
-  const first = Editor.start(editor, start)
+  const first = Editor.point(editor, start, { edge: 'start' })
   const before = { anchor: first, focus: end }
   let skip = true
 
-  for (const [node, path] of Editor.nodes(editor, {
+  for (const [node, path] of nodes(editor, {
     at: before,
     match: Node.isText,
     reverse: true,

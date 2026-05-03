@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 import { Operation } from 'slate'
 
 export const input = { type: 'move_node', path: [0, 2], newPath: [0, 1] }

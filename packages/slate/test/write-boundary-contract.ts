@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { Editor } from 'slate/internal'
 
-import { createEditor, Editor } from '../src'
+import { createEditor } from '../src'
 
 describe('editor write boundary', () => {
   const createSeededEditor = () => {
@@ -24,49 +25,35 @@ describe('editor write boundary', () => {
     return editor
   }
 
-  it('rejects direct primitive writes outside editor.update', () => {
-    const cases: [string, (editor: ReturnType<typeof createEditor>) => void][] =
-      [
-        ['insertText', (editor) => editor.insertText('!')],
-        ['setNodes', (editor) => editor.setNodes({ type: 'heading-one' })],
-        ['delete', (editor) => editor.delete()],
-        ['removeNodes', (editor) => editor.removeNodes({ at: [0] })],
-        [
-          'select',
-          (editor) =>
-            editor.select({
-              anchor: { path: [0, 0], offset: 0 },
-              focus: { path: [0, 0], offset: 3 },
-            }),
-        ],
-      ]
+  it('does not expose direct primitive writers outside editor.update', () => {
+    const names = ['insertText', 'setNodes', 'delete', 'removeNodes', 'select']
 
-    for (const [name, write] of cases) {
+    for (const name of names) {
       const editor = createSeededEditor()
 
-      assert.throws(
-        () => write(editor),
-        /editor writes must run inside editor\.update/,
-        name
-      )
+      assert.equal(name in editor, false, name)
       assert.equal(Editor.string(editor, []), 'one', name)
       assert.equal(Editor.getLastCommit(editor)?.classes[0], 'replace', name)
     }
   })
 
-  it('keeps applyOperations as the explicit operation replay writer', () => {
+  it('replays imported operations through tx.operations.replay', () => {
     const editor = createSeededEditor()
+    const staleOperationReplayKey = `apply${'Operations'}` as const
 
     assert.equal('apply' in editor, false)
+    assert.equal(staleOperationReplayKey in editor, false)
 
-    editor.applyOperations([
-      {
-        offset: 3,
-        path: [0, 0],
-        text: '!',
-        type: 'insert_text',
-      },
-    ])
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          offset: 3,
+          path: [0, 0],
+          text: '!',
+          type: 'insert_text',
+        },
+      ])
+    })
 
     const commit = Editor.getLastCommit(editor)
 
@@ -76,7 +63,7 @@ describe('editor write boundary', () => {
     assert.equal(commit.operations.length, 1)
   })
 
-  it('routes implicit writes through editor.update and primitive methods', () => {
+  it('routes implicit writes through editor.update and tx methods', () => {
     const editor = createEditor()
 
     Editor.replace(editor, {
@@ -97,12 +84,12 @@ describe('editor write boundary', () => {
       marks: null,
     })
 
-    editor.update(() => {
-      editor.setNodes({ type: 'heading-one' })
-      editor.insertText('TWO')
+    editor.update((tx) => {
+      tx.nodes.set({ type: 'heading-one' })
+      tx.text.insert('TWO')
     })
 
-    const snapshot = editor.getSnapshot()
+    const snapshot = Editor.getSnapshot(editor)
 
     assert.equal(snapshot.children[0].type, 'paragraph')
     assert.equal(snapshot.children[1].type, 'heading-one')

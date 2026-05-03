@@ -6,11 +6,11 @@ import {
   SlateElement,
   SlateLeaf,
   SlatePlaceholder,
-  SlateSpacer,
   SlateText,
   TextString,
   ZeroWidthString,
 } from '../src'
+import { SlateSpacer } from '../src/components/slate-spacer'
 
 describe('slate-react primitives contract', () => {
   test('ZeroWidthString renders line-break placeholders without FEFF by default', () => {

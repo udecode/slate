@@ -4,6 +4,7 @@
     "./generic-value-contract.ts",
     "./generic-editor-api-contract.ts",
     "./generic-extension-contract.ts",
+    "./generic-extension-namespace-contract.ts",
     "./generic-operation-contract.ts"
   ],
   "compilerOptions": {

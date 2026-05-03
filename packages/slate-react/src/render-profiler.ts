@@ -1,13 +1,20 @@
 export type SlateReactRenderKind =
+  | 'core-time'
+  | 'dom-text-sync'
   | 'editable'
   | 'element'
+  | 'group'
   | 'leaf'
+  | 'root-plan'
+  | 'runtime-time'
+  | 'selector'
   | 'spacer'
   | 'text'
   | 'void'
 
 export type SlateReactRenderProfilerEvent = {
   kind: SlateReactRenderKind
+  duration?: number
   id?: string | null
   runtimeId?: string | null
 }

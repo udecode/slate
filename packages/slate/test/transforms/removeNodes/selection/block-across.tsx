@@ -18,7 +18,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.removeNodes()
+  editor.nodes.remove()
 }
 export const output = (
   <editor>

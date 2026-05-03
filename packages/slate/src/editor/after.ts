@@ -1,10 +1,11 @@
-import { Editor, type EditorInterface } from '../interfaces/editor'
+import { getEditorSchema } from '../core/editor-runtime'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
 import { Node } from '../interfaces/node'
 import type { Point } from '../interfaces/point'
 
-export const after: EditorInterface['after'] = (editor, at, options = {}) => {
+export const after: EditorStaticApi['after'] = (editor, at, options = {}) => {
   const anchor = Editor.point(editor, at, { edge: 'end' })
-  const focus = Editor.end(editor, [])
+  const focus = Editor.point(editor, [], { edge: 'end' })
   const range = { anchor, focus }
   const { distance = 1 } = options
   let d = 0
@@ -16,7 +17,8 @@ export const after: EditorInterface['after'] = (editor, at, options = {}) => {
   })) {
     const insideNonSelectable = Editor.above(editor, {
       at: p,
-      match: (node) => Node.isElement(node) && !editor.isSelectable(node),
+      match: (node) =>
+        Node.isElement(node) && !getEditorSchema(editor).isSelectable(node),
       mode: 'highest',
       voids: true,
     })

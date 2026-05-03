@@ -1,0 +1,58 @@
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
+
+import { createEditor } from 'slate'
+import type { ReactEditor } from '../src'
+import { Editor } from '../src/editable/runtime-editor-api'
+import { syncSelectionForBeforeInput } from '../src/editable/selection-reconciler'
+
+const createTextEditor = () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      { type: 'paragraph', children: [{ text: 'one' }] },
+      { type: 'paragraph', children: [{ text: 'two' }] },
+    ],
+    marks: null,
+    selection: {
+      anchor: { path: [1, 0], offset: 1 },
+      focus: { path: [1, 0], offset: 1 },
+    },
+  })
+
+  return editor
+}
+
+describe('selection reconciler', () => {
+  it('does not scan the whole document for a valid model-owned text insertion', () => {
+    const editor = createTextEditor()
+    const selection = Editor.getSelection(editor)
+    const originalString = Editor.string
+
+    try {
+      Editor.string = () => {
+        throw new Error('unexpected root string scan')
+      }
+
+      const result = syncSelectionForBeforeInput({
+        allowDOMSelectionImport: false,
+        data: 'x',
+        editor: editor as ReactEditor,
+        editorElement: {} as HTMLElement,
+        event: { getTargetRanges: () => [] } as unknown as InputEvent,
+        inputType: 'insertText',
+        isCompositionChange: false,
+        native: false,
+        preferModelSelectionForInput: true,
+        root: {} as Document,
+        selection,
+      })
+
+      assert.deepEqual(result.selection, selection)
+      assert.equal(result.native, false)
+    } finally {
+      Editor.string = originalString
+    }
+  })
+})

@@ -5,13 +5,21 @@ export { NODE_TO_INDEX, NODE_TO_PARENT } from 'slate-dom'
 export {
   createSlateAnnotationStore,
   type SlateAnnotation,
+  type SlateAnnotationAnchor,
   type SlateAnnotationProjectionData,
+  type SlateAnnotationRefreshOptions,
   type SlateAnnotationSnapshot,
   type SlateAnnotationStore,
+  type SlateAnnotationStoreMetrics,
+  type SlateAnnotationStoreRefreshOptions,
+  type SlateResolvedAnnotation,
 } from './annotation-store'
 export type {
   EditableInputRule,
-  EditableKeyCommandHandler,
+  EditableInputRuleContext,
+  EditableInputRuleResult,
+  EditableKeyDownContext,
+  EditableKeyDownHandler,
 } from './components/editable'
 export {
   DefaultPlaceholder,
@@ -25,6 +33,10 @@ export type {
 } from './components/editable-text'
 export { EditableText } from './components/editable-text'
 export type {
+  EditableDOMCoverageBoundaryPlaceholderContext,
+  EditableDOMCoverageBoundaryProps,
+  EditableDOMCoverageBoundaryScope,
+  EditableElementSlots,
   EditableRenderElementProps as RenderElementProps,
   EditableRenderVoidProps as RenderVoidProps,
   EditableTextBlocksProps as EditableProps,
@@ -34,48 +46,61 @@ export {
   EditableTextBlocks as Editable,
   EditableTextBlocks,
 } from './components/editable-text-blocks'
-export { Slate } from './components/slate'
+export { Slate, type SlateChange, type SlateProps } from './components/slate'
 export { SlateElement } from './components/slate-element'
 export { SlateLeaf } from './components/slate-leaf'
 export { SlatePlaceholder } from './components/slate-placeholder'
-export { SlateSpacer } from './components/slate-spacer'
 export { SlateText } from './components/slate-text'
 export { TextString } from './components/text-string'
 export { ZeroWidthString } from './components/zero-width-string'
-export { useComposing } from './hooks/use-composing'
 export {
-  type SlateDecorationSelectorContext,
-  type SlateDecorationSelectorOptions,
+  composeDecorationSources,
+  createDecorationSource,
+  type SlateDecoration,
+  type SlateDecorationSource,
+  type SlateDecorationSourceOptions,
+  type SlateDecorationSourceReadContext,
+} from './decoration-source'
+export {
+  type EditorDecorationSelectorContext,
+  type EditorDecorationSelectorOptions,
   useDecorationSelector,
 } from './hooks/use-decoration-selector'
+export { useEditor } from './hooks/use-editor'
+export { useEditorComposing } from './hooks/use-editor-composing'
+export { useEditorFocused } from './hooks/use-editor-focused'
+export { useEditorReadOnly } from './hooks/use-editor-read-only'
+export { useEditorSelection } from './hooks/use-editor-selection'
+export {
+  type EditorStateSelectorOptions,
+  useEditorSelector,
+  useEditorState,
+} from './hooks/use-editor-selector'
 // Hooks
 export { useElement, useElementIf } from './hooks/use-element'
-export { useFocused } from './hooks/use-focused'
+export { useElementSelected } from './hooks/use-element-selected'
 export {
-  type SlateNodeSelectorContext,
-  type SlateRuntimeSelectorOptions,
-  type SlateTextSelectorContext,
+  type EditorNodeSelectorContext,
+  type EditorRuntimeSelectorOptions,
+  type EditorTextSelectorContext,
   useNodeSelector,
   useTextSelector,
 } from './hooks/use-node-selector'
-export { useReadOnly } from './hooks/use-read-only'
-export { useSelected } from './hooks/use-selected'
-export { useSlate, useSlateWithV } from './hooks/use-slate'
 export { useSlateAnnotationStore } from './hooks/use-slate-annotation-store'
-export { useSlateAnnotations } from './hooks/use-slate-annotations'
+export {
+  useSlateAnnotation,
+  useSlateAnnotations,
+} from './hooks/use-slate-annotations'
 export { useSlateNodeRef } from './hooks/use-slate-node-ref'
 export {
   type SlateProjectionEntry,
   type SlateProjectionStore,
   useSlateProjections,
 } from './hooks/use-slate-projections'
-export { useSlateSelection } from './hooks/use-slate-selection'
-export { useSlateSelector } from './hooks/use-slate-selector'
-export { useSlateStatic } from './hooks/use-slate-static'
 export { useSlateWidgetStore } from './hooks/use-slate-widget-store'
-export { useSlateWidgets } from './hooks/use-slate-widgets'
+export { useSlateWidget, useSlateWidgets } from './hooks/use-slate-widgets'
 // Plugin
-export { ReactEditor } from './plugin/react-editor'
+export type { ReactEditor } from './plugin/react-editor'
 export { withReact } from './plugin/with-react'
 export {
   createSlateProjectionStore,
@@ -100,4 +125,5 @@ export {
   type SlateWidgetAnchor,
   type SlateWidgetSnapshot,
   type SlateWidgetStore,
+  type SlateWidgetStoreMetrics,
 } from './widget-store'

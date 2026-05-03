@@ -1,29 +1,32 @@
 import { executeCommand } from '../core/command-registry'
-import { withTransaction } from '../core/public-state'
-import type { EditorInterface } from '../interfaces/editor'
+import { runEditorTransaction } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
+import type { EditorStaticApi } from '../interfaces/editor'
 import { Range } from '../interfaces/range'
 
 type DeleteFragmentCommand = {
   direction: NonNullable<
-    Parameters<EditorInterface['deleteFragment']>[1]
+    Parameters<EditorStaticApi['deleteFragment']>[1]
   >['direction']
   type: 'delete_fragment'
 }
 
-const applyDeleteFragment: EditorInterface['deleteFragment'] = (
+const applyDeleteFragment: EditorStaticApi['deleteFragment'] = (
   editor,
   { direction = 'forward' } = {}
 ) => {
-  withTransaction(editor, (tx) => {
+  runEditorTransaction(editor, (tx) => {
     const selection = tx.resolveTarget()
 
     if (selection && Range.isRange(selection) && Range.isExpanded(selection)) {
-      editor.delete({ reverse: direction === 'backward' })
+      getEditorTransformRegistry(editor).delete({
+        reverse: direction === 'backward',
+      })
     }
   })
 }
 
-export const deleteFragment: EditorInterface['deleteFragment'] = (
+export const deleteFragment: EditorStaticApi['deleteFragment'] = (
   editor,
   { direction = 'forward' } = {}
 ) => {

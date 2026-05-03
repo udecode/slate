@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 import { Operation } from 'slate'
 
 export const input = [

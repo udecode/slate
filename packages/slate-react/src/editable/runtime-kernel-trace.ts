@@ -1,5 +1,4 @@
 import { useCallback, useRef } from 'react'
-import { Editor } from 'slate'
 import { ReactEditor } from '../plugin/react-editor'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import {
@@ -25,6 +24,7 @@ import {
   isInteractiveInternalTarget,
 } from './input-controller'
 import type { EditableInputController } from './input-state'
+import { Editor } from './runtime-editor-api'
 import { readLiveSelection } from './runtime-selection-state'
 
 type RuntimeKernelIntent = ReturnType<typeof classifyKeyboardIntent>

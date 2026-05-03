@@ -1,184 +1,59 @@
 # Executing Commands
 
-Up until now, everything we've learned has been about how to write one-off logic for your specific Slate editor. But one of the most powerful things about Slate is that it lets you model your specific rich text "domain" however you'd like, and write less one-off code.
+So far, the formatting examples have lived directly inside event handlers. That
+works for a tiny editor, but it gets repetitive once the same behavior is used
+from keyboard shortcuts, toolbar buttons, menu items, or tests.
 
-In the previous guides we've written some useful code to handle formatting code blocks and bold marks. And we've hooked up the `onKeyDown` handler to invoke that code. But we've always done it using the built-in `Editor` helpers directly, instead of using "commands".
+A command is just reusable editor logic. Keep command reads in
+`editor.read(...)` and command writes in `editor.update(...)`.
 
-Slate lets you augment the built-in `editor` object to handle your own custom rich text commands. And you can even use pre-packaged "plugins" which add a given set of functionality.
+## Extracting Commands
 
-Let's see how this works.
-
-We'll start with our app from earlier:
+Start by moving the bold and code-block logic into plain functions:
 
 ```jsx
-const initialValue = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'A line of text in a paragraph.' }],
-  },
-]
-
-const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
-
-  const renderElement = useCallback(props => {
-    switch (props.element.type) {
-      case 'code':
-        return <CodeElement {...props} />
-      default:
-        return <DefaultElement {...props} />
-    }
-  }, [])
-
-  const renderLeaf = useCallback(props => {
-    return <Leaf {...props} />
-  }, [])
-
-  return (
-    <Slate editor={editor} initialValue={initialValue}>
-      <Editable
-        renderElement={renderElement}
-        renderLeaf={renderLeaf}
-        onKeyDown={event => {
-          if (!event.ctrlKey) {
-            return
-          }
-
-          switch (event.key) {
-            case '`': {
-              event.preventDefault()
-              const [match] = Editor.nodes(editor, {
-                match: n => n.type === 'code',
-              })
-              editor.update(() => {
-                editor.setNodes(
-                  { type: match ? null : 'code' },
-                  {
-                    match: n =>
-                      Element.isElement(n) && Editor.isBlock(editor, n),
-                  }
-                )
-              })
-              break
-            }
-
-            case 'b': {
-              event.preventDefault()
-              Editor.addMark(editor, 'bold', true)
-              break
-            }
-          }
-        }}
-      />
-    </Slate>
-  )
+const isBoldActive = editor => {
+  return editor.read(state => state.marks.get()?.bold === true)
 }
-```
 
-It has the concept of "code blocks" and "bold formatting". But these things are all defined in one-off cases inside the `onKeyDown` handler. If you wanted to reuse that logic elsewhere you'd need to extract it.
-
-We can instead implement these domain-specific concepts by creating custom helper functions:
-
-```jsx
-// Define our own custom set of helpers.
-const CustomEditor = {
-  isBoldMarkActive(editor) {
-    const marks = Editor.marks(editor)
-    return marks ? marks.bold === true : false
-  },
-
-  isCodeBlockActive(editor) {
-    const [match] = Editor.nodes(editor, {
-      match: n => n.type === 'code',
+const isCodeBlockActive = editor => {
+  return editor.read(state => {
+    const [match] = state.nodes.match({
+      match: node => Element.isElement(node) && node.type === 'code',
     })
 
-    return !!match
-  },
-
-  toggleBoldMark(editor) {
-    const isActive = CustomEditor.isBoldMarkActive(editor)
-    if (isActive) {
-      Editor.removeMark(editor, 'bold')
-    } else {
-      Editor.addMark(editor, 'bold', true)
-    }
-  },
-
-  toggleCodeBlock(editor) {
-    const isActive = CustomEditor.isCodeBlockActive(editor)
-    editor.update(() => {
-      editor.setNodes(
-        { type: isActive ? null : 'code' },
-        { match: n => Element.isElement(n) && Editor.isBlock(editor, n) }
-      )
-    })
-  },
+    return Boolean(match)
+  })
 }
 
-const initialValue = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'A line of text in a paragraph.' }],
-  },
-]
+const toggleBold = editor => {
+  editor.update(tx => {
+    tx.marks.toggle('bold')
+  })
+}
 
-const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+const toggleCodeBlock = editor => {
+  const isActive = isCodeBlockActive(editor)
 
-  const renderElement = useCallback(props => {
-    switch (props.element.type) {
-      case 'code':
-        return <CodeElement {...props} />
-      default:
-        return <DefaultElement {...props} />
-    }
-  }, [])
-
-  const renderLeaf = useCallback(props => {
-    return <Leaf {...props} />
-  }, [])
-
-  return (
-    <Slate editor={editor} initialValue={initialValue}>
-      <Editable
-        renderElement={renderElement}
-        renderLeaf={renderLeaf}
-        onKeyDown={event => {
-          if (!event.ctrlKey) {
-            return
-          }
-
-          // Replace the `onKeyDown` logic with our new commands.
-          switch (event.key) {
-            case '`': {
-              event.preventDefault()
-              CustomEditor.toggleCodeBlock(editor)
-              break
-            }
-
-            case 'b': {
-              event.preventDefault()
-              CustomEditor.toggleBoldMark(editor)
-              break
-            }
-          }
-        }}
-      />
-    </Slate>
-  )
+  editor.update(tx => {
+    tx.nodes.set(
+      { type: isActive ? 'paragraph' : 'code' },
+      {
+        match: node => Element.isElement(node) && !tx.schema.isInline(node),
+      }
+    )
+  })
 }
 ```
 
-Now our commands are clearly defined and you can invoke them from anywhere we have access to our `editor` object. For example, from hypothetical toolbar buttons:
+These functions are not added to the editor object. They are normal JavaScript
+functions that receive an editor.
+
+## Using Commands From Events
+
+Use the same commands from `onKeyDown`:
 
 ```jsx
-const initialValue = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'A line of text in a paragraph.' }],
-  },
-]
-
 const App = () => {
   const [editor] = useState(() => withReact(createEditor()))
 
@@ -196,28 +71,8 @@ const App = () => {
   }, [])
 
   return (
-    // Add a toolbar with buttons that call the same methods.
     <Slate editor={editor} initialValue={initialValue}>
-      <div>
-        <button
-          onMouseDown={event => {
-            event.preventDefault()
-            CustomEditor.toggleBoldMark(editor)
-          }}
-        >
-          Bold
-        </button>
-        <button
-          onMouseDown={event => {
-            event.preventDefault()
-            CustomEditor.toggleCodeBlock(editor)
-          }}
-        >
-          Code Block
-        </button>
-      </div>
       <Editable
-        editor={editor}
         renderElement={renderElement}
         renderLeaf={renderLeaf}
         onKeyDown={event => {
@@ -228,13 +83,13 @@ const App = () => {
           switch (event.key) {
             case '`': {
               event.preventDefault()
-              CustomEditor.toggleCodeBlock(editor)
+              toggleCodeBlock(editor)
               break
             }
 
             case 'b': {
               event.preventDefault()
-              CustomEditor.toggleBoldMark(editor)
+              toggleBold(editor)
               break
             }
           }
@@ -245,6 +100,39 @@ const App = () => {
 }
 ```
 
-That's the benefit of extracting the logic.
+## Using Commands From UI
 
-And there you have it! We just added a ton of functionality to the editor with very little work. And we can keep all of our command logic tested and isolated in a single place, making the code easier to maintain.
+The same functions can be called from toolbar buttons:
+
+```jsx
+const Toolbar = ({ editor }) => {
+  return (
+    <div>
+      <button
+        onMouseDown={event => {
+          event.preventDefault()
+          toggleBold(editor)
+        }}
+      >
+        Bold
+      </button>
+      <button
+        onMouseDown={event => {
+          event.preventDefault()
+          toggleCodeBlock(editor)
+        }}
+      >
+        Code Block
+      </button>
+    </div>
+  )
+}
+```
+
+## Extension Commands
+
+Plain functions are enough for app code. Extensions can expose typed `state`
+and `tx` namespaces when a behavior needs to be shared by plugins.
+
+Raw Slate does not ship product commands like lists, headings, or links. Those
+belong in extensions or higher-level frameworks.

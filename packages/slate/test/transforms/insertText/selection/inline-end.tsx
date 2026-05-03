@@ -1,5 +1,7 @@
+/** @jsx jsx */
+
 export const run = (editor) => {
-  editor.insertText('four')
+  editor.text.insert('four')
 }
 export const input = (
   <editor>

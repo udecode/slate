@@ -1,4 +1,5 @@
 import { getCurrentSelection } from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
 import { Location } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import { Scrubber } from '../interfaces/scrubber'
@@ -10,7 +11,7 @@ export const select: SelectionMutationMethods['select'] = (editor, target) => {
   const range = Editor.range(editor, target)
 
   if (selection) {
-    editor.setSelection(range)
+    getEditorTransformRegistry(editor).setSelection(range)
     return
   }
 

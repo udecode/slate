@@ -1,7 +1,7 @@
-import { Editor, type EditorInterface } from '../interfaces/editor'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
 import { Node } from '../interfaces/node'
 
-export const elementReadOnly: EditorInterface['elementReadOnly'] = (
+export const elementReadOnly: EditorStaticApi['elementReadOnly'] = (
   editor,
   options = {}
 ) => {

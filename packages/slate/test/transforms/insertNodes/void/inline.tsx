@@ -17,7 +17,7 @@ export const input = (
   </editor>
 )
 export const run = (editor, options = {}) => {
-  editor.insertNodes(
+  editor.nodes.insert(
     <inline void>
       <text>four</text>
     </inline>,

@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 jsx
 
 export const run = (editor) => {
-  editor.unwrapNodes({
+  editor.nodes.unwrap({
     match: (n) => n.a,
     mode: 'all',
     split: true,

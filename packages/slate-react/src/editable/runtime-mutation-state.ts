@@ -3,7 +3,7 @@ import {
   setEditorMarks,
   setEditorSelection,
   setEditorTargetRuntime,
-} from 'slate/internal'
+} from './runtime-editor-api'
 
 export const writeRuntimeMarks = (
   editor: Editor,

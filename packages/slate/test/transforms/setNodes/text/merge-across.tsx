@@ -7,7 +7,7 @@ jsx
 import { Text } from 'slate'
 
 export const run = (editor) => {
-  editor.setNodes({ someKey: true }, { match: Text.isText, split: true })
+  editor.nodes.set({ someKey: true }, { match: Text.isText, split: true })
 }
 export const input = (
   <editor>

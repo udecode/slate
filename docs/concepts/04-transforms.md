@@ -1,45 +1,41 @@
-# Editor Methods
+# Transforms
 
-Slate changes the document through editor methods inside `editor.update(...)`.
-The editor records operations and publishes one commit when the update exits.
+Slate changes the document inside `editor.update(...)`. The callback receives a
+transaction object named `tx`. Use `tx` for writes and for reads that belong to
+the command you are running.
 
 ```javascript
-editor.update(() => {
-  editor.unwrapNodes({
+editor.update(tx => {
+  tx.nodes.unwrap({
     at: [],
     match: node =>
-      !Editor.isEditor(node) &&
-      node.children?.every(child => Editor.isBlock(editor, child)),
+      Element.isElement(node) &&
+      node.children.every(child => Element.isElement(child)),
     mode: 'all',
   })
 })
 ```
 
-Use the flexible primitive methods for custom structures:
+The public transform groups are:
 
-- `editor.insertNodes(...)`
-- `editor.removeNodes(...)`
-- `editor.mergeNodes(...)`
-- `editor.splitNodes(...)`
-- `editor.wrapNodes(...)`
-- `editor.unwrapNodes(...)`
-- `editor.setNodes(...)`
-- `editor.unsetNodes(...)`
-- `editor.liftNodes(...)`
-- `editor.moveNodes(...)`
-- `editor.insertText(...)`
-- `editor.delete(...)`
-- `editor.select(...)`
-- `editor.move(...)`
+- `tx.nodes` for inserting, removing, moving, wrapping, unwrapping, and setting
+  nodes
+- `tx.text` for inserting and deleting text
+- `tx.selection` for changing the model selection
+- `tx.marks` for changing text marks
+- `tx.operations` for replaying operation batches
+
+Commands should stay inside one update when the changes belong to one user
+action. Slate records the operations and publishes one commit when the update
+finishes.
 
 ## Selection
 
-Use `editor.select(...)`, `editor.deselect(...)`, `editor.collapse(...)`, and
-`editor.move(...)` to update selection.
+Use `tx.selection` to set, clear, collapse, or move the selection.
 
 ```javascript
-editor.update(() => {
-  editor.select({
+editor.update(tx => {
+  tx.selection.set({
     anchor: { path: [0, 0], offset: 0 },
     focus: { path: [1, 0], offset: 2 },
   })
@@ -49,33 +45,36 @@ editor.update(() => {
 Move the cursor backward by three words:
 
 ```javascript
-editor.update(() => {
-  editor.move({
+editor.update(tx => {
+  tx.selection.move({
     distance: 3,
-    unit: 'word',
     reverse: true,
+    unit: 'word',
   })
 })
 ```
 
-Read selection with `editor.getSelection()` or `Editor.getSelection(editor)`.
-Do not write the selection mirror directly.
+Read selection with `editor.read(...)` when you are outside an update:
+
+```javascript
+const selection = editor.read(state => state.selection.get())
+```
 
 ## Text
 
 Insert text at the current transaction target:
 
 ```javascript
-editor.update(() => {
-  editor.insertText('some words')
+editor.update(tx => {
+  tx.text.insert('some words')
 })
 ```
 
 Insert text at an explicit point:
 
 ```javascript
-editor.update(() => {
-  editor.insertText('some words', {
+editor.update(tx => {
+  tx.text.insert('some words', {
     at: { path: [0, 0], offset: 3 },
   })
 })
@@ -84,8 +83,8 @@ editor.update(() => {
 Delete a range:
 
 ```javascript
-editor.update(() => {
-  editor.delete({
+editor.update(tx => {
+  tx.text.delete({
     at: {
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [1, 0], offset: 2 },
@@ -96,11 +95,11 @@ editor.update(() => {
 
 ## Nodes
 
-Insert a node at an explicit path:
+Insert a text node at an explicit path:
 
 ```javascript
-editor.update(() => {
-  editor.insertNodes(
+editor.update(tx => {
+  tx.nodes.insert(
     {
       text: 'A new string of text.',
     },
@@ -114,10 +113,62 @@ editor.update(() => {
 Move a node:
 
 ```javascript
-editor.update(() => {
-  editor.moveNodes({
+editor.update(tx => {
+  tx.nodes.move({
     at: [0, 0],
     to: [0, 1],
+  })
+})
+```
+
+Set a property on matching text nodes:
+
+```javascript
+editor.update(tx => {
+  tx.nodes.set(
+    { bold: true },
+    {
+      at: [],
+      match: node => Text.isText(node) && node.italic !== true,
+    }
+  )
+})
+```
+
+## Marks
+
+Use `tx.marks` for text formatting commands.
+
+```javascript
+editor.update(tx => {
+  tx.marks.toggle('bold')
+})
+```
+
+You can read marks inside the same command:
+
+```javascript
+editor.update(tx => {
+  const marks = tx.marks.get()
+
+  if (marks?.code) {
+    tx.marks.remove('code')
+  } else {
+    tx.marks.add('code', true)
+  }
+})
+```
+
+## Operations
+
+Operation replay is still a transaction. Import remote or stored operations
+through `tx.operations.replay(...)` so replay follows the same commit,
+normalization, history, and subscription boundary as local commands.
+
+```javascript
+editor.update(tx => {
+  tx.operations.replay(remoteOperations, {
+    tag: 'remote-import',
   })
 })
 ```
@@ -129,12 +180,12 @@ When `at` is provided, Slate uses that exact location and does not import or
 refresh browser selection.
 
 ```javascript
-editor.update(() => {
-  editor.insertText('some words')
+editor.update(tx => {
+  tx.text.insert('some words')
 })
 
-editor.update(() => {
-  editor.insertText('some words', {
+editor.update(tx => {
+  tx.text.insert('some words', {
     at: { path: [0, 0], offset: 3 },
   })
 })
@@ -143,8 +194,8 @@ editor.update(() => {
 `at` can be a `Path`, `Point`, or `Range`.
 
 ```javascript
-editor.update(() => {
-  editor.insertText('some words', {
+editor.update(tx => {
+  tx.text.insert('some words', {
     at: {
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 3 },
@@ -158,8 +209,8 @@ editor.update(() => {
 Node methods accept a `match` function to restrict which nodes are changed.
 
 ```javascript
-editor.update(() => {
-  editor.moveNodes({
+editor.update(tx => {
+  tx.nodes.move({
     at: [2],
     match: (node, path) => path.length === 2,
     to: [5],
@@ -167,42 +218,21 @@ editor.update(() => {
 })
 ```
 
-Add a bold mark to text nodes that are not italic:
-
-```javascript
-editor.update(() => {
-  editor.setNodes(
-    { bold: true },
-    {
-      at: [],
-      match: node => Text.isText(node) && node.italic !== true,
-    }
-  )
-})
-```
-
-The `match` function can examine `node.children`, or use `Node.parent` to
-inspect surrounding structure.
+The `match` function can examine the node, the path, or surrounding structure
+through transaction read helpers.
 
 ## Normalization
 
-Wrap multiple structural writes in one `editor.update(...)`. Use
-`Editor.withoutNormalizing(editor, fn)` when the tree should not normalize
-between method calls.
+Keep structural commands in one `editor.update(...)` call. Slate normalizes the
+result before publishing the commit.
 
 ```javascript
-editor.update(() => {
-  Editor.withoutNormalizing(editor, () => {
-    editor.unwrapNodes({ match: isList })
-    editor.setNodes({ type: 'list-item' })
-    editor.wrapNodes({ type: 'bulleted-list', children: [] })
-  })
+editor.update(tx => {
+  tx.nodes.unwrap({ match: isList })
+  tx.nodes.set({ type: 'list-item' })
+  tx.nodes.wrap({ type: 'bulleted-list', children: [] })
 })
 ```
 
-If you already have operations, apply them through the explicit operation
-writer:
-
-```javascript
-editor.applyOperations(operations)
-```
+Runtime internals may use lower-level helpers, but public document changes and
+operation replay stay inside the transaction boundary.

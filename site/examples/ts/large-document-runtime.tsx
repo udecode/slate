@@ -8,22 +8,26 @@ import {
   useState,
 } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { createEditor, defineEditorExtension, Editor, type Value } from 'slate'
+import { createEditor, type EditorSnapshot, type Value } from 'slate'
 import { withHistory } from 'slate-history'
 import {
-  createSlateProjectionStore,
+  createDecorationSource,
   Editable,
+  type EditableProps,
+  type ReactEditor,
+  Slate,
+  type SlateDecorationSource,
   type SlateProjection,
   withReact,
 } from 'slate-react'
 
 const largeDocumentOptions = {
   activeRadius: 0,
-  enabled: true,
+  mode: 'shell',
   islandSize: 2,
   previewChars: 48,
   threshold: 1,
-}
+} as const
 
 const editorStyle: CSSProperties = {
   border: '1px solid #cbd5e1',
@@ -44,12 +48,25 @@ const createBlocks = (prefix: string): Value =>
     children: [{ text: `${prefix} block ${index + 1}` }],
   }))
 
+const createSizedBlocks = (prefix: string, blocks: number): Value =>
+  Array.from({ length: blocks }, (_, index) => ({
+    type: 'paragraph',
+    children: [{ text: `${prefix} block ${index + 1}` }],
+  }))
+
+const getRuntimeSearchParams = () =>
+  typeof document === 'undefined'
+    ? new URLSearchParams()
+    : new URLSearchParams(document.location.search)
+
 const createRuntimeEditor = (children: Value) => {
   const editor = withHistory(withReact(createEditor()))
 
-  Editor.replace(editor, {
-    children,
-    selection: null,
+  editor.update((tx) => {
+    tx.value.replace({
+      children,
+      selection: null,
+    })
   })
 
   return editor
@@ -113,81 +130,61 @@ const createTableBlocks = (): Value =>
     })),
   ] as Value
 
-const mixedRuntimeExtension = defineEditorExtension<
-  ReturnType<typeof createRuntimeEditor>
->({
-  name: 'mixed-runtime',
-  methods(editor) {
-    const nextIsInline = editor.isInline
-    const nextIsVoid = editor.isVoid
-
-    return {
-      isInline(element) {
-        return (
-          (element as { type?: string }).type === 'runtime-link' ||
-          nextIsInline(element)
-        )
-      },
-      isVoid(element) {
-        return (
-          (element as { type?: string }).type === 'runtime-void' ||
-          nextIsVoid(element)
-        )
-      },
-    }
-  },
-})
-
 const withMixedRuntime = (editor: ReturnType<typeof createRuntimeEditor>) => {
-  editor.extend(mixedRuntimeExtension)
+  editor.extend({
+    name: 'large-document-runtime',
+    elements: [
+      { inline: true, type: 'runtime-link' },
+      { type: 'runtime-void', void: 'block' },
+    ],
+  })
+
   return editor
 }
 
-const runtimeHtmlExtension = defineEditorExtension<
-  ReturnType<typeof createRuntimeEditor>
->({
-  name: 'runtime-html',
-  methods(editor) {
-    const nextInsertData = editor.insertData
-
-    return {
-      insertData(data) {
-        const html = data.getData('text/html')
-
-        if (!html) {
-          nextInsertData(data)
-          return
-        }
-
-        const document = new DOMParser().parseFromString(html, 'text/html')
-        const text = document.body.textContent ?? ''
-        const isBold = !!document.body.querySelector('strong,b')
-
-        this.insertFragment([
-          {
-            type: 'paragraph',
-            children: [
-              isBold
-                ? {
-                    bold: true,
-                    text,
-                  }
-                : { text },
-            ],
-          },
-        ])
-      },
-    }
-  },
-})
-
 const withRuntimeHtml = (editor: ReturnType<typeof createRuntimeEditor>) => {
-  editor.extend(runtimeHtmlExtension)
+  editor.extend({
+    capabilities: {
+      'dom.clipboard.insertData': (_editor: unknown, data: DataTransfer) =>
+        insertRuntimeHtmlData(editor, data),
+    },
+    name: 'large-document-runtime-html',
+  })
+
   return editor
+}
+
+const insertRuntimeHtmlData = (editor: ReactEditor, data: DataTransfer) => {
+  const html = data.getData('text/html')
+
+  if (!html) {
+    return false
+  }
+
+  const document = new DOMParser().parseFromString(html, 'text/html')
+  const text = document.body.textContent ?? ''
+  const isBold = !!document.body.querySelector('strong,b')
+
+  editor.update((tx) => {
+    tx.fragment.insert([
+      {
+        type: 'paragraph',
+        children: [
+          isBold
+            ? {
+                bold: true,
+                text,
+              }
+            : { text },
+        ],
+      },
+    ])
+  })
+  return true
 }
 
 const collectProjectionProbes = (
-  snapshot: ReturnType<typeof Editor.getSnapshot>
+  snapshot: EditorSnapshot
 ): SlateProjection<{ source: string }>[] => {
   const firstBlock = snapshot.children[0]
 
@@ -291,11 +288,26 @@ const renderMixedVoid = ({
   }
 }
 
+type RuntimeEditableProps = EditableProps & {
+  decorationSources?: readonly SlateDecorationSource[]
+  editor: ReactEditor
+}
+
+const RuntimeEditable = ({
+  decorationSources,
+  editor,
+  ...props
+}: RuntimeEditableProps) => (
+  <Slate decorationSources={decorationSources} editor={editor}>
+    <Editable {...props} />
+  </Slate>
+)
+
 const ShadowRuntimeEditor = () => {
   const [editor] = useState(() => createRuntimeEditor(createBlocks('shadow')))
 
   return (
-    <Editable
+    <RuntimeEditable
       editor={editor}
       id="large-document-runtime-shadow"
       largeDocument={largeDocumentOptions}
@@ -330,7 +342,35 @@ const ShadowRuntimeHost = () => {
   return <div data-runtime-shadow-host="true" ref={containerRef} />
 }
 
+const DomPresentNativeInputRuntime = () => {
+  const searchParams = getRuntimeSearchParams()
+  const blocks = Number.parseInt(searchParams.get('blocks') ?? '', 10) || 1200
+  const [editor] = useState(() =>
+    createRuntimeEditor(createSizedBlocks('dom-native', blocks))
+  )
+
+  return (
+    <div style={{ padding: 24 }}>
+      <section data-runtime-editor="dom-present-native" style={sectionStyle}>
+        <h2>Large Document DOM Present Native Input</h2>
+        <RuntimeEditable
+          editor={editor}
+          id="large-document-runtime-dom-present-native"
+          largeDocument="dom-present"
+          style={editorStyle}
+        />
+      </section>
+    </div>
+  )
+}
+
 const LargeDocumentRuntimeExample = () => {
+  const runtimeMode = getRuntimeSearchParams().get('runtime_mode')
+
+  if (runtimeMode === 'dom-present-native-input') {
+    return <DomPresentNativeInputRuntime />
+  }
+
   const [defaultEditor] = useState(() =>
     createRuntimeEditor(createBlocks('default'))
   )
@@ -354,18 +394,22 @@ const LargeDocumentRuntimeExample = () => {
     createRuntimeEditor(createBlocks('projection'))
   )
 
-  const projectionStore = useMemo(
-    () => createSlateProjectionStore(projectionEditor, collectProjectionProbes),
+  const projectionSource = useMemo(
+    () =>
+      createDecorationSource(projectionEditor, {
+        id: 'large-document-runtime-projection',
+        read: ({ snapshot }) => collectProjectionProbes(snapshot),
+      }),
     [projectionEditor]
   )
 
-  useEffect(() => () => projectionStore.destroy(), [projectionStore])
+  useEffect(() => () => projectionSource.destroy(), [projectionSource])
 
   return (
     <div style={{ padding: 24 }}>
       <section data-runtime-editor="default" style={sectionStyle}>
         <h2>Large Document Runtime Default</h2>
-        <Editable
+        <RuntimeEditable
           editor={defaultEditor}
           id="large-document-runtime-default"
           largeDocument={largeDocumentOptions}
@@ -375,7 +419,7 @@ const LargeDocumentRuntimeExample = () => {
 
       <section data-runtime-editor="custom" style={sectionStyle}>
         <h2>Large Document Runtime Custom Text</h2>
-        <Editable
+        <RuntimeEditable
           editor={customEditor}
           id="large-document-runtime-custom"
           largeDocument={largeDocumentOptions}
@@ -386,7 +430,7 @@ const LargeDocumentRuntimeExample = () => {
 
       <section data-runtime-editor="leaf" style={sectionStyle}>
         <h2>Large Document Runtime Custom Leaf</h2>
-        <Editable
+        <RuntimeEditable
           editor={leafEditor}
           id="large-document-runtime-leaf"
           largeDocument={largeDocumentOptions}
@@ -397,7 +441,7 @@ const LargeDocumentRuntimeExample = () => {
 
       <section data-runtime-editor="rich" style={sectionStyle}>
         <h2>Large Document Runtime Rich Paste</h2>
-        <Editable
+        <RuntimeEditable
           editor={richEditor}
           id="large-document-runtime-rich"
           largeDocument={largeDocumentOptions}
@@ -408,7 +452,7 @@ const LargeDocumentRuntimeExample = () => {
 
       <section data-runtime-editor="mixed" style={sectionStyle}>
         <h2>Large Document Runtime Mixed Nodes</h2>
-        <Editable
+        <RuntimeEditable
           editor={mixedEditor}
           id="large-document-runtime-mixed"
           largeDocument={largeDocumentOptions}
@@ -420,7 +464,7 @@ const LargeDocumentRuntimeExample = () => {
 
       <section data-runtime-editor="void" style={sectionStyle}>
         <h2>Large Document Runtime Void</h2>
-        <Editable
+        <RuntimeEditable
           editor={voidEditor}
           id="large-document-runtime-void"
           largeDocument={largeDocumentOptions}
@@ -432,7 +476,7 @@ const LargeDocumentRuntimeExample = () => {
 
       <section data-runtime-editor="table" style={sectionStyle}>
         <h2>Large Document Runtime Table</h2>
-        <Editable
+        <RuntimeEditable
           editor={tableEditor}
           id="large-document-runtime-table"
           largeDocument={largeDocumentOptions}
@@ -448,11 +492,11 @@ const LargeDocumentRuntimeExample = () => {
 
       <section data-runtime-editor="projection" style={sectionStyle}>
         <h2>Large Document Runtime Projection</h2>
-        <Editable
+        <RuntimeEditable
+          decorationSources={[projectionSource]}
           editor={projectionEditor}
           id="large-document-runtime-projection"
           largeDocument={largeDocumentOptions}
-          projectionStore={projectionStore}
           renderSegment={(segment, children) =>
             segment.slices.length > 0 ? (
               <span data-runtime-projection="true">{children}</span>

@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { Editor } from 'slate/internal'
 
-import { createEditor, type Descendant, Editor } from '../src'
+import {
+  createEditor,
+  type Descendant,
+  type EditorUpdateOptions,
+  type EditorUpdateTag,
+} from '../src'
 
 const paragraph = (text: string): Descendant => ({
   type: 'paragraph',
@@ -20,9 +26,16 @@ describe('commit metadata contract', () => {
       },
     })
 
+    const before = Editor.getSnapshot(editor)
+    const blockRuntimeId = before.index.pathToId['0']
+    const textRuntimeId = before.index.pathToId['0.0']
+
+    assert(blockRuntimeId)
+    assert(textRuntimeId)
+
     editor.update(
-      () => {
-        editor.insertText('!')
+      (tx) => {
+        tx.text.insert('!')
       },
       { tag: ['history-push', 'paste'] }
     )
@@ -43,6 +56,89 @@ describe('commit metadata contract', () => {
     assert.equal(commit.selectionChanged, true)
     assert.equal(commit.textChanged, true)
     assert.equal(commit.snapshotChanged, true)
+    assert.deepEqual(commit.dirtyTextRuntimeIds, [textRuntimeId])
+    assert.deepEqual(commit.dirtyElementRuntimeIds, [blockRuntimeId])
+    assert.deepEqual(commit.dirtyTopLevelRuntimeIds, [blockRuntimeId])
+    assert.deepEqual(commit.dirtyTopLevelRanges, [[0, 0]])
+    assert.deepEqual(commit.textDirtyRuntimeIds, [textRuntimeId])
+    assert.deepEqual(commit.structuralDirtyRuntimeIds, [])
+    assert.deepEqual(commit.markDirtyRuntimeIds, [])
+    assert.deepEqual(commit.affectedTextRuntimeIds, [textRuntimeId])
+    assert.deepEqual(commit.affectedNodeRuntimeIds, [
+      blockRuntimeId,
+      textRuntimeId,
+    ])
+    assert.deepEqual(commit.affectedProjectionRuntimeIds, [
+      blockRuntimeId,
+      textRuntimeId,
+    ])
+    assert.deepEqual(
+      commit.affectedSelectionRuntimeIds,
+      commit.selectionImpactRuntimeIds
+    )
+    assert.equal(commit.rootRuntimeIdsChanged, false)
+    assert.equal(commit.topLevelOrderChanged, false)
+    assert.equal(commit.fullDocumentChanged, false)
+  })
+
+  it('types canonical update tags while preserving custom tags', () => {
+    const editor = createEditor()
+    const tags = [
+      'history-push',
+      'paste',
+      'skip-dom-selection',
+      'app-specific-import',
+    ] satisfies EditorUpdateTag[]
+    const options = { tag: tags } satisfies EditorUpdateOptions
+
+    Editor.replace(editor, {
+      children: [paragraph('one')],
+      selection: {
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 3 },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.text.insert('!')
+    }, options)
+
+    assert.deepEqual(Editor.getLastCommit(editor)?.tags, tags)
+  })
+
+  it('captures typed update metadata on commits', () => {
+    const editor = createEditor()
+    const options = {
+      metadata: {
+        collab: { origin: 'remote', saveToHistory: false },
+        history: { mode: 'skip' },
+        origin: { kind: 'yjs', clientId: 'reader-1' },
+        selection: { dom: 'preserve', focus: false, scroll: false },
+      },
+      tag: ['collaboration', 'remote-import'],
+    } satisfies EditorUpdateOptions
+
+    Editor.replace(editor, {
+      children: [paragraph('one')],
+      selection: {
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 3 },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.text.insert('!')
+    }, options)
+
+    const commit = Editor.getLastCommit(editor)
+
+    assert(commit)
+    assert.deepEqual(commit.tags, ['collaboration', 'remote-import'])
+    assert.deepEqual(commit.metadata, options.metadata)
+    assert.equal(Object.isFrozen(commit.metadata), true)
+    assert.equal(Object.isFrozen(commit.metadata.collab), true)
+    assert.equal(Object.isFrozen(commit.metadata.history), true)
+    assert.equal(Object.isFrozen(commit.metadata.selection), true)
   })
 
   it('groups multiple primitive writes inside one update into one commit', () => {
@@ -63,9 +159,9 @@ describe('commit metadata contract', () => {
       }
     })
 
-    editor.update(() => {
-      editor.insertText('!')
-      editor.insertText('?')
+    editor.update((tx) => {
+      tx.text.insert('!')
+      tx.text.insert('?')
     })
 
     unsubscribe()
@@ -93,5 +189,45 @@ describe('commit metadata contract', () => {
     assert.deepEqual(commit.dirty.paths, [[], [0], [0, 0]])
     assert.deepEqual(commit.dirty.topLevelRange, [0, 0])
     assert.deepEqual(commit.dirty.runtimeIds, commit.touchedRuntimeIds)
+    assert.deepEqual(commit.dirtyTextRuntimeIds, commit.touchedRuntimeIds)
+    assert.deepEqual(commit.dirtyTopLevelRanges, [[0, 0]])
+    assert.equal(commit.rootRuntimeIdsChanged, false)
+    assert.equal(commit.topLevelOrderChanged, false)
+    assert.equal(commit.fullDocumentChanged, false)
+  })
+
+  it('marks full-document replacement as broad runtime dirtiness', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [paragraph('one')],
+      selection: null,
+    })
+
+    const commit = Editor.getLastCommit(editor)
+    const snapshot = Editor.getSnapshot(editor)
+    const nextRuntimeIds = [
+      snapshot.index.pathToId['0'],
+      snapshot.index.pathToId['0.0'],
+    ]
+
+    assert(commit)
+    assert.deepEqual(commit.classes, ['replace'])
+    assert.equal(commit.dirty.wholeDocument, true)
+    assert.equal(commit.dirty.topLevelRange, null)
+    assert.equal(commit.dirtyTextRuntimeIds, null)
+    assert.equal(commit.dirtyElementRuntimeIds, null)
+    assert.equal(commit.dirtyTopLevelRuntimeIds, null)
+    assert.equal(commit.dirtyTopLevelRanges, null)
+    assert.equal(commit.textDirtyRuntimeIds, null)
+    assert.equal(commit.structuralDirtyRuntimeIds, null)
+    assert.deepEqual(commit.markDirtyRuntimeIds, [])
+    assert.deepEqual(commit.affectedTextRuntimeIds, nextRuntimeIds)
+    assert.deepEqual(commit.affectedNodeRuntimeIds, nextRuntimeIds)
+    assert.deepEqual(commit.affectedProjectionRuntimeIds, nextRuntimeIds)
+    assert.equal(commit.affectedSelectionRuntimeIds, null)
+    assert.equal(commit.rootRuntimeIdsChanged, true)
+    assert.equal(commit.topLevelOrderChanged, true)
+    assert.equal(commit.fullDocumentChanged, true)
   })
 })

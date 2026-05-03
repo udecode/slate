@@ -20,6 +20,7 @@
         "packages/slate-browser/src/transports/index.ts"
       ],
       "slate-dom": ["packages/slate-dom/src/index.ts"],
+      "slate-dom/internal": ["packages/slate-dom/src/internal/index.ts"],
       "slate-history": ["packages/slate-history/src/index.ts"],
       "slate-hyperscript": ["packages/slate-hyperscript/src/index.ts"],
       "slate-react": ["packages/slate-react/src/index.ts"]

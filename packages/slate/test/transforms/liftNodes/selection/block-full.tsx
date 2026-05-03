@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 jsx
 
 export const run = (editor) => {
-  editor.liftNodes()
+  editor.nodes.lift()
 }
 export const input = (
   <editor>

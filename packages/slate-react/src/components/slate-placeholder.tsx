@@ -1,4 +1,10 @@
-import React, { type CSSProperties, type ReactNode, type Ref } from 'react'
+import type {
+  CSSProperties,
+  ElementType,
+  HTMLAttributes,
+  ReactNode,
+  Ref,
+} from 'react'
 import { IS_WEBKIT } from 'slate-dom'
 
 type IntrinsicTag = keyof HTMLElementTagNameMap
@@ -9,6 +15,10 @@ type SlatePlaceholderProps = {
   dir?: 'rtl'
   ref?: Ref<HTMLElement>
   style?: CSSProperties
+}
+
+type SlatePlaceholderComponentProps = HTMLAttributes<HTMLElement> & {
+  ref?: Ref<HTMLElement>
 }
 
 const defaultPlaceholderStyle: CSSProperties = {
@@ -32,21 +42,24 @@ export const getSlatePlaceholderStyle = (
 })
 
 export const SlatePlaceholder = ({
-  as: Component = 'div',
+  as = 'div',
   children,
   dir,
   ref,
   style,
-}: SlatePlaceholderProps): React.JSX.Element =>
-  React.createElement(
-    Component,
-    {
-      'aria-hidden': true,
-      contentEditable: false,
-      'data-slate-placeholder': true,
-      dir,
-      ref,
-      style: getSlatePlaceholderStyle(style),
-    },
-    children
+}: SlatePlaceholderProps) => {
+  const Component = as as ElementType<SlatePlaceholderComponentProps>
+
+  return (
+    <Component
+      aria-hidden
+      contentEditable={false}
+      data-slate-placeholder
+      dir={dir}
+      ref={ref}
+      style={getSlatePlaceholderStyle(style)}
+    >
+      {children}
+    </Component>
   )
+}

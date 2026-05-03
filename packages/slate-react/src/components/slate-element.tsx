@@ -1,13 +1,18 @@
-import React, { type ReactNode, type Ref, useCallback, useContext } from 'react'
+import type { ElementType, HTMLAttributes, ReactNode, Ref } from 'react'
+import { useCallback, useContext } from 'react'
 
-import { NodeRuntimeIdContext } from '../context'
+import { ElementPathContext, NodeRuntimeIdContext } from '../context'
 import { useSlateNodeRef } from '../hooks/use-slate-node-ref'
 import { recordSlateReactRender } from '../render-profiler'
 import { getSlateElementShellAttributes } from '../shell-runtime'
 
 type IntrinsicTag = keyof HTMLElementTagNameMap
 
-type SlateElementProps = Omit<React.HTMLAttributes<HTMLElement>, 'children'> & {
+type SlateElementComponentProps = HTMLAttributes<HTMLElement> & {
+  ref?: Ref<HTMLElement>
+}
+
+type SlateElementProps = Omit<HTMLAttributes<HTMLElement>, 'children'> & {
   as?: IntrinsicTag
   children?: ReactNode
   isInline?: boolean
@@ -30,7 +35,7 @@ const assignRef = (
 }
 
 export const SlateElement = ({
-  as: Component = 'div',
+  as = 'div',
   children,
   className,
   id,
@@ -40,6 +45,8 @@ export const SlateElement = ({
   style,
   ...domProps
 }: SlateElementProps) => {
+  const Component = as as ElementType<SlateElementComponentProps>
+  const path = useContext(ElementPathContext)
   const runtimeId = useContext(NodeRuntimeIdContext)
   const boundRef = useSlateNodeRef(runtimeId)
 
@@ -53,16 +60,18 @@ export const SlateElement = ({
     [boundRef, ref]
   )
 
-  return React.createElement(
-    Component,
-    {
-      ...domProps,
-      className,
-      ...getSlateElementShellAttributes({ isInline, isVoid }),
-      id,
-      ref: combinedRef,
-      style,
-    },
-    children
+  return (
+    <Component
+      {...domProps}
+      className={className}
+      data-slate-path={path ? path.join(',') : undefined}
+      data-slate-runtime-id={runtimeId ?? undefined}
+      {...getSlateElementShellAttributes({ isInline, isVoid })}
+      id={id}
+      ref={combinedRef}
+      style={style}
+    >
+      {children}
+    </Component>
   )
 }

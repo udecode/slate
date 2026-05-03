@@ -1,10 +1,11 @@
+import { Editor } from 'slate/internal'
 /** @jsx jsx */
 
 import { jsx } from '../../..'
 
 jsx
 
-import { Editor, Element } from 'slate'
+import { Element } from 'slate'
 
 export const input = (
   <editor>

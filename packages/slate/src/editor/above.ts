@@ -1,8 +1,8 @@
 import { Location } from '../interfaces'
-import { Editor, type EditorInterface } from '../interfaces/editor'
+import { Editor, type EditorStaticApi } from '../interfaces/editor'
 import { Path } from '../interfaces/path'
 
-export const above: EditorInterface['above'] = (editor, options = {}) => {
+export const above: EditorStaticApi['above'] = (editor, options = {}) => {
   const {
     voids = false,
     mode = 'lowest',

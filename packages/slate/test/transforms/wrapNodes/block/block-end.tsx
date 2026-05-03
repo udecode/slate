@@ -18,7 +18,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.wrapNodes(<block a />)
+  editor.nodes.wrap(<block a />)
 }
 export const output = (
   <editor>

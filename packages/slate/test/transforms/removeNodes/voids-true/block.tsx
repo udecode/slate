@@ -10,7 +10,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.removeNodes({ at: [0, 0], voids: true })
+  editor.nodes.remove({ at: [0, 0], voids: true })
 }
 export const output = (
   <editor>

@@ -15,7 +15,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.mergeNodes({
+  editor.nodes.merge({
     at: [1],
     withMatch: ([, p]) => p.length === 1,
   })

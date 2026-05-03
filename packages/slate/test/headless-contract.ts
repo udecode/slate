@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-
 import {
   createEditor,
   type Descendant,
-  Editor,
   type Editor as SlateEditor,
 } from 'slate'
+import { Editor } from 'slate/internal'
 import { History, HistoryEditor, withHistory } from 'slate-history'
 import { createHyperscript } from 'slate-hyperscript'
 
@@ -46,14 +45,17 @@ describe('slate headless contract', () => {
     assert.equal(History.isHistory(editor.history), true)
 
     Editor.replace(editor, {
-      children: input.children as Descendant[],
-      selection: input.selection,
+      children: Editor.getChildren(input) as Descendant[],
+      selection: Editor.getSelection(input),
       marks: null,
     })
 
-    const ref = Editor.rangeRef(editor, input.selection!)
+    const inputSelection = Editor.getSelection(input)!
+    const ref = Editor.rangeRef(editor, inputSelection)
 
-    editor.insertFragment(fragment)
+    editor.update((tx) => {
+      tx.fragment.insert(fragment)
+    })
 
     const snapshot = Editor.getSnapshot(editor)
 
@@ -75,8 +77,11 @@ describe('slate headless contract', () => {
 
     HistoryEditor.undo(editor)
 
-    assert.deepEqual(Editor.getSnapshot(editor).children, input.children)
-    assert.deepEqual(Editor.getSnapshot(editor).selection, input.selection)
+    assert.deepEqual(
+      Editor.getSnapshot(editor).children,
+      Editor.getChildren(input)
+    )
+    assert.deepEqual(Editor.getSnapshot(editor).selection, inputSelection)
   })
 
   it('lets hyperscript-built selections drive core fragment extraction without React', () => {
@@ -99,8 +104,8 @@ describe('slate headless contract', () => {
     const editor = createEditor()
 
     Editor.replace(editor, {
-      children: input.children as Descendant[],
-      selection: input.selection,
+      children: Editor.getChildren(input) as Descendant[],
+      selection: Editor.getSelection(input),
       marks: null,
     })
 

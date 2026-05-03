@@ -5,9 +5,12 @@ import type {
   Descendant,
   DescendantIn,
   Element,
+  ElementIn,
+  ElementOrTextIn,
   Location,
   Node,
   NodeEntry,
+  NodeIn,
   NodeProps,
   Operation,
   Path,
@@ -21,34 +24,50 @@ import type {
   Text,
   TextIn,
 } from '..'
-import { registerCommand as registerEditorCommand } from '../core/command-registry'
+import {
+  defineCommand as defineEditorCommand,
+  registerCommand as registerEditorCommand,
+} from '../core/command-registry'
 import {
   defineEditorExtension as defineEditorExtensionCore,
   extendEditor as extendEditorCore,
 } from '../core/editor-extension'
+import { getEditorRuntime, getEditorSchema } from '../core/editor-runtime'
 import {
   getExtensionRegistry as getEditorExtensionRegistry,
   registerCapability as registerEditorCapability,
   registerCommitListener as registerEditorCommitListener,
   registerNormalizer as registerEditorNormalizer,
 } from '../core/extension-registry'
+import {
+  isInTransaction,
+  replaceSnapshot,
+  subscribeSource as subscribeEditorSource,
+} from '../core/public-state'
+import { getEditorTransformRegistry } from '../core/transform-registry'
 import { isEditor } from '../editor/is-editor'
 import type {
   LeafEdge,
   MaximizeMode,
   RangeDirection,
+  RangeMode,
   SelectionMode,
   TextDirection,
   TextUnit,
   TextUnitAdjustment,
 } from '../types/types'
-import type { OmitFirstArg } from '../utils/types'
 import type {
   NodeInsertNodesOptions,
   NodeMutationMethods,
 } from './transforms/node'
-import type { SelectionMutationMethods } from './transforms/selection'
 import type {
+  SelectionCollapseOptions,
+  SelectionMoveOptions,
+  SelectionMutationMethods,
+  SelectionSetPointOptions,
+} from './transforms/selection'
+import type {
+  TextDeleteOptions,
   TextInsertFragmentOptions,
   TextInsertTextOptions,
   TextMutationMethods,
@@ -64,84 +83,473 @@ type BivariantMethod<TArgs extends readonly unknown[], TResult> = {
   bivarianceHack(...args: TArgs): TResult
 }['bivarianceHack']
 
-export interface BaseEditor<V extends Value = Value> {
-  // Overrideable core methods.
+export type EditorStateValueApi<V extends Value = Value> = {
+  get: () => V
+  lastCommit: () => EditorCommit<V> | null
+  operations: (startIndex?: number) => readonly Operation<V>[]
+}
 
-  applyOperations: BivariantMethod<
+export type EditorTransactionValueApi<V extends Value = Value> =
+  EditorStateValueApi<V> & {
+    replace: (input: SnapshotInput<V>) => void
+  }
+
+export type EditorStateSelectionApi = {
+  get: () => Selection
+}
+
+export type EditorFragmentReadOptions = {
+  at?: Range
+}
+
+export type EditorStateFragmentApi<V extends Value = Value> = {
+  get: (options?: EditorFragmentReadOptions) => DescendantIn<V>[]
+}
+
+export type EditorTransactionSelectionApi = EditorStateSelectionApi & {
+  clear: () => void
+  collapse: (options?: SelectionCollapseOptions) => void
+  move: (options?: SelectionMoveOptions) => void
+  set: (target: Location | null) => void
+  setPoint: (props: Partial<Point>, options?: SelectionSetPointOptions) => void
+  setRange: (props: Partial<Range>) => void
+}
+
+export type EditorStateMarksApi<V extends Value = Value> = {
+  get: () => EditorMarks<V> | null
+}
+
+export type EditorTransactionMarksApi<V extends Value = Value> =
+  EditorStateMarksApi<V> & {
+    add: (key: string, value: unknown) => void
+    remove: (key: string) => void
+    toggle: (key: string, value?: unknown) => void
+  }
+
+export type EditorCanonicalUpdateTag =
+  | 'history-push'
+  | 'history-merge'
+  | 'historic'
+  | 'paste'
+  | 'collaboration'
+  | 'skip-collab'
+  | 'skip-dom-selection'
+  | 'skip-scroll-into-view'
+  | 'skip-selection-focus'
+  | 'focus'
+  | 'composition-start'
+  | 'composition-end'
+
+export type EditorUpdateTag = EditorCanonicalUpdateTag | (string & {})
+
+export type EditorUpdateTagInput = EditorUpdateTag | readonly EditorUpdateTag[]
+
+export type EditorHistoryUpdateMetadata = {
+  mode?: 'merge' | 'push' | 'skip'
+}
+
+export type EditorCollaborationUpdateMetadata = {
+  origin?: 'local' | 'remote'
+  saveToHistory?: boolean
+}
+
+export type EditorSelectionUpdateMetadata = {
+  dom?: 'export-model' | 'preserve'
+  focus?: boolean
+  scroll?: boolean
+}
+
+export type EditorUpdateMetadata = {
+  collab?: EditorCollaborationUpdateMetadata
+  history?: EditorHistoryUpdateMetadata
+  origin?: { kind: string } & Record<string, unknown>
+  selection?: EditorSelectionUpdateMetadata
+}
+
+export type EditorOperationReplayOptions = {
+  tag?: EditorUpdateTagInput
+}
+
+export type EditorTransactionOperationsApi<V extends Value = Value> = {
+  replay: (
+    operations: readonly Operation<V>[],
+    options?: EditorOperationReplayOptions
+  ) => void
+}
+
+export type EditorStateNodesApi = {
+  above: <T extends Ancestor>(
+    options?: EditorAboveOptions<T>
+  ) => NodeEntry<T> | undefined
+  children: (at?: Location) => readonly Node[]
+  first: (at: Location) => NodeEntry
+  get: <T extends Node>(at: Location) => NodeEntry<T>
+  hasBlocks: (element: Element) => boolean
+  hasInlines: (element: Element) => boolean
+  hasPath: (path: Path) => boolean
+  hasTexts: (element: Element) => boolean
+  isBlock: (element: Element) => boolean
+  isEmpty: (element: Element) => boolean
+  last: (at: Location) => NodeEntry
+  leaf: (at: Location, options?: EditorLeafOptions) => NodeEntry<Text>
+  levels: <T extends Node>(
+    options?: EditorLevelsOptions<T>
+  ) => Generator<NodeEntry<T>, void, undefined>
+  match: <T extends Node>(
+    options?: EditorNodesOptions<T>
+  ) => Generator<NodeEntry<T>, void, undefined>
+  next: <T extends Descendant>(
+    options?: EditorNextOptions<T>
+  ) => NodeEntry<T> | undefined
+  parent: (at: Location) => NodeEntry<Ancestor>
+  previous: <T extends Node>(
+    options?: EditorPreviousOptions<T>
+  ) => NodeEntry<T> | undefined
+  void: (options?: EditorVoidOptions) => NodeEntry<Element> | undefined
+}
+
+export type EditorTransactionNodesApi<V extends Value = Value> =
+  EditorStateNodesApi & {
+    insert: <T extends ElementOrTextIn<V>>(
+      nodes: T | T[],
+      options?: NodeInsertNodesOptions<T>
+    ) => void
+    insertMany: <T extends ElementOrTextIn<V>>(
+      nodes: T | T[],
+      options?: NodeInsertNodesOptions<T>
+    ) => void
+    lift: <T extends NodeIn<V>>(options?: {
+      at?: Location
+      match?: NodeMatch<T>
+      mode?: MaximizeMode
+      voids?: boolean
+    }) => void
+    merge: <T extends NodeIn<V>>(options?: {
+      at?: Location
+      match?: NodeMatch<T>
+      mode?: RangeMode
+      hanging?: boolean
+      voids?: boolean
+    }) => void
+    move: <T extends NodeIn<V>>(options: {
+      at?: Location
+      match?: NodeMatch<T>
+      mode?: MaximizeMode
+      to: Path
+      voids?: boolean
+    }) => void
+    remove: <T extends NodeIn<V>>(options?: {
+      at?: Location
+      match?: NodeMatch<T>
+      mode?: RangeMode
+      hanging?: boolean
+      voids?: boolean
+    }) => void
+    set: <T extends NodeIn<V>>(
+      props: Partial<NodeProps<T>>,
+      options?: {
+        at?: Location
+        match?: NodeMatch<T>
+        mode?: MaximizeMode
+        hanging?: boolean
+        split?: boolean
+        voids?: boolean
+        compare?: PropsCompare
+        merge?: PropsMerge
+      }
+    ) => void
+    split: <T extends NodeIn<V>>(options?: {
+      at?: Location
+      match?: NodeMatch<T>
+      mode?: RangeMode
+      always?: boolean
+      height?: number
+      position?: number
+      voids?: boolean
+    }) => void
+    unset: <T extends NodeIn<V>>(
+      props: string | string[],
+      options?: {
+        at?: Location
+        match?: NodeMatch<T>
+        mode?: MaximizeMode
+        hanging?: boolean
+        split?: boolean
+        voids?: boolean
+      }
+    ) => void
+    unwrap: <T extends NodeIn<V>>(options?: {
+      at?: Location
+      match?: NodeMatch<T>
+      mode?: MaximizeMode
+      split?: boolean
+      voids?: boolean
+    }) => void
+    wrap: <T extends NodeIn<V>, E extends ElementIn<V>>(
+      element: E,
+      options?: {
+        at?: Location
+        match?: NodeMatch<T>
+        mode?: MaximizeMode
+        split?: boolean
+        voids?: boolean
+      }
+    ) => void
+  }
+
+export type EditorStatePointsApi = {
+  after: (at: Location, options?: EditorAfterOptions) => Point | undefined
+  before: (at: Location, options?: EditorBeforeOptions) => Point | undefined
+  end: (at: Location) => Point
+  get: (at: Location, options?: EditorPointOptions) => Point
+  isEdge: (point: Point, at: Location) => boolean
+  isEnd: (point: Point, at: Location) => boolean
+  isStart: (point: Point, at: Location) => boolean
+  start: (at: Location) => Point
+}
+
+export type EditorStateRangesApi = {
+  bookmark: (range: Range, options?: BookmarkOptions) => Bookmark
+  edges: (at: Location) => [Point, Point]
+  get: (at: Location, to?: Location) => Range
+  project: (range: Range) => readonly ProjectedRangeSegment[]
+  unhang: (range: Range, options?: EditorUnhangRangeOptions) => Range
+}
+
+export type EditorStateTextApi = {
+  string: (at: Location, options?: EditorStringOptions) => string
+}
+
+export type EditorTransactionFragmentApi<V extends Value = Value> =
+  EditorStateFragmentApi<V> & {
+    delete: (options?: EditorFragmentDeletionOptions) => void
+    insert: (
+      fragment: DescendantIn<V>[],
+      options?: TextInsertFragmentOptions
+    ) => void
+  }
+
+export type EditorTransactionBreakApi = {
+  insert: () => void
+  insertSoft: () => void
+}
+
+export type EditorTransactionTextApi = EditorStateTextApi & {
+  delete: (options?: TextDeleteOptions) => void
+  deleteBackward: (options?: EditorDirectedDeletionOptions) => void
+  deleteForward: (options?: EditorDirectedDeletionOptions) => void
+  insert: (text: string, options?: TextInsertTextOptions) => void
+}
+
+export type EditorStateSchemaApi = {
+  getElementBehavior: (element: Element) => EditorElementBehavior
+  getElementProperty: <T = unknown>(
+    element: Element,
+    property: string
+  ) => T | undefined
+  getElementPropertyDescriptor: (
+    type: string,
+    property: string
+  ) => EditorElementPropertyDescriptor | null
+  getElementSpec: (type: string) => EditorElementSpec | null
+  isAtom: (element: Element) => boolean
+  isBlock: (element: Element) => boolean
+  isEditableIsland: (element: Element) => boolean
+  isElementReadOnly: (element: Element) => boolean
+  isElementPropertyEqual: (
+    type: string,
+    property: string,
+    left: unknown,
+    right: unknown
+  ) => boolean
+  isInline: (element: Element) => boolean
+  isIsolating: (element: Element) => boolean
+  isKeyboardSelectable: (element: Element) => boolean
+  isSelectable: (element: Element) => boolean
+  isVoid: (element: Element) => boolean
+  markableVoid: (element: Element) => boolean
+}
+
+export type EditorStateRuntimeApi<V extends Value = Value> = {
+  idAt: (path: Path) => RuntimeId | null
+  pathOf: (runtimeId: RuntimeId) => Path | null
+  snapshot: () => EditorSnapshot<V>
+}
+
+export type EditorSchemaApi = EditorStateSchemaApi & {
+  define: (
+    specs: EditorElementSpec | readonly EditorElementSpec[],
+    options?: { source?: string }
+  ) => () => void
+}
+
+export type EditorElementVoidKind =
+  | boolean
+  | 'block'
+  | 'editable-island'
+  | 'inline'
+  | 'markable-inline'
+
+export type EditorElementPropertyKind = 'boolean' | 'json' | 'number' | 'string'
+
+export type EditorElementPropertyDescriptor<T = unknown> = {
+  default?: T | (() => T)
+  equals?: (left: T, right: T) => boolean
+  kind?: EditorElementPropertyKind
+}
+
+export type EditorElementBehavior = {
+  atom: boolean
+  editableIsland: boolean
+  inline: boolean
+  isolating: boolean
+  keyboardSelectable: boolean
+  markableVoid: boolean
+  readOnly: boolean
+  selectable: boolean
+  void: boolean
+}
+
+export type EditorElementSpec = {
+  atom?: boolean
+  inline?: boolean
+  isolating?: boolean
+  keyboardSelectable?: boolean
+  markableVoid?: boolean
+  match?: (element: Element) => boolean
+  properties?: Readonly<Record<string, EditorElementPropertyDescriptor>>
+  readOnly?: boolean
+  selectable?: boolean
+  type: string
+  void?: EditorElementVoidKind
+}
+
+declare const EDITOR_STATE_EXTENSION_VALUE: unique symbol
+
+declare const EDITOR_TX_EXTENSION_VALUE: unique symbol
+
+declare const EDITOR_EXTENSION_VALUE: unique symbol
+
+export interface EditorExtensionGroups<V extends Value = Value> {
+  readonly [EDITOR_EXTENSION_VALUE]?: V
+}
+
+export interface EditorStateExtensionGroups<V extends Value = Value> {
+  readonly [EDITOR_STATE_EXTENSION_VALUE]?: V
+}
+
+export interface EditorTxExtensionGroups<V extends Value = Value> {
+  readonly [EDITOR_TX_EXTENSION_VALUE]?: V
+}
+
+export type EditorCoreStateView<V extends Value = Value> = {
+  fragment: EditorStateFragmentApi<V>
+  marks: EditorStateMarksApi<V>
+  nodes: EditorStateNodesApi
+  points: EditorStatePointsApi
+  ranges: EditorStateRangesApi
+  runtime: EditorStateRuntimeApi<V>
+  schema: EditorStateSchemaApi
+  selection: EditorStateSelectionApi
+  text: EditorStateTextApi
+  value: EditorStateValueApi<V>
+}
+
+export type EditorStateView<V extends Value = Value> = EditorCoreStateView<V> &
+  EditorStateExtensionGroups<V>
+
+export type EditorCoreUpdateTransaction<V extends Value = Value> = Omit<
+  EditorCoreStateView<V>,
+  'marks' | 'nodes' | 'selection' | 'text' | 'value'
+> & {
+  break: EditorTransactionBreakApi
+  fragment: EditorTransactionFragmentApi<V>
+  marks: EditorTransactionMarksApi<V>
+  nodes: EditorTransactionNodesApi<V>
+  normalize: (options?: EditorNormalizeOptions) => void
+  operations: EditorTransactionOperationsApi<V>
+  selection: EditorTransactionSelectionApi
+  text: EditorTransactionTextApi
+  value: EditorTransactionValueApi<V>
+  withoutNormalizing: (fn: () => void) => void
+}
+
+export type EditorUpdateTransaction<V extends Value = Value> =
+  EditorCoreUpdateTransaction<V> & EditorTxExtensionGroups<V>
+
+export interface BaseEditor<V extends Value = Value> {
+  read: <T>(fn: (state: EditorStateView<V>) => T) => T
+  subscribe: (listener: SnapshotListener<any>) => () => void
+  update: BivariantMethod<
     [
-      operations: readonly Operation<any>[],
-      options?: EditorApplyOperationsOptions,
+      fn: (transaction: EditorUpdateTransaction<V>) => void,
+      options?: EditorUpdateOptions,
     ],
     void
   >
-  getChildren: () => V
-  getDirtyPaths: BivariantMethod<[operation: Operation<any>], Path[]>
-  getFragment: () => DescendantIn<V>[]
-  getLastCommit: () => EditorCommit<V> | null
-  getOperationDirtiness: BivariantMethod<
-    [
-      operations: readonly Operation<any>[],
-      options?: EditorOperationDirtinessOptions<any>,
-    ],
-    SnapshotChange<any>
-  >
-  getOperations: (startIndex?: number) => readonly Operation<V>[]
-  getPathByRuntimeId: (runtimeId: RuntimeId) => Path | null
-  getRuntimeId: (path: Path) => RuntimeId | null
-  read: <T>(fn: () => T) => T
-  getSelection: () => Selection
-  getSnapshot: () => EditorSnapshot<V>
-  isElementReadOnly(element: Element): boolean
-  isSelectable(element: Element): boolean
-  markableVoid(element: Element): boolean
-  normalizeNode: (
-    entry: NodeEntry,
-    options?: {
-      operation?: Operation
-      fallbackElement?: Element | (() => Element)
-      explicit?: boolean
-      force?: boolean
-    }
-  ) => void
-  shouldNormalize: ({
-    explicit,
-    iteration,
-    operation,
-  }: {
-    explicit?: boolean
-    iteration: number
-    operation?: Operation
-  }) => boolean
+  extend: (extension: EditorExtensionInput<any>) => () => void
+}
 
-  // Overrideable core transforms.
-
-  addMark: OmitFirstArg<typeof Editor.addMark>
+/**
+ * Internal runtime transform API. Normal public writes go through
+ * `editor.update((tx) => ...)`; these methods remain the runtime-owned
+ * implementation layer used by core, tests, and explicit escape hatches.
+ */
+export interface EditorTransformApi<V extends Value = Value> {
+  addMark: (key: string, value: any) => void
   bookmark: (range: Range, options?: BookmarkOptions) => Bookmark
-  collapse: OmitFirstArg<SelectionMutationMethods['collapse']>
-  delete: OmitFirstArg<TextMutationMethods<V>['delete']>
+  collapse: (options?: SelectionCollapseOptions) => void
+  delete: (options?: TextDeleteOptions) => void
   deleteBackward: (unit: TextUnit) => void
   deleteForward: (unit: TextUnit) => void
-  deleteFragment: OmitFirstArg<typeof Editor.deleteFragment>
-  deselect: OmitFirstArg<SelectionMutationMethods['deselect']>
-  insertBreak: OmitFirstArg<typeof Editor.insertBreak>
-  insertFragment: OmitFirstArg<TextMutationMethods['insertFragment']>
-  insertNode: OmitFirstArg<typeof Editor.insertNode>
-  insertNodes: OmitFirstArg<NodeMutationMethods['insertNodes']>
-  insertSoftBreak: OmitFirstArg<typeof Editor.insertSoftBreak>
-  insertText: OmitFirstArg<TextMutationMethods<V>['insertText']>
-  liftNodes: OmitFirstArg<NodeMutationMethods<V>['liftNodes']>
-  mergeNodes: OmitFirstArg<NodeMutationMethods<V>['mergeNodes']>
-  move: OmitFirstArg<SelectionMutationMethods['move']>
-  moveNodes: OmitFirstArg<NodeMutationMethods<V>['moveNodes']>
-  normalize: OmitFirstArg<typeof Editor.normalize>
-  removeMark: OmitFirstArg<typeof Editor.removeMark>
-  setBlock: OmitFirstArg<typeof Editor.setBlock>
-  toggleAlignment: OmitFirstArg<typeof Editor.toggleAlignment>
-  toggleMark: OmitFirstArg<typeof Editor.toggleMark>
-  toggleBlock: OmitFirstArg<typeof Editor.toggleBlock>
-  toggleList: OmitFirstArg<typeof Editor.toggleList>
-  removeNodes: OmitFirstArg<NodeMutationMethods<V>['removeNodes']>
-  select: OmitFirstArg<SelectionMutationMethods['select']>
+  deleteFragment: (options?: EditorFragmentDeletionOptions) => void
+  deselect: () => void
+  insertBreak: () => void
+  insertFragment: (
+    fragment: DescendantIn<V>[],
+    options?: TextInsertFragmentOptions
+  ) => void
+  insertNode: <T extends DescendantIn<V>>(
+    node: T,
+    options?: NodeInsertNodesOptions<T>
+  ) => void
+  insertNodes: <T extends ElementOrTextIn<V>>(
+    nodes: T | T[],
+    options?: NodeInsertNodesOptions<T>
+  ) => void
+  insertSoftBreak: () => void
+  insertText: (text: string, options?: TextInsertTextOptions) => void
+  liftNodes: <T extends NodeIn<V>>(options?: {
+    at?: Location
+    match?: NodeMatch<T>
+    mode?: MaximizeMode
+    voids?: boolean
+  }) => void
+  mergeNodes: <T extends NodeIn<V>>(options?: {
+    at?: Location
+    match?: NodeMatch<T>
+    mode?: RangeMode
+    hanging?: boolean
+    voids?: boolean
+  }) => void
+  move: (options?: SelectionMoveOptions) => void
+  moveNodes: <T extends NodeIn<V>>(options: {
+    at?: Location
+    match?: NodeMatch<T>
+    mode?: MaximizeMode
+    to: Path
+    voids?: boolean
+  }) => void
+  normalize: (options?: EditorNormalizeOptions) => void
+  removeMark: (key: string) => void
+  removeNodes: <T extends NodeIn<V>>(options?: {
+    at?: Location
+    match?: NodeMatch<T>
+    mode?: RangeMode
+    hanging?: boolean
+    voids?: boolean
+  }) => void
+  select: (target: Location) => void
   setNodes: <T extends Node>(
     props: Partial<NodeProps<T>>,
     options?: {
@@ -155,96 +563,66 @@ export interface BaseEditor<V extends Value = Value> {
       merge?: PropsMerge
     }
   ) => void
-  setNormalizing: OmitFirstArg<typeof Editor.setNormalizing>
-  setPoint: OmitFirstArg<SelectionMutationMethods['setPoint']>
-  setSelection: OmitFirstArg<SelectionMutationMethods['setSelection']>
-  splitNodes: OmitFirstArg<NodeMutationMethods<V>['splitNodes']>
-  unsetNodes: OmitFirstArg<NodeMutationMethods<V>['unsetNodes']>
-  unwrapNodes: OmitFirstArg<NodeMutationMethods<V>['unwrapNodes']>
-  withoutNormalizing: OmitFirstArg<typeof Editor.withoutNormalizing>
-  wrapNodes: OmitFirstArg<NodeMutationMethods['wrapNodes']>
-
-  // Overrideable core queries.
-
-  above: <T extends Ancestor>(
-    options?: EditorAboveOptions<T>
-  ) => NodeEntry<T> | undefined
-  after: OmitFirstArg<typeof Editor.after>
-  before: OmitFirstArg<typeof Editor.before>
-  edges: OmitFirstArg<typeof Editor.edges>
-  elementReadOnly: OmitFirstArg<typeof Editor.elementReadOnly>
-  end: OmitFirstArg<typeof Editor.end>
-  first: OmitFirstArg<typeof Editor.first>
-  fragment: OmitFirstArg<typeof Editor.fragment>
-  getMarks: OmitFirstArg<typeof Editor.marks>
-  hasBlocks: OmitFirstArg<typeof Editor.hasBlocks>
-  hasInlines: OmitFirstArg<typeof Editor.hasInlines>
-  hasPath: OmitFirstArg<typeof Editor.hasPath>
-  hasTexts: OmitFirstArg<typeof Editor.hasTexts>
-  isBlock: OmitFirstArg<typeof Editor.isBlock>
-  isEdge: OmitFirstArg<typeof Editor.isEdge>
-  isEmpty: OmitFirstArg<typeof Editor.isEmpty>
-  isEnd: OmitFirstArg<typeof Editor.isEnd>
-  isInline(element: Element): boolean
-  isNormalizing: OmitFirstArg<typeof Editor.isNormalizing>
-  isStart: OmitFirstArg<typeof Editor.isStart>
-  isVoid(element: Element): boolean
-  last: OmitFirstArg<typeof Editor.last>
-  leaf: OmitFirstArg<typeof Editor.leaf>
-  levels: <T extends Node>(
-    options?: EditorLevelsOptions<T>
-  ) => Generator<NodeEntry<T>, void, undefined>
-  next: <T extends Descendant>(
-    options?: EditorNextOptions<T>
-  ) => NodeEntry<T> | undefined
-  node: OmitFirstArg<typeof Editor.node>
-  nodes: <T extends Node>(
-    options?: EditorNodesOptions<T>
-  ) => Generator<NodeEntry<T>, void, undefined>
-  parent: OmitFirstArg<typeof Editor.parent>
-  path: OmitFirstArg<typeof Editor.path>
-  pathRef: OmitFirstArg<typeof Editor.pathRef>
-  pathRefs: OmitFirstArg<typeof Editor.pathRefs>
-  point: OmitFirstArg<typeof Editor.point>
-  pointRef: OmitFirstArg<typeof Editor.pointRef>
-  pointRefs: OmitFirstArg<typeof Editor.pointRefs>
-  positions: OmitFirstArg<typeof Editor.positions>
-  previous: <T extends Node>(
-    options?: EditorPreviousOptions<T>
-  ) => NodeEntry<T> | undefined
-  projectRange: (range: Range) => readonly ProjectedRangeSegment[]
-  range: OmitFirstArg<typeof Editor.range>
-  rangeRef: OmitFirstArg<typeof Editor.rangeRef>
-  rangeRefs: OmitFirstArg<typeof Editor.rangeRefs>
-  replace: BivariantMethod<[input: SnapshotInput<any>], void>
-  reset: BivariantMethod<[input: SnapshotInput<any>], void>
-  start: OmitFirstArg<typeof Editor.start>
-  string: OmitFirstArg<typeof Editor.string>
-  subscribe: (listener: SnapshotListener<any>) => () => void
-  update: (fn: () => void, options?: EditorUpdateOptions) => void
-  extend: (extension: EditorExtensionInput<any>) => () => void
-  unhangRange: OmitFirstArg<typeof Editor.unhangRange>
-  void: OmitFirstArg<typeof Editor.void>
-  withTransaction: BivariantMethod<
-    [fn: (transaction: EditorTransaction<any>) => void],
-    void
-  >
-  shouldMergeNodesRemovePrevNode: OmitFirstArg<
-    typeof Editor.shouldMergeNodesRemovePrevNode
-  >
+  setNormalizing: (isNormalizing: boolean) => void
+  setPoint: (props: Partial<Point>, options?: SelectionSetPointOptions) => void
+  setSelection: (props: Partial<Range>) => void
+  splitNodes: <T extends NodeIn<V>>(options?: {
+    at?: Location
+    match?: NodeMatch<T>
+    mode?: RangeMode
+    always?: boolean
+    height?: number
+    position?: number
+    voids?: boolean
+  }) => void
+  toggleMark: (key: string, value?: any) => void
+  unsetNodes: <T extends NodeIn<V>>(
+    props: string | string[],
+    options?: {
+      at?: Location
+      match?: NodeMatch<T>
+      mode?: MaximizeMode
+      hanging?: boolean
+      split?: boolean
+      voids?: boolean
+    }
+  ) => void
+  unwrapNodes: <T extends NodeIn<V>>(options?: {
+    at?: Location
+    match?: NodeMatch<T>
+    mode?: MaximizeMode
+    split?: boolean
+    voids?: boolean
+  }) => void
+  withoutNormalizing: (fn: () => void) => void
+  wrapNodes: <T extends NodeIn<V>, E extends ElementIn<V>>(
+    element: E,
+    options?: {
+      at?: Location
+      match?: NodeMatch<T>
+      mode?: MaximizeMode
+      split?: boolean
+      voids?: boolean
+    }
+  ) => void
 }
 
-export type Editor<V extends Value = any> = BaseEditor<V>
+export type EditorTransformRegistry<V extends Value = Value> =
+  EditorTransformApi<V>
+
+export type Editor<V extends Value = any> = BaseEditor<V> &
+  EditorExtensionGroups<V>
 
 type IsAny<T> = 0 extends 1 & T ? true : false
 
-export type ValueOf<E> = E extends { getChildren: () => infer V }
-  ? IsAny<V> extends true
-    ? Value
-    : V extends Value
-      ? V
-      : Value
-  : Value
+export type ValueOf<E> =
+  E extends BaseEditor<infer V>
+    ? IsAny<V> extends true
+      ? Value
+      : V extends Value
+        ? V
+        : Value
+    : Value
 
 export type BaseSelection = Range | null
 
@@ -302,9 +680,22 @@ export type SnapshotListener<V extends Value = Value> = (
   change?: SnapshotChange<V>
 ) => void
 
+export type EditorCommitSource =
+  | 'commit'
+  | 'selection'
+  | 'text'
+  | 'node'
+  | 'decoration'
+  | 'annotation'
+  | 'root'
+  | 'focus'
+  | 'composition'
+  | 'external'
+
 export type EditorUpdateOptions = {
+  metadata?: EditorUpdateMetadata
   skipNormalize?: boolean
-  tag?: string | string[]
+  tag?: EditorUpdateTagInput
 }
 
 export type EditorApplyOperationsOptions = EditorUpdateOptions
@@ -345,6 +736,16 @@ export type EditorTargetRuntime = {
 export type EditorCommand = {
   type: string
 }
+
+export type EditorCommandDefinition<
+  TCommand extends EditorCommand = EditorCommand,
+> = Readonly<{
+  type: TCommand['type']
+}>
+
+export type EditorCommandReference<
+  TCommand extends EditorCommand = EditorCommand,
+> = EditorCommandDefinition<TCommand> | TCommand['type']
 
 export type EditorCommitCommand = {
   origin: 'command'
@@ -395,49 +796,120 @@ export type EditorCommandOptions = {
   priority?: number
 }
 
-export type EditorExtensionCommand<
-  TCommand extends EditorCommand = EditorCommand,
-  TEditor extends Editor = Editor,
+export type EditorExtensionStateGroup<
+  TEditor extends BaseEditor<any> = Editor,
+  TResult = unknown,
+> = (state: EditorStateView<ValueOf<TEditor>>, editor: TEditor) => TResult
+
+export type EditorExtensionTxGroup<
+  TEditor extends BaseEditor<any> = Editor,
+  TResult = unknown,
+> = (
+  transaction: EditorUpdateTransaction<ValueOf<TEditor>>,
+  editor: TEditor
+) => TResult
+
+export type EditorExtensionEditorGroup<
+  TEditor extends BaseEditor<any> = Editor,
+  TResult = unknown,
+> = (editor: TEditor) => TResult
+
+export type EditorExtensionEditorGroups<
+  TEditor extends BaseEditor<any> = Editor,
 > = {
-  handler: EditorCommandHandler<TCommand, TEditor>
-  options?: EditorCommandOptions
-  type: TCommand['type']
+  [K in keyof EditorExtensionGroups<
+    ValueOf<TEditor>
+  >]?: EditorExtensionEditorGroup<
+    TEditor,
+    EditorExtensionGroups<ValueOf<TEditor>>[K]
+  >
+} & Record<string, EditorExtensionEditorGroup<TEditor> | undefined>
+
+export type EditorExtensionStateGroups<
+  TEditor extends BaseEditor<any> = Editor,
+> = {
+  [K in keyof EditorStateExtensionGroups<
+    ValueOf<TEditor>
+  >]?: EditorExtensionStateGroup<
+    TEditor,
+    EditorStateExtensionGroups<ValueOf<TEditor>>[K]
+  >
+} & Record<string, EditorExtensionStateGroup<TEditor> | undefined>
+
+export type EditorExtensionTxGroups<TEditor extends BaseEditor<any> = Editor> =
+  {
+    [K in keyof EditorTxExtensionGroups<
+      ValueOf<TEditor>
+    >]?: EditorExtensionTxGroup<
+      TEditor,
+      EditorTxExtensionGroups<ValueOf<TEditor>>[K]
+    >
+  } & Record<string, EditorExtensionTxGroup<TEditor> | undefined>
+
+export type EditorExtensionRuntimeState<TValue> = {
+  get: () => TValue
+  set: (value: TValue | ((previous: TValue) => TValue)) => void
 }
 
-export type EditorExtensionMethod<TEditor extends BaseEditor<any> = Editor> = (
-  this: TEditor,
-  ...args: any[]
-) => any
+export type EditorExtensionRegistrationContext<
+  TEditor extends BaseEditor<any> = Editor,
+  TOptions = unknown,
+> = {
+  editor: TEditor
+  name: string
+  options: TOptions
+  runtimeState: <TValue>(
+    initialValue: TValue | (() => TValue)
+  ) => EditorExtensionRuntimeState<TValue>
+  signal: AbortSignal
+}
 
-export type EditorExtensionMethodMap<TEditor extends BaseEditor<any> = Editor> =
-  Record<string, EditorExtensionMethod<TEditor>>
-
-export type EditorExtensionMethods<TEditor extends BaseEditor<any> = Editor> =
-  | EditorExtensionMethodMap<TEditor>
-  | ((editor: TEditor) => EditorExtensionMethodMap<TEditor>)
-
-export type EditorExtension<TEditor extends BaseEditor<any> = Editor> = {
+export type EditorExtensionRegistrationOutput<
+  TEditor extends BaseEditor<any> = Editor,
+> = {
   capabilities?: Record<string, unknown | readonly unknown[]>
-  commands?: readonly EditorExtensionCommand<
-    EditorCommand,
-    Extract<TEditor, Editor>
-  >[]
+  cleanup?: () => void
   commitListeners?: readonly EditorCommitListener<ValueOf<TEditor>>[]
+  editor?: EditorExtensionEditorGroups<TEditor>
+  elements?: readonly EditorElementSpec[]
+  normalizers?: Record<string, unknown>
+  operationMiddlewares?: readonly EditorOperationMiddleware<TEditor>[]
+  state?: EditorExtensionStateGroups<TEditor>
+  tx?: EditorExtensionTxGroups<TEditor>
+}
+
+export type EditorExtension<
+  TEditor extends BaseEditor<any> = Editor,
+  TOptions = unknown,
+> = {
+  capabilities?: Record<string, unknown | readonly unknown[]>
+  commitListeners?: readonly EditorCommitListener<ValueOf<TEditor>>[]
+  conflicts?: readonly string[]
   dependencies?: readonly string[]
-  methods?: EditorExtensionMethods<TEditor>
+  editor?: EditorExtensionEditorGroups<TEditor>
+  elements?: readonly EditorElementSpec[]
   name: string
   normalizers?: Record<string, unknown>
   operationMiddlewares?: readonly EditorOperationMiddleware<TEditor>[]
+  options?: TOptions
+  peerDependencies?: readonly string[]
+  register?: (
+    context: EditorExtensionRegistrationContext<TEditor, TOptions>
+  ) => EditorExtensionRegistrationOutput<TEditor> | void
+  state?: EditorExtensionStateGroups<TEditor>
+  tx?: EditorExtensionTxGroups<TEditor>
 }
 
 export type EditorExtensionInput<TEditor extends BaseEditor<any> = Editor> =
-  | EditorExtension<TEditor>
-  | readonly EditorExtension<TEditor>[]
+  | EditorExtension<TEditor, any>
+  | readonly EditorExtension<TEditor, any>[]
 
 export type RegisteredEditorExtension = {
+  conflicts: readonly string[]
   dependencies: readonly string[]
   name: string
   order: number
+  peerDependencies: readonly string[]
 }
 
 export type EditorExtensionRegistry = {
@@ -445,7 +917,6 @@ export type EditorExtensionRegistry = {
   commands: Map<string, unknown[]>
   commitListeners: Set<EditorCommitListener>
   extensions: Map<string, RegisteredEditorExtension>
-  methodNames: Set<string>
   normalizers: Map<string, unknown>
   operationMiddlewares: Set<EditorOperationMiddleware>
 }
@@ -462,17 +933,30 @@ export type DirtyRegion = {
   wholeDocument: boolean
 }
 
+export type TopLevelRuntimeRange = readonly [number, number]
+
 export type EditorCommit<V extends Value = Value> = {
+  affectedNodeRuntimeIds: readonly RuntimeId[] | null
+  affectedProjectionRuntimeIds: readonly RuntimeId[] | null
+  affectedSelectionRuntimeIds: readonly RuntimeId[] | null
+  affectedTextRuntimeIds: readonly RuntimeId[] | null
   childrenChanged: boolean
   classes: readonly OperationClass[]
   command: EditorCommitCommand | null
   decorationImpactRuntimeIds: readonly RuntimeId[] | null
   dirty: DirtyRegion
+  dirtyElementRuntimeIds: readonly RuntimeId[] | null
   dirtyPaths: readonly Path[]
   dirtyScope: SnapshotDirtyScope
+  dirtyTextRuntimeIds: readonly RuntimeId[] | null
+  dirtyTopLevelRanges: readonly TopLevelRuntimeRange[] | null
+  dirtyTopLevelRuntimeIds: readonly RuntimeId[] | null
+  fullDocumentChanged: boolean
+  markDirtyRuntimeIds: readonly RuntimeId[] | null
   marksAfter: EditorMarks<V> | null
   marksBefore: EditorMarks<V> | null
   marksChanged: boolean
+  metadata: Readonly<EditorUpdateMetadata>
   nodeImpactRuntimeIds: readonly RuntimeId[] | null
   operations: readonly Operation<V>[]
   previousVersion: number
@@ -483,9 +967,13 @@ export type EditorCommit<V extends Value = Value> = {
   selectionImpactRuntimeIds: readonly RuntimeId[] | null
   snapshotChanged: boolean
   structureChanged: boolean
+  structuralDirtyRuntimeIds: readonly RuntimeId[] | null
   textChanged: boolean
+  textDirtyRuntimeIds: readonly RuntimeId[] | null
+  rootRuntimeIdsChanged: boolean
+  topLevelOrderChanged: boolean
   touchedRuntimeIds: readonly RuntimeId[] | null
-  tags: readonly string[]
+  tags: readonly EditorUpdateTag[]
   version: number
 }
 
@@ -622,7 +1110,7 @@ export interface EditorVoidOptions {
   voids?: boolean
 }
 
-export interface EditorInterface {
+export interface EditorStaticApi {
   /**
    * Get the ancestor above a location in the document.
    */
@@ -638,15 +1126,6 @@ export interface EditorInterface {
    * editor runtime and applied when text is inserted next.
    */
   addMark: (editor: Editor, key: string, value: any) => void
-
-  /**
-   * Import or replay operations through the transaction runtime.
-   */
-  applyOperations: <V extends Value>(
-    editor: Editor<V>,
-    operations: readonly Operation<V>[],
-    options?: EditorApplyOperationsOptions
-  ) => void
 
   /**
    * Create a hidden, op-rebased bookmark for a range.
@@ -699,6 +1178,12 @@ export interface EditorInterface {
     options?: EditorFragmentDeletionOptions
   ) => void
 
+  delete: TextMutationMethods['delete']
+
+  collapse: SelectionMutationMethods['collapse']
+
+  deselect: SelectionMutationMethods['deselect']
+
   /**
    * Get the start and end points of a location.
    */
@@ -744,7 +1229,10 @@ export interface EditorInterface {
   /**
    * Run a coherent synchronous read against the current editor/runtime state.
    */
-  read: <T>(editor: Editor, fn: () => T) => T
+  read: <V extends Value, T>(
+    editor: Editor<V>,
+    fn: (state: EditorStateView<V>) => T
+  ) => T
 
   /**
    * Match a read-only element in the current branch of the editor.
@@ -753,11 +1241,6 @@ export interface EditorInterface {
     editor: Editor,
     options?: EditorElementReadOnlyOptions
   ) => NodeEntry<Element> | undefined
-
-  /**
-   * Get the end point of a location.
-   */
-  end: (editor: Editor, at: Location) => Point
 
   /**
    * Get the first node at a location.
@@ -844,6 +1327,8 @@ export interface EditorInterface {
     options?: NodeInsertNodesOptions<T>
   ) => void
 
+  insertNodes: NodeMutationMethods['insertNodes']
+
   /**
    * Insert a soft break at the current selection.
    *
@@ -860,6 +1345,12 @@ export interface EditorInterface {
     text: string,
     options?: TextInsertTextOptions
   ) => void
+
+  mergeNodes: NodeMutationMethods['mergeNodes']
+
+  move: SelectionMutationMethods['move']
+
+  moveNodes: NodeMutationMethods['moveNodes']
 
   /**
    * Check if a value is a block `Element` object.
@@ -938,10 +1429,7 @@ export interface EditorInterface {
     options?: EditorLevelsOptions<T>
   ) => Generator<NodeEntry<T>, void, undefined>
 
-  /**
-   * Get the marks that would be added to text at the current selection.
-   */
-  marks: (editor: Editor) => Omit<Text, 'text'> | null
+  liftNodes: NodeMutationMethods['liftNodes']
 
   /**
    * Get the matching node in the branch of the document after a location.
@@ -950,19 +1438,6 @@ export interface EditorInterface {
     editor: Editor,
     options?: EditorNextOptions<T>
   ) => NodeEntry<T> | undefined
-
-  /**
-   * Get the node at a location.
-   */
-  node: (editor: Editor, at: Location, options?: EditorNodeOptions) => NodeEntry
-
-  /**
-   * Iterate through all of the nodes in the Editor.
-   */
-  nodes: <T extends Node>(
-    editor: Editor,
-    options?: EditorNodesOptions<T>
-  ) => Generator<NodeEntry<T>, void, undefined>
 
   /**
    * Normalize any dirty objects in the editor.
@@ -1069,11 +1544,18 @@ export interface EditorInterface {
   rangeRefs: (editor: Editor) => Set<RangeRef>
 
   /**
+   * Define a typed internal command token.
+   */
+  defineCommand: <TCommand extends EditorCommand>(
+    type: TCommand['type']
+  ) => EditorCommandDefinition<TCommand>
+
+  /**
    * Register a command middleware handler for the editor.
    */
   registerCommand: <TCommand extends EditorCommand>(
     editor: Editor,
-    type: TCommand['type'],
+    command: EditorCommandReference<TCommand>,
     handler: EditorCommandHandler<TCommand>,
     options?: EditorCommandOptions
   ) => () => void
@@ -1117,18 +1599,6 @@ export interface EditorInterface {
 
   reset: <V extends Value>(editor: Editor<V>, input: SnapshotInput<V>) => void
 
-  setBlock: (
-    editor: Editor,
-    props: Partial<Element>,
-    options?: {
-      at?: Location
-      hanging?: boolean
-      mode?: MaximizeMode
-      split?: boolean
-      voids?: boolean
-    }
-  ) => void
-
   /**
    * Remove a custom property from all of the leaf text nodes in the current
    * selection.
@@ -1138,6 +1608,18 @@ export interface EditorInterface {
    */
   removeMark: (editor: Editor, key: string) => void
 
+  removeNodes: NodeMutationMethods['removeNodes']
+
+  select: SelectionMutationMethods['select']
+
+  setPoint: SelectionMutationMethods['setPoint']
+
+  setNodes: NodeMutationMethods['setNodes']
+
+  setSelection: SelectionMutationMethods['setSelection']
+
+  splitNodes: NodeMutationMethods['splitNodes']
+
   /**
    * Toggle a custom property on the leaf text nodes in the current selection.
    *
@@ -1146,42 +1628,11 @@ export interface EditorInterface {
    */
   toggleMark: (editor: Editor, key: string, value?: any) => void
 
-  toggleBlock: (
-    editor: Editor,
-    type: string,
-    options?: {
-      at?: Location
-      defaultType?: string
-      hanging?: boolean
-      mode?: MaximizeMode
-      split?: boolean
-      voids?: boolean
-    }
-  ) => void
+  unsetNodes: NodeMutationMethods['unsetNodes']
 
-  toggleAlignment: (
-    editor: Editor,
-    align: string,
-    options?: {
-      at?: Location
-      hanging?: boolean
-      mode?: MaximizeMode
-      split?: boolean
-      voids?: boolean
-    }
-  ) => void
+  unwrapNodes: NodeMutationMethods['unwrapNodes']
 
-  toggleList: (
-    editor: Editor,
-    type: string,
-    options?: {
-      at?: Location
-      itemType?: string
-      listTypes?: readonly string[]
-      split?: boolean
-      voids?: boolean
-    }
-  ) => void
+  wrapNodes: NodeMutationMethods['wrapNodes']
 
   /**
    * Manually set if the editor should currently be normalizing.
@@ -1190,11 +1641,6 @@ export interface EditorInterface {
    *
    */
   setNormalizing: (editor: Editor, isNormalizing: boolean) => void
-
-  /**
-   * Get the start point of a location.
-   */
-  start: (editor: Editor, at: Location) => Point
 
   /**
    * Get the text string content of a location.
@@ -1213,9 +1659,15 @@ export interface EditorInterface {
     listener: SnapshotListener<V>
   ) => () => void
 
-  update: (
-    editor: Editor,
-    fn: () => void,
+  subscribeSource: <V extends Value>(
+    editor: Editor<V>,
+    source: EditorCommitSource,
+    listener: SnapshotListener<V>
+  ) => () => void
+
+  update: <V extends Value>(
+    editor: Editor<V>,
+    fn: (transaction: EditorUpdateTransaction<V>) => void,
     options?: EditorUpdateOptions
   ) => void
 
@@ -1236,11 +1688,6 @@ export interface EditorInterface {
     options?: EditorVoidOptions
   ) => NodeEntry<Element> | undefined
 
-  withTransaction: <V extends Value>(
-    editor: Editor<V>,
-    fn: (transaction: EditorTransaction<V>) => void
-  ) => void
-
   /**
    * Call a function, deferring normalization until after it completes.
    */
@@ -1256,84 +1703,115 @@ export interface EditorInterface {
   ) => boolean
 }
 
-// eslint-disable-next-line no-redeclare
-export const Editor: EditorInterface = {
+const runInternalEditorWrite = <T>(editor: Editor, fn: () => T): T => {
+  if (isInTransaction(editor)) {
+    return fn()
+  }
+
+  let result!: T
+
+  editor.update(() => {
+    result = fn()
+  })
+
+  return result
+}
+
+const InternalEditor: EditorStaticApi = {
   above(editor, options) {
-    return editor.above(options)
+    return getEditorRuntime(editor).above(options)
   },
 
   addMark(editor, key, value) {
-    editor.addMark(key, value)
-  },
-
-  applyOperations(editor, operations, options) {
-    editor.applyOperations(operations, options)
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).addMark(key, value)
+    )
   },
 
   bookmark(editor, range, options) {
-    return editor.bookmark(range, options)
+    return getEditorTransformRegistry(editor).bookmark(range, options)
   },
 
   after(editor, at, options) {
-    return editor.after(at, options)
+    return getEditorRuntime(editor).after(at, options)
   },
 
   before(editor, at, options) {
-    return editor.before(at, options)
+    return getEditorRuntime(editor).before(at, options)
   },
 
   deleteBackward(editor, options = {}) {
     const { unit = 'character' } = options
-    editor.deleteBackward(unit)
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).deleteBackward(unit)
+    )
   },
 
   deleteForward(editor, options = {}) {
     const { unit = 'character' } = options
-    editor.deleteForward(unit)
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).deleteForward(unit)
+    )
   },
 
   deleteFragment(editor, options) {
-    editor.deleteFragment(options)
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).deleteFragment(options)
+    )
+  },
+
+  delete(editor, options) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).delete(options)
+    )
+  },
+
+  collapse(editor, options) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).collapse(options)
+    )
+  },
+
+  deselect(editor) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).deselect()
+    )
   },
 
   edges(editor, at) {
-    return editor.edges(at)
+    return getEditorRuntime(editor).edges(at)
   },
 
   elementReadOnly(editor: Editor, options: EditorElementReadOnlyOptions = {}) {
-    return editor.elementReadOnly(options)
-  },
-
-  end(editor, at) {
-    return editor.end(at)
+    return getEditorRuntime(editor).elementReadOnly(options)
   },
 
   first(editor, at) {
-    return editor.first(at)
+    return getEditorRuntime(editor).first(at)
   },
 
   fragment<V extends Value>(editor: Editor<V>, at: Location) {
-    return editor.fragment(at) as DescendantIn<V>[]
+    return getEditorRuntime(editor).fragment(at) as DescendantIn<V>[]
   },
 
   getFragment(editor) {
-    return editor.getFragment()
+    return getEditorRuntime(editor).getFragment()
   },
 
   getChildren(editor) {
-    return editor.getChildren()
+    return getEditorRuntime(editor).getChildren()
   },
 
   getLastCommit(editor) {
-    return editor.getLastCommit()
+    return getEditorRuntime(editor).getLastCommit()
   },
 
   getOperationDirtiness(editor, operations, options) {
-    return editor.getOperationDirtiness(operations, options)
+    return getEditorRuntime(editor).getOperationDirtiness(operations, options)
   },
 
   getDirtyPaths(editor, operation) {
-    return editor.getDirtyPaths(operation)
+    return getEditorRuntime(editor).getDirtyPaths(operation)
   },
 
   getExtensionRegistry(editor) {
@@ -1341,19 +1819,21 @@ export const Editor: EditorInterface = {
   },
 
   getSnapshot(editor) {
-    return editor.getSnapshot()
+    return getEditorRuntime(editor).getSnapshot()
   },
 
   getOperations<V extends Value>(editor: Editor<V>, startIndex?: number) {
-    return editor.getOperations(startIndex) as readonly Operation<V>[]
+    return getEditorRuntime(editor).getOperations(
+      startIndex
+    ) as readonly Operation<V>[]
   },
 
   getPathByRuntimeId(editor, runtimeId) {
-    return editor.getPathByRuntimeId(runtimeId)
+    return getEditorRuntime(editor).getPathByRuntimeId(runtimeId)
   },
 
   getRuntimeId(editor, path) {
-    return editor.getRuntimeId(path)
+    return getEditorRuntime(editor).getRuntimeId(path)
   },
 
   read(editor, fn) {
@@ -1361,172 +1841,206 @@ export const Editor: EditorInterface = {
   },
 
   getSelection(editor) {
-    return editor.getSelection()
+    return getEditorRuntime(editor).getSelection()
   },
 
   hasBlocks(editor, element) {
-    return editor.hasBlocks(element)
+    return getEditorRuntime(editor).hasBlocks(element)
   },
 
   hasInlines(editor, element) {
-    return editor.hasInlines(element)
+    return getEditorRuntime(editor).hasInlines(element)
   },
 
   hasPath(editor, path) {
-    return editor.hasPath(path)
+    return getEditorRuntime(editor).hasPath(path)
   },
 
   hasTexts(editor, element) {
-    return editor.hasTexts(element)
+    return getEditorRuntime(editor).hasTexts(element)
   },
 
   insertBreak(editor) {
-    editor.insertBreak()
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).insertBreak()
+    )
   },
 
   insertFragment(editor, fragment, options) {
-    editor.insertFragment(fragment, options)
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).insertFragment(fragment, options)
+    )
   },
 
   insertNode(editor, node) {
-    editor.insertNode(node)
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).insertNode(node)
+    )
+  },
+
+  insertNodes(editor, nodes, options) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).insertNodes(nodes, options)
+    )
   },
 
   insertSoftBreak(editor) {
-    editor.insertSoftBreak()
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).insertSoftBreak()
+    )
   },
 
-  insertText(editor, text) {
-    editor.insertText(text)
+  insertText(editor, text, options) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).insertText(text, options)
+    )
   },
 
   isBlock(editor, value) {
-    return editor.isBlock(value)
+    return getEditorRuntime(editor).isBlock(value)
   },
 
   isEdge(editor, point, at) {
-    return editor.isEdge(point, at)
+    return getEditorRuntime(editor).isEdge(point, at)
   },
 
   isEditor,
 
   isElementReadOnly(editor, element) {
-    return editor.isElementReadOnly(element)
+    return getEditorSchema(editor).isElementReadOnly(element)
   },
 
   isEmpty(editor, element) {
-    return editor.isEmpty(element)
+    return getEditorRuntime(editor).isEmpty(element)
   },
 
   isEnd(editor, point, at) {
-    return editor.isEnd(point, at)
+    return getEditorRuntime(editor).isEnd(point, at)
   },
 
   isInline(editor, value) {
-    return editor.isInline(value)
+    return getEditorSchema(editor).isInline(value)
   },
 
   isNormalizing(editor) {
-    return editor.isNormalizing()
+    return getEditorRuntime(editor).isNormalizing()
   },
 
   isSelectable(editor: Editor, value: Element) {
-    return editor.isSelectable(value)
+    return getEditorSchema(editor).isSelectable(value)
   },
 
   isStart(editor, point, at) {
-    return editor.isStart(point, at)
+    return getEditorRuntime(editor).isStart(point, at)
   },
 
   isVoid(editor, value) {
-    return editor.isVoid(value)
+    return getEditorSchema(editor).isVoid(value)
   },
 
   last(editor, at) {
-    return editor.last(at)
+    return getEditorRuntime(editor).last(at)
   },
 
   leaf(editor, at, options) {
-    return editor.leaf(at, options)
+    return getEditorRuntime(editor).leaf(at, options)
+  },
+
+  liftNodes(editor, options) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).liftNodes(options)
+    )
   },
 
   levels(editor, options) {
-    return editor.levels(options)
-  },
-
-  marks(editor) {
-    return editor.getMarks()
+    return getEditorRuntime(editor).levels(options)
   },
 
   next<T extends Descendant>(
     editor: Editor,
     options?: EditorNextOptions<T>
   ): NodeEntry<T> | undefined {
-    return editor.next(options)
-  },
-
-  node(editor, at, options) {
-    return editor.node(at, options)
-  },
-
-  nodes(editor, options) {
-    return editor.nodes(options)
+    return getEditorRuntime(editor).next(options)
   },
 
   normalize(editor, options) {
-    editor.normalize(options)
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).normalize(options)
+    )
+  },
+
+  mergeNodes(editor, options) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).mergeNodes(options)
+    )
+  },
+
+  move(editor, options) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).move(options)
+    )
+  },
+
+  moveNodes(editor, options) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).moveNodes(options)
+    )
   },
 
   parent(editor, at, options) {
-    return editor.parent(at, options)
+    return getEditorRuntime(editor).parent(at, options)
   },
 
   path(editor, at, options) {
-    return editor.path(at, options)
+    return getEditorRuntime(editor).path(at, options)
   },
 
   pathRef(editor, path, options) {
-    return editor.pathRef(path, options)
+    return getEditorRuntime(editor).pathRef(path, options)
   },
 
   pathRefs(editor) {
-    return editor.pathRefs()
+    return getEditorRuntime(editor).pathRefs()
   },
 
   point(editor, at, options) {
-    return editor.point(at, options)
+    return getEditorRuntime(editor).point(at, options)
   },
 
   pointRef(editor, point, options) {
-    return editor.pointRef(point, options)
+    return getEditorRuntime(editor).pointRef(point, options)
   },
 
   pointRefs(editor) {
-    return editor.pointRefs()
+    return getEditorRuntime(editor).pointRefs()
   },
 
   projectRange(editor, range) {
-    return editor.projectRange(range)
+    return getEditorRuntime(editor).projectRange(range)
   },
 
   positions(editor, options) {
-    return editor.positions(options)
+    return getEditorRuntime(editor).positions(options)
   },
 
   previous(editor, options) {
-    return editor.previous(options)
+    return getEditorRuntime(editor).previous(options)
   },
 
   range(editor, at, to) {
-    return editor.range(at, to)
+    return getEditorRuntime(editor).range(at, to)
   },
 
   rangeRef(editor, range, options) {
-    return editor.rangeRef(range, options)
+    return getEditorRuntime(editor).rangeRef(range, options)
   },
 
   rangeRefs(editor) {
-    return editor.rangeRefs()
+    return getEditorRuntime(editor).rangeRefs()
+  },
+
+  defineCommand(type) {
+    return defineEditorCommand(type)
   },
 
   registerCommand(editor, type, handler, options) {
@@ -1557,51 +2071,95 @@ export const Editor: EditorInterface = {
   },
 
   replace(editor, input) {
-    editor.replace(input)
+    replaceSnapshot(editor, input)
   },
 
   reset(editor, input) {
-    editor.reset(input)
+    replaceSnapshot(editor, input)
   },
 
   removeMark(editor, key) {
-    editor.removeMark(key)
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).removeMark(key)
+    )
+  },
+
+  removeNodes(editor, options) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).removeNodes(options)
+    )
+  },
+
+  select(editor, target) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).select(target)
+    )
+  },
+
+  setPoint(editor, props, options) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).setPoint(props, options)
+    )
+  },
+
+  setNodes(editor, props, options) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).setNodes(props, options)
+    )
+  },
+
+  setSelection(editor, props) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).setSelection(props)
+    )
+  },
+
+  splitNodes(editor, options) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).splitNodes(options)
+    )
   },
 
   toggleMark(editor, key, value = true) {
-    editor.toggleMark(key, value)
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).toggleMark(key, value)
+    )
   },
 
-  setBlock(editor, props, options) {
-    editor.setBlock(props, options)
+  unsetNodes(editor, props, options) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).unsetNodes(props, options)
+    )
   },
 
-  toggleBlock(editor, type, options) {
-    editor.toggleBlock(type, options)
+  unwrapNodes(editor, options) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).unwrapNodes(options)
+    )
   },
 
-  toggleAlignment(editor, align, options) {
-    editor.toggleAlignment(align, options)
-  },
-
-  toggleList(editor, type, options) {
-    editor.toggleList(type, options)
+  wrapNodes(editor, element, options) {
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).wrapNodes(element, options)
+    )
   },
 
   setNormalizing(editor, isNormalizing) {
-    editor.setNormalizing(isNormalizing)
-  },
-
-  start(editor, at) {
-    return editor.start(at)
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).setNormalizing(isNormalizing)
+    )
   },
 
   string(editor, at, options) {
-    return editor.string(at, options)
+    return getEditorRuntime(editor).string(at, options)
   },
 
   subscribe(editor, listener) {
     return editor.subscribe(listener)
+  },
+
+  subscribeSource(editor, source, listener) {
+    return subscribeEditorSource(editor, source, listener)
   },
 
   update(editor, fn, options) {
@@ -1609,27 +2167,27 @@ export const Editor: EditorInterface = {
   },
 
   unhangRange(editor, range, options) {
-    return editor.unhangRange(range, options)
+    return getEditorRuntime(editor).unhangRange(range, options)
   },
 
   void(editor, options) {
-    return editor.void(options)
-  },
-
-  withTransaction<V extends Value>(
-    editor: Editor<V>,
-    fn: (transaction: EditorTransaction<V>) => void
-  ) {
-    editor.withTransaction(fn as (transaction: EditorTransaction<any>) => void)
+    return getEditorRuntime(editor).void(options)
   },
 
   withoutNormalizing(editor, fn: () => void) {
-    editor.withoutNormalizing(fn)
+    runInternalEditorWrite(editor, () =>
+      getEditorTransformRegistry(editor).withoutNormalizing(fn)
+    )
   },
   shouldMergeNodesRemovePrevNode: (editor, prevNode, curNode) => {
-    return editor.shouldMergeNodesRemovePrevNode(prevNode, curNode)
+    return getEditorRuntime(editor).shouldMergeNodesRemovePrevNode(
+      prevNode,
+      curNode
+    )
   },
 }
+
+export { InternalEditor as Editor }
 
 /**
  * A helper type for narrowing matched nodes with a predicate.

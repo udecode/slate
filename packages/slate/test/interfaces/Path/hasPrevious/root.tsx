@@ -1,3 +1,5 @@
+/** @jsx jsx */
+
 import { Path } from 'slate'
 
 export const input = [0, 0]
