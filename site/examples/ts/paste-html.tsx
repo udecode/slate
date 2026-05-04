@@ -158,7 +158,7 @@ const PasteHtmlExample = () => {
     []
   )
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    enhance: (editor) => withHtml(withHistory(editor) as CustomEditor),
+    withEditor: (editor) => withHtml(withHistory(editor) as CustomEditor),
     initialValue,
   })
   return (

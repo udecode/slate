@@ -37,7 +37,7 @@ const IFrameExample = () => {
     []
   )
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    enhance: (editor) => withHistory(editor) as CustomEditor,
+    withEditor: (editor) => withHistory(editor) as CustomEditor,
     initialValue,
   })
 

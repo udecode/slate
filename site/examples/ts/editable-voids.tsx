@@ -20,7 +20,8 @@ import RichTextEditor from './richtext'
 
 const EditableVoidsExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    enhance: (editor) => withEditableVoids(withHistory(editor) as CustomEditor),
+    withEditor: (editor) =>
+      withEditableVoids(withHistory(editor) as CustomEditor),
     initialValue,
   })
 

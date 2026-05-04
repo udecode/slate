@@ -18,11 +18,11 @@ const classInitialValue: Value = [
 
 const StylingExample = () => {
   const editor1 = useSlateEditor({
-    enhance: withHistory,
+    withEditor: withHistory,
     initialValue: styleInitialValue,
   })
   const editor2 = useSlateEditor({
-    enhance: withHistory,
+    withEditor: withHistory,
     initialValue: classInitialValue,
   })
 

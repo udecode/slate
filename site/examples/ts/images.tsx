@@ -25,7 +25,7 @@ import type {
 
 const ImagesExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    enhance: (editor) => withImages(withHistory(editor) as CustomEditor),
+    withEditor: (editor) => withImages(withHistory(editor) as CustomEditor),
     initialValue,
   })
 

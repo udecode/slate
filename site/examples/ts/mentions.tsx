@@ -45,7 +45,7 @@ const MentionExample = () => {
     []
   )
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    enhance: (editor) => withMentions(withHistory(editor) as CustomEditor),
+    withEditor: (editor) => withMentions(withHistory(editor) as CustomEditor),
     initialValue,
   })
 

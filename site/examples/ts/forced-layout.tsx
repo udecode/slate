@@ -94,7 +94,7 @@ const ForcedLayoutExample = () => {
     []
   )
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    enhance: (editor) => withLayout(withHistory(editor) as CustomEditor),
+    withEditor: (editor) => withLayout(withHistory(editor) as CustomEditor),
     initialValue,
   })
   return (

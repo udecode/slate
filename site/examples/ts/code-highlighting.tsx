@@ -52,7 +52,7 @@ const CodeLineType = 'code-line'
 
 const CodeHighlightingExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    enhance: (editor) => withHistory(editor) as CustomEditor,
+    withEditor: (editor) => withHistory(editor) as CustomEditor,
     initialValue,
   })
 
@@ -405,7 +405,7 @@ const App = () => {
   {
     type: ParagraphType,
     children: toChildren(
-      'If you are using TypeScript, create the editor with a value generic and compose editor enhancers from that typed editor. The example below includes the custom types required for the rest of this example.'
+      'If you are using TypeScript, create the editor with a value generic and compose editor wrappers from that typed editor. The example below includes the custom types required for the rest of this example.'
     ),
   },
   {

@@ -16,7 +16,7 @@ import type {
 
 const EmbedsExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    enhance: (editor) => withEmbeds(withHistory(editor) as CustomEditor),
+    withEditor: (editor) => withEmbeds(withHistory(editor) as CustomEditor),
     initialValue,
   })
   return (

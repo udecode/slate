@@ -247,7 +247,10 @@ const TestCase = ({ value }: AndroidTestCase) => {
     []
   )
 
-  const editor = useSlateEditor({ enhance: withHistory, initialValue: value })
+  const editor = useSlateEditor({
+    withEditor: withHistory,
+    initialValue: value,
+  })
 
   return (
     <Slate editor={editor}>

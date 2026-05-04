@@ -18,7 +18,7 @@ import type { CustomEditor, CustomTextKey, CustomValue } from './custom-types.d'
 
 const HoveringMenuExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    enhance: (editor) => withHistory(editor) as CustomEditor,
+    withEditor: (editor) => withHistory(editor) as CustomEditor,
     initialValue,
   })
   const handleDOMBeforeInput = useMemo(

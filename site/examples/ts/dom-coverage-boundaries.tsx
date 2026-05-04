@@ -13,7 +13,7 @@ import {
 const hiddenBodyPath = [2, 1, 0]
 
 const DomCoverageBoundariesExample = () => {
-  const editor = useSlateEditor({ enhance: withHistory, initialValue })
+  const editor = useSlateEditor({ withEditor: withHistory, initialValue })
   const [headerHidden, setHeaderHidden] = useState(true)
   const [footerHidden, setFooterHidden] = useState(true)
   const [outerHidden, setOuterHidden] = useState(true)

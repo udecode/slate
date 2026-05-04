@@ -82,7 +82,7 @@ const SelectorProbe = () => {
 const HookProbe = () => {
   const hookEditor = useSlateEditor({
     initialValue,
-    enhance: withHistory,
+    withEditor: withHistory,
   })
   const typedHookEditor: ReactEditor<CustomValue> & HistoryEditor<CustomValue> =
     hookEditor
@@ -91,7 +91,7 @@ const HookProbe = () => {
   )
   const composedHookEditor = useSlateEditor({
     initialValue,
-    enhance: (editor) => withFoo(withHistory(editor)),
+    withEditor: (editor) => withFoo(withHistory(editor)),
   })
   const typedComposedHookEditor: ReactEditor<CustomValue> &
     HistoryEditor<CustomValue> &

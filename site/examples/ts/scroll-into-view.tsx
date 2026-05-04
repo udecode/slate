@@ -48,7 +48,7 @@ const ScrollIntoViewExample = () => {
 }
 
 const PlainTextEditor = () => {
-  const editor = useSlateEditor({ enhance: withHistory, initialValue })
+  const editor = useSlateEditor({ withEditor: withHistory, initialValue })
   return (
     <Slate editor={editor}>
       <Editable placeholder="Enter some plain text..." />

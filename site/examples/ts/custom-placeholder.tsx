@@ -15,7 +15,7 @@ const initialValue: Value = [
 ]
 
 const PlainTextExample = () => {
-  const editor = useSlateEditor({ enhance: withHistory, initialValue })
+  const editor = useSlateEditor({ withEditor: withHistory, initialValue })
   return (
     <Slate editor={editor}>
       <Editable

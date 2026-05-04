@@ -15,7 +15,7 @@ import type { CustomEditor, CustomValue } from './custom-types.d'
 
 const MarkdownPreviewExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    enhance: (editor) => withHistory(editor) as CustomEditor,
+    withEditor: (editor) => withHistory(editor) as CustomEditor,
     initialValue,
   })
   const markdownSource = useMemo(

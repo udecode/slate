@@ -96,7 +96,7 @@ export {
   useSlateAnnotations,
 } from './hooks/use-slate-annotations'
 export {
-  type SlateEditorEnhance,
+  type SlateEditorComposer,
   type UseSlateEditorOptions,
   useSlateEditor,
 } from './hooks/use-slate-editor'
