@@ -1,7 +1,6 @@
 import { css } from '@emotion/css'
 import { useEffect, useMemo, useRef } from 'react'
 import {
-  createEditor,
   type Descendant,
   type EditorSnapshot,
   Node,
@@ -14,7 +13,7 @@ import {
   type EditableProps,
   Slate,
   type SlateProjection,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 
 import { Icon, Toolbar } from './components'
@@ -23,20 +22,10 @@ import type { CustomEditor, CustomText, CustomValue } from './custom-types.d'
 const SearchHighlightingExample = () => {
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const searchRef = useRef('')
-  const editor = useMemo(() => {
-    const nextEditor = withHistory(
-      withReact(createEditor<CustomValue>())
-    ) as CustomEditor
-
-    nextEditor.update((tx) => {
-      tx.value.replace({
-        children: initialValue,
-        selection: null,
-      })
-    })
-
-    return nextEditor
-  }, [])
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    enhance: (editor) => withHistory(editor) as CustomEditor,
+    initialValue,
+  })
   const searchSource = useMemo(
     () =>
       createDecorationSource<{ highlight: true }>(editor, {

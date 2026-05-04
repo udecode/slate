@@ -1,21 +1,11 @@
 import {
-  addMark,
-  deleteFragment,
-  type Editor,
+  apply,
   extendEditor,
   getDirtyPaths,
   getFragment,
-  insertBreak,
-  insertFragment,
-  insertNode,
-  insertSoftBreak,
-  insertText,
   normalizeNode,
-  removeMark,
   shouldNormalize,
-  toggleMark,
-} from './'
-import { apply } from './core'
+} from './core'
 import {
   type InternalEditorExtensionRuntime,
   type InternalEditorQueryRuntime,
@@ -48,11 +38,13 @@ import {
 import { setEditorTransformRegistry } from './core/transform-registry'
 import {
   above,
+  addMark,
   after,
   before,
   bookmark,
   deleteBackward,
   deleteForward,
+  deleteFragment,
   edges,
   elementReadOnly,
   first,
@@ -62,6 +54,10 @@ import {
   hasInlines,
   hasPath,
   hasTexts,
+  insertBreak,
+  insertNode,
+  insertSoftBreak,
+  insertText,
   isBlock,
   isEdge,
   isEmpty,
@@ -86,13 +82,17 @@ import {
   range,
   rangeRef,
   rangeRefs,
+  removeMark,
   setNormalizing,
   shouldMergeNodesRemovePrevNode,
   string,
+  toggleMark,
   unhangRange,
   withoutNormalizing,
 } from './editor'
 import type {
+  CreateEditorOptions,
+  Editor,
   EditorElementBehavior,
   EditorElementPropertyDescriptor,
   EditorElementSpec,
@@ -124,6 +124,7 @@ import {
   setSelection,
 } from './transforms-selection'
 import { deleteText } from './transforms-text'
+import { insertFragment } from './transforms-text/insert-fragment'
 
 /**
  * Create a new Slate `Editor` object.
@@ -308,11 +309,11 @@ const createEditorSchema = (getEditor: () => Editor<any>): EditorSchemaApi => {
     },
     isEditableIsland: (element) => getElementBehavior(element).editableIsland,
     isElementPropertyEqual,
-    isElementReadOnly: (element) => getElementBehavior(element).readOnly,
     isInline: (element) => getElementBehavior(element).inline,
     isIsolating: (element) => getElementBehavior(element).isolating,
     isKeyboardSelectable: (element) =>
       getElementBehavior(element).keyboardSelectable,
+    isReadOnly: (element) => getElementBehavior(element).readOnly,
     isSelectable: (element) => getElementBehavior(element).selectable,
     isVoid: (element) => getElementBehavior(element).void,
     markableVoid: (element) => getElementBehavior(element).markableVoid,
@@ -382,7 +383,9 @@ const createEditorTransformRegistry = <V extends Value>(
   return Object.freeze(registry)
 }
 
-export const createEditor = <V extends Value = Value>(): Editor<V> => {
+export const createEditor = <V extends Value = Value>(
+  options: CreateEditorOptions<V> = {}
+): Editor<V> => {
   let editor!: Editor<V>
   const runtimeEditor = () => editor as Editor<any>
   const schema = createEditorSchema(runtimeEditor)
@@ -505,7 +508,7 @@ export const createEditor = <V extends Value = Value>(): Editor<V> => {
   )
   setBaseApply(editor, (...args) => apply(editor, ...args))
 
-  initializePublicState(editor)
+  initializePublicState(editor, options)
 
   return editor
 }

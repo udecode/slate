@@ -131,6 +131,79 @@ describe('primary public surface examples', () => {
 
 describe('primary slate package surface', () => {
   const publicEditorMethods = ['extend', 'read', 'subscribe', 'update'].sort()
+  const requiredSlateRootExports = [
+    'createEditor',
+    'defineEditorExtension',
+    'elementProperty',
+    'isEditor',
+    'Element',
+    'Node',
+    'Operation',
+    'Path',
+    'Point',
+    'Range',
+    'Scrubber',
+    'Text',
+    'isObject',
+  ]
+  const bannedSlateRootHelperExports = [
+    'above',
+    'addMark',
+    'after',
+    'apply',
+    'before',
+    'bookmark',
+    'collapse',
+    'deleteBackward',
+    'deleteForward',
+    'deleteFragment',
+    'deselect',
+    'elementReadOnly',
+    'executeCommand',
+    'getDirtyPaths',
+    'getEditorRuntime',
+    'getExtensionRegistry',
+    'getFragment',
+    'getLastCommit',
+    'getOperations',
+    'getPathByRuntimeId',
+    'getRuntimeId',
+    'getSelection',
+    'getSnapshot',
+    'insertBreak',
+    'insertFragment',
+    'insertNode',
+    'insertNodes',
+    'insertSoftBreak',
+    'insertText',
+    'isNormalizing',
+    'liftNodes',
+    'mergeNodes',
+    'move',
+    'moveNodes',
+    'normalizeNode',
+    'pathRef',
+    'pathRefs',
+    'pointRef',
+    'pointRefs',
+    'rangeRef',
+    'rangeRefs',
+    'registerCommand',
+    'removeMark',
+    'removeNodes',
+    'replace',
+    'select',
+    'setNodes',
+    'setNormalizing',
+    'setSelection',
+    'shouldMergeNodesRemovePrevNode',
+    'shouldNormalize',
+    'splitNodes',
+    'unsetNodes',
+    'unwrapNodes',
+    'withoutNormalizing',
+    'wrapNodes',
+  ]
   const bannedEditorInstanceSurface = [
     'above',
     'after',
@@ -184,6 +257,33 @@ describe('primary slate package surface', () => {
     'unhangRange',
     'void',
   ]
+
+  it('keeps the intended small public root', () => {
+    const missing = requiredSlateRootExports.filter((key) => !(key in Slate))
+
+    assert.deepEqual(missing, [])
+    assert.equal(typeof Slate.createEditor, 'function')
+    assert.equal(typeof Slate.defineEditorExtension, 'function')
+    assert.equal(typeof Slate.elementProperty.boolean, 'function')
+    assert.equal(typeof Slate.isEditor, 'function')
+  })
+
+  it('does not export raw editor, core, or transform helper functions from the primary package', () => {
+    const leaked = bannedSlateRootHelperExports.filter((key) => key in Slate)
+
+    assert.deepEqual(leaked, [])
+  })
+
+  it('does not wildcard-export the internal editor type table from the primary package', () => {
+    const rootSource = readFileSync(
+      resolve(repoRoot, 'packages/slate/src/index.ts'),
+      'utf8'
+    )
+
+    assert.equal(rootSource.includes("export * from './interfaces'"), false)
+    assert.equal(rootSource.includes('EditorStaticApi'), false)
+    assert.equal(rootSource.includes('EditorElementReadOnlyOptions'), false)
+  })
 
   it('does not export the editor-state static namespace as a value', () => {
     assert.equal('Editor' in Slate, false)

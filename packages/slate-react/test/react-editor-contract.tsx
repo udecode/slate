@@ -6,8 +6,8 @@ import { ReactEditor } from '../src/plugin/react-editor'
 
 describe('slate-react DOM capability contract', () => {
   test('editor.dom.focus initializes a null selection at the top of the document', async () => {
-    const editor = withReact(createEditor())
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
+    const editor = withReact(createEditor({ initialValue }))
     const expectedSelection = {
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 0 },
@@ -15,7 +15,7 @@ describe('slate-react DOM capability contract', () => {
 
     act(() => {
       render(
-        <Slate editor={editor} initialValue={initialValue}>
+        <Slate editor={editor}>
           <Editable />
         </Slate>
       )
@@ -38,8 +38,8 @@ describe('slate-react DOM capability contract', () => {
   })
 
   test('editor.dom.focus stays safe when called mid-transform', async () => {
-    const editor = withReact(createEditor())
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
+    const editor = withReact(createEditor({ initialValue }))
     const propagatedValue = [
       { type: 'block', children: [{ text: 'foo' }] },
       { type: 'block', children: [{ text: 'bar' }] },
@@ -51,7 +51,7 @@ describe('slate-react DOM capability contract', () => {
 
     act(() => {
       render(
-        <Slate editor={editor} initialValue={initialValue}>
+        <Slate editor={editor}>
           <Editable />
         </Slate>
       )
@@ -76,8 +76,8 @@ describe('slate-react DOM capability contract', () => {
   })
 
   test('editor.dom.focus reports a selection change without a value change', async () => {
-    const editor = withReact(createEditor())
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
+    const editor = withReact(createEditor({ initialValue }))
     const onChange = jest.fn()
     const onSelectionChange = jest.fn()
     const onValueChange = jest.fn()
@@ -86,7 +86,6 @@ describe('slate-react DOM capability contract', () => {
       render(
         <Slate
           editor={editor}
-          initialValue={initialValue}
           onChange={onChange}
           onSelectionChange={onSelectionChange}
           onValueChange={onValueChange}
@@ -125,14 +124,14 @@ describe('slate-react DOM capability contract', () => {
   })
 
   test('DOM-present selection export uses direct endpoints for common model selections', async () => {
-    const editor = withReact(createEditor())
     const initialValue = [
       { type: 'block', children: [{ text: 'alpha' }] },
       { type: 'block', children: [{ text: 'bravo' }] },
     ]
+    const editor = withReact(createEditor({ initialValue }))
 
     const mounted = render(
-      <Slate editor={editor} initialValue={initialValue}>
+      <Slate editor={editor}>
         <Editable />
       </Slate>
     )
@@ -175,14 +174,14 @@ describe('slate-react DOM capability contract', () => {
   })
 
   test('large full-document selections stay model-backed instead of selecting every DOM child', async () => {
-    const editor = withReact(createEditor())
     const initialValue = Array.from({ length: 1001 }, (_, index) => ({
       type: 'block',
       children: [{ text: `block-${index}` }],
     }))
+    const editor = withReact(createEditor({ initialValue }))
 
     const mounted = render(
-      <Slate editor={editor} initialValue={initialValue}>
+      <Slate editor={editor}>
         <Editable />
       </Slate>
     )
@@ -206,11 +205,11 @@ describe('slate-react DOM capability contract', () => {
   })
 
   test('browser handle resolves mounted elements by Slate path without DOM scans', () => {
-    const editor = withReact(createEditor())
     const initialValue = [{ type: 'block', children: [{ text: 'lookup' }] }]
+    const editor = withReact(createEditor({ initialValue }))
 
     const mounted = render(
-      <Slate editor={editor} initialValue={initialValue}>
+      <Slate editor={editor}>
         <Editable />
       </Slate>
     )

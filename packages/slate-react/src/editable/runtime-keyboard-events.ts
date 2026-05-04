@@ -1,8 +1,8 @@
 import { type KeyboardEvent, useCallback } from 'react'
 import type { RuntimeId } from 'slate'
 import type { EditableKeyDownHandler } from '../components/editable'
-import type { MountedTopLevelRange } from '../large-document/large-document-commands'
 import type { ReactEditor } from '../plugin/react-editor'
+import type { MountedTopLevelRange } from '../rendering-strategy/rendering-strategy-commands'
 import { prepareEditableKeyDownKernel } from './editing-kernel'
 import { useEditableKeyboardHandler } from './input-router'
 import type { EditableInputController } from './input-state'
@@ -12,7 +12,7 @@ import type { EditableEventRuntimeCore } from './runtime-event-engine'
 export const useRuntimeKeyboardEvents = ({
   editor,
   inputController,
-  largeDocument,
+  renderingStrategy,
   onKeyDown,
   readOnly,
   runtime,
@@ -21,8 +21,8 @@ export const useRuntimeKeyboardEvents = ({
 }: {
   editor: ReactEditor
   inputController: EditableInputController
-  largeDocument: {
-    mode: 'dom-present' | 'shell'
+  renderingStrategy: {
+    type: 'staged' | 'shell' | 'virtualized'
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
   } | null
@@ -38,7 +38,7 @@ export const useRuntimeKeyboardEvents = ({
         editor,
         event,
         inputController,
-        largeDocument,
+        renderingStrategy,
       })
       inputController.state.activeIntent = decision.intent
       runtime.selection.applyKeyDownSelectionPolicy(decision)
@@ -48,7 +48,8 @@ export const useRuntimeKeyboardEvents = ({
         editor,
         event,
         forceRender: runtime.repair.forceRender,
-        largeDocument,
+        inputController,
+        renderingStrategy,
         onKeyDown,
         readOnly,
         setExplicitShellBackedSelection,
@@ -76,7 +77,7 @@ export const useRuntimeKeyboardEvents = ({
     [
       editor,
       inputController,
-      largeDocument,
+      renderingStrategy,
       onKeyDown,
       readOnly,
       runtime,

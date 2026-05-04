@@ -33,7 +33,7 @@ export type DOMCoverageBoundaryState =
 export type DOMCoverageReason =
   | 'app-collapse'
   | 'app-hidden'
-  | 'large-document-staged'
+  | 'rendering-staged'
   | 'viewport-virtualization'
   | 'shell-aggressive'
   | 'runtime-atom'

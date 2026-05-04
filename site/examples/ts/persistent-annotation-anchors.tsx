@@ -1,21 +1,14 @@
 import { css } from '@emotion/css'
 import { useMemo, useState } from 'react'
-import {
-  type Bookmark,
-  createEditor,
-  type Path,
-  type Point,
-  type Range,
-  type Value,
-} from 'slate'
+import type { Bookmark, createEditor, Path, Point, Range, Value } from 'slate'
 import {
   Slate,
   useEditorSelector,
   useSlateAnnotationStore,
   useSlateAnnotations,
+  useSlateEditor,
   useSlateWidgetStore,
   useSlateWidgets,
-  withReact,
 } from 'slate-react'
 
 import { Instruction } from './components'
@@ -484,18 +477,7 @@ const AnchoredProjectionContent = ({
 }
 
 const PersistentAnnotationAnchorsExample = () => {
-  const [editor] = useState(() => {
-    const nextEditor = withReact(createEditor())
-
-    nextEditor.update((tx) => {
-      tx.value.replace({
-        children: createChildren(),
-        selection: null,
-      })
-    })
-
-    return nextEditor
-  })
+  const editor = useSlateEditor({ initialValue: createChildren() })
   const [annotation, setAnnotation] = useState<Bookmark | null>(null)
   const annotations = useMemo(
     () =>

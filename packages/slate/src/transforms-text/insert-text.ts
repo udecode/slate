@@ -1,9 +1,11 @@
 import {
   applyOperation,
   getPublicSelection,
+  replaceSnapshot,
   syncImplicitTargetToCurrentSelection,
 } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
+import { elementReadOnly } from '../editor/element-read-only'
 import {
   Location,
   Range,
@@ -79,7 +81,7 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
   if (
     Location.isPoint(preflightAt) &&
     ((!voids && Editor.void(editor, { at: preflightAt })) ||
-      Editor.elementReadOnly(editor, { at: preflightAt }))
+      elementReadOnly(editor, { at: preflightAt }))
   ) {
     return
   }
@@ -90,7 +92,7 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
     !Range.isCollapsed(defaultAt) &&
     isFullDocumentRange(editor, defaultAt)
   ) {
-    Editor.replace(editor, {
+    replaceSnapshot(editor, {
       children: createFullDocumentTextReplacement(editor, text) as Value,
       selection: {
         anchor: { path: [0, 0], offset: text.length },
@@ -138,7 +140,7 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
 
     if (
       (!voids && Editor.void(editor, { at })) ||
-      Editor.elementReadOnly(editor, { at })
+      elementReadOnly(editor, { at })
     ) {
       return
     }

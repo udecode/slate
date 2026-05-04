@@ -1,12 +1,12 @@
 import { css } from '@emotion/css'
 import { type CSSProperties, useMemo, useRef, useState } from 'react'
-import { createEditor, type Value } from 'slate'
+import type { Value } from 'slate'
 import {
   createDecorationSource,
   Editable,
   Slate,
   type SlateProjection,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 
 import { Instruction } from './components'
@@ -156,18 +156,7 @@ const nextTone = (tone: Tone): Tone =>
   tone === 'warm' ? 'cool' : tone === 'cool' ? 'danger' : 'warm'
 
 const ExternalDecorationSourcesExample = () => {
-  const [editor] = useState(() => {
-    const nextEditor = withReact(createEditor())
-
-    nextEditor.update((tx) => {
-      tx.value.replace({
-        children: initialChildren,
-        selection: null,
-      })
-    })
-
-    return nextEditor
-  })
+  const editor = useSlateEditor({ initialValue: initialChildren })
   const [mode, setMode] = useState<Mode>('alpha')
   const [tone, setTone] = useState<Tone>('warm')
   const [externalSnapshot, setExternalSnapshot] = useState<

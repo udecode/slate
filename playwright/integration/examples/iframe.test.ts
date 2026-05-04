@@ -6,6 +6,16 @@ test.describe('iframe editor', () => {
   })
 
   test('should be editable', async ({ page }) => {
+    const slateErrors: string[] = []
+    page.on('console', (message) => {
+      if (
+        message.type() === 'error' &&
+        message.text().includes('without a DOM coverage boundary')
+      ) {
+        slateErrors.push(message.text())
+      }
+    })
+
     const textbox = page
       .frameLocator('iframe')
       .locator('body')
@@ -25,5 +35,7 @@ test.describe('iframe editor', () => {
       handle.insertText('Hello World')
     })
     await expect(textbox).toContainText('Hello World')
+    await page.waitForTimeout(50)
+    expect(slateErrors).toEqual([])
   })
 })

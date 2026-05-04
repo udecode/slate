@@ -118,11 +118,7 @@ const AnnotationHarness = ({
   const annotationStore = useSlateAnnotationStore(editor, annotations)
 
   return (
-    <Slate
-      annotationStores={[annotationStore]}
-      editor={editor}
-      initialValue={Editor.getSnapshot(editor).children}
-    >
+    <Slate annotationStores={[annotationStore]} editor={editor}>
       <AnnotationOverlaySlices annotationStore={annotationStore} />
     </Slate>
   )

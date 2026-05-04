@@ -28,14 +28,17 @@ import {
 
 const iterations = Number(process.env.REACT_HUGE_DOC_BENCH_ITERATIONS || 5)
 const blockCount = Number(process.env.REACT_HUGE_DOC_BLOCKS || 200)
-const islandSize = Number(process.env.REACT_HUGE_DOC_ISLAND_SIZE || 20)
-const activeRadius = Number(process.env.REACT_HUGE_DOC_ACTIVE_RADIUS || 1)
+const segmentSize = Number(process.env.REACT_HUGE_DOC_ISLAND_SIZE || 20)
+const overscan = Number(process.env.REACT_HUGE_DOC_ACTIVE_RADIUS || 1)
 
-const getIslandCount = () => Math.ceil(blockCount / islandSize)
-const getFarIslandIndex = () =>
-  Math.min(getIslandCount() - 1, Math.max(2, Math.floor(getIslandCount() / 2)))
+const getSegmentCount = () => Math.ceil(blockCount / segmentSize)
+const getFarSegmentIndex = () =>
+  Math.min(
+    getSegmentCount() - 1,
+    Math.max(2, Math.floor(getSegmentCount() / 2))
+  )
 const getFarBlockIndex = () =>
-  Math.min(blockCount - 1, getFarIslandIndex() * islandSize)
+  Math.min(blockCount - 1, getFarSegmentIndex() * segmentSize)
 
 const createChildren = () =>
   Array.from({ length: blockCount }, (_, index) => ({
@@ -188,7 +191,7 @@ const TrackedElement = ({
   return React.createElement(isInline ? 'span' : 'div', attributes, children)
 }
 
-const LargeDocumentOverlayApp = ({
+const RenderingStrategyOverlayApp = ({
   counts,
   editor,
   onProjectionStore,
@@ -233,7 +236,7 @@ const LargeDocumentOverlayApp = ({
 
   return (
     <Slate editor={editor} projectionStore={projectionStore}>
-      <LargeDocumentOverlayInner
+      <RenderingStrategyOverlayInner
         counts={counts}
         onToggle={() => {
           setOverlayActive((value) => !value)
@@ -244,7 +247,7 @@ const LargeDocumentOverlayApp = ({
   )
 }
 
-const LargeDocumentOverlayInner = ({
+const RenderingStrategyOverlayInner = ({
   counts,
   onToggle,
   overlayActive,
@@ -291,12 +294,6 @@ const LargeDocumentOverlayInner = ({
       />
       <Editable
         id="huge-document-overlays"
-        largeDocument={{
-          activeRadius,
-          mode: 'shell',
-          islandSize,
-          threshold: 1,
-        }}
         renderElement={({ attributes, children, isInline, path }) => (
           <TrackedElement
             attributes={attributes}
@@ -307,6 +304,12 @@ const LargeDocumentOverlayInner = ({
             {children}
           </TrackedElement>
         )}
+        renderingStrategy={{
+          overscan,
+          type: 'shell',
+          segmentSize,
+          threshold: 1,
+        }}
       />
     </>
   )
@@ -316,7 +319,8 @@ const countMountedTextNodes = (container: HTMLElement) =>
   container.querySelectorAll('[data-slate-node="text"]').length
 
 const countShells = (container: HTMLElement) =>
-  container.querySelectorAll('[data-slate-large-document-shell="true"]').length
+  container.querySelectorAll('[data-slate-rendering-strategy-shell="true"]')
+    .length
 
 const setupScenario = async () => {
   const editor = createEditor()
@@ -330,7 +334,7 @@ const setupScenario = async () => {
   })
 
   const mounted = await mountApp(
-    <LargeDocumentOverlayApp
+    <RenderingStrategyOverlayApp
       counts={counts}
       editor={editor}
       onProjectionStore={(store) => {
@@ -347,7 +351,7 @@ const setupScenario = async () => {
   )
 
   if (!view || !toggle || !root || !projectionStore) {
-    throw new Error('Missing large-document overlay benchmark controls')
+    throw new Error('Missing rendering-strategy overlay benchmark controls')
   }
 
   return {
@@ -493,7 +497,7 @@ const measureShellPromotion = async () =>
     const shellCountBefore = countShells(mounted.container)
     const mountedTextBefore = countMountedTextNodes(mounted.container)
     const targetShell = mounted.container.querySelector<HTMLElement>(
-      `[data-slate-large-document-shell="true"][data-slate-large-document-island="${getFarIslandIndex()}"]`
+      `[data-slate-rendering-strategy-shell="true"][data-slate-rendering-strategy-segment="${getFarSegmentIndex()}"]`
     )
 
     if (!targetShell) {
@@ -536,11 +540,11 @@ const measureShellPromotion = async () =>
 const main = async () => {
   const summary = {
     config: {
-      activeRadius,
+      overscan,
       blockCount,
       farBlockIndex: getFarBlockIndex(),
-      farIslandIndex: getFarIslandIndex(),
-      islandSize,
+      farSegmentIndex: getFarSegmentIndex(),
+      segmentSize,
       iterations,
     },
     lane: 'slate-react-huge-document-overlays',

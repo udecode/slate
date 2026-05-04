@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 
 import { createEditor, type Descendant } from '../src'
 import { Editor } from '../src/interfaces/editor'
+import { replaceEditorValue } from './support/snapshot'
 
 const paragraph = (text: string, props: Record<string, unknown> = {}) =>
   ({
@@ -12,10 +13,71 @@ const paragraph = (text: string, props: Record<string, unknown> = {}) =>
   }) as Descendant
 
 describe('state/tx public API contract', () => {
+  it('initializes document state during editor creation', () => {
+    const selection = {
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    }
+    const editor = createEditor({
+      initialSelection: selection,
+      initialValue: [paragraph('one')],
+    })
+
+    const state = editor.read((state) => ({
+      lastCommit: state.value.lastCommit(),
+      operations: state.value.operations(),
+      selection: state.selection.get(),
+      value: state.value.get(),
+    }))
+
+    assert.deepEqual(state.value, [paragraph('one')])
+    assert.deepEqual(state.selection, selection)
+    assert.deepEqual(state.operations, [])
+    assert.equal(state.lastCommit, null)
+  })
+
+  it('rejects an explicitly empty initial value', () => {
+    assert.throws(
+      () => createEditor({ initialValue: [] }),
+      /Expected at least one element/
+    )
+  })
+
+  it('replaces a mounted document and clears selection in one transaction', () => {
+    const editor = createEditor({
+      initialSelection: {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      },
+      initialValue: [paragraph('one')],
+    })
+
+    editor.update((tx) => {
+      tx.value.replace({
+        children: [paragraph('two')],
+        selection: null,
+      })
+    })
+
+    const state = editor.read((state) => ({
+      lastCommit: state.value.lastCommit(),
+      operations: state.value.operations(),
+      selection: state.selection.get(),
+      value: state.value.get(),
+    }))
+
+    assert.deepEqual(state.value, [paragraph('two')])
+    assert.deepEqual(state.selection, null)
+    assert.equal(state.operations.length, 0)
+    assert.equal(state.lastCommit?.childrenChanged, true)
+    assert.equal(state.lastCommit?.fullDocumentChanged, true)
+    assert.equal(state.lastCommit?.selectionChanged, true)
+  })
+
   const createSeededEditor = () => {
     const editor = createEditor()
 
-    Editor.replace(editor, {
+    replaceEditorValue(editor, {
       children: [paragraph('one'), paragraph('two')],
       selection: {
         anchor: { path: [0, 0], offset: 3 },
@@ -52,7 +114,7 @@ describe('state/tx public API contract', () => {
   it('reads fragments through grouped read state', () => {
     const editor = createSeededEditor()
 
-    Editor.replace(editor, {
+    replaceEditorValue(editor, {
       children: [paragraph('one'), paragraph('two')],
       selection: {
         anchor: { path: [0, 0], offset: 0 },
@@ -192,7 +254,7 @@ describe('state/tx public API contract', () => {
     let before = [] as Descendant[]
     let after = [] as Descendant[]
 
-    Editor.replace(editor, {
+    replaceEditorValue(editor, {
       children: [paragraph('one'), paragraph('two')],
       selection: {
         anchor: { path: [0, 0], offset: 0 },

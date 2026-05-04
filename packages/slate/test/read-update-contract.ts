@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 import { Editor } from 'slate/internal'
 
 import { createEditor, type Descendant } from '../src'
+import { replaceEditorValue } from './support/snapshot'
 
 const paragraph = (text: string): Descendant => ({
   type: 'paragraph',
@@ -13,7 +14,7 @@ describe('read/update contract', () => {
   it('exposes a coherent read boundary and an update boundary with commit tags', () => {
     const editor = createEditor()
 
-    Editor.replace(editor, {
+    replaceEditorValue(editor, {
       children: [paragraph('one')],
       selection: {
         anchor: { path: [0, 0], offset: 3 },
@@ -65,7 +66,7 @@ describe('read/update contract', () => {
   it('rejects nested transaction writes inside a plain read', () => {
     const editor = createEditor()
 
-    Editor.replace(editor, {
+    replaceEditorValue(editor, {
       children: [paragraph('one')],
       selection: {
         anchor: { path: [0, 0], offset: 3 },
@@ -87,7 +88,7 @@ describe('read/update contract', () => {
   it('rejects replay writes inside a plain read', () => {
     const editor = createEditor()
 
-    Editor.replace(editor, {
+    replaceEditorValue(editor, {
       children: [paragraph('one')],
       selection: {
         anchor: { path: [0, 0], offset: 3 },

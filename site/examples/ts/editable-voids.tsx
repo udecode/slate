@@ -1,14 +1,13 @@
 import { css } from '@emotion/css'
 import type React from 'react'
-import { type PointerEvent, useMemo, useState } from 'react'
-import { createEditor } from 'slate'
+import { type PointerEvent, useState } from 'react'
 import { withHistory } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
   Slate,
   useEditor,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 
 import { Button, Icon, Toolbar } from './components'
@@ -20,16 +19,13 @@ import type {
 import RichTextEditor from './richtext'
 
 const EditableVoidsExample = () => {
-  const editor = useMemo(
-    () =>
-      withEditableVoids(
-        withHistory(withReact(createEditor<CustomValue>())) as CustomEditor
-      ),
-    []
-  )
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    enhance: (editor) => withEditableVoids(withHistory(editor) as CustomEditor),
+    initialValue,
+  })
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Toolbar>
         <InsertEditableVoidButton />
       </Toolbar>

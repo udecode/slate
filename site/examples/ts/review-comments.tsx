@@ -1,6 +1,6 @@
 import { css } from '@emotion/css'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { type Bookmark, createEditor, type Range, type Value } from 'slate'
+import type { Bookmark, Range, Value } from 'slate'
 import {
   Editable,
   type ReactEditor,
@@ -9,9 +9,9 @@ import {
   useEditorSelection,
   useSlateAnnotationStore,
   useSlateAnnotations,
+  useSlateEditor,
   useSlateWidgetStore,
   useSlateWidgets,
-  withReact,
 } from 'slate-react'
 
 import { Instruction } from './components'
@@ -490,20 +490,12 @@ const ReviewCommentsContent = ({
 }
 
 const ReviewCommentsExample = () => {
-  const [editor] = useState(() => {
-    const nextEditor = withReact(createEditor())
-
-    nextEditor.update((tx) => {
-      tx.value.replace({
-        children: initialChildren,
-        selection: {
-          anchor: { path: [0, 0], offset: 0 },
-          focus: { path: [0, 0], offset: 0 },
-        },
-      })
-    })
-
-    return nextEditor
+  const editor = useSlateEditor({
+    initialSelection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    initialValue: initialChildren,
   })
   const [comments, setComments] = useState<CommentThread[]>([])
   const annotations = useMemo(

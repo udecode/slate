@@ -28,7 +28,7 @@ const initialValue = () => [
 describe('useElementSelected', () => {
   const withEditor = () => {
     beforeEach(() => {
-      editor = withReact(createEditor())
+      editor = withReact(createEditor({ initialValue: initialValue() }))
 
       latestSelectedById = {}
 
@@ -47,7 +47,7 @@ describe('useElementSelected', () => {
       }
 
       render(
-        <Slate editor={editor} initialValue={initialValue()}>
+        <Slate editor={editor}>
           <Editable renderElement={renderElement} />
         </Slate>
       )

@@ -2,4 +2,4 @@
 "slate": patch
 ---
 
-Fix arrow-key navigation across selectable block voids and inline voids.
+Fix arrow-key navigation to select selectable block and inline voids.

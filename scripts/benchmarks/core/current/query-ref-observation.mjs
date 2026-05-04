@@ -1,4 +1,5 @@
-import { createEditor, Editor } from '../../../../packages/slate/src/index.ts'
+import { createEditor } from '../../../../packages/slate/src/index.ts'
+import { Editor } from '../../../../packages/slate/src/internal/index.ts'
 import {
   round,
   summarize,

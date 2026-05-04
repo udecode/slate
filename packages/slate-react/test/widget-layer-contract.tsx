@@ -71,7 +71,7 @@ const WidgetHarness = ({
   const toolbarWidget = useSlateWidget(widgetStore, 'toolbar-widget')
 
   return (
-    <Slate editor={editor} initialValue={Editor.getSnapshot(editor).children}>
+    <Slate editor={editor}>
       <MemoTextSlice counts={counts} slot="left" />
       <MemoTextSlice counts={counts} slot="right" />
       <span id="widget-state">

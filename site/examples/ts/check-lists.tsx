@@ -1,12 +1,6 @@
 import { css } from '@emotion/css'
-import { type ChangeEvent, useCallback, useMemo } from 'react'
-import {
-  createEditor,
-  Node,
-  Point,
-  Range,
-  type Element as SlateElement,
-} from 'slate'
+import { type ChangeEvent, useCallback } from 'react'
+import { Node, Point, Range, type Element as SlateElement } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -15,7 +9,7 @@ import {
   Slate,
   useEditor,
   useEditorReadOnly,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 import type {
   CheckListItemElement as CheckListItemType,
@@ -74,10 +68,10 @@ const CheckListsExample = () => {
     (props: RenderElementProps) => <Element {...props} />,
     []
   )
-  const editor = useMemo(
-    () => withHistory(withReact(createEditor<CustomValue>())) as CustomEditor,
-    []
-  )
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    enhance: (editor) => withHistory(editor) as CustomEditor,
+    initialValue,
+  })
   const handleKeyDown = useCallback<EditableKeyDownHandler>(
     (event) => {
       if (event.key === 'Backspace') {
@@ -88,7 +82,7 @@ const CheckListsExample = () => {
   )
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable
         autoFocus
         onKeyDown={handleKeyDown}

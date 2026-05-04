@@ -24,7 +24,6 @@ import {
   isInteractiveInternalTarget,
 } from './input-controller'
 import type { EditableInputController } from './input-state'
-import { Editor } from './runtime-editor-api'
 import { readLiveSelection } from './runtime-selection-state'
 
 type RuntimeKernelIntent = ReturnType<typeof classifyKeyboardIntent>
@@ -148,7 +147,6 @@ export const useRuntimeKernelTraceEngine = ({
           eventFamily: family,
           intent,
           nativeAllowed: nextOwnership === 'native-allowed',
-          operations: Editor.getOperations(editor),
           ownership: nextOwnership,
           repair: null,
           selectionAfter: selection,
@@ -202,7 +200,6 @@ export const useRuntimeKernelTraceEngine = ({
           eventFamily: 'input',
           intent: inputController.state.activeIntent,
           nativeAllowed: ownership === 'native-allowed',
-          operations: Editor.getOperations(editor),
           ownership,
           repair: null,
           selectionAfter: readLiveSelection(editor),
@@ -291,7 +288,6 @@ export const useRuntimeKernelTraceEngine = ({
             ownership: decision.ownership,
           }),
           nativeAllowed: decision.nativeAllowed,
-          operations: Editor.getOperations(editor),
           ownership: decision.ownership,
           repair: null,
           selectionAfter: readLiveSelection(editor),

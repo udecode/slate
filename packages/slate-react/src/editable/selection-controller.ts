@@ -92,10 +92,16 @@ const getDOMPointForSlateTextPoint = (
     const nextOffset = offset + (Number.isFinite(length) ? length : 0)
 
     if (point.offset <= nextOffset) {
+      const zeroWidthOffset =
+        textNode?.textContent?.startsWith('\uFEFF') ||
+        string.textContent === '\uFEFF'
+          ? 1
+          : 0
+
       return {
         node: textNode ?? string,
         offset: string.hasAttribute('data-slate-zero-width')
-          ? 1
+          ? zeroWidthOffset
           : Math.max(0, Math.min(point.offset - offset, length)),
       }
     }
@@ -521,6 +527,14 @@ export const applyEditableDOMSelectionChange = ({
       })
     : null
   const selectionChangeOrigin = state.selectionChangeOrigin ?? 'native-user'
+
+  if (
+    state.selectionSource === 'shell-backed' &&
+    isEditableModelSelectionPreferred(inputController)
+  ) {
+    return
+  }
+
   const shouldImportChangedExpandedSelection =
     domSelectionBelongsToEditor &&
     shouldImportChangedExpandedDOMSelection({

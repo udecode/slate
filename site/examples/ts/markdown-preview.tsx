@@ -2,32 +2,22 @@ import { css } from '@emotion/css'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-markdown'
 import { type ReactNode, useEffect, useMemo } from 'react'
-import { createEditor, type Descendant, Node } from 'slate'
+import { type Descendant, Node } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   createDecorationSource,
   Editable,
   Slate,
   type SlateProjection,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 import type { CustomEditor, CustomValue } from './custom-types.d'
 
 const MarkdownPreviewExample = () => {
-  const editor = useMemo(() => {
-    const nextEditor = withHistory(
-      withReact(createEditor<CustomValue>())
-    ) as CustomEditor
-
-    nextEditor.update((tx) => {
-      tx.value.replace({
-        children: initialValue,
-        selection: null,
-      })
-    })
-
-    return nextEditor
-  }, [])
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    enhance: (editor) => withHistory(editor) as CustomEditor,
+    initialValue,
+  })
   const markdownSource = useMemo(
     () =>
       createDecorationSource<Record<string, true>>(editor, {

@@ -1,0 +1,65 @@
+import React from 'react'
+import type { Path, RuntimeId } from 'slate'
+import { DOMCoverage } from 'slate-dom/internal'
+
+import { useEditor } from '../hooks/use-editor'
+import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
+
+export const RenderingStrategyVirtualizedRangeBoundary = React.memo(
+  ({
+    anchorRuntimeId,
+    boundaryId,
+    endIndex,
+    focusRuntimeId,
+    startIndex,
+  }: {
+    anchorRuntimeId: RuntimeId | null
+    boundaryId: string
+    endIndex: number
+    focusRuntimeId: RuntimeId | null
+    startIndex: number
+  }) => {
+    const editor = useEditor()
+    const boundary = React.useMemo(
+      () => ({
+        anchor: { type: 'placeholder' as const },
+        boundaryId,
+        copyPolicy: 'include-model' as const,
+        coveredPathRanges: [
+          {
+            anchor: [startIndex] as Path,
+            focus: [endIndex] as Path,
+          },
+        ],
+        coveredRuntimeRanges:
+          anchorRuntimeId && focusRuntimeId
+            ? [{ anchor: anchorRuntimeId, focus: focusRuntimeId }]
+            : [],
+        findPolicy: 'not-native-until-mounted' as const,
+        ownerPath: [] as Path,
+        ownerRuntimeId: null,
+        reason: 'viewport-virtualization' as const,
+        selectionPolicy: 'materialize' as const,
+        state: 'virtualized' as const,
+        version: 1,
+      }),
+      [anchorRuntimeId, boundaryId, endIndex, focusRuntimeId, startIndex]
+    )
+
+    useIsomorphicLayoutEffect(
+      () => DOMCoverage.registerBoundary(editor, boundary),
+      [boundary, editor]
+    )
+
+    return (
+      <div
+        aria-hidden="true"
+        contentEditable={false}
+        data-slate-dom-coverage-boundary={boundaryId}
+        data-slate-dom-coverage-edge="owner"
+        data-slate-rendering-strategy-virtualized-boundary="true"
+        hidden
+      />
+    )
+  }
+)

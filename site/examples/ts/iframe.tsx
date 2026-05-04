@@ -1,8 +1,7 @@
-import isHotkey from 'is-hotkey'
 import type React from 'react'
-import { type PointerEvent, useCallback, useMemo, useState } from 'react'
+import { type PointerEvent, useCallback, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { createEditor } from 'slate'
+import { isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -11,7 +10,7 @@ import {
   Slate,
   useEditor,
   useEditorSelector,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 
 import { Button, Icon, Toolbar } from './components'
@@ -24,6 +23,8 @@ const HOTKEYS: Record<string, CustomTextKey> = {
   'mod+`': 'code',
 }
 
+const MARK_HOTKEYS = Object.entries(HOTKEYS)
+
 const IFrameExample = () => {
   const renderElement = useCallback(
     ({ attributes, children }: RenderElementProps) => (
@@ -35,15 +36,15 @@ const IFrameExample = () => {
     (props: RenderLeafProps) => <Leaf {...props} />,
     []
   )
-  const editor = useMemo(
-    () => withHistory(withReact(createEditor<CustomValue>())) as CustomEditor,
-    []
-  )
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    enhance: (editor) => withHistory(editor) as CustomEditor,
+    initialValue,
+  })
 
   const handleBlur = useCallback(() => editor.dom.deselect(), [editor])
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Toolbar>
         <MarkButton format="bold" icon="format_bold" />
         <MarkButton format="italic" icon="format_italic" />
@@ -54,10 +55,9 @@ const IFrameExample = () => {
         <Editable
           autoFocus
           onKeyDown={(event) => {
-            for (const hotkey in HOTKEYS) {
-              if (isHotkey(hotkey, event as any)) {
+            for (const [hotkey, mark] of MARK_HOTKEYS) {
+              if (isHotkey(hotkey, event)) {
                 event.preventDefault()
-                const mark = HOTKEYS[hotkey]
                 toggleMark(editor, mark)
               }
             }

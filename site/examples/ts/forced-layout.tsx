@@ -1,17 +1,12 @@
-import { useCallback, useMemo } from 'react'
-import {
-  createEditor,
-  Node,
-  type NodeEntry,
-  type Element as SlateElement,
-} from 'slate'
+import { useCallback } from 'react'
+import { Node, type NodeEntry, type Element as SlateElement } from 'slate'
 import { getEditorRuntime } from 'slate/internal'
 import { withHistory } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
   Slate,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 import type {
   CustomEditor,
@@ -98,15 +93,12 @@ const ForcedLayoutExample = () => {
     (props: RenderElementProps) => <Element {...props} />,
     []
   )
-  const editor = useMemo(
-    () =>
-      withLayout(
-        withHistory(withReact(createEditor<CustomValue>())) as CustomEditor
-      ),
-    []
-  )
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    enhance: (editor) => withLayout(withHistory(editor) as CustomEditor),
+    initialValue,
+  })
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable
         autoFocus
         placeholder="Enter a title…"

@@ -4,11 +4,11 @@ import { Editable, Slate, withReact } from '../src'
 
 describe('slate-react editable behavior', () => {
   test('renders initial editor children into the editable DOM', () => {
-    const editor = withReact(createEditor())
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
+    const editor = withReact(createEditor({ initialValue }))
 
     const rendered = render(
-      <Slate editor={editor} initialValue={initialValue}>
+      <Slate editor={editor}>
         <Editable />
       </Slate>
     )
@@ -19,11 +19,11 @@ describe('slate-react editable behavior', () => {
   })
 
   test('calls onChange and onSelectionChange when editor selection changes', async () => {
-    const editor = withReact(createEditor())
     const initialValue = [
       { type: 'block', children: [{ text: 'te' }] },
       { type: 'block', children: [{ text: 'st' }] },
     ]
+    const editor = withReact(createEditor({ initialValue }))
     const onChange = jest.fn()
     const onSelectionChange = jest.fn()
     const onValueChange = jest.fn()
@@ -32,7 +32,6 @@ describe('slate-react editable behavior', () => {
       render(
         <Slate
           editor={editor}
-          initialValue={initialValue}
           onChange={onChange}
           onSelectionChange={onSelectionChange}
           onValueChange={onValueChange}
@@ -69,8 +68,8 @@ describe('slate-react editable behavior', () => {
   })
 
   test('calls onChange and onValueChange when editor children change', async () => {
-    const editor = withReact(createEditor())
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
+    const editor = withReact(createEditor({ initialValue }))
     const onChange = jest.fn()
     const onSelectionChange = jest.fn()
     const onValueChange = jest.fn()
@@ -79,7 +78,6 @@ describe('slate-react editable behavior', () => {
       render(
         <Slate
           editor={editor}
-          initialValue={initialValue}
           onChange={onChange}
           onSelectionChange={onSelectionChange}
           onValueChange={onValueChange}
@@ -114,8 +112,8 @@ describe('slate-react editable behavior', () => {
   })
 
   test('calls value callbacks when setNodes changes text shape', async () => {
-    const editor = withReact(createEditor())
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
+    const editor = withReact(createEditor({ initialValue }))
     const onChange = jest.fn()
     const onValueChange = jest.fn()
 
@@ -123,7 +121,6 @@ describe('slate-react editable behavior', () => {
       render(
         <Slate
           editor={editor}
-          initialValue={initialValue}
           onChange={onChange}
           onValueChange={onValueChange}
         >
@@ -150,8 +147,8 @@ describe('slate-react editable behavior', () => {
   })
 
   test('Editable onKeyDown receives editor context and can handle model commands', async () => {
-    const editor = withReact(createEditor())
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
+    const editor = withReact(createEditor({ initialValue }))
     const onChange = jest.fn()
     const onKeyDown = jest.fn((event, context) => {
       if (event.key !== 'x') {
@@ -168,7 +165,7 @@ describe('slate-react editable behavior', () => {
     let rendered!: ReturnType<typeof render>
     act(() => {
       rendered = render(
-        <Slate editor={editor} initialValue={initialValue} onChange={onChange}>
+        <Slate editor={editor} onChange={onChange}>
           <Editable onKeyDown={onKeyDown} />
         </Slate>
       )

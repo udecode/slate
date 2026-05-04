@@ -4,10 +4,9 @@ A few resources that are helpful for building with Slate.
 
 ## Libraries
 
-These libraries are helpful when developing with Slate:
+These Slate utilities are helpful when developing editor keyboard behavior:
 
-- [`is-hotkey`](https://github.com/ianstormtaylor/is-hotkey) is a simple way to check whether an `onKeyDown` handler
-  should fire for a given hotkey, handling cross-platform concerns like cmd vs. ctrl keys for you automatically.
+- `Hotkeys` from `slate-dom` provides semantic editor checks like `Hotkeys.isBold(event)`.
 
 ## Extensions and Plugins
 

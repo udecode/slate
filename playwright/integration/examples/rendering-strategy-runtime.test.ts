@@ -133,17 +133,21 @@ const pasteSlateFragment = async (
   await dispatchPaste(root, { html, text: plainText })
 }
 
-test.describe('large document runtime example', () => {
+test.describe('rendering strategy runtime example', () => {
   test('keeps DOM-owned text sync explicit and opt-out safe', async ({
     page,
   }, testInfo) => {
-    const defaultEditor = await openExample(page, 'large-document-runtime', {
-      ready: {
-        editor: 'visible',
-        text: /default block 1/,
-      },
-      surface: { scope: '[data-runtime-editor="default"]' },
-    })
+    const defaultEditor = await openExample(
+      page,
+      'rendering-strategy-runtime',
+      {
+        ready: {
+          editor: 'visible',
+          text: /default block 1/,
+        },
+        surface: { scope: '[data-runtime-editor="default"]' },
+      }
+    )
 
     await expect(defaultEditor.locator.text([0, 0])).toHaveAttribute(
       'data-slate-dom-sync',
@@ -166,7 +170,7 @@ test.describe('large document runtime example', () => {
       await defaultEditor.assert.text('default block 1!')
     }
 
-    const customEditor = await openExample(page, 'large-document-runtime', {
+    const customEditor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /custom block 1/,
@@ -198,7 +202,7 @@ test.describe('large document runtime example', () => {
       await customEditor.assert.text('custom block 1!')
     }
 
-    const leafEditor = await openExample(page, 'large-document-runtime', {
+    const leafEditor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /leaf block 1/,
@@ -230,13 +234,17 @@ test.describe('large document runtime example', () => {
       await leafEditor.assert.text('leaf block 1!')
     }
 
-    const projectionEditor = await openExample(page, 'large-document-runtime', {
-      ready: {
-        editor: 'visible',
-        text: /projection block 1/,
-      },
-      surface: { scope: '[data-runtime-editor="projection"]' },
-    })
+    const projectionEditor = await openExample(
+      page,
+      'rendering-strategy-runtime',
+      {
+        ready: {
+          editor: 'visible',
+          text: /projection block 1/,
+        },
+        surface: { scope: '[data-runtime-editor="projection"]' },
+      }
+    )
 
     await expect(projectionEditor.locator.text([0, 0])).not.toHaveAttribute(
       'data-slate-dom-sync',
@@ -263,7 +271,7 @@ test.describe('large document runtime example', () => {
     }
   })
 
-  test('proves DOM-present large-document input can use real browser-native typing', async ({
+  test('proves DOM-present rendering-strategy input can use real browser-native typing', async ({
     page,
   }, testInfo) => {
     test.skip(
@@ -273,16 +281,16 @@ test.describe('large document runtime example', () => {
 
     const blockIndex = 0
     const blockText = `dom-native block ${blockIndex + 1}`
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       query: {
         blocks: 1200,
-        runtime_mode: 'dom-present-native-input',
+        runtime_mode: 'staged-native-input',
       },
       ready: {
         editor: 'visible',
         text: /dom-native block 1/,
       },
-      surface: { scope: '[data-runtime-editor="dom-present-native"]' },
+      surface: { scope: '[data-runtime-editor="staged-native"]' },
     })
 
     const block = editor.root.getByText(blockText).first()
@@ -318,10 +326,82 @@ test.describe('large document runtime example', () => {
     )
   })
 
+  test('renders the full TanStack-backed experimental virtualized example with bounded DOM', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      query: {
+        blocks: 1000,
+        runtime_mode: 'virtualized-full',
+      },
+      ready: {
+        editor: 'visible',
+        text: /virtualized block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="virtualized-full"]' },
+    })
+
+    await expect(
+      editor.root.locator('[data-slate-rendering-strategy-virtualizer="true"]')
+    ).toBeVisible()
+    await expect(
+      editor.root.locator('[data-slate-rendering-strategy-shell="true"]')
+    ).toHaveCount(0)
+    await expect(
+      page.locator('[data-runtime-virtualized-metrics="true"]')
+    ).toContainText('"effectiveStrategy": "virtualized"')
+
+    expect(
+      await editor.root.locator('[data-slate-node="element"]').count()
+    ).toBeLessThan(100)
+    await expect(editor.root).not.toContainText('virtualized block 900')
+
+    await editor.root.evaluate((element: HTMLElement) => {
+      element.scrollTop = element.scrollHeight
+      element.dispatchEvent(new Event('scroll', { bubbles: true }))
+    })
+
+    await expect(editor.root.getByText('virtualized block 1000')).toBeVisible()
+  })
+
+  test('exposes the TanStack-backed experimental virtualized example with controls and warning', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'rendering-strategy-virtualized', {
+      query: {
+        blocks: 1000,
+      },
+      ready: {
+        editor: 'visible',
+        text: /virtualized block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="virtualized-full"]' },
+    })
+
+    await expect(
+      page.locator('[data-runtime-virtualized-controls="true"]')
+    ).toBeVisible()
+    await expect(
+      page.getByText('Experimental. Not production-ready.')
+    ).toBeVisible()
+    await expect(page.getByRole('spinbutton', { name: 'Blocks' })).toHaveValue(
+      '1000'
+    )
+    await expect(
+      editor.root.locator('[data-slate-rendering-strategy-virtualizer="true"]')
+    ).toBeVisible()
+
+    await page.getByRole('spinbutton', { name: 'Blocks' }).fill('1200')
+    await page.getByRole('button', { name: 'Apply blocks' }).click()
+    await expect(
+      page.locator('[data-runtime-virtualized-metrics="true"]')
+    ).toContainText('"documentSize": 1200')
+  })
+
   test('commits IME composition through the browser editing path', async ({
     page,
   }) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /default block 1/,
@@ -351,7 +431,7 @@ test.describe('large document runtime example', () => {
   test('runs generated composition gauntlet without illegal kernel transitions', async ({
     page,
   }, testInfo) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /default block 1/,
@@ -371,7 +451,7 @@ test.describe('large document runtime example', () => {
       })
 
     const result = await editor.scenario.run(
-      'large-document-generated-composition-gauntlet',
+      'rendering-strategy-generated-composition-gauntlet',
       createSlateBrowserCompositionGauntlet({
         committedText: 'すし',
         steps: ['す', 'すし'],
@@ -388,7 +468,7 @@ test.describe('large document runtime example', () => {
               : 'synthetic-composition',
         },
         tracePath: testInfo.outputPath(
-          'large-document-composition-gauntlet.json'
+          'rendering-strategy-composition-gauntlet.json'
         ),
       }
     )
@@ -404,7 +484,7 @@ test.describe('large document runtime example', () => {
   })
 
   test('undoes directly synced browser typing', async ({ page }) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /default block 1/,
@@ -437,7 +517,7 @@ test.describe('large document runtime example', () => {
   })
 
   test('redoes directly synced model typing', async ({ page }) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /default block 1/,
@@ -466,7 +546,7 @@ test.describe('large document runtime example', () => {
   test('deletes backward after directly synced model typing', async ({
     page,
   }) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /default block 1/,
@@ -494,7 +574,7 @@ test.describe('large document runtime example', () => {
   test('deletes forward after directly synced model typing', async ({
     page,
   }) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /default block 1/,
@@ -518,7 +598,7 @@ test.describe('large document runtime example', () => {
   test('activates shells by keyboard without focus mutation', async ({
     page,
   }) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /default block 1/,
@@ -549,7 +629,7 @@ test.describe('large document runtime example', () => {
   test('runs generated shell activation gauntlet without illegal kernel transitions', async ({
     page,
   }, testInfo) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /default block 1/,
@@ -558,7 +638,7 @@ test.describe('large document runtime example', () => {
     })
 
     const result = await editor.scenario.run(
-      'large-document-generated-shell-activation-gauntlet',
+      'rendering-strategy-generated-shell-activation-gauntlet',
       createSlateBrowserShellActivationGauntlet({
         buttonName: /Open document section 2: default block 3/,
         expectedSelection: {
@@ -573,7 +653,7 @@ test.describe('large document runtime example', () => {
           transport: 'keyboard',
         },
         tracePath: testInfo.outputPath(
-          'large-document-shell-activation-gauntlet.json'
+          'rendering-strategy-shell-activation-gauntlet.json'
         ),
       }
     )
@@ -581,10 +661,10 @@ test.describe('large document runtime example', () => {
     assertNoIllegalKernelTransitions(result)
   })
 
-  test('imports native mouse drag selection inside mounted large-document content', async ({
+  test('imports native mouse drag selection inside mounted rendering-strategy content', async ({
     page,
   }, testInfo) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /default block 1/,
@@ -593,7 +673,7 @@ test.describe('large document runtime example', () => {
     })
 
     const result = await editor.scenario.run(
-      'large-document-native-drag-selection',
+      'rendering-strategy-native-drag-selection',
       [
         {
           kind: 'dragTextSelection',
@@ -604,12 +684,12 @@ test.describe('large document runtime example', () => {
       ],
       {
         metadata: {
-          capabilities: ['kernel-trace', 'large-document', 'selection'],
+          capabilities: ['kernel-trace', 'rendering-strategy', 'selection'],
           platform: testInfo.project.name,
           transport: 'mouse',
         },
         tracePath: testInfo.outputPath(
-          'large-document-native-drag-selection.json'
+          'rendering-strategy-native-drag-selection.json'
         ),
       }
     )
@@ -625,7 +705,8 @@ test.describe('large document runtime example', () => {
       .poll(() =>
         editor.root.evaluate(
           (element) =>
-            element.getAttribute('data-slate-large-document-selection') ?? ''
+            element.getAttribute('data-slate-rendering-strategy-selection') ??
+            ''
         )
       )
       .not.toBe('shell-backed')
@@ -640,7 +721,7 @@ test.describe('large document runtime example', () => {
   test('preserves Slate fragment paste over shell-backed selection', async ({
     page,
   }) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /default block 1/,
@@ -654,7 +735,7 @@ test.describe('large document runtime example', () => {
     await page.keyboard.press('ControlOrMeta+A')
 
     await expect(editor.root).toHaveAttribute(
-      'data-slate-large-document-selection',
+      'data-slate-rendering-strategy-selection',
       'shell-backed'
     )
     await expect
@@ -681,7 +762,7 @@ test.describe('large document runtime example', () => {
   test('copies full shell-backed selection through Slate clipboard data', async ({
     page,
   }) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /default block 1/,
@@ -695,7 +776,7 @@ test.describe('large document runtime example', () => {
     await page.keyboard.press('ControlOrMeta+A')
 
     await expect(editor.root).toHaveAttribute(
-      'data-slate-large-document-selection',
+      'data-slate-rendering-strategy-selection',
       'shell-backed'
     )
     const payload = await editor.clipboard.copyEventPayload()
@@ -711,7 +792,7 @@ test.describe('large document runtime example', () => {
   test('copies partial shell-backed selection through Slate clipboard data', async ({
     page,
   }) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /default block 1/,
@@ -725,7 +806,7 @@ test.describe('large document runtime example', () => {
     })
 
     await expect(editor.root).toHaveAttribute(
-      'data-slate-large-document-selection',
+      'data-slate-rendering-strategy-selection',
       'shell-backed'
     )
 
@@ -741,7 +822,7 @@ test.describe('large document runtime example', () => {
   test('rebases shell-backed selection bookmarks through remote text operations', async ({
     page,
   }, testInfo) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /default block 1/,
@@ -755,14 +836,14 @@ test.describe('large document runtime example', () => {
     })
 
     await expect(editor.root).toHaveAttribute(
-      'data-slate-large-document-selection',
+      'data-slate-rendering-strategy-selection',
       'shell-backed'
     )
 
     const bookmark = await editor.selection.capture({ affinity: 'inward' })
 
     const result = await editor.scenario.run(
-      'large-document-shell-bookmark-remote-rebase',
+      'rendering-strategy-shell-bookmark-remote-rebase',
       [
         {
           kind: 'applyOperations',
@@ -781,7 +862,7 @@ test.describe('large document runtime example', () => {
         metadata: {
           capabilities: [
             'collaboration',
-            'large-document',
+            'rendering-strategy',
             'range-ref',
             'selection',
           ],
@@ -789,7 +870,7 @@ test.describe('large document runtime example', () => {
           transport: 'semantic-handle',
         },
         tracePath: testInfo.outputPath(
-          'large-document-shell-bookmark-remote-rebase.json'
+          'rendering-strategy-shell-bookmark-remote-rebase.json'
         ),
       }
     )
@@ -808,7 +889,8 @@ test.describe('large document runtime example', () => {
       .poll(() =>
         editor.root.evaluate(
           (element) =>
-            element.getAttribute('data-slate-large-document-selection') ?? ''
+            element.getAttribute('data-slate-rendering-strategy-selection') ??
+            ''
         )
       )
       .not.toBe('shell-backed')
@@ -823,7 +905,7 @@ test.describe('large document runtime example', () => {
   test('preserves Slate fragment paste over partial shelled selection', async ({
     page,
   }) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /default block 1/,
@@ -843,7 +925,7 @@ test.describe('large document runtime example', () => {
         focus: { path: [2, 0], offset: 'default block 3'.length },
       })
     await expect(editor.root).toHaveAttribute(
-      'data-slate-large-document-selection',
+      'data-slate-rendering-strategy-selection',
       'shell-backed'
     )
 
@@ -865,7 +947,7 @@ test.describe('large document runtime example', () => {
   test('preserves app-owned rich HTML paste over shell-backed selection', async ({
     page,
   }) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /rich block 1/,
@@ -879,7 +961,7 @@ test.describe('large document runtime example', () => {
     await page.keyboard.press('ControlOrMeta+A')
 
     await expect(editor.root).toHaveAttribute(
-      'data-slate-large-document-selection',
+      'data-slate-rendering-strategy-selection',
       'shell-backed'
     )
     await expect
@@ -900,10 +982,10 @@ test.describe('large document runtime example', () => {
     ).toBeVisible()
   })
 
-  test('renders inline content inside large-document runtime', async ({
+  test('renders inline content inside rendering-strategy runtime', async ({
     page,
   }) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /mixed inline link block 1/,
@@ -917,10 +999,10 @@ test.describe('large document runtime example', () => {
     await expect(editor.root.getByRole('button')).toHaveCount(2)
   })
 
-  test('renders void content inside large-document runtime', async ({
+  test('renders void content inside rendering-strategy runtime', async ({
     page,
   }) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /void card/,
@@ -937,7 +1019,7 @@ test.describe('large document runtime example', () => {
   test('selects void content by browser click without mutating content', async ({
     page,
   }) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /void card/,
@@ -963,10 +1045,10 @@ test.describe('large document runtime example', () => {
     await expect.poll(() => editor.get.modelText()).toContain('void block 2')
   })
 
-  test('renders table content inside large-document runtime', async ({
+  test('renders table content inside rendering-strategy runtime', async ({
     page,
   }) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /table cell 1/,
@@ -980,8 +1062,10 @@ test.describe('large document runtime example', () => {
     await expect(editor.root.getByText('table cell 2')).toBeVisible()
   })
 
-  test('renders large-document runtime inside Shadow DOM', async ({ page }) => {
-    const editor = await openExample(page, 'large-document-runtime', {
+  test('renders rendering-strategy runtime inside Shadow DOM', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       ready: {
         editor: 'visible',
         text: /shadow block 1/,

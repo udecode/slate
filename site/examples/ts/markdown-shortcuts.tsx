@@ -1,18 +1,12 @@
 import { type KeyboardEvent, useCallback, useMemo } from 'react'
-import {
-  createEditor,
-  Node,
-  Point,
-  Range,
-  type Element as SlateElement,
-} from 'slate'
+import { Node, Point, Range, type Element as SlateElement } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
   type EditableInputRule,
   type RenderElementProps,
   Slate,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 
 import type {
@@ -40,10 +34,10 @@ const MarkdownShortcutsExample = () => {
     (props: RenderElementProps) => <Element {...props} />,
     []
   )
-  const editor = useMemo(
-    () => withReact(withHistory(createEditor<CustomValue>())) as CustomEditor,
-    []
-  )
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    enhance: (editor) => withHistory(editor) as CustomEditor,
+    initialValue,
+  })
   const inputRules = useMemo<readonly EditableInputRule[]>(
     () => [
       ({ data, inputType }) => {
@@ -102,7 +96,7 @@ const MarkdownShortcutsExample = () => {
   )
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable
         autoFocus
         inputRules={inputRules}

@@ -16,8 +16,8 @@ type CustomValue = ParagraphElement[]
 const editor = withHistory(createEditor<CustomValue>())
 const historyEditor: HistoryEditor<CustomValue> = editor
 
-editor.update(() => {
-  editor.insertText('a')
+editor.update((tx) => {
+  tx.text.insert('a')
 })
 
 const operation: Operation<ValueOf<typeof editor>> | undefined =

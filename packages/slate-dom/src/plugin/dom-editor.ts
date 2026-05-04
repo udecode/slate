@@ -322,6 +322,67 @@ const parseSlateDOMPath = (value: string | null): Path | null => {
   return path.every(Number.isFinite) ? (path as Path) : null
 }
 
+const findMountedDOMNodeByPath = (
+  editor: DOMEditor<any>,
+  path: Path
+): HTMLElement | null => {
+  const editorEl = EDITOR_TO_ELEMENT.get(editor)
+
+  if (!editorEl) {
+    return null
+  }
+
+  const pathAttr = path.join(',')
+  const runtimeId = Editor.getRuntimeId(editor, path)
+  const elements = Array.from(
+    editorEl.querySelectorAll(`[data-slate-path="${pathAttr}"]`)
+  )
+
+  const domEl = elements.find(
+    (element) =>
+      isDOMElement(element) &&
+      element.getAttribute('data-slate-node') &&
+      (!runtimeId ||
+        element.getAttribute('data-slate-runtime-id') === runtimeId)
+  )
+
+  return domEl ? (domEl as HTMLElement) : null
+}
+
+const toMountedDOMNodeByPath = (
+  editor: DOMEditor<any>,
+  node: Node
+): HTMLElement | null => {
+  if (node === editor) {
+    return null
+  }
+
+  try {
+    return findMountedDOMNodeByPath(editor, DOMEditor.findPath(editor, node))
+  } catch {
+    return null
+  }
+}
+
+const cacheSlateDOMNode = (
+  editor: DOMEditor<any>,
+  node: Node,
+  domNode: HTMLElement
+) => {
+  const key = DOMEditor.findKey(editor, node)
+  const keyToElement = EDITOR_TO_KEY_TO_ELEMENT.get(editor) ?? new WeakMap()
+
+  if (!EDITOR_TO_KEY_TO_ELEMENT.has(editor)) {
+    EDITOR_TO_KEY_TO_ELEMENT.set(editor, keyToElement)
+  }
+
+  keyToElement.set(key, domNode)
+  ELEMENT_TO_NODE.set(domNode, node)
+  NODE_TO_ELEMENT.set(node, domNode)
+
+  return domNode
+}
+
 const toSlatePointFromDOMCoverageBoundary = (
   editor: DOMEditor<any>,
   domPoint: DOMPoint
@@ -714,13 +775,19 @@ export const DOMEditor: DOMEditorInterface = {
             DOMEditor.findKey(editor, node)
           )
 
-    if (!domNode) {
-      throw new Error(
-        `Cannot resolve a DOM node from Slate node: ${Scrubber.stringify(node)}`
-      )
+    if (domNode) {
+      return domNode
     }
 
-    return domNode
+    const fallbackDOMNode = toMountedDOMNodeByPath(editor, node)
+
+    if (fallbackDOMNode) {
+      return cacheSlateDOMNode(editor, node, fallbackDOMNode)
+    }
+
+    throw new Error(
+      `Cannot resolve a DOM node from Slate node: ${Scrubber.stringify(node)}`
+    )
   },
 
   toDOMPoint: (editor, point) => {
@@ -728,7 +795,23 @@ export const DOMEditor: DOMEditorInterface = {
       ? { path: point.path, offset: 0 }
       : point
     const [node] = editor.read((state) => state.nodes.get(resolvedPoint.path))
-    const el = DOMEditor.toDOMNode(editor, node)
+    let el: HTMLElement
+
+    try {
+      el = DOMEditor.toDOMNode(editor, node)
+    } catch (error) {
+      const fallbackDOMNode = findMountedDOMNodeByPath(
+        editor,
+        resolvedPoint.path
+      )
+
+      if (!fallbackDOMNode) {
+        throw error
+      }
+
+      el = cacheSlateDOMNode(editor, node, fallbackDOMNode)
+    }
+
     let domPoint: DOMPoint | undefined
 
     // For each leaf, we need to isolate its content, which means filtering

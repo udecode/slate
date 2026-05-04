@@ -7,5 +7,6 @@ This sub-library contains the React-specific logic for Slate.
 - [Hooks](./hooks.md)
 - [Slate Component](./slate.md)
 - [Editable Component](./editable.md)
+- [Experimental Virtualized Rendering](./experimental-virtualized-rendering.md)
 - [Annotations](./annotations.md)
 - [Event Handling](./event-handling.md)

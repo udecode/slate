@@ -6,7 +6,7 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
 } from 'react'
-import { type Operation, Range } from 'slate'
+import { type Editor, type Operation, Range } from 'slate'
 import { Hotkeys } from 'slate-dom'
 import {
   ReactEditor,
@@ -31,7 +31,6 @@ import type {
   SelectionSource,
 } from './input-state'
 import type { EditableRepairRequest } from './mutation-controller'
-import { Editor } from './runtime-editor-api'
 import {
   readLiveSelection,
   readRuntimeSelection,
@@ -725,7 +724,8 @@ export const createEditableKernelTraceEntry = ({
     frame,
     frameId: frame?.id ?? null,
     movement: trace.movement ?? null,
-    operations: trace.operations ?? [...Editor.getOperations(editor)],
+    operations:
+      trace.operations ?? editor.read((state) => [...state.value.operations()]),
     repairPolicy:
       trace.repairPolicy ??
       getEditableRepairPolicy({
@@ -1052,17 +1052,17 @@ export const prepareEditableKeyDownKernel = ({
   editor,
   event,
   inputController,
-  largeDocument,
+  renderingStrategy,
 }: {
   editor: ReactEditorInstance
   event: ReactKeyboardEvent<HTMLDivElement>
   inputController: EditableInputController
-  largeDocument: unknown
+  renderingStrategy: unknown
 }): EditableKeyDownKernelDecision => {
   const intent = classifyKeyboardIntent({
     editor,
     event,
-    largeDocument,
+    renderingStrategy,
   })
   const selectionBefore = readRuntimeSelection(editor)
   const internalTarget = isInteractiveInternalTarget(editor, event.target)

@@ -20,10 +20,10 @@ const iterations = Number(
 )
 const blocks = Number(process.env.REACT_ACTIVE_TYPING_BREAKDOWN_BLOCKS || 5000)
 const typeOps = Number(process.env.REACT_ACTIVE_TYPING_BREAKDOWN_TYPE_OPS || 10)
-const islandSize = Number(
+const segmentSize = Number(
   process.env.REACT_ACTIVE_TYPING_BREAKDOWN_ISLAND_SIZE || 100
 )
-const activeRadius = Number(
+const overscan = Number(
   process.env.REACT_ACTIVE_TYPING_BREAKDOWN_ACTIVE_RADIUS || 1
 )
 const customRenderers =
@@ -108,10 +108,10 @@ const createMountedEditor = async () => {
       <Editable
         editor={editor}
         id="active-typing-breakdown"
-        largeDocument={{
-          activeRadius,
-          mode: 'shell',
-          islandSize,
+        renderingStrategy={{
+          overscan,
+          type: 'shell',
+          segmentSize,
           threshold: 1,
         }}
         {...renderers}
@@ -135,7 +135,7 @@ const createMountedEditor = async () => {
 const mountedTextCount = (container: Element) =>
   container.querySelectorAll('[data-slate-node="text"]').length
 
-const promoteIsland = async ({
+const promoteSegment = async ({
   blockIndex,
   container,
   editor,
@@ -144,9 +144,9 @@ const promoteIsland = async ({
   container: Element
   editor: ReturnType<typeof createEditor>
 }) => {
-  const islandIndex = Math.floor(blockIndex / islandSize)
+  const segmentIndex = Math.floor(blockIndex / segmentSize)
   const shell = container.querySelector(
-    `[data-slate-large-document-shell="true"][data-slate-large-document-island="${islandIndex}"]`
+    `[data-slate-rendering-strategy-shell="true"][data-slate-rendering-strategy-segment="${segmentIndex}"]`
   )
 
   if (!shell) {
@@ -184,7 +184,7 @@ const measureScenario = async ({
     if (promote) {
       const start = now()
       await React.act(async () => {
-        await promoteIsland({
+        await promoteSegment({
           blockIndex,
           container: context.container,
           editor: context.editor,
@@ -318,10 +318,10 @@ const measureSelectAll = async () => {
 
 const result = {
   config: {
-    activeRadius,
+    overscan,
     blocks,
     customRenderers,
-    islandSize,
+    segmentSize,
     renderElementOnly,
     iterations,
     typeOps,

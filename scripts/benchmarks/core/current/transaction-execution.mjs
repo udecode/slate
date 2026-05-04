@@ -2,7 +2,8 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
-import { createEditor, Editor } from '../../../../packages/slate/src/index.ts'
+import { createEditor } from '../../../../packages/slate/src/index.ts'
+import { Editor } from '../../../../packages/slate/src/internal/index.ts'
 
 const iterations = Number.parseInt(
   process.env.SLATE_6038_ITERATIONS ?? '200',

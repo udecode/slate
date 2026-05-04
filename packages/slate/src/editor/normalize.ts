@@ -9,11 +9,13 @@ import {
   isInTransaction,
   runEditorTransaction,
 } from '../core/public-state'
-import { Editor, type EditorStaticApi } from '../interfaces/editor'
+import type { Editor, EditorStaticApi } from '../interfaces/editor'
 import { Node, type NodeEntry } from '../interfaces/node'
 import type { Operation } from '../interfaces/operation'
 import { DIRTY_PATH_KEYS, DIRTY_PATHS } from '../utils/weak-maps'
+import { isNormalizing } from './is-normalizing'
 import { node } from './node'
+import { setNormalizing } from './set-normalizing'
 
 export const normalize: EditorStaticApi['normalize'] = (
   editor,
@@ -75,7 +77,7 @@ export const normalize: EditorStaticApi['normalize'] = (
       .map((path) => node(editor, path))
 
   const runNormalizePasses = () => {
-    if (!Editor.isNormalizing(editor)) {
+    if (!isNormalizing(editor)) {
       return
     }
 
@@ -95,8 +97,8 @@ export const normalize: EditorStaticApi['normalize'] = (
       return
     }
 
-    const wasNormalizing = Editor.isNormalizing(editor)
-    Editor.setNormalizing(editor, false)
+    const wasNormalizing = isNormalizing(editor)
+    setNormalizing(editor, false)
 
     try {
       const initialEntryCount = force
@@ -168,7 +170,7 @@ export const normalize: EditorStaticApi['normalize'] = (
         }
       }
     } finally {
-      Editor.setNormalizing(editor, wasNormalizing)
+      setNormalizing(editor, wasNormalizing)
     }
   }
 

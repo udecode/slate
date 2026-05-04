@@ -54,7 +54,7 @@ const getAtomicNonTraversablePoint = (
     match: (node) =>
       Node.isElement(node) &&
       (getEditorSchema(editor).isAtom(node) ||
-        Editor.isElementReadOnly(editor, node)),
+        getEditorSchema(editor).isReadOnly(node)),
     mode: 'highest',
     voids: true,
   })
@@ -411,6 +411,10 @@ const collectCharacterPositions = (
         ? getPreviousTraversableSegment(segments, index)
         : getNextTraversableSegment(segments, index)
 
+      pushUniquePoint(points, {
+        path: segment.path,
+        offset: segment.start,
+      })
       pushUniquePoint(points, {
         path: traversable?.path ?? segment.path,
         offset: traversable

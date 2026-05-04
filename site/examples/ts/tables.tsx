@@ -1,6 +1,6 @@
 import { css } from '@emotion/css'
-import { useCallback, useMemo } from 'react'
-import { createEditor, Node, Point, Range } from 'slate'
+import { useCallback } from 'react'
+import { Node, Point, Range } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -8,7 +8,7 @@ import {
   type RenderElementProps,
   type RenderLeafProps,
   Slate,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 import type { CustomEditor, CustomValue } from './custom-types.d'
 
@@ -21,17 +21,17 @@ const TablesExample = () => {
     (props: RenderLeafProps) => <Leaf {...props} />,
     []
   )
-  const editor = useMemo(
-    () => withHistory(withReact(createEditor<CustomValue>())) as CustomEditor,
-    []
-  )
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    enhance: (editor) => withHistory(editor) as CustomEditor,
+    initialValue,
+  })
   const handleKeyDown = useCallback<EditableKeyDownHandler>(
     (event) => applyTableBoundaryCommand(editor, event.key),
     [editor]
   )
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable
         onKeyDown={handleKeyDown}
         renderElement={renderElement}

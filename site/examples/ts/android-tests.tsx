@@ -1,8 +1,13 @@
 import { css } from '@emotion/css'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { createEditor, type Value } from 'slate'
+import { useCallback, useEffect, useState } from 'react'
+import type { Value } from 'slate'
 import { withHistory } from 'slate-history'
-import { Editable, type RenderLeafProps, Slate, withReact } from 'slate-react'
+import {
+  Editable,
+  type RenderLeafProps,
+  Slate,
+  useSlateEditor,
+} from 'slate-react'
 
 interface AndroidTestCase {
   id: string
@@ -242,10 +247,10 @@ const TestCase = ({ value }: AndroidTestCase) => {
     []
   )
 
-  const editor = useMemo(() => withHistory(withReact(createEditor())), [])
+  const editor = useSlateEditor({ enhance: withHistory, initialValue: value })
 
   return (
-    <Slate editor={editor} initialValue={value}>
+    <Slate editor={editor}>
       <Editable
         placeholder="Enter some text…"
         renderLeaf={renderLeaf}

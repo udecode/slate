@@ -2,6 +2,7 @@ import {
   type InputEvent as ReactInputEvent,
   type RefObject,
   useCallback,
+  useRef,
 } from 'react'
 import type { ReactEditor } from '../plugin/react-editor'
 import { prepareEditableInputKernel } from './editing-kernel'
@@ -37,8 +38,13 @@ export const useRuntimeInputEvents = ({
   rootRef: RefObject<HTMLDivElement | null>
   trace: EditableEventRuntime['trace']
 }) => {
+  const handledDOMInputEventsRef = useRef<WeakSet<Event>>(new WeakSet())
+  const markHandledDOMInput = useCallback((event: Event) => {
+    handledDOMInputEventsRef.current.add(event)
+  }, [])
   const onRuntimeDOMInput = useEditableDOMInputHandler({
     editor,
+    onHandledDOMInput: markHandledDOMInput,
     repairDOMInput: trace.repairDOMInputWithTrace,
     rootRef,
   })
@@ -61,6 +67,9 @@ export const useRuntimeInputEvents = ({
         return
       }
 
+      const skipNativeTextInputRepair = handledDOMInputEventsRef.current.has(
+        event.nativeEvent
+      )
       trace.recordKernelEventTrace({
         family: 'input',
         intent: decision.intent,
@@ -75,6 +84,7 @@ export const useRuntimeInputEvents = ({
         handledDOMBeforeInputRef,
         inputController,
         onInput,
+        skipNativeTextInputRepair,
       })
       for (const request of inputResult.repairs) {
         repair.requestEditableRepair(request)

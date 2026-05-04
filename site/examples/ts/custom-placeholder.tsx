@@ -1,11 +1,10 @@
-import { useMemo } from 'react'
-import { createEditor, type Value } from 'slate'
+import type { Value } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
   type RenderPlaceholderProps,
   Slate,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 
 const initialValue: Value = [
@@ -16,9 +15,9 @@ const initialValue: Value = [
 ]
 
 const PlainTextExample = () => {
-  const editor = useMemo(() => withHistory(withReact(createEditor())), [])
+  const editor = useSlateEditor({ enhance: withHistory, initialValue })
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable
         placeholder="Type something"
         renderPlaceholder={({

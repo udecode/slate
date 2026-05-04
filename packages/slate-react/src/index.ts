@@ -20,6 +20,10 @@ export type {
   EditableInputRuleResult,
   EditableKeyDownContext,
   EditableKeyDownHandler,
+  EditableRenderingStrategyCohort,
+  EditableRenderingStrategyEffectiveType,
+  EditableRenderingStrategyMetrics,
+  EditableRenderingStrategyMetricsBase,
 } from './components/editable'
 export {
   DefaultPlaceholder,
@@ -91,6 +95,11 @@ export {
   useSlateAnnotation,
   useSlateAnnotations,
 } from './hooks/use-slate-annotations'
+export {
+  type SlateEditorEnhance,
+  type UseSlateEditorOptions,
+  useSlateEditor,
+} from './hooks/use-slate-editor'
 export { useSlateNodeRef } from './hooks/use-slate-node-ref'
 export {
   type SlateProjectionEntry,

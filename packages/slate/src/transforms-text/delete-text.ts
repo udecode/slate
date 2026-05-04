@@ -37,7 +37,7 @@ const getHighestNonEditable = (
     match: (node) =>
       NodeApi.isElement(node) &&
       (getEditorSchema(editor).isVoid(node) ||
-        getEditorSchema(editor).isElementReadOnly(node)),
+        getEditorSchema(editor).isReadOnly(node)),
     mode: 'highest',
   })
 
@@ -211,7 +211,7 @@ const removeEmptyStructuralArtifacts = (
     if (
       NodeApi.isElement(node) &&
       (getEditorSchema(editor).isVoid(node) ||
-        getEditorSchema(editor).isElementReadOnly(node))
+        getEditorSchema(editor).isReadOnly(node))
     ) {
       return
     }
@@ -868,7 +868,7 @@ const collectDeleteMatchPaths = (editor: Editor, plan: DeleteRangePlan) => {
       !plan.voids &&
       NodeApi.isElement(node) &&
       (getEditorSchema(editor).isVoid(node) ||
-        getEditorSchema(editor).isElementReadOnly(node))
+        getEditorSchema(editor).isReadOnly(node))
     ) {
       matches.push(path)
       lastPath = path

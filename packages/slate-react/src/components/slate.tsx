@@ -1,14 +1,19 @@
 import type React from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
-import { type EditorCommit, type EditorSnapshot, Node, type Value } from 'slate'
+import {
+  type EditorCommit,
+  type EditorSnapshot,
+  isEditor,
+  type Operation,
+  type Value,
+} from 'slate'
 import type { SlateAnnotationStore } from '../annotation-store'
 import {
   composeDecorationSources,
   composeProjectionSources,
   type SlateDecorationSource,
 } from '../decoration-source'
-import { Editor } from '../editable/runtime-editor-api'
 import { EditorContext } from '../hooks/use-editor'
 import { FocusedContext } from '../hooks/use-editor-focused'
 import {
@@ -21,8 +26,6 @@ import { ReactEditor } from '../plugin/react-editor'
 import { ProjectionContext } from '../projection-context'
 import { recordSlateReactRender } from '../render-profiler'
 import { REACT_MAJOR_VERSION } from '../utils/environment'
-
-const INITIALIZED_EDITORS = new WeakSet<Editor>()
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
 
@@ -58,7 +61,6 @@ export type SlateChange<V extends Value = Value> = {
 
 export type SlateProps<V extends Value = Value> = {
   editor: ReactEditor<V>
-  initialValue?: V
   annotationStores?: readonly SlateAnnotationStore<any>[] | null
   children: React.ReactNode
   decorationSources?: readonly SlateDecorationSource<any>[] | null
@@ -84,33 +86,17 @@ export const Slate = <V extends Value = Value>(props: SlateProps<V>) => {
     onChange,
     onSelectionChange,
     onValueChange,
-    initialValue,
   } = props
 
-  if (!INITIALIZED_EDITORS.has(editor)) {
-    if (initialValue && !Node.isNodeList(initialValue)) {
-      throw new Error(
-        '[Slate] initialValue is invalid! Expected a list of elements.'
-      )
-    }
-
-    if (!Editor.isEditor(editor)) {
-      throw new Error('[Slate] editor is invalid!')
-    }
-
-    if (initialValue) {
-      Editor.replace(editor, {
-        children: initialValue,
-        selection: null,
-      })
-    }
-
-    INITIALIZED_EDITORS.add(editor)
+  if (!isEditor(editor)) {
+    throw new Error('[Slate] editor is invalid!')
   }
 
   const { selectorContext, onChange: handleSelectorChange } =
     useEditorSelectorContext()
-  const lastOperationCountRef = useRef(Editor.getOperations(editor).length)
+  const lastOperationCountRef = useRef(
+    editor.read((state) => state.value.operations().length)
+  )
 
   useEffect(() => {
     const maybeBatchUpdates =
@@ -118,14 +104,20 @@ export const Slate = <V extends Value = Value>(props: SlateProps<V>) => {
         ? ReactDOM.unstable_batchedUpdates
         : (callback: () => void) => callback()
 
-    const onContextChange: Parameters<typeof Editor.subscribe>[1] = (
+    const onContextChange: Parameters<typeof editor.subscribe>[0] = (
       snapshot,
       commit
     ) => {
+      let currentOperations: readonly Operation[] = []
       const nextOperations = commit
         ? [...commit.operations]
-        : Editor.getOperations(editor, lastOperationCountRef.current)
-      lastOperationCountRef.current = Editor.getOperations(editor).length
+        : editor.read((state) => {
+            currentOperations = state.value.operations()
+            return currentOperations.slice(lastOperationCountRef.current)
+          })
+      lastOperationCountRef.current = commit
+        ? editor.read((state) => state.value.operations().length)
+        : currentOperations.length
 
       maybeBatchUpdates(() => {
         profileRuntimeDuration('focused-state', () => {

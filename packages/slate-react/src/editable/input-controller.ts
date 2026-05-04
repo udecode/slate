@@ -104,11 +104,11 @@ const isPlainTextKeyboardIntent = (event: KeyboardEvent) =>
 export const classifyKeyboardIntent = ({
   editor,
   event,
-  largeDocument,
+  renderingStrategy,
 }: {
   editor: ReactEditor
   event: ReactKeyboardEvent<HTMLDivElement>
-  largeDocument: unknown
+  renderingStrategy: unknown
 }): InputIntent | null => {
   if (isInteractiveInternalTarget(editor, event.target)) {
     return 'internal-control'

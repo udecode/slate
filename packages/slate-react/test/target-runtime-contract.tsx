@@ -39,7 +39,7 @@ const domSelectionForText = (text: string) => {
 }
 
 test('target runtime imports the current DOM selection for implicit editor commands', async () => {
-  const editor = withReact(createEditor())
+  const editor = withReact(createEditor({ initialValue }))
   const inputController = createEditableInputController({
     preferModelSelectionForInputRef: { current: false },
     state: createEditableInputControllerState(),
@@ -48,7 +48,7 @@ test('target runtime imports the current DOM selection for implicit editor comma
 
   act(() => {
     render(
-      <Slate editor={editor} initialValue={initialValue}>
+      <Slate editor={editor}>
         <Editable />
       </Slate>
     )
@@ -84,11 +84,11 @@ test('target runtime imports the current DOM selection for implicit editor comma
 })
 
 test('Editable target runtime routes implicit block commands to the current DOM selection', async () => {
-  const editor = withReact(createEditor())
+  const editor = withReact(createEditor({ initialValue }))
 
   act(() => {
     render(
-      <Slate editor={editor} initialValue={initialValue}>
+      <Slate editor={editor}>
         <Editable />
       </Slate>
     )

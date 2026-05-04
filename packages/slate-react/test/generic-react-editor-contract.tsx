@@ -1,5 +1,11 @@
 import { createEditor, type Operation, type ValueOf } from 'slate'
-import { type ReactEditor, useEditorSelector, withReact } from 'slate-react'
+import { type HistoryEditor, withHistory } from 'slate-history'
+import {
+  type ReactEditor,
+  useEditorSelector,
+  useSlateEditor,
+  withReact,
+} from 'slate-react'
 
 type CustomText = {
   text: string
@@ -19,9 +25,23 @@ type LinkElement = {
 
 type CustomValue = (ParagraphElement | LinkElement)[]
 
+type FooEditor<V> = {
+  fooValue(): V
+}
+
+const withFoo = <T extends ReactEditor<any>>(
+  editor: T
+): T & FooEditor<ValueOf<T>> => editor as T & FooEditor<ValueOf<T>>
+
 const baseEditor = createEditor<CustomValue>()
 const editor = withReact(baseEditor)
+const historyReactEditor = withHistory(withReact(createEditor<CustomValue>()))
 const reactEditor: ReactEditor<CustomValue> = editor
+const typedHistoryReactEditor: ReactEditor<CustomValue> &
+  HistoryEditor<CustomValue> = historyReactEditor
+const initialValue: CustomValue = [
+  { type: 'paragraph', children: [{ text: 'initial', bold: true }] },
+]
 
 const baseValue: ValueOf<typeof baseEditor> = [
   { type: 'paragraph', children: [{ text: 'one', bold: true }] },
@@ -59,6 +79,34 @@ const SelectorProbe = () => {
   return null
 }
 
+const HookProbe = () => {
+  const hookEditor = useSlateEditor({
+    initialValue,
+    enhance: withHistory,
+  })
+  const typedHookEditor: ReactEditor<CustomValue> & HistoryEditor<CustomValue> =
+    hookEditor
+  const valueFromHook: CustomValue = hookEditor.read((state) =>
+    state.value.get()
+  )
+  const composedHookEditor = useSlateEditor({
+    initialValue,
+    enhance: (editor) => withFoo(withHistory(editor)),
+  })
+  const typedComposedHookEditor: ReactEditor<CustomValue> &
+    HistoryEditor<CustomValue> &
+    FooEditor<CustomValue> = composedHookEditor
+
+  typedHookEditor.undo()
+  typedComposedHookEditor.undo()
+
+  void valueFromHook
+
+  return null
+}
+
 void value
 void baseValue
+void typedHistoryReactEditor
 void SelectorProbe
+void HookProbe

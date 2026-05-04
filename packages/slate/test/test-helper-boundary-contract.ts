@@ -5,7 +5,7 @@ import { describe, it } from 'node:test'
 
 import * as Slate from '../src'
 import { createEditor, type Descendant } from '../src'
-import { getTestEditorSnapshot } from './support/snapshot'
+import { getTestEditorSnapshot, replaceEditorValue } from './support/snapshot'
 
 const repoRoot = resolve(import.meta.dir, '../../..')
 
@@ -18,14 +18,12 @@ describe('test helper snapshot boundary', () => {
   it('keeps full snapshots in test support instead of public Slate exports', () => {
     const editor = createEditor()
 
-    editor.update((tx) => {
-      tx.value.replace({
-        children: [paragraph('test snapshot')],
-        selection: {
-          anchor: { path: [0, 0], offset: 4 },
-          focus: { path: [0, 0], offset: 8 },
-        },
-      })
+    replaceEditorValue(editor, {
+      children: [paragraph('test snapshot')],
+      selection: {
+        anchor: { path: [0, 0], offset: 4 },
+        focus: { path: [0, 0], offset: 8 },
+      },
     })
 
     const snapshot = getTestEditorSnapshot(editor)
@@ -47,5 +45,27 @@ describe('test helper snapshot boundary', () => {
     assert.match(helperSource, /state\.runtime\.snapshot\(\)/)
     assert.equal(/\bEditor\.getSnapshot\b/.test(helperSource), false)
     assert.equal(/from ['"]slate\/internal['"]/.test(helperSource), false)
+  })
+
+  it('seeds editor values through the public update transaction helper', () => {
+    const editor = createEditor()
+
+    replaceEditorValue(editor, {
+      children: [paragraph('seeded')],
+      selection: null,
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      [paragraph('seeded')]
+    )
+
+    const helperSource = readFileSync(
+      resolve(repoRoot, 'packages/slate/test/support/snapshot.ts'),
+      'utf8'
+    )
+
+    assert.match(helperSource, /tx\.value\.replace\(input\)/)
+    assert.equal(/\bEditor\.replace\b/.test(helperSource), false)
   })
 })

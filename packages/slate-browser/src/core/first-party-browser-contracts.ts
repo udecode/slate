@@ -74,13 +74,13 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
   },
   {
     assertions: [
-      'large-document runtime void uses the same runtime-owned shell',
+      'rendering-strategy runtime void uses the same runtime-owned shell',
       'hidden spacer is present without visible layout ownership',
       'scoped runtime editor selection lands on the void text anchor',
       'stress replay preserves the scoped editor surface',
     ],
-    family: 'large-document-runtime-void-shell',
-    routes: ['large-document-runtime'],
+    family: 'rendering-strategy-runtime-void-shell',
+    routes: ['rendering-strategy-runtime'],
   },
   {
     assertions: [
@@ -158,12 +158,12 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
   },
   {
     assertions: [
-      'large-document projection overlays render inside the active island',
+      'rendering-strategy projection overlays render inside the active segment',
       'far overlay refresh stays inside render budget',
       'editor selection remains scoped to the projection editor',
     ],
-    family: 'overlay-large-document-budget',
-    routes: ['large-document-runtime'],
+    family: 'overlay-rendering-strategy-budget',
+    routes: ['rendering-strategy-runtime'],
   },
   {
     assertions: [
@@ -259,7 +259,7 @@ export const SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY =
       rows: rowsByFamily([
         'block-void-navigation',
         'paste-html-image-void',
-        'large-document-runtime-void-shell',
+        'rendering-strategy-runtime-void-shell',
         'stale-target-remote-rebase',
       ]),
     }),
@@ -288,8 +288,8 @@ export const SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY =
       ]),
     }),
     defineSlateBrowserPluginContract({
-      plugin: 'large-document-overlays',
-      rows: rowsByFamily(['overlay-large-document-budget']),
+      plugin: 'rendering-strategy-overlays',
+      rows: rowsByFamily(['overlay-rendering-strategy-budget']),
     }),
     defineSlateBrowserPluginContract({
       plugin: 'selection-ui',

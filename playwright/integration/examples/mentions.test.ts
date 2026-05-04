@@ -6,6 +6,11 @@ import {
   takeSlateBrowserRenderStateSnapshot,
 } from 'slate-browser/playwright'
 
+const slateCoverageErrors = new WeakMap<
+  import('@playwright/test').Page,
+  string[]
+>()
+
 const getEditor = (page: import('@playwright/test').Page) =>
   page.locator('[data-slate-editor="true"]').first()
 
@@ -60,6 +65,16 @@ const selectMentionInsertionPoint = async (
 
 test.describe('mentions example', () => {
   test.beforeEach(async ({ page }) => {
+    const errors: string[] = []
+    slateCoverageErrors.set(page, errors)
+    page.on('console', (message) => {
+      if (
+        message.type() === 'error' &&
+        message.text().includes('without a DOM coverage boundary')
+      ) {
+        errors.push(message.text())
+      }
+    })
     await installSlateReactRenderProfiler(page)
     await page.goto('/examples/mentions')
   })
@@ -67,6 +82,8 @@ test.describe('mentions example', () => {
   test('renders mention element', async ({ page }) => {
     await expect(page.locator('[data-cy="mention-R2-D2"]')).toHaveCount(1)
     await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(1)
+    await page.waitForTimeout(50)
+    expect(slateCoverageErrors.get(page)).toEqual([])
   })
 
   test('shows list of mentions', async ({ page }, testInfo) => {
@@ -93,7 +110,7 @@ test.describe('mentions example', () => {
     await expect(page.locator('[data-cy="mention-Jabba"]')).toHaveCount(1)
   })
 
-  test('arrow keys skip over mentions from both sides', async ({
+  test('arrow keys select mentions atomically from both sides', async ({
     page,
   }, testInfo) => {
     if (testInfo.project.name === 'mobile') {
@@ -120,22 +137,25 @@ test.describe('mentions example', () => {
     await resetSlateReactRenderProfiler(page)
     await editor.root.press('ArrowRight')
     await editor.assert.selection({
-      anchor: { path: [1, 2], offset: 0 },
-      focus: { path: [1, 2], offset: 0 },
+      anchor: { path: [1, 1, 0], offset: 0 },
+      focus: { path: [1, 1, 0], offset: 0 },
     })
     let proof = await takeSlateBrowserRenderStateSnapshot(editor)
 
     expect(proof.selection).toEqual({
-      anchor: { path: [1, 2], offset: 0 },
-      focus: { path: [1, 2], offset: 0 },
+      anchor: { path: [1, 1, 0], offset: 0 },
+      focus: { path: [1, 1, 0], offset: 0 },
     })
-    expect(proof.domSelection?.anchorOffset).toBe(0)
+    expect(proof.domSelection?.anchorOffset).toBe(1)
     expect(proof.focusOwner.kind).toBe('editor')
-    expect(proof.selectionShells?.anchor.node?.path).toBe('1,2')
+    expect(proof.selectionShells?.anchor.node?.path).toBe('1,1,0')
     expect(proof.selectionShells?.anchor.node?.runtimeId).toBeTruthy()
-    expect(proof.selectionShells?.anchor.element?.path).toBe('1')
-    expect(proof.renderCounts.byKind.editable ?? 0).toBe(0)
-    expect(proof.renderCounts.total).toBe(0)
+    expect(proof.selectionShells?.anchor.element?.path).toBe('1,1')
+    expect(proof.selectionShells?.anchor.element?.isVoid).toBe(true)
+    await expect(page.locator('[data-cy="mention-R2-D2"]')).toHaveCSS(
+      'box-shadow',
+      'rgb(180, 213, 255) 0px 0px 0px 2px'
+    )
 
     await editor.selection.collapse({ path: [1, 2], offset: 0 })
     await editor.assert.selection({
@@ -145,18 +165,18 @@ test.describe('mentions example', () => {
     await resetSlateReactRenderProfiler(page)
     await editor.root.press('ArrowLeft')
     await editor.assert.selection({
-      anchor: { path: [1, 0], offset: beforeFirstMentionText.length },
-      focus: { path: [1, 0], offset: beforeFirstMentionText.length },
+      anchor: { path: [1, 1, 0], offset: 0 },
+      focus: { path: [1, 1, 0], offset: 0 },
     })
     proof = await takeSlateBrowserRenderStateSnapshot(editor)
 
     expect(proof.selection).toEqual({
-      anchor: { path: [1, 0], offset: beforeFirstMentionText.length },
-      focus: { path: [1, 0], offset: beforeFirstMentionText.length },
+      anchor: { path: [1, 1, 0], offset: 0 },
+      focus: { path: [1, 1, 0], offset: 0 },
     })
-    expect(proof.selectionShells?.anchor.node?.path).toBe('1,0')
-    expect(proof.renderCounts.byKind.editable ?? 0).toBe(0)
-    expect(proof.renderCounts.total).toBe(0)
+    expect(proof.selectionShells?.anchor.node?.path).toBe('1,1,0')
+    expect(proof.selectionShells?.anchor.element?.path).toBe('1,1')
+    expect(proof.selectionShells?.anchor.element?.isVoid).toBe(true)
 
     await editor.selection.collapse({
       path: [1, 2],
@@ -169,21 +189,24 @@ test.describe('mentions example', () => {
     await resetSlateReactRenderProfiler(page)
     await editor.root.press('ArrowRight')
     await editor.assert.selection({
-      anchor: { path: [1, 4], offset: 0 },
-      focus: { path: [1, 4], offset: 0 },
+      anchor: { path: [1, 3, 0], offset: 0 },
+      focus: { path: [1, 3, 0], offset: 0 },
     })
     proof = await takeSlateBrowserRenderStateSnapshot(editor)
 
     expect(proof.selection).toEqual({
-      anchor: { path: [1, 4], offset: 0 },
-      focus: { path: [1, 4], offset: 0 },
+      anchor: { path: [1, 3, 0], offset: 0 },
+      focus: { path: [1, 3, 0], offset: 0 },
     })
-    expect(proof.domSelection?.anchorOffset).toBe(0)
-    expect(proof.selectionShells?.anchor.node?.path).toBe('1,4')
+    expect(proof.domSelection?.anchorOffset).toBe(1)
+    expect(proof.selectionShells?.anchor.node?.path).toBe('1,3,0')
     expect(proof.selectionShells?.anchor.node?.runtimeId).toBeTruthy()
-    expect(proof.selectionShells?.anchor.element?.path).toBe('1')
-    expect(proof.renderCounts.byKind.editable ?? 0).toBe(0)
-    expect(proof.renderCounts.total).toBe(0)
+    expect(proof.selectionShells?.anchor.element?.path).toBe('1,3')
+    expect(proof.selectionShells?.anchor.element?.isVoid).toBe(true)
+    await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCSS(
+      'box-shadow',
+      'rgb(180, 213, 255) 0px 0px 0px 2px'
+    )
 
     await editor.selection.collapse({ path: [1, 4], offset: 0 })
     await editor.assert.selection({
@@ -193,17 +216,17 @@ test.describe('mentions example', () => {
     await resetSlateReactRenderProfiler(page)
     await editor.root.press('ArrowLeft')
     await editor.assert.selection({
-      anchor: { path: [1, 2], offset: betweenMentionsText.length },
-      focus: { path: [1, 2], offset: betweenMentionsText.length },
+      anchor: { path: [1, 3, 0], offset: 0 },
+      focus: { path: [1, 3, 0], offset: 0 },
     })
     proof = await takeSlateBrowserRenderStateSnapshot(editor)
 
     expect(proof.selection).toEqual({
-      anchor: { path: [1, 2], offset: betweenMentionsText.length },
-      focus: { path: [1, 2], offset: betweenMentionsText.length },
+      anchor: { path: [1, 3, 0], offset: 0 },
+      focus: { path: [1, 3, 0], offset: 0 },
     })
-    expect(proof.selectionShells?.anchor.node?.path).toBe('1,2')
-    expect(proof.renderCounts.byKind.editable ?? 0).toBe(0)
-    expect(proof.renderCounts.total).toBe(0)
+    expect(proof.selectionShells?.anchor.node?.path).toBe('1,3,0')
+    expect(proof.selectionShells?.anchor.element?.path).toBe('1,3')
+    expect(proof.selectionShells?.anchor.element?.isVoid).toBe(true)
   })
 })

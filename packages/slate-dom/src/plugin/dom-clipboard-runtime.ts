@@ -87,6 +87,14 @@ export const writeDOMSelectionData = <V extends Value>(
 
   const coveredBoundaries = DOMCoverage.getBoundariesForRange(editor, selection)
 
+  for (const boundary of coveredBoundaries) {
+    if (boundary.copyPolicy === 'materialize') {
+      DOMCoverage.materializeBoundary(editor, boundary.boundaryId, 'copy', {
+        range: selection,
+      })
+    }
+  }
+
   if (coveredBoundaries.some((boundary) => boundary.copyPolicy !== 'exclude')) {
     writeModelBackedSelectionData(editor, data, clipboardFormatKey)
     return

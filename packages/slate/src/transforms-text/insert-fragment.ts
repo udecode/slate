@@ -1,6 +1,10 @@
 import { executeCommand } from '../core/command-registry'
 import { getEditorSchema } from '../core/editor-runtime'
-import { getOperationCount, runEditorTransaction } from '../core/public-state'
+import {
+  getOperationCount,
+  replaceSnapshot,
+  runEditorTransaction,
+} from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { nodes as getNodes } from '../editor/nodes'
 import { Location } from '../interfaces'
@@ -92,7 +96,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         }
 
         if (isFullDocumentRange(editor, at)) {
-          Editor.replace(editor, {
+          replaceSnapshot(editor, {
             children: fragment as Value,
             selection: getFragmentEndSelection(fragment),
           })

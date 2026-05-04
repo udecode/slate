@@ -1,9 +1,9 @@
 import { css } from '@emotion/css'
-import { isKeyHotkey } from 'is-hotkey'
 import isUrl from 'is-url'
 import type React from 'react'
 import { type ClipboardEvent, type PointerEvent, useMemo } from 'react'
-import { createEditor, Node, Range } from 'slate'
+import { Node, Range } from 'slate'
+import { isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import * as SlateReact from 'slate-react'
 import {
@@ -14,7 +14,7 @@ import {
   useEditor,
   useEditorSelector,
   useElementSelected,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 
 import { Button, Icon, Toolbar } from './components'
@@ -75,13 +75,10 @@ const initialValue: CustomValue = [
   },
 ]
 const InlinesExample = () => {
-  const editor = useMemo(
-    () =>
-      withInlines(
-        withHistory(withReact(createEditor<CustomValue>()))
-      ) as CustomEditor,
-    []
-  )
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    enhance: (editor) => withInlines(withHistory(editor) as CustomEditor),
+    initialValue,
+  })
   const inputRules = useMemo<readonly EditableInputRule[]>(
     () => [
       ({ data, inputType }) => {
@@ -115,14 +112,13 @@ const InlinesExample = () => {
     // This lets the user step into and out of the inline without stepping over characters.
     // You may wish to customize this further to only use unit:'offset' in specific cases.
     if (selection && Range.isCollapsed(selection)) {
-      const { nativeEvent } = event
-      if (isKeyHotkey('left', nativeEvent)) {
+      if (isHotkey('left', event)) {
         editor.update((tx) => {
           tx.selection.move({ unit: 'offset', reverse: true })
         })
         return true
       }
-      if (isKeyHotkey('right', nativeEvent)) {
+      if (isHotkey('right', event)) {
         editor.update((tx) => {
           tx.selection.move({ unit: 'offset' })
         })
@@ -132,7 +128,7 @@ const InlinesExample = () => {
   }
 
   return (
-    <SlateReact.Slate editor={editor} initialValue={initialValue}>
+    <SlateReact.Slate editor={editor}>
       <Toolbar>
         <AddLinkButton />
         <RemoveLinkButton />

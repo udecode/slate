@@ -1,6 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react'
-import { createEditor, Node, type Element as SlateElement } from 'slate'
-import { Editor } from 'slate/internal'
+import React, { useCallback, useState } from 'react'
+import { Node, type Element as SlateElement } from 'slate'
 import { DOMCoverage } from 'slate-dom/internal'
 import { withHistory } from 'slate-history'
 import {
@@ -8,13 +7,13 @@ import {
   EditableElement,
   type RenderElementProps,
   Slate,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 
 const hiddenBodyPath = [2, 1, 0]
 
 const DomCoverageBoundariesExample = () => {
-  const editor = useMemo(() => withHistory(withReact(createEditor())), [])
+  const editor = useSlateEditor({ enhance: withHistory, initialValue })
   const [headerHidden, setHeaderHidden] = useState(true)
   const [footerHidden, setFooterHidden] = useState(true)
   const [outerHidden, setOuterHidden] = useState(true)
@@ -63,7 +62,9 @@ const DomCoverageBoundariesExample = () => {
       tx.selection.set({
         anchor: { offset: 0, path: [0, 0] },
         focus: {
-          offset: Node.string(Editor.getSnapshot(editor).children[4]).length,
+          offset: editor.read((state) =>
+            Node.string(state.runtime.snapshot().children[4])
+          ).length,
           path: [4, 0],
         },
       })
@@ -123,7 +124,7 @@ const DomCoverageBoundariesExample = () => {
       </div>
 
       <div style={styles.editorWrap}>
-        <Slate editor={editor} initialValue={initialValue}>
+        <Slate editor={editor}>
           <Editable
             autoFocus
             placeholder="Try toggles, selection, and copy"

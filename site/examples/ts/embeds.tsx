@@ -1,12 +1,12 @@
 import React, { type ChangeEvent, useMemo } from 'react'
-import { createEditor, type Path, type Element as SlateElement } from 'slate'
+import type { Path, Element as SlateElement } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
   Slate,
   useEditor,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 import type {
   CustomEditor,
@@ -15,15 +15,12 @@ import type {
 } from './custom-types.d'
 
 const EmbedsExample = () => {
-  const editor = useMemo(
-    () =>
-      withEmbeds(
-        withHistory(withReact(createEditor<CustomValue>())) as CustomEditor
-      ),
-    []
-  )
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    enhance: (editor) => withEmbeds(withHistory(editor) as CustomEditor),
+    initialValue,
+  })
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable
         placeholder="Enter some text..."
         renderElement={(props) => <Element {...props} />}

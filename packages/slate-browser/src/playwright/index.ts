@@ -116,9 +116,14 @@ export type RenderedDOMShapeExpectation = {
 }
 
 export type SlateReactRenderKind =
+  | 'core-time'
+  | 'dom-text-sync'
   | 'editable'
   | 'element'
   | 'leaf'
+  | 'root-plan'
+  | 'runtime-time'
+  | 'selector'
   | 'spacer'
   | 'text'
   | 'void'
@@ -148,6 +153,11 @@ const installSlateReactRenderProfilerScript = () => {
   const snapshot = (): SlateReactRenderProfilerSnapshot => {
     const byKey: Record<string, number> = {}
     const byKind: Partial<Record<SlateReactRenderKind, number>> = {}
+    const isRenderEvent = (event: SlateReactRenderProfilerEvent) =>
+      event.kind !== 'core-time' &&
+      event.kind !== 'dom-text-sync' &&
+      event.kind !== 'runtime-time' &&
+      event.kind !== 'selector'
 
     for (const event of events) {
       byKind[event.kind] = (byKind[event.kind] ?? 0) + 1
@@ -160,7 +170,7 @@ const installSlateReactRenderProfilerScript = () => {
       byKey,
       byKind,
       events: events.map((event) => ({ ...event })),
-      total: events.length,
+      total: events.filter(isRenderEvent).length,
     }
   }
 
@@ -4669,7 +4679,7 @@ const createEditorHarness = (
             })
           } catch {
             // Some semantic selections intentionally do not resolve to a DOM
-            // range, for example shell-backed large-document rows.
+            // range, for example shell-backed rendering-strategy rows.
           }
 
           await waitForSelectionIfPresent(root)

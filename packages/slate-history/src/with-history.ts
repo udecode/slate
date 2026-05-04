@@ -1,4 +1,4 @@
-import { Operation, Path, type SnapshotChange, type Value } from 'slate'
+import { Operation, Path, type SnapshotChange, type ValueOf } from 'slate'
 import { Editor, executeCommand } from 'slate/internal'
 
 import { HistoryEditor } from './history-editor'
@@ -11,10 +11,12 @@ import { HistoryEditor } from './history-editor'
  * plugin.
  */
 
-export const withHistory = <V extends Value, T extends Editor<V>>(
+export const withHistory = <T extends Editor<any>>(
   editor: T
-) => {
-  const e = editor as unknown as T & HistoryEditor<V>
+): T & HistoryEditor<ValueOf<T>> => {
+  type HistoryValue = ValueOf<T>
+
+  const e = editor as unknown as T & HistoryEditor<HistoryValue>
   e.history = { undos: [], redos: [] }
   let previousSnapshot = Editor.getSnapshot(e)
 
@@ -84,7 +86,9 @@ export const withHistory = <V extends Value, T extends Editor<V>>(
   }
 
   const unsubscribe = Editor.subscribe(e, (snapshot, change) => {
-    const committedOps = [...(change?.operations ?? [])] as Operation<V>[]
+    const committedOps = [
+      ...(change?.operations ?? []),
+    ] as Operation<HistoryValue>[]
 
     if (committedOps.length === 0) {
       previousSnapshot = snapshot

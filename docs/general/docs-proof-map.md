@@ -17,7 +17,7 @@ source should be code, tests, or a browser contract row.
 | Decorations and annotations use projection stores and source-scoped subscriptions. | `libraries/slate-react/slate.md`, `libraries/slate-react/annotations.md`, `libraries/slate-react/editable.md`, `concepts/09-rendering.md` | `packages/slate-react/src/decoration-source.ts`, `packages/slate-react/src/annotation-store.ts`, `packages/slate-react/test/annotation-store-contract.test.tsx` |
 | Collaboration adapters export commit operations and import remote operations through explicit replay. | `walkthroughs/07-enabling-collaborative-editing.md` | `packages/slate/test/collab-history-runtime-contract.ts`, `packages/slate/test/commit-metadata-contract.ts`, `packages/slate/test/migration-backbone-contract.ts` |
 | Runtime ids are local projection handles, not persistence ids. | `walkthroughs/07-enabling-collaborative-editing.md`, `libraries/slate-react/editable.md` | `packages/slate/test/collab-history-runtime-contract.ts`, `packages/slate/test/migration-backbone-contract.ts`, `packages/slate-react/test/runtime-live-state-contract.ts` |
-| Large-document mode mounts stable projection islands and keeps React off hot editor paths. | `walkthroughs/09-performance.md`, `libraries/slate-react/editable.md`, `concepts/09-rendering.md` | `packages/slate-react/src/large-document`, `packages/slate-react/test/render-profiler-contract.test.tsx`, `playwright/integration/examples/large-document-runtime.test.ts` |
+| Rendering strategy mounts stable projection segments and keeps React off hot editor paths. | `walkthroughs/09-performance.md`, `libraries/slate-react/editable.md`, `concepts/09-rendering.md` | `packages/slate-react/src/rendering-strategy`, `packages/slate-react/test/render-profiler-contract.test.tsx`, `playwright/integration/examples/rendering-strategy-runtime.test.ts` |
 
 ## Browser Contract Map
 
@@ -32,7 +32,7 @@ or one-off manual checks.
 | Block void navigation | `images`, `embeds` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
 | Paste HTML image void | `paste-html` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
 | Editable island native focus | `editable-voids` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
-| Large-document runtime void shell | `large-document-runtime` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
+| Rendering strategy runtime void shell | `rendering-strategy-runtime` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
 | Table cell boundary navigation | `tables` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
 | External decoration refresh | `search-highlighting` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
 | Annotation anchor rebase | `review-comments`, `persistent-annotation-anchors`, `collaborative-comments` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |

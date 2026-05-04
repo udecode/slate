@@ -73,6 +73,7 @@ export const applyEditableInput = ({
   handledDOMBeforeInputRef,
   inputController,
   onInput,
+  skipNativeTextInputRepair = false,
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
   deferredOperations: RefBox<DeferredOperation[]>
@@ -81,6 +82,7 @@ export const applyEditableInput = ({
   handledDOMBeforeInputRef: RefBox<boolean>
   inputController: import('./input-controller').EditableInputController
   onInput?: EditableInputHandler
+  skipNativeTextInputRepair?: boolean
 }): EditableInputResult => {
   if (isInputEventHandled({ event, handler: onInput })) {
     return inputResult()
@@ -120,6 +122,7 @@ export const applyEditableInput = ({
     event.currentTarget.textContent?.replace(/\uFEFF/g, '') ?? modelText
 
   if (
+    !skipNativeTextInputRepair &&
     nativeInput.inputType === 'insertText' &&
     typeof nativeInput.data === 'string' &&
     nativeInput.data.length > 0 &&

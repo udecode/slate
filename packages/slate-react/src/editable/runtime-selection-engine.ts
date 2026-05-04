@@ -12,7 +12,6 @@ import {
   recordEditableKernelTrace,
 } from './editing-kernel'
 import type { EditableInputController } from './input-state'
-import { Editor } from './runtime-editor-api'
 import { readLiveSelection } from './runtime-selection-state'
 import {
   applyEditableDOMSelectionChange,
@@ -91,7 +90,6 @@ export const createRuntimeSelectionChangeHandler = ({
         eventFamily: 'selectionchange',
         intent: null,
         nativeAllowed: ownership === 'native-allowed',
-        operations: Editor.getOperations(editor),
         ownership,
         repair: null,
         selectionAfter: readLiveSelection(editor),

@@ -1,6 +1,6 @@
 import { css } from '@emotion/css'
 import { type MouseEvent, useEffect, useMemo, useRef } from 'react'
-import { createEditor, Range } from 'slate'
+import { Range } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -10,17 +10,17 @@ import {
   useEditorFocused,
   useEditorSelection,
   useEditorSelector,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 
 import { Button, Icon, Menu, Portal } from './components'
 import type { CustomEditor, CustomTextKey, CustomValue } from './custom-types.d'
 
 const HoveringMenuExample = () => {
-  const editor = useMemo(
-    () => withHistory(withReact(createEditor<CustomValue>())) as CustomEditor,
-    []
-  )
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    enhance: (editor) => withHistory(editor) as CustomEditor,
+    initialValue,
+  })
   const handleDOMBeforeInput = useMemo(
     () => (event: InputEvent) => {
       switch (event.inputType) {
@@ -42,7 +42,7 @@ const HoveringMenuExample = () => {
   )
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <HoveringToolbar />
       <Editable
         onDOMBeforeInput={handleDOMBeforeInput}

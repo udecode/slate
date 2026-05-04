@@ -24,6 +24,7 @@ export const useElementSelected = (target?: Path): boolean => {
         contextPath ??
         (element ? ReactEditor.findPath(editor, element) : null)
       if (!path) return false
+      if (!Editor.hasPath(editor, path)) return false
 
       const range = Editor.range(editor, path)
       return !!Range.intersection(range, selection)

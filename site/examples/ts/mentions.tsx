@@ -4,11 +4,10 @@ import {
   type MouseEvent,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react'
-import { createEditor, Range } from 'slate'
+import { Range } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -18,7 +17,7 @@ import {
   Slate,
   useEditorFocused,
   useElementSelected,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 
 import { Portal } from './components'
@@ -45,13 +44,10 @@ const MentionExample = () => {
     (props: RenderLeafProps) => <Leaf {...props} />,
     []
   )
-  const editor = useMemo(
-    () =>
-      withMentions(
-        withReact(withHistory(createEditor<CustomValue>()))
-      ) as CustomEditor,
-    []
-  )
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    enhance: (editor) => withMentions(withHistory(editor) as CustomEditor),
+    initialValue,
+  })
 
   const chars = CHARACTERS.filter((c) =>
     c.toLowerCase().startsWith(search.toLowerCase())
@@ -103,7 +99,6 @@ const MentionExample = () => {
   return (
     <Slate
       editor={editor}
-      initialValue={initialValue}
       onChange={() => {
         const match = editor.read((state) => {
           const selection = state.selection.get()
@@ -112,11 +107,13 @@ const MentionExample = () => {
             const [start] = Range.edges(selection)
             const wordBefore = state.points.before(start, { unit: 'word' })
             const before = wordBefore && state.points.before(wordBefore)
-            const beforeRange = before && state.ranges.get(before, start)
+            const beforeRange =
+              before && state.ranges.get({ anchor: before, focus: start })
             const beforeText = beforeRange && state.text.string(beforeRange)
             const beforeMatch = beforeText?.match(/(?:^|\s)@(\w+)$/)
             const after = state.points.after(start)
-            const afterRange = after && state.ranges.get(start, after)
+            const afterRange =
+              after && state.ranges.get({ anchor: start, focus: after })
             const afterText = afterRange && state.text.string(afterRange)
             const afterMatch = afterText?.match(/^(\s|$)/)
 
@@ -127,7 +124,10 @@ const MentionExample = () => {
               }
 
               return {
-                range: state.ranges.get(mentionStart, start),
+                range: state.ranges.get({
+                  anchor: mentionStart,
+                  focus: start,
+                }),
                 search: beforeMatch[1],
               }
             }

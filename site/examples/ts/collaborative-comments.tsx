@@ -1,6 +1,6 @@
 import { css } from '@emotion/css'
 import { useMemo, useRef, useState } from 'react'
-import { type Bookmark, createEditor, type Range, type Value } from 'slate'
+import type { Bookmark, Range, Value } from 'slate'
 import {
   Editable,
   type ReactEditor,
@@ -9,7 +9,7 @@ import {
   useEditorSelection,
   useSlateAnnotationStore,
   useSlateAnnotations,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 
 import { Instruction } from './components'
@@ -463,29 +463,11 @@ const ReviewerPane = ({
 }
 
 const CollaborativeCommentsExample = () => {
-  const [writerEditor] = useState(() => {
-    const nextEditor = withReact(createEditor())
-
-    nextEditor.update((tx) => {
-      tx.value.replace({
-        children: cloneValue(initialChildren),
-        selection: null,
-      })
-    })
-
-    return nextEditor
+  const writerEditor = useSlateEditor({
+    initialValue: cloneValue(initialChildren),
   })
-  const [reviewerEditor] = useState(() => {
-    const nextEditor = withReact(createEditor())
-
-    nextEditor.update((tx) => {
-      tx.value.replace({
-        children: cloneValue(initialChildren),
-        selection: null,
-      })
-    })
-
-    return nextEditor
+  const reviewerEditor = useSlateEditor({
+    initialValue: cloneValue(initialChildren),
   })
   const commentsRef = useRef<readonly CommentThread[]>([])
   const [comments, setComments] = useState<CommentThread[]>([])

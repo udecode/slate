@@ -1,6 +1,6 @@
 import type { Descendant } from 'slate'
 
-export type LargeDocumentIslandKind =
+export type RenderingStrategySegmentKind =
   | 'block-group'
   | 'list-subtree'
   | 'table-subtree'
@@ -18,9 +18,9 @@ const isText = (
 const matchesType = (type: unknown, matcher: RegExp) =>
   typeof type === 'string' && matcher.test(type)
 
-export const classifyIslandKind = (
+export const classifySegmentKind = (
   nodes: readonly Descendant[]
-): LargeDocumentIslandKind => {
+): RenderingStrategySegmentKind => {
   let sawList = false
   let sawTable = false
   let sawVoidLike = false

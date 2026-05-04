@@ -1,9 +1,9 @@
 import { css } from '@emotion/css'
 import imageExtensions from 'image-extensions'
-import isHotkey from 'is-hotkey'
 import isUrl from 'is-url'
-import { type PointerEvent, useMemo } from 'react'
-import { createEditor, type Path, type Element as SlateElement } from 'slate'
+import type { PointerEvent } from 'react'
+import type { Path, Element as SlateElement } from 'slate'
+import { isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -12,7 +12,7 @@ import {
   useEditor,
   useEditorFocused,
   useElementSelected,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 
 import { Button, Icon, Toolbar } from './components'
@@ -24,16 +24,13 @@ import type {
 } from './custom-types.d'
 
 const ImagesExample = () => {
-  const editor = useMemo(
-    () =>
-      withImages(
-        withHistory(withReact(createEditor<CustomValue>()))
-      ) as CustomEditor,
-    []
-  )
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    enhance: (editor) => withImages(withHistory(editor) as CustomEditor),
+    initialValue,
+  })
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Toolbar>
         <InsertImageButton />
       </Toolbar>

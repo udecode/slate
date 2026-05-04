@@ -1,5 +1,4 @@
 import { css } from '@emotion/css'
-import isHotkey from 'is-hotkey'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-java'
 import 'prismjs/components/prism-javascript'
@@ -17,16 +16,15 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useState,
 } from 'react'
 import {
-  createEditor,
   type Descendant,
   type EditorSnapshot,
   Node,
   type RuntimeId,
   type Node as SlateNode,
 } from 'slate'
+import { isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
   createDecorationSource,
@@ -35,7 +33,7 @@ import {
   Slate,
   type SlateProjection,
   useEditor,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 import { Button, Icon, Toolbar } from './components'
 import type {
@@ -53,19 +51,9 @@ const CodeBlockType = 'code-block'
 const CodeLineType = 'code-line'
 
 const CodeHighlightingExample = () => {
-  const [editor] = useState(() => {
-    const nextEditor = withHistory(
-      withReact(createEditor<CustomValue>())
-    ) as CustomEditor
-
-    nextEditor.update((tx) => {
-      tx.value.replace({
-        children: initialValue,
-        selection: null,
-      })
-    })
-
-    return nextEditor
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    enhance: (editor) => withHistory(editor) as CustomEditor,
+    initialValue,
   })
 
   const onKeyDown = useOnKeydown(editor)
@@ -403,12 +391,12 @@ const initialValue = [
 ]
 
 const App = () => {
-  const [editor] = useState(
-    () => withReact(createEditor<CustomValue>()) as CustomEditor
-  )
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    initialValue,
+  })
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable />
     </Slate>
   )
@@ -417,21 +405,22 @@ const App = () => {
   {
     type: ParagraphType,
     children: toChildren(
-      'If you are using TypeScript, create the editor with a value generic and compose plugins from that typed editor. The example below includes the custom types required for the rest of this example.'
+      'If you are using TypeScript, create the editor with a value generic and compose editor enhancers from that typed editor. The example below includes the custom types required for the rest of this example.'
     ),
   },
   {
     type: CodeBlockType,
     language: 'typescript',
     children: toCodeLines(`// TypeScript users only add this code
-import { Descendant, createEditor } from 'slate'
+import { Descendant } from 'slate'
 import type { ReactEditor } from 'slate-react'
+import { useSlateEditor } from 'slate-react'
 
 type CustomElement = { type: 'paragraph'; children: CustomText[] }
 type CustomText = { text: string }
 type CustomValue = CustomElement[]
 
-const editor = withReact(createEditor<CustomValue>())`),
+const editor = useSlateEditor<CustomValue>({ initialValue })`),
   },
   {
     type: ParagraphType,

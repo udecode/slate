@@ -9,8 +9,8 @@ import {
 } from 'slate-dom'
 import type { EditableKeyDownHandler } from '../components/editable'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
-import { isSelectAllHotkey } from '../large-document/large-document-commands'
 import { ReactEditor } from '../plugin/react-editor'
+import { isSelectAllHotkey } from '../rendering-strategy/rendering-strategy-commands'
 import { applyEditableCaretMovement } from './caret-engine'
 import {
   isDestructiveEditableCommand,
@@ -19,8 +19,10 @@ import {
 import { getEditableCommandFromKeyDown } from './editing-kernel'
 import {
   type EditableCompositionStateSetter,
+  type EditableInputController,
   type EditableRepairRequest,
   isInteractiveInternalTarget,
+  setEditableModelSelectionPreference,
 } from './input-controller'
 import {
   applyModelOwnedHistoryIntent,
@@ -50,10 +52,11 @@ const DEFAULT_MODEL_COMMAND_REPAIR: EditableRepairRequest = {
   },
 }
 
-const isShellLargeDocument = (largeDocument: unknown) =>
-  typeof largeDocument === 'object' &&
-  largeDocument !== null &&
-  (largeDocument as { mode?: unknown }).mode === 'shell'
+const isShellRenderingStrategy = (renderingStrategy: unknown) =>
+  typeof renderingStrategy === 'object' &&
+  renderingStrategy !== null &&
+  ((renderingStrategy as { type?: unknown }).type === 'shell' ||
+    (renderingStrategy as { type?: unknown }).type === 'virtualized')
 
 const applyUserKeyDownHandler = ({
   editor,
@@ -96,7 +99,8 @@ export const applyEditableKeyDown = ({
   editor,
   event,
   forceRender,
-  largeDocument,
+  inputController,
+  renderingStrategy,
   onKeyDown,
   readOnly,
   setExplicitShellBackedSelection,
@@ -107,7 +111,8 @@ export const applyEditableKeyDown = ({
   editor: ReactEditor
   event: KeyboardEvent<HTMLDivElement>
   forceRender: () => void
-  largeDocument: unknown
+  inputController: EditableInputController
+  renderingStrategy: unknown
   onKeyDown?: EditableKeyDownHandler
   readOnly: boolean
   setExplicitShellBackedSelection: (nextValue: boolean) => void
@@ -147,7 +152,15 @@ export const applyEditableKeyDown = ({
     if (isSelectAllHotkey(nativeEvent)) {
       event.preventDefault()
       applyEditableCommand({ command: { kind: 'select-all' }, editor })
-      setExplicitShellBackedSelection(isShellLargeDocument(largeDocument))
+      const shellRenderingStrategy = isShellRenderingStrategy(renderingStrategy)
+      if (shellRenderingStrategy) {
+        setEditableModelSelectionPreference({
+          inputController,
+          preferModelSelection: true,
+          selectionSource: 'shell-backed',
+        })
+      }
+      setExplicitShellBackedSelection(shellRenderingStrategy)
       forceRender()
       return keyDownHandled()
     }
@@ -194,7 +207,7 @@ export const applyEditableKeyDown = ({
     }
 
     if (
-      isShellLargeDocument(largeDocument) &&
+      isShellRenderingStrategy(renderingStrategy) &&
       shellBackedSelection &&
       selection &&
       nativeEvent.key.length === 1 &&

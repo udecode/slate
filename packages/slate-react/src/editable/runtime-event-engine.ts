@@ -7,8 +7,8 @@ import {
 } from 'react'
 import type { Range, RuntimeId } from 'slate'
 import type { EditableKeyDownHandler } from '../components/editable'
-import type { MountedTopLevelRange } from '../large-document/large-document-commands'
 import type { ReactEditor } from '../plugin/react-editor'
+import type { MountedTopLevelRange } from '../rendering-strategy/rendering-strategy-commands'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import type {
   EditableInputController,
@@ -109,7 +109,7 @@ export const useEditableEventRuntime = ({
   handledDOMBeforeInputRef,
   inputController,
   isShellBackedSelection,
-  largeDocument,
+  renderingStrategy,
   onDOMBeforeInput,
   onKeyDown,
   onUserInput,
@@ -139,8 +139,8 @@ export const useEditableEventRuntime = ({
   handledDOMBeforeInputRef: RefObject<boolean>
   inputController: EditableInputController
   isShellBackedSelection: (selection: Range | null) => boolean
-  largeDocument: {
-    mode: 'dom-present' | 'shell'
+  renderingStrategy: {
+    type: 'staged' | 'shell' | 'virtualized'
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
   } | null
@@ -276,7 +276,7 @@ export const useEditableEventRuntime = ({
   const keyboardHandlers = useRuntimeKeyboardEvents({
     editor,
     inputController,
-    largeDocument,
+    renderingStrategy,
     onKeyDown,
     readOnly,
     runtime,

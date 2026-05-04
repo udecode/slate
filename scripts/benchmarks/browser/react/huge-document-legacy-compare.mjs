@@ -16,14 +16,16 @@ const legacyRepo = resolve(
 const iterations = Number(process.env.REACT_HUGE_COMPARE_ITERATIONS || 3)
 const blocks = Number(process.env.REACT_HUGE_COMPARE_BLOCKS || 5000)
 const chunkSize = Number(process.env.REACT_HUGE_COMPARE_CHUNK_SIZE || 1000)
-const islandSize = Number(process.env.REACT_HUGE_COMPARE_ISLAND_SIZE || 100)
-const activeRadius = Number(process.env.REACT_HUGE_COMPARE_ACTIVE_RADIUS || 0)
-const rootGroupSize = 50
+const segmentSize = Number(process.env.REACT_HUGE_COMPARE_ISLAND_SIZE || 100)
+const overscan = Number(process.env.REACT_HUGE_COMPARE_ACTIVE_RADIUS || 0)
+const rootGroupSize = 16
 const typeOps = Number(process.env.REACT_HUGE_COMPARE_TYPE_OPS || 20)
 const profile = process.env.REACT_HUGE_COMPARE_PROFILE === '1'
 const compareMode = process.env.REACT_HUGE_COMPARE_MODE || 'compare'
 const readyOnly = process.env.REACT_HUGE_COMPARE_READY_ONLY === '1'
 const skipBuild = process.env.REACT_HUGE_COMPARE_SKIP_BUILD === '1'
+const isolateCurrentSurfaces =
+  process.env.REACT_HUGE_COMPARE_ISOLATE_SURFACES === '1'
 const splitSelectionLanes =
   process.env.REACT_HUGE_COMPARE_SPLIT_SELECTION === '1'
 const disposeDelayMs = Number(
@@ -835,9 +837,9 @@ const currentBenchmarkSource = `
 ${currentSharedSource}
 import { Editable, Slate } from '../../packages/slate-react/dist/index.js'
 
-const islandSize = Number(process.env.REACT_HUGE_COMPARE_ISLAND_SIZE || 100)
-const activeRadius = Number(process.env.REACT_HUGE_COMPARE_ACTIVE_RADIUS || 0)
-const rootGroupSize = 50
+const segmentSize = Number(process.env.REACT_HUGE_COMPARE_ISLAND_SIZE || 100)
+const overscan = Number(process.env.REACT_HUGE_COMPARE_ACTIVE_RADIUS || 0)
+const rootGroupSize = 16
 const rootGroupThreshold = 1000
 const profileEnabled = process.env.REACT_HUGE_COMPARE_PROFILE === '1'
 const selectedSurfaceNames = new Set(
@@ -968,19 +970,20 @@ const summarizeProfiles = (profiles) => {
 }
 
 const getRootGroupCount = () => Math.ceil(blocks / rootGroupSize)
-const getShellIslandCount = () => Math.ceil(blocks / islandSize)
+const getShellSegmentCount = () => Math.ceil(blocks / segmentSize)
 
-const getLargeDocumentOptions = ({ largeDocumentMode, shellRadius = null }) => {
-  switch (largeDocumentMode) {
+const getRenderingStrategyOptions = ({ renderingStrategyType, shellRadius = null }) => {
+  switch (renderingStrategyType) {
     case 'auto':
-    case 'dom-present':
-    case 'off':
-      return largeDocumentMode
+    case 'staged':
+    case 'full':
+      return renderingStrategyType
     case 'shell':
+    case 'virtualized':
       return {
-        activeRadius: shellRadius ?? activeRadius,
-        mode: 'shell',
-        islandSize,
+        overscan: shellRadius ?? overscan,
+        segmentSize,
+        type: renderingStrategyType,
         threshold: 1,
       }
     default:
@@ -988,14 +991,16 @@ const getLargeDocumentOptions = ({ largeDocumentMode, shellRadius = null }) => {
   }
 }
 
-const createSurfaceTrace = ({ largeDocumentMode, shellRadius = null }) => {
-  const shellEnabled = largeDocumentMode === 'shell'
+const createSurfaceTrace = ({ renderingStrategyType, shellRadius = null }) => {
+  const shellEnabled = renderingStrategyType === 'shell'
+  const virtualizationEnabled = renderingStrategyType === 'virtualized'
+  const segmentGroupingEnabled = shellEnabled || virtualizationEnabled
   const domPresentGroupingEnabled =
-    (largeDocumentMode === 'auto' || largeDocumentMode === 'dom-present') &&
+    (renderingStrategyType === 'auto' || renderingStrategyType === 'staged') &&
     blocks >= rootGroupThreshold
-  const groupingEnabled = shellEnabled || domPresentGroupingEnabled
-  const shellMountedGroups = shellEnabled
-    ? Math.min(getShellIslandCount(), (shellRadius ?? activeRadius) + 1)
+  const groupingEnabled = segmentGroupingEnabled || domPresentGroupingEnabled
+  const segmentMountedGroups = segmentGroupingEnabled
+    ? Math.min(getShellSegmentCount(), (shellRadius ?? overscan) + 1)
     : null
   const mountedDomPresentGroups = domPresentGroupingEnabled
     ? Math.min(getRootGroupCount(), 1)
@@ -1006,22 +1011,22 @@ const createSurfaceTrace = ({ largeDocumentMode, shellRadius = null }) => {
 
   return {
     backgroundMountChunks: pendingDomPresentGroups,
-    corridor: shellEnabled
-      ? { activeRadius: shellRadius ?? activeRadius }
+    corridor: segmentGroupingEnabled
+      ? { overscan: shellRadius ?? overscan }
       : domPresentGroupingEnabled
         ? 'active-group-staged'
         : null,
     groupingEnabled,
-    groupSize: shellEnabled
-      ? islandSize
+    groupSize: segmentGroupingEnabled
+      ? segmentSize
       : domPresentGroupingEnabled
         ? rootGroupSize
         : null,
     interactiveReadyAt: null,
-    largeDocumentMode,
+    renderingStrategyType,
     maxBackgroundChunkMs: 0,
-    mountedGroupCountAtReady: shellEnabled
-      ? shellMountedGroups
+    mountedGroupCountAtReady: segmentGroupingEnabled
+      ? segmentMountedGroups
       : domPresentGroupingEnabled
         ? mountedDomPresentGroups
         : null,
@@ -1030,29 +1035,30 @@ const createSurfaceTrace = ({ largeDocumentMode, shellRadius = null }) => {
     shellEnabled,
     stagedMountingEnabled: domPresentGroupingEnabled,
     staleGroupCount: 0,
+    virtualizationEnabled,
   }
 }
 
 const createSurfaceDefinition = ({
-  largeDocumentMode,
+  renderingStrategyType,
   name,
-  omitLargeDocument = false,
+  omitRenderingStrategy = false,
   renderElementEnabled = true,
   shellRadius,
 }) => ({
-  largeDocument: omitLargeDocument
+  renderingStrategy: omitRenderingStrategy
     ? undefined
-    : getLargeDocumentOptions({ largeDocumentMode, shellRadius }),
+    : getRenderingStrategyOptions({ renderingStrategyType, shellRadius }),
   name,
   renderElement: renderElementEnabled ? renderElement : undefined,
-  trace: createSurfaceTrace({ largeDocumentMode, shellRadius }),
+  trace: createSurfaceTrace({ renderingStrategyType, shellRadius }),
 })
 
 const resolveReadyTrace = ({ nativeSurfaceCompleteMs, readyMs, trace }) => ({
   ...trace,
   interactiveReadyAt: readyMs.mean,
   nativeSurfaceCompleteAt:
-    trace.shellEnabled
+    trace.shellEnabled || trace.virtualizationEnabled
       ? null
       : trace.stagedMountingEnabled
         ? nativeSurfaceCompleteMs?.mean ?? null
@@ -1120,7 +1126,7 @@ const recordReadySurfaceWeight = (container) => {
   )
   const shellCount = countElements(
     root,
-    '[data-slate-large-document-shell="true"]'
+    '[data-slate-rendering-strategy-shell="true"]'
   )
   const mountedEditableDescendantCount = slateElementCount + slateTextCount
 
@@ -1190,41 +1196,46 @@ const recordReadySurfaceWeight = (container) => {
 
 const surfaceDefinitions = [
   createSurfaceDefinition({
-    largeDocumentMode: 'off',
+    renderingStrategyType: 'full',
     name: 'v2Off',
   }),
   createSurfaceDefinition({
-    largeDocumentMode: 'off',
+    renderingStrategyType: 'full',
     name: 'v2DefaultRenderOff',
     renderElementEnabled: false,
   }),
   createSurfaceDefinition({
-    largeDocumentMode: 'auto',
+    renderingStrategyType: 'auto',
     name: 'v2DefaultOmitted',
-    omitLargeDocument: true,
+    omitRenderingStrategy: true,
   }),
   createSurfaceDefinition({
-    largeDocumentMode: 'auto',
+    renderingStrategyType: 'auto',
     name: 'v2DefaultRenderAuto',
     renderElementEnabled: false,
   }),
   createSurfaceDefinition({
-    largeDocumentMode: 'auto',
+    renderingStrategyType: 'auto',
     name: 'v2AutoExplicit',
   }),
   createSurfaceDefinition({
-    largeDocumentMode: 'dom-present',
+    renderingStrategyType: 'staged',
     name: 'v2DomPresent',
   }),
   createSurfaceDefinition({
-    largeDocumentMode: 'shell',
+    renderingStrategyType: 'shell',
     name: 'v2ShellExplicitRadius0',
     shellRadius: 0,
   }),
   createSurfaceDefinition({
-    largeDocumentMode: 'shell',
+    renderingStrategyType: 'shell',
     name: 'v2ShellExplicitRadius1',
     shellRadius: 1,
+  }),
+  createSurfaceDefinition({
+    renderingStrategyType: 'virtualized',
+    name: 'v2VirtualizedExperimental',
+    shellRadius: 0,
   }),
 ]
 
@@ -1235,13 +1246,13 @@ const selectedSurfaceDefinitions =
       )
     : surfaceDefinitions
 
-const createEditableProps = ({ largeDocument, renderElement }) => ({
+const createEditableProps = ({ renderingStrategy, renderElement }) => ({
   id: 'v2-huge-compare',
-  largeDocument,
+  renderingStrategy,
   renderElement,
 })
 
-const mount = async ({ largeDocument, renderElement }) => {
+const mount = async ({ renderingStrategy, renderElement }) => {
   const editor = withReact(createEditor())
   Editor.replace(editor, {
     children: createChildren(),
@@ -1257,7 +1268,7 @@ const mount = async ({ largeDocument, renderElement }) => {
         { editor },
         React.createElement(
           Editable,
-          createEditableProps({ largeDocument, renderElement })
+          createEditableProps({ renderingStrategy, renderElement })
         )
       )
     )
@@ -1417,7 +1428,7 @@ const measureModelOnlyLane = async (setup, run) => {
     : summary
 }
 
-const measureReady = async ({ largeDocument, renderElement }) =>
+const measureReady = async ({ renderingStrategy, renderElement }) =>
   measureLane(
     async () => {
       const editor = withReact(createEditor())
@@ -1438,7 +1449,7 @@ const measureReady = async ({ largeDocument, renderElement }) =>
             { editor },
             React.createElement(
               Editable,
-              createEditableProps({ largeDocument, renderElement })
+              createEditableProps({ renderingStrategy, renderElement })
             )
           )
         )
@@ -1447,7 +1458,7 @@ const measureReady = async ({ largeDocument, renderElement }) =>
     }
   )
 
-const measureNativeSurfaceComplete = async ({ largeDocument, renderElement }) =>
+const measureNativeSurfaceComplete = async ({ renderingStrategy, renderElement }) =>
   measureLane(
     async () => {
       const editor = withReact(createEditor())
@@ -1468,7 +1479,7 @@ const measureNativeSurfaceComplete = async ({ largeDocument, renderElement }) =>
             { editor },
             React.createElement(
               Editable,
-              createEditableProps({ largeDocument, renderElement })
+              createEditableProps({ renderingStrategy, renderElement })
             )
           )
         )
@@ -1482,12 +1493,12 @@ const measureNativeSurfaceComplete = async ({ largeDocument, renderElement }) =>
 
 const measureType = async ({
   blockIndex,
-  largeDocument,
+  renderingStrategy,
   renderElement,
   selectBefore = false,
 }) =>
   measureLane(
-    () => mount({ largeDocument, renderElement }),
+    () => mount({ renderingStrategy, renderElement }),
     async ({ editor }) => {
       if (selectBefore) {
         await act(async () => {
@@ -1521,9 +1532,9 @@ const selectBlock = async ({ blockIndex, editor }) => {
   })
 }
 
-const measureSelectBlock = async ({ blockIndex, largeDocument, renderElement }) =>
+const measureSelectBlock = async ({ blockIndex, renderingStrategy, renderElement }) =>
   measureLane(
-    () => mount({ largeDocument, renderElement }),
+    () => mount({ renderingStrategy, renderElement }),
     async ({ editor }) => {
       await selectBlock({ blockIndex, editor })
       assert.deepEqual(getSelection(editor)?.anchor, {
@@ -1535,11 +1546,11 @@ const measureSelectBlock = async ({ blockIndex, largeDocument, renderElement }) 
 
 const measureTypeAfterSelect = async ({
   blockIndex,
-  largeDocument,
+  renderingStrategy,
   renderElement,
 }) =>
   measurePreparedLane(
-    () => mount({ largeDocument, renderElement }),
+    () => mount({ renderingStrategy, renderElement }),
     async ({ editor }) => {
       await selectBlock({ blockIndex, editor })
     },
@@ -1560,15 +1571,15 @@ const measureTypeAfterSelect = async ({
 
 const measurePromoteThenType = async ({
   blockIndex,
-  largeDocument,
+  renderingStrategy,
   renderElement,
 }) =>
   measureLane(
-    () => mount({ largeDocument, renderElement }),
+    () => mount({ renderingStrategy, renderElement }),
     async ({ container, dom, editor }) => {
-      const islandIndex = Math.floor(blockIndex / islandSize)
+      const segmentIndex = Math.floor(blockIndex / segmentSize)
       const shell = container.querySelector(
-        \`[data-slate-large-document-shell="true"][data-slate-large-document-island="\${islandIndex}"]\`
+        \`[data-slate-rendering-strategy-shell="true"][data-slate-rendering-strategy-segment="\${segmentIndex}"]\`
       )
 
       if (shell) {
@@ -1603,9 +1614,9 @@ const measurePromoteThenType = async ({
   )
 
 const promoteAndSelectBlock = async ({ blockIndex, container, dom, editor }) => {
-  const islandIndex = Math.floor(blockIndex / islandSize)
+  const segmentIndex = Math.floor(blockIndex / segmentSize)
   const shell = container.querySelector(
-    \`[data-slate-large-document-shell="true"][data-slate-large-document-island="\${islandIndex}"]\`
+    \`[data-slate-rendering-strategy-shell="true"][data-slate-rendering-strategy-segment="\${segmentIndex}"]\`
   )
 
   if (shell) {
@@ -1673,10 +1684,10 @@ const waitForNativeSurfaceComplete = async (container) => {
 
 const setupSelectedTextInputTarget = async ({
   blockIndex,
-  largeDocument,
+  renderingStrategy,
   renderElement,
 }) => {
-  const context = await mount({ largeDocument, renderElement })
+  const context = await mount({ renderingStrategy, renderElement })
   const editableRoot = await promoteAndSelectBlock({
     blockIndex,
     container: context.container,
@@ -1700,11 +1711,11 @@ const setupSelectedTextInputTarget = async ({
 
 const measureSelectThenModelBeforeInputType = async ({
   blockIndex,
-  largeDocument,
+  renderingStrategy,
   renderElement,
 }) =>
   measureLane(
-    () => mount({ largeDocument, renderElement }),
+    () => mount({ renderingStrategy, renderElement }),
     async ({ container, dom, editor }) => {
       const root = await promoteAndSelectBlock({
         blockIndex,
@@ -1756,12 +1767,12 @@ const measureSelectThenModelBeforeInputType = async ({
 
 const measureModelBeforeInputType = async ({
   blockIndex,
-  largeDocument,
+  renderingStrategy,
   renderElement,
 }) =>
   measureLane(
     () =>
-      setupSelectedTextInputTarget({ blockIndex, largeDocument, renderElement }),
+      setupSelectedTextInputTarget({ blockIndex, renderingStrategy, renderElement }),
     async ({ dom, editableRoot, editor, target: initialTarget }) => {
       let target = initialTarget
 
@@ -1803,9 +1814,9 @@ const measureModelBeforeInputType = async ({
     }
   )
 
-const measureSelectAll = async ({ largeDocument, renderElement }) =>
+const measureSelectAll = async ({ renderingStrategy, renderElement }) =>
   measureLane(
-    () => mount({ largeDocument, renderElement }),
+    () => mount({ renderingStrategy, renderElement }),
     async ({ editor }) => {
       await act(async () => {
         select(editor, {
@@ -1818,11 +1829,11 @@ const measureSelectAll = async ({ largeDocument, renderElement }) =>
   )
 
 const measureReplaceFullDocumentWithText = async ({
-  largeDocument,
+  renderingStrategy,
   renderElement,
 }) =>
   measureLane(
-    () => mount({ largeDocument, renderElement }),
+    () => mount({ renderingStrategy, renderElement }),
     async ({ editor }) => {
       await act(async () => {
         select(editor, {
@@ -1849,11 +1860,11 @@ const measureReplaceFullDocumentWithTextModelCommit = async () =>
   )
 
 const measureInsertFragmentFullDocument = async ({
-  largeDocument,
+  renderingStrategy,
   renderElement,
 }) =>
   measureLane(
-    () => mount({ largeDocument, renderElement }),
+    () => mount({ renderingStrategy, renderElement }),
     async ({ editor }) => {
       await act(async () => {
         select(editor, {
@@ -1879,8 +1890,8 @@ const measureInsertFragmentFullDocumentModelCommit = async () =>
     }
   )
 
-const runSurface = async ({ largeDocument, renderElement, trace }) => {
-  const readyMs = await measureReady({ largeDocument, renderElement })
+const runSurface = async ({ renderingStrategy, renderElement, trace }) => {
+  const readyMs = await measureReady({ renderingStrategy, renderElement })
 
   if (readyOnly) {
     return {
@@ -1894,101 +1905,101 @@ const runSurface = async ({ largeDocument, renderElement, trace }) => {
   }
 
   const nativeSurfaceCompleteMs = trace.stagedMountingEnabled
-    ? await measureNativeSurfaceComplete({ largeDocument, renderElement })
+    ? await measureNativeSurfaceComplete({ renderingStrategy, renderElement })
     : null
 
   return {
     trace: resolveReadyTrace({ nativeSurfaceCompleteMs, readyMs, trace }),
     nativeSurfaceCompleteMs,
     readyMs,
-    selectAllMs: await measureSelectAll({ largeDocument, renderElement }),
+    selectAllMs: await measureSelectAll({ renderingStrategy, renderElement }),
     startBlockTypeMs: await measureType({
       blockIndex: 0,
-      largeDocument,
+      renderingStrategy,
       renderElement,
     }),
     ...(splitSelectionLanes
       ? {
           startBlockSelectMs: await measureSelectBlock({
           blockIndex: 0,
-          largeDocument,
+          renderingStrategy,
           renderElement,
         }),
         startBlockTypeAfterSelectMs: await measureTypeAfterSelect({
           blockIndex: 0,
-          largeDocument,
+          renderingStrategy,
           renderElement,
         }),
         }
       : {}),
     startBlockSelectThenTypeMs: await measureType({
       blockIndex: 0,
-      largeDocument,
+      renderingStrategy,
       renderElement,
       selectBefore: true,
     }),
     middleBlockTypeMs: await measureType({
       blockIndex: Math.floor(blocks / 2),
-      largeDocument,
+      renderingStrategy,
       renderElement,
     }),
     ...(splitSelectionLanes
       ? {
           middleBlockSelectMs: await measureSelectBlock({
           blockIndex: Math.floor(blocks / 2),
-          largeDocument,
+          renderingStrategy,
           renderElement,
         }),
         middleBlockTypeAfterSelectMs: await measureTypeAfterSelect({
           blockIndex: Math.floor(blocks / 2),
-          largeDocument,
+          renderingStrategy,
           renderElement,
         }),
         }
       : {}),
     middleBlockSelectThenTypeMs: await measureType({
       blockIndex: Math.floor(blocks / 2),
-      largeDocument,
+      renderingStrategy,
       renderElement,
       selectBefore: true,
     }),
     middleBlockPromoteThenTypeMs: await measurePromoteThenType({
       blockIndex: Math.floor(blocks / 2),
-      largeDocument,
+      renderingStrategy,
       renderElement,
     }),
     startBlockModelBeforeInputTypeMs: await measureModelBeforeInputType({
       blockIndex: 0,
-      largeDocument,
+      renderingStrategy,
       renderElement,
     }),
     middleBlockModelBeforeInputTypeMs: await measureModelBeforeInputType({
       blockIndex: Math.floor(blocks / 2),
-      largeDocument,
+      renderingStrategy,
       renderElement,
     }),
     startBlockSelectThenModelBeforeInputTypeMs:
       await measureSelectThenModelBeforeInputType({
         blockIndex: 0,
-        largeDocument,
+        renderingStrategy,
         renderElement,
     }),
     middleBlockSelectThenModelBeforeInputTypeMs:
       await measureSelectThenModelBeforeInputType({
         blockIndex: Math.floor(blocks / 2),
-        largeDocument,
+        renderingStrategy,
         renderElement,
       }),
     replaceFullDocumentWithTextModelCommitMs:
       await measureReplaceFullDocumentWithTextModelCommit(),
     replaceFullDocumentWithTextMs: await measureReplaceFullDocumentWithText({
-      largeDocument,
+      renderingStrategy,
       renderElement,
     }),
     insertFragmentFullDocumentModelCommitMs:
       await measureInsertFragmentFullDocumentModelCommit(),
     insertFragmentFullDocumentMs: await measureInsertFragmentFullDocument({
-      largeDocument,
+      renderingStrategy,
       renderElement,
     }),
   }
@@ -2002,10 +2013,10 @@ for (const surface of selectedSurfaceDefinitions) {
 
 console.log(JSON.stringify({
   config: {
-    activeRadius,
+    overscan,
     blocks,
     disposeDelayMs,
-    islandSize,
+    segmentSize,
     iterations,
     profileEnabled,
     readyOnly,
@@ -2024,23 +2035,81 @@ if (!skipBuild) {
 }
 
 const env = {
-  REACT_HUGE_COMPARE_ACTIVE_RADIUS: String(activeRadius),
+  REACT_HUGE_COMPARE_ACTIVE_RADIUS: String(overscan),
   REACT_HUGE_COMPARE_BLOCKS: String(blocks),
   REACT_HUGE_COMPARE_CHUNK_SIZE: String(chunkSize),
-  REACT_HUGE_COMPARE_ISLAND_SIZE: String(islandSize),
+  REACT_HUGE_COMPARE_ISLAND_SIZE: String(segmentSize),
+  REACT_HUGE_COMPARE_ISOLATE_SURFACES: isolateCurrentSurfaces ? '1' : '0',
   REACT_HUGE_COMPARE_ITERATIONS: String(iterations),
   REACT_HUGE_COMPARE_PROFILE: profile ? '1' : '0',
   REACT_HUGE_COMPARE_READY_ONLY: readyOnly ? '1' : '0',
   REACT_HUGE_COMPARE_SURFACES: process.env.REACT_HUGE_COMPARE_SURFACES || '',
   REACT_HUGE_COMPARE_TYPE_OPS: String(typeOps),
 }
+const currentSurfaceNames = [
+  'v2Off',
+  'v2DefaultRenderOff',
+  'v2DefaultOmitted',
+  'v2DefaultRenderAuto',
+  'v2AutoExplicit',
+  'v2DomPresent',
+  'v2ShellExplicitRadius0',
+  'v2ShellExplicitRadius1',
+  'v2VirtualizedExperimental',
+]
+const selectedCurrentSurfaceNames = (
+  process.env.REACT_HUGE_COMPARE_SURFACES || ''
+)
+  .split(',')
+  .map((name) => name.trim())
+  .filter(Boolean)
+const currentSurfaceNamesToRun =
+  selectedCurrentSurfaceNames.length > 0
+    ? selectedCurrentSurfaceNames
+    : currentSurfaceNames
 
-const current = await benchmarkRepo({
-  benchmarkSource: currentBenchmarkSource,
-  env,
-  packageManager: currentPackageManager,
-  repo: currentRepo,
-})
+const current =
+  isolateCurrentSurfaces && currentSurfaceNamesToRun.length > 1
+    ? await (async () => {
+        const surfaceEntries = []
+
+        for (const surfaceName of currentSurfaceNamesToRun) {
+          const result = await benchmarkRepo({
+            benchmarkSource: currentBenchmarkSource,
+            env: {
+              ...env,
+              REACT_HUGE_COMPARE_SURFACES: surfaceName,
+            },
+            packageManager: currentPackageManager,
+            repo: currentRepo,
+          })
+
+          surfaceEntries.push([surfaceName, result.surfaces[surfaceName]])
+        }
+
+        return {
+          config: {
+            overscan,
+            blocks,
+            disposeDelayMs,
+            segmentSize,
+            isolateCurrentSurfaces,
+            iterations,
+            profileEnabled: profile,
+            readyOnly,
+            rootGroupSize,
+            splitSelectionLanes,
+            typeOps,
+          },
+          surfaces: Object.fromEntries(surfaceEntries),
+        }
+      })()
+    : await benchmarkRepo({
+        benchmarkSource: currentBenchmarkSource,
+        env,
+        packageManager: currentPackageManager,
+        repo: currentRepo,
+      })
 
 if (compareMode === 'current-only') {
   const summary = {
@@ -2048,10 +2117,11 @@ if (compareMode === 'current-only') {
     mode: compareMode,
     currentRepo,
     config: {
-      activeRadius,
+      overscan,
       blocks,
       disposeDelayMs,
-      islandSize,
+      segmentSize,
+      isolateCurrentSurfaces,
       iterations,
       profile,
       readyOnly,
@@ -2116,11 +2186,12 @@ const summary = {
   currentRepo,
   legacyRepo,
   config: {
-    activeRadius,
+    overscan,
     blocks,
     chunkSize,
     disposeDelayMs,
-    islandSize,
+    segmentSize,
+    isolateCurrentSurfaces,
     iterations,
     profile,
     readyOnly,

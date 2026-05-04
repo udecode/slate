@@ -1,15 +1,21 @@
 import type { CSSProperties } from 'react'
 import React, { useCallback } from 'react'
-import type { Descendant, RuntimeId } from 'slate'
+import type { Descendant, Path, RuntimeId } from 'slate'
 import { IS_COMPOSING } from 'slate-dom'
+import type {
+  DOMCoverageReason,
+  DOMCoverageSelectionPolicy,
+} from 'slate-dom/internal'
+import { DOMCoverage } from 'slate-dom/internal'
 import { Editor } from '../editable/runtime-editor-api'
 
 import { readRuntimeNode } from '../editable/runtime-live-state'
 import { useEditor } from '../hooks/use-editor'
+import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import {
-  classifyIslandKind,
-  type LargeDocumentIslandKind,
-} from './classify-island-kind'
+  classifySegmentKind,
+  type RenderingStrategySegmentKind,
+} from './classify-segment-kind'
 
 const isText = (
   value: Descendant
@@ -49,16 +55,23 @@ const samePreviewRuntimeIds = (
   return true
 }
 
-export const LargeDocumentIslandShell = React.memo(
+export const RenderingStrategySegmentShell = React.memo(
   ({
-    islandIndex,
+    coverageReason = 'shell-aggressive',
+    endIndex,
+    segmentIndex,
     onPromote,
     previewChars,
     runtimeIds,
+    startIndex,
   }: {
+    coverageReason?: Extract<
+      DOMCoverageReason,
+      'shell-aggressive' | 'viewport-virtualization'
+    >
     endIndex: number
-    islandIndex: number
-    onPromote?: (islandIndex: number, options?: { select?: boolean }) => void
+    segmentIndex: number
+    onPromote?: (segmentIndex: number, options?: { select?: boolean }) => void
     previewChars: number
     runtimeIds: readonly RuntimeId[]
     startIndex: number
@@ -67,6 +80,51 @@ export const LargeDocumentIslandShell = React.memo(
     const previewRuntimeIds = runtimeIds.slice(0, MAX_PREVIEW_LINES)
     const lines: string[] = []
     const nodes: Descendant[] = []
+    const boundaryId = `${coverageReason}:${segmentIndex}`
+    const anchorRuntimeId = runtimeIds[0] ?? null
+    const focusRuntimeId = runtimeIds.at(-1) ?? null
+    const selectionPolicy: DOMCoverageSelectionPolicy =
+      coverageReason === 'viewport-virtualization'
+        ? 'materialize'
+        : 'model-backed'
+    const boundary = React.useMemo(
+      () => ({
+        anchor: { type: 'placeholder' as const },
+        boundaryId,
+        copyPolicy: 'include-model' as const,
+        coveredPathRanges: [
+          {
+            anchor: [startIndex] as Path,
+            focus: [endIndex] as Path,
+          },
+        ],
+        coveredRuntimeRanges:
+          anchorRuntimeId && focusRuntimeId
+            ? [{ anchor: anchorRuntimeId, focus: focusRuntimeId }]
+            : [],
+        findPolicy: 'not-native-until-mounted' as const,
+        ownerPath: [] as Path,
+        ownerRuntimeId: null,
+        reason: coverageReason,
+        selectionPolicy,
+        state: 'virtualized' as const,
+        version: 1,
+      }),
+      [
+        anchorRuntimeId,
+        boundaryId,
+        coverageReason,
+        endIndex,
+        focusRuntimeId,
+        selectionPolicy,
+        startIndex,
+      ]
+    )
+
+    useIsomorphicLayoutEffect(
+      () => DOMCoverage.registerBoundary(editor, boundary),
+      [boundary, editor]
+    )
 
     previewRuntimeIds.forEach((runtimeId) => {
       const snapshot = Editor.getSnapshot(editor)
@@ -93,10 +151,10 @@ export const LargeDocumentIslandShell = React.memo(
     })
 
     const preview: {
-      kind: LargeDocumentIslandKind
+      kind: RenderingStrategySegmentKind
       lines: readonly string[]
     } = {
-      kind: classifyIslandKind(nodes),
+      kind: classifySegmentKind(nodes),
       lines,
     }
 
@@ -108,7 +166,7 @@ export const LargeDocumentIslandShell = React.memo(
           return
         }
 
-        onPromote?.(islandIndex, { select: true })
+        onPromote?.(segmentIndex, { select: true })
         const editorElement = event.currentTarget.closest(
           '[data-slate-editor="true"]'
         ) as HTMLElement | null
@@ -116,7 +174,7 @@ export const LargeDocumentIslandShell = React.memo(
           editorElement?.focus()
         })
       },
-      [editor, islandIndex, onPromote]
+      [editor, segmentIndex, onPromote]
     )
 
     const handleKeyDown = useCallback(
@@ -131,7 +189,7 @@ export const LargeDocumentIslandShell = React.memo(
           return
         }
 
-        onPromote?.(islandIndex, { select: true })
+        onPromote?.(segmentIndex, { select: true })
         const editorElement = event.currentTarget.closest(
           '[data-slate-editor="true"]'
         ) as HTMLElement | null
@@ -139,22 +197,24 @@ export const LargeDocumentIslandShell = React.memo(
           editorElement?.focus()
         })
       },
-      [editor, islandIndex, onPromote]
+      [editor, segmentIndex, onPromote]
     )
 
     const firstLine = preview.lines[0]
     const label = firstLine
-      ? `Open document section ${islandIndex + 1}: ${firstLine}`
-      : `Open document section ${islandIndex + 1}`
+      ? `Open document section ${segmentIndex + 1}: ${firstLine}`
+      : `Open document section ${segmentIndex + 1}`
 
     return (
       <div
         aria-expanded={false}
         aria-label={label}
         contentEditable={false}
-        data-slate-large-document-island={String(islandIndex)}
-        data-slate-large-document-kind={preview.kind}
-        data-slate-large-document-shell="true"
+        data-slate-dom-coverage-boundary={boundaryId}
+        data-slate-dom-coverage-edge="owner"
+        data-slate-rendering-strategy-kind={preview.kind}
+        data-slate-rendering-strategy-segment={String(segmentIndex)}
+        data-slate-rendering-strategy-shell="true"
         onKeyDown={handleKeyDown}
         onMouseDown={handleMouseDown}
         role="button"
@@ -166,8 +226,8 @@ export const LargeDocumentIslandShell = React.memo(
       >
         {preview.lines.map((line, index) => (
           <div
-            data-slate-large-document-line="true"
-            key={`${previewRuntimeIds[index] ?? islandIndex}-${index}`}
+            data-slate-rendering-strategy-line="true"
+            key={`${previewRuntimeIds[index] ?? segmentIndex}-${index}`}
           >
             {line || '\u00A0'}
           </div>
@@ -176,7 +236,7 @@ export const LargeDocumentIslandShell = React.memo(
     )
   },
   (prev, next) =>
-    prev.islandIndex === next.islandIndex &&
+    prev.segmentIndex === next.segmentIndex &&
     prev.onPromote === next.onPromote &&
     prev.previewChars === next.previewChars &&
     samePreviewRuntimeIds(prev.runtimeIds, next.runtimeIds)

@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react'
-import { createEditor, type EditorSnapshot, type Value } from 'slate'
+import { useMemo } from 'react'
+import type { EditorSnapshot, Value } from 'slate'
 import {
   createDecorationSource,
   Editable,
   Slate,
   type SlateProjection,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 
 const initialChildren: Value = [
@@ -42,18 +42,7 @@ const collectHighlightProjections = (
 }
 
 const HighlightedTextExample = () => {
-  const [editor] = useState(() => {
-    const nextEditor = withReact(createEditor())
-
-    nextEditor.update((tx) => {
-      tx.value.replace({
-        children: initialChildren,
-        selection: null,
-      })
-    })
-
-    return nextEditor
-  })
+  const editor = useSlateEditor({ initialValue: initialChildren })
 
   const highlightSource = useMemo(
     () =>

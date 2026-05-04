@@ -126,6 +126,49 @@ const createHiddenSelectionEditor = () => {
   return editor
 }
 
+const createStagedSelectionEditor = () => {
+  const editor = withReact(createEditor())
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'Mounted alpha' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'Pending omega' }],
+      },
+    ],
+    selection: {
+      anchor: { offset: 0, path: [1, 0] },
+      focus: { offset: 'Pending omega'.length, path: [1, 0] },
+    },
+  })
+
+  DOMCoverage.registerBoundary(editor, {
+    anchor: { runtimeId: getRuntimeId(editor, [1]), type: 'placeholder' },
+    boundaryId: 'rendering-staged:pending',
+    copyPolicy: 'materialize',
+    coveredPathRanges: [{ anchor: [1], focus: [1] }],
+    coveredRuntimeRanges: [
+      {
+        anchor: getRuntimeId(editor, [1]),
+        focus: getRuntimeId(editor, [1]),
+      },
+    ],
+    findPolicy: 'not-native-until-mounted',
+    ownerPath: [],
+    ownerRuntimeId: null,
+    reason: 'rendering-staged',
+    selectionPolicy: 'materialize',
+    state: 'pending-mount',
+    version: 1,
+  })
+
+  return editor
+}
+
 const cleanupEditorRoot = (editor: ReactEditor, root: HTMLElement) => {
   DOMCoverage.clear(editor)
   EDITOR_TO_ELEMENT.delete(editor)
@@ -225,6 +268,78 @@ describe('DOM coverage native bridge', () => {
       expect(dataTransfer.getData('text/plain')).toBe('Hidden alpha')
       expect(dataTransfer.getData('text/html')).toContain('Hidden alpha')
     } finally {
+      cleanupEditorRoot(editor, root)
+    }
+  })
+
+  test('copy over a pending DOM-present root group materializes the coverage boundary and writes model data', () => {
+    const editor = createStagedSelectionEditor()
+    const root = mountEditorRoot(editor)
+    const clipboard = new FakeDataTransfer()
+    const materialized: string[] = []
+    const staleDom = document.createElement('span')
+
+    staleDom.textContent = 'STALE PENDING DOM'
+    document.body.append(staleDom)
+    DOMCoverage.setMaterializeHandler(editor, (boundary, reason, options) => {
+      materialized.push(
+        `${boundary.boundaryId}:${reason}:${options.range ? Editor.string(editor, options.range) : ''}`
+      )
+      return true
+    })
+
+    try {
+      applyEditableCopy({
+        editor,
+        event: createClipboardEvent(root, clipboard),
+      })
+
+      expect(materialized).toEqual([
+        'rendering-staged:pending:copy:Pending omega',
+      ])
+      expect(clipboard.getData('text/plain')).toBe('Pending omega')
+      expect(clipboard.getData('text/html')).toContain('Pending omega')
+      expect(clipboard.getData('text/html')).not.toContain('STALE')
+      expect(clipboard.getData('application/x-slate-fragment')).not.toBe('')
+    } finally {
+      staleDom.remove()
+      cleanupEditorRoot(editor, root)
+    }
+  })
+
+  test('paste over a pending DOM-present root group materializes before mutating the model', () => {
+    const editor = createStagedSelectionEditor()
+    const root = mountEditorRoot(editor)
+    const clipboard = new FakeDataTransfer()
+    const materialized: string[] = []
+    const staleDom = document.createElement('span')
+
+    clipboard.setData('text/plain', 'Pasted omega')
+    staleDom.textContent = 'STALE PENDING DOM'
+    document.body.append(staleDom)
+    DOMCoverage.setMaterializeHandler(editor, (boundary, reason, options) => {
+      materialized.push(
+        `${boundary.boundaryId}:${reason}:${options.range ? Editor.string(editor, options.range) : ''}`
+      )
+      return true
+    })
+
+    try {
+      const result = applyEditablePaste({
+        editor,
+        event: createClipboardEvent(root, clipboard),
+        readOnly: false,
+        shellBackedSelection: false,
+      })
+
+      expect(materialized).toEqual([
+        'rendering-staged:pending:paste:Pending omega',
+      ])
+      expect(result.command).toMatchObject({ kind: 'insert-data' })
+      expect(Editor.string(editor, [1])).toBe('Pasted omega')
+      expect(staleDom.textContent).toBe('STALE PENDING DOM')
+    } finally {
+      staleDom.remove()
       cleanupEditorRoot(editor, root)
     }
   })

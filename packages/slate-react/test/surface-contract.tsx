@@ -2,7 +2,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 import { act, render } from '@testing-library/react'
 import { useEffect } from 'react'
-import { createEditor } from 'slate'
+import { createEditor, type Value } from 'slate'
+import * as SlateReact from '../src'
 import {
   Editable,
   type ReactEditor,
@@ -19,6 +20,9 @@ const packageRoot = cwd.endsWith(`${sep}packages${sep}slate-react`)
   : resolve(cwd, 'packages/slate-react')
 const repoRoot = resolve(packageRoot, '../..')
 const sourceFilePattern = /\.(md|ts|tsx)$/
+
+const createReactEditor = <V extends Value>(initialValue: V) =>
+  withReact(createEditor({ initialValue }))
 
 const listSourceFiles = (roots: readonly string[]) => {
   const files: string[] = []
@@ -226,12 +230,51 @@ describe('slate-react surface contract', () => {
     expect(publicHostStaticCalls).toEqual([])
   })
 
+  test('examples initialize editor values before the provider', () => {
+    const exampleFiles = listSourceFiles(['site/examples/ts'])
+    const providerInitialValueViolations = exampleFiles.flatMap(
+      (absolutePath) => {
+        const contents = readFileSync(absolutePath, 'utf8')
+
+        return /\binitialValue=/.test(contents)
+          ? [relative(repoRoot, absolutePath)]
+          : []
+      }
+    )
+    const valueReplaceInventory = Object.fromEntries(
+      exampleFiles
+        .map((absolutePath) => {
+          const contents = readFileSync(absolutePath, 'utf8')
+          const matches = contents.match(/\btx\.value\.replace\(/g)
+
+          return [
+            relative(repoRoot, absolutePath),
+            matches ? matches.length : 0,
+          ] as const
+        })
+        .filter(([, count]) => count > 0)
+        .sort(([a], [b]) => a.localeCompare(b))
+    )
+
+    expect(providerInitialValueViolations).toEqual([])
+    expect(valueReplaceInventory).toEqual({
+      'site/examples/ts/collaborative-comments.tsx': 1,
+      'site/examples/ts/rendering-strategy-runtime.tsx': 1,
+    })
+  })
+
+  test('adapter static namespaces stay out of the public root at runtime', () => {
+    expect('ReactEditor' in SlateReact).toBe(false)
+    expect('DOMEditor' in SlateReact).toBe(false)
+    expect(SlateReact.withReact).toBe(withReact)
+  })
+
   test('Editable defaults translate="no" and allows override', () => {
-    const editor = withReact(createEditor())
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
+    const editor = createReactEditor(initialValue)
 
     const defaultRender = render(
-      <Slate editor={editor} initialValue={initialValue}>
+      <Slate editor={editor}>
         <Editable />
       </Slate>
     )
@@ -243,7 +286,7 @@ describe('slate-react surface contract', () => {
     ).toBe('no')
 
     defaultRender.rerender(
-      <Slate editor={editor} initialValue={initialValue}>
+      <Slate editor={editor}>
         <Editable translate="yes" />
       </Slate>
     )
@@ -256,7 +299,9 @@ describe('slate-react surface contract', () => {
   })
 
   test('structured render surface keeps mount identity stable across split and merge', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor([
+      { type: 'block', children: [{ text: 'test' }] },
+    ])
     const mounts = jest.fn()
 
     const renderElement = ({ children }: RenderElementProps) => {
@@ -265,10 +310,7 @@ describe('slate-react surface contract', () => {
     }
 
     const rendered = render(
-      <Slate
-        editor={editor}
-        initialValue={[{ type: 'block', children: [{ text: 'test' }] }]}
-      >
+      <Slate editor={editor}>
         <Editable renderElement={renderElement} />
       </Slate>
     )
@@ -282,7 +324,10 @@ describe('slate-react surface contract', () => {
     expect(mounts).toHaveBeenCalledTimes(2)
     rendered.unmount()
 
-    const mergeEditor = withReact(createEditor())
+    const mergeEditor = createReactEditor([
+      { type: 'block', children: [{ text: 'te' }] },
+      { type: 'block', children: [{ text: 'st' }] },
+    ])
     const mergeMounts = jest.fn()
 
     const mergeRenderElement = ({ children }: RenderElementProps) => {
@@ -291,13 +336,7 @@ describe('slate-react surface contract', () => {
     }
 
     render(
-      <Slate
-        editor={mergeEditor}
-        initialValue={[
-          { type: 'block', children: [{ text: 'te' }] },
-          { type: 'block', children: [{ text: 'st' }] },
-        ]}
-      >
+      <Slate editor={mergeEditor}>
         <Editable renderElement={mergeRenderElement} />
       </Slate>
     )
@@ -312,7 +351,18 @@ describe('slate-react surface contract', () => {
   })
 
   test('useElementSelected remains stable when the selected element path shifts after structural edits', async () => {
-    const editor = withReact(createEditor()) as ReactEditor
+    const editor = createReactEditor([
+      {
+        id: '0',
+        children: [
+          { id: '0.0', children: [{ text: '' }] },
+          { id: '0.1', children: [{ text: '' }] },
+          { id: '0.2', children: [{ text: '' }] },
+        ],
+      },
+      { id: '1', children: [{ text: '' }] },
+      { id: '2', children: [{ text: '' }] },
+    ]) as ReactEditor
     const elementSelectedRenders: Record<string, boolean[] | undefined> = {}
 
     const renderElement = ({
@@ -337,21 +387,7 @@ describe('slate-react surface contract', () => {
     }
 
     render(
-      <Slate
-        editor={editor}
-        initialValue={[
-          {
-            id: '0',
-            children: [
-              { id: '0.0', children: [{ text: '' }] },
-              { id: '0.1', children: [{ text: '' }] },
-              { id: '0.2', children: [{ text: '' }] },
-            ],
-          },
-          { id: '1', children: [{ text: '' }] },
-          { id: '2', children: [{ text: '' }] },
-        ]}
-      >
+      <Slate editor={editor}>
         <Editable renderElement={renderElement} />
       </Slate>
     )
@@ -399,7 +435,9 @@ describe('slate-react surface contract', () => {
   })
 
   test('renderVoid receives content-only props and runtime owns block void spacer', () => {
-    const editor = withReact(createEditor()) as ReactEditor
+    const editor = createReactEditor([
+      { type: 'image', url: 'about:blank', children: [{ text: '' }] },
+    ]) as ReactEditor
     let renderVoidProps: RenderVoidProps | null = null
     const renderElement = jest.fn(({ children }: RenderElementProps) => {
       return <p>{children}</p>
@@ -417,12 +455,7 @@ describe('slate-react surface contract', () => {
     }
 
     const rendered = render(
-      <Slate
-        editor={editor}
-        initialValue={[
-          { type: 'image', url: 'about:blank', children: [{ text: '' }] },
-        ]}
-      >
+      <Slate editor={editor}>
         <Editable renderElement={renderElement} renderVoid={renderVoid} />
       </Slate>
     )
@@ -449,7 +482,20 @@ describe('slate-react surface contract', () => {
   })
 
   test('renderVoid receives content-only props and runtime owns inline void anchor', () => {
-    const editor = withReact(createEditor()) as ReactEditor
+    const editor = createReactEditor([
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'Before ' },
+          {
+            type: 'mention',
+            character: 'R2-D2',
+            children: [{ text: '' }],
+          },
+          { text: ' after' },
+        ],
+      },
+    ]) as ReactEditor
     let renderVoidProps: RenderVoidProps | null = null
 
     editor.extend({
@@ -468,23 +514,7 @@ describe('slate-react surface contract', () => {
     }
 
     const rendered = render(
-      <Slate
-        editor={editor}
-        initialValue={[
-          {
-            type: 'paragraph',
-            children: [
-              { text: 'Before ' },
-              {
-                type: 'mention',
-                character: 'R2-D2',
-                children: [{ text: '' }],
-              },
-              { text: ' after' },
-            ],
-          },
-        ]}
-      >
+      <Slate editor={editor}>
         <Editable renderElement={renderElement} renderVoid={renderVoid} />
       </Slate>
     )

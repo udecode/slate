@@ -1,11 +1,7 @@
 import { css } from '@emotion/css'
 import type React from 'react'
 import { useCallback, useMemo } from 'react'
-import {
-  createEditor,
-  type Descendant,
-  type Element as SlateElement,
-} from 'slate'
+import type { Descendant, Element as SlateElement } from 'slate'
 import { withHistory } from 'slate-history'
 import { jsx } from 'slate-hyperscript'
 import {
@@ -16,7 +12,7 @@ import {
   Slate,
   useEditorFocused,
   useElementSelected,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 
 import type {
@@ -161,15 +157,12 @@ const PasteHtmlExample = () => {
     (props: RenderLeafProps) => <Leaf {...props} />,
     []
   )
-  const editor = useMemo(
-    () =>
-      withHtml(
-        withReact(withHistory(createEditor<CustomValue>()))
-      ) as CustomEditor,
-    []
-  )
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    enhance: (editor) => withHtml(withHistory(editor) as CustomEditor),
+    initialValue,
+  })
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable
         placeholder="Paste in some HTML..."
         renderElement={renderElement}

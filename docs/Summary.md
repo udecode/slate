@@ -59,6 +59,7 @@
   - [Hooks](libraries/slate-react/hooks.md)
   - [Slate Component](libraries/slate-react/slate.md)
   - [Editable Component](libraries/slate-react/editable.md)
+  - [Experimental Virtualized Rendering](libraries/slate-react/experimental-virtualized-rendering.md)
   - [Event Handling](libraries/slate-react/event-handling.md)
 - [Slate History](libraries/slate-history/README.md)
   - [withHistory](libraries/slate-history/with-history.md)

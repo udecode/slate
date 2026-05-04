@@ -225,8 +225,13 @@ export const createDOMRepairQueue = ({
           const nextOffset = offset + (Number.isFinite(length) ? length : 0)
 
           if (slateOffset <= nextOffset) {
+            const zeroWidthOffset =
+              textNode?.textContent?.startsWith('\uFEFF') ||
+              string.textContent === '\uFEFF'
+                ? 1
+                : 0
             const domOffset = string.hasAttribute('data-slate-zero-width')
-              ? 1
+              ? zeroWidthOffset
               : Math.max(0, Math.min(slateOffset - offset, length))
 
             inputController.state.selectionChangeOrigin = 'repair-induced'

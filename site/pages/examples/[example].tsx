@@ -31,8 +31,10 @@ const EXAMPLE_IMPORTERS: Record<
   'highlighted-text': () => import('../../examples/ts/highlighted-text'),
   'hovering-toolbar': () => import('../../examples/ts/hovering-toolbar'),
   'huge-document': () => import('../../examples/ts/huge-document'),
-  'large-document-runtime': () =>
-    import('../../examples/ts/large-document-runtime'),
+  'rendering-strategy-runtime': () =>
+    import('../../examples/ts/rendering-strategy-runtime'),
+  'rendering-strategy-virtualized': () =>
+    import('../../examples/ts/rendering-strategy-virtualized'),
   images: () => import('../../examples/ts/images'),
   inlines: () => import('../../examples/ts/inlines'),
   'markdown-preview': () => import('../../examples/ts/markdown-preview'),

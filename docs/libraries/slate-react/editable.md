@@ -16,10 +16,13 @@ type EditableProps = {
   className?: string
   disableDefaultStyles?: boolean
   id?: string
-  largeDocument?: LargeDocumentOptions | null
+  renderingStrategy?: RenderingStrategyOptions | null
   onBeforeInput?: React.FormEventHandler<HTMLDivElement>
   onDOMBeforeInput?: (event: InputEvent) => void
   onKeyDown?: EditableKeyDownHandler
+  onRenderingStrategyMetrics?: (
+    metrics: EditableRenderingStrategyMetrics
+  ) => void
   onPaste?: React.ClipboardEventHandler<HTMLDivElement>
   placeholder?: React.ReactNode
   readOnly?: boolean
@@ -163,10 +166,10 @@ Use `onKeyDown` for keyboard shortcuts.
 
 ```tsx
 <Editable
-  onKeyDown={(event) => {
+  onKeyDown={event => {
     if (event.key === 'b' && event.metaKey) {
       event.preventDefault()
-      editor.update((tx) => {
+      editor.update(tx => {
         tx.marks.toggle('bold')
       })
     }
@@ -207,18 +210,18 @@ editor.extend({
 
 Product input rules belong in higher-level command layers or editor extensions. Keep raw `Editable` focused on rendering and DOM events.
 
-## Large Documents
+## Rendering Strategy
 
-`Editable` applies safe DOM-present grouping automatically. Use `largeDocument="dom-present"` to lock that behavior explicitly, or `largeDocument="off"` to disable automatic grouping for debugging.
+`Editable` applies safe staged rendering automatically. Use `renderingStrategy="staged"` to lock that behavior explicitly, or `renderingStrategy="full"` to render the full document surface for debugging.
 
 Use shell mode only when a huge document needs aggressive mounting control. The runtime keeps the active editing corridor mounted and renders far-away regions as semantic shells.
 
 ```tsx
 <Editable
-  largeDocument={{
-    activeRadius: 0,
-    mode: 'shell',
-    islandSize: 100,
+  renderingStrategy={{
+    overscan: 0,
+    type: 'shell',
+    segmentSize: 100,
     previewChars: 96,
     threshold: 2000,
   }}
@@ -226,6 +229,76 @@ Use shell mode only when a huge document needs aggressive mounting control. The 
 ```
 
 Shell mode keeps typing, selection, and overlay work local to the active region.
+
+Use `onRenderingStrategyMetrics` to wire production RUM or a Datadog dashboard. The
+callback runs after commit and reports the current document cohort, requested
+strategy, effective strategy, mounted/pending counts, DOM coverage boundary counts,
+visible DOM node count, and editable descendant count.
+
+```tsx
+<Editable
+  renderingStrategy="staged"
+  onRenderingStrategyMetrics={metrics => {
+    datadogRum.addAction('slate.rendering_strategy.surface', metrics)
+  }}
+/>
+```
+
+Track dashboards by interaction name, cohort, document size, requested strategy,
+effective strategy, boundary count, visible DOM count, editable descendant count,
+custom renderer flag, browser, mobile/desktop, IME state, and release version.
+Virtualized and shell metrics are degraded-mode signals; do not mix them with
+DOM-present default rows.
+
+## DOM Coverage Boundaries
+
+`renderElement` receives `slots.unstableBoundary` for model content whose DOM is
+intentionally not mounted. Use it for collapsed sections or hidden element
+shells that still exist in the Slate value.
+
+```tsx
+const renderElement = ({ children, element, slots }) => {
+  if (element.type === 'section') {
+    return (
+      <EditableElement>
+        {React.Children.toArray(children)[0]}
+        <slots.unstableBoundary
+          boundaryId="section-body"
+          mounted={!element.collapsed}
+          scope={{ from: 1, type: 'children' }}
+        >
+          <button type="button">Show section</button>
+        </slots.unstableBoundary>
+      </EditableElement>
+    )
+  }
+
+  if (element.type === 'hidden-header') {
+    return (
+      <slots.unstableBoundary
+        boundaryId="hidden-header"
+        copyPolicy="exclude"
+        mounted={!element.hidden}
+        reason="app-hidden"
+        scope={{ type: 'self' }}
+        selectionPolicy="boundary"
+      >
+        <button type="button">Show header</button>
+      </slots.unstableBoundary>
+    )
+  }
+
+  return <EditableElement>{children}</EditableElement>
+}
+```
+
+Boundary content is model-present but DOM-incomplete while `mounted` is `false`.
+Slate maps selection, copy, paste, and DOM point import through the boundary
+registry instead of resolving missing descendants with raw DOM lookups. Hidden
+text is not available to native browser find or screen-reader traversal until
+the boundary is mounted. Copy behavior follows `copyPolicy`; collapsed document
+sections usually use `include-model`, while app-hidden headers and footers
+usually use `exclude`.
 
 ## Styling
 

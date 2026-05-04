@@ -1,6 +1,12 @@
 import { act, render, renderHook, waitFor } from '@testing-library/react'
 import _ from 'lodash'
-import { createEditor, type Operation, type SnapshotChange, Text } from 'slate'
+import {
+  createEditor,
+  type Operation,
+  type SnapshotChange,
+  Text,
+  type Value,
+} from 'slate'
 import { Editor } from 'slate/internal'
 import {
   Editable,
@@ -9,6 +15,7 @@ import {
   useEditorSelector,
   useEditorState,
   useNodeSelector,
+  useSlateEditor,
   useTextSelector,
   withReact,
 } from '../src'
@@ -25,10 +32,27 @@ import { createSlateReactRenderCounter } from '../src/render-profiler'
 
 const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
 
+const createReactEditor = <V extends Value>(initialValue: V) =>
+  withReact(createEditor({ initialValue }))
+
 describe('slate-react provider hooks contract', () => {
+  test('useSlateEditor creates a React editor with initialized value', () => {
+    const { result } = renderHook(() =>
+      useSlateEditor({
+        initialValue,
+      })
+    )
+
+    expect(result.current.read((state) => state.value.get())).toEqual(
+      initialValue
+    )
+    expect(result.current.read((state) => state.value.operations())).toEqual([])
+    expect(result.current.read((state) => state.value.lastCommit())).toBe(null)
+  })
+
   test('useEditor updates when the provider editor changes', () => {
-    const editorA = withReact(createEditor())
-    const editorB = withReact(createEditor())
+    const editorA = createReactEditor(initialValue)
+    const editorB = createReactEditor(initialValue)
     const seen: unknown[] = []
 
     const ShowStaticEditor = () => {
@@ -42,7 +66,7 @@ describe('slate-react provider hooks contract', () => {
     }
 
     const rendered = render(
-      <Slate editor={editorA} initialValue={initialValue}>
+      <Slate editor={editorA}>
         <Editable />
         <ShowStaticEditor />
       </Slate>
@@ -52,7 +76,7 @@ describe('slate-react provider hooks contract', () => {
     expect(seen.at(-1)).toBe(editorA)
 
     rendered.rerender(
-      <Slate editor={editorB} initialValue={initialValue}>
+      <Slate editor={editorB}>
         <Editable />
         <ShowStaticEditor />
       </Slate>
@@ -63,7 +87,7 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('useEditorSelector honors the equality function when selector identity changes', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor(initialValue)
     const callback1 = jest.fn(() => [])
     const callback2 = jest.fn(() => [])
 
@@ -72,7 +96,7 @@ describe('slate-react provider hooks contract', () => {
       {
         initialProps: { callback: callback1 },
         wrapper: ({ children }) => (
-          <Slate editor={editor} initialValue={initialValue}>
+          <Slate editor={editor}>
             <Editable />
             {children}
           </Slate>
@@ -390,11 +414,11 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('Editable keeps large DOM-present root groups stable across local edits and parent rerenders', async () => {
-    const editor = withReact(createEditor())
     const value = Array.from({ length: 1001 }, (_value, index) => ({
       type: 'block',
       children: [{ text: `line ${index}` }],
     }))
+    const editor = createReactEditor(value)
     const counter = createSlateReactRenderCounter()
     const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
     let rendered: ReturnType<typeof render> | null = null
@@ -402,7 +426,7 @@ describe('slate-react provider hooks contract', () => {
 
     try {
       rendered = render(
-        <Slate editor={editor} initialValue={value}>
+        <Slate editor={editor}>
           <Editable data-testid="grouped-root" />
         </Slate>
       )
@@ -446,12 +470,12 @@ describe('slate-react provider hooks contract', () => {
     }
   })
 
-  test('Editable can explicitly use DOM-present large-document grouping', () => {
-    const editor = withReact(createEditor())
+  test('Editable can explicitly use DOM-present rendering-strategy grouping', () => {
     const value = Array.from({ length: 1001 }, (_value, index) => ({
       type: 'block',
       children: [{ text: `line ${index}` }],
     }))
+    const editor = createReactEditor(value)
     const counter = createSlateReactRenderCounter()
     const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
     let rendered: ReturnType<typeof render> | null = null
@@ -459,11 +483,8 @@ describe('slate-react provider hooks contract', () => {
 
     try {
       rendered = render(
-        <Slate editor={editor} initialValue={value}>
-          <Editable
-            data-testid="dom-present-root"
-            largeDocument="dom-present"
-          />
+        <Slate editor={editor}>
+          <Editable data-testid="staged-root" renderingStrategy="staged" />
         </Slate>
       )
 
@@ -479,12 +500,12 @@ describe('slate-react provider hooks contract', () => {
     }
   })
 
-  test('Editable can disable automatic large-document root grouping', () => {
-    const editor = withReact(createEditor())
+  test('Editable can disable automatic rendering-strategy root grouping', () => {
     const value = Array.from({ length: 1001 }, (_value, index) => ({
       type: 'block',
       children: [{ text: `line ${index}` }],
     }))
+    const editor = createReactEditor(value)
     const counter = createSlateReactRenderCounter()
     const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
     let rendered: ReturnType<typeof render> | null = null
@@ -492,8 +513,8 @@ describe('slate-react provider hooks contract', () => {
 
     try {
       rendered = render(
-        <Slate editor={editor} initialValue={value}>
-          <Editable data-testid="ungrouped-root" largeDocument="off" />
+        <Slate editor={editor}>
+          <Editable data-testid="ungrouped-root" renderingStrategy="full" />
         </Slate>
       )
 
@@ -505,11 +526,11 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('Editable root-order commits do not fan out to every mounted runtime node', async () => {
-    const editor = withReact(createEditor())
     const value = Array.from({ length: 1001 }, (_value, index) => ({
       type: 'block',
       children: [{ text: `line ${index}` }],
     }))
+    const editor = createReactEditor(value)
     const counter = createSlateReactRenderCounter()
     const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
     let rendered: ReturnType<typeof render> | null = null
@@ -517,7 +538,7 @@ describe('slate-react provider hooks contract', () => {
 
     try {
       rendered = render(
-        <Slate editor={editor} initialValue={value}>
+        <Slate editor={editor}>
           <Editable data-testid="root-order-fanout" />
         </Slate>
       )
@@ -546,11 +567,11 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('Editable full-document replacement does not fan out to stale mounted runtime nodes', async () => {
-    const editor = withReact(createEditor())
     const value = Array.from({ length: 1001 }, (_value, index) => ({
       type: 'block',
       children: [{ text: `line ${index}` }],
     }))
+    const editor = createReactEditor(value)
     const counter = createSlateReactRenderCounter()
     const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
     let rendered: ReturnType<typeof render> | null = null
@@ -558,7 +579,7 @@ describe('slate-react provider hooks contract', () => {
 
     try {
       rendered = render(
-        <Slate editor={editor} initialValue={value}>
+        <Slate editor={editor}>
           <Editable data-testid="full-document-fanout" />
         </Slate>
       )

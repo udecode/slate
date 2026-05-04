@@ -2,6 +2,7 @@ import { node as getNode } from '../editor/node'
 import { nodes as getNodes } from '../editor/nodes'
 import { publishRangeRefDrafts, resetRangeRefDrafts } from '../editor/range-ref'
 import type {
+  CreateEditorOptions,
   DirtyRegion,
   Editor,
   EditorCommit,
@@ -957,8 +958,6 @@ const getStateView = <V extends Value>(
         getEditorRuntime(editor).isBlock(element),
       isEditableIsland: (element: import('../interfaces/element').Element) =>
         getEditorSchema(editor).isEditableIsland(element),
-      isElementReadOnly: (element: import('../interfaces/element').Element) =>
-        getEditorSchema(editor).isElementReadOnly(element),
       isElementPropertyEqual: (
         type: string,
         property: string,
@@ -971,6 +970,8 @@ const getStateView = <V extends Value>(
           left,
           right
         ),
+      isReadOnly: (element: import('../interfaces/element').Element) =>
+        getEditorSchema(editor).isReadOnly(element),
       isInline: (element: import('../interfaces/element').Element) =>
         getEditorSchema(editor).isInline(element),
       isIsolating: (element: import('../interfaces/element').Element) =>
@@ -2471,10 +2472,27 @@ export const subscribeSource = <V extends Value>(
   }
 }
 
-export const initializePublicState = (editor: Editor) => {
-  CHILDREN.set(editor, [])
-  seedRuntimeIds([], editor)
-  CURRENT_SELECTION.set(editor, null)
+export const initializePublicState = <V extends Value>(
+  editor: Editor<V>,
+  options: CreateEditorOptions<V> = {}
+) => {
+  const initialChildren = cloneValue([...(options.initialValue ?? [])])
+
+  if (!Node.isNodeList(initialChildren)) {
+    throw new Error(
+      '[Slate] initialValue is invalid! Expected a list of elements.'
+    )
+  }
+
+  if (options.initialValue && initialChildren.length === 0) {
+    throw new Error(
+      '[Slate] initialValue is invalid! Expected at least one element.'
+    )
+  }
+
+  CHILDREN.set(editor, initialChildren)
+  seedRuntimeIds(initialChildren, editor)
+  CURRENT_SELECTION.set(editor, cloneValue(options.initialSelection ?? null))
   CURRENT_MARKS.set(editor, null)
   DEFAULT_IS_NORMALIZING.set(editor, getEditorRuntime(editor).isNormalizing)
   DEFAULT_NORMALIZE_NODE.set(editor, getEditorRuntime(editor).normalizeNode)

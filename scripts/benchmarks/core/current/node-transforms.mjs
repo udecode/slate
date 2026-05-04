@@ -1,4 +1,5 @@
-import { createEditor, Editor } from '../../../../packages/slate/src/index.ts'
+import { createEditor } from '../../../../packages/slate/src/index.ts'
+import { Editor } from '../../../../packages/slate/src/internal/index.ts'
 import { summarize, writeBenchmarkArtifact } from '../../shared/stats.mjs'
 
 const iterations = Number(process.env.DRIFT_BENCH_ITERATIONS || 5)

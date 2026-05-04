@@ -14,9 +14,12 @@ INP is easiest to measure in Chrome using the [Performance panel](https://develo
 
 There are three main areas that can be optimized:
 
-- [Slate core](#optimizing-slate-core)
-- [React](#optimizing-react)
-- [DOM painting](#optimizing-dom-painting)
+- [Improving Performance](#improving-performance)
+  - [Optimizing Slate Core](#optimizing-slate-core)
+  - [Optimizing React](#optimizing-react)
+    - [Reduce Renders](#reduce-renders)
+    - [Shell Rendering Strategy](#shell-rendering-strategy)
+  - [Optimizing DOM Painting](#optimizing-dom-painting)
 
 Before you start optimizing, make sure you know which of these areas is most responsible for any slowness you're seeing. The best way of doing this is to use your browser's profiler (see the example for Firefox above), but you can also use these heuristics to guess which area is most at fault:
 
@@ -67,23 +70,28 @@ const onClick = () => {
 }
 ```
 
-### Shell Large Document Mode
+### Shell Rendering Strategy
 
-`Editable` uses DOM-present large-document grouping automatically. Use `largeDocument="dom-present"` to lock that safe behavior explicitly, or `largeDocument="off"` to disable automatic grouping while debugging.
+`Editable` uses staged rendering automatically for large documents. Use `renderingStrategy="staged"` to lock that safe behavior explicitly, or `renderingStrategy="full"` to render the full document surface while debugging.
 
-For very large documents that need aggressive mounting control, set `largeDocument` to shell mode. The runtime keeps the active editing corridor mounted and replaces far-away regions with semantic shells. This keeps React work focused on the user-visible editing lane.
+For very large documents that need aggressive mounting control, set `renderingStrategy` to shell. The runtime keeps the active editing corridor mounted and replaces far-away regions with semantic shells. This keeps React work focused on the user-visible editing lane.
 
 ```tsx
 <Editable
-  largeDocument={{
-    activeRadius: 0,
-    mode: 'shell',
-    islandSize: 100,
+  renderingStrategy={{
+    overscan: 0,
+    type: 'shell',
+    segmentSize: 100,
     previewChars: 96,
     threshold: 2000,
   }}
 />
 ```
+
+Experimental virtualized rendering is a separate stress path for pathological
+documents. Read
+[Experimental Virtualized Rendering](../libraries/slate-react/experimental-virtualized-rendering.md)
+when you need that research lane.
 
 Use projection stores for overlays instead of render-time decoration callbacks. Projection sources let decorations, annotations, widgets, diagnostics, and search results share the same range projection runtime without forcing everything through one `decorate` prop.
 
@@ -93,7 +101,7 @@ In Chrome and Safari, painting large numbers of DOM nodes can be extremely slow,
 
 The best way of speeding up painting large documents is to use the [`content-visibility`](https://developer.mozilla.org/en-US/docs/Web/CSS/content-visibility) CSS property. When set to `auto`, this property instructs browsers not to paint content that is off-screen. However, it also comes with a performance overhead proportional to the number of DOM nodes it is applied to, which is especially bad in Safari. When rendering large documents in Safari, applying `content-visibility: auto` to each Slate element individually is often slower than not using it at all.
 
-For aggressive mounting control, use [shell large document mode](#shell-large-document-mode). The runtime occludes inactive regions and keeps the mounted editor corridor small.
+For aggressive mounting control, use [shell rendering strategy](#shell-rendering-strategy). The runtime occludes inactive regions and keeps the mounted editor corridor small.
 
 Use a CSS rule like this to apply spacing between top-level blocks:
 

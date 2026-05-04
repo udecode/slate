@@ -252,7 +252,7 @@ test('keyboard split-block commands are model-owned structural intent', () => {
         },
         target: null,
       } as any,
-      largeDocument: null,
+      renderingStrategy: null,
     })
   ).toBe('insert-break')
 })

@@ -1,4 +1,21 @@
-export function ComponentLoader() {
+type LoaderProps = {
+  error?: Error | null
+}
+
+const LoadingError = ({ error }: { error: Error }) => (
+  <div className="example-warning">
+    <p>An error was thrown while loading this example.</p>
+    <pre>
+      <code>{error.stack ?? error.message}</code>
+    </pre>
+  </div>
+)
+
+export function ComponentLoader({ error }: LoaderProps) {
+  if (error) {
+    return <LoadingError error={error} />
+  }
+
   return (
     <div className="loading-container loading-spinner">
       <div className="spinner" />
@@ -7,7 +24,11 @@ export function ComponentLoader() {
   )
 }
 
-export function HugeDocumentLoader() {
+export function HugeDocumentLoader({ error }: LoaderProps) {
+  if (error) {
+    return <LoadingError error={error} />
+  }
+
   return (
     <div className="loading-container huge-loader-container">
       <div className="spinner" />

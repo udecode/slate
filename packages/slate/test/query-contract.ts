@@ -2981,18 +2981,42 @@ it('supports character movement around inline voids as atomic boundaries', () =>
 
   assert.deepEqual(
     Editor.after(editor, { path: [0, 0], offset: 3 }, { unit: 'character' }),
+    { path: [0, 1, 0], offset: 0 }
+  )
+  assert.deepEqual(
+    Editor.after(editor, { path: [0, 1, 0], offset: 0 }, { unit: 'character' }),
     { path: [0, 2], offset: 0 }
   )
   assert.deepEqual(
     Editor.before(editor, { path: [0, 2], offset: 0 }, { unit: 'character' }),
+    { path: [0, 1, 0], offset: 0 }
+  )
+  assert.deepEqual(
+    Editor.before(
+      editor,
+      { path: [0, 1, 0], offset: 0 },
+      { unit: 'character' }
+    ),
     { path: [0, 0], offset: 3 }
   )
   assert.deepEqual(
     Editor.after(editor, { path: [0, 2], offset: 3 }, { unit: 'character' }),
+    { path: [0, 3, 0], offset: 0 }
+  )
+  assert.deepEqual(
+    Editor.after(editor, { path: [0, 3, 0], offset: 0 }, { unit: 'character' }),
     { path: [0, 4], offset: 0 }
   )
   assert.deepEqual(
     Editor.before(editor, { path: [0, 4], offset: 0 }, { unit: 'character' }),
+    { path: [0, 3, 0], offset: 0 }
+  )
+  assert.deepEqual(
+    Editor.before(
+      editor,
+      { path: [0, 3, 0], offset: 0 },
+      { unit: 'character' }
+    ),
     { path: [0, 2], offset: 3 }
   )
 })

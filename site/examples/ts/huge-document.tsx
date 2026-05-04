@@ -117,16 +117,27 @@ const getInitialValue = (blocks: number) => {
   return cachedInitialValue.slice()
 }
 
-const initialInitialValue: Value =
-  typeof window === 'undefined' ? [] : getInitialValue(initialConfig.blocks)
+const fallbackInitialValue: Value = [
+  {
+    type: 'paragraph',
+    children: [{ text: '' }],
+  },
+]
 
-const createEditor = (_config: Config) => withReact(slateCreateEditor())
+const initialInitialValue: Value =
+  typeof window === 'undefined'
+    ? fallbackInitialValue
+    : getInitialValue(initialConfig.blocks)
+
+const createEditor = (_config: Config, initialValue: Value) =>
+  withReact(slateCreateEditor({ initialValue }))
 
 const HugeDocumentExample = () => {
   const [rendering, setRendering] = useState(false)
   const [config, baseSetConfig] = useState<Config>(initialConfig)
-  const [initialValue, setInitialValue] = useState<Value>(initialInitialValue)
-  const [editor, setEditor] = useState(() => createEditor(config))
+  const [editor, setEditor] = useState(() =>
+    createEditor(config, initialInitialValue)
+  )
   const [editorVersion, setEditorVersion] = useState(0)
 
   const setConfig = useCallback(
@@ -138,9 +149,10 @@ const HugeDocumentExample = () => {
       setSearchParams(newConfig)
 
       setTimeout(() => {
+        const nextInitialValue = getInitialValue(newConfig.blocks)
+
         setRendering(false)
-        setInitialValue(getInitialValue(newConfig.blocks))
-        setEditor(createEditor(newConfig))
+        setEditor(createEditor(newConfig, nextInitialValue))
         setEditorVersion((n) => n + 1)
       })
     },
@@ -161,7 +173,7 @@ const HugeDocumentExample = () => {
   const editable = rendering ? (
     <div>Rendering&hellip;</div>
   ) : (
-    <Slate editor={editor} initialValue={initialValue} key={editorVersion}>
+    <Slate editor={editor} key={editorVersion}>
       <Editable
         autoFocus
         placeholder="Enter some text…"

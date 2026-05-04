@@ -8,9 +8,10 @@ import {
   isDOMText,
   isPlainTextOnlyPaste,
 } from 'slate-dom'
+import { DOMCoverage } from 'slate-dom/internal'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
-import { isFullDocumentSelection } from '../large-document/large-document-commands'
 import { ReactEditor } from '../plugin/react-editor'
+import { isFullDocumentSelection } from '../rendering-strategy/rendering-strategy-commands'
 import type { EditableCommand } from './editing-kernel'
 import type { EditableRepairRequest } from './input-controller'
 import { applyEditableCommand } from './mutation-controller'
@@ -135,6 +136,22 @@ const isClipboardEventTargetInput = ({
     event.target instanceof HTMLInputElement ||
     event.target instanceof HTMLTextAreaElement
   )
+}
+
+const materializePasteTargetBoundaries = (editor: ReactEditor) => {
+  const selection = editor.read((state) => state.selection.get())
+
+  if (!selection) {
+    return
+  }
+
+  for (const boundary of DOMCoverage.getBoundariesForRange(editor, selection)) {
+    if (boundary.selectionPolicy === 'materialize') {
+      DOMCoverage.materializeBoundary(editor, boundary.boundaryId, 'paste', {
+        range: selection,
+      })
+    }
+  }
 }
 
 export const applyEditableCopy = ({
@@ -505,6 +522,7 @@ export const applyEditablePaste = ({
     }
 
     event.preventDefault()
+    materializePasteTargetBoundaries(editor)
     const command: EditableCommand = {
       data: event.clipboardData,
       kind: 'insert-data',
@@ -531,6 +549,7 @@ export const applyEditablePaste = ({
     // application/x-slate-fragment items, so use the
     // ClipboardEvent here. (2023/03/15)
     event.preventDefault()
+    materializePasteTargetBoundaries(editor)
     const command: EditableCommand = {
       data: event.clipboardData,
       kind: 'insert-data',

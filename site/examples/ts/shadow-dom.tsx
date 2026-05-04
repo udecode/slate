@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
-import { createEditor, type Value } from 'slate'
+import type { Value } from 'slate'
 import { withHistory } from 'slate-history'
-import { Editable, Slate, withReact } from 'slate-react'
+import { Editable, Slate, useSlateEditor } from 'slate-react'
 
 const ShadowDOM = () => {
   const container = useRef<HTMLDivElement>(null)
@@ -29,10 +29,10 @@ const ShadowDOM = () => {
 }
 
 const ShadowEditor = () => {
-  const editor = useMemo(() => withHistory(withReact(createEditor())), [])
+  const editor = useSlateEditor({ enhance: withHistory, initialValue })
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable placeholder="Enter some plain text..." />
     </Slate>
   )

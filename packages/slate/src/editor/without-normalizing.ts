@@ -3,19 +3,22 @@ import {
   getLatestOperation,
   getOperationCount,
 } from '../core/public-state'
-import { Editor, type EditorStaticApi } from '../interfaces/editor'
+import type { EditorStaticApi } from '../interfaces/editor'
+import { isNormalizing } from './is-normalizing'
+import { normalize } from './normalize'
+import { setNormalizing } from './set-normalizing'
 
 export const withoutNormalizing: EditorStaticApi['withoutNormalizing'] = (
   editor,
   fn
 ) => {
   const operationCount = getOperationCount(editor)
-  const value = Editor.isNormalizing(editor)
-  Editor.setNormalizing(editor, false)
+  const value = isNormalizing(editor)
+  setNormalizing(editor, false)
   try {
     fn()
   } finally {
-    Editor.setNormalizing(editor, value)
+    setNormalizing(editor, value)
   }
   const latestOperation =
     getLatestContentOperation(editor, operationCount) ??
@@ -25,7 +28,7 @@ export const withoutNormalizing: EditorStaticApi['withoutNormalizing'] = (
     (latestOperation?.type === 'insert_text' ||
       latestOperation?.type === 'remove_text')
 
-  Editor.normalize(editor, {
+  normalize(editor, {
     explicit: false,
     force: !didSingleTextOperation,
     operation: latestOperation,

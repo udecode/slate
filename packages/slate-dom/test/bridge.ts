@@ -157,6 +157,71 @@ describe('slate-dom bridge', () => {
     })
   })
 
+  it('resolves mounted DOM nodes from Slate nodes by runtime path when weak maps lag', () => {
+    withDom(({ document }) => {
+      const editor = createParagraphEditor()
+      const root = mountEditorRoot(editor, document)
+      const owner = document.createElement('span')
+      const leaf = document.createElement('span')
+      const string = document.createElement('span')
+      const domText = document.createTextNode('alpha beta')
+      const [textNode] = editor.read((state) => state.nodes.get([0, 0]))
+
+      owner.setAttribute('data-slate-node', 'text')
+      owner.setAttribute('data-slate-path', '0,0')
+      owner.setAttribute(
+        'data-slate-runtime-id',
+        Editor.getRuntimeId(editor, [0, 0])!
+      )
+      leaf.setAttribute('data-slate-leaf', 'true')
+      string.setAttribute('data-slate-string', 'true')
+
+      string.appendChild(domText)
+      leaf.appendChild(string)
+      owner.appendChild(leaf)
+      root.appendChild(owner)
+
+      expect(editor.dom.toDOMNode(textNode)).toBe(owner)
+      expect(editor.dom.toDOMPoint({ path: [0, 0], offset: 5 })).toEqual([
+        domText,
+        5,
+      ])
+    })
+  })
+
+  it('resolves Slate points by mounted DOM path when node path maps lag', () => {
+    withDom(({ document }) => {
+      const editor = createParagraphEditor()
+      const root = mountEditorRoot(editor, document)
+      const owner = document.createElement('span')
+      const leaf = document.createElement('span')
+      const string = document.createElement('span')
+      const domText = document.createTextNode('alpha beta')
+      const [textNode] = editor.read((state) => state.nodes.get([0, 0]))
+
+      owner.setAttribute('data-slate-node', 'text')
+      owner.setAttribute('data-slate-path', '0,0')
+      owner.setAttribute(
+        'data-slate-runtime-id',
+        Editor.getRuntimeId(editor, [0, 0])!
+      )
+      leaf.setAttribute('data-slate-leaf', 'true')
+      string.setAttribute('data-slate-string', 'true')
+
+      string.appendChild(domText)
+      leaf.appendChild(string)
+      owner.appendChild(leaf)
+      root.appendChild(owner)
+      NODE_TO_INDEX.delete(textNode)
+      NODE_TO_PARENT.delete(textNode)
+
+      expect(editor.dom.toDOMPoint({ path: [0, 0], offset: 5 })).toEqual([
+        domText,
+        5,
+      ])
+    })
+  })
+
   it('does not resolve path-tagged DOM nodes outside the editor', () => {
     withDom(({ document }) => {
       const editor = createParagraphEditor()

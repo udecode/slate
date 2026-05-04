@@ -2,6 +2,7 @@ import { applyOperation, runEditorTransaction } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { node as getNode } from '../editor/node'
 import { nodes as getNodes } from '../editor/nodes'
+import { shouldMergeNodesRemovePrevNode } from '../editor/should-merge-nodes-remove-prev-node'
 import { Location } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import type { Element } from '../interfaces/element'
@@ -143,7 +144,7 @@ export const mergeNodes: NodeMutationMethods['mergeNodes'] = (
         transforms.removeNodes({ at: emptyRef.current!, voids })
       }
 
-      if (Editor.shouldMergeNodesRemovePrevNode(editor, prev, current)) {
+      if (shouldMergeNodesRemovePrevNode(editor, prev, current)) {
         transforms.removeNodes({ at: prevPath, voids })
       } else {
         applyOperation(editor, {

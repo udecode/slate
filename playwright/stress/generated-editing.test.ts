@@ -161,16 +161,19 @@ const inlineVoidBoundaryNavigation = (): StressCase => {
       {
         kind: 'assertSelection',
         label: 'assert-r2d2-selected-from-left',
-        selection: collapsedSelection([1, 2], 0),
+        selection: collapsedSelection([1, 1, 0], 0),
       },
       {
         kind: 'assertSelectionLocation',
         label: 'assert-r2d2-dom-location',
-        location: { anchorOffset: 0, anchorPath: [1, 2], isCollapsed: true },
+        location: { anchorOffset: 1, anchorPath: [1, 1, 0], isCollapsed: true },
       },
       { focusOwner: 'editor', kind: 'assertFocusOwner', label: 'assert-focus' },
       {
-        budget: { byKind: { editable: 0 }, total: 0 },
+        budget: {
+          byKind: { editable: 0, void: { max: 1 } },
+          total: { max: 1 },
+        },
         kind: 'assertRenderBudget',
         label: 'assert-first-right-render-budget',
       },
@@ -184,10 +187,13 @@ const inlineVoidBoundaryNavigation = (): StressCase => {
       {
         kind: 'assertSelection',
         label: 'assert-before-r2d2',
-        selection: collapsedSelection([1, 0], beforeFirstMentionText.length),
+        selection: collapsedSelection([1, 1, 0], 0),
       },
       {
-        budget: { byKind: { editable: 0 }, total: 0 },
+        budget: {
+          byKind: { editable: 0, void: { max: 1 } },
+          total: { max: 1 },
+        },
         kind: 'assertRenderBudget',
         label: 'assert-first-left-render-budget',
       },
@@ -204,15 +210,18 @@ const inlineVoidBoundaryNavigation = (): StressCase => {
       {
         kind: 'assertSelection',
         label: 'assert-mace-selected-from-left',
-        selection: collapsedSelection([1, 4], 0),
+        selection: collapsedSelection([1, 3, 0], 0),
       },
       {
         kind: 'assertSelectionLocation',
         label: 'assert-mace-dom-location',
-        location: { anchorOffset: 0, anchorPath: [1, 4], isCollapsed: true },
+        location: { anchorOffset: 1, anchorPath: [1, 3, 0], isCollapsed: true },
       },
       {
-        budget: { byKind: { editable: 0 }, total: 0 },
+        budget: {
+          byKind: { editable: 0, void: { max: 1 } },
+          total: { max: 1 },
+        },
         kind: 'assertRenderBudget',
         label: 'assert-second-right-render-budget',
       },
@@ -226,10 +235,13 @@ const inlineVoidBoundaryNavigation = (): StressCase => {
       {
         kind: 'assertSelection',
         label: 'assert-between-mentions',
-        selection: collapsedSelection([1, 2], betweenMentionsText.length),
+        selection: collapsedSelection([1, 3, 0], 0),
       },
       {
-        budget: { byKind: { editable: 0 }, total: 0 },
+        budget: {
+          byKind: { editable: 0, void: { max: 1 } },
+          total: { max: 1 },
+        },
         kind: 'assertRenderBudget',
         label: 'assert-second-left-render-budget',
       },
@@ -280,16 +292,19 @@ const markableInlineVoidFormatting = (): StressCase => {
       {
         kind: 'assertSelection',
         label: 'assert-markable-inline-selected',
-        selection: collapsedSelection([1, 2], 0),
+        selection: collapsedSelection([1, 1, 0], 0),
       },
       {
         kind: 'assertSelectionLocation',
         label: 'assert-markable-inline-dom-location',
-        location: { anchorOffset: 0, anchorPath: [1, 2], isCollapsed: true },
+        location: { anchorOffset: 1, anchorPath: [1, 1, 0], isCollapsed: true },
       },
       { focusOwner: 'editor', kind: 'assertFocusOwner', label: 'assert-focus' },
       {
-        budget: { byKind: { editable: 0 }, total: 0 },
+        budget: {
+          byKind: { editable: 0, void: { max: 1 } },
+          total: { max: 1 },
+        },
         kind: 'assertRenderBudget',
         label: 'assert-markable-inline-render-budget',
       },
@@ -562,10 +577,10 @@ const editableIslandNativeFocus = (): StressCase =>
     ],
   })
 
-const largeDocumentRuntimeVoidShell = (): StressCase =>
+const renderingStrategyRuntimeVoidShell = (): StressCase =>
   createStressCase({
-    family: 'large-document-runtime-void-shell',
-    route: 'large-document-runtime',
+    family: 'rendering-strategy-runtime-void-shell',
+    route: 'rendering-strategy-runtime',
     steps: [
       {
         count: 1,
@@ -879,15 +894,15 @@ const overlayMixedUpdate = (): StressCase =>
     ],
   })
 
-const overlayLargeDocumentBudget = (): StressCase =>
+const overlayRenderingStrategyBudget = (): StressCase =>
   createStressCase({
-    family: 'overlay-large-document-budget',
-    route: 'large-document-runtime',
+    family: 'overlay-rendering-strategy-budget',
+    route: 'rendering-strategy-runtime',
     steps: [
       {
         count: 1,
         kind: 'assertLocatorCount',
-        label: 'assert-large-document-projection-visible',
+        label: 'assert-rendering-strategy-projection-visible',
         selector: '[data-runtime-projection="true"]',
       },
       { kind: 'resetRenderProfiler', label: 'reset-large-projection-render' },
@@ -1000,7 +1015,7 @@ const stressCases: StressCase[] = [
   staleTargetRemoteRebase(),
   pasteHtmlImageVoid(),
   editableIslandNativeFocus(),
-  largeDocumentRuntimeVoidShell(),
+  renderingStrategyRuntimeVoidShell(),
   tableCellBoundaryNavigation(),
   externalDecorationRefresh(),
   overlayManyDecorationSources(),
@@ -1008,7 +1023,7 @@ const stressCases: StressCase[] = [
   overlayAnnotationBookmarkRebase(),
   overlayWidgetDirtyId(),
   overlayMixedUpdate(),
-  overlayLargeDocumentBudget(),
+  overlayRenderingStrategyBudget(),
   mouseSelectionToolbar(),
   ...['plaintext', 'richtext', 'forced-layout'].map(pasteNormalizeUndo),
   selectionRepairIme(),

@@ -57,8 +57,16 @@ export {
   IS_WEBKIT,
   IS_WECHATBROWSER,
 } from './utils/environment'
-
-export { default as Hotkeys } from './utils/hotkeys'
+export type {
+  HotkeyMatchOptions,
+  HotkeyPlatform,
+  HotkeySpec,
+  KeyboardEventLike,
+} from './utils/hotkeys'
+export {
+  default as Hotkeys,
+  isHotkey,
+} from './utils/hotkeys'
 
 export { Key } from './utils/key'
 

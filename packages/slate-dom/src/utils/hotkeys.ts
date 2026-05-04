@@ -1,5 +1,12 @@
-import { isHotkey } from 'is-hotkey'
 import { IS_APPLE } from './environment'
+import { createCompiledHotkeyMatcher } from './hotkey-match'
+
+export type {
+  HotkeyMatchOptions,
+  HotkeyPlatform,
+  HotkeySpec,
+  KeyboardEventLike,
+} from './hotkey-match'
 
 /**
  * Hotkey mappings for each platform.
@@ -53,9 +60,9 @@ const create = (key: string) => {
   const generic = HOTKEYS[<keyof typeof HOTKEYS>key]
   const apple = APPLE_HOTKEYS[<keyof typeof APPLE_HOTKEYS>key]
   const windows = WINDOWS_HOTKEYS[<keyof typeof WINDOWS_HOTKEYS>key]
-  const isGeneric = generic ? isHotkey(generic) : undefined
-  const isApple = apple ? isHotkey(apple) : undefined
-  const isWindows = windows ? isHotkey(windows) : undefined
+  const isGeneric = generic ? createCompiledHotkeyMatcher(generic) : undefined
+  const isApple = apple ? createCompiledHotkeyMatcher(apple) : undefined
+  const isWindows = windows ? createCompiledHotkeyMatcher(windows) : undefined
 
   return (event: KeyboardEvent) => {
     if (isGeneric?.(event)) return true
@@ -68,6 +75,8 @@ const create = (key: string) => {
 /**
  * Hotkeys.
  */
+
+export { isHotkey } from './hotkey-match'
 
 export default {
   isBold: create('bold'),

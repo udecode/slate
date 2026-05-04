@@ -10,6 +10,7 @@ import type { EditorStaticApi } from '../interfaces/editor'
 import { Editor } from '../interfaces/editor'
 import type { TextInsertTextOptions } from '../interfaces/transforms/text'
 import { applyInsertText } from '../transforms-text/insert-text'
+import { elementReadOnly } from './element-read-only'
 
 type InsertTextCommand = {
   options: Parameters<EditorStaticApi['insertText']>[2]
@@ -33,7 +34,7 @@ const shouldIgnoreTarget = (
   return (
     target != null &&
     ((!voids && Editor.void(editor, { at: target })) ||
-      Editor.elementReadOnly(editor, { at: target }))
+      elementReadOnly(editor, { at: target }))
   )
 }
 

@@ -155,10 +155,10 @@ Common schema checks include:
 - `state.schema.isInline(element)`
 - `state.schema.isIsolating(element)`
 - `state.schema.isKeyboardSelectable(element)`
+- `state.schema.isReadOnly(element)`
 - `state.schema.isVoid(element)`
 - `state.schema.markableVoid(element)`
 - `state.schema.isSelectable(element)`
-- `state.schema.isElementReadOnly(element)`
 - `state.schema.isElementPropertyEqual(type, property, left, right)`
 
 Element property descriptors provide defaults and equality for extension-owned

@@ -45,7 +45,7 @@ import {
   subscribeSource as subscribeEditorSource,
 } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
-import { isEditor } from '../editor/is-editor'
+import { isEditor as isEditorValue } from '../editor/is-editor'
 import type {
   LeafEdge,
   MaximizeMode,
@@ -355,7 +355,6 @@ export type EditorStateSchemaApi = {
   isAtom: (element: Element) => boolean
   isBlock: (element: Element) => boolean
   isEditableIsland: (element: Element) => boolean
-  isElementReadOnly: (element: Element) => boolean
   isElementPropertyEqual: (
     type: string,
     property: string,
@@ -365,6 +364,7 @@ export type EditorStateSchemaApi = {
   isInline: (element: Element) => boolean
   isIsolating: (element: Element) => boolean
   isKeyboardSelectable: (element: Element) => boolean
+  isReadOnly: (element: Element) => boolean
   isSelectable: (element: Element) => boolean
   isVoid: (element: Element) => boolean
   markableVoid: (element: Element) => boolean
@@ -612,6 +612,11 @@ export type EditorTransformRegistry<V extends Value = Value> =
 
 export type Editor<V extends Value = any> = BaseEditor<V> &
   EditorExtensionGroups<V>
+
+export type CreateEditorOptions<V extends Value = Value> = {
+  initialSelection?: Selection
+  initialValue?: V
+}
 
 type IsAny<T> = 0 extends 1 & T ? true : false
 
@@ -1904,10 +1909,12 @@ const InternalEditor: EditorStaticApi = {
     return getEditorRuntime(editor).isEdge(point, at)
   },
 
-  isEditor,
+  isEditor(value, options) {
+    return isEditorValue(value, options)
+  },
 
   isElementReadOnly(editor, element) {
-    return getEditorSchema(editor).isElementReadOnly(element)
+    return getEditorSchema(editor).isReadOnly(element)
   },
 
   isEmpty(editor, element) {

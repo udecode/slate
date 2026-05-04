@@ -175,10 +175,12 @@ export const useEditableRootRef = ({
 
 export const useEditableDOMInputHandler = ({
   editor,
+  onHandledDOMInput,
   repairDOMInput,
   rootRef,
 }: {
   editor: ReactEditor
+  onHandledDOMInput?: (event: Event) => void
   repairDOMInput: RepairDOMInput
   rootRef: RefObject<HTMLElement | null>
 }) =>
@@ -195,9 +197,10 @@ export const useEditableDOMInputHandler = ({
         return
       }
 
+      onHandledDOMInput?.(event)
       repairDOMInput(nativeInput, rootRef.current)
     },
-    [editor, repairDOMInput, rootRef]
+    [editor, onHandledDOMInput, repairDOMInput, rootRef]
   )
 
 export const useEditableDOMBeforeInputHandler = ({

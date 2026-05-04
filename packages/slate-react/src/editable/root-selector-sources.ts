@@ -2,13 +2,13 @@ import { type ReactNode, useCallback, useMemo, useRef } from 'react'
 import type { Operation, Path, RuntimeId, SnapshotChange } from 'slate'
 import { Node } from 'slate'
 import { useEditorSelector } from '../hooks/use-editor-selector'
-import { createIslandPlan } from '../large-document/create-island-plan'
 import type { ReactEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
+import { createSegmentPlan } from '../rendering-strategy/create-segment-plan'
 
-export type LargeDocumentRootConfig = {
-  activeRadius: number
-  islandSize: number
+export type RenderingStrategyRootConfig = {
+  overscan: number
+  segmentSize: number
   previewChars: number
   threshold: number
 }
@@ -205,65 +205,67 @@ export const useEditableRootCommitWakeup = () => {
   )
 }
 
-export const useLargeDocumentRootSources = ({
-  largeDocumentConfig,
-  promotedIslandIndex,
+export const useRenderingStrategyRootSources = ({
+  renderingStrategyConfig,
+  promotedSegmentIndex,
 }: {
-  largeDocumentConfig: LargeDocumentRootConfig | null
-  promotedIslandIndex: number | null
+  renderingStrategyConfig: RenderingStrategyRootConfig | null
+  promotedSegmentIndex: number | null
 }) => {
   const topLevelRuntimeIds = useRootRuntimeIds()
   const selectedTopLevelIndex = useTopLevelSelectionIndex(
-    largeDocumentConfig != null
+    renderingStrategyConfig != null
   )
 
   return useMemo(() => {
     recordSlateReactRender({
-      id: largeDocumentConfig ? 'large-document-root-sources' : 'root-sources',
+      id: renderingStrategyConfig
+        ? 'rendering-strategy-root-sources'
+        : 'root-sources',
       kind: 'root-plan',
     })
 
-    const islandPlan =
-      largeDocumentConfig &&
-      topLevelRuntimeIds.length >= largeDocumentConfig.threshold
-        ? createIslandPlan({
-            activeRadius: largeDocumentConfig.activeRadius,
-            defaultActiveIslandIndex:
+    const segmentPlan =
+      renderingStrategyConfig &&
+      topLevelRuntimeIds.length >= renderingStrategyConfig.threshold
+        ? createSegmentPlan({
+            overscan: renderingStrategyConfig.overscan,
+            defaultActiveSegmentIndex:
               selectedTopLevelIndex == null
                 ? 0
                 : Math.floor(
-                    selectedTopLevelIndex / largeDocumentConfig.islandSize
+                    selectedTopLevelIndex / renderingStrategyConfig.segmentSize
                   ),
-            islandSize: largeDocumentConfig.islandSize,
-            promotedIslandIndex,
+            segmentSize: renderingStrategyConfig.segmentSize,
+            promotedSegmentIndex,
             topLevelRuntimeIds,
           })
         : null
-    const mountedTopLevelRuntimeIds = islandPlan
+    const mountedTopLevelRuntimeIds = segmentPlan
       ? new Set(
-          islandPlan.islands.flatMap((island) =>
-            island.isActive ? island.mountedRuntimeIds : []
+          segmentPlan.segments.flatMap((segment) =>
+            segment.isActive ? segment.mountedRuntimeIds : []
           )
         )
       : null
-    const mountedTopLevelRanges = islandPlan
-      ? islandPlan.islands
-          .filter((island) => island.isActive)
-          .map((island) => ({
-            endIndex: island.endIndex,
-            startIndex: island.startIndex,
+    const mountedTopLevelRanges = segmentPlan
+      ? segmentPlan.segments
+          .filter((segment) => segment.isActive)
+          .map((segment) => ({
+            endIndex: segment.endIndex,
+            startIndex: segment.startIndex,
           }))
       : null
 
     return {
-      islandPlan,
+      segmentPlan,
       mountedTopLevelRanges,
       mountedTopLevelRuntimeIds,
       topLevelRuntimeIds,
     }
   }, [
-    largeDocumentConfig,
-    promotedIslandIndex,
+    renderingStrategyConfig,
+    promotedSegmentIndex,
     selectedTopLevelIndex,
     topLevelRuntimeIds,
   ])

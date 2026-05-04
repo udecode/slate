@@ -40,6 +40,12 @@ const getRenderKey = (event: SlateReactRenderProfilerEvent) => {
   return id ? `${event.kind}:${id}` : event.kind
 }
 
+const isRenderEvent = (event: SlateReactRenderProfilerEvent) =>
+  event.kind !== 'core-time' &&
+  event.kind !== 'dom-text-sync' &&
+  event.kind !== 'runtime-time' &&
+  event.kind !== 'selector'
+
 export const recordSlateReactRender = (
   event: SlateReactRenderProfilerEvent
 ) => {
@@ -63,7 +69,7 @@ export const createSlateReactRenderCounter = () => {
       byKey,
       byKind,
       events: events.map((event) => ({ ...event })),
-      total: events.length,
+      total: events.filter(isRenderEvent).length,
     }
   }
 

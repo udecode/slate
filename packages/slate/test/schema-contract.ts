@@ -39,7 +39,7 @@ describe('editor schema', () => {
     )
     assert.equal(
       editor.read((state) =>
-        state.schema.isElementReadOnly({ type: 'readonly', children: [] })
+        state.schema.isReadOnly({ type: 'readonly', children: [] })
       ),
       true
     )

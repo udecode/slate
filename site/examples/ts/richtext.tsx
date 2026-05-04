@@ -1,12 +1,7 @@
-import isHotkey from 'is-hotkey'
 import type React from 'react'
-import {
-  type KeyboardEvent,
-  type PointerEvent,
-  useCallback,
-  useMemo,
-} from 'react'
-import { createEditor, Node, type Element as SlateElement } from 'slate'
+import { type KeyboardEvent, type PointerEvent, useCallback } from 'react'
+import { Node, type Element as SlateElement } from 'slate'
+import { isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -15,7 +10,7 @@ import {
   Slate,
   useEditor,
   useEditorSelector,
-  withReact,
+  useSlateEditor,
 } from 'slate-react'
 import { Button, Icon, Toolbar } from './components'
 import type {
@@ -33,6 +28,8 @@ const HOTKEYS: Record<string, CustomTextKey> = {
   'mod+`': 'code',
 }
 
+const MARK_HOTKEYS = Object.entries(HOTKEYS)
+
 const LIST_TYPES = ['numbered-list', 'bulleted-list'] as const
 const TEXT_ALIGN_TYPES = ['left', 'center', 'right', 'justify'] as const
 
@@ -49,13 +46,13 @@ const RichTextExample = () => {
     (props: RenderLeafProps) => <Leaf {...props} />,
     []
   )
-  const editor = useMemo(
-    () => withHistory(withReact(createEditor<CustomValue>())) as CustomEditor,
-    []
-  )
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
+    enhance: (editor) => withHistory(editor) as CustomEditor,
+    initialValue,
+  })
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Toolbar>
         <MarkButton format="bold" icon="format_bold" />
         <MarkButton format="italic" icon="format_italic" />
@@ -74,9 +71,8 @@ const RichTextExample = () => {
       <Editable
         autoFocus
         onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
-          for (const hotkey in HOTKEYS) {
-            if (isHotkey(hotkey, event as any)) {
-              const mark = HOTKEYS[hotkey]
+          for (const [hotkey, mark] of MARK_HOTKEYS) {
+            if (isHotkey(hotkey, event)) {
               toggleMark(editor, mark)
               return true
             }

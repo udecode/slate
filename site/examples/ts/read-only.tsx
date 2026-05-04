@@ -1,11 +1,10 @@
-import { useMemo } from 'react'
-import { createEditor, type Value } from 'slate'
-import { Editable, Slate, withReact } from 'slate-react'
+import type { Value } from 'slate'
+import { Editable, Slate, useSlateEditor } from 'slate-react'
 
 const ReadOnlyExample = () => {
-  const editor = useMemo(() => withReact(createEditor()), [])
+  const editor = useSlateEditor({ initialValue })
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable placeholder="Enter some plain text..." readOnly />
     </Slate>
   )

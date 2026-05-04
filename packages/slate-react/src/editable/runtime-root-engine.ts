@@ -20,9 +20,9 @@ import {
 } from '../hooks/use-editor-selector'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { useTrackUserInput } from '../hooks/use-track-user-input'
-import type { MountedTopLevelRange } from '../large-document/large-document-commands'
-import { isSelectionShellBacked } from '../large-document/large-document-commands'
 import { ReactEditor } from '../plugin/react-editor'
+import type { MountedTopLevelRange } from '../rendering-strategy/rendering-strategy-commands'
+import { isSelectionShellBacked } from '../rendering-strategy/rendering-strategy-commands'
 import { usePendingInsertionMarksEffect } from './composition-state'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import {
@@ -108,7 +108,7 @@ export const useEditableRootRuntime = ({
   editor,
   forwardedRef,
   inputRules,
-  largeDocument,
+  renderingStrategy,
   onDOMBeforeInput,
   onKeyDown,
   readOnly,
@@ -119,8 +119,8 @@ export const useEditableRootRuntime = ({
   editor: ReactEditor
   forwardedRef?: ForwardedRef<HTMLDivElement>
   inputRules?: readonly EditableInputRule[]
-  largeDocument: {
-    mode: 'dom-present' | 'shell'
+  renderingStrategy: {
+    type: 'staged' | 'shell' | 'virtualized'
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
   } | null
@@ -158,19 +158,20 @@ export const useEditableRootRuntime = ({
 
   IS_READ_ONLY.set(editor, readOnly)
 
-  const largeDocumentRef = useRef(largeDocument)
-  largeDocumentRef.current = largeDocument
+  const renderingStrategyRef = useRef(renderingStrategy)
+  renderingStrategyRef.current = renderingStrategy
 
   const [explicitShellBackedSelection, setExplicitShellBackedSelection] =
     useState(false)
   const isShellBackedSelection = useCallback((selection: Range | null) => {
-    const currentLargeDocument = largeDocumentRef.current
+    const currentRenderingStrategy = renderingStrategyRef.current
 
-    return currentLargeDocument?.mode === 'shell'
+    return currentRenderingStrategy?.type === 'shell' ||
+      currentRenderingStrategy?.type === 'virtualized'
       ? isSelectionShellBacked(
           selection,
-          currentLargeDocument.mountedTopLevelRuntimeIds,
-          currentLargeDocument.mountedTopLevelRanges ?? null
+          currentRenderingStrategy.mountedTopLevelRuntimeIds,
+          currentRenderingStrategy.mountedTopLevelRanges ?? null
         )
       : false
   }, [])
@@ -347,7 +348,7 @@ export const useEditableRootRuntime = ({
     handledDOMBeforeInputRef,
     inputController,
     isShellBackedSelection,
-    largeDocument,
+    renderingStrategy,
     onDOMBeforeInput,
     onKeyDown,
     onUserInput,
