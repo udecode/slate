@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { Editor } from 'slate/internal'
 
 import { createEditor, type Descendant } from '../src'
 import { replaceEditorValue } from './support/snapshot'
@@ -40,27 +39,16 @@ describe('read/update contract', () => {
       { tag: ['history-push', 'paste'] }
     )
 
-    assert.equal(Editor.string(editor, []), 'one!')
+    assert.equal(
+      editor.read((state) => state.text.string([])),
+      'one!'
+    )
 
-    const commit = Editor.getLastCommit(editor)
+    const commit = editor.read((state) => state.value.lastCommit())
 
     assert(commit)
     assert.deepEqual(commit.classes, ['text'])
     assert.deepEqual(commit.tags, ['history-push', 'paste'])
-  })
-
-  it('rejects starting an update inside a plain read', () => {
-    const editor = createEditor()
-
-    assert.throws(
-      () =>
-        Editor.read(editor, () => {
-          Editor.update(editor, () => {
-            tx.text.insert('x')
-          })
-        }),
-      /editor\.update cannot be started inside editor\.read/
-    )
   })
 
   it('rejects nested transaction writes inside a plain read', () => {

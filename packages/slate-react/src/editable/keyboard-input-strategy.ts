@@ -1,10 +1,11 @@
 import getDirection from 'direction'
-import type { KeyboardEvent, RefObject } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react'
 import { Node, Range } from 'slate'
 import {
   HAS_BEFORE_INPUT_SUPPORT,
   Hotkeys,
   IS_CHROME,
+  IS_IOS,
   IS_WEBKIT,
 } from 'slate-dom'
 import type { EditableKeyDownHandler } from '../components/editable'
@@ -58,13 +59,23 @@ const isShellRenderingStrategy = (renderingStrategy: unknown) =>
   ((renderingStrategy as { type?: unknown }).type === 'shell' ||
     (renderingStrategy as { type?: unknown }).type === 'virtualized')
 
+export const shouldDeferBackspaceToNativeInput = ({
+  isIOS = IS_IOS,
+  language = typeof navigator === 'undefined' ? '' : navigator.language,
+  nativeEvent,
+}: {
+  isIOS?: boolean
+  language?: string
+  nativeEvent: KeyboardEvent
+}) => isIOS && language === 'ko-KR' && Hotkeys.isDeleteBackward(nativeEvent)
+
 const applyUserKeyDownHandler = ({
   editor,
   event,
   handler,
 }: {
   editor: ReactEditor
-  event: KeyboardEvent<HTMLDivElement>
+  event: ReactKeyboardEvent<HTMLDivElement>
   handler?: EditableKeyDownHandler
 }): EditableKeyDownResult => {
   if (!handler) {
@@ -109,7 +120,7 @@ export const applyEditableKeyDown = ({
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
   editor: ReactEditor
-  event: KeyboardEvent<HTMLDivElement>
+  event: ReactKeyboardEvent<HTMLDivElement>
   forceRender: () => void
   inputController: EditableInputController
   renderingStrategy: unknown
@@ -242,6 +253,14 @@ export const applyEditableKeyDown = ({
       event,
       selection,
     })
+
+    if (
+      keyDownCommand?.kind === 'delete' &&
+      keyDownCommand.direction === 'backward' &&
+      shouldDeferBackspaceToNativeInput({ nativeEvent })
+    ) {
+      return keyDownUnhandled()
+    }
 
     if (isDestructiveEditableCommand(keyDownCommand)) {
       event.preventDefault()

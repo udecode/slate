@@ -2,6 +2,7 @@ import { expect, type Locator, type Page, test } from '@playwright/test'
 import {
   createSlateBrowserEditorHarness,
   installSlateReactRenderProfiler,
+  openExample,
   resetSlateReactRenderProfiler,
   takeSlateBrowserRenderStateSnapshot,
 } from 'slate-browser/playwright'
@@ -96,5 +97,59 @@ test.describe('hovering toolbar example', () => {
       .nth(0)
       .click({ force: true, position: { x: 0, y: 0 } })
     await expect(page.getByTestId('menu')).toHaveCSS('opacity', '0')
+  })
+
+  test('keeps hovering toolbar hidden during IME composition', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium CDP IME proof')
+
+    const editor = await openExample(page, 'hovering-toolbar', {
+      ready: {
+        editor: 'visible',
+        text: /This example shows/,
+      },
+    })
+
+    await expect(page.getByTestId('menu')).toHaveCSS('opacity', '0')
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+    await editor.ime.enableKeyEvents()
+
+    const client = await page.context().newCDPSession(page)
+
+    await client.send('Input.imeSetComposition', {
+      selectionEnd: 1,
+      selectionStart: 0,
+      text: 'ｓ',
+    })
+    await client.send('Input.imeSetComposition', {
+      selectionEnd: 1,
+      selectionStart: 0,
+      text: 'す',
+    })
+    await client.send('Input.imeSetComposition', {
+      selectionEnd: 2,
+      selectionStart: 0,
+      text: 'すｓ',
+    })
+    await client.send('Input.imeSetComposition', {
+      selectionEnd: 3,
+      selectionStart: 0,
+      text: 'すｓｈ',
+    })
+
+    await expect(page.getByTestId('menu')).toHaveCSS('opacity', '0')
+
+    await client.send('Input.insertText', { text: 'すし' })
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 2 },
+    })
+
+    await expect(page.getByTestId('menu')).toHaveCSS('opacity', '1')
   })
 })

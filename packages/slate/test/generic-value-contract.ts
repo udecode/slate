@@ -27,7 +27,6 @@ import {
   type Value,
   type ValueOf,
 } from 'slate'
-import { Editor as InternalEditor } from 'slate/internal'
 
 type Equal<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
@@ -79,10 +78,12 @@ const value: CustomValue = [{ type: 'paragraph', children: [{ text: 'one' }] }]
 const editor = createEditor<CustomValue>()
 const typedEditor: Editor<CustomValue> = editor
 
-InternalEditor.replace(typedEditor, {
-  children: value,
-  selection: null,
-  marks: null,
+typedEditor.update((tx) => {
+  tx.value.replace({
+    children: value,
+    selection: null,
+    marks: null,
+  })
 })
 
 type _ValueExtendsBase = Assert<CustomValue extends Value ? true : false>

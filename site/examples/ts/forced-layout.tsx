@@ -1,6 +1,9 @@
 import { useCallback } from 'react'
-import { Node, type NodeEntry, type Element as SlateElement } from 'slate'
-import { getEditorRuntime } from 'slate/internal'
+import {
+  defineEditorExtension,
+  Node,
+  type Element as SlateElement,
+} from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -16,75 +19,94 @@ import type {
   TitleElement,
 } from './custom-types.d'
 
-const withLayout = (editor: CustomEditor) => {
-  const runtime = getEditorRuntime(editor)
-  const nextNormalizeNode = runtime.normalizeNode
+const ENFORCING_LAYOUT = new WeakSet<CustomEditor>()
 
-  runtime.normalizeNode = (
-    entry: NodeEntry,
-    options: Parameters<typeof nextNormalizeNode>[1]
-  ) => {
-    const [, path] = entry
+const createTitle = (): TitleElement => ({
+  type: 'title',
+  children: [{ text: 'Untitled' }],
+})
 
-    if (path.length === 0) {
-      if (runtime.getChildren().length <= 1 && runtime.string([0, 0]) === '') {
-        const title: TitleElement = {
-          type: 'title',
-          children: [{ text: 'Untitled' }],
-        }
-        editor.update((tx) => {
-          tx.nodes.insert(title, {
-            at: path.concat(0),
-            select: true,
-          })
-        })
-      }
+const createParagraph = (): ParagraphElement => ({
+  type: 'paragraph',
+  children: [{ text: '' }],
+})
 
-      if (runtime.getChildren().length < 2) {
-        const paragraph: ParagraphElement = {
-          type: 'paragraph',
-          children: [{ text: '' }],
-        }
-        editor.update((tx) => {
-          tx.nodes.insert(paragraph, { at: path.concat(1) })
-        })
-      }
+const setType = (type: CustomElementType) =>
+  ({ type }) satisfies Partial<SlateElement>
 
-      for (const [child, childPath] of Node.children(
-        { children: runtime.getChildren() } as SlateElement,
-        path
-      )) {
-        let type: CustomElementType
-        const slateIndex = childPath[0]
-        const enforceType = (type: CustomElementType) => {
-          if (Node.isElement(child) && child.type !== type) {
-            const newProperties: Partial<SlateElement> = { type }
-            editor.update((tx) => {
-              tx.nodes.set(newProperties, {
-                at: childPath,
-              })
-            })
-          }
-        }
-
-        switch (slateIndex) {
-          case 0:
-            type = 'title'
-            enforceType(type)
-            break
-          case 1:
-            type = 'paragraph'
-            enforceType(type)
-            break
-          default:
-            break
-        }
-      }
-    }
-
-    return nextNormalizeNode(entry, options)
+const enforceLayout = (editor: CustomEditor) => {
+  if (ENFORCING_LAYOUT.has(editor)) {
+    return
   }
 
+  const children = editor.read((state) => state.value.get())
+  const plannedChildren = [...children]
+  const firstText = plannedChildren[0] ? Node.string(plannedChildren[0]) : ''
+  const insertTitle = plannedChildren.length <= 1 && firstText === ''
+
+  if (insertTitle) {
+    plannedChildren.splice(0, 0, createTitle())
+  }
+
+  const insertParagraph = plannedChildren.length < 2
+
+  if (insertParagraph) {
+    plannedChildren.splice(1, 0, createParagraph())
+  }
+
+  const first = plannedChildren[0]
+  const second = plannedChildren[1]
+  const enforceTitle =
+    Node.isElement(first) &&
+    first.type !== ('title' satisfies CustomElementType)
+  const enforceParagraph =
+    Node.isElement(second) &&
+    second.type !== ('paragraph' satisfies CustomElementType)
+
+  if (!insertTitle && !insertParagraph && !enforceTitle && !enforceParagraph) {
+    return
+  }
+
+  ENFORCING_LAYOUT.add(editor)
+
+  try {
+    editor.update((tx) => {
+      if (insertTitle) {
+        tx.nodes.insert(createTitle(), {
+          at: [0],
+          select: true,
+        })
+      }
+
+      if (insertParagraph) {
+        tx.nodes.insert(createParagraph(), { at: [1] })
+      }
+
+      if (enforceTitle) {
+        tx.nodes.set(setType('title'), { at: [0] })
+      }
+
+      if (enforceParagraph) {
+        tx.nodes.set(setType('paragraph'), { at: [1] })
+      }
+    })
+  } finally {
+    ENFORCING_LAYOUT.delete(editor)
+  }
+}
+
+const forcedLayout = defineEditorExtension<CustomEditor>({
+  name: 'forced-layout',
+  register({ editor }) {
+    return {
+      commitListeners: [() => enforceLayout(editor)],
+    }
+  },
+})
+
+const withLayout = (editor: CustomEditor) => {
+  editor.extend(forcedLayout)
+  enforceLayout(editor)
   return editor
 }
 

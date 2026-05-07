@@ -501,6 +501,7 @@ export const applyModelOwnedTextInput = ({
 
   if (inputType === 'insertText') {
     return {
+      forceRender: ReactEditor.isComposing(editor as ReactEditor),
       kind: 'repair-caret-after-text-insert',
       selectionSourceTransition: {
         preferModelSelection: true,

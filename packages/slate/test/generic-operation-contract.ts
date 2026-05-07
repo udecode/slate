@@ -7,7 +7,6 @@ import {
   type Operation as SlateOperation,
   type TextOf,
 } from 'slate'
-import { Editor } from 'slate/internal'
 
 type CustomText = {
   text: string
@@ -23,10 +22,12 @@ type CustomValue = ParagraphElement[]
 
 const editor = createEditor<CustomValue>()
 
-Editor.replace(editor, {
-  children: [{ type: 'paragraph', children: [{ text: '' }] }],
-  selection: null,
-  marks: null,
+editor.update((tx) => {
+  tx.value.replace({
+    children: [{ type: 'paragraph', children: [{ text: '' }] }],
+    selection: null,
+    marks: null,
+  })
 })
 
 const insertText: SlateOperation<CustomValue> = {

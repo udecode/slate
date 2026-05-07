@@ -34,7 +34,11 @@ const getTextEndForwardPoint = (
 
   const [node] = getNode(editor, point.path)
 
-  if (!Node.isText(node) || point.offset !== node.text.length) {
+  if (
+    !Node.isText(node) ||
+    node.text !== '' ||
+    point.offset !== node.text.length
+  ) {
     return null
   }
 
@@ -140,11 +144,9 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
 
         const depth = at.path.length - height
         const [, highestPath] = highest
-        const textEndForwardPoint = getTextEndForwardPoint(
-          editor,
-          at,
-          highestPath
-        )
+        const textEndForwardPoint = always
+          ? getTextEndForwardPoint(editor, at, highestPath)
+          : null
         afterRef = Editor.pointRef(editor, textEndForwardPoint ?? at, {
           affinity: 'forward',
         })

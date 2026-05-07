@@ -189,15 +189,15 @@ describe('slate-dom bridge', () => {
     })
   })
 
-  it('resolves Slate node paths when user code attaches custom operations', () => {
+  it('resolves Slate node paths when user code attaches custom metadata', () => {
     const editor = createParagraphEditor() as DOMEditor & {
-      operations?: unknown[]
+      customMetadata?: unknown[]
     }
     const [textNode] = editor.read((state) => state.nodes.get([0, 0]))
 
-    editor.operations = [
+    editor.customMetadata = [
       {
-        type: 'custom_operation',
+        type: 'custom_metadata',
         path: [0],
       },
     ]

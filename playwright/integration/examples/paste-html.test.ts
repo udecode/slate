@@ -106,6 +106,35 @@ test.describe('paste html example', () => {
     }
   })
 
+  test('treats iOS prediction payload as plain text inside formatted selection', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'paste-html', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const insertedText = 'Prediction'
+
+    await editor.selection.select({
+      anchor: { path: [0, 1], offset: 0 },
+      focus: { path: [0, 1], offset: 0 },
+    })
+
+    await insertDataWithHandle(editor, {
+      html: insertedText,
+      text: insertedText,
+    })
+
+    await expect(editor.root.locator('code').first()).toHaveText(
+      `${insertedText}'text/plain'`
+    )
+    await editor.assert.selection({
+      anchor: { path: [0, 1], offset: insertedText.length },
+      focus: { path: [0, 1], offset: insertedText.length },
+    })
+  })
+
   test('runs generated clipboard paste gauntlet without illegal kernel transitions', async ({
     page,
   }, testInfo) => {

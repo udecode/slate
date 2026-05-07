@@ -98,7 +98,7 @@ const inventoryRules: InventoryRule[] = [
       'Changelog entries preserve history and are not primary API guidance.',
   },
   {
-    expected: { primitive: 45, stale: 126 },
+    expected: { primitive: 52, stale: 185 },
     gate: 'browser proof handles must stay explicitly classified as proof transport',
     id: 'browser-proof-rows',
     next: 'explicit-proof-bridge',
@@ -128,7 +128,7 @@ const inventoryRules: InventoryRule[] = [
       'Slate DOM owns DOM bridge compatibility and selection import/export helpers.',
   },
   {
-    expected: { bridge: 27, stale: 1 },
+    expected: { bridge: 28, stale: 1 },
     gate: 'React runtime escape hatches must stay under kernel/runtime owners',
     id: 'react-runtime',
     next: 'central-owner',
@@ -138,7 +138,7 @@ const inventoryRules: InventoryRule[] = [
       'Slate React owns editable input, IME, repair, and bridge workers behind the kernel.',
   },
   {
-    expected: { primitive: 61, stale: 63 },
+    expected: { primitive: 64, stale: 64 },
     gate: 'core contract tests may exercise compatibility, but only as tests',
     id: 'slate-core-contract-tests',
     next: 'keep-as-contract',
@@ -148,7 +148,7 @@ const inventoryRules: InventoryRule[] = [
       'Core contracts intentionally cover snapshots and update/runtime behavior.',
   },
   {
-    expected: { primitive: 5 },
+    expected: { primitive: 8 },
     gate: 'history tests may cover undo fixtures while history runtime burns down compatibility',
     id: 'slate-history-tests',
     next: 'keep-as-contract',
@@ -157,7 +157,7 @@ const inventoryRules: InventoryRule[] = [
     rationale: 'History contracts guard undo/redo behavior during the rewrite.',
   },
   {
-    expected: { bridge: 3 },
+    expected: { bridge: 4, primitive: 5 },
     gate: 'React tests may exercise bridges only as contract proof',
     id: 'slate-react-tests',
     next: 'keep-as-contract',

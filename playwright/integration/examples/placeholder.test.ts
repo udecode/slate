@@ -41,6 +41,95 @@ test.describe('placeholder example', () => {
     )
   })
 
+  test('commits IME composition from the custom placeholder empty state', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium IME proof')
+
+    const editor = await openExample(page, 'custom-placeholder', {
+      ready: {
+        editor: 'visible',
+        placeholder: 'visible',
+      },
+    })
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+    await editor.ime.compose({
+      committedText: 'abc',
+      steps: ['a', 'ab', 'abc'],
+      text: 'abc',
+      transport: 'native',
+    })
+
+    await editor.assert.text('abc')
+    expect(await editor.get.modelText()).toBe('abc')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 'abc'.length },
+      focus: { path: [0, 0], offset: 'abc'.length },
+    })
+    await editor.assert.placeholderVisible(false)
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('fires blur when focus leaves during placeholder IME composition', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium CDP IME proof')
+
+    const editor = await openExample(page, 'custom-placeholder', {
+      ready: {
+        editor: 'visible',
+        placeholder: 'visible',
+      },
+    })
+
+    await page.evaluate(() => {
+      ;(window as any).__slateCustomPlaceholderBlurCount = 0
+      document.getElementById('composition-blur-target')?.remove()
+
+      const button = document.createElement('button')
+      button.id = 'composition-blur-target'
+      button.type = 'button'
+      button.textContent = 'outside'
+      document.body.append(button)
+    })
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+    await editor.ime.enableKeyEvents()
+
+    const client = await page.context().newCDPSession(page)
+    await client.send('Input.imeSetComposition', {
+      selectionEnd: 1,
+      selectionStart: 1,
+      text: 'す',
+    })
+
+    const blurTarget = page.locator('#composition-blur-target')
+    await blurTarget.focus()
+
+    await expect(blurTarget).toBeFocused()
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => (window as any).__slateCustomPlaceholderBlurCount ?? 0
+        )
+      )
+      .toBe(1)
+    await editor.assert.kernelTrace({
+      eventFamily: 'blur',
+      transition: { allowed: true },
+    })
+  })
+
   test('undoes typing from the custom placeholder empty state', async ({
     browserName,
     page,

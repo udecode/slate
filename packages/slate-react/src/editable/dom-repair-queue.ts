@@ -10,6 +10,7 @@ import {
   getCurrentEditableEventFrame,
   recordEditableKernelTrace,
 } from './editing-kernel'
+import { getNativeTextInputHistoryMetadata } from './input-history'
 import type { EditableInputController } from './input-state'
 import { readRuntimeText } from './runtime-live-state'
 import { readRuntimeSelection } from './runtime-selection-state'
@@ -130,13 +131,16 @@ export const createDOMRepairQueue = ({
           Math.min(slateNode.text.length, anchorOffset - inputText.length)
         )
         const nextOffset = offset + inputText.length
-        editor.update((tx) => {
-          tx.text.insert(inputText, { at: { path, offset } })
-          tx.selection.set({
-            anchor: { path, offset: nextOffset },
-            focus: { path, offset: nextOffset },
-          })
-        })
+        editor.update(
+          (tx) => {
+            tx.text.insert(inputText, { at: { path, offset } })
+            tx.selection.set({
+              anchor: { path, offset: nextOffset },
+              focus: { path, offset: nextOffset },
+            })
+          },
+          { metadata: getNativeTextInputHistoryMetadata(editor) }
+        )
 
         this.repairCaretAfterModelTextInsert()
       }

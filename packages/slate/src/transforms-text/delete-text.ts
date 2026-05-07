@@ -185,7 +185,8 @@ const mergeAdjacentTextRuns = (editor: Editor) => {
 
 const removeEmptyStructuralArtifacts = (
   editor: Editor,
-  preservePath?: Path | null
+  preservePath?: Path | null,
+  pruneNestedUnderPath?: Path | null
 ) => {
   const elementPaths = Array.from(
     getNodes(editor, {
@@ -202,7 +203,11 @@ const removeEmptyStructuralArtifacts = (
       return
     }
 
-    if (preservePath && PathApi.equals(path, preservePath)) {
+    if (
+      preservePath &&
+      (PathApi.equals(path, preservePath) ||
+        PathApi.isAncestor(preservePath, path))
+    ) {
       return
     }
 
@@ -229,7 +234,10 @@ const removeEmptyStructuralArtifacts = (
       path.length > 1 &&
       EditorApi.isBlock(editor, node)
 
-    if (isNestedBlock) {
+    if (
+      isNestedBlock &&
+      (!pruneNestedUnderPath || !PathApi.isAncestor(pruneNestedUnderPath, path))
+    ) {
       return
     }
 
@@ -308,6 +316,8 @@ type DeleteRangePlan = {
   preserveEndBlock: boolean
   preserveEmptyStartBlockPath: Path | null
   preservedEmptyStartBlock: SlateElement | null
+  startMergeBlockPath: Path | null
+  effectiveStartBlockPath: Path | null
   effectiveEndBlockPath: Path | null
   removedInteriorElementSiblingStructure: boolean
 }
@@ -891,6 +901,8 @@ const resolveDeleteTarget = (
     preserveEndBlock,
     preserveEmptyStartBlockPath,
     preservedEmptyStartBlock,
+    startMergeBlockPath: startMergeBlock?.[1] ?? null,
+    effectiveStartBlockPath: effectiveStartBlock?.[1] ?? null,
     effectiveEndBlockPath: effectiveEndBlock?.[1] ?? null,
     removedInteriorElementSiblingStructure:
       shouldKeepSplitTextAfterInteriorElementRemoval(
@@ -1056,7 +1068,7 @@ const reconcileDeleteStructure = (
         )
       : null
 
-    if (plan.preserveEndBlock && plan.preserveEmptyStartBlockPath) {
+    if (plan.preserveEmptyStartBlockPath) {
       removeEmptyStructuralArtifacts(editor, plan.preserveEmptyStartBlockPath)
       mergeAdjacentTextRuns(editor)
     } else if (plan.preserveEndBlock && mergePoint) {
@@ -1081,7 +1093,11 @@ const reconcileDeleteStructure = (
       }
     }
   } else if (!plan.isSingleText) {
-    removeEmptyStructuralArtifacts(editor)
+    removeEmptyStructuralArtifacts(
+      editor,
+      plan.startMergeBlockPath,
+      plan.effectiveStartBlockPath
+    )
 
     if (!plan.removedInteriorElementSiblingStructure) {
       mergeAdjacentTextRuns(editor)
@@ -1710,6 +1726,7 @@ const getWholeTopLevelBlockRange = (editor: Editor, plan: DeleteRangePlan) => {
     plan.isCollapsed ||
     plan.startNonEditable ||
     plan.endNonEditable ||
+    plan.preserveEmptyStartBlockPath ||
     !plan.isAcrossBlocks
   ) {
     return null

@@ -1,4 +1,4 @@
-import { expect, type Locator, test } from '@playwright/test'
+import { expect, type Locator, type Page, test } from '@playwright/test'
 
 import {
   assertNoIllegalKernelTransitions,
@@ -67,6 +67,371 @@ const collapseDOMSelectionToTextEnd = async (
     )
   }, selection)
 }
+
+const selectDOMTextRange = async (
+  editor: Awaited<ReturnType<typeof openExample>>,
+  {
+    anchorOffset,
+    anchorPath,
+    anchorText,
+    focusOffset,
+    focusPath,
+    focusText,
+  }: {
+    anchorOffset: number
+    anchorPath: number[]
+    anchorText: string
+    focusOffset: number
+    focusPath: number[]
+    focusText: string
+  }
+) =>
+  editor.root.evaluate(
+    (
+      element: HTMLElement,
+      {
+        anchorOffset,
+        anchorPath,
+        anchorText,
+        focusOffset,
+        focusPath,
+        focusText,
+      }: {
+        anchorOffset: number
+        anchorPath: number[]
+        anchorText: string
+        focusOffset: number
+        focusPath: number[]
+        focusText: string
+      }
+    ) => {
+      const handle = (element as Record<string, any>).__slateBrowserHandle
+
+      if (!handle?.selectRange) {
+        throw new Error('Missing Slate browser handle')
+      }
+
+      const findTextNode = (text: string) => {
+        const walker = element.ownerDocument.createTreeWalker(
+          element,
+          NodeFilter.SHOW_TEXT
+        )
+        let current = walker.nextNode()
+
+        while (current) {
+          if (current.textContent === text) {
+            return current
+          }
+          current = walker.nextNode()
+        }
+
+        throw new Error(`Cannot find DOM text node: ${text}`)
+      }
+
+      handle.selectRange({
+        anchor: { path: anchorPath, offset: anchorOffset },
+        focus: { path: focusPath, offset: focusOffset },
+      })
+      element.focus()
+
+      const selection = element.ownerDocument.getSelection()
+
+      if (!selection) {
+        throw new Error('Cannot access document selection')
+      }
+
+      const range = element.ownerDocument.createRange()
+      range.setStart(findTextNode(anchorText), anchorOffset)
+      range.setEnd(findTextNode(focusText), focusOffset)
+      selection.removeAllRanges()
+      selection.addRange(range)
+      element.ownerDocument.dispatchEvent(
+        new Event('selectionchange', { bubbles: true })
+      )
+    },
+    {
+      anchorOffset,
+      anchorPath,
+      anchorText,
+      focusOffset,
+      focusPath,
+      focusText,
+    }
+  )
+
+const cancelNativeComposition = async (
+  page: Page,
+  steps: readonly string[]
+) => {
+  const client = await page.context().newCDPSession(page)
+
+  for (const text of steps) {
+    await client.send('Input.imeSetComposition', {
+      selectionEnd: text.length,
+      selectionStart: text.length,
+      text,
+    })
+  }
+
+  await client.send('Input.imeSetComposition', {
+    selectionEnd: 0,
+    selectionStart: 0,
+    text: '',
+  })
+  await client.send('Input.insertText', {
+    text: '',
+  })
+}
+
+const dispatchCompositionEnd = async (root: Locator, data = 'あああ') => {
+  await root.evaluate((element: HTMLElement, text) => {
+    element.dispatchEvent(
+      new CompositionEvent('compositionend', {
+        bubbles: true,
+        cancelable: false,
+        data: text,
+      })
+    )
+  }, data)
+}
+
+const replaceModelRangeDuringDOMComposition = async (
+  editor: Awaited<ReturnType<typeof openExample>>,
+  {
+    composingText,
+    overlapSelection,
+    replacementText,
+    steps,
+  }: {
+    composingText: string
+    overlapSelection: {
+      anchor: { path: number[]; offset: number }
+      focus: { path: number[]; offset: number }
+    }
+    replacementText: string
+    steps: string[]
+  }
+) =>
+  editor.root.evaluate(
+    (
+      element: HTMLElement,
+      {
+        composingText,
+        overlapSelection,
+        replacementText,
+        steps,
+      }: {
+        composingText: string
+        overlapSelection: {
+          anchor: { path: number[]; offset: number }
+          focus: { path: number[]; offset: number }
+        }
+        replacementText: string
+        steps: string[]
+      }
+    ) => {
+      const selection = element.ownerDocument.getSelection()
+      const handle = (element as Record<string, any>).__slateBrowserHandle
+
+      if (!selection || selection.rangeCount === 0) {
+        throw new Error('Cannot compose without a DOM selection')
+      }
+      if (!handle?.selectRange || !handle?.insertText) {
+        throw new Error('Missing Slate browser handle')
+      }
+
+      const compositionRange = selection.getRangeAt(0).cloneRange()
+      const dispatchCompositionEvent = (
+        type: 'compositionstart' | 'compositionupdate' | 'compositionend',
+        data: string
+      ) => {
+        element.dispatchEvent(
+          new CompositionEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            data,
+          })
+        )
+      }
+
+      dispatchCompositionEvent('compositionstart', steps[0] ?? '')
+      steps.forEach((text) => {
+        dispatchCompositionEvent('compositionupdate', text)
+      })
+
+      compositionRange.deleteContents()
+      const composedNode = element.ownerDocument.createTextNode(composingText)
+      compositionRange.insertNode(composedNode)
+      compositionRange.setStart(composedNode, composingText.length)
+      compositionRange.setEnd(composedNode, composingText.length)
+      selection.removeAllRanges()
+      selection.addRange(compositionRange)
+      element.ownerDocument.dispatchEvent(
+        new Event('selectionchange', { bubbles: true })
+      )
+
+      handle.selectRange(overlapSelection)
+      handle.insertText(replacementText)
+
+      dispatchCompositionEvent('compositionend', composingText)
+      element.ownerDocument.dispatchEvent(
+        new Event('selectionchange', { bubbles: true })
+      )
+    },
+    {
+      composingText,
+      overlapSelection,
+      replacementText,
+      steps,
+    }
+  )
+
+const applyModelOperationsDuringDOMComposition = async (
+  editor: Awaited<ReturnType<typeof openExample>>,
+  {
+    composingText,
+    operations,
+    steps,
+  }: {
+    composingText: string
+    operations: unknown[]
+    steps: string[]
+  }
+) =>
+  editor.root.evaluate(
+    (
+      element: HTMLElement,
+      {
+        composingText,
+        operations,
+        steps,
+      }: {
+        composingText: string
+        operations: unknown[]
+        steps: string[]
+      }
+    ) => {
+      const selection = element.ownerDocument.getSelection()
+      const handle = (element as Record<string, any>).__slateBrowserHandle
+
+      if (!selection || selection.rangeCount === 0) {
+        throw new Error('Cannot compose without a DOM selection')
+      }
+      if (!handle?.applyOperations) {
+        throw new Error('Missing Slate browser handle')
+      }
+
+      const compositionRange = selection.getRangeAt(0).cloneRange()
+      const dispatchCompositionEvent = (
+        type: 'compositionstart' | 'compositionupdate' | 'compositionend',
+        data: string
+      ) => {
+        element.dispatchEvent(
+          new CompositionEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            data,
+          })
+        )
+      }
+
+      dispatchCompositionEvent('compositionstart', steps[0] ?? '')
+      steps.forEach((text) => {
+        dispatchCompositionEvent('compositionupdate', text)
+      })
+
+      compositionRange.deleteContents()
+      const composedNode = element.ownerDocument.createTextNode(composingText)
+      compositionRange.insertNode(composedNode)
+      compositionRange.setStart(composedNode, composingText.length)
+      compositionRange.setEnd(composedNode, composingText.length)
+      selection.removeAllRanges()
+      selection.addRange(compositionRange)
+      element.ownerDocument.dispatchEvent(
+        new Event('selectionchange', { bubbles: true })
+      )
+
+      handle.applyOperations(operations)
+
+      dispatchCompositionEvent('compositionend', composingText)
+      element.ownerDocument.dispatchEvent(
+        new Event('selectionchange', { bubbles: true })
+      )
+    },
+    {
+      composingText,
+      operations,
+      steps,
+    }
+  )
+
+const commitDOMComposition = async (
+  editor: Awaited<ReturnType<typeof openExample>>,
+  {
+    committedText,
+    steps,
+  }: {
+    committedText: string
+    steps: string[]
+  }
+) =>
+  editor.root.evaluate(
+    (
+      element: HTMLElement,
+      {
+        committedText,
+        steps,
+      }: {
+        committedText: string
+        steps: string[]
+      }
+    ) => {
+      const selection = element.ownerDocument.getSelection()
+
+      if (!selection || selection.rangeCount === 0) {
+        throw new Error('Cannot compose without a DOM selection')
+      }
+
+      const compositionRange = selection.getRangeAt(0).cloneRange()
+      const dispatchCompositionEvent = (
+        type: 'compositionstart' | 'compositionupdate' | 'compositionend',
+        data: string
+      ) => {
+        element.dispatchEvent(
+          new CompositionEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            data,
+          })
+        )
+      }
+
+      dispatchCompositionEvent('compositionstart', steps[0] ?? '')
+      steps.forEach((text) => {
+        dispatchCompositionEvent('compositionupdate', text)
+      })
+
+      compositionRange.deleteContents()
+      const composedNode = element.ownerDocument.createTextNode(committedText)
+      compositionRange.insertNode(composedNode)
+      compositionRange.setStart(composedNode, committedText.length)
+      compositionRange.setEnd(composedNode, committedText.length)
+      selection.removeAllRanges()
+      selection.addRange(compositionRange)
+      element.ownerDocument.dispatchEvent(
+        new Event('selectionchange', { bubbles: true })
+      )
+
+      dispatchCompositionEvent('compositionend', committedText)
+      element.ownerDocument.dispatchEvent(
+        new Event('selectionchange', { bubbles: true })
+      )
+    },
+    {
+      committedText,
+      steps,
+    }
+  )
 
 const dispatchPaste = async (
   root: Locator,
@@ -426,6 +791,978 @@ test.describe('rendering strategy runtime example', () => {
     })
 
     await editor.assert.text('default block 1すし')
+  })
+
+  test('records runtime metadata for committed IME composition', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium CDP IME proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'default block 1'
+
+    await collapseDOMSelectionToTextEnd(editor.locator.text([0, 0]), {
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+
+    await editor.ime.compose({
+      committedText: 'すし',
+      steps: ['す', 'すし'],
+      text: 'すし',
+      transport: 'native',
+    })
+
+    await editor.assert.text(`${initialText}すし`)
+
+    const compositionTrace = (await editor.get.kernelTrace()).filter((entry) =>
+      entry.eventFamily.startsWith('composition')
+    )
+
+    expect(compositionTrace).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventFamily: 'compositionstart',
+          frameId: expect.any(Number),
+          intent: 'composition',
+          nativeAllowed: true,
+          ownership: 'native-allowed',
+          targetOwner: 'editor',
+          transition: expect.objectContaining({ allowed: true }),
+        }),
+        expect.objectContaining({
+          eventFamily: 'compositionupdate',
+          frameId: expect.any(Number),
+          intent: 'composition',
+          nativeAllowed: true,
+          ownership: 'native-allowed',
+          targetOwner: 'editor',
+          transition: expect.objectContaining({ allowed: true }),
+        }),
+        expect.objectContaining({
+          eventFamily: 'compositionend',
+          frameId: expect.any(Number),
+          intent: 'composition',
+          nativeAllowed: true,
+          ownership: 'native-allowed',
+          targetOwner: 'editor',
+          transition: expect.objectContaining({ allowed: true }),
+        }),
+      ])
+    )
+  })
+
+  test('undoes committed IME composition as one history step', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium CDP IME proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'default block 1'
+
+    await collapseDOMSelectionToTextEnd(editor.locator.text([0, 0]), {
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [0, 0], offset: initialText.length },
+        focus: { path: [0, 0], offset: initialText.length },
+      })
+
+    await editor.ime.compose({
+      committedText: 'すし',
+      steps: ['ｓ', 'す', 'すｓ', 'すｓｈ', 'すし'],
+      text: 'すし',
+      transport: 'native',
+    })
+    await editor.assert.text(`${initialText}すし`)
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+
+    await editor.undo()
+
+    await expect.poll(() => editor.get.modelText()).toContain(initialText)
+    await expect.poll(() => editor.get.modelText()).not.toContain('すし')
+    await editor.assert.text(initialText)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+  })
+
+  test('undoes native text and immediately following IME composition together', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium CDP IME proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'default block 1'
+
+    await collapseDOMSelectionToTextEnd(editor.locator.text([0, 0]), {
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+    await editor.ime.enableKeyEvents()
+
+    const client = await page.context().newCDPSession(page)
+
+    await client.send('Input.insertText', { text: 'a' })
+    await client.send('Input.imeSetComposition', {
+      selectionEnd: 1,
+      selectionStart: 1,
+      text: 'ｓ',
+    })
+    await client.send('Input.imeSetComposition', {
+      selectionEnd: 1,
+      selectionStart: 1,
+      text: 'す',
+    })
+    await client.send('Input.insertText', { text: 'す' })
+
+    await editor.assert.text(`${initialText}aす`)
+
+    await editor.undo()
+
+    await editor.assert.text(initialText)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+  })
+
+  test('undoes delayed Hiragana IME compositions as separate history steps', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium CDP IME proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'default block 1'
+
+    await collapseDOMSelectionToTextEnd(editor.locator.text([0, 0]), {
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+    await editor.ime.compose({
+      committedText: 'すし',
+      steps: ['ｓ', 'す', 'すｓ', 'すｓｈ', 'すし'],
+      text: 'すし',
+      transport: 'native',
+    })
+
+    await page.waitForTimeout(1050)
+
+    await editor.ime.enableKeyEvents()
+    const client = await page.context().newCDPSession(page)
+    await client.send('Input.insertText', { text: ' ' })
+
+    await page.waitForTimeout(1050)
+
+    await editor.ime.compose({
+      committedText: 'もじあ',
+      steps: ['m', 'も', 'もj', 'もじ', 'もじあ'],
+      text: 'もじあ',
+      transport: 'native',
+    })
+
+    await editor.assert.text(`${initialText}すし もじあ`)
+    await editor.assert.selection({
+      anchor: {
+        path: [0, 0],
+        offset: initialText.length + 'すし もじあ'.length,
+      },
+      focus: {
+        path: [0, 0],
+        offset: initialText.length + 'すし もじあ'.length,
+      },
+    })
+
+    await editor.undo()
+
+    await editor.assert.text(`${initialText}すし `)
+    await expect.poll(() => editor.get.modelText()).not.toContain('もじあ')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: initialText.length + 'すし '.length },
+      focus: { path: [0, 0], offset: initialText.length + 'すし '.length },
+    })
+
+    await editor.undo()
+
+    await editor.assert.text(`${initialText}すし`)
+    await expect.poll(() => editor.get.modelText()).not.toContain('すし ')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: initialText.length + 'すし'.length },
+      focus: { path: [0, 0], offset: initialText.length + 'すし'.length },
+    })
+
+    await editor.undo()
+
+    await editor.assert.text(initialText)
+    await expect.poll(() => editor.get.modelText()).not.toContain('すし')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+  })
+
+  test('restores expanded selection after undoing IME replacement', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium CDP IME proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'ab'
+
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 'default block 1'.length },
+    })
+    await editor.insertText(initialText)
+    await page.waitForTimeout(1050)
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: 1 },
+    })
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: 1 },
+    })
+
+    await editor.ime.enableKeyEvents()
+    const client = await page.context().newCDPSession(page)
+    await client.send('Input.imeSetComposition', {
+      selectionEnd: 1,
+      selectionStart: 1,
+      text: 'ｓ',
+    })
+    await client.send('Input.imeSetComposition', {
+      selectionEnd: 1,
+      selectionStart: 1,
+      text: 'す',
+    })
+    await client.send('Input.insertText', { text: 'す' })
+
+    await editor.assert.text('aす')
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+
+    await editor.undo()
+
+    await editor.assert.text(initialText)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: 1 },
+    })
+  })
+
+  test('replaces an existing word with IME composition', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium CDP IME proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'default block 1'
+    const text = 'one two three'
+
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+    await editor.insertText(text)
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 'one '.length },
+      focus: { path: [0, 0], offset: 'one two'.length },
+    })
+
+    await editor.ime.compose({
+      committedText: 'zero',
+      steps: ['seven', 'zero'],
+      text: 'zero',
+      transport: 'native',
+    })
+
+    await editor.assert.text('one zero three')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 'one zero'.length },
+      focus: { path: [0, 0], offset: 'one zero'.length },
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('commits IME composition at the start of a text block', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium DOM-change proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'default block 1'
+    const text = 'foo'
+    const committedText = '!?'
+
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+    await editor.insertText(text)
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+
+    await commitDOMComposition(editor, {
+      committedText,
+      steps: ['!', committedText],
+    })
+
+    await editor.assert.text(`${committedText}${text}`)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: committedText.length },
+      focus: { path: [0, 0], offset: committedText.length },
+    })
+    await editor.assert.domCaret({
+      offset: committedText.length,
+      text: `${committedText}${text}`,
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('commits IME composition inside existing text', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium DOM-change proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'default block 1'
+    const text = 'foo'
+    const committedText = 'xyz'
+
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+    await editor.insertText(text)
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
+
+    await commitDOMComposition(editor, {
+      committedText,
+      steps: ['x', 'xy', committedText],
+    })
+
+    await editor.assert.text('fxyzoo')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 'fxyz'.length },
+      focus: { path: [0, 0], offset: 'fxyz'.length },
+    })
+    await editor.assert.domCaret({
+      offset: 'fxyz'.length,
+      text: 'fxyzoo',
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('commits IME composition at the end of a text block', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium DOM-change proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'default block 1'
+    const text = 'foo'
+    const committedText = '!?'
+
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+    await editor.insertText(text)
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: text.length },
+      focus: { path: [0, 0], offset: text.length },
+    })
+
+    await commitDOMComposition(editor, {
+      committedText,
+      steps: ['!', committedText],
+    })
+
+    await editor.assert.text(`${text}${committedText}`)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: `${text}${committedText}`.length },
+      focus: { path: [0, 0], offset: `${text}${committedText}`.length },
+    })
+    await editor.assert.domCaret({
+      offset: `${text}${committedText}`.length,
+      text: `${text}${committedText}`,
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('commits IME composition between emoji text', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium DOM-change proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'default block 1'
+    const text = '🙂🙂'
+    const firstEmojiOffset = '🙂'.length
+    const committedText = 'すし'
+
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+    await editor.insertText(text)
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: firstEmojiOffset },
+      focus: { path: [0, 0], offset: firstEmojiOffset },
+    })
+
+    await commitDOMComposition(editor, {
+      committedText,
+      steps: ['す', committedText],
+    })
+
+    await editor.assert.text('🙂すし🙂')
+    await editor.assert.selection({
+      anchor: {
+        path: [0, 0],
+        offset: firstEmojiOffset + committedText.length,
+      },
+      focus: {
+        path: [0, 0],
+        offset: firstEmojiOffset + committedText.length,
+      },
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('does not push canceled IME composition onto history', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium CDP IME proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'default block 1'
+    const typedText = '!'
+
+    await collapseDOMSelectionToTextEnd(editor.locator.text([0, 0]), {
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+    await editor.insertText(typedText)
+    await editor.assert.text(`${initialText}${typedText}`)
+
+    await cancelNativeComposition(page, ['ｓ'])
+
+    await editor.assert.text(`${initialText}${typedText}`)
+
+    await editor.undo()
+
+    await expect.poll(() => editor.get.modelText()).toContain(initialText)
+    await expect.poll(() => editor.get.modelText()).not.toContain(typedText)
+    await editor.assert.text(initialText)
+  })
+
+  test('keeps text stable after type-delete-cancel IME composition', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium CDP IME proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'default block 1'
+    const canceledSteps = ['ｓ', 'す', 'すｓ', 'すｓｈ', 'すし', 'す']
+
+    await collapseDOMSelectionToTextEnd(editor.locator.text([0, 0]), {
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+    await editor.ime.enableKeyEvents()
+
+    await cancelNativeComposition(page, canceledSteps)
+
+    await editor.assert.text(initialText)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+
+    await page.keyboard.type(' ')
+    await page.keyboard.press('ArrowLeft')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+
+    await cancelNativeComposition(page, canceledSteps)
+
+    await editor.assert.text(`${initialText} `)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+  })
+
+  test('drops active IME composition when a model change overlaps it', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium IME proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'default block 1'
+    const compositionPoint = { path: [0, 0], offset: 'default '.length }
+
+    await editor.selection.selectDOM({
+      anchor: compositionPoint,
+      focus: compositionPoint,
+    })
+    await editor.assert.domSelection({
+      anchorNodeText: initialText,
+      anchorOffset: compositionPoint.offset,
+      focusNodeText: initialText,
+      focusOffset: compositionPoint.offset,
+    })
+
+    await replaceModelRangeDuringDOMComposition(editor, {
+      composingText: 'すし',
+      overlapSelection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: initialText.length },
+      },
+      replacementText: '---',
+      steps: ['す', 'すし'],
+    })
+
+    await editor.assert.blockTexts(['---', 'default block 2'])
+    await expect.poll(() => editor.get.modelText()).toContain('default block 6')
+    await expect.poll(() => editor.get.modelText()).not.toContain('すし')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    })
+    await editor.assert.domCaret({
+      offset: 3,
+      text: '---',
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('drops active IME composition when a model change partially overlaps it', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium IME proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'default block 1'
+    const compositionPoint = { path: [0, 0], offset: 'default '.length }
+
+    await editor.selection.selectDOM({
+      anchor: compositionPoint,
+      focus: compositionPoint,
+    })
+    await editor.assert.domSelection({
+      anchorNodeText: initialText,
+      anchorOffset: compositionPoint.offset,
+      focusNodeText: initialText,
+      focusOffset: compositionPoint.offset,
+    })
+
+    await replaceModelRangeDuringDOMComposition(editor, {
+      composingText: 'すし',
+      overlapSelection: {
+        anchor: { path: [0, 0], offset: 10 },
+        focus: { path: [0, 0], offset: initialText.length },
+      },
+      replacementText: '---',
+      steps: ['す', 'すし'],
+    })
+
+    await editor.assert.blockTexts(['default bl---', 'default block 2'])
+    await expect.poll(() => editor.get.modelText()).toContain('default block 6')
+    await expect.poll(() => editor.get.modelText()).not.toContain('すし')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 'default bl---'.length },
+      focus: { path: [0, 0], offset: 'default bl---'.length },
+    })
+    await editor.assert.domCaret({
+      offset: 'default bl---'.length,
+      text: 'default bl---',
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('drops active IME composition when a model change happens at its insertion point', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium IME proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'default block 1'
+    const compositionPoint = { path: [0, 0], offset: 'default '.length }
+
+    await editor.selection.selectDOM({
+      anchor: compositionPoint,
+      focus: compositionPoint,
+    })
+    await editor.assert.domSelection({
+      anchorNodeText: initialText,
+      anchorOffset: compositionPoint.offset,
+      focusNodeText: initialText,
+      focusOffset: compositionPoint.offset,
+    })
+
+    await replaceModelRangeDuringDOMComposition(editor, {
+      composingText: 'すし',
+      overlapSelection: {
+        anchor: compositionPoint,
+        focus: compositionPoint,
+      },
+      replacementText: '!',
+      steps: ['す', 'すし'],
+    })
+
+    await editor.assert.blockTexts(['default !block 1', 'default block 2'])
+    await expect.poll(() => editor.get.modelText()).toContain('default block 6')
+    await expect.poll(() => editor.get.modelText()).not.toContain('すし')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: compositionPoint.offset + 1 },
+      focus: { path: [0, 0], offset: compositionPoint.offset + 1 },
+    })
+    await editor.assert.domCaret({
+      offset: compositionPoint.offset + 1,
+      text: 'default !block 1',
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('keeps active IME composition when a model change happens elsewhere', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium IME proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'default block 1'
+    const compositionPoint = { path: [0, 0], offset: 'default '.length }
+
+    await editor.selection.selectDOM({
+      anchor: compositionPoint,
+      focus: compositionPoint,
+    })
+    await editor.assert.domSelection({
+      anchorNodeText: initialText,
+      anchorOffset: compositionPoint.offset,
+      focusNodeText: initialText,
+      focusOffset: compositionPoint.offset,
+    })
+
+    await applyModelOperationsDuringDOMComposition(editor, {
+      composingText: 'すし',
+      operations: [
+        {
+          offset: 0,
+          path: [1, 0],
+          text: '!',
+          type: 'insert_text',
+        },
+      ],
+      steps: ['す', 'すし'],
+    })
+
+    await editor.assert.blockTexts(['default すしblock 1', '!default block 2'])
+    await expect.poll(() => editor.get.modelText()).toContain('default block 6')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: compositionPoint.offset + 2 },
+      focus: { path: [0, 0], offset: compositionPoint.offset + 2 },
+    })
+    await editor.assert.domCaret({
+      offset: compositionPoint.offset + 2,
+      text: 'default すしblock 1',
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('commits rapidly following IME compositions in separate text blocks', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium CDP IME proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const firstText = 'default block 1'
+    const secondText = 'default block 2'
+
+    await collapseDOMSelectionToTextEnd(editor.locator.text([0, 0]), {
+      anchor: { path: [0, 0], offset: firstText.length },
+      focus: { path: [0, 0], offset: firstText.length },
+    })
+    await editor.ime.compose({
+      committedText: '!',
+      steps: ['!'],
+      text: '!',
+      transport: 'native',
+    })
+
+    await collapseDOMSelectionToTextEnd(editor.locator.text([1, 0]), {
+      anchor: { path: [1, 0], offset: secondText.length },
+      focus: { path: [1, 0], offset: secondText.length },
+    })
+    await editor.ime.compose({
+      committedText: '.',
+      steps: ['.'],
+      text: '.',
+      transport: 'native',
+    })
+
+    await editor.assert.blockTexts([`${firstText}!`, `${secondText}.`])
+    await expect.poll(() => editor.get.modelText()).toContain('default block 6')
+    await editor.assert.selection({
+      anchor: { path: [1, 0], offset: secondText.length + 1 },
+      focus: { path: [1, 0], offset: secondText.length + 1 },
+    })
+    await editor.assert.domCaret({
+      offset: secondText.length + 1,
+      text: `${secondText}.`,
+    })
+
+    const compositionEndTrace = (await editor.get.kernelTrace()).filter(
+      (entry) => entry.eventFamily === 'compositionend'
+    )
+
+    expect(compositionEndTrace.length).toBeGreaterThanOrEqual(2)
+  })
+
+  test('commits cross-paragraph IME composition as one replacement', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium IME proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const firstText = 'default block 1'
+    const secondText = 'default block 2'
+    const prefixOffset = 'default '.length
+    const suffixOffset = 'default'.length
+    const committedText = 'すし'
+    const expectedText = `default ${committedText} block 2`
+
+    await selectDOMTextRange(editor, {
+      anchorOffset: prefixOffset,
+      anchorPath: [0, 0],
+      anchorText: firstText,
+      focusOffset: suffixOffset,
+      focusPath: [1, 0],
+      focusText: secondText,
+    })
+    await editor.assert.domSelection({
+      anchorNodeText: firstText,
+      anchorOffset: prefixOffset,
+      focusNodeText: secondText,
+      focusOffset: suffixOffset,
+    })
+
+    await commitDOMComposition(editor, {
+      committedText,
+      steps: ['す', committedText],
+    })
+
+    await editor.assert.blockTexts([expectedText, 'default block 3'])
+    await expect.poll(() => editor.get.modelText()).toContain('default block 6')
+    await expect.poll(() => editor.get.modelText()).not.toContain(secondText)
+    await expect.poll(() => editor.get.modelText()).not.toContain('すしすし')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: prefixOffset + committedText.length },
+      focus: { path: [0, 0], offset: prefixOffset + committedText.length },
+    })
+    await editor.assert.domCaret({
+      offset: prefixOffset + committedText.length,
+      text: expectedText,
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('deletes shell-backed selection after WebKit compositionend', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'webkit', 'WebKit compositionend proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+
+    await editor.root.evaluate((element: HTMLElement) => {
+      element.focus()
+    })
+    await dispatchCompositionEnd(editor.root)
+    await page.keyboard.press('ControlOrMeta+A')
+
+    await expect(editor.root).toHaveAttribute(
+      'data-slate-rendering-strategy-selection',
+      'shell-backed'
+    )
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [5, 0], offset: 'default block 6'.length },
+      })
+
+    await page.keyboard.press('Backspace')
+
+    await expect(editor.root).not.toContainText('default block 1')
+    await expect(editor.root).not.toContainText('default block 6')
+    await expect.poll(() => editor.get.modelText()).not.toContain('default')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
   })
 
   test('runs generated composition gauntlet without illegal kernel transitions', async ({

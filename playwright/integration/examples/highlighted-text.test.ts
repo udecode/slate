@@ -28,6 +28,62 @@ const nextCutPayload = async (
       })
   )
 
+const commitDOMComposition = async (
+  editor: Awaited<ReturnType<typeof openExample>>,
+  {
+    committedText,
+    steps,
+  }: {
+    committedText: string
+    steps: string[]
+  }
+) =>
+  editor.root.evaluate(
+    (
+      element: HTMLElement,
+      { committedText, steps }: { committedText: string; steps: string[] }
+    ) => {
+      const selection = element.ownerDocument.getSelection()
+
+      if (!selection || selection.rangeCount === 0) {
+        throw new Error('Cannot compose without a DOM selection')
+      }
+
+      const insertionRange = selection.getRangeAt(0).cloneRange()
+      const dispatchCompositionEvent = (
+        type: 'compositionstart' | 'compositionupdate' | 'compositionend',
+        data: string
+      ) => {
+        element.dispatchEvent(
+          new CompositionEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            data,
+          })
+        )
+      }
+
+      dispatchCompositionEvent('compositionstart', steps[0] ?? '')
+      steps.forEach((text) => {
+        dispatchCompositionEvent('compositionupdate', text)
+      })
+
+      insertionRange.deleteContents()
+      const composedNode = element.ownerDocument.createTextNode(committedText)
+      insertionRange.insertNode(composedNode)
+      insertionRange.setStart(composedNode, committedText.length)
+      insertionRange.setEnd(composedNode, committedText.length)
+      selection.removeAllRanges()
+      selection.addRange(insertionRange)
+
+      dispatchCompositionEvent('compositionend', committedText)
+      element.ownerDocument.dispatchEvent(
+        new Event('selectionchange', { bubbles: true })
+      )
+    },
+    { committedText, steps }
+  )
+
 test.describe('slate highlighted text', () => {
   test('supports semantic selection across decorated multi-leaf text', async ({
     page,
@@ -83,6 +139,107 @@ test.describe('slate highlighted text', () => {
     await editor.assert.selection({
       anchor: { path: [0, 0], offset: 11 },
       focus: { path: [0, 0], offset: 11 },
+    })
+  })
+
+  test('commits IME composition inside decorated text', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium IME proof')
+
+    const editor = await openExample(page, 'highlighted-text', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const pointInsideDecoration = { path: [0, 0], offset: 2 }
+
+    await editor.assert.text('alpha beta')
+    await editor.assert.htmlContains('data-tone="warm"')
+    await editor.selection.selectDOM({
+      anchor: pointInsideDecoration,
+      focus: pointInsideDecoration,
+    })
+    await editor.assert.domSelection({
+      anchorNodeText: 'lph',
+      anchorOffset: 1,
+      focusNodeText: 'lph',
+      focusOffset: 1,
+    })
+
+    await commitDOMComposition(editor, {
+      committedText: 'すし',
+      steps: ['す', 'すし'],
+    })
+
+    await editor.assert.text('alすしpha beta')
+    await editor.assert.htmlContains('data-tone="warm"')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      ownership: 'native-allowed',
+      transition: { allowed: true },
+    })
+
+    await page.keyboard.press('Backspace')
+    await page.keyboard.press('Backspace')
+
+    await editor.assert.text('alpha beta')
+    await editor.assert.htmlContains('data-tone="warm"')
+    await editor.assert.selection({
+      anchor: pointInsideDecoration,
+      focus: pointInsideDecoration,
+    })
+  })
+
+  test('commits IME composition spanning decorated text nodes', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium IME proof')
+
+    const editor = await openExample(page, 'highlighted-text', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.assert.text('alpha beta')
+    await editor.assert.htmlContains('data-tone="warm"')
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 6 },
+    })
+    await editor.assert.domSelection({
+      anchorNodeText: 'lph',
+      anchorOffset: 1,
+      focusNodeText: 'a beta',
+      focusOffset: 2,
+    })
+
+    await commitDOMComposition(editor, {
+      committedText: 'すし',
+      steps: ['す', 'すし'],
+    })
+
+    await editor.assert.text('alすしbeta')
+    await editor.assert.htmlContains('data-tone="warm"')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    })
+    await editor.assert.domSelection({
+      anchorNodeText: 'lすし',
+      anchorOffset: 3,
+      focusNodeText: 'lすし',
+      focusOffset: 3,
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      ownership: 'native-allowed',
+      transition: { allowed: true },
     })
   })
 

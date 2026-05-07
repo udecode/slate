@@ -14,12 +14,20 @@ import {
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { ReactEditor } from '../plugin/react-editor'
 import type { EditableCompositionStateSetter } from './input-controller'
+import { getNativeTextInputHistoryMetadata } from './input-history'
+import type { EditableInputController } from './input-state'
 import type { Editor } from './runtime-editor-api'
 import { writeRuntimeMarks } from './runtime-mutation-state'
 
 type EditableCompositionHandler = (
   event: CompositionEvent<HTMLDivElement>
 ) => boolean | void
+
+const EDITOR_TO_PENDING_COMPOSITION_TEXT = new WeakMap<Editor, string>()
+const EDITOR_TO_COMPOSITION_PREDELETE = new WeakSet<Editor>()
+
+const getCompositionEventText = (event: CompositionEvent<HTMLDivElement>) =>
+  event.data || (event.nativeEvent as globalThis.CompositionEvent).data
 
 const isCompositionEventTargetInput = ({
   event,
@@ -70,9 +78,15 @@ export const commitInsertFromComposition = ({
 
 export const commitChromeCompositionEndFallback = ({
   editor,
+  mergeWithCompositionPredelete = false,
+  rootElement,
+  shouldCommit = true,
   text,
 }: {
   editor: Editor
+  mergeWithCompositionPredelete?: boolean
+  rootElement?: HTMLElement | null
+  shouldCommit?: boolean
   text: string | null | undefined
 }) => {
   // COMPAT: In Chrome, `beforeinput` events for compositions
@@ -93,6 +107,12 @@ export const commitChromeCompositionEndFallback = ({
   const placeholderMarks = EDITOR_TO_PENDING_INSERTION_MARKS.get(editor)
   EDITOR_TO_PENDING_INSERTION_MARKS.delete(editor)
 
+  if (!shouldCommit) {
+    removeUnmanagedCompositionTextNodes({ editor, rootElement, text })
+    EDITOR_TO_USER_MARKS.delete(editor)
+    return
+  }
+
   // Ensure we insert text with the marks the user was actually seeing
   if (placeholderMarks !== undefined) {
     EDITOR_TO_USER_MARKS.set(
@@ -102,9 +122,15 @@ export const commitChromeCompositionEndFallback = ({
     writeRuntimeMarks(editor, placeholderMarks)
   }
 
-  editor.update((tx) => {
-    tx.text.insert(text)
-  })
+  editor.update(
+    (tx) => {
+      tx.text.insert(text)
+    },
+    mergeWithCompositionPredelete
+      ? { metadata: { history: { mode: 'merge' } } }
+      : { metadata: getNativeTextInputHistoryMetadata(editor) }
+  )
+  removeUnmanagedCompositionTextNodes({ editor, rootElement, text })
 
   const userMarks = EDITOR_TO_USER_MARKS.get(editor)
   EDITOR_TO_USER_MARKS.delete(editor)
@@ -113,16 +139,98 @@ export const commitChromeCompositionEndFallback = ({
   }
 }
 
+const removeUnmanagedCompositionTextNodes = ({
+  editor,
+  rootElement,
+  text,
+}: {
+  editor: Editor
+  rootElement?: HTMLElement | null
+  text: string
+}) => {
+  if (!rootElement || text.length === 0) {
+    return
+  }
+
+  rootElement
+    .querySelectorAll<HTMLElement>('[data-slate-node="text"]')
+    .forEach((textElement) => {
+      const textNodes: globalThis.Text[] = []
+      const walker = textElement.ownerDocument.createTreeWalker(
+        textElement,
+        NodeFilter.SHOW_TEXT
+      )
+
+      for (
+        let current = walker.nextNode();
+        current;
+        current = walker.nextNode()
+      ) {
+        const textNode = current as globalThis.Text
+        const textContent = textNode.textContent ?? ''
+        const slateString = textNode.parentElement?.closest(
+          '[data-slate-string="true"]'
+        )
+
+        if (slateString && textContent.includes(text)) {
+          const path = textElement
+            .getAttribute('data-slate-path')
+            ?.split(',')
+            .map((segment) => Number.parseInt(segment, 10))
+
+          if (path?.every(Number.isInteger)) {
+            try {
+              const modelText = Node.leaf(editor, path).text
+
+              if (
+                textContent !== modelText &&
+                textContent.endsWith(text) &&
+                textContent.slice(0, -text.length) === modelText
+              ) {
+                textNode.textContent = modelText
+                continue
+              }
+
+              if (
+                textContent !== modelText &&
+                textContent.startsWith(text) &&
+                textContent.slice(text.length) === modelText
+              ) {
+                textNode.textContent = modelText
+                continue
+              }
+            } catch {
+              // The host may have been removed by the same composition commit.
+            }
+          }
+        }
+
+        if (
+          textContent === text &&
+          !textNode.parentElement?.closest('[data-slate-string="true"]')
+        ) {
+          textNodes.push(textNode)
+        }
+      }
+
+      textNodes.forEach((textNode) => {
+        textNode.parentNode?.removeChild(textNode)
+      })
+    })
+}
+
 export const applyEditableCompositionEnd = ({
   androidInputManagerRef,
   editor,
   event,
+  inputController,
   onCompositionEnd,
   setComposing,
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
   editor: ReactEditor
   event: CompositionEvent<HTMLDivElement>
+  inputController: EditableInputController
   onCompositionEnd?: EditableCompositionHandler
   setComposing: EditableCompositionStateSetter
 }) => {
@@ -145,9 +253,23 @@ export const applyEditableCompositionEnd = ({
       return
     }
 
+    const shouldCommitChromeFallback =
+      ReactEditor.isComposing(editor) &&
+      inputController.state.selectionSource !== 'model-owned'
+    const compositionText =
+      getCompositionEventText(event) ??
+      EDITOR_TO_PENDING_COMPOSITION_TEXT.get(editor)
+    EDITOR_TO_PENDING_COMPOSITION_TEXT.delete(editor)
+    const mergeWithCompositionPredelete =
+      EDITOR_TO_COMPOSITION_PREDELETE.has(editor)
+    EDITOR_TO_COMPOSITION_PREDELETE.delete(editor)
+
     commitChromeCompositionEndFallback({
       editor,
-      text: event.data,
+      mergeWithCompositionPredelete,
+      rootElement: event.currentTarget,
+      shouldCommit: shouldCommitChromeFallback,
+      text: compositionText,
     })
   }
 }
@@ -178,15 +300,28 @@ export const applyEditableCompositionStart = ({
       return
     }
 
+    const marks = editor.read((state) => state.marks.get())
+    if (marks && Object.keys(marks).length > 0) {
+      EDITOR_TO_PENDING_INSERTION_MARKS.set(editor, marks)
+      writeRuntimeMarks(editor, marks)
+    }
+
     setComposing(true)
 
     const selection = editor.read((state) => state.selection.get())
-    if (selection && Range.isExpanded(selection)) {
+    if (
+      selection &&
+      Range.isExpanded(selection) &&
+      event.nativeEvent.isTrusted
+    ) {
+      EDITOR_TO_COMPOSITION_PREDELETE.add(editor)
       editor.update((tx) => {
         tx.fragment.delete()
       })
       return
     }
+
+    EDITOR_TO_COMPOSITION_PREDELETE.delete(editor)
   }
 }
 
@@ -208,6 +343,11 @@ export const applyEditableCompositionUpdate = ({
     !ReactEditor.isComposing(editor)
   ) {
     setComposing(true)
+  }
+
+  const compositionText = getCompositionEventText(event)
+  if (compositionText) {
+    EDITOR_TO_PENDING_COMPOSITION_TEXT.set(editor, compositionText)
   }
 }
 

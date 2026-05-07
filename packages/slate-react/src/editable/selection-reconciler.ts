@@ -592,13 +592,12 @@ export const syncSelectionForBeforeInput = ({
   let nextNative = native
   let nextSelection = selection
 
-  // COMPAT: For the deleting forward/backward input types we don't want
-  // to change the selection because it is the range that will be deleted,
-  // and those commands determine that for themselves.
+  // COMPAT: Most deleting forward/backward input types can derive the target
+  // from the current selection, but IME/focus cleanup can provide an expanded
+  // beforeinput target range that must become the model delete range.
   // If the NODE_MAP is dirty, we can't trust the selection anchor (eg ReactEditor.toDOMPoint via ReactEditor.toSlateRange)
   if (
     allowDOMSelectionImport &&
-    (!type.startsWith('delete') || type.startsWith('deleteBy')) &&
     !IS_NODE_MAP_DIRTY.get(editor) &&
     !(preferModelSelectionForInput && type === 'insertText')
   ) {
@@ -609,8 +608,16 @@ export const syncSelectionForBeforeInput = ({
         exactMatch: false,
         suppressThrow: true,
       })
+      const shouldUseTargetRange =
+        range &&
+        (!type.startsWith('delete') ||
+          type.startsWith('deleteBy') ||
+          Range.isExpanded(range))
 
-      if (range && (!nextSelection || !Range.equals(nextSelection, range))) {
+      if (
+        shouldUseTargetRange &&
+        (!nextSelection || !Range.equals(nextSelection, range))
+      ) {
         nextNative = false
 
         const selectionRef =

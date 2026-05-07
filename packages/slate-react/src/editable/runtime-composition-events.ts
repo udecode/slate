@@ -51,6 +51,7 @@ export const useRuntimeCompositionEvents = ({
         androidInputManagerRef,
         editor,
         event,
+        inputController,
         onCompositionEnd,
         setComposing,
       })

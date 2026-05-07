@@ -6,7 +6,6 @@ import {
   type Operation,
   type TextOf,
 } from 'slate'
-import { Editor } from 'slate/internal'
 
 type CustomText = {
   text: string
@@ -36,12 +35,17 @@ editor.update((tx) => {
 
 const leaf: TextOf<typeof editor> = { text: 'typed', bold: true }
 const marks: EditorMarksOf<typeof editor> = { code: true }
-const staticChildren: CustomValue = Editor.getChildren(editor)
-const operations: readonly Operation<CustomValue>[] =
-  Editor.getOperations(editor)
-const commit: EditorCommit<CustomValue> | null = Editor.getLastCommit(editor)
+const staticChildren: CustomValue = editor.read((state) => state.value.get())
+const operations: readonly Operation<CustomValue>[] = editor.read((state) =>
+  state.value.operations()
+)
+const commit: EditorCommit<CustomValue> | null = editor.read((state) =>
+  state.value.lastCommit()
+)
 
-Editor.reset(editor, { children: staticChildren, selection: null, marks })
+editor.update((tx) => {
+  tx.value.replace({ children: staticChildren, selection: null, marks })
+})
 
 void leaf
 void marks

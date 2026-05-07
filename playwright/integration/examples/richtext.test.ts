@@ -199,6 +199,19 @@ const selectEndOfFirstBlockWithDOMSelection = async (root: Locator) => {
   })
 }
 
+const dispatchWebKitCompositionEnd = async (root: Locator, data = 'あああ') => {
+  await root.evaluate((element: HTMLElement, compositionText) => {
+    element.focus()
+    element.dispatchEvent(
+      new CompositionEvent('compositionend', {
+        bubbles: true,
+        cancelable: false,
+        data: compositionText,
+      })
+    )
+  }, data)
+}
+
 test.describe('On richtext example', () => {
   test.beforeEach(async ({ page }) => await page.goto('/examples/richtext'))
 
@@ -229,6 +242,628 @@ test.describe('On richtext example', () => {
 
     await editor.assert.text('Hello World')
     expect(await editor.get.modelText()).toContain('Hello World')
+  })
+
+  test('syncs browser text mutations inside bold markup', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium DOM-change proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const initialText =
+      'This is editable rich text, much better than a <textarea>!'
+    const insertedText =
+      'This is editable riZch text, much better than a <textarea>!'
+    const pointInsideBold = { path: [0, 1], offset: 2 }
+
+    await editor.selection.selectDOM({
+      anchor: pointInsideBold,
+      focus: pointInsideBold,
+    })
+
+    await page.keyboard.insertText('Z')
+
+    await editor.assert.text(insertedText)
+    await expect(
+      editor.root.locator('strong').filter({ hasText: 'riZch' })
+    ).toHaveCount(1)
+    await editor.assert.selection({
+      anchor: { path: [0, 1], offset: 3 },
+      focus: { path: [0, 1], offset: 3 },
+    })
+
+    await page.keyboard.press('Backspace')
+
+    await editor.assert.text(initialText)
+    await expect(
+      editor.root.locator('strong').filter({ hasText: 'rich' })
+    ).toHaveCount(1)
+    await editor.assert.selection({
+      anchor: pointInsideBold,
+      focus: pointInsideBold,
+    })
+  })
+
+  test('commits IME composition inside bold markup', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium IME proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const initialText =
+      'This is editable rich text, much better than a <textarea>!'
+    const insertedText =
+      'This is editable riすしch text, much better than a <textarea>!'
+    const pointInsideBold = { path: [0, 1], offset: 2 }
+
+    await editor.selection.selectDOM({
+      anchor: pointInsideBold,
+      focus: pointInsideBold,
+    })
+    await editor.assert.domSelection({
+      anchorNodeText: 'rich',
+      anchorOffset: 2,
+      focusNodeText: 'rich',
+      focusOffset: 2,
+    })
+
+    await editor.locator.text(pointInsideBold.path).evaluate(
+      (
+        element: HTMLElement,
+        {
+          committedText,
+          offset,
+          steps,
+        }: { committedText: string; offset: number; steps: string[] }
+      ) => {
+        const root = element.closest(
+          '[data-slate-editor="true"]'
+        ) as HTMLElement | null
+        const selection = element.ownerDocument.getSelection()
+        const walker = element.ownerDocument.createTreeWalker(
+          element,
+          NodeFilter.SHOW_TEXT
+        )
+        const textNode = walker.nextNode()
+
+        if (!root || !selection || !textNode) {
+          throw new Error('Cannot compose inside bold text')
+        }
+
+        const range = element.ownerDocument.createRange()
+        range.setStart(textNode, offset)
+        range.collapse(true)
+        selection.removeAllRanges()
+        selection.addRange(range)
+
+        const dispatchCompositionEvent = (
+          type: 'compositionstart' | 'compositionupdate' | 'compositionend',
+          data: string
+        ) => {
+          root.dispatchEvent(
+            new CompositionEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              data,
+            })
+          )
+        }
+
+        const insertionRange = range.cloneRange()
+
+        dispatchCompositionEvent('compositionstart', steps[0] ?? '')
+        steps.forEach((text) => {
+          dispatchCompositionEvent('compositionupdate', text)
+        })
+
+        insertionRange.deleteContents()
+        const composedNode = element.ownerDocument.createTextNode(committedText)
+        insertionRange.insertNode(composedNode)
+        insertionRange.setStart(composedNode, committedText.length)
+        insertionRange.setEnd(composedNode, committedText.length)
+        selection.removeAllRanges()
+        selection.addRange(insertionRange)
+
+        dispatchCompositionEvent('compositionend', committedText)
+        element.ownerDocument.dispatchEvent(
+          new Event('selectionchange', { bubbles: true })
+        )
+      },
+      {
+        committedText: 'すし',
+        offset: pointInsideBold.offset,
+        steps: ['す', 'すし'],
+      }
+    )
+
+    await editor.assert.text(insertedText)
+    expect(await editor.get.modelText()).toContain(insertedText)
+    await expect(
+      editor.root.locator('strong').filter({ hasText: 'すし' })
+    ).toHaveCount(1)
+    await editor.assert.selection({
+      anchor: { path: [0, 2], offset: 2 },
+      focus: { path: [0, 2], offset: 2 },
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      ownership: 'native-allowed',
+      transition: { allowed: true },
+    })
+
+    await page.keyboard.press('Backspace')
+    await page.keyboard.press('Backspace')
+
+    await editor.assert.text(initialText)
+    await expect(
+      editor.root.locator('strong').filter({ hasText: 'ri' })
+    ).toHaveCount(1)
+    await expect(
+      editor.root.locator('strong').filter({ hasText: 'ch' })
+    ).toHaveCount(1)
+    await editor.assert.selection({
+      anchor: pointInsideBold,
+      focus: pointInsideBold,
+    })
+  })
+
+  test('commits IME composition in an empty rich text block', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium CDP IME proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const insertedText = 'すし'
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+    await expect.poll(() => editor.get.modelText()).toBe('')
+    await editor.assert.blockTexts(['Enter some rich text…'])
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+    await editor.ime.enableKeyEvents()
+
+    const client = await page.context().newCDPSession(page)
+
+    for (const text of ['ｓ', 'す', 'すｓ', 'すｓｈ', insertedText]) {
+      await client.send('Input.imeSetComposition', {
+        selectionEnd: text.length,
+        selectionStart: text.length,
+        text,
+      })
+    }
+    await client.send('Input.insertText', { text: insertedText })
+
+    await editor.assert.text(insertedText)
+    expect(await editor.get.modelText()).toBe(insertedText)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: insertedText.length },
+      focus: { path: [0, 0], offset: insertedText.length },
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('replaces select-all rich text with IME composition', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium CDP IME proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const insertedText = 'すし'
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await editor.ime.enableKeyEvents()
+
+    const client = await page.context().newCDPSession(page)
+
+    for (const text of ['ｓ', 'す', 'すｓ', 'すｓｈ', insertedText]) {
+      await client.send('Input.imeSetComposition', {
+        selectionEnd: text.length,
+        selectionStart: text.length,
+        text,
+      })
+    }
+    await client.send('Input.insertText', { text: insertedText })
+
+    await editor.assert.text(insertedText)
+    expect(await editor.get.modelText()).toBe(insertedText)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: insertedText.length },
+      focus: { path: [0, 0], offset: insertedText.length },
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('commits IME composition through an active mark in an empty block', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium IME cursor-wrapper proof'
+    )
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+    await expect.poll(() => editor.get.modelText()).toBe('')
+    await editor.assert.blockTexts(['Enter some rich text…'])
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+
+    await page.getByTestId('mark-button-bold').click()
+    await editor.assert.focusOwner('editor')
+    await editor.ime.enableKeyEvents()
+
+    const client = await page.context().newCDPSession(page)
+
+    for (const text of ['a', 'ab', 'abc']) {
+      await client.send('Input.imeSetComposition', {
+        selectionEnd: text.length,
+        selectionStart: text.length,
+        text,
+      })
+    }
+    await client.send('Input.insertText', { text: 'abc' })
+
+    await editor.assert.text('abc')
+    await expect(
+      editor.root.locator('strong').filter({ hasText: 'abc' })
+    ).toHaveCount(1)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 'abc'.length },
+      focus: { path: [0, 0], offset: 'abc'.length },
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('commits IME composition through an active mark before a formatted sibling', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium IME cursor-wrapper proof'
+    )
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+    await page.keyboard.insertText('two three')
+    await editor.assert.text('two three')
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 'two three'.length },
+    })
+    await page.getByTestId('mark-button-italic').click()
+    await expect(editor.root.locator('em')).toHaveText('two three')
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 'two'.length },
+      focus: { path: [0, 0], offset: 'two three'.length },
+    })
+    await page.getByTestId('mark-button-bold').click()
+    await expect(
+      editor.root.locator('em strong').filter({ hasText: ' three' })
+    ).toHaveCount(1)
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 'two'.length },
+      focus: { path: [0, 0], offset: 'two'.length },
+    })
+    await page.getByTestId('mark-button-italic').click()
+    await page.getByTestId('mark-button-code').click()
+    await editor.assert.focusOwner('editor')
+    await editor.ime.enableKeyEvents()
+
+    const client = await page.context().newCDPSession(page)
+
+    for (const text of ['o', 'oo', 'oow']) {
+      await client.send('Input.imeSetComposition', {
+        selectionEnd: text.length,
+        selectionStart: text.length,
+        text,
+      })
+    }
+    await client.send('Input.insertText', { text: 'oow' })
+
+    await editor.assert.text('twooow three')
+    await expect(
+      editor.root.locator('em code').filter({ hasText: 'oow' })
+    ).toHaveCount(1)
+    await expect(
+      editor.root.locator('em strong').filter({ hasText: 'three' })
+    ).toHaveCount(1)
+    await editor.assert.selection({
+      anchor: { path: [0, 1], offset: 'oow'.length },
+      focus: { path: [0, 1], offset: 'oow'.length },
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      transition: { allowed: true },
+    })
+  })
+
+  test('replaces multiple formatted text nodes with Korean IME composition', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium IME proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const insertedText = '가나다'
+    const expectedText = 'This is editable 가나다 better than a <textarea>!'
+
+    await editor.ime.enableKeyEvents()
+    await editor.root.evaluate((element: HTMLElement) => {
+      const handle = (element as Record<string, any>).__slateBrowserHandle
+      const selection = element.ownerDocument.getSelection()
+
+      if (!handle?.selectRange || !selection) {
+        throw new Error('Cannot compose across formatted text')
+      }
+
+      const textNodeAt = (path: number[]) => {
+        const host = element.querySelector(
+          `[data-slate-node="text"][data-slate-path="${path.join(',')}"]`
+        )
+        const walker =
+          host &&
+          element.ownerDocument.createTreeWalker(host, NodeFilter.SHOW_TEXT)
+        const node = walker?.nextNode()
+
+        if (!node) {
+          throw new Error(`Cannot find text node at ${path.join(',')}`)
+        }
+
+        return node
+      }
+
+      const anchor = { path: [0, 1], offset: 0 }
+      const focus = { path: [0, 3], offset: 'much'.length }
+
+      handle.selectRange({ anchor, focus })
+
+      const range = element.ownerDocument.createRange()
+      range.setStart(textNodeAt(anchor.path), anchor.offset)
+      range.setEnd(textNodeAt(focus.path), focus.offset)
+      selection.removeAllRanges()
+      selection.addRange(range)
+      element.ownerDocument.dispatchEvent(
+        new Event('selectionchange', { bubbles: true })
+      )
+    })
+
+    const client = await page.context().newCDPSession(page)
+
+    for (const text of ['ㄱ', '가', '가ㄴ', '가나', '가나ㄷ', insertedText]) {
+      await client.send('Input.imeSetComposition', {
+        selectionEnd: text.length,
+        selectionStart: text.length,
+        text,
+      })
+    }
+    await client.send('Input.insertText', { text: insertedText })
+
+    await editor.assert.text(expectedText)
+    expect(await editor.get.modelText()).toContain(expectedText)
+    await expect(
+      editor.root.locator('strong').filter({ hasText: insertedText })
+    ).toHaveCount(1)
+    await expect(
+      editor.root.locator('em').filter({ hasText: 'much' })
+    ).toHaveCount(0)
+    await editor.assert.selection({
+      anchor: { path: [0, 1], offset: insertedText.length },
+      focus: { path: [0, 1], offset: insertedText.length },
+    })
+    await editor.assert.kernelTrace({
+      eventFamily: 'compositionend',
+      ownership: 'native-allowed',
+      transition: { allowed: true },
+    })
+  })
+
+  test('deletes rich text selection after WebKit compositionend', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'webkit', 'WebKit compositionend proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await dispatchWebKitCompositionEnd(editor.root)
+    const selectedText = (await editor.get.blockTexts()).join('\n')
+
+    await page.keyboard.press('ControlOrMeta+A')
+
+    await expect
+      .poll(() =>
+        editor.root.evaluate((element: HTMLElement) => {
+          const selection = element.ownerDocument.getSelection()
+
+          return {
+            containsAnchor:
+              !!selection?.anchorNode && element.contains(selection.anchorNode),
+            containsFocus:
+              !!selection?.focusNode && element.contains(selection.focusNode),
+            isCollapsed: selection?.isCollapsed ?? null,
+            selectedText: selection?.toString() ?? '',
+          }
+        })
+      )
+      .toEqual({
+        containsAnchor: true,
+        containsFocus: true,
+        isCollapsed: false,
+        selectedText,
+      })
+
+    await page.keyboard.press('Backspace')
+
+    await expect.poll(() => editor.get.modelText()).toBe('')
+    await editor.assert.blockTexts(['Enter some rich text…'])
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+    await editor.assert.kernelTrace({
+      commandKind: 'delete-fragment',
+      eventFamily: 'keydown',
+      ownership: 'model-owned',
+      transition: { allowed: true },
+    })
+  })
+
+  test('deletes rich text line selection after WebKit compositionend', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'webkit', 'WebKit compositionend proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+    await page.keyboard.insertText('Hello')
+    await page.keyboard.press('Enter')
+    await page.keyboard.insertText('World')
+    await page.keyboard.press('Enter')
+    await page.keyboard.insertText('あああ')
+    await editor.assert.blockTexts(['Hello', 'World', 'あああ'])
+
+    await dispatchWebKitCompositionEnd(editor.root)
+    await page.keyboard.press('Shift+ArrowUp')
+    await page.keyboard.press('Shift+ArrowUp')
+
+    await expect
+      .poll(() =>
+        editor.root.evaluate((element: HTMLElement) => {
+          const selection = element.ownerDocument.getSelection()
+
+          return {
+            containsAnchor:
+              !!selection?.anchorNode && element.contains(selection.anchorNode),
+            containsFocus:
+              !!selection?.focusNode && element.contains(selection.focusNode),
+            isCollapsed: selection?.isCollapsed ?? null,
+            selectedText: selection?.toString() ?? '',
+          }
+        })
+      )
+      .toEqual({
+        containsAnchor: true,
+        containsFocus: true,
+        isCollapsed: false,
+        selectedText: '\nWorld\nあああ',
+      })
+
+    await page.keyboard.press('Backspace')
+
+    await editor.assert.blockTexts(['Hello'])
+    await expect.poll(() => editor.get.modelText()).toBe('Hello')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 'Hello'.length },
+      focus: { path: [0, 0], offset: 'Hello'.length },
+    })
+    await editor.assert.kernelTrace({
+      commandKind: 'delete-fragment',
+      eventFamily: 'keydown',
+      ownership: 'model-owned',
+      transition: { allowed: true },
+    })
+  })
+
+  test('resolves ambiguous browser insertion at a mark boundary', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium DOM-change proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const initialText =
+      'This is editable rich text, much better than a <textarea>!'
+    const insertedText =
+      'This is editable rich  text, much better than a <textarea>!'
+    const boundaryPoint = { path: [0, 1], offset: 'rich'.length }
+
+    await editor.selection.select({
+      anchor: boundaryPoint,
+      focus: boundaryPoint,
+    })
+
+    await page.keyboard.insertText(' ')
+
+    await editor.assert.text(insertedText)
+    await expect(editor.root.locator('strong').first()).toHaveText('rich ')
+    await editor.assert.selection({
+      anchor: { path: [0, 1], offset: 'rich '.length },
+      focus: { path: [0, 1], offset: 'rich '.length },
+    })
+
+    await page.keyboard.press('Backspace')
+
+    await editor.assert.text(initialText)
+    await expect(editor.root.locator('strong').first()).toHaveText('rich')
+    await editor.assert.selection({
+      anchor: boundaryPoint,
+      focus: boundaryPoint,
+    })
   })
 
   test('runs a traced slate-browser scenario', async ({ page }, testInfo) => {

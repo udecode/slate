@@ -111,6 +111,17 @@ const isTextBlockElement = (
   )
 }
 
+const isBlockElement = (
+  editor: Editor,
+  node: Descendant | undefined
+): node is Element => {
+  if (!node || !Node.isElement(node)) {
+    return false
+  }
+
+  return !getEditorSchema(editor).isInline(node)
+}
+
 const haveSameTextProps = (left: Text, right: Text) => {
   const leftKeys = Object.keys(left).filter((key) => key !== 'text')
   const rightKeys = Object.keys(right).filter((key) => key !== 'text')
@@ -198,11 +209,15 @@ const getSingleEmptyBlockFragmentReplacement = (
     }
   }
 
-  return {
-    children: fragment as Value,
-    previousChildren: editorChildren,
-    selection: getFragmentEndSelection(fragment),
+  if (fragment.every((node) => isBlockElement(editor, node))) {
+    return {
+      children: fragment as Value,
+      previousChildren: editorChildren,
+      selection: getFragmentEndSelection(fragment),
+    }
   }
+
+  return null
 }
 
 const getTopLevelBlockFragmentReplacement = (

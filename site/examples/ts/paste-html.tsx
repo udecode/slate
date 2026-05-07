@@ -203,6 +203,17 @@ const insertHtmlData = (editor: CustomEditor, data: DataTransfer) => {
     return false
   }
 
+  const hasPlainText = Array.from(data.types).includes('text/plain')
+  const text = hasPlainText ? data.getData('text/plain') : ''
+
+  // iOS word prediction/autocorrect can send identical HTML and plain text.
+  if (text && html === text) {
+    editor.update((tx) => {
+      tx.text.insert(text)
+    })
+    return true
+  }
+
   const parsed = new DOMParser().parseFromString(html, 'text/html')
   const fragment = deserialize(parsed.body)
   editor.update((tx) => {

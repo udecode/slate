@@ -7,6 +7,12 @@ import {
   useSlateEditor,
 } from 'slate-react'
 
+declare global {
+  interface Window {
+    __slateCustomPlaceholderBlurCount?: number
+  }
+}
+
 const initialValue: Value = [
   {
     type: 'paragraph',
@@ -16,9 +22,15 @@ const initialValue: Value = [
 
 const PlainTextExample = () => {
   const editor = useSlateEditor({ withEditor: withHistory, initialValue })
+  const recordBlur = () => {
+    window.__slateCustomPlaceholderBlurCount =
+      (window.__slateCustomPlaceholderBlurCount ?? 0) + 1
+  }
+
   return (
     <Slate editor={editor}>
       <Editable
+        onBlur={recordBlur}
         placeholder="Type something"
         renderPlaceholder={({
           children,

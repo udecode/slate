@@ -166,8 +166,8 @@ The `collaborative-comments` example renders this as two editors:
 - shared external comment state
 - same resolved anchors rendered in both panes
 
-The reviewer comment controls do not call `editor.update` or mutate
-`Editor.children`.
+The reviewer comment controls do not call `editor.update` or mutate the
+document.
 
 ## Yjs-Style Adapter
 
