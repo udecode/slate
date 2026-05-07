@@ -10,29 +10,22 @@ import 'prismjs/components/prism-sql'
 import 'prismjs/components/prism-tsx'
 import 'prismjs/components/prism-typescript'
 import type React from 'react'
-import {
-  type ChangeEvent,
-  type PointerEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-} from 'react'
+import { type ChangeEvent, type PointerEvent, useCallback } from 'react'
 import {
   type Descendant,
   type EditorSnapshot,
   Node,
   type RuntimeId,
-  type Node as SlateNode,
 } from 'slate'
 import { isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
-  createDecorationSource,
   Editable,
   type RenderElementProps,
   Slate,
   type SlateProjection,
   useEditor,
+  useSlateDecorationSource,
   useSlateEditor,
 } from 'slate-react'
 import { Button, Icon, Toolbar } from './components'
@@ -42,7 +35,6 @@ import type {
   CustomEditor,
   CustomElement,
   CustomText,
-  CustomValue,
 } from './custom-types.d'
 import { normalizeTokens } from './utils/normalize-tokens'
 
@@ -51,27 +43,18 @@ const CodeBlockType = 'code-block'
 const CodeLineType = 'code-line'
 
 const CodeHighlightingExample = () => {
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withHistory(editor) as CustomEditor,
+  const editor = useSlateEditor({
+    withEditor: withHistory,
     initialValue,
   })
 
   const onKeyDown = useOnKeydown(editor)
-  const codeHighlightingSource = useMemo(
-    () =>
-      createDecorationSource(editor, {
-        id: 'code-highlighting',
-        dirtiness: ['text', 'node'],
-        read: ({ snapshot }) => collectCodeProjections(snapshot.children),
-        runtimeScope: ({ snapshot }) => collectCodeRuntimeScope(snapshot),
-      }),
-    [editor]
-  )
-
-  useEffect(
-    () => () => codeHighlightingSource.destroy(),
-    [codeHighlightingSource]
-  )
+  const codeHighlightingSource = useSlateDecorationSource(editor, {
+    id: 'code-highlighting',
+    dirtiness: ['text', 'node'],
+    read: ({ snapshot }) => collectCodeProjections(snapshot.children),
+    runtimeScope: ({ snapshot }) => collectCodeRuntimeScope(snapshot),
+  })
 
   return (
     <Slate decorationSources={[codeHighlightingSource]} editor={editor}>
@@ -168,16 +151,14 @@ const CodeBlockButton = () => {
       tx.nodes.wrap(
         { type: CodeBlockType, language: 'html', children: [] },
         {
-          match: (n: SlateNode) =>
-            Node.isElement(n) && n.type === ParagraphType,
+          match: (node) => Node.isElement(node) && node.type === ParagraphType,
           split: true,
         }
       )
       tx.nodes.set(
         { type: CodeLineType },
         {
-          match: (n: SlateNode) =>
-            Node.isElement(n) && n.type === ParagraphType,
+          match: (node) => Node.isElement(node) && node.type === ParagraphType,
         }
       )
     })

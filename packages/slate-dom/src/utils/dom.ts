@@ -253,16 +253,35 @@ export const getPlainText = (domNode: DOMNode) => {
   return text
 }
 
+const DEFAULT_CLIPBOARD_FORMAT_KEY = 'x-slate-fragment'
+const catchSlateFragment = /data-slate-fragment="(.+?)"/m
+const catchSlateFragmentFormat = /data-slate-fragment-format="(.+?)"/m
+
 /**
  * Get x-slate-fragment attribute from data-slate-fragment
  */
-const catchSlateFragment = /data-slate-fragment="(.+?)"/m
 export const getSlateFragmentAttribute = (
-  dataTransfer: DataTransfer
+  dataTransfer: DataTransfer,
+  clipboardFormatKey = DEFAULT_CLIPBOARD_FORMAT_KEY
 ): string | void => {
   const htmlData = dataTransfer.getData('text/html')
   const [, fragment] = htmlData.match(catchSlateFragment) || []
-  return fragment
+
+  if (!fragment) {
+    return
+  }
+
+  const [, fragmentFormat] = htmlData.match(catchSlateFragmentFormat) || []
+
+  if (fragmentFormat) {
+    return fragmentFormat === clipboardFormatKey ? fragment : undefined
+  }
+
+  if (clipboardFormatKey === DEFAULT_CLIPBOARD_FORMAT_KEY) {
+    return fragment
+  }
+
+  return
 }
 
 /**
@@ -271,10 +290,10 @@ export const getSlateFragmentAttribute = (
  */
 export const getClipboardData = (
   dataTransfer: DataTransfer,
-  clipboardFormatKey = 'x-slate-fragment'
+  clipboardFormatKey = DEFAULT_CLIPBOARD_FORMAT_KEY
 ): DataTransfer => {
   if (!dataTransfer.getData(`application/${clipboardFormatKey}`)) {
-    const fragment = getSlateFragmentAttribute(dataTransfer)
+    const fragment = getSlateFragmentAttribute(dataTransfer, clipboardFormatKey)
     if (fragment) {
       const clipboardData = new DataTransfer()
       dataTransfer.types.forEach((type) => {

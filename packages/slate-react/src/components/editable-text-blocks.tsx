@@ -453,12 +453,12 @@ const EditableRenderedVoid = <
   path: Path
   renderVoid?: RenderVoidRenderer<TElement>
 }) => {
-  const target = React.useMemo(() => Object.freeze([...path]) as Path, [path])
+  const voidPath = React.useMemo(() => Object.freeze([...path]) as Path, [path])
 
   const content =
     renderVoid?.({
       element,
-      target,
+      path: voidPath,
     }) ?? null
 
   return isInline ? (
@@ -495,7 +495,7 @@ export type RenderElementRenderer<TElement extends SlateElementNode = any> = (
 
 export type EditableRenderVoidProps<TElement extends SlateElementNode = any> = {
   element: TElement
-  target: Path
+  path: Path
 }
 
 export type RenderVoidRenderer<TElement extends SlateElementNode = any> = (

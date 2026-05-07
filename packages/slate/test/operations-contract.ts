@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { Editor } from 'slate/internal'
-import { createEditor, type Descendant, type Operation } from '../src'
+import {
+  createEditor,
+  type Descendant,
+  Operation,
+  type Operation as SlateOperation,
+} from '../src'
 import { extendTestSchema } from './support/schema'
 
 const moveChildren = (): Descendant[] => [
@@ -22,7 +27,7 @@ const collapsedSelection = (path: number[], offset: number) => ({
 
 const applyOperation = (
   editor: ReturnType<typeof createEditor>,
-  operation: Operation
+  operation: SlateOperation
 ) => {
   editor.update((tx) => {
     tx.operations.replay([operation])
@@ -30,6 +35,179 @@ const applyOperation = (
 }
 
 describe('slate operations contract', () => {
+  it('applies and inverts replace_fragment as one root replacement', () => {
+    const editor = createEditor()
+    const children = moveChildren()
+    const newChildren: Descendant[] = [
+      {
+        type: 'element',
+        children: [{ text: 'one' }],
+      },
+      {
+        type: 'element',
+        children: [{ text: 'two' }],
+      },
+      {
+        type: 'element',
+        children: [{ text: 'three' }],
+      },
+    ]
+    const selection = collapsedSelection([0, 0], 0)
+    const newSelection = collapsedSelection([2, 0], 'three'.length)
+    const operation: SlateOperation = {
+      children,
+      newChildren,
+      newSelection,
+      path: [],
+      selection,
+      type: 'replace_fragment',
+    }
+
+    assert.equal(Operation.isOperation(operation), true)
+
+    Editor.replace(editor, {
+      children,
+      selection,
+      marks: null,
+    })
+
+    applyOperation(editor, operation)
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, newChildren)
+    assert.deepEqual(Editor.getSnapshot(editor).selection, newSelection)
+
+    applyOperation(editor, Operation.inverse(operation))
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, children)
+    assert.deepEqual(Editor.getSnapshot(editor).selection, selection)
+  })
+
+  it('applies and inverts replace_children as one parent child-range replacement', () => {
+    const editor = createEditor()
+    const children: Descendant[] = [
+      {
+        type: 'element',
+        children: [{ text: '0' }],
+      },
+      ...moveChildren(),
+      {
+        type: 'element',
+        children: [{ text: '3' }],
+      },
+    ]
+    const newChildren = [
+      {
+        type: 'element',
+        children: [{ text: 'one-two' }],
+      },
+    ]
+    const selection = collapsedSelection([1, 0], 0)
+    const newSelection = collapsedSelection([1, 0], 'one-two'.length)
+    const operation: SlateOperation = {
+      children: children.slice(1, 3),
+      index: 1,
+      newChildren,
+      newSelection,
+      path: [],
+      selection,
+      type: 'replace_children',
+    }
+
+    assert.equal(Operation.isOperation(operation), true)
+
+    Editor.replace(editor, {
+      children,
+      selection,
+      marks: null,
+    })
+
+    applyOperation(editor, operation)
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      children[0],
+      newChildren[0],
+      children[3],
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, newSelection)
+
+    applyOperation(editor, Operation.inverse(operation))
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, children)
+    assert.deepEqual(Editor.getSnapshot(editor).selection, selection)
+  })
+
+  it('rejects unknown operation-like records during replay', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: moveChildren(),
+      selection: collapsedSelection([0, 0], 0),
+      marks: null,
+    })
+
+    assert.throws(() => {
+      editor.update((tx) => {
+        tx.operations.replay([
+          {
+            type: 'custom_operation',
+            path: [0],
+            payload: true,
+          },
+        ] as never)
+      })
+    }, /Cannot replay an unknown Slate operation/)
+
+    assert.deepEqual(
+      Editor.getOperations(editor).map((operation) => operation.type),
+      []
+    )
+  })
+
+  it('rebases refs after replace_children and nulls refs inside the replaced window', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'element',
+          children: [{ text: '0' }],
+        },
+        ...moveChildren(),
+        {
+          type: 'element',
+          children: [{ text: '3' }],
+        },
+      ],
+      selection: collapsedSelection([3, 0], 0),
+      marks: null,
+    })
+
+    const beforeRef = Editor.pathRef(editor, [0])
+    const insidePathRef = Editor.pathRef(editor, [1])
+    const insidePointRef = Editor.pointRef(editor, { path: [2, 0], offset: 0 })
+    const afterRef = Editor.pathRef(editor, [3, 0])
+
+    applyOperation(editor, {
+      type: 'replace_children',
+      path: [],
+      index: 1,
+      children: moveChildren(),
+      newChildren: [
+        {
+          type: 'element',
+          children: [{ text: 'one-two' }],
+        },
+      ],
+      selection: collapsedSelection([3, 0], 0),
+      newSelection: collapsedSelection([2, 0], 0),
+    })
+
+    assert.deepEqual(beforeRef.unref(), [0])
+    assert.equal(insidePathRef.unref(), null)
+    assert.equal(insidePointRef.unref(), null)
+    assert.deepEqual(afterRef.unref(), [2, 0])
+  })
+
   it('treats move_node as a no-op when path equals newPath', () => {
     const editor = createEditor()
 

@@ -920,6 +920,34 @@ describe('slate transaction contract', () => {
     assert.deepEqual(commit.touchedRuntimeIds, [])
   })
 
+  it('moves word selection across initial sibling text leaves', () => {
+    const editor = createEditor()
+
+    replaceChildren(editor, [
+      {
+        type: 'paragraph',
+        children: [
+          { bold: true, text: 'he' },
+          { text: 'llo' },
+          { text: ' world' },
+        ],
+      },
+    ])
+    selectEditor(editor, {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+
+    editor.update((tx) => {
+      tx.selection.move({ unit: 'word' })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 1], offset: 3 },
+      focus: { path: [0, 1], offset: 3 },
+    })
+  })
+
   it('routes mark commands through command middleware and preserves mark commit metadata', () => {
     const editor = createEditor()
     const seenCommands: unknown[] = []

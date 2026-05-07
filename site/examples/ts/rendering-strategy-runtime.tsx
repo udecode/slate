@@ -9,15 +9,16 @@ import {
 } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { createEditor, type EditorSnapshot, type Value } from 'slate'
+import type { DOMClipboardInsertDataHandler } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
-  createDecorationSource,
   Editable,
   type EditableProps,
   type ReactEditor,
   Slate,
   type SlateDecorationSource,
   type SlateProjection,
+  useSlateDecorationSource,
   withReact,
 } from 'slate-react'
 
@@ -224,10 +225,12 @@ const withMixedRuntime = (editor: ReturnType<typeof createRuntimeEditor>) => {
 }
 
 const withRuntimeHtml = (editor: ReturnType<typeof createRuntimeEditor>) => {
+  const insertData: DOMClipboardInsertDataHandler = (_domEditor, data) =>
+    insertRuntimeHtmlData(editor, data)
+
   editor.extend({
     capabilities: {
-      'dom.clipboard.insertData': (_editor: unknown, data: DataTransfer) =>
-        insertRuntimeHtmlData(editor, data),
+      'dom.clipboard.insertData': insertData,
     },
     name: 'rendering-strategy-runtime-html',
   })
@@ -752,16 +755,10 @@ const RenderingStrategyRuntimeExample = () => {
     createRuntimeEditor(createBlocks('projection'))
   )
 
-  const projectionSource = useMemo(
-    () =>
-      createDecorationSource(projectionEditor, {
-        id: 'rendering-strategy-runtime-projection',
-        read: ({ snapshot }) => collectProjectionProbes(snapshot),
-      }),
-    [projectionEditor]
-  )
-
-  useEffect(() => () => projectionSource.destroy(), [projectionSource])
+  const projectionSource = useSlateDecorationSource(projectionEditor, {
+    id: 'rendering-strategy-runtime-projection',
+    read: ({ snapshot }) => collectProjectionProbes(snapshot),
+  })
 
   return (
     <div style={{ padding: 24 }}>

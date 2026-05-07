@@ -74,6 +74,40 @@ describe('slate transforms contract', () => {
     assert.deepEqual(after.selection, collapsedSelection([0, 1, 0], 0))
   })
 
+  it('mergeNodes does not cross an isolating block boundary', () => {
+    const editor = createEditor()
+    editor.extend(
+      defineEditorExtension({
+        elements: [{ isolating: true, type: 'callout' }],
+        name: 'isolating-merge-boundary',
+      })
+    )
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'callout',
+          children: [{ type: 'paragraph', children: [{ text: 'inside' }] }],
+        },
+        { type: 'paragraph', children: [{ text: 'after' }] },
+      ] as Descendant[],
+      selection: collapsedSelection([1, 0], 0),
+      marks: null,
+    })
+
+    editor.update((tx) => {
+      tx.nodes.merge({ at: [1] })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'callout',
+        children: [{ type: 'paragraph', children: [{ text: 'inside' }] }],
+      },
+      { type: 'paragraph', children: [{ text: 'after' }] },
+    ])
+  })
+
   it('setNodes can target the selected inline element through match without an explicit path', () => {
     const editor = createEditor()
     editor.extend(

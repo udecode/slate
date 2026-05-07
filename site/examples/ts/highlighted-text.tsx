@@ -1,10 +1,9 @@
-import { useMemo } from 'react'
 import type { EditorSnapshot, Value } from 'slate'
 import {
-  createDecorationSource,
   Editable,
   Slate,
   type SlateProjection,
+  useSlateDecorationSource,
   useSlateEditor,
 } from 'slate-react'
 
@@ -44,14 +43,10 @@ const collectHighlightProjections = (
 const HighlightedTextExample = () => {
   const editor = useSlateEditor({ initialValue: initialChildren })
 
-  const highlightSource = useMemo(
-    () =>
-      createDecorationSource(editor, {
-        id: 'highlighted-text',
-        read: ({ snapshot }) => collectHighlightProjections(snapshot),
-      }),
-    [editor]
-  )
+  const highlightSource = useSlateDecorationSource(editor, {
+    id: 'highlighted-text',
+    read: ({ snapshot }) => collectHighlightProjections(snapshot),
+  })
 
   return (
     <Slate decorationSources={[highlightSource]} editor={editor}>

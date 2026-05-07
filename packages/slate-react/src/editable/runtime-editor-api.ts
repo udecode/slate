@@ -1,5 +1,6 @@
 export {
   Editor,
+  getEditorExtensionRegistry,
   getEditorLiveNode,
   getEditorLiveSelection,
   getEditorLiveText,

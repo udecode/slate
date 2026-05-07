@@ -1,5 +1,5 @@
 import { css } from '@emotion/css'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import {
   type Descendant,
   type EditorSnapshot,
@@ -8,37 +8,32 @@ import {
 } from 'slate'
 import { withHistory } from 'slate-history'
 import {
-  createDecorationSource,
   Editable,
   type EditableProps,
   Slate,
   type SlateProjection,
+  useSlateDecorationSource,
   useSlateEditor,
 } from 'slate-react'
 
 import { Icon, Toolbar } from './components'
-import type { CustomEditor, CustomText, CustomValue } from './custom-types.d'
+import type { CustomText, CustomValue } from './custom-types.d'
 
 const SearchHighlightingExample = () => {
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const searchRef = useRef('')
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withHistory(editor) as CustomEditor,
+  const editor = useSlateEditor({
+    withEditor: withHistory,
     initialValue,
   })
-  const searchSource = useMemo(
-    () =>
-      createDecorationSource<{ highlight: true }>(editor, {
-        id: 'search-highlighting',
-        dirtiness: ['text', 'external'],
-        read: ({ snapshot }) =>
-          collectSearchProjections(snapshot.children, searchRef.current),
-        runtimeScope: ({ snapshot }) => collectTextRuntimeScope(snapshot),
-      }),
-    [editor]
-  )
+  const searchSource = useSlateDecorationSource<{ highlight: true }>(editor, {
+    id: 'search-highlighting',
+    dirtiness: ['text', 'external'],
+    read: ({ snapshot }) =>
+      collectSearchProjections(snapshot.children, searchRef.current),
+    runtimeScope: ({ snapshot }) => collectTextRuntimeScope(snapshot),
+  })
 
-  useEffect(() => () => searchSource.destroy(), [searchSource])
   useEffect(() => {
     const input = searchInputRef.current
 

@@ -4,6 +4,8 @@ import type {
   MoveNodeOperation,
   Operation,
   RemoveNodeOperation,
+  ReplaceChildrenOperation,
+  ReplaceFragmentOperation,
   SplitNodeOperation,
 } from '..'
 import type { TextDirection } from '../types/types'
@@ -151,6 +153,8 @@ export interface PathInterface {
     | MergeNodeOperation
     | SplitNodeOperation
     | MoveNodeOperation
+    | ReplaceChildrenOperation
+    | ReplaceFragmentOperation
 
   /**
    * Given a path, return a new path referring to the parent node above it.
@@ -338,6 +342,8 @@ export const Path: PathInterface = {
   ): operation is
     | InsertNodeOperation
     | RemoveNodeOperation
+    | ReplaceFragmentOperation
+    | ReplaceChildrenOperation
     | MergeNodeOperation
     | SplitNodeOperation
     | MoveNodeOperation {
@@ -347,6 +353,8 @@ export const Path: PathInterface = {
       case 'merge_node':
       case 'split_node':
       case 'move_node':
+      case 'replace_children':
+      case 'replace_fragment':
         return true
       default:
         return false
@@ -430,6 +438,43 @@ export const Path: PathInterface = {
           p[op.length - 1] -= 1
         }
 
+        break
+      }
+
+      case 'replace_fragment': {
+        const { path: op } = operation
+
+        if (Path.equals(op, p) || Path.isAncestor(op, p)) {
+          return null
+        }
+
+        break
+      }
+
+      case 'replace_children': {
+        const { children, index, newChildren, path: parentPath } = operation
+
+        if (!Path.isAncestor(parentPath, p)) {
+          break
+        }
+
+        const childIndex = p[parentPath.length]
+
+        if (childIndex == null) {
+          break
+        }
+
+        if (childIndex < index) {
+          break
+        }
+
+        const end = index + children.length
+
+        if (childIndex < end) {
+          return null
+        }
+
+        p[parentPath.length] += newChildren.length - children.length
         break
       }
 

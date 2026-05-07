@@ -1,6 +1,7 @@
 import { act, fireEvent, render } from '@testing-library/react'
 import { createEditor, Text } from 'slate'
-import { Editable, Slate, withReact } from '../src'
+import { Editable, editableInputRules, Slate, withReact } from '../src'
+import { getEditableInputRules } from '../src/editable/editable-input-rules'
 
 describe('slate-react editable behavior', () => {
   test('renders initial editor children into the editable DOM', () => {
@@ -190,5 +191,22 @@ describe('slate-react editable behavior', () => {
       [{ type: 'block', children: [{ text: 'testx' }] }],
       expect.objectContaining({ valueChanged: true })
     )
+  })
+
+  test('Editable reads input rules from editor extension capabilities', () => {
+    const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
+    const editor = withReact(createEditor({ initialValue }))
+    const propRule = jest.fn()
+    const extensionRule = jest.fn()
+
+    editor.extend({
+      capabilities: editableInputRules(extensionRule),
+      name: 'test-input-rules',
+    })
+
+    expect(getEditableInputRules(editor, [propRule])).toEqual([
+      propRule,
+      extensionRule,
+    ])
   })
 })

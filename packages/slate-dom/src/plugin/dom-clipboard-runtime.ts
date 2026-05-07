@@ -1,21 +1,23 @@
 import { type DescendantIn, Range, Node as SlateNode, type Value } from 'slate'
-import { Editor, getEditorTransformRegistry } from 'slate/internal'
+import {
+  applyOperation,
+  Editor,
+  getEditorTransformRegistry,
+} from 'slate/internal'
 import {
   getPlainText,
   getSlateFragmentAttribute,
+  isDOMElement,
   isDOMText,
 } from '../utils/dom'
 import { DOMCoverage } from './dom-coverage'
-import { DOMEditor } from './dom-editor'
+import { type DOMClipboardInsertDataHandler, DOMEditor } from './dom-editor'
 
 const NEWLINE_SPLIT_RE = /\r\n|\r|\n/
+const DEFAULT_CLIPBOARD_FORMAT_KEY = 'x-slate-fragment'
+const SLATE_FRAGMENT_FORMAT_ATTRIBUTE = 'data-slate-fragment-format'
 
 const EDITOR_TO_CLIPBOARD_FORMAT_KEY = new WeakMap<DOMEditor<any>, string>()
-
-export type DOMClipboardInsertDataHandler = (
-  editor: DOMEditor<any>,
-  data: DataTransfer
-) => boolean | void
 
 const stripRenderOnlyLeafWrappers = (root: ParentNode) => {
   const candidates = Array.from(
@@ -39,14 +41,148 @@ export const setDOMClipboardFormatKey = (
 }
 
 const getDOMClipboardFormatKey = (editor: DOMEditor<any>) =>
-  EDITOR_TO_CLIPBOARD_FORMAT_KEY.get(editor) ?? 'x-slate-fragment'
+  EDITOR_TO_CLIPBOARD_FORMAT_KEY.get(editor) ?? DEFAULT_CLIPBOARD_FORMAT_KEY
 
 const escapeHtmlText = (text: string) =>
   text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 
+const escapeHtmlAttribute = (text: string) =>
+  escapeHtmlText(text).replaceAll('"', '&quot;')
+
 const getFragmentText = <V extends Value>(
   fragment: readonly DescendantIn<V>[]
 ) => fragment.map((node) => SlateNode.string(node)).join('\n')
+
+const samePoint = (
+  left: { offset: number; path: readonly number[] },
+  right: { offset: number; path: readonly number[] }
+) =>
+  left.offset === right.offset &&
+  left.path.length === right.path.length &&
+  left.path.every((segment, index) => segment === right.path[index])
+
+const replaceSingleEmptyBlockWithPlainTextLines = (
+  editor: DOMEditor<any>,
+  lines: string[]
+) => {
+  const snapshot = Editor.getSnapshot(editor)
+  const { selection } = snapshot
+
+  if (
+    !selection ||
+    !Range.isCollapsed(selection) ||
+    snapshot.children.length !== 1 ||
+    !samePoint(selection.anchor, { path: [0, 0], offset: 0 })
+  ) {
+    return false
+  }
+
+  if (
+    Editor.void(editor, { at: selection.anchor }) ||
+    Editor.elementReadOnly(editor, { at: selection.anchor })
+  ) {
+    return false
+  }
+
+  const [block] = snapshot.children
+
+  if (
+    !SlateNode.isElement(block) ||
+    block.children.length !== 1 ||
+    !SlateNode.isText(block.children[0]) ||
+    block.children[0].text !== ''
+  ) {
+    return false
+  }
+
+  const [textNode] = block.children
+  const lastLine = lines.at(-1) ?? ''
+  const newChildren = lines.map((line) => ({
+    ...block,
+    children: [{ ...textNode, text: line }],
+  }))
+  const newSelection = {
+    anchor: { path: [lines.length - 1, 0], offset: lastLine.length },
+    focus: { path: [lines.length - 1, 0], offset: lastLine.length },
+  }
+
+  applyOperation(editor, {
+    children: snapshot.children,
+    index: 0,
+    newChildren,
+    newSelection,
+    path: [],
+    selection: snapshot.selection,
+    type: 'replace_children',
+  })
+
+  return true
+}
+
+const insertPlainTextLinesAsFragment = (
+  editor: DOMEditor<any>,
+  lines: string[]
+) => {
+  const snapshot = Editor.getSnapshot(editor)
+  const { selection } = snapshot
+
+  if (!selection) {
+    return false
+  }
+
+  const [start] = Range.edges(selection)
+
+  if (
+    Editor.void(editor, { at: start }) ||
+    Editor.elementReadOnly(editor, { at: start })
+  ) {
+    return false
+  }
+
+  const blockMatch = Editor.above(editor, {
+    at: start,
+    match: (node) => SlateNode.isElement(node) && Editor.isBlock(editor, node),
+  })
+
+  if (!blockMatch) {
+    return false
+  }
+
+  const [block] = blockMatch
+  const text = SlateNode.get(editor, start.path)
+
+  if (!SlateNode.isElement(block) || !SlateNode.isText(text)) {
+    return false
+  }
+
+  const fragment = lines.map((line) => ({
+    ...block,
+    children: [{ ...text, text: line }],
+  }))
+
+  getEditorTransformRegistry(editor).insertFragment(fragment)
+  return true
+}
+
+const decodeClipboardFragment = <V extends Value>(
+  editor: DOMEditor<V>,
+  fragment: string
+): DescendantIn<V>[] | null => {
+  try {
+    const decoded = decodeURIComponent(
+      DOMEditor.getWindow(editor).atob(fragment)
+    )
+    const parsed = JSON.parse(decoded)
+
+    if (Array.isArray(parsed)) {
+      return parsed as DescendantIn<V>[]
+    }
+  } catch {
+    return null
+  }
+
+  return null
+}
 
 const writeModelBackedSelectionData = <V extends Value>(
   editor: DOMEditor<V>,
@@ -62,7 +198,7 @@ const writeModelBackedSelectionData = <V extends Value>(
   data.setData('text/plain', text)
   data.setData(
     'text/html',
-    `<span data-slate-fragment="${encoded}">${escapeHtmlText(text)}</span>`
+    `<span data-slate-fragment="${encoded}" ${SLATE_FRAGMENT_FORMAT_ATTRIBUTE}="${escapeHtmlAttribute(clipboardFormatKey)}">${escapeHtmlText(text)}</span>`
   )
 }
 
@@ -111,12 +247,12 @@ export const writeDOMSelectionData = <V extends Value>(
     return
   }
   let contents = domRange.cloneContents()
-  let attach = contents.childNodes[0] as HTMLElement
+  let attach: ChildNode | null = contents.childNodes[0] ?? null
 
   // Make sure attach is non-empty, since empty nodes will not get copied.
   contents.childNodes.forEach((node) => {
     if (node.textContent && node.textContent.trim() !== '') {
-      attach = node as HTMLElement
+      attach = node
     }
   })
 
@@ -136,7 +272,12 @@ export const writeDOMSelectionData = <V extends Value>(
   // attaching it to empty `<div>/<span>` nodes will end up having it erased by
   // most browsers. (2018/04/27)
   if (startVoid) {
-    attach = contents.querySelector('[data-slate-spacer]')! as HTMLElement
+    attach =
+      contents.querySelector('[data-slate-spacer]') ??
+      contents.querySelector(
+        '[data-slate-node="element"], [data-slate-node="text"], [data-slate-string], [data-slate-zero-width]'
+      ) ??
+      attach
   }
 
   // Remove any zero-width space spans from the cloned DOM so that they don't
@@ -163,10 +304,29 @@ export const writeDOMSelectionData = <V extends Value>(
     attach = span
   }
 
+  let attachElement: Element
+
+  if (isDOMElement(attach)) {
+    attachElement = attach
+  } else {
+    const span = contents.ownerDocument.createElement('span')
+
+    if (attach) {
+      span.appendChild(attach)
+    }
+
+    contents.appendChild(span)
+    attachElement = span
+  }
+
   const fragment = editor.read((state) => state.fragment.get())
   const string = JSON.stringify(fragment)
   const encoded = DOMEditor.getWindow(editor).btoa(encodeURIComponent(string))
-  attach.setAttribute('data-slate-fragment', encoded)
+  attachElement.setAttribute('data-slate-fragment', encoded)
+  attachElement.setAttribute(
+    SLATE_FRAGMENT_FORMAT_ATTRIBUTE,
+    clipboardFormatKey
+  )
   data.setData(`application/${clipboardFormatKey}`, encoded)
 
   // Add the content to a <div> so that we can get its inner HTML.
@@ -186,7 +346,7 @@ export const insertDOMData = <V extends Value>(
 ) => {
   const handlers = Editor.getExtensionRegistry(editor).capabilities.get(
     'dom.clipboard.insertData'
-  ) as DOMClipboardInsertDataHandler[] | undefined
+  ) as DOMClipboardInsertDataHandler<V>[] | undefined
 
   for (const handler of handlers ?? []) {
     if (handler(editor, data)) {
@@ -206,13 +366,15 @@ export const insertDOMFragmentData = <V extends Value>(
   const clipboardFormatKey = getDOMClipboardFormatKey(editor)
   const fragment =
     data.getData(`application/${clipboardFormatKey}`) ||
-    getSlateFragmentAttribute(data)
+    getSlateFragmentAttribute(data, clipboardFormatKey)
 
   if (fragment) {
-    const decoded = decodeURIComponent(
-      DOMEditor.getWindow(editor).atob(fragment)
-    )
-    const parsed = JSON.parse(decoded) as DescendantIn<V>[]
+    const parsed = decodeClipboardFragment(editor, fragment)
+
+    if (!parsed) {
+      return false
+    }
+
     getEditorTransformRegistry(editor).insertFragment(parsed)
     return true
   }
@@ -227,14 +389,24 @@ export const insertDOMTextData = (
 
   if (text) {
     const lines = text.split(NEWLINE_SPLIT_RE)
+
+    if (
+      lines.length > 1 &&
+      (replaceSingleEmptyBlockWithPlainTextLines(editor, lines) ||
+        insertPlainTextLinesAsFragment(editor, lines))
+    ) {
+      return true
+    }
+
+    const transforms = getEditorTransformRegistry(editor)
     let split = false
 
     for (const line of lines) {
       if (split) {
-        getEditorTransformRegistry(editor).splitNodes({ always: true })
+        transforms.splitNodes({ always: true })
       }
 
-      getEditorTransformRegistry(editor).insertText(line)
+      transforms.insertText(line)
       split = true
     }
     return true

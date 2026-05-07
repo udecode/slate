@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { Editor } from 'slate/internal'
+import { Editor, getEditorRuntime } from 'slate/internal'
 import { createEditor, type Descendant } from '../src'
 
 describe('slate normalization contract', () => {
@@ -155,6 +155,100 @@ describe('slate normalization contract', () => {
       {
         type: 'paragraph',
         children: [{ text: 'alpha' }, { text: 'beta' }, { text: 'gamma' }],
+      },
+    ])
+  })
+
+  it('fails deterministically when custom normalization revisits an earlier draft state', () => {
+    const editor = createEditor()
+
+    getEditorRuntime(editor).normalizeNode = (entry) => {
+      const [node] = entry
+
+      if (!Editor.isEditor(node)) {
+        return
+      }
+
+      if (Editor.getChildren(editor).length === 1) {
+        Editor.insertNodes(
+          editor,
+          {
+            type: 'paragraph',
+            children: [{ text: '' }],
+          },
+          { at: [1] }
+        )
+        return
+      }
+
+      Editor.removeNodes(editor, { at: [1] })
+    }
+
+    assert.throws(() => {
+      editor.update((tx) => {
+        tx.value.replace({
+          children: [
+            {
+              type: 'paragraph',
+              children: [{ text: 'alpha' }],
+            },
+          ],
+          marks: null,
+          selection: null,
+        })
+      })
+    }, /revisited an earlier draft state/)
+  })
+
+  it('rechecks a node transformed during custom normalization until it reaches fixpoint', () => {
+    const editor = createEditor()
+    const originalNormalizeNode = getEditorRuntime(editor).normalizeNode
+
+    getEditorRuntime(editor).normalizeNode = (entry, options) => {
+      const [node, path] = entry
+
+      if (
+        path.length === 1 &&
+        !Editor.isEditor(node) &&
+        'children' in node &&
+        node.type === 'heading'
+      ) {
+        Editor.setNodes(editor, { type: 'paragraph' }, { at: path })
+        return
+      }
+
+      if (
+        path.length === 1 &&
+        !Editor.isEditor(node) &&
+        'children' in node &&
+        node.type === 'paragraph' &&
+        (node as Descendant & { normalized?: boolean }).normalized !== true
+      ) {
+        Editor.setNodes(editor, { normalized: true }, { at: path })
+        return
+      }
+
+      originalNormalizeNode(entry, options)
+    }
+
+    editor.update((tx) => {
+      tx.value.replace({
+        children: [
+          {
+            type: 'heading',
+            children: [{ text: 'alpha' }],
+          },
+        ],
+        marks: null,
+        selection: null,
+      })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'paragraph',
+        normalized: true,
+        children: [{ text: 'alpha' }],
       },
     ])
   })

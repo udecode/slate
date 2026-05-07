@@ -165,19 +165,15 @@ const toBlockOffset = (row: BlockRowDescriptor, point: Point) => {
 const ProjectionRow = ({
   row,
   slot,
-  store,
 }: {
   row: BlockRowDescriptor
   slot: 'left' | 'right'
-  store: ReturnType<
-    typeof useSlateAnnotationStore<{
-      kind: string
-      label: string
-      tone?: string
-    }>
-  >
 }) => {
-  const snapshot = useSlateAnnotations(store)
+  const snapshot = useSlateAnnotations<{
+    kind: string
+    label: string
+    tone?: string
+  }>()
   const projectionText =
     snapshot.allIds.length === 0
       ? 'none'
@@ -244,18 +240,12 @@ const formatAnnotationRange = (
     ? `${formatPointInRows(rows, range.anchor)}|${formatPointInRows(rows, range.focus)}`
     : 'none'
 
-const AnnotationSidebar = ({
-  store,
-}: {
-  store: ReturnType<
-    typeof useSlateAnnotationStore<{
-      kind: string
-      label: string
-      tone?: string
-    }>
-  >
-}) => {
-  const snapshot = useSlateAnnotations(store)
+const AnnotationSidebar = () => {
+  const snapshot = useSlateAnnotations<{
+    kind: string
+    label: string
+    tone?: string
+  }>()
   const rows = useEditorSelector((editor) =>
     getBlockRows(editor.read((state) => state.value.get()))
   )
@@ -316,19 +306,11 @@ const WidgetPanel = ({
 
 const AnchoredProjectionContent = ({
   annotation,
-  annotationStore,
   editor,
   setAnnotation,
   widgetStore,
 }: {
   annotation: Bookmark | null
-  annotationStore: ReturnType<
-    typeof useSlateAnnotationStore<{
-      kind: string
-      label: string
-      tone?: string
-    }>
-  >
   editor: ReturnType<typeof createEditor>
   setAnnotation: React.Dispatch<React.SetStateAction<Bookmark | null>>
   widgetStore: ReturnType<
@@ -464,13 +446,9 @@ const AnchoredProjectionContent = ({
       </div>
 
       <Outline />
-      {alphaRow ? (
-        <ProjectionRow row={alphaRow} slot="left" store={annotationStore} />
-      ) : null}
-      {betaRow ? (
-        <ProjectionRow row={betaRow} slot="right" store={annotationStore} />
-      ) : null}
-      <AnnotationSidebar store={annotationStore} />
+      {alphaRow ? <ProjectionRow row={alphaRow} slot="left" /> : null}
+      {betaRow ? <ProjectionRow row={betaRow} slot="right" /> : null}
+      <AnnotationSidebar />
       <WidgetPanel store={widgetStore} />
     </div>
   )
@@ -522,10 +500,9 @@ const PersistentAnnotationAnchorsExample = () => {
   const widgetStore = useSlateWidgetStore(editor, widgets, annotationStore)
 
   return (
-    <Slate annotationStores={[annotationStore]} editor={editor}>
+    <Slate annotationStore={annotationStore} editor={editor}>
       <AnchoredProjectionContent
         annotation={annotation}
-        annotationStore={annotationStore}
         editor={editor}
         setAnnotation={setAnnotation}
         widgetStore={widgetStore}

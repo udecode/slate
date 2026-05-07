@@ -4,6 +4,7 @@ import {
   createSlateBrowserEditorHarness,
   createSlateBrowserInternalControlGauntlet,
   openExample,
+  recordSlateBrowserRuntimeErrors,
 } from 'slate-browser/playwright'
 
 test.describe('editable voids', () => {
@@ -298,5 +299,63 @@ test.describe('editable voids', () => {
         focusNodeText: 'Nested This is editable ',
         focusOffset: 'Nested '.length,
       })
+  })
+
+  test('ignores a parent selection that crosses into a nested editor', async ({
+    page,
+  }) => {
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const nestedEditor = page.locator('[data-slate-editor="true"]').nth(1)
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-outer',
+      outerEditor
+    )
+
+    try {
+      await outer.selection.select({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+      await outerEditor.focus()
+
+      await outerEditor.evaluate((outerElement: HTMLElement) => {
+        const nestedElement = outerElement.ownerDocument.querySelectorAll(
+          '[data-slate-editor="true"]'
+        )[1]
+        const outerText = outerElement.querySelector(
+          '[data-slate-string]'
+        )?.firstChild
+        const nestedText = nestedElement?.querySelector(
+          '[data-slate-string]'
+        )?.firstChild
+
+        if (!outerText || !nestedText) {
+          throw new Error('Cannot create outer-to-nested selection')
+        }
+
+        const range = outerElement.ownerDocument.createRange()
+        range.setStart(outerText, 0)
+        range.setEnd(nestedText, 4)
+
+        const selection = outerElement.ownerDocument.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+        outerElement.ownerDocument.dispatchEvent(
+          new Event('selectionchange', { bubbles: true })
+        )
+      })
+      await page.waitForTimeout(150)
+      await page.keyboard.type('Outer ')
+
+      runtimeErrors.assertNone()
+      await expect
+        .poll(() => outer.get.modelText())
+        .toMatch(/^Outer In addition to nodes/)
+      await expect(nestedEditor).toContainText('This is editable')
+    } finally {
+      runtimeErrors.stop()
+    }
   })
 })

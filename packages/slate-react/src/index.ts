@@ -66,6 +66,10 @@ export {
   type SlateDecorationSourceReadContext,
 } from './decoration-source'
 export {
+  EDITABLE_INPUT_RULE_CAPABILITY,
+  editableInputRules,
+} from './editable/editable-input-rules'
+export {
   type EditorDecorationSelectorContext,
   type EditorDecorationSelectorOptions,
   useDecorationSelector,
@@ -76,6 +80,7 @@ export { useEditorFocused } from './hooks/use-editor-focused'
 export { useEditorReadOnly } from './hooks/use-editor-read-only'
 export { useEditorSelection } from './hooks/use-editor-selection'
 export {
+  type EditorSelectorOptions,
   type EditorStateSelectorOptions,
   useEditorSelector,
   useEditorState,
@@ -95,6 +100,7 @@ export {
   useSlateAnnotation,
   useSlateAnnotations,
 } from './hooks/use-slate-annotations'
+export { useSlateDecorationSource } from './hooks/use-slate-decoration-source'
 export {
   type SlateEditorComposer,
   type UseSlateEditorOptions,
@@ -110,7 +116,7 @@ export { useSlateWidgetStore } from './hooks/use-slate-widget-store'
 export { useSlateWidget, useSlateWidgets } from './hooks/use-slate-widgets'
 // Plugin
 export type { ReactEditor } from './plugin/react-editor'
-export { withReact } from './plugin/with-react'
+export { type ReactEditorOptions, withReact } from './plugin/with-react'
 export {
   createSlateProjectionStore,
   isSlateSourceDirty,

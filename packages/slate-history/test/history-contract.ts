@@ -256,6 +256,44 @@ describe('slate-history contract', () => {
     assert.deepEqual(getVisibleState(editor), before)
   })
 
+  it('does not replay partial set_selection patches during undo after selection is cleared', () => {
+    const editor = withHistoryTest()
+
+    replace(editor, [paragraph('')], {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+    const before = getVisibleState(editor)
+
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          offset: 0,
+          path: [0, 0],
+          text: 'A',
+          type: 'insert_text',
+        },
+        {
+          newProperties: {
+            focus: { path: [0, 0], offset: 0 },
+          },
+          properties: {
+            anchor: { path: [0, 0], offset: 1 },
+            focus: { path: [0, 0], offset: 1 },
+          },
+          type: 'set_selection',
+        },
+      ])
+    })
+    write(editor, (tx) => {
+      tx.selection.clear()
+    })
+
+    editor.undo()
+
+    assert.deepEqual(getVisibleState(editor), before)
+  })
+
   it('does not merge follow-up typing into a structural text batch', () => {
     const editor = withHistoryTest()
 
@@ -279,6 +317,26 @@ describe('slate-history contract', () => {
     editor.undo()
 
     assert.deepEqual(getVisibleState(editor), afterStructuralBatch)
+  })
+
+  it('reselects the restored text after deleteFragment and undo', () => {
+    const editor = withHistoryTest()
+
+    replace(editor, [paragraph('abcdef')], {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 4 },
+    })
+
+    write(editor, () => {
+      Editor.deleteFragment(editor)
+    })
+    editor.undo()
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [paragraph('abcdef')])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 4 },
+    })
   })
 
   it('restores the saved expanded selection after deleteFragment, blur, refocus, and undo', () => {
@@ -322,6 +380,84 @@ describe('slate-history contract', () => {
       anchor: { path: [0, 0], offset: 5 },
       focus: { path: [0, 0], offset: 0 },
     })
+  })
+
+  it('restores the saved multi-block selection after insertBreak and undo', () => {
+    const editor = withHistoryTest()
+
+    replace(editor, [paragraph('one'), paragraph('two'), paragraph('three')], {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [2, 0], offset: 3 },
+    })
+
+    const before = getVisibleState(editor)
+
+    write(editor, () => {
+      Editor.insertBreak(editor)
+    })
+    editor.undo()
+
+    assert.deepEqual(getVisibleState(editor), before)
+  })
+
+  it('restores marks and selection after marked Enter undo', () => {
+    const editor = withHistoryTest()
+
+    const children: Descendant[] = [
+      {
+        type: 'paragraph',
+        children: [{ text: 'hey ' }, { bold: true, text: 'you' }],
+      },
+    ]
+    const selection: Selection = {
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    }
+
+    replace(editor, children, selection)
+
+    const before = getVisibleState(editor)
+
+    write(editor, () => {
+      Editor.insertBreak(editor)
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'paragraph',
+        children: [{ text: 'hey ' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ bold: true, text: 'you' }],
+      },
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    })
+
+    editor.undo()
+
+    assert.deepEqual(getVisibleState(editor), before)
+  })
+
+  it('undoes a moveNodes commit back to the original tree and selection', () => {
+    const editor = withHistoryTest()
+
+    replace(editor, [paragraph('one'), paragraph('two'), paragraph('three')], {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
+
+    const before = getVisibleState(editor)
+
+    write(editor, () => {
+      Editor.moveNodes(editor, { at: [0], to: [3] })
+    })
+    editor.undo()
+
+    assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('undoes reverse block joins cleanly', () => {

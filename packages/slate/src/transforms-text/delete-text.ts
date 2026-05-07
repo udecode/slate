@@ -224,6 +224,14 @@ const removeEmptyStructuralArtifacts = (
       NodeApi.isElement(node) &&
       path.length === 1 &&
       EditorApi.isBlock(editor, node)
+    const isNestedBlock =
+      NodeApi.isElement(node) &&
+      path.length > 1 &&
+      EditorApi.isBlock(editor, node)
+
+    if (isNestedBlock) {
+      return
+    }
 
     if (
       NodeApi.isElement(node) &&
@@ -354,6 +362,34 @@ const resolveRemovalEndPoint = (
 
 const shouldMergeAcrossBlocks = (plan: DeleteRangePlan) =>
   plan.startNonEditable == null && plan.endNonEditable == null
+
+const getClosestIsolatingAncestor = (
+  editor: Editor,
+  at: DeletePoint,
+  voids: boolean
+) =>
+  EditorApi.above(editor, {
+    at,
+    match: (node) =>
+      NodeApi.isElement(node) && getEditorSchema(editor).isIsolating(node),
+    mode: 'lowest',
+    voids,
+  })
+
+const crossesIsolatingBoundary = (
+  editor: Editor,
+  from: DeletePoint,
+  to: DeletePoint,
+  voids: boolean
+) => {
+  const fromIsolating = getClosestIsolatingAncestor(editor, from, voids)
+  const toIsolating = getClosestIsolatingAncestor(editor, to, voids)
+
+  return (
+    (fromIsolating && !pathContainsPoint(fromIsolating[1], to)) ||
+    (toIsolating && !pathContainsPoint(toIsolating[1], from))
+  )
+}
 
 const resolveMergePoint = (
   editor: Editor,
@@ -589,6 +625,45 @@ const shouldPreserveEmptyStartBlockForHangingRange = (
     ? effectiveStartBlock[1]
     : null
 
+const getEmptyEditableInlinePathAtPoint = (
+  editor: Editor,
+  at: DeletePoint
+): Path | null => {
+  if (at.offset !== 0 || at.path.length < 2) {
+    return null
+  }
+
+  if (!EditorApi.hasPath(editor, at.path as Path)) {
+    return null
+  }
+
+  const currentNode = getCurrentNode(editor, at.path as Path)
+
+  if (!isTextNode(currentNode)) {
+    return null
+  }
+
+  const parentPath = at.path.slice(0, -1) as Path
+
+  if (!EditorApi.hasPath(editor, parentPath)) {
+    return null
+  }
+
+  const parent = getCurrentNode(editor, parentPath)
+
+  if (
+    NodeApi.isElement(parent) &&
+    getEditorSchema(editor).isInline(parent) &&
+    !getEditorSchema(editor).isVoid(parent) &&
+    !getEditorSchema(editor).isReadOnly(parent) &&
+    NodeApi.string(parent) === ''
+  ) {
+    return parentPath
+  }
+
+  return null
+}
+
 const resolveDeleteTarget = (
   editor: Editor,
   options: DeleteOptions = {},
@@ -622,6 +697,22 @@ const resolveDeleteTarget = (
     if (nonEditable) {
       at = nonEditable[1]
     } else {
+      const emptyInlinePath =
+        reverse && unit === 'character' && distance === 1
+          ? getEmptyEditableInlinePathAtPoint(editor, at)
+          : null
+
+      if (emptyInlinePath) {
+        return {
+          kind: 'path',
+          path: emptyInlinePath,
+          fallbackPoint:
+            EditorApi.before(editor, emptyInlinePath, { voids: true }) ??
+            EditorApi.after(editor, emptyInlinePath, { voids: true }),
+          initialAt,
+        }
+      }
+
       const target = getCollapsedDeleteTarget(editor, at, {
         reverse,
         distance,
@@ -1564,6 +1655,10 @@ const getCollapsedDeleteTarget = (
     return pointTarget
   }
 
+  if (crossesIsolatingBoundary(editor, at, pointTarget, voids)) {
+    return at
+  }
+
   const currentBlock = EditorApi.above(editor, {
     at,
     match: (node) => NodeApi.isElement(node) && EditorApi.isBlock(editor, node),
@@ -1610,6 +1705,86 @@ const mergeBlocksAtPoint = (
   })
 }
 
+const getWholeTopLevelBlockRange = (editor: Editor, plan: DeleteRangePlan) => {
+  if (
+    plan.isCollapsed ||
+    plan.startNonEditable ||
+    plan.endNonEditable ||
+    !plan.isAcrossBlocks
+  ) {
+    return null
+  }
+
+  const startIndex = plan.start.path[0]
+  const endIndex = plan.end.path[0]
+  const editorChildren = EditorApi.getChildren(editor)
+
+  if (
+    startIndex == null ||
+    endIndex == null ||
+    (startIndex === 0 && endIndex === editorChildren.length - 1)
+  ) {
+    return null
+  }
+
+  if (
+    !PointApi.equals(
+      plan.start,
+      EditorApi.point(editor, [startIndex], { edge: 'start' })
+    ) ||
+    !PointApi.equals(
+      plan.end,
+      EditorApi.point(editor, [endIndex], { edge: 'end' })
+    )
+  ) {
+    return null
+  }
+
+  for (let index = startIndex; index <= endIndex; index += 1) {
+    const node = editorChildren[index]
+
+    if (!NodeApi.isElement(node) || !EditorApi.isBlock(editor, node)) {
+      return null
+    }
+  }
+
+  return { endIndex, startIndex }
+}
+
+const deleteWholeTopLevelBlockRange = (
+  editor: Editor,
+  range: NonNullable<ReturnType<typeof getWholeTopLevelBlockRange>>,
+  tx: TransactionWriter
+) => {
+  const children = EditorApi.getChildren(editor)
+  const preferNext = range.endIndex + 1 < children.length
+  const selectionPath = preferNext
+    ? [range.endIndex + 1]
+    : [range.startIndex - 1]
+  const selectionPoint = EditorApi.point(editor, selectionPath, {
+    edge: preferNext ? 'start' : 'end',
+  })
+  const newSelectionPoint = {
+    ...selectionPoint,
+    path: preferNext
+      ? [range.startIndex, ...selectionPoint.path.slice(1)]
+      : selectionPoint.path,
+  }
+
+  tx.apply({
+    children: children.slice(range.startIndex, range.endIndex + 1),
+    index: range.startIndex,
+    newChildren: [],
+    newSelection: {
+      anchor: newSelectionPoint,
+      focus: newSelectionPoint,
+    },
+    path: [],
+    selection: getCurrentSelection(editor),
+    type: 'replace_children',
+  })
+}
+
 export const deleteText: TextMutationMethods['delete'] = (
   editor,
   options = {}
@@ -1629,6 +1804,13 @@ export const deleteText: TextMutationMethods['delete'] = (
 
     if (target.kind === 'path') {
       deletePathTarget(editor, target, tx)
+      return
+    }
+
+    const wholeTopLevelBlockRange = getWholeTopLevelBlockRange(editor, target)
+
+    if (wholeTopLevelBlockRange) {
+      deleteWholeTopLevelBlockRange(editor, wholeTopLevelBlockRange, tx)
       return
     }
 

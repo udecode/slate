@@ -150,6 +150,26 @@ export const Point: PointInterface = {
         break
       }
 
+      case 'replace_fragment': {
+        if (Path.equals(op.path, path) || Path.isAncestor(op.path, path)) {
+          return null
+        }
+
+        path = Path.transform(path, op, options)!
+        break
+      }
+
+      case 'replace_children': {
+        const nextPath = Path.transform(path, op, options)
+
+        if (!nextPath) {
+          return null
+        }
+
+        path = nextPath
+        break
+      }
+
       case 'split_node': {
         if (Path.equals(op.path, path)) {
           if (op.position === offset && affinity == null) {

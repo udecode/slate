@@ -1,9 +1,11 @@
 // Plugin
 export type {
+  DOMClipboardInsertDataHandler,
   DOMEditor,
   DOMEditorCapability,
   DOMEditorClipboardCapability,
 } from './plugin/dom-editor'
+export type { DOMEditorOptions } from './plugin/with-dom'
 export { withDOM } from './plugin/with-dom'
 
 // Utils

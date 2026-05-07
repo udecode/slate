@@ -23,6 +23,30 @@ const deleteRange = (editor: Editor, range: Range): Point | null => {
   return pointRef.unref()
 }
 
+const getTextEndForwardPoint = (
+  editor: Editor,
+  point: Point,
+  highestPath: Path
+): Point | null => {
+  if (highestPath.length >= point.path.length) {
+    return null
+  }
+
+  const [node] = getNode(editor, point.path)
+
+  if (!Node.isText(node) || point.offset !== node.text.length) {
+    return null
+  }
+
+  const nextPath = Path.next(point.path)
+
+  if (!Node.has(editor, nextPath)) {
+    return null
+  }
+
+  return Editor.point(editor, nextPath, { edge: 'start' })
+}
+
 export const splitNodes: NodeMutationMethods['splitNodes'] = (
   editor,
   options = {}
@@ -114,9 +138,16 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
           always = true
         }
 
-        afterRef = Editor.pointRef(editor, at, { affinity: 'forward' })
         const depth = at.path.length - height
         const [, highestPath] = highest
+        const textEndForwardPoint = getTextEndForwardPoint(
+          editor,
+          at,
+          highestPath
+        )
+        afterRef = Editor.pointRef(editor, textEndForwardPoint ?? at, {
+          affinity: 'forward',
+        })
         const lowestPath = at.path.slice(0, depth)
         let position = height === 0 ? at.offset : at.path[depth]!
 
@@ -138,7 +169,9 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
           const point = beforeRef.current!
           const isEnd = Editor.isEnd(editor, point, path)
 
-          if (always || !Editor.isEdge(editor, point, path)) {
+          if (textEndForwardPoint && Path.equals(path, at.path)) {
+            split = false
+          } else if (always || !Editor.isEdge(editor, point, path)) {
             split = true
             applyOperation(editor, {
               type: 'split_node',

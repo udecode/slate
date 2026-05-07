@@ -35,7 +35,7 @@ const MarkdownShortcutsExample = () => {
     []
   )
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withHistory(editor) as CustomEditor,
+    withEditor: (editor) => withHistory(editor),
     initialValue,
   })
   const inputRules = useMemo<readonly EditableInputRule[]>(

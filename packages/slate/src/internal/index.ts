@@ -7,7 +7,9 @@ export {
   getEditorRuntime,
   setEditorRuntime,
 } from '../core/editor-runtime'
+export { getExtensionRegistry as getEditorExtensionRegistry } from '../core/extension-registry'
 export {
+  applyOperation,
   getLiveNode as getEditorLiveNode,
   getLiveSelection as getEditorLiveSelection,
   getLiveText as getEditorLiveText,

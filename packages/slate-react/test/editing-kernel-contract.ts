@@ -11,8 +11,14 @@ import {
   getEditableKernelTransition,
   getEditableMovementOwnershipTrace,
   getEditableSelectionChangeOwnership,
+  prepareEditableCompositionKernel,
+  prepareEditableKeyDownKernel,
 } from '../src/editable/editing-kernel'
 import { classifyKeyboardIntent } from '../src/editable/input-controller'
+import {
+  createEditableInputController,
+  createEditableInputControllerState,
+} from '../src/editable/input-state'
 
 const createBaseTrace = () =>
   ({
@@ -255,6 +261,71 @@ test('keyboard split-block commands are model-owned structural intent', () => {
       renderingStrategy: null,
     })
   ).toBe('insert-break')
+})
+
+test('keyboard events during composition stay browser-owned', () => {
+  const editor = createEditor() as any
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  })
+  inputController.state.isComposing = true
+  inputController.state.selectionSource = 'composition-owned'
+
+  const decision = prepareEditableKeyDownKernel({
+    editor,
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: false,
+        isComposing: true,
+        key: 'ArrowRight',
+        metaKey: false,
+        shiftKey: false,
+        which: 39,
+      },
+      target: null,
+    } as any,
+    inputController,
+    renderingStrategy: null,
+  })
+
+  expect(decision).toMatchObject({
+    command: null,
+    intent: 'composition',
+    nativeAllowed: true,
+    ownership: 'native-allowed',
+    selectionPolicy: { kind: 'none', reason: 'not-requested' },
+    shouldForceDOMImport: false,
+    stateBefore: 'composition',
+  })
+})
+
+test('composition lifecycle events stay browser-owned', () => {
+  const editor = createEditor() as any
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  })
+  inputController.state.isComposing = true
+  inputController.state.selectionSource = 'composition-owned'
+
+  const decision = prepareEditableCompositionKernel({
+    editor,
+    event: {
+      target: null,
+    } as any,
+    inputController,
+  })
+
+  expect(decision).toMatchObject({
+    intent: 'composition',
+    nativeAllowed: true,
+    ownership: 'native-allowed',
+    repairPolicy: { kind: 'none', reason: 'not-requested' },
+    selectionPolicy: { kind: 'none', reason: 'not-requested' },
+    stateBefore: 'composition',
+  })
 })
 
 test('kernel transition rejects native-owned repair policies', () => {

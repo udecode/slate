@@ -1,5 +1,9 @@
 import type { Editor, ValueOf } from 'slate'
-import { EDITOR_TO_PENDING_SELECTION, withDOM } from 'slate-dom'
+import {
+  type DOMEditorOptions,
+  EDITOR_TO_PENDING_SELECTION,
+  withDOM,
+} from 'slate-dom'
 import {
   getEditorTransformRegistry,
   setEditorTransformRegistry,
@@ -7,6 +11,8 @@ import {
 import type { ReactEditor } from './react-editor'
 
 const ANDROID_USER_AGENT_RE = /Android/
+
+export interface ReactEditorOptions extends DOMEditorOptions {}
 
 /**
  * `withReact` adds React and DOM specific behaviors to the editor.
@@ -16,15 +22,15 @@ const ANDROID_USER_AGENT_RE = /Android/
  */
 export function withReact<T extends Editor<any>>(
   editor: T,
-  clipboardFormatKey?: string
+  options?: ReactEditorOptions
 ): T & ReactEditor<ValueOf<T>>
 export function withReact(
   editor: Editor<any>,
-  clipboardFormatKey = 'x-slate-fragment'
+  options: ReactEditorOptions = {}
 ): Editor<any> & ReactEditor {
   let e = editor as Editor<any> & ReactEditor
 
-  e = withDOM(e, clipboardFormatKey)
+  e = withDOM(e, options)
 
   const transforms = getEditorTransformRegistry(e)
 

@@ -1,4 +1,4 @@
-import { act, render, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import React from 'react'
 import { createEditor, type Descendant } from 'slate'
 import { Editor } from 'slate/internal'
@@ -41,6 +41,32 @@ const getRuntimeId = (editor: ReturnType<typeof withReact>, path: number[]) => {
   }
 
   return runtimeId
+}
+
+const fireEditorSelectAll = (root: HTMLElement) => {
+  Object.defineProperty(root, 'isContentEditable', {
+    configurable: true,
+    value: true,
+  })
+  fireEvent.keyDown(root, {
+    bubbles: true,
+    ctrlKey: true,
+    key: 'a',
+  })
+}
+
+const fireEditorPaste = (
+  root: HTMLElement,
+  clipboardData: {
+    getData: (type?: string) => string
+    types: string[]
+  }
+) => {
+  Object.defineProperty(root, 'isContentEditable', {
+    configurable: true,
+    value: true,
+  })
+  fireEvent.paste(root, { clipboardData })
 }
 
 test('Editable renderingStrategy shells far segments without mounting editable descendants', async () => {
@@ -282,13 +308,7 @@ test('Editable renderingStrategy experimental virtualized mode keeps broad selec
   expect(root).toBeTruthy()
 
   await act(async () => {
-    root!.dispatchEvent(
-      new window.KeyboardEvent('keydown', {
-        bubbles: true,
-        ctrlKey: true,
-        key: 'a',
-      })
-    )
+    fireEditorSelectAll(root!)
   })
 
   expect(Editor.getSnapshot(editor).selection).toEqual({
@@ -1372,13 +1392,7 @@ test('Editable renderingStrategy maps Ctrl+A to a full-document model selection 
   expect(root).toBeTruthy()
 
   await act(async () => {
-    root!.dispatchEvent(
-      new window.KeyboardEvent('keydown', {
-        bubbles: true,
-        ctrlKey: true,
-        key: 'a',
-      })
-    )
+    fireEditorSelectAll(root!)
   })
 
   const snapshot = Editor.getSnapshot(editor)
@@ -1482,13 +1496,7 @@ test('Editable renderingStrategy keeps broad select-all from replanning the acti
     counter.reset()
 
     await act(async () => {
-      root!.dispatchEvent(
-        new window.KeyboardEvent('keydown', {
-          bubbles: true,
-          ctrlKey: true,
-          key: 'a',
-        })
-      )
+      fireEditorSelectAll(root!)
     })
 
     const snapshot = Editor.getSnapshot(editor)
@@ -1540,28 +1548,15 @@ test('Editable renderingStrategy pastes over full-document shell-backed selectio
   expect(root).toBeTruthy()
 
   await act(async () => {
-    root!.dispatchEvent(
-      new window.KeyboardEvent('keydown', {
-        bubbles: true,
-        ctrlKey: true,
-        key: 'a',
-      })
-    )
+    fireEditorSelectAll(root!)
   })
 
   await act(async () => {
-    root!.dispatchEvent(
-      Object.assign(
-        new window.Event('paste', { bubbles: true, cancelable: true }),
-        {
-          clipboardData: {
-            types: ['text/plain'],
-            getData: (type = 'text/plain') =>
-              type === 'text/plain' ? 'replacement marker' : '',
-          },
-        }
-      )
-    )
+    fireEditorPaste(root!, {
+      types: ['text/plain'],
+      getData: (type = 'text/plain') =>
+        type === 'text/plain' ? 'replacement marker' : '',
+    })
   })
 
   expect(rendered.container.textContent?.includes('replacement marker')).toBe(
@@ -1606,13 +1601,7 @@ test('Editable renderingStrategy preserves Slate fragment data for shell-backed 
   expect(root).toBeTruthy()
 
   await act(async () => {
-    root!.dispatchEvent(
-      new window.KeyboardEvent('keydown', {
-        bubbles: true,
-        ctrlKey: true,
-        key: 'a',
-      })
-    )
+    fireEditorSelectAll(root!)
   })
 
   const encodedFragment = window.btoa(
@@ -1627,22 +1616,15 @@ test('Editable renderingStrategy preserves Slate fragment data for shell-backed 
   )
 
   await act(async () => {
-    root!.dispatchEvent(
-      Object.assign(
-        new window.Event('paste', { bubbles: true, cancelable: true }),
-        {
-          clipboardData: {
-            types: ['application/x-slate-fragment', 'text/plain'],
-            getData: (type = 'text/plain') =>
-              type === 'application/x-slate-fragment'
-                ? encodedFragment
-                : type === 'text/plain'
-                  ? 'plain fallback'
-                  : '',
-          },
-        }
-      )
-    )
+    fireEditorPaste(root!, {
+      types: ['application/x-slate-fragment', 'text/plain'],
+      getData: (type = 'text/plain') =>
+        type === 'application/x-slate-fragment'
+          ? encodedFragment
+          : type === 'text/plain'
+            ? 'plain fallback'
+            : '',
+    })
   })
 
   expect(Editor.string(editor, [])).toBe('fragment marker')

@@ -21,6 +21,7 @@ import {
   useEditorSelectorContext,
 } from '../hooks/use-editor-selector'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
+import { SlateAnnotationStoreContext } from '../hooks/use-slate-annotations'
 import { syncTextOperationsToDOM } from '../hooks/use-slate-node-ref'
 import { ReactEditor } from '../plugin/react-editor'
 import { ProjectionContext } from '../projection-context'
@@ -61,7 +62,7 @@ export type SlateChange<V extends Value = Value> = {
 
 export type SlateProps<V extends Value = Value> = {
   editor: ReactEditor<V>
-  annotationStores?: readonly SlateAnnotationStore<any>[] | null
+  annotationStore?: SlateAnnotationStore<any, any> | null
   children: React.ReactNode
   decorationSources?: readonly SlateDecorationSource<any>[] | null
   onChange?: (value: V, change: SlateChange<V>) => void
@@ -79,7 +80,7 @@ export type SlateProps<V extends Value = Value> = {
 
 export const Slate = <V extends Value = Value>(props: SlateProps<V>) => {
   const {
-    annotationStores = null,
+    annotationStore = null,
     decorationSources = null,
     editor,
     children,
@@ -172,15 +173,15 @@ export const Slate = <V extends Value = Value>(props: SlateProps<V>) => {
 
   const [isFocused, setIsFocused] = useState(ReactEditor.isFocused(editor))
   const projectionContextValue = useMemo(() => {
-    if (!annotationStores || annotationStores.length === 0) {
+    if (!annotationStore) {
       return composeDecorationSources(decorationSources)
     }
 
     return composeProjectionSources([
       ...(decorationSources ?? []),
-      ...annotationStores.map((store) => store.projectionStore),
+      annotationStore.projectionStore,
     ])
-  }, [annotationStores, decorationSources])
+  }, [annotationStore, decorationSources])
 
   useEffect(() => {
     setIsFocused(ReactEditor.isFocused(editor))
@@ -215,11 +216,13 @@ export const Slate = <V extends Value = Value>(props: SlateProps<V>) => {
   return (
     <EditorSelectorContext.Provider value={selectorContext}>
       <ProjectionContext.Provider value={projectionContextValue}>
-        <EditorContext.Provider value={editor}>
-          <FocusedContext.Provider value={isFocused}>
-            {children}
-          </FocusedContext.Provider>
-        </EditorContext.Provider>
+        <SlateAnnotationStoreContext.Provider value={annotationStore}>
+          <EditorContext.Provider value={editor}>
+            <FocusedContext.Provider value={isFocused}>
+              {children}
+            </FocusedContext.Provider>
+          </EditorContext.Provider>
+        </SlateAnnotationStoreContext.Provider>
       </ProjectionContext.Provider>
     </EditorSelectorContext.Provider>
   )

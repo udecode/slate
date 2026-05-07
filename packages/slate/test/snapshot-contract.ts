@@ -1186,6 +1186,45 @@ it('insertBreak splits the current top-level block and moves selection into the 
   })
 })
 
+it('insertBreak after marked text moves selection into the new block', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'plain ' }, { bold: true, text: 'marked' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 1], offset: 6 },
+      focus: { path: [0, 1], offset: 6 },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    Editor.insertBreak(editor)
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'paragraph',
+      children: [{ text: 'plain ' }, { bold: true, text: 'marked' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ bold: true, text: '' }],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
+  })
+})
+
 it('insertBreak inside a nested block splits the nested block without splitting its container', () => {
   const editor = createEditor()
 

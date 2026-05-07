@@ -26,6 +26,16 @@ type CommentThread = {
   tone: CommentTone
 }
 
+type CommentData = {
+  body: string
+  label: string
+  tone: CommentTone
+}
+
+type CommentProjection = {
+  tone: CommentTone
+}
+
 const initialChildren: Value = [
   {
     type: 'paragraph',
@@ -168,14 +178,17 @@ const ReviewCommentsContent = ({
   editor,
   setComments,
 }: {
-  annotationStore: SlateAnnotationStore<any>
+  annotationStore: SlateAnnotationStore<CommentData, CommentProjection>
   comments: readonly CommentThread[]
   editor: ReactEditor
   setComments: React.Dispatch<React.SetStateAction<CommentThread[]>>
 }) => {
   const nextCommentId = useRef(1)
   const selection = useEditorSelection()
-  const annotationSnapshot = useSlateAnnotations(annotationStore)
+  const annotationSnapshot = useSlateAnnotations<
+    CommentData,
+    CommentProjection
+  >()
   const widgets = useMemo(
     () =>
       comments.map((comment) => ({
@@ -439,14 +452,12 @@ const ReviewCommentsContent = ({
                     >
                       <span
                         className={toneBadgeCss(
-                          (annotation.data?.tone as CommentTone | undefined) ??
-                            'review'
+                          annotation.data?.tone ?? 'review'
                         )}
                       >
-                        {(annotation.data?.label as string | undefined) ??
-                          annotation.id}
+                        {annotation.data?.label ?? annotation.id}
                       </span>
-                      <strong>{annotation.data?.body as string}</strong>
+                      <strong>{annotation.data?.body}</strong>
                       <span className={codeCss}>
                         range:{formatRange(annotation.range)}
                       </span>
@@ -517,7 +528,7 @@ const ReviewCommentsExample = () => {
   const annotationStore = useSlateAnnotationStore(editor, annotations)
 
   return (
-    <Slate annotationStores={[annotationStore]} editor={editor}>
+    <Slate annotationStore={annotationStore} editor={editor}>
       <div className={panelCss}>
         <ReviewCommentsContent
           annotationStore={annotationStore}

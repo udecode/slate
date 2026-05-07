@@ -37,6 +37,7 @@ Use for headless current-only measurements.
 Current live family owners:
 
 - transaction execution
+- clipboard large payload
 - normalization
 - query/ref observation
 - structural node transforms
@@ -62,6 +63,7 @@ lane should stay stable.
 Current live example:
 
 - `6038-transaction-execution.mjs`
+- `5945-large-plaintext-paste.mjs`
 
 ## Naming Rules
 
@@ -110,6 +112,7 @@ Current artifact owners:
 - `packages/slate-react/tmp/slate-react-huge-document-overlays-benchmark.json`
 
 - `tmp/bench-slate-6038.json`
+- `tmp/slate-clipboard-large-payload-benchmark.json`
 - `tmp/slate-react-huge-document-legacy-compare-benchmark.json`
 - `tmp/slate-normalization-benchmark.json`
 - `tmp/slate-query-ref-observation-benchmark.json`
@@ -143,6 +146,14 @@ bun run bench:core:huge-document:compare:local
 bun run bench:react:rerender-breadth:local
 bun run bench:react:huge-document-overlays:local
 bun run bench:react:huge-document:legacy-compare:local
+bun run bench:slate:5945:local
+```
+
+The large clipboard payload lane defaults to a bounded local stress size. To run
+the exact #5945/#5992 issue-size gate:
+
+```bash
+SLATE_CLIPBOARD_BENCH_STRESS_LINES=10000 SLATE_CLIPBOARD_BENCH_HUGE_CUT_BLOCKS=50000 bun run bench:slate:5945:local
 ```
 
 ## Harsh Rules

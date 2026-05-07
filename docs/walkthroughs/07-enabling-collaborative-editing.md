@@ -55,6 +55,12 @@ them into its own transport format, persist them, batch them, or merge them
 with a CRDT. Slate only requires that the operations you replay are valid Slate
 operations.
 
+Bulk edits are still operations. A paste can publish one `replace_fragment`
+operation that replaces a child slice and carries the selection before and after
+the replacement. If your adapter can replay Slate operations, replay it as-is.
+If your CRDT needs finer-grained edits, lower `replace_fragment` inside the
+adapter, not inside Slate's paste path.
+
 ## Import remote operations
 
 Remote operations enter through `tx.operations.replay(...)`. This is the

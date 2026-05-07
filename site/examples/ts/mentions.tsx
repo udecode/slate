@@ -45,7 +45,7 @@ const MentionExample = () => {
     []
   )
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withMentions(withHistory(editor) as CustomEditor),
+    withEditor: (editor) => withMentions(withHistory(editor)),
     initialValue,
   })
 
@@ -249,9 +249,9 @@ const Element = (props: RenderElementProps) => {
   return <p {...attributes}>{children}</p>
 }
 
-const Mention = ({ element, target }: RenderVoidProps<MentionElement>) => {
+const Mention = ({ element, path }: RenderVoidProps<MentionElement>) => {
   const focused = useEditorFocused()
-  const selected = useElementSelected(target)
+  const selected = useElementSelected(path)
   const style: React.CSSProperties = {
     padding: '3px 3px 2px',
     margin: '0 1px',

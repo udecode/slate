@@ -2,7 +2,7 @@
 
 Adds React and DOM specific behaviors to the editor.
 
-### `withReact<T extends Editor>(editor: T, clipboardFormatKey = 'x-slate-fragment'): T & ReactEditor`
+### `withReact<T extends Editor>(editor: T, options?: ReactEditorOptions): T & ReactEditor`
 
 When used with withHistory, withReact should be applied outside. For example:
 
@@ -10,8 +10,19 @@ When used with withHistory, withReact should be applied outside. For example:
 const [editor] = useState(() => withReact(withHistory(createEditor())))
 ```
 
-##### `clipboardFormatKey` option
+##### `options.clipboardFormatKey`
 
-The `clipboardFormatKey` option allows you to customize the `DataTransfer` type when Slate data is copied to the clipboard. By default, it is `application/x-slate-fragment` but it can be customized using this option.
+`clipboardFormatKey` customizes the `DataTransfer` type used for Slate's
+internal fragment payload. The default key is `x-slate-fragment`, which writes
+and reads `application/x-slate-fragment`.
 
-This can be useful when a user copies from one Slate editor to a differently configured Slate editor. This could cause nodes to be inserted which are not correctly typed for the receiving editor, corrupting the document. By customizing the `clipboardFormatKey` one can ensure that the raw JSON data isn't copied between editors with different schemas.
+```typescript
+const [editor] = useState(() =>
+  withReact(createEditor(), { clipboardFormatKey: 'x-product-fragment' })
+)
+```
+
+Use a custom key when multiple Slate editors with different schemas can exchange
+clipboard data. Slate only imports an internal fragment when the MIME payload or
+embedded HTML fallback matches the receiving editor's key. Otherwise, paste
+continues through custom `dom.clipboard.insertData` handlers or plain text.

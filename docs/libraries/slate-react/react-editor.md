@@ -103,8 +103,12 @@ Find a Slate range from a DOM range or selection.
 
 #### `editor.dom.clipboard.insertData(data: DataTransfer): void`
 
-Insert data from a `DataTransfer` into the editor. This tries Slate fragment
-data first, then plain text.
+Insert data from a `DataTransfer` into the editor.
+
+Slate runs `dom.clipboard.insertData` capability handlers first. A handler that
+returns `true` stops the default import path. When no handler claims the data,
+Slate tries an internal Slate fragment for the editor's configured
+`clipboardFormatKey`, then plain text.
 
 #### `editor.dom.clipboard.insertFragmentData(data: DataTransfer): boolean`
 
@@ -119,3 +123,8 @@ was inserted.
 #### `editor.dom.clipboard.writeSelection(data: Pick<DataTransfer, 'getData' | 'setData'>): void`
 
 Write the current selection to a `DataTransfer`.
+
+Slate writes plain text, HTML, and an internal Slate fragment payload. The
+fragment payload uses `application/${clipboardFormatKey}` and the HTML fallback
+is tagged with the same key, so differently configured editors do not blindly
+import each other's internal JSON.

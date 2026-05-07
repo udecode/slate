@@ -23,6 +23,8 @@
     "bench:react:huge-document-overlays:local": "cd ./packages/slate-react && bun ../../scripts/benchmarks/browser/react/huge-document-overlays.tsx",
     "bench:react:huge-document:legacy-compare:local": "bun ./scripts/benchmarks/browser/react/huge-document-legacy-compare.mjs",
     "bench:slate:6038:local": "bun ./scripts/benchmarks/slate/6038-transaction-execution.mjs",
+    "bench:slate:5945:issue": "SLATE_CLIPBOARD_BENCH_ISSUE_TARGETS=1 bun ./scripts/benchmarks/slate/5945-large-plaintext-paste.mjs",
+    "bench:slate:5945:local": "bun ./scripts/benchmarks/slate/5945-large-plaintext-paste.mjs",
     "changesetversion": "changeset version && bun install && git add .",
     "check": "bun lint && bun typecheck && bun run test",
     "check:full": "bun check && bun test:integration-local",

@@ -1,4 +1,4 @@
-import { Range } from 'slate'
+import { type Descendant, Node, Path, Point, Range } from 'slate'
 import { ReactEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
 import type { DOMRepairQueue } from './dom-repair-queue'
@@ -11,7 +11,8 @@ import type {
   EditableInputController,
   EditableSelectionSourceTransition,
 } from './input-state'
-import type { Editor } from './runtime-editor-api'
+import { Editor, type Editor as RuntimeEditor } from './runtime-editor-api'
+import { readRuntimeSelection } from './runtime-selection-state'
 import { setEditableModelSelectionPreference } from './selection-controller'
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
@@ -100,6 +101,14 @@ export const applyModelOwnedDeleteIntent = ({
   editor: Editor
   unit?: 'block' | 'line' | 'word'
 }) => {
+  if (
+    direction === 'backward' &&
+    unit == null &&
+    applyBackspaceAfterBlockVoid(editor, readRuntimeSelection(editor))
+  ) {
+    return
+  }
+
   editor.update((tx) => {
     if (direction === 'backward') {
       tx.text.deleteBackward({ unit: unit ?? 'character' })
@@ -126,9 +135,19 @@ export const applyModelOwnedLineBreak = ({
   editor,
   kind,
 }: {
-  editor: Editor
+  editor: RuntimeEditor
   kind: 'paragraph' | 'soft'
 }) => {
+  if (
+    kind === 'paragraph' &&
+    applyParagraphBreakAfterSelectedBlockVoid(
+      editor,
+      readRuntimeSelection(editor)
+    )
+  ) {
+    return
+  }
+
   editor.update((tx) => {
     if (kind === 'paragraph') {
       tx.break.insert()
@@ -139,12 +158,181 @@ export const applyModelOwnedLineBreak = ({
   })
 }
 
+const createDefaultParagraph = (): Descendant =>
+  ({
+    type: 'paragraph',
+    children: [{ text: '' }],
+  }) as Descendant
+
+const isBlockVoid = (editor: RuntimeEditor, node: Node) =>
+  Node.isElement(node) &&
+  Editor.isBlock(editor, node) &&
+  Editor.isVoid(editor, node)
+
+const getCollapsedBlockPath = (
+  editor: RuntimeEditor,
+  selection: Range | null
+) => {
+  if (!selection || !Range.isCollapsed(selection)) {
+    return null
+  }
+
+  const blockEntry = Editor.above(editor, {
+    at: selection.anchor,
+    match: (node) => Node.isElement(node) && Editor.isBlock(editor, node),
+    mode: 'highest',
+    voids: true,
+  })
+
+  return blockEntry?.[1] ?? null
+}
+
+const getSelectedBlockVoidPath = (
+  editor: RuntimeEditor,
+  selection: Range | null
+) => {
+  const blockPath = getCollapsedBlockPath(editor, selection)
+
+  if (!blockPath || !Editor.hasPath(editor, blockPath)) {
+    return null
+  }
+
+  return isBlockVoid(editor, Node.get(editor, blockPath)) ? blockPath : null
+}
+
+const applyBackspaceAfterBlockVoid = (
+  editor: RuntimeEditor,
+  selection: Range | null
+) => {
+  const blockPath = getCollapsedBlockPath(editor, selection)
+
+  if (
+    !selection ||
+    !blockPath ||
+    !Path.hasPrevious(blockPath) ||
+    !Editor.isStart(editor, selection.anchor, blockPath)
+  ) {
+    return false
+  }
+
+  const block = Node.get(editor, blockPath)
+
+  if (!Node.isElement(block) || Node.string(block) !== '') {
+    return false
+  }
+
+  const previousPath = Path.previous(blockPath)
+
+  if (!Editor.hasPath(editor, previousPath)) {
+    return false
+  }
+
+  const previous = Node.get(editor, previousPath)
+
+  if (!isBlockVoid(editor, previous)) {
+    return false
+  }
+
+  const selectionPoint = Editor.point(editor, previousPath, { edge: 'start' })
+
+  editor.update((tx) => {
+    tx.nodes.remove({ at: blockPath })
+    tx.selection.set({ anchor: selectionPoint, focus: selectionPoint })
+  })
+
+  return true
+}
+
+const applyParagraphBreakAfterSelectedBlockVoid = (
+  editor: RuntimeEditor,
+  selection: Range | null
+) => {
+  const voidPath = getSelectedBlockVoidPath(editor, selection)
+
+  if (!voidPath) {
+    return false
+  }
+
+  const insertionPath = Path.next(voidPath)
+  const selectionPoint = { path: insertionPath.concat(0), offset: 0 }
+
+  editor.update((tx) => {
+    tx.nodes.insert(createDefaultParagraph(), { at: insertionPath })
+    tx.selection.set({ anchor: selectionPoint, focus: selectionPoint })
+  })
+
+  return true
+}
+
+const getFullySelectedBlockPath = (
+  editor: RuntimeEditor,
+  selection: Range | null
+) => {
+  if (!selection || Range.isCollapsed(selection)) {
+    return null
+  }
+
+  const [start, end] = Range.edges(selection)
+  const startBlock = Editor.above(editor, {
+    at: start,
+    match: (node) => Node.isElement(node) && Editor.isBlock(editor, node),
+    mode: 'highest',
+  })
+  const endBlock = Editor.above(editor, {
+    at: end,
+    match: (node) => Node.isElement(node) && Editor.isBlock(editor, node),
+    mode: 'highest',
+  })
+
+  if (!startBlock || !endBlock) {
+    return null
+  }
+
+  const [, blockPath] = startBlock
+  const [, endBlockPath] = endBlock
+
+  if (
+    !Point.equals(start, Editor.point(editor, blockPath, { edge: 'start' }))
+  ) {
+    return null
+  }
+
+  if (Point.equals(end, Editor.point(editor, blockPath, { edge: 'end' }))) {
+    return blockPath
+  }
+
+  if (
+    !Point.equals(end, Editor.point(editor, endBlockPath, { edge: 'start' }))
+  ) {
+    return null
+  }
+
+  return blockPath
+}
+
+const applyFullBlockDeleteFragment = (
+  editor: RuntimeEditor,
+  selection: Range | null
+) => {
+  const blockPath = getFullySelectedBlockPath(editor, selection)
+
+  if (!blockPath) {
+    return false
+  }
+
+  editor.update((tx) => {
+    tx.nodes.remove({ at: blockPath })
+  })
+
+  return true
+}
+
 export const applyEditableCommand = ({
   command,
   editor,
 }: {
   command: EditableCommand
-  editor: Editor
+  editor: RuntimeEditor
 }) => {
   switch (command.kind) {
     case 'delete':
@@ -169,6 +357,15 @@ export const applyEditableCommand = ({
       return true
 
     case 'delete-fragment':
+      if (
+        applyFullBlockDeleteFragment(
+          editor,
+          command.selection ?? readRuntimeSelection(editor)
+        )
+      ) {
+        return true
+      }
+
       editor.update((tx) => {
         tx.fragment.delete(
           command.direction ? { direction: command.direction } : undefined

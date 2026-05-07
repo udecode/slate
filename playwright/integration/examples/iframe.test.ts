@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { recordSlateBrowserRuntimeErrors } from 'slate-browser/playwright'
 
 test.describe('iframe editor', () => {
   test.beforeEach(async ({ page }) => {
@@ -37,5 +38,36 @@ test.describe('iframe editor', () => {
     await expect(textbox).toContainText('Hello World')
     await page.waitForTimeout(50)
     expect(slateErrors).toEqual([])
+  })
+
+  test('clicks mounted iframe content without DOM node resolution errors', async ({
+    page,
+  }) => {
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const frame = page.frameLocator('iframe')
+    const textbox = frame.locator('body').getByRole('textbox')
+    const firstParagraph = textbox
+      .locator('[data-slate-node="element"]')
+      .first()
+
+    try {
+      await firstParagraph.click()
+
+      await expect
+        .poll(() =>
+          textbox.evaluate((element: HTMLElement) => {
+            const selection = element.ownerDocument.getSelection()
+
+            return Boolean(
+              selection?.anchorNode && element.contains(selection.anchorNode)
+            )
+          })
+        )
+        .toBe(true)
+
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
   })
 })

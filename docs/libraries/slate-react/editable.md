@@ -69,10 +69,10 @@ Always spread `attributes` on the top-level DOM element and render `children`.
 Use `renderVoid` for void elements. A void renderer returns visible content only.
 
 ```tsx
-const renderVoid = ({ element, target }) => {
+const renderVoid = ({ element, path }) => {
   switch (element.type) {
     case 'image':
-      return <ImageElement element={element} target={target} />
+      return <ImageElement element={element} path={path} />
     default:
       return null
   }
@@ -81,11 +81,11 @@ const renderVoid = ({ element, target }) => {
 
 Do not render `children`, hidden text anchors, or shell wrappers in normal void renderers. Slate renders the shell and model anchor for you.
 
-If a void needs selected UI, subscribe by target.
+If a void needs selected UI, subscribe by path.
 
 ```tsx
-const ImageElement = ({ element, target }) => {
-  const selected = useElementSelected(target)
+const ImageElement = ({ element, path }) => {
+  const selected = useElementSelected(path)
 
   return <img data-selected={selected || undefined} src={element.url} />
 }
@@ -137,7 +137,7 @@ const renderText = ({ attributes, children, text }) => {
 />
 ```
 
-Normal apps should pass `decorationSources` and `annotationStores` to `Slate`, then render projected text through `renderSegment`.
+Normal apps should pass `decorationSources` and `annotationStore` to `Slate`, then render projected text through `renderSegment`.
 
 ## `placeholder` And `renderPlaceholder`
 
@@ -181,11 +181,11 @@ Use `onDOMBeforeInput` only when you need the native `InputEvent`. Keep model wr
 
 ## Projection Sources
 
-Put decoration sources and annotation stores on `Slate`, not `Editable`. The provider owns editor-level projection sources so the editor surface, toolbar, and overlay UI read the same committed projection.
+Put decoration sources and the annotation store on `Slate`, not `Editable`. The provider owns editor-level projection sources so the editor surface, toolbar, and overlay UI read the same committed projection.
 
 ```tsx
 <Slate
-  annotationStores={[commentStore]}
+  annotationStore={commentStore}
   decorationSources={[searchSource]}
   editor={editor}
 >

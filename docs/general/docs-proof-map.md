@@ -45,7 +45,7 @@ or one-off manual checks.
 Use the focused source and docs gates during docs work.
 
 ```bash
-rg -n "createEditor<|initialValue|renderVoid|useElementSelected|decorationSources|annotationStores|operations\\.replay|editor\\.update|editor\\.read" docs packages
+rg -n "createEditor<|initialValue|renderVoid|useElementSelected|decorationSources|annotationStore|operations\\.replay|editor\\.update|editor\\.read" docs packages
 ```
 
 Use the browser contract registry when a browser-sensitive claim changes.

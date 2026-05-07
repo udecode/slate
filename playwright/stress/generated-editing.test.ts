@@ -1,3 +1,4 @@
+import { faker } from '@faker-js/faker'
 import { expect, test } from '@playwright/test'
 import {
   assertSlateBrowserFirstPartyParityContracts,
@@ -142,6 +143,53 @@ const pasteNormalizeUndo = (route: string): StressCase =>
       },
     ],
   })
+
+const getHugeDocumentBlockText = (targetIndex: number) => {
+  faker.seed(1)
+
+  let text = ''
+
+  for (let index = 0; index <= targetIndex; index += 1) {
+    text = index % 100 === 0 ? faker.lorem.sentence() : faker.lorem.paragraph()
+  }
+
+  return text
+}
+
+const hugeDocumentCut = (): StressCase => {
+  const cutIndex = 2500
+  const followingText = getHugeDocumentBlockText(cutIndex + 2)
+
+  return createStressCase({
+    family: 'huge-document-cut',
+    route: 'huge-document?blocks=5000&content_visibility=none&strict=false',
+    steps: [
+      {
+        kind: 'select',
+        label: 'select-two-top-level-blocks',
+        selection: {
+          anchor: { path: [cutIndex, 0], offset: 0 },
+          focus: { path: [cutIndex + 2, 0], offset: 0 },
+        },
+      },
+      { key: 'ControlOrMeta+X', kind: 'press', label: 'cut-two-blocks' },
+      {
+        kind: 'assertKernelTrace',
+        label: 'assert-cut-command-trace',
+        trace: {
+          commandKind: 'delete-fragment',
+          transition: { allowed: true },
+        },
+      },
+      {
+        contains: followingText,
+        kind: 'assertLocatorText',
+        label: 'assert-following-block-shifted-up',
+        selector: `[data-slate-path="${cutIndex}"]`,
+      },
+    ],
+  })
+}
 
 const inlineVoidBoundaryNavigation = (): StressCase => {
   const beforeFirstMentionText = 'Try mentioning characters, like '
@@ -1025,6 +1073,7 @@ const stressCases: StressCase[] = [
   overlayMixedUpdate(),
   overlayRenderingStrategyBudget(),
   mouseSelectionToolbar(),
+  hugeDocumentCut(),
   ...['plaintext', 'richtext', 'forced-layout'].map(pasteNormalizeUndo),
   selectionRepairIme(),
 ].filter(

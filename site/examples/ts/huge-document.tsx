@@ -65,6 +65,10 @@ const parseEnum = <T extends string>(
   return defaultValue
 }
 
+const toContentVisibilityMode = (
+  value: string
+): Config['contentVisibilityMode'] => (value === 'element' ? 'element' : 'none')
+
 const initialConfig: Config = {
   blocks: parseNumber('blocks', 10_000),
   contentVisibilityMode: parseEnum(
@@ -361,7 +365,9 @@ const PerformanceControls = ({
             <select
               onChange={(event) =>
                 setConfig({
-                  contentVisibilityMode: event.target.value as any,
+                  contentVisibilityMode: toContentVisibilityMode(
+                    event.target.value
+                  ),
                 })
               }
               value={config.contentVisibilityMode}

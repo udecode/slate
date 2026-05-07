@@ -1701,7 +1701,7 @@ for (const testCase of unhangOracleCases) {
   })
 }
 
-it('nodes supports pass and universal on the current traversal seam', () => {
+it('nodes supports pass and universal on the current traversal contract', () => {
   const editor = createEditor()
 
   Editor.replace(editor, {
@@ -1804,6 +1804,52 @@ it('nodes supports pass and universal on the current traversal seam', () => {
       ],
     ]
   )
+})
+
+it('nodes reverse returns the exact inverse of forward matches', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'a' },
+          {
+            type: 'nested',
+            children: [{ text: 'b' }],
+          },
+          { text: 'c' },
+          {
+            type: 'nested',
+            children: [{ text: 'd' }],
+          },
+        ],
+      } as Descendant,
+      {
+        type: 'paragraph',
+        children: [{ text: 'e' }],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  const match = (node: Descendant) =>
+    'type' in node && (node.type === 'paragraph' || node.type === 'nested')
+  const paths = (options: { reverse?: boolean } = {}) =>
+    Array.from(
+      getNodeEntries(editor, {
+        at: [],
+        match,
+        ...options,
+      })
+    ).map(([, path]) => path.join('.'))
+
+  const forward = paths()
+
+  assert.deepEqual(forward, ['0', '0.1', '0.3', '1'])
+  assert.deepEqual(paths({ reverse: true }), [...forward].reverse())
 })
 
 it('positions exposes selectable voids atomically and enters void content only when enabled', () => {

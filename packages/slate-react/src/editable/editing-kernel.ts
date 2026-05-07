@@ -92,7 +92,11 @@ export type EditableCommand =
       unit?: 'block' | 'line' | 'word'
     }
   | { kind: 'delete-both'; unit: 'line' }
-  | { kind: 'delete-fragment'; direction?: 'backward' | 'forward' }
+  | {
+      kind: 'delete-fragment'
+      direction?: 'backward' | 'forward'
+      selection?: Range | null
+    }
   | { kind: 'history'; direction: 'redo' | 'undo' }
   | { kind: 'insert-break'; variant: 'paragraph' | 'soft' }
   | { kind: 'insert-data'; data: DataTransfer }
@@ -373,7 +377,9 @@ export type EditableCompositionKernelDecision = {
   internalTarget: boolean
   nativeAllowed: boolean
   ownership: EditableOwnership
+  repairPolicy: EditableRepairPolicy
   selectionBefore: Range | null
+  selectionPolicy: EditableSelectionPolicy
   stateBefore: EditableKernelState
   targetOwner: EditableEventTargetOwner
 }
@@ -799,7 +805,7 @@ const deleteFragmentOrCommand = ({
   unit?: 'block' | 'line' | 'word'
 }): EditableCommand =>
   selection && Range.isExpanded(selection)
-    ? { direction, kind: 'delete-fragment' }
+    ? { direction, kind: 'delete-fragment', selection }
     : { direction, kind: 'delete', unit }
 
 const getBeforeInputDeleteCommand = ({
@@ -817,6 +823,7 @@ const getBeforeInputDeleteCommand = ({
     return {
       direction: inputType.endsWith('Backward') ? 'backward' : 'forward',
       kind: 'delete-fragment',
+      selection,
     }
   }
 
@@ -824,7 +831,7 @@ const getBeforeInputDeleteCommand = ({
     case 'deleteByComposition':
     case 'deleteByCut':
     case 'deleteByDrag':
-      return { kind: 'delete-fragment' }
+      return { kind: 'delete-fragment', selection }
     case 'deleteContent':
     case 'deleteContentForward':
       return { direction: 'forward', kind: 'delete' }
@@ -1062,16 +1069,18 @@ export const prepareEditableKeyDownKernel = ({
   const intent = classifyKeyboardIntent({
     editor,
     event,
+    isComposing: inputController.state.isComposing,
     renderingStrategy,
   })
   const selectionBefore = readRuntimeSelection(editor)
   const internalTarget = isInteractiveInternalTarget(editor, event.target)
-  const command = internalTarget
-    ? null
-    : getEditableCommandFromKeyDown({
-        event,
-        selection: selectionBefore,
-      })
+  const command =
+    internalTarget || intent === 'composition'
+      ? null
+      : getEditableCommandFromKeyDown({
+          event,
+          selection: selectionBefore,
+        })
   const targetOwner: EditableEventTargetOwner = internalTarget
     ? 'internal-control'
     : ReactEditor.hasEditableTarget(editor, event.target)
@@ -1080,11 +1089,13 @@ export const prepareEditableKeyDownKernel = ({
   const ownership: EditableOwnership =
     intent === 'internal-control'
       ? 'app-owned'
-      : intent === 'native-selection-move'
+      : intent === 'composition'
         ? 'native-allowed'
-        : intent
-          ? 'model-owned'
-          : 'no-op'
+        : intent === 'native-selection-move'
+          ? 'native-allowed'
+          : intent
+            ? 'model-owned'
+            : 'no-op'
 
   const shouldForceDOMImport =
     intent === 'delete' ||
@@ -1101,12 +1112,14 @@ export const prepareEditableKeyDownKernel = ({
     selectionBefore,
     selectionPolicy: internalTarget
       ? { kind: 'none', reason: 'internal-control' }
-      : {
-          kind: 'import-dom',
-          reason: shouldForceDOMImport
-            ? 'unknown-selection'
-            : 'native-selection',
-        },
+      : intent === 'composition'
+        ? { kind: 'none', reason: 'not-requested' }
+        : {
+            kind: 'import-dom',
+            reason: shouldForceDOMImport
+              ? 'unknown-selection'
+              : 'native-selection',
+          },
     selectionSourceTransition:
       intent === 'native-selection-move'
         ? {
@@ -1232,14 +1245,18 @@ export const prepareEditableCompositionKernel = ({
       ? 'editor'
       : 'unknown'
   const ownership: EditableOwnership =
-    intent === 'internal-control' ? 'app-owned' : 'model-owned'
+    intent === 'internal-control' ? 'app-owned' : 'native-allowed'
 
   return {
     intent,
     internalTarget,
-    nativeAllowed: false,
+    nativeAllowed: ownership === 'native-allowed',
     ownership,
+    repairPolicy: { kind: 'none', reason: 'not-requested' },
     selectionBefore: readLiveSelection(editor),
+    selectionPolicy: internalTarget
+      ? { kind: 'none', reason: 'internal-control' }
+      : { kind: 'none', reason: 'not-requested' },
     stateBefore: mapSelectionSourceToKernelState(
       inputController.state.selectionSource
     ),

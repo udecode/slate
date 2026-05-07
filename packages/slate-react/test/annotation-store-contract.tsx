@@ -68,17 +68,16 @@ const createChildren = () => [
   },
 ]
 
-const AnnotationOverlaySlices = ({
-  annotationStore,
-}: {
-  annotationStore: ReturnType<
-    typeof useSlateAnnotationStore<CommentData, CommentProjection>
-  >
-}) => {
+const AnnotationOverlaySlices = () => {
   const editor = useEditor()
   const leftId = Editor.getSnapshot(editor).index.pathToId['0.0'] ?? ''
-  const comment = useSlateAnnotation(annotationStore, 'comment-1')
-  const annotationSnapshot = useSlateAnnotations(annotationStore)
+  const comment = useSlateAnnotation<CommentData, CommentProjection>(
+    'comment-1'
+  )
+  const annotationSnapshot = useSlateAnnotations<
+    CommentData,
+    CommentProjection
+  >()
   const projections = useSlateProjections<{
     annotationId: string
     kind: string
@@ -118,8 +117,8 @@ const AnnotationHarness = ({
   const annotationStore = useSlateAnnotationStore(editor, annotations)
 
   return (
-    <Slate annotationStores={[annotationStore]} editor={editor}>
-      <AnnotationOverlaySlices annotationStore={annotationStore} />
+    <Slate annotationStore={annotationStore} editor={editor}>
+      <AnnotationOverlaySlices />
     </Slate>
   )
 }

@@ -41,6 +41,90 @@ test.describe('images example', () => {
     await expect(editor.locator('img')).toHaveCount(1)
   })
 
+  test('removes an empty paragraph after an image before deleting the image', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'images', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const paragraphAfterImage =
+      'This example shows images in action. It features two ways to add images. You can either add an image via the toolbar icon above, or if you want in on a little secret, copy an image URL to your clipboard and paste it anywhere in the editor!'
+
+    await editor.selection.selectDOM({
+      anchor: { path: [2, 0], offset: 0 },
+      focus: { path: [2, 0], offset: 0 },
+    })
+    await page.keyboard.press('Enter')
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [3, 0], offset: 0 },
+        focus: { path: [3, 0], offset: 0 },
+      })
+    await editor.selection.select({
+      anchor: { path: [2, 0], offset: 0 },
+      focus: { path: [2, 0], offset: 0 },
+    })
+
+    await page.keyboard.press('Backspace')
+
+    await expect(editor.root.locator('img')).toHaveCount(2)
+    await expect(editor.root).toContainText(paragraphAfterImage)
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      })
+    await expect
+      .poll(() =>
+        editor.root
+          .locator('img')
+          .first()
+          .evaluate((element) => getComputedStyle(element).boxShadow)
+      )
+      .not.toBe('none')
+  })
+
+  test('inserts a paragraph after a clicked selected image on Enter', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'images', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.root.locator('img').first().click()
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      })
+
+    await page.keyboard.press('Enter')
+    await page.keyboard.insertText('after image')
+
+    await expect.poll(() => editor.get.blockTexts()).toContain('after image')
+    await editor.assert.domCaret({
+      offset: 'after image'.length,
+      text: 'after image',
+    })
+  })
+
   test('does not let the image void spacer add visible space above image content', async ({
     browserName,
     page,

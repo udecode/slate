@@ -1,3 +1,4 @@
+import { getEditorSchema } from '../core/editor-runtime'
 import { applyOperation, runEditorTransaction } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { node as getNode } from '../editor/node'
@@ -15,6 +16,40 @@ import type { NodeMutationMethods } from '../interfaces/transforms/node'
 
 const getChildren = (editor: Editor, node: Ancestor) =>
   Node.isEditor(node) ? Editor.getChildren(editor) : node.children
+
+const pathContainsPath = (ancestor: Path, path: Path) =>
+  Path.equals(ancestor, path) || Path.isAncestor(ancestor, path)
+
+const getClosestIsolatingAncestor = (editor: Editor, path: Path) =>
+  Editor.above(editor, {
+    at: path,
+    match: (node) =>
+      Node.isElement(node) && getEditorSchema(editor).isIsolating(node),
+    mode: 'lowest',
+    voids: true,
+  })
+
+const crossesIsolatingBoundary = (
+  editor: Editor,
+  previous: readonly [Node, Path],
+  current: readonly [Node, Path]
+) => {
+  const [prevNode, prevPath] = previous
+  const [node, path] = current
+  const prevIsolating = getClosestIsolatingAncestor(editor, prevPath)
+  const currentIsolating = getClosestIsolatingAncestor(editor, path)
+
+  return (
+    (Node.isElement(prevNode) &&
+      getEditorSchema(editor).isIsolating(prevNode) &&
+      !pathContainsPath(prevPath, path)) ||
+    (Node.isElement(node) &&
+      getEditorSchema(editor).isIsolating(node) &&
+      !pathContainsPath(path, prevPath)) ||
+    (prevIsolating && !pathContainsPath(prevIsolating[1], path)) ||
+    (currentIsolating && !pathContainsPath(currentIsolating[1], prevPath))
+  )
+}
 
 const hasSingleChildNest = (editor: Editor, node: Node): boolean => {
   return (
@@ -92,6 +127,10 @@ export const mergeNodes: NodeMutationMethods['mergeNodes'] = (
       const [prevNode, prevPath] = prev
 
       if (path.length === 0 || prevPath.length === 0) {
+        return
+      }
+
+      if (crossesIsolatingBoundary(editor, prev, current)) {
         return
       }
 

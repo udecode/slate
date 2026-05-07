@@ -22,7 +22,7 @@ const TablesExample = () => {
     []
   )
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withHistory(editor) as CustomEditor,
+    withEditor: (editor) => withHistory(editor),
     initialValue,
   })
   const handleKeyDown = useCallback<EditableKeyDownHandler>(

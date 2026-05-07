@@ -17,13 +17,15 @@ type Callback = (
   change?: SnapshotChange
 ) => void
 
-export interface EditorSelectorOptions {
+export interface EditorSelectorOptions<
+  TEditor extends ReactEditor<any> = ReactEditor<any>,
+> {
   deferred?: boolean
   profileId?: string
   runtimeId?: RuntimeId | null
   shouldUpdate?: (
-    operations?: readonly Operation[],
-    change?: SnapshotChange
+    operations?: readonly Operation<ValueOf<TEditor>>[],
+    change?: SnapshotChange<ValueOf<TEditor>>
   ) => boolean
 }
 
@@ -72,7 +74,12 @@ export function useEditorSelector<
     operations?: readonly Operation<ValueOf<TEditor>>[]
   ) => T,
   equalityFn: (a: T | null, b: T) => boolean = refEquality,
-  { deferred, profileId, runtimeId, shouldUpdate }: EditorSelectorOptions = {}
+  {
+    deferred,
+    profileId,
+    runtimeId,
+    shouldUpdate,
+  }: EditorSelectorOptions<TEditor> = {}
 ): T {
   const context = useContext(EditorSelectorContext)
   if (!context) {
@@ -109,13 +116,23 @@ export function useEditorSelector<
     },
     [update]
   )
+  const shouldUpdateWithEditor = useCallback(
+    (operations?: readonly Operation[], change?: SnapshotChange) =>
+      shouldUpdate
+        ? shouldUpdate(
+            operations as readonly Operation<ValueOf<TEditor>>[] | undefined,
+            change as SnapshotChange<ValueOf<TEditor>> | undefined
+          )
+        : true,
+    [shouldUpdate]
+  )
 
   useIsomorphicLayoutEffect(() => {
     const unsubscribe = addEventListener(updateWithOperations, {
       deferred,
       profileId,
       runtimeId,
-      shouldUpdate,
+      shouldUpdate: shouldUpdate ? shouldUpdateWithEditor : undefined,
     })
     update()
     return unsubscribe
@@ -127,6 +144,7 @@ export function useEditorSelector<
     profileId,
     runtimeId,
     shouldUpdate,
+    shouldUpdateWithEditor,
   ])
 
   return selectedState

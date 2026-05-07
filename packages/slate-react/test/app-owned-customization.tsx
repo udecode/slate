@@ -8,6 +8,8 @@ import {
   Editable,
   EditableElement,
   Slate,
+  type SlateDecorationSource,
+  useSlateDecorationSource,
   withReact,
 } from '../src'
 
@@ -34,6 +36,62 @@ const TestEditorSurface = ({
 )
 
 describe('slate-react app-owned customization', () => {
+  test('useSlateDecorationSource owns source lifecycle while reading latest options', async () => {
+    const editor = withReact(createEditor({ initialValue: createChildren() }))
+    const sources: SlateDecorationSource<{ token: string }>[] = []
+
+    const Probe = ({ token }: { token: string }) => {
+      const source = useSlateDecorationSource<{ token: string }>(editor, {
+        id: 'hook-source',
+        read: () => [
+          {
+            data: { token },
+            key: 'hook-source-token',
+            range: {
+              anchor: { path: [0, 0], offset: 0 },
+              focus: { path: [0, 0], offset: 5 },
+            },
+          },
+        ],
+      })
+
+      sources.push(source)
+
+      return (
+        <Slate decorationSources={[source]} editor={editor}>
+          <Editable
+            renderSegment={(segment, children) => {
+              const token = segment.slices[0]?.data?.token
+
+              return token ? (
+                <span data-hook-token={token}>{children}</span>
+              ) : (
+                children
+              )
+            }}
+          />
+        </Slate>
+      )
+    }
+
+    const rendered = render(<Probe token="one" />)
+
+    expect(
+      rendered.container.querySelector('[data-hook-token="one"]')?.textContent
+    ).toBe('alpha')
+
+    rendered.rerender(<Probe token="two" />)
+    expect(sources[0]).toBe(sources[1])
+
+    await act(async () => {
+      sources[0]?.refresh({ forceInvalidate: true })
+    })
+
+    expect(
+      rendered.container.querySelector('[data-hook-token="two"]')?.textContent
+    ).toBe('alpha')
+  })
+
   test('Editable supports app-owned markdown preview projections', async () => {
     const editor = withReact(createEditor())
 

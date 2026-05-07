@@ -25,6 +25,7 @@ import type { MountedTopLevelRange } from '../rendering-strategy/rendering-strat
 import { isSelectionShellBacked } from '../rendering-strategy/rendering-strategy-commands'
 import { usePendingInsertionMarksEffect } from './composition-state'
 import type { DOMRepairQueue } from './dom-repair-queue'
+import { getEditableInputRules } from './editable-input-rules'
 import {
   createEditableInputController,
   createEditableInputControllerState,
@@ -143,6 +144,10 @@ export const useEditableRootRuntime = ({
   const preferModelSelectionForInputRef = useRef(false)
   const detachNativeInputListenersRef = useRef<(() => void) | null>(null)
   const domRepairQueueRef = useRef<DOMRepairQueue | null>(null)
+  const effectiveInputRules = useMemo(
+    () => getEditableInputRules(editor, inputRules),
+    [editor, inputRules]
+  )
   const processing = useRef(false)
   const { onUserInput, receivedUserInput } = useTrackUserInput()
 
@@ -298,11 +303,11 @@ export const useEditableRootRuntime = ({
       inputType: string
       selection: Range | null
     }) => {
-      if (!inputRules?.length) {
+      if (!effectiveInputRules.length) {
         return false
       }
 
-      for (const rule of inputRules) {
+      for (const rule of effectiveInputRules) {
         const result = rule({
           data,
           editor,
@@ -334,7 +339,7 @@ export const useEditableRootRuntime = ({
 
       return false
     },
-    [editor, inputRules, repairRuntime]
+    [editor, effectiveInputRules, repairRuntime]
   )
 
   const eventRuntime = useEditableEventRuntime({

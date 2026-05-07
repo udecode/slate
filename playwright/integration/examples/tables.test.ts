@@ -48,6 +48,85 @@ test.describe('table example', () => {
     })
   })
 
+  test('keeps Backspace after a table from deleting empty table cells', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'tables', {
+      ready: { editor: 'visible' },
+    })
+
+    await editor.selection.collapse({ path: [2, 0], offset: 0 })
+    await editor.root.press('Backspace')
+
+    await expect(editor.root.locator('table')).toHaveCount(1)
+    await expect(editor.root.locator('table')).toContainText('Human')
+    await expect(editor.root.locator('table')).toContainText('# of Feet')
+    await expect
+      .poll(() =>
+        editor.root
+          .locator('tr')
+          .evaluateAll((rows) =>
+            rows.map((row) => row.querySelectorAll('td,th').length)
+          )
+      )
+      .toEqual([4, 4, 4])
+    await editor.assert.selection({
+      anchor: { path: [1, 2, 3, 0], offset: 1 },
+      focus: { path: [1, 2, 3, 0], offset: 1 },
+    })
+  })
+
+  test('keeps ArrowDown at the table end inside the last cell when the table is last', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'tables', {
+      ready: { editor: 'visible' },
+    })
+    const trailingParagraph =
+      "This table is just a basic example of rendering a table, and it doesn't have fancy functionality. But you could augment it to add support for navigating with arrow keys, displaying table headers, adding column and rows, or even formulas if you wanted to get really crazy!"
+
+    await editor.selection.select({
+      anchor: { path: [2, 0], offset: 0 },
+      focus: { path: [2, 0], offset: trailingParagraph.length },
+    })
+    await editor.root.press('Backspace')
+    await editor.selection.collapse({ path: [2, 0], offset: 0 })
+    await editor.root.press('Backspace')
+    await editor.assert.selection({
+      anchor: { path: [1, 2, 3, 0], offset: 1 },
+      focus: { path: [1, 2, 3, 0], offset: 1 },
+    })
+
+    await resetSlateReactRenderProfiler(page)
+    await editor.root.press('ArrowDown')
+    await page.waitForTimeout(150)
+
+    await editor.assert.selection({
+      anchor: { path: [1, 2, 3, 0], offset: 1 },
+      focus: { path: [1, 2, 3, 0], offset: 1 },
+    })
+
+    const proof = await takeSlateBrowserRenderStateSnapshot(editor)
+
+    expect(proof.focusOwner.kind).toBe('editor')
+    expect(proof.selection).toEqual({
+      anchor: { path: [1, 2, 3, 0], offset: 1 },
+      focus: { path: [1, 2, 3, 0], offset: 1 },
+    })
+    expect(proof.selectionShells?.anchor.node?.path).toBe('1,2,3,0')
+    expect(proof.selectionShells?.anchor.element?.path).toBe('1,2,3')
+
+    await editor.root.type('X')
+
+    await expect(editor.root.locator('table')).toHaveCount(1)
+    await expect(editor.root.locator('td').last()).toHaveText('9X')
+    await expect(editor.root.locator('p')).toHaveCount(1)
+    await editor.assert.selection({
+      anchor: { path: [1, 2, 3, 0], offset: 2 },
+      focus: { path: [1, 2, 3, 0], offset: 2 },
+    })
+  })
+
   test('keeps Enter from splitting inside a table cell', async ({ page }) => {
     const editor = await openExample(page, 'tables', {
       ready: { editor: 'visible' },

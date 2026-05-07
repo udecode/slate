@@ -1,46 +1,14 @@
 import {
+  createContext,
   useCallback,
-  useEffect,
-  useMemo,
-  useRef,
+  useContext,
   useSyncExternalStore,
 } from 'react'
-import type { Editor } from 'slate'
-import {
-  createSlateAnnotationStore,
-  type SlateAnnotation,
-  type SlateAnnotationSnapshot,
-  type SlateAnnotationStore,
-  type SlateResolvedAnnotation,
+import type {
+  SlateAnnotationSnapshot,
+  SlateAnnotationStore,
+  SlateResolvedAnnotation,
 } from '../annotation-store'
-
-export function useSlateAnnotationStore<
-  TData = unknown,
-  TProjection extends Record<string, unknown> = Record<string, unknown>,
->(
-  editor: Editor,
-  annotations: readonly SlateAnnotation<TData, TProjection>[]
-): SlateAnnotationStore<TData, TProjection> {
-  const annotationsRef = useRef(annotations)
-  annotationsRef.current = annotations
-
-  const store = useMemo(
-    () => createSlateAnnotationStore(editor, () => annotationsRef.current),
-    [editor]
-  )
-
-  useEffect(() => {
-    store.refresh()
-  }, [annotations, store])
-
-  useEffect(() => {
-    return () => {
-      store.destroy()
-    }
-  }, [store])
-
-  return store
-}
 
 const EMPTY_SNAPSHOT = Object.freeze({
   allIds: Object.freeze([]),
@@ -48,19 +16,51 @@ const EMPTY_SNAPSHOT = Object.freeze({
 }) as SlateAnnotationSnapshot<any, any>
 
 const getEmptyAnnotation = () => null
+const subscribeEmpty = () => () => {}
+
+const getEmptySnapshot = <
+  TData = unknown,
+  TProjection extends Record<string, unknown> = Record<string, unknown>,
+>() => EMPTY_SNAPSHOT as SlateAnnotationSnapshot<TData, TProjection>
+
+export const SlateAnnotationStoreContext = createContext<SlateAnnotationStore<
+  any,
+  any
+> | null>(null)
+
+const useResolvedSlateAnnotationStore = <
+  TData = unknown,
+  TProjection extends Record<string, unknown> = Record<string, unknown>,
+>(
+  store?: SlateAnnotationStore<TData, TProjection> | null
+) => {
+  const contextStore = useContext(SlateAnnotationStoreContext)
+
+  return (store ?? contextStore) as SlateAnnotationStore<
+    TData,
+    TProjection
+  > | null
+}
 
 export function useSlateAnnotation<
   TData = unknown,
   TProjection extends Record<string, unknown> = Record<string, unknown>,
 >(
-  store: SlateAnnotationStore<TData, TProjection>,
-  id: string
+  id: string,
+  store?: SlateAnnotationStore<TData, TProjection> | null
 ): SlateResolvedAnnotation<TData, TProjection> | null {
+  const resolvedStore = useResolvedSlateAnnotationStore(store)
   const subscribe = useCallback(
-    (listener: () => void) => store.subscribeAnnotation(id, listener),
-    [id, store]
+    (listener: () => void) =>
+      resolvedStore
+        ? resolvedStore.subscribeAnnotation(id, listener)
+        : subscribeEmpty(),
+    [id, resolvedStore]
   )
-  const getSnapshot = useCallback(() => store.getAnnotation(id), [id, store])
+  const getSnapshot = useCallback(
+    () => resolvedStore?.getAnnotation(id) ?? null,
+    [id, resolvedStore]
+  )
 
   return useSyncExternalStore(subscribe, getSnapshot, getEmptyAnnotation)
 }
@@ -69,11 +69,23 @@ export function useSlateAnnotations<
   TData = unknown,
   TProjection extends Record<string, unknown> = Record<string, unknown>,
 >(
-  store: SlateAnnotationStore<TData, TProjection>
+  store?: SlateAnnotationStore<TData, TProjection> | null
 ): SlateAnnotationSnapshot<TData, TProjection> {
+  const resolvedStore = useResolvedSlateAnnotationStore(store)
+  const subscribe = useCallback(
+    (listener: () => void) =>
+      resolvedStore ? resolvedStore.subscribe(listener) : subscribeEmpty(),
+    [resolvedStore]
+  )
+  const getSnapshot = useCallback(
+    () =>
+      resolvedStore?.getSnapshot() ?? getEmptySnapshot<TData, TProjection>(),
+    [resolvedStore]
+  )
+
   return useSyncExternalStore(
-    store.subscribe,
-    store.getSnapshot,
-    () => EMPTY_SNAPSHOT as SlateAnnotationSnapshot<TData, TProjection>
+    subscribe,
+    getSnapshot,
+    getEmptySnapshot<TData, TProjection>
   )
 }

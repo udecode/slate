@@ -197,6 +197,106 @@ describe('collab and history runtime contract', () => {
     )
   })
 
+  it('replays replace_children paste operations through the collaboration import path', () => {
+    const source = createCollabEditor()
+    const remote = withHistory(createCollabEditor())
+
+    Editor.replace(source, {
+      children: Editor.getSnapshot(source).children,
+      selection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 'one'.length },
+      },
+      marks: null,
+    })
+
+    source.update(
+      (tx) => {
+        tx.fragment.insert([
+          {
+            type: 'bulleted-list',
+            children: [
+              {
+                type: 'list-item',
+                children: [{ text: 'one' }],
+              },
+              {
+                type: 'list-item',
+                children: [{ text: 'two' }],
+              },
+            ],
+          },
+        ])
+      },
+      { tag: ['local-edit', 'collab-export'] }
+    )
+
+    const sourceCommit = Editor.getLastCommit(source)
+
+    assert(sourceCommit)
+    assert.deepEqual(
+      sourceCommit.operations.map((operation) => operation.type),
+      ['replace_children']
+    )
+
+    remote.update(
+      (tx) => {
+        tx.operations.replay(sourceCommit.operations)
+      },
+      {
+        metadata: {
+          collab: { origin: 'remote', saveToHistory: false },
+          history: { mode: 'skip' },
+          selection: { dom: 'preserve' },
+        },
+        tag: ['collaboration', 'remote-import'],
+      }
+    )
+
+    const remoteCommit = Editor.getLastCommit(remote)
+
+    assert(remoteCommit)
+    assert.deepEqual(
+      remoteCommit.operations.map((operation) => operation.type),
+      ['replace_children']
+    )
+    assert.deepEqual(
+      Editor.getSnapshot(remote).children,
+      Editor.getSnapshot(source).children
+    )
+    assert.deepEqual(
+      Editor.getSnapshot(remote).selection,
+      Editor.getSnapshot(source).selection
+    )
+    assert.equal(remote.history.undos.length, 0)
+  })
+
+  it('stores replace_children range delete as one undoable history batch', () => {
+    const editor = withHistory(createCollabEditor())
+    const before = Editor.getSnapshot(editor)
+
+    editor.update((tx) => {
+      tx.text.delete({
+        at: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [1, 0], offset: 'two'.length },
+        },
+      })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [paragraph('three')])
+    assert.equal(editor.history.undos.length, 1)
+    assert.deepEqual(
+      editor.history.undos[0]?.operations.map((operation) => operation.type),
+      ['replace_children']
+    )
+
+    editor.undo()
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, before.children)
+    assert.deepEqual(Editor.getSnapshot(editor).selection, before.selection)
+  })
+
   it('replays remote operations without losing local bookmark ranges', () => {
     const remote = createCollabEditor()
     const bookmark = Editor.bookmark(remote, {

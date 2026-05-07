@@ -31,6 +31,161 @@ test.describe('Inlines example', () => {
     await expect(link).toContainText('https://example.com')
   })
 
+  test('types inside an editable inline at its end', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 1, 0], offset: 'hyperlink'.length },
+      focus: { path: [0, 1, 0], offset: 'hyperlink'.length },
+    })
+    await page.keyboard.insertText(' inside')
+
+    await expect(editor.root.locator('a').first()).toContainText(
+      'hyperlink inside'
+    )
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [0, 1, 0], offset: 'hyperlink inside'.length },
+        focus: { path: [0, 1, 0], offset: 'hyperlink inside'.length },
+      })
+  })
+
+  test('keeps the start of following text distinct from the end of an inline', async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 2], offset: 0 },
+      focus: { path: [0, 2], offset: 0 },
+    })
+    await editor.assert.domSelectionTarget({
+      anchorOffset: 0,
+      anchorPath: [0, 2],
+      isCollapsed: true,
+    })
+
+    await page.keyboard.insertText(' outside')
+
+    await expect(editor.root.locator('a').first()).toContainText('hyperlink')
+    await expect(editor.root.locator('a').first()).not.toContainText('outside')
+    await expect
+      .poll(async () =>
+        (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
+      )
+      .toContain('Here is a hyperlink outside, and here is')
+  })
+
+  test('places the caret outside a padded inline before typing', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const beforeButtonText = ', and here is a more unusual inline: an '
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 2], offset: beforeButtonText.length },
+      focus: { path: [0, 2], offset: beforeButtonText.length },
+    })
+    await editor.assert.domSelectionTarget({
+      anchorOffset: beforeButtonText.length,
+      anchorPath: [0, 2],
+      isCollapsed: true,
+    })
+
+    const caretRect = await editor.selection.rect()
+    const buttonLeft = await editor.root
+      .locator('[data-slate-path="0,3"]')
+      .first()
+      .evaluate((element) => element.getBoundingClientRect().left)
+
+    expect(caretRect).not.toBeNull()
+    expect(caretRect!.x).toBeLessThanOrEqual(buttonLeft + 1)
+  })
+
+  test('removes an empty editable inline with Backspace without deleting preceding text', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const beforeButtonText = ', and here is a more unusual inline: an '
+    const buttonText = 'editable button'
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 3, 0], offset: 0 },
+      focus: { path: [0, 3, 0], offset: buttonText.length },
+    })
+    await page.keyboard.press('Backspace')
+
+    await expect
+      .poll(async () =>
+        (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
+      )
+      .toContain(`${beforeButtonText}! Here is a read-only inline`)
+    await editor.assert.selection({
+      anchor: { path: [0, 3, 0], offset: 0 },
+      focus: { path: [0, 3, 0], offset: 0 },
+    })
+    await editor.assert.domSelectionTarget({
+      anchorOffset: 1,
+      anchorPath: [0, 3, 0],
+      isCollapsed: true,
+    })
+
+    await page.keyboard.press('Backspace')
+
+    await expect
+      .poll(async () =>
+        (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
+      )
+      .toContain(`${beforeButtonText}! Here is a read-only inline`)
+    await expect
+      .poll(async () =>
+        (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
+      )
+      .not.toContain(', and here is a more unusual inline: a! Here')
+    expect(await editor.get.selection()).not.toBe(null)
+    await editor.assert.domSelectionTarget({
+      isCollapsed: true,
+    })
+  })
+
   test('arrow keys skip over read-only inline', async ({ page }) => {
     const editor = await openExample(page, 'inlines', {
       ready: {

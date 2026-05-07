@@ -100,6 +100,31 @@ export type BaseSplitNodeOperation<V extends Value = Value> = {
 export type SplitNodeOperation<V extends Value = Value> =
   BaseSplitNodeOperation<V>
 
+export type BaseReplaceFragmentOperation<V extends Value = Value> = {
+  type: 'replace_fragment'
+  path: Path
+  children: DescendantIn<V>[]
+  newChildren: DescendantIn<V>[]
+  selection: Range | null
+  newSelection: Range | null
+}
+
+export type ReplaceFragmentOperation<V extends Value = Value> =
+  BaseReplaceFragmentOperation<V>
+
+export type BaseReplaceChildrenOperation<V extends Value = Value> = {
+  type: 'replace_children'
+  path: Path
+  index: number
+  children: DescendantIn<V>[]
+  newChildren: DescendantIn<V>[]
+  selection: Range | null
+  newSelection: Range | null
+}
+
+export type ReplaceChildrenOperation<V extends Value = Value> =
+  BaseReplaceChildrenOperation<V>
+
 export type NodeOperation<V extends Value = Value> =
   | InsertNodeOperation<V>
   | MergeNodeOperation<V>
@@ -121,11 +146,37 @@ export type TextOperation = InsertTextOperation | RemoveTextOperation
 
 export type BaseOperation<V extends Value = Value> =
   | NodeOperation<V>
+  | ReplaceChildrenOperation<V>
+  | ReplaceFragmentOperation<V>
   | SelectionOperation
   | TextOperation
 export type Operation<V extends Value = Value> = BaseOperation<V>
 
 export interface OperationInterface {
+  /**
+   * Check if a value is an `InsertNodeOperation` object.
+   */
+  isInsertNodeOperation: <V extends Value = Value>(
+    value: any
+  ) => value is InsertNodeOperation<V>
+
+  /**
+   * Check if a value is an `InsertTextOperation` object.
+   */
+  isInsertTextOperation: (value: any) => value is InsertTextOperation
+
+  /**
+   * Check if a value is a `MergeNodeOperation` object.
+   */
+  isMergeNodeOperation: <V extends Value = Value>(
+    value: any
+  ) => value is MergeNodeOperation<V>
+
+  /**
+   * Check if a value is a `MoveNodeOperation` object.
+   */
+  isMoveNodeOperation: (value: any) => value is MoveNodeOperation
+
   /**
    * Check if a value is a `NodeOperation` object.
    */
@@ -146,9 +197,54 @@ export interface OperationInterface {
   ) => value is Operation<V>[]
 
   /**
+   * Check if a value is a `RemoveNodeOperation` object.
+   */
+  isRemoveNodeOperation: <V extends Value = Value>(
+    value: any
+  ) => value is RemoveNodeOperation<V>
+
+  /**
+   * Check if a value is a `RemoveTextOperation` object.
+   */
+  isRemoveTextOperation: (value: any) => value is RemoveTextOperation
+
+  /**
+   * Check if a value is a `ReplaceChildrenOperation` object.
+   */
+  isReplaceChildrenOperation: <V extends Value = Value>(
+    value: any
+  ) => value is ReplaceChildrenOperation<V>
+
+  /**
+   * Check if a value is a `ReplaceFragmentOperation` object.
+   */
+  isReplaceFragmentOperation: <V extends Value = Value>(
+    value: any
+  ) => value is ReplaceFragmentOperation<V>
+
+  /**
    * Check if a value is a `SelectionOperation` object.
    */
   isSelectionOperation: (value: any) => value is SelectionOperation
+
+  /**
+   * Check if a value is a `SetNodeOperation` object.
+   */
+  isSetNodeOperation: <V extends Value = Value>(
+    value: any
+  ) => value is SetNodeOperation<V>
+
+  /**
+   * Check if a value is a `SetSelectionOperation` object.
+   */
+  isSetSelectionOperation: (value: any) => value is SetSelectionOperation
+
+  /**
+   * Check if a value is a `SplitNodeOperation` object.
+   */
+  isSplitNodeOperation: <V extends Value = Value>(
+    value: any
+  ) => value is SplitNodeOperation<V>
 
   /**
    * Check if a value is a `TextOperation` object.
@@ -162,8 +258,34 @@ export interface OperationInterface {
   inverse: <V extends Value = Value>(op: Operation<V>) => Operation<V>
 }
 
+const isOperationType = <V extends Value, TType extends Operation<V>['type']>(
+  value: any,
+  type: TType
+): value is Extract<Operation<V>, { type: TType }> =>
+  Operation.isOperation<V>(value) && value.type === type
+
 // eslint-disable-next-line no-redeclare
 export const Operation: OperationInterface = {
+  isInsertNodeOperation<V extends Value = Value>(
+    value: any
+  ): value is InsertNodeOperation<V> {
+    return isOperationType<V, 'insert_node'>(value, 'insert_node')
+  },
+
+  isInsertTextOperation(value: any): value is InsertTextOperation {
+    return isOperationType<Value, 'insert_text'>(value, 'insert_text')
+  },
+
+  isMergeNodeOperation<V extends Value = Value>(
+    value: any
+  ): value is MergeNodeOperation<V> {
+    return isOperationType<V, 'merge_node'>(value, 'merge_node')
+  },
+
+  isMoveNodeOperation(value: any): value is MoveNodeOperation {
+    return isOperationType<Value, 'move_node'>(value, 'move_node')
+  },
+
   isNodeOperation<V extends Value = Value>(
     value: any
   ): value is NodeOperation<V> {
@@ -200,6 +322,24 @@ export const Operation: OperationInterface = {
           typeof value.text === 'string' &&
           Path.isPath(value.path)
         )
+      case 'replace_fragment':
+        return (
+          Path.isPath(value.path) &&
+          Node.isNodeList(value.children) &&
+          Node.isNodeList(value.newChildren) &&
+          (value.selection === null || Range.isRange(value.selection)) &&
+          (value.newSelection === null || Range.isRange(value.newSelection))
+        )
+      case 'replace_children':
+        return (
+          Path.isPath(value.path) &&
+          Number.isInteger(value.index) &&
+          value.index >= 0 &&
+          Node.isNodeList(value.children) &&
+          Node.isNodeList(value.newChildren) &&
+          (value.selection === null || Range.isRange(value.selection)) &&
+          (value.newSelection === null || Range.isRange(value.newSelection))
+        )
       case 'set_node':
         return (
           Path.isPath(value.path) &&
@@ -231,8 +371,46 @@ export const Operation: OperationInterface = {
     )
   },
 
+  isRemoveNodeOperation<V extends Value = Value>(
+    value: any
+  ): value is RemoveNodeOperation<V> {
+    return isOperationType<V, 'remove_node'>(value, 'remove_node')
+  },
+
+  isRemoveTextOperation(value: any): value is RemoveTextOperation {
+    return isOperationType<Value, 'remove_text'>(value, 'remove_text')
+  },
+
+  isReplaceChildrenOperation<V extends Value = Value>(
+    value: any
+  ): value is ReplaceChildrenOperation<V> {
+    return isOperationType<V, 'replace_children'>(value, 'replace_children')
+  },
+
+  isReplaceFragmentOperation<V extends Value = Value>(
+    value: any
+  ): value is ReplaceFragmentOperation<V> {
+    return isOperationType<V, 'replace_fragment'>(value, 'replace_fragment')
+  },
+
   isSelectionOperation(value: any): value is SelectionOperation {
     return Operation.isOperation(value) && value.type.endsWith('_selection')
+  },
+
+  isSetNodeOperation<V extends Value = Value>(
+    value: any
+  ): value is SetNodeOperation<V> {
+    return isOperationType<V, 'set_node'>(value, 'set_node')
+  },
+
+  isSetSelectionOperation(value: any): value is SetSelectionOperation {
+    return isOperationType<Value, 'set_selection'>(value, 'set_selection')
+  },
+
+  isSplitNodeOperation<V extends Value = Value>(
+    value: any
+  ): value is SplitNodeOperation<V> {
+    return isOperationType<V, 'split_node'>(value, 'split_node')
   },
 
   isTextOperation(value: any): value is TextOperation {
@@ -284,6 +462,30 @@ export const Operation: OperationInterface = {
 
       case 'remove_text': {
         return { ...op, type: 'insert_text' }
+      }
+
+      case 'replace_fragment': {
+        const { children, newChildren, newSelection, selection } = op
+
+        return {
+          ...op,
+          children: newChildren,
+          newChildren: children,
+          selection: newSelection,
+          newSelection: selection,
+        }
+      }
+
+      case 'replace_children': {
+        const { children, newChildren, newSelection, selection } = op
+
+        return {
+          ...op,
+          children: newChildren,
+          newChildren: children,
+          selection: newSelection,
+          newSelection: selection,
+        }
       }
 
       case 'set_node': {

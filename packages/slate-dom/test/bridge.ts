@@ -189,6 +189,22 @@ describe('slate-dom bridge', () => {
     })
   })
 
+  it('resolves Slate node paths when user code attaches custom operations', () => {
+    const editor = createParagraphEditor() as DOMEditor & {
+      operations?: unknown[]
+    }
+    const [textNode] = editor.read((state) => state.nodes.get([0, 0]))
+
+    editor.operations = [
+      {
+        type: 'custom_operation',
+        path: [0],
+      },
+    ]
+
+    expect(editor.dom.findPath(textNode)).toEqual([0, 0])
+  })
+
   it('resolves Slate points by mounted DOM path when node path maps lag', () => {
     withDom(({ document }) => {
       const editor = createParagraphEditor()
@@ -237,6 +253,50 @@ describe('slate-dom bridge', () => {
     })
   })
 
+  it('resolves event ranges from browser caret ranges when the event target is editor-owned but unmapped', () => {
+    withDom(({ document }) => {
+      const editor = createParagraphEditor()
+      const root = mountEditorRoot(editor, document)
+      const paragraph = document.createElement('p')
+      const owner = document.createElement('span')
+      const leaf = document.createElement('span')
+      const string = document.createElement('span')
+      const domText = document.createTextNode('alpha beta')
+
+      paragraph.setAttribute('data-slate-node', 'element')
+      owner.setAttribute('data-slate-node', 'text')
+      owner.setAttribute('data-slate-path', '0,0')
+      owner.setAttribute(
+        'data-slate-runtime-id',
+        Editor.getRuntimeId(editor, [0, 0])!
+      )
+      leaf.setAttribute('data-slate-leaf', 'true')
+      string.setAttribute('data-slate-string', 'true')
+
+      string.appendChild(domText)
+      leaf.appendChild(string)
+      owner.appendChild(leaf)
+      paragraph.appendChild(owner)
+      root.appendChild(paragraph)
+
+      const caretRange = document.createRange()
+      caretRange.setStart(domText, 5)
+      caretRange.setEnd(domText, 5)
+      ;(document as any).caretRangeFromPoint = () => caretRange
+
+      expect(
+        editor.dom.findEventRange({
+          clientX: 0,
+          clientY: 0,
+          target: paragraph,
+        })
+      ).toEqual({
+        anchor: { path: [0, 0], offset: 5 },
+        focus: { path: [0, 0], offset: 5 },
+      })
+    })
+  })
+
   it('treats editor-owned unmapped DOM targets as non-void instead of throwing', () => {
     withDom(({ document }) => {
       const editor = createParagraphEditor()
@@ -282,6 +342,44 @@ describe('slate-dom bridge', () => {
         path: [0, 0],
         offset: 0,
       })
+    })
+  })
+
+  it('clamps non-exact DOM point offsets to the mounted Slate text bounds', () => {
+    withDom(({ document }) => {
+      const editor = createParagraphEditor('9')
+      const root = mountEditorRoot(editor, document)
+
+      const owner = document.createElement('span')
+      const leaf = document.createElement('span')
+      const string = document.createElement('span')
+      const domText = document.createTextNode(
+        '9This table is just a basic example of rendering a table'
+      )
+
+      leaf.setAttribute('data-slate-leaf', 'true')
+      string.setAttribute('data-slate-string', 'true')
+      string.appendChild(domText)
+      leaf.appendChild(string)
+      owner.appendChild(leaf)
+      root.appendChild(owner)
+      bindTextOwner(editor, [0, 0], owner)
+
+      expect(
+        editor.dom.toSlatePoint([domText, domText.textContent!.length], {
+          exactMatch: false,
+          suppressThrow: false,
+        })
+      ).toEqual<Point>({
+        path: [0, 0],
+        offset: 1,
+      })
+      expect(
+        editor.dom.toSlatePoint([domText, domText.textContent!.length], {
+          exactMatch: true,
+          suppressThrow: true,
+        })
+      ).toBeNull()
     })
   })
 

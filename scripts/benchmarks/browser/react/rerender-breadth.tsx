@@ -677,20 +677,8 @@ const AnnotationProjectionSlice = memo(
 )
 
 const AnnotationSidebarSlice = memo(
-  ({
-    annotationStore,
-    counts,
-  }: {
-    annotationStore: ReturnType<
-      typeof useSlateAnnotationStore<{
-        kind: string
-        label: string
-        tone: string
-      }>
-    >
-    counts: Record<string, number>
-  }) => {
-    useSlateAnnotations(annotationStore)
+  ({ counts }: { counts: Record<string, number> }) => {
+    useSlateAnnotations()
     increment(counts, 'annotationSidebar')
     return <span id="annotation-sidebar">sidebar</span>
   }
@@ -722,17 +710,9 @@ const AnnotationWidgetSlice = memo(
 )
 
 const AnnotationWidgetBreadthSlices = ({
-  annotationStore,
   counts,
   widgetStore,
 }: {
-  annotationStore: ReturnType<
-    typeof useSlateAnnotationStore<{
-      kind: string
-      label: string
-      tone: string
-    }>
-  >
   counts: Record<string, number>
   widgetStore: ReturnType<
     typeof useSlateWidgetStore<
@@ -760,10 +740,7 @@ const AnnotationWidgetBreadthSlices = ({
         slot="annotationRightText"
       />
       <AnnotationProjectionSlice counts={counts} runtimeId={leftLeafId} />
-      <AnnotationSidebarSlice
-        annotationStore={annotationStore}
-        counts={counts}
-      />
+      <AnnotationSidebarSlice counts={counts} />
       <AnnotationWidgetSlice counts={counts} widgetStore={widgetStore} />
     </>
   )
@@ -809,9 +786,8 @@ const AnnotationWidgetBreadthApp = ({
   }, [annotationStore, onStores, widgetStore])
 
   return (
-    <Slate annotationStores={[annotationStore]} editor={editor}>
+    <Slate annotationStore={annotationStore} editor={editor}>
       <AnnotationWidgetBreadthSlices
-        annotationStore={annotationStore}
         counts={counts}
         widgetStore={widgetStore}
       />

@@ -6,6 +6,7 @@
   - [Operation](./operation.md)
 - Operation subtypes
   - [Node Operations](README.md#node-operations)
+  - [Fragment Operations](README.md#fragment-operations)
   - [Text Operations](README.md#text-operations)
   - [Selection Operation](README.md#selection-operation)
   - [Base Operation](README.md#base-operation)
@@ -69,6 +70,29 @@ export type NodeOperation =
   | SplitNodeOperation
 ```
 
+### Fragment Operations
+
+Fragment operations replace a child slice under a path and carry the model
+selection before and after the replacement. Slate uses this shape for bulk
+edits such as paste, where one user action should stay one history and
+collaboration operation.
+
+```typescript
+type ReplaceFragmentOperation = {
+  type: 'replace_fragment'
+  path: Path
+  children: Node[]
+  newChildren: Node[]
+  selection: Range | null
+  newSelection: Range | null
+}
+```
+
+Collaboration adapters can replay this operation directly through
+`tx.operations.replay(...)`. CRDT adapters that cannot represent subtree
+replacement atomically should lower it to their own CRDT edits at the adapter
+boundary.
+
 ### Text Operations
 
 Text operations operate on `Text` objects only.
@@ -125,5 +149,9 @@ export type SelectionOperation = SetSelectionOperation
 The combination of all operation types.
 
 ```typescript
-export type BaseOperation = NodeOperation | SelectionOperation | TextOperation
+export type BaseOperation =
+  | NodeOperation
+  | ReplaceFragmentOperation
+  | SelectionOperation
+  | TextOperation
 ```

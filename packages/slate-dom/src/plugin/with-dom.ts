@@ -27,6 +27,17 @@ import {
 import { setDOMClipboardFormatKey } from './dom-clipboard-runtime'
 import { createDOMEditorCapability, DOMEditor } from './dom-editor'
 
+const DEFAULT_CLIPBOARD_FORMAT_KEY = 'x-slate-fragment'
+
+export interface DOMEditorOptions {
+  /**
+   * Bare `DataTransfer` subtype for Slate's internal fragment payload.
+   *
+   * Slate writes and reads `application/${clipboardFormatKey}`.
+   */
+  clipboardFormatKey?: string
+}
+
 /**
  * `withDOM` adds DOM specific behaviors to the editor.
  *
@@ -39,10 +50,12 @@ export const withDOM = <
   T extends import('slate').Editor<V>,
 >(
   editor: T,
-  clipboardFormatKey = 'x-slate-fragment'
+  options: DOMEditorOptions = {}
 ): T & DOMEditor<V> => {
   const e = editor as unknown as T & DOMEditor<V>
   const transforms = getEditorTransformRegistry(e)
+  const { clipboardFormatKey = DEFAULT_CLIPBOARD_FORMAT_KEY } = options
+
   setDOMClipboardFormatKey(e, clipboardFormatKey)
   e.dom = createDOMEditorCapability(e)
 

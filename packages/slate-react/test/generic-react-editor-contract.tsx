@@ -1,6 +1,13 @@
-import { createEditor, type Operation, type ValueOf } from 'slate'
+import {
+  createEditor,
+  type Operation,
+  type SnapshotChange,
+  type Value,
+  type ValueOf,
+} from 'slate'
 import { type HistoryEditor, withHistory } from 'slate-history'
 import {
+  type EditorSelectorOptions,
   type ReactEditor,
   useEditorSelector,
   useSlateEditor,
@@ -28,6 +35,11 @@ type CustomValue = (ParagraphElement | LinkElement)[]
 type FooEditor<V> = {
   fooValue(): V
 }
+
+type OptionalDecorationEditor<V extends Value> = ReactEditor<V> &
+  HistoryEditor<V> & {
+    nodeToDecorations?: Map<object, unknown[]>
+  }
 
 const withFoo = <T extends ReactEditor<any>>(
   editor: T
@@ -58,6 +70,19 @@ const value: _Value = [
   { type: 'paragraph', children: [{ text: 'one', bold: true }] },
 ]
 
+const selectorOptions: EditorSelectorOptions<typeof reactEditor> = {
+  shouldUpdate: (operations, change) => {
+    const typedOperations: readonly Operation<CustomValue>[] | undefined =
+      operations
+    const typedChange: SnapshotChange<CustomValue> | undefined = change
+
+    void typedOperations
+    void typedChange
+
+    return true
+  },
+}
+
 const SelectorProbe = () => {
   const selected = useEditorSelector<number, typeof reactEditor>(
     (selectedEditor, operations) => {
@@ -71,7 +96,9 @@ const SelectorProbe = () => {
       void typedOperations
 
       return valueFromSelector.length
-    }
+    },
+    undefined,
+    selectorOptions
   )
 
   void selected
@@ -86,6 +113,8 @@ const HookProbe = () => {
   })
   const typedHookEditor: ReactEditor<CustomValue> & HistoryEditor<CustomValue> =
     hookEditor
+  const optionalDecorationEditor: OptionalDecorationEditor<CustomValue> =
+    hookEditor
   const valueFromHook: CustomValue = hookEditor.read((state) =>
     state.value.get()
   )
@@ -98,6 +127,7 @@ const HookProbe = () => {
     FooEditor<CustomValue> = composedHookEditor
 
   typedHookEditor.undo()
+  optionalDecorationEditor.undo()
   typedComposedHookEditor.undo()
 
   void valueFromHook

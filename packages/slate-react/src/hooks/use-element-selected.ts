@@ -7,29 +7,29 @@ import { ReactEditor } from '../plugin/react-editor'
 import { useEditorSelector } from './use-editor-selector'
 import { useElementIf } from './use-element'
 
-export const useElementSelected = (target?: Path): boolean => {
+export const useElementSelected = (path?: Path): boolean => {
   const element = useElementIf()
   const contextPath = useContext(ElementPathContext)
   const runtimeId = useContext(NodeRuntimeIdContext)
 
-  if (!element && !target) return false
+  if (!element && !path) return false
 
   const selector = useCallback(
     (editor: ReactEditor) => {
       const selection = readRuntimeSelection(editor)
 
       if (!selection) return false
-      const path =
-        target ??
+      const selectedPath =
+        path ??
         contextPath ??
         (element ? ReactEditor.findPath(editor, element) : null)
-      if (!path) return false
-      if (!Editor.hasPath(editor, path)) return false
+      if (!selectedPath) return false
+      if (!Editor.hasPath(editor, selectedPath)) return false
 
-      const range = Editor.range(editor, path)
+      const range = Editor.range(editor, selectedPath)
       return !!Range.intersection(range, selection)
     },
-    [contextPath, element, target]
+    [contextPath, element, path]
   )
 
   const shouldUpdate = useCallback(

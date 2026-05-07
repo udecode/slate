@@ -2,6 +2,7 @@ import { css } from '@emotion/css'
 import type React from 'react'
 import { useCallback, useMemo } from 'react'
 import type { Descendant, Element as SlateElement } from 'slate'
+import type { DOMClipboardInsertDataHandler } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import { jsx } from 'slate-hyperscript'
 import {
@@ -158,7 +159,7 @@ const PasteHtmlExample = () => {
     []
   )
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withHtml(withHistory(editor) as CustomEditor),
+    withEditor: (editor) => withHtml(withHistory(editor)),
     initialValue,
   })
   return (
@@ -169,7 +170,7 @@ const PasteHtmlExample = () => {
         renderLeaf={renderLeaf}
         renderVoid={(props) =>
           isImageElement(props.element) ? (
-            <ImageElement element={props.element} target={props.target} />
+            <ImageElement element={props.element} path={props.path} />
           ) : null
         }
       />
@@ -178,11 +179,13 @@ const PasteHtmlExample = () => {
 }
 
 const withHtml = (editor: CustomEditor) => {
+  const insertData: DOMClipboardInsertDataHandler = (_domEditor, data) =>
+    insertHtmlData(editor, data)
+
   editor.extend({
     name: 'paste-html',
     capabilities: {
-      'dom.clipboard.insertData': (_editor: unknown, data: DataTransfer) =>
-        insertHtmlData(editor, data),
+      'dom.clipboard.insertData': insertData,
     },
     elements: [
       { inline: true, type: 'link' },
@@ -277,12 +280,9 @@ const SafeLink = ({ children, href, attributes }: SafeLinkProps) => {
   )
 }
 
-const ImageElement = ({
-  element,
-  target,
-}: RenderVoidProps<ImageElementType>) => {
+const ImageElement = ({ element, path }: RenderVoidProps<ImageElementType>) => {
   const focused = useEditorFocused()
-  const selected = useElementSelected(target)
+  const selected = useElementSelected(path)
 
   return (
     <img

@@ -1,4 +1,12 @@
-import { Node, type Path, type Point, Range, Scrubber, type Value } from 'slate'
+import {
+  Node,
+  type Path,
+  type Point,
+  Range,
+  Scrubber,
+  Text,
+  type Value,
+} from 'slate'
 import { Editor, getEditorLiveSelection } from 'slate/internal'
 import type { TextDiff } from '../utils/diff-text'
 import {
@@ -117,6 +125,11 @@ export interface DOMEditorClipboardCapability {
    */
   writeSelection: (data: Pick<DataTransfer, 'getData' | 'setData'>) => void
 }
+
+export type DOMClipboardInsertDataHandler<V extends Value = Value> = (
+  editor: DOMEditor<V>,
+  data: DataTransfer
+) => boolean | void
 
 export interface DOMEditorClipboardInterface {
   /**
@@ -413,6 +426,47 @@ const toSlatePointFromDOMCoverageBoundary = (
   })
 }
 
+const resolveSlateTextPoint = <T extends boolean>({
+  domPoint,
+  exactMatch,
+  offset,
+  path,
+  slateNode,
+  suppressThrow,
+}: {
+  domPoint: DOMPoint
+  exactMatch: boolean
+  offset: number
+  path: Path
+  slateNode: Node
+  suppressThrow: T
+}): Point | null => {
+  if (!Text.isText(slateNode)) {
+    return { path, offset }
+  }
+
+  const textLength = slateNode.text.length
+
+  if (Number.isFinite(offset) && offset >= 0 && offset <= textLength) {
+    return { path, offset }
+  }
+
+  if (!exactMatch) {
+    const finiteOffset = Number.isFinite(offset) ? offset : 0
+
+    return {
+      path,
+      offset: Math.max(0, Math.min(textLength, finiteOffset)),
+    }
+  }
+
+  if (suppressThrow) {
+    return null
+  }
+
+  throw new Error(`Cannot resolve a Slate point from DOM point: ${domPoint}`)
+}
+
 // eslint-disable-next-line no-redeclare
 export const DOMEditor: DOMEditorInterface = {
   androidPendingDiffs: (editor) => EDITOR_TO_PENDING_DIFFS.get(editor),
@@ -467,13 +521,22 @@ export const DOMEditor: DOMEditorInterface = {
       throw new Error(`Cannot resolve a Slate range from a DOM event: ${event}`)
     }
 
-    const node = DOMEditor.toSlateNode(editor, event.target)
-    const path = DOMEditor.findPath(editor, node)
+    let node: Node | null = null
+    let path: Path | null = null
+
+    try {
+      node = DOMEditor.toSlateNode(editor, event.target)
+      path = DOMEditor.findPath(editor, node)
+    } catch (error) {
+      if (!isDOMNode(target) || !DOMEditor.hasDOMNode(editor, target)) {
+        throw error
+      }
+    }
 
     // If the drop target is inside a void node, move it into either the
     // next or previous node, depending on which side the `x` and `y`
     // coordinates are closest to.
-    if (Node.isElement(node) && Editor.isVoid(editor, node)) {
+    if (node && path && Node.isElement(node) && Editor.isVoid(editor, node)) {
       const rect = target.getBoundingClientRect()
       const isPrev = Editor.isInline(editor, node)
         ? x - rect.left < rect.left + rect.width - x
@@ -1213,9 +1276,19 @@ export const DOMEditor: DOMEditorInterface = {
       )
 
       if (fallbackPath && Editor.hasPath(editor, fallbackPath)) {
-        return { path: fallbackPath, offset } as T extends true
-          ? Point | null
-          : Point
+        const [fallbackNode] = editor.read((state) =>
+          state.nodes.get(fallbackPath)
+        )
+        const point = resolveSlateTextPoint({
+          domPoint,
+          exactMatch,
+          offset,
+          path: fallbackPath,
+          slateNode: fallbackNode,
+          suppressThrow,
+        })
+
+        return point as T extends true ? Point | null : Point
       }
 
       if (suppressThrow) {
@@ -1223,7 +1296,16 @@ export const DOMEditor: DOMEditorInterface = {
       }
       throw e
     }
-    return { path, offset } as T extends true ? Point | null : Point
+    const point = resolveSlateTextPoint({
+      domPoint,
+      exactMatch,
+      offset,
+      path,
+      slateNode,
+      suppressThrow,
+    })
+
+    return point as T extends true ? Point | null : Point
   },
 
   toSlateRange: <T extends boolean>(

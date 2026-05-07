@@ -1,8 +1,6 @@
-import assert from 'node:assert/strict'
-import { describe, it } from 'node:test'
-
 import { createEditor } from 'slate'
 import { Editor } from 'slate/internal'
+import { describe, expect, it } from 'vitest'
 import type { ReactEditor } from '../src'
 
 import { applyModelOwnedBeforeInputOperation } from '../src/editable/model-input-strategy'
@@ -41,7 +39,7 @@ describe('model input strategy', () => {
       setComposing: () => {},
     })
 
-    assert.equal(Editor.string(editor, []), 'kernel')
+    expect(Editor.string(editor, [])).toBe('kernel')
   })
 
   it('uses the synced collapsed selection for model-owned insertText', () => {
@@ -63,8 +61,8 @@ describe('model input strategy', () => {
       setComposing: () => {},
     })
 
-    assert.equal(Editor.string(editor, []), 'ab!cd')
-    assert.deepEqual(Editor.getSelection(editor), {
+    expect(Editor.string(editor, [])).toBe('ab!cd')
+    expect(Editor.getSelection(editor)).toEqual({
       anchor: { path: [0, 0], offset: 3 },
       focus: { path: [0, 0], offset: 3 },
     })
@@ -90,6 +88,6 @@ describe('model input strategy', () => {
       setComposing: () => {},
     })
 
-    assert.equal(Editor.string(editor, []), 'ad')
+    expect(Editor.string(editor, [])).toBe('ad')
   })
 })

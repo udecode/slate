@@ -293,8 +293,23 @@ export const applyEditableCut = ({
       }
       const node = Node.parent(editor, selection.anchor.path)
       if (Node.isElement(node) && Editor.isVoid(editor, node)) {
+        const command: EditableCommand = { kind: 'delete-fragment' }
+
         editor.update((tx) => {
           tx.text.delete()
+        })
+
+        return clipboardResult({
+          command,
+          repair: {
+            focus: true,
+            kind: 'repair-caret',
+            selectionSourceTransition: {
+              preferModelSelection: true,
+              reason: 'model-command',
+              selectionSource: 'model-owned',
+            },
+          },
         })
       }
     }

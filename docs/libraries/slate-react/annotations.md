@@ -70,6 +70,27 @@ const annotationStore = useSlateAnnotationStore(editor, [
 ])
 ```
 
+Pass the store to `Slate` when editor-local annotation UI lives under that
+provider. `useSlateAnnotations()` and `useSlateAnnotation(id)` read that store
+by default.
+
+```tsx
+<Slate annotationStore={annotationStore} editor={editor}>
+  <Editable renderSegment={renderCommentSegment} />
+  <CommentsSidebar />
+</Slate>
+
+function CommentsSidebar() {
+  const snapshot = useSlateAnnotations()
+
+  return snapshot.allIds.map((id) => {
+    const comment = snapshot.byId.get(id)
+
+    return <CommentThread key={id} comment={comment} />
+  })
+}
+```
+
 Release bookmarks when the app removes the annotation.
 
 ```tsx

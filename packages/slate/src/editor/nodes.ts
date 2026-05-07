@@ -29,17 +29,17 @@ export function* nodes<T extends Node>(
   let to: Path
 
   if (Location.isSpan(at)) {
-    from = at[0]
-    to = at[1]
+    const [first, last] = at
+    from = Path.isBefore(last, first) ? last : first
+    to = Path.isBefore(last, first) ? first : last
   } else {
     const first = Editor.path(editor, at, { edge: 'start' })
     const last = Editor.path(editor, at, { edge: 'end' })
-    from = reverse ? last : first
-    to = reverse ? first : last
+    from = first
+    to = last
   }
 
   const nodeEntries = Node.nodes(editor, {
-    reverse,
     from,
     to,
     pass: ([node, path]) => {
@@ -56,6 +56,7 @@ export function* nodes<T extends Node>(
   })
 
   const matches: NodeEntry<T>[] = []
+  const shouldBuffer = reverse || universal
   let hit: NodeEntry<T> | undefined
 
   for (const [node, path] of nodeEntries) {
@@ -87,7 +88,7 @@ export function* nodes<T extends Node>(
       mode === 'lowest' ? hit : ([node, path] as NodeEntry<T>)
 
     if (emit) {
-      if (universal) {
+      if (shouldBuffer) {
         matches.push(emit)
       } else {
         yield emit
@@ -99,7 +100,7 @@ export function* nodes<T extends Node>(
 
   // Since lowest is always emitting one behind, catch up at the end.
   if (mode === 'lowest' && hit) {
-    if (universal) {
+    if (shouldBuffer) {
       matches.push(hit)
     } else {
       yield hit
@@ -108,7 +109,7 @@ export function* nodes<T extends Node>(
 
   // Universal defers to ensure that the match occurs in every branch, so we
   // yield all of the matches after iterating.
-  if (universal) {
-    yield* matches
+  if (shouldBuffer) {
+    yield* reverse ? matches.reverse() : matches
   }
 }

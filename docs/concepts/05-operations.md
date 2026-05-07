@@ -35,4 +35,10 @@ editor.update(tx => {
 
 Under the covers Slate converts editor method calls into low-level operations and applies them automatically. You usually think about operations only when implementing collaborative editing, history, or import/export tooling.
 
+Bulk edits can still be one operation. For example, paste can produce a
+`replace_fragment` operation that replaces a child slice and moves the model
+selection to the end of the inserted fragment. Collaboration adapters can replay
+that operation directly, or translate it into their own CRDT representation at
+the adapter boundary.
+
 > 🤖 Slate's editing behaviors being defined as operations is what makes things like collaborative editing possible, because each change is easily define-able, apply-able, compose-able and even undo-able!

@@ -16,7 +16,7 @@ import type {
 
 const EmbedsExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withEmbeds(withHistory(editor) as CustomEditor),
+    withEditor: (editor) => withEmbeds(withHistory(editor)),
     initialValue,
   })
   return (
@@ -26,7 +26,7 @@ const EmbedsExample = () => {
         renderElement={(props) => <Element {...props} />}
         renderVoid={(props) =>
           isVideoElement(props.element) ? (
-            <VideoElement element={props.element} target={props.target} />
+            <VideoElement element={props.element} path={props.path} />
           ) : null
         }
       />
@@ -56,10 +56,10 @@ const allowedSchemes = ['http:', 'https:']
 
 const VideoElement = ({
   element,
-  target,
+  path,
 }: {
   element: VideoElementType
-  target: Path
+  path: Path
 }) => {
   const editor = useEditor<CustomEditor>()
   const { url } = element
@@ -99,7 +99,7 @@ const VideoElement = ({
       <UrlInput
         onChange={(val) => {
           editor.update((tx) => {
-            tx.nodes.set({ url: val }, { at: target, voids: true })
+            tx.nodes.set({ url: val }, { at: path, voids: true })
           })
         }}
         url={url}

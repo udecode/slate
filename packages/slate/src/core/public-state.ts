@@ -94,6 +94,32 @@ type CommitRuntimeDirtiness = Pick<
   | 'topLevelOrderChanged'
 >
 
+const KNOWN_OPERATION_TYPES = new Set([
+  'insert_node',
+  'insert_text',
+  'merge_node',
+  'move_node',
+  'remove_node',
+  'remove_text',
+  'replace_children',
+  'replace_fragment',
+  'set_node',
+  'set_selection',
+  'split_node',
+])
+
+const assertKnownReplayOperation = (operation: unknown) => {
+  const type = (operation as { type?: unknown } | null)?.type
+
+  if (typeof type === 'string' && KNOWN_OPERATION_TYPES.has(type)) {
+    return
+  }
+
+  const label = typeof type === 'string' ? `"${type}"` : 'unknown'
+
+  throw new Error(`Cannot replay an unknown Slate operation: ${label}.`)
+}
+
 const CHILDREN = new WeakMap<Editor, Descendant[]>()
 const CURRENT_MARKS = new WeakMap<Editor, EditorMarks | null>()
 const CURRENT_SELECTION = new WeakMap<Editor, Selection>()
@@ -208,6 +234,7 @@ const operationInvalidatesRuntimeIndex = (operation: Operation) => {
     case 'insert_node':
     case 'merge_node':
     case 'move_node':
+    case 'replace_children':
     case 'remove_node':
     case 'split_node':
       return true
@@ -642,8 +669,11 @@ export const getOperationDirtiness = (
   const hasTextOperation = operations.some(
     (op) => op.type === 'insert_text' || op.type === 'remove_text'
   )
+  const hasReplaceFragmentOperation = operations.some(
+    (op) => op.type === 'replace_fragment'
+  )
   const classes =
-    reason === 'replace'
+    reason === 'replace' || hasReplaceFragmentOperation
       ? (['replace'] as const)
       : operations.length > 0 &&
           operations.every((op) => op.type === 'set_selection')
@@ -695,9 +725,15 @@ export const getOperationDirtiness = (
     JSON.stringify(selectionBefore ?? null) !==
       JSON.stringify(selectionAfter ?? null)
   const previousRuntimeIndex = previousIndex ?? getSnapshot(editor).index
-  const nextRuntimeIndex = getLiveRuntimeIndex(editor)
+  const topLevelOrderChanged =
+    classes[0] === 'structural' &&
+    operations.some(operationChangesTopLevelOrder)
+  const nextRuntimeIndex =
+    topLevelOrderChanged && classes[0] === 'structural'
+      ? previousRuntimeIndex
+      : getLiveRuntimeIndex(editor)
   const selectionImpactRuntimeIds =
-    classes[0] === 'replace'
+    classes[0] === 'replace' || topLevelOrderChanged
       ? null
       : getSelectionImpactRuntimeIds({
           nextIndex: nextRuntimeIndex,
@@ -1075,6 +1111,7 @@ const getUpdateView = <V extends Value>(
 
         withUpdateTagContext(editor, normalizeUpdateTags(options.tag), () => {
           for (const operation of operations) {
+            assertKnownReplayOperation(operation)
             applyOperation(editor, cloneValue(operation))
           }
         })
@@ -1686,6 +1723,8 @@ const getRuntimeIdsForIndex = (index: RuntimeIndexLike): RuntimeId[] =>
 
 const operationChangesTopLevelOrder = (operation: Operation): boolean => {
   switch (operation.type) {
+    case 'replace_children':
+      return operation.path.length === 0
     case 'insert_node':
     case 'merge_node':
     case 'remove_node':
@@ -2001,8 +2040,11 @@ export const buildSnapshotChange = ({
   const hasTextOperation = operations.some(
     (op) => op.type === 'insert_text' || op.type === 'remove_text'
   )
+  const hasReplaceFragmentOperation = operations.some(
+    (op) => op.type === 'replace_fragment'
+  )
   const classes =
-    reason === 'replace'
+    reason === 'replace' || hasReplaceFragmentOperation
       ? (['replace'] as const)
       : operations.length > 0 &&
           operations.every((op) => op.type === 'set_selection')
@@ -2112,7 +2154,7 @@ export const buildSnapshotChange = ({
       metadata: cloneUpdateMetadata(metadata),
       nodeImpactRuntimeIds,
       operations: Object.freeze([...operations]),
-      replaceEpoch: reason === 'replace' ? 1 : 0,
+      replaceEpoch: classes[0] === 'replace' ? 1 : 0,
       selectionAfter: cloneValue(nextSnapshot.selection),
       selectionBefore: cloneValue(previousSnapshot.selection),
       selectionChanged,

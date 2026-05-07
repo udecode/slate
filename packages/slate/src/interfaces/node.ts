@@ -280,6 +280,42 @@ export interface NodeInterface {
 const getAncestorChildren = (node: Ancestor): Descendant[] =>
   Node.isEditor(node) ? Editor.getChildren(node) : node.children
 
+const getWholeTopLevelChildFragment = (
+  root: Ancestor,
+  range: Range
+): Descendant[] | null => {
+  const children = getAncestorChildren(root)
+  const [start, end] = Range.edges(range)
+  const startIndex = start.path[0]
+  const endIndex = end.path[0]
+
+  if (
+    startIndex == null ||
+    endIndex == null ||
+    startIndex < 0 ||
+    endIndex < startIndex ||
+    endIndex >= children.length ||
+    start.offset !== 0
+  ) {
+    return null
+  }
+
+  const [firstNode, firstPath] = Node.first(root, [startIndex])
+  const [lastNode, lastPath] = Node.last(root, [endIndex])
+
+  if (
+    !Node.isText(firstNode) ||
+    !Node.isText(lastNode) ||
+    !Path.equals(firstPath, start.path) ||
+    !Path.equals(lastPath, end.path) ||
+    end.offset !== lastNode.text.length
+  ) {
+    return null
+  }
+
+  return children.slice(startIndex, endIndex + 1)
+}
+
 // eslint-disable-next-line no-redeclare
 export const Node: NodeInterface = {
   ancestor(root: Node, path: Path): Ancestor {
@@ -428,6 +464,12 @@ export const Node: NodeInterface = {
   },
 
   fragment<T extends Ancestor = Editor>(root: T, range: Range): Descendant[] {
+    const wholeTopLevelFragment = getWholeTopLevelChildFragment(root, range)
+
+    if (wholeTopLevelFragment) {
+      return wholeTopLevelFragment
+    }
+
     const newRoot = { children: getAncestorChildren(root) }
 
     const [start, end] = Range.edges(range)

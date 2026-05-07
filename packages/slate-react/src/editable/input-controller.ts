@@ -104,10 +104,12 @@ const isPlainTextKeyboardIntent = (event: KeyboardEvent) =>
 export const classifyKeyboardIntent = ({
   editor,
   event,
+  isComposing = false,
   renderingStrategy,
 }: {
   editor: ReactEditor
   event: ReactKeyboardEvent<HTMLDivElement>
+  isComposing?: boolean
   renderingStrategy: unknown
 }): InputIntent | null => {
   if (isInteractiveInternalTarget(editor, event.target)) {
@@ -115,6 +117,10 @@ export const classifyKeyboardIntent = ({
   }
 
   const { nativeEvent } = event
+
+  if (isComposing || nativeEvent.isComposing) {
+    return 'composition'
+  }
 
   if (Hotkeys.isUndo(nativeEvent) || Hotkeys.isRedo(nativeEvent)) {
     return 'history'

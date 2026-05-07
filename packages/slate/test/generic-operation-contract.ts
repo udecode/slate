@@ -1,7 +1,10 @@
 import {
   createEditor,
   type InsertNodeOperation,
-  type Operation,
+  type InsertTextOperation,
+  Operation,
+  type ReplaceChildrenOperation,
+  type Operation as SlateOperation,
   type TextOf,
 } from 'slate'
 import { Editor } from 'slate/internal'
@@ -26,7 +29,7 @@ Editor.replace(editor, {
   marks: null,
 })
 
-const insertText: Operation<CustomValue> = {
+const insertText: SlateOperation<CustomValue> = {
   type: 'insert_text',
   path: [0, 0],
   offset: 0,
@@ -37,6 +40,33 @@ const insertNode: InsertNodeOperation<CustomValue> = {
   type: 'insert_node',
   path: [0],
   node: { type: 'paragraph', children: [{ text: 'a', bold: true }] },
+}
+
+const unknownOperation: unknown = {
+  type: 'insert_text',
+  path: [0, 0],
+  offset: 0,
+  text: 'b',
+}
+
+if (Operation.isInsertTextOperation(unknownOperation)) {
+  const narrowed: InsertTextOperation = unknownOperation
+  void narrowed.text
+}
+
+const unknownReplaceChildren: unknown = {
+  type: 'replace_children',
+  path: [],
+  index: 0,
+  children: [],
+  newChildren: [{ type: 'paragraph', children: [{ text: 'next' }] }],
+  selection: null,
+  newSelection: null,
+}
+
+if (Operation.isReplaceChildrenOperation<CustomValue>(unknownReplaceChildren)) {
+  const narrowed: ReplaceChildrenOperation<CustomValue> = unknownReplaceChildren
+  void narrowed.newChildren[0]?.children
 }
 
 editor.update((tx) => {

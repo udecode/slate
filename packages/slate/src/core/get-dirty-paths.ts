@@ -65,6 +65,14 @@ export const getDirtyPaths = (editor: Editor, op: Operation): Path[] => {
       return [...ancestors]
     }
 
+    case 'replace_fragment': {
+      return [op.path]
+    }
+
+    case 'replace_children': {
+      return [op.path]
+    }
+
     case 'split_node': {
       const { path } = op
       const levels = Path.levels(path)

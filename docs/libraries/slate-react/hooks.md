@@ -76,9 +76,9 @@ Get the current element object inside an element renderer.
 Get the current element object, or `null` when the component is not inside an
 element renderer.
 
-#### `useElementSelected(target?: Path): boolean`
+#### `useElementSelected(path?: Path): boolean`
 
-Subscribe to whether a specific element target intersects the current
+Subscribe to whether a specific element path intersects the current
 selection. Use this only when the component actually draws selected UI.
 
 #### `useNodeSelector<T>(selector, equalityFn?, options?): T`

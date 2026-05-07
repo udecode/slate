@@ -13,7 +13,7 @@
 
 ```typescript
 type SlateProps = {
-  annotationStores?: readonly SlateAnnotationStore[] | null
+  annotationStore?: SlateAnnotationStore | null
   children: React.ReactNode
   decorationSources?: readonly SlateDecorationSource[] | null
   editor: ReactEditor
@@ -146,9 +146,9 @@ const searchSource = useMemo(
 
 Prefer provider-owned `decorationSources` so every `Editable` and overlay UI reads from the same projection source.
 
-### `annotationStores`
+### `annotationStore`
 
-Annotation stores publish anchor-backed annotations to text rendering and annotation UI hooks.
+The annotation store publishes anchor-backed annotations to text rendering and annotation UI hooks.
 
 ```tsx
 const annotations = comments.map((comment) => ({
@@ -163,8 +163,8 @@ const annotations = comments.map((comment) => ({
 
 const annotationStore = useSlateAnnotationStore(editor, annotations)
 
-<Slate annotationStores={[annotationStore]} editor={editor}>
+<Slate annotationStore={annotationStore} editor={editor}>
   <Editable renderSegment={renderCommentSegment} />
-  <CommentsSidebar store={annotationStore} />
+  <CommentsSidebar />
 </Slate>
 ```

@@ -51,6 +51,60 @@ describe('slate interfaces contract', () => {
     )
   })
 
+  it('keeps operation validation strict for custom operation-like objects', () => {
+    const customOperation = {
+      type: 'custom_operation',
+      path: [0],
+      payload: true,
+    }
+
+    assert.equal(Operation.isOperation(customOperation), false)
+    assert.equal(
+      Operation.isOperationList([
+        {
+          offset: 0,
+          path: [0, 0],
+          text: 'x',
+          type: 'insert_text',
+        },
+        customOperation,
+      ]),
+      false
+    )
+  })
+
+  it('recognizes concrete operation subtypes', () => {
+    assert.equal(
+      Operation.isInsertTextOperation({
+        offset: 0,
+        path: [0, 0],
+        text: 'x',
+        type: 'insert_text',
+      }),
+      true
+    )
+    assert.equal(
+      Operation.isReplaceChildrenOperation({
+        children: [],
+        index: 0,
+        newChildren: [],
+        newSelection: null,
+        path: [],
+        selection: null,
+        type: 'replace_children',
+      }),
+      true
+    )
+    assert.equal(
+      Operation.isInsertNodeOperation({
+        type: 'custom_operation',
+        path: [0],
+        payload: true,
+      }),
+      false
+    )
+  })
+
   it('recognizes ranges', () => {
     assert.equal(
       Range.isRange({
@@ -84,5 +138,28 @@ describe('slate interfaces contract', () => {
     assert.equal(Editor.getSelection(editor), null)
     assert.equal('children' in editor, false)
     assert.equal('selection' in editor, false)
+  })
+
+  it('recognizes editor instances even when user code attaches custom operations', () => {
+    const editor = createEditor() as ReturnType<typeof createEditor> & {
+      operations?: unknown[]
+    }
+
+    Editor.replace(editor, {
+      children: [{ type: 'paragraph', children: [{ text: 'one' }] }],
+      selection: null,
+    })
+
+    editor.operations = [
+      {
+        type: 'custom_operation',
+        path: [0],
+      },
+    ]
+
+    assert.equal(Editor.isEditor(editor), true)
+    assert.equal(Editor.hasPath(editor, [0, 0]), true)
+    assert.equal(Editor.string(editor, []), 'one')
+    assert.equal(Node.isNode(editor), true)
   })
 })

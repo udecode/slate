@@ -12,6 +12,7 @@ import { DOMCoverage } from 'slate-dom/internal'
 import { withReact } from '../src'
 import {
   applyEditableCopy,
+  applyEditableCut,
   applyEditableDragStart,
   applyEditablePaste,
 } from '../src/editable/clipboard-input-strategy'
@@ -91,6 +92,9 @@ const mountVisibleDragTarget = (root: HTMLElement) => {
 
   return target
 }
+
+const decodeFragmentPayload = (payload: string) =>
+  JSON.parse(decodeURIComponent(window.atob(payload)))
 
 const createHiddenSelectionEditor = () => {
   const editor = withReact(createEditor())
@@ -340,6 +344,86 @@ describe('DOM coverage native bridge', () => {
       expect(staleDom.textContent).toBe('STALE PENDING DOM')
     } finally {
       staleDom.remove()
+      cleanupEditorRoot(editor, root)
+    }
+  })
+
+  test('cutting a selected block void writes model data, deletes once, and requests model-owned repair', () => {
+    const editor = withReact(createEditor())
+
+    editor.extend({
+      elements: [{ type: 'image', void: 'block' }],
+      name: 'block-void-cut',
+    })
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'before' }],
+        },
+        {
+          type: 'image',
+          url: 'about:blank',
+          children: [{ text: '' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: 'after' }],
+        },
+      ],
+      selection: {
+        anchor: { offset: 0, path: [1, 0] },
+        focus: { offset: 0, path: [1, 0] },
+      },
+    })
+
+    const root = mountEditorRoot(editor)
+    const clipboard = new FakeDataTransfer()
+    const event = createClipboardEvent(root, clipboard)
+
+    try {
+      const result = applyEditableCut({
+        editor,
+        event,
+        readOnly: false,
+      })
+
+      const encoded = clipboard.getData('application/x-slate-fragment')
+
+      expect(event.preventDefault).toHaveBeenCalled()
+      expect(encoded).not.toBe('')
+      expect(decodeFragmentPayload(encoded)).toEqual([
+        {
+          type: 'image',
+          url: 'about:blank',
+          children: [{ text: '' }],
+        },
+      ])
+      expect(Editor.getSnapshot(editor).children).toEqual([
+        {
+          type: 'paragraph',
+          children: [{ text: 'before' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: 'after' }],
+        },
+      ])
+      expect(Editor.getSnapshot(editor).selection).toEqual({
+        anchor: { offset: 'before'.length, path: [0, 0] },
+        focus: { offset: 'before'.length, path: [0, 0] },
+      })
+      expect(result.command).toEqual({ kind: 'delete-fragment' })
+      expect(result.repair).toEqual({
+        focus: true,
+        kind: 'repair-caret',
+        selectionSourceTransition: {
+          preferModelSelection: true,
+          reason: 'model-command',
+          selectionSource: 'model-owned',
+        },
+      })
+    } finally {
       cleanupEditorRoot(editor, root)
     }
   })

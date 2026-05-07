@@ -316,6 +316,27 @@ export const transform: OperationTransformMethods['transform'] = (
       break
     }
 
+    case 'replace_fragment': {
+      modifyChildren(editor, op.path, () => op.newChildren as Descendant[])
+      setCurrentSelection(editor, op.newSelection)
+      syncImplicitTargetToCurrentSelection(editor)
+      break
+    }
+
+    case 'replace_children': {
+      modifyChildren(editor, op.path, (children) =>
+        replaceChildren(
+          children,
+          op.index,
+          op.children.length,
+          ...(op.newChildren as Descendant[])
+        )
+      )
+      setCurrentSelection(editor, op.newSelection)
+      syncImplicitTargetToCurrentSelection(editor)
+      break
+    }
+
     case 'set_node': {
       const { path, properties, newProperties } = op
 

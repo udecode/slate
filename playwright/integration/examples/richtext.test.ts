@@ -2011,6 +2011,61 @@ test.describe('On richtext example', () => {
     }
   })
 
+  test('ignores a native selection that starts outside the editor and ends inside it', async ({
+    page,
+  }) => {
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    try {
+      await editor.selection.collapse({ path: [0, 0], offset: 0 })
+      await editor.assert.selection({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+      await editor.root.focus()
+
+      await editor.root.evaluate((element: HTMLElement) => {
+        const outside = element.ownerDocument.createElement('p')
+        outside.dataset.testid = 'outside-selection-source'
+        outside.textContent = 'outside selection source'
+        element.parentElement?.insertBefore(outside, element)
+
+        const editorText = element.querySelector(
+          '[data-slate-string]'
+        )?.firstChild
+        const outsideText = outside.firstChild
+
+        if (!editorText || !outsideText) {
+          throw new Error('Cannot create outside-to-editor selection')
+        }
+
+        const range = element.ownerDocument.createRange()
+        range.setStart(outsideText, 0)
+        range.setEnd(editorText, 4)
+
+        const selection = element.ownerDocument.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+        element.ownerDocument.dispatchEvent(
+          new Event('selectionchange', { bubbles: true })
+        )
+      })
+      await page.waitForTimeout(150)
+
+      runtimeErrors.assertNone()
+      await editor.click()
+      await page.keyboard.type('Z')
+      await expect.poll(() => editor.get.modelText()).toContain('Z')
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
   test('applies toolbar heading from browser target even when model selection is already heading', async ({
     page,
   }) => {
@@ -3012,6 +3067,45 @@ test.describe('On richtext example', () => {
         })
       )
       .toBe(true)
+  })
+
+  test('removes the current block after browser triple click and Backspace', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const firstBlockText =
+      'This is editable rich text, much better than a <textarea>!'
+    const nextBlockText =
+      "Since it's rich text, you can do things like turn a selection of text bold, or add a semantically rendered block quote in the middle of the page, like this:"
+
+    await editor.click()
+    await page.locator('[data-slate-editor] p').first().click({ clickCount: 3 })
+
+    await page.keyboard.press('Backspace')
+
+    await expect
+      .poll(async () => (await editor.get.blockTexts())[0])
+      .toBe(nextBlockText)
+    await expect(editor.root).not.toContainText(firstBlockText)
+
+    await page.keyboard.insertText('Z')
+
+    await expect
+      .poll(async () => (await editor.get.blockTexts())[0])
+      .toBe(`Z${nextBlockText}`)
+    await editor.assert.domCaret({
+      offset: 1,
+      text: "ZSince it's rich text, you can do things like turn a selection of text ",
+    })
   })
 
   test('keeps the visual caret after browser insertion at the selected text end', async ({

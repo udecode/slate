@@ -5,7 +5,6 @@ import {
   Editable,
   type ReactEditor,
   Slate,
-  type SlateAnnotationStore,
   useEditorSelection,
   useSlateAnnotationStore,
   useSlateAnnotations,
@@ -260,15 +259,13 @@ const CommentedEditable = ({
 )
 
 const CommentList = ({
-  annotationStore,
   onResolve,
   onUpdateBody,
 }: {
-  annotationStore: SlateAnnotationStore<CommentData, CommentProjection>
   onResolve?: (id: string) => void
   onUpdateBody?: (id: string) => void
 }) => {
-  const snapshot = useSlateAnnotations(annotationStore)
+  const snapshot = useSlateAnnotations<CommentData, CommentProjection>()
 
   return (
     <div className={sidebarCss}>
@@ -315,14 +312,8 @@ const CommentList = ({
   )
 }
 
-const WriterPane = ({
-  annotationStore,
-  editor,
-}: {
-  annotationStore: SlateAnnotationStore<CommentData, CommentProjection>
-  editor: ReactEditor
-}) => {
-  const snapshot = useSlateAnnotations(annotationStore)
+const WriterPane = ({ editor }: { editor: ReactEditor }) => {
+  const snapshot = useSlateAnnotations<CommentData, CommentProjection>()
   const firstAnnotation =
     snapshot.allIds[0] == null
       ? null
@@ -353,19 +344,17 @@ const WriterPane = ({
           Insert prefix
         </button>
       </div>
-      <CommentList annotationStore={annotationStore} />
+      <CommentList />
     </div>
   )
 }
 
 const ReviewerPane = ({
-  annotationStore,
   comments,
   onCommentWrite,
   setComments,
   writerEditor,
 }: {
-  annotationStore: SlateAnnotationStore<CommentData, CommentProjection>
   comments: readonly CommentThread[]
   onCommentWrite: () => void
   setComments: React.Dispatch<React.SetStateAction<CommentThread[]>>
@@ -452,11 +441,7 @@ const ReviewerPane = ({
         </button>
         <span className={codeCss}>selection:{formatRange(selection)}</span>
       </div>
-      <CommentList
-        annotationStore={annotationStore}
-        onResolve={toggleResolved}
-        onUpdateBody={updateBody}
-      />
+      <CommentList onResolve={toggleResolved} onUpdateBody={updateBody} />
       <span className={mutedCss}>external comments:{comments.length}</span>
     </div>
   )
@@ -538,21 +523,17 @@ const CollaborativeCommentsExample = () => {
       </div>
       <div className={laneGridCss}>
         <Slate
-          annotationStores={[writerAnnotationStore]}
+          annotationStore={writerAnnotationStore}
           editor={writerEditor}
           onValueChange={handleWriterValueChange}
         >
-          <WriterPane
-            annotationStore={writerAnnotationStore}
-            editor={writerEditor}
-          />
+          <WriterPane editor={writerEditor} />
         </Slate>
         <Slate
-          annotationStores={[reviewerAnnotationStore]}
+          annotationStore={reviewerAnnotationStore}
           editor={reviewerEditor}
         >
           <ReviewerPane
-            annotationStore={reviewerAnnotationStore}
             comments={comments}
             onCommentWrite={() => setCommentWrites((count) => count + 1)}
             setComments={setComments}

@@ -3,7 +3,7 @@ import imageExtensions from 'image-extensions'
 import isUrl from 'is-url'
 import type { PointerEvent } from 'react'
 import type { Path, Element as SlateElement } from 'slate'
-import { isHotkey } from 'slate-dom'
+import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -25,7 +25,7 @@ import type {
 
 const ImagesExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withImages(withHistory(editor) as CustomEditor),
+    withEditor: (editor) => withImages(withHistory(editor)),
     initialValue,
   })
 
@@ -47,7 +47,7 @@ const ImagesExample = () => {
         renderElement={(props: RenderElementProps) => <Element {...props} />}
         renderVoid={(props) =>
           isImageElement(props.element) ? (
-            <Image element={props.element} target={props.target} />
+            <Image element={props.element} path={props.path} />
           ) : null
         }
       />
@@ -56,11 +56,13 @@ const ImagesExample = () => {
 }
 
 const withImages = (editor: CustomEditor) => {
+  const insertData: DOMClipboardInsertDataHandler = (_editor, data) =>
+    insertImageData(editor, data)
+
   editor.extend({
     name: 'images',
     capabilities: {
-      'dom.clipboard.insertData': (_editor: unknown, data: DataTransfer) =>
-        insertImageData(editor, data),
+      'dom.clipboard.insertData': insertData,
     },
     elements: [{ type: 'image', void: 'block' }],
   })
@@ -116,16 +118,10 @@ const Element = (props: RenderElementProps) => {
   return <p {...attributes}>{children}</p>
 }
 
-const Image = ({
-  element,
-  target,
-}: {
-  element: ImageElement
-  target: Path
-}) => {
+const Image = ({ element, path }: { element: ImageElement; path: Path }) => {
   const editor = useEditor<CustomEditor>()
   const focused = useEditorFocused()
-  const selected = useElementSelected(target)
+  const selected = useElementSelected(path)
 
   return (
     <div style={{ position: 'relative' }}>
@@ -149,7 +145,7 @@ const Image = ({
         `}
         onClick={() => {
           editor.update((tx) => {
-            tx.nodes.remove({ at: target, voids: true })
+            tx.nodes.remove({ at: path, voids: true })
           })
         }}
         onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {

@@ -76,7 +76,7 @@ const initialValue: CustomValue = [
 ]
 const InlinesExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withInlines(withHistory(editor) as CustomEditor),
+    withEditor: (editor) => withInlines(withHistory(editor)),
     initialValue,
   })
   const inputRules = useMemo<readonly EditableInputRule[]>(

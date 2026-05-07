@@ -1,11 +1,11 @@
 import { css } from '@emotion/css'
-import { type CSSProperties, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useRef, useState } from 'react'
 import type { Value } from 'slate'
 import {
-  createDecorationSource,
   Editable,
   Slate,
   type SlateProjection,
+  useSlateDecorationSource,
   useSlateEditor,
 } from 'slate-react'
 
@@ -164,15 +164,11 @@ const ExternalDecorationSourcesExample = () => {
   >(() => buildSnapshot('alpha', 'warm'))
   const externalSnapshotRef = useRef(externalSnapshot)
 
-  const externalSource = useMemo(
-    () =>
-      createDecorationSource(editor, {
-        dirtiness: 'external',
-        id: 'external-diagnostics',
-        read: () => externalSnapshotRef.current,
-      }),
-    [editor]
-  )
+  const externalSource = useSlateDecorationSource(editor, {
+    dirtiness: 'external',
+    id: 'external-diagnostics',
+    read: () => externalSnapshotRef.current,
+  })
 
   const applySnapshot = (
     next: readonly DiagnosticProjection[],

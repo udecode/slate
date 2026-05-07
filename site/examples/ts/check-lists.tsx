@@ -1,10 +1,18 @@
 import { css } from '@emotion/css'
 import { type ChangeEvent, useCallback } from 'react'
-import { Node, Point, Range, type Element as SlateElement } from 'slate'
+import {
+  Node,
+  Point,
+  Range,
+  type Selection,
+  type Element as SlateElement,
+} from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  type EditableKeyDownHandler,
+  type EditableInputRule,
+  editableInputRules,
+  type ReactEditor,
   type RenderElementProps,
   Slate,
   useEditor,
@@ -68,24 +76,15 @@ const CheckListsExample = () => {
     (props: RenderElementProps) => <Element {...props} />,
     []
   )
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withHistory(editor) as CustomEditor,
+  const editor = useSlateEditor({
+    withEditor: (editor) => withChecklists(withHistory(editor)),
     initialValue,
   })
-  const handleKeyDown = useCallback<EditableKeyDownHandler>(
-    (event) => {
-      if (event.key === 'Backspace') {
-        return applyChecklistBackspaceStart(editor)
-      }
-    },
-    [editor]
-  )
 
   return (
     <Slate editor={editor}>
       <Editable
         autoFocus
-        onKeyDown={handleKeyDown}
         placeholder="Get to work…"
         renderElement={renderElement}
         spellCheck
@@ -94,9 +93,31 @@ const CheckListsExample = () => {
   )
 }
 
-const applyChecklistBackspaceStart = (editor: CustomEditor) => {
-  const selection = editor.read((state) => state.selection.get())
+const checklistInputRule: EditableInputRule = ({
+  editor,
+  inputType,
+  selection,
+}) => {
+  if (inputType !== 'deleteContentBackward') {
+    return
+  }
 
+  return applyChecklistBackspaceStart(editor, selection)
+}
+
+const withChecklists = <T extends ReactEditor<CustomValue>>(editor: T): T => {
+  editor.extend({
+    capabilities: editableInputRules(checklistInputRule),
+    name: 'checklists',
+  })
+
+  return editor
+}
+
+const applyChecklistBackspaceStart = (
+  editor: ReactEditor,
+  selection: Selection
+) => {
   if (!selection || !Range.isCollapsed(selection)) {
     return false
   }
