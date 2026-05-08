@@ -1,9 +1,8 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
 import { createEditor } from '../../../../packages/slate/src/index.ts'
 import { Editor } from '../../../../packages/slate/src/internal/index.ts'
+import { summarize, writeBenchmarkArtifact } from '../../shared/stats.mjs'
 
 const iterations = Number.parseInt(
   process.env.SLATE_6038_ITERATIONS ?? '200',
@@ -56,6 +55,84 @@ const createBatchOps = (count) => [
   },
 ]
 
+const operationScenarios = (count) => [
+  {
+    id: 'mixedBatch',
+    opFamily: 'mixed-structural-text',
+    operations: createBatchOps(count),
+  },
+  {
+    id: 'insertText',
+    opFamily: 'text-insert',
+    operations: [
+      {
+        type: 'insert_text',
+        path: [0, 0],
+        offset: 0,
+        text: 'x',
+      },
+    ],
+  },
+  {
+    id: 'setNode',
+    opFamily: 'node-property',
+    operations: [
+      {
+        type: 'set_node',
+        path: [1],
+        properties: {},
+        newProperties: { id: 'changed' },
+      },
+    ],
+  },
+  {
+    id: 'insertNode',
+    opFamily: 'node-insert',
+    operations: [
+      {
+        type: 'insert_node',
+        path: [count],
+        node: createParagraph(count),
+      },
+    ],
+  },
+  {
+    id: 'splitNode',
+    opFamily: 'node-split',
+    operations: [
+      {
+        type: 'split_node',
+        path: [2, 0],
+        position: 4,
+        properties: {},
+      },
+    ],
+  },
+  {
+    id: 'moveNode',
+    opFamily: 'node-move',
+    operations: [
+      {
+        type: 'move_node',
+        path: [count - 1],
+        newPath: [1],
+      },
+    ],
+  },
+  {
+    id: 'removeText',
+    opFamily: 'text-remove',
+    operations: [
+      {
+        type: 'remove_text',
+        path: [3, 0],
+        offset: 1,
+        text: 'ode-03',
+      },
+    ],
+  },
+]
+
 const resetEditor = (editor, children) => {
   Editor.replace(editor, {
     children,
@@ -67,15 +144,13 @@ const resetEditor = (editor, children) => {
 const snapshotJson = (editor) =>
   JSON.stringify(Editor.getSnapshot(editor).children)
 
-const runWithTransaction = (children, ops) => {
+const runWithUpdateReplay = (children, ops) => {
   const editor = createEditor()
   resetEditor(editor, children)
 
   const start = performance.now()
-  Editor.withTransaction(editor, () => {
-    for (const operation of ops) {
-      editor.apply(structuredClone(operation))
-    }
+  editor.update((tx) => {
+    tx.operations.replay(structuredClone(ops))
   })
   const end = performance.now()
 
@@ -85,12 +160,16 @@ const runWithTransaction = (children, ops) => {
   }
 }
 
-const runApplyBatch = (children, ops) => {
+const runSeparateUpdates = (children, ops) => {
   const editor = createEditor()
   resetEditor(editor, children)
 
   const start = performance.now()
-  editor.applyOperations(structuredClone(ops))
+  for (const operation of ops) {
+    editor.update((tx) => {
+      tx.operations.replay([structuredClone(operation)])
+    })
+  }
   const end = performance.now()
 
   return {
@@ -99,38 +178,76 @@ const runApplyBatch = (children, ops) => {
   }
 }
 
-const children = createChildren(blocks)
-const ops = createBatchOps(blocks)
-
-const withTransactionSamples = []
-const applyBatchSamples = []
-
-for (let index = 0; index < iterations; index += 1) {
-  const manualTransaction = runWithTransaction(children, ops)
-  const applyBatch = runApplyBatch(children, ops)
-
-  if (manualTransaction.snapshot !== applyBatch.snapshot) {
-    throw new Error('6038 benchmark lane produced divergent final snapshots')
-  }
-
-  withTransactionSamples.push(manualTransaction.elapsedMs)
-  applyBatchSamples.push(applyBatch.elapsedMs)
-}
-
 const mean = (values) =>
   values.reduce((sum, value) => sum + value, 0) / values.length
 
-const result = {
-  benchmark: 'slate-6038-transaction-execution',
-  iterations,
-  blocks,
-  withTransactionMeanMs: mean(withTransactionSamples),
-  applyBatchMeanMs: mean(applyBatchSamples),
-  deltaMs: mean(withTransactionSamples) - mean(applyBatchSamples),
+const measureScenario = ({ id, opFamily, operations }) => {
+  const children = createChildren(blocks)
+  const updateReplaySamples = []
+  const separateUpdateSamples = []
+
+  for (let index = 0; index < iterations; index += 1) {
+    const updateReplay = runWithUpdateReplay(children, operations)
+    const separateUpdates = runSeparateUpdates(children, operations)
+
+    if (updateReplay.snapshot !== separateUpdates.snapshot) {
+      throw new Error(
+        `6038 ${id} benchmark lane produced divergent final snapshots`
+      )
+    }
+
+    updateReplaySamples.push(updateReplay.elapsedMs)
+    separateUpdateSamples.push(separateUpdates.elapsedMs)
+  }
+
+  return {
+    opFamily,
+    operationTypes: operations.map((operation) => operation.type),
+    operationCount: operations.length,
+    separateUpdateMs: summarize(separateUpdateSamples),
+    updateReplayMs: summarize(updateReplaySamples),
+    deltaMs: mean(separateUpdateSamples) - mean(updateReplaySamples),
+  }
 }
 
-const outputPath = resolve('tmp/bench-slate-6038.json')
-mkdirSync(dirname(outputPath), { recursive: true })
-writeFileSync(outputPath, `${JSON.stringify(result, null, 2)}\n`)
+const opFamilyLanes = Object.fromEntries(
+  operationScenarios(blocks).map((scenario) => [
+    scenario.id,
+    measureScenario(scenario),
+  ])
+)
+
+const mixedBatchLane = opFamilyLanes.mixedBatch
+
+const result = {
+  benchmark: 'slate-6038-transaction-execution',
+  issue: '#6038',
+  artifactVersion: 2,
+  iterations,
+  blocks,
+  thresholdPolicy: {
+    mode: 'calibration-only',
+    releaseGate: false,
+    repeatRunsRequiredBeforeEnforcement: 3,
+  },
+  batchShape: {
+    id: 'mixedBatch',
+    opFamily: mixedBatchLane.opFamily,
+    operationTypes: mixedBatchLane.operationTypes,
+    operationCount: mixedBatchLane.operationCount,
+  },
+  separateUpdateMeanMs: mixedBatchLane.separateUpdateMs.mean,
+  updateReplayMeanMs: mixedBatchLane.updateReplayMs.mean,
+  withTransactionMeanMs: mixedBatchLane.separateUpdateMs.mean,
+  applyBatchMeanMs: mixedBatchLane.updateReplayMs.mean,
+  deltaMs: mixedBatchLane.deltaMs,
+  lanes: {
+    separateUpdateMs: mixedBatchLane.separateUpdateMs,
+    updateReplayMs: mixedBatchLane.updateReplayMs,
+  },
+  opFamilyLanes,
+}
+
+await writeBenchmarkArtifact('tmp/bench-slate-6038.json', result)
 
 console.log(JSON.stringify(result, null, 2))

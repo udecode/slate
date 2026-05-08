@@ -256,6 +256,54 @@ describe('slate-history contract', () => {
     assert.deepEqual(getVisibleState(editor), before)
   })
 
+  it('undoes a committed composition as one history unit', () => {
+    const editor = withHistoryTest()
+
+    replace(editor, [paragraph('This is editable')], {
+      anchor: { path: [0, 0], offset: 'This is '.length },
+      focus: { path: [0, 0], offset: 'This is '.length },
+    })
+    const before = getVisibleState(editor)
+
+    write(editor, (tx) => {
+      tx.text.insert('す')
+    })
+    editor.update(
+      (tx) => {
+        tx.text.insert('し')
+      },
+      { metadata: { history: { mode: 'merge' } }, tag: 'composition' }
+    )
+
+    assert.equal(editor.history.undos.length, 1)
+    assert.equal(Editor.string(editor, [0]), 'This is すしeditable')
+
+    editor.undo()
+
+    assert.deepEqual(getVisibleState(editor), before)
+  })
+
+  it('does not save canceled composition text to history', () => {
+    const editor = withHistoryTest()
+
+    replace(editor, [paragraph('This is editable')], {
+      anchor: { path: [0, 0], offset: 'This is '.length },
+      focus: { path: [0, 0], offset: 'This is '.length },
+    })
+    const before = getVisibleState(editor)
+
+    editor.update(
+      (tx) => {
+        tx.text.insert('す')
+        tx.text.delete({ reverse: true })
+      },
+      { metadata: { history: { mode: 'skip' } }, tag: 'composition-cancel' }
+    )
+
+    assert.equal(editor.history.undos.length, 0)
+    assert.deepEqual(getVisibleState(editor), before)
+  })
+
   it('does not replay partial set_selection patches during undo after selection is cleared', () => {
     const editor = withHistoryTest()
 
@@ -429,7 +477,7 @@ describe('slate-history contract', () => {
       },
       {
         type: 'paragraph',
-        children: [{ bold: true, text: 'you' }],
+        children: [{ text: '' }, { bold: true, text: 'you' }],
       },
     ])
     assert.deepEqual(Editor.getSnapshot(editor).selection, {

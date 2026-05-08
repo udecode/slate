@@ -34,7 +34,7 @@ const write = (editor, fn) => {
 }
 
 const insertText = (editor, text, options) => {
-  write(editor, () => editor.insertText(text, options))
+  write(editor, (tx) => tx.text.insert(text, options))
 }
 
 const countIterator = (iterator) => {
@@ -89,7 +89,9 @@ const nodesReadAfterWriteMs = measureLane(
         at: { path, offset: 0 },
       })
 
-      nodeCount += countIterator(Editor.nodes(editor, { at: [] }))
+      nodeCount += editor.read((state) =>
+        countIterator(state.nodes.match({ at: [] }))
+      )
     }
 
     if (nodeCount <= 0) {
@@ -129,8 +131,8 @@ const pathRefRebaseMs = measureLane(createEditorWithChildren, (editor) => {
   let seen = 0
 
   for (let index = 0; index < Math.min(writeOps, refCount); index += 1) {
-    write(editor, () =>
-      editor.moveNodes({
+    write(editor, (tx) =>
+      tx.nodes.move({
         at: [index],
         to: [blockCount - 1],
       })

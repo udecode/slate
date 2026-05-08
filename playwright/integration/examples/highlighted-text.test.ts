@@ -28,6 +28,20 @@ const nextCutPayload = async (
       })
   )
 
+const readClipboardText = async (
+  editor: Awaited<ReturnType<typeof openExample>>
+) => editor.root.evaluate(async () => navigator.clipboard.readText())
+
+const writeClipboardText = async (
+  editor: Awaited<ReturnType<typeof openExample>>,
+  text: string
+) =>
+  editor.root.evaluate(
+    async (_element: HTMLElement, value) =>
+      navigator.clipboard.writeText(value),
+    text
+  )
+
 const commitDOMComposition = async (
   editor: Awaited<ReturnType<typeof openExample>>,
   {
@@ -535,6 +549,30 @@ test.describe('slate highlighted text', () => {
     )
     expect(payload.html).toContain('data-slate-fragment')
     expect(payload.html).not.toContain('data-tone=')
+  })
+
+  test('preserves clipboard text when copy or cut runs on a collapsed text selection', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium clipboard proof')
+
+    const editor = await openExample(page, 'highlighted-text', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const sentinel = 'clipboard sentinel'
+
+    await editor.selection.collapse({ path: [0, 0], offset: 2 })
+    await writeClipboardText(editor, sentinel)
+    await editor.root.press('ControlOrMeta+C')
+
+    await expect.poll(() => readClipboardText(editor)).toBe(sentinel)
+
+    await editor.root.press('ControlOrMeta+X')
+
+    await expect.poll(() => readClipboardText(editor)).toBe(sentinel)
+    await editor.assert.text('alpha beta')
   })
 
   test('cuts decorated text as fragment semantics and deletes the selection', async ({

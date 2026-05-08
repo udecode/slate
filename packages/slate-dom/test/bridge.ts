@@ -253,6 +253,80 @@ describe('slate-dom bridge', () => {
     })
   })
 
+  it('keeps empty DOM selection ranges strict unless runtime callers suppress throws', () => {
+    withDom(({ document }) => {
+      const editor = createParagraphEditor()
+      mountEditorRoot(editor, document)
+      const domSelection = document.getSelection()
+
+      if (!domSelection) {
+        throw new Error('Expected DOM selection')
+      }
+
+      domSelection.removeAllRanges()
+
+      expect(() =>
+        editor.dom.toSlateRange(domSelection, {
+          exactMatch: false,
+          suppressThrow: false,
+        })
+      ).toThrow('Cannot resolve a Slate range from DOM range')
+      expect(
+        editor.dom.toSlateRange(domSelection, {
+          exactMatch: false,
+          suppressThrow: true,
+        })
+      ).toBeNull()
+    })
+  })
+
+  it('keeps parent and nested editor DOM point ownership separate', () => {
+    withDom(({ document }) => {
+      const parent = createParagraphEditor('parent')
+      const nested = createParagraphEditor('nested')
+      const parentRoot = mountEditorRoot(parent, document)
+      const nestedRoot = mountEditorRoot(nested, document)
+      const nestedOwner = document.createElement('span')
+      const nestedLeaf = document.createElement('span')
+      const nestedString = document.createElement('span')
+      const nestedText = document.createTextNode('nested')
+
+      parentRoot.appendChild(nestedRoot)
+      nestedLeaf.setAttribute('data-slate-leaf', 'true')
+      nestedString.setAttribute('data-slate-string', 'true')
+      nestedString.appendChild(nestedText)
+      nestedLeaf.appendChild(nestedString)
+      nestedOwner.appendChild(nestedLeaf)
+      nestedRoot.appendChild(nestedOwner)
+      bindTextOwner(nested, [0, 0], nestedOwner)
+
+      expect(parent.dom.hasDOMNode(nestedText)).toBe(false)
+      expect(nested.dom.hasDOMNode(nestedText)).toBe(true)
+      expect(() => parent.dom.toSlateNode(nestedOwner)).toThrow()
+      expect(
+        nested.dom.toSlatePoint([nestedText, 3], {
+          exactMatch: false,
+          suppressThrow: false,
+        })
+      ).toEqual<Point>({
+        path: [0, 0],
+        offset: 3,
+      })
+      expect(() =>
+        parent.dom.toSlatePoint([nestedText, 3], {
+          exactMatch: false,
+          suppressThrow: false,
+        })
+      ).toThrow()
+      expect(
+        parent.dom.toSlatePoint([nestedText, 3], {
+          exactMatch: false,
+          suppressThrow: true,
+        })
+      ).toBeNull()
+    })
+  })
+
   it('resolves event ranges from browser caret ranges when the event target is editor-owned but unmapped', () => {
     withDom(({ document }) => {
       const editor = createParagraphEditor()

@@ -37,6 +37,8 @@ export type {
 } from './components/editable-text'
 export { EditableText } from './components/editable-text'
 export type {
+  EditableDecorate,
+  EditableDecoration,
   EditableDOMCoverageBoundaryPlaceholderContext,
   EditableDOMCoverageBoundaryProps,
   EditableDOMCoverageBoundaryScope,

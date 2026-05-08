@@ -1,5 +1,7 @@
 import { act, render } from '@testing-library/react'
+import { useEffect } from 'react'
 import { createEditor } from 'slate'
+import { Editor } from 'slate/internal'
 import {
   Editable,
   type ReactEditor,
@@ -129,5 +131,107 @@ describe('useElementSelected', () => {
 
   describe('standard render tree', () => {
     withEditor()
+  })
+
+  it('unmounts cleanly when the selected rendered element removes itself', async () => {
+    editor = withReact(createEditor({ initialValue: initialValue() }))
+
+    const removedIds = new Set<string>()
+    const unmountedIds = new Set<string>()
+    const selectedById: Record<string, boolean | undefined> = {}
+
+    const SelfRemovingElement = ({
+      element,
+      attributes,
+      children,
+      path,
+    }: RenderElementProps) => {
+      const selected = useElementSelected()
+      const { id } = element as { id: string }
+
+      selectedById[id] = selected
+
+      useEffect(() => {
+        return () => {
+          unmountedIds.add(id)
+        }
+      }, [id])
+
+      useEffect(() => {
+        if (id !== '2' || !selected || removedIds.has(id)) {
+          return
+        }
+
+        removedIds.add(id)
+        editor.update((tx) => {
+          tx.nodes.remove({ at: path })
+        })
+      }, [id, path, selected])
+
+      return <div {...attributes}>{children}</div>
+    }
+
+    render(
+      <Slate editor={editor}>
+        <Editable
+          renderElement={(props) => <SelfRemovingElement {...props} />}
+        />
+      </Slate>
+    )
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.selection.set({ path: [2, 0], offset: 0 })
+      })
+    })
+    await act(async () => {})
+
+    expect(selectedById['2']).toBe(true)
+    expect(removedIds.has('2')).toBe(true)
+    expect(unmountedIds.has('2')).toBe(true)
+    expect(Editor.hasPath(editor, [2])).toBe(false)
+  })
+
+  it('returns false when an explicit watched path is removed', async () => {
+    editor = withReact(createEditor({ initialValue: initialValue() }))
+
+    const watchedPath = [2]
+    const selectedValues: boolean[] = []
+    const renderElement = ({ attributes, children }: RenderElementProps) => (
+      <div {...attributes}>{children}</div>
+    )
+    const ExplicitPathProbe = () => {
+      selectedValues.push(useElementSelected(watchedPath))
+
+      return null
+    }
+
+    render(
+      <Slate editor={editor}>
+        <ExplicitPathProbe />
+        <Editable renderElement={renderElement} />
+      </Slate>
+    )
+
+    selectedValues.splice(0)
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.selection.set({ path: [2, 0], offset: 0 })
+      })
+    })
+
+    expect(selectedValues.at(-1)).toBe(true)
+
+    selectedValues.splice(0)
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.nodes.remove({ at: [2] })
+      })
+    })
+
+    expect(Editor.hasPath(editor, watchedPath)).toBe(false)
+    expect(selectedValues.at(-1)).toBe(false)
   })
 })

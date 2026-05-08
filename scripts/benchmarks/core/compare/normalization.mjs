@@ -24,9 +24,23 @@ const insertOps = Number(process.env.NORMALIZATION_BENCH_INSERT_OPS || 50)
 
 const benchmarkSource = `
 import assert from 'node:assert/strict';
-import * as Slate from 'slate';
 
-const { createEditor, Editor } = Slate;
+let Slate;
+let SlateInternal = {};
+
+try {
+  Slate = await import('../../packages/slate/src/index.ts');
+  SlateInternal = await import('../../packages/slate/src/internal/index.ts');
+} catch {
+  Slate = await import('slate');
+
+  try {
+    SlateInternal = await import('slate/internal');
+  } catch {}
+}
+
+const { createEditor } = Slate;
+const Editor = Slate.Editor ?? SlateInternal.Editor;
 const legacyTransforms = Slate.Transforms;
 
 const iterations = Number(process.env.NORMALIZATION_BENCH_ITERATIONS || 3);
@@ -100,7 +114,11 @@ const replaceEditor = (editor, input) => {
 };
 
 const getChildren = (editor) =>
-  typeof editor.getChildren === 'function' ? editor.getChildren() : editor.children;
+  typeof Editor.getSnapshot === 'function'
+    ? Editor.getSnapshot(editor).children
+    : typeof Editor.getChildren === 'function'
+      ? Editor.getChildren(editor)
+      : editor.children;
 
 const normalizeEditor = (editor, options) => {
   if (typeof editor.update === 'function') {
@@ -115,8 +133,8 @@ const normalizeEditor = (editor, options) => {
 
 const insertText = (editor, text, options) => {
   if (typeof editor.update === 'function') {
-    editor.update(() => {
-      editor.insertText(text, options);
+    editor.update((tx) => {
+      tx.text.insert(text, options);
     });
     return;
   }
@@ -159,7 +177,14 @@ const explicitAdjacentTextNormalizeMs = measureLane(
 const explicitInlineFlattenNormalizeMs = measureLane(
   () => {
     const editor = createEditor();
-    editor.isInline = (element) => element.type === 'inline';
+    if (typeof editor.extend === 'function') {
+      editor.extend({
+        name: 'normalization-compare-inline',
+        elements: [{ type: 'inline', inline: true }],
+      });
+    } else {
+      editor.isInline = (element) => element.type === 'inline';
+    }
     replaceEditor(editor, {
       children: createInlineFlattenChildren(explicitBlocks),
       selection: null,

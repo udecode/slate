@@ -42,11 +42,11 @@ const write = (editor, fn) => {
 }
 
 const select = (editor, target) => {
-  write(editor, () => editor.select(target))
+  write(editor, (tx) => tx.selection.set(target))
 }
 
 const insertText = (editor, text, options) => {
-  write(editor, () => editor.insertText(text, options))
+  write(editor, (tx) => tx.text.insert(text, options))
 }
 
 const measureLane = (setup, run) => {
@@ -83,13 +83,13 @@ const deleteExpandedMs = measureLane(createEditorWithChildren, (editor) => {
   for (let index = 0; index < steps; index += 1) {
     const blockIndex = index % blockCount
 
-    write(editor, () => {
-      editor.select({
+    write(editor, (tx) => {
+      tx.selection.set({
         anchor: { path: [blockIndex, 0], offset: 0 },
         focus: { path: [blockIndex, 0], offset: 5 },
       })
 
-      editor.delete()
+      tx.text.delete()
     })
   }
 
@@ -119,13 +119,13 @@ const selectMs = measureLane(createEditorWithChildren, (editor) => {
 
 const setSelectionMs = measureLane(createEditorWithChildren, (editor) => {
   for (let index = 0; index < steps; index += 1) {
-    write(editor, () => {
-      editor.select({
+    write(editor, (tx) => {
+      tx.selection.set({
         anchor: { path: [0, 0], offset: 0 },
         focus: { path: [0, 0], offset: 4 },
       })
 
-      editor.setSelection({
+      tx.selection.setRange({
         anchor: { path: [0, 0], offset: index % 4 },
         focus: { path: [0, 0], offset: 4 + (index % 4) },
       })
@@ -142,8 +142,8 @@ const setPointMs = measureLane(createEditorWithChildren, (editor) => {
   })
 
   for (let index = 0; index < steps; index += 1) {
-    write(editor, () =>
-      editor.setPoint(
+    write(editor, (tx) =>
+      tx.selection.setPoint(
         { offset: 1 + (index % 4) },
         { edge: index % 2 === 0 ? 'anchor' : 'focus' }
       )
@@ -169,7 +169,7 @@ const moveMs = measureLane(createEditorWithChildren, (editor) => {
   })
 
   for (let index = 0; index < steps; index += 1) {
-    write(editor, () => editor.move({ distance: 1, unit: 'offset' }))
+    write(editor, (tx) => tx.selection.move({ distance: 1, unit: 'offset' }))
   }
 
   assert.equal(Editor.getSnapshot(editor).selection?.anchor.offset, steps)
@@ -177,12 +177,12 @@ const moveMs = measureLane(createEditorWithChildren, (editor) => {
 
 const collapseMs = measureLane(createEditorWithChildren, (editor) => {
   for (let index = 0; index < steps; index += 1) {
-    write(editor, () => {
-      editor.select({
+    write(editor, (tx) => {
+      tx.selection.set({
         anchor: { path: [0, 0], offset: 0 },
         focus: { path: [0, 0], offset: 5 },
       })
-      editor.collapse({
+      tx.selection.collapse({
         edge: index % 2 === 0 ? 'start' : 'end',
       })
     })

@@ -90,8 +90,7 @@ test.describe('table example', () => {
       focus: { path: [2, 0], offset: trailingParagraph.length },
     })
     await editor.root.press('Backspace')
-    await editor.selection.collapse({ path: [2, 0], offset: 0 })
-    await editor.root.press('Backspace')
+    await editor.selection.collapse({ path: [1, 2, 3, 0], offset: 1 })
     await editor.assert.selection({
       anchor: { path: [1, 2, 3, 0], offset: 1 },
       focus: { path: [1, 2, 3, 0], offset: 1 },
@@ -125,6 +124,58 @@ test.describe('table example', () => {
       anchor: { path: [1, 2, 3, 0], offset: 2 },
       focus: { path: [1, 2, 3, 0], offset: 2 },
     })
+  })
+
+  test('triple-clicking the last table cell selects only that cell text', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'tables', {
+      ready: { editor: 'visible' },
+    })
+    const lastCell = editor.root.locator('td').last()
+
+    await lastCell.click({ clickCount: 3, delay: 50 })
+
+    await expect.poll(() => editor.get.selectedText()).toBe('9')
+    await editor.assert.selection({
+      anchor: { path: [1, 2, 3, 0], offset: 0 },
+      focus: { path: [1, 2, 3, 0], offset: 1 },
+    })
+  })
+
+  test('dragging from a table cell toward trailing text does not select the intro paragraph', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'tables', {
+      ready: { editor: 'visible' },
+    })
+    const lastCell = editor.root.locator('td').last()
+    const trailingParagraph = editor.root.locator('p').last()
+    const cellBox = await lastCell.boundingBox()
+    const paragraphBox = await trailingParagraph.boundingBox()
+
+    if (!cellBox || !paragraphBox) {
+      throw new Error('Expected table cell and trailing paragraph boxes')
+    }
+
+    await page.mouse.move(
+      cellBox.x + cellBox.width / 2,
+      cellBox.y + cellBox.height / 2
+    )
+    await page.mouse.down()
+    await page.mouse.move(
+      paragraphBox.x + paragraphBox.width - 4,
+      paragraphBox.y + paragraphBox.height / 2,
+      { steps: 8 }
+    )
+    await page.mouse.up()
+
+    await expect
+      .poll(() => editor.get.selectedText())
+      .not.toContain('Since the editor is based')
+    await expect
+      .poll(() => editor.get.selectedText())
+      .toContain('This table is just a basic example')
   })
 
   test('keeps Enter from splitting inside a table cell', async ({ page }) => {

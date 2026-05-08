@@ -263,6 +263,61 @@ describe('slate-react surface contract', () => {
     })
   })
 
+  test('product comment examples use public annotation substrate', () => {
+    const exampleFiles = [
+      'site/examples/ts/review-comments.tsx',
+      'site/examples/ts/collaborative-comments.tsx',
+    ]
+
+    for (const file of exampleFiles) {
+      const contents = readFileSync(resolve(repoRoot, file), 'utf8')
+
+      expect(contents).toMatch(/from 'slate'/)
+      expect(contents).toMatch(/from 'slate-react'/)
+      expect(contents).toMatch(/\bBookmark\b/)
+      expect(contents).toMatch(/\buseSlateAnnotationStore\b/)
+      expect(contents).toMatch(/\buseSlateAnnotations\b/)
+      expect(contents).toMatch(/\bannotationStore=/)
+      expect(contents).not.toMatch(
+        /(?:createSlateProjectionStore|ProjectionContext|projection-store|useSlateProjections|from 'slate-react\/src)/
+      )
+    }
+  })
+
+  test('slate-react overlay docs expose simple and scalable public paths', () => {
+    const docs = {
+      annotations: readFileSync(
+        resolve(repoRoot, 'docs/libraries/slate-react/annotations.md'),
+        'utf8'
+      ),
+      editable: readFileSync(
+        resolve(repoRoot, 'docs/libraries/slate-react/editable.md'),
+        'utf8'
+      ),
+      hooks: readFileSync(
+        resolve(repoRoot, 'docs/libraries/slate-react/hooks.md'),
+        'utf8'
+      ),
+      slate: readFileSync(
+        resolve(repoRoot, 'docs/libraries/slate-react/slate.md'),
+        'utf8'
+      ),
+    }
+    const joinedDocs = Object.values(docs).join('\n')
+
+    expect(docs.editable).toMatch(/\bdecorate\?:/)
+    expect(docs.editable).toMatch(/\bEditable\.decorate\b/)
+    expect(docs.slate).toMatch(/\bdecorationSources\b/)
+    expect(docs.slate).toMatch(/\buseSlateDecorationSource\b/)
+    expect(docs.annotations).toMatch(/\buseSlateAnnotationStore\b/)
+    expect(docs.annotations).toMatch(/\buseSlateAnnotations\b/)
+    expect(docs.hooks).toMatch(/\buseSlateWidgetStore\b/)
+    expect(docs.hooks).toMatch(/\buseSlateWidgets\b/)
+    expect(joinedDocs).not.toMatch(
+      /(?:createSlateProjectionStore|ProjectionContext|from 'slate-react\/src)/
+    )
+  })
+
   test('adapter static namespaces stay out of the public root at runtime', () => {
     expect('ReactEditor' in SlateReact).toBe(false)
     expect('DOMEditor' in SlateReact).toBe(false)

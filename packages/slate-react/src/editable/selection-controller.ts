@@ -328,14 +328,20 @@ export const shouldImportChangedExpandedDOMSelection = ({
 
 export const prepareEditableSelectionChangeImport = ({
   domSelectionBelongsToEditor,
+  domSelectionCanImport = domSelectionBelongsToEditor,
   inputController,
   selectionChangeOrigin,
 }: {
+  domSelectionCanImport?: boolean
   domSelectionBelongsToEditor: boolean
   inputController: EditableInputController
   selectionChangeOrigin: SelectionChangeOrigin
 }) => {
-  if (selectionChangeOrigin !== 'native-user' || !domSelectionBelongsToEditor) {
+  if (
+    selectionChangeOrigin !== 'native-user' ||
+    !domSelectionBelongsToEditor ||
+    !domSelectionCanImport
+  ) {
     return false
   }
 
@@ -552,6 +558,7 @@ export const applyEditableDOMSelectionChange = ({
   }
 
   prepareEditableSelectionChangeImport({
+    domSelectionCanImport: !!range,
     domSelectionBelongsToEditor,
     inputController,
     selectionChangeOrigin: shouldImportChangedExpandedSelection

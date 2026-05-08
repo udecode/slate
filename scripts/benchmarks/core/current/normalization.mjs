@@ -47,8 +47,8 @@ const createObservedChildren = (blocks) =>
   }))
 
 const insertText = (editor, text, options) => {
-  editor.update(() => {
-    editor.insertText(text, options)
+  editor.update((tx) => {
+    tx.text.insert(text, options)
   })
 }
 
@@ -95,7 +95,10 @@ const explicitAdjacentTextNormalizeMs = measureLane(
 const explicitInlineFlattenNormalizeMs = measureLane(
   () => {
     const editor = createEditor()
-    editor.isInline = (element) => element.type === 'inline'
+    editor.extend({
+      name: 'normalization-benchmark-inline',
+      elements: [{ type: 'inline', inline: true }],
+    })
     Editor.replace(editor, {
       children: createInlineFlattenChildren(explicitBlocks),
       selection: null,

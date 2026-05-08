@@ -264,10 +264,10 @@ const applyParagraphBreakAfterSelectedBlockVoid = (
   return true
 }
 
-const getFullySelectedBlockPath = (
+const getFullySelectedBlockPaths = (
   editor: RuntimeEditor,
   selection: Range | null
-) => {
+): Path[] | null => {
   if (!selection || Range.isCollapsed(selection)) {
     return null
   }
@@ -298,7 +298,7 @@ const getFullySelectedBlockPath = (
   }
 
   if (Point.equals(end, Editor.point(editor, blockPath, { edge: 'end' }))) {
-    return blockPath
+    return [blockPath]
   }
 
   if (
@@ -307,21 +307,38 @@ const getFullySelectedBlockPath = (
     return null
   }
 
-  return blockPath
+  if (
+    !Path.isSibling(blockPath, endBlockPath) ||
+    !Path.isBefore(blockPath, endBlockPath)
+  ) {
+    return null
+  }
+
+  const paths: Path[] = []
+  let path = blockPath
+
+  while (!Path.equals(path, endBlockPath)) {
+    paths.push(path)
+    path = Path.next(path)
+  }
+
+  return paths
 }
 
 const applyFullBlockDeleteFragment = (
   editor: RuntimeEditor,
   selection: Range | null
 ) => {
-  const blockPath = getFullySelectedBlockPath(editor, selection)
+  const blockPaths = getFullySelectedBlockPaths(editor, selection)
 
-  if (!blockPath) {
+  if (!blockPaths) {
     return false
   }
 
   editor.update((tx) => {
-    tx.nodes.remove({ at: blockPath })
+    for (const blockPath of [...blockPaths].reverse()) {
+      tx.nodes.remove({ at: blockPath })
+    }
   })
 
   return true

@@ -15,6 +15,7 @@
     "bench:core:text-selection:local": "bun ./scripts/benchmarks/core/current/text-selection.mjs",
     "bench:core:editor-store:local": "bun ./scripts/benchmarks/core/current/editor-store.mjs",
     "bench:core:refs-projection:local": "bun ./scripts/benchmarks/core/current/refs-projection.mjs",
+    "bench:core:history-retained-memory:local": "bun ./scripts/benchmarks/core/current/history-retained-memory.mjs",
     "bench:core:normalization:compare:local": "bun ./scripts/benchmarks/core/compare/normalization.mjs",
     "bench:core:observation:compare:local": "bun ./scripts/benchmarks/core/compare/observation.mjs",
     "bench:core:huge-document:compare:local": "bun ./scripts/benchmarks/core/compare/huge-document.mjs",

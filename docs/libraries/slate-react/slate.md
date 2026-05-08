@@ -127,24 +127,23 @@ Use `onChange` and `change.selectionChanged` for UI that follows the model selec
 
 ### `decorationSources`
 
-Decoration sources publish transient render-time ranges such as search matches, diagnostics, and code highlights.
+Decoration sources publish transient render-time ranges such as search matches,
+diagnostics, and code highlights.
 
 ```tsx
-const searchSource = useMemo(
-  () =>
-    createDecorationSource(editor, {
-      id: 'search',
-      read: ({ snapshot }) => findSearchMatches(snapshot, query),
-    }),
-  [editor, query]
-)
+const searchSource = useSlateDecorationSource(editor, {
+  id: 'search',
+  read: ({ snapshot }) => findSearchMatches(snapshot, query),
+})
 
 <Slate decorationSources={[searchSource]} editor={editor}>
   <Editable renderSegment={renderSearchMatch} />
 </Slate>
 ```
 
-Prefer provider-owned `decorationSources` so every `Editable` and overlay UI reads from the same projection source.
+Use provider-owned `decorationSources` so every `Editable` and overlay UI reads
+from the same projection source. Use `Editable.decorate` for a simple
+editor-local decoration callback.
 
 ### `annotationStore`
 

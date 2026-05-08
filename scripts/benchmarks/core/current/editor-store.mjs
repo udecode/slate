@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 
 import { createEditor } from '../../../../packages/slate/src/index.ts'
-import { Editor } from '../../../../packages/slate/src/internal/index.ts'
+import {
+  Editor,
+  setEditorChildren,
+} from '../../../../packages/slate/src/internal/index.ts'
 import { summarize, writeBenchmarkArtifact } from '../../shared/stats.mjs'
 
 const iterations = Number(process.env.EDITOR_STORE_BENCH_ITERATIONS || 5)
@@ -30,8 +33,8 @@ const createEditorWithChildren = () => {
 }
 
 const insertText = (editor, text, options) => {
-  editor.update(() => {
-    editor.insertText(text, options)
+  editor.update((tx) => {
+    tx.text.insert(text, options)
   })
 }
 
@@ -78,11 +81,8 @@ const setChildrenAndGetChildrenMs = measureLane(
   createEditorWithChildren,
   (editor) => {
     for (let index = 0; index < steps; index += 1) {
-      Editor.setChildren(
-        editor,
-        createChildren(blockCount, `children-${index}`)
-      )
-      const children = Editor.getChildren(editor)
+      setEditorChildren(editor, createChildren(blockCount, `children-${index}`))
+      const children = Editor.getSnapshot(editor).children
 
       if (children.length !== blockCount) {
         throw new Error('setChildrenAndGetChildrenMs lost children')
@@ -90,7 +90,7 @@ const setChildrenAndGetChildrenMs = measureLane(
     }
 
     assert.equal(
-      Editor.getChildren(editor)[0]?.children[0]?.text,
+      Editor.getSnapshot(editor).children[0]?.children[0]?.text,
       `children-${steps - 1}-0`
     )
   }
@@ -123,8 +123,8 @@ const subscribeDispatchMs = measureLane(createEditorWithChildren, (editor) => {
   })
 
   for (let index = 0; index < steps; index += 1) {
-    editor.update(() => {
-      editor.insertText('X', {
+    editor.update((tx) => {
+      tx.text.insert('X', {
         at: { path: [index % blockCount, 0], offset: 0 },
       })
     })

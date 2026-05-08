@@ -1,10 +1,8 @@
 import { css } from '@emotion/css'
 import type React from 'react'
 import { useCallback, useMemo } from 'react'
-import type { Descendant, Element as SlateElement } from 'slate'
-import type { DOMClipboardInsertDataHandler } from 'slate-dom'
+import type { Element as SlateElement } from 'slate'
 import { withHistory } from 'slate-history'
-import { jsx } from 'slate-hyperscript'
 import {
   Editable,
   type RenderElementProps,
@@ -18,136 +16,10 @@ import {
 
 import type {
   CustomEditor,
-  CustomElement,
-  CustomElementType,
   CustomValue,
   ImageElement as ImageElementType,
 } from './custom-types.d'
-
-interface ElementAttributes {
-  type: CustomElementType
-  url?: string
-}
-
-const ELEMENT_TAGS: Record<string, (el: HTMLElement) => ElementAttributes> = {
-  A: (el) => ({ type: 'link', url: el.getAttribute('href')! }),
-  BLOCKQUOTE: () => ({ type: 'block-quote' }),
-  H1: () => ({ type: 'heading-one' }),
-  H2: () => ({ type: 'heading-two' }),
-  H3: () => ({ type: 'heading-three' }),
-  H4: () => ({ type: 'heading-four' }),
-  H5: () => ({ type: 'heading-five' }),
-  H6: () => ({ type: 'heading-six' }),
-  IMG: (el) => ({ type: 'image', url: el.getAttribute('src')! }),
-  LI: () => ({ type: 'list-item' }),
-  OL: () => ({ type: 'numbered-list' }),
-  P: () => ({ type: 'paragraph' }),
-  PRE: () => ({ type: 'code-block' }),
-  UL: () => ({ type: 'bulleted-list' }),
-}
-
-// COMPAT: `B` is omitted here because Google Docs uses `<b>` in weird ways.
-interface TextAttributes {
-  code?: boolean
-  strikethrough?: boolean
-  italic?: boolean
-  bold?: boolean
-  underline?: boolean
-}
-
-const TEXT_TAGS: Record<string, () => TextAttributes> = {
-  CODE: () => ({ code: true }),
-  DEL: () => ({ strikethrough: true }),
-  EM: () => ({ italic: true }),
-  I: () => ({ italic: true }),
-  S: () => ({ strikethrough: true }),
-  STRONG: () => ({ bold: true }),
-  U: () => ({ underline: true }),
-}
-
-const INLINE_ELEMENT_TYPES = new Set<CustomElementType>(['link'])
-
-const isTopLevelBlock = (node: unknown): node is CustomElement =>
-  typeof node === 'object' &&
-  node != null &&
-  'children' in node &&
-  'type' in node &&
-  !INLINE_ELEMENT_TYPES.has((node as CustomElement).type)
-
-const normalizeBodyFragment = (children: any[]): Descendant[] => {
-  const fragment: Descendant[] = []
-  let inlineChildren: any[] = []
-
-  const flushInlineChildren = () => {
-    if (inlineChildren.length === 0) {
-      return
-    }
-
-    fragment.push({
-      type: 'paragraph',
-      children: inlineChildren,
-    })
-    inlineChildren = []
-  }
-
-  for (const child of children) {
-    if (isTopLevelBlock(child)) {
-      flushInlineChildren()
-      fragment.push(child)
-      continue
-    }
-
-    inlineChildren.push(child)
-  }
-
-  flushInlineChildren()
-
-  return fragment
-}
-
-export const deserialize = (el: HTMLElement | ChildNode): any => {
-  if (el.nodeType === 3) {
-    return el.textContent
-  }
-  if (el.nodeType !== 1) {
-    return null
-  }
-  if (el.nodeName === 'BR') {
-    return '\n'
-  }
-
-  const { nodeName } = el
-  let parent = el
-
-  if (
-    nodeName === 'PRE' &&
-    el.childNodes[0] &&
-    el.childNodes[0].nodeName === 'CODE'
-  ) {
-    parent = el.childNodes[0]
-  }
-  let children = Array.from(parent.childNodes).flatMap(deserialize)
-
-  if (children.length === 0) {
-    children = [{ text: '' }]
-  }
-
-  if (el.nodeName === 'BODY') {
-    return jsx('fragment', {}, normalizeBodyFragment(children))
-  }
-
-  if (ELEMENT_TAGS[nodeName]) {
-    const attrs = ELEMENT_TAGS[nodeName](el as HTMLElement)
-    return jsx('element', attrs, children)
-  }
-
-  if (TEXT_TAGS[nodeName]) {
-    const attrs = TEXT_TAGS[nodeName]()
-    return children.map((child) => jsx('text', attrs, child))
-  }
-
-  return children
-}
+import { withHtml } from './paste-html-import'
 
 const PasteHtmlExample = () => {
   const renderElement = useCallback(
@@ -176,50 +48,6 @@ const PasteHtmlExample = () => {
       />
     </Slate>
   )
-}
-
-const withHtml = (editor: CustomEditor) => {
-  const insertData: DOMClipboardInsertDataHandler = (_domEditor, data) =>
-    insertHtmlData(editor, data)
-
-  editor.extend({
-    name: 'paste-html',
-    capabilities: {
-      'dom.clipboard.insertData': insertData,
-    },
-    elements: [
-      { inline: true, type: 'link' },
-      { type: 'image', void: 'block' },
-    ],
-  })
-
-  return editor
-}
-
-const insertHtmlData = (editor: CustomEditor, data: DataTransfer) => {
-  const html = data.getData('text/html')
-
-  if (!html) {
-    return false
-  }
-
-  const hasPlainText = Array.from(data.types).includes('text/plain')
-  const text = hasPlainText ? data.getData('text/plain') : ''
-
-  // iOS word prediction/autocorrect can send identical HTML and plain text.
-  if (text && html === text) {
-    editor.update((tx) => {
-      tx.text.insert(text)
-    })
-    return true
-  }
-
-  const parsed = new DOMParser().parseFromString(html, 'text/html')
-  const fragment = deserialize(parsed.body)
-  editor.update((tx) => {
-    tx.nodes.insert(fragment)
-  })
-  return true
 }
 
 const Element = (props: RenderElementProps) => {
@@ -252,6 +80,16 @@ const Element = (props: RenderElementProps) => {
       return <li {...attributes}>{children}</li>
     case 'numbered-list':
       return <ol {...attributes}>{children}</ol>
+    case 'table':
+      return (
+        <table>
+          <tbody {...attributes}>{children}</tbody>
+        </table>
+      )
+    case 'table-cell':
+      return <td {...attributes}>{children}</td>
+    case 'table-row':
+      return <tr {...attributes}>{children}</tr>
     case 'link':
       return (
         <SafeLink attributes={attributes} href={element.url}>
@@ -312,6 +150,9 @@ const isImageElement = (element: SlateElement): element is ImageElementType =>
   element.type === 'image'
 
 const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
+  const leafFontSize = (leaf as unknown as { fontSize?: unknown }).fontSize
+  const fontSize = typeof leafFontSize === 'string' ? leafFontSize : undefined
+
   if (leaf.bold) {
     children = <strong>{children}</strong>
   }
@@ -332,7 +173,11 @@ const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
     children = <del>{children}</del>
   }
 
-  return <span {...attributes}>{children}</span>
+  return (
+    <span {...attributes} style={fontSize ? { fontSize } : undefined}>
+      {children}
+    </span>
+  )
 }
 
 const initialValue: CustomValue = [

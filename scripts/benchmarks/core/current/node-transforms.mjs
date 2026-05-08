@@ -56,12 +56,12 @@ const measureLane = (setup, run) => {
 const insertFragmentMs = measureLane(createEditorWithChildren, (editor) => {
   const path = [Math.floor(blockCount / 2), 0]
 
-  write(editor, () => {
-    editor.select({
+  write(editor, (tx) => {
+    tx.selection.set({
       anchor: { path, offset: 0 },
       focus: { path, offset: 0 },
     })
-    editor.insertFragment(createFragment())
+    tx.fragment.insert(createFragment())
   })
 
   if (Editor.getSnapshot(editor).children.length <= blockCount) {
@@ -70,8 +70,8 @@ const insertFragmentMs = measureLane(createEditorWithChildren, (editor) => {
 })
 
 const insertNodesMs = measureLane(createEditorWithChildren, (editor) => {
-  write(editor, () => {
-    editor.insertNodes(createParagraph(999, 'inserted-node'), {
+  write(editor, (tx) => {
+    tx.nodes.insert(createParagraph(999, 'inserted-node'), {
       at: [Math.floor(blockCount / 2)],
     })
   })
@@ -88,12 +88,12 @@ const insertNodesMs = measureLane(createEditorWithChildren, (editor) => {
 })
 
 const setNodesMs = measureLane(createEditorWithChildren, (editor) => {
-  write(editor, () => {
-    editor.select({
+  write(editor, (tx) => {
+    tx.selection.set({
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [selectionBlocks - 1, 0], offset: 0 },
     })
-    editor.setNodes(
+    tx.nodes.set(
       { type: 'heading-one' },
       {
         at: [],
@@ -114,8 +114,8 @@ const setNodesMs = measureLane(createEditorWithChildren, (editor) => {
 
 const moveNodesMs = measureLane(createEditorWithChildren, (editor) => {
   for (let index = selectionBlocks - 1; index >= 0; index -= 1) {
-    write(editor, () => {
-      editor.moveNodes({
+    write(editor, (tx) => {
+      tx.nodes.move({
         at: [index],
         to: [blockCount - 1],
       })
@@ -133,8 +133,8 @@ const splitNodesMs = measureLane(
   () => createEditorWithChildren(createChildren(selectionBlocks)),
   (editor) => {
     for (let index = selectionBlocks - 1; index >= 0; index -= 1) {
-      write(editor, () => {
-        editor.splitNodes({
+      write(editor, (tx) => {
+        tx.nodes.split({
           at: { path: [index, 0], offset: 3 },
         })
       })
@@ -150,8 +150,8 @@ const mergeNodesMs = measureLane(
   () => createEditorWithChildren(createChildren(selectionBlocks * 2)),
   (editor) => {
     for (let index = selectionBlocks * 2 - 1; index >= 1; index -= 2) {
-      write(editor, () => {
-        editor.mergeNodes({ at: [index] })
+      write(editor, (tx) => {
+        tx.nodes.merge({ at: [index] })
       })
     }
 
@@ -163,8 +163,8 @@ const mergeNodesMs = measureLane(
 
 const removeNodesMs = measureLane(createEditorWithChildren, (editor) => {
   for (let index = selectionBlocks - 1; index >= 0; index -= 1) {
-    write(editor, () => {
-      editor.removeNodes({ at: [index] })
+    write(editor, (tx) => {
+      tx.nodes.remove({ at: [index] })
     })
   }
 
@@ -177,8 +177,8 @@ const removeNodesMs = measureLane(createEditorWithChildren, (editor) => {
 })
 
 const wrapNodesMs = measureLane(createEditorWithChildren, (editor) => {
-  write(editor, () => {
-    editor.wrapNodes(
+  write(editor, (tx) => {
+    tx.nodes.wrap(
       { type: 'quote', children: [] },
       {
         at: [],
@@ -200,8 +200,8 @@ const unwrapNodesMs = measureLane(
   () => {
     const editor = createEditorWithChildren()
 
-    write(editor, () => {
-      editor.wrapNodes(
+    write(editor, (tx) => {
+      tx.nodes.wrap(
         { type: 'quote', children: [] },
         {
           at: [],
@@ -215,8 +215,8 @@ const unwrapNodesMs = measureLane(
     return editor
   },
   (editor) => {
-    write(editor, () => {
-      editor.unwrapNodes({
+    write(editor, (tx) => {
+      tx.nodes.unwrap({
         at: [],
         match: (node) => Editor.isBlock(editor, node) && node.type === 'quote',
         mode: 'all',
@@ -246,8 +246,8 @@ const liftNodesMs = measureLane(
   },
   (editor) => {
     for (let index = selectionBlocks - 1; index >= 0; index -= 1) {
-      write(editor, () => {
-        editor.liftNodes({
+      write(editor, (tx) => {
+        tx.nodes.lift({
           at: [0, index],
         })
       })

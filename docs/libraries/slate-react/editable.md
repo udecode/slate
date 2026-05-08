@@ -14,6 +14,7 @@
 type EditableProps = {
   autoFocus?: boolean
   className?: string
+  decorate?: (entry: NodeEntry) => EditableDecoration[]
   disableDefaultStyles?: boolean
   id?: string
   renderingStrategy?: RenderingStrategyOptions | null
@@ -124,6 +125,42 @@ const renderText = ({ attributes, children, text }) => {
   )
 }
 ```
+
+## `decorate`
+
+Use `Editable.decorate` for simple editor-local ranges such as a one-off search
+match or lightweight syntax highlight.
+
+```tsx
+<Editable
+  decorate={([node, path]) => {
+    if (!Text.isText(node)) return []
+
+    const start = node.text.indexOf(query)
+
+    return start === -1
+      ? []
+      : [
+          {
+            anchor: { path, offset: start },
+            data: { search: true },
+            focus: { path, offset: start + query.length },
+          },
+        ]
+  }}
+  renderSegment={(segment, children) =>
+    segment.slices.some((slice) => slice.data?.search) ? (
+      <mark>{children}</mark>
+    ) : (
+      children
+    )
+  }
+/>
+```
+
+`decorate` is a convenience adapter over the projection runtime. Use
+provider-owned `decorationSources` when the ranges are shared with other UI,
+come from external state, update frequently, or need source-scoped refreshes.
 
 ## `renderSegment`
 

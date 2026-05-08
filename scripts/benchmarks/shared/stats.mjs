@@ -4,6 +4,19 @@ export const round = (value) => Number(value.toFixed(2))
 
 export const now = () => performance.now()
 
+const percentile = (sorted, ratio) => {
+  if (sorted.length === 0) {
+    return 0
+  }
+
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.ceil(sorted.length * ratio) - 1)
+  )
+
+  return sorted[index]
+}
+
 export const summarize = (samples) => {
   const sorted = [...samples].sort((left, right) => left - right)
   const mean =
@@ -18,6 +31,9 @@ export const summarize = (samples) => {
     samples: samples.map(round),
     mean: round(mean),
     median: round(median),
+    p75: round(percentile(sorted, 0.75)),
+    p95: round(percentile(sorted, 0.95)),
+    p99: round(percentile(sorted, 0.99)),
     min: round(sorted[0] ?? 0),
     max: round(sorted.at(-1) ?? 0),
   }

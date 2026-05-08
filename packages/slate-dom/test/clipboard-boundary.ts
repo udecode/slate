@@ -620,6 +620,43 @@ describe('slate-dom clipboard boundary', () => {
     ).toEqual({ text: 'hello' })
   })
 
+  it('pastes multiline plain text as separate blocks at a collapsed text selection', () => {
+    const editor = createClipboardEditor(
+      [
+        {
+          type: 'heading',
+          children: [{ text: 'Hello ' }],
+        },
+      ],
+      {
+        anchor: { path: [0, 0], offset: 'Hello '.length },
+        focus: { path: [0, 0], offset: 'Hello '.length },
+      }
+    )
+    const clipboard = new FakeDataTransfer()
+
+    clipboard.setData('text/plain', 'world\nAnd text below')
+
+    editor.update(() => {
+      editor.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+    })
+
+    expect(Editor.getSnapshot(editor).children).toEqual([
+      {
+        type: 'heading',
+        children: [{ text: 'Hello world' }],
+      },
+      {
+        type: 'heading',
+        children: [{ text: 'And text below' }],
+      },
+    ])
+    expect(Editor.getSnapshot(editor).selection).toEqual({
+      anchor: { path: [1, 0], offset: 'And text below'.length },
+      focus: { path: [1, 0], offset: 'And text below'.length },
+    })
+  })
+
   it('falls back to plain text when the custom MIME fragment is malformed', () => {
     withDom((document) => {
       const editor = createClipboardEditor(createChildren(), {

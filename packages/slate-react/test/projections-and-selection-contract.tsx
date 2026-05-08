@@ -149,6 +149,41 @@ describe('slate-react projections and selection contract', () => {
     spelling.destroy()
   })
 
+  test('supports simple Editable decorate ranges without a decoration source', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ children: [{ text: 'Hello world!' }] }],
+      selection: null,
+    })
+
+    const rendered = render(
+      <Slate editor={editor}>
+        <Editable
+          decorate={([node, path]) =>
+            Text.isText(node) && node.text.startsWith('Hello')
+              ? [
+                  {
+                    data: { search: true },
+                    range: {
+                      anchor: { path, offset: 0 },
+                      focus: { path, offset: 5 },
+                    },
+                  },
+                ]
+              : []
+          }
+          renderSegment={renderSegment}
+        />
+      </Slate>
+    )
+
+    expect(getProjectedSegments(rendered.container)).toEqual([
+      { text: 'Hello', decorations: ['search'] },
+      { text: ' world!', decorations: [] },
+    ])
+  })
+
   test('keeps overlapping inline payloads multiplicity-safe in one text node', () => {
     const editor = createEditor()
     const rendered = renderProjectedEditor(
@@ -181,6 +216,97 @@ describe('slate-react projections and selection contract', () => {
     ])
 
     rendered.store.destroy()
+  })
+
+  test('renderLeaf receives text marks and overlapping projection metadata without flattening', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ children: [{ bold: true, text: 'Hello world!' }] }],
+      selection: null,
+    })
+
+    const store = createDecorationSource(editor, {
+      id: 'leaf-metadata',
+      read: () => [
+        {
+          data: { comment: true },
+          key: 'comment',
+          range: {
+            anchor: { path: [0, 0], offset: 0 },
+            focus: { path: [0, 0], offset: 11 },
+          },
+        },
+        {
+          data: { spelling: true },
+          key: 'spelling',
+          range: {
+            anchor: { path: [0, 0], offset: 6 },
+            focus: { path: [0, 0], offset: 12 },
+          },
+        },
+      ],
+    })
+
+    const rendered = render(
+      <Slate decorationSources={[store]} editor={editor}>
+        <Editable
+          renderLeaf={({ children, leaf, leafPosition, segment }) => {
+            const payloads = segment.slices
+              .flatMap((slice) =>
+                Object.keys(
+                  (slice.data as Record<string, unknown> | undefined) ?? {}
+                )
+              )
+              .sort()
+
+            return (
+              <span
+                data-leaf={JSON.stringify({
+                  bold: Boolean((leaf as { bold?: boolean }).bold),
+                  end: leafPosition?.end ?? segment.end,
+                  payloads,
+                  start: leafPosition?.start ?? segment.start,
+                  text: leaf.text,
+                })}
+              >
+                {children}
+              </span>
+            )
+          }}
+        />
+      </Slate>
+    )
+
+    expect(
+      Array.from(rendered.container.querySelectorAll('[data-leaf]')).map(
+        (leaf) => JSON.parse((leaf as HTMLElement).dataset.leaf ?? '{}')
+      )
+    ).toEqual([
+      {
+        bold: true,
+        end: 6,
+        payloads: ['comment'],
+        start: 0,
+        text: 'Hello ',
+      },
+      {
+        bold: true,
+        end: 11,
+        payloads: ['comment', 'spelling'],
+        start: 6,
+        text: 'world',
+      },
+      {
+        bold: true,
+        end: 12,
+        payloads: ['spelling'],
+        start: 11,
+        text: '!',
+      },
+    ])
+
+    store.destroy()
   })
 
   test('projects editor-owned ranges across adjacent text nodes', () => {

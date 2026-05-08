@@ -101,3 +101,52 @@ Subscribe to decoration/projection data for one mounted runtime target.
 
 Pass `options.runtimeId` to target a specific runtime node, or call it inside a
 renderer that already has runtime target context.
+
+#### `useSlateDecorationSource<T>(editor, options): SlateDecorationSource<T>`
+
+Create a provider-owned decoration source from React state.
+
+Use this when ranges are shared across the editor surface, sidebars, toolbars,
+or other overlay UI. Use `Editable.decorate` for a simple editor-local callback.
+
+```tsx
+const searchSource = useSlateDecorationSource(editor, {
+  id: 'search',
+  read: ({ snapshot }) => findSearchMatches(snapshot, query),
+})
+
+return (
+  <Slate decorationSources={[searchSource]} editor={editor}>
+    <Editable renderSegment={renderSearchMatch} />
+  </Slate>
+)
+```
+
+#### `useSlateAnnotationStore<TData, TProjection>(editor, annotations): SlateAnnotationStore<TData, TProjection>`
+
+Create an annotation store for durable anchored ranges such as comments,
+suggestions, diagnostics, or external review markers.
+
+Pass the store to `Slate` so `Editable`, sidebars, and widget UI read one
+annotation snapshot.
+
+#### `useSlateAnnotations<TData, TProjection>(store?): SlateAnnotationSnapshot<TData, TProjection>`
+
+Read the current annotation snapshot. Without an explicit store, the hook reads
+the store from the nearest `Slate` provider.
+
+#### `useSlateAnnotation<TData, TProjection>(id, store?): SlateAnnotationEntry<TData, TProjection> | null`
+
+Read one annotation by id.
+
+#### `useSlateWidgetStore<TWidget, TAnnotation>(editor, widgets, annotationStore?): SlateWidgetStore<TWidget, TAnnotation>`
+
+Create a widget store for UI anchored to nodes, selections, or annotations.
+
+#### `useSlateWidgets<TWidget, TAnnotation>(store): SlateWidgetSnapshot<TWidget, TAnnotation>`
+
+Read every widget in a widget store.
+
+#### `useSlateWidget<TWidget, TAnnotation>(store, id): SlateWidgetEntry<TWidget, TAnnotation> | null`
+
+Read one widget by id.

@@ -41,6 +41,7 @@ export const composeText = async (
           throw new Error('Missing active editable selection for composition')
         }
 
+        const range = selection.getRangeAt(0).cloneRange()
         const dispatchCompositionEvent = (
           type: 'compositionstart' | 'compositionupdate' | 'compositionend',
           data: string
@@ -59,8 +60,6 @@ export const composeText = async (
         composedSteps.forEach((text) => {
           dispatchCompositionEvent('compositionupdate', text)
         })
-
-        const range = selection.getRangeAt(0)
 
         range.deleteContents()
 

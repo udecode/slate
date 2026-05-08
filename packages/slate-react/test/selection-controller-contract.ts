@@ -105,6 +105,33 @@ test('native selectionchange outside the editor does not clear model preference'
   expect(inputController.state.selectionSource).toBe('model-owned')
 })
 
+test('native editor-owned selectionchange with unresolved Slate range keeps model preference', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: null,
+      selectionSource: 'model-owned',
+    },
+  })
+
+  expect(
+    prepareEditableSelectionChangeImport({
+      domSelectionBelongsToEditor: true,
+      domSelectionCanImport: false,
+      inputController,
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe(false)
+  expect(inputController.preferModelSelectionForInputRef.current).toBe(true)
+  expect(inputController.state.selectionSource).toBe('model-owned')
+})
+
 test('repair-induced editor-owned selectionchange does not clear model preference', () => {
   const inputController = createEditableInputController({
     preferModelSelectionForInputRef: { current: true },

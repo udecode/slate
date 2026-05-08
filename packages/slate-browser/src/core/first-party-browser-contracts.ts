@@ -195,6 +195,26 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
     family: 'selection-repair-ime',
     routes: ['richtext'],
   },
+  {
+    assertions: [
+      'composition next to an inline void inserts into the adjacent text node',
+      'inline void structure remains intact',
+      'DOM selection remains collapsed after composition',
+      'artifact can replay the generated steps',
+    ],
+    family: 'ime-composition-inline-void-boundary',
+    routes: ['mentions'],
+  },
+  {
+    assertions: [
+      'composition commits text through the browser scenario runner',
+      'undo removes the committed composition text as one history unit',
+      'model text returns to the pre-composition value',
+      'artifact can replay the generated steps',
+    ],
+    family: 'ime-composition-undo',
+    routes: ['rendering-strategy-runtime'],
+  },
 ] satisfies readonly SlateBrowserOperationFamilyContract[]
 
 export const SLATE_BROWSER_FIRST_LEGACY_PARITY_FAMILIES = [
@@ -297,7 +317,15 @@ export const SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY =
     }),
     defineSlateBrowserPluginContract({
       plugin: 'core-editing',
-      rows: rowsByFamily(['paste-normalize-undo', 'selection-repair-ime']),
+      rows: rowsByFamily([
+        'paste-normalize-undo',
+        'selection-repair-ime',
+        'ime-composition-undo',
+      ]),
+    }),
+    defineSlateBrowserPluginContract({
+      plugin: 'inline-void-ime',
+      rows: rowsByFamily(['ime-composition-inline-void-boundary']),
     }),
   ])
 

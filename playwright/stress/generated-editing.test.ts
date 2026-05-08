@@ -564,37 +564,48 @@ const pasteHtmlImageVoid = (): StressCase =>
     steps: [
       { kind: 'selectAll', label: 'select-all' },
       {
-        html: '<p>Before image</p><img src="https://example.com/pasted.png"><p>After image</p>',
+        html: '<p>Before image</p><img src="https://example.com/pasted-one.png"><img src="https://example.com/pasted-two.png"><p>After image</p>',
         kind: 'pasteHtml',
-        label: 'paste-html-image',
+        label: 'paste-html-images',
         text: 'Before image\nAfter image',
       },
       {
-        count: 1,
+        count: 2,
         kind: 'assertLocatorCount',
-        label: 'assert-pasted-image-rendered',
-        selector: 'img[src="https://example.com/pasted.png"]',
+        label: 'assert-pasted-images-rendered',
+        selector: 'img[src^="https://example.com/pasted-"]',
       },
       {
-        count: 1,
+        count: 2,
         kind: 'assertLocatorCount',
         label: 'assert-pasted-image-void-shell',
         selector: '[data-slate-void="true"]',
       },
       {
-        count: 1,
+        count: 2,
         kind: 'assertLocatorCount',
         label: 'assert-pasted-image-runtime-spacer',
         selector: '[data-slate-void="true"] [data-slate-spacer]',
       },
       {
-        count: 1,
+        count: 2,
         kind: 'assertLocatorCount',
         label: 'assert-pasted-image-visible-content-wrapper',
         selector: '[data-slate-void="true"] > [contenteditable="false"]',
       },
       { focusOwner: 'editor', kind: 'assertFocusOwner', label: 'assert-focus' },
       { kind: 'assertLastCommit', label: 'assert-paste-commit' },
+      {
+        expectedModelTextBefore: 'Before imageAfter image',
+        kind: 'undo',
+        label: 'undo-pasted-images',
+      },
+      {
+        count: 0,
+        kind: 'assertLocatorCount',
+        label: 'assert-pasted-images-removed-after-undo',
+        selector: 'img[src^="https://example.com/pasted-"]',
+      },
     ],
   })
 
@@ -1024,6 +1035,50 @@ const mouseSelectionToolbar = (): StressCase =>
     ],
   })
 
+const webkitBackwardSelection = (): StressCase => {
+  const firstText = 'This is editable '
+
+  return createStressCase({
+    family: 'webkit-backward-selection',
+    route: 'richtext',
+    steps: [
+      {
+        kind: 'selectDOM',
+        label: 'select-dom-caret-after-first-word',
+        selection: collapsedSelection([0, 0], 4),
+      },
+      {
+        key: 'Shift+ArrowLeft',
+        kind: 'press',
+        label: 'extend-selection-backward',
+      },
+      {
+        kind: 'assertDOMSelection',
+        label: 'assert-dom-selection-is-backward',
+        selection: {
+          anchorNodeText: firstText,
+          anchorOffset: 4,
+          focusNodeText: firstText,
+          focusOffset: 3,
+        },
+      },
+      {
+        kind: 'assertSelection',
+        label: 'assert-model-selection-is-backward',
+        selection: {
+          anchor: { path: [0, 0], offset: 4 },
+          focus: { path: [0, 0], offset: 3 },
+        },
+      },
+      {
+        kind: 'assertWindowSelectionText',
+        label: 'assert-selected-text',
+        text: 's',
+      },
+    ],
+  })
+}
+
 const selectionRepairIme = (): StressCase =>
   createStressCase({
     family: 'selection-repair-ime',
@@ -1056,6 +1111,118 @@ const selectionRepairIme = (): StressCase =>
     ],
   })
 
+const imeCompositionInlineVoidBoundary = (): StressCase => {
+  const beforeFirstMentionText = 'Try mentioning characters, like '
+
+  return createStressCase({
+    family: 'ime-composition-inline-void-boundary',
+    route: 'mentions',
+    steps: [
+      {
+        kind: 'clickTextOffset',
+        label: 'select-before-first-mention',
+        offset: beforeFirstMentionText.length,
+        path: [1, 0],
+      },
+      {
+        kind: 'assertSelectionLocation',
+        label: 'assert-inline-void-selection-before-composition',
+        location: {
+          anchorOffset: beforeFirstMentionText.length,
+          anchorPath: [1, 0],
+          isCollapsed: true,
+        },
+      },
+      {
+        kind: 'assertDOMSelection',
+        label: 'assert-inline-void-dom-selection-before-composition',
+        selection: {
+          anchorNodeText: beforeFirstMentionText,
+          anchorOffset: beforeFirstMentionText.length,
+          focusNodeText: beforeFirstMentionText,
+          focusOffset: beforeFirstMentionText.length,
+        },
+      },
+      {
+        committedText: 'すし',
+        kind: 'composeText',
+        label: 'compose-after-inline-void',
+        steps: ['す', 'すし'],
+        text: 'すし',
+        transport: 'synthetic',
+      },
+      {
+        contains: 'like すし@R2-D2',
+        kind: 'assertLocatorText',
+        label: 'assert-inline-void-composition-text',
+        selector: '[data-slate-path="1"]',
+      },
+      {
+        kind: 'assertSelectionLocation',
+        label: 'assert-inline-void-composition-selection-collapsed',
+        location: { isCollapsed: true },
+      },
+    ],
+  })
+}
+
+const imeCompositionUndo = (): StressCase => {
+  const initialText = 'default block 1'
+  const composedText = `${initialText}すし`
+
+  return createStressCase({
+    family: 'ime-composition-undo',
+    route: 'rendering-strategy-runtime',
+    surface: { scope: '[data-runtime-editor="default"]' },
+    steps: [
+      {
+        kind: 'clickTextOffset',
+        label: 'select-composition-point',
+        offset: initialText.length,
+        path: [0, 0],
+      },
+      {
+        kind: 'assertDOMSelection',
+        label: 'assert-composition-dom-selection',
+        selection: {
+          anchorNodeText: initialText,
+          anchorOffset: initialText.length,
+          focusNodeText: initialText,
+          focusOffset: initialText.length,
+        },
+      },
+      {
+        committedText: 'すし',
+        kind: 'composeText',
+        label: 'compose-sushi',
+        steps: ['す', 'すし'],
+        text: 'すし',
+        transport: 'synthetic',
+      },
+      {
+        kind: 'assertText',
+        label: 'assert-composed-model-text',
+        text: composedText,
+      },
+      {
+        expectedModelTextBefore: composedText,
+        kind: 'undo',
+        label: 'undo-composition',
+      },
+      {
+        kind: 'assertText',
+        label: 'assert-after-composition-undo',
+        text: initialText,
+      },
+      {
+        kind: 'assertSelectionLocation',
+        label: 'assert-undo-selection-collapsed',
+        location: { isCollapsed: true },
+      },
+    ],
+  })
+}
+
 const stressCases: StressCase[] = [
   inlineVoidBoundaryNavigation(),
   markableInlineVoidFormatting(),
@@ -1073,9 +1240,12 @@ const stressCases: StressCase[] = [
   overlayMixedUpdate(),
   overlayRenderingStrategyBudget(),
   mouseSelectionToolbar(),
+  webkitBackwardSelection(),
   hugeDocumentCut(),
   ...['plaintext', 'richtext', 'forced-layout'].map(pasteNormalizeUndo),
   selectionRepairIme(),
+  imeCompositionInlineVoidBoundary(),
+  imeCompositionUndo(),
 ].filter(
   (stressCase) =>
     routeEnabled(stressCase.route) && familyEnabled(stressCase.family)

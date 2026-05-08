@@ -92,11 +92,14 @@ export type ParagraphElement = {
   children: Descendant[]
 }
 
-export type TableElement = { type: 'table'; children: TableRow[] }
+export type TableElement = { type: 'table'; children: TableRowElement[] }
 
-export type TableCellElement = { type: 'table-cell'; children: CustomText[] }
+export type TableCellElement = { type: 'table-cell'; children: Descendant[] }
 
-export type TableRowElement = { type: 'table-row'; children: TableCell[] }
+export type TableRowElement = {
+  type: 'table-row'
+  children: TableCellElement[]
+}
 
 export type TitleElement = { type: 'title'; children: Descendant[] }
 
@@ -159,6 +162,7 @@ export type CustomText = {
   bold?: boolean
   italic?: boolean
   code?: boolean
+  fontSize?: string
   underline?: boolean
   strikethrough?: boolean
   // MARKDOWN PREVIEW SPECIFIC LEAF
@@ -170,7 +174,11 @@ export type CustomText = {
   text: string
 }
 
-export type CustomTextKey = keyof Omit<CustomText, 'text'>
+type BooleanTextKey<T> = {
+  [K in keyof T]: Exclude<T[K], undefined> extends boolean ? K : never
+}[keyof T]
+
+export type CustomTextKey = Extract<BooleanTextKey<CustomText>, string>
 
 export type EmptyText = {
   text: string

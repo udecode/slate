@@ -5,6 +5,7 @@ import {
   createSlateBrowserInternalControlGauntlet,
   openExample,
   recordSlateBrowserRuntimeErrors,
+  withExclusiveClipboardAccess,
 } from 'slate-browser/playwright'
 
 test.describe('editable voids', () => {
@@ -42,6 +43,31 @@ test.describe('editable voids', () => {
   test('make sure you can edit editable void', async ({ page }) => {
     await page.locator(input).fill('Typing')
     expect(await page.locator(input).inputValue()).toBe('Typing')
+  })
+
+  test('keeps native paste inside editable void input', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Native input clipboard proof needs desktop keyboard shortcuts'
+    )
+
+    const inputElement = page.locator(input)
+
+    await inputElement.fill('hello')
+    await inputElement.evaluate((element: HTMLInputElement) => {
+      element.focus()
+      element.setSelectionRange(1, 5)
+    })
+
+    await withExclusiveClipboardAccess(async () => {
+      await page.keyboard.press('ControlOrMeta+C')
+      await page.keyboard.press('ControlOrMeta+V')
+      await page.keyboard.press('ControlOrMeta+V')
+    })
+
+    await expect(inputElement).toHaveValue('helloello')
   })
 
   test('restores outer editor selection after editing input inside editable void', async ({

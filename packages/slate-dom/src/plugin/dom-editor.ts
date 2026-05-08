@@ -980,14 +980,18 @@ export const DOMEditor: DOMEditorInterface = {
       domEl = domEl.closest('[data-slate-node]')
     }
 
-    const node = domEl ? ELEMENT_TO_NODE.get(domEl as HTMLElement) : null
+    const belongsToEditor =
+      domEl && DOMEditor.hasDOMNode(editor, domEl as HTMLElement)
+    const node = belongsToEditor
+      ? ELEMENT_TO_NODE.get(domEl as HTMLElement)
+      : null
 
     if (node) {
       return node
     }
 
     const fallbackPath =
-      domEl && DOMEditor.hasDOMNode(editor, domEl)
+      domEl && belongsToEditor
         ? parseSlateDOMPath(domEl.getAttribute('data-slate-path'))
         : null
 
@@ -1421,6 +1425,10 @@ export const DOMEditor: DOMEditorInterface = {
       anchorOffset == null ||
       focusOffset == null
     ) {
+      if (suppressThrow) {
+        return null as T extends true ? Range | null : Range
+      }
+
       throw new Error(
         `Cannot resolve a Slate range from DOM range: ${domRange}`
       )

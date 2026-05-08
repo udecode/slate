@@ -15,6 +15,7 @@ import {
 
 import { Button, Icon, Toolbar } from './components'
 import type { CustomEditor, CustomTextKey, CustomValue } from './custom-types.d'
+import { isMarkActive, toggleMark } from './mark-utils'
 
 const HOTKEYS: Record<string, CustomTextKey> = {
   'mod+b': 'bold',
@@ -70,17 +71,6 @@ const IFrameExample = () => {
       </IFrame>
     </Slate>
   )
-}
-
-const toggleMark = (editor: CustomEditor, format: CustomTextKey) => {
-  editor.update((tx) => {
-    tx.marks.toggle(format)
-  })
-}
-
-const isMarkActive = (editor: CustomEditor, format: CustomTextKey) => {
-  const marks = editor.read((state) => state.marks.get())
-  return marks ? marks[format] === true : false
 }
 
 const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {

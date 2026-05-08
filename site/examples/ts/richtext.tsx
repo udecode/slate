@@ -20,6 +20,7 @@ import type {
   CustomTextKey,
   CustomValue,
 } from './custom-types.d'
+import { isMarkActive, toggleMark } from './mark-utils'
 
 const HOTKEYS: Record<string, CustomTextKey> = {
   'mod+b': 'bold',
@@ -122,12 +123,6 @@ const toggleBlock = (editor: CustomEditor, format: CustomElementFormat) => {
   })
 }
 
-const toggleMark = (editor: CustomEditor, format: CustomTextKey) => {
-  editor.update((tx) => {
-    tx.marks.toggle(format)
-  })
-}
-
 const isBlockActive = (
   editor: CustomEditor,
   format: CustomElementFormat,
@@ -154,11 +149,6 @@ const isBlockActive = (
   )
 
   return !!match
-}
-
-const isMarkActive = (editor: CustomEditor, format: CustomTextKey) => {
-  const marks = editor.read((state) => state.marks.get())
-  return marks ? marks[format] === true : false
 }
 
 const Element = ({ attributes, children, element }: RenderElementProps) => {

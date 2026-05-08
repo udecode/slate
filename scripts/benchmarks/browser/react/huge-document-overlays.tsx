@@ -4,18 +4,20 @@ import React, { act, memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   createEditor,
   type Descendant,
-  Editor,
   type EditorSnapshot,
   type Path,
   type RuntimeId,
 } from '../../../../packages/slate/src/index.ts'
+import { Editor } from '../../../../packages/slate/src/internal/index.ts'
 import {
-  createSlateProjectionStore,
+  createDecorationSource,
   Editable,
+  type ReactEditor,
   Slate,
-  type SlateProjectionStore,
+  type SlateDecorationSource,
+  useEditorSelector,
   useSlateProjections,
-  useSlateSelector,
+  withReact,
 } from '../../../../packages/slate-react/src/index.ts'
 import {
   cloneCounts,
@@ -105,7 +107,7 @@ const createOverlayRanges = (snapshot: EditorSnapshot) => {
 }
 
 const getProjectionMetricCounts = (
-  store: Pick<SlateProjectionStore<unknown>, 'getMetrics'> | null | undefined
+  store: Pick<SlateDecorationSource<unknown>, 'getMetrics'> | null | undefined
 ) => {
   const metrics =
     store && typeof store.getMetrics === 'function' ? store.getMetrics() : null
@@ -133,7 +135,7 @@ const TopLevelBlockSlice = memo(
     index: number
     slot: string
   }) => {
-    const value = useSlateSelector((editor) =>
+    const value = useEditorSelector((editor) =>
       getTopLevelBlockText(Editor.getSnapshot(editor), index)
     )
     increment(counts, slot)
@@ -194,48 +196,49 @@ const TrackedElement = ({
 const RenderingStrategyOverlayApp = ({
   counts,
   editor,
-  onProjectionStore,
+  onDecorationSource,
 }: {
   counts: Record<string, number>
-  editor: ReturnType<typeof createEditor>
-  onProjectionStore?: (
-    store: SlateProjectionStore<{ highlight?: boolean }>
+  editor: ReactEditor
+  onDecorationSource?: (
+    source: SlateDecorationSource<{ highlight?: boolean }>
   ) => void
 }) => {
   const [overlayActive, setOverlayActive] = useState(false)
   const overlayActiveRef = useRef(overlayActive)
   overlayActiveRef.current = overlayActive
-  const projectionStore = useMemo(
+  const decorationSource = useMemo(
     () =>
-      createSlateProjectionStore(
-        editor,
-        (snapshot) =>
+      createDecorationSource(editor, {
+        id: 'huge-document-overlays',
+        read: ({ snapshot }) =>
           overlayActiveRef.current ? createOverlayRanges(snapshot) : [],
-        {
-          dirtiness: 'external',
-          sourceId: 'huge-document-overlays',
-        }
-      ),
+        dirtiness: 'external',
+      }),
     [editor]
+  )
+  const decorationSources = useMemo(
+    () => [decorationSource] as const,
+    [decorationSource]
   )
 
   useEffect(() => {
-    onProjectionStore?.(projectionStore)
-  }, [onProjectionStore, projectionStore])
+    onDecorationSource?.(decorationSource)
+  }, [onDecorationSource, decorationSource])
 
   useEffect(
     () => () => {
-      projectionStore.destroy()
+      decorationSource.destroy()
     },
-    [projectionStore]
+    [decorationSource]
   )
 
   useEffect(() => {
-    projectionStore.refresh({ reason: 'external' })
-  }, [overlayActive, projectionStore])
+    decorationSource.refresh({ reason: 'external' })
+  }, [decorationSource, overlayActive])
 
   return (
-    <Slate editor={editor} projectionStore={projectionStore}>
+    <Slate decorationSources={decorationSources} editor={editor}>
       <RenderingStrategyOverlayInner
         counts={counts}
         onToggle={() => {
@@ -256,11 +259,11 @@ const RenderingStrategyOverlayInner = ({
   onToggle: () => void
   overlayActive: boolean
 }) => {
-  const activeLeafId = useSlateSelector(
+  const activeLeafId = useEditorSelector(
     (editorValue) =>
       Editor.getSnapshot(editorValue).index.pathToId['0.0'] ?? null
   )
-  const farLeafId = useSlateSelector(
+  const farLeafId = useEditorSelector(
     (editorValue) =>
       Editor.getSnapshot(editorValue).index.pathToId[
         `${getFarBlockIndex()}.0`
@@ -323,9 +326,9 @@ const countShells = (container: HTMLElement) =>
     .length
 
 const setupScenario = async () => {
-  const editor = createEditor()
+  const editor = withReact(createEditor())
   const counts: Record<string, number> = {}
-  let projectionStore: SlateProjectionStore<{ highlight?: boolean }> | null =
+  let decorationSource: SlateDecorationSource<{ highlight?: boolean }> | null =
     null
 
   Editor.replace(editor, {
@@ -337,8 +340,8 @@ const setupScenario = async () => {
     <RenderingStrategyOverlayApp
       counts={counts}
       editor={editor}
-      onProjectionStore={(store) => {
-        projectionStore = store
+      onDecorationSource={(source) => {
+        decorationSource = source
       }}
     />
   )
@@ -350,7 +353,7 @@ const setupScenario = async () => {
     '#huge-document-overlays'
   )
 
-  if (!view || !toggle || !root || !projectionStore) {
+  if (!view || !toggle || !root || !decorationSource) {
     throw new Error('Missing rendering-strategy overlay benchmark controls')
   }
 
@@ -358,7 +361,7 @@ const setupScenario = async () => {
     counts,
     editor,
     mounted,
-    projectionStore,
+    projectionStore: decorationSource,
     root,
     toggle,
     view,
@@ -449,8 +452,8 @@ const measureActiveEditAfterOverlay = async () =>
     const start = now()
 
     await act(async () => {
-      editor.update(() => {
-        editor.insertText('!', {
+      editor.update((tx) => {
+        tx.text.insert('!', {
           at: { path: [0, 0], offset: 0 },
         })
       })

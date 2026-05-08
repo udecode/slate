@@ -20,9 +20,23 @@ const replacementText = 'replacement marker'
 
 const benchmarkSource = `
 import assert from 'node:assert/strict';
-import * as Slate from 'slate';
 
-const { createEditor, Editor } = Slate;
+let Slate;
+let SlateInternal = {};
+
+try {
+  Slate = await import('../../packages/slate/src/index.ts');
+  SlateInternal = await import('../../packages/slate/src/internal/index.ts');
+} catch {
+  Slate = await import('slate');
+
+  try {
+    SlateInternal = await import('slate/internal');
+  } catch {}
+}
+
+const { createEditor } = Slate;
+const Editor = Slate.Editor ?? SlateInternal.Editor;
 const legacyTransforms = Slate.Transforms;
 
 const iterations = Number(process.env.CORE_HUGE_BENCH_ITERATIONS || 3);
@@ -76,15 +90,23 @@ const replaceEditor = (editor, input) => {
 };
 
 const getChildren = (editor) =>
-  typeof editor.getChildren === 'function' ? editor.getChildren() : editor.children;
+  typeof Editor.getSnapshot === 'function'
+    ? Editor.getSnapshot(editor).children
+    : typeof Editor.getChildren === 'function'
+      ? Editor.getChildren(editor)
+      : editor.children;
 
 const getSelection = (editor) =>
-  typeof editor.getSelection === 'function' ? editor.getSelection() : editor.selection;
+  typeof Editor.getSnapshot === 'function'
+    ? Editor.getSnapshot(editor).selection
+    : typeof editor.getSelection === 'function'
+      ? editor.getSelection()
+      : editor.selection;
 
 const select = (editor, target) => {
   if (typeof editor.update === 'function') {
-    editor.update(() => {
-      editor.select(target);
+    editor.update((tx) => {
+      tx.selection.set(target);
     });
     return;
   }
@@ -94,8 +116,8 @@ const select = (editor, target) => {
 
 const insertText = (editor, text, options) => {
   if (typeof editor.update === 'function') {
-    editor.update(() => {
-      editor.insertText(text, options);
+    editor.update((tx) => {
+      tx.text.insert(text, options);
     });
     return;
   }
@@ -105,8 +127,8 @@ const insertText = (editor, text, options) => {
 
 const insertFragment = (editor, fragment) => {
   if (typeof editor.update === 'function') {
-    editor.update(() => {
-      editor.insertFragment(fragment);
+    editor.update((tx) => {
+      tx.fragment.insert(fragment);
     });
     return;
   }

@@ -44,6 +44,7 @@ Current live family owners:
 - text/selection transforms
 - editor store/public snapshot surface
 - refs/projection
+- history retained memory
 
 ### `core/compare`
 
@@ -118,6 +119,7 @@ Current artifact owners:
 - `tmp/slate-query-ref-observation-benchmark.json`
 - `tmp/slate-node-transform-benchmark.json`
 - `tmp/slate-text-selection-benchmark.json`
+- `tmp/slate-history-retained-memory.json`
 - `tmp/slate-editor-store-benchmark.json`
 - `tmp/slate-refs-projection-benchmark.json`
 - `tmp/slate-normalization-compare-benchmark.json`
