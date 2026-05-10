@@ -179,6 +179,84 @@ describe('slate transforms contract', () => {
     ])
   })
 
+  it('insertNodes can split the highest selected block for root-level insertion', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'section',
+          children: [
+            {
+              type: 'paragraph',
+              children: [{ text: 'Helloworld' }],
+            },
+          ],
+        } as Descendant,
+      ],
+      selection: collapsedSelection([0, 0, 0], 5),
+      marks: null,
+    })
+
+    editor.update((tx) => {
+      tx.nodes.insert(
+        {
+          type: 'embed',
+          children: [{ text: '' }],
+        } as Descendant,
+        { mode: 'highest' }
+      )
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'section',
+        children: [
+          {
+            type: 'paragraph',
+            children: [{ text: 'Hello' }],
+          },
+        ],
+      },
+      {
+        type: 'embed',
+        children: [{ text: '' }],
+      },
+      {
+        type: 'section',
+        children: [
+          {
+            type: 'paragraph',
+            children: [{ text: 'world' }],
+          },
+        ],
+      },
+    ])
+    assert.deepEqual(
+      Editor.getSnapshot(editor).selection,
+      collapsedSelection([1, 0], 0)
+    )
+  })
+
+  it('splitNodes rejects the editor root as a split target', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'one' }],
+        } as Descendant,
+      ],
+      selection: null,
+      marks: null,
+    })
+
+    assert.throws(() => {
+      Editor.splitNodes(editor, { at: [], position: 0 })
+    }, /Cannot split the editor root/)
+  })
+
   it('setNodes can target the highest matching inline when mode is highest', () => {
     const editor = createEditor()
     editor.extend(

@@ -31,6 +31,71 @@ test.describe('Inlines example', () => {
     await expect(link).toContainText('https://example.com')
   })
 
+  test('wraps pasted URL text as a link command', async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selection.collapse({ path: [0, 0], offset: 0 })
+    await editor.clipboard.pasteText('https://example.com')
+
+    const link = editor.root.locator('a[href="https://example.com/"]')
+    await expect(link).toHaveCount(1)
+    await expect(link).toContainText('https://example.com')
+
+    await editor.type(' after')
+
+    await expect(link).not.toContainText('after')
+    await expect
+      .poll(async () =>
+        (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
+      )
+      .toContain('https://example.com afterIn addition to block nodes')
+  })
+
+  test('places Enter after a typed inline link outside the link', async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selection.collapse({ path: [0, 0], offset: 0 })
+    await editor.insertText('https://example.com')
+    await editor.press('Enter')
+
+    const link = editor.root.locator('a[href="https://example.com/"]')
+    await expect(link).toHaveCount(1)
+    await expect(link).toContainText('https://example.com')
+    await editor.assert.selection({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    })
+
+    await editor.type('outside ')
+
+    await expect(link).not.toContainText('outside')
+    await expect
+      .poll(async () =>
+        (await editor.get.blockTexts())[1]?.replaceAll('\u00A0', '')
+      )
+      .toContain('outside In addition to block nodes')
+  })
+
   test('types inside an editable inline at its end', async ({
     browserName,
     page,
@@ -94,6 +159,147 @@ test.describe('Inlines example', () => {
         (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
       )
       .toContain('Here is a hyperlink outside, and here is')
+  })
+
+  test('pastes content outside inline link boundaries without expanding the link', async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const beforeLinkText =
+      'In addition to block nodes, you can create inline nodes. Here is a '
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: beforeLinkText.length },
+      focus: { path: [0, 0], offset: beforeLinkText.length },
+    })
+    await editor.clipboard.pasteText('before ')
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 2], offset: 0 },
+      focus: { path: [0, 2], offset: 0 },
+    })
+    await editor.clipboard.pasteHtml('<strong>after</strong> ', 'after ')
+
+    const link = editor.root.locator('a').first()
+
+    await expect(link).toContainText('hyperlink')
+    await expect(link).not.toContainText('before')
+    await expect(link).not.toContainText('after')
+    await expect
+      .poll(async () =>
+        (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
+      )
+      .toContain('Here is a before hyperlinkafter , and here is')
+  })
+
+  test('replaces selected text adjacent to inline link boundaries with rich content', async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
+    let editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const beforeLinkText =
+      'In addition to block nodes, you can create inline nodes. Here is a '
+    const selectedBeforeLinkText = 'Here is a '
+
+    await editor.selection.selectDOM({
+      anchor: {
+        path: [0, 0],
+        offset: beforeLinkText.length - selectedBeforeLinkText.length,
+      },
+      focus: { path: [0, 0], offset: beforeLinkText.length },
+    })
+    await editor.clipboard.pasteHtml('<strong>replaced</strong>', 'replaced')
+
+    let link = editor.root.locator('a').first()
+    await expect(link).toContainText('hyperlink')
+    await expect(link).not.toContainText('replaced')
+    await expect
+      .poll(async () =>
+        (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
+      )
+      .toContain('inline nodes. replacedhyperlink, and here is')
+
+    await page.goto('/examples/inlines')
+    editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const selectedAfterLinkText = ', and here'
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 2], offset: 0 },
+      focus: { path: [0, 2], offset: selectedAfterLinkText.length },
+    })
+    await editor.clipboard.pasteHtml('<em>replaced</em>', 'replaced')
+
+    link = editor.root.locator('a').first()
+    await expect(link).toContainText('hyperlink')
+    await expect(link).not.toContainText('replaced')
+    await expect
+      .poll(async () =>
+        (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
+      )
+      .toContain('Here is a hyperlinkreplaced is a more unusual inline')
+  })
+
+  test('replaces selected inline link text with rich content outside the surviving link', async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 1, 0], offset: 0 },
+      focus: { path: [0, 1, 0], offset: 'hyper'.length },
+    })
+    await editor.clipboard.pasteHtml('<strong>replaced</strong>', 'replaced')
+
+    const link = editor.root.locator('a').first()
+    const beforeLinkText =
+      'In addition to block nodes, you can create inline nodes. Here is a '
+
+    await expect(link).toContainText('link')
+    await expect(link).not.toContainText('replaced')
+    await expect
+      .poll(async () =>
+        (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
+      )
+      .toContain('Here is a replacedlink, and here is')
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: {
+          path: [0, 0],
+          offset: beforeLinkText.length + 'replaced'.length,
+        },
+        focus: {
+          path: [0, 0],
+          offset: beforeLinkText.length + 'replaced'.length,
+        },
+      })
   })
 
   test('places the caret outside a padded inline before typing', async ({

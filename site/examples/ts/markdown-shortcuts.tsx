@@ -1,5 +1,5 @@
 import { type KeyboardEvent, useCallback, useMemo } from 'react'
-import { Node, Point, Range, type Element as SlateElement } from 'slate'
+import { Node, Path, Point, Range, type Element as SlateElement } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -14,12 +14,13 @@ import type {
   CustomEditor,
   CustomElementType,
   CustomValue,
+  NumberedListItemElement,
 } from './custom-types.d'
 
 const SHORTCUTS: Record<string, CustomElementType> = {
+  '+': 'list-item',
   '*': 'list-item',
   '-': 'list-item',
-  '+': 'list-item',
   '>': 'block-quote',
   '#': 'heading-one',
   '##': 'heading-two',
@@ -28,6 +29,16 @@ const SHORTCUTS: Record<string, CustomElementType> = {
   '#####': 'heading-five',
   '######': 'heading-six',
 } as const
+const BULLETED_LIST_SHORTCUTS = new Set(['*', '-', '+'])
+const HEADING_TYPES = new Set<CustomElementType>([
+  'heading-one',
+  'heading-two',
+  'heading-three',
+  'heading-four',
+  'heading-five',
+  'heading-six',
+])
+const ORDERED_LIST_SHORTCUT = /^(\d+)\.$/
 
 const MarkdownShortcutsExample = () => {
   const renderElement = useCallback(
@@ -88,6 +99,11 @@ const MarkdownShortcutsExample = () => {
   )
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'Enter' && applyMarkdownHeadingStartEnter(editor)) {
+        event.preventDefault()
+        return true
+      }
+
       if (event.key === 'Backspace' && applyMarkdownBackspaceShortcut(editor)) {
         return true
       }
@@ -128,7 +144,8 @@ const applyMarkdownTextShortcut = (editor: CustomEditor, text: string) => {
   const range = { anchor, focus: start }
   const beforeText =
     editor.read((state) => state.text.string(range)) + text.slice(0, -1)
-  const type = SHORTCUTS[beforeText]
+  const orderedListMatch = ORDERED_LIST_SHORTCUT.exec(beforeText)
+  const type = orderedListMatch ? 'list-item' : SHORTCUTS[beforeText]
 
   if (!type) {
     return false
@@ -150,13 +167,15 @@ const applyMarkdownTextShortcut = (editor: CustomEditor, text: string) => {
     })
 
     if (type === 'list-item') {
-      const list: BulletedListElement = {
-        type: 'bulleted-list',
-        children: [],
-      }
+      const list = createListElement(beforeText, orderedListMatch)
+
       tx.nodes.wrap(list, {
         match: (n) => Node.isElement(n) && n.type === 'list-item',
       })
+
+      if (list.type === 'bulleted-list') {
+        mergeAdjacentBulletedLists(editor, tx)
+      }
     }
 
     selectCurrentBlockStart(editor)
@@ -164,6 +183,130 @@ const applyMarkdownTextShortcut = (editor: CustomEditor, text: string) => {
   editor.dom.focus()
 
   return true
+}
+
+const applyMarkdownHeadingStartEnter = (editor: CustomEditor) => {
+  const selection = editor.read((state) => state.selection.get())
+
+  if (!selection || !Range.isCollapsed(selection)) {
+    return false
+  }
+
+  const blockEntry = editor.read((state) =>
+    state.nodes.above({
+      at: selection,
+      match: (n) => Node.isElement(n) && state.nodes.isBlock(n),
+    })
+  )
+
+  if (!blockEntry) {
+    return false
+  }
+
+  const [block, blockPath] = blockEntry
+
+  if (
+    !Node.isElement(block) ||
+    !HEADING_TYPES.has(block.type as CustomElementType)
+  ) {
+    return false
+  }
+
+  const start = editor.read((state) => state.points.start(blockPath))
+
+  if (!Point.equals(selection.anchor, start)) {
+    return false
+  }
+
+  editor.update((tx) => {
+    tx.break.insert()
+    tx.nodes.set(
+      { type: 'paragraph' },
+      {
+        at: blockPath,
+        match: (n) => Node.isElement(n) && tx.nodes.isBlock(n),
+      }
+    )
+  })
+
+  return true
+}
+
+const createListElement = (
+  shortcut: string,
+  orderedListMatch: RegExpExecArray | null
+): BulletedListElement | NumberedListItemElement => {
+  if (orderedListMatch) {
+    return {
+      type: 'numbered-list',
+      start: Number(orderedListMatch[1]),
+      children: [],
+    }
+  }
+
+  if (!BULLETED_LIST_SHORTCUTS.has(shortcut)) {
+    throw new Error(`Unsupported list shortcut: ${shortcut}`)
+  }
+
+  return {
+    type: 'bulleted-list',
+    children: [],
+  }
+}
+
+const mergeAdjacentBulletedLists = (
+  editor: CustomEditor,
+  tx: Parameters<Parameters<CustomEditor['update']>[0]>[0]
+) => {
+  const selection = editor.read((state) => state.selection.get())
+
+  if (!selection) {
+    return
+  }
+
+  const listEntry = editor.read((state) =>
+    state.nodes.above({
+      at: selection,
+      match: (n) => Node.isElement(n) && n.type === 'bulleted-list',
+    })
+  )
+
+  if (!listEntry) {
+    return
+  }
+
+  let [, listPath] = listEntry
+
+  if (Path.hasPrevious(listPath)) {
+    const previousPath = Path.previous(listPath)
+    const [previousNode] = editor.read((state) =>
+      state.nodes.hasPath(previousPath)
+        ? state.nodes.get(previousPath)
+        : [null, previousPath]
+    )
+
+    if (
+      previousNode &&
+      Node.isElement(previousNode) &&
+      previousNode.type === 'bulleted-list'
+    ) {
+      tx.nodes.merge({ at: listPath })
+      listPath = previousPath
+    }
+  }
+
+  const nextPath = Path.next(listPath)
+  const [nextNode] = editor.read((state) =>
+    state.nodes.hasPath(nextPath) ? state.nodes.get(nextPath) : [null, nextPath]
+  )
+
+  if (
+    nextNode &&
+    Node.isElement(nextNode) &&
+    nextNode.type === 'bulleted-list'
+  ) {
+    tx.nodes.merge({ at: nextPath })
+  }
 }
 
 const applyMarkdownBackspaceShortcut = (editor: CustomEditor) => {
@@ -202,7 +345,9 @@ const applyMarkdownBackspaceShortcut = (editor: CustomEditor) => {
 
     if (block.type === 'list-item') {
       tx.nodes.unwrap({
-        match: (n) => Node.isElement(n) && n.type === 'bulleted-list',
+        match: (n) =>
+          Node.isElement(n) &&
+          (n.type === 'bulleted-list' || n.type === 'numbered-list'),
         split: true,
       })
     }
@@ -250,6 +395,12 @@ const Element = ({ attributes, children, element }: RenderElementProps) => {
       return <h6 {...attributes}>{children}</h6>
     case 'list-item':
       return <li {...attributes}>{children}</li>
+    case 'numbered-list':
+      return (
+        <ol start={element.start} {...attributes}>
+          {children}
+        </ol>
+      )
     default:
       return <p {...attributes}>{children}</p>
   }

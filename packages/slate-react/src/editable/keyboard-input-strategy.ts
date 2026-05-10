@@ -334,13 +334,18 @@ export const applyEditableKeyDown = ({
 
       // We don't have a core behavior for these, but they change the
       // DOM if we don't prevent them, so we have to.
-      if (
-        Hotkeys.isBold(nativeEvent) ||
-        Hotkeys.isItalic(nativeEvent) ||
-        Hotkeys.isTransposeCharacter(nativeEvent)
-      ) {
+      if (Hotkeys.isBold(nativeEvent) || Hotkeys.isItalic(nativeEvent)) {
         event.preventDefault()
         return keyDownHandled()
+      }
+
+      if (Hotkeys.isTransposeCharacter(nativeEvent)) {
+        event.preventDefault()
+        applyEditableCommand({
+          command: { kind: 'transpose-character' },
+          editor,
+        })
+        return keyDownHandled(DEFAULT_MODEL_COMMAND_REPAIR)
       }
 
       if (Hotkeys.isSoftBreak(nativeEvent)) {
@@ -351,7 +356,10 @@ export const applyEditableKeyDown = ({
         return keyDownHandled()
       }
 
-      if (Hotkeys.isSplitBlock(nativeEvent)) {
+      if (
+        Hotkeys.isSplitBlock(nativeEvent) ||
+        Hotkeys.isOpenLine(nativeEvent)
+      ) {
         event.preventDefault()
         if (fallbackCommand) {
           applyEditableCommand({ command: fallbackCommand, editor })

@@ -134,6 +134,77 @@ describe('model input strategy', () => {
     expect(repair).toEqual({ kind: 'none' })
   })
 
+  it('uses the provided replacement target after native text repair moves selection', () => {
+    const editor = createTextEditor('iS', 2)
+    const replacementSelection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 1 },
+    }
+
+    const repair = applyModelOwnedBeforeInputOperation({
+      data: 'I',
+      deferredOperations: { current: [] },
+      editor: editor as ReactEditor,
+      inputType: 'insertReplacementText',
+      native: false,
+      selection: replacementSelection,
+      setComposing: () => {},
+    })
+
+    expect(Editor.string(editor, [])).toBe('IS')
+    expect(Editor.getSelection(editor)).toEqual({
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
+    expect(repair).toEqual({ kind: 'none' })
+  })
+
+  it('transposes adjacent characters from insertTranspose beforeinput', () => {
+    const editor = createTextEditor('abc', 1)
+
+    const firstRepair = applyModelOwnedBeforeInputOperation({
+      data: null,
+      deferredOperations: { current: [] },
+      editor: editor as ReactEditor,
+      inputType: 'insertTranspose',
+      native: false,
+      selection: Editor.getSelection(editor),
+      setComposing: () => {},
+    })
+
+    expect(Editor.string(editor, [])).toBe('bac')
+    expect(Editor.getSelection(editor)).toEqual({
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 2 },
+    })
+    expect(firstRepair).toEqual({
+      focus: true,
+      kind: 'repair-caret',
+      selectionSourceTransition: {
+        preferModelSelection: true,
+        reason: 'model-command',
+        selectionSource: 'model-owned',
+      },
+    })
+
+    const secondRepair = applyModelOwnedBeforeInputOperation({
+      data: null,
+      deferredOperations: { current: [] },
+      editor: editor as ReactEditor,
+      inputType: 'insertTranspose',
+      native: false,
+      selection: Editor.getSelection(editor),
+      setComposing: () => {},
+    })
+
+    expect(Editor.string(editor, [])).toBe('bca')
+    expect(Editor.getSelection(editor)).toEqual({
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    })
+    expect(secondRepair).toEqual(firstRepair)
+  })
+
   it('splits a custom block on Enter without dropping follow-up text', () => {
     const editor = createTextEditor('Heading', 'Heading'.length, 'heading-one')
     const selection = Editor.getSelection(editor)

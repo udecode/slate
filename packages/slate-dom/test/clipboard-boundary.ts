@@ -441,6 +441,70 @@ describe('slate-dom clipboard boundary', () => {
     })
   })
 
+  it('preserves the target empty text block for the first pasted text block and promotes the tail', () => {
+    withDom((document) => {
+      const copySelection: Range = {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 'Some text'.length },
+      }
+      const targetSelection: Range = {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      }
+
+      const source = createClipboardEditor(
+        [
+          {
+            type: 'paragraph',
+            children: [{ text: 'Hello world' }],
+          },
+          {
+            type: 'paragraph',
+            children: [{ text: 'Some text' }],
+          },
+        ],
+        copySelection
+      )
+      const target = createClipboardEditor(
+        [
+          {
+            type: 'block-quote',
+            children: [{ text: '' }],
+          },
+        ],
+        targetSelection
+      )
+      const clipboard = new FakeDataTransfer()
+
+      mountSimpleEditorDOM(source, document)
+      mountEditorRoot(target, document)
+
+      source.dom.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+
+      const operationsBefore = Editor.getOperations(target).length
+
+      target.update(() => {
+        target.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+      })
+
+      expect(Editor.getSnapshot(target).children).toEqual([
+        {
+          type: 'block-quote',
+          children: [{ text: 'Hello world' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: 'Some text' }],
+        },
+      ])
+      expect(Editor.getSnapshot(target).selection).toEqual({
+        anchor: { path: [1, 0], offset: 'Some text'.length },
+        focus: { path: [1, 0], offset: 'Some text'.length },
+      })
+      expect(Editor.getOperations(target).length - operationsBefore).toBe(1)
+    })
+  })
+
   it('supports a custom fragment MIME key', () => {
     withDom((document) => {
       const selection: Range = {
@@ -620,6 +684,63 @@ describe('slate-dom clipboard boundary', () => {
     ).toEqual({ text: 'hello' })
   })
 
+  it('keeps plain-text fallback outside selected inline text', () => {
+    const editor = createClipboardEditor(
+      [
+        {
+          type: 'paragraph',
+          children: [
+            { text: 'Hello ' },
+            {
+              type: 'link',
+              url: 'https://test.com/',
+              children: [{ text: 'World' }],
+            },
+            { text: '' },
+          ],
+        },
+      ],
+      {
+        anchor: { path: [0, 1, 0], offset: 0 },
+        focus: { path: [0, 1, 0], offset: 'Wor'.length },
+      },
+      undefined,
+      (editor) => {
+        editor.extend({
+          elements: [{ inline: true, type: 'link' }],
+          name: 'inline-text-paste',
+        })
+      }
+    )
+    const clipboard = new FakeDataTransfer()
+
+    clipboard.setData('text/html', '<strong>replaced</strong>')
+    clipboard.setData('text/plain', 'replaced')
+
+    editor.update(() => {
+      editor.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+    })
+
+    expect(Editor.getSnapshot(editor).children).toEqual([
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'Hello replaced' },
+          {
+            type: 'link',
+            url: 'https://test.com/',
+            children: [{ text: 'ld' }],
+          },
+          { text: '' },
+        ],
+      },
+    ])
+    expect(Editor.getSnapshot(editor).selection).toEqual({
+      anchor: { path: [0, 0], offset: 'Hello replaced'.length },
+      focus: { path: [0, 0], offset: 'Hello replaced'.length },
+    })
+  })
+
   it('pastes multiline plain text as separate blocks at a collapsed text selection', () => {
     const editor = createClipboardEditor(
       [
@@ -654,6 +775,44 @@ describe('slate-dom clipboard boundary', () => {
     expect(Editor.getSnapshot(editor).selection).toEqual({
       anchor: { path: [1, 0], offset: 'And text below'.length },
       focus: { path: [1, 0], offset: 'And text below'.length },
+    })
+  })
+
+  it('preserves tabs while splitting multiline plain-text fallback into blocks', () => {
+    const editor = createClipboardEditor(
+      [
+        {
+          type: 'paragraph',
+          children: [{ text: '' }],
+        },
+      ],
+      {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+      undefined
+    )
+    const clipboard = new FakeDataTransfer()
+
+    clipboard.setData('text/plain', 'hello\tworld\nhello\tworld')
+
+    editor.update(() => {
+      editor.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+    })
+
+    expect(Editor.getSnapshot(editor).children).toEqual([
+      {
+        type: 'paragraph',
+        children: [{ text: 'hello\tworld' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'hello\tworld' }],
+      },
+    ])
+    expect(Editor.getSnapshot(editor).selection).toEqual({
+      anchor: { path: [1, 0], offset: 'hello\tworld'.length },
+      focus: { path: [1, 0], offset: 'hello\tworld'.length },
     })
   })
 

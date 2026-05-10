@@ -43,6 +43,89 @@ const table = (): Descendant => ({
 })
 
 describe('slate delete contract', () => {
+  it('deletes a full selection that starts with an inline element', () => {
+    const editor = createEditor()
+    editor.extend({
+      elements: [{ inline: true, type: 'link' }],
+      name: 'delete-leading-inline',
+    })
+    const selection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 2], offset: 'World'.length },
+    }
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [
+            { type: 'link', url: 'https://', children: [{ text: 'Hello' }] },
+            { text: 'World' },
+          ],
+        },
+      ],
+      marks: null,
+      selection,
+    })
+
+    editor.update((tx) => {
+      tx.text.delete({ at: selection })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'paragraph',
+        children: [{ text: '' }],
+      },
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+  })
+
+  it('deletes an expanded range that starts with an inline element', () => {
+    const editor = createEditor()
+    editor.extend({
+      elements: [{ inline: true, type: 'link' }],
+      name: 'delete-selection-leading-inline',
+    })
+    const selection = {
+      anchor: { path: [0, 1, 0], offset: 0 },
+      focus: { path: [0, 2], offset: 'World'.length },
+    }
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [
+            { text: 'Say' },
+            { type: 'link', url: 'https://', children: [{ text: 'Hello' }] },
+            { text: 'World' },
+          ],
+        },
+      ],
+      marks: null,
+      selection,
+    })
+
+    editor.update((tx) => {
+      tx.text.delete({ at: selection })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'paragraph',
+        children: [{ text: 'Say' }],
+      },
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 'Say'.length },
+      focus: { path: [0, 0], offset: 'Say'.length },
+    })
+  })
+
   it('deletes only the selected formatted leaf window', () => {
     const editor = createEditor()
     const selection = {
@@ -89,6 +172,82 @@ describe('slate delete contract', () => {
     })
   })
 
+  it('trims both edges of an expanded range across sibling text leaves', () => {
+    const editor = createEditor()
+    const selection = {
+      anchor: { path: [0, 0], offset: 'fi'.length },
+      focus: { path: [0, 1], offset: 'sec'.length },
+    }
+
+    editor.update((tx) => {
+      tx.value.replace({
+        children: [
+          {
+            type: 'paragraph',
+            children: [
+              { bold: true, text: 'first' },
+              { italic: true, text: 'second' },
+              { text: 'third' },
+            ],
+          },
+        ],
+        marks: null,
+        selection,
+      })
+    })
+
+    editor.update((tx) => {
+      tx.text.delete({ at: selection })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'paragraph',
+        children: [
+          { bold: true, text: 'fi' },
+          { italic: true, text: 'ond' },
+          { text: 'third' },
+        ],
+      },
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 'fi'.length },
+      focus: { path: [0, 0], offset: 'fi'.length },
+    })
+  })
+
+  it('trims cross-block expanded ranges into the anchor block', () => {
+    const editor = createEditor()
+    const selection = {
+      anchor: { path: [0, 0], offset: 'fi'.length },
+      focus: { path: [1, 0], offset: 'sec'.length },
+    }
+
+    editor.update((tx) => {
+      tx.value.replace({
+        children: [paragraph('first'), paragraph('second'), paragraph('third')],
+        marks: null,
+        selection,
+      })
+    })
+
+    editor.update((tx) => {
+      tx.text.delete({ at: selection })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'paragraph',
+        children: [{ text: 'fiond' }],
+      },
+      paragraph('third'),
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 'fi'.length },
+      focus: { path: [0, 0], offset: 'fi'.length },
+    })
+  })
+
   it('merges same-mark text when Backspace crosses an empty marked block start', () => {
     const editor = createEditor()
 
@@ -125,6 +284,45 @@ describe('slate delete contract', () => {
     assert.deepEqual(Editor.getSnapshot(editor).selection, {
       anchor: { path: [0, 0], offset: 'first'.length },
       focus: { path: [0, 0], offset: 'first'.length },
+    })
+  })
+
+  it('deletes through token-like marked text to a canonical empty block', () => {
+    const editor = createEditor()
+
+    editor.update((tx) => {
+      tx.value.replace({
+        children: [
+          {
+            type: 'paragraph',
+            children: [{ text: 'a' }, { text: '#foo', token: true }],
+          },
+        ],
+        marks: null,
+        selection: {
+          anchor: { path: [0, 1], offset: '#foo'.length },
+          focus: { path: [0, 1], offset: '#foo'.length },
+        },
+      })
+    })
+
+    editor.update((tx) => {
+      tx.text.deleteBackward()
+      tx.text.deleteBackward()
+      tx.text.deleteBackward()
+      tx.text.deleteBackward()
+      tx.text.deleteBackward()
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'paragraph',
+        children: [{ text: '' }],
+      },
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
     })
   })
 
@@ -173,6 +371,50 @@ describe('slate delete contract', () => {
     assert.deepEqual(Editor.getSnapshot(editor).selection, {
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 0 },
+    })
+  })
+
+  it('merges a following paragraph into the previous list item on Backspace', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'bulleted-list',
+          children: [
+            {
+              type: 'list-item',
+              children: [{ text: 'list' }],
+            },
+          ],
+        },
+        paragraph('paragraph'),
+      ],
+      marks: null,
+      selection: {
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.text.deleteBackward()
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'bulleted-list',
+        children: [
+          {
+            type: 'list-item',
+            children: [{ text: 'listparagraph' }],
+          },
+        ],
+      },
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0, 0], offset: 'list'.length },
+      focus: { path: [0, 0, 0], offset: 'list'.length },
     })
   })
 

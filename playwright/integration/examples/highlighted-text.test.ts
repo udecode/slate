@@ -356,6 +356,73 @@ test.describe('slate highlighted text', () => {
     await editor.assert.text('alpha bXeta')
   })
 
+  test('moves into hashtag-style decorated text after deleting transient prefix text', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Native keyboard token navigation proof needs desktop arrow keys'
+    )
+
+    const editor = await openExample(page, 'highlighted-text', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const hashtag = editor.root.locator('[data-hashtag="true"]')
+
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 'alpha beta'.length },
+    })
+    await editor.insertText('#foo')
+    await expect.poll(() => editor.get.modelText()).toBe('#foo')
+    await expect(hashtag).toHaveText('#foo')
+
+    await editor.selection.collapse({
+      path: [0, 0],
+      offset: 0,
+    })
+    await editor.type('a')
+    await editor.assert.text('a#foo')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
+
+    await editor.root.press('Backspace')
+    await editor.assert.text('#foo')
+    await expect(hashtag).toHaveText('#foo')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+
+    await editor.root.press('ArrowRight')
+    await editor.assert.text('#foo')
+    await expect(hashtag).toHaveText('#foo')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
+    expect(await editor.get.kernelTrace()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          command: expect.objectContaining({
+            axis: 'horizontal',
+            kind: 'move-selection',
+          }),
+          eventFamily: 'keydown',
+          movement: expect.objectContaining({
+            axis: 'horizontal',
+            ownership: 'model-owned',
+            reason: 'model-horizontal-inline-void',
+          }),
+        }),
+      ])
+    )
+  })
+
   test('keeps caret editable after Backspace inside decorated text', async ({
     page,
   }, testInfo) => {
@@ -472,6 +539,150 @@ test.describe('slate highlighted text', () => {
         focusOffset: 3,
       })
     }
+  })
+
+  test('keeps hashtag-style decorated text editable when Space splits the token', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Native keyboard token editing proof needs desktop arrow keys'
+    )
+
+    const editor = await openExample(page, 'highlighted-text', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 'alpha beta'.length },
+    })
+    await editor.insertText('#yolo')
+
+    const hashtag = editor.root.locator('[data-hashtag="true"]')
+
+    await expect.poll(() => editor.get.modelText()).toBe('#yolo')
+    await expect(hashtag).toHaveText('#yolo')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 5 },
+      focus: { path: [0, 0], offset: 5 },
+    })
+
+    await editor.root.press('ArrowLeft')
+    await editor.root.press('ArrowLeft')
+    await editor.root.press('Space')
+
+    await editor.assert.text('#yo lo')
+    await expect(hashtag).toHaveText('#yo')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    })
+  })
+
+  test('updates hashtag-style decoration when token delimiters change', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Native keyboard token editing proof needs desktop keys'
+    )
+
+    const editor = await openExample(page, 'highlighted-text', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const hashtag = editor.root.locator('[data-hashtag="true"]')
+
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 'alpha beta'.length },
+    })
+    await editor.insertText('#hello world')
+    await expect(hashtag).toHaveText('#hello')
+
+    await editor.selection.collapse({
+      path: [0, 0],
+      offset: '#hello '.length,
+    })
+    await editor.root.press('Backspace')
+
+    await editor.assert.text('#helloworld')
+    await expect(hashtag).toHaveText('#helloworld')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: '#hello'.length },
+      focus: { path: [0, 0], offset: '#hello'.length },
+    })
+
+    await editor.root.press('Space')
+
+    await editor.assert.text('#hello world')
+    await expect(hashtag).toHaveText('#hello')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: '#hello '.length },
+      focus: { path: [0, 0], offset: '#hello '.length },
+    })
+
+    await editor.selection.collapse({
+      path: [0, 0],
+      offset: 0,
+    })
+    await editor.root.press('Delete')
+
+    await editor.assert.text('hello world')
+    await expect(hashtag).toHaveCount(0)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+  })
+
+  test('keeps hashtag-style decorated text editable across Delete and Backspace boundaries', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Native keyboard token editing proof needs desktop arrow keys'
+    )
+
+    const editor = await openExample(page, 'highlighted-text', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const hashtag = editor.root.locator('[data-hashtag="true"]')
+
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 'alpha beta'.length },
+    })
+    await editor.insertText('#yolo ')
+    await expect.poll(() => editor.get.modelText()).toBe('#yolo ')
+    await expect(hashtag).toHaveText('#yolo')
+
+    await editor.root.press('ArrowLeft')
+    await editor.root.press('Delete')
+
+    await editor.assert.text('#yolo')
+    await expect(hashtag).toHaveText('#yolo')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 5 },
+      focus: { path: [0, 0], offset: 5 },
+    })
+
+    await editor.root.press('Space')
+    await editor.root.press('Backspace')
+    await editor.root.press('Backspace')
+
+    await editor.assert.text('#yol')
+    await expect(hashtag).toHaveText('#yol')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    })
   })
 
   test('keeps caret editable after deleting a decorated selected range', async ({

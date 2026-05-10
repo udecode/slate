@@ -36,6 +36,53 @@ describe('state/tx public API contract', () => {
     assert.equal(state.lastCommit, null)
   })
 
+  it('round-trips raw document values through JSON without runtime metadata', () => {
+    const value = [
+      {
+        type: 'heading',
+        level: 1,
+        children: [{ text: 'Welcome', bold: true }],
+      },
+      {
+        type: 'paragraph',
+        align: 'center',
+        children: [
+          { text: 'Visit ' },
+          {
+            type: 'link',
+            url: 'https://example.com',
+            children: [{ text: 'example', italic: true }],
+          },
+          { text: ' now' },
+        ],
+      },
+      {
+        type: 'bulleted-list',
+        children: [
+          { type: 'list-item', children: [{ text: 'one' }] },
+          { type: 'list-item', checked: false, children: [{ text: 'two' }] },
+        ],
+      },
+    ] satisfies Descendant[]
+    const serialized = JSON.stringify(value)
+    const parsed = JSON.parse(serialized) as Descendant[]
+    const editor = createEditor({ initialValue: parsed })
+    const exported = editor.read((state) => state.value.get())
+    const reserialized = JSON.stringify(exported)
+    const rehydrated = createEditor({
+      initialValue: JSON.parse(reserialized) as Descendant[],
+    })
+
+    assert.deepEqual(parsed, value)
+    assert.deepEqual(exported, value)
+    assert.deepEqual(
+      rehydrated.read((state) => state.value.get()),
+      value
+    )
+    assert.equal(reserialized.includes('pathToId'), false)
+    assert.equal(reserialized.includes('idToPath'), false)
+  })
+
   it('rejects an explicitly empty initial value', () => {
     assert.throws(
       () => createEditor({ initialValue: [] }),

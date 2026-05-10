@@ -91,4 +91,40 @@ describe('selection reconciler', () => {
       ReactEditor.toSlateRange = originalToSlateRange
     }
   })
+
+  it('imports expanded insertText target ranges for browser text substitutions', () => {
+    const editor = createTextEditor()
+    const selection = Editor.getSelection(editor)
+    const targetRange = {} as StaticRange
+    const targetSlateRange = {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 3 },
+    }
+    const originalToSlateRange = ReactEditor.toSlateRange
+
+    try {
+      ReactEditor.toSlateRange = () => targetSlateRange
+
+      const result = syncSelectionForBeforeInput({
+        allowDOMSelectionImport: true,
+        data: '. ',
+        editor: editor as ReactEditor,
+        editorElement: {} as HTMLElement,
+        event: {
+          getTargetRanges: () => [targetRange],
+        } as unknown as InputEvent,
+        inputType: 'insertText',
+        isCompositionChange: false,
+        native: false,
+        preferModelSelectionForInput: true,
+        root: {} as Document,
+        selection,
+      })
+
+      assert.deepEqual(result.selection, targetSlateRange)
+      assert.deepEqual(Editor.getSelection(editor), targetSlateRange)
+    } finally {
+      ReactEditor.toSlateRange = originalToSlateRange
+    }
+  })
 })

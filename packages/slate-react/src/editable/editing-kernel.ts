@@ -98,9 +98,10 @@ export type EditableCommand =
       selection?: Range | null
     }
   | { kind: 'history'; direction: 'redo' | 'undo' }
-  | { kind: 'insert-break'; variant: 'paragraph' | 'soft' }
+  | { kind: 'insert-break'; variant: 'open-line' | 'paragraph' | 'soft' }
   | { kind: 'insert-data'; data: DataTransfer }
   | { kind: 'insert-text'; inputType?: string; text: string }
+  | { kind: 'transpose-character' }
   | {
       kind: 'move-selection'
       axis: 'horizontal' | 'line' | 'word'
@@ -160,6 +161,11 @@ export const EDITABLE_COMMAND_DEFINITIONS = {
   'insert-text': defineEditableCommand({
     inputFamilies: ['beforeinput', 'input'],
     kind: 'insert-text',
+    modelOwned: true,
+  }),
+  'transpose-character': defineEditableCommand({
+    inputFamilies: ['beforeinput', 'keydown'],
+    kind: 'transpose-character',
     modelOwned: true,
   }),
   'move-selection': defineEditableCommand({
@@ -880,6 +886,9 @@ export const getEditableCommandFromBeforeInputType = ({
   if (inputType === 'insertParagraph') {
     return { kind: 'insert-break', variant: 'paragraph' }
   }
+  if (inputType === 'insertTranspose') {
+    return { kind: 'transpose-character' }
+  }
   if (
     (inputType === 'insertText' || inputType === 'insertReplacementText') &&
     typeof data === 'string'
@@ -928,6 +937,9 @@ export const getEditableCommandFromKeyDown = ({
   }
   if (Hotkeys.isSoftBreak(nativeEvent)) {
     return { kind: 'insert-break', variant: 'soft' }
+  }
+  if (Hotkeys.isOpenLine(nativeEvent)) {
+    return { kind: 'insert-break', variant: 'open-line' }
   }
   if (Hotkeys.isSplitBlock(nativeEvent)) {
     return { kind: 'insert-break', variant: 'paragraph' }

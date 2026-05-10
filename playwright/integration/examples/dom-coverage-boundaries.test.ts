@@ -220,6 +220,49 @@ test.describe('dom coverage boundaries example', () => {
     expect(selectedPaths).toEqual(['1.0', '2.1.0'])
   })
 
+  test('imports a native drag selection from a list item to a boundary placeholder', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+    page.on('pageerror', (error) => pageErrors.push(error.message))
+
+    const editor = await openExample(page, 'dom-coverage-boundaries', {
+      ready: {
+        editor: 'visible',
+        text: /Outer body collapsed/,
+      },
+    })
+
+    await page.getByRole('button', { name: 'Outer' }).click()
+
+    const listItem = editor.root.getByText('Hidden list item')
+    const footerPlaceholder = editor.root.getByText('Footer hidden')
+    const start = await listItem.boundingBox()
+    const end = await footerPlaceholder.boundingBox()
+
+    if (!start || !end) {
+      throw new Error('Cannot resolve drag targets for list boundary row')
+    }
+
+    await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(end.x + end.width - 2, end.y + end.height / 2, {
+      steps: 12,
+    })
+    await page.mouse.up()
+
+    await expect.poll(() => pageErrors).toEqual([])
+    await expect.poll(() => editor.selection.get()).not.toBeNull()
+
+    const selection = await editor.selection.get()
+    const selectedPaths = [
+      selection?.anchor.path.join('.'),
+      selection?.focus.path.join('.'),
+    ].sort()
+
+    expect(selectedPaths).toEqual(['2.3.0.0', '4.0'])
+  })
+
   test('keeps hidden model updates out of the DOM but available to model-backed copy', async ({
     page,
   }) => {

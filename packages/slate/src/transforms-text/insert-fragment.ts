@@ -122,6 +122,34 @@ const isBlockElement = (
   return !getEditorSchema(editor).isInline(node)
 }
 
+const isStructuralBlockElement = (
+  editor: Editor,
+  node: Descendant | undefined
+): node is Element =>
+  isBlockElement(editor, node) && !isTextBlockElement(editor, node)
+
+const hasSameElementType = (left: Element, right: Element) =>
+  (left as Record<string, unknown>).type ===
+  (right as Record<string, unknown>).type
+
+const getTextChildrenEndPoint = (children: Descendant[], fallbackIndex = 0) => {
+  const root = { children } as Ancestor
+  const [lastNode, lastPath] =
+    children.length > 0
+      ? Node.last(root, [])
+      : [{ text: '' } as Text, [fallbackIndex]]
+
+  return {
+    offset: Node.string(lastNode).length,
+    path: lastPath,
+  }
+}
+
+const createTextBlock = (block: Element, children: Descendant[]): Element => ({
+  ...block,
+  children: children.length > 0 ? children : [{ text: '' }],
+})
+
 const haveSameTextProps = (left: Text, right: Text) => {
   const leftKeys = Object.keys(left).filter((key) => key !== 'text')
   const rightKeys = Object.keys(right).filter((key) => key !== 'text')
@@ -206,6 +234,26 @@ const getSingleEmptyBlockFragmentReplacement = (
       children,
       previousChildren: editorChildren,
       selection: getBlockChildrenEndSelection([0], onlyFragmentNode.children),
+    }
+  }
+
+  if (
+    fragment.length > 1 &&
+    fragment.every((node) => isTextBlockElement(editor, node))
+  ) {
+    const [firstFragmentBlock, ...tailBlocks] = fragment as Element[]
+    const children = [
+      {
+        ...onlyEditorNode,
+        children: firstFragmentBlock.children.map(cloneDescendant),
+      },
+      ...tailBlocks.map(cloneDescendant),
+    ] as Value
+
+    return {
+      children,
+      previousChildren: editorChildren,
+      selection: getFragmentEndSelection(children),
     }
   }
 
@@ -323,12 +371,89 @@ const getSingleTextBlockFragmentReplacement = (
   if (
     textIndex == null ||
     textIndex !== end.path[blockPath.length] ||
-    start.path.length !== blockPath.length + 1
+    start.path.length !== end.path.length ||
+    !start.path.every((segment, index) => segment === end.path[index])
   ) {
     return null
   }
 
-  const targetText = block.children[textIndex]
+  const targetChild = block.children[textIndex]
+
+  if (Node.isText(targetChild)) {
+    if (start.path.length !== blockPath.length + 1) {
+      return null
+    }
+
+    const fragmentChildren = onlyFragmentNode.children as Descendant[]
+    const before = targetChild.text.slice(0, start.offset)
+    const after = targetChild.text.slice(end.offset)
+    const children: Descendant[] = []
+
+    for (const child of block.children.slice(0, textIndex)) {
+      pushBlockChild(children, child)
+    }
+
+    if (before) {
+      pushBlockChild(children, { ...targetChild, text: before })
+    }
+
+    let insertedEnd:
+      | {
+          offset: number
+          path: Path
+        }
+      | undefined
+
+    for (const child of fragmentChildren) {
+      insertedEnd = pushBlockChild(children, child)
+    }
+
+    if (after) {
+      pushBlockChild(children, { ...targetChild, text: after })
+    }
+
+    for (const child of block.children.slice(textIndex + 1)) {
+      pushBlockChild(children, child)
+    }
+
+    if (children.length === 0) {
+      children.push({ ...targetChild, text: '' })
+    }
+
+    const selectionPoint = insertedEnd ?? { offset: 0, path: [textIndex] }
+
+    return {
+      newChildren: children,
+      path: blockPath,
+      previousChildren: block.children as Descendant[],
+      selection: {
+        anchor: {
+          path: blockPath.concat(selectionPoint.path),
+          offset: selectionPoint.offset,
+        },
+        focus: {
+          path: blockPath.concat(selectionPoint.path),
+          offset: selectionPoint.offset,
+        },
+      },
+    }
+  }
+
+  if (!Node.isElement(targetChild) || !Editor.isInline(editor, targetChild)) {
+    return null
+  }
+
+  const targetTextIndex = start.path[blockPath.length + 1]
+
+  if (
+    targetTextIndex == null ||
+    targetTextIndex !== end.path[blockPath.length + 1] ||
+    start.path.length !== blockPath.length + 2
+  ) {
+    return null
+  }
+
+  const targetText = targetChild.children[targetTextIndex]
 
   if (!Node.isText(targetText)) {
     return null
@@ -344,7 +469,10 @@ const getSingleTextBlockFragmentReplacement = (
   }
 
   if (before) {
-    pushBlockChild(children, { ...targetText, text: before })
+    pushBlockChild(children, {
+      ...targetChild,
+      children: [{ ...targetText, text: before }],
+    })
   }
 
   let insertedEnd:
@@ -359,7 +487,10 @@ const getSingleTextBlockFragmentReplacement = (
   }
 
   if (after) {
-    pushBlockChild(children, { ...targetText, text: after })
+    pushBlockChild(children, {
+      ...targetChild,
+      children: [{ ...targetText, text: after }],
+    })
   }
 
   for (const child of block.children.slice(textIndex + 1)) {
@@ -367,7 +498,7 @@ const getSingleTextBlockFragmentReplacement = (
   }
 
   if (children.length === 0) {
-    children.push({ ...targetText, text: '' })
+    children.push({ ...targetChild, children: [{ ...targetText, text: '' }] })
   }
 
   const selectionPoint = insertedEnd ?? { offset: 0, path: [textIndex] }
@@ -530,6 +661,452 @@ const getTopLevelTextBlockFragmentReplacement = (
   }
 }
 
+const getTopLevelStructuralBlockFragmentReplacement = (
+  editor: Editor,
+  at: Range,
+  fragment: Descendant[]
+) => {
+  if (
+    fragment.length === 0 ||
+    !fragment.every((node) => isBlockElement(editor, node)) ||
+    fragment.every((node) => isTextBlockElement(editor, node))
+  ) {
+    return null
+  }
+
+  const [start, end] = Range.edges(at)
+
+  if (
+    start.path.length === 0 ||
+    end.path.length === 0 ||
+    start.path.length !== end.path.length ||
+    !start.path.every((segment, index) => segment === end.path[index])
+  ) {
+    return null
+  }
+
+  if (
+    Editor.void(editor, { at: start }) ||
+    Editor.elementReadOnly(editor, { at: start })
+  ) {
+    return null
+  }
+
+  const blockMatch = Editor.above(editor, {
+    at: start,
+    match: (node) => Node.isElement(node) && Editor.isBlock(editor, node),
+  })
+
+  if (!blockMatch) {
+    return null
+  }
+
+  const [block, blockPath] = blockMatch
+
+  if (
+    blockPath.length !== 1 ||
+    !Node.isElement(block) ||
+    !isTextBlockElement(editor, block)
+  ) {
+    return null
+  }
+
+  const textIndex = start.path[blockPath.length]
+
+  if (
+    textIndex == null ||
+    textIndex !== end.path[blockPath.length] ||
+    start.path.length !== blockPath.length + 1
+  ) {
+    return null
+  }
+
+  const targetText = block.children[textIndex]
+
+  if (!Node.isText(targetText)) {
+    return null
+  }
+
+  const before = targetText.text.slice(0, start.offset)
+  const after = targetText.text.slice(end.offset)
+  const blockIndex = blockPath[0]
+  const children: Descendant[] = []
+  const beforeChildren: Descendant[] = []
+  const afterChildren: Descendant[] = []
+
+  for (const child of block.children.slice(0, textIndex)) {
+    pushBlockChild(beforeChildren, child)
+  }
+
+  if (before) {
+    pushBlockChild(beforeChildren, { ...targetText, text: before })
+  }
+
+  if (beforeChildren.length > 0) {
+    children.push(createTextBlock(block, beforeChildren))
+  }
+
+  const fragmentStartIndex = blockIndex + children.length
+
+  for (const child of fragment) {
+    children.push(cloneDescendant(child))
+  }
+
+  if (after) {
+    pushBlockChild(afterChildren, { ...targetText, text: after })
+  }
+
+  for (const child of block.children.slice(textIndex + 1)) {
+    pushBlockChild(afterChildren, child)
+  }
+
+  if (afterChildren.length > 0) {
+    children.push(createTextBlock(block, afterChildren))
+  }
+
+  return {
+    children,
+    index: blockIndex,
+    previousChildren: [block],
+    selection: getOffsetFragmentEndSelection(fragment, fragmentStartIndex),
+  }
+}
+
+const isCompatibleStructuralContainer = (
+  editor: Editor,
+  target: Element,
+  fragmentNode: Element
+) =>
+  isStructuralBlockElement(editor, target) &&
+  isStructuralBlockElement(editor, fragmentNode) &&
+  hasSameElementType(target, fragmentNode)
+
+const getNestedTextBlockFragmentReplacement = (
+  editor: Editor,
+  at: Range,
+  fragment: Descendant[]
+) => {
+  if (
+    fragment.length === 0 ||
+    !fragment.every((node) => isBlockElement(editor, node))
+  ) {
+    return null
+  }
+
+  const [start, end] = Range.edges(at)
+
+  if (
+    start.path.length === 0 ||
+    end.path.length === 0 ||
+    start.path.length !== end.path.length ||
+    !start.path.every((segment, index) => segment === end.path[index])
+  ) {
+    return null
+  }
+
+  if (
+    Editor.void(editor, { at: start }) ||
+    Editor.elementReadOnly(editor, { at: start })
+  ) {
+    return null
+  }
+
+  const blockMatch = Editor.above(editor, {
+    at: start,
+    match: (node) => Node.isElement(node) && Editor.isBlock(editor, node),
+  })
+
+  if (!blockMatch) {
+    return null
+  }
+
+  const [block, blockPath] = blockMatch
+
+  if (
+    blockPath.length < 2 ||
+    !Node.isElement(block) ||
+    !isTextBlockElement(editor, block)
+  ) {
+    return null
+  }
+
+  const parentPath = Path.parent(blockPath)
+  const parent = Node.get(editor, parentPath)
+
+  if (!Node.isElement(parent) || !isStructuralBlockElement(editor, parent)) {
+    return null
+  }
+
+  const textIndex = start.path[blockPath.length]
+
+  if (
+    textIndex == null ||
+    textIndex !== end.path[blockPath.length] ||
+    start.path.length !== blockPath.length + 1
+  ) {
+    return null
+  }
+
+  const targetText = block.children[textIndex]
+
+  if (!Node.isText(targetText)) {
+    return null
+  }
+
+  const parentIndex = parentPath.at(-1)
+  const blockIndex = blockPath.at(-1)
+
+  if (parentIndex == null || blockIndex == null) {
+    return null
+  }
+
+  const beforeText = targetText.text.slice(0, start.offset)
+  const afterText = targetText.text.slice(end.offset)
+  const beforeTargetChildren: Descendant[] = []
+  const headContainerChildren = parent.children
+    .slice(0, blockIndex)
+    .map(cloneDescendant)
+  const middleBlocks: Descendant[] = []
+  const tailContainerChildren = parent.children
+    .slice(blockIndex + 1)
+    .map(cloneDescendant)
+  let fragmentIndex = 0
+  let selection:
+    | {
+        anchor: { offset: number; path: Path }
+        focus: { offset: number; path: Path }
+      }
+    | undefined
+
+  for (const child of block.children.slice(0, textIndex)) {
+    pushBlockChild(beforeTargetChildren, child)
+  }
+
+  if (beforeText) {
+    pushBlockChild(beforeTargetChildren, { ...targetText, text: beforeText })
+  }
+
+  const firstFragmentNode = fragment[0]
+
+  if (
+    Node.isElement(firstFragmentNode) &&
+    isCompatibleStructuralContainer(editor, parent, firstFragmentNode)
+  ) {
+    const [onlyFragmentChild] = firstFragmentNode.children
+
+    if (
+      fragment.length === 1 &&
+      firstFragmentNode.children.length === 1 &&
+      Node.isElement(onlyFragmentChild) &&
+      isTextBlockElement(editor, onlyFragmentChild) &&
+      hasSameElementType(block, onlyFragmentChild)
+    ) {
+      const mergedChildren = [...beforeTargetChildren]
+      let insertedEnd:
+        | {
+            offset: number
+            path: Path
+          }
+        | undefined
+
+      for (const child of onlyFragmentChild.children) {
+        insertedEnd = pushBlockChild(mergedChildren, child)
+      }
+
+      if (afterText) {
+        pushBlockChild(mergedChildren, { ...targetText, text: afterText })
+      }
+
+      for (const child of block.children.slice(textIndex + 1)) {
+        pushBlockChild(mergedChildren, child)
+      }
+
+      if (mergedChildren.length === 0) {
+        mergedChildren.push({ ...targetText, text: '' })
+      }
+
+      const mergedBlockIndex = headContainerChildren.length
+      const selectionPoint =
+        insertedEnd ?? getTextChildrenEndPoint(mergedChildren)
+      const nextParentChildren = [
+        ...headContainerChildren,
+        createTextBlock(block, mergedChildren),
+        ...tailContainerChildren,
+      ]
+      const nextSelection = {
+        anchor: {
+          path: parentPath.concat([mergedBlockIndex, ...selectionPoint.path]),
+          offset: selectionPoint.offset,
+        },
+        focus: {
+          path: parentPath.concat([mergedBlockIndex, ...selectionPoint.path]),
+          offset: selectionPoint.offset,
+        },
+      }
+
+      return {
+        children: [{ ...parent, children: nextParentChildren }],
+        index: parentIndex,
+        path: parentPath.slice(0, -1),
+        previousChildren: [parent],
+        selection: nextSelection,
+      }
+    }
+
+    if (beforeTargetChildren.length > 0) {
+      headContainerChildren.push(createTextBlock(block, beforeTargetChildren))
+    }
+
+    const startIndex = headContainerChildren.length
+
+    for (const child of firstFragmentNode.children) {
+      headContainerChildren.push(cloneDescendant(child))
+    }
+
+    if (fragment.length === 1) {
+      const endSelection = getFragmentEndSelection(
+        firstFragmentNode.children as Descendant[]
+      )
+      const offsetPoint = (point: typeof endSelection.anchor) => ({
+        offset: point.offset,
+        path: parentPath
+          .slice(0, -1)
+          .concat([
+            parentIndex,
+            startIndex + point.path[0],
+            ...point.path.slice(1),
+          ]),
+      })
+
+      selection = {
+        anchor: offsetPoint(endSelection.anchor),
+        focus: offsetPoint(endSelection.focus),
+      }
+    }
+
+    fragmentIndex = 1
+  } else if (isTextBlockElement(editor, firstFragmentNode)) {
+    for (const child of firstFragmentNode.children) {
+      pushBlockChild(beforeTargetChildren, child)
+    }
+
+    const insertedEnd = getTextChildrenEndPoint(beforeTargetChildren)
+    headContainerChildren.push(createTextBlock(block, beforeTargetChildren))
+
+    if (fragment.length === 1) {
+      selection = {
+        anchor: {
+          path: parentPath.concat([
+            headContainerChildren.length - 1,
+            ...insertedEnd.path,
+          ]),
+          offset: insertedEnd.offset,
+        },
+        focus: {
+          path: parentPath.concat([
+            headContainerChildren.length - 1,
+            ...insertedEnd.path,
+          ]),
+          offset: insertedEnd.offset,
+        },
+      }
+    }
+
+    fragmentIndex = 1
+  } else if (beforeTargetChildren.length > 0) {
+    headContainerChildren.push(createTextBlock(block, beforeTargetChildren))
+  }
+
+  const middleStartIndex =
+    parentIndex + (headContainerChildren.length > 0 ? 1 : 0)
+
+  for (const fragmentNode of fragment.slice(fragmentIndex)) {
+    if (isTextBlockElement(editor, fragmentNode)) {
+      const children: Descendant[] = []
+
+      for (const child of fragmentNode.children) {
+        pushBlockChild(children, child)
+      }
+
+      const insertedEnd = getTextChildrenEndPoint(children)
+
+      if (fragmentNode === fragment.at(-1) && afterText) {
+        pushBlockChild(children, { ...targetText, text: afterText })
+      }
+
+      middleBlocks.push(createTextBlock(fragmentNode, children))
+
+      const middleBlockIndex = middleStartIndex + middleBlocks.length - 1
+
+      selection = {
+        anchor: {
+          path: parentPath
+            .slice(0, -1)
+            .concat([middleBlockIndex, ...insertedEnd.path]),
+          offset: insertedEnd.offset,
+        },
+        focus: {
+          path: parentPath
+            .slice(0, -1)
+            .concat([middleBlockIndex, ...insertedEnd.path]),
+          offset: insertedEnd.offset,
+        },
+      }
+    } else {
+      middleBlocks.push(cloneDescendant(fragmentNode))
+      const middleBlockIndex = middleStartIndex + middleBlocks.length - 1
+
+      selection = getOffsetFragmentEndSelection(
+        [fragmentNode],
+        middleBlockIndex
+      )
+    }
+  }
+
+  if (fragmentIndex >= fragment.length) {
+    const tailFirstChildren: Descendant[] = []
+
+    if (afterText) {
+      pushBlockChild(tailFirstChildren, { ...targetText, text: afterText })
+    }
+
+    for (const child of block.children.slice(textIndex + 1)) {
+      pushBlockChild(tailFirstChildren, child)
+    }
+
+    if (tailFirstChildren.length > 0) {
+      tailContainerChildren.unshift(createTextBlock(block, tailFirstChildren))
+    }
+  }
+
+  const replacementChildren: Descendant[] = []
+
+  if (headContainerChildren.length > 0) {
+    replacementChildren.push({
+      ...parent,
+      children: headContainerChildren,
+    })
+  }
+
+  replacementChildren.push(...middleBlocks)
+
+  if (tailContainerChildren.length > 0) {
+    replacementChildren.push({
+      ...parent,
+      children: tailContainerChildren,
+    })
+  }
+
+  return {
+    children: replacementChildren,
+    index: parentIndex,
+    path: parentPath.slice(0, -1),
+    previousChildren: [parent],
+    selection:
+      selection ?? getOffsetFragmentEndSelection(fragment, parentIndex),
+  }
+}
+
 const applyInsertFragment: TextMutationMethods['insertFragment'] = (
   editor,
   fragment,
@@ -655,6 +1232,38 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
             newChildren: topLevelTextBlockReplacement.children,
             newSelection: topLevelTextBlockReplacement.selection,
             path: [],
+            selection: tx.getModelSelection(),
+            type: 'replace_children',
+          })
+          return
+        }
+
+        const topLevelStructuralBlockReplacement =
+          getTopLevelStructuralBlockFragmentReplacement(editor, at, fragment)
+
+        if (topLevelStructuralBlockReplacement) {
+          tx.apply({
+            children: topLevelStructuralBlockReplacement.previousChildren,
+            index: topLevelStructuralBlockReplacement.index,
+            newChildren: topLevelStructuralBlockReplacement.children,
+            newSelection: topLevelStructuralBlockReplacement.selection,
+            path: [],
+            selection: tx.getModelSelection(),
+            type: 'replace_children',
+          })
+          return
+        }
+
+        const nestedTextBlockReplacement =
+          getNestedTextBlockFragmentReplacement(editor, at, fragment)
+
+        if (nestedTextBlockReplacement) {
+          tx.apply({
+            children: nestedTextBlockReplacement.previousChildren,
+            index: nestedTextBlockReplacement.index,
+            newChildren: nestedTextBlockReplacement.children,
+            newSelection: nestedTextBlockReplacement.selection,
+            path: nestedTextBlockReplacement.path,
             selection: tx.getModelSelection(),
             type: 'replace_children',
           })

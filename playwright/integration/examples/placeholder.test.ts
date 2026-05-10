@@ -22,6 +22,26 @@ test.describe('placeholder example', () => {
     )
   })
 
+  test('keeps an empty editor value and start selection while showing a placeholder', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'custom-placeholder', {
+      ready: {
+        editor: 'visible',
+        placeholder: 'visible',
+      },
+    })
+
+    await editor.focus()
+
+    await editor.assert.placeholderVisible(true)
+    expect(await editor.get.modelText()).toBe('')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+  })
+
   test('renders editor tall enough to fit placeholder', async ({ page }) => {
     const slateEditor = page.locator('[data-slate-editor=true]')
     const placeholderElement = page.locator('[data-slate-placeholder=true]')

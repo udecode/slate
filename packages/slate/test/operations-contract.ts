@@ -413,6 +413,80 @@ describe('slate operations contract', () => {
     ])
   })
 
+  it('rebases expanded selections across split_node text branches', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'element',
+          children: [{ text: 'Hello World', bold: true }],
+        },
+      ],
+      selection: {
+        anchor: { path: [0, 0], offset: 2 },
+        focus: { path: [0, 0], offset: 7 },
+      },
+      marks: null,
+    })
+
+    applyOperation(editor, {
+      type: 'split_node',
+      path: [0, 0],
+      position: 4,
+      properties: {},
+    })
+
+    const after = Editor.getSnapshot(editor)
+
+    assert.deepEqual(after.children, [
+      {
+        type: 'element',
+        children: [{ text: 'Hell', bold: true }, { text: 'o World' }],
+      },
+    ])
+    assert.deepEqual(after.selection, {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 1], offset: 3 },
+    })
+  })
+
+  it('rebases selection inside merged text to the surviving branch', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'element',
+          children: [
+            { text: '1' },
+            { text: '2', bold: true },
+            { text: '3', italic: true },
+          ],
+        },
+      ],
+      selection: collapsedSelection([0, 1], 0),
+      marks: null,
+    })
+
+    applyOperation(editor, {
+      type: 'merge_node',
+      path: [0, 1],
+      position: 1,
+      properties: { bold: true },
+    })
+
+    const after = Editor.getSnapshot(editor)
+
+    assert.deepEqual(after.children, [
+      {
+        type: 'element',
+        children: [{ text: '12' }, { text: '3', italic: true }],
+      },
+    ])
+    assert.deepEqual(after.selection, collapsedSelection([0, 0], 1))
+  })
+
   it('splits an element node with element-level split_node properties', () => {
     const editor = createEditor()
     extendTestSchema(editor, { type: 'inline', inline: true })

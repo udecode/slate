@@ -77,6 +77,7 @@ export type ListItemElement = { type: 'list-item'; children: Descendant[] }
 
 export type NumberedListItemElement = {
   type: 'numbered-list'
+  start?: number
   children: Descendant[]
 }
 

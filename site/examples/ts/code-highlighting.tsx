@@ -41,6 +41,7 @@ import { normalizeTokens } from './utils/normalize-tokens'
 const ParagraphType = 'paragraph'
 const CodeBlockType = 'code-block'
 const CodeLineType = 'code-line'
+const CodeIndent = '  '
 
 const CodeHighlightingExample = () => {
   const editor = useSlateEditor({
@@ -146,29 +147,12 @@ const ExampleToolbar = () => {
 
 const CodeBlockButton = () => {
   const editor = useEditor<CustomEditor>()
-  const handleClick = () => {
-    editor.update((tx) => {
-      tx.nodes.wrap(
-        { type: CodeBlockType, language: 'html', children: [] },
-        {
-          match: (node) => Node.isElement(node) && node.type === ParagraphType,
-          split: true,
-        }
-      )
-      tx.nodes.set(
-        { type: CodeLineType },
-        {
-          match: (node) => Node.isElement(node) && node.type === ParagraphType,
-        }
-      )
-    })
-  }
 
   return (
     <Button
       active
       data-test-id="code-block-button"
-      onClick={handleClick}
+      onClick={() => convertSelectionToCodeBlock(editor)}
       onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
         event.preventDefault()
       }}
@@ -176,6 +160,24 @@ const CodeBlockButton = () => {
       <Icon>code</Icon>
     </Button>
   )
+}
+
+const convertSelectionToCodeBlock = (editor: CustomEditor) => {
+  editor.update((tx) => {
+    tx.nodes.wrap(
+      { type: CodeBlockType, language: 'html', children: [] },
+      {
+        match: (node) => Node.isElement(node) && node.type === ParagraphType,
+        split: true,
+      }
+    )
+    tx.nodes.set(
+      { type: CodeLineType },
+      {
+        match: (node) => Node.isElement(node) && node.type === ParagraphType,
+      }
+    )
+  })
 }
 
 const collectCodeProjections = (
@@ -298,12 +300,29 @@ const collectCodeTextProjections = (
 const useOnKeydown = (editor: CustomEditor) => {
   const onKeyDown: React.KeyboardEventHandler<HTMLDivElement> = useCallback(
     (e) => {
-      if (isHotkey('tab', e)) {
-        // handle tab key, insert spaces
+      if (isHotkey(['mod+shift+c', 'mod+alt+c'], e)) {
         e.preventDefault()
+        convertSelectionToCodeBlock(editor)
+        return
+      }
 
+      const isTab = isHotkey('tab', e)
+      const isShiftTab = isHotkey('shift+tab', e)
+
+      if (!isTab && !isShiftTab) {
+        return
+      }
+
+      e.preventDefault()
+
+      const handledCodeLines = updateSelectedCodeLines(
+        editor,
+        isShiftTab ? 'outdent' : 'indent'
+      )
+
+      if (!handledCodeLines && isTab) {
         editor.update((tx) => {
-          tx.text.insert('  ')
+          tx.text.insert(CodeIndent)
         })
       }
     },
@@ -312,6 +331,224 @@ const useOnKeydown = (editor: CustomEditor) => {
 
   return onKeyDown
 }
+
+type CodeIndentAction = 'indent' | 'outdent'
+
+type EditorPoint = {
+  path: number[]
+  offset: number
+}
+
+type EditorRange = {
+  anchor: EditorPoint
+  focus: EditorPoint
+}
+
+const updateSelectedCodeLines = (
+  editor: CustomEditor,
+  action: CodeIndentAction
+) => {
+  const snapshot = editor.read((state) => ({
+    children: state.value.get(),
+    selection: state.selection.get(),
+  }))
+  const selection = snapshot.selection
+
+  if (!selection) {
+    return false
+  }
+
+  const isCollapsed = isSamePoint(selection.anchor, selection.focus)
+
+  if (isCollapsed && action === 'indent') {
+    return false
+  }
+
+  const codeLinePaths = getSelectedCodeLinePaths(snapshot.children, selection)
+
+  if (!codeLinePaths.length) {
+    return false
+  }
+
+  editor.update((tx) => {
+    for (const linePath of [...codeLinePaths].reverse()) {
+      const textPath = getFirstTextPath(snapshot.children, linePath)
+
+      if (!textPath) {
+        continue
+      }
+
+      if (action === 'indent') {
+        tx.text.insert(CodeIndent, { at: { path: textPath, offset: 0 } })
+        continue
+      }
+
+      const outdentWidth = getOutdentWidth(snapshot.children, textPath)
+
+      if (outdentWidth > 0) {
+        tx.text.delete({
+          at: {
+            anchor: { path: textPath, offset: 0 },
+            focus: { path: textPath, offset: outdentWidth },
+          },
+        })
+      }
+    }
+  })
+
+  return true
+}
+
+const getSelectedCodeLinePaths = (
+  children: readonly Descendant[],
+  selection: EditorRange
+) => {
+  const [start, end] = getOrderedPoints(selection)
+  const startLinePath = getCodeLinePath(children, start.path)
+  const endLinePath = getCodeLinePath(children, end.path)
+
+  if (!startLinePath || !endLinePath) {
+    return []
+  }
+
+  const startCodeBlockPath = startLinePath.slice(0, -1)
+  const endCodeBlockPath = endLinePath.slice(0, -1)
+
+  if (!isSamePath(startCodeBlockPath, endCodeBlockPath)) {
+    return []
+  }
+
+  const codeBlock = getDescendant(children, startCodeBlockPath)
+  const startIndex = startLinePath.at(-1)
+  const endIndex = endLinePath.at(-1)
+
+  if (
+    startIndex == null ||
+    endIndex == null ||
+    !codeBlock ||
+    !Node.isElement(codeBlock) ||
+    codeBlock.type !== CodeBlockType
+  ) {
+    return []
+  }
+
+  const codeLinePaths: number[][] = []
+
+  codeBlock.children.slice(startIndex, endIndex + 1).forEach((node, index) => {
+    if (Node.isElement(node) && node.type === CodeLineType) {
+      codeLinePaths.push([...startCodeBlockPath, startIndex + index])
+    }
+  })
+
+  return codeLinePaths
+}
+
+const getCodeLinePath = (
+  children: readonly Descendant[],
+  path: readonly number[]
+) => {
+  const node = getDescendant(children, path)
+
+  if (node && Node.isElement(node) && node.type === CodeLineType) {
+    return [...path]
+  }
+
+  const parentPath = path.slice(0, -1)
+  const parent = getDescendant(children, parentPath)
+
+  if (parent && Node.isElement(parent) && parent.type === CodeLineType) {
+    return parentPath
+  }
+
+  return null
+}
+
+const getFirstTextPath = (
+  children: readonly Descendant[],
+  linePath: readonly number[]
+) => {
+  const line = getDescendant(children, linePath)
+
+  if (!line || !Node.isElement(line)) {
+    return null
+  }
+
+  const textIndex = line.children.findIndex((child) => Node.isText(child))
+
+  return textIndex === -1 ? null : [...linePath, textIndex]
+}
+
+const getOutdentWidth = (
+  children: readonly Descendant[],
+  textPath: readonly number[]
+) => {
+  const textNode = getDescendant(children, textPath)
+
+  if (!textNode || !Node.isText(textNode)) {
+    return 0
+  }
+
+  if (textNode.text.startsWith(CodeIndent)) {
+    return CodeIndent.length
+  }
+
+  if (textNode.text.startsWith('\t') || textNode.text.startsWith(' ')) {
+    return 1
+  }
+
+  return 0
+}
+
+const getDescendant = (
+  children: readonly Descendant[],
+  path: readonly number[]
+): Descendant | null => {
+  let descendants = children
+  let node: Descendant | null = null
+
+  for (const index of path) {
+    node = descendants[index] ?? null
+
+    if (!node) {
+      return null
+    }
+
+    descendants = Node.isElement(node) ? node.children : []
+  }
+
+  return node
+}
+
+const getOrderedPoints = ({ anchor, focus }: EditorRange) =>
+  comparePoints(anchor, focus) <= 0 ? [anchor, focus] : [focus, anchor]
+
+const comparePoints = (point: EditorPoint, another: EditorPoint) => {
+  const pathComparison = comparePaths(point.path, another.path)
+
+  return pathComparison === 0 ? point.offset - another.offset : pathComparison
+}
+
+const comparePaths = (path: readonly number[], another: readonly number[]) => {
+  const length = Math.min(path.length, another.length)
+
+  for (let index = 0; index < length; index++) {
+    const left = path[index]
+    const right = another[index]
+
+    if (left !== right) {
+      return left < right ? -1 : 1
+    }
+  }
+
+  return path.length - another.length
+}
+
+const isSamePoint = (point: EditorPoint, another: EditorPoint) =>
+  point.offset === another.offset && isSamePath(point.path, another.path)
+
+const isSamePath = (path: readonly number[], another: readonly number[]) =>
+  path.length === another.length &&
+  path.every((segment, index) => segment === another[index])
 
 interface LanguageSelectProps
   extends React.SelectHTMLAttributes<HTMLSelectElement> {

@@ -78,6 +78,10 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
       }
 
       if (Location.isPath(at)) {
+        if (at.length === 0) {
+          throw new Error('Cannot split the editor root.')
+        }
+
         if (options.position != null) {
           const path = at
           const [node] = getNode(editor, path)

@@ -225,6 +225,7 @@ const wrapLink = (editor: CustomEditor, url: string) => {
   editor.update((tx) => {
     if (isCollapsed) {
       tx.nodes.insert(link)
+      tx.selection.move({ unit: 'offset' })
     } else {
       tx.nodes.wrap(link, { split: true })
       tx.selection.collapse({ edge: 'end' })

@@ -1074,8 +1074,7 @@ const getUpdateView = <V extends Value>(
       ...state.marks,
       add: (key: string, value: unknown) => transforms.addMark(key, value),
       remove: (key: string) => transforms.removeMark(key),
-      toggle: (key: string, options = {}) =>
-        transforms.toggleMark(key, options),
+      toggle: (key: string, value = true) => transforms.toggleMark(key, value),
     }),
     nodes: Object.freeze({
       ...state.nodes,

@@ -77,6 +77,40 @@ const expectVisualCaretAtEndOfFirstBlock = async (root: Locator) => {
     .toBe(true)
 }
 
+const expectCaretVisibleInsideScrollContainer = async (
+  root: Locator,
+  target: 'parent' | 'root'
+) => {
+  await expect
+    .poll(() =>
+      root.evaluate((element: HTMLElement, scrollTarget) => {
+        const selection = element.ownerDocument.getSelection()
+        const scrollContainer =
+          scrollTarget === 'parent' ? element.parentElement : element
+
+        if (!selection || selection.rangeCount === 0 || !scrollContainer) {
+          return false
+        }
+
+        const range = selection.getRangeAt(0).cloneRange()
+        const marker = element.ownerDocument.createElement('span')
+
+        marker.textContent = '|'
+        range.insertNode(marker)
+
+        const rect = marker.getBoundingClientRect()
+        const containerRect = scrollContainer.getBoundingClientRect()
+        marker.remove()
+
+        return (
+          rect.top >= containerRect.top - 1 &&
+          rect.bottom <= containerRect.bottom + 1
+        )
+      }, target)
+    )
+    .toBe(true)
+}
+
 const expectDOMCaretAfterInsertedTextBeforeSuffix = async (
   root: Locator,
   insertedText: string,
@@ -220,6 +254,232 @@ test.describe('On richtext example', () => {
     expect(await page.locator('blockquote').textContent()).toContain(
       'wise quote'
     )
+  })
+
+  test('clears selected rich text formatting without dropping semantic blocks', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+    await page.keyboard.insertText('Foo bar')
+    await page.keyboard.press('Enter')
+    await page.keyboard.insertText('baz qux')
+    await editor.assert.blockTexts(['Foo bar', 'baz qux'])
+
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.getByTestId('mark-button-bold').click()
+    await page.getByTestId('mark-button-italic').click()
+    await page.getByTestId('block-button-right').click()
+
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 'Foo '.length },
+      focus: { path: [1, 0], offset: 'baz'.length },
+    })
+    await page.getByTestId('clear-formatting-button').click()
+
+    await editor.assert.blockTexts(['Foo bar', 'baz qux'])
+
+    const paragraphs = editor.root.locator('p')
+
+    await expect(paragraphs.nth(0).locator('strong')).toHaveText('Foo ')
+    await expect(paragraphs.nth(0).locator('em')).toHaveText('Foo ')
+    await expect(paragraphs.nth(0).locator('strong')).not.toContainText('bar')
+    await expect(paragraphs.nth(1).locator('strong')).toHaveText(' qux')
+    await expect(paragraphs.nth(1).locator('em')).toHaveText(' qux')
+    await expect(paragraphs.nth(1).locator('strong')).not.toContainText('baz')
+    await expect(paragraphs.nth(0)).not.toHaveAttribute('style', /text-align/)
+    await expect(paragraphs.nth(1)).not.toHaveAttribute('style', /text-align/)
+
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.getByTestId('block-button-block-quote').click()
+    await page.getByTestId('mark-button-underline').click()
+    await page.getByTestId('block-button-right').click()
+    await page.getByTestId('clear-formatting-button').click()
+
+    await expect(editor.root.locator('blockquote')).toHaveCount(2)
+    await expect(editor.root.locator('blockquote u')).toHaveCount(0)
+    await expect(editor.root.locator('blockquote').first()).not.toHaveAttribute(
+      'style',
+      /text-align/
+    )
+  })
+
+  test('applies mark hotkeys to inserted rich text and clears active marks', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+
+    const modifier = await editor.root.evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
+    )
+
+    await editor.root.press(`${modifier}+b`)
+    await page.keyboard.type('Bold')
+    await editor.root.press(`${modifier}+b`)
+    await page.keyboard.type(' Plain')
+
+    await editor.root.press(`${modifier}+i`)
+    await page.keyboard.type(' Italic')
+    await editor.root.press(`${modifier}+i`)
+
+    await editor.root.press(`${modifier}+u`)
+    await page.keyboard.type(' Under')
+    await editor.root.press(`${modifier}+u`)
+
+    await editor.root.press(`${modifier}+Backquote`)
+    await page.keyboard.type(' Code')
+    await editor.root.press(`${modifier}+Backquote`)
+    await page.keyboard.type(' Done')
+
+    await expect(editor.root.locator('strong')).toHaveText('Bold')
+    await expect(editor.root.locator('em')).toHaveText(' Italic')
+    await expect(editor.root.locator('u')).toHaveText(' Under')
+    await expect(editor.root.locator('code')).toHaveText(' Code')
+    await expect(editor.root.locator('p')).toContainText(
+      'Bold Plain Italic Under Code Done'
+    )
+  })
+
+  test('splits text entry between plain and marked text with native Enter', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+    await page.keyboard.insertText('Hello ')
+    await page.getByTestId('mark-button-bold').click()
+    await page.keyboard.insertText('world')
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 1], offset: 0 },
+      focus: { path: [0, 1], offset: 0 },
+    })
+    await page.keyboard.press('Enter')
+
+    await editor.assert.blockTexts(['Hello ', 'world'])
+    await editor.assert.selection({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    })
+    await expect(editor.root.locator('p')).toHaveCount(2)
+    await expect(editor.root.locator('p').nth(1).locator('strong')).toHaveText(
+      'world'
+    )
+  })
+
+  test('applies block, alignment, and clear-formatting hotkeys', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const modifier = await editor.root.evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
+    )
+    const pressShortcut = async (
+      key: string,
+      extraModifiers: readonly string[] = []
+    ) => {
+      await page.keyboard.down(modifier)
+      for (const extraModifier of extraModifiers) {
+        await page.keyboard.down(extraModifier)
+      }
+      await page.keyboard.press(key)
+      for (const extraModifier of [...extraModifiers].reverse()) {
+        await page.keyboard.up(extraModifier)
+      }
+      await page.keyboard.up(modifier)
+    }
+
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await editor.insertText('Shortcut text')
+    await editor.focus()
+
+    await pressShortcut('1', ['Alt'])
+    await expect(editor.root.locator('h1')).toHaveText('Shortcut text')
+
+    await pressShortcut('0', ['Alt'])
+    await expect(editor.root.locator('p')).toHaveText('Shortcut text')
+
+    await pressShortcut('2', ['Alt'])
+    await expect(editor.root.locator('h2')).toHaveText('Shortcut text')
+
+    await editor.focus()
+    await pressShortcut('j', ['Shift'])
+    await expect(editor.root.locator('h2')).toHaveCSS('text-align', 'justify')
+
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 'Shortcut'.length },
+    })
+    await editor.focus()
+    await pressShortcut('b')
+    await expect(editor.root.locator('strong')).toHaveText('Shortcut')
+
+    await editor.focus()
+    await pressShortcut('Backslash')
+
+    await expect(editor.root.locator('h2')).toHaveText('Shortcut text')
+    await expect(editor.root.locator('strong')).toHaveCount(0)
+    await expect(editor.root.locator('h2')).not.toHaveAttribute(
+      'style',
+      /text-align/
+    )
+  })
+
+  test('center-aligns an empty paragraph from the toolbar', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selection.collapse({ path: [0, 6], offset: 1 })
+    await editor.focus()
+    await page.keyboard.press('Enter')
+    await expect(editor.locator.block([1])).toHaveText('')
+    await editor.selection.collapse({ path: [1, 0], offset: 0 })
+    expect(await editor.selection.get()).toEqual({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    })
+
+    await page.getByTestId('block-button-center').click()
+
+    await expect(page.locator('[data-slate-editor] p').nth(1)).toHaveCSS(
+      'text-align',
+      'center'
+    )
+    expect(await editor.selection.get()).toEqual({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    })
   })
 
   test('inserts text through browser input', async ({ page }, testInfo) => {
@@ -825,6 +1085,76 @@ test.describe('On richtext example', () => {
       transition: { allowed: true },
     })
   })
+
+  test('keeps model selection when focus moves outside the editor', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const selection = {
+      anchor: { path: [0, 6], offset: 1 },
+      focus: { path: [0, 6], offset: 1 },
+    }
+
+    await page.evaluate(() => {
+      document.getElementById('outside-focus-target')?.remove()
+
+      const button = document.createElement('button')
+      button.id = 'outside-focus-target'
+      button.type = 'button'
+      button.textContent = 'outside'
+      document.body.append(button)
+    })
+
+    await editor.selection.select(selection)
+    await page.locator('#outside-focus-target').click()
+
+    await expect(page.locator('#outside-focus-target')).toBeFocused()
+    await expect.poll(() => editor.selection.get()).toEqual(selection)
+  })
+
+  for (const scrollTarget of ['root', 'parent'] as const) {
+    test(`keeps caret visible while typing in a scrollable editor ${scrollTarget}`, async ({
+      browserName,
+      page,
+    }, testInfo) => {
+      if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+        return
+      }
+
+      const editor = await openExample(page, 'richtext', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+
+      await editor.root.evaluate((element: HTMLElement, target) => {
+        const scrollContainer =
+          target === 'parent' ? element.parentElement : element
+
+        if (!scrollContainer) {
+          throw new Error('Missing scroll container')
+        }
+
+        scrollContainer.style.display = 'block'
+        scrollContainer.style.maxHeight = '120px'
+        scrollContainer.style.overflowY = 'auto'
+      }, scrollTarget)
+      await editor.selection.select({
+        anchor: { path: [0, 6], offset: 1 },
+        focus: { path: [0, 6], offset: 1 },
+      })
+
+      for (let i = 0; i < 12; i++) {
+        await page.keyboard.insertText(`Line ${i}`)
+        await page.keyboard.press('Enter')
+        await expectCaretVisibleInsideScrollContainer(editor.root, scrollTarget)
+      }
+    })
+  }
 
   test('resolves ambiguous browser insertion at a mark boundary', async ({
     page,
@@ -2148,6 +2478,107 @@ test.describe('On richtext example', () => {
     )
   })
 
+  test('opens a line with Mac Ctrl+O without moving past following text', async ({
+    browser,
+    browserName,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const context = await browser.newContext({
+      baseURL,
+      userAgent: macChromeUserAgent,
+    })
+    const page = await context.newPage()
+
+    try {
+      const editor = await openExample(page, 'richtext', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+
+      await editor.selection.selectAll()
+      await page.keyboard.press('Backspace')
+      await page.keyboard.insertText('foo')
+      await page.keyboard.press('Enter')
+      await page.keyboard.insertText('bar')
+      await editor.selection.collapse({ path: [1, 0], offset: 0 })
+
+      await editor.assert.blockTexts(['foo', 'bar'])
+      await editor.assert.selection({
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      })
+
+      await page.keyboard.press('Control+KeyO')
+
+      await editor.assert.blockTexts(['foo', '', 'bar'])
+      await editor.assert.selection({
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      })
+      await expect
+        .poll(() => editor.selection.location())
+        .toMatchObject({
+          anchorOffset: 0,
+          anchorPath: [1, 0],
+          isCollapsed: true,
+        })
+
+      const commands = (await editor.get.kernelTrace()).map(
+        (entry) =>
+          (
+            entry as {
+              command?: Record<string, unknown> | null
+            }
+          ).command
+      )
+
+      expect(commands).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'insert-break',
+            variant: 'open-line',
+          }),
+        ])
+      )
+    } finally {
+      await context.close()
+    }
+  })
+
+  test('opens and rejoins a line before emoji text', async ({ page }) => {
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const emojiText = '🙂or🙁'
+
+    await editor.selection.selectAll()
+    await page.keyboard.press('Backspace')
+    await page.keyboard.insertText(emojiText)
+    await editor.selection.collapse({ path: [0, 0], offset: 0 })
+
+    await page.keyboard.press('Enter')
+
+    await editor.assert.blockTexts(['', emojiText])
+    await editor.assert.selection({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    })
+
+    await page.keyboard.press('Backspace')
+
+    await editor.assert.blockTexts([emojiText])
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+  })
+
   test('records kernel commands for proof-handle edits', async ({ page }) => {
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -2756,6 +3187,106 @@ test.describe('On richtext example', () => {
     }
   })
 
+  test('keeps the first heading unchanged on Backspace at the start', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await editor.insertText('Welcome to the playground')
+    await page.getByTestId('block-button-heading-one').click()
+    await expect(editor.root.locator('h1')).toHaveText(
+      'Welcome to the playground'
+    )
+
+    await editor.selection.collapse({ path: [0, 0], offset: 0 })
+    await editor.press('Backspace')
+
+    await expect(editor.root.locator('h1')).toHaveText(
+      'Welcome to the playground'
+    )
+    await expect(editor.root.locator('p')).toHaveCount(0)
+    expect(await editor.selection.get()).toEqual({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+  })
+
+  test('handles heading Enter behavior from the browser', async ({ page }) => {
+    const setSingleHeading = async (text: string) => {
+      await page.goto('/examples/richtext')
+      const editor = await openExample(page, 'richtext', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+
+      await editor.selectAll()
+      await editor.deleteFragment()
+      await editor.insertText(text)
+      await page.getByTestId('block-button-heading-one').click()
+      await expect(editor.root.locator('h1')).toContainText(text)
+
+      return editor
+    }
+
+    let editor = await setSingleHeading('hello world')
+    await editor.selection.collapse({ path: [0, 0], offset: 'hello'.length })
+    await editor.press('Enter')
+
+    await expect(editor.root.locator('h1')).toHaveCount(2)
+    await expect(editor.root.locator('h1').nth(0)).toContainText('hello')
+    await expect(editor.root.locator('h1').nth(1)).toContainText(' world')
+
+    editor = await setSingleHeading('done')
+    await editor.selection.collapse({ path: [0, 0], offset: 'done'.length })
+    await editor.press('Enter')
+
+    await expect(editor.root.locator('h1')).toHaveCount(1)
+    await expect(editor.root.locator('h1')).toContainText('done')
+    await expect(editor.root.locator('p')).toHaveCount(1)
+
+    await page.goto('/examples/richtext')
+    editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await page.getByTestId('block-button-heading-one').click()
+    await expect(editor.root.locator('h1')).toHaveCount(1)
+    await editor.press('Enter')
+
+    await expect(editor.root.locator('h1')).toHaveCount(1)
+    await expect(editor.root.locator('p')).toHaveCount(1)
+  })
+
+  test('handles empty block quote Enter behavior from the browser', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await page.getByTestId('block-button-block-quote').click()
+    await expect(editor.root.locator('blockquote')).toHaveCount(1)
+
+    await editor.press('Enter')
+
+    await expect(editor.root.locator('blockquote')).toHaveCount(1)
+    await expect(editor.root.locator('p')).toHaveCount(1)
+  })
+
   test('applies toolbar bold to the browser-selected text', async ({
     page,
   }) => {
@@ -3126,6 +3657,108 @@ test.describe('On richtext example', () => {
         anchor: { path: [1, 0, 0], offset: 0 },
         focus: { path: [1, 0, 0], offset: 0 },
       })
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('toggles toolbar lists off and converts between list types', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000)
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const root = page.locator('[data-slate-editor]')
+
+    try {
+      await editor.selection.select({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 5 },
+      })
+
+      await page.getByTestId('block-button-bulleted-list').click()
+      await expect(root.locator('ul > li')).toHaveCount(2)
+      await expect(root.locator('ul > li').nth(0)).toContainText(
+        'This is editable rich text'
+      )
+      await expect(root.locator('ul > li').nth(1)).toContainText(
+        "Since it's rich text"
+      )
+
+      await page.getByTestId('block-button-bulleted-list').click()
+      await expect(root.locator('ul')).toHaveCount(0)
+      await expect(
+        root.locator('p').filter({ hasText: 'This is editable rich text' })
+      ).toHaveCount(1)
+      await expect(
+        root.locator('p').filter({ hasText: "Since it's rich text" })
+      ).toHaveCount(1)
+
+      await editor.selection.select({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 5 },
+      })
+
+      await page.getByTestId('block-button-numbered-list').click()
+      await expect(root.locator('ol > li')).toHaveCount(2)
+      await expect(root.locator('ul')).toHaveCount(0)
+
+      await page.getByTestId('block-button-bulleted-list').click()
+      await expect(root.locator('ul > li')).toHaveCount(2)
+      await expect(root.locator('ol')).toHaveCount(0)
+
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('toggles an empty paragraph into and out of a toolbar list', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000)
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const root = page.locator('[data-slate-editor]')
+
+    try {
+      await editor.selection.selectAll()
+      await page.keyboard.press('Backspace')
+      await expect(root.locator('p')).toHaveCount(1)
+      await expect.poll(() => editor.get.modelText()).toBe('')
+      expect(await editor.selection.get()).toEqual({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+
+      await page.getByTestId('block-button-bulleted-list').click()
+      await expect(root.locator('ul > li')).toHaveCount(1)
+      await expect(root.locator('p')).toHaveCount(0)
+      expect(await editor.selection.get()).toEqual({
+        anchor: { path: [0, 0, 0], offset: 0 },
+        focus: { path: [0, 0, 0], offset: 0 },
+      })
+
+      await page.getByTestId('block-button-bulleted-list').click()
+      await expect(root.locator('ul')).toHaveCount(0)
+      await expect(root.locator('p')).toHaveCount(1)
+      await expect.poll(() => editor.get.modelText()).toBe('')
+      expect(await editor.selection.get()).toEqual({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+
+      runtimeErrors.assertNone()
     } finally {
       runtimeErrors.stop()
     }

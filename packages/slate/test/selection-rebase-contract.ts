@@ -76,4 +76,101 @@ describe('selection rebase contract', () => {
       focus: { path: [0, 1], offset: '<textarea>'.length },
     })
   })
+
+  it('rebases selection to the previous inline when the selected leaf is removed', () => {
+    const editor = createEditor()
+    editor.extend({
+      elements: [{ inline: true, type: 'link' }],
+      name: 'selection-rebase-inline-link',
+    })
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [
+            { text: '' },
+            {
+              type: 'link',
+              children: [{ text: 'link' }],
+            },
+            { text: '' },
+          ],
+        } as Descendant,
+      ],
+      selection: {
+        anchor: { path: [0, 2], offset: 0 },
+        focus: { path: [0, 2], offset: 0 },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.nodes.remove({ at: [0, 2] })
+    })
+
+    assert.deepEqual(Editor.getSelection(editor), {
+      anchor: { path: [0, 1, 0], offset: 'link'.length },
+      focus: { path: [0, 1, 0], offset: 'link'.length },
+    })
+  })
+
+  it('rebases selection to the next top-level block when the selected block is removed', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'removed' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: 'survives' }],
+        },
+      ],
+      selection: {
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 3 },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.nodes.remove({ at: [0] })
+    })
+
+    assert.deepEqual(Editor.getChildren(editor), [
+      {
+        type: 'paragraph',
+        children: [{ text: 'survives' }],
+      },
+    ])
+    assert.deepEqual(Editor.getSelection(editor), {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+  })
+
+  it('clears selection when the selected only top-level block is removed', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'removed' }],
+        },
+      ],
+      selection: {
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 3 },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.nodes.remove({ at: [0] })
+    })
+
+    assert.deepEqual(Editor.getChildren(editor), [])
+    assert.equal(Editor.getSelection(editor), null)
+  })
 })

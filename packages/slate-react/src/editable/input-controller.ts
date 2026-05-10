@@ -126,7 +126,11 @@ export const classifyKeyboardIntent = ({
     return 'history'
   }
 
-  if (Hotkeys.isSoftBreak(nativeEvent) || Hotkeys.isSplitBlock(nativeEvent)) {
+  if (
+    Hotkeys.isSoftBreak(nativeEvent) ||
+    Hotkeys.isSplitBlock(nativeEvent) ||
+    Hotkeys.isOpenLine(nativeEvent)
+  ) {
     return 'insert-break'
   }
 

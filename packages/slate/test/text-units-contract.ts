@@ -1,7 +1,184 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { Editor } from 'slate/internal'
 
+import { createEditor, type Descendant, Node } from '../src'
 import { getCharacterDistance, getWordDistance } from '../src/text-units'
+
+type LexicalGraphemeCase = {
+  backwardDistances: readonly number[]
+  description: string
+  forwardDistances: readonly number[]
+  text: string
+}
+
+const lexical7163GraphemeCases: readonly LexicalGraphemeCase[] = [
+  {
+    backwardDistances: [3],
+    description: 'Hangul conjoining jamo sequence',
+    forwardDistances: [3],
+    text: '\u1100\u1161\u11A8',
+  },
+  {
+    backwardDistances: [2],
+    description: 'Tamil ni grapheme sequence',
+    forwardDistances: [2],
+    text: '\u0BA8\u0BBF',
+  },
+  {
+    backwardDistances: [2, 2],
+    description: 'Devanagari kshi sequence',
+    forwardDistances: [2, 2],
+    text: '\u0915\u094D\u0937\u093F',
+  },
+  {
+    backwardDistances: [11],
+    description: 'emoji sequence combined with zero-width joiners',
+    forwardDistances: [11],
+    text: '\uD83D\uDC69\u200D\uD83D\uDC69\u200D\uD83D\uDC67\u200D\uD83D\uDC66',
+  },
+  {
+    backwardDistances: [4],
+    description: 'emoji sequence with skin-tone modifier',
+    forwardDistances: [4],
+    text: '\uD83D\uDC4F\uD83C\uDFFD',
+  },
+  {
+    backwardDistances: [2],
+    description: 'Arabic text with accent',
+    forwardDistances: [2],
+    text: '\u0647\u064e',
+  },
+  {
+    backwardDistances: [2],
+    description: 'Latin text with decomposed combining character',
+    forwardDistances: [2],
+    text: 'n\u0303',
+  },
+  {
+    backwardDistances: [2],
+    description: 'BMP emoji with variation selector',
+    forwardDistances: [2],
+    text: '\u2764\ufe0f',
+  },
+  {
+    backwardDistances: [3],
+    description: 'keycap emoji sequence',
+    forwardDistances: [3],
+    text: '#\ufe0f\u20e3',
+  },
+  {
+    backwardDistances: [1, 2, 2, 2, 1],
+    description: 'Hindi word',
+    forwardDistances: [1, 2, 2, 2, 1],
+    text: '\u0905\u0928\u0941\u091a\u094d\u091b\u0947\u0926',
+  },
+  {
+    backwardDistances: [2, 2],
+    description: 'Korean jamo sequence',
+    forwardDistances: [2, 2],
+    text: '\u1103\u1167\u1109\u1170',
+  },
+  {
+    backwardDistances: [2, 2, 2, 2, 2],
+    description: 'multiple emoji outside the BMP',
+    forwardDistances: [2, 2, 2, 2, 2],
+    text: '\ud83c\udf37\ud83c\udf81\ud83d\udca9\ud83d\ude1c\ud83d\udc4d',
+  },
+  {
+    backwardDistances: [19],
+    description: 'ZWJ emoji cluster with skin tones',
+    forwardDistances: [19],
+    text: '\ud83d\udc69\ud83c\udffd\u200d\ud83d\udc68\ud83c\udffd\u200d\ud83d\udc76\ud83c\udffd\u200d\ud83d\udc66\ud83c\udffd',
+  },
+  {
+    backwardDistances: [6],
+    description: 'rainbow flag emoji with variation selector',
+    forwardDistances: [6],
+    text: '\ud83c\udff3\ufe0f\u200d\ud83c\udf08',
+  },
+  {
+    backwardDistances: [2],
+    description: 'surrogate-pair CJK extension character',
+    forwardDistances: [2],
+    text: '\ud862\udf4e',
+  },
+]
+
+const paragraph = (text: string): Descendant => ({
+  type: 'paragraph',
+  children: [{ text }],
+})
+
+const point = (offset: number) => ({ path: [0, 0], offset })
+
+const createTextEditor = (text: string, offset: number) => {
+  const editor = createEditor()
+
+  editor.update((tx) => {
+    tx.value.replace({
+      children: [paragraph(text)],
+      marks: null,
+      selection: {
+        anchor: point(offset),
+        focus: point(offset),
+      },
+    })
+  })
+
+  return editor
+}
+
+const getEditorText = (editor: ReturnType<typeof createEditor>) =>
+  Node.string(Editor.getSnapshot(editor))
+
+const collectCharacterDistances = (text: string, reverse = false) => {
+  const distances: number[] = []
+  let remaining = text
+
+  while (remaining.length > 0) {
+    const distance = getCharacterDistance(remaining, reverse)
+    distances.push(distance)
+    remaining = reverse
+      ? remaining.slice(0, remaining.length - distance)
+      : remaining.slice(distance)
+  }
+
+  return distances
+}
+
+const assertUnitCharacterDeletion = (
+  testCase: LexicalGraphemeCase,
+  reverse: boolean
+) => {
+  const distances = reverse
+    ? testCase.backwardDistances
+    : testCase.forwardDistances
+  const editor = createTextEditor(
+    testCase.text,
+    reverse ? testCase.text.length : 0
+  )
+
+  for (const distance of distances) {
+    const before = getEditorText(editor)
+    const expected = reverse
+      ? before.slice(0, before.length - distance)
+      : before.slice(distance)
+    const expectedOffset = reverse ? expected.length : 0
+
+    editor.update((tx) => {
+      tx.text.delete({ reverse, unit: 'character' })
+    })
+
+    assert.equal(getEditorText(editor), expected, testCase.description)
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: point(expectedOffset),
+      focus: point(expectedOffset),
+    })
+  }
+
+  assert.equal(getEditorText(editor), '')
+}
 
 describe('slate text-units contract', () => {
   it('measures basic grapheme distance left-to-right', () => {
@@ -34,5 +211,27 @@ describe('slate text-units contract', () => {
     assert.equal(getCharacterDistance('#️⃣#️⃣'), 3)
     assert.equal(getCharacterDistance('*️⃣*️⃣'), 3)
     assert.equal(getWordDistance("Don't do this", true), 4)
+  })
+
+  it('measures portable Lexical #7163 Unicode destructive rows', () => {
+    for (const testCase of lexical7163GraphemeCases) {
+      assert.deepEqual(
+        collectCharacterDistances(testCase.text),
+        testCase.forwardDistances,
+        `${testCase.description} forward`
+      )
+      assert.deepEqual(
+        collectCharacterDistances(testCase.text, true),
+        testCase.backwardDistances,
+        `${testCase.description} backward`
+      )
+    }
+  })
+
+  it('deletes portable Lexical #7163 Unicode rows by Slate character units', () => {
+    for (const testCase of lexical7163GraphemeCases) {
+      assertUnitCharacterDeletion(testCase, false)
+      assertUnitCharacterDeletion(testCase, true)
+    }
   })
 })

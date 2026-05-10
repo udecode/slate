@@ -80,10 +80,35 @@ describe('slate-dom hotkeys', () => {
     expect(isHotkey('tab', event({ key: 'Enter' }))).toBe(false)
     expect(
       isHotkey(
+        'ctrl+o',
+        { platform: 'apple' },
+        event({ ctrlKey: true, key: 'o' })
+      )
+    ).toBe(true)
+    expect(
+      isHotkey(
         'mod+s',
         { platform: 'apple' },
         event({ key: 's', metaKey: true })
       )
+    ).toBe(true)
+  })
+
+  test('matches generic letter shortcuts by semantic key before physical code fallback', () => {
+    expect(
+      isHotkey('ctrl+x', event({ code: 'KeyB', ctrlKey: true, key: 'x' }))
+    ).toBe(true)
+    expect(
+      isHotkey('ctrl+x', event({ code: 'KeyB', ctrlKey: true, key: 'X' }))
+    ).toBe(true)
+    expect(
+      isHotkey('ctrl+b', event({ code: 'KeyB', ctrlKey: true, key: 'x' }))
+    ).toBe(false)
+    expect(
+      isHotkey('ctrl+z', event({ code: 'KeyZ', ctrlKey: true, key: 'я' }))
+    ).toBe(true)
+    expect(
+      isHotkey('ctrl+z', event({ code: 'KeyZ', ctrlKey: true, key: 'Я' }))
     ).toBe(true)
   })
 

@@ -19,9 +19,6 @@ import { type Editor, Editor as EditorApi } from '../interfaces/editor'
 import type { TextMutationMethods } from '../interfaces/transforms/text'
 import { mergeNodes } from '../transforms-node'
 
-const COMPLEX_SCRIPT_CHARACTER_REGEX =
-  /[\u0980-\u09FF\u0E00-\u0E7F\u1000-\u109F\u0900-\u097F\u1780-\u17FF\u0D00-\u0D7F\u0B00-\u0B7F\u0A00-\u0A7F\u0B80-\u0BFF\u0C00-\u0C7F]+/
-
 const getCurrentNode = (editor: Editor, path: Path) => getNode(editor, path)[0]
 
 const isTextNode = (
@@ -729,6 +726,18 @@ const resolveDeleteTarget = (
         unit,
         voids,
       })
+      const targetNonEditable = voids
+        ? undefined
+        : getHighestNonEditable(editor, target)
+
+      if (targetNonEditable && !pathContainsPoint(targetNonEditable[1], at)) {
+        return {
+          kind: 'path',
+          path: targetNonEditable[1],
+          fallbackPoint: at,
+          initialAt,
+        }
+      }
 
       at = { anchor: at, focus: target }
       hanging = true
@@ -919,6 +928,10 @@ const deletePathTarget = (
   target: DeletePathTarget,
   tx: TransactionWriter
 ) => {
+  const fallbackRef = target.fallbackPoint
+    ? EditorApi.pointRef(editor, target.fallbackPoint)
+    : null
+
   tx.apply({
     type: 'remove_node',
     path: target.path,
@@ -929,10 +942,12 @@ const deletePathTarget = (
     maybeMergeAdjacentTextAt(editor, target.path)
   }
 
-  if (target.fallbackPoint) {
+  const fallbackPoint = fallbackRef?.unref()
+
+  if (fallbackPoint) {
     tx.setSelection({
-      anchor: target.fallbackPoint,
-      focus: target.fallbackPoint,
+      anchor: fallbackPoint,
+      focus: fallbackPoint,
     })
   }
 }
@@ -940,6 +955,36 @@ const deletePathTarget = (
 const collectDeleteMatchPaths = (editor: Editor, plan: DeleteRangePlan) => {
   const matches: Path[] = []
   let lastPath: Path | undefined
+  const addMatch = (path: Path) => {
+    if (!matches.some((match) => PathApi.equals(match, path))) {
+      matches.push(path)
+    }
+    lastPath = path
+  }
+  const maybeAddFullySelectedInline = (path: Path) => {
+    if (!EditorApi.hasPath(editor, path)) {
+      return
+    }
+
+    const node = getCurrentNode(editor, path)
+
+    if (!NodeApi.isElement(node) || !getEditorSchema(editor).isInline(node)) {
+      return
+    }
+
+    const inlineStart = EditorApi.point(editor, path, { edge: 'start' })
+    const inlineEnd = EditorApi.point(editor, path, { edge: 'end' })
+    const [rangeStart, rangeEnd] = RangeApi.edges(plan.effectiveRange)
+
+    if (
+      PointApi.compare(rangeStart, inlineStart) <= 0 &&
+      PointApi.compare(rangeEnd, inlineEnd) >= 0 &&
+      (PointApi.compare(rangeStart, inlineStart) < 0 ||
+        PointApi.compare(rangeEnd, inlineEnd) > 0)
+    ) {
+      addMatch(path)
+    }
+  }
 
   for (const [node, path] of getNodes(editor, {
     at: plan.effectiveRange,
@@ -958,12 +1003,27 @@ const collectDeleteMatchPaths = (editor: Editor, plan: DeleteRangePlan) => {
       continue
     }
 
+    if (NodeApi.isElement(node) && getEditorSchema(editor).isInline(node)) {
+      const inlineStart = EditorApi.point(editor, path, { edge: 'start' })
+      const inlineEnd = EditorApi.point(editor, path, { edge: 'end' })
+      const [rangeStart, rangeEnd] = RangeApi.edges(plan.effectiveRange)
+
+      if (
+        PointApi.compare(rangeStart, inlineStart) <= 0 &&
+        PointApi.compare(rangeEnd, inlineEnd) >= 0 &&
+        (PointApi.compare(rangeStart, inlineStart) < 0 ||
+          PointApi.compare(rangeEnd, inlineEnd) > 0)
+      ) {
+        addMatch(path)
+        continue
+      }
+    }
+
     if (
       !PathApi.isCommon(path, plan.start.path) &&
       !PathApi.isCommon(path, plan.end.path)
     ) {
-      matches.push(path)
-      lastPath = path
+      addMatch(path)
       continue
     }
 
@@ -973,8 +1033,13 @@ const collectDeleteMatchPaths = (editor: Editor, plan: DeleteRangePlan) => {
       (getEditorSchema(editor).isVoid(node) ||
         getEditorSchema(editor).isReadOnly(node))
     ) {
-      matches.push(path)
-      lastPath = path
+      addMatch(path)
+    }
+  }
+
+  for (const point of [plan.start, plan.end]) {
+    for (let depth = point.path.length - 1; depth > 0; depth -= 1) {
+      maybeAddFullySelectedInline(point.path.slice(0, depth) as Path)
     }
   }
 
@@ -986,14 +1051,21 @@ const removeDeleteContents = (
   plan: DeleteRangePlan,
   tx: TransactionWriter
 ) => {
-  const pathRefs = collectDeleteMatchPaths(editor, plan).map((path) =>
+  const deleteMatchPaths = collectDeleteMatchPaths(editor, plan)
+  const skipStartText = deleteMatchPaths.some((path) =>
+    PathApi.isCommon(path, plan.start.path)
+  )
+  const skipEndText = deleteMatchPaths.some((path) =>
+    PathApi.isCommon(path, plan.end.path)
+  )
+  const pathRefs = deleteMatchPaths.map((path) =>
     EditorApi.pathRef(editor, path)
   )
   const startRef = EditorApi.pointRef(editor, plan.start)
   const endRef = EditorApi.pointRef(editor, plan.end)
   let removedText = ''
 
-  if (!plan.isSingleText && !plan.startNonEditable) {
+  if (!plan.isSingleText && !plan.startNonEditable && !skipStartText) {
     const point = startRef.current!
     const [node] = EditorApi.leaf(editor, point)
     const text = node.text.slice(plan.start.offset)
@@ -1022,7 +1094,7 @@ const removeDeleteContents = (
       })
     })
 
-  if (!plan.endNonEditable && !plan.preserveEndBlock) {
+  if (!plan.endNonEditable && !plan.preserveEndBlock && !skipEndText) {
     const point =
       resolveRemovalEndPoint(editor, plan, startRef.current, endRef.current) ??
       getLivePoint(editor, startRef.current)
@@ -1121,41 +1193,17 @@ const resolveDeleteSelection = (
   removal: ReturnType<typeof removeDeleteContents>,
   tx: TransactionWriter
 ) => {
-  let complexScriptSelection: DeletePoint | null = null
-
-  if (
-    plan.isCollapsed &&
-    plan.reverse &&
-    plan.unit === 'character' &&
-    removal.removedText.length > 1 &&
-    COMPLEX_SCRIPT_CHARACTER_REGEX.test(removal.removedText)
-  ) {
-    const restoredText = removal.removedText.slice(
-      0,
-      removal.removedText.length - plan.distance
-    )
-
-    if (restoredText.length > 0) {
-      EditorApi.insertText(editor, restoredText, { at: plan.start })
-      complexScriptSelection = {
-        path: [...plan.start.path],
-        offset: plan.start.offset + restoredText.length,
-      }
-    }
-  }
-
   const startPoint = removal.startRef.unref()
   const endPoint = removal.endRef.unref()
   const currentSelection = getCurrentSelection(editor)
   const collapseTarget =
-    complexScriptSelection ??
-    (!plan.isCollapsed &&
+    !plan.isCollapsed &&
     currentSelection &&
     (plan.startNonEditable != null || plan.endNonEditable != null)
       ? currentSelection.anchor
       : !plan.isCollapsed && EditorApi.hasPath(editor, plan.start.path)
         ? { path: [...plan.start.path], offset: plan.start.offset }
-        : (startPoint ?? endPoint))
+        : (startPoint ?? endPoint)
   let point = normalizeFinalDeletePoint(editor, collapseTarget, {
     reverse: plan.reverse,
     allowForwardBoundaryJump:

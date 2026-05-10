@@ -453,4 +453,46 @@ test.describe('mentions example', () => {
     expect(proof.selectionShells?.anchor.element?.path).toBe('1,3')
     expect(proof.selectionShells?.anchor.element?.isVoid).toBe(true)
   })
+
+  test('preserves a leading mention when Backspace removes its line boundary', async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'mentions', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const beforeFirstMentionText = 'Try mentioning characters, like '
+    const boundaryPoint = {
+      path: [1, 0],
+      offset: beforeFirstMentionText.length,
+    }
+
+    await editor.selection.collapse(boundaryPoint)
+    await editor.focus()
+    await editor.assert.selection({
+      anchor: boundaryPoint,
+      focus: boundaryPoint,
+    })
+
+    await editor.root.press('Enter')
+    await expect(page.locator('[data-cy="mention-R2-D2"]')).toHaveCount(1)
+    await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(1)
+
+    await editor.root.press('Backspace')
+
+    await expect(page.locator('[data-cy="mention-R2-D2"]')).toHaveCount(1)
+    await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(1)
+    await editor.assert.selection({
+      anchor: boundaryPoint,
+      focus: boundaryPoint,
+    })
+    expect(await editor.get.modelText()).toContain(
+      'Try mentioning characters, like  or !'
+    )
+  })
 })

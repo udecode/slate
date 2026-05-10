@@ -42,6 +42,7 @@ const APPLE_HOTKEYS = {
   deleteWordForward: 'opt+shift?+delete',
   extendLineBackward: 'opt+shift+up',
   extendLineForward: 'opt+shift+down',
+  openLine: 'ctrl+o',
   redo: 'cmd+shift+z',
   transposeCharacter: 'ctrl+t',
 }
@@ -98,6 +99,7 @@ export default {
   isMoveLineForward: create('moveLineForward'),
   isMoveWordBackward: create('moveWordBackward'),
   isMoveWordForward: create('moveWordForward'),
+  isOpenLine: create('openLine'),
   isRedo: create('redo'),
   isSoftBreak: create('insertSoftBreak'),
   isSplitBlock: create('splitBlock'),

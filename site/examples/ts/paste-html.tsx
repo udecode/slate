@@ -34,6 +34,7 @@ const PasteHtmlExample = () => {
     withEditor: (editor) => withHtml(withHistory(editor)),
     initialValue,
   })
+
   return (
     <Slate editor={editor}>
       <Editable
@@ -52,10 +53,15 @@ const PasteHtmlExample = () => {
 
 const Element = (props: RenderElementProps) => {
   const { attributes, children, element } = props
+  const style = getElementStyle(element)
 
   switch (element.type) {
     case 'block-quote':
-      return <blockquote {...attributes}>{children}</blockquote>
+      return (
+        <blockquote style={style} {...attributes}>
+          {children}
+        </blockquote>
+      )
     case 'code-block':
       return (
         <pre>
@@ -63,23 +69,59 @@ const Element = (props: RenderElementProps) => {
         </pre>
       )
     case 'bulleted-list':
-      return <ul {...attributes}>{children}</ul>
+      return (
+        <ul style={style} {...attributes}>
+          {children}
+        </ul>
+      )
     case 'heading-one':
-      return <h1 {...attributes}>{children}</h1>
+      return (
+        <h1 style={style} {...attributes}>
+          {children}
+        </h1>
+      )
     case 'heading-two':
-      return <h2 {...attributes}>{children}</h2>
+      return (
+        <h2 style={style} {...attributes}>
+          {children}
+        </h2>
+      )
     case 'heading-three':
-      return <h3 {...attributes}>{children}</h3>
+      return (
+        <h3 style={style} {...attributes}>
+          {children}
+        </h3>
+      )
     case 'heading-four':
-      return <h4 {...attributes}>{children}</h4>
+      return (
+        <h4 style={style} {...attributes}>
+          {children}
+        </h4>
+      )
     case 'heading-five':
-      return <h5 {...attributes}>{children}</h5>
+      return (
+        <h5 style={style} {...attributes}>
+          {children}
+        </h5>
+      )
     case 'heading-six':
-      return <h6 {...attributes}>{children}</h6>
+      return (
+        <h6 style={style} {...attributes}>
+          {children}
+        </h6>
+      )
     case 'list-item':
-      return <li {...attributes}>{children}</li>
+      return (
+        <li style={style} {...attributes}>
+          {children}
+        </li>
+      )
     case 'numbered-list':
-      return <ol {...attributes}>{children}</ol>
+      return (
+        <ol style={style} {...attributes}>
+          {children}
+        </ol>
+      )
     case 'table':
       return (
         <table>
@@ -97,8 +139,25 @@ const Element = (props: RenderElementProps) => {
         </SafeLink>
       )
     default:
-      return <p {...attributes}>{children}</p>
+      return (
+        <p style={style} {...attributes}>
+          {children}
+        </p>
+      )
   }
+}
+
+const getElementStyle = (
+  element: SlateElement
+): React.CSSProperties | undefined => {
+  const align =
+    'align' in element && typeof element.align === 'string'
+      ? element.align
+      : undefined
+
+  return align
+    ? { textAlign: align as React.CSSProperties['textAlign'] }
+    : undefined
 }
 
 const allowedSchemes = ['http:', 'https:', 'mailto:', 'tel:']

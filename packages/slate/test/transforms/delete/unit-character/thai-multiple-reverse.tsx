@@ -18,7 +18,6 @@ export const input = (
 export const output = (
   <editor>
     <block>
-      พ
       <cursor />
     </block>
   </editor>

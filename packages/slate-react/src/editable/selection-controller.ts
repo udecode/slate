@@ -265,12 +265,13 @@ export const syncEditorSelectionFromDOM = ({
   }
 
   const { anchorNode, focusNode } = domSelection
-  const anchorNodeSelectable =
-    ReactEditor.hasEditableTarget(editor, anchorNode) ||
-    ReactEditor.isTargetInsideNonReadonlyVoid(editor, anchorNode)
-  const focusNodeInEditor = ReactEditor.hasTarget(editor, focusNode)
+  const anchorNodeSelectable = ReactEditor.hasSelectableTarget(
+    editor,
+    anchorNode
+  )
+  const focusNodeSelectable = ReactEditor.hasSelectableTarget(editor, focusNode)
 
-  if (!anchorNodeSelectable || !focusNodeInEditor) {
+  if (!anchorNodeSelectable || !focusNodeSelectable) {
     return
   }
 
@@ -402,12 +403,13 @@ export const resolveEditableImplicitTarget = ({
   }
 
   const { anchorNode, focusNode } = domSelection
-  const anchorNodeSelectable =
-    ReactEditor.hasEditableTarget(editor, anchorNode) ||
-    ReactEditor.isTargetInsideNonReadonlyVoid(editor, anchorNode)
-  const focusNodeInEditor = ReactEditor.hasTarget(editor, focusNode)
+  const anchorNodeSelectable = ReactEditor.hasSelectableTarget(
+    editor,
+    anchorNode
+  )
+  const focusNodeSelectable = ReactEditor.hasSelectableTarget(editor, focusNode)
 
-  if (!anchorNodeSelectable || !focusNodeInEditor) {
+  if (!anchorNodeSelectable || !focusNodeSelectable) {
     return request.fallback
   }
 
@@ -520,12 +522,14 @@ export const applyEditableDOMSelectionChange = ({
 
   const { anchorNode, focusNode } = domSelection
 
-  const anchorNodeSelectable =
-    ReactEditor.hasEditableTarget(editor, anchorNode) ||
-    ReactEditor.isTargetInsideNonReadonlyVoid(editor, anchorNode)
+  const anchorNodeSelectable = ReactEditor.hasSelectableTarget(
+    editor,
+    anchorNode
+  )
 
-  const focusNodeInEditor = ReactEditor.hasTarget(editor, focusNode)
-  const domSelectionBelongsToEditor = anchorNodeSelectable && focusNodeInEditor
+  const focusNodeSelectable = ReactEditor.hasSelectableTarget(editor, focusNode)
+  const domSelectionBelongsToEditor =
+    anchorNodeSelectable && focusNodeSelectable
   const range = domSelectionBelongsToEditor
     ? ReactEditor.toSlateRange(editor, domSelection, {
         exactMatch: false,
@@ -585,7 +589,7 @@ export const applyEditableDOMSelectionChange = ({
   }
 
   // Deselect the editor if the DOM selection is not selectable in read-only mode.
-  if (readOnly && (!anchorNodeSelectable || !focusNodeInEditor)) {
+  if (readOnly && (!anchorNodeSelectable || !focusNodeSelectable)) {
     setEditableModelSelectionPreference({
       inputController,
       preferModelSelection: false,

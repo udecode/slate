@@ -394,7 +394,7 @@ export const defaultScrollSelectionIntoView = (
     }
 
     // COMPAT: In Chrome, domFocusPoint.getBoundingClientRect() can return zero dimensions for valid ranges (e.g. line breaks).
-    // When this happens, do not scroll like most editors do.
+    // Fall back to the leaf rect so typing through empty lines still keeps the caret visible.
     const domRect = domFocusPoint.getBoundingClientRect()
     const isZeroDimensionRect =
       domRect.width === 0 &&
@@ -407,6 +407,9 @@ export const defaultScrollSelectionIntoView = (
       const leafHasDimensions = leafRect.width > 0 || leafRect.height > 0
 
       if (leafHasDimensions) {
+        scrollIntoView(leafEl, {
+          scrollMode: 'if-needed',
+        })
         return
       }
     }

@@ -60,6 +60,33 @@ test.describe('On markdown-shortcuts example', () => {
     )
   })
 
+  test('merges a markdown-created list before an existing list', async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openMarkdownShortcuts(page)
+    const textbox = editor.root
+
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await editor.focus()
+
+    await textbox.press('Enter')
+    await textbox.pressSequentially('- one')
+    await expect(textbox.locator('ul > li')).toHaveCount(1)
+
+    await editor.selection.collapse({ path: [0, 0], offset: 0 })
+    await textbox.pressSequentially('- two')
+
+    await expect(textbox.locator('ul')).toHaveCount(1)
+    await expect(textbox.locator('ul > li')).toHaveCount(2)
+    await expect(textbox.locator('ul > li').nth(0)).toContainText('two')
+    await expect(textbox.locator('ul > li').nth(1)).toContainText('one')
+  })
+
   test('keeps native desktop list continuation text in each list item', async ({
     page,
   }, testInfo) => {
@@ -89,6 +116,28 @@ test.describe('On markdown-shortcuts example', () => {
     await expect(page.locator('ul > li').nth(2)).toContainText('3rd Item')
   })
 
+  test('can create a numbered list with markdown start number', async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openMarkdownShortcuts(page)
+    const textbox = editor.root
+
+    await expect(textbox.locator('ol')).toHaveCount(0)
+
+    await editor.selection.collapse({ path: [0, 0], offset: 0 })
+    await editor.focus()
+    await textbox.pressSequentially('25. ')
+    await textbox.pressSequentially('Started')
+
+    await expect(textbox.locator('ol')).toHaveAttribute('start', '25')
+    await expect(textbox.locator('ol > li')).toHaveCount(1)
+    await expect(textbox.locator('ol > li').first()).toContainText('Started')
+  })
+
   test('can add a h1 item', async ({ page, browserName }, testInfo) => {
     const editor = await openMarkdownShortcuts(page)
     const textbox = editor.root
@@ -113,5 +162,36 @@ test.describe('On markdown-shortcuts example', () => {
     await expect(page.locator('h1')).toHaveCount(1)
 
     expect(await textbox.locator('h1').textContent()).toContain('Heading')
+  })
+
+  test('inserts a paragraph before a heading from the heading start', async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openMarkdownShortcuts(page)
+    const textbox = editor.root
+
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await editor.focus()
+    await textbox.pressSequentially('# Heading')
+    await expect(textbox.locator('h1')).toHaveText('Heading')
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+    await textbox.press('Enter')
+
+    await expect(textbox.locator('p')).toHaveCount(1)
+    await expect(textbox.locator('h1')).toHaveText('Heading')
+    await editor.assert.blockTexts(['', 'Heading'])
+    await editor.assert.selection({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    })
   })
 })

@@ -591,25 +591,39 @@ export const syncSelectionForBeforeInput = ({
 } => {
   let nextNative = native
   let nextSelection = selection
+  const domSelection = getSelection(root)
+  const domSelectionAnchorNode = domSelection?.anchorNode ?? null
+  const domSelectionFocusNode = domSelection?.focusNode ?? null
+  const domSelectionBelongsToEditor =
+    !domSelection ||
+    domSelection.rangeCount === 0 ||
+    (ReactEditor.hasSelectableTarget(editor, domSelectionAnchorNode) &&
+      ReactEditor.hasSelectableTarget(editor, domSelectionFocusNode))
 
   // COMPAT: Most deleting forward/backward input types can derive the target
   // from the current selection, but IME/focus cleanup can provide an expanded
   // beforeinput target range that must become the model delete range.
   // If the NODE_MAP is dirty, we can't trust the selection anchor (eg ReactEditor.toDOMPoint via ReactEditor.toSlateRange)
-  if (
-    allowDOMSelectionImport &&
-    !IS_NODE_MAP_DIRTY.get(editor) &&
-    !(preferModelSelectionForInput && type === 'insertText')
-  ) {
+  if (allowDOMSelectionImport && !IS_NODE_MAP_DIRTY.get(editor)) {
     const [targetRange] = (event as any).getTargetRanges()
 
-    if (targetRange) {
+    if (
+      targetRange &&
+      domSelectionBelongsToEditor &&
+      ReactEditor.hasSelectableTarget(editor, targetRange.startContainer) &&
+      ReactEditor.hasSelectableTarget(editor, targetRange.endContainer)
+    ) {
       const range = ReactEditor.toSlateRange(editor, targetRange, {
         exactMatch: false,
         suppressThrow: true,
       })
       const shouldUseTargetRange =
         range &&
+        !(
+          preferModelSelectionForInput &&
+          type === 'insertText' &&
+          Range.isCollapsed(range)
+        ) &&
         (!type.startsWith('delete') ||
           type.startsWith('deleteBy') ||
           Range.isExpanded(range))
@@ -641,33 +655,25 @@ export const syncSelectionForBeforeInput = ({
   if (
     allowDOMSelectionImport &&
     type === 'insertText' &&
-    !preferModelSelectionForInput
+    !preferModelSelectionForInput &&
+    domSelection &&
+    domSelectionBelongsToEditor
   ) {
-    const domSelection = getSelection(root)
-    const anchorNode = domSelection?.anchorNode ?? null
-    const focusNode = domSelection?.focusNode ?? null
+    const range =
+      toSlateRangeFromDOMSelection(editor, domSelection, editorElement) ??
+      (IS_NODE_MAP_DIRTY.get(editor)
+        ? null
+        : ReactEditor.toSlateRange(editor, domSelection, {
+            exactMatch: false,
+            suppressThrow: true,
+          }))
 
-    if (
-      domSelection &&
-      ReactEditor.hasEditableTarget(editor, anchorNode) &&
-      ReactEditor.hasTarget(editor, focusNode)
-    ) {
-      const range =
-        toSlateRangeFromDOMSelection(editor, domSelection, editorElement) ??
-        (IS_NODE_MAP_DIRTY.get(editor)
-          ? null
-          : ReactEditor.toSlateRange(editor, domSelection, {
-              exactMatch: false,
-              suppressThrow: true,
-            }))
-
-      if (range && (!nextSelection || !Range.equals(nextSelection, range))) {
-        nextNative = false
-        editor.update((tx) => {
-          tx.selection.set(range)
-        })
-        nextSelection = range
-      }
+    if (range && (!nextSelection || !Range.equals(nextSelection, range))) {
+      nextNative = false
+      editor.update((tx) => {
+        tx.selection.set(range)
+      })
+      nextSelection = range
     }
   }
 
@@ -694,10 +700,10 @@ export const syncSelectionForBeforeInput = ({
     type.startsWith('delete') &&
     !preferModelSelectionForInput
   ) {
-    const domSelection = getSelection(root)
-    const range = domSelection
-      ? toSlateRangeFromDOMSelection(editor, domSelection, editorElement)
-      : null
+    const range =
+      domSelectionBelongsToEditor && domSelection
+        ? toSlateRangeFromDOMSelection(editor, domSelection, editorElement)
+        : null
 
     if (range && (!nextSelection || !Range.equals(nextSelection, range))) {
       editor.update((tx) => {

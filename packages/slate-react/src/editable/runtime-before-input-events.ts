@@ -214,6 +214,11 @@ export const useRuntimeBeforeInputEvents = ({
           return
         }
 
+        for (const operation of deferredOperations.current) {
+          operation()
+        }
+        deferredOperations.current = []
+
         if (
           shouldSkipDuplicateEditableEditingEpochCommand(
             editor,
@@ -285,6 +290,11 @@ export const useRuntimeBeforeInputEvents = ({
               setComposing,
             })
         )
+        if (native && type === 'insertText' && typeof data === 'string') {
+          deferredOperations.current.push(() =>
+            trace.repairDOMInputWithTrace({ data, inputType: type }, el)
+          )
+        }
         if (request) {
           profileBeforeInputDuration('beforeinput-request-repair', () =>
             repair.requestEditableRepair(request)

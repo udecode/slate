@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 
-import { createEditor, type Descendant, type EditorElementSpec } from '../src'
+import {
+  createEditor,
+  type Descendant,
+  type EditorElementSpec,
+  Node,
+  Path,
+} from '../src'
 import { Editor } from '../src/internal'
 
 let extensionIndex = 0
@@ -841,6 +847,56 @@ it('mirrors the legacy edges/end/start/path/point/node/parent/range oracle rows'
     [1],
   ])
   assert.deepEqual(Editor.range(editor, spanningRange), spanningRange)
+})
+
+it('resolves element path edges to nested text points', () => {
+  const editor = createEditor()
+  defineElement(editor, { type: 'link', inline: true })
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'a' },
+          {
+            type: 'link',
+            children: [{ text: 'bc' }],
+          },
+          { text: 'd' },
+        ],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(Editor.range(editor, [0]), {
+    anchor: { path: [0, 0], offset: 0 },
+    focus: { path: [0, 2], offset: 1 },
+  })
+  assert.deepEqual(Editor.range(editor, [0, 1]), {
+    anchor: { path: [0, 1, 0], offset: 0 },
+    focus: { path: [0, 1, 0], offset: 2 },
+  })
+  assert.deepEqual(Editor.edges(editor, [0, 1]), [
+    { path: [0, 1, 0], offset: 0 },
+    { path: [0, 1, 0], offset: 2 },
+  ])
+
+  const backwardRange = {
+    anchor: { path: [0, 2], offset: 1 },
+    focus: { path: [0, 0], offset: 0 },
+  }
+
+  assert.deepEqual(Editor.point(editor, backwardRange), {
+    path: [0, 0],
+    offset: 0,
+  })
+  assert.deepEqual(Editor.point(editor, backwardRange, { edge: 'end' }), {
+    path: [0, 2],
+    offset: 1,
+  })
 })
 
 it('mirrors the legacy string oracle rows', () => {
@@ -1804,6 +1860,283 @@ it('nodes supports pass and universal on the current traversal contract', () => 
       ],
     ]
   )
+})
+
+it('nodes covers sibling and range traversal for nested inline documents', () => {
+  const editor = createEditor()
+  defineElement(editor, { type: 'link', inline: true })
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'A1' },
+          {
+            type: 'link',
+            children: [{ text: 'A3' }],
+          },
+          { text: 'A4' },
+        ],
+      } as Descendant,
+      {
+        type: 'paragraph',
+        children: [{ text: 'B1' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: '' }],
+      },
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Array.from(Node.children(editor, [])).map(([, path]) => path),
+    [[0], [1], [2]]
+  )
+  assert.deepEqual(
+    Array.from(Node.children(editor, [], { reverse: true })).map(
+      ([, path]) => path
+    ),
+    [[2], [1], [0]]
+  )
+  assert.deepEqual(
+    Array.from(Node.children(editor, [0])).map(([, path]) => path),
+    [
+      [0, 0],
+      [0, 1],
+      [0, 2],
+    ]
+  )
+  assert.deepEqual(
+    Array.from(Node.descendants(editor)).map(([, path]) => path),
+    [[0], [0, 0], [0, 1], [0, 1, 0], [0, 2], [1], [1, 0], [2], [2, 0]]
+  )
+
+  const partialRange = {
+    anchor: { path: [0, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 2 },
+  }
+
+  assert.deepEqual(
+    Array.from(
+      getNodeEntries(editor, {
+        at: partialRange,
+        mode: 'lowest',
+      })
+    ).map(([, path]) => path),
+    [
+      [0, 0],
+      [0, 1, 0],
+      [0, 2],
+      [1, 0],
+    ]
+  )
+  assert.deepEqual(
+    Array.from(
+      getNodeEntries(editor, {
+        at: partialRange,
+        match: (node) => 'type' in node,
+        mode: 'lowest',
+      })
+    ).map(([, path]) => path),
+    [[0, 1], [1]]
+  )
+})
+
+it('nodes expose ancestry, sibling order, and common ancestor relationships', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'foo' }, { text: 'bar' }, { text: 'baz' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'qux' }],
+      },
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Array.from(Node.ancestors(editor, [0, 2])).map(([, path]) => path),
+    [[], [0]]
+  )
+  assert.deepEqual(
+    Array.from(Node.ancestors(editor, [0, 2], { reverse: true })).map(
+      ([, path]) => path
+    ),
+    [[0], []]
+  )
+
+  assert.deepEqual(Node.common(editor, [0, 0], [0, 2]), [
+    {
+      type: 'paragraph',
+      children: [{ text: 'foo' }, { text: 'bar' }, { text: 'baz' }],
+    },
+    [0],
+  ])
+
+  const rootCommon = Node.common(editor, [0, 1], [1, 0])
+
+  assert.equal(Editor.isEditor(rootCommon[0]), true)
+  assert.deepEqual(rootCommon[1], [])
+  assert.deepEqual(Path.common([0, 0], [0, 2]), [0])
+  assert.deepEqual(Path.common([0, 1], [1, 0]), [])
+  assert.deepEqual(Path.previous([0, 2]), [0, 1])
+  assert.deepEqual(Path.next([0, 1]), [0, 2])
+  assert.equal(Path.hasPrevious([0, 0]), false)
+  assert.equal(Path.hasPrevious([0, 1]), true)
+  assert.equal(Path.isBefore([0, 0], [0, 1]), true)
+  assert.equal(Path.isBefore([0, 1], [1, 0]), true)
+  assert.equal(Path.isBefore([1, 0], [0, 1]), false)
+  assert.equal(Path.isParent([0], [0, 2]), true)
+  assert.equal(Path.isAncestor([], [1, 0]), true)
+  assert.equal(Path.isParent([], [1, 0]), false)
+})
+
+it('resolves nested list ancestry and terminal list-item paths', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'section',
+        children: [
+          {
+            type: 'bulleted-list',
+            children: [
+              {
+                type: 'list-item',
+                children: [
+                  {
+                    type: 'paragraph',
+                    children: [{ text: 'one' }],
+                  },
+                  {
+                    type: 'bulleted-list',
+                    children: [
+                      {
+                        type: 'list-item',
+                        children: [
+                          {
+                            type: 'paragraph',
+                            children: [{ text: 'two' }],
+                          },
+                          {
+                            type: 'numbered-list',
+                            children: [
+                              {
+                                type: 'list-item',
+                                children: [
+                                  {
+                                    type: 'paragraph',
+                                    children: [{ text: 'three' }],
+                                  },
+                                ],
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+              {
+                type: 'list-item',
+                children: [
+                  {
+                    type: 'paragraph',
+                    children: [{ text: 'four' }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  const isType = (path: number[], type: string) => {
+    const node = Node.get(editor, path)
+
+    return !Editor.isEditor(node) && 'type' in node && node.type === type
+  }
+  const isList = (path: number[]) =>
+    isType(path, 'bulleted-list') || isType(path, 'numbered-list')
+  const listLevelPaths = (path: number[]) =>
+    Path.levels(path).filter((levelPath) => isList(levelPath))
+
+  const topListPath = [0, 0]
+  const firstTopItemPath = [0, 0, 0]
+  const secondTopItemPath = [0, 0, 1]
+  const nestedListPath = [0, 0, 0, 1]
+  const nestedItemPath = [0, 0, 0, 1, 0]
+  const deepestListPath = [0, 0, 0, 1, 0, 1]
+  const deepestItemPath = [0, 0, 0, 1, 0, 1, 0]
+
+  assert.deepEqual(listLevelPaths(deepestListPath), [
+    topListPath,
+    nestedListPath,
+    deepestListPath,
+  ])
+  assert.deepEqual(listLevelPaths(deepestItemPath), [
+    topListPath,
+    nestedListPath,
+    deepestListPath,
+  ])
+  assert.deepEqual(listLevelPaths(secondTopItemPath), [topListPath])
+  assert.equal(Path.levels(deepestListPath).filter(isList).length, 3)
+  assert.equal(isType(firstTopItemPath.concat(1), 'bulleted-list'), true)
+  assert.equal(Node.has(editor, Path.next(firstTopItemPath)), true)
+  assert.equal(Node.has(editor, Path.next(nestedItemPath)), false)
+  assert.equal(Node.has(editor, Path.next(deepestItemPath)), false)
+  assert.equal(Node.has(editor, Path.next(secondTopItemPath)), false)
+})
+
+it('nodes exposes nested text leaves and text content for element queries', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'block',
+        children: [
+          { text: 'Foo' },
+          {
+            type: 'block',
+            children: [{ text: 'Bar' }, { text: 'Baz' }],
+          },
+          { text: 'Qux' },
+        ],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  assert.deepEqual(
+    Array.from(Node.texts(editor)).map(([, path]) => path),
+    [
+      [0, 0],
+      [0, 1, 0],
+      [0, 1, 1],
+      [0, 2],
+    ]
+  )
+  assert.deepEqual(Node.first(editor, [0]), [{ text: 'Foo' }, [0, 0]])
+  assert.deepEqual(Node.last(editor, [0]), [{ text: 'Qux' }, [0, 2]])
+  assert.equal(Node.string(getNodeEntry(editor, [0])[0]), 'FooBarBazQux')
 })
 
 it('nodes reverse returns the exact inverse of forward matches', () => {

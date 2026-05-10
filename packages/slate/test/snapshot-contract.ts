@@ -1276,6 +1276,55 @@ it('insertBreak inside a nested block splits the nested block without splitting 
   })
 })
 
+it('insertBreak inside a list item splits the item and keeps the list wrapper', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'bulleted-list',
+        children: [
+          {
+            type: 'list-item',
+            children: [{ text: 'onetwo' }],
+          },
+        ],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0, 0], offset: 'one'.length },
+      focus: { path: [0, 0, 0], offset: 'one'.length },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    Editor.insertBreak(editor)
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'bulleted-list',
+      children: [
+        {
+          type: 'list-item',
+          children: [{ text: 'one' }],
+        },
+        {
+          type: 'list-item',
+          children: [{ text: 'two' }],
+        },
+      ],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [0, 1, 0], offset: 0 },
+    focus: { path: [0, 1, 0], offset: 0 },
+  })
+})
+
 it('insertSoftBreak currently aliases insertBreak on the proved block split seam', () => {
   const editor = createEditor()
 
@@ -1946,6 +1995,76 @@ it('Editor.removeMark can clear inherited leaf marks for the next collapsed inse
   ])
 })
 
+it('Editor.toggleMark clears an inherited collapsed mark before the next insertion', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'bold', bold: true }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    },
+    marks: null,
+  })
+
+  Editor.toggleMark(editor, 'bold', true)
+
+  assert.deepEqual(getMarks(editor), {})
+
+  Editor.insertText(editor, '!')
+
+  const snapshot = Editor.getSnapshot(editor)
+  const firstBlock = snapshot.children[0] as Descendant & {
+    children: Array<Descendant & { bold?: boolean }>
+  }
+
+  assert.deepEqual(firstBlock.children, [
+    { text: 'bold', bold: true },
+    { text: '!' },
+  ])
+})
+
+it('tx.marks.toggle defaults to true and clears inherited collapsed marks', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'bold', bold: true }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    },
+    marks: null,
+  })
+
+  editor.update((tx) => {
+    tx.marks.toggle('bold')
+  })
+
+  assert.deepEqual(getMarks(editor), {})
+
+  Editor.insertText(editor, '!')
+
+  const snapshot = Editor.getSnapshot(editor)
+  const firstBlock = snapshot.children[0] as Descendant & {
+    children: Array<Descendant & { bold?: boolean }>
+  }
+
+  assert.deepEqual(firstBlock.children, [
+    { text: 'bold', bold: true },
+    { text: '!' },
+  ])
+})
+
 it('Editor.addMark applies bold across an expanded selection while preserving existing marks', () => {
   const editor = createEditor()
 
@@ -2101,9 +2220,11 @@ it('supports insert_node and remove_node operation replay while keeping sibling 
 
   const before = Editor.getSnapshot(editor)
   const alphaId = before.index.pathToId['0']
+  const alphaTextId = before.index.pathToId['0.0']
   const betaId = before.index.pathToId['1']
 
   assert.ok(alphaId)
+  assert.ok(alphaTextId)
   assert.ok(betaId)
 
   applyOperation(editor, {
@@ -2135,6 +2256,16 @@ it('supports insert_node and remove_node operation replay while keeping sibling 
 
   assert.deepEqual(getBlockTexts(afterRemove.children), ['zero', 'beta'])
   assert.equal(afterRemove.index.pathToId['1'], betaId)
+  assert.equal(afterRemove.index.idToPath[alphaId], undefined)
+  assert.equal(afterRemove.index.idToPath[alphaTextId], undefined)
+  assert.equal(
+    Object.values(afterRemove.index.pathToId).includes(alphaId),
+    false
+  )
+  assert.equal(
+    Object.values(afterRemove.index.pathToId).includes(alphaTextId),
+    false
+  )
 })
 
 it('supports path-based insertNodes/removeNodes transforms in one outer transaction', () => {
@@ -4343,6 +4474,48 @@ it('supports list formatting flows by turning selected top-level blocks into lis
   assert.deepEqual(snapshot.selection, {
     anchor: { path: [0, 0, 0], offset: 1 },
     focus: { path: [0, 1, 0], offset: 2 },
+  })
+})
+
+it('supports numbered list formatting flows with list-item children', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren(),
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 'two'.length },
+    },
+    marks: null,
+  })
+
+  Editor.setNodes(editor, { type: 'list-item' }, { at: [0] })
+  Editor.setNodes(editor, { type: 'list-item' }, { at: [1] })
+  Editor.wrapNodes(editor, {
+    type: 'numbered-list',
+    children: [],
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+  const wrapper = snapshot.children[0] as Descendant & {
+    children: Array<Descendant & { type?: string }>
+    type?: string
+  }
+
+  assert.equal(wrapper.type, 'numbered-list')
+  assert.deepEqual(wrapper.children, [
+    {
+      type: 'list-item',
+      children: [{ text: 'one' }],
+    },
+    {
+      type: 'list-item',
+      children: [{ text: 'two' }],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [0, 0, 0], offset: 0 },
+    focus: { path: [0, 1, 0], offset: 'two'.length },
   })
 })
 

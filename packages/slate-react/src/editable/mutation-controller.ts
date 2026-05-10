@@ -136,10 +136,10 @@ export const applyModelOwnedLineBreak = ({
   kind,
 }: {
   editor: RuntimeEditor
-  kind: 'paragraph' | 'soft'
+  kind: 'open-line' | 'paragraph' | 'soft'
 }) => {
   if (
-    kind === 'paragraph' &&
+    kind !== 'soft' &&
     applyParagraphBreakAfterSelectedBlockVoid(
       editor,
       readRuntimeSelection(editor)
@@ -149,6 +149,29 @@ export const applyModelOwnedLineBreak = ({
   }
 
   editor.update((tx) => {
+    if (kind === 'open-line') {
+      const selection = tx.selection.get()
+      const blockEntry =
+        selection && Range.isCollapsed(selection)
+          ? tx.nodes.above({
+              at: selection.anchor,
+              match: (node) => Node.isElement(node) && tx.nodes.isBlock(node),
+            })
+          : undefined
+
+      if (!blockEntry) {
+        tx.break.insert()
+        return
+      }
+
+      const [, blockPath] = blockEntry
+      const insertionPoint = { path: blockPath.concat(0), offset: 0 }
+
+      tx.nodes.insert(createDefaultParagraph(), { at: blockPath })
+      tx.selection.set({ anchor: insertionPoint, focus: insertionPoint })
+      return
+    }
+
     if (kind === 'paragraph') {
       tx.break.insert()
       return
@@ -156,6 +179,85 @@ export const applyModelOwnedLineBreak = ({
 
     tx.break.insertSoft()
   })
+}
+
+const clonePoint = (point: Point): Point => ({
+  offset: point.offset,
+  path: [...point.path],
+})
+
+const createRange = (anchor: Point, focus: Point): Range => ({
+  anchor: clonePoint(anchor),
+  focus: clonePoint(focus),
+})
+
+export const applyModelOwnedTransposeCharacterIntent = ({
+  editor,
+  selection,
+}: {
+  editor: RuntimeEditor
+  selection: Range | null
+}) => {
+  if (!selection || !Range.isCollapsed(selection)) {
+    return false
+  }
+
+  const cursor = selection.anchor
+  const before = Editor.before(editor, cursor, { unit: 'character' })
+
+  if (!before) {
+    return false
+  }
+
+  let start = before
+  let middle = cursor
+  let end = Editor.after(editor, cursor, { unit: 'character' })
+
+  if (!end) {
+    const secondBefore = Editor.before(editor, before, { unit: 'character' })
+
+    if (!secondBefore) {
+      return false
+    }
+
+    start = secondBefore
+    middle = before
+    end = cursor
+  }
+
+  if (
+    !Path.equals(start.path, middle.path) ||
+    !Path.equals(middle.path, end.path)
+  ) {
+    return false
+  }
+
+  const left = Editor.string(editor, createRange(start, middle))
+  const right = Editor.string(editor, createRange(middle, end))
+
+  if (!left || !right) {
+    return false
+  }
+
+  const swapped = `${right}${left}`
+  const nextSelection = {
+    anchor: {
+      offset: start.offset + swapped.length,
+      path: [...start.path],
+    },
+    focus: {
+      offset: start.offset + swapped.length,
+      path: [...start.path],
+    },
+  }
+
+  editor.update((tx) => {
+    tx.text.delete({ at: createRange(start, end) })
+    tx.text.insert(swapped, { at: clonePoint(start) })
+    tx.selection.set(nextSelection)
+  })
+
+  return true
 }
 
 const createDefaultParagraph = (): Descendant =>
@@ -417,6 +519,12 @@ export const applyEditableCommand = ({
       })
       return true
 
+    case 'transpose-character':
+      return applyModelOwnedTransposeCharacterIntent({
+        editor,
+        selection: readRuntimeSelection(editor),
+      })
+
     case 'select':
     case 'select-all':
       editor.update((tx) => {
@@ -502,6 +610,17 @@ export const applyModelOwnedTextInput = ({
   if (canUseSyncedCollapsedTarget) {
     profileEditableMutationDuration(
       'model-text-input-insert-at-selection',
+      () =>
+        editor.update((tx) => {
+          tx.text.insert(data, { at: selection })
+        })
+    )
+  } else if (
+    selection &&
+    (Range.isExpanded(selection) || inputType !== 'insertText')
+  ) {
+    profileEditableMutationDuration(
+      'model-text-input-insert-at-target-selection',
       () =>
         editor.update((tx) => {
           tx.text.insert(data, { at: selection })

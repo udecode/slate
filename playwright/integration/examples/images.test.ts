@@ -41,6 +41,33 @@ test.describe('images example', () => {
     await expect(editor.locator('img')).toHaveCount(1)
   })
 
+  test('deletes a clicked selected image with Backspace', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'images', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.root.locator('img').first().click()
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      })
+
+    await page.keyboard.press('Backspace')
+
+    await expect(editor.root.locator('img')).toHaveCount(1)
+  })
+
   test('removes an empty paragraph after an image before deleting the image', async ({
     browserName,
     page,

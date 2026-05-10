@@ -327,6 +327,62 @@ test.describe('editable voids', () => {
       })
   })
 
+  test('pastes rich HTML inside nested editor without stealing outer selection', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Rich HTML clipboard proof needs desktop keyboard shortcuts'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const nestedEditor = page.locator('[data-slate-editor="true"]').nth(1)
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-outer',
+      outerEditor
+    )
+    const nested = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-nested',
+      nestedEditor
+    )
+    const outerSelection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    }
+
+    try {
+      await outer.selection.select(outerSelection)
+      await nested.selection.selectAll()
+      await nested.clipboard.pasteHtml(
+        '<p>Hello <strong>World</strong></p>',
+        'Hello World'
+      )
+
+      runtimeErrors.assertNone()
+      await expect.poll(() => nested.get.modelText()).toBe('Hello World')
+      await expect(nestedEditor.locator('strong')).toHaveText('World')
+      await expect
+        .poll(() => outer.get.modelText())
+        .not.toContain('Hello World')
+      await expect.poll(() => outer.selection.get()).toEqual(outerSelection)
+
+      await outerEditor.evaluate((element: HTMLElement) => {
+        element.focus()
+      })
+      await page.keyboard.type('Outer ')
+
+      runtimeErrors.assertNone()
+      await expect
+        .poll(() => outer.get.modelText())
+        .toContain('Outer In addition to nodes')
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
   test('ignores a parent selection that crosses into a nested editor', async ({
     page,
   }) => {

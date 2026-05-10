@@ -270,6 +270,24 @@ export const applyModelOwnedBeforeInputOperation = ({
       }
     }
 
+    case 'insertTranspose': {
+      if (
+        command?.kind === 'transpose-character' &&
+        applyEditableCommand({ command, editor })
+      ) {
+        return {
+          focus: true,
+          kind: 'repair-caret',
+          selectionSourceTransition: {
+            preferModelSelection: true,
+            reason: 'model-command',
+            selectionSource: 'model-owned',
+          },
+        }
+      }
+      break
+    }
+
     case 'insertFromComposition':
     case 'insertFromDrop':
     case 'insertFromPaste':

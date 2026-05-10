@@ -1,6 +1,6 @@
 import { act, render, waitFor } from '@testing-library/react'
 import React from 'react'
-import { createEditor } from 'slate'
+import { createEditor, type Descendant } from 'slate'
 import { Editor } from 'slate/internal'
 
 import { Editable, Slate, withReact } from '../src'
@@ -86,6 +86,55 @@ describe('rendered DOM shape contract', () => {
       'This is editable rich text, much '
     )
     expect(getZeroWidthLineBreaks(block)).toHaveLength(0)
+  })
+
+  test('empty inline elements inside non-empty blocks do not render visual line breaks', () => {
+    const editor = withReact(createEditor())
+
+    editor.extend({
+      elements: [{ inline: true, type: 'link' }],
+      name: 'rendered-dom-shape-inline-link',
+    })
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [
+            { text: 'Hello ' },
+            {
+              type: 'link',
+              children: [{ text: '' }],
+            },
+            { text: ' world' },
+          ],
+        },
+      ] as Descendant[],
+      selection: null,
+    })
+
+    const rendered = render(
+      <Slate editor={editor}>
+        <Editable
+          id="rendered-dom-shape-empty-inline"
+          renderElement={({ attributes, children, element }) => {
+            if (element.type === 'link') {
+              return <a {...attributes}>{children}</a>
+            }
+
+            return <p {...attributes}>{children}</p>
+          }}
+        />
+      </Slate>
+    )
+    const block = getFirstElement(rendered.container)
+    const inline = rendered.container.querySelector(
+      'a[data-slate-inline="true"]'
+    )
+
+    expect(inline).toBeTruthy()
+    expect(getZeroWidthLineBreaks(block)).toHaveLength(0)
+    expect(getZeroWidthLineBreaks(inline as HTMLElement)).toHaveLength(0)
   })
 
   test('empty blocks still render one line-break placeholder', () => {

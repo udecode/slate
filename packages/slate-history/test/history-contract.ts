@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import type { Descendant, Selection, Editor as SlateEditor } from 'slate'
+import type {
+  Descendant,
+  Element,
+  Selection,
+  Editor as SlateEditor,
+} from 'slate'
 import { createEditor } from 'slate'
 import { Editor } from 'slate/internal'
 
@@ -212,6 +217,114 @@ describe('slate-history contract', () => {
     )
 
     assert.equal(skipEditor.history.undos.length, 0)
+  })
+
+  it('clears redo history when a new edit follows undo', () => {
+    const editor = withHistoryTest()
+
+    replace(editor, [paragraph('one')], {
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    })
+    const before = getVisibleState(editor)
+
+    write(editor, (tx) => {
+      tx.text.insert('a')
+    })
+    editor.undo()
+
+    assert.equal(editor.history.undos.length, 0)
+    assert.equal(editor.history.redos.length, 1)
+
+    write(editor, (tx) => {
+      tx.text.insert('b')
+    })
+
+    assert.equal(editor.history.undos.length, 1)
+    assert.equal(editor.history.redos.length, 0)
+    assert.equal(Editor.string(editor, [0]), 'oneb')
+
+    editor.redo()
+
+    assert.equal(Editor.string(editor, [0]), 'oneb')
+
+    editor.undo()
+
+    assert.deepEqual(getVisibleState(editor), before)
+  })
+
+  it('undoes and redoes a selected block property change', () => {
+    const editor = withHistoryTest()
+
+    replace(editor, [paragraph('AAA'), paragraph('BBB')], {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 3 },
+    })
+    const before = getVisibleState(editor)
+
+    write(editor, (tx) => {
+      tx.nodes.set<Element>({ type: 'quote' }, { at: [0] })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'quote',
+        children: [{ text: 'AAA' }],
+      },
+      paragraph('BBB'),
+    ])
+
+    editor.undo()
+
+    assert.deepEqual(getVisibleState(editor), before)
+
+    editor.redo()
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'quote',
+        children: [{ text: 'AAA' }],
+      },
+      paragraph('BBB'),
+    ])
+  })
+
+  it('saves node property commits but ignores empty updates', () => {
+    const editor = withHistoryTest()
+
+    replace(editor, [paragraph('Initial text')], {
+      anchor: { path: [0, 0], offset: 12 },
+      focus: { path: [0, 0], offset: 12 },
+    })
+    const before = getVisibleState(editor)
+
+    editor.update(() => {})
+
+    assert.equal(editor.history.undos.length, 0)
+
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          type: 'set_node',
+          path: [0],
+          properties: {},
+          newProperties: { role: 'updated' },
+        },
+      ])
+    })
+
+    assert.equal(editor.history.undos.length, 1)
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'paragraph',
+        role: 'updated',
+        children: [{ text: 'Initial text' }],
+      },
+    ])
+
+    editor.undo()
+
+    assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('merges contiguous text commits when selection import shares a text commit', () => {

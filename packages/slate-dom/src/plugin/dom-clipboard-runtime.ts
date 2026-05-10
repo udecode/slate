@@ -164,6 +164,44 @@ const insertPlainTextLinesAsFragment = (
   return true
 }
 
+const isSelectedInlineTextRange = (editor: DOMEditor<any>) => {
+  const selection = Editor.getSnapshot(editor).selection
+
+  if (!selection || Range.isCollapsed(selection)) {
+    return false
+  }
+
+  const [start, end] = Range.edges(selection)
+
+  if (
+    start.path.length === 0 ||
+    end.path.length === 0 ||
+    start.path.length !== end.path.length ||
+    !start.path.every((segment, index) => segment === end.path[index])
+  ) {
+    return false
+  }
+
+  const inlineMatch = Editor.above(editor, {
+    at: start,
+    match: (node) => SlateNode.isElement(node) && Editor.isInline(editor, node),
+  })
+
+  if (!inlineMatch) {
+    return false
+  }
+
+  const [, inlinePath] = inlineMatch
+
+  return (
+    start.path.length > inlinePath.length &&
+    inlinePath.every(
+      (segment, index) =>
+        start.path[index] === segment && end.path[index] === segment
+    )
+  )
+}
+
 const decodeClipboardFragment = <V extends Value>(
   editor: DOMEditor<V>,
   fragment: string
@@ -389,6 +427,14 @@ export const insertDOMTextData = (
 
   if (text) {
     const lines = text.split(NEWLINE_SPLIT_RE)
+
+    if (
+      lines.length === 1 &&
+      isSelectedInlineTextRange(editor) &&
+      insertPlainTextLinesAsFragment(editor, lines)
+    ) {
+      return true
+    }
 
     if (
       lines.length > 1 &&

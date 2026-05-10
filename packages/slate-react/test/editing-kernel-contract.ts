@@ -131,6 +131,7 @@ test('editable command definitions cover every command kind', () => {
     'select-all',
     'set-block',
     'toggle-mark',
+    'transpose-character',
   ])
 })
 
@@ -138,6 +139,11 @@ test('beforeinput and keydown commands resolve through typed definitions', () =>
   const beforeInputCommand = getEditableCommandFromBeforeInputType({
     data: null,
     inputType: 'deleteContentBackward',
+    selection: null,
+  })
+  const transposeCommand = getEditableCommandFromBeforeInputType({
+    data: null,
+    inputType: 'insertTranspose',
     selection: null,
   })
   const keyDownCommand = getEditableCommandFromKeyDown({
@@ -162,6 +168,10 @@ test('beforeinput and keydown commands resolve through typed definitions', () =>
   expect(getEditableCommandDefinition(keyDownCommand)?.inputFamilies).toContain(
     'keydown'
   )
+  expect(transposeCommand).toEqual({ kind: 'transpose-character' })
+  expect(
+    getEditableCommandDefinition(transposeCommand)?.inputFamilies
+  ).toContain('beforeinput')
 })
 
 test('repair kernel results preserve model selection by default', () => {
