@@ -111,6 +111,10 @@ export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
         at = isAtEnd ? Path.next(path) : path
       }
 
+      if (Location.isPath(at) && at.length === 0) {
+        throw new Error('Cannot insert into the editor root.')
+      }
+
       const parentPath = Path.parent(at)
       let index = at.at(-1)!
 

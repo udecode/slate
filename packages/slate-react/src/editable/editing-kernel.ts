@@ -609,7 +609,11 @@ export const getEditableKernelTransition = ({
     }
   }
 
-  if (targetOwner === 'internal-control' && ownership === 'model-owned') {
+  if (
+    targetOwner === 'internal-control' &&
+    ownership === 'model-owned' &&
+    command?.kind !== 'history'
+  ) {
     return {
       allowed: false,
       reason: 'internal controls cannot dispatch model commands',
@@ -1087,7 +1091,7 @@ export const prepareEditableKeyDownKernel = ({
   const selectionBefore = readRuntimeSelection(editor)
   const internalTarget = isInteractiveInternalTarget(editor, event.target)
   const command =
-    internalTarget || intent === 'composition'
+    (internalTarget && intent !== 'history') || intent === 'composition'
       ? null
       : getEditableCommandFromKeyDown({
           event,

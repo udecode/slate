@@ -1,7 +1,6 @@
 import {
   applyOperation,
   getPublicSelection,
-  replaceSnapshot,
   syncImplicitTargetToCurrentSelection,
 } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
@@ -92,12 +91,17 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
     !Range.isCollapsed(defaultAt) &&
     isFullDocumentRange(editor, defaultAt)
   ) {
-    replaceSnapshot(editor, {
-      children: createFullDocumentTextReplacement(editor, text) as Value,
-      selection: {
+    applyOperation(editor, {
+      children: [...Editor.getChildren(editor)] as Value,
+      index: 0,
+      newChildren: createFullDocumentTextReplacement(editor, text) as Value,
+      newSelection: {
         anchor: { path: [0, 0], offset: text.length },
         focus: { path: [0, 0], offset: text.length },
       },
+      path: [],
+      selection: getPublicSelection(editor),
+      type: 'replace_children',
     })
     syncImplicitTargetToCurrentSelection(editor)
     return
@@ -125,17 +129,34 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
         const startRef = Editor.pointRef(editor, start)
         const endRef = Editor.pointRef(editor, end)
         transforms.delete({ at, voids })
+        const selectionAfterDelete = getPublicSelection(editor)
+        const selectionPointAfterDelete =
+          selectionAfterDelete && Range.isCollapsed(selectionAfterDelete)
+            ? {
+                offset: selectionAfterDelete.anchor.offset,
+                path: [...selectionAfterDelete.anchor.path],
+              }
+            : null
         const startPoint = startRef.unref()
         const endPoint = endRef.unref()
+        const nextAt = selectionPointAfterDelete ?? startPoint ?? endPoint
 
-        at = startPoint || endPoint!
+        if (!nextAt) {
+          return
+        }
+
+        at = nextAt
 
         if (options.at == null) {
-          transforms.setSelection({ anchor: at, focus: at })
+          transforms.setSelection({ anchor: nextAt, focus: nextAt })
         } else if (preserveNullSelection) {
           transforms.deselect()
         }
       }
+    }
+
+    if (!Location.isPoint(at)) {
+      return
     }
 
     if (

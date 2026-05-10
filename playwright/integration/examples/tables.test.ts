@@ -229,4 +229,36 @@ test.describe('table example', () => {
     expect(proof.renderCounts.byKind.editable ?? 0).toBe(0)
     expect(proof.renderCounts.total).toBe(0)
   })
+
+  test('moves left from a cell start to the end of the previous cell', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'tables', {
+      ready: { editor: 'visible' },
+    })
+
+    await editor.selection.collapse({ path: [1, 0, 1, 0], offset: 0 })
+    await resetSlateReactRenderProfiler(page)
+    await editor.root.press('ArrowLeft')
+
+    await editor.assert.selection({
+      anchor: { path: [1, 0, 0, 0], offset: 0 },
+      focus: { path: [1, 0, 0, 0], offset: 0 },
+    })
+
+    const proof = await takeSlateBrowserRenderStateSnapshot(editor)
+
+    expect(proof.selection).toEqual({
+      anchor: { path: [1, 0, 0, 0], offset: 0 },
+      focus: { path: [1, 0, 0, 0], offset: 0 },
+    })
+    expect(proof.domSelection?.anchorOffset).toBe(0)
+    expect(proof.focusOwner.kind).toBe('editor')
+    expect(proof.selectionShells?.anchor.node?.path).toBe('1,0,0,0')
+    expect(proof.selectionShells?.anchor.node?.runtimeId).toBeTruthy()
+    expect(proof.selectionShells?.anchor.element?.path).toBe('1,0,0')
+    expect(proof.selectionShells?.anchor.element?.isVoid).toBe(false)
+    expect(proof.renderCounts.byKind.editable ?? 0).toBe(0)
+    expect(proof.renderCounts.total).toBe(0)
+  })
 })

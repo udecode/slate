@@ -1157,6 +1157,126 @@ describe('slate transaction contract', () => {
     assert.equal(registry.commitListeners.has(commitListener), false)
   })
 
+  it('cleans extension registration output and aborts its lifecycle signal', () => {
+    const editor = createEditor()
+    let cleanupCalls = 0
+    let signal: AbortSignal | null = null
+    const commits: NonNullable<ReturnType<typeof Editor.getLastCommit>>[] = []
+
+    replaceChildren(editor, [paragraph('one')])
+    selectEditor(editor, {
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    })
+
+    const unextend = editor.extend({
+      name: 'lifecycle-extension',
+      register: (context) => {
+        signal = context.signal
+
+        return {
+          cleanup: () => {
+            cleanupCalls += 1
+          },
+          commitListeners: [
+            (commit) => {
+              commits.push(commit)
+            },
+          ],
+        }
+      },
+    })
+
+    assert.equal(signal?.aborted, false)
+    editor.update((tx) => {
+      tx.text.insert('!', {
+        at: { path: [0, 0], offset: 3 },
+      })
+    })
+
+    assert.equal(commits.length, 1)
+
+    unextend()
+    editor.update((tx) => {
+      tx.text.insert('?', {
+        at: { path: [0, 0], offset: 4 },
+      })
+    })
+
+    assert.equal(cleanupCalls, 1)
+    assert.equal(signal?.aborted, true)
+    assert.equal(commits.length, 1)
+  })
+
+  it('exposes extension state, editor, and transaction groups with cleanup', () => {
+    const editor = createEditor()
+
+    replaceChildren(editor, [paragraph('one')])
+
+    const unextend = editor.extend({
+      editor: {
+        mirror: (currentEditor) =>
+          Object.freeze({
+            text: () =>
+              currentEditor.read((state) =>
+                (
+                  state as typeof state & { mirror: { text: () => string } }
+                ).mirror.text()
+              ),
+          }),
+      },
+      name: 'group-extension',
+      state: {
+        mirror: (state) =>
+          Object.freeze({
+            text: () => state.text.string([0]),
+          }),
+      },
+      tx: {
+        mirror: (tx) =>
+          Object.freeze({
+            append: (text: string) =>
+              tx.text.insert(text, { at: { path: [0, 0], offset: 3 } }),
+          }),
+      },
+    })
+
+    assert.equal(
+      (
+        editor as typeof editor & { mirror: { text: () => string } }
+      ).mirror.text(),
+      'one'
+    )
+
+    editor.update((tx) => {
+      ;(
+        tx as typeof tx & { mirror: { append: (text: string) => void } }
+      ).mirror.append('!')
+    })
+
+    assert.equal(
+      (
+        editor as typeof editor & { mirror: { text: () => string } }
+      ).mirror.text(),
+      'one!'
+    )
+
+    const registry = Editor.getExtensionRegistry(editor)
+    assert.equal(registry.stateGroups.has('mirror'), true)
+    assert.equal(registry.editorGroups.has('mirror'), true)
+    assert.equal(registry.txGroups.has('mirror'), true)
+
+    unextend()
+
+    assert.equal(
+      'mirror' in (editor as unknown as Record<string, unknown>),
+      false
+    )
+    assert.equal(registry.stateGroups.has('mirror'), false)
+    assert.equal(registry.editorGroups.has('mirror'), false)
+    assert.equal(registry.txGroups.has('mirror'), false)
+  })
+
   it('routes insertFragment through command middleware and preserves commit metadata', () => {
     const editor = createEditor()
     const seenCommands: unknown[] = []

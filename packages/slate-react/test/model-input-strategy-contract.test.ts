@@ -279,6 +279,55 @@ describe('model input strategy', () => {
     expect(repair).toEqual({ kind: 'none' })
   })
 
+  it('keeps Android-style newline after composition from swallowing follow-up text', () => {
+    const editor = createTextEditor()
+
+    applyModelOwnedBeforeInputOperation({
+      data: 'hello',
+      deferredOperations: { current: [] },
+      editor: editor as ReactEditor,
+      inputType: 'insertFromComposition',
+      native: false,
+      selection: Editor.getSelection(editor),
+      setComposing: () => {},
+    })
+
+    expect(Editor.string(editor, [0])).toBe('hello')
+
+    applyModelOwnedBeforeInputOperation({
+      data: null,
+      deferredOperations: { current: [] },
+      editor: editor as ReactEditor,
+      inputType: 'insertParagraph',
+      native: false,
+      selection: Editor.getSelection(editor),
+      setComposing: () => {},
+    })
+
+    const [first, second] = Editor.getChildren(editor) as any[]
+
+    expect(first.type).toBe('paragraph')
+    expect(second.type).toBe('paragraph')
+    expect(Editor.string(editor, [0])).toBe('hello')
+    expect(Editor.string(editor, [1])).toBe('')
+
+    applyModelOwnedBeforeInputOperation({
+      data: 'world',
+      deferredOperations: { current: [] },
+      editor: editor as ReactEditor,
+      inputType: 'insertText',
+      native: false,
+      selection: Editor.getSelection(editor),
+      setComposing: () => {},
+    })
+
+    expect(Editor.string(editor, [1])).toBe('world')
+    expect(Editor.getSelection(editor)).toEqual({
+      anchor: { path: [1, 0], offset: 'world'.length },
+      focus: { path: [1, 0], offset: 'world'.length },
+    })
+  })
+
   it('routes Android-style backspace through model-owned beforeinput', () => {
     const editor = createTextEditor('abcd', 2)
     const selection = Editor.getSelection(editor)

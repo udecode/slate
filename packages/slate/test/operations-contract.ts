@@ -451,6 +451,65 @@ describe('slate operations contract', () => {
     })
   })
 
+  it('replays and inverts composed split_node and insert_text operations', () => {
+    const editor = createEditor()
+    const children: Descendant[] = [
+      {
+        type: 'element',
+        children: [{ bold: true, text: 'Hello World' }],
+      },
+    ]
+    const selection = {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 7 },
+    }
+    const operations: SlateOperation[] = [
+      {
+        type: 'split_node',
+        path: [0, 0],
+        position: 5,
+        properties: { bold: true },
+      },
+      {
+        type: 'insert_text',
+        path: [0, 1],
+        offset: 0,
+        text: '-',
+      },
+    ]
+
+    Editor.replace(editor, {
+      children,
+      selection,
+      marks: null,
+    })
+
+    editor.update((tx) => {
+      tx.operations.replay(operations)
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'element',
+        children: [
+          { bold: true, text: 'Hello' },
+          { bold: true, text: '- World' },
+        ],
+      },
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 1], offset: 3 },
+    })
+
+    editor.update((tx) => {
+      tx.operations.replay(operations.map(Operation.inverse).reverse())
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, children)
+    assert.deepEqual(Editor.getSnapshot(editor).selection, selection)
+  })
+
   it('rebases selection inside merged text to the surviving branch', () => {
     const editor = createEditor()
 

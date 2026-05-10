@@ -3,6 +3,7 @@ import {
   createSlateBrowserEditorHarness,
   installSlateReactRenderProfiler,
   openExample,
+  recordSlateBrowserRuntimeErrors,
   resetSlateReactRenderProfiler,
   takeSlateBrowserRenderStateSnapshot,
 } from 'slate-browser/playwright'
@@ -97,6 +98,43 @@ test.describe('hovering toolbar example', () => {
       .nth(0)
       .click({ force: true, position: { x: 0, y: 0 } })
     await expect(page.getByTestId('menu')).toHaveCSS('opacity', '0')
+  })
+
+  test('typing English over selected formatted text does not crash', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop replacement text repro'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'hovering-toolbar', {
+      ready: {
+        editor: 'visible',
+        text: /This example shows/,
+      },
+    })
+    const boldWord = editor.root.locator('strong', { hasText: 'bold' }).first()
+
+    try {
+      await boldWord.dblclick()
+      await expect
+        .poll(() =>
+          page.evaluate(() => window.getSelection()?.toString() ?? '')
+        )
+        .toBe('bold')
+
+      await page.keyboard.insertText('plain')
+
+      runtimeErrors.assertNone()
+      await expect(editor.root).toContainText('plain')
+      await expect(
+        editor.root.locator('strong', { hasText: 'bold' })
+      ).toHaveCount(0)
+    } finally {
+      runtimeErrors.stop()
+    }
   })
 
   test('keeps hovering toolbar hidden during IME composition', async ({

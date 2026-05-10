@@ -756,11 +756,11 @@ test('direct force render calls have explicit runtime owners', () => {
         'Browser proof handles may force the view after explicit semantic test actions and remote operation replay until proof transport is split from runtime repair.',
     },
     'packages/slate-react/src/editable/keyboard-input-strategy.ts': {
-      count: 3,
+      count: 5,
       next: 'worker',
       owner: 'Keyboard input worker',
       rationale:
-        'Keyboard worker still directly forces render for caret movement fallbacks before repair/view runtime owns those requests.',
+        'Keyboard worker still directly forces render for caret movement fallbacks and model-owned history before repair/view runtime owns those requests.',
     },
     'packages/slate-react/src/editable/mutation-controller.ts': {
       count: 1,

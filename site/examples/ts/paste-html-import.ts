@@ -351,6 +351,40 @@ const isEmptyTextBlock = (node: Descendant) =>
 const hasTopLevelBlockFragment = (fragment: unknown) =>
   Array.isArray(fragment) && fragment.some(isTopLevelBlock)
 
+const getCommentBoundedFragmentRoot = (body: HTMLElement): HTMLElement => {
+  const walker = body.ownerDocument.createTreeWalker(body, 128)
+  let start: Comment | null = null
+  let end: Comment | null = null
+
+  while (walker.nextNode()) {
+    const comment = walker.currentNode as Comment
+    const marker = comment.nodeValue?.trim().toLowerCase()
+
+    if (marker === 'startfragment') {
+      start = comment
+      continue
+    }
+
+    if (marker === 'endfragment' && start) {
+      end = comment
+      break
+    }
+  }
+
+  if (!start || !end) {
+    return body
+  }
+
+  const range = body.ownerDocument.createRange()
+  range.setStartAfter(start)
+  range.setEndBefore(end)
+
+  const root = body.ownerDocument.createElement('div')
+  root.appendChild(range.cloneContents())
+
+  return root
+}
+
 const normalizeBodyFragment = (children: any[]): Descendant[] => {
   const fragment: Descendant[] = []
   let inlineChildren: any[] = []
@@ -478,7 +512,7 @@ const insertHtmlData = (editor: CustomEditor, data: DataTransfer) => {
   }
 
   const parsed = new DOMParser().parseFromString(html, 'text/html')
-  const fragment = deserialize(parsed.body)
+  const fragment = deserialize(getCommentBoundedFragmentRoot(parsed.body))
   const dropEmptyPasteTarget = hasTopLevelBlockFragment(fragment)
   editor.update((tx) => {
     tx.nodes.insert(fragment)

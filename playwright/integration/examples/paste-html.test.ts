@@ -4,6 +4,7 @@ import {
   createSlateBrowserClipboardPasteGauntlet,
   createSlateBrowserDropDataGauntlet,
   openExample,
+  recordSlateBrowserRuntimeErrors,
 } from 'slate-browser/playwright'
 
 const GOOGLE_DOCS_FONT_SIZE_HTML = `<meta charset="utf-8"><b style="font-weight:normal;" id="docs-internal-guid"><p dir="ltr" style="line-height:1.56;margin-top:10pt;margin-bottom:0pt;"><span style="font-size:24pt;font-family:Lato,sans-serif;color:#000000;background-color:transparent;font-weight:400;font-style:normal;text-decoration:none;white-space:pre-wrap;">Random text at </span><span style="font-size:36pt;font-family:Lato,sans-serif;color:#000000;background-color:transparent;font-weight:400;font-style:normal;text-decoration:none;white-space:pre-wrap;">36 pt</span></p></b>`
@@ -47,6 +48,10 @@ const GOOGLE_DOCS_TABLE_HTML = `<meta charset="utf-8"><b style="font-weight:norm
 const QUIP_TABLE_HTML = `<meta charset="utf-8"><table style="border-collapse:collapse;"><col style="width:90px;"><col style="width:90px;"><col style="width:90px;"><tr><td style="border:1px solid rgb(230,230,230);text-align:left;">a</td><td style="border:1px solid rgb(230,230,230);text-align:left;">b<br>b</td><td style="border:1px solid rgb(230,230,230);text-align:left;">c</td></tr><tr><td style="border:1px solid rgb(230,230,230);text-align:left;">d</td><td style="border:1px solid rgb(230,230,230);text-align:left;">e</td><td style="border:1px solid rgb(230,230,230);text-align:left;">f</td></tr></table>`
 
 const GOOGLE_SHEETS_TABLE_HTML = `<google-sheets-html-origin><style type="text/css"><!--td {border: 1px solid #cccccc;}br {mso-data-placement:same-cell;}--></style><table xmlns="http://www.w3.org/1999/xhtml" cellspacing="0" cellpadding="0" dir="ltr" border="1" style="table-layout:fixed;font-size:10pt;font-family:Arial;width:0px;border-collapse:collapse;border:none" data-sheets-root="1"><tbody><tr style="height:21px;"><td style="overflow:hidden;padding:2px 3px 2px 3px;vertical-align:bottom;font-weight:bold;" data-sheets-value="{&quot;1&quot;:2,&quot;2&quot;:&quot;Surface&quot;}">Surface</td><td style="overflow:hidden;padding:2px 3px 2px 3px;vertical-align:bottom;font-style:italic;" data-sheets-value="{&quot;1&quot;:2,&quot;2&quot;:&quot;MWP_WORK_LS_COMPOSER&quot;}">MWP_WORK_LS_COMPOSER</td><td style="overflow:hidden;padding:2px 3px 2px 3px;vertical-align:bottom;text-decoration:underline;text-align:right;" data-sheets-value="{&quot;1&quot;:3,&quot;3&quot;:77349}">77349</td></tr><tr style="height:21px;"><td style="overflow:hidden;padding:2px 3px 2px 3px;vertical-align:bottom;" data-sheets-value="{&quot;1&quot;:2,&quot;2&quot;:&quot;Slate&quot;}">Slate</td><td style="overflow:hidden;padding:2px 3px 2px 3px;vertical-align:bottom;text-decoration:line-through;" data-sheets-value="{&quot;1&quot;:2,&quot;2&quot;:&quot;old editor&quot;}">old editor</td><td style="overflow:hidden;padding:2px 3px 2px 3px;vertical-align:bottom;" data-sheets-value="{&quot;1&quot;:2,&quot;2&quot;:&quot;mixed bold&quot;}"><span style="font-size:10pt;font-family:Arial;font-style:normal;">mixed </span><span style="font-size:10pt;font-family:Arial;font-weight:bold;font-style:normal;">bold</span></td></tr></tbody></table>`
+
+const HEADER_TABLE_HTML = `<table><thead><tr><th>Animal</th><th>Feet</th></tr></thead><tbody><tr><td>Cat</td><td>4</td></tr></tbody></table>`
+
+const COMMENT_BOUNDED_TABLE_HTML = `<html><body><p>outside before</p><!--StartFragment--><table><tbody><tr><td><p>123</p></td></tr><tr><td><p>456</p></td></tr></tbody></table><!--EndFragment--><p>outside after</p></body></html>`
 
 const LEXICAL_IMAGE_HTML_CASES = [
   {
@@ -220,6 +225,49 @@ test.describe('paste html example', () => {
     await expect(editor.root.locator('strong')).toHaveText('Hello Bold!')
     if (testInfo.project.name !== 'mobile') {
       expect(await editor.get.selection()).not.toBe(null)
+    }
+  })
+
+  test('pastes copied rendered Slate content as an internal fragment before HTML import', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop clipboard repro')
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'paste-html', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const copiedText =
+      "Try it out for yourself! Copy and paste some rendered HTML rich text content (not the source code) from another site into this editor and it's formatting should be preserved."
+    const firstParagraphRemainder =
+      " default, pasting content into a Slate editor will use the clipboard's 'text/plain' data. That's okay for some use cases, but sometimes you want users to be able to paste in content and have it maintain its formatting. To do this, your editor needs to handle 'text/html' data. "
+
+    try {
+      await editor.selection.selectDOM({
+        anchor: { path: [2, 0], offset: 0 },
+        focus: { path: [2, 0], offset: copiedText.length },
+      })
+
+      const payload = await editor.clipboard.copyPayload()
+
+      expect(payload.html).toContain('data-slate-fragment=')
+
+      await editor.selection.collapse({ path: [0, 0], offset: 2 })
+      await editor.focus()
+      await editor.root.press('ControlOrMeta+V')
+
+      await editor.assert.blockTexts([
+        'By',
+        copiedText,
+        firstParagraphRemainder,
+        'This is an example of doing exactly that!',
+        copiedText,
+      ])
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
     }
   })
 
@@ -823,6 +871,71 @@ test.describe('paste html example', () => {
     )
     await expect(editor.root.locator('td').nth(5).locator('strong')).toHaveText(
       'bold'
+    )
+  })
+
+  test('imports table header cells as plain table cells', async ({
+    page,
+  }, testInfo) => {
+    const editor = await openExample(page, 'paste-html', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selection.selectAll()
+    if (testInfo.project.name === 'mobile') {
+      await insertDataWithHandle(editor, {
+        html: HEADER_TABLE_HTML,
+        text: 'Animal\tFeet\nCat\t4',
+      })
+    } else {
+      await editor.clipboard.pasteHtml(
+        HEADER_TABLE_HTML,
+        'Animal\tFeet\nCat\t4'
+      )
+    }
+
+    await editor.assert.text('AnimalFeetCat4')
+    await expect(editor.root.locator('table')).toHaveCount(1)
+    await expect(editor.root.locator('tr')).toHaveCount(2)
+    await expect(editor.root.locator('td')).toHaveCount(4)
+    await expect(editor.root.locator('td').nth(0)).toHaveText('Animal')
+    await expect(editor.root.locator('td').nth(1)).toHaveText('Feet')
+    await expect(editor.root.locator('td').nth(2)).toHaveText('Cat')
+    await expect(editor.root.locator('td').nth(3)).toHaveText('4')
+  })
+
+  test('imports only the comment-bounded fragment from wrapped clipboard HTML', async ({
+    page,
+  }, testInfo) => {
+    const editor = await openExample(page, 'paste-html', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selection.selectAll()
+    if (testInfo.project.name === 'mobile') {
+      await insertDataWithHandle(editor, {
+        html: COMMENT_BOUNDED_TABLE_HTML,
+        text: '123\n456',
+      })
+    } else {
+      await editor.clipboard.pasteHtml(COMMENT_BOUNDED_TABLE_HTML, '123\n456')
+    }
+
+    await editor.assert.text('123456')
+    await expect(editor.root).not.toContainText('outside before')
+    await expect(editor.root).not.toContainText('outside after')
+    await expect(editor.root.locator('table')).toHaveCount(1)
+    await expect(editor.root.locator('tr')).toHaveCount(2)
+    await expect(editor.root.locator('td')).toHaveCount(2)
+    await expect(editor.root.locator('td').nth(0).locator('p')).toHaveText(
+      '123'
+    )
+    await expect(editor.root.locator('td').nth(1).locator('p')).toHaveText(
+      '456'
     )
   })
 

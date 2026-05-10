@@ -1,6 +1,6 @@
 import { isObject, Operation, type Range, type Value } from 'slate'
 
-interface Batch<V extends Value = Value> {
+export interface Batch<V extends Value = Value> {
   operations: Operation<V>[]
   selectionBefore: Range | null
 }

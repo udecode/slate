@@ -97,6 +97,7 @@ type EditableRootEventBindings = Pick<
   | 'onInput'
   | 'onInputCapture'
   | 'onKeyDown'
+  | 'onKeyDownCapture'
   | 'onMouseDown'
   | 'onMouseUp'
   | 'onPaste'
@@ -400,6 +401,7 @@ export const useEditableRootRuntime = ({
       onInput: handlers.onInput,
       onInputCapture: handlers.onInputCapture,
       onKeyDown: handlers.onKeyDown,
+      onKeyDownCapture: handlers.onKeyDownCapture,
       onMouseDown: handlers.onMouseDown,
       onMouseUp: handlers.onMouseUp,
       onPaste: handlers.onPaste,

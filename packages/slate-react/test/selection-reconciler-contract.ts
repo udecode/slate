@@ -64,9 +64,11 @@ describe('selection reconciler', () => {
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 3 },
     }
+    const originalHasSelectableTarget = ReactEditor.hasSelectableTarget
     const originalToSlateRange = ReactEditor.toSlateRange
 
     try {
+      ReactEditor.hasSelectableTarget = () => true
       ReactEditor.toSlateRange = () => targetSlateRange
 
       const result = syncSelectionForBeforeInput({
@@ -88,6 +90,7 @@ describe('selection reconciler', () => {
       assert.deepEqual(result.selection, targetSlateRange)
       assert.deepEqual(Editor.getSelection(editor), targetSlateRange)
     } finally {
+      ReactEditor.hasSelectableTarget = originalHasSelectableTarget
       ReactEditor.toSlateRange = originalToSlateRange
     }
   })
@@ -100,9 +103,11 @@ describe('selection reconciler', () => {
       anchor: { path: [0, 0], offset: 1 },
       focus: { path: [0, 0], offset: 3 },
     }
+    const originalHasSelectableTarget = ReactEditor.hasSelectableTarget
     const originalToSlateRange = ReactEditor.toSlateRange
 
     try {
+      ReactEditor.hasSelectableTarget = () => true
       ReactEditor.toSlateRange = () => targetSlateRange
 
       const result = syncSelectionForBeforeInput({
@@ -124,6 +129,7 @@ describe('selection reconciler', () => {
       assert.deepEqual(result.selection, targetSlateRange)
       assert.deepEqual(Editor.getSelection(editor), targetSlateRange)
     } finally {
+      ReactEditor.hasSelectableTarget = originalHasSelectableTarget
       ReactEditor.toSlateRange = originalToSlateRange
     }
   })

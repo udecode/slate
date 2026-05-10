@@ -20,6 +20,10 @@ export const removeNodes: NodeMutationMethods['removeNodes'] = (
         return
       }
 
+      if (Location.isPath(at) && at.length === 0) {
+        throw new Error('Cannot remove the editor root.')
+      }
+
       if (match == null) {
         match = Location.isPath(at)
           ? matchPath(editor, at)

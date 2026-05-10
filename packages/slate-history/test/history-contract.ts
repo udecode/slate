@@ -94,6 +94,32 @@ describe('slate-history contract', () => {
     assert.deepEqual(getVisibleState(editor), before)
   })
 
+  it('undoes a full-document selected text replacement as one structural batch', () => {
+    const editor = withHistoryTest()
+    const selection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 'two'.length },
+    }
+
+    replace(editor, [paragraph('one'), paragraph('two')], selection)
+    const before = getVisibleState(editor)
+
+    write(editor, (tx) => {
+      tx.text.insert('Z', { at: selection })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [paragraph('Z')])
+    assert.equal(editor.history.undos.length, 1)
+    assert.deepEqual(
+      editor.history.undos[0]?.operations.map((operation) => operation.type),
+      ['replace_children']
+    )
+
+    editor.undo()
+
+    assert.deepEqual(getVisibleState(editor), before)
+  })
+
   it('routes compatibility undo and redo through history commands', () => {
     const editor = withHistoryTest()
     const commands: string[] = []

@@ -1398,6 +1398,45 @@ test.describe('rendering strategy runtime example', () => {
     })
   })
 
+  test('keeps canceled IME caret anchored for the next typed character', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium CDP IME proof')
+
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
+      ready: {
+        editor: 'visible',
+        text: /default block 1/,
+      },
+      surface: { scope: '[data-runtime-editor="default"]' },
+    })
+    const initialText = 'default block 1'
+    const anchorOffset = 'default '.length
+    const canceledSteps = ['ｓ', 'す', 'すｓ', 'すし']
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: anchorOffset },
+      focus: { path: [0, 0], offset: anchorOffset },
+    })
+    await editor.ime.enableKeyEvents()
+
+    await cancelNativeComposition(page, canceledSteps)
+
+    await editor.assert.text(initialText)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: anchorOffset },
+      focus: { path: [0, 0], offset: anchorOffset },
+    })
+
+    await page.keyboard.type('x')
+
+    await editor.assert.text('default xblock 1')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: anchorOffset + 1 },
+      focus: { path: [0, 0], offset: anchorOffset + 1 },
+    })
+  })
+
   test('drops active IME composition when a model change overlaps it', async ({
     page,
   }, testInfo) => {

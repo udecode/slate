@@ -1,5 +1,12 @@
-import { expect, test } from '@playwright/test'
+import { expect, type Locator, test } from '@playwright/test'
 import { openExample } from 'slate-browser/playwright'
+
+const getBrowserUndoHotkey = async (root: Locator) =>
+  root
+    .page()
+    .evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent) ? 'Meta+Z' : 'Control+Z'
+    )
 
 test.describe('plaintext example', () => {
   test.beforeEach(async ({ page }) => await page.goto('/examples/plaintext'))
@@ -258,6 +265,69 @@ test.describe('plaintext example', () => {
     await editor.assert.selection({
       anchor: { path: [0, 0], offset: 3 },
       focus: { path: [0, 0], offset: 3 },
+    })
+  })
+
+  test('keyboard undo restores caret after middle-line typing', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop keyboard undo repro')
+
+    const editor = await openExample(page, 'plaintext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const originalText = 'This is editable plain text, just like a <textarea>!'
+    const editOffset = 'This is editable '.length
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: editOffset },
+      focus: { path: [0, 0], offset: editOffset },
+    })
+    await page.keyboard.insertText('abc')
+    await editor.assert.text(
+      'This is editable abcplain text, just like a <textarea>!'
+    )
+
+    await page.keyboard.press(await getBrowserUndoHotkey(editor.root))
+
+    await editor.assert.text(originalText)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: editOffset },
+      focus: { path: [0, 0], offset: editOffset },
+    })
+  })
+
+  test('keyboard undo restores partial selected text replacement', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop keyboard undo repro')
+
+    const editor = await openExample(page, 'plaintext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const originalText = 'This is editable plain text, just like a <textarea>!'
+    const selectionStart = 'This is editable '.length
+    const selectionEnd = selectionStart + 'plain '.length
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: selectionStart },
+      focus: { path: [0, 0], offset: selectionEnd },
+    })
+    await page.keyboard.insertText('simple')
+    await editor.assert.text(
+      'This is editable simpletext, just like a <textarea>!'
+    )
+
+    await page.keyboard.press(await getBrowserUndoHotkey(editor.root))
+
+    await editor.assert.text(originalText)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: selectionStart },
+      focus: { path: [0, 0], offset: selectionEnd },
     })
   })
 })

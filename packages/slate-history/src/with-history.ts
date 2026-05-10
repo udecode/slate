@@ -1,6 +1,14 @@
-import { Operation, Path, type SnapshotChange, type ValueOf } from 'slate'
+import {
+  Operation,
+  Path,
+  Point,
+  Range,
+  type SnapshotChange,
+  type ValueOf,
+} from 'slate'
 import { Editor, executeCommand } from 'slate/internal'
 
+import type { Batch } from './history'
 import { HistoryEditor } from './history-editor'
 
 /**
@@ -103,6 +111,11 @@ export const withHistory = <T extends Editor<any>>(
 
     if (save == null) {
       save = shouldSaveCommit(change, committedOps)
+    }
+
+    if (!save && shouldRebaseHistory(change)) {
+      rebaseHistory(e.history.undos, committedOps)
+      rebaseHistory(e.history.redos, committedOps)
     }
 
     if (save) {
@@ -243,4 +256,247 @@ const shouldSaveCommit = (
   }
 
   return shouldSaveBatch(operations)
+}
+
+const shouldRebaseHistory = (change: SnapshotChange | undefined): boolean =>
+  change?.metadata.collab?.origin === 'remote' ||
+  change?.metadata.collab?.saveToHistory === false
+
+const transformSelectionPatch = (
+  selection: Partial<Range> | null,
+  operation: Operation
+): Partial<Range> | null => {
+  if (selection == null) {
+    return null
+  }
+
+  const next = { ...selection }
+
+  if (next.anchor) {
+    const anchor = Point.transform(next.anchor, operation)
+
+    if (!anchor) {
+      return null
+    }
+
+    next.anchor = anchor
+  }
+
+  if (next.focus) {
+    const focus = Point.transform(next.focus, operation)
+
+    if (!focus) {
+      return null
+    }
+
+    next.focus = focus
+  }
+
+  return next
+}
+
+const transformRange = (
+  range: Range | null,
+  operation: Operation
+): Range | null => (range == null ? null : Range.transform(range, operation))
+
+const transformTextOperation = <HistoryValue extends ValueOf<Editor<any>>>(
+  operation: Operation<HistoryValue> & {
+    offset: number
+    path: Path
+  },
+  applied: Operation
+): Operation<HistoryValue> | null => {
+  const point = Point.transform(
+    { path: operation.path, offset: operation.offset },
+    applied
+  )
+
+  if (!point) {
+    return null
+  }
+
+  return {
+    ...operation,
+    path: point.path,
+    offset: point.offset,
+  } as Operation<HistoryValue>
+}
+
+const transformPathOperation = <HistoryValue extends ValueOf<Editor<any>>>(
+  operation: Operation<HistoryValue> & { path: Path },
+  applied: Operation
+): Operation<HistoryValue> | null => {
+  const path = Path.transform(operation.path, applied)
+
+  if (!path) {
+    return null
+  }
+
+  return { ...operation, path } as Operation<HistoryValue>
+}
+
+const transformChildIndex = (
+  path: Path,
+  index: number,
+  applied: Operation
+): number | null => {
+  const indexedPath = path.concat(index)
+  const nextPath = Path.transform(indexedPath, applied)
+
+  if (!nextPath) {
+    return null
+  }
+
+  for (let i = 0; i < path.length; i++) {
+    if (nextPath[i] !== path[i]) {
+      return null
+    }
+  }
+
+  return nextPath[path.length] ?? index
+}
+
+const transformOperation = <HistoryValue extends ValueOf<Editor<any>>>(
+  operation: Operation<HistoryValue>,
+  applied: Operation
+): Operation<HistoryValue> | null => {
+  switch (operation.type) {
+    case 'insert_text':
+    case 'remove_text':
+      return transformTextOperation(operation, applied)
+
+    case 'insert_node':
+    case 'remove_node':
+    case 'set_node':
+      return transformPathOperation(operation, applied)
+
+    case 'merge_node':
+    case 'split_node': {
+      const next = transformPathOperation(operation, applied)
+
+      if (!next) {
+        return null
+      }
+
+      if (applied.type !== 'insert_text' && applied.type !== 'remove_text') {
+        return next
+      }
+
+      const point = Point.transform(
+        { path: operation.path, offset: operation.position },
+        applied
+      )
+
+      if (!point) {
+        return null
+      }
+
+      return { ...next, position: point.offset } as Operation<HistoryValue>
+    }
+
+    case 'move_node': {
+      const path = Path.transform(operation.path, applied)
+      const newPath = Path.transform(operation.newPath, applied)
+
+      if (!path || !newPath) {
+        return null
+      }
+
+      return { ...operation, path, newPath }
+    }
+
+    case 'replace_fragment': {
+      const path = Path.transform(operation.path, applied)
+
+      if (!path) {
+        return null
+      }
+
+      return {
+        ...operation,
+        path,
+        selection: transformRange(operation.selection, applied),
+        newSelection: transformRange(operation.newSelection, applied),
+      }
+    }
+
+    case 'replace_children': {
+      const path = Path.transform(operation.path, applied)
+
+      if (!path) {
+        return null
+      }
+
+      const index = transformChildIndex(path, operation.index, applied)
+
+      if (index == null) {
+        return null
+      }
+
+      return {
+        ...operation,
+        path,
+        index,
+        selection: transformRange(operation.selection, applied),
+        newSelection: transformRange(operation.newSelection, applied),
+      }
+    }
+
+    case 'set_selection': {
+      return {
+        ...operation,
+        properties: transformSelectionPatch(operation.properties, applied),
+        newProperties: transformSelectionPatch(
+          operation.newProperties,
+          applied
+        ),
+      } as Operation<HistoryValue>
+    }
+
+    default:
+      return operation
+  }
+}
+
+const rebaseBatch = <HistoryValue extends ValueOf<Editor<any>>>(
+  batch: Batch<HistoryValue>,
+  appliedOperations: readonly Operation[]
+): Batch<HistoryValue> | null => {
+  let operations = batch.operations
+  let selectionBefore = batch.selectionBefore
+
+  for (const appliedOperation of appliedOperations) {
+    operations = operations
+      .map((operation) => transformOperation(operation, appliedOperation))
+      .filter((operation): operation is Operation<HistoryValue> =>
+        Boolean(operation)
+      )
+    selectionBefore = transformRange(selectionBefore, appliedOperation)
+  }
+
+  if (operations.length === 0) {
+    return null
+  }
+
+  return {
+    ...batch,
+    operations,
+    selectionBefore,
+  }
+}
+
+const rebaseHistory = <HistoryValue extends ValueOf<Editor<any>>>(
+  stack: Batch<HistoryValue>[],
+  appliedOperations: readonly Operation[]
+) => {
+  for (let index = stack.length - 1; index >= 0; index--) {
+    const batch = rebaseBatch(stack[index]!, appliedOperations)
+
+    if (batch) {
+      stack[index] = batch
+    } else {
+      stack.splice(index, 1)
+    }
+  }
 }

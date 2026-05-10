@@ -571,6 +571,91 @@ describe('slate-react projections and selection contract', () => {
     store.destroy()
   })
 
+  test('mapped projection runtime buckets follow nested nodes moved across levels', async () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'section',
+          children: [
+            { children: [{ text: 'A' }] },
+            { children: [{ text: 'B' }] },
+          ],
+        },
+        { children: [{ text: 'C' }] },
+      ],
+      selection: null,
+    })
+
+    const snapshot = Editor.getSnapshot(editor)
+    const firstRuntimeId = snapshot.index.pathToId['0.0.0']
+    const movedRuntimeId = snapshot.index.pathToId['0.1.0']
+    const trailingRuntimeId = snapshot.index.pathToId['1.0']
+
+    if (!firstRuntimeId || !movedRuntimeId || !trailingRuntimeId) {
+      throw new Error('Expected runtime ids for nested move projection proof')
+    }
+
+    let movedRuntimeNotifications = 0
+    let firstRuntimeNotifications = 0
+    let trailingRuntimeNotifications = 0
+    const store = createSlateProjectionStore(
+      editor,
+      (nextSnapshot) => findTextRangesByText(nextSnapshot.children, 'B'),
+      {
+        dirtiness: 'node',
+        sourceId: 'nested-move-source',
+      }
+    )
+
+    store.subscribeRuntimeId(movedRuntimeId, () => {
+      movedRuntimeNotifications += 1
+    })
+    store.subscribeRuntimeId(firstRuntimeId, () => {
+      firstRuntimeNotifications += 1
+    })
+    store.subscribeRuntimeId(trailingRuntimeId, () => {
+      trailingRuntimeNotifications += 1
+    })
+
+    expect(store.getRuntimeSnapshot(movedRuntimeId)).toEqual([
+      {
+        data: { bold: true },
+        end: 1,
+        key: 'text:0.1.0',
+        start: 0,
+      },
+    ])
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.nodes.move({ at: [0, 1], to: [1] })
+      })
+    })
+
+    expect(Editor.getPathByRuntimeId(editor, movedRuntimeId)).toEqual([1, 0])
+    expect(store.getRuntimeSnapshot(movedRuntimeId)).toEqual([
+      {
+        data: { bold: true },
+        end: 1,
+        key: 'text:1.0',
+        start: 0,
+      },
+    ])
+    expect(movedRuntimeNotifications).toBe(1)
+    expect(firstRuntimeNotifications).toBe(0)
+    expect(trailingRuntimeNotifications).toBe(0)
+    expect(store.getMetrics()).toMatchObject({
+      changedRuntimeBucketCount: 1,
+      recomputeCount: 1,
+      runtimeSubscriberWakeCount: 1,
+      sourceReadCount: 2,
+    })
+
+    store.destroy()
+  })
+
   test('notifies only subscribers for runtime ids whose projection slices changed', async () => {
     const editor = createEditor()
 

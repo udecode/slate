@@ -169,4 +169,80 @@ describe('slate range ref contract', () => {
       focus: { path: [0, 0, 0], offset: 3 },
     })
   })
+
+  it('rebases range refs across split_node text branches', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ bold: true, text: 'Hello World' }],
+        },
+      ],
+      selection: null,
+      marks: null,
+    })
+
+    const ref = Editor.rangeRef(editor, {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 7 },
+    })
+
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          type: 'split_node',
+          path: [0, 0],
+          position: 4,
+          properties: {},
+        },
+      ])
+    })
+
+    assert.deepEqual(ref.current, {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 1], offset: 3 },
+    })
+  })
+
+  it('rebases range refs through merge_node into the surviving text branch', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [
+            { text: '1' },
+            { bold: true, text: '2' },
+            { italic: true, text: '3' },
+          ],
+        },
+      ],
+      selection: null,
+      marks: null,
+    })
+
+    const ref = Editor.rangeRef(editor, {
+      anchor: { path: [0, 1], offset: 0 },
+      focus: { path: [0, 2], offset: 1 },
+    })
+
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          type: 'merge_node',
+          path: [0, 1],
+          position: 1,
+          properties: { bold: true },
+        },
+      ])
+    })
+
+    assert.deepEqual(ref.current, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 1], offset: 1 },
+    })
+  })
 })

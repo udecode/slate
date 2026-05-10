@@ -112,10 +112,6 @@ export const classifyKeyboardIntent = ({
   isComposing?: boolean
   renderingStrategy: unknown
 }): InputIntent | null => {
-  if (isInteractiveInternalTarget(editor, event.target)) {
-    return 'internal-control'
-  }
-
   const { nativeEvent } = event
 
   if (isComposing || nativeEvent.isComposing) {
@@ -124,6 +120,10 @@ export const classifyKeyboardIntent = ({
 
   if (Hotkeys.isUndo(nativeEvent) || Hotkeys.isRedo(nativeEvent)) {
     return 'history'
+  }
+
+  if (isInteractiveInternalTarget(editor, event.target)) {
+    return 'internal-control'
   }
 
   if (
@@ -180,14 +180,14 @@ export const classifyBeforeInputIntent = ({
   event: InputEvent
   internalTarget?: boolean
 }): InputIntent | null => {
-  if (internalTarget) {
-    return 'internal-control'
-  }
-
   const { inputType } = event
 
   if (inputType === 'historyUndo' || inputType === 'historyRedo') {
     return 'history'
+  }
+
+  if (internalTarget) {
+    return 'internal-control'
   }
 
   if (inputType.startsWith('format')) {

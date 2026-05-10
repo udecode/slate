@@ -206,6 +206,72 @@ describe('slate-react widget layer contract', () => {
     store.destroy()
   })
 
+  test('node widgets stay attached by runtime id through structural moves', async () => {
+    const editor = createEditor()
+    let notifications = 0
+
+    Editor.replace(editor, {
+      children: createChildren(),
+      selection: null,
+    })
+
+    const runtimeId = Editor.getRuntimeId(editor, [1])
+
+    if (!runtimeId) {
+      throw new Error('Expected runtime id for node widget move proof')
+    }
+
+    const widgets = [
+      {
+        anchor: {
+          runtimeId,
+          type: 'node' as const,
+        },
+        data: {
+          label: 'Node menu',
+        },
+        id: 'node-widget',
+      },
+    ] as const
+    const store = createSlateWidgetStore(editor, () => widgets)
+
+    store.subscribeWidget('node-widget', () => {
+      notifications += 1
+    })
+
+    expect(store.getWidget('node-widget')).toMatchObject({
+      id: 'node-widget',
+      visible: true,
+    })
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.nodes.move({ at: [1], to: [0] })
+      })
+    })
+
+    expect(Editor.getPathByRuntimeId(editor, runtimeId)).toEqual([0])
+    expect(store.getWidget('node-widget')).toMatchObject({
+      id: 'node-widget',
+      visible: true,
+    })
+    expect(notifications).toBe(0)
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.nodes.remove({ at: [0] })
+      })
+    })
+
+    expect(store.getWidget('node-widget')).toMatchObject({
+      id: 'node-widget',
+      visible: false,
+    })
+    expect(notifications).toBe(1)
+
+    store.destroy()
+  })
+
   test('widget metrics count changed ids and widget subscriber wakes', async () => {
     const editor = createEditor()
 

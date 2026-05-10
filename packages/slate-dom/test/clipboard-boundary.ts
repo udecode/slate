@@ -226,6 +226,57 @@ const mountInlineVoidEditorDOM = (editor: Editor, document: Document) => {
   bindDOMNode(editor, afterNode, after)
 }
 
+const mountBlockVoidEditorDOM = (editor: Editor, document: Document) => {
+  const root = mountEditorRoot(editor, document)
+  const before = document.createElement('p')
+  const beforeText = createTextDOM(document, 'before')
+  const image = document.createElement('div')
+  const imageContent = document.createElement('div')
+  const img = document.createElement('img')
+  const button = document.createElement('button')
+  const spacer = document.createElement('span')
+  const imageHiddenText = createZeroWidthTextDOM(document)
+  const after = document.createElement('p')
+  const afterText = createTextDOM(document, 'after')
+
+  before.setAttribute('data-slate-node', 'element')
+  before.appendChild(beforeText)
+
+  image.setAttribute('data-slate-node', 'element')
+  image.setAttribute('data-slate-void', 'true')
+  image.style.position = 'relative'
+  imageContent.setAttribute('contenteditable', 'false')
+  img.setAttribute('src', 'https://example.com/image.png')
+  button.textContent = 'delete'
+  imageContent.appendChild(img)
+  imageContent.appendChild(button)
+  spacer.setAttribute('data-slate-spacer', 'true')
+  spacer.appendChild(imageHiddenText)
+  image.appendChild(imageContent)
+  image.appendChild(spacer)
+
+  after.setAttribute('data-slate-node', 'element')
+  after.appendChild(afterText)
+
+  root.appendChild(before)
+  root.appendChild(image)
+  root.appendChild(after)
+
+  const [beforeNode] = editor.read((state) => state.nodes.get([0]))
+  const [beforeTextNode] = editor.read((state) => state.nodes.get([0, 0]))
+  const [imageNode] = editor.read((state) => state.nodes.get([1]))
+  const [imageTextNode] = editor.read((state) => state.nodes.get([1, 0]))
+  const [afterNode] = editor.read((state) => state.nodes.get([2]))
+  const [afterTextNode] = editor.read((state) => state.nodes.get([2, 0]))
+
+  bindDOMNode(editor, beforeNode, before)
+  bindDOMNode(editor, beforeTextNode, beforeText)
+  bindDOMNode(editor, imageNode, image)
+  bindDOMNode(editor, imageTextNode, imageHiddenText)
+  bindDOMNode(editor, afterNode, after)
+  bindDOMNode(editor, afterTextNode, afterText)
+}
+
 const mountDecoratedEditorDOM = (editor: Editor, document: Document) => {
   const root = mountEditorRoot(editor, document)
 
@@ -1071,6 +1122,60 @@ describe('slate-dom clipboard boundary', () => {
         anchor: { path: [0, 0], offset: 6 },
         focus: { path: [0, 0], offset: 6 },
       })
+    })
+  })
+
+  it('exports visible block void content for external HTML clipboard targets', () => {
+    withDom((document) => {
+      const source = createClipboardEditor(
+        [
+          {
+            type: 'paragraph',
+            children: [{ text: 'before' }],
+          },
+          {
+            type: 'image',
+            url: 'https://example.com/image.png',
+            children: [{ text: '' }],
+          },
+          {
+            type: 'paragraph',
+            children: [{ text: 'after' }],
+          },
+        ],
+        {
+          anchor: { path: [1, 0], offset: 0 },
+          focus: { path: [1, 0], offset: 0 },
+        },
+        undefined,
+        (editor) => {
+          editor.extend({
+            elements: [{ type: 'image', void: 'block' }],
+            name: 'block-void-copy',
+          })
+        }
+      )
+      const clipboard = new FakeDataTransfer()
+
+      mountBlockVoidEditorDOM(source, document)
+
+      source.dom.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+
+      const encoded = clipboard.getData('application/x-slate-fragment')
+      const html = clipboard.getData('text/html')
+
+      expect(encoded).not.toBe('')
+      expect(decodeFragmentPayload(document, encoded)).toEqual([
+        {
+          type: 'image',
+          url: 'https://example.com/image.png',
+          children: [{ text: '' }],
+        },
+      ])
+      expect(html).toContain('data-slate-fragment=')
+      expect(html).toContain('<img')
+      expect(html).toContain('https://example.com/image.png')
+      expect(clipboard.getData('text/plain')).not.toContain('\uFEFF')
     })
   })
 

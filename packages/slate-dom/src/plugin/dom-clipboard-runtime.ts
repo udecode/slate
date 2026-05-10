@@ -294,14 +294,23 @@ export const writeDOMSelectionData = <V extends Value>(
     }
   })
 
-  // COMPAT: If the end node is a void node, we need to move the end of the
-  // range from the void node's spacer span, to the end of the void node's
-  // content, since the spacer is before void's content in the DOM.
-  if (endVoid) {
-    const [voidNode] = endVoid
+  // COMPAT: Void selections can be anchored in their hidden spacer DOM. Clone
+  // the full void element so external HTML payloads include visible content.
+  if (startVoid || endVoid) {
     const r = domRange.cloneRange()
-    const domNode = DOMEditor.toDOMNode(editor, voidNode)
-    r.setEndAfter(domNode)
+
+    if (startVoid) {
+      const [voidNode] = startVoid
+      const domNode = DOMEditor.toDOMNode(editor, voidNode)
+      r.setStartBefore(domNode)
+    }
+
+    if (endVoid) {
+      const [voidNode] = endVoid
+      const domNode = DOMEditor.toDOMNode(editor, voidNode)
+      r.setEndAfter(domNode)
+    }
+
     contents = r.cloneContents()
   }
 

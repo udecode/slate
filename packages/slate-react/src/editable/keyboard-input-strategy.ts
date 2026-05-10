@@ -131,6 +131,42 @@ export const applyEditableKeyDown = ({
   shellBackedSelection: boolean
 }): EditableKeyDownResult => {
   if (isInteractiveInternalTarget(editor, event.target)) {
+    const { nativeEvent } = event
+
+    if (!readOnly && Hotkeys.isRedo(nativeEvent)) {
+      event.preventDefault()
+      event.stopPropagation()
+
+      if (
+        applyModelOwnedHistoryIntent({
+          direction: 'redo',
+          editor,
+        }) &&
+        shouldForceRenderAfterModelOwnedHistory(editor)
+      ) {
+        forceRender()
+      }
+
+      return keyDownHandled()
+    }
+
+    if (!readOnly && Hotkeys.isUndo(nativeEvent)) {
+      event.preventDefault()
+      event.stopPropagation()
+
+      if (
+        applyModelOwnedHistoryIntent({
+          direction: 'undo',
+          editor,
+        }) &&
+        shouldForceRenderAfterModelOwnedHistory(editor)
+      ) {
+        forceRender()
+      }
+
+      return keyDownHandled()
+    }
+
     event.stopPropagation()
     return keyDownHandled()
   }

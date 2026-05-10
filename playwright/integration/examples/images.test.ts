@@ -152,6 +152,74 @@ test.describe('images example', () => {
     })
   })
 
+  test('copies selected image with visible external HTML payload', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'images', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.root.locator('img').first().click()
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      })
+
+    const payload = await editor.clipboard.copyPayload()
+
+    expect(payload.types).toContain('text/html')
+    expect(payload.html).toContain('data-slate-fragment=')
+    expect(payload.html).toContain('<img')
+    expect(payload.html).toContain('https://source.unsplash.com/kFrdX5IeQzI')
+    expect(payload.text).not.toContain('\uFEFF')
+  })
+
+  test('selects image editor text content from text focus with keyboard select all', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'images', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 10 },
+      focus: { path: [0, 0], offset: 10 },
+    })
+
+    await page.keyboard.press('ControlOrMeta+A')
+
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [3, 0], offset: 78 },
+      })
+    await expect
+      .poll(() =>
+        editor.root
+          .locator('img')
+          .first()
+          .evaluate((element) => getComputedStyle(element).boxShadow)
+      )
+      .toBe('none')
+  })
+
   test('does not let the image void spacer add visible space above image content', async ({
     browserName,
     page,

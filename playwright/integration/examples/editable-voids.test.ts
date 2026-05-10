@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import {
   assertNoIllegalKernelTransitions,
+  createSlateBrowserDropDataGauntlet,
   createSlateBrowserEditorHarness,
   createSlateBrowserInternalControlGauntlet,
   openExample,
@@ -43,6 +44,27 @@ test.describe('editable voids', () => {
   test('make sure you can edit editable void', async ({ page }) => {
     await page.locator(input).fill('Typing')
     expect(await page.locator(input).inputValue()).toBe('Typing')
+  })
+
+  test('undo from a new editable void input removes the inserted void block', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Native input undo proof needs desktop keyboard shortcuts'
+    )
+
+    await page.locator('span.material-icons', { hasText: 'add' }).click()
+    await expect(page.locator(input)).toHaveCount(2)
+
+    const insertedInput = page.locator(input).last()
+
+    await insertedInput.fill('abc')
+    await expect(insertedInput).toHaveValue('abc')
+
+    await page.keyboard.press('ControlOrMeta+Z')
+
+    await expect(page.locator(input)).toHaveCount(1)
   })
 
   test('keeps native paste inside editable void input', async ({
@@ -367,6 +389,83 @@ test.describe('editable voids', () => {
       await expect
         .poll(() => outer.get.modelText())
         .not.toContain('Hello World')
+      await expect.poll(() => outer.selection.get()).toEqual(outerSelection)
+
+      await outerEditor.evaluate((element: HTMLElement) => {
+        element.focus()
+      })
+      await page.keyboard.type('Outer ')
+
+      runtimeErrors.assertNone()
+      await expect
+        .poll(() => outer.get.modelText())
+        .toContain('Outer In addition to nodes')
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('drops rich HTML inside nested editor without stealing outer selection', async ({
+    page,
+  }, testInfo) => {
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const nestedEditor = page.locator('[data-slate-editor="true"]').nth(1)
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-outer',
+      outerEditor
+    )
+    const nested = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-nested',
+      nestedEditor
+    )
+    const outerSelection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    }
+
+    try {
+      await outer.selection.select(outerSelection)
+      await nested.selection.select({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+
+      const result = await nested.scenario.run(
+        'editable-voids-nested-drop-data-gauntlet',
+        createSlateBrowserDropDataGauntlet({
+          html: '<p>Dropped <strong>World</strong></p>',
+          plainText: 'Dropped World',
+          textAfterDrop:
+            "TDropped Worldhis is editable rich text, much better than a <textarea>!Since it's rich text, you can do things like turn a selection of text bold, or add a semantically rendered block quote in the middle of the page, like this:A wise quote.Try it out for yourself!",
+        }),
+        {
+          metadata: {
+            capabilities: [
+              'drop',
+              'html-drop',
+              'kernel-trace',
+              'nested-editor',
+            ],
+            platform: testInfo.project.name,
+            transport: 'synthetic-datatransfer-drop',
+          },
+          tracePath: testInfo.outputPath(
+            'editable-voids-nested-drop-data-gauntlet.json'
+          ),
+        }
+      )
+
+      assertNoIllegalKernelTransitions(result)
+      expect(result.metadata.claim).toBe('synthetic-datatransfer')
+      await expect(
+        nestedEditor.locator('strong').filter({ hasText: 'World' })
+      ).toHaveCount(1)
+      await expect
+        .poll(() => outer.get.modelText())
+        .not.toContain('Dropped World')
       await expect.poll(() => outer.selection.get()).toEqual(outerSelection)
 
       await outerEditor.evaluate((element: HTMLElement) => {

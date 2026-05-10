@@ -32,7 +32,7 @@ export const useRuntimeKeyboardEvents = ({
   setExplicitShellBackedSelection: (nextValue: boolean) => void
   shellBackedSelection: boolean
 }) => {
-  const handleKeyDown = useCallback(
+  const runKeyDownEvent = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
       const decision = prepareEditableKeyDownKernel({
         editor,
@@ -86,7 +86,69 @@ export const useRuntimeKeyboardEvents = ({
     ]
   )
 
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      runKeyDownEvent(event)
+    },
+    [runKeyDownEvent]
+  )
+
+  const handleKeyDownCapture = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      const decision = prepareEditableKeyDownKernel({
+        editor,
+        event,
+        inputController,
+        renderingStrategy,
+      })
+
+      if (
+        decision.targetOwner !== 'internal-control' ||
+        decision.intent !== 'history'
+      ) {
+        return
+      }
+
+      runtime.selection.applyKeyDownSelectionPolicy(decision)
+      runtime.trace.beginKeyDownEventFrame(decision)
+      const keyDownWorkerResult = applyEditableKeyDown({
+        androidInputManagerRef: runtime.android.managerRef,
+        editor,
+        event,
+        forceRender: runtime.repair.forceRender,
+        inputController,
+        renderingStrategy,
+        onKeyDown,
+        readOnly,
+        setExplicitShellBackedSelection,
+        setComposing: runtime.composition.setComposing,
+        shellBackedSelection,
+      })
+      if (keyDownWorkerResult.repair) {
+        runtime.repair.requestEditableRepair(keyDownWorkerResult.repair)
+      }
+      runtime.trace.recordKeyDownTrace({
+        decision,
+        eventKey: event.key,
+        handled: keyDownWorkerResult.handled,
+      })
+    },
+    [
+      editor,
+      inputController,
+      renderingStrategy,
+      onKeyDown,
+      readOnly,
+      runtime,
+      setExplicitShellBackedSelection,
+      shellBackedSelection,
+    ]
+  )
+
   return {
+    onKeyDownCapture: useEditableKeyboardHandler({
+      handleKeyboard: handleKeyDownCapture,
+    }),
     onKeyDown: useEditableKeyboardHandler({
       handleKeyboard: handleKeyDown,
     }),

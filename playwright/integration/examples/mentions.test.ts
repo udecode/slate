@@ -1,7 +1,8 @@
-import { expect, test } from '@playwright/test'
+import { expect, type Locator, test } from '@playwright/test'
 import {
   installSlateReactRenderProfiler,
   openExample,
+  recordSlateBrowserRuntimeErrors,
   resetSlateReactRenderProfiler,
   takeSlateBrowserRenderStateSnapshot,
 } from 'slate-browser/playwright'
@@ -13,6 +14,13 @@ const slateCoverageErrors = new WeakMap<
 
 const getEditor = (page: import('@playwright/test').Page) =>
   page.locator('[data-slate-editor="true"]').first()
+
+const getBrowserUndoHotkey = async (root: Locator) =>
+  root
+    .page()
+    .evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent) ? 'Meta+Z' : 'Control+Z'
+    )
 
 const selectMentionInsertionPoint = async (
   page: import('@playwright/test').Page
@@ -140,6 +148,106 @@ test.describe('mentions example', () => {
     await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(1)
     await page.waitForTimeout(50)
     expect(slateCoverageErrors.get(page)).toEqual([])
+  })
+
+  test('keyboard undo restores select-all replacement content', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop select-all undo repro'
+    )
+
+    const editor = await openExample(page, 'mentions', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const originalModelText = await editor.get.modelText()
+
+    await editor.selection.selectAll()
+    await page.keyboard.insertText('Z')
+    await editor.assert.text('Z')
+
+    await editor.root.press(await getBrowserUndoHotkey(editor.root))
+
+    await expect.poll(() => editor.get.modelText()).toBe(originalModelText)
+    await expect(page.locator('[data-cy="mention-R2-D2"]')).toHaveCount(1)
+    await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(1)
+  })
+
+  test('copies and pastes a selected mention without crashing', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop clipboard repro')
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'mentions', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+
+      await page.locator('[data-cy="mention-R2-D2"]').click()
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [1, 1, 0], offset: 0 },
+          focus: { path: [1, 1, 0], offset: 0 },
+        })
+
+      const payload = await editor.clipboard.copyPayload()
+
+      expect(payload.html).toContain('data-slate-fragment=')
+
+      await editor.selection.collapse({ path: [1, 2], offset: 4 })
+      await editor.focus()
+      await editor.root.press('ControlOrMeta+V')
+
+      await expect(page.locator('[data-cy="mention-R2-D2"]')).toHaveCount(2)
+      await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(
+        1
+      )
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('cuts a selected mention without crashing', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop clipboard repro')
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'mentions', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+
+      await page.locator('[data-cy="mention-R2-D2"]').click()
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [1, 1, 0], offset: 0 },
+          focus: { path: [1, 1, 0], offset: 0 },
+        })
+
+      await editor.root.press('ControlOrMeta+X')
+
+      await expect(page.locator('[data-cy="mention-R2-D2"]')).toHaveCount(0)
+      await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(
+        1
+      )
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
   })
 
   test('shows list of mentions', async ({ page }, testInfo) => {

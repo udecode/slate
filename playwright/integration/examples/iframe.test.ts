@@ -70,4 +70,55 @@ test.describe('iframe editor', () => {
       runtimeErrors.stop()
     }
   })
+
+  test('applies parent toolbar formatting to selected iframe text', async ({
+    page,
+  }) => {
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const frame = page.frameLocator('iframe')
+    const textbox = frame.locator('body').getByRole('textbox')
+
+    try {
+      await textbox.evaluate((element: HTMLElement) => {
+        const handle = (element as Record<string, any>).__slateBrowserHandle
+        const mediaQueries = Array.from(
+          element.querySelectorAll('[data-slate-string="true"]')
+        ).find((node) => node.textContent === 'media queries')
+        const textNode = mediaQueries?.firstChild
+
+        if (!handle?.selectRange || !textNode) {
+          throw new Error('Missing iframe selection target')
+        }
+
+        handle.selectRange({
+          anchor: { path: [1, 1], offset: 0 },
+          focus: { path: [1, 1], offset: 'media queries'.length },
+        })
+        element.focus()
+
+        const range = element.ownerDocument.createRange()
+        range.setStart(textNode, 0)
+        range.setEnd(textNode, 'media queries'.length)
+
+        const selection = element.ownerDocument.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+        element.ownerDocument.dispatchEvent(
+          new Event('selectionchange', { bubbles: true })
+        )
+      })
+
+      await page
+        .locator('span.material-icons', { hasText: 'format_bold' })
+        .click()
+
+      await expect(
+        textbox.locator('strong').filter({ hasText: 'media queries' })
+      ).toHaveCount(0)
+      await expect(textbox).toContainText('media queries')
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
 })

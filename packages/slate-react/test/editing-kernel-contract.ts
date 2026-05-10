@@ -14,7 +14,10 @@ import {
   prepareEditableCompositionKernel,
   prepareEditableKeyDownKernel,
 } from '../src/editable/editing-kernel'
-import { classifyKeyboardIntent } from '../src/editable/input-controller'
+import {
+  classifyBeforeInputIntent,
+  classifyKeyboardIntent,
+} from '../src/editable/input-controller'
 import {
   createEditableInputController,
   createEditableInputControllerState,
@@ -353,6 +356,57 @@ test('kernel transition rejects native-owned repair policies', () => {
     allowed: false,
     reason: 'native-owned events cannot schedule model repair',
   })
+})
+
+test('kernel transition allows history commands from internal controls', () => {
+  expect(
+    getEditableKernelTransition({
+      command: { direction: 'undo', kind: 'history' },
+      eventFamily: 'keydown',
+      nativeAllowed: false,
+      ownership: 'model-owned',
+      repairPolicy: { kind: 'none', reason: 'not-requested' },
+      stateAfter: 'model-owned',
+      targetOwner: 'internal-control',
+    })
+  ).toEqual({
+    allowed: true,
+    reason: null,
+  })
+})
+
+test('kernel transition keeps non-history internal control commands rejected', () => {
+  expect(
+    getEditableKernelTransition({
+      command: {
+        inputType: 'insertText',
+        kind: 'insert-text',
+        text: 'x',
+      },
+      eventFamily: 'keydown',
+      nativeAllowed: false,
+      ownership: 'model-owned',
+      repairPolicy: { kind: 'none', reason: 'not-requested' },
+      stateAfter: 'model-owned',
+      targetOwner: 'internal-control',
+    })
+  ).toEqual({
+    allowed: false,
+    reason: 'internal controls cannot dispatch model commands',
+  })
+})
+
+test('beforeinput history stays model-owned for internal controls', () => {
+  expect(
+    classifyBeforeInputIntent({
+      editor: createEditor() as any,
+      event: {
+        inputType: 'historyUndo',
+        target: null,
+      } as any,
+      internalTarget: true,
+    })
+  ).toBe('history')
 })
 
 test('kernel result creation rejects illegal transitions in test mode', () => {

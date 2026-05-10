@@ -74,6 +74,42 @@ describe('slate transforms contract', () => {
     assert.deepEqual(after.selection, collapsedSelection([0, 1, 0], 0))
   })
 
+  it('insertText replaces a selected marked leaf when the deleted endpoints detach', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [
+            { text: 'This ' },
+            { bold: true, text: 'bold' },
+            { text: ' text' },
+          ],
+        },
+      ],
+      selection: {
+        anchor: { path: [0, 1], offset: 0 },
+        focus: { path: [0, 1], offset: 4 },
+      },
+      marks: null,
+    })
+
+    editor.update((tx) => {
+      tx.text.insert('plain')
+    })
+
+    const after = Editor.getSnapshot(editor)
+
+    assert.deepEqual(after.children, [
+      {
+        type: 'paragraph',
+        children: [{ text: 'This ' }, { text: 'plain text' }],
+      },
+    ])
+    assert.deepEqual(after.selection, collapsedSelection([0, 1], 5))
+  })
+
   it('mergeNodes does not cross an isolating block boundary', () => {
     const editor = createEditor()
     editor.extend(
@@ -255,6 +291,51 @@ describe('slate transforms contract', () => {
     assert.throws(() => {
       Editor.splitNodes(editor, { at: [], position: 0 })
     }, /Cannot split the editor root/)
+  })
+
+  it('insertNodes rejects the editor root as an insertion target', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'one' }],
+        } as Descendant,
+      ],
+      selection: null,
+      marks: null,
+    })
+
+    assert.throws(() => {
+      Editor.insertNodes(
+        editor,
+        {
+          type: 'embed',
+          children: [{ text: '' }],
+        } as Descendant,
+        { at: [] }
+      )
+    }, /Cannot insert into the editor root/)
+  })
+
+  it('removeNodes rejects the editor root as a removal target', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'one' }],
+        } as Descendant,
+      ],
+      selection: null,
+      marks: null,
+    })
+
+    assert.throws(() => {
+      Editor.removeNodes(editor, { at: [] })
+    }, /Cannot remove the editor root/)
   })
 
   it('setNodes can target the highest matching inline when mode is highest', () => {

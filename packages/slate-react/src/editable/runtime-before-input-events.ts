@@ -136,13 +136,9 @@ export const useRuntimeBeforeInputEvents = ({
           target: event.target,
         })
       )
-      if (decision.internalTarget) {
-        event.stopImmediatePropagation()
-        return
-      }
-
       if (applyModelOwnedNativeHistoryEvent({ editor, event })) {
         event.preventDefault()
+        event.stopImmediatePropagation()
         if (shouldForceRenderAfterModelOwnedHistory(editor)) {
           repair.requestEditableRepair({
             forceRender: true,
@@ -150,6 +146,11 @@ export const useRuntimeBeforeInputEvents = ({
           })
         }
         handledDOMBeforeInputRef.current = true
+        return
+      }
+
+      if (decision.internalTarget) {
+        event.stopImmediatePropagation()
         return
       }
       const el = profileBeforeInputDuration('beforeinput-root-node', () =>

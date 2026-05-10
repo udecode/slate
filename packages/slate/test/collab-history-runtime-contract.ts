@@ -26,6 +26,39 @@ const createCollabEditor = () => {
   return editor
 }
 
+type CollabEditor = ReturnType<typeof createCollabEditor>
+type CollabCommit = NonNullable<ReturnType<typeof Editor.getLastCommit>>
+
+const lastCommit = (editor: CollabEditor): CollabCommit => {
+  const commit = Editor.getLastCommit(editor)
+
+  assert(commit)
+
+  return commit
+}
+
+const remoteReplayMetadata = {
+  collab: { origin: 'remote', saveToHistory: false },
+  history: { mode: 'skip' },
+  selection: { dom: 'preserve' },
+} as const
+
+const replayRemoteCommit = (
+  editor: CollabEditor,
+  commit: CollabCommit,
+  tag: string
+) => {
+  editor.update(
+    (tx) => {
+      tx.operations.replay(commit.operations)
+    },
+    {
+      metadata: remoteReplayMetadata,
+      tag: ['collaboration', tag],
+    }
+  )
+}
+
 describe('collab and history runtime contract', () => {
   it('publishes one commit truth for collab subscribers, extension listeners, and history', () => {
     const editor = withHistory(createEditor())
@@ -197,6 +230,125 @@ describe('collab and history runtime contract', () => {
     )
   })
 
+  it('converges three peers across text, mark, delete, and move commits', () => {
+    const assertThreePeerConvergence = ({
+      edit,
+      expectedChildren,
+      tag,
+    }: {
+      edit: (editor: CollabEditor) => void
+      expectedChildren: Descendant[]
+      tag: string
+    }) => {
+      const source = withHistory(createCollabEditor())
+      const peerB = withHistory(createCollabEditor())
+      const peerC = withHistory(createCollabEditor())
+
+      edit(source)
+
+      const sourceCommit = lastCommit(source)
+
+      replayRemoteCommit(peerB, sourceCommit, `${tag}-peer-b`)
+      replayRemoteCommit(peerC, sourceCommit, `${tag}-peer-c`)
+
+      assert.deepEqual(Editor.getSnapshot(source).children, expectedChildren)
+      assert.deepEqual(
+        Editor.getSnapshot(peerB).children,
+        Editor.getSnapshot(source).children
+      )
+      assert.deepEqual(
+        Editor.getSnapshot(peerC).children,
+        Editor.getSnapshot(source).children
+      )
+      assert.equal(source.history.undos.length, 1)
+      assert.equal(peerB.history.undos.length, 0)
+      assert.equal(peerC.history.undos.length, 0)
+      assert.deepEqual(lastCommit(peerB).metadata, remoteReplayMetadata)
+      assert.deepEqual(lastCommit(peerC).metadata, remoteReplayMetadata)
+    }
+
+    assertThreePeerConvergence({
+      edit(source) {
+        source.update(
+          (tx) => {
+            tx.text.insert('!')
+          },
+          { tag: ['local-edit', 'text'] }
+        )
+      },
+      expectedChildren: [
+        paragraph('one!'),
+        paragraph('two'),
+        paragraph('three'),
+      ],
+      tag: 'text',
+    })
+
+    assertThreePeerConvergence({
+      edit(source) {
+        Editor.replace(source, {
+          children: Editor.getSnapshot(source).children,
+          marks: null,
+          selection: {
+            anchor: { path: [1, 0], offset: 0 },
+            focus: { path: [1, 0], offset: 'two'.length },
+          },
+        })
+
+        source.update(
+          (tx) => {
+            tx.marks.add('bold', true)
+          },
+          { tag: ['local-edit', 'mark'] }
+        )
+      },
+      expectedChildren: [
+        paragraph('one'),
+        {
+          type: 'paragraph',
+          children: [{ text: 'two', bold: true }],
+        },
+        paragraph('three'),
+      ],
+      tag: 'mark',
+    })
+
+    assertThreePeerConvergence({
+      edit(source) {
+        source.update(
+          (tx) => {
+            tx.text.delete({
+              at: {
+                anchor: { path: [0, 0], offset: 0 },
+                focus: { path: [1, 0], offset: 'two'.length },
+              },
+            })
+          },
+          { tag: ['local-edit', 'delete'] }
+        )
+      },
+      expectedChildren: [paragraph('three')],
+      tag: 'delete',
+    })
+
+    assertThreePeerConvergence({
+      edit(source) {
+        source.update(
+          (tx) => {
+            tx.nodes.move({ at: [2], to: [0] })
+          },
+          { tag: ['local-edit', 'move'] }
+        )
+      },
+      expectedChildren: [
+        paragraph('three'),
+        paragraph('one'),
+        paragraph('two'),
+      ],
+      tag: 'move',
+    })
+  })
+
   it('replays replace_children paste operations through the collaboration import path', () => {
     const source = createCollabEditor()
     const remote = withHistory(createCollabEditor())
@@ -295,6 +447,50 @@ describe('collab and history runtime contract', () => {
 
     assert.deepEqual(Editor.getSnapshot(editor).children, before.children)
     assert.deepEqual(Editor.getSnapshot(editor).selection, before.selection)
+  })
+
+  it('rebases local undo and redo batches across remote text commits', () => {
+    const editor = withHistory(createCollabEditor())
+
+    editor.update(
+      (tx) => {
+        tx.text.insert('!')
+      },
+      { tag: ['local-edit', 'history'] }
+    )
+
+    editor.update(
+      (tx) => {
+        tx.operations.replay([
+          {
+            type: 'insert_text',
+            path: [0, 0],
+            offset: 0,
+            text: '?',
+          },
+        ])
+      },
+      {
+        metadata: remoteReplayMetadata,
+        tag: ['collaboration', 'remote-prefix'],
+      }
+    )
+
+    assert.equal(Editor.string(editor, [0]), '?one!')
+    assert.equal(editor.history.undos[0]?.operations[0]?.type, 'insert_text')
+    assert.equal(editor.history.undos[0]?.operations[0]?.offset, 4)
+
+    editor.undo()
+
+    assert.equal(Editor.string(editor, [0]), '?one')
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    })
+
+    editor.redo()
+
+    assert.equal(Editor.string(editor, [0]), '?one!')
   })
 
   it('replays remote operations without losing local bookmark ranges', () => {

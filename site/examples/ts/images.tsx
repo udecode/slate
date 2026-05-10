@@ -2,7 +2,12 @@ import { css } from '@emotion/css'
 import imageExtensions from 'image-extensions'
 import isUrl from 'is-url'
 import type { PointerEvent } from 'react'
-import type { Path, Element as SlateElement } from 'slate'
+import {
+  Path,
+  Range,
+  type Element as SlateElement,
+  type Path as SlatePath,
+} from 'slate'
 import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
@@ -11,7 +16,7 @@ import {
   Slate,
   useEditor,
   useEditorFocused,
-  useElementSelected,
+  useEditorSelector,
   useSlateEditor,
 } from 'slate-react'
 
@@ -118,10 +123,24 @@ const Element = (props: RenderElementProps) => {
   return <p {...attributes}>{children}</p>
 }
 
-const Image = ({ element, path }: { element: ImageElement; path: Path }) => {
+const Image = ({
+  element,
+  path,
+}: {
+  element: ImageElement
+  path: SlatePath
+}) => {
   const editor = useEditor<CustomEditor>()
   const focused = useEditorFocused()
-  const selected = useElementSelected(path)
+  const selected = useEditorSelector<boolean, CustomEditor>((editor) => {
+    const selection = editor.read((state) => state.selection.get())
+
+    return Boolean(
+      selection &&
+        Range.isCollapsed(selection) &&
+        Path.equals(selection.anchor.path, path.concat(0))
+    )
+  })
 
   return (
     <div style={{ position: 'relative' }}>
