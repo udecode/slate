@@ -2478,6 +2478,35 @@ test.describe('On richtext example', () => {
     )
   })
 
+  test('records a soft break command for Shift+Enter', async ({ page }) => {
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selection.collapse({ path: [0, 0], offset: 4 })
+    await editor.press('Shift+Enter')
+
+    const commands = (await editor.get.kernelTrace()).map(
+      (entry) =>
+        (
+          entry as {
+            command?: Record<string, unknown> | null
+          }
+        ).command
+    )
+
+    expect(commands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'insert-break',
+          variant: 'soft',
+        }),
+      ])
+    )
+  })
+
   test('opens a line with Mac Ctrl+O without moving past following text', async ({
     browser,
     browserName,
