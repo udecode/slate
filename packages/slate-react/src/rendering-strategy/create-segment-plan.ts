@@ -1,11 +1,6 @@
 import type { RuntimeId } from 'slate'
 
-export type RenderingStrategyType =
-  | 'auto'
-  | 'full'
-  | 'staged'
-  | 'virtualized'
-  | 'shell'
+export type RenderingStrategyType = 'auto' | 'full' | 'staged' | 'shell'
 
 export type RenderingStrategyOptions =
   | RenderingStrategyType
@@ -19,6 +14,8 @@ export type RenderingStrategyOptions =
   | {
       /**
        * Experimental viewport-only rendering for pathological documents.
+       * Intentionally object-only so it does not look like a stable rendering
+       * strategy peer of `full`, `staged`, or `shell`.
        */
       estimatedBlockSize?: number
       overscan?: number

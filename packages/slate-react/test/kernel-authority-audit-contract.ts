@@ -413,6 +413,84 @@ test('EditableDOMRoot root runtime orchestration has an explicit next-owner inve
   })
 })
 
+test('root global lifecycle listeners are owned by the root lifecycle module', () => {
+  const rootRuntimeFiles = [
+    'editable/runtime-root-engine.ts',
+    'editable/runtime-root-lifecycle.ts',
+    'editable/runtime-root-selection-export.ts',
+  ] as const
+
+  expectSourceOwnershipInventory(
+    /\battachEditableSelectionChangeListener\(/g,
+    rootRuntimeFiles,
+    {
+      'packages/slate-react/src/editable/runtime-root-lifecycle.ts': {
+        count: 1,
+        next: 'root-runtime',
+        owner: 'Editable root global lifecycle',
+        rationale:
+          'Native selectionchange listener attachment belongs in the root lifecycle owner, not the root coordinator body.',
+      },
+    }
+  )
+
+  expectSourceOwnershipInventory(
+    /\battachEditableGlobalDragLifecycleListeners\(/g,
+    rootRuntimeFiles,
+    {
+      'packages/slate-react/src/editable/runtime-root-lifecycle.ts': {
+        count: 1,
+        next: 'root-runtime',
+        owner: 'Editable root global lifecycle',
+        rationale:
+          'Global drag cleanup belongs with root lifecycle attachment, not the root coordinator body.',
+      },
+    }
+  )
+
+  expectSourceOwnershipInventory(
+    /\buseEditableRootGlobalLifecycle\(/g,
+    rootRuntimeFiles,
+    {
+      'packages/slate-react/src/editable/runtime-root-engine.ts': {
+        count: 1,
+        next: 'root-runtime',
+        owner: 'Editable root runtime facade',
+        rationale:
+          'The root runtime facade should delegate global listener attachment through one lifecycle owner.',
+      },
+    }
+  )
+
+  expectSourceOwnershipInventory(
+    /\bsubscribeSelectionOnlyDOMExport\(/g,
+    rootRuntimeFiles,
+    {
+      'packages/slate-react/src/editable/runtime-root-selection-export.ts': {
+        count: 1,
+        next: 'root-runtime',
+        owner: 'Editable root selection export',
+        rationale:
+          'Selection-only DOM export subscription belongs in a root selection export owner, not the root coordinator body.',
+      },
+    }
+  )
+
+  expectSourceOwnershipInventory(
+    /\buseEditableRootSelectionExport\(/g,
+    rootRuntimeFiles,
+    {
+      'packages/slate-react/src/editable/runtime-root-engine.ts': {
+        count: 1,
+        next: 'root-runtime',
+        owner: 'Editable root runtime facade',
+        rationale:
+          'The root runtime facade should delegate selection export subscription through one root owner.',
+      },
+    }
+  )
+})
+
 test('EditableDOMRoot event-worker imports have an explicit event-runtime inventory', () => {
   expectEditableEventRuntimeInventory({
     "\\bfrom '../editable/browser-handle'": {

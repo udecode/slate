@@ -11,10 +11,14 @@ import {
 export const useRuntimeRepairEngine = ({
   editor,
   inputController,
+  scrollSelectionIntoView,
   syncDOMSelectionToEditor,
 }: {
   editor: ReactEditor
   inputController: EditableInputController
+  scrollSelectionIntoView: Parameters<
+    typeof createDOMRepairQueue
+  >[0]['scrollSelectionIntoView']
   syncDOMSelectionToEditor: () => void
 }) => {
   const [, forceRender] = useReducer((s) => s + 1, 0)
@@ -23,9 +27,10 @@ export const useRuntimeRepairEngine = ({
       createDOMRepairQueue({
         editor,
         inputController,
+        scrollSelectionIntoView,
         syncDOMSelectionToEditor,
       }),
-    [editor, inputController, syncDOMSelectionToEditor]
+    [editor, inputController, scrollSelectionIntoView, syncDOMSelectionToEditor]
   )
 
   EDITOR_TO_FORCE_RENDER.set(editor, forceRender)

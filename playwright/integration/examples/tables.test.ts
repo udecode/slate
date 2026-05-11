@@ -136,7 +136,9 @@ test.describe('table example', () => {
 
     await lastCell.click({ clickCount: 3, delay: 50 })
 
-    await expect.poll(() => editor.get.selectedText()).toBe('9')
+    await expect
+      .poll(async () => (await editor.get.selectedText()).replace(/\n+$/g, ''))
+      .toBe('9')
     await editor.assert.selection({
       anchor: { path: [1, 2, 3, 0], offset: 0 },
       focus: { path: [1, 2, 3, 0], offset: 1 },

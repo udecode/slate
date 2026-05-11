@@ -1,9 +1,13 @@
 import { createEditor } from 'slate'
 import { Editor } from 'slate/internal'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ReactEditor } from '../src'
 
-import { applyModelOwnedBeforeInputOperation } from '../src/editable/model-input-strategy'
+import {
+  applyEditableInput,
+  applyModelOwnedBeforeInputOperation,
+  applyModelOwnedNativeHistoryEvent,
+} from '../src/editable/model-input-strategy'
 
 const createTextEditor = (text = '', offset = 0, type = 'paragraph') => {
   const editor = createEditor()
@@ -467,5 +471,48 @@ describe('model input strategy', () => {
     })
 
     expect(Editor.string(editor, [])).toBe('ad')
+  })
+
+  it('ignores native history beforeinput while read-only', () => {
+    const editor = createTextEditor('stable', 'stable'.length) as ReactEditor
+    const undo = vi.fn()
+
+    ;(editor as any).undo = undo
+
+    const handled = applyModelOwnedNativeHistoryEvent({
+      editor,
+      event: { inputType: 'historyUndo' } as InputEvent,
+      readOnly: true,
+    })
+
+    expect(handled).toBe(false)
+    expect(undo).not.toHaveBeenCalled()
+    expect(Editor.string(editor, [])).toBe('stable')
+  })
+
+  it('ignores native history input while read-only', () => {
+    const editor = createTextEditor('stable', 'stable'.length) as ReactEditor
+    const undo = vi.fn()
+
+    ;(editor as any).undo = undo
+
+    const result = applyEditableInput({
+      androidInputManagerRef: { current: null },
+      deferredOperations: { current: [] },
+      editor,
+      event: {
+        currentTarget: { textContent: 'stable' },
+        isDefaultPrevented: () => false,
+        isPropagationStopped: () => false,
+        nativeEvent: { inputType: 'historyUndo' },
+      } as any,
+      handledDOMBeforeInputRef: { current: false },
+      inputController: {} as any,
+      readOnly: true,
+    })
+
+    expect(result.repairs).toEqual([])
+    expect(undo).not.toHaveBeenCalled()
+    expect(Editor.string(editor, [])).toBe('stable')
   })
 })

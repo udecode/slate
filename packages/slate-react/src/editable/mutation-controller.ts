@@ -73,10 +73,16 @@ export const shouldForceRenderAfterModelOwnedHistory = (editor: Editor) => {
 export const applyModelOwnedNativeHistoryEvent = ({
   editor,
   event,
+  readOnly = false,
 }: {
   editor: Editor
   event: InputEvent
+  readOnly?: boolean
 }) => {
+  if (readOnly) {
+    return false
+  }
+
   if (
     event.inputType === 'historyUndo' &&
     applyModelOwnedHistoryIntent({ direction: 'undo', editor })

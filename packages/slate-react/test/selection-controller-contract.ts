@@ -3,7 +3,9 @@ import {
   completeEditableSelectionChangeImport,
   executeEditableSelectionExport,
   executeEditableSelectionImport,
+  isEditableModelSelectionPreferredForInput,
   prepareEditableSelectionChangeImport,
+  setEditableModelSelectionPreference,
   shouldImportChangedExpandedDOMSelection,
 } from '../src/editable/selection-controller'
 
@@ -305,4 +307,80 @@ test('native selectionchange clears its origin after import handling', () => {
   })
 
   expect(inputController.state.selectionChangeOrigin).toBe(null)
+})
+
+test('native insertText ignores stale repair and programmatic model preference', () => {
+  for (const reason of ['programmatic-export', 'repair-induced'] as const) {
+    const inputController = createEditableInputController({
+      preferModelSelectionForInputRef: { current: true },
+      state: {
+        activeIntent: null,
+        isComposing: false,
+        isDraggingInternally: false,
+        isUpdatingSelection: false,
+        latestElement: null,
+        pendingDOMSelectionImport: false,
+        selectionChangeOrigin: reason,
+        selectionSource: 'model-owned',
+      },
+    })
+
+    setEditableModelSelectionPreference({
+      inputController,
+      preferModelSelection: true,
+      reason,
+      selectionSource: 'model-owned',
+    })
+
+    expect(
+      isEditableModelSelectionPreferredForInput({
+        inputController,
+        inputType: 'insertText',
+      })
+    ).toBe(false)
+    expect(
+      isEditableModelSelectionPreferredForInput({
+        inputController,
+        inputType: 'deleteContentBackward',
+      })
+    ).toBe(true)
+  }
+})
+
+test('native insertText preserves explicit model-owned input guards', () => {
+  for (const reason of [
+    'browser-handle',
+    'composition',
+    'internal-control',
+    'model-command',
+    'shell-backed',
+  ] as const) {
+    const inputController = createEditableInputController({
+      preferModelSelectionForInputRef: { current: true },
+      state: {
+        activeIntent: null,
+        isComposing: false,
+        isDraggingInternally: false,
+        isUpdatingSelection: false,
+        latestElement: null,
+        pendingDOMSelectionImport: false,
+        selectionChangeOrigin: null,
+        selectionSource: 'model-owned',
+      },
+    })
+
+    setEditableModelSelectionPreference({
+      inputController,
+      preferModelSelection: true,
+      reason,
+      selectionSource: 'model-owned',
+    })
+
+    expect(
+      isEditableModelSelectionPreferredForInput({
+        inputController,
+        inputType: 'insertText',
+      })
+    ).toBe(true)
+  }
 })

@@ -24,6 +24,7 @@ export const useRuntimeInputEvents = ({
   handledDOMBeforeInputRef,
   inputController,
   onInput,
+  readOnly,
   repair,
   rootRef,
   trace,
@@ -34,6 +35,7 @@ export const useRuntimeInputEvents = ({
   handledDOMBeforeInputRef: RefObject<boolean>
   inputController: EditableInputController
   onInput?: InputHandler
+  readOnly: boolean
   repair: EditableEventRuntime['repair']
   rootRef: RefObject<HTMLDivElement | null>
   trace: EditableEventRuntime['trace']
@@ -84,6 +86,7 @@ export const useRuntimeInputEvents = ({
         handledDOMBeforeInputRef,
         inputController,
         onInput,
+        readOnly,
         skipNativeTextInputRepair,
       })
       for (const request of inputResult.repairs) {
@@ -97,6 +100,7 @@ export const useRuntimeInputEvents = ({
       handledDOMBeforeInputRef,
       inputController,
       onInput,
+      readOnly,
       repair,
       trace,
     ]

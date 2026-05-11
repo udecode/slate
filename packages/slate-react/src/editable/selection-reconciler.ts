@@ -419,6 +419,7 @@ const preferModelSelectionForVoidTarget = ({
   setEditableModelSelectionPreference({
     inputController,
     preferModelSelection: true,
+    reason: 'programmatic-export',
     selectionSource: 'model-owned',
   })
   inputController.state.selectionChangeOrigin = 'programmatic-export'

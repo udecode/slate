@@ -14,6 +14,7 @@ import {
   applyEditableCopy,
   applyEditableCut,
   applyEditableDragStart,
+  applyEditableDrop,
   applyEditablePaste,
 } from '../src/editable/clipboard-input-strategy'
 import type { ReactEditor } from '../src/plugin/react-editor'
@@ -271,6 +272,133 @@ describe('DOM coverage native bridge', () => {
       expect(state.isDraggingInternally).toBe(true)
       expect(dataTransfer.getData('text/plain')).toBe('Hidden alpha')
       expect(dataTransfer.getData('text/html')).toContain('Hidden alpha')
+    } finally {
+      cleanupEditorRoot(editor, root)
+    }
+  })
+
+  test('drop is ignored when the editor is read-only', () => {
+    const editor = withReact(createEditor())
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Original text' }],
+        },
+      ],
+      selection: {
+        anchor: { offset: 0, path: [0, 0] },
+        focus: { offset: 'Original text'.length, path: [0, 0] },
+      },
+    })
+
+    const root = mountEditorRoot(editor)
+    const dataTransfer = new FakeDataTransfer()
+    const event = createDragEvent(root, dataTransfer)
+
+    dataTransfer.setData('text/plain', 'Dropped text')
+
+    try {
+      const result = applyEditableDrop({
+        editor,
+        event,
+        readOnly: true,
+        state: { isDraggingInternally: false },
+      })
+
+      expect(event.preventDefault).not.toHaveBeenCalled()
+      expect(result.command).toBe(null)
+      expect(Editor.string(editor, [])).toBe('Original text')
+      expect(Editor.getSnapshot(editor).selection).toEqual({
+        anchor: { offset: 0, path: [0, 0] },
+        focus: { offset: 'Original text'.length, path: [0, 0] },
+      })
+    } finally {
+      cleanupEditorRoot(editor, root)
+    }
+  })
+
+  test('paste is ignored when the editor is read-only', () => {
+    const editor = withReact(createEditor())
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Original text' }],
+        },
+      ],
+      selection: {
+        anchor: { offset: 0, path: [0, 0] },
+        focus: { offset: 'Original text'.length, path: [0, 0] },
+      },
+    })
+
+    const root = mountEditorRoot(editor)
+    const clipboard = new FakeDataTransfer()
+    const event = createClipboardEvent(root, clipboard)
+
+    clipboard.setData('text/plain', 'Pasted text')
+
+    try {
+      const result = applyEditablePaste({
+        editor,
+        event,
+        readOnly: true,
+        shellBackedSelection: false,
+      })
+
+      expect(event.preventDefault).not.toHaveBeenCalled()
+      expect(result.command).toBe(null)
+      expect(Editor.string(editor, [])).toBe('Original text')
+      expect(Editor.getSnapshot(editor).selection).toEqual({
+        anchor: { offset: 0, path: [0, 0] },
+        focus: { offset: 'Original text'.length, path: [0, 0] },
+      })
+    } finally {
+      cleanupEditorRoot(editor, root)
+    }
+  })
+
+  test('paste is ignored when the application handler owns the event', () => {
+    const editor = withReact(createEditor())
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Original text' }],
+        },
+      ],
+      selection: {
+        anchor: { offset: 0, path: [0, 0] },
+        focus: { offset: 'Original text'.length, path: [0, 0] },
+      },
+    })
+
+    const root = mountEditorRoot(editor)
+    const clipboard = new FakeDataTransfer()
+    const event = createClipboardEvent(root, clipboard)
+
+    clipboard.setData('text/plain', 'Pasted text')
+
+    try {
+      const result = applyEditablePaste({
+        editor,
+        event,
+        onPaste: () => true,
+        readOnly: false,
+        shellBackedSelection: false,
+      })
+
+      expect(event.preventDefault).not.toHaveBeenCalled()
+      expect(result.command).toBe(null)
+      expect(Editor.string(editor, [])).toBe('Original text')
+      expect(Editor.getSnapshot(editor).selection).toEqual({
+        anchor: { offset: 0, path: [0, 0] },
+        focus: { offset: 'Original text'.length, path: [0, 0] },
+      })
     } finally {
       cleanupEditorRoot(editor, root)
     }

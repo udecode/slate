@@ -39,6 +39,7 @@ export {
   executeEditableSelectionExport,
   executeEditableSelectionImport,
   isEditableModelSelectionPreferred,
+  isEditableModelSelectionPreferredForInput,
   prepareEditableSelectionChangeImport,
   resolveEditableImplicitTarget,
   setEditableModelSelectionPreference,

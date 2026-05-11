@@ -102,6 +102,7 @@ export const attachSlateBrowserHandle = ({
     setEditableModelSelectionPreference({
       inputController,
       preferModelSelection: true,
+      reason: 'browser-handle',
       selectionSource: 'model-owned',
     })
     inputController.state.isUpdatingSelection = true
@@ -318,6 +319,7 @@ export const attachSlateBrowserHandle = ({
       setEditableModelSelectionPreference({
         inputController,
         preferModelSelection: true,
+        reason: 'browser-handle',
         selectionSource: 'model-owned',
       })
       inputController.state.selectionChangeOrigin = 'browser-handle'

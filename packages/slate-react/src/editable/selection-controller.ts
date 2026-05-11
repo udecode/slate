@@ -23,6 +23,7 @@ import { ReactEditor } from '../plugin/react-editor'
 import type { EditableSelectionPolicy } from './editing-kernel'
 import type {
   EditableInputController,
+  ModelSelectionPreferenceReason,
   SelectionChangeOrigin,
   SelectionSource,
 } from './input-state'
@@ -291,21 +292,90 @@ export const syncEditorSelectionFromDOM = ({
 export const setEditableModelSelectionPreference = ({
   inputController,
   preferModelSelection,
+  reason,
   selectionSource,
 }: {
   inputController: EditableInputController
   preferModelSelection: boolean
+  reason?: ModelSelectionPreferenceReason
   selectionSource?: SelectionSource
 }) => {
   // Keep the input guard and the controller's selection provenance in lockstep.
-  inputController.preferModelSelectionForInputRef.current = preferModelSelection
-  inputController.state.selectionSource =
+  const nextSelectionSource =
     selectionSource ?? (preferModelSelection ? 'model-owned' : 'dom-current')
+
+  inputController.preferModelSelectionForInputRef.current = preferModelSelection
+  inputController.state.selectionSource = nextSelectionSource
+  inputController.state.modelSelectionPreference = {
+    preferModelSelection,
+    reason:
+      reason ??
+      inferModelSelectionPreferenceReason({
+        preferModelSelection,
+        selectionSource: nextSelectionSource,
+      }),
+    selectionSource: nextSelectionSource,
+  }
 }
 
 export const isEditableModelSelectionPreferred = (
   inputController: EditableInputController
 ) => inputController.preferModelSelectionForInputRef.current
+
+const inferModelSelectionPreferenceReason = ({
+  preferModelSelection,
+  selectionSource,
+}: {
+  preferModelSelection: boolean
+  selectionSource: SelectionSource
+}): ModelSelectionPreferenceReason => {
+  if (!preferModelSelection) {
+    return selectionSource === 'dom-current' ? 'native-selection' : 'unknown'
+  }
+
+  switch (selectionSource) {
+    case 'app-owned':
+    case 'internal-control':
+      return 'internal-control'
+    case 'composition-owned':
+      return 'composition'
+    case 'shell-backed':
+      return 'shell-backed'
+    default:
+      return 'model-command'
+  }
+}
+
+export const isEditableModelSelectionPreferredForInput = ({
+  inputController,
+  inputType,
+}: {
+  inputController: EditableInputController
+  inputType: string
+}) => {
+  if (!isEditableModelSelectionPreferred(inputController)) {
+    return false
+  }
+
+  if (inputType !== 'insertText') {
+    return true
+  }
+
+  const preference = inputController.state.modelSelectionPreference
+
+  if (!preference?.preferModelSelection) {
+    return false
+  }
+
+  return (
+    inputController.state.isComposing ||
+    preference.reason === 'browser-handle' ||
+    preference.reason === 'composition' ||
+    preference.reason === 'internal-control' ||
+    preference.reason === 'model-command' ||
+    preference.reason === 'shell-backed'
+  )
+}
 
 export const shouldImportChangedExpandedDOMSelection = ({
   currentSelection,

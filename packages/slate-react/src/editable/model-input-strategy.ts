@@ -73,6 +73,7 @@ export const applyEditableInput = ({
   handledDOMBeforeInputRef,
   inputController,
   onInput,
+  readOnly = false,
   skipNativeTextInputRepair = false,
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
@@ -82,6 +83,7 @@ export const applyEditableInput = ({
   handledDOMBeforeInputRef: RefBox<boolean>
   inputController: import('./input-controller').EditableInputController
   onInput?: EditableInputHandler
+  readOnly?: boolean
   skipNativeTextInputRepair?: boolean
 }): EditableInputResult => {
   if (isInputEventHandled({ event, handler: onInput })) {
@@ -187,6 +189,7 @@ export const applyEditableInput = ({
     applyModelOwnedNativeHistoryEvent({
       editor,
       event: event.nativeEvent as InputEvent,
+      readOnly,
     })
   ) {
     repairs.push({ forceRender: true, kind: 'force-render' })

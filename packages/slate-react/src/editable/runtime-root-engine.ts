@@ -2,7 +2,6 @@ import {
   type ComponentPropsWithRef,
   type ForwardedRef,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -14,13 +13,9 @@ import type {
   EditableInputRule,
   EditableKeyDownHandler,
 } from '../components/editable'
-import {
-  EditorSelectorContext,
-  useFlushDeferredSelectorsOnRender,
-} from '../hooks/use-editor-selector'
-import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
+import { useFlushDeferredSelectorsOnRender } from '../hooks/use-editor-selector'
 import { useTrackUserInput } from '../hooks/use-track-user-input'
-import { ReactEditor } from '../plugin/react-editor'
+import type { ReactEditor } from '../plugin/react-editor'
 import type { MountedTopLevelRange } from '../rendering-strategy/rendering-strategy-commands'
 import { isSelectionShellBacked } from '../rendering-strategy/rendering-strategy-commands'
 import { usePendingInsertionMarksEffect } from './composition-state'
@@ -30,10 +25,7 @@ import {
   createEditableInputController,
   createEditableInputControllerState,
 } from './input-controller'
-import {
-  attachEditableGlobalDragLifecycleListeners,
-  useEditableRootRef,
-} from './input-router'
+import { useEditableRootRef } from './input-router'
 import { useEditableRootCommitWakeup } from './root-selector-sources'
 import {
   type RuntimeAndroidInputManager,
@@ -44,17 +36,15 @@ import type { Editor } from './runtime-editor-api'
 import { useEditableEventRuntime } from './runtime-event-engine'
 import { useRuntimeKernelTraceEngine } from './runtime-kernel-trace'
 import { useRuntimeRepairEngine } from './runtime-repair-engine'
+import { useEditableRootGlobalLifecycle } from './runtime-root-lifecycle'
+import { useEditableRootSelectionExport } from './runtime-root-selection-export'
 import {
   createRuntimeSelectionChangeHandler,
   createRuntimeSelectionChangeScheduler,
   createRuntimeSelectionImportController,
 } from './runtime-selection-engine'
 import { readRuntimeSelection } from './runtime-selection-state'
-import {
-  attachEditableSelectionChangeListener,
-  useEditableSelectionReconciler,
-} from './selection-reconciler'
-import { subscribeSelectionOnlyDOMExport } from './selection-runtime'
+import { useEditableSelectionReconciler } from './selection-reconciler'
 
 type DeferredOperation = () => void
 
@@ -260,30 +250,17 @@ export const useEditableRootRuntime = ({
     shellBackedSelection,
     state,
   })
-  const { addEventListener: addSelectorEventListener } = useContext(
-    EditorSelectorContext
-  )
-
-  useIsomorphicLayoutEffect(() => {
-    return subscribeSelectionOnlyDOMExport({
-      addSelectorEventListener,
-      getModelSelection: () => readRuntimeSelection(editor),
-      inputController,
-      shouldSkipDOMExport: (modelSelection) =>
-        isShellBackedSelection(modelSelection),
-      syncDOMSelectionToEditor,
-    })
-  }, [
-    addSelectorEventListener,
+  useEditableRootSelectionExport({
     editor,
     inputController,
     isShellBackedSelection,
     syncDOMSelectionToEditor,
-  ])
+  })
 
   const repairRuntime = useRuntimeRepairEngine({
     editor,
     inputController,
+    scrollSelectionIntoView,
     syncDOMSelectionToEditor,
   })
   domRepairQueueRef.current = repairRuntime.domRepairQueue
@@ -409,25 +386,11 @@ export const useEditableRootRuntime = ({
     }
   }, [callbackRef, eventRuntime.handlers])
 
-  useIsomorphicLayoutEffect(() => {
-    const window = ReactEditor.getWindow(editor)
-    const detachSelectionChangeListener = attachEditableSelectionChangeListener(
-      {
-        scheduleOnDOMSelectionChange,
-        targetDocument: window.document,
-      }
-    )
-    const detachGlobalDragLifecycleListeners =
-      attachEditableGlobalDragLifecycleListeners({
-        state,
-        targetDocument: window.document,
-      })
-
-    return () => {
-      detachSelectionChangeListener()
-      detachGlobalDragLifecycleListeners()
-    }
-  }, [editor, scheduleOnDOMSelectionChange, state])
+  useEditableRootGlobalLifecycle({
+    editor,
+    scheduleOnDOMSelectionChange,
+    state,
+  })
 
   const marks = editor.read((state) => state.marks.get())
   usePendingInsertionMarksEffect({ editor, marks })

@@ -221,6 +221,7 @@ export const useEditableEventRuntime = ({
     onInput: callbacks.onInput as
       | ((event: ReactInputEvent<HTMLDivElement>) => boolean | void)
       | undefined,
+    readOnly,
     repair: runtime.repair,
     rootRef,
     trace: runtime.trace,

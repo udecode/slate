@@ -30,6 +30,23 @@ export type SelectionChangeOrigin =
   | 'repair-induced'
   | 'unknown'
 
+export type ModelSelectionPreferenceReason =
+  | 'browser-handle'
+  | 'composition'
+  | 'internal-control'
+  | 'model-command'
+  | 'native-selection'
+  | 'programmatic-export'
+  | 'repair-induced'
+  | 'shell-backed'
+  | 'unknown'
+
+export type ModelSelectionPreference = {
+  preferModelSelection: boolean
+  reason: ModelSelectionPreferenceReason
+  selectionSource: SelectionSource
+}
+
 export type EditableSelectionSourceTransition = {
   preferModelSelection: boolean
   reason:
@@ -46,6 +63,7 @@ export type EditableInputControllerState = {
   isDraggingInternally: boolean
   isUpdatingSelection: boolean
   latestElement: DOMElement | null
+  modelSelectionPreference?: ModelSelectionPreference | null
   pendingDOMSelectionImport: boolean
   selectionChangeOrigin: SelectionChangeOrigin | null
   selectionSource: SelectionSource
@@ -63,6 +81,7 @@ export const createEditableInputControllerState =
     isDraggingInternally: false,
     isUpdatingSelection: false,
     latestElement: null,
+    modelSelectionPreference: null,
     pendingDOMSelectionImport: false,
     selectionChangeOrigin: null,
     selectionSource: 'unknown',

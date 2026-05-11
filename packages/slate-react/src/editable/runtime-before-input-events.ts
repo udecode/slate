@@ -4,7 +4,7 @@ import { ReactEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
 import { shouldSkipDuplicateEditableEditingEpochCommand } from './editing-epoch-kernel'
 import { prepareEditableBeforeInputKernel } from './editing-kernel'
-import { isEditableModelSelectionPreferred } from './input-controller'
+import { isEditableModelSelectionPreferredForInput } from './input-controller'
 import {
   useEditableDOMBeforeInputHandler,
   useEditableReactBeforeInputHandler,
@@ -136,7 +136,7 @@ export const useRuntimeBeforeInputEvents = ({
           target: event.target,
         })
       )
-      if (applyModelOwnedNativeHistoryEvent({ editor, event })) {
+      if (applyModelOwnedNativeHistoryEvent({ editor, event, readOnly })) {
         event.preventDefault()
         event.stopImmediatePropagation()
         if (shouldForceRenderAfterModelOwnedHistory(editor)) {
@@ -248,7 +248,10 @@ export const useRuntimeBeforeInputEvents = ({
               isCompositionChange,
               native,
               preferModelSelectionForInput:
-                isEditableModelSelectionPreferred(inputController),
+                isEditableModelSelectionPreferredForInput({
+                  inputController,
+                  inputType: type,
+                }),
               root,
               selection: currentSelection,
             })

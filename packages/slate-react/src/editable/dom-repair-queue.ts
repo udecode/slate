@@ -1,5 +1,5 @@
 import { Range } from 'slate'
-import { getSelection, isDOMElement, isDOMText } from 'slate-dom'
+import { type DOMRange, getSelection, isDOMElement, isDOMText } from 'slate-dom'
 import {
   getSlateNodeElementByPath,
   getSlateNodePathFromDOMElement,
@@ -67,9 +67,11 @@ export const isDOMRepairFrameCurrent = (
 export const createDOMRepairQueue = ({
   editor,
   inputController,
+  scrollSelectionIntoView,
 }: {
   editor: ReactEditor
   inputController: EditableInputController
+  scrollSelectionIntoView: (editor: ReactEditor, domRange: DOMRange) => void
   syncDOMSelectionToEditor: () => void
 }): DOMRepairQueue => {
   const frameState = createDOMRepairFrameState()
@@ -102,9 +104,13 @@ export const createDOMRepairQueue = ({
       if (
         nativeInput.inputType !== 'insertText' ||
         typeof nativeInput.data !== 'string' ||
-        nativeInput.data.length === 0 ||
-        (domText === modelText && modelText.includes(nativeInput.data))
+        nativeInput.data.length === 0
       ) {
+        return
+      }
+
+      if (domText === modelText && modelText.includes(nativeInput.data)) {
+        this.repairCaretAfterModelTextInsert()
         return
       }
 
@@ -190,9 +196,36 @@ export const createDOMRepairQueue = ({
           return
         }
 
+        const scrollCurrentDOMSelectionIntoView = () => {
+          let root: Document | ShadowRoot
+
+          try {
+            root = ReactEditor.findDocumentOrShadowRoot(editor)
+          } catch {
+            return false
+          }
+
+          const domSelection = getSelection(root)
+          const anchorNode = domSelection?.anchorNode ?? null
+          const focusNode = domSelection?.focusNode ?? null
+
+          if (
+            !domSelection ||
+            domSelection.rangeCount === 0 ||
+            !ReactEditor.hasSelectableTarget(editor, anchorNode) ||
+            !ReactEditor.hasSelectableTarget(editor, focusNode)
+          ) {
+            return false
+          }
+
+          scrollSelectionIntoView(editor, domSelection.getRangeAt(0))
+          return true
+        }
+
         const selection = readRuntimeSelection(editor)
 
         if (!selection || !Range.isCollapsed(selection)) {
+          scrollCurrentDOMSelectionIntoView()
           return
         }
 
@@ -200,6 +233,7 @@ export const createDOMRepairQueue = ({
         const textHost = getSlateNodeElementByPath(editor, path)
 
         if (!textHost) {
+          scrollCurrentDOMSelectionIntoView()
           return
         }
 
@@ -238,18 +272,27 @@ export const createDOMRepairQueue = ({
               ? zeroWidthOffset
               : Math.max(0, Math.min(slateOffset - offset, length))
 
+            const domNode = textNode ?? string
+            const domRange = domNode.ownerDocument.createRange()
+
+            domRange.setStart(domNode, domOffset)
+            domRange.setEnd(domNode, domOffset)
+
             inputController.state.selectionChangeOrigin = 'repair-induced'
             domSelection.setBaseAndExtent(
-              textNode ?? string,
+              domNode,
               domOffset,
-              textNode ?? string,
+              domNode,
               domOffset
             )
+            scrollSelectionIntoView(editor, domRange)
             return
           }
 
           offset = nextOffset
         }
+
+        scrollCurrentDOMSelectionIntoView()
       }
 
       const retry = (remainingRetries: number) => {

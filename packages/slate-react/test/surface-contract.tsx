@@ -324,6 +324,26 @@ describe('slate-react surface contract', () => {
     expect(SlateReact.withReact).toBe(withReact)
   })
 
+  test('virtualized rendering stays object-only and experimental', () => {
+    const segmentPlanSource = readFileSync(
+      resolve(packageRoot, 'src/rendering-strategy/create-segment-plan.ts'),
+      'utf8'
+    )
+    const editableSource = readFileSync(
+      resolve(packageRoot, 'src/components/editable-text-blocks.tsx'),
+      'utf8'
+    )
+
+    const renderingStrategyType = segmentPlanSource.match(
+      /export type RenderingStrategyType =([\s\S]*?)export type RenderingStrategyOptions =/
+    )?.[1]
+
+    expect(renderingStrategyType).not.toContain("'virtualized'")
+    expect(segmentPlanSource).toContain("type: 'virtualized'")
+    expect(segmentPlanSource).toContain('Intentionally object-only')
+    expect(editableSource).toContain('`virtualized` is experimental')
+  })
+
   test('Editable defaults translate="no" and allows override', () => {
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
     const editor = createReactEditor(initialValue)

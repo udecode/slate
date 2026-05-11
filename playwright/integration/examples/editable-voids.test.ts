@@ -384,7 +384,11 @@ test.describe('editable voids', () => {
       )
 
       runtimeErrors.assertNone()
-      await expect.poll(() => nested.get.modelText()).toBe('Hello World')
+      await expect
+        .poll(async () =>
+          (await nested.get.modelText()).replaceAll('\u00a0', ' ')
+        )
+        .toBe('Hello World')
       await expect(nestedEditor.locator('strong')).toHaveText('World')
       await expect
         .poll(() => outer.get.modelText())

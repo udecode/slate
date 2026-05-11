@@ -1,5 +1,6 @@
 import { act, render, renderHook, waitFor } from '@testing-library/react'
 import _ from 'lodash'
+import { Component, type ReactNode } from 'react'
 import {
   createEditor,
   type Operation,
@@ -34,6 +35,29 @@ const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
 
 const createReactEditor = <V extends Value>(initialValue: V) =>
   withReact(createEditor({ initialValue }))
+
+class SelectorErrorBoundary extends Component<
+  {
+    children: ReactNode
+    onError: (error: Error) => void
+  },
+  { error: Error | null }
+> {
+  state = { error: null }
+
+  componentDidCatch(error: Error) {
+    this.props.onError(error)
+    this.setState({ error })
+  }
+
+  render() {
+    return this.state.error ? (
+      <span data-testid="selector-error">{this.state.error.message}</span>
+    ) : (
+      this.props.children
+    )
+  }
+}
 
 describe('slate-react provider hooks contract', () => {
   test('useSlateEditor creates a React editor with initialized value', () => {
@@ -122,6 +146,149 @@ describe('slate-react provider hooks contract', () => {
     expect(callback1).toBeCalledTimes(3)
     expect(callback2).toBeCalledTimes(1)
     expect(firstResult).toBe(result.current)
+  })
+
+  test('useEditorSelector replays subscription errors during render with context', async () => {
+    const editor = createReactEditor(initialValue)
+    const initialVersion = Editor.getLastCommit(editor)?.version ?? 0
+    const onError = jest.fn()
+    const consoleError = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => {})
+
+    const ThrowingSelector = () => {
+      const version = useEditorSelector((nextEditor) => {
+        const nextVersion = Editor.getLastCommit(nextEditor)?.version ?? 0
+
+        if (nextVersion > initialVersion) {
+          throw new Error('selector exploded')
+        }
+
+        return nextVersion
+      }, Object.is)
+
+      return <span data-testid="selector-version">{version}</span>
+    }
+
+    try {
+      const rendered = render(
+        <Slate editor={editor}>
+          <Editable />
+          <SelectorErrorBoundary onError={onError}>
+            <ThrowingSelector />
+          </SelectorErrorBoundary>
+        </Slate>
+      )
+
+      expect(rendered.getByTestId('selector-version')).toHaveTextContent(
+        String(initialVersion)
+      )
+
+      await act(async () => {
+        editor.update((tx) => {
+          tx.text.insert('!', { at: { path: [0, 0], offset: 4 } })
+        })
+      })
+
+      await waitFor(() => {
+        expect(onError).toBeCalled()
+      })
+
+      const replayedError = onError.mock.calls.at(-1)?.[0] as Error
+      expect(replayedError.message).toContain('selector exploded')
+      expect(replayedError.message).toContain(
+        'The error may be correlated with this previous error'
+      )
+      expect(rendered.getByTestId('selector-error')).toHaveTextContent(
+        'selector exploded'
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  test('useEditorSelector passes commit operations into selector updates', async () => {
+    const editor = createReactEditor(initialValue)
+    const seenOperations: (readonly Operation[] | undefined)[] = []
+    const selector = jest.fn((_editor, operations?: readonly Operation[]) => {
+      seenOperations.push(operations)
+
+      return operations?.map((operation) => operation.type).join(',') ?? 'idle'
+    })
+
+    const { result } = renderHook(
+      () => useEditorSelector(selector, Object.is),
+      {
+        wrapper: ({ children }) => (
+          <Slate editor={editor}>
+            <Editable />
+            {children}
+          </Slate>
+        ),
+      }
+    )
+
+    expect(result.current).toBe('idle')
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.text.insert('!', { at: { path: [0, 0], offset: 4 } })
+      })
+    })
+
+    expect(result.current).toBe('insert_text')
+    expect(seenOperations.at(-1)?.map((operation) => operation.type)).toEqual([
+      'insert_text',
+    ])
+  })
+
+  test('deferred editor selectors preserve profiler markers while coalescing renders', async () => {
+    const editor = createReactEditor(initialValue)
+    const selector = jest.fn(() => Editor.getLastCommit(editor)?.version ?? 0)
+    const counter = createSlateReactRenderCounter()
+    const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
+    globalThis.__SLATE_REACT_RENDER_PROFILER__ = counter.profiler
+
+    try {
+      const { result } = renderHook(
+        () =>
+          useEditorSelector(selector, Object.is, {
+            deferred: true,
+            profileId: 'deferred-proof',
+          }),
+        {
+          wrapper: ({ children }) => (
+            <Slate editor={editor}>
+              <Editable />
+              {children}
+            </Slate>
+          ),
+        }
+      )
+
+      expect(selector).toBeCalledTimes(2)
+      counter.reset()
+
+      await act(async () => {
+        editor.update((tx) => {
+          tx.text.insert('!', { at: { path: [0, 0], offset: 4 } })
+        })
+        editor.update((tx) => {
+          tx.text.insert('?', { at: { path: [0, 0], offset: 5 } })
+        })
+
+        expect(selector).toBeCalledTimes(2)
+      })
+
+      expect(selector).toBeCalledTimes(3)
+      expect(result.current).toBe(Editor.getLastCommit(editor)?.version)
+
+      const profile = counter.snapshot()
+      expect(profile.byKey['selector:selector-deferred-proof-check']).toBe(2)
+      expect(profile.byKey['selector:selector-deferred-proof-notify']).toBe(2)
+    } finally {
+      globalThis.__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+    }
   })
 
   test('useEditorSelector passes commit facts to shouldUpdate', async () => {

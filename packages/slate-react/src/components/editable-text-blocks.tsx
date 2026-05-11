@@ -533,6 +533,10 @@ export type EditableTextBlocksProps<
   disableDefaultStyles?: boolean
   id?: string
   inputRules?: readonly EditableInputRule[]
+  /**
+   * Rendering strategy for large documents. `virtualized` is experimental and
+   * must use the object form: `{ type: 'virtualized', ... }`.
+   */
   renderingStrategy?: RenderingStrategyOptions | null
   onBeforeInput?: React.FormEventHandler<HTMLDivElement>
   onDOMBeforeInput?: (event: InputEvent) => void

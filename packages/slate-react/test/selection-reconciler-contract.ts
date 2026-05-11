@@ -6,6 +6,9 @@ import { Editor } from '../src/editable/runtime-editor-api'
 import { syncSelectionForBeforeInput } from '../src/editable/selection-reconciler'
 import { ReactEditor } from '../src/plugin/react-editor'
 
+const createRootWithoutSelection = () =>
+  ({ getSelection: () => null }) as unknown as Document
+
 const createTextEditor = () => {
   const editor = createEditor()
 
@@ -45,7 +48,7 @@ describe('selection reconciler', () => {
         isCompositionChange: false,
         native: false,
         preferModelSelectionForInput: true,
-        root: {} as Document,
+        root: createRootWithoutSelection(),
         selection,
       })
 
@@ -83,7 +86,7 @@ describe('selection reconciler', () => {
         isCompositionChange: false,
         native: false,
         preferModelSelectionForInput: false,
-        root: {} as Document,
+        root: createRootWithoutSelection(),
         selection,
       })
 
@@ -122,7 +125,7 @@ describe('selection reconciler', () => {
         isCompositionChange: false,
         native: false,
         preferModelSelectionForInput: true,
-        root: {} as Document,
+        root: createRootWithoutSelection(),
         selection,
       })
 

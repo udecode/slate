@@ -1,6 +1,13 @@
 import { act, fireEvent, render } from '@testing-library/react'
 import { createEditor, Text } from 'slate'
-import { Editable, editableInputRules, Slate, withReact } from '../src'
+import { Editor } from 'slate/internal'
+import {
+  defaultScrollSelectionIntoView,
+  Editable,
+  editableInputRules,
+  Slate,
+  withReact,
+} from '../src'
 import { getEditableInputRules } from '../src/editable/editable-input-rules'
 
 describe('slate-react editable behavior', () => {
@@ -208,5 +215,54 @@ describe('slate-react editable behavior', () => {
       propRule,
       extensionRule,
     ])
+  })
+
+  test('default scroll restores leaf measurement after scrolling a collapsed range', () => {
+    const editor = withReact(createEditor())
+
+    Editor.replace(editor, {
+      children: [{ type: 'block', children: [{ text: 'test' }] }],
+      selection: {
+        anchor: { path: [0, 0], offset: 4 },
+        focus: { path: [0, 0], offset: 4 },
+      },
+    })
+
+    const leaf = document.createElement('span')
+    const text = document.createTextNode('test')
+    leaf.append(text)
+    document.body.append(leaf)
+
+    const range = {
+      cloneRange: () => ({
+        collapse: () => {},
+        getBoundingClientRect: () =>
+          ({
+            bottom: 1,
+            height: 1,
+            left: 1,
+            right: 1,
+            top: 1,
+            width: 1,
+            x: 1,
+            y: 1,
+          }) as DOMRect,
+        startContainer: text,
+      }),
+    } as unknown as DOMRange
+
+    try {
+      defaultScrollSelectionIntoView(editor, range)
+
+      expect(Object.hasOwn(leaf, 'getBoundingClientRect')).toBe(false)
+      expect(typeof leaf.getBoundingClientRect).toBe('function')
+
+      defaultScrollSelectionIntoView(editor, range)
+
+      expect(Object.hasOwn(leaf, 'getBoundingClientRect')).toBe(false)
+      expect(typeof leaf.getBoundingClientRect).toBe('function')
+    } finally {
+      leaf.remove()
+    }
   })
 })

@@ -213,6 +213,37 @@ describe('slate text-units contract', () => {
     assert.equal(getWordDistance("Don't do this", true), 4)
   })
 
+  it('measures punctuation and emoji word edges directionally', () => {
+    assert.equal(getWordDistance(',🙂 alpha'), 3)
+    assert.equal(getWordDistance('🙂, alpha'), 2)
+    assert.equal(getWordDistance('alpha,🙂', true), 2)
+    assert.equal(getWordDistance('alpha 🙂,', true), 3)
+  })
+
+  it('moves word selection across soft line boundaries', () => {
+    const forward = createTextEditor('one\ntwo three', 3)
+
+    forward.update((tx) => {
+      tx.selection.move({ unit: 'word' })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(forward).selection, {
+      anchor: point(7),
+      focus: point(7),
+    })
+
+    const backward = createTextEditor('one\ntwo three', 4)
+
+    backward.update((tx) => {
+      tx.selection.move({ reverse: true, unit: 'word' })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(backward).selection, {
+      anchor: point(0),
+      focus: point(0),
+    })
+  })
+
   it('measures portable Lexical #7163 Unicode destructive rows', () => {
     for (const testCase of lexical7163GraphemeCases) {
       assert.deepEqual(

@@ -19,8 +19,7 @@
     "@juggle/resize-observer": "^3.4.0",
     "@tanstack/react-virtual": "^3.13.24",
     "direction": "^1.0.4",
-    "lodash": "^4.17.21",
-    "scroll-into-view-if-needed": "^3.1.0"
+    "lodash": "^4.17.21"
   },
   "scripts": {
     "build": "tsdown --config ../../config/tsdown.config.mts --log-level warn",

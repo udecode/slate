@@ -52,6 +52,7 @@ export const createRuntimeSelectionChangeHandler = ({
       setEditableModelSelectionPreference({
         inputController,
         preferModelSelection: true,
+        reason: 'repair-induced',
         selectionSource: 'model-owned',
       })
     }

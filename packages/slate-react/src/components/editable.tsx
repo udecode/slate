@@ -1,5 +1,4 @@
 import type React from 'react'
-import scrollIntoView from 'scroll-into-view-if-needed'
 import {
   type Element,
   type LeafPosition,
@@ -372,6 +371,153 @@ export const DefaultPlaceholder = ({
   </span>
 )
 
+type ScrollRect = {
+  bottom: number
+  left: number
+  right: number
+  top: number
+}
+
+const SCROLL_VISIBILITY_MARGIN = 4
+const SCROLLABLE_OVERFLOW_PATTERN = /(auto|scroll|overlay)/
+
+const isUsableScrollRect = (rect: DOMRect | DOMRectReadOnly) =>
+  rect.width > 0 ||
+  rect.height > 0 ||
+  rect.x !== 0 ||
+  rect.y !== 0 ||
+  rect.top !== 0 ||
+  rect.left !== 0 ||
+  rect.bottom !== 0 ||
+  rect.right !== 0
+
+const toScrollRect = (rect: DOMRect | DOMRectReadOnly): ScrollRect => ({
+  bottom: rect.bottom,
+  left: rect.left,
+  right: rect.right,
+  top: rect.top,
+})
+
+const offsetScrollRect = (
+  rect: ScrollRect,
+  delta: { left: number; top: number }
+): ScrollRect => ({
+  bottom: rect.bottom - delta.top,
+  left: rect.left - delta.left,
+  right: rect.right - delta.left,
+  top: rect.top - delta.top,
+})
+
+const canScrollAxis = (element: HTMLElement, axis: 'x' | 'y') => {
+  const style = element.ownerDocument.defaultView?.getComputedStyle(element)
+  const overflow =
+    axis === 'y'
+      ? `${style?.overflowY ?? ''} ${style?.overflow ?? ''}`
+      : `${style?.overflowX ?? ''} ${style?.overflow ?? ''}`
+
+  if (!SCROLLABLE_OVERFLOW_PATTERN.test(overflow)) {
+    return false
+  }
+
+  return axis === 'y'
+    ? element.scrollHeight > element.clientHeight
+    : element.scrollWidth > element.clientWidth
+}
+
+const scrollRectIntoViewIfNeeded = ({
+  rect,
+  startElement,
+}: {
+  rect: ScrollRect
+  startElement: HTMLElement
+}) => {
+  let currentRect = rect
+
+  for (
+    let parent = startElement.parentElement;
+    parent;
+    parent = parent.parentElement
+  ) {
+    const canScrollY = canScrollAxis(parent, 'y')
+    const canScrollX = canScrollAxis(parent, 'x')
+
+    if (!canScrollY && !canScrollX) {
+      continue
+    }
+
+    const parentRect = parent.getBoundingClientRect()
+    const topEdge = parentRect.top + SCROLL_VISIBILITY_MARGIN
+    const bottomEdge = parentRect.bottom - SCROLL_VISIBILITY_MARGIN
+    const leftEdge = parentRect.left + SCROLL_VISIBILITY_MARGIN
+    const rightEdge = parentRect.right - SCROLL_VISIBILITY_MARGIN
+    const nextTop =
+      canScrollY && currentRect.top < topEdge
+        ? currentRect.top - topEdge
+        : canScrollY && currentRect.bottom > bottomEdge
+          ? currentRect.bottom - bottomEdge
+          : 0
+    const nextLeft =
+      canScrollX && currentRect.left < leftEdge
+        ? currentRect.left - leftEdge
+        : canScrollX && currentRect.right > rightEdge
+          ? currentRect.right - rightEdge
+          : 0
+
+    if (nextTop === 0 && nextLeft === 0) {
+      continue
+    }
+
+    const previousTop = parent.scrollTop
+    const previousLeft = parent.scrollLeft
+
+    parent.scrollTop += nextTop
+    parent.scrollLeft += nextLeft
+
+    currentRect = offsetScrollRect(currentRect, {
+      left: parent.scrollLeft - previousLeft,
+      top: parent.scrollTop - previousTop,
+    })
+  }
+
+  const window = startElement.ownerDocument.defaultView
+
+  if (!window) {
+    return
+  }
+
+  const topEdge = SCROLL_VISIBILITY_MARGIN
+  const bottomEdge = window.innerHeight - SCROLL_VISIBILITY_MARGIN
+  const leftEdge = SCROLL_VISIBILITY_MARGIN
+  const rightEdge = window.innerWidth - SCROLL_VISIBILITY_MARGIN
+  const scrollingElement = window.document.scrollingElement
+  const canScrollWindowY = scrollingElement
+    ? scrollingElement.scrollHeight > scrollingElement.clientHeight
+    : window.document.documentElement.scrollHeight > window.innerHeight
+  const canScrollWindowX = scrollingElement
+    ? scrollingElement.scrollWidth > scrollingElement.clientWidth
+    : window.document.documentElement.scrollWidth > window.innerWidth
+  const nextTop =
+    canScrollWindowY && currentRect.top < topEdge
+      ? currentRect.top - topEdge
+      : canScrollWindowY && currentRect.bottom > bottomEdge
+        ? currentRect.bottom - bottomEdge
+        : 0
+  const nextLeft =
+    canScrollWindowX && currentRect.left < leftEdge
+      ? currentRect.left - leftEdge
+      : canScrollWindowX && currentRect.right > rightEdge
+        ? currentRect.right - rightEdge
+        : 0
+
+  if (nextTop !== 0 || nextLeft !== 0) {
+    try {
+      window.scrollBy(nextLeft, nextTop)
+    } catch {
+      // Environments like jsdom expose scrollBy but do not implement it.
+    }
+  }
+}
+
 /**
  * A default implement to scroll dom range into view.
  */
@@ -387,9 +533,9 @@ export const defaultScrollSelectionIntoView = (
   domFocusPoint.collapse(isBackward)
 
   if (domFocusPoint.getBoundingClientRect) {
-    const leafEl = domFocusPoint.startContainer.parentElement!
+    const leafEl = domFocusPoint.startContainer.parentElement
 
-    if (typeof leafEl.getBoundingClientRect !== 'function') {
+    if (!leafEl || typeof leafEl.getBoundingClientRect !== 'function') {
       return
     }
 
@@ -402,27 +548,19 @@ export const defaultScrollSelectionIntoView = (
       domRect.x === 0 &&
       domRect.y === 0
 
-    if (isZeroDimensionRect) {
-      const leafRect = leafEl.getBoundingClientRect()
-      const leafHasDimensions = leafRect.width > 0 || leafRect.height > 0
+    const targetRect =
+      !isZeroDimensionRect && isUsableScrollRect(domRect)
+        ? domRect
+        : leafEl.getBoundingClientRect()
 
-      if (leafHasDimensions) {
-        scrollIntoView(leafEl, {
-          scrollMode: 'if-needed',
-        })
-        return
-      }
+    if (!isUsableScrollRect(targetRect)) {
+      return
     }
 
-    // Default behavior: use domFocusPoint's getBoundingClientRect
-    leafEl.getBoundingClientRect =
-      domFocusPoint.getBoundingClientRect.bind(domFocusPoint)
-    scrollIntoView(leafEl, {
-      scrollMode: 'if-needed',
+    scrollRectIntoViewIfNeeded({
+      rect: toScrollRect(targetRect),
+      startElement: leafEl,
     })
-
-    // @ts-expect-error an unorthodox delete D:
-    leafEl.getBoundingClientRect = undefined
   }
 }
 
