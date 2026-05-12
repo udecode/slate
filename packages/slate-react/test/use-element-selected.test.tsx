@@ -13,6 +13,7 @@ import {
 
 let editor: ReactEditor
 let latestSelectedById: Record<string, boolean | undefined>
+let latestCollapsedSelectedById: Record<string, boolean | undefined>
 
 const initialValue = () => [
   {
@@ -33,6 +34,7 @@ describe('useElementSelected', () => {
       editor = withReact(createEditor({ initialValue: initialValue() }))
 
       latestSelectedById = {}
+      latestCollapsedSelectedById = {}
 
       const renderElement = ({
         element,
@@ -41,9 +43,12 @@ describe('useElementSelected', () => {
       }: RenderElementProps) => {
         // eslint-disable-next-line react-hooks/rules-of-hooks
         const selected = useElementSelected()
+        // eslint-disable-next-line react-hooks/rules-of-hooks
+        const collapsedSelected = useElementSelected({ mode: 'collapsed' })
         const { id } = element as any
 
         latestSelectedById[id] = selected
+        latestCollapsedSelectedById[id] = collapsedSelected
 
         return <div {...attributes}>{children}</div>
       }
@@ -57,6 +62,14 @@ describe('useElementSelected', () => {
 
     it('returns false initially', () => {
       expect(latestSelectedById).toEqual({
+        '0': false,
+        '0.0': false,
+        '0.1': false,
+        '0.2': false,
+        '1': false,
+        '2': false,
+      })
+      expect(latestCollapsedSelectedById).toEqual({
         '0': false,
         '0.0': false,
         '0.1': false,
@@ -127,6 +140,31 @@ describe('useElementSelected', () => {
       expect(latestSelectedById.new).toBe(false)
       expect(latestSelectedById['2']).toBe(true)
     })
+
+    it('supports collapsed-only mode without changing intersection mode', async () => {
+      await act(async () => {
+        editor.update((tx) => {
+          tx.selection.set({
+            anchor: { path: [2, 0], offset: 0 },
+            focus: { path: [0, 1, 0], offset: 0 },
+          })
+        })
+      })
+
+      expect(latestSelectedById['1']).toBe(true)
+      expect(latestCollapsedSelectedById['1']).toBe(false)
+      expect(latestSelectedById['2']).toBe(true)
+      expect(latestCollapsedSelectedById['2']).toBe(false)
+
+      await act(async () => {
+        editor.update((tx) => {
+          tx.selection.set({ path: [2, 0], offset: 0 })
+        })
+      })
+
+      expect(latestSelectedById['2']).toBe(true)
+      expect(latestCollapsedSelectedById['2']).toBe(true)
+    })
   }
 
   describe('standard render tree', () => {
@@ -144,7 +182,6 @@ describe('useElementSelected', () => {
       element,
       attributes,
       children,
-      path,
     }: RenderElementProps) => {
       const selected = useElementSelected()
       const { id } = element as { id: string }
@@ -164,9 +201,11 @@ describe('useElementSelected', () => {
 
         removedIds.add(id)
         editor.update((tx) => {
+          const path = editor.dom.findPath(element)
+
           tx.nodes.remove({ at: path })
         })
-      }, [id, path, selected])
+      }, [element, id, selected])
 
       return <div {...attributes}>{children}</div>
     }
@@ -233,5 +272,52 @@ describe('useElementSelected', () => {
 
     expect(Editor.hasPath(editor, watchedPath)).toBe(false)
     expect(selectedValues.at(-1)).toBe(false)
+  })
+
+  it('supports collapsed-only mode with an explicit watched path', async () => {
+    editor = withReact(createEditor({ initialValue: initialValue() }))
+
+    const watchedPath = [2]
+    const selectedValues: boolean[] = []
+    const renderElement = ({ attributes, children }: RenderElementProps) => (
+      <div {...attributes}>{children}</div>
+    )
+    const ExplicitPathProbe = () => {
+      selectedValues.push(
+        useElementSelected({ at: watchedPath, mode: 'collapsed' })
+      )
+
+      return null
+    }
+
+    render(
+      <Slate editor={editor}>
+        <ExplicitPathProbe />
+        <Editable renderElement={renderElement} />
+      </Slate>
+    )
+
+    expect(selectedValues.at(-1)).toBe(false)
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.selection.set({
+          anchor: { path: [2, 0], offset: 0 },
+          focus: { path: [0, 1, 0], offset: 0 },
+        })
+      })
+    })
+
+    expect(selectedValues.at(-1)).toBe(false)
+
+    selectedValues.splice(0)
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.selection.set({ path: [2, 0], offset: 0 })
+      })
+    })
+
+    expect(selectedValues.at(-1)).toBe(true)
   })
 })

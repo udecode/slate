@@ -30,66 +30,66 @@ const renderingStrategyOptions = {
   threshold: 1,
 } as const
 
-const editorStyle: CSSProperties = {
+const editorStyle = {
   border: '1px solid #cbd5e1',
   borderRadius: 6,
   minHeight: 80,
   padding: 12,
-}
+} satisfies CSSProperties
 
-const virtualizedEditorStyle: CSSProperties = {
+const virtualizedEditorStyle = {
   ...editorStyle,
   height: 360,
   overflowY: 'auto',
-}
+} satisfies CSSProperties
 
-const virtualizedControlsStyle: CSSProperties = {
+const virtualizedControlsStyle = {
   alignItems: 'end',
   display: 'grid',
   gap: 12,
   gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
   marginBottom: 8,
-}
+} satisfies CSSProperties
 
-const virtualizedLabelStyle: CSSProperties = {
+const virtualizedLabelStyle = {
   display: 'grid',
   gap: 4,
-}
+} satisfies CSSProperties
 
-const virtualizedInputStyle: CSSProperties = {
+const virtualizedInputStyle = {
   border: '1px solid #cbd5e1',
   borderRadius: 4,
   font: 'inherit',
   padding: '6px 8px',
-}
+} satisfies CSSProperties
 
-const virtualizedButtonRowStyle: CSSProperties = {
+const virtualizedButtonRowStyle = {
   display: 'flex',
   flexWrap: 'wrap',
   gap: 8,
-}
+} satisfies CSSProperties
 
-const virtualizedButtonStyle: CSSProperties = {
+const virtualizedButtonStyle = {
   border: '1px solid #94a3b8',
   borderRadius: 4,
   cursor: 'pointer',
   font: 'inherit',
   padding: '6px 10px',
-}
+} satisfies CSSProperties
 
-const virtualizedSummaryStyle: CSSProperties = {
+const virtualizedSummaryStyle = {
   display: 'grid',
   gap: 8,
   gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-}
+} satisfies CSSProperties
 
-const virtualizedMetricStyle: CSSProperties = {
+const virtualizedMetricStyle = {
   border: '1px solid #e2e8f0',
   borderRadius: 4,
   padding: 8,
-}
+} satisfies CSSProperties
 
-const virtualizedBadgeStyle: CSSProperties = {
+const virtualizedBadgeStyle = {
   background: '#fef3c7',
   border: '1px solid #f59e0b',
   borderRadius: 4,
@@ -98,13 +98,13 @@ const virtualizedBadgeStyle: CSSProperties = {
   fontSize: 13,
   fontWeight: 700,
   padding: '4px 8px',
-}
+} satisfies CSSProperties
 
-const sectionStyle: CSSProperties = {
+const sectionStyle = {
   display: 'grid',
   gap: 8,
   marginBottom: 24,
-}
+} satisfies CSSProperties
 
 const createBlocks = (prefix: string): Value =>
   Array.from({ length: 6 }, (_, index) => ({

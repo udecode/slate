@@ -5,6 +5,7 @@ import type { AndroidInputManager } from '../hooks/android-input-manager/android
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { ReactEditor } from '../plugin/react-editor'
 import { commitInsertFromComposition } from './composition-state'
+import { isDataTransferInput } from './dom-input-event'
 import {
   type EditableCommand,
   getEditableCommandFromBeforeInputType,
@@ -310,8 +311,8 @@ export const applyModelOwnedBeforeInputOperation = ({
         applyModelOwnedDataTransferInput({ data: command.data, editor })
         return { kind: 'repair-caret' }
       }
-      if ((data as any)?.constructor.name === 'DataTransfer') {
-        applyModelOwnedDataTransferInput({ data: data as DataTransfer, editor })
+      if (isDataTransferInput(data)) {
+        applyModelOwnedDataTransferInput({ data, editor })
         return { kind: 'repair-caret' }
       }
       const textCommand =

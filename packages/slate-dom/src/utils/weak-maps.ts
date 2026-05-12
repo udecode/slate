@@ -5,6 +5,7 @@ import type {
   Point,
   Range,
   RangeRef,
+  RuntimeId,
   Text,
 } from 'slate'
 import type { TextDiff } from './diff-text'
@@ -19,6 +20,7 @@ export type Action = { at?: Point | Range; run: () => void }
 export const IS_NODE_MAP_DIRTY: WeakMap<Editor, boolean> = new WeakMap()
 export const NODE_TO_INDEX: WeakMap<Node, number> = new WeakMap()
 export const NODE_TO_PARENT: WeakMap<Node, Ancestor> = new WeakMap()
+export const NODE_TO_RUNTIME_ID: WeakMap<Node, RuntimeId> = new WeakMap()
 
 /**
  * Weak maps that allow us to go between Slate nodes and DOM nodes. These

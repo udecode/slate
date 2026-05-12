@@ -1,5 +1,6 @@
 import {
   createEditor,
+  Element,
   type InsertNodeOperation,
   type InsertTextOperation,
   Operation,
@@ -67,7 +68,11 @@ const unknownReplaceChildren: unknown = {
 
 if (Operation.isReplaceChildrenOperation<CustomValue>(unknownReplaceChildren)) {
   const narrowed: ReplaceChildrenOperation<CustomValue> = unknownReplaceChildren
-  void narrowed.newChildren[0]?.children
+  const [firstNewChild] = narrowed.newChildren
+
+  if (Element.isElement<ParagraphElement>(firstNewChild)) {
+    void firstNewChild.children
+  }
 }
 
 editor.update((tx) => {

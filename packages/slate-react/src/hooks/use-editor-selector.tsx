@@ -17,6 +17,14 @@ type Callback = (
   change?: SnapshotChange
 ) => void
 
+export type EditorSelectorContextValue = {
+  addEventListener: (
+    callback: Callback,
+    options?: EditorSelectorOptions
+  ) => () => void
+  flushDeferred: () => void
+}
+
 export interface EditorSelectorOptions<
   TEditor extends ReactEditor<any> = ReactEditor<any>,
 > {
@@ -42,15 +50,10 @@ export interface EditorStateSelectorOptions<
   ) => boolean
 }
 
-export const EditorSelectorContext = createContext<{
-  addEventListener: (
-    callback: Callback,
-    options?: EditorSelectorOptions
-  ) => () => void
-  flushDeferred: () => void
-}>({} as any)
+export const EditorSelectorContext =
+  createContext<EditorSelectorContextValue | null>(null)
 
-const refEquality = (a: any, b: any) => a === b
+const refEquality = <T,>(a: T | null, b: T) => a === b
 
 const getSelectorProfileId = (
   profileId: string | undefined,
@@ -64,6 +67,17 @@ const scheduleMicrotask =
     : (callback: () => void) => {
         Promise.resolve().then(callback)
       }
+
+export function useRequiredEditorSelectorContext() {
+  const context = useContext(EditorSelectorContext)
+  if (!context) {
+    throw new Error(
+      `The \`useEditorSelector\` hook must be used inside the <Slate> component's context.`
+    )
+  }
+
+  return context
+}
 
 export function useEditorSelector<
   T,
@@ -81,13 +95,7 @@ export function useEditorSelector<
     shouldUpdate,
   }: EditorSelectorOptions<TEditor> = {}
 ): T {
-  const context = useContext(EditorSelectorContext)
-  if (!context) {
-    throw new Error(
-      `The \`useEditorSelector\` hook must be used inside the <Slate> component's context.`
-    )
-  }
-  const { addEventListener } = context
+  const { addEventListener } = useRequiredEditorSelectorContext()
 
   const editor = useEditor<TEditor>()
   const latestOperations = useRef<readonly Operation[] | undefined>(undefined)
@@ -344,6 +352,6 @@ export function useEditorSelectorContext() {
 }
 
 export function useFlushDeferredSelectorsOnRender() {
-  const { flushDeferred } = useContext(EditorSelectorContext)
+  const { flushDeferred } = useRequiredEditorSelectorContext()
   useIsomorphicLayoutEffect(flushDeferred)
 }

@@ -273,10 +273,14 @@ const registerExtensionSlots = <TEditor extends Editor>(
       }
     }
 
-    for (const [groupName, factory] of Object.entries(slots.editor ?? {})) {
-      cleanups.push(
-        registerEditorGroup(editor, extension.name, groupName, factory as any)
-      )
+    for (const groupName of Object.keys(slots.editor ?? {})) {
+      const factory = slots.editor?.[groupName]
+
+      if (factory) {
+        cleanups.push(
+          registerEditorGroup(editor, extension.name, groupName, factory)
+        )
+      }
     }
 
     for (const spec of slots.elements ?? []) {
@@ -295,16 +299,24 @@ const registerExtensionSlots = <TEditor extends Editor>(
       cleanups.push(registerOperationMiddleware(editor, middleware))
     }
 
-    for (const [groupName, factory] of Object.entries(slots.state ?? {})) {
-      cleanups.push(
-        registerStateGroup(editor, extension.name, groupName, factory as any)
-      )
+    for (const groupName of Object.keys(slots.state ?? {})) {
+      const factory = slots.state?.[groupName]
+
+      if (factory) {
+        cleanups.push(
+          registerStateGroup(editor, extension.name, groupName, factory)
+        )
+      }
     }
 
-    for (const [groupName, factory] of Object.entries(slots.tx ?? {})) {
-      cleanups.push(
-        registerTxGroup(editor, extension.name, groupName, factory as any)
-      )
+    for (const groupName of Object.keys(slots.tx ?? {})) {
+      const factory = slots.tx?.[groupName]
+
+      if (factory) {
+        cleanups.push(
+          registerTxGroup(editor, extension.name, groupName, factory)
+        )
+      }
     }
   }
 

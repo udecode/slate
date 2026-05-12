@@ -12,6 +12,7 @@ import {
   ReactEditor,
   type ReactEditor as ReactEditorInstance,
 } from '../plugin/react-editor'
+import { getInputEventData, isDataTransferInput } from './dom-input-event'
 import {
   closeEditableEditingEpochAfterTrace,
   getEditableEditingEpochForTrace,
@@ -903,9 +904,9 @@ export const getEditableCommandFromBeforeInputType = ({
     (inputType === 'insertFromDrop' ||
       inputType === 'insertFromPaste' ||
       inputType === 'insertFromYank') &&
-    (data as any)?.constructor?.name === 'DataTransfer'
+    isDataTransferInput(data)
   ) {
-    return { data: data as DataTransfer, kind: 'insert-data' }
+    return { data, kind: 'insert-data' }
   }
 
   return null
@@ -919,7 +920,7 @@ export const getEditableCommandFromBeforeInput = ({
   selection: Range | null
 }): EditableCommand | null =>
   getEditableCommandFromBeforeInputType({
-    data: (event as any).dataTransfer || event.data,
+    data: getInputEventData(event),
     inputType: event.inputType,
     selection,
   })

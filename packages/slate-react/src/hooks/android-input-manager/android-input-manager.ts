@@ -25,6 +25,10 @@ import {
   verifyDiffState,
 } from 'slate-dom'
 import {
+  getInputEventData,
+  getInputEventTargetRanges,
+} from '../../editable/dom-input-event'
+import {
   type EditableCommand,
   getEditableCommandFromBeforeInputType,
 } from '../../editable/editing-kernel'
@@ -432,7 +436,7 @@ export function createAndroidInputManager({
     const { inputType: type } = event
     let targetRange: Range | null = null
     const data: DataTransfer | string | undefined =
-      (event as any).dataTransfer || event.data || undefined
+      getInputEventData(event) ?? undefined
 
     if (
       insertPositionHint !== false &&
@@ -442,7 +446,8 @@ export function createAndroidInputManager({
       insertPositionHint = false
     }
 
-    let [nativeTargetRange] = (event as any).getTargetRanges()
+    let nativeTargetRange: StaticRange | globalThis.Selection | undefined =
+      getInputEventTargetRanges(event)[0]
     if (nativeTargetRange) {
       targetRange = ReactEditor.toSlateRange(editor, nativeTargetRange, {
         exactMatch: false,

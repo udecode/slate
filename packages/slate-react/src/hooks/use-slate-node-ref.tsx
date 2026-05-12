@@ -5,6 +5,7 @@ import {
   ELEMENT_TO_NODE,
   IS_COMPOSING,
   NODE_TO_ELEMENT,
+  NODE_TO_RUNTIME_ID,
 } from 'slate-dom'
 import { EditorContext } from '../context'
 import { Editor } from '../editable/runtime-editor-api'
@@ -216,6 +217,7 @@ export const useSlateNodeRef = (
 
     keyToElement.set(key, node)
     NODE_TO_ELEMENT.set(slateNode, node)
+    NODE_TO_RUNTIME_ID.set(slateNode, runtimeId)
     ELEMENT_TO_NODE.set(node, slateNode)
     ELEMENT_TO_PATH.set(node, [...path] as Path)
     node.setAttribute('data-slate-path', path.join(','))
@@ -229,6 +231,10 @@ export const useSlateNodeRef = (
 
       if (NODE_TO_ELEMENT.get(slateNode) === node) {
         NODE_TO_ELEMENT.delete(slateNode)
+
+        if (NODE_TO_RUNTIME_ID.get(slateNode) === runtimeId) {
+          NODE_TO_RUNTIME_ID.delete(slateNode)
+        }
       }
 
       if (ELEMENT_TO_NODE.get(node) === slateNode) {

@@ -25,8 +25,12 @@ const TablesExample = () => {
     withEditor: (editor) => withHistory(editor),
     initialValue,
   })
-  const handleKeyDown = useCallback<EditableKeyDownHandler>(
-    (event) => applyTableBoundaryCommand(editor, event.key),
+  const handleKeyDown = useCallback(
+    ((event) =>
+      applyTableBoundaryCommand(
+        editor,
+        event.key
+      )) satisfies EditableKeyDownHandler,
     [editor]
   )
 

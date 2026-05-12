@@ -7,7 +7,6 @@ import {
   Editable,
   type RenderElementProps,
   type RenderLeafProps,
-  type RenderVoidProps,
   Slate,
   useEditorFocused,
   useElementSelected,
@@ -43,7 +42,7 @@ const PasteHtmlExample = () => {
         renderLeaf={renderLeaf}
         renderVoid={(props) =>
           isImageElement(props.element) ? (
-            <ImageElement element={props.element} path={props.path} />
+            <ImageElement element={props.element} />
           ) : null
         }
       />
@@ -187,9 +186,9 @@ const SafeLink = ({ children, href, attributes }: SafeLinkProps) => {
   )
 }
 
-const ImageElement = ({ element, path }: RenderVoidProps<ImageElementType>) => {
+const ImageElement = ({ element }: { element: ImageElementType }) => {
   const focused = useEditorFocused()
-  const selected = useElementSelected(path)
+  const selected = useElementSelected()
 
   return (
     <img

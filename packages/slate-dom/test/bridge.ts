@@ -18,6 +18,7 @@ import {
   NODE_TO_ELEMENT,
   NODE_TO_INDEX,
   NODE_TO_PARENT,
+  NODE_TO_RUNTIME_ID,
   withDOM,
 } from '../src/index'
 
@@ -203,6 +204,42 @@ describe('slate-dom bridge', () => {
     ]
 
     expect(editor.dom.findPath(textNode)).toEqual([0, 0])
+  })
+
+  it('resolves Slate node paths by runtime id before stale weak-map indexes', () => {
+    const editor = withDOM(createEditor())
+
+    Editor.replace(editor, {
+      children: [
+        { type: 'paragraph', children: [{ text: 'first' }] },
+        { type: 'paragraph', children: [{ text: 'target' }] },
+      ] satisfies Descendant[],
+    })
+
+    seedNodeMaps(
+      editor,
+      editor.read((state) =>
+        state.value
+          .get()
+          .map((_, index) => state.nodes.get([index])[0] as Descendant)
+      )
+    )
+
+    const [targetNode] = editor.read((state) => state.nodes.get([1]))
+    const runtimeId = Editor.getRuntimeId(editor, [1])
+
+    expect(runtimeId).toBeTruthy()
+    NODE_TO_RUNTIME_ID.set(targetNode, runtimeId!)
+
+    editor.update((tx) => {
+      tx.nodes.insert(
+        { type: 'paragraph', children: [{ text: 'inserted' }] } as never,
+        { at: [0] }
+      )
+    })
+
+    expect(Editor.getPathByRuntimeId(editor, runtimeId!)).toEqual([2])
+    expect(editor.dom.findPath(targetNode)).toEqual([2])
   })
 
   it('resolves Slate points by mounted DOM path when node path maps lag', () => {

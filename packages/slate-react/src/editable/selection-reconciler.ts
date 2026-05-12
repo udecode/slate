@@ -30,6 +30,7 @@ import type { AndroidInputManager } from '../hooks/android-input-manager/android
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { ReactEditor } from '../plugin/react-editor'
+import { getInputEventTargetRanges } from './dom-input-event'
 import {
   type EditableInputController,
   executeEditableSelectionExport,
@@ -606,7 +607,7 @@ export const syncSelectionForBeforeInput = ({
   // beforeinput target range that must become the model delete range.
   // If the NODE_MAP is dirty, we can't trust the selection anchor (eg ReactEditor.toDOMPoint via ReactEditor.toSlateRange)
   if (allowDOMSelectionImport && !IS_NODE_MAP_DIRTY.get(editor)) {
-    const [targetRange] = (event as any).getTargetRanges()
+    const [targetRange] = getInputEventTargetRanges(event)
 
     if (
       targetRange &&
@@ -757,7 +758,7 @@ export const handleWebKitShadowDOMBeforeInput = ({
     return false
   }
 
-  const ranges = event.getTargetRanges()
+  const ranges = getInputEventTargetRanges(event)
   const range = ranges[0]
 
   if (!range) {

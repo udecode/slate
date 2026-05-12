@@ -1,6 +1,7 @@
 import { Node, Range } from 'slate'
 import { type DOMText, IS_NODE_MAP_DIRTY } from 'slate-dom'
 import { ReactEditor } from '../plugin/react-editor'
+import { getInputEventData } from './dom-input-event'
 import { Editor } from './runtime-editor-api'
 
 const NATIVE_CHAR_RE = /[a-z ]/i
@@ -104,7 +105,7 @@ export const getNativeBeforeInputDecision = ({
   selection: Range | null
 }) => {
   const { inputType } = event
-  const data = (event as any).dataTransfer || event.data || undefined
+  const data = getInputEventData(event) ?? undefined
   const isCompositionChange =
     inputType === 'insertCompositionText' ||
     inputType === 'deleteCompositionText'

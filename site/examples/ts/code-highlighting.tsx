@@ -25,6 +25,7 @@ import {
   Slate,
   type SlateProjection,
   useEditor,
+  useElementPath,
   useSlateDecorationSource,
   useSlateEditor,
 } from 'slate-react'
@@ -86,11 +87,16 @@ const CodeHighlightingExample = () => {
 }
 
 const ElementWrapper = (props: RenderElementProps) => {
-  const { attributes, children, element, path } = props
+  const { attributes, children, element } = props
   const editor = useEditor<CustomEditor>()
+  const path = useElementPath()
 
   if (element.type === CodeBlockType) {
     const setLanguage = (language: string) => {
+      if (!path) {
+        return
+      }
+
       editor.update((tx) => {
         tx.nodes.set({ language }, { at: path })
       })

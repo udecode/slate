@@ -1,5 +1,5 @@
 import { useCallback, useContext } from 'react'
-import { type Operation, type Path, Range, type SnapshotChange } from 'slate'
+import { type Operation, Path, Range, type SnapshotChange } from 'slate'
 import { ElementPathContext, NodeRuntimeIdContext } from '../context'
 import { Editor } from '../editable/runtime-editor-api'
 import { readRuntimeSelection } from '../editable/runtime-selection-state'
@@ -7,10 +7,32 @@ import { ReactEditor } from '../plugin/react-editor'
 import { useEditorSelector } from './use-editor-selector'
 import { useOptionalElementContext } from './use-element'
 
-export const useElementSelected = (path?: Path): boolean => {
+export type UseElementSelectedMode = 'collapsed' | 'intersects'
+
+export type UseElementSelectedOptions = {
+  at?: Path | null
+  mode?: UseElementSelectedMode
+}
+
+const isUseElementSelectedOptions = (
+  value: Path | UseElementSelectedOptions | undefined
+): value is UseElementSelectedOptions => Boolean(value && !Path.isPath(value))
+
+export const useElementSelected = (
+  target?: Path | UseElementSelectedOptions
+): boolean => {
   const element = useOptionalElementContext()
   const contextPath = useContext(ElementPathContext)
   const runtimeId = useContext(NodeRuntimeIdContext)
+  let path: Path | null | undefined
+  let mode: UseElementSelectedMode = 'intersects'
+
+  if (isUseElementSelectedOptions(target)) {
+    path = target.at
+    mode = target.mode ?? 'intersects'
+  } else {
+    path = target
+  }
 
   const selector = useCallback(
     (editor: ReactEditor) => {
@@ -19,6 +41,7 @@ export const useElementSelected = (path?: Path): boolean => {
       const selection = readRuntimeSelection(editor)
 
       if (!selection) return false
+      if (mode === 'collapsed' && !Range.isCollapsed(selection)) return false
       const selectedPath =
         path ??
         contextPath ??
@@ -29,7 +52,7 @@ export const useElementSelected = (path?: Path): boolean => {
       const range = Editor.range(editor, selectedPath)
       return !!Range.intersection(range, selection)
     },
-    [contextPath, element, path]
+    [contextPath, element, mode, path]
   )
 
   const shouldUpdate = useCallback(

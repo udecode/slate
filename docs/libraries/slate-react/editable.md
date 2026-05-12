@@ -70,10 +70,10 @@ Always spread `attributes` on the top-level DOM element and render `children`.
 Use `renderVoid` for void elements. A void renderer returns visible content only.
 
 ```tsx
-const renderVoid = ({ element, path }) => {
+const renderVoid = ({ element }) => {
   switch (element.type) {
     case 'image':
-      return <ImageElement element={element} path={path} />
+      return <ImageElement element={element} />
     default:
       return null
   }
@@ -82,13 +82,34 @@ const renderVoid = ({ element, path }) => {
 
 Do not render `children`, hidden text anchors, or shell wrappers in normal void renderers. Slate renders the shell and model anchor for you.
 
-If a void needs selected UI, subscribe by path.
+If a void needs selected UI, subscribe from inside the void component.
 
 ```tsx
-const ImageElement = ({ element, path }) => {
-  const selected = useElementSelected(path)
+const ImageElement = ({ element }) => {
+  const selected = useElementSelected({ mode: 'collapsed' })
 
   return <img data-selected={selected || undefined} src={element.url} />
+}
+```
+
+If an event handler needs the current location of the rendered element, resolve
+the path inside the handler.
+
+```tsx
+const ImageElement = ({ element }) => {
+  const editor = useEditor()
+
+  return (
+    <button
+      onClick={() => {
+        const path = editor.dom.findPath(element)
+
+        editor.update((tx) => {
+          tx.nodes.remove({ at: path, voids: true })
+        })
+      }}
+    />
+  )
 }
 ```
 

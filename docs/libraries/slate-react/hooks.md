@@ -71,10 +71,25 @@ const latestOperationCount = useEditorSelector((_editor, operations) => {
 
 Get the current element object inside an element renderer.
 
-#### `useElementSelected(path?: Path): boolean`
+#### `useElementPath(): Path | null`
 
-Subscribe to whether a specific element path intersects the current
-selection. Use this only when the component actually draws selected UI.
+Subscribe to the current path of the rendered element. Use this only for UI
+that displays or derives live path state during render. Event handlers should
+usually call `editor.dom.findPath(element)` when they need the current path.
+
+#### `useElementSelected(pathOrOptions?: Path | UseElementSelectedOptions): boolean`
+
+Subscribe to whether the current element, or an explicit element path,
+intersects the current selection. Use `{ mode: 'collapsed' }` when selected UI
+should only appear for a collapsed caret inside the element, such as a block
+void image ring. Use this only when the component actually draws selected UI.
+
+```ts
+type UseElementSelectedOptions = {
+  at?: Path | null
+  mode?: 'intersects' | 'collapsed'
+}
+```
 
 #### `useNodeSelector<T>(selector, equalityFn?, options?): T`
 

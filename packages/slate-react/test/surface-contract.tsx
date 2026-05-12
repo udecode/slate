@@ -24,6 +24,23 @@ const sourceFilePattern = /\.(md|ts|tsx)$/
 const createReactEditor = <V extends Value>(initialValue: V) =>
   withReact(createEditor({ initialValue }))
 
+type ExpectFalse<T extends false> = T
+type RenderElementHasPath = 'path' extends keyof RenderElementProps
+  ? true
+  : false
+type RenderElementHasIndex = 'index' extends keyof RenderElementProps
+  ? true
+  : false
+type RenderVoidHasPath = 'path' extends keyof RenderVoidProps ? true : false
+
+type RenderElementDoesNotExposePath = ExpectFalse<RenderElementHasPath>
+type RenderElementDoesNotExposeIndex = ExpectFalse<RenderElementHasIndex>
+type RenderVoidDoesNotExposePath = ExpectFalse<RenderVoidHasPath>
+
+void (null as unknown as RenderElementDoesNotExposePath)
+void (null as unknown as RenderElementDoesNotExposeIndex)
+void (null as unknown as RenderVoidDoesNotExposePath)
+
 const listSourceFiles = (roots: readonly string[]) => {
   const files: string[] = []
 
@@ -187,6 +204,13 @@ describe('slate-react surface contract', () => {
           owner: 'Public selected hook',
           rationale:
             'The hook exposes selection state to app code through the public selector contract.',
+        },
+        'packages/slate-react/src/hooks/use-element-path.ts': {
+          count: 1,
+          next: 'public-hook',
+          owner: 'Public element path hook',
+          rationale:
+            'The hook exposes path state to app code without adding path back to render props.',
         },
         'packages/slate-react/src/hooks/use-editor-selection.tsx': {
           count: 1,
@@ -522,6 +546,53 @@ describe('slate-react surface contract', () => {
     })
   })
 
+  test('custom element handlers resolve the current path after leading inserts without shifted rerender', async () => {
+    const editor = createReactEditor([
+      { id: 'first', children: [{ text: '' }] },
+      { id: 'target', children: [{ text: '' }] },
+    ]) as ReactEditor
+    const renderCounts: Record<string, number | undefined> = {}
+    let readTargetPath = (): number[] => {
+      throw new Error('Target element did not render.')
+    }
+
+    const renderElement = ({
+      attributes,
+      children,
+      element,
+    }: RenderElementProps) => {
+      const { id } = element as { id: string }
+      renderCounts[id] = (renderCounts[id] ?? 0) + 1
+
+      if (id === 'target') {
+        readTargetPath = () => editor.dom.findPath(element)
+      }
+
+      return <div {...attributes}>{children}</div>
+    }
+
+    render(
+      <Slate editor={editor}>
+        <Editable renderElement={renderElement} />
+      </Slate>
+    )
+
+    expect(readTargetPath()).toEqual([1])
+    renderCounts.first = 0
+    renderCounts.target = 0
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.nodes.insert({ id: 'inserted', children: [{ text: '' }] } as never, {
+          at: [0],
+        })
+      })
+    })
+
+    expect(renderCounts.target ?? 0).toBe(0)
+    expect(readTargetPath()).toEqual([2])
+  })
+
   test('renderVoid receives content-only props and runtime owns block void spacer', () => {
     const editor = createReactEditor([
       { type: 'image', url: 'about:blank', children: [{ text: '' }] },
@@ -557,7 +628,7 @@ describe('slate-react surface contract', () => {
     expect(renderElement).not.toHaveBeenCalled()
     expect(renderVoidProps).toBeTruthy()
     expect(renderVoidProps?.element.type).toBe('image')
-    expect(renderVoidProps?.path).toEqual([0])
+    expect('path' in (renderVoidProps as object)).toBe(false)
     expect('target' in (renderVoidProps as object)).toBe(false)
     expect('actions' in (renderVoidProps as object)).toBe(false)
     expect('selected' in (renderVoidProps as object)).toBe(false)
@@ -615,7 +686,7 @@ describe('slate-react surface contract', () => {
     expect(renderElement).toHaveBeenCalledTimes(1)
     expect(renderVoidProps).toBeTruthy()
     expect(renderVoidProps?.element.type).toBe('mention')
-    expect(renderVoidProps?.path).toEqual([0, 1])
+    expect('path' in (renderVoidProps as object)).toBe(false)
     expect('target' in (renderVoidProps as object)).toBe(false)
     expect('actions' in (renderVoidProps as object)).toBe(false)
     expect('selected' in (renderVoidProps as object)).toBe(false)

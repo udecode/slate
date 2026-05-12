@@ -173,7 +173,7 @@ const Toolbar = () => {
 }
 ```
 
-Because the toolbar draws editor-level state, `useEditorState` is the right level of subscription. It runs the selector inside `editor.read` and re-renders only when the selected result changes. Element renderers should prefer target-scoped hooks such as `useElementSelected(target)`, `useNodeSelector`, `useTextSelector`, and `useDecorationSelector`.
+Because the toolbar draws editor-level state, `useEditorState` is the right level of subscription. It runs the selector inside `editor.read` and re-renders only when the selected result changes. Element renderers should prefer target-scoped hooks such as `useElementSelected()`, `useElementSelected({ mode: 'collapsed' })`, `useNodeSelector`, `useTextSelector`, and `useDecorationSelector`.
 
 ## Editor Styling
 

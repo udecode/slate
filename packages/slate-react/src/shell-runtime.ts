@@ -1,11 +1,11 @@
 import type { CSSProperties } from 'react'
 
-const defaultSpacerStyle: CSSProperties = {
+const defaultSpacerStyle = {
   height: '0',
   color: 'transparent',
   outline: 'none',
   position: 'absolute',
-}
+} satisfies CSSProperties
 
 export const getSlateElementShellAttributes = ({
   isInline = false,

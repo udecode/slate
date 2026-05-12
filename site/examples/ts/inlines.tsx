@@ -79,18 +79,19 @@ const InlinesExample = () => {
     withEditor: (editor) => withInlines(withHistory(editor)),
     initialValue,
   })
-  const inputRules = useMemo<readonly EditableInputRule[]>(
-    () => [
-      ({ data, inputType }) => {
-        if (
-          inputType === 'insertText' &&
-          typeof data === 'string' &&
-          isUrl(data)
-        ) {
-          return wrapLink(editor, data)
-        }
-      },
-    ],
+  const inputRules = useMemo(
+    () =>
+      [
+        ({ data, inputType }) => {
+          if (
+            inputType === 'insertText' &&
+            typeof data === 'string' &&
+            isUrl(data)
+          ) {
+            return wrapLink(editor, data)
+          }
+        },
+      ] satisfies readonly EditableInputRule[],
     [editor]
   )
   const onPaste = (event: ClipboardEvent<HTMLDivElement>) => {

@@ -1,4 +1,5 @@
 import { type Ancestor, type Descendant, isObject, Node, type Path } from '..'
+import type { BaseEditor } from './editor'
 
 /**
  * `Element` objects are a type of node in a Slate document that contain other
@@ -20,16 +21,18 @@ export type ElementIn<V extends readonly unknown[]> = ElementOf<V[number]>
 
 export type ElementOf<N> = Element extends N
   ? Element
-  : N extends { getChildren: () => infer V }
-    ? V extends readonly (infer Child)[]
-      ? Extract<Child, Element> | ElementOf<Child>
-      : never
-    : N extends Element
-      ?
-          | N
-          | Extract<N['children'][number], Element>
-          | ElementOf<N['children'][number]>
-      : never
+  : N extends BaseEditor<infer V>
+    ? ElementIn<V>
+    : N extends { getChildren: () => infer V }
+      ? V extends readonly (infer Child)[]
+        ? Extract<Child, Element> | ElementOf<Child>
+        : never
+      : N extends Element
+        ?
+            | N
+            | Extract<N['children'][number], Element>
+            | ElementOf<N['children'][number]>
+        : never
 
 export type ElementOrTextOf<E> = ElementOf<E> | import('./text').TextOf<E>
 

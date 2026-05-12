@@ -1,6 +1,5 @@
-import { useContext } from 'react'
 import type { Range } from 'slate'
-import { EditorSelectorContext } from '../hooks/use-editor-selector'
+import { useRequiredEditorSelectorContext } from '../hooks/use-editor-selector'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import type { ReactEditor } from '../plugin/react-editor'
 import type { EditableInputController } from './input-controller'
@@ -18,9 +17,8 @@ export const useEditableRootSelectionExport = ({
   isShellBackedSelection: (selection: Range | null) => boolean
   syncDOMSelectionToEditor: () => void
 }) => {
-  const { addEventListener: addSelectorEventListener } = useContext(
-    EditorSelectorContext
-  )
+  const { addEventListener: addSelectorEventListener } =
+    useRequiredEditorSelectorContext()
 
   useIsomorphicLayoutEffect(() => {
     return subscribeSelectionOnlyDOMExport({

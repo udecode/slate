@@ -23,7 +23,7 @@ runtime.normalizeNode = (entry) => {
   if (
     Element.isElement(node) &&
     node.children.length === 0 &&
-    (node as any).type === 'body'
+    node.type === 'body'
   ) {
     const child = { type: 'paragraph', children: [] }
     Editor.insertNodes(editor, child, {

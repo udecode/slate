@@ -520,7 +520,7 @@ export const applyEditablePaste = ({
             {
               type: 'paragraph',
               children: [{ text }],
-            } as any,
+            },
           ],
           selection: {
             anchor: { path: [0, 0], offset: text.length },

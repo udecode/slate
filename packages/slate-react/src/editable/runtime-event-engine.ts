@@ -159,18 +159,19 @@ export const useEditableEventRuntime = ({
   syncDOMSelectionToEditor: () => void
   trace: EditableKernelTraceRuntime
 }): EditableEventRuntime => {
-  const runtime = useMemo<EditableEventRuntimeCore>(
-    () => ({
-      android: {
-        managerRef: androidInputManagerRef,
-      },
-      composition: {
-        setComposing,
-      },
-      repair,
-      selection,
-      trace,
-    }),
+  const runtime = useMemo(
+    () =>
+      ({
+        android: {
+          managerRef: androidInputManagerRef,
+        },
+        composition: {
+          setComposing,
+        },
+        repair,
+        selection,
+        trace,
+      }) satisfies EditableEventRuntimeCore,
     [androidInputManagerRef, repair, selection, setComposing, trace]
   )
 

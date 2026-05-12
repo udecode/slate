@@ -733,6 +733,47 @@ describe('slate-react provider hooks contract', () => {
     }
   })
 
+  test('Editable leading root inserts do not fan out to every mounted runtime node', async () => {
+    const value = Array.from({ length: 1001 }, (_value, index) => ({
+      type: 'block',
+      children: [{ text: `line ${index}` }],
+    }))
+    const editor = createReactEditor(value)
+    const counter = createSlateReactRenderCounter()
+    const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
+    let rendered: ReturnType<typeof render> | null = null
+    globalThis.__SLATE_REACT_RENDER_PROFILER__ = counter.profiler
+
+    try {
+      rendered = render(
+        <Slate editor={editor}>
+          <Editable data-testid="leading-root-order-fanout" />
+        </Slate>
+      )
+      counter.reset()
+
+      await act(async () => {
+        editor.update((tx) => {
+          tx.nodes.insert(
+            { type: 'block', children: [{ text: 'new first line' }] } as never,
+            { at: [0] }
+          )
+        })
+      })
+
+      const profile = counter.snapshot()
+
+      expect(profile.byKey['selector:selector-runtime-node-check'] ?? 0).toBe(0)
+      expect(profile.byKey['selector:selector-runtime-node-notify'] ?? 0).toBe(
+        0
+      )
+      expect(profile.byKey['selector:selector-root-runtime-ids-notify']).toBe(1)
+    } finally {
+      rendered?.unmount()
+      globalThis.__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+    }
+  })
+
   test('Editable full-document replacement does not fan out to stale mounted runtime nodes', async () => {
     const value = Array.from({ length: 1001 }, (_value, index) => ({
       type: 'block',

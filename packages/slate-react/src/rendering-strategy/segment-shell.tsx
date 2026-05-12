@@ -35,12 +35,12 @@ const truncate = (value: string, limit: number) =>
 
 const MAX_PREVIEW_LINES = 3
 
-const shellStyle: CSSProperties = {
+const shellStyle = {
   borderLeft: '2px solid rgba(148, 163, 184, 0.35)',
   contain: 'layout style paint',
   contentVisibility: 'auto',
   paddingLeft: 12,
-}
+} satisfies CSSProperties
 
 const samePreviewRuntimeIds = (
   left: readonly RuntimeId[],

@@ -346,7 +346,7 @@ export const useEditableRootRuntime = ({
     rootRef,
     scheduleOnDOMSelectionChange,
   })
-  const editableEventBindings = useMemo<EditableRootEventBindings>(() => {
+  const editableEventBindings = useMemo(() => {
     const handlers = eventRuntime.handlers
 
     return {
@@ -371,7 +371,7 @@ export const useEditableRootRuntime = ({
       onMouseUp: handlers.onMouseUp,
       onPaste: handlers.onPaste,
       ref: callbackRef,
-    }
+    } satisfies EditableRootEventBindings
   }, [callbackRef, eventRuntime.handlers])
 
   useEditableRootGlobalLifecycle({

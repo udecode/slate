@@ -2,12 +2,7 @@ import { css } from '@emotion/css'
 import imageExtensions from 'image-extensions'
 import isUrl from 'is-url'
 import type { PointerEvent } from 'react'
-import {
-  Path,
-  Range,
-  type Element as SlateElement,
-  type Path as SlatePath,
-} from 'slate'
+import type { Element as SlateElement } from 'slate'
 import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
@@ -16,7 +11,7 @@ import {
   Slate,
   useEditor,
   useEditorFocused,
-  useEditorSelector,
+  useElementSelected,
   useSlateEditor,
 } from 'slate-react'
 
@@ -52,7 +47,7 @@ const ImagesExample = () => {
         renderElement={(props: RenderElementProps) => <Element {...props} />}
         renderVoid={(props) =>
           isImageElement(props.element) ? (
-            <Image element={props.element} path={props.path} />
+            <Image element={props.element} />
           ) : null
         }
       />
@@ -123,24 +118,10 @@ const Element = (props: RenderElementProps) => {
   return <p {...attributes}>{children}</p>
 }
 
-const Image = ({
-  element,
-  path,
-}: {
-  element: ImageElement
-  path: SlatePath
-}) => {
+const Image = ({ element }: { element: ImageElement }) => {
   const editor = useEditor<CustomEditor>()
   const focused = useEditorFocused()
-  const selected = useEditorSelector<boolean, CustomEditor>((editor) => {
-    const selection = editor.read((state) => state.selection.get())
-
-    return Boolean(
-      selection &&
-        Range.isCollapsed(selection) &&
-        Path.equals(selection.anchor.path, path.concat(0))
-    )
-  })
+  const selected = useElementSelected({ mode: 'collapsed' })
 
   return (
     <div style={{ position: 'relative' }}>
@@ -163,6 +144,8 @@ const Image = ({
           background-color: white;
         `}
         onClick={() => {
+          const path = editor.dom.findPath(element)
+
           editor.update((tx) => {
             tx.nodes.remove({ at: path, voids: true })
           })

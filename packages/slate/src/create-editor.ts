@@ -91,16 +91,28 @@ import {
   withoutNormalizing,
 } from './editor'
 import type {
+  Ancestor,
   CreateEditorOptions,
+  Descendant,
+  DescendantIn,
   Editor,
+  EditorAboveOptions,
+  EditorCommit,
   EditorElementBehavior,
   EditorElementPropertyDescriptor,
   EditorElementSpec,
+  EditorLevelsOptions,
+  EditorNextOptions,
+  EditorPreviousOptions,
   EditorSchemaApi,
+  EditorSnapshot,
   EditorTransformRegistry,
   EditorUpdateOptions,
   EditorUpdateTransaction,
   Element,
+  Node,
+  Operation,
+  SnapshotChange,
   Value,
 } from './interfaces'
 import {
@@ -320,100 +332,99 @@ const createEditorSchema = (getEditor: () => Editor<any>): EditorSchemaApi => {
   })
 }
 
+type EditorMethod = (editor: Editor, ...args: any[]) => unknown
+
+type BoundEditorMethod<T extends EditorMethod> = T extends (
+  editor: Editor,
+  ...args: infer Args
+) => infer Result
+  ? (...args: Args) => Result
+  : never
+
+const bindEditorMethod = <T extends EditorMethod>(
+  getEditor: () => Editor,
+  method: T
+): BoundEditorMethod<T> =>
+  ((...args: Parameters<BoundEditorMethod<T>>) =>
+    method(getEditor(), ...args)) as BoundEditorMethod<T>
+
 const createEditorTransformRegistry = <V extends Value>(
   getEditor: () => Editor<V>
 ): EditorTransformRegistry<V> => {
-  const getRuntimeEditor = () => getEditor() as Editor<any>
+  const getRuntimeEditor = () => getEditor() as Editor
+  const bind = <T extends EditorMethod>(method: T) =>
+    bindEditorMethod(getEditor, method)
+  const bindRuntime = <T extends EditorMethod>(method: T) =>
+    bindEditorMethod(getRuntimeEditor, method)
 
-  const registry: EditorTransformRegistry<V> = {
-    addMark: (...args: any[]) => (addMark as any)(getEditor(), ...args),
-    bookmark: (...args: any[]) => (bookmark as any)(getEditor(), ...args),
-    collapse: (...args: any[]) => (collapse as any)(getEditor(), ...args),
-    delete: (...args: any[]) =>
-      (deleteText as any)(getRuntimeEditor(), ...args),
-    deleteBackward: (...args: any[]) =>
-      (deleteBackward as any)(getEditor(), ...args),
-    deleteForward: (...args: any[]) =>
-      (deleteForward as any)(getEditor(), ...args),
-    deleteFragment: (...args: any[]) =>
-      (deleteFragment as any)(getEditor(), ...args),
-    deselect: (...args: any[]) => (deselect as any)(getEditor(), ...args),
-    insertBreak: (...args: any[]) => (insertBreak as any)(getEditor(), ...args),
-    insertFragment: (...args: any[]) =>
-      (insertFragment as any)(getRuntimeEditor(), ...args),
-    insertNode: (...args: any[]) =>
-      (insertNode as any)(getRuntimeEditor(), ...args),
-    insertNodes: (...args: any[]) =>
-      (insertNodes as any)(getRuntimeEditor(), ...args),
-    insertSoftBreak: (...args: any[]) =>
-      (insertSoftBreak as any)(getEditor(), ...args),
-    insertText: (...args: any[]) => (insertText as any)(getEditor(), ...args),
-    liftNodes: (...args: any[]) =>
-      (liftNodes as any)(getRuntimeEditor(), ...args),
-    mergeNodes: (...args: any[]) =>
-      (mergeNodes as any)(getRuntimeEditor(), ...args),
-    move: (...args: any[]) => (move as any)(getEditor(), ...args),
-    moveNodes: (...args: any[]) =>
-      (moveNodes as any)(getRuntimeEditor(), ...args),
-    normalize: (...args: any[]) => (normalize as any)(getEditor(), ...args),
-    removeMark: (...args: any[]) => (removeMark as any)(getEditor(), ...args),
-    removeNodes: (...args: any[]) =>
-      (removeNodes as any)(getRuntimeEditor(), ...args),
-    select: (...args: any[]) => (select as any)(getEditor(), ...args),
-    setNodes: (...args: any[]) =>
-      (setNodes as any)(getRuntimeEditor(), ...args),
-    setNormalizing: (...args: any[]) =>
-      (setNormalizing as any)(getEditor(), ...args),
-    setPoint: (...args: any[]) => (setPoint as any)(getEditor(), ...args),
-    setSelection: (...args: any[]) =>
-      (setSelection as any)(getEditor(), ...args),
-    splitNodes: (...args: any[]) =>
-      (splitNodes as any)(getRuntimeEditor(), ...args),
-    toggleMark: (...args: any[]) => (toggleMark as any)(getEditor(), ...args),
-    unsetNodes: (...args: any[]) =>
-      (unsetNodes as any)(getRuntimeEditor(), ...args),
-    unwrapNodes: (...args: any[]) =>
-      (unwrapNodes as any)(getRuntimeEditor(), ...args),
-    withoutNormalizing: (...args: any[]) =>
-      (withoutNormalizing as any)(getEditor(), ...args),
-    wrapNodes: (...args: any[]) =>
-      (wrapNodes as any)(getRuntimeEditor(), ...args),
-  }
-
-  return Object.freeze(registry)
+  return Object.freeze({
+    addMark: bind(addMark),
+    bookmark: bind(bookmark),
+    collapse: bind(collapse),
+    delete: bindRuntime(deleteText),
+    deleteBackward: bind(deleteBackward),
+    deleteForward: bind(deleteForward),
+    deleteFragment: bind(deleteFragment),
+    deselect: bind(deselect),
+    insertBreak: bind(insertBreak),
+    insertFragment: bindRuntime(insertFragment),
+    insertNode: bindRuntime(insertNode),
+    insertNodes: bindRuntime(insertNodes),
+    insertSoftBreak: bind(insertSoftBreak),
+    insertText: bind(insertText),
+    liftNodes: bindRuntime(liftNodes),
+    mergeNodes: bindRuntime(mergeNodes),
+    move: bind(move),
+    moveNodes: bindRuntime(moveNodes),
+    normalize: bind(normalize),
+    removeMark: bind(removeMark),
+    removeNodes: bindRuntime(removeNodes),
+    select: bind(select),
+    setNodes: bindRuntime(setNodes),
+    setNormalizing: bind(setNormalizing),
+    setPoint: bind(setPoint),
+    setSelection: bind(setSelection),
+    splitNodes: bindRuntime(splitNodes),
+    toggleMark: bind(toggleMark),
+    unsetNodes: bindRuntime(unsetNodes),
+    unwrapNodes: bindRuntime(unwrapNodes),
+    withoutNormalizing: bind(withoutNormalizing),
+    wrapNodes: bindRuntime(wrapNodes),
+  } satisfies EditorTransformRegistry<V>)
 }
 
 export const createEditor = <V extends Value = Value>(
   options: CreateEditorOptions<V> = {}
 ): Editor<V> => {
   let editor!: Editor<V>
-  const runtimeEditor = () => editor as Editor<any>
+  const runtimeEditor = () => editor as Editor
+  const bind = <T extends EditorMethod>(method: T) =>
+    bindEditorMethod(runtimeEditor, method)
   const schema = createEditorSchema(runtimeEditor)
 
   const extensionRuntime = {
     schema,
-    extend: (...args: any[]) => (extendEditor as any)(editor, ...args),
+    extend: (extension) => extendEditor(editor, extension),
   } satisfies InternalEditorExtensionRuntime<V>
 
   const snapshotRuntime = {
-    getChildren: (...args: any[]) => (getChildren as any)(editor, ...args),
-    getDirtyPaths: (...args: any[]) => (getDirtyPaths as any)(editor, ...args),
-    getFragment: (...args: any[]) => (getFragment as any)(editor, ...args),
-    getLastCommit: (...args: any[]) => (getLastCommit as any)(editor, ...args),
-    getOperationDirtiness: (...args: any[]) =>
-      (getOperationDirtiness as any)(editor, ...args),
-    getOperations: (...args: any[]) => (getOperations as any)(editor, ...args),
-    getPathByRuntimeId: (...args: any[]) =>
-      (getPathByRuntimeId as any)(editor, ...args),
-    getRuntimeId: (...args: any[]) => (getRuntimeId as any)(editor, ...args),
-    getSelection: (...args: any[]) =>
-      (getLiveSelection as any)(editor, ...args),
-    getSnapshot: (...args: any[]) => (getSnapshot as any)(editor, ...args),
+    getChildren: () => getChildren(editor),
+    getDirtyPaths: (operation) => getDirtyPaths(editor, operation),
+    getFragment: () => getFragment(editor) as DescendantIn<V>[],
+    getLastCommit: () => getLastCommit(editor) as EditorCommit<V> | null,
+    getOperationDirtiness: (operations, options) =>
+      getOperationDirtiness(editor, operations, options) as SnapshotChange<V>,
+    getOperations: (startIndex) =>
+      getOperations(editor, startIndex) as readonly Operation<V>[],
+    getPathByRuntimeId: (runtimeId) => getPathByRuntimeId(editor, runtimeId),
+    getRuntimeId: (path) => getRuntimeId(editor, path),
+    getSelection: () => getLiveSelection(editor),
+    getSnapshot: () => getSnapshot(editor) as EditorSnapshot<V>,
   } satisfies InternalEditorSnapshotRuntime<V>
 
   const transactionRuntime = {
-    read: (...args: any[]) => (readEditor as any)(editor, ...args),
-    subscribe: (...args: any[]) => (subscribe as any)(editor, ...args),
+    read: (fn) => readEditor(editor, fn),
+    subscribe: (listener) => subscribe(editor, listener),
     update: (
       fn: (transaction: EditorUpdateTransaction<V>) => void,
       options?: EditorUpdateOptions
@@ -426,55 +437,56 @@ export const createEditor = <V extends Value = Value>(
   } satisfies InternalEditorTransactionRuntime<V>
 
   const transformRuntime = {
-    normalizeNode: (...args: any[]) => (normalizeNode as any)(editor, ...args),
-    shouldNormalize: (...args: any[]) =>
-      (shouldNormalize as any)(editor, ...args),
+    normalizeNode: (entry, options) => normalizeNode(editor, entry, options),
+    shouldNormalize: (options) => shouldNormalize(editor, options),
   } satisfies InternalEditorTransformRuntime
 
   const queryRuntime = {
-    above: (...args: any[]) => (above as any)(editor, ...args),
-    after: (...args: any[]) => (after as any)(editor, ...args),
-    before: (...args: any[]) => (before as any)(editor, ...args),
-    edges: (...args: any[]) => (edges as any)(editor, ...args),
-    elementReadOnly: (...args: any[]) =>
-      (elementReadOnly as any)(editor, ...args),
-    first: (...args: any[]) => (first as any)(editor, ...args),
-    fragment: (...args: any[]) => (fragment as any)(editor, ...args),
-    hasBlocks: (...args: any[]) => (hasBlocks as any)(editor, ...args),
-    hasInlines: (...args: any[]) => (hasInlines as any)(editor, ...args),
-    hasPath: (...args: any[]) => (hasPath as any)(editor, ...args),
-    hasTexts: (...args: any[]) => (hasTexts as any)(editor, ...args),
-    isBlock: (...args: any[]) => (isBlock as any)(editor, ...args),
-    isEdge: (...args: any[]) => (isEdge as any)(editor, ...args),
-    isEmpty: (...args: any[]) => (isEmpty as any)(editor, ...args),
-    isEnd: (...args: any[]) => (isEnd as any)(editor, ...args),
-    isNormalizing: (...args: any[]) => (isNormalizing as any)(editor, ...args),
-    isStart: (...args: any[]) => (isStart as any)(editor, ...args),
-    last: (...args: any[]) => (last as any)(editor, ...args),
-    leaf: (...args: any[]) => (leaf as any)(editor, ...args),
-    levels: (...args: any[]) => (levels as any)(editor, ...args),
-    next: (...args: any[]) => (next as any)(editor, ...args),
-    parent: (...args: any[]) => (parent as any)(editor, ...args),
-    path: (...args: any[]) => (path as any)(editor, ...args),
-    point: (...args: any[]) => (point as any)(editor, ...args),
-    positions: (...args: any[]) => (positions as any)(editor, ...args),
-    previous: (...args: any[]) => (previous as any)(editor, ...args),
-    projectRange: (...args: any[]) => (projectRange as any)(editor, ...args),
-    range: (...args: any[]) => (range as any)(editor, ...args),
-    string: (...args: any[]) => (string as any)(editor, ...args),
-    unhangRange: (...args: any[]) => (unhangRange as any)(editor, ...args),
-    void: (...args: any[]) => (getVoid as any)(editor, ...args),
-    shouldMergeNodesRemovePrevNode: (...args: any[]) =>
-      (shouldMergeNodesRemovePrevNode as any)(editor, ...args),
+    above: <T extends Ancestor>(options?: EditorAboveOptions<T>) =>
+      above(editor, options),
+    after: bind(after),
+    before: bind(before),
+    edges: bind(edges),
+    elementReadOnly: bind(elementReadOnly),
+    first: bind(first),
+    fragment: bind(fragment),
+    hasBlocks: bind(hasBlocks),
+    hasInlines: bind(hasInlines),
+    hasPath: bind(hasPath),
+    hasTexts: bind(hasTexts),
+    isBlock: bind(isBlock),
+    isEdge: bind(isEdge),
+    isEmpty: bind(isEmpty),
+    isEnd: bind(isEnd),
+    isNormalizing: bind(isNormalizing),
+    isStart: bind(isStart),
+    last: bind(last),
+    leaf: bind(leaf),
+    levels: <T extends Node>(options?: EditorLevelsOptions<T>) =>
+      levels(editor, options),
+    next: <T extends Descendant>(options?: EditorNextOptions<T>) =>
+      next(editor, options),
+    parent: bind(parent),
+    path: bind(path),
+    point: bind(point),
+    positions: bind(positions),
+    previous: <T extends Node>(options?: EditorPreviousOptions<T>) =>
+      previous(editor, options),
+    projectRange: bind(projectRange),
+    range: bind(range),
+    string: bind(string),
+    unhangRange: bind(unhangRange),
+    void: bind(getVoid),
+    shouldMergeNodesRemovePrevNode: bind(shouldMergeNodesRemovePrevNode),
   } satisfies InternalEditorQueryRuntime
 
   const refRuntime = {
-    pathRef: (...args: any[]) => (pathRef as any)(editor, ...args),
-    pathRefs: (...args: any[]) => (pathRefs as any)(editor, ...args),
-    pointRef: (...args: any[]) => (pointRef as any)(editor, ...args),
-    pointRefs: (...args: any[]) => (pointRefs as any)(editor, ...args),
-    rangeRef: (...args: any[]) => (rangeRef as any)(editor, ...args),
-    rangeRefs: (...args: any[]) => (rangeRefs as any)(editor, ...args),
+    pathRef: bind(pathRef),
+    pathRefs: bind(pathRefs),
+    pointRef: bind(pointRef),
+    pointRefs: bind(pointRefs),
+    rangeRef: bind(rangeRef),
+    rangeRefs: bind(rangeRefs),
   } satisfies InternalEditorRefRuntime
 
   const runtime = {
@@ -486,19 +498,19 @@ export const createEditor = <V extends Value = Value>(
     ...transformRuntime,
   } satisfies InternalEditorRuntime<V>
 
-  const baseEditor: Editor<any> = {
-    read: (...args: any[]) => (readEditor as any)(editor, ...args),
-    subscribe: (...args: any[]) => (subscribe as any)(editor, ...args),
+  const baseEditor: Editor<V> = {
+    read: (fn) => readEditor(editor, fn),
+    subscribe: (listener) => subscribe(editor, listener),
     update: (fn: (transaction: EditorUpdateTransaction<V>) => void, options) =>
       updateEditor(
         editor,
         fn as (transaction: EditorUpdateTransaction<V>) => void,
         options
       ),
-    extend: (...args: any[]) => (extendEditor as any)(editor, ...args),
+    extend: (extension) => extendEditor(editor, extension),
   }
 
-  editor = baseEditor as Editor<V>
+  editor = baseEditor
 
   setEditorRuntime(editor, runtime)
 

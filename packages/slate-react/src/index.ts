@@ -90,7 +90,12 @@ export {
 } from './hooks/use-editor-selector'
 // Hooks
 export { useElement } from './hooks/use-element'
-export { useElementSelected } from './hooks/use-element-selected'
+export { useElementPath } from './hooks/use-element-path'
+export {
+  type UseElementSelectedMode,
+  type UseElementSelectedOptions,
+  useElementSelected,
+} from './hooks/use-element-selected'
 export {
   type EditorNodeSelectorContext,
   type EditorRuntimeSelectorOptions,

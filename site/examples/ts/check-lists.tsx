@@ -168,7 +168,6 @@ const CheckListItemElement = ({
   attributes,
   children,
   element,
-  path,
 }: RenderElementPropsFor<CheckListItemType>) => {
   const { checked } = element
   const editor = useEditor<CustomEditor>()
@@ -195,6 +194,7 @@ const CheckListItemElement = ({
         <input
           checked={checked}
           onChange={(event: ChangeEvent<HTMLInputElement>) => {
+            const path = editor.dom.findPath(element)
             const newProperties: Partial<SlateElement> = {
               checked: event.target.checked,
             }

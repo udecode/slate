@@ -101,5 +101,6 @@ export {
   NODE_TO_INDEX,
   NODE_TO_KEY,
   NODE_TO_PARENT,
+  NODE_TO_RUNTIME_ID,
   PLACEHOLDER_SYMBOL,
 } from './utils/weak-maps'

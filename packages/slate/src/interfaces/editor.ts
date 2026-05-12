@@ -509,7 +509,7 @@ export interface EditorTransformApi<V extends Value = Value> {
     fragment: DescendantIn<V>[],
     options?: TextInsertFragmentOptions
   ) => void
-  insertNode: <T extends DescendantIn<V>>(
+  insertNode: <T extends ElementOrTextIn<V>>(
     node: T,
     options?: NodeInsertNodesOptions<T>
   ) => void
@@ -1326,7 +1326,7 @@ export interface EditorStaticApi {
    * Atomically inserts `nodes`
    * at the specified location or (if not defined) the current selection or (if not defined) the end of the document.
    */
-  insertNode: <V extends Value, T extends DescendantIn<V>>(
+  insertNode: <V extends Value, T extends ElementOrTextIn<V>>(
     editor: Editor<V>,
     node: T,
     options?: NodeInsertNodesOptions<T>

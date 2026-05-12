@@ -1,5 +1,5 @@
 import React, { type ChangeEvent, useMemo } from 'react'
-import type { Path, Element as SlateElement } from 'slate'
+import type { Element as SlateElement } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -26,7 +26,7 @@ const EmbedsExample = () => {
         renderElement={(props) => <Element {...props} />}
         renderVoid={(props) =>
           isVideoElement(props.element) ? (
-            <VideoElement element={props.element} path={props.path} />
+            <VideoElement element={props.element} />
           ) : null
         }
       />
@@ -54,13 +54,7 @@ const isVideoElement = (element: SlateElement): element is VideoElementType =>
 
 const allowedSchemes = ['http:', 'https:']
 
-const VideoElement = ({
-  element,
-  path,
-}: {
-  element: VideoElementType
-  path: Path
-}) => {
+const VideoElement = ({ element }: { element: VideoElementType }) => {
   const editor = useEditor<CustomEditor>()
   const { url } = element
 
@@ -97,6 +91,8 @@ const VideoElement = ({
       </div>
       <UrlInput
         onChange={(val) => {
+          const path = editor.dom.findPath(element)
+
           editor.update((tx) => {
             tx.nodes.set({ url: val }, { at: path, voids: true })
           })

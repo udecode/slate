@@ -27,6 +27,12 @@ const setupEditor = () => {
   return editor
 }
 
+const getElementType = (node: Descendant) => {
+  assert(Node.isElement(node))
+
+  return node.type
+}
+
 describe('transaction target runtime', () => {
   it('resolves implicit targets through the installed runtime', () => {
     const editor = setupEditor()
@@ -52,8 +58,8 @@ describe('transaction target runtime', () => {
     })
 
     assert.equal(calls, 1)
-    assert.equal((Editor.getChildren(editor)[0] as any).type, 'paragraph')
-    assert.equal((Editor.getChildren(editor)[1] as any).type, 'heading-one')
+    assert.equal(getElementType(Editor.getChildren(editor)[0]!), 'paragraph')
+    assert.equal(getElementType(Editor.getChildren(editor)[1]!), 'heading-one')
     assert.deepEqual(Editor.getSelection(editor), {
       anchor: { path: [1, 0], offset: 0 },
       focus: { path: [1, 0], offset: 0 },
@@ -76,8 +82,8 @@ describe('transaction target runtime', () => {
     })
 
     assert.equal(calls, 0)
-    assert.equal((Editor.getChildren(editor)[0] as any).type, 'paragraph')
-    assert.equal((Editor.getChildren(editor)[1] as any).type, 'heading-one')
+    assert.equal(getElementType(Editor.getChildren(editor)[0]!), 'paragraph')
+    assert.equal(getElementType(Editor.getChildren(editor)[1]!), 'heading-one')
   })
 
   it('does not invoke target runtime for explicit primitive targets', () => {

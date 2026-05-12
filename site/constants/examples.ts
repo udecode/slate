@@ -38,6 +38,8 @@ export const HIDDEN_EXAMPLES = [
   'dom-coverage-boundaries',
 ] as const
 
+const hiddenExamplePaths: readonly string[] = HIDDEN_EXAMPLES
+
 export const NON_HIDDEN_EXAMPLES = EXAMPLE_NAMES_AND_PATHS.filter(
-  ([, path]) => !HIDDEN_EXAMPLES.includes(path as any)
+  ([, path]) => !hiddenExamplePaths.includes(path)
 )

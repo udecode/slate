@@ -234,9 +234,9 @@ const Element = ({
   contentVisibility: boolean
   showSelectedHeadings: boolean
 }) => {
-  const style: CSSProperties = {
+  const style = {
     contentVisibility: contentVisibility ? 'auto' : undefined,
-  }
+  } satisfies CSSProperties
 
   switch (element.type) {
     case 'heading-one':

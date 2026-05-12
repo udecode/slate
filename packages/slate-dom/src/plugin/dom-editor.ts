@@ -3,6 +3,7 @@ import {
   type Path,
   type Point,
   Range,
+  type RuntimeId,
   Scrubber,
   Text,
   type Value,
@@ -45,6 +46,7 @@ import {
   NODE_TO_INDEX,
   NODE_TO_KEY,
   NODE_TO_PARENT,
+  NODE_TO_RUNTIME_ID,
 } from '../utils/weak-maps'
 import {
   insertDOMData,
@@ -335,6 +337,17 @@ const parseSlateDOMPath = (value: string | null): Path | null => {
   return path.every(Number.isFinite) ? (path as Path) : null
 }
 
+const getSlateDOMRuntimePath = (
+  editor: DOMEditor<any>,
+  element: HTMLElement
+): Path | null => {
+  const runtimeId = element.getAttribute(
+    'data-slate-runtime-id'
+  ) as RuntimeId | null
+
+  return runtimeId ? Editor.getPathByRuntimeId(editor, runtimeId) : null
+}
+
 const findMountedDOMNodeByPath = (
   editor: DOMEditor<any>,
   path: Path
@@ -596,6 +609,15 @@ export const DOMEditor: DOMEditorInterface = {
   },
 
   findPath: (editor, node) => {
+    const runtimeId = NODE_TO_RUNTIME_ID.get(node)
+    const runtimePath = runtimeId
+      ? Editor.getPathByRuntimeId(editor, runtimeId)
+      : null
+
+    if (runtimePath) {
+      return runtimePath
+    }
+
     const path: Path = []
     let child = node
 
@@ -992,7 +1014,8 @@ export const DOMEditor: DOMEditorInterface = {
 
     const fallbackPath =
       domEl && belongsToEditor
-        ? parseSlateDOMPath(domEl.getAttribute('data-slate-path'))
+        ? (getSlateDOMRuntimePath(editor, domEl as HTMLElement) ??
+          parseSlateDOMPath(domEl.getAttribute('data-slate-path')))
         : null
 
     if (fallbackPath && Editor.hasPath(editor, fallbackPath)) {

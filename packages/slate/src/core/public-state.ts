@@ -163,7 +163,17 @@ const cloneFrozen = <T>(value: T): T => deepFreeze(cloneValue(value))
 const now = () => globalThis.performance?.now?.() ?? Date.now()
 
 const profileCoreDuration = <T>(id: string, callback: () => T): T => {
-  const profiler = (globalThis as any).__SLATE_REACT_RENDER_PROFILER__
+  const profiler = (
+    globalThis as typeof globalThis & {
+      __SLATE_REACT_RENDER_PROFILER__?: {
+        record?: (event: {
+          duration: number
+          id: string
+          kind: 'core-time'
+        }) => void
+      }
+    }
+  ).__SLATE_REACT_RENDER_PROFILER__
 
   if (!profiler) {
     return callback()
@@ -2583,13 +2593,17 @@ export const replaceSnapshot = (editor: Editor, input: SnapshotInput) => {
   )
 }
 
-export const subscribe = (editor: Editor, listener: SnapshotListener) => {
+export const subscribe = <V extends Value>(
+  editor: Editor<V>,
+  listener: SnapshotListener<V>
+) => {
+  const typedListener = listener as SnapshotListener
   const listeners = LISTENERS.get(editor) ?? new Set<SnapshotListener>()
-  listeners.add(listener)
+  listeners.add(typedListener)
   LISTENERS.set(editor, listeners)
 
   return () => {
-    listeners.delete(listener)
+    listeners.delete(typedListener)
   }
 }
 

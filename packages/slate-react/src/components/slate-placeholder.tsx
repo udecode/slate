@@ -21,7 +21,7 @@ type SlatePlaceholderComponentProps = HTMLAttributes<HTMLElement> & {
   ref?: Ref<HTMLElement>
 }
 
-const defaultPlaceholderStyle: CSSProperties = {
+const defaultPlaceholderStyle = {
   position: 'absolute',
   top: 0,
   pointerEvents: 'none',
@@ -32,7 +32,7 @@ const defaultPlaceholderStyle: CSSProperties = {
   userSelect: 'none',
   textDecoration: 'none',
   WebkitUserModify: IS_WEBKIT ? 'inherit' : undefined,
-}
+} satisfies CSSProperties
 
 export const getSlatePlaceholderStyle = (
   style?: CSSProperties

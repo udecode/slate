@@ -246,8 +246,10 @@ export const useEditableReactBeforeInputHandler = ({
       ) {
         event.preventDefault()
         if (!ReactEditor.isComposing(editor)) {
-          const text = (event as any).data as string
-          handleFallbackInsertText(text)
+          const text = event.nativeEvent.data
+          if (text != null) {
+            handleFallbackInsertText(text)
+          }
         }
       }
     },

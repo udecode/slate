@@ -268,9 +268,11 @@ const resolveTextZeroWidth = ({
 const EditableRenderedElement = <
   TElement extends SlateElementNode = SlateElementNode,
 >({
+  path,
   props,
   renderElement,
 }: {
+  path: Path
   props: EditableRenderElementProps<TElement>
   renderElement: RenderElementRenderer<TElement>
 }) => {
@@ -288,14 +290,17 @@ const EditableRenderedElement = <
         return
       }
 
-      assertRenderedElementChildrenHaveDOMOrCoverage(editor, props)
+      assertRenderedElementChildrenHaveDOMOrCoverage(editor, {
+        element: props.element,
+        path,
+      })
     }, 0)
 
     return () => {
       cancelled = true
       globalThis.clearTimeout(timeout)
     }
-  }, [editor, props])
+  }, [editor, path, props.element])
 
   return <>{rendered}</>
 }
@@ -320,7 +325,7 @@ const assertRenderedElementChildrenHaveDOMOrCoverage = <
   TElement extends SlateElementNode,
 >(
   editor: ReturnType<typeof useEditor>,
-  { element, path }: EditableRenderElementProps<TElement>
+  { element, path }: { element: TElement; path: Path }
 ) => {
   element.children.forEach((child, index) => {
     const childPath = [...path, index]
@@ -453,21 +458,16 @@ const EditableRenderedVoid = <
   children,
   element,
   isInline,
-  path,
   renderVoid,
 }: {
   children: ReactNode
   element: TElement
   isInline: boolean
-  path: Path
   renderVoid?: RenderVoidRenderer<TElement>
 }) => {
-  const voidPath = React.useMemo(() => Object.freeze([...path]) as Path, [path])
-
   const content =
     renderVoid?.({
       element,
-      path: voidPath,
     }) ?? null
 
   return isInline ? (
@@ -491,9 +491,7 @@ export type EditableRenderElementProps<
       }
       children: ReactNode
       element: TElement
-      index: number
       isInline: boolean
-      path: Path
       slots: EditableElementSlots
     }
   : never
@@ -504,7 +502,6 @@ export type RenderElementRenderer<TElement extends SlateElementNode = any> = (
 
 export type EditableRenderVoidProps<TElement extends SlateElementNode = any> = {
   element: TElement
-  path: Path
 }
 
 export type RenderVoidRenderer<TElement extends SlateElementNode = any> = (
@@ -781,7 +778,6 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
             <EditableRenderedVoid
               element={node as TElement}
               isInline={inline}
-              path={path}
               renderVoid={renderVoid}
             >
               {children}
@@ -801,9 +797,7 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
       attributes,
       children,
       element: node as TElement,
-      index: path.at(-1) ?? 0,
       isInline: inline,
-      path,
     }
     const renderElementProps = {
       ...renderElementPropsBase,
@@ -815,6 +809,7 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
         <ElementPathContext.Provider value={path}>
           <ElementContext.Provider value={node}>
             <EditableRenderedElement
+              path={path}
               props={renderElementProps}
               renderElement={renderElement}
             />
@@ -1391,52 +1386,47 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     getRenderingStrategyShellOptions(renderingStrategy)
   const renderingStrategyVirtualizedOptions =
     getRenderingStrategyVirtualizedOptions(renderingStrategy)
-  const renderingStrategyConfig =
-    React.useMemo<RenderingStrategyRootConfig | null>(
-      () =>
-        isRenderingStrategySegmentMode(renderingStrategyType)
-          ? {
-              overscan: Math.max(
-                0,
-                renderingStrategyShellOptions?.overscan ?? 0
-              ),
-              segmentSize: Math.max(
-                1,
-                renderingStrategyShellOptions?.segmentSize ?? 100
-              ),
-              previewChars: Math.max(
-                16,
-                renderingStrategyShellOptions?.previewChars ?? 96
-              ),
-              threshold: Math.max(
-                1,
-                renderingStrategyShellOptions?.threshold ?? 2000
-              ),
-            }
-          : null,
-      [renderingStrategyType, renderingStrategyShellOptions]
-    )
-  const renderingStrategyVirtualizedConfig =
-    React.useMemo<RenderingStrategyVirtualizedConfig | null>(
-      () =>
-        renderingStrategyType === 'virtualized'
-          ? {
-              estimatedBlockSize: Math.max(
-                1,
-                renderingStrategyVirtualizedOptions?.estimatedBlockSize ?? 32
-              ),
-              overscan: Math.max(
-                0,
-                renderingStrategyVirtualizedOptions?.overscan ?? 2
-              ),
-              threshold: Math.max(
-                1,
-                renderingStrategyVirtualizedOptions?.threshold ?? 25_000
-              ),
-            }
-          : null,
-      [renderingStrategyType, renderingStrategyVirtualizedOptions]
-    )
+  const renderingStrategyConfig = React.useMemo(
+    () =>
+      isRenderingStrategySegmentMode(renderingStrategyType)
+        ? ({
+            overscan: Math.max(0, renderingStrategyShellOptions?.overscan ?? 0),
+            segmentSize: Math.max(
+              1,
+              renderingStrategyShellOptions?.segmentSize ?? 100
+            ),
+            previewChars: Math.max(
+              16,
+              renderingStrategyShellOptions?.previewChars ?? 96
+            ),
+            threshold: Math.max(
+              1,
+              renderingStrategyShellOptions?.threshold ?? 2000
+            ),
+          } satisfies RenderingStrategyRootConfig)
+        : null,
+    [renderingStrategyType, renderingStrategyShellOptions]
+  )
+  const renderingStrategyVirtualizedConfig = React.useMemo(
+    () =>
+      renderingStrategyType === 'virtualized'
+        ? ({
+            estimatedBlockSize: Math.max(
+              1,
+              renderingStrategyVirtualizedOptions?.estimatedBlockSize ?? 32
+            ),
+            overscan: Math.max(
+              0,
+              renderingStrategyVirtualizedOptions?.overscan ?? 2
+            ),
+            threshold: Math.max(
+              1,
+              renderingStrategyVirtualizedOptions?.threshold ?? 25_000
+            ),
+          } satisfies RenderingStrategyVirtualizedConfig)
+        : null,
+    [renderingStrategyType, renderingStrategyVirtualizedOptions]
+  )
   const {
     segmentPlan,
     mountedTopLevelRanges,
@@ -1677,100 +1667,106 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     placeholderHeight && !disableDefaultStyles
       ? { minHeight: placeholderHeight, ...style }
       : style
-  const renderingStrategyMetrics =
-    React.useMemo<EditableRenderingStrategyMetricsBase>(() => {
-      const documentSize = topLevelRuntimeIds.length
-      const mountedTopLevelCount = virtualizedPlan
-        ? virtualizedPlan.mountedTopLevelRuntimeIds.size
+  const fallbackDOMBeforeInput = React.useCallback(
+    (event: InputEvent) => {
+      onBeforeInput?.(event as unknown as React.FormEvent<HTMLDivElement>)
+    },
+    [onBeforeInput]
+  )
+  const domBeforeInputHandler =
+    onDOMBeforeInput ?? (onBeforeInput ? fallbackDOMBeforeInput : undefined)
+  const renderingStrategyMetrics = React.useMemo(() => {
+    const documentSize = topLevelRuntimeIds.length
+    const mountedTopLevelCount = virtualizedPlan
+      ? virtualizedPlan.mountedTopLevelRuntimeIds.size
+      : segmentPlan
+        ? segmentPlan.segments.reduce(
+            (total, segment) => total + segment.mountedRuntimeIds.length,
+            0
+          )
+        : domPresentMountedTopLevelRuntimeIds
+          ? domPresentMountedTopLevelRuntimeIds.size
+          : documentSize
+    const shellCount =
+      segmentPlan?.segments.filter((segment) => !segment.isActive).length ?? 0
+    const virtualizedBoundaryCount = virtualizedPlan?.missingRanges.length ?? 0
+    const rootGroupCount = rootGroups?.length ?? 0
+    const mountedGroupCount = renderedRootGroups
+      ? renderedRootGroups.filter((group) => group.isMounted).length
+      : virtualizedPlan
+        ? virtualizedPlan.mountedTopLevelRanges.length
         : segmentPlan
-          ? segmentPlan.segments.reduce(
-              (total, segment) => total + segment.mountedRuntimeIds.length,
-              0
-            )
-          : domPresentMountedTopLevelRuntimeIds
-            ? domPresentMountedTopLevelRuntimeIds.size
-            : documentSize
-      const shellCount =
-        segmentPlan?.segments.filter((segment) => !segment.isActive).length ?? 0
-      const virtualizedBoundaryCount =
-        virtualizedPlan?.missingRanges.length ?? 0
-      const rootGroupCount = rootGroups?.length ?? 0
-      const mountedGroupCount = renderedRootGroups
-        ? renderedRootGroups.filter((group) => group.isMounted).length
-        : virtualizedPlan
-          ? virtualizedPlan.mountedTopLevelRanges.length
-          : segmentPlan
-            ? segmentPlan.segments.filter((segment) => segment.isActive).length
-            : rootGroupCount
-      const pendingGroupCount = renderedRootGroups
-        ? renderedRootGroups.length - mountedGroupCount
-        : virtualizedPlan
-          ? virtualizedBoundaryCount
-          : shellCount
-      const effectiveStrategy = virtualizedPlan
-        ? 'virtualized'
-        : segmentPlan
-          ? 'shell'
-          : rootGroups
-            ? 'staged'
-            : renderingStrategyType === 'full'
-              ? 'full'
-              : 'plain'
-      const nativeSurfaceComplete =
-        effectiveStrategy === 'staged'
-          ? pendingGroupCount === 0
-          : effectiveStrategy !== 'shell' && effectiveStrategy !== 'virtualized'
-      const degradationMode =
-        effectiveStrategy === 'shell'
-          ? 'shell'
-          : effectiveStrategy === 'virtualized'
-            ? 'virtualized'
-            : effectiveStrategy === 'staged' && !nativeSurfaceComplete
-              ? 'staged-warmup'
-              : 'none'
+          ? segmentPlan.segments.filter((segment) => segment.isActive).length
+          : rootGroupCount
+    const pendingGroupCount = renderedRootGroups
+      ? renderedRootGroups.length - mountedGroupCount
+      : virtualizedPlan
+        ? virtualizedBoundaryCount
+        : shellCount
+    const effectiveStrategy = virtualizedPlan
+      ? 'virtualized'
+      : segmentPlan
+        ? 'shell'
+        : rootGroups
+          ? 'staged'
+          : renderingStrategyType === 'full'
+            ? 'full'
+            : 'plain'
+    const nativeSurfaceComplete =
+      effectiveStrategy === 'staged'
+        ? pendingGroupCount === 0
+        : effectiveStrategy !== 'shell' && effectiveStrategy !== 'virtualized'
+    const degradationMode =
+      effectiveStrategy === 'shell'
+        ? 'shell'
+        : effectiveStrategy === 'virtualized'
+          ? 'virtualized'
+          : effectiveStrategy === 'staged' && !nativeSurfaceComplete
+            ? 'staged-warmup'
+            : 'none'
 
-      return {
-        activeSegmentIndex:
-          segmentPlan?.activeSegmentIndex ??
-          selectedVirtualizedTopLevelIndex ??
-          null,
-        overscan:
-          renderingStrategyConfig?.overscan ??
-          renderingStrategyVirtualizedConfig?.overscan ??
-          null,
-        cohort: getRenderingStrategyCohort(documentSize),
-        degradationMode,
-        documentSize,
-        effectiveStrategy,
-        estimatedBlockSize:
-          renderingStrategyVirtualizedConfig?.estimatedBlockSize ?? null,
-        segmentSize: renderingStrategyConfig?.segmentSize ?? null,
-        mountedGroupCount,
-        mountedTopLevelCount,
-        nativeSurfaceComplete,
-        pendingGroupCount,
-        pendingTopLevelCount: Math.max(0, documentSize - mountedTopLevelCount),
-        requestedStrategy: renderingStrategyType,
-        shellCount,
-        threshold:
-          renderingStrategyConfig?.threshold ??
-          renderingStrategyVirtualizedConfig?.threshold ??
-          ROOT_GROUP_THRESHOLD,
-        virtualizerMeasuredCount:
-          virtualizedPlan?.virtualizerMeasuredCount ?? null,
-      }
-    }, [
-      domPresentMountedTopLevelRuntimeIds,
-      virtualizedPlan,
-      segmentPlan,
-      renderingStrategyConfig,
-      renderingStrategyVirtualizedConfig,
-      renderingStrategyType,
-      renderedRootGroups,
-      rootGroups,
-      selectedVirtualizedTopLevelIndex,
-      topLevelRuntimeIds.length,
-    ])
+    return {
+      activeSegmentIndex:
+        segmentPlan?.activeSegmentIndex ??
+        selectedVirtualizedTopLevelIndex ??
+        null,
+      overscan:
+        renderingStrategyConfig?.overscan ??
+        renderingStrategyVirtualizedConfig?.overscan ??
+        null,
+      cohort: getRenderingStrategyCohort(documentSize),
+      degradationMode,
+      documentSize,
+      effectiveStrategy,
+      estimatedBlockSize:
+        renderingStrategyVirtualizedConfig?.estimatedBlockSize ?? null,
+      segmentSize: renderingStrategyConfig?.segmentSize ?? null,
+      mountedGroupCount,
+      mountedTopLevelCount,
+      nativeSurfaceComplete,
+      pendingGroupCount,
+      pendingTopLevelCount: Math.max(0, documentSize - mountedTopLevelCount),
+      requestedStrategy: renderingStrategyType,
+      shellCount,
+      threshold:
+        renderingStrategyConfig?.threshold ??
+        renderingStrategyVirtualizedConfig?.threshold ??
+        ROOT_GROUP_THRESHOLD,
+      virtualizerMeasuredCount:
+        virtualizedPlan?.virtualizerMeasuredCount ?? null,
+    } satisfies EditableRenderingStrategyMetricsBase
+  }, [
+    domPresentMountedTopLevelRuntimeIds,
+    virtualizedPlan,
+    segmentPlan,
+    renderingStrategyConfig,
+    renderingStrategyVirtualizedConfig,
+    renderingStrategyType,
+    renderedRootGroups,
+    rootGroups,
+    selectedVirtualizedTopLevelIndex,
+    topLevelRuntimeIds.length,
+  ])
 
   return (
     <ProjectionContext.Provider value={projectionStore}>
@@ -1781,7 +1777,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
         disableDefaultStyles={disableDefaultStyles}
         id={id}
         inputRules={inputRules}
-        onDOMBeforeInput={onDOMBeforeInput ?? (onBeforeInput as any)}
+        onDOMBeforeInput={domBeforeInputHandler}
         onKeyDown={onKeyDown}
         onPaste={onPaste}
         onRenderingStrategyMetrics={onRenderingStrategyMetrics}

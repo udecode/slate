@@ -203,12 +203,12 @@ if (Element.isElement<ParagraphElement>(maybeElement)) {
 }
 
 const assertPrimitiveMethodTypes = () => {
-  typedEditor.insertNodes({ type: 'quote', children: [{ text: 'two' }] })
-  typedEditor.insertFragment([
-    { type: 'paragraph', children: [{ text: 'two' }] },
-  ])
-  typedEditor.wrapNodes({ type: 'quote', children: [] })
-  typedEditor.setNodes({ type: 'quote' })
+  typedEditor.update((tx) => {
+    tx.nodes.insert({ type: 'quote', children: [{ text: 'two' }] })
+    tx.fragment.insert([{ type: 'paragraph', children: [{ text: 'two' }] }])
+    tx.nodes.wrap({ type: 'quote', children: [] })
+    tx.nodes.set({ type: 'quote' })
+  })
 }
 
 void assertPrimitiveMethodTypes

@@ -249,9 +249,9 @@ const Element = (props: RenderElementProps) => {
   return <p {...attributes}>{children}</p>
 }
 
-const Mention = ({ element, path }: RenderVoidProps<MentionElement>) => {
+const Mention = ({ element }: RenderVoidProps<MentionElement>) => {
   const focused = useEditorFocused()
-  const selected = useElementSelected(path)
+  const selected = useElementSelected()
   const style: React.CSSProperties = {
     padding: '3px 3px 2px',
     margin: '0 1px',

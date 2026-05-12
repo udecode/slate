@@ -87,8 +87,8 @@ type MentionElement = {
   children: [{ bold?: true; italic?: true; text: '' }]
 }
 
-const Mention = ({ element, target }: RenderVoidProps<MentionElement>) => {
-  const selected = useElementSelected(target)
+const Mention = ({ element }: RenderVoidProps<MentionElement>) => {
+  const selected = useElementSelected()
   const text = element.children[0] ?? {}
   const style = {
     padding: '3px 3px 2px',

@@ -1,5 +1,6 @@
 import { isObject, Range } from '..'
 import { isDeepEqual } from '../utils/deep-equal'
+import type { BaseEditor } from './editor'
 import type { TElement } from './element'
 
 type Simplify<T> = { [K in keyof T]: T[K] } & {}
@@ -33,15 +34,19 @@ export type TextOf<N> = N extends Text
   ? N
   : Text extends N
     ? Text
-    : TElement extends N
-      ? Text
-      : N extends { getChildren: () => infer V }
-        ? V extends readonly (infer Child)[]
-          ? TextOf<Child>
-          : never
-        : N extends TElement
-          ? Extract<N['children'][number], Text> | TextOf<N['children'][number]>
-          : never
+    : N extends BaseEditor<infer V>
+      ? TextIn<V>
+      : TElement extends N
+        ? Text
+        : N extends { getChildren: () => infer V }
+          ? V extends readonly (infer Child)[]
+            ? TextOf<Child>
+            : never
+          : N extends TElement
+            ?
+                | Extract<N['children'][number], Text>
+                | TextOf<N['children'][number]>
+            : never
 
 type TextProps<T> = T extends Text ? Omit<T, 'text'> : never
 

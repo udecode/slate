@@ -49,14 +49,15 @@ const MarkdownShortcutsExample = () => {
     withEditor: (editor) => withHistory(editor),
     initialValue,
   })
-  const inputRules = useMemo<readonly EditableInputRule[]>(
-    () => [
-      ({ data, inputType }) => {
-        if (inputType === 'insertText' && typeof data === 'string') {
-          return applyMarkdownTextShortcut(editor, data)
-        }
-      },
-    ],
+  const inputRules = useMemo(
+    () =>
+      [
+        ({ data, inputType }) => {
+          if (inputType === 'insertText' && typeof data === 'string') {
+            return applyMarkdownTextShortcut(editor, data)
+          }
+        },
+      ] satisfies readonly EditableInputRule[],
     [editor]
   )
   const handleDOMBeforeInput = useCallback(

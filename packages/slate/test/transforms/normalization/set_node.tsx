@@ -23,7 +23,7 @@ runtime.normalizeNode = (entry) => {
   const [node, path] = entry
   if (
     Element.isElement(node) &&
-    (node as any).type === 'body' &&
+    node.type === 'body' &&
     Editor.string(editor, path, { voids: true }) === 'one'
   ) {
     Editor.setNodes(

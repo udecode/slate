@@ -2,7 +2,12 @@ import { Path, Range, Scrubber, Text } from '..'
 import { modifyChildren, modifyLeaf, removeChildren } from '../utils/modify'
 import type { Editor as EditorType, Value } from './editor'
 import { Editor } from './editor'
-import { Element, type ElementEntry, type ElementOf } from './element'
+import {
+  Element,
+  type ElementEntry,
+  type ElementIn,
+  type ElementOf,
+} from './element'
 import type { TextOf } from './text'
 
 /**
@@ -18,17 +23,21 @@ export type DescendantOf<N> = N extends { getChildren: () => infer V }
   ? V extends readonly (infer Child)[]
     ? ElementOf<Child> | TextOf<Child>
     : never
-  : N extends Element
-    ? ElementOf<N> | TextOf<N>
-    : N extends Text
-      ? N
-      : never
+  : N extends EditorType<infer V>
+    ? DescendantIn<V>
+    : N extends Element
+      ? ElementOf<N> | TextOf<N>
+      : N extends Text
+        ? N
+        : never
 
 export type AncestorOf<N> = N extends { getChildren: () => infer V }
   ? N | (V extends readonly (infer Child)[] ? ElementOf<Child> : never)
-  : N extends Element
-    ? N | ElementOf<N>
-    : never
+  : N extends EditorType<infer V>
+    ? N | ElementIn<V>
+    : N extends Element
+      ? N | ElementOf<N>
+      : never
 
 export type NodeOf<N> = N | ElementOf<N> | TextOf<N>
 
