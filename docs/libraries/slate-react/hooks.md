@@ -71,11 +71,6 @@ const latestOperationCount = useEditorSelector((_editor, operations) => {
 
 Get the current element object inside an element renderer.
 
-#### `useElementIf(): Element | null`
-
-Get the current element object, or `null` when the component is not inside an
-element renderer.
-
 #### `useElementSelected(path?: Path): boolean`
 
 Subscribe to whether a specific element path intersects the current

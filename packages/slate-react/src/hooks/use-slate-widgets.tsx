@@ -2,7 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
+  useState,
   useSyncExternalStore,
 } from 'react'
 import type { Editor } from 'slate'
@@ -23,18 +23,22 @@ export function useSlateWidgetStore<
   widgets: readonly SlateWidget<T>[],
   annotationStore?: SlateAnnotationStore<TAnnotation> | null
 ): SlateWidgetStore<T, TAnnotation> {
-  const widgetsRef = useRef(widgets)
-  widgetsRef.current = widgets
+  const [widgetsCell] = useState(() => ({ current: widgets }))
 
   const store = useMemo(
     () =>
-      createSlateWidgetStore(editor, () => widgetsRef.current, annotationStore),
-    [annotationStore, editor]
+      createSlateWidgetStore(
+        editor,
+        () => widgetsCell.current,
+        annotationStore
+      ),
+    [annotationStore, editor, widgetsCell]
   )
 
   useEffect(() => {
+    widgetsCell.current = widgets
     store.refresh()
-  }, [widgets, store])
+  }, [store, widgets, widgetsCell])
 
   useEffect(() => {
     return () => {

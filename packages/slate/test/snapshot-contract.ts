@@ -1441,6 +1441,43 @@ it('keeps text snapshots stable across later path-stable text commits', () => {
   assert.equal(first.children[1], second.children[1])
 })
 
+it('publishes one path-stable snapshot for batched text commits', () => {
+  const editor = createEditor()
+  const snapshots: ReturnType<typeof Editor.getSnapshot>[] = []
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: null,
+  })
+
+  const before = Editor.getSnapshot(editor)
+
+  Editor.subscribe(editor, (snapshot) => {
+    snapshots.push(snapshot)
+  })
+
+  editor.update((tx) => {
+    tx.text.insert('!', {
+      at: { path: [0, 0], offset: 5 },
+    })
+    tx.text.insert('?', {
+      at: { path: [0, 0], offset: 6 },
+    })
+    tx.text.insert('!', {
+      at: { path: [1, 0], offset: 4 },
+    })
+  })
+
+  const after = snapshots.at(-1)!
+
+  assert.equal(snapshots.length, 1)
+  assert.equal(after.children[0].children[0].text, 'alpha!?')
+  assert.equal(after.children[1].children[0].text, 'beta!')
+  assert.equal(before.children[0].children[0].text, 'alpha')
+  assert.equal(before.children[1].children[0].text, 'beta')
+  assert.equal(after.index, before.index)
+})
+
 it('publishes touched runtime ids for collapsed insert_text operations', () => {
   const editor = createEditor()
   const changes: SnapshotChange[] = []

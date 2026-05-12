@@ -42,6 +42,39 @@ const currentJsdomRequireFrom = resolve(
   currentRepo,
   'packages/slate-react/package.json'
 )
+const latestArtifactPath =
+  'tmp/slate-react-huge-document-legacy-compare-benchmark.json'
+
+const sanitizeArtifactSegment = (value) =>
+  String(value)
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 180) || 'default'
+
+const getSelectedSurfaceLabel = () =>
+  sanitizeArtifactSegment(process.env.REACT_HUGE_COMPARE_SURFACES || 'all')
+
+const getRunArtifactPath = ({ mode }) =>
+  `${[
+    'tmp/slate-react-huge-document-legacy-compare-benchmark',
+    sanitizeArtifactSegment(mode),
+    getSelectedSurfaceLabel(),
+    `blocks-${blocks}`,
+    `iters-${iterations}`,
+    `ops-${typeOps}`,
+    splitSelectionLanes ? 'split-selection' : 'combined-selection',
+    profile ? 'profile' : 'no-profile',
+  ].join('-')}.json`
+
+const writeHugeDocumentArtifact = async ({ path, summary }) => {
+  summary.artifactPaths = {
+    latest: latestArtifactPath,
+    run: path,
+  }
+
+  await writeBenchmarkArtifact(latestArtifactPath, summary)
+  await writeBenchmarkArtifact(path, summary)
+}
 
 const sharedSource = `
 import assert from 'node:assert/strict'
@@ -284,11 +317,26 @@ const summarize = (samples) => {
     sorted.length % 2 === 0
       ? (sorted[middle - 1] + sorted[middle]) / 2
       : sorted[middle]
+  const percentile = (ratio) => {
+    if (sorted.length === 0) {
+      return 0
+    }
+
+    const index = Math.min(
+      sorted.length - 1,
+      Math.max(0, Math.ceil(sorted.length * ratio) - 1)
+    )
+
+    return sorted[index]
+  }
 
   return {
     samples: samples.map(round),
     mean: round(mean),
     median: round(median),
+    p75: round(percentile(0.75)),
+    p95: round(percentile(0.95)),
+    p99: round(percentile(0.99)),
     min: round(sorted[0] ?? 0),
     max: round(sorted.at(-1) ?? 0),
   }
@@ -361,8 +409,10 @@ const installDomGlobals = (dom) => {
     globalThis.Selection = previous.Selection
     globalThis.ShadowRoot = previous.ShadowRoot
     globalThis.Text = previous.Text
-    globalThis.requestAnimationFrame = previous.requestAnimationFrame
-    globalThis.cancelAnimationFrame = previous.cancelAnimationFrame
+    globalThis.requestAnimationFrame =
+      previous.requestAnimationFrame ?? (() => 0)
+    globalThis.cancelAnimationFrame =
+      previous.cancelAnimationFrame ?? (() => {})
 
     Object.defineProperty(globalThis, 'navigator', {
       configurable: true,
@@ -969,6 +1019,25 @@ const summarizeProfiles = (profiles) => {
   }
 }
 
+const summarizeNumericRecords = (records) => {
+  const keys = new Set()
+
+  for (const record of records) {
+    for (const [key, value] of Object.entries(record ?? {})) {
+      if (typeof value === 'number') {
+        keys.add(key)
+      }
+    }
+  }
+
+  return Object.fromEntries(
+    [...keys].sort().map((key) => [
+      key,
+      summarize(records.map((record) => record?.[key] ?? 0)),
+    ])
+  )
+}
+
 const getRootGroupCount = () => Math.ceil(blocks / rootGroupSize)
 const getShellSegmentCount = () => Math.ceil(blocks / segmentSize)
 
@@ -1063,6 +1132,7 @@ const resolveReadyTrace = ({ nativeSurfaceCompleteMs, readyMs, trace }) => ({
       : trace.stagedMountingEnabled
         ? nativeSurfaceCompleteMs?.mean ?? null
         : readyMs.mean,
+  readySurfaceWeights: readyMs.traceTags ?? {},
 })
 
 const recordSurfaceWeight = (id, value) => {
@@ -1080,11 +1150,7 @@ const getProcessHeapUsedBytes = () =>
     ? process.memoryUsage().heapUsed
     : 0
 
-const recordReadySurfaceWeight = (container) => {
-  if (!globalThis.__SLATE_REACT_RENDER_PROFILER__) {
-    return
-  }
-
+const measureReadySurfaceWeights = (container) => {
   const root = getEditableRoot(container)
   const listenerStats = container.__slateBenchmarkEventListenerStats?.() ?? {
     activeCount: 0,
@@ -1130,68 +1196,53 @@ const recordReadySurfaceWeight = (container) => {
   )
   const mountedEditableDescendantCount = slateElementCount + slateTextCount
 
-  recordSurfaceWeight('dom-node-count', domNodeCount)
-  recordSurfaceWeight('dom-nodes-per-block', domNodeCount / blocks)
-  recordSurfaceWeight('editable-descendant-count', mountedEditableDescendantCount)
-  recordSurfaceWeight(
-    'editable-descendants-per-block',
-    mountedEditableDescendantCount / blocks
-  )
-  recordSurfaceWeight('root-group-count', rootGroupCount)
-  recordSurfaceWeight(
-    'root-group-explicit-mounted-count',
-    explicitMountedRootGroupCount
-  )
-  recordSurfaceWeight('root-group-fresh-mounted-count', freshMountedRootGroupCount)
-  recordSurfaceWeight('root-group-mounted-count', mountedRootGroupCount)
-  recordSurfaceWeight('root-group-pending-count', pendingRootGroupCount)
-  recordSurfaceWeight('root-group-unstated-count', unstatedRootGroupCount)
-  recordSurfaceWeight('slate-element-count', slateElementCount)
-  recordSurfaceWeight('slate-leaf-count', slateLeafCount)
-  recordSurfaceWeight('slate-text-count', slateTextCount)
-  recordSurfaceWeight('shell-count', shellCount)
-  recordSurfaceWeight('dom-coverage-boundary-count', domCoverageBoundaryCount)
-  recordSurfaceWeight(
-    'event-listener-active-count',
-    listenerStats.activeCount
-  )
-  recordSurfaceWeight(
-    'event-listener-total-added-count',
-    listenerStats.totalAdded
-  )
-  recordSurfaceWeight(
-    'event-listener-active-beforeinput',
-    listenerStats.byType.beforeinput ?? 0
-  )
-  recordSurfaceWeight(
-    'event-listener-active-input',
-    listenerStats.byType.input ?? 0
-  )
-  recordSurfaceWeight(
-    'event-listener-active-selectionchange',
-    listenerStats.byType.selectionchange ?? 0
-  )
-  recordSurfaceWeight(
-    'event-listener-active-focusin',
-    listenerStats.byType.focusin ?? 0
-  )
-  recordSurfaceWeight(
-    'event-listener-active-focusout',
-    listenerStats.byType.focusout ?? 0
-  )
-  recordSurfaceWeight(
-    'event-listener-active-dragend',
-    listenerStats.byType.dragend ?? 0
-  )
-  recordSurfaceWeight(
-    'event-listener-active-drop',
-    listenerStats.byType.drop ?? 0
-  )
-  recordSurfaceWeight('process-heap-used-bytes', processHeapUsedBytes)
-  recordSurfaceWeight(
-    'process-heap-used-mb',
-    processHeapUsedBytes / 1024 / 1024
-  )
+  return {
+    'dom-coverage-boundary-count': domCoverageBoundaryCount,
+    'dom-node-count': domNodeCount,
+    'dom-nodes-per-block': domNodeCount / blocks,
+    'editable-descendant-count': mountedEditableDescendantCount,
+    'editable-descendants-per-block': mountedEditableDescendantCount / blocks,
+    'event-listener-active-beforeinput': listenerStats.byType.beforeinput ?? 0,
+    'event-listener-active-count': listenerStats.activeCount,
+    'event-listener-active-dragend': listenerStats.byType.dragend ?? 0,
+    'event-listener-active-drop': listenerStats.byType.drop ?? 0,
+    'event-listener-active-focusin': listenerStats.byType.focusin ?? 0,
+    'event-listener-active-focusout': listenerStats.byType.focusout ?? 0,
+    'event-listener-active-input': listenerStats.byType.input ?? 0,
+    'event-listener-active-selectionchange':
+      listenerStats.byType.selectionchange ?? 0,
+    'event-listener-total-added-count': listenerStats.totalAdded,
+    'process-heap-used-bytes': processHeapUsedBytes,
+    'process-heap-used-mb': processHeapUsedBytes / 1024 / 1024,
+    'root-group-count': rootGroupCount,
+    'root-group-explicit-mounted-count': explicitMountedRootGroupCount,
+    'root-group-fresh-mounted-count': freshMountedRootGroupCount,
+    'root-group-mounted-count': mountedRootGroupCount,
+    'root-group-pending-count': pendingRootGroupCount,
+    'root-group-unstated-count': unstatedRootGroupCount,
+    'shell-count': shellCount,
+    'slate-element-count': slateElementCount,
+    'slate-leaf-count': slateLeafCount,
+    'slate-text-count': slateTextCount,
+    ...Object.fromEntries(
+      Object.entries(listenerStats.byType).map(([type, count]) => [
+        'event-listener-active-' + type,
+        count,
+      ])
+    ),
+  }
+}
+
+const recordReadySurfaceWeight = (container) => {
+  const surfaceWeights = measureReadySurfaceWeights(container)
+
+  if (globalThis.__SLATE_REACT_RENDER_PROFILER__) {
+    for (const [id, value] of Object.entries(surfaceWeights)) {
+      recordSurfaceWeight(id, value)
+    }
+  }
+
+  return surfaceWeights
 }
 
 const surfaceDefinitions = [
@@ -1293,7 +1344,9 @@ const dispose = async ({ dom, restoreGlobals, root }) => {
     root.unmount()
   })
   await settleBenchmark()
-  await new Promise((resolve) => setTimeout(resolve, 500))
+  if (disposeDelayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, disposeDelayMs))
+  }
   restoreGlobals()
   dom.window.close()
 }
@@ -1301,6 +1354,7 @@ const dispose = async ({ dom, restoreGlobals, root }) => {
 const measureLane = async (setup, run) => {
   const samples = []
   const profiles = []
+  const traceTags = []
 
   for (let iteration = 0; iteration < iterations + 1; iteration += 1) {
     const counter = profileEnabled ? createProfilerCounter() : null
@@ -1315,7 +1369,7 @@ const measureLane = async (setup, run) => {
       await settleBenchmark()
       counter?.reset()
       const start = now()
-      await run(context)
+      const metrics = await run(context)
       const duration = now() - start
       const profile = counter?.snapshot()
       await dispose(context)
@@ -1323,6 +1377,9 @@ const measureLane = async (setup, run) => {
 
       if (iteration > 0) {
         samples.push(duration)
+        if (metrics && typeof metrics === 'object') {
+          traceTags.push(metrics)
+        }
         if (profile) {
           profiles.push(profile)
         }
@@ -1334,12 +1391,13 @@ const measureLane = async (setup, run) => {
 
   const summary = summarize(samples)
 
-  return profileEnabled
-    ? {
-        ...summary,
-        profile: summarizeProfiles(profiles),
-      }
-    : summary
+  return {
+    ...summary,
+    ...(traceTags.length > 0
+      ? { traceTags: summarizeNumericRecords(traceTags) }
+      : {}),
+    ...(profileEnabled ? { profile: summarizeProfiles(profiles) } : {}),
+  }
 }
 
 const measurePreparedLane = async (setup, prepare, run) => {
@@ -1454,7 +1512,7 @@ const measureReady = async ({ renderingStrategy, renderElement }) =>
           )
         )
       })
-      recordReadySurfaceWeight(container)
+      return recordReadySurfaceWeight(container)
     }
   )
 
@@ -2132,10 +2190,10 @@ if (compareMode === 'current-only') {
     surfaces: current.surfaces,
   }
 
-  await writeBenchmarkArtifact(
-    'tmp/slate-react-huge-document-legacy-compare-benchmark.json',
-    summary
-  )
+  await writeHugeDocumentArtifact({
+    path: getRunArtifactPath({ mode: compareMode }),
+    summary,
+  })
 
   console.log(JSON.stringify(summary, null, 2))
   process.exit(0)
@@ -2207,9 +2265,9 @@ const summary = {
   deltaMeanMsBySurface,
 }
 
-await writeBenchmarkArtifact(
-  'tmp/slate-react-huge-document-legacy-compare-benchmark.json',
-  summary
-)
+await writeHugeDocumentArtifact({
+  path: getRunArtifactPath({ mode: compareMode }),
+  summary,
+})
 
 console.log(JSON.stringify(summary, null, 2))

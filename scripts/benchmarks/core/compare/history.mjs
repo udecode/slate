@@ -20,10 +20,24 @@ const fragmentBlocks = Number(process.env.HISTORY_BENCH_FRAGMENT_BLOCKS || 200)
 
 const benchmarkSource = `
 import assert from 'node:assert/strict';
-import * as Slate from 'slate';
 import { withHistory } from 'slate-history';
 
-const { createEditor, Editor } = Slate;
+let Slate;
+let SlateInternal = {};
+
+try {
+  Slate = await import('../../packages/slate/src/index.ts');
+  SlateInternal = await import('../../packages/slate/src/internal/index.ts');
+} catch {
+  Slate = await import('slate');
+
+  try {
+    SlateInternal = await import('slate/internal');
+  } catch {}
+}
+
+const { createEditor } = Slate;
+const Editor = Slate.Editor ?? SlateInternal.Editor;
 
 const iterations = Number(process.env.HISTORY_BENCH_ITERATIONS || 3);
 const blocks = Number(process.env.HISTORY_BENCH_BLOCKS || 5000);
@@ -32,6 +46,19 @@ const fragmentBlocks = Number(process.env.HISTORY_BENCH_FRAGMENT_BLOCKS || 200);
 
 const now = () => performance.now();
 const round = (value) => Number(value.toFixed(2));
+
+const percentile = (sorted, ratio) => {
+  if (sorted.length === 0) {
+    return 0;
+  }
+
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.ceil(sorted.length * ratio) - 1)
+  );
+
+  return sorted[index];
+};
 
 const summarize = (samples) => {
   const sorted = [...samples].sort((left, right) => left - right);
@@ -46,6 +73,9 @@ const summarize = (samples) => {
     samples: samples.map(round),
     mean: round(mean),
     median: round(median),
+    p75: round(percentile(sorted, 0.75)),
+    p95: round(percentile(sorted, 0.95)),
+    p99: round(percentile(sorted, 0.99)),
     min: round(sorted[0] ?? 0),
     max: round(sorted.at(-1) ?? 0),
   };
@@ -77,7 +107,11 @@ const replaceEditor = (editor, input) => {
 };
 
 const getChildren = (editor) =>
-  typeof editor.getChildren === 'function' ? editor.getChildren() : editor.children;
+  typeof Editor.getSnapshot === 'function'
+    ? Editor.getSnapshot(editor).children
+    : typeof editor.getChildren === 'function'
+      ? editor.getChildren()
+      : editor.children;
 
 const write = (editor, fn) => {
   if (typeof editor.update === 'function') {
@@ -85,7 +119,7 @@ const write = (editor, fn) => {
     return;
   }
 
-  fn();
+  fn(null);
 };
 
 const typeEditor = () => {
@@ -99,9 +133,13 @@ const typeEditor = () => {
     },
   });
 
-  write(editor, () => {
+  write(editor, (tx) => {
     for (let index = 0; index < typeOps; index += 1) {
-      editor.insertText('X');
+      if (tx) {
+        tx.text.insert('X');
+      } else {
+        editor.insertText('X');
+      }
     }
   });
 
@@ -121,8 +159,12 @@ const fragmentEditor = () => {
     },
   });
 
-  write(editor, () => {
-    editor.insertFragment(createFragment(fragmentBlocks));
+  write(editor, (tx) => {
+    if (tx) {
+      tx.fragment.insert(createFragment(fragmentBlocks));
+    } else {
+      editor.insertFragment(createFragment(fragmentBlocks));
+    }
   });
 
   assert.equal(editor.history.undos.length > 0, true);

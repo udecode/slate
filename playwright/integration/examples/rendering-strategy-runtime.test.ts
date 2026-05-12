@@ -1833,6 +1833,8 @@ test.describe('rendering strategy runtime example', () => {
         steps: ['す', 'すし'],
         text: 'すし',
         textAfterComposition: 'default block 1すし',
+        transport:
+          testInfo.project.name === 'chromium' ? 'native' : 'synthetic',
       }),
       {
         metadata: {

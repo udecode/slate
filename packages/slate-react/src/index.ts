@@ -21,6 +21,7 @@ export type {
   EditableKeyDownContext,
   EditableKeyDownHandler,
   EditableRenderingStrategyCohort,
+  EditableRenderingStrategyDegradationMode,
   EditableRenderingStrategyEffectiveType,
   EditableRenderingStrategyMetrics,
   EditableRenderingStrategyMetricsBase,
@@ -88,7 +89,7 @@ export {
   useEditorState,
 } from './hooks/use-editor-selector'
 // Hooks
-export { useElement, useElementIf } from './hooks/use-element'
+export { useElement } from './hooks/use-element'
 export { useElementSelected } from './hooks/use-element-selected'
 export {
   type EditorNodeSelectorContext,

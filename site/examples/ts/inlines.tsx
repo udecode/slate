@@ -282,7 +282,6 @@ const LinkComponent = ({
     let parsedUrl: URL | null = null
     try {
       parsedUrl = new URL(element.url)
-      // eslint-disable-next-line no-empty
     } catch {}
     if (parsedUrl && allowedSchemes.includes(parsedUrl.protocol)) {
       return parsedUrl.href

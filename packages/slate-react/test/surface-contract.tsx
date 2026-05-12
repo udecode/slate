@@ -149,6 +149,19 @@ describe('slate-react surface contract', () => {
     expect(violations).toEqual([])
   })
 
+  test('generic selector substrate uses React external-store subscription primitive', () => {
+    const contents = readFileSync(
+      resolve(
+        repoRoot,
+        'packages/slate-react/src/hooks/use-generic-selector.tsx'
+      ),
+      'utf8'
+    )
+
+    expect(contents).toMatch(/\buseSyncExternalStore\b/)
+    expect(contents).not.toMatch(/\buseReducer\b/)
+  })
+
   test('generic slate selectors have an explicit ownership inventory', () => {
     expectSurfaceInventory(
       /\buseEditorSelector\(/g,

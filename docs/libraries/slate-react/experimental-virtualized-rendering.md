@@ -74,12 +74,13 @@ mounted.
     navigator.sendBeacon(
       '/rum/slate-rendering-strategy',
       JSON.stringify({
+        degradationMode: metrics.degradationMode,
         documentSize: metrics.documentSize,
+        domNodeCount: metrics.domNodeCount,
         effectiveStrategy: metrics.effectiveStrategy,
         mountedTopLevelCount: metrics.mountedTopLevelCount,
         pendingTopLevelCount: metrics.pendingTopLevelCount,
         requestedStrategy: metrics.requestedStrategy,
-        visibleDOMNodeCount: metrics.visibleDOMNodeCount,
         viewportVirtualizationBoundaryCount:
           metrics.viewportVirtualizationBoundaryCount,
       })

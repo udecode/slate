@@ -362,6 +362,7 @@ test('Editable reports renderingStrategy metrics for experimental virtualized su
     activeSegmentIndex: null,
     overscan: 0,
     cohort: 'normal',
+    degradationMode: 'virtualized',
     documentSize: 6,
     effectiveStrategy: 'virtualized',
     estimatedBlockSize: 24,
@@ -412,6 +413,7 @@ test('Editable reports renderingStrategy metrics for staged DOM-present surfaces
 
   expect(latest).toMatchObject({
     cohort: 'medium',
+    degradationMode: 'staged-warmup',
     documentSize: 1001,
     effectiveStrategy: 'staged',
     mountedGroupCount: 1,
@@ -425,6 +427,66 @@ test('Editable reports renderingStrategy metrics for staged DOM-present surfaces
   expect(latest.domCoverageBoundaryElementCount).toBeGreaterThan(0)
   expect(latest.domNodeCount).toBeGreaterThan(0)
   expect(latest.editableDescendantCount).toBeGreaterThan(0)
+})
+
+test('Editable reports renderingStrategy degradation mode for plain and shell surfaces', async () => {
+  const plainEditor = withReact(createEditor())
+  const shellEditor = withReact(createEditor())
+  const plainMetrics: EditableRenderingStrategyMetrics[] = []
+  const shellMetrics: EditableRenderingStrategyMetrics[] = []
+
+  const children = Array.from({ length: 6 }, (_, index) => ({
+    type: 'paragraph',
+    children: [{ text: `block-${index + 1}` }],
+  }))
+
+  Editor.replace(plainEditor, {
+    children,
+    selection: null,
+  })
+  Editor.replace(shellEditor, {
+    children,
+    selection: null,
+  })
+
+  render(
+    <>
+      <TestEditorSurface
+        editor={plainEditor}
+        id="rendering-strategy-plain-metrics"
+        onRenderingStrategyMetrics={(metric) => {
+          plainMetrics.push(metric)
+        }}
+      />
+      <TestEditorSurface
+        editor={shellEditor}
+        id="rendering-strategy-shell-metrics"
+        onRenderingStrategyMetrics={(metric) => {
+          shellMetrics.push(metric)
+        }}
+        renderingStrategy={{
+          overscan: 0,
+          type: 'shell',
+          segmentSize: 2,
+          threshold: 1,
+        }}
+      />
+    </>
+  )
+
+  await waitFor(() => expect(plainMetrics.length).toBeGreaterThan(0))
+  await waitFor(() => expect(shellMetrics.length).toBeGreaterThan(0))
+
+  expect(plainMetrics.at(-1)).toMatchObject({
+    degradationMode: 'none',
+    effectiveStrategy: 'plain',
+    nativeSurfaceComplete: true,
+  })
+  expect(shellMetrics.at(-1)).toMatchObject({
+    degradationMode: 'shell',
+    effectiveStrategy: 'shell',
+    nativeSurfaceComplete: false,
+  })
 })
 
 test('Editable marks only default plain text as DOM-sync capable', async () => {

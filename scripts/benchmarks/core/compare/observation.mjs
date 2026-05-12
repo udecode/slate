@@ -19,9 +19,23 @@ const insertOps = Number(process.env.CORE_OBSERVATION_BENCH_INSERT_OPS || 40)
 
 const benchmarkSource = `
 import assert from 'node:assert/strict';
-import * as Slate from 'slate';
 
-const { createEditor, Editor } = Slate;
+let Slate;
+let SlateInternal = {};
+
+try {
+  Slate = await import('../../packages/slate/src/index.ts');
+  SlateInternal = await import('../../packages/slate/src/internal/index.ts');
+} catch {
+  Slate = await import('slate');
+
+  try {
+    SlateInternal = await import('slate/internal');
+  } catch {}
+}
+
+const { createEditor, Node } = Slate;
+const Editor = Slate.Editor ?? SlateInternal.Editor;
 const legacyTransforms = Slate.Transforms;
 
 const iterations = Number(process.env.CORE_OBSERVATION_BENCH_ITERATIONS || 3);
@@ -30,6 +44,19 @@ const insertOps = Number(process.env.CORE_OBSERVATION_BENCH_INSERT_OPS || 40);
 
 const now = () => performance.now();
 const round = (value) => Number(value.toFixed(2));
+
+const percentile = (sorted, ratio) => {
+  if (sorted.length === 0) {
+    return 0;
+  }
+
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.ceil(sorted.length * ratio) - 1)
+  );
+
+  return sorted[index];
+};
 
 const summarize = (samples) => {
   const sorted = [...samples].sort((left, right) => left - right);
@@ -44,6 +71,9 @@ const summarize = (samples) => {
     samples: samples.map(round),
     mean: round(mean),
     median: round(median),
+    p75: round(percentile(sorted, 0.75)),
+    p95: round(percentile(sorted, 0.95)),
+    p99: round(percentile(sorted, 0.99)),
     min: round(sorted[0] ?? 0),
     max: round(sorted.at(-1) ?? 0),
   };
@@ -67,12 +97,16 @@ const replaceEditor = (editor, input) => {
 };
 
 const getChildren = (editor) =>
-  typeof editor.getChildren === 'function' ? editor.getChildren() : editor.children;
+  typeof Editor.getSnapshot === 'function'
+    ? Editor.getSnapshot(editor).children
+    : typeof editor.getChildren === 'function'
+      ? editor.getChildren()
+      : editor.children;
 
 const insertText = (editor, text, options) => {
   if (typeof editor.update === 'function') {
-    editor.update(() => {
-      editor.insertText(text, options);
+    editor.update((tx) => {
+      tx.text.insert(text, options);
     });
     return;
   }
@@ -133,7 +167,7 @@ const nodesAtRootAfterEachMs = measureLane(
         at: { path: [index % blocks, 0], offset: 0 },
       });
 
-      for (const _ of Editor.nodes(editor, { at: [] })) {
+      for (const _ of Node.nodes(editor, { at: [] })) {
         seen += 1;
       }
     }

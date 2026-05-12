@@ -53,6 +53,14 @@ const findTextIndex = (root: ParentNode, node: Node | null) => {
   return index
 }
 
+const findTextIndexOrNull = (root: ParentNode, node: Node | null) => {
+  try {
+    return findTextIndex(root, node)
+  } catch {
+    return null
+  }
+}
+
 export const takeDOMSelectionSnapshot = (
   selection: Selection | null
 ): DOMSelectionSnapshot | null => {
@@ -76,13 +84,20 @@ export const takeEditorSelectionSnapshot = (
     return null
   }
 
+  const anchorIndex = findTextIndexOrNull(root, selection.anchorNode)
+  const focusIndex = findTextIndexOrNull(root, selection.focusNode)
+
+  if (anchorIndex === null || focusIndex === null) {
+    return null
+  }
+
   return {
     anchor: {
-      path: [findTextIndex(root, selection.anchorNode), 0],
+      path: [anchorIndex, 0],
       offset: toEditorOffset(selection.anchorNode, selection.anchorOffset),
     },
     focus: {
-      path: [findTextIndex(root, selection.focusNode), 0],
+      path: [focusIndex, 0],
       offset: toEditorOffset(selection.focusNode, selection.focusOffset),
     },
   }

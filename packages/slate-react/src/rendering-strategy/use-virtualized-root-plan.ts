@@ -204,6 +204,7 @@ export const useVirtualizedRootPlan = ({
       }),
     [count, promotedTopLevelIndex, selectedTopLevelIndex]
   )
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual returns imperative helpers; this hook owns them locally.
   const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
     count,
     enabled: Boolean(config && enabled),

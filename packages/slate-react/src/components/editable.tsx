@@ -113,10 +113,17 @@ export type EditableRenderingStrategyEffectiveType =
   | 'virtualized'
   | 'shell'
 
+export type EditableRenderingStrategyDegradationMode =
+  | 'none'
+  | 'staged-warmup'
+  | 'shell'
+  | 'virtualized'
+
 export type EditableRenderingStrategyMetricsBase = {
   activeSegmentIndex: number | null
   overscan: number | null
   cohort: EditableRenderingStrategyCohort
+  degradationMode: EditableRenderingStrategyDegradationMode
   documentSize: number
   effectiveStrategy: EditableRenderingStrategyEffectiveType
   estimatedBlockSize: number | null

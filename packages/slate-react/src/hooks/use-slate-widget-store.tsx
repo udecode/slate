@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useMemo, useState } from 'react'
 import type { Editor } from 'slate'
 
 import type { SlateAnnotationStore } from '../annotation-store'
@@ -17,52 +17,28 @@ export const useSlateWidgetStore = <
   widgets: readonly SlateWidget<T>[],
   annotationStore?: SlateAnnotationStore<TAnnotation> | null
 ): SlateWidgetStore<T, TAnnotation> => {
-  const widgetsRef = useRef(widgets)
-  widgetsRef.current = widgets
+  const [widgetsCell] = useState(() => ({ current: widgets }))
 
-  const storeRef = useRef<{
-    annotationStore?: SlateAnnotationStore<TAnnotation> | null
-    editor: Editor
-    store: SlateWidgetStore<T, TAnnotation>
-  } | null>(null)
-
-  if (
-    !storeRef.current ||
-    storeRef.current.editor !== editor ||
-    storeRef.current.annotationStore !== annotationStore
-  ) {
-    storeRef.current?.store.destroy()
-    storeRef.current = {
-      annotationStore,
-      editor,
-      store: createSlateWidgetStore(
+  const store = useMemo(
+    () =>
+      createSlateWidgetStore(
         editor,
-        () => widgetsRef.current,
+        () => widgetsCell.current,
         annotationStore
       ),
-    }
-  }
+    [annotationStore, editor, widgetsCell]
+  )
 
   useIsomorphicLayoutEffect(() => {
-    storeRef.current?.store.refresh()
-  }, [widgets])
+    widgetsCell.current = widgets
+    store.refresh()
+  }, [store, widgets, widgetsCell])
 
   useIsomorphicLayoutEffect(() => {
-    const entry = storeRef.current
-
     return () => {
-      if (
-        entry?.editor === editor &&
-        entry.annotationStore === annotationStore
-      ) {
-        entry.store.destroy()
-
-        if (storeRef.current === entry) {
-          storeRef.current = null
-        }
-      }
+      store.destroy()
     }
-  }, [annotationStore, editor])
+  }, [store])
 
-  return storeRef.current.store
+  return store
 }

@@ -269,8 +269,8 @@ Shell mode keeps typing, selection, and overlay work local to the active region.
 
 Use `onRenderingStrategyMetrics` to wire production RUM or a Datadog dashboard. The
 callback runs after commit and reports the current document cohort, requested
-strategy, effective strategy, mounted/pending counts, DOM coverage boundary counts,
-visible DOM node count, and editable descendant count.
+strategy, effective strategy, degradation mode, mounted/pending counts, DOM
+coverage boundary counts, visible DOM node count, and editable descendant count.
 
 ```tsx
 <Editable
@@ -282,9 +282,10 @@ visible DOM node count, and editable descendant count.
 ```
 
 Track dashboards by interaction name, cohort, document size, requested strategy,
-effective strategy, boundary count, visible DOM count, editable descendant count,
-custom renderer flag, browser, mobile/desktop, IME state, and release version.
-Virtualized and shell metrics are degraded-mode signals; do not mix them with
+effective strategy, degradation mode, native surface completion, boundary count,
+visible DOM count, editable descendant count, custom renderer flag, browser,
+mobile/desktop, IME state, and release version. Virtualized, shell, and
+`staged-warmup` metrics are degraded-mode signals; do not mix them with complete
 DOM-present default rows.
 
 ## DOM Coverage Boundaries

@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useMemo, useState } from 'react'
 import type { Editor } from 'slate'
 
 import {
@@ -15,39 +15,23 @@ export const useSlateAnnotationStore = <
   editor: Editor,
   annotations: readonly SlateAnnotation<TData, TProjection>[]
 ): SlateAnnotationStore<TData, TProjection> => {
-  const annotationsRef = useRef(annotations)
-  annotationsRef.current = annotations
+  const [annotationsCell] = useState(() => ({ current: annotations }))
 
-  const storeRef = useRef<{
-    editor: Editor
-    store: SlateAnnotationStore<TData, TProjection>
-  } | null>(null)
-
-  if (!storeRef.current || storeRef.current.editor !== editor) {
-    storeRef.current?.store.destroy()
-    storeRef.current = {
-      editor,
-      store: createSlateAnnotationStore(editor, () => annotationsRef.current),
-    }
-  }
+  const store = useMemo(
+    () => createSlateAnnotationStore(editor, () => annotationsCell.current),
+    [annotationsCell, editor]
+  )
 
   useIsomorphicLayoutEffect(() => {
-    storeRef.current?.store.refresh()
-  }, [annotations])
+    annotationsCell.current = annotations
+    store.refresh()
+  }, [annotations, annotationsCell, store])
 
   useIsomorphicLayoutEffect(() => {
-    const entry = storeRef.current
-
     return () => {
-      if (entry?.editor === editor) {
-        entry.store.destroy()
-
-        if (storeRef.current === entry) {
-          storeRef.current = null
-        }
-      }
+      store.destroy()
     }
-  }, [editor])
+  }, [store])
 
-  return storeRef.current.store
+  return store
 }

@@ -48,6 +48,7 @@ import {
   getOrCreateRuntimeId,
   seedRuntimeIds,
   seedRuntimeIdsFromIndex,
+  setRuntimeId,
 } from '../utils/runtime-ids'
 import { getEditorRuntime, getEditorSchema } from './editor-runtime'
 import { getExtensionRegistry } from './extension-registry'
@@ -61,7 +62,9 @@ type TransactionSnapshot = {
   tags: Set<EditorUpdateTag>
   implicitTarget: Selection
   implicitTargetResolved: boolean
-  previousSnapshot: EditorSnapshot
+  previousIndex: RuntimeIndexLike
+  previousSnapshot: EditorSnapshot | null
+  previousVersion: number
   command: EditorCommitCommand | null
   reason: 'replace' | null
   selection: Selection
@@ -659,7 +662,7 @@ export const getOperationDirtiness = (
     command?: EditorCommitCommand | null
     marksBefore?: EditorMarks | null
     metadata?: EditorUpdateMetadata
-    previousIndex?: SnapshotIndex
+    previousIndex?: RuntimeIndexLike
     previousVersion?: number
     reason?: 'replace' | null
     selectionBefore?: Selection
@@ -709,11 +712,16 @@ export const getOperationDirtiness = (
               'path' in op && Array.isArray(op.path) ? [op.path] : []
             )
           )
-            .map(
-              (path) =>
-                previousIndex?.pathToId[pathKey(path)] ??
-                getLiveRuntimeIdAtPath(editor, path)
-            )
+            .map((path) => {
+              const key = pathKey(path)
+              const previousRuntimeId = previousIndex
+                ? previousIndex.pathToId instanceof Map
+                  ? previousIndex.pathToId.get(key)
+                  : previousIndex.pathToId[key]
+                : undefined
+
+              return previousRuntimeId ?? getLiveRuntimeIdAtPath(editor, path)
+            })
             .filter(Boolean)
   const marksAfter = getCurrentMarks(editor)
   const selectionAfter = getCurrentSelection(editor)
@@ -1547,66 +1555,137 @@ const canBuildPathStableSnapshot = (operations: readonly Operation[]) =>
       operation.type === 'set_selection'
   )
 
-const updateTextInSnapshotChildren = (
-  children: readonly Descendant[],
-  operation: Extract<Operation, { type: 'insert_text' | 'remove_text' }>,
-  depth = 0
-): readonly Descendant[] | null => {
-  const index = operation.path[depth]
+type TextSnapshotOperation = Extract<
+  Operation,
+  { type: 'insert_text' | 'remove_text' }
+>
 
-  if (index == null) {
-    return null
+type TextSnapshotPatch = {
+  operations: TextSnapshotOperation[]
+  path: Path
+}
+
+const applyTextSnapshotOperations = (
+  text: string,
+  operations: readonly TextSnapshotOperation[]
+) =>
+  operations.reduce((currentText, operation) => {
+    const before = currentText.slice(0, operation.offset)
+
+    if (operation.type === 'insert_text') {
+      return before + operation.text + currentText.slice(operation.offset)
+    }
+
+    return before + currentText.slice(operation.offset + operation.text.length)
+  }, text)
+
+const buildTextSnapshotPatches = (
+  operations: readonly Operation[]
+): TextSnapshotPatch[] => {
+  const patches = new Map<string, TextSnapshotPatch>()
+
+  for (const operation of operations) {
+    if (
+      (operation.type !== 'insert_text' && operation.type !== 'remove_text') ||
+      operation.text.length === 0
+    ) {
+      continue
+    }
+
+    const key = pathKey(operation.path)
+    const patch = patches.get(key)
+
+    if (patch) {
+      patch.operations.push(operation)
+      continue
+    }
+
+    patches.set(key, {
+      operations: [operation],
+      path: operation.path,
+    })
   }
 
-  const node = children[index]
+  return [...patches.values()]
+}
 
-  if (!node) {
-    return null
+const updateTextPatchesInSnapshotChildren = (
+  children: readonly Descendant[],
+  patches: readonly TextSnapshotPatch[],
+  depth = 0
+): readonly Descendant[] | null => {
+  if (patches.length === 0) {
+    return children
+  }
+
+  const patchesByIndex = new Map<number, TextSnapshotPatch[]>()
+
+  for (const patch of patches) {
+    const index = patch.path[depth]
+
+    if (index == null) {
+      return null
+    }
+
+    const bucket = patchesByIndex.get(index) ?? []
+    bucket.push(patch)
+    patchesByIndex.set(index, bucket)
   }
 
   const nextChildren = [...children]
 
-  if (depth === operation.path.length - 1) {
-    if (!Node.isText(node)) {
+  for (const [index, indexPatches] of patchesByIndex) {
+    const node = children[index]
+
+    if (!node) {
       return null
     }
 
-    const before = node.text.slice(0, operation.offset)
-    const after =
-      operation.type === 'insert_text'
-        ? node.text.slice(operation.offset)
-        : node.text.slice(operation.offset + operation.text.length)
-    const text =
-      operation.type === 'insert_text'
-        ? before + operation.text + after
-        : before + after
+    const textPatches = indexPatches.filter(
+      (patch) => depth === patch.path.length - 1
+    )
+    const childPatches = indexPatches.filter(
+      (patch) => depth < patch.path.length - 1
+    )
 
-    nextChildren[index] = Object.freeze({
-      ...node,
-      text,
-    }) as Descendant
+    if (textPatches.length > 0) {
+      if (!Node.isText(node) || childPatches.length > 0) {
+        return null
+      }
 
-    return Object.freeze(nextChildren)
+      nextChildren[index] = Object.freeze({
+        ...node,
+        text: applyTextSnapshotOperations(
+          node.text,
+          textPatches.flatMap((patch) => patch.operations)
+        ),
+      }) as Descendant
+
+      continue
+    }
+
+    if (!('children' in node) || !Array.isArray(node.children)) {
+      return null
+    }
+
+    const updatedDescendants = updateTextPatchesInSnapshotChildren(
+      node.children,
+      childPatches,
+      depth + 1
+    )
+
+    if (!updatedDescendants) {
+      return null
+    }
+
+    nextChildren[index] =
+      updatedDescendants === node.children
+        ? node
+        : (Object.freeze({
+            ...node,
+            children: updatedDescendants as Descendant[],
+          }) as Descendant)
   }
-
-  if (!('children' in node) || !Array.isArray(node.children)) {
-    return null
-  }
-
-  const updatedDescendants = updateTextInSnapshotChildren(
-    node.children,
-    operation,
-    depth + 1
-  )
-
-  if (!updatedDescendants) {
-    return null
-  }
-
-  nextChildren[index] = Object.freeze({
-    ...node,
-    children: updatedDescendants as Descendant[],
-  }) as Descendant
 
   return Object.freeze(nextChildren)
 }
@@ -1620,28 +1699,13 @@ const getPathStableSnapshot = (
     return null
   }
 
-  let children = previousSnapshot.children as readonly Descendant[]
+  const children = updateTextPatchesInSnapshotChildren(
+    previousSnapshot.children as readonly Descendant[],
+    buildTextSnapshotPatches(operations)
+  )
 
-  for (const operation of operations) {
-    if (operation.type === 'set_selection') {
-      continue
-    }
-
-    if (operation.type !== 'insert_text' && operation.type !== 'remove_text') {
-      continue
-    }
-
-    if (operation.text.length === 0) {
-      continue
-    }
-
-    const nextChildren = updateTextInSnapshotChildren(children, operation)
-
-    if (!nextChildren) {
-      return null
-    }
-
-    children = nextChildren
+  if (!children) {
+    return null
   }
 
   const snapshot = Object.freeze({
@@ -2181,29 +2245,43 @@ export const notifyListeners = (editor: Editor, change?: SnapshotChange) => {
   const commitListeners = change
     ? getExtensionRegistry(editor).commitListeners
     : null
+  const hasSnapshotListeners =
+    (listeners && listeners.size > 0) || hasSourceListeners(editor)
+  const commitListenersNeedSnapshot =
+    commitListeners &&
+    [...commitListeners].some((listener) => listener.length >= 2)
 
-  if (
-    (listeners && listeners.size > 0) ||
-    hasSourceListeners(editor) ||
-    (commitListeners && commitListeners.size > 0)
-  ) {
-    const snapshot = getSnapshot(editor)
+  if (hasSnapshotListeners || (commitListeners && commitListeners.size > 0)) {
+    let snapshot: EditorSnapshot | null = null
+    const getSnapshotForListeners = () => {
+      snapshot ??= getSnapshot(editor)
+
+      return snapshot
+    }
+
+    if (change) {
+      for (const listener of commitListeners ?? []) {
+        if (listener.length >= 2) {
+          listener(change, getSnapshotForListeners())
+        } else {
+          ;(listener as (commit: SnapshotChange) => void)(change)
+        }
+      }
+    }
+
+    if (hasSnapshotListeners || commitListenersNeedSnapshot) {
+      getSnapshotForListeners()
+    }
 
     for (const listener of listeners ?? []) {
-      listener(snapshot, change)
+      listener(getSnapshotForListeners(), change)
     }
 
     if (change && sourceListeners) {
       for (const source of getSourcesForChange(change)) {
         for (const listener of sourceListeners.get(source) ?? []) {
-          listener(snapshot, change)
+          listener(getSnapshotForListeners(), change)
         }
-      }
-    }
-
-    if (change) {
-      for (const listener of commitListeners ?? []) {
-        listener(change, snapshot)
       }
     }
   }
@@ -2286,11 +2364,31 @@ const restoreTransactionSnapshot = (
   transactionSnapshot: TransactionSnapshot
 ) => {
   const restoredChildren = cloneValue([...transactionSnapshot.children])
-  seedRuntimeIdsFromIndex(
-    restoredChildren,
-    editor,
-    transactionSnapshot.previousSnapshot.index
-  )
+
+  const seedFromPreviousIndex = (
+    children: readonly Descendant[],
+    parentPath: Path = []
+  ) => {
+    children.forEach((child, index) => {
+      const path = [...parentPath, index] as Path
+      const runtimeId =
+        transactionSnapshot.previousIndex.pathToId instanceof Map
+          ? transactionSnapshot.previousIndex.pathToId.get(pathKey(path))
+          : transactionSnapshot.previousIndex.pathToId[pathKey(path)]
+
+      if (runtimeId) {
+        setRuntimeId(child, editor, runtimeId)
+      } else {
+        getOrCreateRuntimeId(child, editor)
+      }
+
+      if ('children' in child && Array.isArray(child.children)) {
+        seedFromPreviousIndex(child.children, path)
+      }
+    })
+  }
+
+  seedFromPreviousIndex(restoredChildren)
   CHILDREN.set(editor, restoredChildren)
   setCurrentSelection(editor, transactionSnapshot.selection)
   setCurrentMarks(editor, transactionSnapshot.marks)
@@ -2314,24 +2412,30 @@ export const runEditorTransaction = (
   }
 
   if (isOuter) {
-    const previousSnapshot = profileCoreDuration(
-      'transaction-previous-snapshot',
-      () => getSnapshot(editor)
-    )
+    const needsPreviousSnapshot = hasListeners(editor)
+    const previousSnapshot = needsPreviousSnapshot
+      ? profileCoreDuration('transaction-previous-snapshot', () =>
+          getSnapshot(editor)
+        )
+      : null
+    const previousVersion = previousSnapshot?.version ?? getVersion(editor)
+    const previousIndex = previousSnapshot?.index ?? getLiveRuntimeIndex(editor)
 
     TRANSACTION_SNAPSHOT.set(editor, {
-      children: previousSnapshot.children,
+      children: previousSnapshot?.children ?? cloneValue(getChildren(editor)),
       command: profileCoreDuration('transaction-command', () =>
         cloneValue(getCommandContext(editor))
       ),
       implicitTarget: null,
       implicitTargetResolved: false,
-      marks: previousSnapshot.marks,
+      marks: previousSnapshot?.marks ?? getCurrentMarks(editor),
       metadata: cloneUpdateMetadata(options.metadata),
       operations: [...getOperations(editor)],
+      previousIndex,
       previousSnapshot,
+      previousVersion,
       reason: null,
-      selection: previousSnapshot.selection,
+      selection: previousSnapshot?.selection ?? getCurrentSelection(editor),
       tags: new Set(getCurrentUpdateTags(editor)),
     })
     TRANSACTION_CHANGED.set(editor, false)
@@ -2415,10 +2519,10 @@ export const runEditorTransaction = (
         const operations = snapshot
           ? allOperations.slice(snapshot.operations.length)
           : allOperations
-        const previousVersion =
-          snapshot?.previousSnapshot.version ?? getVersion(editor)
+        const previousVersion = snapshot?.previousVersion ?? getVersion(editor)
+        const previousSnapshotForChange = snapshot?.previousSnapshot ?? null
         const change = profileCoreDuration('build-change', () =>
-          snapshot && hasListeners(editor)
+          snapshot && previousSnapshotForChange && hasListeners(editor)
             ? buildSnapshotChange({
                 command: snapshot.command,
                 metadata: snapshot.metadata,
@@ -2427,22 +2531,22 @@ export const runEditorTransaction = (
                   () =>
                     getPathStableSnapshot(
                       editor,
-                      snapshot.previousSnapshot,
+                      previousSnapshotForChange,
                       operations
                     ) ?? getSnapshot(editor)
                 ),
                 operations,
-                previousSnapshot: snapshot.previousSnapshot,
+                previousSnapshot: previousSnapshotForChange,
                 reason: snapshot.reason,
                 tags: [...snapshot.tags],
               })
             : getOperationDirtiness(editor, operations, {
                 command: snapshot?.command,
-                marksBefore: snapshot?.previousSnapshot.marks,
-                previousIndex: snapshot?.previousSnapshot.index,
+                marksBefore: snapshot?.marks,
+                previousIndex: snapshot?.previousIndex,
                 previousVersion,
                 reason: snapshot?.reason ?? null,
-                selectionBefore: snapshot?.previousSnapshot.selection,
+                selectionBefore: snapshot?.selection,
                 metadata: snapshot?.metadata,
                 tags: snapshot ? [...snapshot.tags] : [],
               })

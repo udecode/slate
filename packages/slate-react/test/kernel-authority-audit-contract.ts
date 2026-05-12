@@ -417,6 +417,7 @@ test('root global lifecycle listeners are owned by the root lifecycle module', (
   const rootRuntimeFiles = [
     'editable/runtime-root-engine.ts',
     'editable/runtime-root-lifecycle.ts',
+    'editable/runtime-root-selection-import.ts',
     'editable/runtime-root-selection-export.ts',
   ] as const
 
@@ -458,6 +459,62 @@ test('root global lifecycle listeners are owned by the root lifecycle module', (
         owner: 'Editable root runtime facade',
         rationale:
           'The root runtime facade should delegate global listener attachment through one lifecycle owner.',
+      },
+    }
+  )
+
+  expectSourceOwnershipInventory(
+    /\bcreateRuntimeSelectionChangeHandler\(/g,
+    rootRuntimeFiles,
+    {
+      'packages/slate-react/src/editable/runtime-root-selection-import.ts': {
+        count: 1,
+        next: 'root-runtime',
+        owner: 'Editable root selection import',
+        rationale:
+          'Selectionchange handler construction belongs in the root selection import owner, not the root coordinator body.',
+      },
+    }
+  )
+
+  expectSourceOwnershipInventory(
+    /\bcreateRuntimeSelectionChangeScheduler\(/g,
+    rootRuntimeFiles,
+    {
+      'packages/slate-react/src/editable/runtime-root-selection-import.ts': {
+        count: 1,
+        next: 'root-runtime',
+        owner: 'Editable root selection import',
+        rationale:
+          'Selectionchange throttling belongs in the root selection import owner, not the root coordinator body.',
+      },
+    }
+  )
+
+  expectSourceOwnershipInventory(
+    /\bcreateRuntimeSelectionImportController\(/g,
+    rootRuntimeFiles,
+    {
+      'packages/slate-react/src/editable/runtime-root-selection-import.ts': {
+        count: 1,
+        next: 'root-runtime',
+        owner: 'Editable root selection import',
+        rationale:
+          'Selection import controller construction belongs in the root selection import owner, not the root coordinator body.',
+      },
+    }
+  )
+
+  expectSourceOwnershipInventory(
+    /\buseEditableRootSelectionImport\(/g,
+    rootRuntimeFiles,
+    {
+      'packages/slate-react/src/editable/runtime-root-engine.ts': {
+        count: 1,
+        next: 'root-runtime',
+        owner: 'Editable root runtime facade',
+        rationale:
+          'The root runtime facade should delegate selection import construction through one root owner.',
       },
     }
   )
@@ -775,7 +832,7 @@ test('mutation and repair authority has an explicit remaining inventory', () => 
     /\b(requestRepair|applyEditableRepairRequest|repairDOMInput|domRepairQueue\.repair|repairCaretAfterModelOperation|repairCaretAfterModelTextInsert)\(/g,
     {
       'packages/slate-react/src/editable/dom-repair-queue.ts': {
-        count: 5,
+        count: 6,
         next: 'central-owner',
         owner: 'DOM repair queue',
         rationale: 'Repair queue is the central DOM repair executor.',

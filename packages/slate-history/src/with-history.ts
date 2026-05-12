@@ -26,7 +26,6 @@ export const withHistory = <T extends Editor<any>>(
 
   const e = editor as unknown as T & HistoryEditor<HistoryValue>
   e.history = { undos: [], redos: [] }
-  let previousSnapshot = Editor.getSnapshot(e)
 
   const applyRedo = () => {
     const { history } = e
@@ -39,13 +38,11 @@ export const withHistory = <T extends Editor<any>>(
 
     HistoryEditor.withoutSaving(e, () => {
       e.update((tx) => {
-        Editor.withoutNormalizing(e, () => {
-          if (batch.selectionBefore) {
-            tx.selection.set(batch.selectionBefore)
-          }
+        if (batch.selectionBefore) {
+          tx.selection.set(batch.selectionBefore)
+        }
 
-          tx.operations.replay(batch.operations)
-        })
+        tx.operations.replay(batch.operations)
       })
     })
 
@@ -64,14 +61,12 @@ export const withHistory = <T extends Editor<any>>(
 
     HistoryEditor.withoutSaving(e, () => {
       e.update((tx) => {
-        Editor.withoutNormalizing(e, () => {
-          const inverseOps = batch.operations.map(Operation.inverse).reverse()
+        const inverseOps = batch.operations.map(Operation.inverse).reverse()
 
-          tx.operations.replay(inverseOps)
-          if (batch.selectionBefore) {
-            tx.selection.set(batch.selectionBefore)
-          }
-        })
+        tx.operations.replay(inverseOps)
+        if (batch.selectionBefore) {
+          tx.selection.set(batch.selectionBefore)
+        }
       })
     })
 
@@ -93,13 +88,12 @@ export const withHistory = <T extends Editor<any>>(
     })
   }
 
-  const unsubscribe = Editor.subscribe(e, (snapshot, change) => {
+  const unsubscribe = Editor.registerCommitListener(e, (change) => {
     const committedOps = [
       ...(change?.operations ?? []),
     ] as Operation<HistoryValue>[]
 
     if (committedOps.length === 0) {
-      previousSnapshot = snapshot
       return
     }
 
@@ -145,7 +139,7 @@ export const withHistory = <T extends Editor<any>>(
       } else {
         const batch = {
           operations: [...committedOps],
-          selectionBefore: previousSnapshot.selection,
+          selectionBefore: change.selectionBefore,
         }
         e.writeHistory('undos', batch)
       }
@@ -156,8 +150,6 @@ export const withHistory = <T extends Editor<any>>(
 
       history.redos = []
     }
-
-    previousSnapshot = snapshot
   })
 
   e.writeHistory = (stack: 'undos' | 'redos', batch: any) => {

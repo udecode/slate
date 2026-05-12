@@ -173,7 +173,6 @@ const SafeLink = ({ children, href, attributes }: SafeLinkProps) => {
     let parsedUrl: URL | null = null
     try {
       parsedUrl = new URL(href)
-      // eslint-disable-next-line no-empty
     } catch {}
     if (parsedUrl && allowedSchemes.includes(parsedUrl.protocol)) {
       return parsedUrl.href

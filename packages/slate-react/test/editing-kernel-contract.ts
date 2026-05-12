@@ -177,6 +177,29 @@ test('beforeinput and keydown commands resolve through typed definitions', () =>
   ).toContain('beforeinput')
 })
 
+test('beforeinput data transfer commands preserve the browser payload', () => {
+  class DataTransfer {}
+
+  const dataTransfer = new DataTransfer()
+
+  for (const inputType of [
+    'insertFromDrop',
+    'insertFromPaste',
+    'insertFromYank',
+  ]) {
+    const command = getEditableCommandFromBeforeInputType({
+      data: dataTransfer,
+      inputType,
+      selection: null,
+    })
+
+    expect(command).toEqual({ data: dataTransfer, kind: 'insert-data' })
+    expect(getEditableCommandDefinition(command)?.inputFamilies).toContain(
+      'beforeinput'
+    )
+  }
+})
+
 test('repair kernel results preserve model selection by default', () => {
   const result = createEditableKernelResult({
     editor: createEditor(),

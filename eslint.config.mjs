@@ -14,6 +14,7 @@ export default defineConfig([
       '**/coverage/**',
       '**/playwright-report/**',
       '**/test-results/**',
+      '**/test/**/*.js',
       '**/*.config.*',
       '**/*.d.ts',
     ],
@@ -25,5 +26,9 @@ export default defineConfig([
       'site/**/*.{tsx,jsx}',
     ],
     languageOptions: { parser: tsParser },
+    rules: {
+      ...reactHooks.configs.flat.recommended.rules,
+      'react-hooks/immutability': 'off',
+    },
   },
 ])

@@ -454,12 +454,9 @@ const CollaborativeCommentsExample = () => {
   const reviewerEditor = useSlateEditor({
     initialValue: cloneValue(initialChildren),
   })
-  const commentsRef = useRef<readonly CommentThread[]>([])
   const [comments, setComments] = useState<CommentThread[]>([])
   const [documentWrites, setDocumentWrites] = useState(0)
   const [commentWrites, setCommentWrites] = useState(0)
-
-  commentsRef.current = comments
 
   const annotations = useMemo(
     () => createCommentAnnotations(comments),

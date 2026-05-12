@@ -365,7 +365,8 @@ const RenderEditableText = <T,>({
             </React.Fragment>
           )
         })
-      : (() => {
+      : // eslint-disable-next-line react-hooks/refs -- Slate render-prop API passes callback refs through attributes; no ref.current read happens here.
+        (() => {
           const segment: EditableTextSegment<T> = {
             end: 0,
             marks: resolvedMarks,
@@ -420,6 +421,7 @@ const RenderEditableText = <T,>({
         })()
 
   if (renderText) {
+    // eslint-disable-next-line react-hooks/refs -- Slate render-prop API passes callback refs through attributes; no ref.current read happens here.
     return renderText({
       attributes: textAttributes,
       children: content,

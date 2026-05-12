@@ -22,4 +22,4 @@ export const useElement = (): Element => {
 /**
  * Get the current element, or return null if not inside `renderElement`.
  */
-export const useElementIf = () => useContext(ElementContext)
+export const useOptionalElementContext = () => useContext(ElementContext)

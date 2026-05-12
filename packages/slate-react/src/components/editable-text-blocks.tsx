@@ -1315,17 +1315,18 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
 }) => {
   const editor = useEditor()
   const upstreamProjectionStore = React.useContext(ProjectionContext)
-  const decorateRef = React.useRef(decorate)
-  decorateRef.current = decorate
+  const [decorateCell] = React.useState(() => ({ current: decorate }))
+  decorateCell.current = decorate
+  const hasDecorate = Boolean(decorate)
   const decorateSource = React.useMemo(() => {
-    if (!decorate) {
+    if (!hasDecorate) {
       return null
     }
 
     return createDecorationSource<T>(editor, {
       id: 'editable-decorate',
       read: ({ snapshot }) => {
-        const readDecorations = decorateRef.current
+        const readDecorations = decorateCell.current
 
         if (!readDecorations) {
           return EMPTY_DECORATIONS as readonly SlateDecoration<T>[]
@@ -1357,7 +1358,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
         return decorations
       },
     })
-  }, [decorate !== undefined, editor])
+  }, [decorateCell, editor, hasDecorate])
   const projectionStore = React.useMemo(() => {
     if (!decorateSource) {
       return upstreamProjectionStore
@@ -1451,16 +1452,16 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   const virtualizedScrollRootReady =
     renderingStrategyVirtualizedConfig != null &&
     canUseElementAsVirtualizerScrollRoot(renderingStrategyRootElement)
-  const virtualizedPlan = enableVirtualizedRendering
-    ? useVirtualizedRootPlan({
-        config: renderingStrategyVirtualizedConfig,
-        enabled: virtualizedScrollRootReady,
-        promotedTopLevelIndex: promotedVirtualizedTopLevelIndex,
-        rootElement: renderingStrategyRootElement,
-        selectedTopLevelIndex: selectedVirtualizedTopLevelIndex,
-        topLevelRuntimeIds,
-      })
-    : null
+  const virtualizedPlan = useVirtualizedRootPlan({
+    config: enableVirtualizedRendering
+      ? renderingStrategyVirtualizedConfig
+      : null,
+    enabled: enableVirtualizedRendering && virtualizedScrollRootReady,
+    promotedTopLevelIndex: promotedVirtualizedTopLevelIndex,
+    rootElement: renderingStrategyRootElement,
+    selectedTopLevelIndex: selectedVirtualizedTopLevelIndex,
+    topLevelRuntimeIds,
+  })
   const renderingStrategySegmentSize =
     renderingStrategyConfig?.segmentSize ?? null
   const rootDocumentEpoch = useRootDocumentEpoch()
@@ -1669,8 +1670,9 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     }
   }, [decorateSource])
   React.useEffect(() => {
+    decorateCell.current = decorate
     decorateSource?.refresh({ forceInvalidate: true, reason: 'external' })
-  }, [decorate, decorateSource])
+  }, [decorate, decorateCell, decorateSource])
   const rootStyle =
     placeholderHeight && !disableDefaultStyles
       ? { minHeight: placeholderHeight, ...style }
@@ -1718,6 +1720,14 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
         effectiveStrategy === 'staged'
           ? pendingGroupCount === 0
           : effectiveStrategy !== 'shell' && effectiveStrategy !== 'virtualized'
+      const degradationMode =
+        effectiveStrategy === 'shell'
+          ? 'shell'
+          : effectiveStrategy === 'virtualized'
+            ? 'virtualized'
+            : effectiveStrategy === 'staged' && !nativeSurfaceComplete
+              ? 'staged-warmup'
+              : 'none'
 
       return {
         activeSegmentIndex:
@@ -1729,6 +1739,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
           renderingStrategyVirtualizedConfig?.overscan ??
           null,
         cohort: getRenderingStrategyCohort(documentSize),
+        degradationMode,
         documentSize,
         effectiveStrategy,
         estimatedBlockSize:

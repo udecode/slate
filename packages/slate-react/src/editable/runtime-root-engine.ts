@@ -38,11 +38,7 @@ import { useRuntimeKernelTraceEngine } from './runtime-kernel-trace'
 import { useRuntimeRepairEngine } from './runtime-repair-engine'
 import { useEditableRootGlobalLifecycle } from './runtime-root-lifecycle'
 import { useEditableRootSelectionExport } from './runtime-root-selection-export'
-import {
-  createRuntimeSelectionChangeHandler,
-  createRuntimeSelectionChangeScheduler,
-  createRuntimeSelectionImportController,
-} from './runtime-selection-engine'
+import { useEditableRootSelectionImport } from './runtime-root-selection-import'
 import { readRuntimeSelection } from './runtime-selection-state'
 import { useEditableSelectionReconciler } from './selection-reconciler'
 
@@ -132,9 +128,15 @@ export const useEditableRootRuntime = ({
   const browserHandleNextId = useRef(0)
   const deferredOperations = useRef<DeferredOperation[]>([])
   const handledDOMBeforeInputRef = useRef(false)
-  const preferModelSelectionForInputRef = useRef(false)
+  const [preferModelSelectionForInputRef] = useState(() => ({
+    current: false,
+  }))
   const detachNativeInputListenersRef = useRef<(() => void) | null>(null)
-  const domRepairQueueRef = useRef<DOMRepairQueue | null>(null)
+  const [domRepairQueueRef] = useState<{ current: DOMRepairQueue | null }>(
+    () => ({
+      current: null,
+    })
+  )
   const effectiveInputRules = useMemo(
     () => getEditableInputRules(editor, inputRules),
     [editor, inputRules]
@@ -154,36 +156,41 @@ export const useEditableRootRuntime = ({
 
   IS_READ_ONLY.set(editor, readOnly)
 
-  const renderingStrategyRef = useRef(renderingStrategy)
-  renderingStrategyRef.current = renderingStrategy
+  const [renderingStrategyCell] = useState(() => ({
+    current: renderingStrategy,
+  }))
+  renderingStrategyCell.current = renderingStrategy
 
   const [explicitShellBackedSelection, setExplicitShellBackedSelection] =
     useState(false)
-  const isShellBackedSelection = useCallback((selection: Range | null) => {
-    const currentRenderingStrategy = renderingStrategyRef.current
+  const isShellBackedSelection = useCallback(
+    (selection: Range | null) => {
+      const currentRenderingStrategy = renderingStrategyCell.current
 
-    return currentRenderingStrategy?.type === 'shell' ||
-      currentRenderingStrategy?.type === 'virtualized'
-      ? isSelectionShellBacked(
-          selection,
-          currentRenderingStrategy.mountedTopLevelRuntimeIds,
-          currentRenderingStrategy.mountedTopLevelRanges ?? null
-        )
-      : false
-  }, [])
+      return currentRenderingStrategy?.type === 'shell' ||
+        currentRenderingStrategy?.type === 'virtualized'
+        ? isSelectionShellBacked(
+            selection,
+            currentRenderingStrategy.mountedTopLevelRuntimeIds,
+            currentRenderingStrategy.mountedTopLevelRanges ?? null
+          )
+        : false
+    },
+    [renderingStrategyCell]
+  )
   const modelSelection = readRuntimeSelection(editor)
   const modelShellBackedSelection = isShellBackedSelection(modelSelection)
   const shellBackedSelection =
     explicitShellBackedSelection || modelShellBackedSelection
 
-  const controllerState = useMemo(createEditableInputControllerState, [])
+  const [controllerState] = useState(createEditableInputControllerState)
   const inputController = useMemo(
     () =>
       createEditableInputController({
         preferModelSelectionForInputRef,
         state: controllerState,
       }),
-    [controllerState]
+    [controllerState, preferModelSelectionForInputRef]
   )
   const state = inputController.state
 
@@ -199,40 +206,21 @@ export const useEditableRootRuntime = ({
     }
   }, [autoFocus])
 
-  const androidInputManagerRef = useRef<
-    RuntimeAndroidInputManager | null | undefined
-  >(undefined)
-  const onDOMSelectionChange = useMemo(
-    () =>
-      createRuntimeSelectionChangeHandler({
-        androidInputManagerRef,
-        domRepairQueueRef,
-        editor,
-        inputController,
-        processing,
-        readOnly,
-      }),
-    [editor, inputController, readOnly]
-  )
-  const scheduleOnDOMSelectionChange = useMemo(
-    () => createRuntimeSelectionChangeScheduler(onDOMSelectionChange),
-    [onDOMSelectionChange]
-  )
-  const selectionImportController = useMemo(
-    () =>
-      createRuntimeSelectionImportController({
-        editor,
-        inputController,
-        onDOMSelectionChange,
-        scheduleOnDOMSelectionChange,
-      }),
-    [
-      editor,
-      inputController,
-      onDOMSelectionChange,
-      scheduleOnDOMSelectionChange,
-    ]
-  )
+  const [androidInputManagerRef] = useState<{
+    current: RuntimeAndroidInputManager | null | undefined
+  }>(() => ({ current: undefined }))
+  const {
+    onDOMSelectionChange,
+    scheduleOnDOMSelectionChange,
+    selectionImportController,
+  } = useEditableRootSelectionImport({
+    androidInputManagerRef,
+    domRepairQueueRef,
+    editor,
+    inputController,
+    processing,
+    readOnly,
+  })
 
   androidInputManagerRef.current = useRuntimeAndroidEngine({
     node: rootRef,

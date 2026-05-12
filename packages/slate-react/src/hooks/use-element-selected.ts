@@ -5,17 +5,17 @@ import { Editor } from '../editable/runtime-editor-api'
 import { readRuntimeSelection } from '../editable/runtime-selection-state'
 import { ReactEditor } from '../plugin/react-editor'
 import { useEditorSelector } from './use-editor-selector'
-import { useElementIf } from './use-element'
+import { useOptionalElementContext } from './use-element'
 
 export const useElementSelected = (path?: Path): boolean => {
-  const element = useElementIf()
+  const element = useOptionalElementContext()
   const contextPath = useContext(ElementPathContext)
   const runtimeId = useContext(NodeRuntimeIdContext)
 
-  if (!element && !path) return false
-
   const selector = useCallback(
     (editor: ReactEditor) => {
+      if (!element && !path) return false
+
       const selection = readRuntimeSelection(editor)
 
       if (!selection) return false

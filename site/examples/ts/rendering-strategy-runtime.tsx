@@ -120,7 +120,9 @@ const createSizedBlocks = (prefix: string, blocks: number): Value =>
 
 const getVirtualizedMetricSnapshot = (metrics: Record<string, unknown>) => ({
   boundaryCount: metrics.viewportVirtualizationBoundaryCount,
+  degradationMode: metrics.degradationMode,
   documentSize: metrics.documentSize,
+  domNodeCount: metrics.domNodeCount,
   effectiveStrategy: metrics.effectiveStrategy,
   mountedTopLevelCount: metrics.mountedTopLevelCount,
   virtualizerMeasuredCount: metrics.virtualizerMeasuredCount,
@@ -721,17 +723,7 @@ export const VirtualizedFullRuntime = () => {
   )
 }
 
-const RenderingStrategyRuntimeExample = () => {
-  const runtimeMode = getRuntimeSearchParams().get('runtime_mode')
-
-  if (runtimeMode === 'staged-native-input') {
-    return <DomPresentNativeInputRuntime />
-  }
-
-  if (runtimeMode === 'virtualized-full') {
-    return <VirtualizedFullRuntime />
-  }
-
+const DefaultRenderingStrategyRuntime = () => {
   const [defaultEditor] = useState(() =>
     createRuntimeEditor(createBlocks('default'))
   )
@@ -864,6 +856,20 @@ const RenderingStrategyRuntimeExample = () => {
       </section>
     </div>
   )
+}
+
+const RenderingStrategyRuntimeExample = () => {
+  const runtimeMode = getRuntimeSearchParams().get('runtime_mode')
+
+  if (runtimeMode === 'staged-native-input') {
+    return <DomPresentNativeInputRuntime />
+  }
+
+  if (runtimeMode === 'virtualized-full') {
+    return <VirtualizedFullRuntime />
+  }
+
+  return <DefaultRenderingStrategyRuntime />
 }
 
 export default RenderingStrategyRuntimeExample

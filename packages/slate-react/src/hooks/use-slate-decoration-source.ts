@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Editor as SlateEditor } from 'slate'
 
 import {
@@ -11,18 +11,19 @@ export const useSlateDecorationSource = <T = unknown>(
   editor: SlateEditor,
   options: SlateDecorationSourceOptions<T>
 ): SlateDecorationSource<T> => {
-  const optionsRef = useRef(options)
-  optionsRef.current = options
+  const [optionsCell] = useState(() => ({ current: options }))
+  const optionsId = options.id
 
   const source = useMemo(() => {
-    const initialOptions = optionsRef.current
+    const initialOptions = optionsCell.current
 
     return createDecorationSource<T>(editor, {
       ...initialOptions,
-      read: (context) => optionsRef.current.read(context),
+      id: optionsId,
+      read: (context) => optionsCell.current.read(context),
       runtimeScope: initialOptions.runtimeScope
         ? (context) => {
-            const runtimeScope = optionsRef.current.runtimeScope
+            const runtimeScope = optionsCell.current.runtimeScope
 
             if (!runtimeScope) {
               return null
@@ -34,9 +35,13 @@ export const useSlateDecorationSource = <T = unknown>(
           }
         : undefined,
     })
-  }, [editor, options.id])
+  }, [editor, optionsCell, optionsId])
 
   useEffect(() => () => source.destroy(), [source])
+  useEffect(() => {
+    optionsCell.current = options
+    source.refresh({ forceInvalidate: true, reason: 'external' })
+  }, [options, optionsCell, source])
 
   return source
 }

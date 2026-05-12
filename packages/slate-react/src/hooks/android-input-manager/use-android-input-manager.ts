@@ -1,7 +1,6 @@
-import { type RefObject, useState } from 'react'
+import { type RefObject, useEffect, useState } from 'react'
 import { EDITOR_TO_SCHEDULE_FLUSH, IS_ANDROID } from 'slate-dom'
 import { useEditor } from '../use-editor'
-import { useIsMounted } from '../use-is-mounted'
 import { useMutationObserver } from '../use-mutation-observer'
 import {
   type CreateAndroidInputManagerOptions,
@@ -25,7 +24,6 @@ export const useAndroidInputManager = IS_ANDROID
       }
 
       const editor = useEditor()
-      const isMounted = useIsMounted()
 
       const [inputManager] = useState(() =>
         createAndroidInputManager({
@@ -41,9 +39,10 @@ export const useAndroidInputManager = IS_ANDROID
       )
 
       EDITOR_TO_SCHEDULE_FLUSH.set(editor, inputManager.scheduleFlush)
-      if (isMounted) {
+
+      useEffect(() => {
         inputManager.flush()
-      }
+      })
 
       return inputManager
     }

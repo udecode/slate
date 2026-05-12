@@ -164,3 +164,94 @@ it('keeps wrapped-line DOM rectangles tied to one editor selection', () => {
     new Set(rects.map((rect) => Math.round(rect.top))).size
   ).toBeGreaterThan(1)
 })
+
+it('maps editor selections inside a shadow root against the local root', () => {
+  const host = document.createElement('div')
+  const shadowRoot = host.attachShadow({ mode: 'open' })
+  shadowRoot.innerHTML = `
+    <div data-slate-editor="true">
+      <span data-slate-node="text"><span data-slate-string>shadow alpha</span></span>
+    </div>
+  `
+  document.body.append(host)
+
+  const root = shadowRoot.querySelector('[data-slate-editor="true"]')!
+  const text = root.querySelector('[data-slate-string]')!.firstChild as Text
+  const selection = document.getSelection()!
+  const range = document.createRange()
+
+  try {
+    range.setStart(text, 7)
+    range.setEnd(text, 'shadow alpha'.length)
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    expect(takeEditorSelectionSnapshot(root, selection)).toEqual({
+      anchor: {
+        path: [0, 0],
+        offset: 7,
+      },
+      focus: {
+        path: [0, 0],
+        offset: 'shadow alpha'.length,
+      },
+    })
+  } finally {
+    host.remove()
+  }
+})
+
+it('fails closed when the DOM selection is outside the editor root', () => {
+  document.body.innerHTML = `
+    <div data-slate-editor="true">
+      <span data-slate-node="text"><span data-slate-string>inside</span></span>
+    </div>
+    <p id="outside">outside</p>
+  `
+
+  const root = document.querySelector('[data-slate-editor="true"]')!
+  const outside = document.querySelector('#outside')!.firstChild as Text
+  const selection = document.getSelection()!
+  const range = document.createRange()
+
+  range.setStart(outside, 0)
+  range.setEnd(outside, 'outside'.length)
+  selection.removeAllRanges()
+  selection.addRange(range)
+
+  expect(takeDOMSelectionSnapshot(selection)).toEqual({
+    anchorNodeText: 'outside',
+    anchorOffset: 0,
+    focusNodeText: 'outside',
+    focusOffset: 'outside'.length,
+  })
+  expect(takeEditorSelectionSnapshot(root, selection)).toBeNull()
+})
+
+it('fails closed when the DOM selection only partly belongs to the editor', () => {
+  document.body.innerHTML = `
+    <div data-slate-editor="true">
+      <span data-slate-node="text"><span data-slate-string>inside</span></span>
+    </div>
+    <p id="outside">outside</p>
+  `
+
+  const root = document.querySelector('[data-slate-editor="true"]')!
+  const inside = root.querySelector('[data-slate-string]')!.firstChild as Text
+  const outside = document.querySelector('#outside')!.firstChild as Text
+  const selection = document.getSelection()!
+  const range = document.createRange()
+
+  range.setStart(inside, 1)
+  range.setEnd(outside, 3)
+  selection.removeAllRanges()
+  selection.addRange(range)
+
+  expect(takeDOMSelectionSnapshot(selection)).toEqual({
+    anchorNodeText: 'inside',
+    anchorOffset: 1,
+    focusNodeText: 'outside',
+    focusOffset: 3,
+  })
+  expect(takeEditorSelectionSnapshot(root, selection)).toBeNull()
+})

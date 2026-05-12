@@ -208,7 +208,9 @@ const ReviewCommentsContent = ({
   const widgetSnapshot = useSlateWidgets(widgetStore)
   const commentsRef = useRef(comments)
 
-  commentsRef.current = comments
+  useEffect(() => {
+    commentsRef.current = comments
+  }, [comments])
 
   useEffect(() => {
     return () => {
