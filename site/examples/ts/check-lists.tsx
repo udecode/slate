@@ -1,5 +1,5 @@
 import { css } from '@emotion/css'
-import { type ChangeEvent, useCallback } from 'react'
+import type { ChangeEvent } from 'react'
 import {
   NodeApi,
   PointApi,
@@ -72,10 +72,6 @@ const initialValue: CustomValue = [
 ]
 
 const CheckListsExample = () => {
-  const renderElement = useCallback(
-    (props: RenderElementProps) => <Element {...props} />,
-    []
-  )
   const editor = useSlateEditor({
     withEditor: (editor) => withChecklists(withHistory(editor)),
     initialValue,
@@ -86,7 +82,7 @@ const CheckListsExample = () => {
       <Editable
         autoFocus
         placeholder="Get to work…"
-        renderElement={renderElement}
+        renderElement={Element}
         spellCheck
       />
     </Slate>

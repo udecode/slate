@@ -89,7 +89,7 @@ const SearchHighlightingExample = () => {
       <Slate decorationSources={[searchSource]} editor={editor}>
         <Editable
           id="search-highlighting"
-          renderLeaf={(props: SearchLeafProps) => <Leaf {...props} />}
+          renderLeaf={Leaf}
           renderSegment={(segment, children) =>
             segment.slices.some(
               (slice) =>

@@ -1,5 +1,5 @@
 import type React from 'react'
-import { type KeyboardEvent, type PointerEvent, useCallback } from 'react'
+import type { KeyboardEvent, PointerEvent } from 'react'
 import {
   type Descendant,
   type Node,
@@ -75,14 +75,6 @@ const BLOCK_HOTKEYS: [string, CustomElementFormat][] = [
 const CLEAR_FORMATTING_HOTKEY = 'mod+\\'
 
 const RichTextExample = () => {
-  const renderElement = useCallback(
-    (props: RenderElementProps) => <Element {...props} />,
-    []
-  )
-  const renderLeaf = useCallback(
-    (props: RenderLeafProps) => <Leaf {...props} />,
-    []
-  )
   const editor = useSlateEditor<CustomValue, CustomEditor>({
     withEditor: (editor) => withRichTextHtml(withHistory(editor)),
     initialValue,
@@ -137,8 +129,8 @@ const RichTextExample = () => {
           }
         }}
         placeholder="Enter some rich text…"
-        renderElement={renderElement}
-        renderLeaf={renderLeaf}
+        renderElement={Element}
+        renderLeaf={Leaf}
         spellCheck
       />
     </Slate>

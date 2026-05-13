@@ -13,14 +13,6 @@ import {
 import type { CustomEditor, CustomValue } from './custom-types.d'
 
 const TablesExample = () => {
-  const renderElement = useCallback(
-    (props: RenderElementProps) => <Element {...props} />,
-    []
-  )
-  const renderLeaf = useCallback(
-    (props: RenderLeafProps) => <Leaf {...props} />,
-    []
-  )
   const editor = useSlateEditor<CustomValue, CustomEditor>({
     withEditor: (editor) => withHistory(editor),
     initialValue,
@@ -34,8 +26,8 @@ const TablesExample = () => {
     <Slate editor={editor}>
       <Editable
         onKeyDown={handleKeyDown}
-        renderElement={renderElement}
-        renderLeaf={renderLeaf}
+        renderElement={Element}
+        renderLeaf={Leaf}
       />
     </Slate>
   )

@@ -1,4 +1,3 @@
-import { useCallback } from 'react'
 import {
   defineEditorExtension,
   NodeApi,
@@ -111,10 +110,6 @@ const withLayout = (editor: CustomEditor) => {
 }
 
 const ForcedLayoutExample = () => {
-  const renderElement = useCallback(
-    (props: RenderElementProps) => <Element {...props} />,
-    []
-  )
   const editor = useSlateEditor<CustomValue, CustomEditor>({
     withEditor: (editor) => withLayout(withHistory(editor)),
     initialValue,
@@ -124,7 +119,7 @@ const ForcedLayoutExample = () => {
       <Editable
         autoFocus
         placeholder="Enter a title…"
-        renderElement={renderElement}
+        renderElement={Element}
         spellCheck
       />
     </Slate>

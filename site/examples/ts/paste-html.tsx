@@ -1,6 +1,6 @@
 import { css } from '@emotion/css'
 import type React from 'react'
-import { useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 import type { Element as SlateElement } from 'slate'
 import { withHistory } from 'slate-history'
 import {
@@ -21,14 +21,6 @@ import type {
 import { withHtml } from './paste-html-import'
 
 const PasteHtmlExample = () => {
-  const renderElement = useCallback(
-    (props: RenderElementProps) => <Element {...props} />,
-    []
-  )
-  const renderLeaf = useCallback(
-    (props: RenderLeafProps) => <Leaf {...props} />,
-    []
-  )
   const editor = useSlateEditor<CustomValue, CustomEditor>({
     withEditor: (editor) => withHtml(withHistory(editor)),
     initialValue,
@@ -38,8 +30,8 @@ const PasteHtmlExample = () => {
     <Slate editor={editor}>
       <Editable
         placeholder="Paste in some HTML..."
-        renderElement={renderElement}
-        renderLeaf={renderLeaf}
+        renderElement={Element}
+        renderLeaf={Leaf}
         renderVoid={(props) =>
           isImageElement(props.element) ? (
             <ImageElement element={props.element} />

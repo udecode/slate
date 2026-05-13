@@ -1,5 +1,5 @@
 import { css } from '@emotion/css'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Value } from 'slate'
 import { withHistory } from 'slate-history'
 import {
@@ -242,11 +242,6 @@ const AndroidTestsExample = () => {
 }
 
 const TestCase = ({ value }: AndroidTestCase) => {
-  const renderLeaf = useCallback(
-    (props: RenderLeafProps) => <Leaf {...props} />,
-    []
-  )
-
   const editor = useSlateEditor({
     withEditor: withHistory,
     initialValue: value,
@@ -254,11 +249,7 @@ const TestCase = ({ value }: AndroidTestCase) => {
 
   return (
     <Slate editor={editor}>
-      <Editable
-        placeholder="Enter some text…"
-        renderLeaf={renderLeaf}
-        spellCheck
-      />
+      <Editable placeholder="Enter some text…" renderLeaf={Leaf} spellCheck />
     </Slate>
   )
 }

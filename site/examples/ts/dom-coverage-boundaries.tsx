@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 import { NodeApi, type Element as SlateElement } from 'slate'
 import { DOMCoverage } from 'slate-dom/internal'
 import { withHistory } from 'slate-history'
@@ -11,6 +11,22 @@ import {
 } from 'slate-react'
 
 const hiddenBodyPath = [2, 1, 0]
+
+type HiddenBoundaryState = {
+  deepHidden: boolean
+  footerHidden: boolean
+  headerHidden: boolean
+  innerHidden: boolean
+  outerHidden: boolean
+}
+
+const HiddenBoundaryContext = React.createContext<HiddenBoundaryState>({
+  deepHidden: true,
+  footerHidden: true,
+  headerHidden: true,
+  innerHidden: true,
+  outerHidden: true,
+})
 
 const DomCoverageBoundariesExample = () => {
   const editor = useSlateEditor({ withEditor: withHistory, initialValue })
@@ -87,17 +103,14 @@ const DomCoverageBoundariesExample = () => {
     )
   }, [editor])
 
-  const renderElement = useCallback(
-    (props: RenderElementProps) => (
-      <Element
-        {...props}
-        deepHidden={deepHidden}
-        footerHidden={footerHidden}
-        headerHidden={headerHidden}
-        innerHidden={innerHidden}
-        outerHidden={outerHidden}
-      />
-    ),
+  const hiddenBoundaries = useMemo(
+    () => ({
+      deepHidden,
+      footerHidden,
+      headerHidden,
+      innerHidden,
+      outerHidden,
+    }),
     [deepHidden, footerHidden, headerHidden, innerHidden, outerHidden]
   )
 
@@ -124,14 +137,16 @@ const DomCoverageBoundariesExample = () => {
       </div>
 
       <div style={styles.editorWrap}>
-        <Slate editor={editor}>
-          <Editable
-            autoFocus
-            placeholder="Try toggles, selection, and copy"
-            renderElement={renderElement}
-            spellCheck
-          />
-        </Slate>
+        <HiddenBoundaryContext.Provider value={hiddenBoundaries}>
+          <Slate editor={editor}>
+            <Editable
+              autoFocus
+              placeholder="Try toggles, selection, and copy"
+              renderElement={Element}
+              spellCheck
+            />
+          </Slate>
+        </HiddenBoundaryContext.Provider>
       </div>
 
       <pre style={styles.debug}>
@@ -157,22 +172,9 @@ const DomCoverageBoundariesExample = () => {
   )
 }
 
-const Element = ({
-  children,
-  element,
-  deepHidden,
-  footerHidden,
-  headerHidden,
-  innerHidden,
-  outerHidden,
-  slots,
-}: RenderElementProps & {
-  deepHidden: boolean
-  footerHidden: boolean
-  headerHidden: boolean
-  innerHidden: boolean
-  outerHidden: boolean
-}) => {
+const Element = ({ children, element, slots }: RenderElementProps) => {
+  const { deepHidden, footerHidden, headerHidden, innerHidden, outerHidden } =
+    React.useContext(HiddenBoundaryContext)
   const childNodes = React.Children.toArray(children)
 
   switch (element.type) {

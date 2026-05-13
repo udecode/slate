@@ -44,7 +44,7 @@ const ImagesExample = () => {
           }
         }}
         placeholder="Enter some text..."
-        renderElement={(props: RenderElementProps) => <Element {...props} />}
+        renderElement={Element}
         renderVoid={(props) =>
           isImageElement(props.element) ? (
             <Image element={props.element} />

@@ -27,16 +27,6 @@ const HOTKEYS: Record<string, CustomTextKey> = {
 const MARK_HOTKEYS = Object.entries(HOTKEYS)
 
 const IFrameExample = () => {
-  const renderElement = useCallback(
-    ({ attributes, children }: RenderElementProps) => (
-      <p {...attributes}>{children}</p>
-    ),
-    []
-  )
-  const renderLeaf = useCallback(
-    (props: RenderLeafProps) => <Leaf {...props} />,
-    []
-  )
   const editor = useSlateEditor<CustomValue, CustomEditor>({
     withEditor: (editor) => withHistory(editor),
     initialValue,
@@ -64,14 +54,18 @@ const IFrameExample = () => {
             }
           }}
           placeholder="Enter some rich text…"
-          renderElement={renderElement}
-          renderLeaf={renderLeaf}
+          renderElement={Element}
+          renderLeaf={Leaf}
           spellCheck
         />
       </IFrame>
     </Slate>
   )
 }
+
+const Element = ({ attributes, children }: RenderElementProps) => (
+  <p {...attributes}>{children}</p>
+)
 
 const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
   if (leaf.bold) {

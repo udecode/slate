@@ -5,6 +5,7 @@ import React, {
   StrictMode,
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from 'react'
 import {
@@ -35,6 +36,16 @@ interface Config {
   showSelectedHeadings: boolean
   strictMode: boolean
 }
+
+type RenderConfig = {
+  contentVisibility: boolean
+  showSelectedHeadings: boolean
+}
+
+const RenderConfigContext = React.createContext<RenderConfig>({
+  contentVisibility: false,
+  showSelectedHeadings: false,
+})
 
 const blocksOptions = [
   2, 1000, 2500, 5000, 7500, 10_000, 15_000, 20_000, 25_000, 30_000, 40_000,
@@ -163,28 +174,27 @@ const HugeDocumentExample = () => {
     [config]
   )
 
-  const renderElement = useCallback(
-    (props: RenderElementProps) => (
-      <Element
-        {...props}
-        contentVisibility={config.contentVisibilityMode === 'element'}
-        showSelectedHeadings={config.showSelectedHeadings}
-      />
-    ),
+  const renderConfig = useMemo(
+    () => ({
+      contentVisibility: config.contentVisibilityMode === 'element',
+      showSelectedHeadings: config.showSelectedHeadings,
+    }),
     [config.contentVisibilityMode, config.showSelectedHeadings]
   )
 
   const editable = rendering ? (
     <div>Rendering&hellip;</div>
   ) : (
-    <Slate editor={editor} key={editorVersion}>
-      <Editable
-        autoFocus
-        placeholder="Enter some text…"
-        renderElement={renderElement}
-        spellCheck
-      />
-    </Slate>
+    <RenderConfigContext.Provider value={renderConfig}>
+      <Slate editor={editor} key={editorVersion}>
+        <Editable
+          autoFocus
+          placeholder="Enter some text…"
+          renderElement={Element}
+          spellCheck
+        />
+      </Slate>
+    </RenderConfigContext.Provider>
   )
 
   const editableWithStrictMode = config.strictMode ? (
@@ -224,16 +234,9 @@ const Heading = ({
 
 const Paragraph = 'p'
 
-const Element = ({
-  attributes,
-  children,
-  element,
-  contentVisibility,
-  showSelectedHeadings,
-}: RenderElementProps & {
-  contentVisibility: boolean
-  showSelectedHeadings: boolean
-}) => {
+const Element = ({ attributes, children, element }: RenderElementProps) => {
+  const { contentVisibility, showSelectedHeadings } =
+    React.useContext(RenderConfigContext)
   const style = {
     contentVisibility: contentVisibility ? 'auto' : undefined,
   } satisfies CSSProperties

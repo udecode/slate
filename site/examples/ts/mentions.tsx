@@ -32,18 +32,6 @@ const MentionExample = () => {
   const [target, setTarget] = useState<Range | null>(null)
   const [index, setIndex] = useState(0)
   const [search, setSearch] = useState('')
-  const renderElement = useCallback(
-    (props: RenderElementProps) => <Element {...props} />,
-    []
-  )
-  const renderVoid = useCallback(
-    (props: RenderVoidProps<MentionElement>) => <Mention {...props} />,
-    []
-  )
-  const renderLeaf = useCallback(
-    (props: RenderLeafProps) => <Leaf {...props} />,
-    []
-  )
   const editor = useSlateEditor<CustomValue, CustomEditor>({
     withEditor: (editor) => withMentions(withHistory(editor)),
     initialValue,
@@ -149,9 +137,9 @@ const MentionExample = () => {
       <Editable
         onKeyDown={onKeyDown}
         placeholder="Enter some text..."
-        renderElement={renderElement}
-        renderLeaf={renderLeaf}
-        renderVoid={renderVoid}
+        renderElement={Element}
+        renderLeaf={Leaf}
+        renderVoid={Mention}
       />
       {target && chars.length > 0 && (
         <Portal>

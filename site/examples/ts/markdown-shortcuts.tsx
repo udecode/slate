@@ -47,10 +47,6 @@ const HEADING_TYPES = new Set<CustomElementType>([
 const ORDERED_LIST_SHORTCUT = /^(\d+)\.$/
 
 const MarkdownShortcutsExample = () => {
-  const renderElement = useCallback(
-    (props: RenderElementProps) => <Element {...props} />,
-    []
-  )
   const editor = useSlateEditor<CustomValue, CustomEditor>({
     withEditor: (editor) => withHistory(editor),
     initialValue,
@@ -126,7 +122,7 @@ const MarkdownShortcutsExample = () => {
         onDOMBeforeInput={handleDOMBeforeInput}
         onKeyDown={handleKeyDown}
         placeholder="Write some markdown..."
-        renderElement={renderElement}
+        renderElement={Element}
         spellCheck
       />
     </Slate>

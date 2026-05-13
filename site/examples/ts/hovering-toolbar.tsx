@@ -48,7 +48,7 @@ const HoveringMenuExample = () => {
       <Editable
         onDOMBeforeInput={handleDOMBeforeInput}
         placeholder="Enter some text..."
-        renderLeaf={(props: RenderLeafProps) => <Leaf {...props} />}
+        renderLeaf={Leaf}
       />
     </Slate>
   )

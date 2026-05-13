@@ -32,7 +32,7 @@ const EditableVoidsExample = () => {
 
       <Editable
         placeholder="Enter some text..."
-        renderElement={(props: RenderElementProps) => <Element {...props} />}
+        renderElement={Element}
         renderVoid={() => <EditableVoid />}
       />
     </Slate>

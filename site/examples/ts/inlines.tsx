@@ -140,8 +140,8 @@ const InlinesExample = () => {
         onKeyDown={onKeyDown}
         onPaste={onPaste}
         placeholder="Enter some text..."
-        renderElement={(props: RenderElementProps) => <Element {...props} />}
-        renderLeaf={(props: RenderLeafProps) => <Text {...props} />}
+        renderElement={Element}
+        renderLeaf={Text}
       />
     </SlateReact.Slate>
   )

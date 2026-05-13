@@ -236,9 +236,6 @@ describe('useElementSelected', () => {
 
     const watchedPath = [2]
     const selectedValues: boolean[] = []
-    const renderElement = ({ attributes, children }: RenderElementProps) => (
-      <div {...attributes}>{children}</div>
-    )
     const ExplicitPathProbe = () => {
       selectedValues.push(useElementSelected({ at: watchedPath }))
 
@@ -248,7 +245,11 @@ describe('useElementSelected', () => {
     render(
       <Slate editor={editor}>
         <ExplicitPathProbe />
-        <Editable renderElement={renderElement} />
+        <Editable
+          renderElement={({ attributes, children }) => (
+            <div {...attributes}>{children}</div>
+          )}
+        />
       </Slate>
     )
 
@@ -279,9 +280,6 @@ describe('useElementSelected', () => {
 
     const watchedPath = [2]
     const selectedValues: boolean[] = []
-    const renderElement = ({ attributes, children }: RenderElementProps) => (
-      <div {...attributes}>{children}</div>
-    )
     const ExplicitPathProbe = () => {
       selectedValues.push(
         useElementSelected({ at: watchedPath, mode: 'collapsed' })
@@ -293,7 +291,11 @@ describe('useElementSelected', () => {
     render(
       <Slate editor={editor}>
         <ExplicitPathProbe />
-        <Editable renderElement={renderElement} />
+        <Editable
+          renderElement={({ attributes, children }) => (
+            <div {...attributes}>{children}</div>
+          )}
+        />
       </Slate>
     )
 
