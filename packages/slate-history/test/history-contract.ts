@@ -395,6 +395,108 @@ describe('slate-history contract', () => {
     assert.deepEqual(getVisibleState(editor), before)
   })
 
+  it('undo restores the imported caret when selection import leads a text commit', () => {
+    const editor = withHistoryTest()
+    const start = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    }
+    const middle = {
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    }
+
+    replace(editor, [paragraph('abcdef')], start)
+
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          newProperties: middle,
+          properties: start,
+          type: 'set_selection',
+        },
+        {
+          offset: 3,
+          path: [0, 0],
+          text: 'X',
+          type: 'insert_text',
+        },
+      ])
+    })
+
+    assert.equal(Editor.string(editor, [0]), 'abcXdef')
+
+    editor.undo()
+
+    assert.deepEqual(getVisibleState(editor), {
+      children: [paragraph('abcdef')],
+      selection: middle,
+    })
+
+    editor.redo()
+
+    assert.deepEqual(getVisibleState(editor), {
+      children: [paragraph('abcXdef')],
+      selection: {
+        anchor: { path: [0, 0], offset: 4 },
+        focus: { path: [0, 0], offset: 4 },
+      },
+    })
+  })
+
+  it('redo preserves explicit selection after the first saveable operation', () => {
+    const editor = withHistoryTest()
+    const middle = {
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    }
+    const afterInsert = {
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    }
+    const trailing = {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    }
+
+    replace(editor, [paragraph('abcdef')], middle)
+
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          offset: 3,
+          path: [0, 0],
+          text: 'X',
+          type: 'insert_text',
+        },
+        {
+          newProperties: trailing,
+          properties: afterInsert,
+          type: 'set_selection',
+        },
+      ])
+    })
+
+    assert.deepEqual(getVisibleState(editor), {
+      children: [paragraph('abcXdef')],
+      selection: trailing,
+    })
+
+    editor.undo()
+
+    assert.deepEqual(getVisibleState(editor), {
+      children: [paragraph('abcdef')],
+      selection: middle,
+    })
+
+    editor.redo()
+
+    assert.deepEqual(getVisibleState(editor), {
+      children: [paragraph('abcXdef')],
+      selection: trailing,
+    })
+  })
+
   it('undoes a committed composition as one history unit', () => {
     const editor = withHistoryTest()
 

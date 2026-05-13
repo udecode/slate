@@ -1,6 +1,6 @@
 import { act, render } from '@testing-library/react'
 import type React from 'react'
-import { createEditor, type Descendant } from 'slate'
+import { createEditor, type Descendant, type EditorUpdateOptions } from 'slate'
 import { Editor } from 'slate/internal'
 
 import {
@@ -34,6 +34,15 @@ const TestEditorSurface = ({
     <Editable {...props} />
   </Slate>
 )
+
+const remoteSelectionOptions = {
+  metadata: {
+    collab: { origin: 'remote', saveToHistory: false },
+    history: { mode: 'skip' },
+    selection: { dom: 'preserve', focus: false, scroll: false },
+  },
+  tag: ['collaboration', 'skip-scroll-into-view', 'skip-selection-focus'],
+} satisfies EditorUpdateOptions
 
 describe('slate-react app-owned customization', () => {
   test('useSlateDecorationSource owns source lifecycle while reading latest options', async () => {
@@ -412,5 +421,36 @@ describe('slate-react app-owned customization', () => {
     })
 
     expect(seen).toEqual(['eta'])
+  })
+
+  test('Editable skips scrollSelectionIntoView for remote collaboration selection updates', async () => {
+    const editor = withReact(createEditor())
+    const seen: string[] = []
+
+    Editor.replace(editor, {
+      children: createChildren(),
+      selection: null,
+    })
+
+    render(
+      <TestEditorSurface
+        editor={editor}
+        id="remote-scroll-skip"
+        scrollSelectionIntoView={(_editor, domRange) => {
+          seen.push(domRange.toString())
+        }}
+      />
+    )
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.selection.set({
+          anchor: { path: [1, 0], offset: 1 },
+          focus: { path: [1, 0], offset: 4 },
+        })
+      }, remoteSelectionOptions)
+    })
+
+    expect(seen).toEqual([])
   })
 })

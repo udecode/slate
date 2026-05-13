@@ -17,6 +17,7 @@ import {
   applyEditableDOMSelectionChange,
   completeEditableSelectionChangeImport,
   executeEditableSelectionImport,
+  isEditableModelSelectionPreferred,
   setEditableModelSelectionPreference,
   syncEditorSelectionFromDOM,
 } from './selection-controller'
@@ -70,8 +71,14 @@ export const createRuntimeSelectionChangeHandler = ({
       selectionSource: selectionSourceBefore,
       targetOwner: 'editor',
     })
+    const preserveModelOwnedHistorySelection =
+      selectionChangeOrigin === 'native-user' &&
+      inputController.state.activeIntent === 'history' &&
+      isEditableModelSelectionPreferred(inputController)
 
-    domRepairQueueRef.current?.cancelBefore(frame.id)
+    if (!preserveModelOwnedHistorySelection) {
+      domRepairQueueRef.current?.cancelBefore(frame.id)
+    }
 
     applyEditableDOMSelectionChange({
       androidInputManager: androidInputManagerRef.current,

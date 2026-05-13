@@ -53,6 +53,19 @@ const DEFAULT_MODEL_COMMAND_REPAIR: EditableRepairRequest = {
   },
 }
 
+const getModelOwnedHistoryRepair = (
+  editor: ReactEditor
+): EditableRepairRequest => ({
+  focus: true,
+  forceRender: shouldForceRenderAfterModelOwnedHistory(editor),
+  kind: 'repair-caret',
+  selectionSourceTransition: {
+    preferModelSelection: true,
+    reason: 'model-command',
+    selectionSource: 'model-owned',
+  },
+})
+
 const isShellRenderingStrategy = (renderingStrategy: unknown) =>
   typeof renderingStrategy === 'object' &&
   renderingStrategy !== null &&
@@ -141,10 +154,9 @@ export const applyEditableKeyDown = ({
         applyModelOwnedHistoryIntent({
           direction: 'redo',
           editor,
-        }) &&
-        shouldForceRenderAfterModelOwnedHistory(editor)
+        })
       ) {
-        forceRender()
+        return keyDownHandled(getModelOwnedHistoryRepair(editor))
       }
 
       return keyDownHandled()
@@ -158,10 +170,9 @@ export const applyEditableKeyDown = ({
         applyModelOwnedHistoryIntent({
           direction: 'undo',
           editor,
-        }) &&
-        shouldForceRenderAfterModelOwnedHistory(editor)
+        })
       ) {
-        forceRender()
+        return keyDownHandled(getModelOwnedHistoryRepair(editor))
       }
 
       return keyDownHandled()
@@ -228,10 +239,9 @@ export const applyEditableKeyDown = ({
         applyModelOwnedHistoryIntent({
           direction: 'redo',
           editor,
-        }) &&
-        shouldForceRenderAfterModelOwnedHistory(editor)
+        })
       ) {
-        forceRender()
+        return keyDownHandled(getModelOwnedHistoryRepair(editor))
       }
 
       return keyDownHandled()
@@ -244,10 +254,9 @@ export const applyEditableKeyDown = ({
         applyModelOwnedHistoryIntent({
           direction: 'undo',
           editor,
-        }) &&
-        shouldForceRenderAfterModelOwnedHistory(editor)
+        })
       ) {
-        forceRender()
+        return keyDownHandled(getModelOwnedHistoryRepair(editor))
       }
 
       return keyDownHandled()

@@ -43,6 +43,10 @@ import { Editor } from './runtime-editor-api'
 import { readRuntimeNode, readRuntimeText } from './runtime-live-state'
 import { writeRuntimeSelection } from './runtime-mutation-state'
 import { readRuntimeSelection } from './runtime-selection-state'
+import {
+  shouldSkipSelectionFocus,
+  shouldSkipSelectionScroll,
+} from './selection-side-effect-policy'
 
 export const toSlateCollapsedRangeFromDOMSelection = (
   editor: Editor,
@@ -958,7 +962,9 @@ export const useEditableSelectionReconciler = ({
             newDomRange.endOffset
           )
         }
-        scrollSelectionIntoView(editor, newDomRange)
+        if (!shouldSkipSelectionScroll(editor)) {
+          scrollSelectionIntoView(editor, newDomRange)
+        }
       } else {
         domSelection.removeAllRanges()
       }
@@ -987,7 +993,9 @@ export const useEditableSelectionReconciler = ({
         const ensureDomSelection = (forceChange?: boolean) => {
           try {
             const el = ReactEditor.toDOMNode(editor, editor)
-            el.focus()
+            if (!shouldSkipSelectionFocus(editor)) {
+              el.focus()
+            }
 
             setDomSelection(forceChange)
           } catch (_e) {

@@ -41,10 +41,7 @@ export const withHistory = <T extends Editor<any>>(
 
     HistoryEditor.withoutSaving(e, () => {
       e.update((tx) => {
-        if (batch.selectionBefore) {
-          tx.selection.set(batch.selectionBefore)
-        }
-
+        tx.selection.set(batch.selectionBefore)
         tx.operations.replay(batch.operations)
       })
     })
@@ -67,9 +64,7 @@ export const withHistory = <T extends Editor<any>>(
         const inverseOps = batch.operations.map(OperationApi.inverse).reverse()
 
         tx.operations.replay(inverseOps)
-        if (batch.selectionBefore) {
-          tx.selection.set(batch.selectionBefore)
-        }
+        tx.selection.set(batch.selectionBefore)
       })
     })
 
@@ -116,6 +111,15 @@ export const withHistory = <T extends Editor<any>>(
     }
 
     if (save) {
+      const preparedBatch = prepareHistoryBatch(
+        change?.selectionBefore ?? null,
+        committedOps
+      )
+
+      if (!preparedBatch) {
+        return
+      }
+
       if (merge == null) {
         if (lastBatch == null) {
           merge = false
@@ -128,7 +132,10 @@ export const withHistory = <T extends Editor<any>>(
         } else if (change?.tags.includes('history-merge')) {
           merge = true
         } else {
-          merge = shouldMergeBatch(committedOps, lastBatch.operations)
+          merge = shouldMergeBatch(
+            preparedBatch.operations,
+            lastBatch.operations
+          )
         }
       }
 
@@ -138,13 +145,9 @@ export const withHistory = <T extends Editor<any>>(
       }
 
       if (lastBatch && merge) {
-        lastBatch.operations.push(...committedOps)
+        lastBatch.operations.push(...preparedBatch.operations)
       } else {
-        const batch = {
-          operations: [...committedOps],
-          selectionBefore: change.selectionBefore,
-        }
-        e.writeHistory('undos', batch)
+        e.writeHistory('undos', preparedBatch)
       }
 
       while (undos.length > 100) {
@@ -226,6 +229,89 @@ const shouldSave = (op: Operation): boolean => {
 
 const shouldSaveBatch = (operations: readonly Operation[]): boolean =>
   operations.some((operation) => shouldSave(operation))
+
+const clonePoint = (point: Range['anchor']): Range['anchor'] => ({
+  offset: point.offset,
+  path: [...point.path],
+})
+
+const cloneRange = (range: Range | null): Range | null =>
+  range
+    ? {
+        anchor: clonePoint(range.anchor),
+        focus: clonePoint(range.focus),
+      }
+    : null
+
+const applySelectionPatch = (
+  selection: Range | null,
+  newProperties: Partial<Range> | null
+): Range | null => {
+  if (newProperties == null) {
+    return null
+  }
+
+  if (selection == null) {
+    if (!(newProperties.anchor && newProperties.focus)) {
+      throw new Error(
+        `set_selection patch requires an existing selection or a full range. Received: ${JSON.stringify(
+          newProperties
+        )}`
+      )
+    }
+
+    return cloneRange(newProperties as Range)
+  }
+
+  const next = cloneRange(selection)!
+
+  if (Object.hasOwn(newProperties, 'anchor')) {
+    if (!newProperties.anchor) {
+      throw new Error('Cannot remove the "anchor" selection property')
+    }
+
+    next.anchor = clonePoint(newProperties.anchor)
+  }
+
+  if (Object.hasOwn(newProperties, 'focus')) {
+    if (!newProperties.focus) {
+      throw new Error('Cannot remove the "focus" selection property')
+    }
+
+    next.focus = clonePoint(newProperties.focus)
+  }
+
+  return next
+}
+
+const prepareHistoryBatch = <HistoryValue extends ValueOf<Editor<any>>>(
+  selectionBefore: Range | null,
+  operations: readonly Operation<HistoryValue>[]
+): Batch<HistoryValue> | null => {
+  const firstSaveableIndex = operations.findIndex(shouldSave)
+
+  if (firstSaveableIndex === -1) {
+    return null
+  }
+
+  let batchSelectionBefore = cloneRange(selectionBefore)
+
+  for (let index = 0; index < firstSaveableIndex; index++) {
+    const operation = operations[index]!
+
+    if (operation.type === 'set_selection') {
+      batchSelectionBefore = applySelectionPatch(
+        batchSelectionBefore,
+        operation.newProperties
+      )
+    }
+  }
+
+  return {
+    operations: [...operations.slice(firstSaveableIndex)],
+    selectionBefore: batchSelectionBefore,
+  }
+}
 
 const shouldSaveCommit = (
   change: SnapshotChange | undefined,

@@ -24,6 +24,7 @@ import type {
 import { Editor, type Editor as RuntimeEditor } from './runtime-editor-api'
 import { readRuntimeSelection } from './runtime-selection-state'
 import { setEditableModelSelectionPreference } from './selection-controller'
+import { shouldSkipSelectionFocus } from './selection-side-effect-policy'
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
 
@@ -702,7 +703,11 @@ export const applyEditableRepairRequest = ({
         })
       }
 
-      if ('focus' in request && request.focus) {
+      if (
+        'focus' in request &&
+        request.focus &&
+        !shouldSkipSelectionFocus(editor)
+      ) {
         ReactEditor.focus(editor)
       }
 
@@ -711,6 +716,7 @@ export const applyEditableRepairRequest = ({
       }
 
       if (request.kind === 'sync-selection') {
+        inputController.state.selectionChangeOrigin = 'programmatic-export'
         syncDOMSelectionToEditor()
         return
       }

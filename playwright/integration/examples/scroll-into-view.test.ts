@@ -78,6 +78,56 @@ const clickTextBlock = async (
   await editor.page.mouse.click(point.x, point.y)
 }
 
+const getBrowserUndoHotkey = async (editor: SlateBrowserEditorHarness) =>
+  editor.root
+    .page()
+    .evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent) ? 'Meta+Z' : 'Control+Z'
+    )
+
+const selectTextBlockEndDOM = async (
+  editor: SlateBrowserEditorHarness,
+  blockIndex: number
+) =>
+  editor.root.evaluate((element: HTMLElement, index) => {
+    const textElement = element.querySelector<HTMLElement>(
+      `[data-slate-node="text"][data-slate-path="${index},0"]`
+    )
+
+    if (!textElement) {
+      throw new Error(`Missing text element for block ${index}`)
+    }
+
+    const walker = element.ownerDocument.createTreeWalker(
+      textElement,
+      NodeFilter.SHOW_TEXT
+    )
+    let textNode: Text | null = null
+    let currentNode: Node | null = null
+
+    currentNode = walker.nextNode()
+    while (currentNode) {
+      textNode = currentNode as Text
+      currentNode = walker.nextNode()
+    }
+
+    if (!textNode) {
+      throw new Error(`Missing text node for block ${index}`)
+    }
+
+    const range = element.ownerDocument.createRange()
+    const selection = element.ownerDocument.getSelection()
+
+    range.setStart(textNode, textNode.textContent?.length ?? 0)
+    range.collapse(true)
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    element.focus()
+    element.ownerDocument.dispatchEvent(
+      new Event('selectionchange', { bubbles: true })
+    )
+  }, blockIndex)
+
 const expectCaretVisibleInScrollableParent = async (
   editor: SlateBrowserEditorHarness
 ) => {
@@ -103,16 +153,9 @@ const expectCaretVisibleInScrollableParent = async (
           return false
         }
 
-        const range = selection.getRangeAt(0).cloneRange()
-        const marker = element.ownerDocument.createElement('span')
-
-        marker.textContent = '|'
-        range.insertNode(marker)
-
-        const markerRect = marker.getBoundingClientRect()
+        const range = selection.getRangeAt(0)
+        const markerRect = range.getBoundingClientRect()
         const parentRect = scrollParent.getBoundingClientRect()
-
-        marker.remove()
 
         return (
           markerRect.top >= parentRect.top - 1 &&
@@ -164,5 +207,86 @@ test.describe('scroll into view example', () => {
     expect(nextBlockTexts.slice(0, lastBlockIndex).join('\n')).not.toContain(
       'second-scroll'
     )
+  })
+
+  test('keeps caret at the edited block end across repeated manual scroll-away typing', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'scroll-into-view', {
+      ready: { editor: 'visible' },
+    })
+    const blockTexts = await editor.get.blockTexts()
+    const lastBlockIndex = blockTexts.length - 1
+    const firstText = ' first-scroll'
+    const secondText = ' second-scroll'
+
+    let expectedOffset = blockTexts[lastBlockIndex]!.length
+
+    await scrollBlockIntoView(editor, lastBlockIndex)
+    await selectTextBlockEndDOM(editor, lastBlockIndex)
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [lastBlockIndex, 0], offset: expectedOffset },
+        focus: { path: [lastBlockIndex, 0], offset: expectedOffset },
+      })
+
+    await scrollContainersAwayFromCaret(editor)
+    await page.keyboard.type(firstText)
+    expectedOffset += firstText.length
+
+    await editor.assert.selection({
+      anchor: { path: [lastBlockIndex, 0], offset: expectedOffset },
+      focus: { path: [lastBlockIndex, 0], offset: expectedOffset },
+    })
+    await expectCaretVisibleInScrollableParent(editor)
+
+    await scrollContainersAwayFromCaret(editor)
+    await page.keyboard.type(secondText)
+    expectedOffset += secondText.length
+
+    await editor.assert.selection({
+      anchor: { path: [lastBlockIndex, 0], offset: expectedOffset },
+      focus: { path: [lastBlockIndex, 0], offset: expectedOffset },
+    })
+    await expectCaretVisibleInScrollableParent(editor)
+
+    const nextBlockTexts = await editor.get.blockTexts()
+    expect(nextBlockTexts[lastBlockIndex]).toContain(firstText)
+    expect(nextBlockTexts[lastBlockIndex]).toContain(secondText)
+    expect(nextBlockTexts[0]).not.toContain(secondText)
+
+    await page.keyboard.press(await getBrowserUndoHotkey(editor))
+    await page.waitForTimeout(250)
+
+    await editor.assert.selection({
+      anchor: {
+        path: [lastBlockIndex, 0],
+        offset: blockTexts[lastBlockIndex]!.length,
+      },
+      focus: {
+        path: [lastBlockIndex, 0],
+        offset: blockTexts[lastBlockIndex]!.length,
+      },
+    })
+
+    await scrollContainersAwayFromCaret(editor)
+    await page.keyboard.type(' third-scroll')
+
+    await editor.assert.selection({
+      anchor: {
+        path: [lastBlockIndex, 0],
+        offset: blockTexts[lastBlockIndex]!.length + ' third-scroll'.length,
+      },
+      focus: {
+        path: [lastBlockIndex, 0],
+        offset: blockTexts[lastBlockIndex]!.length + ' third-scroll'.length,
+      },
+    })
+    await expectCaretVisibleInScrollableParent(editor)
+
+    const finalBlockTexts = await editor.get.blockTexts()
+    expect(finalBlockTexts[lastBlockIndex]).toContain('third-scroll')
+    expect(finalBlockTexts[0]).not.toContain('third-scroll')
   })
 })

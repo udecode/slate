@@ -14,6 +14,7 @@ import { getNativeTextInputHistoryMetadata } from './input-history'
 import type { EditableInputController } from './input-state'
 import { readRuntimeText } from './runtime-live-state'
 import { readRuntimeSelection } from './runtime-selection-state'
+import { shouldSkipSelectionScroll } from './selection-side-effect-policy'
 
 export type DOMInputRepair = {
   data: string | null
@@ -218,7 +219,9 @@ export const createDOMRepairQueue = ({
             return false
           }
 
-          scrollSelectionIntoView(editor, domSelection.getRangeAt(0))
+          if (!shouldSkipSelectionScroll(editor)) {
+            scrollSelectionIntoView(editor, domSelection.getRangeAt(0))
+          }
           return true
         }
 
@@ -285,7 +288,9 @@ export const createDOMRepairQueue = ({
               domNode,
               domOffset
             )
-            scrollSelectionIntoView(editor, domRange)
+            if (!shouldSkipSelectionScroll(editor)) {
+              scrollSelectionIntoView(editor, domRange)
+            }
             return
           }
 

@@ -102,6 +102,24 @@ export const isNativeInternalControlTarget = (
 const isPlainTextKeyboardIntent = (event: KeyboardEvent) =>
   event.key.length === 1 && !event.altKey && !event.ctrlKey && !event.metaKey
 
+const MODIFIER_ONLY_KEYS = new Set([
+  'Alt',
+  'AltGraph',
+  'CapsLock',
+  'Control',
+  'Fn',
+  'FnLock',
+  'Meta',
+  'NumLock',
+  'ScrollLock',
+  'Shift',
+  'Symbol',
+  'SymbolLock',
+])
+
+const isModifierOnlyKeyboardIntent = (event: KeyboardEvent) =>
+  MODIFIER_ONLY_KEYS.has(event.key)
+
 export const classifyKeyboardIntent = ({
   editor,
   event,
@@ -167,6 +185,10 @@ export const classifyKeyboardIntent = ({
 
   if (isPlainTextKeyboardIntent(nativeEvent)) {
     return 'text-insert'
+  }
+
+  if (isModifierOnlyKeyboardIntent(nativeEvent)) {
+    return null
   }
 
   return 'native-selection-move'

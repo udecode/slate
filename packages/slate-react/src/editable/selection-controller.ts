@@ -33,6 +33,7 @@ import {
   readLiveSelection,
   readRuntimeSelection,
 } from './runtime-selection-state'
+import { shouldSkipSelectionScroll } from './selection-side-effect-policy'
 
 export type EditableSelectionController = {
   inputController: EditableInputController
@@ -613,6 +614,14 @@ export const applyEditableDOMSelectionChange = ({
   const selectionChangeOrigin = state.selectionChangeOrigin ?? 'native-user'
 
   if (
+    selectionChangeOrigin === 'native-user' &&
+    state.activeIntent === 'history' &&
+    isEditableModelSelectionPreferred(inputController)
+  ) {
+    return
+  }
+
+  if (
     state.selectionSource === 'shell-backed' &&
     isEditableModelSelectionPreferred(inputController)
   ) {
@@ -751,7 +760,9 @@ export const syncEditableDOMSelectionToEditor = ({
       )
     }
 
-    scrollSelectionIntoView(editor, domRange)
+    if (!shouldSkipSelectionScroll(editor)) {
+      scrollSelectionIntoView(editor, domRange)
+    }
     setTimeout(() => {
       state.isUpdatingSelection = false
     })
