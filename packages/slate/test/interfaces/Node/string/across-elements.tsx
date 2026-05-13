@@ -1,5 +1,5 @@
 /** @jsx jsx  */
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 
 export const input = (
   <editor>
@@ -14,6 +14,6 @@ export const input = (
   </editor>
 )
 export const test = (value) => {
-  return Node.string(value)
+  return NodeApi.string(value)
 }
 export const output = `onetwothreefour`

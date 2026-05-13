@@ -2,7 +2,7 @@ import { css } from '@emotion/css'
 import isUrl from 'is-url'
 import type React from 'react'
 import { type ClipboardEvent, type PointerEvent, useMemo } from 'react'
-import { Node, Range } from 'slate'
+import { NodeApi, RangeApi } from 'slate'
 import { isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import * as SlateReact from 'slate-react'
@@ -112,7 +112,7 @@ const InlinesExample = () => {
     // Here we modify the behavior to unit:'offset'.
     // This lets the user step into and out of the inline without stepping over characters.
     // You may wish to customize this further to only use unit:'offset' in specific cases.
-    if (selection && Range.isCollapsed(selection)) {
+    if (selection && RangeApi.isCollapsed(selection)) {
       if (isHotkey('left', event)) {
         editor.update((tx) => {
           tx.selection.move({ unit: 'offset', reverse: true })
@@ -176,7 +176,7 @@ const isLinkActive = (editor: CustomEditor): boolean => {
   const [link] = editor.read((state) =>
     Array.from(
       state.nodes.match({
-        match: (n) => Node.isElement(n) && n.type === 'link',
+        match: (n) => NodeApi.isElement(n) && n.type === 'link',
       })
     )
   )
@@ -187,7 +187,7 @@ const isButtonActive = (editor: CustomEditor): boolean => {
   const [button] = editor.read((state) =>
     Array.from(
       state.nodes.match({
-        match: (n) => Node.isElement(n) && n.type === 'button',
+        match: (n) => NodeApi.isElement(n) && n.type === 'button',
       })
     )
   )
@@ -197,7 +197,7 @@ const isButtonActive = (editor: CustomEditor): boolean => {
 const unwrapLink = (editor: CustomEditor) => {
   editor.update((tx) => {
     tx.nodes.unwrap({
-      match: (n) => Node.isElement(n) && n.type === 'link',
+      match: (n) => NodeApi.isElement(n) && n.type === 'link',
     })
   })
 }
@@ -205,7 +205,7 @@ const unwrapLink = (editor: CustomEditor) => {
 const unwrapButton = (editor: CustomEditor) => {
   editor.update((tx) => {
     tx.nodes.unwrap({
-      match: (n) => Node.isElement(n) && n.type === 'button',
+      match: (n) => NodeApi.isElement(n) && n.type === 'button',
     })
   })
 }
@@ -216,7 +216,7 @@ const wrapLink = (editor: CustomEditor, url: string) => {
   }
 
   const selection = editor.read((state) => state.selection.get())
-  const isCollapsed = selection && Range.isCollapsed(selection)
+  const isCollapsed = selection && RangeApi.isCollapsed(selection)
   const link: LinkElement = {
     type: 'link',
     url,
@@ -242,7 +242,7 @@ const wrapButton = (editor: CustomEditor) => {
   }
 
   const selection = editor.read((state) => state.selection.get())
-  const isCollapsed = selection && Range.isCollapsed(selection)
+  const isCollapsed = selection && RangeApi.isCollapsed(selection)
   const button: ButtonElement = {
     type: 'button',
     children: isCollapsed ? [{ text: 'Edit me!' }] : [],

@@ -4,7 +4,7 @@ import { Editor } from 'slate/internal'
 import {
   createEditor,
   type Descendant,
-  Operation,
+  OperationApi,
   type Operation as SlateOperation,
 } from '../src'
 import { extendTestSchema } from './support/schema'
@@ -63,7 +63,7 @@ describe('slate operations contract', () => {
       type: 'replace_fragment',
     }
 
-    assert.equal(Operation.isOperation(operation), true)
+    assert.equal(OperationApi.isOperation(operation), true)
 
     Editor.replace(editor, {
       children,
@@ -76,7 +76,7 @@ describe('slate operations contract', () => {
     assert.deepEqual(Editor.getSnapshot(editor).children, newChildren)
     assert.deepEqual(Editor.getSnapshot(editor).selection, newSelection)
 
-    applyOperation(editor, Operation.inverse(operation))
+    applyOperation(editor, OperationApi.inverse(operation))
 
     assert.deepEqual(Editor.getSnapshot(editor).children, children)
     assert.deepEqual(Editor.getSnapshot(editor).selection, selection)
@@ -113,7 +113,7 @@ describe('slate operations contract', () => {
       type: 'replace_children',
     }
 
-    assert.equal(Operation.isOperation(operation), true)
+    assert.equal(OperationApi.isOperation(operation), true)
 
     Editor.replace(editor, {
       children,
@@ -130,7 +130,7 @@ describe('slate operations contract', () => {
     ])
     assert.deepEqual(Editor.getSnapshot(editor).selection, newSelection)
 
-    applyOperation(editor, Operation.inverse(operation))
+    applyOperation(editor, OperationApi.inverse(operation))
 
     assert.deepEqual(Editor.getSnapshot(editor).children, children)
     assert.deepEqual(Editor.getSnapshot(editor).selection, selection)
@@ -503,7 +503,7 @@ describe('slate operations contract', () => {
     })
 
     editor.update((tx) => {
-      tx.operations.replay(operations.map(Operation.inverse).reverse())
+      tx.operations.replay(operations.map(OperationApi.inverse).reverse())
     })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, children)

@@ -1,4 +1,4 @@
-import { Node, Range } from 'slate'
+import { NodeApi, type Range, RangeApi } from 'slate'
 import { type DOMText, IS_NODE_MAP_DIRTY } from 'slate-dom'
 import { ReactEditor } from '../plugin/react-editor'
 import { getInputEventData } from './dom-input-event'
@@ -22,7 +22,7 @@ export const canUseNativeSingleCharacterInput = ({
 }) => {
   if (
     !selection ||
-    !Range.isCollapsed(selection) ||
+    !RangeApi.isCollapsed(selection) ||
     // Only use native character insertion for single characters a-z or space for now.
     // Long-press events (hold a + press 4 = ä) to choose a special character otherwise
     // causes duplicate inserts.
@@ -82,10 +82,10 @@ export const canUseNativeSingleCharacterInput = ({
   ) {
     const block = Editor.above(editor, {
       at: anchor.path,
-      match: (n) => Node.isElement(n) && Editor.isBlock(editor, n),
+      match: (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n),
     })
 
-    if (block && Node.string(block[0]).includes('\t')) {
+    if (block && NodeApi.string(block[0]).includes('\t')) {
       return false
     }
   }

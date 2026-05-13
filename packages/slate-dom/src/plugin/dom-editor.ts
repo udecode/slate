@@ -1,11 +1,13 @@
 import {
-  Node,
+  type Node,
+  NodeApi,
   type Path,
   type Point,
-  Range,
+  type Range,
+  RangeApi,
   type RuntimeId,
-  Scrubber,
-  Text,
+  ScrubberApi,
+  TextApi,
   type Value,
 } from 'slate'
 import { Editor, getEditorLiveSelection } from 'slate/internal'
@@ -454,7 +456,7 @@ const resolveSlateTextPoint = <T extends boolean>({
   slateNode: Node
   suppressThrow: T
 }): Point | null => {
-  if (!Text.isText(slateNode)) {
+  if (!TextApi.isText(slateNode)) {
     return { path, offset }
   }
 
@@ -549,7 +551,12 @@ export const DOMEditor: DOMEditorInterface = {
     // If the drop target is inside a void node, move it into either the
     // next or previous node, depending on which side the `x` and `y`
     // coordinates are closest to.
-    if (node && path && Node.isElement(node) && Editor.isVoid(editor, node)) {
+    if (
+      node &&
+      path &&
+      NodeApi.isElement(node) &&
+      Editor.isVoid(editor, node)
+    ) {
       const rect = target.getBoundingClientRect()
       const isPrev = Editor.isInline(editor, node)
         ? x - rect.left < rect.left + rect.width - x
@@ -642,7 +649,7 @@ export const DOMEditor: DOMEditorInterface = {
     }
 
     throw new Error(
-      `Unable to find the path for Slate node: ${Scrubber.stringify(node)}`
+      `Unable to find the path for Slate node: ${ScrubberApi.stringify(node)}`
     )
   },
 
@@ -696,7 +703,7 @@ export const DOMEditor: DOMEditorInterface = {
         const domRange = DOMEditor.toDOMRange(editor, selection)
 
         if (domSelection) {
-          if (Range.isBackward(selection)) {
+          if (RangeApi.isBackward(selection)) {
             domSelection.setBaseAndExtent(
               domRange.endContainer,
               domRange.endOffset,
@@ -737,7 +744,7 @@ export const DOMEditor: DOMEditorInterface = {
 
           if (
             !getEditorLiveSelection(editor) ||
-            !Range.equals(getEditorLiveSelection(editor)!, selectionAtFocus)
+            !RangeApi.equals(getEditorLiveSelection(editor)!, selectionAtFocus)
           ) {
             return
           }
@@ -849,7 +856,7 @@ export const DOMEditor: DOMEditorInterface = {
       return false
     }
 
-    return Node.isElement(slateNode) && Editor.isVoid(editor, slateNode)
+    return NodeApi.isElement(slateNode) && Editor.isVoid(editor, slateNode)
   },
 
   toDOMNode: (editor, node) => {
@@ -871,7 +878,7 @@ export const DOMEditor: DOMEditorInterface = {
     }
 
     throw new Error(
-      `Cannot resolve a DOM node from Slate node: ${Scrubber.stringify(node)}`
+      `Cannot resolve a DOM node from Slate node: ${ScrubberApi.stringify(node)}`
     )
   },
 
@@ -956,7 +963,7 @@ export const DOMEditor: DOMEditorInterface = {
 
     if (!domPoint) {
       throw new Error(
-        `Cannot resolve a DOM point from Slate point: ${Scrubber.stringify(
+        `Cannot resolve a DOM point from Slate point: ${ScrubberApi.stringify(
           resolvedPoint
         )}`
       )
@@ -967,9 +974,9 @@ export const DOMEditor: DOMEditorInterface = {
 
   toDOMRange: (editor, range) => {
     const { anchor, focus } = range
-    const isBackward = Range.isBackward(range)
+    const isBackward = RangeApi.isBackward(range)
     const domAnchor = DOMEditor.toDOMPoint(editor, anchor)
-    const domFocus = Range.isCollapsed(range)
+    const domFocus = RangeApi.isCollapsed(range)
       ? domAnchor
       : DOMEditor.toDOMPoint(editor, focus)
 
@@ -1496,8 +1503,8 @@ export const DOMEditor: DOMEditorInterface = {
     // (meaning that the selection ends before the element)
     // unhang the range to avoid mistakenly including the void
     if (
-      Range.isExpanded(range) &&
-      Range.isForward(range) &&
+      RangeApi.isExpanded(range) &&
+      RangeApi.isForward(range) &&
       isDOMElement(focusNode) &&
       Editor.void(editor, { at: range.focus, mode: 'highest' })
     ) {

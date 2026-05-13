@@ -82,10 +82,10 @@ When reading a generic `Node`, narrow it before accessing element-specific
 properties.
 
 ```typescript
-import { Element, type Node } from 'slate'
+import { ElementApi, type Node } from 'slate'
 
 const isParagraph = (node: Node) =>
-  Element.isElement(node) && node.type === 'paragraph'
+  ElementApi.isElement(node) && node.type === 'paragraph'
 ```
 
 ## Multiple Document Models

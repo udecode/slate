@@ -1,5 +1,5 @@
 import { Editor, type EditorLevelsOptions } from '../interfaces/editor'
-import { Node, type NodeEntry } from '../interfaces/node'
+import { type Node, NodeApi, type NodeEntry } from '../interfaces/node'
 
 export function* levels<T extends Node>(
   editor: Editor,
@@ -23,14 +23,14 @@ export function* levels<T extends Node>(
   const levels: NodeEntry<T>[] = []
   const path = Editor.path(editor, at)
 
-  for (const [n, p] of Node.levels(editor, path)) {
+  for (const [n, p] of NodeApi.levels(editor, path)) {
     if (!match(n, p)) {
       continue
     }
 
     levels.push([n, p] as NodeEntry<T>)
 
-    if (!voids && Node.isElement(n) && Editor.isVoid(editor, n)) {
+    if (!voids && NodeApi.isElement(n) && Editor.isVoid(editor, n)) {
       break
     }
   }

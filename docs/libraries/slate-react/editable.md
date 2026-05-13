@@ -155,7 +155,7 @@ match or lightweight syntax highlight.
 ```tsx
 <Editable
   decorate={([node, path]) => {
-    if (!Text.isText(node)) return []
+    if (!TextApi.isText(node)) return []
 
     const start = node.text.indexOf(query)
 

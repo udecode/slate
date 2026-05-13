@@ -1,7 +1,7 @@
 import { applyOperation, runEditorTransaction } from '../core/public-state'
 import { node as getNode } from '../editor/node'
 import { nodes as getNodes } from '../editor/nodes'
-import { type Descendant, Location, Node } from '../interfaces'
+import { type Descendant, LocationApi, NodeApi } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import type { NodeMutationMethods } from '../interfaces/transforms/node'
 import { matchPath } from '../utils/match-path'
@@ -20,17 +20,17 @@ export const removeNodes: NodeMutationMethods['removeNodes'] = (
         return
       }
 
-      if (Location.isPath(at) && at.length === 0) {
+      if (LocationApi.isPath(at) && at.length === 0) {
         throw new Error('Cannot remove the editor root.')
       }
 
       if (match == null) {
-        match = Location.isPath(at)
+        match = LocationApi.isPath(at)
           ? matchPath(editor, at)
-          : (n) => Node.isElement(n) && Editor.isBlock(editor, n)
+          : (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n)
       }
 
-      if (!hanging && Location.isRange(at)) {
+      if (!hanging && LocationApi.isRange(at)) {
         at = Editor.unhangRange(editor, at, { voids })
       }
 

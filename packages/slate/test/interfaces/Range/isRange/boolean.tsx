@@ -1,9 +1,9 @@
 /** @jsx jsx */
 
-import { Range } from 'slate'
+import { RangeApi } from 'slate'
 
 export const input = true
 export const test = (value) => {
-  return Range.isRange(value)
+  return RangeApi.isRange(value)
 }
 export const output = false

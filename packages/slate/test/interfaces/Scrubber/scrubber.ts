@@ -1,4 +1,4 @@
-import { Node, Scrubber } from 'slate'
+import { type Node, ScrubberApi } from 'slate'
 
 export const input = {
   customField: 'some very long custom field value that will get scrubbed',
@@ -6,11 +6,11 @@ export const input = {
 }
 
 export const test = (value: Node) => {
-  Scrubber.setScrubber((key, value) =>
+  ScrubberApi.setScrubber((key, value) =>
     key === 'customField' ? '... scrubbed ...' : value
   )
-  const stringified = Scrubber.stringify(value)
-  Scrubber.setScrubber(undefined)
+  const stringified = ScrubberApi.stringify(value)
+  ScrubberApi.setScrubber(undefined)
 
   const unmarshaled = JSON.parse(stringified)
   return (

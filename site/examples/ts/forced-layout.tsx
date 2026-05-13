@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import {
   defineEditorExtension,
-  Node,
+  NodeApi,
   type Element as SlateElement,
 } from 'slate'
 import { withHistory } from 'slate-history'
@@ -41,7 +41,7 @@ const enforceLayout = (editor: CustomEditor) => {
 
   const children = editor.read((state) => state.value.get())
   const plannedChildren = [...children]
-  const firstText = plannedChildren[0] ? Node.string(plannedChildren[0]) : ''
+  const firstText = plannedChildren[0] ? NodeApi.string(plannedChildren[0]) : ''
   const insertTitle = plannedChildren.length <= 1 && firstText === ''
 
   if (insertTitle) {
@@ -57,10 +57,10 @@ const enforceLayout = (editor: CustomEditor) => {
   const first = plannedChildren[0]
   const second = plannedChildren[1]
   const enforceTitle =
-    Node.isElement(first) &&
+    NodeApi.isElement(first) &&
     first.type !== ('title' satisfies CustomElementType)
   const enforceParagraph =
-    Node.isElement(second) &&
+    NodeApi.isElement(second) &&
     second.type !== ('paragraph' satisfies CustomElementType)
 
   if (!insertTitle && !insertParagraph && !enforceTitle && !enforceParagraph) {

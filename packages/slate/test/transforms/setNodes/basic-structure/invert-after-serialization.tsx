@@ -4,12 +4,12 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Operation } from 'slate'
+import { type Operation, OperationApi } from 'slate'
 export const run = (editor) => {
   editor.nodes.set({ key: true }, { at: [0] })
   const [op] = editor.value.operations()
   const roundTrip: Operation = JSON.parse(JSON.stringify(op))
-  const inverted = Operation.inverse(roundTrip)
+  const inverted = OperationApi.inverse(roundTrip)
   editor.operations.replay([inverted])
 }
 export const input = (

@@ -1,11 +1,11 @@
 /** @jsx jsx */
 
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 
 export const input = {
   children: [],
 }
 export const test = (value) => {
-  return Node.isNodeList(value)
+  return NodeApi.isNodeList(value)
 }
 export const output = false

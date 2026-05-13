@@ -48,7 +48,7 @@ editor.update((tx) => {
     { bold: true },
     {
       at: range,
-      match: node => Text.isText(node),
+      match: node => TextApi.isText(node),
       split: true,
     }
   )
@@ -57,7 +57,7 @@ editor.update((tx) => {
     { type: 'quote', children: [] },
     {
       at: point,
-      match: node => Element.isElement(node) && tx.schema.isBlock(node),
+      match: node => ElementApi.isElement(node) && tx.schema.isBlock(node),
       mode: 'lowest',
     }
   )

@@ -4,27 +4,27 @@ import { getEditorTransformRegistry } from '../core/transform-registry'
 import { node as getNode } from '../editor/node'
 import { nodes as getNodes } from '../editor/nodes'
 import { shouldMergeNodesRemovePrevNode } from '../editor/should-merge-nodes-remove-prev-node'
-import { Location } from '../interfaces'
+import { LocationApi } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import type { Element } from '../interfaces/element'
-import { type Ancestor, Node } from '../interfaces/node'
-import { Path } from '../interfaces/path'
-import { Range } from '../interfaces/range'
-import { Scrubber } from '../interfaces/scrubber'
+import { type Ancestor, type Node, NodeApi } from '../interfaces/node'
+import { type Path, PathApi } from '../interfaces/path'
+import { RangeApi } from '../interfaces/range'
+import { ScrubberApi } from '../interfaces/scrubber'
 import type { Text } from '../interfaces/text'
 import type { NodeMutationMethods } from '../interfaces/transforms/node'
 
 const getChildren = (editor: Editor, node: Ancestor) =>
-  Node.isEditor(node) ? Editor.getChildren(editor) : node.children
+  NodeApi.isEditor(node) ? Editor.getChildren(editor) : node.children
 
 const pathContainsPath = (ancestor: Path, path: Path) =>
-  Path.equals(ancestor, path) || Path.isAncestor(ancestor, path)
+  PathApi.equals(ancestor, path) || PathApi.isAncestor(ancestor, path)
 
 const getClosestIsolatingAncestor = (editor: Editor, path: Path) =>
   Editor.above(editor, {
     at: path,
     match: (node) =>
-      Node.isElement(node) && getEditorSchema(editor).isIsolating(node),
+      NodeApi.isElement(node) && getEditorSchema(editor).isIsolating(node),
     mode: 'lowest',
     voids: true,
   })
@@ -40,10 +40,10 @@ const crossesIsolatingBoundary = (
   const currentIsolating = getClosestIsolatingAncestor(editor, path)
 
   return (
-    (Node.isElement(prevNode) &&
+    (NodeApi.isElement(prevNode) &&
       getEditorSchema(editor).isIsolating(prevNode) &&
       !pathContainsPath(prevPath, path)) ||
-    (Node.isElement(node) &&
+    (NodeApi.isElement(node) &&
       getEditorSchema(editor).isIsolating(node) &&
       !pathContainsPath(path, prevPath)) ||
     (prevIsolating && !pathContainsPath(prevIsolating[1], path)) ||
@@ -54,9 +54,9 @@ const crossesIsolatingBoundary = (
 const hasSingleChildNest = (editor: Editor, node: Node): boolean => {
   return (
     node !== editor &&
-    (Node.isText(node) ||
-      (Node.isElement(node) && Editor.isVoid(editor, node)) ||
-      (!Node.isText(node) &&
+    (NodeApi.isText(node) ||
+      (NodeApi.isElement(node) && Editor.isVoid(editor, node)) ||
+      (!NodeApi.isText(node) &&
         getChildren(editor, node).length === 1 &&
         hasSingleChildNest(editor, getChildren(editor, node)[0]!)))
   )
@@ -77,7 +77,7 @@ export const mergeNodes: NodeMutationMethods['mergeNodes'] = (
         return
       }
 
-      const isPathMerge = Location.isPath(at)
+      const isPathMerge = LocationApi.isPath(at)
       const pathAt = isPathMerge ? (at as Path) : null
       const usesDefaultSiblingMatch = match == null && isPathMerge
 
@@ -85,21 +85,21 @@ export const mergeNodes: NodeMutationMethods['mergeNodes'] = (
         if (isPathMerge) {
           const [parent] = Editor.parent(editor, at)
           match = (n) =>
-            !Node.isEditor(n) && getChildren(editor, parent).includes(n)
+            !NodeApi.isEditor(n) && getChildren(editor, parent).includes(n)
         } else {
-          match = (n) => Node.isElement(n) && Editor.isBlock(editor, n)
+          match = (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n)
         }
       }
 
-      if (!hanging && Location.isRange(at)) {
+      if (!hanging && LocationApi.isRange(at)) {
         at = Editor.unhangRange(editor, at, { voids })
       }
 
-      if (Location.isRange(at)) {
-        if (Range.isCollapsed(at)) {
+      if (LocationApi.isRange(at)) {
+        if (RangeApi.isCollapsed(at)) {
           at = at.anchor
         } else {
-          const [, end] = Range.edges(at)
+          const [, end] = RangeApi.edges(at)
           const pointRef = Editor.pointRef(editor, end)
           transforms.delete({ at })
           at = pointRef.unref()!
@@ -112,8 +112,8 @@ export const mergeNodes: NodeMutationMethods['mergeNodes'] = (
 
       const [current] = getNodes(editor, { at, match, voids, mode })
       const previousPath =
-        usesDefaultSiblingMatch && pathAt && Path.hasPrevious(pathAt)
-          ? Path.previous(pathAt)
+        usesDefaultSiblingMatch && pathAt && PathApi.hasPrevious(pathAt)
+          ? PathApi.previous(pathAt)
           : null
       const prev = previousPath
         ? getNode(editor, previousPath)
@@ -134,9 +134,9 @@ export const mergeNodes: NodeMutationMethods['mergeNodes'] = (
         return
       }
 
-      const newPath = Path.next(prevPath)
-      const commonPath = Path.common(path, prevPath)
-      const isPreviousSibling = Path.isSibling(path, prevPath)
+      const newPath = PathApi.next(prevPath)
+      const commonPath = PathApi.common(path, prevPath)
+      const isPreviousSibling = PathApi.isSibling(path, prevPath)
       const levels = Array.from(Editor.levels(editor, { at: path }), ([n]) => n)
         .slice(commonPath.length)
         .slice(0, -1)
@@ -155,19 +155,19 @@ export const mergeNodes: NodeMutationMethods['mergeNodes'] = (
 
       // Ensure that the nodes are equivalent, and figure out what the position
       // and extra properties of the merge will be.
-      if (Node.isText(node) && Node.isText(prevNode)) {
+      if (NodeApi.isText(node) && NodeApi.isText(prevNode)) {
         const { text, ...rest } = node
         position = prevNode.text.length
         properties = rest as Partial<Text>
-      } else if (Node.isElement(node) && Node.isElement(prevNode)) {
+      } else if (NodeApi.isElement(node) && NodeApi.isElement(prevNode)) {
         const { children, ...rest } = node
         position = prevNode.children.length
         properties = rest as Partial<Element>
       } else {
         throw new Error(
-          `Cannot merge the node at path [${path}] with the previous sibling because it is not the same kind: ${Scrubber.stringify(
+          `Cannot merge the node at path [${path}] with the previous sibling because it is not the same kind: ${ScrubberApi.stringify(
             node
-          )} ${Scrubber.stringify(prevNode)}`
+          )} ${ScrubberApi.stringify(prevNode)}`
         )
       }
 

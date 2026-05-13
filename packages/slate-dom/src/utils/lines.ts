@@ -2,7 +2,7 @@
  * Utilities for single-line deletion
  */
 
-import { Range } from 'slate'
+import { type Range, RangeApi } from 'slate'
 import { Editor } from 'slate/internal'
 import { DOMEditor } from '../plugin/dom-editor'
 
@@ -35,7 +35,7 @@ export const findCurrentLineRange = (
   editor: DOMEditor<any>,
   parentRange: Range
 ): Range => {
-  const parentRangeBoundary = Editor.range(editor, Range.end(parentRange))
+  const parentRangeBoundary = Editor.range(editor, RangeApi.end(parentRange))
   const positions = Array.from(Editor.positions(editor, { at: parentRange }))
 
   let left = 0

@@ -3,16 +3,16 @@ import {
   type Ancestor,
   type Descendant,
   type Element,
-  Node,
+  NodeApi,
   type Path,
-  Scrubber,
+  ScrubberApi,
   type Text,
 } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import { inheritRuntimeId } from './runtime-ids'
 
 const setChildren = (root: Ancestor, children: Descendant[]) => {
-  if (Node.isEditor(root)) {
+  if (NodeApi.isEditor(root)) {
     setEditorChildren(root, children)
     return
   }
@@ -21,7 +21,7 @@ const setChildren = (root: Ancestor, children: Descendant[]) => {
 }
 
 const getChildren = (root: Ancestor): Descendant[] =>
-  Node.isEditor(root) ? Editor.getChildren(root) : root.children
+  NodeApi.isEditor(root) ? Editor.getChildren(root) : root.children
 
 export const insertChildren = <T>(
   xs: T[],
@@ -50,15 +50,15 @@ export const modifyDescendant = <N extends Descendant>(
     throw new Error('Cannot modify the editor')
   }
 
-  const node = Node.get(root, path) as N
+  const node = NodeApi.get(root, path) as N
   const slicedPath = path.slice()
   let modifiedNode: Descendant = f(node)
   inheritRuntimeId(modifiedNode, node)
 
   while (slicedPath.length > 1) {
     const index = slicedPath.pop()!
-    const ancestorNode = Node.get(root, slicedPath) as Ancestor
-    if (Node.isEditor(ancestorNode)) {
+    const ancestorNode = NodeApi.get(root, slicedPath) as Ancestor
+    if (NodeApi.isEditor(ancestorNode)) {
       throw new Error('Cannot modify the editor as a descendant')
     }
 
@@ -90,9 +90,9 @@ export const modifyChildren = (
     setChildren(root, f(getChildren(root)))
   } else {
     modifyDescendant<Element>(root, path, (node) => {
-      if (Node.isText(node)) {
+      if (NodeApi.isText(node)) {
         throw new Error(
-          `Cannot get the element at path [${path}] because it refers to a leaf node: ${Scrubber.stringify(
+          `Cannot get the element at path [${path}] because it refers to a leaf node: ${ScrubberApi.stringify(
             node
           )}`
         )
@@ -112,9 +112,9 @@ export const modifyLeaf = (
   f: (leaf: Text) => Text
 ) =>
   modifyDescendant(root, path, (node) => {
-    if (!Node.isText(node)) {
+    if (!NodeApi.isText(node)) {
       throw new Error(
-        `Cannot get the leaf node at path [${path}] because it refers to a non-leaf node: ${Scrubber.stringify(
+        `Cannot get the leaf node at path [${path}] because it refers to a non-leaf node: ${ScrubberApi.stringify(
           node
         )}`
       )

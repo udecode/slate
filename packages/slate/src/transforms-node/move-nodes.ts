@@ -1,9 +1,9 @@
 import { runEditorTransaction } from '../core/public-state'
 import { node as getNode } from '../editor/node'
 import { nodes as getNodes } from '../editor/nodes'
-import { Location, Node } from '../interfaces'
+import { LocationApi, NodeApi } from '../interfaces'
 import { Editor } from '../interfaces/editor'
-import { Path } from '../interfaces/path'
+import { type Path, PathApi } from '../interfaces/path'
 import type { NodeMutationMethods } from '../interfaces/transforms/node'
 
 export const moveNodes: NodeMutationMethods['moveNodes'] = (
@@ -20,13 +20,13 @@ export const moveNodes: NodeMutationMethods['moveNodes'] = (
     }
 
     if (match == null) {
-      if (Location.isPath(at)) {
+      if (LocationApi.isPath(at)) {
         if (at.length !== 0) {
           const sameParentForwardMove =
             at.length === to.length &&
             at.at(-1) != null &&
             to.at(-1) != null &&
-            Path.equals(at.slice(0, -1), to.slice(0, -1)) &&
+            PathApi.equals(at.slice(0, -1), to.slice(0, -1)) &&
             at.at(-1)! < to.at(-1)!
 
           const effectiveTo = sameParentForwardMove
@@ -34,7 +34,7 @@ export const moveNodes: NodeMutationMethods['moveNodes'] = (
                 ...to.slice(0, -1),
                 Math.min(
                   to.at(-1)!,
-                  Node.isEditor(getNode(editor, at.slice(0, -1) as Path)[0])
+                  NodeApi.isEditor(getNode(editor, at.slice(0, -1) as Path)[0])
                     ? Editor.getChildren(editor).length - 1
                     : (
                         getNode(editor, at.slice(0, -1) as Path)[0] as {
@@ -55,7 +55,7 @@ export const moveNodes: NodeMutationMethods['moveNodes'] = (
         return
       }
 
-      match = (n) => Node.isElement(n) && Editor.isBlock(editor, n)
+      match = (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n)
     }
 
     const toRef = Editor.pathRef(editor, to)
@@ -80,10 +80,10 @@ export const moveNodes: NodeMutationMethods['moveNodes'] = (
 
       if (
         toRef.current &&
-        Path.isSibling(newPath, path) &&
-        Path.isAfter(newPath, path)
+        PathApi.isSibling(newPath, path) &&
+        PathApi.isAfter(newPath, path)
       ) {
-        toRef.current = Path.next(toRef.current)
+        toRef.current = PathApi.next(toRef.current)
       }
     }
 

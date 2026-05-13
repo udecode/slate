@@ -2,7 +2,8 @@ import {
   type EditorApplyOperationsOptions,
   type Operation,
   type Path,
-  Range,
+  type Range,
+  RangeApi,
   type RuntimeId,
 } from 'slate'
 import {
@@ -277,7 +278,7 @@ export const attachSlateBrowserHandle = ({
         return
       }
 
-      const path = selection ? Range.start(selection).path : null
+      const path = selection ? RangeApi.start(selection).path : null
       runCommand(
         { kind: 'insert-text', text },
         {

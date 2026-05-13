@@ -35,13 +35,13 @@ import {
   type Ancestor,
   type Descendant,
   type DescendantIn,
-  Node,
+  NodeApi,
   type Node as SlateNode,
 } from '../interfaces/node'
 import type { Operation } from '../interfaces/operation'
-import { Path } from '../interfaces/path'
-import { Point } from '../interfaces/point'
-import { Range } from '../interfaces/range'
+import { type Path, PathApi } from '../interfaces/path'
+import { PointApi } from '../interfaces/point'
+import { RangeApi } from '../interfaces/range'
 import type { Text } from '../interfaces/text'
 import { createSetSelectionOperation } from '../selection-operation'
 import {
@@ -845,13 +845,13 @@ const getSelectionMarks = <V extends Value>(
 
   let { anchor, focus } = selection
 
-  if (Range.isExpanded(selection)) {
-    if (Range.isBackward(selection)) {
+  if (RangeApi.isExpanded(selection)) {
+    if (RangeApi.isBackward(selection)) {
       ;[focus, anchor] = [anchor, focus]
     }
 
     if (
-      Point.equals(
+      PointApi.equals(
         anchor,
         getEditorRuntime(editor).point(anchor.path, { edge: 'end' })
       )
@@ -865,7 +865,7 @@ const getSelectionMarks = <V extends Value>(
 
     const [match] = getNodes(editor, {
       at: { anchor, focus },
-      match: Node.isText,
+      match: NodeApi.isText,
     })
 
     if (match) {
@@ -884,26 +884,26 @@ const getSelectionMarks = <V extends Value>(
   if (anchor.offset === 0) {
     const prev = getEditorRuntime(editor).previous({
       at: path,
-      match: Node.isText,
+      match: NodeApi.isText,
     })
     const markedVoid = getEditorRuntime(editor).above({
-      match: (n: Node) =>
-        Node.isElement(n) &&
+      match: (n: SlateNode) =>
+        NodeApi.isElement(n) &&
         getEditorSchema(editor).isVoid(n) &&
         getEditorSchema(editor).markableVoid(n),
     })
 
     if (!markedVoid) {
       const block = getEditorRuntime(editor).above({
-        match: (n: Node) =>
-          Node.isElement(n) && !getEditorSchema(editor).isInline(n),
+        match: (n: SlateNode) =>
+          NodeApi.isElement(n) && !getEditorSchema(editor).isInline(n),
       })
 
       if (prev && block) {
         const [prevNode, prevPath] = prev
         const [, blockPath] = block
 
-        if (Path.isAncestor(blockPath, prevPath)) {
+        if (PathApi.isAncestor(blockPath, prevPath)) {
           node = prevNode
         }
       }
@@ -1193,7 +1193,7 @@ const getFragment = <V extends Value>(
     return []
   }
 
-  return Node.fragment(editor, range)
+  return NodeApi.fragment(editor, range)
 }
 
 export const readEditor = <V extends Value, T>(
@@ -1299,7 +1299,10 @@ export const transformImplicitTarget = (
     return
   }
 
-  snapshot.implicitTarget = Range.transform(snapshot.implicitTarget, operation)
+  snapshot.implicitTarget = RangeApi.transform(
+    snapshot.implicitTarget,
+    operation
+  )
 }
 
 export const resolveImplicitTarget = (
@@ -1659,7 +1662,7 @@ const updateTextPatchesInSnapshotChildren = (
     )
 
     if (textPatches.length > 0) {
-      if (!Node.isText(node) || childPatches.length > 0) {
+      if (!NodeApi.isText(node) || childPatches.length > 0) {
         return null
       }
 
@@ -1831,7 +1834,7 @@ const getTextOperationPaths = (operations: readonly Operation[]): Path[] =>
 const getTextElementPaths = (operations: readonly Operation[]): Path[] =>
   uniqPaths(
     getTextOperationPaths(operations).flatMap((path) =>
-      Path.ancestors(path).filter((ancestor) => ancestor.length > 0)
+      PathApi.ancestors(path).filter((ancestor) => ancestor.length > 0)
     )
   )
 
@@ -1956,12 +1959,12 @@ const getSelectionShellPaths = (
     }
   }
 
-  if (Range.isCollapsed(selection)) {
+  if (RangeApi.isCollapsed(selection)) {
     return uniqPaths(paths)
   }
 
   for (const path of getIndexedPaths(index)) {
-    if (Range.includes(selection, path)) {
+    if (RangeApi.includes(selection, path)) {
       paths.push(path)
     }
   }
@@ -1978,11 +1981,11 @@ const getSelectionRuntimeIds = (
     .filter((runtimeId): runtimeId is RuntimeId => Boolean(runtimeId))
 
 const isBroadTopLevelSelection = (selection: Selection) => {
-  if (!selection || Range.isCollapsed(selection)) {
+  if (!selection || RangeApi.isCollapsed(selection)) {
     return false
   }
 
-  const [start, end] = Range.edges(selection)
+  const [start, end] = RangeApi.edges(selection)
   const startTopLevelIndex = start.path[0]
   const endTopLevelIndex = end.path[0]
 
@@ -2637,7 +2640,7 @@ export const initializePublicState = <V extends Value>(
 ) => {
   const initialChildren = cloneValue([...(options.initialValue ?? [])])
 
-  if (!Node.isNodeList(initialChildren)) {
+  if (!NodeApi.isNodeList(initialChildren)) {
     throw new Error(
       '[Slate] initialValue is invalid! Expected a list of elements.'
     )

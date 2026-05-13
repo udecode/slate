@@ -4,18 +4,18 @@ import { node as getNode } from '../editor/node'
 import { nodes as getNodes } from '../editor/nodes'
 import {
   type Ancestor,
-  Location,
-  Node,
+  LocationApi,
+  NodeApi,
   type Operation,
-  Range,
+  RangeApi,
 } from '../interfaces'
 import { Editor } from '../interfaces/editor'
-import { Path } from '../interfaces/path'
+import { type Path, PathApi } from '../interfaces/path'
 import type { NodeMutationMethods } from '../interfaces/transforms/node'
 import { matchPath } from '../utils/match-path'
 
 const getChildren = (editor: Editor, node: Ancestor) =>
-  Node.isEditor(node) ? Editor.getChildren(editor) : node.children
+  NodeApi.isEditor(node) ? Editor.getChildren(editor) : node.children
 
 export const liftNodes: NodeMutationMethods['liftNodes'] = (
   editor,
@@ -28,7 +28,7 @@ export const liftNodes: NodeMutationMethods['liftNodes'] = (
     const transforms = getEditorTransformRegistry(editor)
     const [node] = getNode(editor, path)
 
-    if (Node.isText(node)) {
+    if (NodeApi.isText(node)) {
       throw new Error('liftNodes currently supports only element nodes')
     }
 
@@ -39,7 +39,7 @@ export const liftNodes: NodeMutationMethods['liftNodes'] = (
     const parentPath = path.slice(0, -1)
     const [parent] = getNode(editor, parentPath)
 
-    if (Node.isText(parent)) {
+    if (NodeApi.isText(parent)) {
       throw new Error('liftNodes requires an element parent')
     }
 
@@ -76,9 +76,9 @@ export const liftNodes: NodeMutationMethods['liftNodes'] = (
       path: parentPath,
       position: index + 1,
       properties:
-        Path.equals(parentPath, []) || Node.isEditor(parent)
+        PathApi.equals(parentPath, []) || NodeApi.isEditor(parent)
           ? {}
-          : Node.extractProps(parent),
+          : NodeApi.extractProps(parent),
     })
 
     transforms.moveNodes({
@@ -98,14 +98,14 @@ export const liftNodes: NodeMutationMethods['liftNodes'] = (
       return
     }
 
-    if (match != null || !Location.isRange(target)) {
+    if (match != null || !LocationApi.isRange(target)) {
       if (match == null) {
-        match = Location.isPath(target)
+        match = LocationApi.isPath(target)
           ? matchPath(editor, target)
-          : (node) => Node.isElement(node) && Editor.isBlock(editor, node)
+          : (node) => NodeApi.isElement(node) && Editor.isBlock(editor, node)
       }
 
-      if (Location.isPath(target) && options.match == null) {
+      if (LocationApi.isPath(target) && options.match == null) {
         liftNodeAtPath(target, tx)
 
         if (selectionBefore == null) {
@@ -131,7 +131,7 @@ export const liftNodes: NodeMutationMethods['liftNodes'] = (
       return
     }
 
-    const [start, end] = Range.edges(target)
+    const [start, end] = RangeApi.edges(target)
     const startChildPath = start.path.slice(0, -1)
     const endChildPath = end.path.slice(0, -1)
     const startParentPath = startChildPath.slice(0, -1)
@@ -140,7 +140,7 @@ export const liftNodes: NodeMutationMethods['liftNodes'] = (
     if (
       startParentPath.length !== 1 ||
       endParentPath.length !== 1 ||
-      Path.compare(startParentPath, endParentPath) !== 0
+      PathApi.compare(startParentPath, endParentPath) !== 0
     ) {
       throw new Error(
         'liftNodes currently supports only top-level wrapper-child ranges'

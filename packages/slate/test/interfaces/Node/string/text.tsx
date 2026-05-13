@@ -1,8 +1,8 @@
 /** @jsx jsx  */
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 
 export const input = <text>one</text>
 export const test = (value) => {
-  return Node.string(value)
+  return NodeApi.string(value)
 }
 export const output = `one`

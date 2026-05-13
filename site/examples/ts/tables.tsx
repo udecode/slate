@@ -1,6 +1,6 @@
 import { css } from '@emotion/css'
 import { useCallback } from 'react'
-import { Node, Point, Range } from 'slate'
+import { NodeApi, PointApi, RangeApi } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -25,12 +25,8 @@ const TablesExample = () => {
     withEditor: (editor) => withHistory(editor),
     initialValue,
   })
-  const handleKeyDown = useCallback(
-    ((event) =>
-      applyTableBoundaryCommand(
-        editor,
-        event.key
-      )) satisfies EditableKeyDownHandler,
+  const handleKeyDown = useCallback<EditableKeyDownHandler>(
+    (event) => applyTableBoundaryCommand(editor, event.key),
     [editor]
   )
 
@@ -48,14 +44,14 @@ const TablesExample = () => {
 const applyTableBoundaryCommand = (editor: CustomEditor, key: string) => {
   const selection = editor.read((state) => state.selection.get())
 
-  if (!selection || !Range.isCollapsed(selection)) {
+  if (!selection || !RangeApi.isCollapsed(selection)) {
     return false
   }
 
   const [cell] = editor.read((state) =>
     Array.from(
       state.nodes.match({
-        match: (n) => Node.isElement(n) && n.type === 'table-cell',
+        match: (n) => NodeApi.isElement(n) && n.type === 'table-cell',
       })
     )
   )
@@ -68,12 +64,12 @@ const applyTableBoundaryCommand = (editor: CustomEditor, key: string) => {
 
   if (key === 'Backspace') {
     const start = editor.read((state) => state.points.start(cellPath))
-    return Point.equals(selection.anchor, start)
+    return PointApi.equals(selection.anchor, start)
   }
 
   if (key === 'Delete') {
     const end = editor.read((state) => state.points.end(cellPath))
-    return Point.equals(selection.anchor, end)
+    return PointApi.equals(selection.anchor, end)
   }
 
   if (key === 'Enter') {

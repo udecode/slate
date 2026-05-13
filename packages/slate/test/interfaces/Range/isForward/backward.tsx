@@ -1,6 +1,6 @@
 /** @jsx jsx */
 
-import { Range } from 'slate'
+import { RangeApi } from 'slate'
 
 export const input = {
   anchor: {
@@ -13,6 +13,6 @@ export const input = {
   },
 }
 export const test = (range) => {
-  return Range.isForward(range)
+  return RangeApi.isForward(range)
 }
 export const output = false

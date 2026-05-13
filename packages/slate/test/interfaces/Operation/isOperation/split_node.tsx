@@ -1,6 +1,6 @@
 /** @jsx jsx */
 
-import { Operation } from 'slate'
+import { OperationApi } from 'slate'
 
 export const input = {
   type: 'split_node',
@@ -9,6 +9,6 @@ export const input = {
   properties: {},
 }
 export const test = (value) => {
-  return Operation.isOperation(value)
+  return OperationApi.isOperation(value)
 }
 export const output = true

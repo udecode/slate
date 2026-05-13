@@ -5,7 +5,7 @@ import { jsx } from '../..'
 jsx
 
 import _ from 'lodash'
-import { Element } from 'slate'
+import { ElementApi } from 'slate'
 import { Editor, getEditorRuntime } from 'slate/internal'
 
 export const input = (
@@ -22,7 +22,7 @@ const defaultNormalize = runtime.normalizeNode
 runtime.normalizeNode = (entry) => {
   const [node, path] = entry
   if (
-    Element.isElement(node) &&
+    ElementApi.isElement(node) &&
     node.type === 'body' &&
     Editor.string(editor, path, { voids: true }) === 'one'
   ) {

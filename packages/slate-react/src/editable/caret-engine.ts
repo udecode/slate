@@ -1,5 +1,5 @@
 import type { KeyboardEvent } from 'react'
-import { Range } from 'slate'
+import { type Range, RangeApi } from 'slate'
 import { Hotkeys } from 'slate-dom'
 import type { ReactEditor } from '../plugin/react-editor'
 import type { EditableRepairRequest } from './mutation-controller'
@@ -107,7 +107,7 @@ export const applyEditableCaretMovement = ({
     event.preventDefault()
 
     editor.update((tx) => {
-      if (selection && Range.isCollapsed(selection)) {
+      if (selection && RangeApi.isCollapsed(selection)) {
         tx.selection.move({ reverse: !isRTL })
       } else {
         tx.selection.collapse({
@@ -123,7 +123,7 @@ export const applyEditableCaretMovement = ({
     event.preventDefault()
 
     editor.update((tx) => {
-      if (selection && Range.isCollapsed(selection)) {
+      if (selection && RangeApi.isCollapsed(selection)) {
         tx.selection.move({ reverse: isRTL })
       } else {
         tx.selection.collapse({
@@ -139,7 +139,7 @@ export const applyEditableCaretMovement = ({
     event.preventDefault()
 
     editor.update((tx) => {
-      if (selection && Range.isExpanded(selection)) {
+      if (selection && RangeApi.isExpanded(selection)) {
         tx.selection.collapse({ edge: 'focus' })
       }
 
@@ -155,7 +155,7 @@ export const applyEditableCaretMovement = ({
     event.preventDefault()
 
     editor.update((tx) => {
-      if (selection && Range.isExpanded(selection)) {
+      if (selection && RangeApi.isExpanded(selection)) {
         tx.selection.collapse({ edge: 'focus' })
       }
 

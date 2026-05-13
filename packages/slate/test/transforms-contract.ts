@@ -7,7 +7,7 @@ import {
   type Descendant,
   defineEditorExtension,
   type Element,
-  Node,
+  NodeApi,
 } from '../src'
 
 const collapsedSelection = (path: number[], offset: number) => ({
@@ -459,7 +459,7 @@ describe('slate transforms contract', () => {
         match: (node, currentPath) => {
           if ('noneditable' in node && node.noneditable === true) return false
 
-          for (const [ancestor] of Node.ancestors(editor, currentPath)) {
+          for (const [ancestor] of NodeApi.ancestors(editor, currentPath)) {
             if ('noneditable' in ancestor && ancestor.noneditable === true) {
               return false
             }

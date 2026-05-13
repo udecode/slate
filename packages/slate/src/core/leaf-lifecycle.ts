@@ -1,6 +1,15 @@
 import { node as getNode } from '../editor/node'
 import { nodes } from '../editor/nodes'
-import { type Descendant, Element, Node, Path, Text } from '../interfaces'
+import {
+  type Descendant,
+  type Element,
+  ElementApi,
+  type Node,
+  NodeApi,
+  type Path,
+  PathApi,
+  TextApi,
+} from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import { removeNodes } from '../transforms-node'
 import { getEditorSchema } from './editor-runtime'
@@ -8,10 +17,10 @@ import { getLiveSelection } from './public-state'
 import { getEditorTransformRegistry } from './transform-registry'
 
 const getChildren = (editor: Editor, node: Editor | Element): Descendant[] =>
-  Node.isEditor(node) ? Editor.getChildren(editor) : node.children
+  NodeApi.isEditor(node) ? Editor.getChildren(editor) : node.children
 
 const isInlineElement = (editor: Editor, node: Node | undefined) =>
-  Element.isElement(node) && getEditorSchema(editor).isInline(node)
+  ElementApi.isElement(node) && getEditorSchema(editor).isInline(node)
 
 const isRequiredInlineSpacer = (
   editor: Editor,
@@ -31,7 +40,7 @@ const pathToPoint = (
 ) => {
   const parentPath = path.slice(0, -1)
   const isInSameParent = (point: ReturnType<typeof Editor.before>) =>
-    point ? Path.equals(point.path.slice(0, -1), parentPath) : false
+    point ? PathApi.equals(point.path.slice(0, -1), parentPath) : false
   const after = Editor.after(editor, path, { unit: 'offset', voids: true })
   const before = Editor.before(editor, path, { unit: 'offset', voids: true })
 
@@ -51,8 +60,8 @@ const maybeRebaseSelectionBeforeRemoval = (
 
   if (
     !selection ||
-    (!Path.equals(selection.anchor.path, path) &&
-      !Path.equals(selection.focus.path, path))
+    (!PathApi.equals(selection.anchor.path, path) &&
+      !PathApi.equals(selection.focus.path, path))
   ) {
     return
   }
@@ -80,7 +89,7 @@ export const cleanupTextLeafLifecycle = (
   const elementPaths = Array.from(
     nodes(editor, {
       at: [],
-      match: (node) => Node.isEditor(node) || Element.isElement(node),
+      match: (node) => NodeApi.isEditor(node) || ElementApi.isElement(node),
       mode: 'all',
       reverse: true,
       voids: true,
@@ -95,20 +104,20 @@ export const cleanupTextLeafLifecycle = (
 
     const node = path.length === 0 ? editor : getNode(editor, path)[0]
 
-    if (!Node.isEditor(node) && !Element.isElement(node)) {
+    if (!NodeApi.isEditor(node) && !ElementApi.isElement(node)) {
       continue
     }
 
     const children = getChildren(editor, node)
-    const parentHasText = Node.string(node) !== ''
+    const parentHasText = NodeApi.string(node) !== ''
     let emptyTextChildren = children.filter(
-      (child) => Text.isText(child) && child.text === ''
+      (child) => TextApi.isText(child) && child.text === ''
     ).length
 
     for (let index = children.length - 1; index >= 0; index -= 1) {
       const child = children[index]
 
-      if (!Text.isText(child) || child.text !== '') {
+      if (!TextApi.isText(child) || child.text !== '') {
         continue
       }
 

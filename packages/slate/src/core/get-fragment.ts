@@ -1,4 +1,4 @@
-import { Node } from '../interfaces'
+import { NodeApi } from '../interfaces'
 import type { Editor, EditorFragmentReadOptions } from '../interfaces/editor'
 import { getLiveSelection } from './public-state'
 
@@ -9,7 +9,7 @@ export const getFragment = (
   const selection = options.at ?? getLiveSelection(editor)
 
   if (selection) {
-    return Node.fragment(editor, selection)
+    return NodeApi.fragment(editor, selection)
   }
   return []
 }

@@ -5,12 +5,12 @@ import { jsx } from '../../..'
 jsx
 
 import _ from 'lodash'
-import { Text } from 'slate'
+import { TextApi } from 'slate'
 
 export const run = (editor) => {
   editor.nodes.set(
     { a: { b: 2, c: 3 } },
-    { at: [0, 0], match: Text.isText, merge: (n, p) => _.defaultsDeep(p, n) }
+    { at: [0, 0], match: TextApi.isText, merge: (n, p) => _.defaultsDeep(p, n) }
   )
 }
 export const input = (

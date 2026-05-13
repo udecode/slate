@@ -1,9 +1,9 @@
 /** @jsx jsx */
 
-import { Location, Path } from 'slate'
+import { LocationApi, type Path } from 'slate'
 
 export const input: Path = []
 export const test = (value: typeof input) => {
-  return Location.isPoint(value)
+  return LocationApi.isPoint(value)
 }
 export const output = false

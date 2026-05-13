@@ -2,7 +2,7 @@ import { executeCommand } from '../core/command-registry'
 import { runEditorTransaction } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import type { EditorTransformApi } from '../interfaces/editor'
-import { Range } from '../interfaces/range'
+import { RangeApi } from '../interfaces/range'
 import type { TextUnit } from '../types/types'
 import type { WithEditorFirstArg } from '../utils/types'
 
@@ -18,7 +18,11 @@ const applyDeleteForward: WithEditorFirstArg<
   runEditorTransaction(editor, (tx) => {
     const selection = tx.resolveTarget()
 
-    if (selection && Range.isRange(selection) && Range.isCollapsed(selection)) {
+    if (
+      selection &&
+      RangeApi.isRange(selection) &&
+      RangeApi.isCollapsed(selection)
+    ) {
       getEditorTransformRegistry(editor).delete({ unit })
     }
   })

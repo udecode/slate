@@ -5,7 +5,11 @@ import {
   setCurrentMarks,
 } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
-import { Location, Range, type Location as SlateLocation } from '../interfaces'
+import {
+  LocationApi,
+  RangeApi,
+  type Location as SlateLocation,
+} from '../interfaces'
 import type { EditorStaticApi } from '../interfaces/editor'
 import { Editor } from '../interfaces/editor'
 import type { TextInsertTextOptions } from '../interfaces/transforms/text'
@@ -26,8 +30,8 @@ const shouldIgnoreTarget = (
   const voids = options?.voids ?? false
   const target = (() => {
     if (!at) return null
-    if (Location.isPoint(at)) return at
-    if (Location.isRange(at) && Range.isCollapsed(at)) return at.anchor
+    if (LocationApi.isPoint(at)) return at
+    if (LocationApi.isRange(at) && RangeApi.isCollapsed(at)) return at.anchor
     return null
   })()
 

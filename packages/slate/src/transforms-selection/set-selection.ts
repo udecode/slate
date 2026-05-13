@@ -1,7 +1,7 @@
 import { executeCommand } from '../core/command-registry'
 import { applyOperation, getCurrentSelection } from '../core/public-state'
 import type { Operation } from '../interfaces/operation'
-import { Point } from '../interfaces/point'
+import { PointApi } from '../interfaces/point'
 import type { Range } from '../interfaces/range'
 import { NON_SETTABLE_SELECTION_PROPERTIES } from '../interfaces/transforms/general'
 import type { SelectionMutationMethods } from '../interfaces/transforms/selection'
@@ -70,10 +70,10 @@ const compareSelectionProps = (
 ) => {
   if (
     (key === 'anchor' || key === 'focus') &&
-    Point.isPoint(value) &&
-    Point.isPoint(newValue)
+    PointApi.isPoint(value) &&
+    PointApi.isPoint(newValue)
   ) {
-    return !Point.equals(value, newValue)
+    return !PointApi.equals(value, newValue)
   }
 
   return value !== newValue

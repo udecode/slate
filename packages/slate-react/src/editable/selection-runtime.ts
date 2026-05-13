@@ -1,4 +1,9 @@
-import { type Operation, Range, type SnapshotChange } from 'slate'
+import {
+  type Operation,
+  type Range,
+  RangeApi,
+  type SnapshotChange,
+} from 'slate'
 import type { EditableInputController } from './input-state'
 
 type SelectorListener = (
@@ -33,7 +38,7 @@ export const shouldExportModelSelectionToDOM = (
     commit?.command?.origin === 'command' &&
     commit?.childrenChanged &&
     modelSelection &&
-    Range.isExpanded(modelSelection)
+    RangeApi.isExpanded(modelSelection)
   ) {
     return true
   }

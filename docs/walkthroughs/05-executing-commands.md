@@ -19,7 +19,7 @@ const isBoldActive = editor => {
 const isCodeBlockActive = editor => {
   return editor.read(state => {
     const [match] = state.nodes.match({
-      match: node => Element.isElement(node) && node.type === 'code',
+      match: node => ElementApi.isElement(node) && node.type === 'code',
     })
 
     return Boolean(match)
@@ -39,7 +39,7 @@ const toggleCodeBlock = editor => {
     tx.nodes.set(
       { type: isActive ? 'paragraph' : 'code' },
       {
-        match: node => Element.isElement(node) && !tx.schema.isInline(node),
+        match: node => ElementApi.isElement(node) && !tx.schema.isInline(node),
       }
     )
   })

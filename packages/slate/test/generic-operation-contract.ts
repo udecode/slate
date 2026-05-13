@@ -1,9 +1,9 @@
 import {
   createEditor,
-  Element,
+  ElementApi,
   type InsertNodeOperation,
   type InsertTextOperation,
-  Operation,
+  OperationApi,
   type ReplaceChildrenOperation,
   type Operation as SlateOperation,
   type TextOf,
@@ -51,7 +51,7 @@ const unknownOperation: unknown = {
   text: 'b',
 }
 
-if (Operation.isInsertTextOperation(unknownOperation)) {
+if (OperationApi.isInsertTextOperation(unknownOperation)) {
   const narrowed: InsertTextOperation = unknownOperation
   void narrowed.text
 }
@@ -66,11 +66,13 @@ const unknownReplaceChildren: unknown = {
   newSelection: null,
 }
 
-if (Operation.isReplaceChildrenOperation<CustomValue>(unknownReplaceChildren)) {
+if (
+  OperationApi.isReplaceChildrenOperation<CustomValue>(unknownReplaceChildren)
+) {
   const narrowed: ReplaceChildrenOperation<CustomValue> = unknownReplaceChildren
   const [firstNewChild] = narrowed.newChildren
 
-  if (Element.isElement<ParagraphElement>(firstNewChild)) {
+  if (ElementApi.isElement<ParagraphElement>(firstNewChild)) {
     void firstNewChild.children
   }
 }

@@ -9,8 +9,8 @@ editor.update(tx => {
   tx.nodes.unwrap({
     at: [],
     match: node =>
-      Element.isElement(node) &&
-      node.children.every(child => Element.isElement(child)),
+      ElementApi.isElement(node) &&
+      node.children.every(child => ElementApi.isElement(child)),
     mode: 'all',
   })
 })
@@ -129,7 +129,7 @@ editor.update(tx => {
     { bold: true },
     {
       at: [],
-      match: node => Text.isText(node) && node.italic !== true,
+      match: node => TextApi.isText(node) && node.italic !== true,
     }
   )
 })

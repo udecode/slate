@@ -240,7 +240,7 @@ describe('useElementSelected', () => {
       <div {...attributes}>{children}</div>
     )
     const ExplicitPathProbe = () => {
-      selectedValues.push(useElementSelected(watchedPath))
+      selectedValues.push(useElementSelected({ at: watchedPath }))
 
       return null
     }

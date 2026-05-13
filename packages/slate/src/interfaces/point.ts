@@ -1,4 +1,4 @@
-import { isObject, type Operation, Path } from '..'
+import { isObject, type Operation, type Path, PathApi } from '..'
 import type { TextDirection } from '../types/types'
 
 /**
@@ -57,9 +57,9 @@ export interface PointInterface {
 }
 
 // eslint-disable-next-line no-redeclare
-export const Point: PointInterface = {
+export const PointApi: PointInterface = {
   compare(point: Point, another: Point): -1 | 0 | 1 {
-    const result = Path.compare(point.path, another.path)
+    const result = PathApi.compare(point.path, another.path)
 
     if (result === 0) {
       if (point.offset < another.offset) return -1
@@ -71,17 +71,18 @@ export const Point: PointInterface = {
   },
 
   isAfter(point: Point, another: Point): boolean {
-    return Point.compare(point, another) === 1
+    return PointApi.compare(point, another) === 1
   },
 
   isBefore(point: Point, another: Point): boolean {
-    return Point.compare(point, another) === -1
+    return PointApi.compare(point, another) === -1
   },
 
   equals(point: Point, another: Point): boolean {
     // PERF: ensure the offsets are equal first since they are cheaper to check.
     return (
-      point.offset === another.offset && Path.equals(point.path, another.path)
+      point.offset === another.offset &&
+      PathApi.equals(point.path, another.path)
     )
   },
 
@@ -89,7 +90,7 @@ export const Point: PointInterface = {
     return (
       isObject(value) &&
       typeof value.offset === 'number' &&
-      Path.isPath(value.path)
+      PathApi.isPath(value.path)
     )
   },
 
@@ -108,13 +109,13 @@ export const Point: PointInterface = {
     switch (op.type) {
       case 'insert_node':
       case 'move_node': {
-        path = Path.transform(path, op, options)!
+        path = PathApi.transform(path, op, options)!
         break
       }
 
       case 'insert_text': {
         if (
-          Path.equals(op.path, path) &&
+          PathApi.equals(op.path, path) &&
           (op.offset < offset ||
             (op.offset === offset && affinity === 'forward'))
         ) {
@@ -125,16 +126,16 @@ export const Point: PointInterface = {
       }
 
       case 'merge_node': {
-        if (Path.equals(op.path, path)) {
+        if (PathApi.equals(op.path, path)) {
           offset += op.position
         }
 
-        path = Path.transform(path, op, options)!
+        path = PathApi.transform(path, op, options)!
         break
       }
 
       case 'remove_text': {
-        if (Path.equals(op.path, path) && op.offset <= offset) {
+        if (PathApi.equals(op.path, path) && op.offset <= offset) {
           offset -= Math.min(offset - op.offset, op.text.length)
         }
 
@@ -142,25 +143,31 @@ export const Point: PointInterface = {
       }
 
       case 'remove_node': {
-        if (Path.equals(op.path, path) || Path.isAncestor(op.path, path)) {
+        if (
+          PathApi.equals(op.path, path) ||
+          PathApi.isAncestor(op.path, path)
+        ) {
           return null
         }
 
-        path = Path.transform(path, op, options)!
+        path = PathApi.transform(path, op, options)!
         break
       }
 
       case 'replace_fragment': {
-        if (Path.equals(op.path, path) || Path.isAncestor(op.path, path)) {
+        if (
+          PathApi.equals(op.path, path) ||
+          PathApi.isAncestor(op.path, path)
+        ) {
           return null
         }
 
-        path = Path.transform(path, op, options)!
+        path = PathApi.transform(path, op, options)!
         break
       }
 
       case 'replace_children': {
-        const nextPath = Path.transform(path, op, options)
+        const nextPath = PathApi.transform(path, op, options)
 
         if (!nextPath) {
           return null
@@ -171,7 +178,7 @@ export const Point: PointInterface = {
       }
 
       case 'split_node': {
-        if (Path.equals(op.path, path)) {
+        if (PathApi.equals(op.path, path)) {
           if (op.position === offset && affinity == null) {
             return null
           }
@@ -181,13 +188,13 @@ export const Point: PointInterface = {
           ) {
             offset -= op.position
 
-            path = Path.transform(path, op, {
+            path = PathApi.transform(path, op, {
               ...options,
               affinity: 'forward',
             })!
           }
         } else {
-          path = Path.transform(path, op, options)!
+          path = PathApi.transform(path, op, options)!
         }
 
         break

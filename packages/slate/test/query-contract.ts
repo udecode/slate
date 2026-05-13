@@ -4,8 +4,8 @@ import {
   createEditor,
   type Descendant,
   type EditorElementSpec,
-  Node,
-  Path,
+  NodeApi,
+  PathApi,
 } from '../src'
 import { Editor } from '../src/internal'
 
@@ -1893,17 +1893,17 @@ it('nodes covers sibling and range traversal for nested inline documents', () =>
   })
 
   assert.deepEqual(
-    Array.from(Node.children(editor, [])).map(([, path]) => path),
+    Array.from(NodeApi.children(editor, [])).map(([, path]) => path),
     [[0], [1], [2]]
   )
   assert.deepEqual(
-    Array.from(Node.children(editor, [], { reverse: true })).map(
+    Array.from(NodeApi.children(editor, [], { reverse: true })).map(
       ([, path]) => path
     ),
     [[2], [1], [0]]
   )
   assert.deepEqual(
-    Array.from(Node.children(editor, [0])).map(([, path]) => path),
+    Array.from(NodeApi.children(editor, [0])).map(([, path]) => path),
     [
       [0, 0],
       [0, 1],
@@ -1911,7 +1911,7 @@ it('nodes covers sibling and range traversal for nested inline documents', () =>
     ]
   )
   assert.deepEqual(
-    Array.from(Node.descendants(editor)).map(([, path]) => path),
+    Array.from(NodeApi.descendants(editor)).map(([, path]) => path),
     [[0], [0, 0], [0, 1], [0, 1, 0], [0, 2], [1], [1, 0], [2], [2, 0]]
   )
 
@@ -1965,17 +1965,17 @@ it('nodes expose ancestry, sibling order, and common ancestor relationships', ()
   })
 
   assert.deepEqual(
-    Array.from(Node.ancestors(editor, [0, 2])).map(([, path]) => path),
+    Array.from(NodeApi.ancestors(editor, [0, 2])).map(([, path]) => path),
     [[], [0]]
   )
   assert.deepEqual(
-    Array.from(Node.ancestors(editor, [0, 2], { reverse: true })).map(
+    Array.from(NodeApi.ancestors(editor, [0, 2], { reverse: true })).map(
       ([, path]) => path
     ),
     [[0], []]
   )
 
-  assert.deepEqual(Node.common(editor, [0, 0], [0, 2]), [
+  assert.deepEqual(NodeApi.common(editor, [0, 0], [0, 2]), [
     {
       type: 'paragraph',
       children: [{ text: 'foo' }, { text: 'bar' }, { text: 'baz' }],
@@ -1983,22 +1983,22 @@ it('nodes expose ancestry, sibling order, and common ancestor relationships', ()
     [0],
   ])
 
-  const rootCommon = Node.common(editor, [0, 1], [1, 0])
+  const rootCommon = NodeApi.common(editor, [0, 1], [1, 0])
 
   assert.equal(Editor.isEditor(rootCommon[0]), true)
   assert.deepEqual(rootCommon[1], [])
-  assert.deepEqual(Path.common([0, 0], [0, 2]), [0])
-  assert.deepEqual(Path.common([0, 1], [1, 0]), [])
-  assert.deepEqual(Path.previous([0, 2]), [0, 1])
-  assert.deepEqual(Path.next([0, 1]), [0, 2])
-  assert.equal(Path.hasPrevious([0, 0]), false)
-  assert.equal(Path.hasPrevious([0, 1]), true)
-  assert.equal(Path.isBefore([0, 0], [0, 1]), true)
-  assert.equal(Path.isBefore([0, 1], [1, 0]), true)
-  assert.equal(Path.isBefore([1, 0], [0, 1]), false)
-  assert.equal(Path.isParent([0], [0, 2]), true)
-  assert.equal(Path.isAncestor([], [1, 0]), true)
-  assert.equal(Path.isParent([], [1, 0]), false)
+  assert.deepEqual(PathApi.common([0, 0], [0, 2]), [0])
+  assert.deepEqual(PathApi.common([0, 1], [1, 0]), [])
+  assert.deepEqual(PathApi.previous([0, 2]), [0, 1])
+  assert.deepEqual(PathApi.next([0, 1]), [0, 2])
+  assert.equal(PathApi.hasPrevious([0, 0]), false)
+  assert.equal(PathApi.hasPrevious([0, 1]), true)
+  assert.equal(PathApi.isBefore([0, 0], [0, 1]), true)
+  assert.equal(PathApi.isBefore([0, 1], [1, 0]), true)
+  assert.equal(PathApi.isBefore([1, 0], [0, 1]), false)
+  assert.equal(PathApi.isParent([0], [0, 2]), true)
+  assert.equal(PathApi.isAncestor([], [1, 0]), true)
+  assert.equal(PathApi.isParent([], [1, 0]), false)
 })
 
 it('resolves nested list ancestry and terminal list-item paths', () => {
@@ -2068,14 +2068,14 @@ it('resolves nested list ancestry and terminal list-item paths', () => {
   })
 
   const isType = (path: number[], type: string) => {
-    const node = Node.get(editor, path)
+    const node = NodeApi.get(editor, path)
 
     return !Editor.isEditor(node) && 'type' in node && node.type === type
   }
   const isList = (path: number[]) =>
     isType(path, 'bulleted-list') || isType(path, 'numbered-list')
   const listLevelPaths = (path: number[]) =>
-    Path.levels(path).filter((levelPath) => isList(levelPath))
+    PathApi.levels(path).filter((levelPath) => isList(levelPath))
 
   const topListPath = [0, 0]
   const firstTopItemPath = [0, 0, 0]
@@ -2096,12 +2096,12 @@ it('resolves nested list ancestry and terminal list-item paths', () => {
     deepestListPath,
   ])
   assert.deepEqual(listLevelPaths(secondTopItemPath), [topListPath])
-  assert.equal(Path.levels(deepestListPath).filter(isList).length, 3)
+  assert.equal(PathApi.levels(deepestListPath).filter(isList).length, 3)
   assert.equal(isType(firstTopItemPath.concat(1), 'bulleted-list'), true)
-  assert.equal(Node.has(editor, Path.next(firstTopItemPath)), true)
-  assert.equal(Node.has(editor, Path.next(nestedItemPath)), false)
-  assert.equal(Node.has(editor, Path.next(deepestItemPath)), false)
-  assert.equal(Node.has(editor, Path.next(secondTopItemPath)), false)
+  assert.equal(NodeApi.has(editor, PathApi.next(firstTopItemPath)), true)
+  assert.equal(NodeApi.has(editor, PathApi.next(nestedItemPath)), false)
+  assert.equal(NodeApi.has(editor, PathApi.next(deepestItemPath)), false)
+  assert.equal(NodeApi.has(editor, PathApi.next(secondTopItemPath)), false)
 })
 
 it('nodes exposes nested text leaves and text content for element queries', () => {
@@ -2126,7 +2126,7 @@ it('nodes exposes nested text leaves and text content for element queries', () =
   })
 
   assert.deepEqual(
-    Array.from(Node.texts(editor)).map(([, path]) => path),
+    Array.from(NodeApi.texts(editor)).map(([, path]) => path),
     [
       [0, 0],
       [0, 1, 0],
@@ -2134,9 +2134,9 @@ it('nodes exposes nested text leaves and text content for element queries', () =
       [0, 2],
     ]
   )
-  assert.deepEqual(Node.first(editor, [0]), [{ text: 'Foo' }, [0, 0]])
-  assert.deepEqual(Node.last(editor, [0]), [{ text: 'Qux' }, [0, 2]])
-  assert.equal(Node.string(getNodeEntry(editor, [0])[0]), 'FooBarBazQux')
+  assert.deepEqual(NodeApi.first(editor, [0]), [{ text: 'Foo' }, [0, 0]])
+  assert.deepEqual(NodeApi.last(editor, [0]), [{ text: 'Qux' }, [0, 2]])
+  assert.equal(NodeApi.string(getNodeEntry(editor, [0])[0]), 'FooBarBazQux')
 })
 
 it('nodes reverse returns the exact inverse of forward matches', () => {

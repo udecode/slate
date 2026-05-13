@@ -6,10 +6,10 @@ import {
 } from '../core/public-state'
 import { Editor, type EditorPositionsOptions } from '../interfaces/editor'
 import type { Descendant } from '../interfaces/node'
-import { Node } from '../interfaces/node'
-import { Path } from '../interfaces/path'
+import { NodeApi } from '../interfaces/node'
+import { type Path, PathApi } from '../interfaces/path'
 import type { Point } from '../interfaces/point'
-import { Range } from '../interfaces/range'
+import { type Range, RangeApi } from '../interfaces/range'
 import { getCharacterDistance, getWordDistance } from '../utils/string'
 
 type PositionSegment = {
@@ -27,7 +27,7 @@ type LiveTextEntry = {
 }
 
 const comparePoints = (left: Point, right: Point) => {
-  const pathComparison = Path.compare(left.path, right.path)
+  const pathComparison = PathApi.compare(left.path, right.path)
 
   if (pathComparison !== 0) {
     return pathComparison
@@ -52,7 +52,7 @@ const getAtomicNonTraversablePoint = (
   const atomicEntry = Editor.above(editor, {
     at: path,
     match: (node) =>
-      Node.isElement(node) &&
+      NodeApi.isElement(node) &&
       (getEditorSchema(editor).isAtom(node) ||
         getEditorSchema(editor).isReadOnly(node)),
     mode: 'highest',
@@ -67,7 +67,7 @@ const getAtomicNonTraversablePoint = (
   const start = Editor.point(editor, atomicPath, { edge: 'start' })
 
   return {
-    isStart: Path.equals(start.path, path),
+    isStart: PathApi.equals(start.path, path),
     point: start,
   }
 }
@@ -91,7 +91,7 @@ const collectTextEntries = (
   nodes.forEach((node, index) => {
     const path = [...parentPath, index] as Path
 
-    if (Node.isText(node)) {
+    if (NodeApi.isText(node)) {
       entries.push({ path, text: node.text })
       return
     }
@@ -112,11 +112,11 @@ const getTextEntriesForTopLevel = (
     return []
   }
 
-  if (Node.isText(node)) {
+  if (NodeApi.isText(node)) {
     return [{ path: [blockIndex] as Path, text: node.text }]
   }
 
-  if (!Node.isElement(node)) {
+  if (!NodeApi.isElement(node)) {
     return []
   }
 
@@ -139,7 +139,7 @@ const getTextBlockPath = (editor: Editor, path: Path): Path => {
 
     if (
       node &&
-      Node.isElement(node) &&
+      NodeApi.isElement(node) &&
       !Editor.isInline(editor, node) &&
       Editor.hasInlines(editor, node)
     ) {
@@ -154,9 +154,9 @@ const getLiveTextEntriesInRange = (
   editor: Editor,
   range: Range
 ): LiveTextEntry[] => {
-  const [start, end] = Range.edges(range)
+  const [start, end] = RangeApi.edges(range)
 
-  if (Path.compare(start.path, end.path) === 0) {
+  if (PathApi.compare(start.path, end.path) === 0) {
     const entry = getTextEntryAtPath(editor, start.path)
 
     if (!entry) {
@@ -181,13 +181,13 @@ const getPositionSegments = (
   options: { voids?: boolean } = {}
 ): PositionSegment[] => {
   const { voids = false } = options
-  const [start, end] = Range.edges(range)
+  const [start, end] = RangeApi.edges(range)
   const entries = getLiveTextEntriesInRange(editor, range)
   const startEntry = entries.find(
-    (entry) => Path.compare(entry.path, start.path) === 0
+    (entry) => PathApi.compare(entry.path, start.path) === 0
   )
   const endEntry = entries.find(
-    (entry) => Path.compare(entry.path, end.path) === 0
+    (entry) => PathApi.compare(entry.path, end.path) === 0
   )
 
   if (!startEntry || !endEntry) {
@@ -224,8 +224,8 @@ const getPositionSegments = (
       ]
     }
 
-    const comparedToStart = Path.compare(entry.path, start.path)
-    const comparedToEnd = Path.compare(entry.path, end.path)
+    const comparedToStart = PathApi.compare(entry.path, start.path)
+    const comparedToEnd = PathApi.compare(entry.path, end.path)
 
     if (comparedToStart < 0 || comparedToEnd > 0) {
       return []
@@ -336,7 +336,7 @@ const groupPositionSegmentsByBlock = (segments: PositionSegment[]) => {
 
     if (
       !lastGroup ||
-      !Path.equals(lastGroup[0]?.groupPath ?? [], segment.groupPath)
+      !PathApi.equals(lastGroup[0]?.groupPath ?? [], segment.groupPath)
     ) {
       groups.push([segment])
       continue
@@ -469,7 +469,7 @@ const collectBlockBoundaryPoints = (
 
   segments.forEach((segment) => {
     const group = groups.find((candidate) =>
-      Path.equals(candidate[0]?.groupPath ?? [], segment.groupPath)
+      PathApi.equals(candidate[0]?.groupPath ?? [], segment.groupPath)
     )
 
     if (group) {
@@ -524,7 +524,7 @@ export function* positions(
   } = options
 
   const range = Editor.range(editor, at)
-  const [start, end] = Range.edges(range)
+  const [start, end] = RangeApi.edges(range)
 
   if (comparePoints(start, end) === 0) {
     yield { path: [...start.path], offset: start.offset }

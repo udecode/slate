@@ -1,5 +1,5 @@
 /** @jsx jsx  */
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 
 export const input = (
   <editor>
@@ -10,7 +10,7 @@ export const input = (
 )
 export const test = (value) => {
   try {
-    return Node.getIf(value, ['__proto__' as any])
+    return NodeApi.getIf(value, ['__proto__' as any])
   } catch (error) {
     return error.message
   }

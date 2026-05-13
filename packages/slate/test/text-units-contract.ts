@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { Editor } from 'slate/internal'
 
-import { createEditor, type Descendant, Node } from '../src'
+import { createEditor, type Descendant, NodeApi } from '../src'
 import { getCharacterDistance, getWordDistance } from '../src/text-units'
 
 type LexicalGraphemeCase = {
@@ -130,7 +130,7 @@ const createTextEditor = (text: string, offset: number) => {
 }
 
 const getEditorText = (editor: ReturnType<typeof createEditor>) =>
-  Node.string(Editor.getSnapshot(editor))
+  NodeApi.string(Editor.getSnapshot(editor))
 
 const collectCharacterDistances = (text: string, reverse = false) => {
   const distances: number[] = []

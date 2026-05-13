@@ -1,6 +1,6 @@
 import { Editor, type EditorStaticApi } from '../interfaces/editor'
-import { Location, type Span } from '../interfaces/location'
-import { Node } from '../interfaces/node'
+import { LocationApi, type Span } from '../interfaces/location'
+import { NodeApi } from '../interfaces/node'
 import { nodes } from './nodes'
 
 export const next: EditorStaticApi['next'] = (editor, options = {}) => {
@@ -19,17 +19,17 @@ export const next: EditorStaticApi['next'] = (editor, options = {}) => {
 
   const span: Span = [pointAfterLocation.path, to]
 
-  if (Location.isPath(at) && at.length === 0) {
+  if (LocationApi.isPath(at) && at.length === 0) {
     throw new Error('Cannot get the next node from the root node!')
   }
 
   if (match == null) {
-    if (Location.isPath(at)) {
+    if (LocationApi.isPath(at)) {
       const [parent] = Editor.parent(editor, at)
-      const children = Node.isEditor(parent)
+      const children = NodeApi.isEditor(parent)
         ? Editor.getChildren(editor)
         : parent.children
-      match = (n) => !Node.isEditor(n) && children.includes(n)
+      match = (n) => !NodeApi.isEditor(n) && children.includes(n)
     } else {
       match = () => true
     }

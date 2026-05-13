@@ -1,5 +1,5 @@
 /** @jsx jsx  */
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 
 export const input = (
   <editor>
@@ -9,10 +9,10 @@ export const input = (
   </editor>
 )
 export const test = (value) => {
-  return Array.from(Node.levels(value, [0, 0], { reverse: true }))
+  return Array.from(NodeApi.levels(value, [0, 0], { reverse: true }))
 }
 export const output = [
-  [Node.get(input, [0, 0]), [0, 0]],
-  [Node.get(input, [0]), [0]],
+  [NodeApi.get(input, [0, 0]), [0, 0]],
+  [NodeApi.get(input, [0]), [0]],
   [input, []],
 ]

@@ -6,21 +6,21 @@ import { createInternalRangeRef } from '../editor/range-ref'
 import {
   type Ancestor,
   type Descendant,
-  Location,
-  Node,
-  Range,
+  LocationApi,
+  NodeApi,
+  RangeApi,
 } from '../interfaces'
 import { Editor } from '../interfaces/editor'
-import { Path } from '../interfaces/path'
+import { type Path, PathApi } from '../interfaces/path'
 import type { Point } from '../interfaces/point'
 import type { NodeMutationMethods } from '../interfaces/transforms/node'
 import { matchPath } from '../utils/match-path'
 
 const getChildren = (editor: Editor, node: Ancestor): Descendant[] =>
-  Node.isEditor(node) ? Editor.getChildren(editor) : node.children
+  NodeApi.isEditor(node) ? Editor.getChildren(editor) : node.children
 
 const comparePoints = (left: Point, right: Point) => {
-  const pathComparison = Path.compare(left.path, right.path)
+  const pathComparison = PathApi.compare(left.path, right.path)
 
   if (pathComparison !== 0) {
     return pathComparison
@@ -39,7 +39,7 @@ const mergeAdjacentTextRuns = (editor: Editor) => {
     getNodes(editor, {
       at: [],
       reverse: true,
-      match: (node) => Node.isText(node),
+      match: (node) => NodeApi.isText(node),
       voids: true,
     }),
     ([, path]) => path
@@ -54,7 +54,7 @@ const mergeAdjacentTextRuns = (editor: Editor) => {
       return
     }
 
-    const previousPath = Path.previous(path)
+    const previousPath = PathApi.previous(path)
 
     if (!Editor.hasPath(editor, previousPath)) {
       return
@@ -64,10 +64,10 @@ const mergeAdjacentTextRuns = (editor: Editor) => {
     const [previous] = getNode(editor, previousPath)
 
     if (
-      Node.isText(node) &&
-      Node.isText(previous) &&
-      JSON.stringify(Node.extractProps(node)) ===
-        JSON.stringify(Node.extractProps(previous))
+      NodeApi.isText(node) &&
+      NodeApi.isText(previous) &&
+      JSON.stringify(NodeApi.extractProps(node)) ===
+        JSON.stringify(NodeApi.extractProps(previous))
     ) {
       transforms.mergeNodes({ at: path })
     }
@@ -82,7 +82,7 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
     const transforms = getEditorTransformRegistry(editor)
     const [node] = getNode(editor, path)
 
-    if (Node.isText(node)) {
+    if (NodeApi.isText(node)) {
       throw new Error('unwrapNodes currently supports only element nodes')
     }
 
@@ -125,16 +125,16 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
 
     if (wantsGenericBehavior) {
       if (match == null) {
-        match = Location.isPath(target)
+        match = LocationApi.isPath(target)
           ? matchPath(editor, target)
-          : (node) => Node.isElement(node) && Editor.isBlock(editor, node)
+          : (node) => NodeApi.isElement(node) && Editor.isBlock(editor, node)
       }
 
-      if (Location.isPath(target)) {
+      if (LocationApi.isPath(target)) {
         target = Editor.range(editor, target)
       }
 
-      const rangeRef = Location.isRange(target)
+      const rangeRef = LocationApi.isRange(target)
         ? createInternalRangeRef(editor, target)
         : null
       const pathRefs = Array.from(
@@ -154,8 +154,8 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
 
         if (
           !split &&
-          !Node.isText(node) &&
-          getChildren(editor, node).some(Node.isText)
+          !NodeApi.isText(node) &&
+          getChildren(editor, node).some(NodeApi.isText)
         ) {
           unwrapNodeAtPath(path)
           getEditorTransformRegistry(editor).normalize()
@@ -164,7 +164,7 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
 
         if (split && rangeRef?.current) {
           const liveRange = getCurrentSelection(editor) ?? rangeRef.current
-          const intersection = Range.intersection(liveRange, range)
+          const intersection = RangeApi.intersection(liveRange, range)
 
           if (!intersection) {
             continue
@@ -176,10 +176,10 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
         getEditorTransformRegistry(editor).liftNodes({
           at: range,
           match: (candidate, candidatePath) =>
-            !Node.isText(node) &&
-            !Node.isText(candidate) &&
+            !NodeApi.isText(node) &&
+            !NodeApi.isText(candidate) &&
             candidatePath.length === path.length + 1 &&
-            Path.equals(candidatePath.slice(0, -1), path),
+            PathApi.equals(candidatePath.slice(0, -1), path),
           voids,
         })
       }
@@ -194,7 +194,7 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
       return
     }
 
-    if (!Location.isRange(target)) {
+    if (!LocationApi.isRange(target)) {
       throw new Error(
         'unwrapNodes currently supports only exact paths or ranges'
       )
@@ -232,8 +232,8 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
       const [wrapperNode] = getNode(editor, [wrapperIndex])
 
       if (
-        Node.isText(wrapperNode) ||
-        getChildren(editor, wrapperNode).some((child) => Node.isText(child))
+        NodeApi.isText(wrapperNode) ||
+        getChildren(editor, wrapperNode).some((child) => NodeApi.isText(child))
       ) {
         throw new Error(
           'unwrapNodes currently supports only top-level wrapper blocks with element children'

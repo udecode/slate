@@ -1,4 +1,4 @@
-import { type DecoratedRange, Range } from 'slate'
+import { type DecoratedRange, type Range, RangeApi } from 'slate'
 import { Editor } from 'slate/internal'
 import { DOMEditor } from '../plugin/dom-editor'
 import { PLACEHOLDER_SYMBOL } from './weak-maps'
@@ -51,7 +51,10 @@ export const isElementDecorationsEqual = (
     const range = list[i]
     const other = another[i]
 
-    if (!Range.equals(range, other) || !isDecorationFlagsEqual(range, other)) {
+    if (
+      !RangeApi.equals(range, other) ||
+      !isDecorationFlagsEqual(range, other)
+    ) {
       return false
     }
   }
@@ -139,10 +142,10 @@ export const splitDecorationsByChild = (
   }
 
   for (const decoration of decorations) {
-    const decorationRange = Range.intersection(ancestorRange, decoration)
+    const decorationRange = RangeApi.intersection(ancestorRange, decoration)
     if (!decorationRange) continue
 
-    const [startPoint, endPoint] = Range.edges(decorationRange)
+    const [startPoint, endPoint] = RangeApi.edges(decorationRange)
     const startIndex = startPoint.path[level]
     const endIndex = endPoint.path[level]
 
@@ -151,7 +154,7 @@ export const splitDecorationsByChild = (
       if (!ds) continue
 
       const childRange = getChildRange(i)
-      const childDecorationRange = Range.intersection(childRange, decoration)
+      const childDecorationRange = RangeApi.intersection(childRange, decoration)
       if (!childDecorationRange) continue
 
       ds.push({

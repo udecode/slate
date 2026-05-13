@@ -1,6 +1,6 @@
 /** @jsx jsx */
 
-import { Path } from 'slate'
+import { PathApi } from 'slate'
 
 const path = [0, 1]
 const op = {
@@ -9,6 +9,6 @@ const op = {
   newPath: [0, 0],
 }
 export const test = () => {
-  return Path.transform(path, op)
+  return PathApi.transform(path, op)
 }
 export const output = [0, 2]

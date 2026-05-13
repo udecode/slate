@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { Editor } from 'slate/internal'
 
-import { createEditor, type Descendant, Node } from '../src'
+import { createEditor, type Descendant, NodeApi } from '../src'
 
 import { setEditorTargetRuntime } from '../src/internal'
 
@@ -28,7 +28,7 @@ const setupEditor = () => {
 }
 
 const getElementType = (node: Descendant) => {
-  assert(Node.isElement(node))
+  assert(NodeApi.isElement(node))
 
   return node.type
 }
@@ -149,7 +149,7 @@ describe('transaction target runtime', () => {
           })
           tx.nodes.unwrap({
             at: [1, 0],
-            match: (node) => Node.isElement(node) && node.type === 'quote',
+            match: (node) => NodeApi.isElement(node) && node.type === 'quote',
           })
         },
       },

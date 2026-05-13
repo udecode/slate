@@ -5,12 +5,12 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Element } from 'slate'
+import { ElementApi } from 'slate'
 
 export const run = (editor) => {
   editor.nodes.set(
     { someKey: true },
-    { match: (n) => Element.isElement(n) && Editor.isInline(editor, n) }
+    { match: (n) => ElementApi.isElement(n) && Editor.isInline(editor, n) }
   )
 }
 export const input = (

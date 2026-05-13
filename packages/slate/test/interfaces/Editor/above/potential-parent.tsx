@@ -1,7 +1,7 @@
 import { Editor } from 'slate/internal'
 /** @jsx jsx */
 
-import { Element } from 'slate'
+import { ElementApi } from 'slate'
 
 // `above` can never return the location passed into it, and shouldnt care if it exists, only if its parent exists.
 
@@ -22,7 +22,7 @@ const path = [0, 0, 1]
 export const test = (editor) => {
   return Editor.above(editor, {
     at: path,
-    match: (n) => Element.isElement(n) && Editor.isBlock(editor, n),
+    match: (n) => ElementApi.isElement(n) && Editor.isBlock(editor, n),
   })
 }
 

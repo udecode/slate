@@ -7,7 +7,7 @@ import {
   type DescendantEntryOf,
   type DescendantIn,
   type Editor,
-  Element,
+  ElementApi,
   type ElementEntry,
   type ElementEntryOf,
   type ElementOf,
@@ -19,7 +19,7 @@ import {
   type NodeEntryIn,
   type NodeEntryOf,
   type NodeIn,
-  Text,
+  TextApi,
   type TextEntry,
   type TextEntryIn,
   type TextEntryOf,
@@ -191,13 +191,13 @@ type _TextEntryFromEditor = Assert<
 >
 
 const maybeText: unknown = { text: 'one', bold: true }
-if (Text.isText<CustomText>(maybeText)) {
+if (TextApi.isText<CustomText>(maybeText)) {
   const custom: CustomText = maybeText
   void custom
 }
 
 const maybeElement: unknown = { type: 'paragraph', children: [{ text: 'one' }] }
-if (Element.isElement<ParagraphElement>(maybeElement)) {
+if (ElementApi.isElement<ParagraphElement>(maybeElement)) {
   const custom: ParagraphElement = maybeElement
   void custom
 }

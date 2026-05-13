@@ -4,14 +4,14 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 
 export const run = (editor) => {
   editor.nodes.wrap(<block a />, {
     match: (node, currentPath) => {
       // reject all nodes inside blocks tagged `noneditable`. Which is everything.
       if (node.noneditable) return false
-      for (const [node, _] of Node.ancestors(editor, currentPath)) {
+      for (const [node, _] of NodeApi.ancestors(editor, currentPath)) {
         if (node.noneditable) return false
       }
       return true

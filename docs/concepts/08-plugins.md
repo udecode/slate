@@ -243,11 +243,11 @@ Keep product-specific APIs above these raw slots. Plate, for example, can build 
 You can still create plain helper namespaces for stateless checks.
 
 ```javascript
-import { Element } from 'slate'
+import { ElementApi } from 'slate'
 
 const MyElement = {
   isImage(value) {
-    return Element.isElement(value) && value.type === 'image'
+    return ElementApi.isElement(value) && value.type === 'image'
   },
 }
 ```

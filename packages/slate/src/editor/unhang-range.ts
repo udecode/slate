@@ -1,7 +1,7 @@
-import { Node } from '../interfaces'
+import { NodeApi } from '../interfaces'
 import { Editor, type EditorStaticApi } from '../interfaces/editor'
-import { Path } from '../interfaces/path'
-import { Range } from '../interfaces/range'
+import { PathApi } from '../interfaces/path'
+import { RangeApi } from '../interfaces/range'
 import { nodes } from './nodes'
 
 export const unhangRange: EditorStaticApi['unhangRange'] = (
@@ -10,21 +10,21 @@ export const unhangRange: EditorStaticApi['unhangRange'] = (
   options = {}
 ) => {
   const { voids = false } = options
-  let [start, end] = Range.edges(range)
+  let [start, end] = RangeApi.edges(range)
 
   // PERF: exit early if we can guarantee that the range isn't hanging.
   if (
     start.offset !== 0 ||
     end.offset !== 0 ||
-    Range.isCollapsed(range) ||
-    Path.hasPrevious(end.path)
+    RangeApi.isCollapsed(range) ||
+    PathApi.hasPrevious(end.path)
   ) {
     return range
   }
 
   const endBlock = Editor.above(editor, {
     at: end,
-    match: (n) => Node.isElement(n) && Editor.isBlock(editor, n),
+    match: (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n),
     voids,
   })
   const blockPath = endBlock ? endBlock[1] : []
@@ -34,7 +34,7 @@ export const unhangRange: EditorStaticApi['unhangRange'] = (
 
   for (const [node, path] of nodes(editor, {
     at: before,
-    match: Node.isText,
+    match: NodeApi.isText,
     reverse: true,
     voids,
   })) {
@@ -51,7 +51,7 @@ export const unhangRange: EditorStaticApi['unhangRange'] = (
       continue
     }
 
-    if (node.text !== '' || Path.isBefore(path, blockPath)) {
+    if (node.text !== '' || PathApi.isBefore(path, blockPath)) {
       end = { path, offset: node.text.length }
       break
     }

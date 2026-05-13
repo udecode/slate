@@ -15,9 +15,9 @@ Here's an example of recursively scrubbing the `'text'` fields of any entity
 that gets logged.
 
 ```typescript
-import { Scrubber } from 'slate'
+import { ScrubberApi } from 'slate'
 
-Scrubber.setScrubber((key, value) => {
+ScrubberApi.setScrubber((key, value) => {
   if (key === 'text') return '... scrubbed ...'
   return value
 })
@@ -37,7 +37,7 @@ of Nodes, preserving their length, but replacing their contents with randomly
 chosen alphanumeric characters.
 
 ```typescript
-import { Scrubber } from 'slate'
+import { ScrubberApi } from 'slate'
 
 const textRandomizer = (fieldNames: string[]) => (key, value) => {
   if (fieldNames.includes(key)) {
@@ -59,7 +59,7 @@ const generateRandomCharacter = (): string => {
 
 // randomize the 'text' and 'src' fields of any Node that is included in an
 // exception thrown by Slate
-Scrubber.setScrubber(Scrubber.textRandomizer(['text', 'src']))
+ScrubberApi.setScrubber(ScrubberApi.textRandomizer(['text', 'src']))
 ```
 
 In this example, a Node that looked like:

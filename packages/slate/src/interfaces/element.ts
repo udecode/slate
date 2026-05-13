@@ -1,4 +1,10 @@
-import { type Ancestor, type Descendant, isObject, Node, type Path } from '..'
+import {
+  type Ancestor,
+  type Descendant,
+  isObject,
+  NodeApi,
+  type Path,
+} from '..'
 import type { BaseEditor } from './editor'
 
 /**
@@ -107,7 +113,7 @@ const isElement = (
 ): value is Element => {
   if (!isObject(value)) return false
 
-  if (Node.isEditor(value)) {
+  if (NodeApi.isEditor(value)) {
     return false
   }
 
@@ -121,19 +127,19 @@ const isElement = (
   }
 
   const isChildrenValid = deep
-    ? Node.isNodeList(value.children)
+    ? NodeApi.isNodeList(value.children)
     : Array.isArray(value.children)
 
   return isChildrenValid
 }
 
 // eslint-disable-next-line no-redeclare
-export const Element: ElementInterface = {
+export const ElementApi: ElementInterface = {
   isAncestor<T extends Ancestor = Ancestor>(
     value: any,
     { deep = false }: ElementIsElementOptions = {}
   ): value is T {
-    return isObject(value) && Node.isNodeList(value.children, { deep })
+    return isObject(value) && NodeApi.isNodeList(value.children, { deep })
   },
 
   isElement: isElement as ElementInterface['isElement'],
@@ -144,7 +150,7 @@ export const Element: ElementInterface = {
   ): value is T[] {
     return (
       Array.isArray(value) &&
-      value.every((val) => Element.isElement(val, { deep }))
+      value.every((val) => ElementApi.isElement(val, { deep }))
     )
   },
 

@@ -1,4 +1,13 @@
-import { Node, type Operation, Path, Point, Range } from 'slate'
+import {
+  NodeApi,
+  type Operation,
+  type Path,
+  PathApi,
+  type Point,
+  PointApi,
+  type Range,
+  RangeApi,
+} from 'slate'
 import { Editor } from 'slate/internal'
 import { EDITOR_TO_PENDING_DIFFS } from './weak-maps'
 
@@ -27,8 +36,8 @@ export function verifyDiffState(
     return false
   }
 
-  const node = Node.get(editor, path)
-  if (!Node.isText(node)) {
+  const node = NodeApi.get(editor, path)
+  if (!NodeApi.isText(node)) {
     return false
   }
 
@@ -38,13 +47,13 @@ export function verifyDiffState(
     )
   }
 
-  const nextPath = Path.next(path)
+  const nextPath = PathApi.next(path)
   if (!Editor.hasPath(editor, nextPath)) {
     return false
   }
 
-  const nextNode = Node.get(editor, nextPath)
-  return Node.isText(nextNode) && nextNode.text.startsWith(diff.text)
+  const nextNode = NodeApi.get(editor, nextPath)
+  return NodeApi.isText(nextNode) && nextNode.text.startsWith(diff.text)
 }
 
 export function applyStringDiff(text: string, ...diffs: StringDiff[]) {
@@ -165,13 +174,13 @@ export function normalizePoint(
     return null
   }
 
-  let leaf = Node.get(editor, path)
-  if (!Node.isText(leaf)) {
+  let leaf = NodeApi.get(editor, path)
+  if (!NodeApi.isText(leaf)) {
     return null
   }
 
   const parentBlock = Editor.above(editor, {
-    match: (n) => Node.isElement(n) && Editor.isBlock(editor, n),
+    match: (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n),
     at: path,
   })
 
@@ -180,8 +189,8 @@ export function normalizePoint(
   }
 
   while (offset > leaf.text.length) {
-    const entry = Editor.next(editor, { at: path, match: Node.isText })
-    if (!entry || !Path.isDescendant(entry[1], parentBlock[1])) {
+    const entry = Editor.next(editor, { at: path, match: NodeApi.isText })
+    if (!entry || !PathApi.isDescendant(entry[1], parentBlock[1])) {
       return null
     }
 
@@ -205,7 +214,7 @@ export function normalizeRange(
     return null
   }
 
-  if (Range.isCollapsed(range)) {
+  if (RangeApi.isCollapsed(range)) {
     return { anchor, focus: anchor }
   }
 
@@ -224,11 +233,11 @@ export function transformPendingPoint(
 ): Point | null {
   const pendingDiffs = EDITOR_TO_PENDING_DIFFS.get(editor)
   const textDiff = pendingDiffs?.find(({ path }) =>
-    Path.equals(path, point.path)
+    PathApi.equals(path, point.path)
   )
 
   if (!textDiff || point.offset <= textDiff.diff.start) {
-    return Point.transform(point, op, { affinity: 'backward' })
+    return PointApi.transform(point, op, { affinity: 'backward' })
   }
 
   const { diff } = textDiff
@@ -236,7 +245,7 @@ export function transformPendingPoint(
   // the diff will be applied to and add the offset inside the diff.
   if (point.offset <= diff.start + diff.text.length) {
     const anchor = { path: point.path, offset: diff.start }
-    const transformed = Point.transform(anchor, op, {
+    const transformed = PointApi.transform(anchor, op, {
       affinity: 'backward',
     })
 
@@ -255,7 +264,7 @@ export function transformPendingPoint(
     path: point.path,
     offset: point.offset - diff.text.length + diff.end - diff.start,
   }
-  const transformed = Point.transform(anchor, op, {
+  const transformed = PointApi.transform(anchor, op, {
     affinity: 'backward',
   })
   if (!transformed) {
@@ -264,7 +273,7 @@ export function transformPendingPoint(
 
   if (
     op.type === 'split_node' &&
-    Path.equals(op.path, point.path) &&
+    PathApi.equals(op.path, point.path) &&
     anchor.offset < op.position &&
     diff.start < op.position
   ) {
@@ -287,7 +296,7 @@ export function transformPendingRange(
     return null
   }
 
-  if (Range.isCollapsed(range)) {
+  if (RangeApi.isCollapsed(range)) {
     return { anchor, focus: anchor }
   }
 
@@ -307,7 +316,7 @@ export function transformTextDiff(
 
   switch (op.type) {
     case 'insert_text': {
-      if (!Path.equals(op.path, path) || op.offset >= diff.end) {
+      if (!PathApi.equals(op.path, path) || op.offset >= diff.end) {
         return textDiff
       }
 
@@ -334,7 +343,7 @@ export function transformTextDiff(
       }
     }
     case 'remove_text': {
-      if (!Path.equals(op.path, path) || op.offset >= diff.end) {
+      if (!PathApi.equals(op.path, path) || op.offset >= diff.end) {
         return textDiff
       }
 
@@ -361,11 +370,11 @@ export function transformTextDiff(
       }
     }
     case 'split_node': {
-      if (!Path.equals(op.path, path) || op.position >= diff.end) {
+      if (!PathApi.equals(op.path, path) || op.position >= diff.end) {
         return {
           diff,
           id,
-          path: Path.transform(path, op, { affinity: 'backward' })!,
+          path: PathApi.transform(path, op, { affinity: 'backward' })!,
         }
       }
 
@@ -388,15 +397,15 @@ export function transformTextDiff(
           text: diff.text,
         },
         id,
-        path: Path.transform(path, op, { affinity: 'forward' })!,
+        path: PathApi.transform(path, op, { affinity: 'forward' })!,
       }
     }
     case 'merge_node': {
-      if (!Path.equals(op.path, path)) {
+      if (!PathApi.equals(op.path, path)) {
         return {
           diff,
           id,
-          path: Path.transform(path, op)!,
+          path: PathApi.transform(path, op)!,
         }
       }
 
@@ -407,12 +416,12 @@ export function transformTextDiff(
           text: diff.text,
         },
         id,
-        path: Path.transform(path, op)!,
+        path: PathApi.transform(path, op)!,
       }
     }
   }
 
-  const newPath = Path.transform(path, op)
+  const newPath = PathApi.transform(path, op)
   if (!newPath) {
     return null
   }

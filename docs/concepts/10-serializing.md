@@ -9,10 +9,10 @@ And, because Slate uses plain JSON for its data, you can write serialization log
 For example, taking the value of an editor and returning plaintext:
 
 ```javascript
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 
 const serialize = nodes => {
-  return nodes.map(n => Node.string(n)).join('\n')
+  return nodes.map(n => NodeApi.string(n)).join('\n')
 }
 ```
 
@@ -53,10 +53,10 @@ For example, here's a similar `serialize` function for HTML:
 
 ```javascript
 import escapeHtml from 'escape-html'
-import { Text } from 'slate'
+import { TextApi } from 'slate'
 
 const serialize = node => {
-  if (Text.isText(node)) {
+  if (TextApi.isText(node)) {
     let string = escapeHtml(node.text)
     if (node.bold) {
       string = `<strong>${string}</strong>`

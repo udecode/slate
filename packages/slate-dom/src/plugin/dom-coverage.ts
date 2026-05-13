@@ -1,7 +1,7 @@
 import {
-  Path,
+  PathApi,
   type Point,
-  Range,
+  RangeApi,
   type RuntimeId,
   type Editor as SlateEditor,
   type Path as SlatePath,
@@ -177,12 +177,12 @@ const rebasePathFromOwner = (
   previousOwnerPath: SlatePath,
   nextOwnerPath: SlatePath
 ) => {
-  if (Path.equals(path, previousOwnerPath)) {
+  if (PathApi.equals(path, previousOwnerPath)) {
     return [...nextOwnerPath]
   }
 
-  if (Path.isDescendant(path, previousOwnerPath)) {
-    return [...nextOwnerPath, ...Path.relative(path, previousOwnerPath)]
+  if (PathApi.isDescendant(path, previousOwnerPath)) {
+    return [...nextOwnerPath, ...PathApi.relative(path, previousOwnerPath)]
   }
 
   return path
@@ -220,7 +220,7 @@ const resolveBoundary = (
     ...boundary,
     coveredPathRanges,
     ownerPath: nextOwnerPath,
-    version: Path.equals(nextOwnerPath, boundary.ownerPath)
+    version: PathApi.equals(nextOwnerPath, boundary.ownerPath)
       ? boundary.version
       : boundary.version + 1,
   }
@@ -231,7 +231,9 @@ const pathIsInsideOwner = (path: SlatePath, ownerPath: SlatePath) => {
     return true
   }
 
-  return Path.equals(path, ownerPath) || Path.isDescendant(path, ownerPath)
+  return (
+    PathApi.equals(path, ownerPath) || PathApi.isDescendant(path, ownerPath)
+  )
 }
 
 const resolveRuntimePath = (editor: SlateEditor, runtimeId: RuntimeId) => {
@@ -284,13 +286,13 @@ const resolveCoveredPathRanges = (
 }
 
 const comparePathBounds = (path: SlatePath, another: SlatePath) => {
-  const comparison = Path.compare(path, another)
+  const comparison = PathApi.compare(path, another)
 
   if (comparison !== 0) {
     return comparison
   }
 
-  if (Path.equals(path, another)) {
+  if (PathApi.equals(path, another)) {
     return 0
   }
 
@@ -468,8 +470,8 @@ const getResolvedBoundaries = (editor: SlateEditor) => {
 
 const pathIsCoveredByRange = (path: SlatePath, range: DOMCoveragePathRange) => {
   const orderedRange = getOrderedPathRange(range)
-  const afterStart = Path.compare(path, orderedRange.anchor) >= 0
-  const beforeEnd = Path.compare(path, orderedRange.focus) <= 0
+  const afterStart = PathApi.compare(path, orderedRange.anchor) >= 0
+  const beforeEnd = PathApi.compare(path, orderedRange.focus) <= 0
 
   return afterStart && beforeEnd
 }
@@ -495,8 +497,8 @@ const rangeIntersectsBoundary = (
     const orderedRange = getOrderedPathRange(coveredRange)
 
     return (
-      Range.includes(range, orderedRange.anchor) ||
-      Range.includes(range, orderedRange.focus)
+      RangeApi.includes(range, orderedRange.anchor) ||
+      RangeApi.includes(range, orderedRange.focus)
     )
   })
 }

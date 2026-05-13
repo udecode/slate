@@ -1,4 +1,10 @@
-import { isObject, Operation, type Range, type Value } from 'slate'
+import {
+  isObject,
+  type Operation,
+  OperationApi,
+  type Range,
+  type Value,
+} from 'slate'
 
 export interface Batch<V extends Value = Value> {
   operations: Operation<V>[]
@@ -27,9 +33,9 @@ export const History = {
       Array.isArray(value.redos) &&
       Array.isArray(value.undos) &&
       (value.redos.length === 0 ||
-        Operation.isOperationList(value.redos[0].operations)) &&
+        OperationApi.isOperationList(value.redos[0].operations)) &&
       (value.undos.length === 0 ||
-        Operation.isOperationList(value.undos[0].operations))
+        OperationApi.isOperationList(value.undos[0].operations))
     )
   },
 }

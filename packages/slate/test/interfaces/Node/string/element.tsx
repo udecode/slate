@@ -1,5 +1,5 @@
 /** @jsx jsx  */
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 
 export const input = (
   <element>
@@ -8,6 +8,6 @@ export const input = (
   </element>
 )
 export const test = (value) => {
-  return Node.string(value, [1])
+  return NodeApi.string(value, [1])
 }
 export const output = `onetwo`

@@ -208,13 +208,13 @@ Pure helpers stay on their own namespaces because they do not read editor
 runtime state.
 
 ```javascript
-Node.string(node)
-Element.isElement(value)
-Text.isText(value)
-Path.next(path)
-Point.equals(point, other)
-Range.isCollapsed(range)
-Operation.isOperation(value)
+NodeApi.string(node)
+ElementApi.isElement(value)
+TextApi.isText(value)
+PathApi.next(path)
+PointApi.equals(point, other)
+RangeApi.isCollapsed(range)
+OperationApi.isOperation(value)
 ```
 
 Use `editor.read(...)` or `editor.update(...)` when a helper needs editor

@@ -6,13 +6,16 @@ import {
 } from '../../core/public-state'
 import {
   type Descendant,
-  Node,
+  type Node,
+  NodeApi,
   type NodeEntry,
   type Operation,
-  Path,
-  Point,
-  Range,
-  Scrubber,
+  type Path,
+  PathApi,
+  PointApi,
+  type Range,
+  RangeApi,
+  ScrubberApi,
   type Selection,
   type Text,
 } from '../../index'
@@ -74,11 +77,11 @@ export const transform: OperationTransformMethods['transform'] = (
     case 'insert_node': {
       const { path, node } = op
 
-      if (Node.isEditor(node)) {
+      if (NodeApi.isEditor(node)) {
         throw new Error('Cannot insert an editor as a descendant node.')
       }
 
-      modifyChildren(editor, Path.parent(path), (children) => {
+      modifyChildren(editor, PathApi.parent(path), (children) => {
         const index = path.at(-1)!
 
         if (index > children.length) {
@@ -115,7 +118,7 @@ export const transform: OperationTransformMethods['transform'] = (
     case 'merge_node': {
       const { path } = op
       const index = path.at(-1)!
-      const prevPath = Path.previous(path)
+      const prevPath = PathApi.previous(path)
       const prevIndex = prevPath.at(-1)!
 
       if (path.length === 0) {
@@ -128,20 +131,20 @@ export const transform: OperationTransformMethods['transform'] = (
       if (typeof index !== 'number' || typeof prevIndex !== 'number')
         throw new Error('Index must be number')
 
-      modifyChildren(editor, Path.parent(path), (children) => {
+      modifyChildren(editor, PathApi.parent(path), (children) => {
         const node = children[index]
         const prev = children[prevIndex]
         let newNode: Descendant
 
-        if (Node.isText(node) && Node.isText(prev)) {
+        if (NodeApi.isText(node) && NodeApi.isText(prev)) {
           newNode = { ...prev, text: prev.text + node.text }
-        } else if (Node.isElement(node) && Node.isElement(prev)) {
+        } else if (NodeApi.isElement(node) && NodeApi.isElement(prev)) {
           newNode = { ...prev, children: prev.children.concat(node.children) }
         } else {
           throw new Error(
-            `Cannot apply a "merge_node" operation at path [${path}] to nodes of different interfaces: ${Scrubber.stringify(
+            `Cannot apply a "merge_node" operation at path [${path}] to nodes of different interfaces: ${ScrubberApi.stringify(
               node
-            )} ${Scrubber.stringify(prev)}`
+            )} ${ScrubberApi.stringify(prev)}`
           )
         }
 
@@ -154,7 +157,7 @@ export const transform: OperationTransformMethods['transform'] = (
         const selection = getCurrentSelection(editor)
 
         if (selection) {
-          const nextSelection = Range.transform(selection, op)
+          const nextSelection = RangeApi.transform(selection, op)
 
           setCurrentSelection(editor, nextSelection)
         }
@@ -166,31 +169,31 @@ export const transform: OperationTransformMethods['transform'] = (
       const { path, newPath } = op
       const index = path.at(-1)!
 
-      if (Path.equals(path, newPath)) {
+      if (PathApi.equals(path, newPath)) {
         break
       }
 
-      if (Path.isAncestor(path, newPath)) {
+      if (PathApi.isAncestor(path, newPath)) {
         throw new Error(
           `Cannot move a path [${path}] to new path [${newPath}] because the destination is inside itself.`
         )
       }
 
-      const node = Node.get(editor, path)
-      if (Node.isEditor(node)) {
+      const node = NodeApi.get(editor, path)
+      if (NodeApi.isEditor(node)) {
         throw new Error('Cannot move the editor root.')
       }
-      const parentBeforeMove = Node.get(editor, Path.parent(path))
-      const parentBeforeMoveChildren = Node.isEditor(parentBeforeMove)
+      const parentBeforeMove = NodeApi.get(editor, PathApi.parent(path))
+      const parentBeforeMoveChildren = NodeApi.isEditor(parentBeforeMove)
         ? Editor.getChildren(editor)
-        : Node.isText(parentBeforeMove)
+        : NodeApi.isText(parentBeforeMove)
           ? []
           : parentBeforeMove.children
       const sameParentForwardMove =
         path.length === newPath.length &&
         path.at(-1) != null &&
         newPath.at(-1) != null &&
-        Path.equals(path.slice(0, -1), newPath.slice(0, -1)) &&
+        PathApi.equals(path.slice(0, -1), newPath.slice(0, -1)) &&
         path.at(-1)! < newPath.at(-1)!
       const effectiveSelectionPath = sameParentForwardMove
         ? ([
@@ -202,7 +205,7 @@ export const transform: OperationTransformMethods['transform'] = (
           ] as Path)
         : null
 
-      modifyChildren(editor, Path.parent(path), (children) =>
+      modifyChildren(editor, PathApi.parent(path), (children) =>
         removeChildren(children, index, 1)
       )
 
@@ -215,7 +218,7 @@ export const transform: OperationTransformMethods['transform'] = (
       // insertion path first.
       const truePath = sameParentForwardMove
         ? newPath
-        : Path.transform(newPath, {
+        : PathApi.transform(newPath, {
             type: 'remove_node',
             path,
             node,
@@ -226,7 +229,7 @@ export const transform: OperationTransformMethods['transform'] = (
         newPath: effectiveSelectionPath ?? truePath,
       }
 
-      modifyChildren(editor, Path.parent(truePath), (children) =>
+      modifyChildren(editor, PathApi.parent(truePath), (children) =>
         insertChildren(children, newIndex, node)
       )
 
@@ -238,7 +241,7 @@ export const transform: OperationTransformMethods['transform'] = (
       const { path } = op
       const index = path.at(-1)!
 
-      modifyChildren(editor, Path.parent(path), (children) =>
+      modifyChildren(editor, PathApi.parent(path), (children) =>
         removeChildren(children, index, 1)
       )
 
@@ -249,8 +252,8 @@ export const transform: OperationTransformMethods['transform'] = (
       if (currentSelection) {
         let selection: Selection = { ...currentSelection }
 
-        for (const [point, key] of Range.points(selection)) {
-          const result = Point.transform(point, op)
+        for (const [point, key] of RangeApi.points(selection)) {
+          const result = PointApi.transform(point, op)
 
           if (selection != null && result != null) {
             selection[key] = result
@@ -258,8 +261,8 @@ export const transform: OperationTransformMethods['transform'] = (
             let prev: NodeEntry<Text> | undefined
             let next: NodeEntry<Text> | undefined
 
-            for (const [n, p] of Node.texts(editor)) {
-              if (Path.compare(p, path) === -1) {
+            for (const [n, p] of NodeApi.texts(editor)) {
+              if (PathApi.compare(p, path) === -1) {
                 prev = [n, p]
               } else {
                 next = [n, p]
@@ -269,14 +272,14 @@ export const transform: OperationTransformMethods['transform'] = (
 
             let preferNext = false
             if (prev && next) {
-              if (Path.isSibling(prev[1], path)) {
+              if (PathApi.isSibling(prev[1], path)) {
                 preferNext = false
-              } else if (Path.equals(next[1], path)) {
+              } else if (PathApi.equals(next[1], path)) {
                 preferNext = true
               } else {
                 preferNext =
-                  Path.common(prev[1], path).length <
-                  Path.common(next[1], path).length
+                  PathApi.common(prev[1], path).length <
+                  PathApi.common(next[1], path).length
               }
             }
 
@@ -290,7 +293,7 @@ export const transform: OperationTransformMethods['transform'] = (
           }
         }
 
-        if (!selection || !Range.equals(selection, currentSelection)) {
+        if (!selection || !RangeApi.equals(selection, currentSelection)) {
           setCurrentSelection(editor, selection)
         }
       }
@@ -403,7 +406,7 @@ export const transform: OperationTransformMethods['transform'] = (
       if (currentSelection == null) {
         if (!(newProperties.anchor && newProperties.focus)) {
           throw new Error(
-            `set_selection patch requires an existing selection or a full range. Received: ${Scrubber.stringify(
+            `set_selection patch requires an existing selection or a full range. Received: ${ScrubberApi.stringify(
               newProperties
             )}`
           )
@@ -458,12 +461,12 @@ export const transform: OperationTransformMethods['transform'] = (
       // Defend against malicious paths containing strings
       if (typeof index !== 'number') throw new Error('Index must be number')
 
-      modifyChildren(editor, Path.parent(path), (children) => {
+      modifyChildren(editor, PathApi.parent(path), (children) => {
         const node = children[index]
         let newNode: Descendant
         let nextNode: Descendant
 
-        if (Node.isText(node)) {
+        if (NodeApi.isText(node)) {
           const before = node.text.slice(0, position)
           const after = node.text.slice(position)
           newNode = {
@@ -525,7 +528,7 @@ export const transform: OperationTransformMethods['transform'] = (
         const selection = getCurrentSelection(editor)
 
         if (selection) {
-          const nextSelection = Range.transform(selection, op, {
+          const nextSelection = RangeApi.transform(selection, op, {
             affinity: 'inward',
           })
 
@@ -541,11 +544,11 @@ export const transform: OperationTransformMethods['transform'] = (
   if (transformSelection && currentSelection) {
     const selection = { ...currentSelection }
 
-    for (const [point, key] of Range.points(selection)) {
-      selection[key] = Point.transform(point, selectionTransformOp)!
+    for (const [point, key] of RangeApi.points(selection)) {
+      selection[key] = PointApi.transform(point, selectionTransformOp)!
     }
 
-    if (!Range.equals(selection, currentSelection)) {
+    if (!RangeApi.equals(selection, currentSelection)) {
       setCurrentSelection(editor, selection)
     }
   }

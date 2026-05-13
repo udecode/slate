@@ -116,6 +116,52 @@ const bannedPublicSnapshotAndRangeSurface = [
   },
 ]
 
+const renamedDataHelperValues = [
+  'Element',
+  'Location',
+  'Node',
+  'Operation',
+  'Path',
+  'PathRef',
+  'Point',
+  'PointRef',
+  'Range',
+  'RangeRef',
+  'Scrubber',
+  'Span',
+  'Text',
+]
+
+const renamedDataHelperMemberPattern =
+  /\b(Element|Location|Node|Operation|Path|PathRef|Point|PointRef|Range|RangeRef|Scrubber|Span|Text)\.(?!TEXT_NODE\b|ELEMENT_NODE\b)/g
+
+const collectBareDataHelperValueImports = (source: string): string[] => {
+  const failures: string[] = []
+  const importPattern = /import\s*\{([^}]*)\}\s*from\s*['"]slate['"]/g
+
+  for (const match of source.matchAll(importPattern)) {
+    const specifiers = match[1] ?? ''
+
+    for (const specifier of specifiers.split(',')) {
+      const trimmed = specifier.trim()
+      const imported = trimmed
+        .replace(/^type\s+/, '')
+        .split(/\s+as\s+/)[0]
+        ?.trim()
+
+      if (
+        !trimmed.startsWith('type ') &&
+        imported &&
+        renamedDataHelperValues.includes(imported)
+      ) {
+        failures.push(imported)
+      }
+    }
+  }
+
+  return failures
+}
+
 describe('primary public surface examples', () => {
   for (const relativePath of primaryExampleFiles) {
     it(`${relativePath} does not teach stale editor APIs`, () => {
@@ -129,6 +175,23 @@ describe('primary public surface examples', () => {
   }
 })
 
+describe('public data helper namespace examples', () => {
+  for (const relativePath of [
+    ...publicAuthoringFiles,
+    ...publicDocumentationFiles,
+  ]) {
+    it(`${relativePath} uses Api-suffixed data helper values`, () => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+      const helperMembers = [...source.matchAll(renamedDataHelperMemberPattern)]
+        .map((match) => match[0])
+        .sort()
+
+      assert.deepEqual(collectBareDataHelperValueImports(source), [])
+      assert.deepEqual(helperMembers, [])
+    })
+  }
+})
+
 describe('primary slate package surface', () => {
   const publicEditorMethods = ['extend', 'read', 'subscribe', 'update'].sort()
   const requiredSlateRootExports = [
@@ -136,15 +199,35 @@ describe('primary slate package surface', () => {
     'defineEditorExtension',
     'elementProperty',
     'isEditor',
+    'ElementApi',
+    'LocationApi',
+    'NodeApi',
+    'OperationApi',
+    'PathApi',
+    'PathRefApi',
+    'PointApi',
+    'PointRefApi',
+    'RangeApi',
+    'RangeRefApi',
+    'ScrubberApi',
+    'SpanApi',
+    'TextApi',
+    'isObject',
+  ]
+  const bannedSlateRootDataHelperValues = [
     'Element',
+    'Location',
     'Node',
     'Operation',
     'Path',
+    'PathRef',
     'Point',
+    'PointRef',
     'Range',
+    'RangeRef',
     'Scrubber',
+    'Span',
     'Text',
-    'isObject',
   ]
   const bannedSlateRootHelperExports = [
     'above',
@@ -270,6 +353,12 @@ describe('primary slate package surface', () => {
 
   it('does not export raw editor, core, or transform helper functions from the primary package', () => {
     const leaked = bannedSlateRootHelperExports.filter((key) => key in Slate)
+
+    assert.deepEqual(leaked, [])
+  })
+
+  it('does not export bare data helper values from the primary package', () => {
+    const leaked = bannedSlateRootDataHelperValues.filter((key) => key in Slate)
 
     assert.deepEqual(leaked, [])
   })

@@ -1,8 +1,8 @@
 import { getCurrentSelection } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
-import { Location } from '../interfaces'
+import { LocationApi } from '../interfaces'
 import { Editor } from '../interfaces/editor'
-import { Scrubber } from '../interfaces/scrubber'
+import { ScrubberApi } from '../interfaces/scrubber'
 import type { SelectionMutationMethods } from '../interfaces/transforms/selection'
 import { executeSetSelectionCommand } from './set-selection'
 
@@ -15,9 +15,9 @@ export const select: SelectionMutationMethods['select'] = (editor, target) => {
     return
   }
 
-  if (!Location.isRange(range)) {
+  if (!LocationApi.isRange(range)) {
     throw new Error(
-      `When setting the selection and the current selection is \`null\` you must provide at least an \`anchor\` and \`focus\`, but you passed: ${Scrubber.stringify(
+      `When setting the selection and the current selection is \`null\` you must provide at least an \`anchor\` and \`focus\`, but you passed: ${ScrubberApi.stringify(
         range
       )}`
     )

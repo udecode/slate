@@ -1,4 +1,4 @@
-import { type Descendant, Node } from 'slate'
+import { type Descendant, NodeApi } from 'slate'
 import type { DOMClipboardInsertDataHandler } from 'slate-dom'
 import { jsx } from 'slate-hyperscript'
 
@@ -343,9 +343,9 @@ const deserializeChild = (
 }
 
 const isEmptyTextBlock = (node: Descendant) =>
-  Node.isElement(node) &&
+  NodeApi.isElement(node) &&
   node.children.length === 1 &&
-  Node.isText(node.children[0]) &&
+  NodeApi.isText(node.children[0]) &&
   node.children[0].text === ''
 
 const hasTopLevelBlockFragment = (fragment: unknown) =>

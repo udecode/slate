@@ -4,7 +4,7 @@ import {
   type Descendant,
   type EditorElementSpec,
   type Operation,
-  Path,
+  type Path,
   type SnapshotChange,
 } from '../src'
 import { runEditorTransaction as runInternalEditorTransaction } from '../src/core/public-state'

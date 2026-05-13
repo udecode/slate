@@ -1,5 +1,5 @@
 import {
-  Point,
+  PointApi,
   type Range,
   type RuntimeId,
   type Editor as SlateEditor,
@@ -93,13 +93,13 @@ const sameRange = (left: Range | null, right: Range | null) => {
   }
 
   return (
-    Point.equals(left.anchor, right.anchor) &&
-    Point.equals(left.focus, right.focus)
+    PointApi.equals(left.anchor, right.anchor) &&
+    PointApi.equals(left.focus, right.focus)
   )
 }
 
 const isVisibleSelection = (range: Range | null) =>
-  !!range && !Point.equals(range.anchor, range.focus)
+  !!range && !PointApi.equals(range.anchor, range.focus)
 
 const addMappedListener = (
   listeners: Map<string, Set<() => void>>,

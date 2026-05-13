@@ -77,12 +77,14 @@ Subscribe to the current path of the rendered element. Use this only for UI
 that displays or derives live path state during render. Event handlers should
 usually call `editor.dom.findPath(element)` when they need the current path.
 
-#### `useElementSelected(pathOrOptions?: Path | UseElementSelectedOptions): boolean`
+#### `useElementSelected(options?: UseElementSelectedOptions): boolean`
 
 Subscribe to whether the current element, or an explicit element path,
 intersects the current selection. Use `{ mode: 'collapsed' }` when selected UI
 should only appear for a collapsed caret inside the element, such as a block
-void image ring. Use this only when the component actually draws selected UI.
+void image ring. Pass `{ at: path }` when the component needs to watch an
+explicit element path. Use this only when the component actually draws selected
+UI.
 
 ```ts
 type UseElementSelectedOptions = {

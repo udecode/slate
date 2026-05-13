@@ -1,9 +1,9 @@
 /** @jsx jsx */
 
-import { Operation } from 'slate'
+import { OperationApi } from 'slate'
 
 export const input = true
 export const test = (value) => {
-  return Operation.isOperation(value)
+  return OperationApi.isOperation(value)
 }
 export const output = false

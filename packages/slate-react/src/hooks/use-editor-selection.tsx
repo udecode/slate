@@ -1,4 +1,4 @@
-import { type BaseSelection, Range } from 'slate'
+import { type BaseSelection, RangeApi } from 'slate'
 
 import { readRuntimeSelection } from '../editable/runtime-selection-state'
 import { useEditorSelector } from './use-editor-selector'
@@ -18,5 +18,5 @@ export const useEditorSelection = () => {
 const isSelectionEqual = (a: BaseSelection, b: BaseSelection) => {
   if (!a && !b) return true
   if (!a || !b) return false
-  return Range.equals(a, b)
+  return RangeApi.equals(a, b)
 }

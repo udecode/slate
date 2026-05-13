@@ -42,7 +42,7 @@ const App = () => {
               tx.nodes.set(
                 { type: match ? 'paragraph' : 'code' },
                 {
-                  match: n => Element.isElement(n) && tx.schema.isBlock(n),
+                  match: n => ElementApi.isElement(n) && tx.schema.isBlock(n),
                 }
               )
             })
@@ -99,7 +99,7 @@ const App = () => {
                   { type: match ? 'paragraph' : 'code' },
                   {
                     match: n =>
-                      Element.isElement(n) && tx.schema.isBlock(n),
+                      ElementApi.isElement(n) && tx.schema.isBlock(n),
                   }
                 )
               })
@@ -195,7 +195,7 @@ const App = () => {
                   { type: match ? 'paragraph' : 'code' },
                   {
                     match: n =>
-                      Element.isElement(n) && tx.schema.isBlock(n),
+                      ElementApi.isElement(n) && tx.schema.isBlock(n),
                   }
                 )
               })

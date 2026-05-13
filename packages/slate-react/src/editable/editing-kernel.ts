@@ -6,7 +6,7 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
 } from 'react'
-import { type Editor, type Operation, Range } from 'slate'
+import { type Editor, type Operation, type Range, RangeApi } from 'slate'
 import { Hotkeys } from 'slate-dom'
 import {
   ReactEditor,
@@ -815,7 +815,7 @@ const deleteFragmentOrCommand = ({
   selection: Range | null
   unit?: 'block' | 'line' | 'word'
 }): EditableCommand =>
-  selection && Range.isExpanded(selection)
+  selection && RangeApi.isExpanded(selection)
     ? { direction, kind: 'delete-fragment', selection }
     : { direction, kind: 'delete', unit }
 
@@ -828,7 +828,7 @@ const getBeforeInputDeleteCommand = ({
 }): EditableCommand | null => {
   if (
     selection &&
-    Range.isExpanded(selection) &&
+    RangeApi.isExpanded(selection) &&
     inputType.startsWith('delete')
   ) {
     return {

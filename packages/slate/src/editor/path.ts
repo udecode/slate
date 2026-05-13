@@ -1,36 +1,36 @@
 import {
   type EditorStaticApi,
-  Location,
-  Node,
-  Path,
-  Range,
+  LocationApi,
+  NodeApi,
+  PathApi,
+  RangeApi,
 } from '../interfaces'
 
 export const path: EditorStaticApi['path'] = (editor, at, options = {}) => {
   const { depth, edge } = options
   let resolvedAt = at
 
-  if (Location.isPath(resolvedAt)) {
+  if (LocationApi.isPath(resolvedAt)) {
     if (edge === 'start') {
-      const [, firstPath] = Node.first(editor, resolvedAt)
+      const [, firstPath] = NodeApi.first(editor, resolvedAt)
       resolvedAt = firstPath
     } else if (edge === 'end') {
-      const [, lastPath] = Node.last(editor, resolvedAt)
+      const [, lastPath] = NodeApi.last(editor, resolvedAt)
       resolvedAt = lastPath
     }
   }
 
-  if (Location.isRange(resolvedAt)) {
+  if (LocationApi.isRange(resolvedAt)) {
     if (edge === 'start') {
-      resolvedAt = Range.start(resolvedAt)
+      resolvedAt = RangeApi.start(resolvedAt)
     } else if (edge === 'end') {
-      resolvedAt = Range.end(resolvedAt)
+      resolvedAt = RangeApi.end(resolvedAt)
     } else {
-      resolvedAt = Path.common(resolvedAt.anchor.path, resolvedAt.focus.path)
+      resolvedAt = PathApi.common(resolvedAt.anchor.path, resolvedAt.focus.path)
     }
   }
 
-  if (Location.isPoint(resolvedAt)) {
+  if (LocationApi.isPoint(resolvedAt)) {
     resolvedAt = resolvedAt.path
   }
 

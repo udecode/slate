@@ -1,4 +1,15 @@
-import { type Descendant, type Editor, Element, Node, Range, Text } from 'slate'
+import {
+  type Descendant,
+  type Editor,
+  type Element,
+  ElementApi,
+  type Node,
+  NodeApi,
+  type Range,
+  RangeApi,
+  type Text,
+  TextApi,
+} from 'slate'
 import { setEditorChildren } from 'slate/internal'
 import {
   AnchorToken,
@@ -34,25 +45,25 @@ const resolveDescendants = (children: any[]): Descendant[] => {
       normalizedChild = text
     }
 
-    if (Text.isText(normalizedChild)) {
+    if (TextApi.isText(normalizedChild)) {
       const c = normalizedChild // HACK: fix typescript complaining
 
       if (
-        Text.isText(prev) &&
+        TextApi.isText(prev) &&
         STRINGS.has(prev) &&
         STRINGS.has(c) &&
-        Text.equals(prev, c, { loose: true })
+        TextApi.equals(prev, c, { loose: true })
       ) {
         prev.text += c.text
       } else {
         nodes.push(c)
       }
-    } else if (Element.isElement(normalizedChild)) {
+    } else if (ElementApi.isElement(normalizedChild)) {
       nodes.push(normalizedChild)
     } else if (normalizedChild instanceof Token) {
       let n = nodes.at(-1)
 
-      if (!Text.isText(n)) {
+      if (!TextApi.isText(n)) {
         addChild('')
         n = nodes.at(-1) as Text
       }
@@ -194,7 +205,7 @@ export function createText(
     node = { text: '' }
   }
 
-  if (!Text.isText(node)) {
+  if (!TextApi.isText(node)) {
     throw new Error(`
     The <text> hyperscript tag can only contain text content as children.`)
   }
@@ -222,7 +233,7 @@ export const createEditor =
     let selectionChild: Range | undefined
 
     for (const child of children) {
-      if (Range.isRange(child)) {
+      if (RangeApi.isRange(child)) {
         selectionChild = child
       } else {
         otherChildren.push(child)
@@ -236,7 +247,9 @@ export const createEditor =
 
     // Search the document's texts to see if any of them have tokens associated
     // that need incorporated into the selection.
-    for (const [node, path] of Node.texts({ children: descendants } as Node)) {
+    for (const [node, path] of NodeApi.texts({
+      children: descendants,
+    } as Node)) {
       const anchor = getAnchorOffset(node)
       const focus = getFocusOffset(node)
 
@@ -263,7 +276,7 @@ export const createEditor =
       )
     }
 
-    if (selectionChild != null || Range.isRange(selection)) {
+    if (selectionChild != null || RangeApi.isRange(selection)) {
       editor.update((tx) => {
         tx.value.replace({
           children: descendants,

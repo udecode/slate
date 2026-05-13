@@ -1,6 +1,6 @@
 /** @jsx jsx */
 
-import { Location, Point } from 'slate'
+import { LocationApi, type Point } from 'slate'
 
 export const input: Point & { custom: string } = {
   path: [0, 1],
@@ -8,6 +8,6 @@ export const input: Point & { custom: string } = {
   custom: 'value',
 }
 export const test = (value: typeof input) => {
-  return Location.isPoint(value)
+  return LocationApi.isPoint(value)
 }
 export const output = true

@@ -1,6 +1,6 @@
 /** @jsx jsx */
 
-import { Operation } from 'slate'
+import { OperationApi } from 'slate'
 
 export const input = {
   type: 'set_node',
@@ -9,6 +9,6 @@ export const input = {
   newProperties: {},
 }
 export const test = (value) => {
-  return Operation.isOperationList(value)
+  return OperationApi.isOperationList(value)
 }
 export const output = false

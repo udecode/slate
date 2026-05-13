@@ -1,10 +1,12 @@
 import {
   type DescendantIn,
   isObject,
-  Node,
+  NodeApi,
   type NodeProps,
-  Path,
-  Range,
+  type Path,
+  PathApi,
+  type Range,
+  RangeApi,
   type Value,
 } from '..'
 
@@ -262,10 +264,10 @@ const isOperationType = <V extends Value, TType extends Operation<V>['type']>(
   value: any,
   type: TType
 ): value is Extract<Operation<V>, { type: TType }> =>
-  Operation.isOperation<V>(value) && value.type === type
+  OperationApi.isOperation<V>(value) && value.type === type
 
 // eslint-disable-next-line no-redeclare
-export const Operation: OperationInterface = {
+export const OperationApi: OperationInterface = {
   isInsertNodeOperation<V extends Value = Value>(
     value: any
   ): value is InsertNodeOperation<V> {
@@ -289,7 +291,7 @@ export const Operation: OperationInterface = {
   isNodeOperation<V extends Value = Value>(
     value: any
   ): value is NodeOperation<V> {
-    return Operation.isOperation(value) && value.type.endsWith('_node')
+    return OperationApi.isOperation(value) && value.type.endsWith('_node')
   },
 
   isOperation<V extends Value = Value>(value: any): value is Operation<V> {
@@ -299,62 +301,64 @@ export const Operation: OperationInterface = {
 
     switch (value.type) {
       case 'insert_node':
-        return Path.isPath(value.path) && Node.isNode(value.node)
+        return PathApi.isPath(value.path) && NodeApi.isNode(value.node)
       case 'insert_text':
         return (
           typeof value.offset === 'number' &&
           typeof value.text === 'string' &&
-          Path.isPath(value.path)
+          PathApi.isPath(value.path)
         )
       case 'merge_node':
         return (
           typeof value.position === 'number' &&
-          Path.isPath(value.path) &&
+          PathApi.isPath(value.path) &&
           isObject(value.properties)
         )
       case 'move_node':
-        return Path.isPath(value.path) && Path.isPath(value.newPath)
+        return PathApi.isPath(value.path) && PathApi.isPath(value.newPath)
       case 'remove_node':
-        return Path.isPath(value.path) && Node.isNode(value.node)
+        return PathApi.isPath(value.path) && NodeApi.isNode(value.node)
       case 'remove_text':
         return (
           typeof value.offset === 'number' &&
           typeof value.text === 'string' &&
-          Path.isPath(value.path)
+          PathApi.isPath(value.path)
         )
       case 'replace_fragment':
         return (
-          Path.isPath(value.path) &&
-          Node.isNodeList(value.children) &&
-          Node.isNodeList(value.newChildren) &&
-          (value.selection === null || Range.isRange(value.selection)) &&
-          (value.newSelection === null || Range.isRange(value.newSelection))
+          PathApi.isPath(value.path) &&
+          NodeApi.isNodeList(value.children) &&
+          NodeApi.isNodeList(value.newChildren) &&
+          (value.selection === null || RangeApi.isRange(value.selection)) &&
+          (value.newSelection === null || RangeApi.isRange(value.newSelection))
         )
       case 'replace_children':
         return (
-          Path.isPath(value.path) &&
+          PathApi.isPath(value.path) &&
           Number.isInteger(value.index) &&
           value.index >= 0 &&
-          Node.isNodeList(value.children) &&
-          Node.isNodeList(value.newChildren) &&
-          (value.selection === null || Range.isRange(value.selection)) &&
-          (value.newSelection === null || Range.isRange(value.newSelection))
+          NodeApi.isNodeList(value.children) &&
+          NodeApi.isNodeList(value.newChildren) &&
+          (value.selection === null || RangeApi.isRange(value.selection)) &&
+          (value.newSelection === null || RangeApi.isRange(value.newSelection))
         )
       case 'set_node':
         return (
-          Path.isPath(value.path) &&
+          PathApi.isPath(value.path) &&
           isObject(value.properties) &&
           isObject(value.newProperties)
         )
       case 'set_selection':
         return (
-          (value.properties === null && Range.isRange(value.newProperties)) ||
-          (value.newProperties === null && Range.isRange(value.properties)) ||
+          (value.properties === null &&
+            RangeApi.isRange(value.newProperties)) ||
+          (value.newProperties === null &&
+            RangeApi.isRange(value.properties)) ||
           (isObject(value.properties) && isObject(value.newProperties))
         )
       case 'split_node':
         return (
-          Path.isPath(value.path) &&
+          PathApi.isPath(value.path) &&
           typeof value.position === 'number' &&
           isObject(value.properties)
         )
@@ -367,7 +371,8 @@ export const Operation: OperationInterface = {
     value: any
   ): value is Operation<V>[] {
     return (
-      Array.isArray(value) && value.every((val) => Operation.isOperation(val))
+      Array.isArray(value) &&
+      value.every((val) => OperationApi.isOperation(val))
     )
   },
 
@@ -394,7 +399,7 @@ export const Operation: OperationInterface = {
   },
 
   isSelectionOperation(value: any): value is SelectionOperation {
-    return Operation.isOperation(value) && value.type.endsWith('_selection')
+    return OperationApi.isOperation(value) && value.type.endsWith('_selection')
   },
 
   isSetNodeOperation<V extends Value = Value>(
@@ -414,7 +419,7 @@ export const Operation: OperationInterface = {
   },
 
   isTextOperation(value: any): value is TextOperation {
-    return Operation.isOperation(value) && value.type.endsWith('_text')
+    return OperationApi.isOperation(value) && value.type.endsWith('_text')
   },
 
   inverse<V extends Value = Value>(op: Operation<V>): Operation<V> {
@@ -428,20 +433,20 @@ export const Operation: OperationInterface = {
       }
 
       case 'merge_node': {
-        return { ...op, type: 'split_node', path: Path.previous(op.path) }
+        return { ...op, type: 'split_node', path: PathApi.previous(op.path) }
       }
 
       case 'move_node': {
         const { newPath, path } = op
 
         // PERF: in this case the move operation is a no-op anyways.
-        if (Path.equals(newPath, path)) {
+        if (PathApi.equals(newPath, path)) {
           return op
         }
 
         // If the move happens completely within a single parent the path and
         // newPath are stable with respect to each other.
-        if (Path.isSibling(path, newPath)) {
+        if (PathApi.isSibling(path, newPath)) {
           return { ...op, path: newPath, newPath: path }
         }
 
@@ -451,8 +456,8 @@ export const Operation: OperationInterface = {
         // and find the original path. We can accomplish this (only in non-sibling)
         // moves by looking at the impact of the move operation on the node
         // after the original move path.
-        const inversePath = Path.transform(path, op)!
-        const inverseNewPath = Path.transform(Path.next(path), op)!
+        const inversePath = PathApi.transform(path, op)!
+        const inverseNewPath = PathApi.transform(PathApi.next(path), op)!
         return { ...op, path: inversePath, newPath: inverseNewPath }
       }
 
@@ -514,7 +519,7 @@ export const Operation: OperationInterface = {
       }
 
       case 'split_node': {
-        return { ...op, type: 'merge_node', path: Path.next(op.path) }
+        return { ...op, type: 'merge_node', path: PathApi.next(op.path) }
       }
 
       default:

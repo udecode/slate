@@ -2,9 +2,9 @@ import {
   type Node,
   type Path,
   type RuntimeId,
-  Node as SlateNode,
+  NodeApi as SlateNode,
   type Text as SlateText,
-  Text,
+  TextApi,
 } from 'slate'
 import {
   Editor,
@@ -61,6 +61,6 @@ export const readRuntimeTextById = (
 
   return {
     ...binding,
-    text: binding.node && Text.isText(binding.node) ? binding.node : null,
+    text: binding.node && TextApi.isText(binding.node) ? binding.node : null,
   }
 }

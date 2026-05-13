@@ -2,10 +2,10 @@ import { applyOperation, runEditorTransaction } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { nodes as getNodes } from '../editor/nodes'
 import { createInternalRangeRef } from '../editor/range-ref'
-import { Location } from '../interfaces'
+import { LocationApi } from '../interfaces'
 import { Editor } from '../interfaces/editor'
-import { Node } from '../interfaces/node'
-import { Range } from '../interfaces/range'
+import { type Node, NodeApi } from '../interfaces/node'
+import { RangeApi } from '../interfaces/range'
 import { NON_SETTABLE_NODE_PROPERTIES } from '../interfaces/transforms/general'
 import type { NodeMutationMethods } from '../interfaces/transforms/node'
 import { matchPath } from '../utils/match-path'
@@ -38,18 +38,18 @@ export const setNodes: NodeMutationMethods['setNodes'] = (
       }
 
       if (match == null) {
-        match = Location.isPath(at)
+        match = LocationApi.isPath(at)
           ? matchPath(editor, at)
-          : (n) => Node.isElement(n) && Editor.isBlock(editor, n)
+          : (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n)
       }
 
-      if (!hanging && Location.isRange(at)) {
+      if (!hanging && LocationApi.isRange(at)) {
         at = Editor.unhangRange(editor, at, { voids })
       }
 
-      if (split && Location.isRange(at)) {
+      if (split && LocationApi.isRange(at)) {
         if (
-          Range.isCollapsed(at) &&
+          RangeApi.isCollapsed(at) &&
           Editor.leaf(editor, at.anchor)[0].text.length > 0
         ) {
           // If the range is collapsed in a non-empty node and 'split' is true, there's nothing to
@@ -59,7 +59,7 @@ export const setNodes: NodeMutationMethods['setNodes'] = (
         const rangeRef = createInternalRangeRef(editor, at, {
           affinity: 'inward',
         })
-        const [start, end] = Range.edges(at)
+        const [start, end] = RangeApi.edges(at)
         const splitMode = mode === 'lowest' ? 'lowest' : 'highest'
         const endAtEndOfNode = Editor.isEnd(editor, end, end.path)
         transforms.splitNodes({

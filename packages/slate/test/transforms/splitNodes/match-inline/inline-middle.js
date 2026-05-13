@@ -1,11 +1,11 @@
 import { Editor } from 'slate/internal'
 /** @jsx jsx */
 
-import { Element } from 'slate'
+import { ElementApi } from 'slate'
 
 export const run = (editor) => {
   editor.nodes.split({
-    match: (n) => Element.isElement(n) && Editor.isInline(editor, n),
+    match: (n) => ElementApi.isElement(n) && Editor.isInline(editor, n),
   })
 }
 

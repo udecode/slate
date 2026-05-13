@@ -2,13 +2,14 @@ import type React from 'react'
 import { type KeyboardEvent, type PointerEvent, useCallback } from 'react'
 import {
   type Descendant,
-  Node,
-  Path,
-  Point,
-  Range,
+  type Node,
+  NodeApi,
+  PathApi,
+  PointApi,
+  RangeApi,
   type Element as SlateElement,
   type Text as SlateText,
-  Text,
+  TextApi,
 } from 'slate'
 import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
@@ -160,14 +161,14 @@ const handleExitBlockEnter = (
 
   const selection = editor.read((state) => state.selection.get())
 
-  if (!selection || !Range.isCollapsed(selection)) {
+  if (!selection || !RangeApi.isCollapsed(selection)) {
     return false
   }
 
   const blockEntry = editor.read((state) =>
     state.nodes.above({
       at: selection,
-      match: (n) => Node.isElement(n) && state.nodes.isBlock(n),
+      match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
     })
   )
 
@@ -178,20 +179,20 @@ const handleExitBlockEnter = (
   const [block, blockPath] = blockEntry
 
   if (
-    !Node.isElement(block) ||
+    !NodeApi.isElement(block) ||
     !isExitOnEnterType(block.type as CustomElementType)
   ) {
     return false
   }
 
-  const blockText = Node.string(block)
+  const blockText = NodeApi.string(block)
   const end = editor.read((state) => state.points.end(blockPath))
 
-  if (blockText !== '' && !Point.equals(selection.anchor, end)) {
+  if (blockText !== '' && !PointApi.equals(selection.anchor, end)) {
     return false
   }
 
-  const paragraphPath = Path.next(blockPath)
+  const paragraphPath = PathApi.next(blockPath)
 
   editor.update((tx) => {
     tx.break.insert()
@@ -199,7 +200,7 @@ const handleExitBlockEnter = (
       { type: 'paragraph' },
       {
         at: paragraphPath,
-        match: (n) => Node.isElement(n) && tx.nodes.isBlock(n),
+        match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
       }
     )
   })
@@ -218,14 +219,14 @@ const toggleBlock = (editor: CustomEditor, format: CustomElementFormat) => {
     ? editor.read((state) => {
         const selection = state.selection.get()
 
-        if (!selection || !Range.isCollapsed(selection)) {
+        if (!selection || !RangeApi.isCollapsed(selection)) {
           return null
         }
 
         return (
           state.nodes.above({
             at: selection,
-            match: (n) => Node.isElement(n) && state.nodes.isBlock(n),
+            match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
           })?.[1] ?? null
         )
       })
@@ -238,7 +239,7 @@ const toggleBlock = (editor: CustomEditor, format: CustomElementFormat) => {
           { align: isActive ? undefined : format },
           {
             at: alignBlockPath,
-            match: (n) => Node.isElement(n) && tx.nodes.isBlock(n),
+            match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
           }
         )
         return
@@ -246,21 +247,21 @@ const toggleBlock = (editor: CustomEditor, format: CustomElementFormat) => {
 
       tx.nodes.set(
         { align: isActive ? undefined : format },
-        { match: (n) => Node.isElement(n) && tx.nodes.isBlock(n) }
+        { match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n) }
       )
       return
     }
 
     tx.nodes.unwrap({
       match: (n) =>
-        Node.isElement(n) &&
+        NodeApi.isElement(n) &&
         isListType((n as SlateElement).type as CustomElementFormat),
       split: true,
     })
 
     tx.nodes.set(
       { type: isActive ? 'paragraph' : isList ? 'list-item' : format },
-      { match: (n) => Node.isElement(n) && tx.nodes.isBlock(n) }
+      { match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n) }
     )
 
     if (!isActive && isList) {
@@ -277,7 +278,7 @@ const clearRichTextFormatting = (editor: CustomEditor) => {
 
     tx.nodes.set(
       { align: undefined },
-      { match: (n) => Node.isElement(n) && tx.nodes.isBlock(n) }
+      { match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n) }
     )
   })
 }
@@ -302,11 +303,11 @@ const normalizeRichTextHtmlNode = (node: unknown): Descendant[] => {
     return [{ text: node }]
   }
 
-  if (Text.isText(node)) {
+  if (TextApi.isText(node)) {
     return [toRichTextLeaf(node)]
   }
 
-  if (!node || typeof node !== 'object' || !Node.isElement(node as Node)) {
+  if (!node || typeof node !== 'object' || !NodeApi.isElement(node as Node)) {
     return []
   }
 
@@ -342,7 +343,7 @@ const normalizeRichTextHtmlFragment = (fragment: unknown): CustomValue => {
   }
 
   for (const node of nodes) {
-    if (Text.isText(node)) {
+    if (TextApi.isText(node)) {
       inlineChildren.push(node)
       continue
     }
@@ -411,7 +412,7 @@ const isBlockActive = (
       state.nodes.match({
         at: state.ranges.unhang(selection),
         match: (n) => {
-          if (Node.isElement(n)) {
+          if (NodeApi.isElement(n)) {
             if (blockType === 'align' && isAlignElement(n)) {
               return n.align === format
             }

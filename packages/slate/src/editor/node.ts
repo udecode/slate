@@ -4,7 +4,7 @@ import {
   type Editor as SlateEditor,
 } from '../interfaces/editor'
 import type { Location } from '../interfaces/location'
-import { Node, type NodeEntry } from '../interfaces/node'
+import { NodeApi, type NodeEntry } from '../interfaces/node'
 
 export const node = (
   editor: SlateEditor,
@@ -12,6 +12,6 @@ export const node = (
   options: EditorNodeOptions = {}
 ): NodeEntry => {
   const path = Editor.path(editor, at, options)
-  const node = Node.get(editor, path)
+  const node = NodeApi.get(editor, path)
   return [node, path]
 }

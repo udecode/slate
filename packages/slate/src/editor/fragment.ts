@@ -1,7 +1,7 @@
 import { Editor, type EditorStaticApi, type Value } from '../interfaces/editor'
 import type { DescendantIn } from '../interfaces/node'
-import { Node } from '../interfaces/node'
-import { Range } from '../interfaces/range'
+import { NodeApi } from '../interfaces/node'
+import { RangeApi } from '../interfaces/range'
 
 export const fragment = (<V extends Value>(
   editor: import('../interfaces/editor').Editor<V>,
@@ -9,9 +9,9 @@ export const fragment = (<V extends Value>(
 ): DescendantIn<V>[] => {
   const range = Editor.range(editor, at)
 
-  if (Range.isCollapsed(range)) {
+  if (RangeApi.isCollapsed(range)) {
     return []
   }
 
-  return Node.fragment(editor, range) as DescendantIn<V>[]
+  return NodeApi.fragment(editor, range) as DescendantIn<V>[]
 }) satisfies EditorStaticApi['fragment']

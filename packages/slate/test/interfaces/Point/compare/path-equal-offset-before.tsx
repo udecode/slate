@@ -1,6 +1,6 @@
 /** @jsx jsx */
 
-import { Point } from 'slate'
+import { PointApi } from 'slate'
 
 export const input = {
   point: {
@@ -13,6 +13,6 @@ export const input = {
   },
 }
 export const test = ({ point, another }) => {
-  return Point.compare(point, another)
+  return PointApi.compare(point, another)
 }
 export const output = -1

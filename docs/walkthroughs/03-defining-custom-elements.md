@@ -124,7 +124,7 @@ Okay, but now we'll need a way for the user to actually turn a block into a code
 
 ```jsx
 // Import the `Element` helper from Slate.
-import { Element } from 'slate'
+import { ElementApi } from 'slate'
 
 const initialValue = [
   {
@@ -158,7 +158,7 @@ const App = () => {
               tx.nodes.set(
                 { type: 'code' },
                 {
-                  match: n => Element.isElement(n) && tx.schema.isBlock(n),
+                  match: n => ElementApi.isElement(n) && tx.schema.isBlock(n),
                 }
               )
             })
@@ -224,7 +224,7 @@ const App = () => {
               tx.nodes.set(
                 { type: match ? 'paragraph' : 'code' },
                 {
-                  match: n => Element.isElement(n) && tx.schema.isBlock(n),
+                  match: n => ElementApi.isElement(n) && tx.schema.isBlock(n),
                 }
               )
             })

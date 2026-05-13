@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { Range } from 'slate'
+import { type Range, RangeApi } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -103,8 +103,8 @@ const MentionExample = () => {
         const match = editor.read((state) => {
           const selection = state.selection.get()
 
-          if (selection && Range.isCollapsed(selection)) {
-            const [start] = Range.edges(selection)
+          if (selection && RangeApi.isCollapsed(selection)) {
+            const [start] = RangeApi.edges(selection)
             const wordBefore = state.points.before(start, { unit: 'word' })
             const before = wordBefore && state.points.before(wordBefore)
             const beforeRange =

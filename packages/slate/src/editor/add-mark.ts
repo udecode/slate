@@ -3,9 +3,9 @@ import { getEditorSchema } from '../core/editor-runtime'
 import { getCurrentMarks, runEditorTransaction } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { Editor, type EditorStaticApi } from '../interfaces/editor'
-import { Node } from '../interfaces/node'
+import { type Node, NodeApi } from '../interfaces/node'
 import type { Path } from '../interfaces/path'
-import { Range } from '../interfaces/range'
+import { RangeApi } from '../interfaces/range'
 import { node } from './node'
 
 type AddMarkCommand = {
@@ -18,16 +18,16 @@ const applyAddMark: EditorStaticApi['addMark'] = (editor, key, value) => {
   runEditorTransaction(editor, (tx) => {
     const selection = tx.resolveTarget()
 
-    if (!selection || !Range.isRange(selection)) {
+    if (!selection || !RangeApi.isRange(selection)) {
       return
     }
 
     const match = (node: Node, path: Path) => {
-      if (!Node.isText(node)) {
+      if (!NodeApi.isText(node)) {
         return false // marks can only be applied to text
       }
       const [parentNode] = Editor.parent(editor, path)
-      if (!Node.isElement(parentNode)) {
+      if (!NodeApi.isElement(parentNode)) {
         return false
       }
       return (
@@ -35,14 +35,14 @@ const applyAddMark: EditorStaticApi['addMark'] = (editor, key, value) => {
         getEditorSchema(editor).markableVoid(parentNode)
       )
     }
-    const expandedSelection = Range.isExpanded(selection)
+    const expandedSelection = RangeApi.isExpanded(selection)
     let markAcceptingVoidSelected = false
     if (!expandedSelection) {
       const [selectedNode, selectedPath] = node(editor, selection)
       if (selectedNode && match(selectedNode, selectedPath)) {
         const [parentNode] = Editor.parent(editor, selectedPath)
         markAcceptingVoidSelected =
-          Node.isElement(parentNode) &&
+          NodeApi.isElement(parentNode) &&
           getEditorSchema(editor).markableVoid(parentNode)
       }
     }

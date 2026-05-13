@@ -1,4 +1,4 @@
-import { createEditor, Text } from 'slate'
+import { createEditor, TextApi } from 'slate'
 import { Editor } from 'slate/internal'
 import {
   readRuntimeNode,
@@ -42,7 +42,7 @@ describe('slate-react runtime live state facade', () => {
     expect(blockBinding.path).toEqual([0])
     expect(blockBinding.node).toBe(block)
     expect(textBinding.path).toEqual([0, 0])
-    expect(Text.isText(textBinding.text)).toBe(true)
+    expect(TextApi.isText(textBinding.text)).toBe(true)
     expect(textBinding.text?.text).toBe('alpha')
   })
 

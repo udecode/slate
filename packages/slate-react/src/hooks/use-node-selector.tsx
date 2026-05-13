@@ -5,7 +5,8 @@ import {
   type Path,
   type RuntimeId,
   type SnapshotChange,
-  Text,
+  type Text,
+  TextApi,
 } from 'slate'
 import { NodeRuntimeIdContext } from '../context'
 import { readRuntimeNodeById } from '../editable/runtime-live-state'
@@ -135,7 +136,8 @@ export function useTextSelector<T>(
     (context: EditorNodeSelectorContext) =>
       selector({
         ...context,
-        text: context.node && Text.isText(context.node) ? context.node : null,
+        text:
+          context.node && TextApi.isText(context.node) ? context.node : null,
       }),
     [selector]
   )
@@ -152,7 +154,8 @@ export function useMountedTextRenderSelector<T>(
     (context: EditorNodeSelectorContext) =>
       selector({
         ...context,
-        text: context.node && Text.isText(context.node) ? context.node : null,
+        text:
+          context.node && TextApi.isText(context.node) ? context.node : null,
       }),
     [selector]
   )

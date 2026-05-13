@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { Editor } from 'slate/internal'
-import { createEditor, type Descendant, Node } from '../src'
+import { createEditor, type Descendant, NodeApi } from '../src'
 import { setEditorTargetRuntime } from '../src/internal'
 import { extendTestSchema } from './support/schema'
 
@@ -447,7 +447,7 @@ describe('primitive method runtime contract', () => {
 
     editor.update((tx) => {
       tx.nodes.unwrap({
-        match: (node) => Node.isElement(node) && node.type === 'quote',
+        match: (node) => NodeApi.isElement(node) && node.type === 'quote',
       })
     })
 
@@ -475,7 +475,7 @@ describe('primitive method runtime contract', () => {
 
     editor.update((tx) => {
       tx.nodes.lift({
-        match: (node) => Node.isElement(node) && node.type === 'paragraph',
+        match: (node) => NodeApi.isElement(node) && node.type === 'paragraph',
       })
     })
 
@@ -529,7 +529,7 @@ describe('primitive method runtime contract', () => {
     })
 
     editor.update((tx) => {
-      tx.nodes.merge({ match: (node) => Node.isText(node) })
+      tx.nodes.merge({ match: (node) => NodeApi.isText(node) })
     })
 
     assert.equal(calls, 1)

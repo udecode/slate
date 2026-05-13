@@ -1,5 +1,5 @@
 import type { ClipboardEvent, DragEvent } from 'react'
-import { Node, Range } from 'slate'
+import { NodeApi, RangeApi } from 'slate'
 import {
   HAS_BEFORE_INPUT_SUPPORT,
   IS_WEBKIT,
@@ -117,7 +117,7 @@ const resolveDragTarget = (editor: ReactEditor, target: EventTarget) => {
     const node = ReactEditor.toSlateNode(editor, target)
     const path = ReactEditor.findPath(editor, node)
 
-    if (!Editor.hasPath(editor, path) || Node.get(editor, path) !== node) {
+    if (!Editor.hasPath(editor, path) || NodeApi.get(editor, path) !== node) {
       return null
     }
 
@@ -205,18 +205,21 @@ export const applyEditableCut = ({
     const selection = editor.read((state) => state.selection.get())
 
     if (selection) {
-      if (Range.isExpanded(selection)) {
+      if (RangeApi.isExpanded(selection)) {
         const command: EditableCommand = { kind: 'delete-fragment' }
         const inlineEntry = Editor.above(editor, {
-          at: Range.start(selection),
+          at: RangeApi.start(selection),
           match: (node) =>
-            Node.isElement(node) && Editor.isInline(editor, node),
+            NodeApi.isElement(node) && Editor.isInline(editor, node),
         })
         const inlinePath = inlineEntry?.[1]
         const inlineBeforePoint = inlinePath
           ? Editor.before(editor, inlinePath)
           : null
-        const collapsePointRef = Editor.pointRef(editor, Range.start(selection))
+        const collapsePointRef = Editor.pointRef(
+          editor,
+          RangeApi.start(selection)
+        )
         applyEditableCommand({ command, editor })
         const collapsePoint = collapsePointRef.unref()
         const shouldRemoveEmptyInline =
@@ -227,9 +230,9 @@ export const applyEditableCut = ({
               state.nodes.get(inlinePath)
             )
             return (
-              Node.isElement(inlineNode) &&
+              NodeApi.isElement(inlineNode) &&
               Editor.isInline(editor, inlineNode) &&
-              Node.string(inlineNode) === ''
+              NodeApi.string(inlineNode) === ''
             )
           })()
 
@@ -291,8 +294,8 @@ export const applyEditableCut = ({
 
         return clipboardResult({ command })
       }
-      const node = Node.parent(editor, selection.anchor.path)
-      if (Node.isElement(node) && Editor.isVoid(editor, node)) {
+      const node = NodeApi.parent(editor, selection.anchor.path)
+      if (NodeApi.isElement(node) && Editor.isVoid(editor, node)) {
         const command: EditableCommand = { kind: 'delete-fragment' }
 
         editor.update((tx) => {
@@ -360,7 +363,7 @@ export const applyEditableDragOver = ({
     const target = resolveDragTarget(editor, event.target)
     const node = target?.node
 
-    if (node && Node.isElement(node) && Editor.isVoid(editor, node)) {
+    if (node && NodeApi.isElement(node) && Editor.isVoid(editor, node)) {
       event.preventDefault()
     }
   }
@@ -392,7 +395,7 @@ export const applyEditableDragStart = ({
 
     const { node, path } = target
     const voidMatch =
-      (Node.isElement(node) && Editor.isVoid(editor, node)) ||
+      (NodeApi.isElement(node) && Editor.isVoid(editor, node)) ||
       Editor.void(editor, { at: path, voids: true })
 
     // If starting a drag on a void node, make sure it is selected
@@ -447,7 +450,7 @@ export const applyEditableDrop = ({
     if (
       state.isDraggingInternally &&
       draggedRange &&
-      !Range.equals(draggedRange, range) &&
+      !RangeApi.equals(draggedRange, range) &&
       !Editor.void(editor, { at: range, voids: true })
     ) {
       editor.update((tx) => {

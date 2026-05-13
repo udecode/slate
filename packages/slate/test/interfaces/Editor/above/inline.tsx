@@ -1,7 +1,7 @@
 import { Editor } from 'slate/internal'
 /** @jsx jsx */
 
-import { Element } from 'slate'
+import { ElementApi } from 'slate'
 
 export const input = (
   <editor>
@@ -14,7 +14,7 @@ export const input = (
 export const test = (editor) => {
   return Editor.above(editor, {
     at: [0, 1, 0],
-    match: (n) => Element.isElement(n) && Editor.isInline(editor, n),
+    match: (n) => ElementApi.isElement(n) && Editor.isInline(editor, n),
   })
 }
 

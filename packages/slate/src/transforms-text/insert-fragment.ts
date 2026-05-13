@@ -3,18 +3,18 @@ import { getEditorSchema } from '../core/editor-runtime'
 import { getOperationCount, runEditorTransaction } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { nodes as getNodes } from '../editor/nodes'
-import { Location } from '../interfaces'
+import { LocationApi } from '../interfaces'
 import type { Value } from '../interfaces/editor'
 import { Editor } from '../interfaces/editor'
 import type { Element } from '../interfaces/element'
 import {
   type Ancestor,
   type Descendant,
-  Node,
+  NodeApi,
   type NodeEntry,
 } from '../interfaces/node'
-import { Path } from '../interfaces/path'
-import { Range } from '../interfaces/range'
+import { type Path, PathApi } from '../interfaces/path'
+import { type Range, RangeApi } from '../interfaces/range'
 import type { Text } from '../interfaces/text'
 import type { TextMutationMethods } from '../interfaces/transforms/text'
 import { getDefaultInsertLocation } from '../utils'
@@ -34,7 +34,7 @@ const samePoint = (
   left.path.every((segment, index) => segment === right.path[index])
 
 const isFullDocumentRange = (editor: Editor, range: Range) => {
-  if (Range.isCollapsed(range)) {
+  if (RangeApi.isCollapsed(range)) {
     return false
   }
 
@@ -52,8 +52,11 @@ const isFullDocumentRange = (editor: Editor, range: Range) => {
 }
 
 const getFragmentEndSelection = (fragment: Descendant[]) => {
-  const [lastNode, lastPath] = Node.last({ children: fragment } as Ancestor, [])
-  const offset = Node.string(lastNode).length
+  const [lastNode, lastPath] = NodeApi.last(
+    { children: fragment } as Ancestor,
+    []
+  )
+  const offset = NodeApi.string(lastNode).length
 
   return {
     anchor: { path: lastPath, offset },
@@ -81,8 +84,8 @@ const getBlockChildrenEndSelection = (
   blockPath: Path,
   children: Descendant[]
 ) => {
-  const [lastNode, lastPath] = Node.last({ children } as Ancestor, [])
-  const offset = Node.string(lastNode).length
+  const [lastNode, lastPath] = NodeApi.last({ children } as Ancestor, [])
+  const offset = NodeApi.string(lastNode).length
   const path = blockPath.concat(lastPath)
 
   return {
@@ -95,7 +98,7 @@ const isTextBlockElement = (
   editor: Editor,
   node: Descendant | undefined
 ): node is Element => {
-  if (!node || !Node.isElement(node)) {
+  if (!node || !NodeApi.isElement(node)) {
     return false
   }
 
@@ -106,7 +109,8 @@ const isTextBlockElement = (
     !schema.isInline(node) &&
     node.children.every(
       (child) =>
-        Node.isText(child) || (Node.isElement(child) && schema.isInline(child))
+        NodeApi.isText(child) ||
+        (NodeApi.isElement(child) && schema.isInline(child))
     )
   )
 }
@@ -115,7 +119,7 @@ const isBlockElement = (
   editor: Editor,
   node: Descendant | undefined
 ): node is Element => {
-  if (!node || !Node.isElement(node)) {
+  if (!node || !NodeApi.isElement(node)) {
     return false
   }
 
@@ -136,11 +140,11 @@ const getTextChildrenEndPoint = (children: Descendant[], fallbackIndex = 0) => {
   const root = { children } as Ancestor
   const [lastNode, lastPath] =
     children.length > 0
-      ? Node.last(root, [])
+      ? NodeApi.last(root, [])
       : [{ text: '' } as Text, [fallbackIndex]]
 
   return {
-    offset: Node.string(lastNode).length,
+    offset: NodeApi.string(lastNode).length,
     path: lastPath,
   }
 }
@@ -164,12 +168,12 @@ const cloneDescendant = <T extends Descendant>(node: T): T =>
   structuredClone(node)
 
 const pushBlockChild = (children: Descendant[], child: Descendant) => {
-  if (Node.isText(child)) {
+  if (NodeApi.isText(child)) {
     const previous = children.at(-1)
 
     if (
       previous &&
-      Node.isText(previous) &&
+      NodeApi.isText(previous) &&
       haveSameTextProps(previous, child)
     ) {
       const offset = previous.text.length + child.text.length
@@ -188,10 +192,10 @@ const pushBlockChild = (children: Descendant[], child: Descendant) => {
 
   children.push(nextChild)
 
-  const [lastNode, lastPath] = Node.last(nextChild, [])
+  const [lastNode, lastPath] = NodeApi.last(nextChild, [])
 
   return {
-    offset: Node.string(lastNode).length,
+    offset: NodeApi.string(lastNode).length,
     path: [index].concat(lastPath),
   }
 }
@@ -202,7 +206,7 @@ const getSingleEmptyBlockFragmentReplacement = (
   fragment: Descendant[]
 ) => {
   if (
-    !Range.isCollapsed(at) ||
+    !RangeApi.isCollapsed(at) ||
     !samePoint(at.anchor, { path: [0, 0], offset: 0 })
   ) {
     return null
@@ -216,7 +220,7 @@ const getSingleEmptyBlockFragmentReplacement = (
     editorChildren.length !== 1 ||
     !isTextBlockElement(editor, onlyEditorNode) ||
     onlyEditorNode.children.length !== 1 ||
-    !Node.isText(onlyEditorNode.children[0]) ||
+    !NodeApi.isText(onlyEditorNode.children[0]) ||
     onlyEditorNode.children[0].text !== ''
   ) {
     return null
@@ -273,11 +277,11 @@ const getTopLevelBlockFragmentReplacement = (
   at: Range,
   fragment: Descendant[]
 ) => {
-  if (Range.isCollapsed(at)) {
+  if (RangeApi.isCollapsed(at)) {
     return null
   }
 
-  const [start, end] = Range.edges(at)
+  const [start, end] = RangeApi.edges(at)
   const startIndex = start.path[0]
   const endIndex = end.path[0]
 
@@ -333,7 +337,7 @@ const getSingleTextBlockFragmentReplacement = (
     return null
   }
 
-  const [start, end] = Range.edges(at)
+  const [start, end] = RangeApi.edges(at)
 
   if (
     start.path.length === 0 ||
@@ -353,7 +357,7 @@ const getSingleTextBlockFragmentReplacement = (
 
   const blockMatch = Editor.above(editor, {
     at: start,
-    match: (node) => Node.isElement(node) && Editor.isBlock(editor, node),
+    match: (node) => NodeApi.isElement(node) && Editor.isBlock(editor, node),
   })
 
   if (!blockMatch) {
@@ -362,7 +366,7 @@ const getSingleTextBlockFragmentReplacement = (
 
   const [block, blockPath] = blockMatch
 
-  if (!Node.isElement(block) || !isTextBlockElement(editor, block)) {
+  if (!NodeApi.isElement(block) || !isTextBlockElement(editor, block)) {
     return null
   }
 
@@ -379,7 +383,7 @@ const getSingleTextBlockFragmentReplacement = (
 
   const targetChild = block.children[textIndex]
 
-  if (Node.isText(targetChild)) {
+  if (NodeApi.isText(targetChild)) {
     if (start.path.length !== blockPath.length + 1) {
       return null
     }
@@ -439,7 +443,10 @@ const getSingleTextBlockFragmentReplacement = (
     }
   }
 
-  if (!Node.isElement(targetChild) || !Editor.isInline(editor, targetChild)) {
+  if (
+    !NodeApi.isElement(targetChild) ||
+    !Editor.isInline(editor, targetChild)
+  ) {
     return null
   }
 
@@ -455,7 +462,7 @@ const getSingleTextBlockFragmentReplacement = (
 
   const targetText = targetChild.children[targetTextIndex]
 
-  if (!Node.isText(targetText)) {
+  if (!NodeApi.isText(targetText)) {
     return null
   }
 
@@ -532,7 +539,7 @@ const getTopLevelTextBlockFragmentReplacement = (
     return null
   }
 
-  const [start, end] = Range.edges(at)
+  const [start, end] = RangeApi.edges(at)
 
   if (
     start.path.length === 0 ||
@@ -552,7 +559,7 @@ const getTopLevelTextBlockFragmentReplacement = (
 
   const blockMatch = Editor.above(editor, {
     at: start,
-    match: (node) => Node.isElement(node) && Editor.isBlock(editor, node),
+    match: (node) => NodeApi.isElement(node) && Editor.isBlock(editor, node),
   })
 
   if (!blockMatch) {
@@ -563,7 +570,7 @@ const getTopLevelTextBlockFragmentReplacement = (
 
   if (
     blockPath.length !== 1 ||
-    !Node.isElement(block) ||
+    !NodeApi.isElement(block) ||
     !isTextBlockElement(editor, block)
   ) {
     return null
@@ -581,7 +588,7 @@ const getTopLevelTextBlockFragmentReplacement = (
 
   const targetText = block.children[textIndex]
 
-  if (!Node.isText(targetText)) {
+  if (!NodeApi.isText(targetText)) {
     return null
   }
 
@@ -674,7 +681,7 @@ const getTopLevelStructuralBlockFragmentReplacement = (
     return null
   }
 
-  const [start, end] = Range.edges(at)
+  const [start, end] = RangeApi.edges(at)
 
   if (
     start.path.length === 0 ||
@@ -694,7 +701,7 @@ const getTopLevelStructuralBlockFragmentReplacement = (
 
   const blockMatch = Editor.above(editor, {
     at: start,
-    match: (node) => Node.isElement(node) && Editor.isBlock(editor, node),
+    match: (node) => NodeApi.isElement(node) && Editor.isBlock(editor, node),
   })
 
   if (!blockMatch) {
@@ -705,7 +712,7 @@ const getTopLevelStructuralBlockFragmentReplacement = (
 
   if (
     blockPath.length !== 1 ||
-    !Node.isElement(block) ||
+    !NodeApi.isElement(block) ||
     !isTextBlockElement(editor, block)
   ) {
     return null
@@ -723,7 +730,7 @@ const getTopLevelStructuralBlockFragmentReplacement = (
 
   const targetText = block.children[textIndex]
 
-  if (!Node.isText(targetText)) {
+  if (!NodeApi.isText(targetText)) {
     return null
   }
 
@@ -793,7 +800,7 @@ const getNestedTextBlockFragmentReplacement = (
     return null
   }
 
-  const [start, end] = Range.edges(at)
+  const [start, end] = RangeApi.edges(at)
 
   if (
     start.path.length === 0 ||
@@ -813,7 +820,7 @@ const getNestedTextBlockFragmentReplacement = (
 
   const blockMatch = Editor.above(editor, {
     at: start,
-    match: (node) => Node.isElement(node) && Editor.isBlock(editor, node),
+    match: (node) => NodeApi.isElement(node) && Editor.isBlock(editor, node),
   })
 
   if (!blockMatch) {
@@ -824,16 +831,16 @@ const getNestedTextBlockFragmentReplacement = (
 
   if (
     blockPath.length < 2 ||
-    !Node.isElement(block) ||
+    !NodeApi.isElement(block) ||
     !isTextBlockElement(editor, block)
   ) {
     return null
   }
 
-  const parentPath = Path.parent(blockPath)
-  const parent = Node.get(editor, parentPath)
+  const parentPath = PathApi.parent(blockPath)
+  const parent = NodeApi.get(editor, parentPath)
 
-  if (!Node.isElement(parent) || !isStructuralBlockElement(editor, parent)) {
+  if (!NodeApi.isElement(parent) || !isStructuralBlockElement(editor, parent)) {
     return null
   }
 
@@ -849,7 +856,7 @@ const getNestedTextBlockFragmentReplacement = (
 
   const targetText = block.children[textIndex]
 
-  if (!Node.isText(targetText)) {
+  if (!NodeApi.isText(targetText)) {
     return null
   }
 
@@ -889,7 +896,7 @@ const getNestedTextBlockFragmentReplacement = (
   const firstFragmentNode = fragment[0]
 
   if (
-    Node.isElement(firstFragmentNode) &&
+    NodeApi.isElement(firstFragmentNode) &&
     isCompatibleStructuralContainer(editor, parent, firstFragmentNode)
   ) {
     const [onlyFragmentChild] = firstFragmentNode.children
@@ -897,7 +904,7 @@ const getNestedTextBlockFragmentReplacement = (
     if (
       fragment.length === 1 &&
       firstFragmentNode.children.length === 1 &&
-      Node.isElement(onlyFragmentChild) &&
+      NodeApi.isElement(onlyFragmentChild) &&
       isTextBlockElement(editor, onlyFragmentChild) &&
       hasSameElementType(block, onlyFragmentChild)
     ) {
@@ -1133,7 +1140,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         return
       }
 
-      if (Location.isRange(at)) {
+      if (LocationApi.isRange(at)) {
         if (!hanging) {
           at = Editor.unhangRange(editor, at, { voids })
         }
@@ -1289,10 +1296,10 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
           return
         }
 
-        if (Range.isCollapsed(at)) {
+        if (RangeApi.isCollapsed(at)) {
           at = at.anchor
         } else {
-          const [, end] = Range.edges(at)
+          const [, end] = RangeApi.edges(at)
 
           if (!voids && Editor.void(editor, { at: end })) {
             return
@@ -1302,7 +1309,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
           transforms.delete({ at })
           at = pointRef.unref()!
         }
-      } else if (Location.isPath(at)) {
+      } else if (LocationApi.isPath(at)) {
         at = Editor.point(editor, at, { edge: 'start' })
       }
 
@@ -1314,7 +1321,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
       // instead since it will need to be split otherwise.
       const inlineElementMatch = Editor.above(editor, {
         at,
-        match: (n) => Node.isElement(n) && Editor.isInline(editor, n),
+        match: (n) => NodeApi.isElement(n) && Editor.isInline(editor, n),
         mode: 'highest',
         voids,
       })
@@ -1332,7 +1339,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
       }
 
       const blockMatch = Editor.above(editor, {
-        match: (n) => Node.isElement(n) && Editor.isBlock(editor, n),
+        match: (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n),
         at,
         voids,
       })!
@@ -1341,8 +1348,8 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
       const isBlockEnd = Editor.isEnd(editor, at, blockPath)
       const isBlockEmpty = isBlockStart && isBlockEnd
       const fragmentRoot = { children: fragment } as Ancestor
-      const [, firstLeafPath] = Node.first(fragmentRoot, [])
-      const [, lastLeafPath] = Node.last(fragmentRoot, [])
+      const [, firstLeafPath] = NodeApi.first(fragmentRoot, [])
+      const [, lastLeafPath] = NodeApi.last(fragmentRoot, [])
       const [onlyFragmentNode] = fragment
       const preserveEmptyTargetBlock =
         isBlockEmpty &&
@@ -1374,8 +1381,8 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         // non-void blocks that contain the first leaf node in the fragment.
         if (
           !isBlockStart &&
-          Path.isAncestor(p, firstLeafPath) &&
-          Node.isElement(n) &&
+          PathApi.isAncestor(p, firstLeafPath) &&
+          NodeApi.isElement(n) &&
           !getEditorSchema(editor).isVoid(n) &&
           !getEditorSchema(editor).isInline(n)
         ) {
@@ -1386,8 +1393,8 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         // blocks that contain the last leaf node in the fragment.
         if (
           !isBlockEnd &&
-          Path.isAncestor(p, lastLeafPath) &&
-          Node.isElement(n) &&
+          PathApi.isAncestor(p, lastLeafPath) &&
+          NodeApi.isElement(n) &&
           !getEditorSchema(editor).isVoid(n) &&
           !getEditorSchema(editor).isInline(n)
         ) {
@@ -1413,10 +1420,10 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
       // empty.
       const ends: Descendant[] = []
 
-      for (const entry of Node.nodes(fragmentRoot, { pass: shouldInsert })) {
+      for (const entry of NodeApi.nodes(fragmentRoot, { pass: shouldInsert })) {
         const [node, path] = entry
 
-        if (Node.isEditor(node)) {
+        if (NodeApi.isEditor(node)) {
           continue
         }
 
@@ -1424,15 +1431,18 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         // longer in the first block of the fragment.
         if (
           starting &&
-          Node.isElement(node) &&
+          NodeApi.isElement(node) &&
           !getEditorSchema(editor).isInline(node) &&
-          !Path.isAncestor(path, firstLeafPath)
+          !PathApi.isAncestor(path, firstLeafPath)
         ) {
           starting = false
         }
 
         if (shouldInsert(entry)) {
-          if (Node.isElement(node) && !getEditorSchema(editor).isInline(node)) {
+          if (
+            NodeApi.isElement(node) &&
+            !getEditorSchema(editor).isInline(node)
+          ) {
             starting = false
             middles.push(node)
           } else if (starting) {
@@ -1446,7 +1456,8 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
       const [inlineMatch] = getNodes(editor, {
         at,
         match: (n) =>
-          Node.isText(n) || (Node.isElement(n) && Editor.isInline(editor, n)),
+          NodeApi.isText(n) ||
+          (NodeApi.isElement(n) && Editor.isInline(editor, n)),
         mode: 'highest',
         voids,
       })!
@@ -1457,12 +1468,12 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
 
       const middleRef = Editor.pathRef(
         editor,
-        isBlockEnd && !ends.length ? Path.next(blockPath) : blockPath
+        isBlockEnd && !ends.length ? PathApi.next(blockPath) : blockPath
       )
 
       const endRef = Editor.pathRef(
         editor,
-        isInlineEnd ? Path.next(inlinePath) : inlinePath
+        isInlineEnd ? PathApi.next(inlinePath) : inlinePath
       )
 
       // If the fragment contains inlines in multiple distinct blocks, split the
@@ -1473,9 +1484,9 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         at,
         match: (n) =>
           splitBlock
-            ? Node.isElement(n) && Editor.isBlock(editor, n)
-            : Node.isText(n) ||
-              (Node.isElement(n) && Editor.isInline(editor, n)),
+            ? NodeApi.isElement(n) && Editor.isBlock(editor, n)
+            : NodeApi.isText(n) ||
+              (NodeApi.isElement(n) && Editor.isInline(editor, n)),
         mode: splitBlock ? 'lowest' : 'highest',
         always:
           splitBlock &&
@@ -1487,14 +1498,15 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
       const startRef = Editor.pathRef(
         editor,
         !isInlineStart || (isInlineStart && isInlineEnd)
-          ? Path.next(inlinePath)
+          ? PathApi.next(inlinePath)
           : inlinePath
       )
 
       transforms.insertNodes(starts, {
         at: startRef.current!,
         match: (n) =>
-          Node.isText(n) || (Node.isElement(n) && Editor.isInline(editor, n)),
+          NodeApi.isText(n) ||
+          (NodeApi.isElement(n) && Editor.isInline(editor, n)),
         mode: 'highest',
         voids,
         batchDirty,
@@ -1506,7 +1518,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
 
       transforms.insertNodes(middles, {
         at: middleRef.current!,
-        match: (n) => Node.isElement(n) && Editor.isBlock(editor, n),
+        match: (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n),
         mode: 'lowest',
         voids,
         batchDirty,
@@ -1515,7 +1527,8 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
       transforms.insertNodes(ends, {
         at: endRef.current!,
         match: (n) =>
-          Node.isText(n) || (Node.isElement(n) && Editor.isInline(editor, n)),
+          NodeApi.isText(n) ||
+          (NodeApi.isElement(n) && Editor.isInline(editor, n)),
         mode: 'highest',
         voids,
         batchDirty,
@@ -1525,11 +1538,11 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         let path: Path | undefined
 
         if (ends.length > 0 && endRef.current) {
-          path = Path.previous(endRef.current)
+          path = PathApi.previous(endRef.current)
         } else if (middles.length > 0 && middleRef.current) {
-          path = Path.previous(middleRef.current)
+          path = PathApi.previous(middleRef.current)
         } else if (startRef.current) {
-          path = Path.previous(startRef.current)
+          path = PathApi.previous(startRef.current)
         }
 
         if (path) {

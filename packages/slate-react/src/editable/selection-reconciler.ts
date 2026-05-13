@@ -4,7 +4,7 @@ import {
   type RefObject,
   useCallback,
 } from 'react'
-import { Node, Path, Range } from 'slate'
+import { NodeApi, PathApi, type Range, RangeApi } from 'slate'
 import {
   containsShadowAware,
   type DOMElement,
@@ -274,7 +274,7 @@ export const applyEditableBlur = ({
     try {
       const node = ReactEditor.toSlateNode(editor, relatedTarget)
 
-      if (Node.isElement(node) && !Editor.isVoid(editor, node)) {
+      if (NodeApi.isElement(node) && !Editor.isVoid(editor, node)) {
         return
       }
     } catch {
@@ -373,7 +373,7 @@ const resolveEditableClickTarget = (
     // and that it still refers to the same node.
     if (
       !Editor.hasPath(editor, fallbackPath) ||
-      Node.get(editor, fallbackPath) !== node
+      NodeApi.get(editor, fallbackPath) !== node
     ) {
       return null
     }
@@ -392,7 +392,7 @@ const resolveEditableVoidClickTarget = (
 
   if (
     resolvedTarget &&
-    Node.isElement(resolvedTarget.node) &&
+    NodeApi.isElement(resolvedTarget.node) &&
     Editor.isVoid(editor, resolvedTarget.node)
   ) {
     return resolvedTarget
@@ -478,9 +478,9 @@ export const applyEditableClick = ({
 
     if (event.detail === TRIPLE_CLICK && path.length >= 1) {
       let blockPath = path
-      if (!(Node.isElement(node) && Editor.isBlock(editor, node))) {
+      if (!(NodeApi.isElement(node) && Editor.isBlock(editor, node))) {
         const block = Editor.above(editor, {
-          match: (n) => Node.isElement(n) && Editor.isBlock(editor, n),
+          match: (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n),
           at: path,
         })
 
@@ -503,7 +503,7 @@ export const applyEditableClick = ({
     const startVoid = Editor.void(editor, { at: start })
     const endVoid = Editor.void(editor, { at: end })
 
-    if (startVoid && endVoid && Path.equals(startVoid[1], endVoid[1])) {
+    if (startVoid && endVoid && PathApi.equals(startVoid[1], endVoid[1])) {
       const range = Editor.range(editor, start)
       ReactEditor.focus(editor)
       editor.update((tx) => {
@@ -624,15 +624,15 @@ export const syncSelectionForBeforeInput = ({
         !(
           preferModelSelectionForInput &&
           type === 'insertText' &&
-          Range.isCollapsed(range)
+          RangeApi.isCollapsed(range)
         ) &&
         (!type.startsWith('delete') ||
           type.startsWith('deleteBy') ||
-          Range.isExpanded(range))
+          RangeApi.isExpanded(range))
 
       if (
         shouldUseTargetRange &&
-        (!nextSelection || !Range.equals(nextSelection, range))
+        (!nextSelection || !RangeApi.equals(nextSelection, range))
       ) {
         nextNative = false
 
@@ -670,7 +670,7 @@ export const syncSelectionForBeforeInput = ({
             suppressThrow: true,
           }))
 
-    if (range && (!nextSelection || !Range.equals(nextSelection, range))) {
+    if (range && (!nextSelection || !RangeApi.equals(nextSelection, range))) {
       nextNative = false
       editor.update((tx) => {
         tx.selection.set(range)
@@ -685,7 +685,7 @@ export const syncSelectionForBeforeInput = ({
     (!nextSelection || !Editor.hasPath(editor, nextSelection.anchor.path)) &&
     Editor.string(editor, []) === ''
   ) {
-    const firstText = Array.from(Node.texts(editor))[0]
+    const firstText = Array.from(NodeApi.texts(editor))[0]
 
     if (firstText) {
       const [, path] = firstText
@@ -707,7 +707,7 @@ export const syncSelectionForBeforeInput = ({
         ? toSlateRangeFromDOMSelection(editor, domSelection, editorElement)
         : null
 
-    if (range && (!nextSelection || !Range.equals(nextSelection, range))) {
+    if (range && (!nextSelection || !RangeApi.equals(nextSelection, range))) {
       editor.update((tx) => {
         tx.selection.set(range)
       })
@@ -733,7 +733,7 @@ export const restoreUserSelectionAfterBeforeInput = ({
   if (
     toRestore &&
     (!readRuntimeSelection(editor) ||
-      !Range.equals(readRuntimeSelection(editor)!, toRestore))
+      !RangeApi.equals(readRuntimeSelection(editor)!, toRestore))
   ) {
     editor.update((tx) => {
       tx.selection.set(toRestore)
@@ -897,7 +897,7 @@ export const useEditableSelectionReconciler = ({
 
         if (
           slateRange &&
-          Range.equals(slateRange, selection) &&
+          RangeApi.equals(slateRange, selection) &&
           !isCollapsedElementSelection
         ) {
           return
@@ -943,7 +943,7 @@ export const useEditableSelectionReconciler = ({
               newDomRange.endOffset
             )
           }
-        } else if (Range.isBackward(selection!)) {
+        } else if (RangeApi.isBackward(selection!)) {
           domSelection.setBaseAndExtent(
             newDomRange.endContainer,
             newDomRange.endOffset,

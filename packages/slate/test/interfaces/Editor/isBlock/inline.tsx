@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Element } from 'slate'
+import { ElementApi } from 'slate'
 
 export const input = (
   <editor>
@@ -16,6 +16,6 @@ export const input = (
 )
 export const test = (editor) => {
   const inline = Editor.getChildren(editor)[0].children[1]
-  return Element.isElement(inline) && Editor.isBlock(editor, inline)
+  return ElementApi.isElement(inline) && Editor.isBlock(editor, inline)
 }
 export const output = false

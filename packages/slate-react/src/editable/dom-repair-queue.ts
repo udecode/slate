@@ -1,4 +1,4 @@
-import { Range } from 'slate'
+import { RangeApi } from 'slate'
 import { type DOMRange, getSelection, isDOMElement, isDOMText } from 'slate-dom'
 import {
   getSlateNodeElementByPath,
@@ -224,7 +224,7 @@ export const createDOMRepairQueue = ({
 
         const selection = readRuntimeSelection(editor)
 
-        if (!selection || !Range.isCollapsed(selection)) {
+        if (!selection || !RangeApi.isCollapsed(selection)) {
           scrollCurrentDOMSelectionIntoView()
           return
         }

@@ -1,6 +1,6 @@
 import { getCurrentSelection } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
-import { Range } from '../interfaces/range'
+import { RangeApi } from '../interfaces/range'
 import type { SelectionMutationMethods } from '../interfaces/transforms/selection'
 
 export const collapse: SelectionMutationMethods['collapse'] = (
@@ -18,10 +18,10 @@ export const collapse: SelectionMutationMethods['collapse'] = (
   } else if (edge === 'focus') {
     getEditorTransformRegistry(editor).select(selection.focus)
   } else if (edge === 'start') {
-    const [start] = Range.edges(selection)
+    const [start] = RangeApi.edges(selection)
     getEditorTransformRegistry(editor).select(start)
   } else if (edge === 'end') {
-    const [, end] = Range.edges(selection)
+    const [, end] = RangeApi.edges(selection)
     getEditorTransformRegistry(editor).select(end)
   }
 }

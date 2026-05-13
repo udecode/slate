@@ -1,5 +1,11 @@
 import { type KeyboardEvent, useCallback, useMemo } from 'react'
-import { Node, Path, Point, Range, type Element as SlateElement } from 'slate'
+import {
+  NodeApi,
+  PathApi,
+  PointApi,
+  RangeApi,
+  type Element as SlateElement,
+} from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -70,7 +76,7 @@ const MarkdownShortcutsExample = () => {
             return false
           }
 
-          const { text } = Node.leaf(editor, path)
+          const { text } = NodeApi.leaf(editor, path)
           const beforeText = text.slice(0, diff.start) + diff.text.slice(0, -1)
           if (!(beforeText in SHORTCUTS)) {
             return false
@@ -79,7 +85,7 @@ const MarkdownShortcutsExample = () => {
           const blockEntry = editor.read((state) =>
             state.nodes.above({
               at: path,
-              match: (n) => Node.isElement(n) && state.nodes.isBlock(n),
+              match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
             })
           )
           if (!blockEntry) {
@@ -130,14 +136,14 @@ const MarkdownShortcutsExample = () => {
 const applyMarkdownTextShortcut = (editor: CustomEditor, text: string) => {
   const selection = editor.read((state) => state.selection.get())
 
-  if (!text.endsWith(' ') || !selection || !Range.isCollapsed(selection)) {
+  if (!text.endsWith(' ') || !selection || !RangeApi.isCollapsed(selection)) {
     return false
   }
 
   const { anchor } = selection
   const block = editor.read((state) =>
     state.nodes.above({
-      match: (n) => Node.isElement(n) && state.nodes.isBlock(n),
+      match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
     })
   )
   const path = block ? block[1] : []
@@ -159,19 +165,19 @@ const applyMarkdownTextShortcut = (editor: CustomEditor, text: string) => {
   editor.update((tx) => {
     tx.selection.set(range)
 
-    if (!Range.isCollapsed(range)) {
+    if (!RangeApi.isCollapsed(range)) {
       tx.text.delete()
     }
 
     tx.nodes.set(newProperties, {
-      match: (n) => Node.isElement(n) && tx.nodes.isBlock(n),
+      match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
     })
 
     if (type === 'list-item') {
       const list = createListElement(beforeText, orderedListMatch)
 
       tx.nodes.wrap(list, {
-        match: (n) => Node.isElement(n) && n.type === 'list-item',
+        match: (n) => NodeApi.isElement(n) && n.type === 'list-item',
       })
 
       if (list.type === 'bulleted-list') {
@@ -189,14 +195,14 @@ const applyMarkdownTextShortcut = (editor: CustomEditor, text: string) => {
 const applyMarkdownHeadingStartEnter = (editor: CustomEditor) => {
   const selection = editor.read((state) => state.selection.get())
 
-  if (!selection || !Range.isCollapsed(selection)) {
+  if (!selection || !RangeApi.isCollapsed(selection)) {
     return false
   }
 
   const blockEntry = editor.read((state) =>
     state.nodes.above({
       at: selection,
-      match: (n) => Node.isElement(n) && state.nodes.isBlock(n),
+      match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
     })
   )
 
@@ -207,7 +213,7 @@ const applyMarkdownHeadingStartEnter = (editor: CustomEditor) => {
   const [block, blockPath] = blockEntry
 
   if (
-    !Node.isElement(block) ||
+    !NodeApi.isElement(block) ||
     !HEADING_TYPES.has(block.type as CustomElementType)
   ) {
     return false
@@ -215,7 +221,7 @@ const applyMarkdownHeadingStartEnter = (editor: CustomEditor) => {
 
   const start = editor.read((state) => state.points.start(blockPath))
 
-  if (!Point.equals(selection.anchor, start)) {
+  if (!PointApi.equals(selection.anchor, start)) {
     return false
   }
 
@@ -225,7 +231,7 @@ const applyMarkdownHeadingStartEnter = (editor: CustomEditor) => {
       { type: 'paragraph' },
       {
         at: blockPath,
-        match: (n) => Node.isElement(n) && tx.nodes.isBlock(n),
+        match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
       }
     )
   })
@@ -268,7 +274,7 @@ const mergeAdjacentBulletedLists = (
   const listEntry = editor.read((state) =>
     state.nodes.above({
       at: selection,
-      match: (n) => Node.isElement(n) && n.type === 'bulleted-list',
+      match: (n) => NodeApi.isElement(n) && n.type === 'bulleted-list',
     })
   )
 
@@ -278,8 +284,8 @@ const mergeAdjacentBulletedLists = (
 
   let [, listPath] = listEntry
 
-  if (Path.hasPrevious(listPath)) {
-    const previousPath = Path.previous(listPath)
+  if (PathApi.hasPrevious(listPath)) {
+    const previousPath = PathApi.previous(listPath)
     const [previousNode] = editor.read((state) =>
       state.nodes.hasPath(previousPath)
         ? state.nodes.get(previousPath)
@@ -288,7 +294,7 @@ const mergeAdjacentBulletedLists = (
 
     if (
       previousNode &&
-      Node.isElement(previousNode) &&
+      NodeApi.isElement(previousNode) &&
       previousNode.type === 'bulleted-list'
     ) {
       tx.nodes.merge({ at: listPath })
@@ -296,14 +302,14 @@ const mergeAdjacentBulletedLists = (
     }
   }
 
-  const nextPath = Path.next(listPath)
+  const nextPath = PathApi.next(listPath)
   const [nextNode] = editor.read((state) =>
     state.nodes.hasPath(nextPath) ? state.nodes.get(nextPath) : [null, nextPath]
   )
 
   if (
     nextNode &&
-    Node.isElement(nextNode) &&
+    NodeApi.isElement(nextNode) &&
     nextNode.type === 'bulleted-list'
   ) {
     tx.nodes.merge({ at: nextPath })
@@ -313,13 +319,13 @@ const mergeAdjacentBulletedLists = (
 const applyMarkdownBackspaceShortcut = (editor: CustomEditor) => {
   const selection = editor.read((state) => state.selection.get())
 
-  if (!selection || !Range.isCollapsed(selection)) {
+  if (!selection || !RangeApi.isCollapsed(selection)) {
     return false
   }
 
   const match = editor.read((state) =>
     state.nodes.above({
-      match: (n) => Node.isElement(n) && state.nodes.isBlock(n),
+      match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
     })
   )
 
@@ -331,9 +337,9 @@ const applyMarkdownBackspaceShortcut = (editor: CustomEditor) => {
   const start = editor.read((state) => state.points.start(path))
 
   if (
-    !Node.isElement(block) ||
+    !NodeApi.isElement(block) ||
     block.type === 'paragraph' ||
-    !Point.equals(selection.anchor, start)
+    !PointApi.equals(selection.anchor, start)
   ) {
     return false
   }
@@ -347,7 +353,7 @@ const applyMarkdownBackspaceShortcut = (editor: CustomEditor) => {
     if (block.type === 'list-item') {
       tx.nodes.unwrap({
         match: (n) =>
-          Node.isElement(n) &&
+          NodeApi.isElement(n) &&
           (n.type === 'bulleted-list' || n.type === 'numbered-list'),
         split: true,
       })
@@ -363,7 +369,7 @@ const applyMarkdownBackspaceShortcut = (editor: CustomEditor) => {
 const selectCurrentBlockStart = (editor: CustomEditor) => {
   const block = editor.read((state) =>
     state.nodes.above({
-      match: (n) => Node.isElement(n) && state.nodes.isBlock(n),
+      match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
     })
   )
 

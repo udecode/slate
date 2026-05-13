@@ -1,26 +1,26 @@
-import { Location } from '../interfaces'
+import { LocationApi } from '../interfaces'
 import type { EditorStaticApi } from '../interfaces/editor'
-import { Node } from '../interfaces/node'
+import { NodeApi } from '../interfaces/node'
 import type { Path } from '../interfaces/path'
-import { Range } from '../interfaces/range'
+import { RangeApi } from '../interfaces/range'
 
 export const point: EditorStaticApi['point'] = (editor, at, options = {}) => {
   const { edge = 'start' } = options
 
-  if (Location.isPath(at)) {
+  if (LocationApi.isPath(at)) {
     let path: Path
 
     if (edge === 'end') {
-      const [, lastPath] = Node.last(editor, at)
+      const [, lastPath] = NodeApi.last(editor, at)
       path = lastPath
     } else {
-      const [, firstPath] = Node.first(editor, at)
+      const [, firstPath] = NodeApi.first(editor, at)
       path = firstPath
     }
 
-    const node = Node.get(editor, path)
+    const node = NodeApi.get(editor, path)
 
-    if (!Node.isText(node)) {
+    if (!NodeApi.isText(node)) {
       throw new Error(
         `Cannot get the ${edge} point in the node at path [${at}] because it has no ${edge} text node.`
       )
@@ -29,8 +29,8 @@ export const point: EditorStaticApi['point'] = (editor, at, options = {}) => {
     return { path, offset: edge === 'end' ? node.text.length : 0 }
   }
 
-  if (Location.isRange(at)) {
-    const [start, end] = Range.edges(at)
+  if (LocationApi.isRange(at)) {
+    const [start, end] = RangeApi.edges(at)
     return edge === 'start' ? start : end
   }
 

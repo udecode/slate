@@ -4,7 +4,7 @@ import {
   type Descendant,
   type Node,
   type Range,
-  Element as SlateElement,
+  ElementApi as SlateElement,
 } from 'slate'
 import { Editor } from 'slate/internal'
 import { withHistory } from 'slate-history'

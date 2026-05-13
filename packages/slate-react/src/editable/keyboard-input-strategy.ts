@@ -1,6 +1,6 @@
 import getDirection from 'direction'
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react'
-import { Node, Range } from 'slate'
+import { NodeApi, RangeApi } from 'slate'
 import {
   HAS_BEFORE_INPUT_SUPPORT,
   Hotkeys,
@@ -215,7 +215,7 @@ export const applyEditableKeyDown = ({
     const selection = readRuntimeSelection(editor)
     const children = editor.read((state) => state.value.get())
     const element = children[selection === null ? 0 : selection.focus.path[0]]
-    const isRTL = getDirection(Node.string(element)) === 'rtl'
+    const isRTL = getDirection(NodeApi.string(element)) === 'rtl'
 
     // COMPAT: Since we prevent the default behavior on
     // `beforeinput` events, the browser doesn't think there's ever
@@ -338,17 +338,17 @@ export const applyEditableKeyDown = ({
         // COMPAT: Chrome and Safari support `beforeinput` event but do not fire
         // an event when deleting backwards in a selected void inline node
         const currentNode =
-          selection && Range.isCollapsed(selection)
-            ? Node.parent(editor, selection.anchor.path)
+          selection && RangeApi.isCollapsed(selection)
+            ? NodeApi.parent(editor, selection.anchor.path)
             : null
 
         if (
           selection &&
           (Hotkeys.isDeleteBackward(nativeEvent) ||
             Hotkeys.isDeleteForward(nativeEvent)) &&
-          Range.isCollapsed(selection) &&
+          RangeApi.isCollapsed(selection) &&
           currentNode &&
-          Node.isElement(currentNode) &&
+          NodeApi.isElement(currentNode) &&
           Editor.isVoid(editor, currentNode) &&
           (Editor.isInline(editor, currentNode) ||
             Editor.isBlock(editor, currentNode))

@@ -3,9 +3,9 @@ import type { ReactNode } from 'react'
 import {
   createEditor as createSlateEditor,
   type Descendant,
-  Node,
-  Path,
-  Text,
+  NodeApi,
+  type Path,
+  TextApi,
 } from 'slate'
 import { Editor } from 'slate/internal'
 import {
@@ -84,7 +84,7 @@ const findTextRangesByText = (
   nodes.flatMap((node, index) => {
     const path = [...parentPath, index] as Path
 
-    if (Text.isText(node)) {
+    if (TextApi.isText(node)) {
       return node.text === text
         ? [
             {
@@ -161,7 +161,7 @@ describe('slate-react projections and selection contract', () => {
       <Slate editor={editor}>
         <Editable
           decorate={([node, path]) =>
-            Text.isText(node) && node.text.startsWith('Hello')
+            TextApi.isText(node) && node.text.startsWith('Hello')
               ? [
                   {
                     data: { search: true },
@@ -380,7 +380,7 @@ describe('slate-react projections and selection contract', () => {
         const root = snapshot.children[0] as
           | (Descendant & { bold?: true })
           | undefined
-        const text = Node.get(
+        const text = NodeApi.get(
           { children: snapshot.children } as never,
           [0, 0, 0]
         ) as { text: string }
@@ -499,10 +499,10 @@ describe('slate-react projections and selection contract', () => {
         sourceCalls += 1
 
         return nextSnapshot.children.flatMap((node, blockIndex) =>
-          Text.isText(node)
+          TextApi.isText(node)
             ? []
             : node.children.flatMap((child, textIndex) => {
-                if (!Text.isText(child) || child.text !== 'B') {
+                if (!TextApi.isText(child) || child.text !== 'B') {
                   return []
                 }
 
@@ -674,10 +674,10 @@ describe('slate-react projections and selection contract', () => {
 
     const store = createSlateProjectionStore(editor, (nextSnapshot) =>
       nextSnapshot.children.flatMap((node, blockIndex) =>
-        Text.isText(node)
+        TextApi.isText(node)
           ? []
           : node.children.flatMap((child, textIndex) => {
-              if (!Text.isText(child) || !child.text.startsWith('B')) {
+              if (!TextApi.isText(child) || !child.text.startsWith('B')) {
                 return []
               }
 
@@ -763,10 +763,10 @@ describe('slate-react projections and selection contract', () => {
 
     const store = createSlateProjectionStore(editor, (nextSnapshot) =>
       nextSnapshot.children.flatMap((node, blockIndex) =>
-        Text.isText(node)
+        TextApi.isText(node)
           ? []
           : node.children.flatMap((child, textIndex) => {
-              if (!Text.isText(child)) {
+              if (!TextApi.isText(child)) {
                 return []
               }
 
@@ -867,7 +867,7 @@ describe('slate-react projections and selection contract', () => {
       editor,
       (nextSnapshot) => {
         sourceCalls += 1
-        const firstText = Node.get(
+        const firstText = NodeApi.get(
           { children: nextSnapshot.children } as never,
           [0, 0]
         ) as { text: string }
@@ -941,7 +941,7 @@ describe('slate-react projections and selection contract', () => {
       editor,
       (nextSnapshot) => {
         sourceCalls += 1
-        const text = Node.get(
+        const text = NodeApi.get(
           { children: nextSnapshot.children } as never,
           [0, 0]
         ) as { text: string }

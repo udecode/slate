@@ -1,7 +1,7 @@
 import { Editor } from 'slate/internal'
 /** @jsx jsx */
 
-import { Element } from 'slate'
+import { ElementApi } from 'slate'
 
 export const input = (
   <editor>
@@ -20,7 +20,7 @@ const range = {
 export const test = (editor) => {
   return Editor.above(editor, {
     at: range,
-    match: (n) => Element.isElement(n) && Editor.isBlock(editor, n),
+    match: (n) => ElementApi.isElement(n) && Editor.isBlock(editor, n),
   })
 }
 export const output = [

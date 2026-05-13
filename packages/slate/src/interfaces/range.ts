@@ -1,9 +1,11 @@
 import {
   isObject,
-  Location,
+  type Location,
+  LocationApi,
   type Operation,
-  Path,
-  Point,
+  PathApi,
+  type Point,
+  PointApi,
   type PointEntry,
 } from '..'
 import type { RangeDirection } from '../types/types'
@@ -76,14 +78,14 @@ export interface RangeInterface {
   /**
    * Check if a range is expanded.
    *
-   * This is the opposite of [[Range.isCollapsed]] and is provided for legibility.
+   * This is the opposite of [[RangeApi.isCollapsed]] and is provided for legibility.
    */
   isExpanded: (range: Range) => boolean
 
   /**
    * Check if a range is forward.
    *
-   * This is the opposite of [[Range.isBackward]] and is provided for legibility.
+   * This is the opposite of [[RangeApi.isBackward]] and is provided for legibility.
    */
   isForward: (range: Range) => boolean
 
@@ -113,59 +115,59 @@ export interface RangeInterface {
 }
 
 // eslint-disable-next-line no-redeclare
-export const Range: RangeInterface = {
+export const RangeApi: RangeInterface = {
   edges(range: Range, options: RangeEdgesOptions = {}): [Point, Point] {
     const { reverse = false } = options
     const { anchor, focus } = range
-    return Range.isBackward(range) === reverse
+    return RangeApi.isBackward(range) === reverse
       ? [anchor, focus]
       : [focus, anchor]
   },
 
   end(range: Range): Point {
-    const [, end] = Range.edges(range)
+    const [, end] = RangeApi.edges(range)
     return end
   },
 
   equals(range: Range, another: Range): boolean {
     return (
-      Point.equals(range.anchor, another.anchor) &&
-      Point.equals(range.focus, another.focus)
+      PointApi.equals(range.anchor, another.anchor) &&
+      PointApi.equals(range.focus, another.focus)
     )
   },
 
   surrounds(range: Range, target: Range): boolean {
-    const intersectionRange = Range.intersection(range, target)
+    const intersectionRange = RangeApi.intersection(range, target)
     if (!intersectionRange) {
       return false
     }
-    return Range.equals(intersectionRange, target)
+    return RangeApi.equals(intersectionRange, target)
   },
 
   includes(range: Range, target: Location): boolean {
-    if (Location.isRange(target)) {
+    if (LocationApi.isRange(target)) {
       if (
-        Range.includes(range, target.anchor) ||
-        Range.includes(range, target.focus)
+        RangeApi.includes(range, target.anchor) ||
+        RangeApi.includes(range, target.focus)
       ) {
         return true
       }
 
-      const [rs, re] = Range.edges(range)
-      const [ts, te] = Range.edges(target)
-      return Point.isBefore(rs, ts) && Point.isAfter(re, te)
+      const [rs, re] = RangeApi.edges(range)
+      const [ts, te] = RangeApi.edges(target)
+      return PointApi.isBefore(rs, ts) && PointApi.isAfter(re, te)
     }
 
-    const [start, end] = Range.edges(range)
+    const [start, end] = RangeApi.edges(range)
     let isAfterStart = false
     let isBeforeEnd = false
 
-    if (Location.isPoint(target)) {
-      isAfterStart = Point.compare(target, start) >= 0
-      isBeforeEnd = Point.compare(target, end) <= 0
+    if (LocationApi.isPoint(target)) {
+      isAfterStart = PointApi.compare(target, start) >= 0
+      isBeforeEnd = PointApi.compare(target, end) <= 0
     } else {
-      isAfterStart = Path.compare(target, start.path) >= 0
-      isBeforeEnd = Path.compare(target, end.path) <= 0
+      isAfterStart = PathApi.compare(target, start.path) >= 0
+      isBeforeEnd = PathApi.compare(target, end.path) <= 0
     }
 
     return isAfterStart && isBeforeEnd
@@ -173,12 +175,12 @@ export const Range: RangeInterface = {
 
   intersection(range: Range, another: Range): Range | null {
     const { anchor, focus, ...rest } = range
-    const [s1, e1] = Range.edges(range)
-    const [s2, e2] = Range.edges(another)
-    const start = Point.isBefore(s1, s2) ? s2 : s1
-    const end = Point.isBefore(e1, e2) ? e1 : e2
+    const [s1, e1] = RangeApi.edges(range)
+    const [s2, e2] = RangeApi.edges(another)
+    const start = PointApi.isBefore(s1, s2) ? s2 : s1
+    const end = PointApi.isBefore(e1, e2) ? e1 : e2
 
-    if (Point.isBefore(end, start)) {
+    if (PointApi.isBefore(end, start)) {
       return null
     }
     return { anchor: start, focus: end, ...rest }
@@ -186,27 +188,27 @@ export const Range: RangeInterface = {
 
   isBackward(range: Range): boolean {
     const { anchor, focus } = range
-    return Point.isAfter(anchor, focus)
+    return PointApi.isAfter(anchor, focus)
   },
 
   isCollapsed(range: Range): boolean {
     const { anchor, focus } = range
-    return Point.equals(anchor, focus)
+    return PointApi.equals(anchor, focus)
   },
 
   isExpanded(range: Range): boolean {
-    return !Range.isCollapsed(range)
+    return !RangeApi.isCollapsed(range)
   },
 
   isForward(range: Range): boolean {
-    return !Range.isBackward(range)
+    return !RangeApi.isBackward(range)
   },
 
   isRange(value: any): value is Range {
     return (
       isObject(value) &&
-      Point.isPoint(value.anchor) &&
-      Point.isPoint(value.focus)
+      PointApi.isPoint(value.anchor) &&
+      PointApi.isPoint(value.focus)
     )
   },
 
@@ -216,7 +218,7 @@ export const Range: RangeInterface = {
   },
 
   start(range: Range): Point {
-    const [start] = Range.edges(range)
+    const [start] = RangeApi.edges(range)
     return start
   },
 
@@ -237,8 +239,8 @@ export const Range: RangeInterface = {
       // If the range is collapsed, make sure to use the same affinity to
       // avoid the two points passing each other and expanding in the opposite
       // direction
-      const isCollapsed = Range.isCollapsed(range)
-      if (Range.isForward(range)) {
+      const isCollapsed = RangeApi.isCollapsed(range)
+      if (RangeApi.isForward(range)) {
         affinityAnchor = 'forward'
         affinityFocus = isCollapsed ? affinityAnchor : 'backward'
       } else {
@@ -246,7 +248,7 @@ export const Range: RangeInterface = {
         affinityFocus = isCollapsed ? affinityAnchor : 'forward'
       }
     } else if (affinity === 'outward') {
-      if (Range.isForward(range)) {
+      if (RangeApi.isForward(range)) {
         affinityAnchor = 'backward'
         affinityFocus = 'forward'
       } else {
@@ -257,10 +259,12 @@ export const Range: RangeInterface = {
       affinityAnchor = affinity
       affinityFocus = affinity
     }
-    const anchor = Point.transform(range.anchor, op, {
+    const anchor = PointApi.transform(range.anchor, op, {
       affinity: affinityAnchor,
     })
-    const focus = Point.transform(range.focus, op, { affinity: affinityFocus })
+    const focus = PointApi.transform(range.focus, op, {
+      affinity: affinityFocus,
+    })
 
     if (!anchor || !focus) {
       return null

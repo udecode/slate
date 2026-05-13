@@ -2,7 +2,7 @@ import { executeCommand } from '../core/command-registry'
 import { runEditorTransaction } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import type { EditorStaticApi } from '../interfaces/editor'
-import { Range } from '../interfaces/range'
+import { RangeApi } from '../interfaces/range'
 
 type DeleteFragmentCommand = {
   direction: NonNullable<
@@ -18,7 +18,11 @@ const applyDeleteFragment: EditorStaticApi['deleteFragment'] = (
   runEditorTransaction(editor, (tx) => {
     const selection = tx.resolveTarget()
 
-    if (selection && Range.isRange(selection) && Range.isExpanded(selection)) {
+    if (
+      selection &&
+      RangeApi.isRange(selection) &&
+      RangeApi.isExpanded(selection)
+    ) {
       getEditorTransformRegistry(editor).delete({
         reverse: direction === 'backward',
       })

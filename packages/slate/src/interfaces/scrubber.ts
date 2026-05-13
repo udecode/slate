@@ -10,20 +10,20 @@ let _scrubber: Scrubber | undefined
 /**
  * This interface implements a stringify() function, which is used by Slate
  * internally when generating exceptions containing end user data. Developers
- * using Slate may call Scrubber.setScrubber() to alter the behavior of this
+ * using Slate may call ScrubberApi.setScrubber() to alter the behavior of this
  * stringify() function.
  *
  * For example, to prevent the cleartext logging of 'text' fields within Nodes:
  *
  *    import { Scrubber } from 'slate';
- *    Scrubber.setScrubber((key, val) => {
+ *    ScrubberApi.setScrubber((key, val) => {
  *      if (key === 'text') return '...scrubbed...'
  *      return val
  *    });
  *
  */
 // eslint-disable-next-line no-redeclare
-export const Scrubber: ScrubberInterface = {
+export const ScrubberApi: ScrubberInterface = {
   setScrubber(scrubber: Scrubber | undefined): void {
     _scrubber = scrubber
   },

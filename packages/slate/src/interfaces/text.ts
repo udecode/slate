@@ -1,4 +1,4 @@
-import { isObject, Range } from '..'
+import { isObject, type Range, RangeApi } from '..'
 import { isDeepEqual } from '../utils/deep-equal'
 import type { BaseEditor } from './editor'
 import type { TElement } from './element'
@@ -117,7 +117,7 @@ export interface TextInterface {
 }
 
 // eslint-disable-next-line no-redeclare
-export const Text: TextInterface = {
+export const TextApi: TextInterface = {
   equals(text: Text, another: Text, options: TextEqualsOptions = {}): boolean {
     const { loose = false } = options
 
@@ -138,7 +138,7 @@ export const Text: TextInterface = {
   },
 
   isTextList<N extends Text = Text>(value: any): value is N[] {
-    return Array.isArray(value) && value.every((val) => Text.isText(val))
+    return Array.isArray(value) && value.every((val) => TextApi.isText(val))
   },
 
   isTextProps<N extends Text = Text>(props: any): props is Partial<N> {
@@ -172,7 +172,7 @@ export const Text: TextInterface = {
 
     for (const dec of decorations) {
       const { anchor, focus, merge: mergeDecoration, ...rest } = dec
-      const [start, end] = Range.edges(dec)
+      const [start, end] = RangeApi.edges(dec)
       const next: Array<{ leaf: Text; position?: LeafPosition }> = []
       let leafEnd = 0
       const decorationStart = start.offset

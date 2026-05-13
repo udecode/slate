@@ -1,5 +1,5 @@
 import { type CompositionEvent, type RefObject, useEffect } from 'react'
-import { type EditorMarks, Node, Range, Text } from 'slate'
+import { type EditorMarks, NodeApi, RangeApi, type Text, TextApi } from 'slate'
 import {
   EDITOR_TO_PENDING_INSERTION_MARKS,
   EDITOR_TO_USER_MARKS,
@@ -180,7 +180,7 @@ const removeUnmanagedCompositionTextNodes = ({
 
           if (path?.every(Number.isInteger)) {
             try {
-              const modelText = Node.leaf(editor, path).text
+              const modelText = NodeApi.leaf(editor, path).text
 
               if (
                 textContent !== modelText &&
@@ -311,7 +311,7 @@ export const applyEditableCompositionStart = ({
     const selection = editor.read((state) => state.selection.get())
     if (
       selection &&
-      Range.isExpanded(selection) &&
+      RangeApi.isExpanded(selection) &&
       event.nativeEvent.isTrusted
     ) {
       EDITOR_TO_COMPOSITION_PREDELETE.add(editor)
@@ -365,11 +365,11 @@ export const usePendingInsertionMarksEffect = ({
       const selection = editor.read((state) => state.selection.get())
       if (selection) {
         const { anchor } = selection
-        const text = Node.leaf(editor, anchor.path)
+        const text = NodeApi.leaf(editor, anchor.path)
 
-        // While marks isn't a 'complete' text, we can still use loose Text.equals
+        // While marks isn't a 'complete' text, we can still use loose TextApi.equals
         // here which only compares marks anyway.
-        if (marks && !Text.equals(text, marks as Text, { loose: true })) {
+        if (marks && !TextApi.equals(text, marks as Text, { loose: true })) {
           EDITOR_TO_PENDING_INSERTION_MARKS.set(editor, marks)
           return
         }

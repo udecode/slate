@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Element } from 'slate'
+import { ElementApi } from 'slate'
 
 export const input = (
   <editor>
@@ -18,7 +18,7 @@ export const input = (
 )
 export const run = (editor) => {
   editor.nodes.merge({
-    match: (n) => Element.isElement(n) && Editor.isBlock(editor, n),
+    match: (n) => ElementApi.isElement(n) && Editor.isBlock(editor, n),
   })
 }
 export const output = (

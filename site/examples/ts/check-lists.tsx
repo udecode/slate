@@ -1,9 +1,9 @@
 import { css } from '@emotion/css'
 import { type ChangeEvent, useCallback } from 'react'
 import {
-  Node,
-  Point,
-  Range,
+  NodeApi,
+  PointApi,
+  RangeApi,
   type Selection,
   type Element as SlateElement,
 } from 'slate'
@@ -118,14 +118,14 @@ const applyChecklistBackspaceStart = (
   editor: ReactEditor,
   selection: Selection
 ) => {
-  if (!selection || !Range.isCollapsed(selection)) {
+  if (!selection || !RangeApi.isCollapsed(selection)) {
     return false
   }
 
   const [match] = editor.read((state) =>
     Array.from(
       state.nodes.match({
-        match: (n) => Node.isElement(n) && n.type === 'check-list-item',
+        match: (n) => NodeApi.isElement(n) && n.type === 'check-list-item',
       })
     )
   )
@@ -137,7 +137,7 @@ const applyChecklistBackspaceStart = (
   const [, path] = match
   const start = editor.read((state) => state.points.start(path))
 
-  if (!Point.equals(selection.anchor, start)) {
+  if (!PointApi.equals(selection.anchor, start)) {
     return false
   }
 
@@ -146,7 +146,7 @@ const applyChecklistBackspaceStart = (
   }
   editor.update((tx) => {
     tx.nodes.set(newProperties, {
-      match: (n) => Node.isElement(n) && n.type === 'check-list-item',
+      match: (n) => NodeApi.isElement(n) && n.type === 'check-list-item',
     })
     tx.selection.set(start)
   })

@@ -1,4 +1,14 @@
-import { type Descendant, Node, Path, Point, Range } from 'slate'
+import {
+  type Descendant,
+  type Node,
+  NodeApi,
+  type Path,
+  PathApi,
+  type Point,
+  PointApi,
+  type Range,
+  RangeApi,
+} from 'slate'
 import { ReactEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
 import type { DOMRepairQueue } from './dom-repair-queue'
@@ -158,10 +168,11 @@ export const applyModelOwnedLineBreak = ({
     if (kind === 'open-line') {
       const selection = tx.selection.get()
       const blockEntry =
-        selection && Range.isCollapsed(selection)
+        selection && RangeApi.isCollapsed(selection)
           ? tx.nodes.above({
               at: selection.anchor,
-              match: (node) => Node.isElement(node) && tx.nodes.isBlock(node),
+              match: (node) =>
+                NodeApi.isElement(node) && tx.nodes.isBlock(node),
             })
           : undefined
 
@@ -204,7 +215,7 @@ export const applyModelOwnedTransposeCharacterIntent = ({
   editor: RuntimeEditor
   selection: Range | null
 }) => {
-  if (!selection || !Range.isCollapsed(selection)) {
+  if (!selection || !RangeApi.isCollapsed(selection)) {
     return false
   }
 
@@ -232,8 +243,8 @@ export const applyModelOwnedTransposeCharacterIntent = ({
   }
 
   if (
-    !Path.equals(start.path, middle.path) ||
-    !Path.equals(middle.path, end.path)
+    !PathApi.equals(start.path, middle.path) ||
+    !PathApi.equals(middle.path, end.path)
   ) {
     return false
   }
@@ -273,7 +284,7 @@ const createDefaultParagraph = (): Descendant =>
   }) as Descendant
 
 const isBlockVoid = (editor: RuntimeEditor, node: Node) =>
-  Node.isElement(node) &&
+  NodeApi.isElement(node) &&
   Editor.isBlock(editor, node) &&
   Editor.isVoid(editor, node)
 
@@ -281,13 +292,13 @@ const getCollapsedBlockPath = (
   editor: RuntimeEditor,
   selection: Range | null
 ) => {
-  if (!selection || !Range.isCollapsed(selection)) {
+  if (!selection || !RangeApi.isCollapsed(selection)) {
     return null
   }
 
   const blockEntry = Editor.above(editor, {
     at: selection.anchor,
-    match: (node) => Node.isElement(node) && Editor.isBlock(editor, node),
+    match: (node) => NodeApi.isElement(node) && Editor.isBlock(editor, node),
     mode: 'highest',
     voids: true,
   })
@@ -305,7 +316,7 @@ const getSelectedBlockVoidPath = (
     return null
   }
 
-  return isBlockVoid(editor, Node.get(editor, blockPath)) ? blockPath : null
+  return isBlockVoid(editor, NodeApi.get(editor, blockPath)) ? blockPath : null
 }
 
 const applyBackspaceAfterBlockVoid = (
@@ -317,25 +328,25 @@ const applyBackspaceAfterBlockVoid = (
   if (
     !selection ||
     !blockPath ||
-    !Path.hasPrevious(blockPath) ||
+    !PathApi.hasPrevious(blockPath) ||
     !Editor.isStart(editor, selection.anchor, blockPath)
   ) {
     return false
   }
 
-  const block = Node.get(editor, blockPath)
+  const block = NodeApi.get(editor, blockPath)
 
-  if (!Node.isElement(block) || Node.string(block) !== '') {
+  if (!NodeApi.isElement(block) || NodeApi.string(block) !== '') {
     return false
   }
 
-  const previousPath = Path.previous(blockPath)
+  const previousPath = PathApi.previous(blockPath)
 
   if (!Editor.hasPath(editor, previousPath)) {
     return false
   }
 
-  const previous = Node.get(editor, previousPath)
+  const previous = NodeApi.get(editor, previousPath)
 
   if (!isBlockVoid(editor, previous)) {
     return false
@@ -361,7 +372,7 @@ const applyParagraphBreakAfterSelectedBlockVoid = (
     return false
   }
 
-  const insertionPath = Path.next(voidPath)
+  const insertionPath = PathApi.next(voidPath)
   const selectionPoint = { path: insertionPath.concat(0), offset: 0 }
 
   editor.update((tx) => {
@@ -376,19 +387,19 @@ const getFullySelectedBlockPaths = (
   editor: RuntimeEditor,
   selection: Range | null
 ): Path[] | null => {
-  if (!selection || Range.isCollapsed(selection)) {
+  if (!selection || RangeApi.isCollapsed(selection)) {
     return null
   }
 
-  const [start, end] = Range.edges(selection)
+  const [start, end] = RangeApi.edges(selection)
   const startBlock = Editor.above(editor, {
     at: start,
-    match: (node) => Node.isElement(node) && Editor.isBlock(editor, node),
+    match: (node) => NodeApi.isElement(node) && Editor.isBlock(editor, node),
     mode: 'highest',
   })
   const endBlock = Editor.above(editor, {
     at: end,
-    match: (node) => Node.isElement(node) && Editor.isBlock(editor, node),
+    match: (node) => NodeApi.isElement(node) && Editor.isBlock(editor, node),
     mode: 'highest',
   })
 
@@ -400,24 +411,24 @@ const getFullySelectedBlockPaths = (
   const [, endBlockPath] = endBlock
 
   if (
-    !Point.equals(start, Editor.point(editor, blockPath, { edge: 'start' }))
+    !PointApi.equals(start, Editor.point(editor, blockPath, { edge: 'start' }))
   ) {
     return null
   }
 
-  if (Point.equals(end, Editor.point(editor, blockPath, { edge: 'end' }))) {
+  if (PointApi.equals(end, Editor.point(editor, blockPath, { edge: 'end' }))) {
     return [blockPath]
   }
 
   if (
-    !Point.equals(end, Editor.point(editor, endBlockPath, { edge: 'start' }))
+    !PointApi.equals(end, Editor.point(editor, endBlockPath, { edge: 'start' }))
   ) {
     return null
   }
 
   if (
-    !Path.isSibling(blockPath, endBlockPath) ||
-    !Path.isBefore(blockPath, endBlockPath)
+    !PathApi.isSibling(blockPath, endBlockPath) ||
+    !PathApi.isBefore(blockPath, endBlockPath)
   ) {
     return null
   }
@@ -425,9 +436,9 @@ const getFullySelectedBlockPaths = (
   const paths: Path[] = []
   let path = blockPath
 
-  while (!Path.equals(path, endBlockPath)) {
+  while (!PathApi.equals(path, endBlockPath)) {
     paths.push(path)
-    path = Path.next(path)
+    path = PathApi.next(path)
   }
 
   return paths
@@ -608,7 +619,7 @@ export const applyModelOwnedTextInput = ({
   const canUseSyncedCollapsedTarget =
     inputType === 'insertText' &&
     selection &&
-    Range.isCollapsed(selection) &&
+    RangeApi.isCollapsed(selection) &&
     !profileEditableMutationDuration('model-text-input-read-marks', () =>
       editor.read((state) => state.marks.get())
     )
@@ -623,7 +634,7 @@ export const applyModelOwnedTextInput = ({
     )
   } else if (
     selection &&
-    (Range.isExpanded(selection) || inputType !== 'insertText')
+    (RangeApi.isExpanded(selection) || inputType !== 'insertText')
   ) {
     profileEditableMutationDuration(
       'model-text-input-insert-at-target-selection',

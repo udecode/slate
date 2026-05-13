@@ -1,4 +1,11 @@
-import { Location, Node, Path, type PathRef, Range } from 'slate'
+import {
+  LocationApi,
+  NodeApi,
+  type Path,
+  PathApi,
+  type PathRef,
+  RangeApi,
+} from 'slate'
 import {
   Editor,
   getEditorTransformRegistry,
@@ -104,9 +111,9 @@ export const withDOM = <
 
       const selection = e.read((state) => state.selection.get())
 
-      if (selection && Range.isCollapsed(selection)) {
+      if (selection && RangeApi.isCollapsed(selection)) {
         const parentBlockEntry = Editor.above(e, {
-          match: (n) => Node.isElement(n) && Editor.isBlock(e, n),
+          match: (n) => NodeApi.isElement(n) && Editor.isBlock(e, n),
           at: selection,
         })
 
@@ -120,7 +127,7 @@ export const withDOM = <
 
           const currentLineRange = findCurrentLineRange(e, parentElementRange)
 
-          if (!Range.isCollapsed(currentLineRange)) {
+          if (!RangeApi.isCollapsed(currentLineRange)) {
             transforms.delete({ at: currentLineRange })
           }
         }
@@ -156,7 +163,7 @@ export const withDOM = <
 
         const pendingAction = EDITOR_TO_PENDING_ACTION.get(e)
         if (pendingAction?.at) {
-          const at = Location.isPoint(pendingAction?.at)
+          const at = LocationApi.isPoint(pendingAction?.at)
             ? transformPendingPoint(e, pendingAction.at, op)
             : transformPendingRange(e, pendingAction.at, op)
 
@@ -181,35 +188,40 @@ export const withDOM = <
 
           case 'insert_node':
           case 'remove_node': {
-            pathRefMatches.push(...getPathRefMatches(e, Path.parent(op.path)))
+            pathRefMatches.push(
+              ...getPathRefMatches(e, PathApi.parent(op.path))
+            )
             break
           }
 
           case 'merge_node': {
-            const prevPath = Path.previous(op.path)
+            const prevPath = PathApi.previous(op.path)
             matches.push(...getMatches(e, prevPath))
             break
           }
 
           case 'move_node': {
-            const commonPath = Path.common(
-              Path.parent(op.path),
-              Path.parent(op.newPath)
+            const commonPath = PathApi.common(
+              PathApi.parent(op.path),
+              PathApi.parent(op.newPath)
             )
             matches.push(...getMatches(e, commonPath))
 
             let changedPath: Path
-            if (Path.isBefore(op.path, op.newPath)) {
-              matches.push(...getMatches(e, Path.parent(op.path)))
+            if (PathApi.isBefore(op.path, op.newPath)) {
+              matches.push(...getMatches(e, PathApi.parent(op.path)))
               changedPath = op.newPath
             } else {
-              matches.push(...getMatches(e, Path.parent(op.newPath)))
+              matches.push(...getMatches(e, PathApi.parent(op.newPath)))
               changedPath = op.path
             }
 
-            const changedNode = Node.get(e, Path.parent(changedPath))
+            const changedNode = NodeApi.get(e, PathApi.parent(changedPath))
             const changedNodeKey = DOMEditor.findKey(e, changedNode)
-            const changedPathRef = Editor.pathRef(e, Path.parent(changedPath))
+            const changedPathRef = Editor.pathRef(
+              e,
+              PathApi.parent(changedPath)
+            )
             pathRefMatches.push([changedPathRef, changedNodeKey])
 
             break

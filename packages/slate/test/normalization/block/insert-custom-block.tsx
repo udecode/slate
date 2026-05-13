@@ -4,7 +4,7 @@ import { jsx } from '../..'
 
 jsx
 
-import { Element } from 'slate'
+import { ElementApi } from 'slate'
 import { Editor, getEditorRuntime } from 'slate/internal'
 
 export const input = (
@@ -21,7 +21,7 @@ const defaultNormalize = runtime.normalizeNode
 runtime.normalizeNode = (entry) => {
   const [node, path] = entry
   if (
-    Element.isElement(node) &&
+    ElementApi.isElement(node) &&
     node.children.length === 0 &&
     node.type === 'body'
   ) {

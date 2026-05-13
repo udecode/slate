@@ -25,7 +25,7 @@ It also returns the current value.
 
 ### Transform methods
 
-#### `RangeRef.transform(ref: RangeRef, op: Operation)`
+#### `RangeRefApi.transform(ref: RangeRef, op: Operation)`
 
 Transform the range refs current value by an `op`.
 The editor calls this as needed, so normally you won't need to.

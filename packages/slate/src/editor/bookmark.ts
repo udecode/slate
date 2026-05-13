@@ -5,11 +5,11 @@ import type {
 } from '../interfaces/bookmark'
 import type { Editor } from '../interfaces/editor'
 import type { Operation } from '../interfaces/operation'
-import { Range } from '../interfaces/range'
+import { type Range, RangeApi } from '../interfaces/range'
 
 type InternalBookmark = {
   affinity: BookmarkAffinity
-  current: import('../interfaces').Range | null
+  current: Range | null
 }
 
 const BOOKMARKS = new WeakMap<Editor, Set<InternalBookmark>>()
@@ -25,7 +25,7 @@ const getBookmarks = (editor: Editor) => {
   return bookmarks
 }
 
-const cloneRange = (range: import('../interfaces').Range | null) =>
+const cloneRange = (range: Range | null) =>
   range
     ? {
         anchor: {
@@ -41,7 +41,7 @@ const cloneRange = (range: import('../interfaces').Range | null) =>
 
 export const bookmark = (
   editor: Editor,
-  range: import('../interfaces').Range,
+  range: Range,
   options: BookmarkOptions = {}
 ): Bookmark => {
   const affinity = options.affinity ?? 'inward'
@@ -87,7 +87,7 @@ export const transformBookmarks = (editor: Editor, op: Operation) => {
       continue
     }
 
-    const next = Range.transform(bookmarkState.current, op, {
+    const next = RangeApi.transform(bookmarkState.current, op, {
       affinity: bookmarkState.affinity,
     })
 

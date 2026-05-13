@@ -18,13 +18,13 @@ interface PathRef {
 
 #### `unref() => Path | null`
 
-Free the resources used by the PathRef. This should be called when you no longer need to track the path. Returns the final path value before being unrefed, or null if the path was already invalid.
+Free the resources used by the PathRefApi. This should be called when you no longer need to track the path. Returns the final path value before being unrefed, or null if the path was already invalid.
 
 ## Static methods
 
 ### Transform methods
 
-#### `PathRef.transform(ref: PathRef, op: Operation)`
+#### `PathRefApi.transform(ref: PathRef, op: Operation)`
 
 Transform the path refs current value by an `op`.
 The editor calls this as needed, so normally you won't need to.

@@ -1,4 +1,9 @@
-import { type DescendantIn, Range, Node as SlateNode, type Value } from 'slate'
+import {
+  type DescendantIn,
+  RangeApi,
+  NodeApi as SlateNode,
+  type Value,
+} from 'slate'
 import {
   applyOperation,
   Editor,
@@ -70,7 +75,7 @@ const replaceSingleEmptyBlockWithPlainTextLines = (
 
   if (
     !selection ||
-    !Range.isCollapsed(selection) ||
+    !RangeApi.isCollapsed(selection) ||
     snapshot.children.length !== 1 ||
     !samePoint(selection.anchor, { path: [0, 0], offset: 0 })
   ) {
@@ -130,7 +135,7 @@ const insertPlainTextLinesAsFragment = (
     return false
   }
 
-  const [start] = Range.edges(selection)
+  const [start] = RangeApi.edges(selection)
 
   if (
     Editor.void(editor, { at: start }) ||
@@ -167,11 +172,11 @@ const insertPlainTextLinesAsFragment = (
 const isSelectedInlineTextRange = (editor: DOMEditor<any>) => {
   const selection = Editor.getSnapshot(editor).selection
 
-  if (!selection || Range.isCollapsed(selection)) {
+  if (!selection || RangeApi.isCollapsed(selection)) {
     return false
   }
 
-  const [start, end] = Range.edges(selection)
+  const [start, end] = RangeApi.edges(selection)
 
   if (
     start.path.length === 0 ||
@@ -251,11 +256,11 @@ export const writeDOMSelectionData = <V extends Value>(
     return
   }
 
-  const [start, end] = Range.edges(selection)
+  const [start, end] = RangeApi.edges(selection)
   const startVoid = Editor.void(editor, { at: start.path })
   const endVoid = Editor.void(editor, { at: end.path })
 
-  if (Range.isCollapsed(selection) && !startVoid) {
+  if (RangeApi.isCollapsed(selection) && !startVoid) {
     return
   }
 

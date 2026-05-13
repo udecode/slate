@@ -2,4 +2,4 @@
 "slate-react": patch
 ---
 
-Add a collapsed-selection mode to `useElementSelected` for block void selected UI.
+Add options-based `useElementSelected` modes for explicit paths and block void selected UI.

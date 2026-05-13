@@ -1,5 +1,5 @@
 import { useCallback, useContext } from 'react'
-import { type Operation, Path, Range, type SnapshotChange } from 'slate'
+import { type Operation, type Path, RangeApi, type SnapshotChange } from 'slate'
 import { ElementPathContext, NodeRuntimeIdContext } from '../context'
 import { Editor } from '../editable/runtime-editor-api'
 import { readRuntimeSelection } from '../editable/runtime-selection-state'
@@ -14,25 +14,13 @@ export type UseElementSelectedOptions = {
   mode?: UseElementSelectedMode
 }
 
-const isUseElementSelectedOptions = (
-  value: Path | UseElementSelectedOptions | undefined
-): value is UseElementSelectedOptions => Boolean(value && !Path.isPath(value))
-
-export const useElementSelected = (
-  target?: Path | UseElementSelectedOptions
-): boolean => {
+export const useElementSelected = ({
+  at: path,
+  mode = 'intersects',
+}: UseElementSelectedOptions = {}): boolean => {
   const element = useOptionalElementContext()
   const contextPath = useContext(ElementPathContext)
   const runtimeId = useContext(NodeRuntimeIdContext)
-  let path: Path | null | undefined
-  let mode: UseElementSelectedMode = 'intersects'
-
-  if (isUseElementSelectedOptions(target)) {
-    path = target.at
-    mode = target.mode ?? 'intersects'
-  } else {
-    path = target
-  }
 
   const selector = useCallback(
     (editor: ReactEditor) => {
@@ -41,7 +29,7 @@ export const useElementSelected = (
       const selection = readRuntimeSelection(editor)
 
       if (!selection) return false
-      if (mode === 'collapsed' && !Range.isCollapsed(selection)) return false
+      if (mode === 'collapsed' && !RangeApi.isCollapsed(selection)) return false
       const selectedPath =
         path ??
         contextPath ??
@@ -50,7 +38,7 @@ export const useElementSelected = (
       if (!Editor.hasPath(editor, selectedPath)) return false
 
       const range = Editor.range(editor, selectedPath)
-      return !!Range.intersection(range, selection)
+      return !!RangeApi.intersection(range, selection)
     },
     [contextPath, element, mode, path]
   )

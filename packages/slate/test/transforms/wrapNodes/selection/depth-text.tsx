@@ -4,7 +4,7 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Text } from 'slate'
+import { TextApi } from 'slate'
 
 export const input = (
   <editor>
@@ -18,7 +18,7 @@ export const input = (
   </editor>
 )
 export const run = (editor) => {
-  editor.nodes.wrap(<block new />, { match: Text.isText })
+  editor.nodes.wrap(<block new />, { match: TextApi.isText })
 }
 export const output = (
   <editor>

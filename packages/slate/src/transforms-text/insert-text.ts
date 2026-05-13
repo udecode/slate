@@ -6,8 +6,9 @@ import {
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { elementReadOnly } from '../editor/element-read-only'
 import {
-  Location,
-  Range,
+  LocationApi,
+  type Range,
+  RangeApi,
   type Editor as SlateEditor,
   type Value,
 } from '../interfaces'
@@ -66,11 +67,11 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
   const { voids = false } = options
   const defaultAt = options.at ?? getDefaultInsertLocation(editor)
   const preflightAt = (() => {
-    if (Location.isPath(defaultAt)) {
+    if (LocationApi.isPath(defaultAt)) {
       return Editor.range(editor, defaultAt)
     }
 
-    if (Location.isRange(defaultAt) && Range.isCollapsed(defaultAt)) {
+    if (LocationApi.isRange(defaultAt) && RangeApi.isCollapsed(defaultAt)) {
       return defaultAt.anchor
     }
 
@@ -78,7 +79,7 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
   })()
 
   if (
-    Location.isPoint(preflightAt) &&
+    LocationApi.isPoint(preflightAt) &&
     ((!voids && Editor.void(editor, { at: preflightAt })) ||
       elementReadOnly(editor, { at: preflightAt }))
   ) {
@@ -87,8 +88,8 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
 
   if (
     text.length > 0 &&
-    Location.isRange(defaultAt) &&
-    !Range.isCollapsed(defaultAt) &&
+    LocationApi.isRange(defaultAt) &&
+    !RangeApi.isCollapsed(defaultAt) &&
     isFullDocumentRange(editor, defaultAt)
   ) {
     applyOperation(editor, {
@@ -113,25 +114,25 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
       options.at != null && getPublicSelection(editor) == null
     let { at = getDefaultInsertLocation(editor) } = options
 
-    if (Location.isPath(at)) {
+    if (LocationApi.isPath(at)) {
       at = Editor.range(editor, at)
     }
 
-    if (Location.isRange(at)) {
-      if (Range.isCollapsed(at)) {
+    if (LocationApi.isRange(at)) {
+      if (RangeApi.isCollapsed(at)) {
         at = at.anchor
       } else {
-        const end = Range.end(at)
+        const end = RangeApi.end(at)
         if (!voids && Editor.void(editor, { at: end })) {
           return
         }
-        const start = Range.start(at)
+        const start = RangeApi.start(at)
         const startRef = Editor.pointRef(editor, start)
         const endRef = Editor.pointRef(editor, end)
         transforms.delete({ at, voids })
         const selectionAfterDelete = getPublicSelection(editor)
         const selectionPointAfterDelete =
-          selectionAfterDelete && Range.isCollapsed(selectionAfterDelete)
+          selectionAfterDelete && RangeApi.isCollapsed(selectionAfterDelete)
             ? {
                 offset: selectionAfterDelete.anchor.offset,
                 path: [...selectionAfterDelete.anchor.path],
@@ -155,7 +156,7 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
       }
     }
 
-    if (!Location.isPoint(at)) {
+    if (!LocationApi.isPoint(at)) {
       return
     }
 

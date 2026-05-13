@@ -2,7 +2,7 @@ import { css } from '@emotion/css'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-markdown'
 import type { ReactNode } from 'react'
-import { type Descendant, Node } from 'slate'
+import { type Descendant, NodeApi } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -69,7 +69,7 @@ const collectMarkdownProjections = (
   nodes.forEach((node, nodeIndex) => {
     const nodePath = [...path, nodeIndex]
 
-    if (Node.isText(node)) {
+    if (NodeApi.isText(node)) {
       const tokens = Prism.tokenize(node.text, Prism.languages.markdown)
       let start = 0
 
@@ -92,7 +92,7 @@ const collectMarkdownProjections = (
       }
     }
 
-    if (Node.isElement(node)) {
+    if (NodeApi.isElement(node)) {
       projections.push(...collectMarkdownProjections(node.children, nodePath))
     }
   })

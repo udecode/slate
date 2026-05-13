@@ -5,7 +5,7 @@ import {
   createEditor,
   type Operation,
   type SnapshotChange,
-  Text,
+  TextApi,
   type Value,
 } from 'slate'
 import { Editor } from 'slate/internal'
@@ -841,7 +841,7 @@ describe('slate-react provider hooks contract', () => {
 
       const firstChild = node.children[0]
 
-      return Text.isText(firstChild) ? firstChild.text : null
+      return TextApi.isText(firstChild) ? firstChild.text : null
     })
     const textSelector = jest.fn(({ text }) => text?.text ?? null)
 

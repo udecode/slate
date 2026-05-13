@@ -1,8 +1,8 @@
-import { Location } from '../interfaces'
+import { LocationApi } from '../interfaces'
 import { Editor, type EditorStaticApi } from '../interfaces/editor'
 
 export const range: EditorStaticApi['range'] = (editor, at, to) => {
-  if (Location.isRange(at) && !to) {
+  if (LocationApi.isRange(at) && !to) {
     return at
   }
 

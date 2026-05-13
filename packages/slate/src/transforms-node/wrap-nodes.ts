@@ -3,9 +3,9 @@ import { runEditorTransaction } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { nodes as getNodes } from '../editor/nodes'
 import { createInternalRangeRef } from '../editor/range-ref'
-import { Location, Node, type Point, Range } from '../interfaces'
+import { LocationApi, NodeApi, type Point, RangeApi } from '../interfaces'
 import { Editor } from '../interfaces/editor'
-import { Path } from '../interfaces/path'
+import { PathApi } from '../interfaces/path'
 import type { NodeMutationMethods } from '../interfaces/transforms/node'
 import { matchPath } from '../utils/match-path'
 import { insertNodes } from './insert-nodes'
@@ -35,18 +35,20 @@ export const wrapNodes: NodeMutationMethods['wrapNodes'] = (
       }
 
       if (match == null) {
-        if (Location.isPath(target)) {
+        if (LocationApi.isPath(target)) {
           match = matchPath(editor, target)
         } else if (getEditorSchema(editor).isInline(element)) {
           match = (node) =>
-            (Node.isElement(node) && getEditorSchema(editor).isInline(node)) ||
-            Node.isText(node)
+            (NodeApi.isElement(node) &&
+              getEditorSchema(editor).isInline(node)) ||
+            NodeApi.isText(node)
         } else {
-          match = (node) => Node.isElement(node) && Editor.isBlock(editor, node)
+          match = (node) =>
+            NodeApi.isElement(node) && Editor.isBlock(editor, node)
         }
       }
 
-      if (Location.isPath(target) && options.match == null && !split) {
+      if (LocationApi.isPath(target) && options.match == null && !split) {
         insertNodes(editor, wrapper, { at: target })
         moveNodes(editor, {
           at: [...target.slice(0, -1), target.at(-1)! + 1],
@@ -55,8 +57,8 @@ export const wrapNodes: NodeMutationMethods['wrapNodes'] = (
         return
       }
 
-      if (split && Location.isRange(target)) {
-        const [start, end] = Range.edges(target)
+      if (split && LocationApi.isRange(target)) {
+        const [start, end] = RangeApi.edges(target)
         const rangeRef = createInternalRangeRef(editor, target, {
           affinity: 'inward',
         })
@@ -64,7 +66,7 @@ export const wrapNodes: NodeMutationMethods['wrapNodes'] = (
           const blockAbove = Editor.above(editor, {
             at: point,
             match: (node) =>
-              Node.isElement(node) && Editor.isBlock(editor, node),
+              NodeApi.isElement(node) && Editor.isBlock(editor, node),
           })
 
           return blockAbove && Editor.isEdge(editor, point, blockAbove[1])
@@ -87,13 +89,13 @@ export const wrapNodes: NodeMutationMethods['wrapNodes'] = (
 
         target = rangeRef.unref() ?? target
 
-        if (Location.isRange(target)) {
-          let [nextStart, nextEnd] = Range.edges(target)
+        if (LocationApi.isRange(target)) {
+          let [nextStart, nextEnd] = RangeApi.edges(target)
           const [startLeaf] = Editor.leaf(editor, nextStart)
           const [endLeaf] = Editor.leaf(editor, nextEnd)
 
           if (
-            Node.isText(startLeaf) &&
+            NodeApi.isText(startLeaf) &&
             nextStart.offset === startLeaf.text.length
           ) {
             nextStart =
@@ -103,7 +105,7 @@ export const wrapNodes: NodeMutationMethods['wrapNodes'] = (
               }) ?? nextStart
           }
 
-          if (Node.isText(endLeaf) && nextEnd.offset === 0) {
+          if (NodeApi.isText(endLeaf) && nextEnd.offset === 0) {
             nextEnd =
               Editor.before(editor, nextEnd, {
                 distance: 1,
@@ -123,13 +125,13 @@ export const wrapNodes: NodeMutationMethods['wrapNodes'] = (
         getNodes(editor, {
           at: target,
           match: getEditorSchema(editor).isInline(element)
-            ? (node) => Node.isElement(node) && Editor.isBlock(editor, node)
-            : (node) => Node.isEditor(node),
+            ? (node) => NodeApi.isElement(node) && Editor.isBlock(editor, node)
+            : (node) => NodeApi.isEditor(node),
           mode: 'lowest',
           voids,
         })
       )
-      let nextSelection = Location.isRange(target)
+      let nextSelection = LocationApi.isRange(target)
         ? {
             anchor: target.anchor,
             focus: target.focus,
@@ -137,8 +139,8 @@ export const wrapNodes: NodeMutationMethods['wrapNodes'] = (
         : null
 
       for (const [, rootPath] of roots) {
-        const scopedTarget = Location.isRange(target)
-          ? Range.intersection(target, Editor.range(editor, rootPath))
+        const scopedTarget = LocationApi.isRange(target)
+          ? RangeApi.intersection(target, Editor.range(editor, rootPath))
           : target
 
         if (!scopedTarget) {
@@ -162,11 +164,11 @@ export const wrapNodes: NodeMutationMethods['wrapNodes'] = (
           continue
         }
 
-        const commonPath = Path.equals(firstPath, lastPath)
-          ? Path.parent(firstPath)
-          : Path.common(firstPath, lastPath)
+        const commonPath = PathApi.equals(firstPath, lastPath)
+          ? PathApi.parent(firstPath)
+          : PathApi.common(firstPath, lastPath)
         const depth = commonPath.length + 1
-        const wrapperPath = Path.next(lastPath.slice(0, depth))
+        const wrapperPath = PathApi.next(lastPath.slice(0, depth))
         const firstChildIndex = firstPath[commonPath.length]!
         const lastChildIndex = lastPath[commonPath.length]!
         const movePaths = Array.from(
@@ -196,7 +198,7 @@ export const wrapNodes: NodeMutationMethods['wrapNodes'] = (
           if (nextSelection && wrapperRef.current) {
             const mapPoint = (point: Point) => {
               const matchIndex = movePaths.findIndex((path) =>
-                Path.equals(path, point.path.slice(0, path.length))
+                PathApi.equals(path, point.path.slice(0, path.length))
               )
 
               if (matchIndex < 0) {

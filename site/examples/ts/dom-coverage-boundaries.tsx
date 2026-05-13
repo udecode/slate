@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react'
-import { Node, type Element as SlateElement } from 'slate'
+import { NodeApi, type Element as SlateElement } from 'slate'
 import { DOMCoverage } from 'slate-dom/internal'
 import { withHistory } from 'slate-history'
 import {
@@ -63,7 +63,7 @@ const DomCoverageBoundariesExample = () => {
         anchor: { offset: 0, path: [0, 0] },
         focus: {
           offset: editor.read((state) =>
-            Node.string(state.runtime.snapshot().children[4])
+            NodeApi.string(state.runtime.snapshot().children[4])
           ).length,
           path: [4, 0],
         },

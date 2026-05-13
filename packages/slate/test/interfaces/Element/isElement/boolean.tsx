@@ -1,10 +1,10 @@
 /** @jsx jsx */
 
-import { Element } from 'slate'
+import { ElementApi } from 'slate'
 
 export const input = true
 export const test = (value) => {
-  return Element.isElement(value)
+  return ElementApi.isElement(value)
 }
 
 export const output = false

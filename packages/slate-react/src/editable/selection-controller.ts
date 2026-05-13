@@ -1,7 +1,9 @@
 import type { RefObject } from 'react'
 import {
-  Point,
-  Range,
+  type Point,
+  PointApi,
+  type Range,
+  RangeApi,
   type Selection,
   type TargetFreshnessRequest,
 } from 'slate'
@@ -115,13 +117,15 @@ const getDOMPointForSlateTextPoint = (
 
 const isFullDocumentSelection = (editor: ReactEditor, selection: Range) => {
   try {
-    const [start, end] = Range.edges(selection)
+    const [start, end] = RangeApi.edges(selection)
     const [documentStart, documentEnd] = editor.read((state) => [
       state.points.start([]),
       state.points.end([]),
     ])
 
-    return Point.equals(start, documentStart) && Point.equals(end, documentEnd)
+    return (
+      PointApi.equals(start, documentStart) && PointApi.equals(end, documentEnd)
+    )
   } catch {
     return false
   }
@@ -190,7 +194,7 @@ const createFastDOMSelectionRange = ({
     })
   }
 
-  const [start, end] = Range.edges(selection)
+  const [start, end] = RangeApi.edges(selection)
 
   if (!isSamePath(start.path, end.path)) {
     return null
@@ -282,7 +286,7 @@ export const syncEditorSelectionFromDOM = ({
   })
   const selection = readRuntimeSelection(editor)
 
-  if (range && (!selection || !Range.equals(selection, range))) {
+  if (range && (!selection || !RangeApi.equals(selection, range))) {
     editor.update((tx) => {
       tx.selection.set(range)
     })
@@ -389,12 +393,12 @@ export const shouldImportChangedExpandedDOMSelection = ({
   if (
     selectionChangeOrigin === 'repair-induced' ||
     !nextSelection ||
-    !Range.isExpanded(nextSelection)
+    !RangeApi.isExpanded(nextSelection)
   ) {
     return false
   }
 
-  return !currentSelection || !Range.equals(currentSelection, nextSelection)
+  return !currentSelection || !RangeApi.equals(currentSelection, nextSelection)
 }
 
 export const prepareEditableSelectionChangeImport = ({
@@ -491,7 +495,7 @@ export const resolveEditableImplicitTarget = ({
 
   if (
     preferModelSelection &&
-    (!Range.isRange(target) || !Range.isExpanded(target))
+    (!RangeApi.isRange(target) || !RangeApi.isExpanded(target))
   ) {
     return request.fallback
   }
@@ -731,7 +735,7 @@ export const syncEditableDOMSelectionToEditor = ({
     state.isUpdatingSelection = true
     state.selectionChangeOrigin = 'programmatic-export'
 
-    if (Range.isBackward(selection)) {
+    if (RangeApi.isBackward(selection)) {
       domSelection.setBaseAndExtent(
         domRange.endContainer,
         domRange.endOffset,

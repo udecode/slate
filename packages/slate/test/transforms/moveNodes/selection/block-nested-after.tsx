@@ -5,11 +5,11 @@ import { jsx } from '../../..'
 
 jsx
 
-import { Element } from 'slate'
+import { ElementApi } from 'slate'
 
 export const run = (editor) => {
   editor.nodes.move({
-    match: (n) => Element.isElement(n) && Editor.isBlock(editor, n),
+    match: (n) => ElementApi.isElement(n) && Editor.isBlock(editor, n),
     to: [1],
   })
 }

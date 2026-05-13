@@ -1,7 +1,7 @@
 import { Editor, type EditorNodesOptions } from '../interfaces/editor'
-import { Location } from '../interfaces/location'
-import { Node, type NodeEntry } from '../interfaces/node'
-import { Path } from '../interfaces/path'
+import { LocationApi } from '../interfaces/location'
+import { type Node, NodeApi, type NodeEntry } from '../interfaces/node'
+import { type Path, PathApi } from '../interfaces/path'
 
 export function* nodes<T extends Node>(
   editor: Editor,
@@ -28,10 +28,10 @@ export function* nodes<T extends Node>(
   let from: Path
   let to: Path
 
-  if (Location.isSpan(at)) {
+  if (LocationApi.isSpan(at)) {
     const [first, last] = at
-    from = Path.isBefore(last, first) ? last : first
-    to = Path.isBefore(last, first) ? first : last
+    from = PathApi.isBefore(last, first) ? last : first
+    to = PathApi.isBefore(last, first) ? first : last
   } else {
     const first = Editor.path(editor, at, { edge: 'start' })
     const last = Editor.path(editor, at, { edge: 'end' })
@@ -39,12 +39,12 @@ export function* nodes<T extends Node>(
     to = last
   }
 
-  const nodeEntries = Node.nodes(editor, {
+  const nodeEntries = NodeApi.nodes(editor, {
     from,
     to,
     pass: ([node, path]) => {
       if (pass?.([node, path])) return true
-      if (!Node.isElement(node)) return false
+      if (!NodeApi.isElement(node)) return false
       if (
         !voids &&
         (Editor.isVoid(editor, node) || Editor.isElementReadOnly(editor, node))
@@ -60,7 +60,7 @@ export function* nodes<T extends Node>(
   let hit: NodeEntry<T> | undefined
 
   for (const [node, path] of nodeEntries) {
-    const isLower = hit && Path.compare(path, hit[1]) === 0
+    const isLower = hit && PathApi.compare(path, hit[1]) === 0
 
     // In highest mode any node lower than the last hit is not a match.
     if (mode === 'highest' && isLower) {
@@ -71,7 +71,7 @@ export function* nodes<T extends Node>(
       // If we've arrived at a leaf text node that is not lower than the last
       // hit, then we've found a branch that doesn't include a match, which
       // means the match is not universal.
-      if (universal && !isLower && Node.isText(node)) {
+      if (universal && !isLower && NodeApi.isText(node)) {
         return
       }
       continue

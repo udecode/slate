@@ -1,4 +1,4 @@
-import { type Operation, Range } from '..'
+import { type Operation, type Range, RangeApi } from '..'
 
 /**
  * `RangeRef` objects keep a specific range in a document synced over time as new
@@ -20,7 +20,7 @@ export interface RangeRefInterface {
 }
 
 // eslint-disable-next-line no-redeclare
-export const RangeRef: RangeRefInterface = {
+export const RangeRefApi: RangeRefInterface = {
   transform(ref: RangeRef, op: Operation): void {
     const internalRef = ref as RangeRef & {
       __draftCurrent?: Range | null
@@ -33,7 +33,7 @@ export const RangeRef: RangeRefInterface = {
       return
     }
 
-    const next = Range.transform(current, op, { affinity })
+    const next = RangeApi.transform(current, op, { affinity })
 
     if (internalRef.__visibility === 'public') {
       internalRef.__draftCurrent = next

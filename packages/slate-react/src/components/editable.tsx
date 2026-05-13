@@ -2,7 +2,8 @@ import type React from 'react'
 import {
   type Element,
   type LeafPosition,
-  Range,
+  type Range,
+  RangeApi,
   type RuntimeId,
   type Text,
 } from 'slate'
@@ -535,7 +536,7 @@ export const defaultScrollSelectionIntoView = (
 ) => {
   // Scroll to the focus point of the selection, in case the selection is expanded
   const selection = readLiveSelection(editor)
-  const isBackward = !!selection && Range.isBackward(selection)
+  const isBackward = !!selection && RangeApi.isBackward(selection)
   const domFocusPoint = domRange.cloneRange()
   domFocusPoint.collapse(isBackward)
 

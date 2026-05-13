@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { Editor } from 'slate/internal'
 
-import { createEditor, type Descendant, Node, Text } from '../src'
+import { createEditor, type Descendant, NodeApi, TextApi } from '../src'
 
 const richTextParagraph = (): Descendant => ({
   type: 'paragraph',
@@ -34,9 +34,9 @@ const setupEditor = () => {
 const getTextChildren = (editor: ReturnType<typeof createEditor>) => {
   const block = Editor.getChildren(editor)[0]
 
-  assert(Node.isElement(block))
+  assert(NodeApi.isElement(block))
 
-  return block.children.filter(Text.isText)
+  return block.children.filter(TextApi.isText)
 }
 
 describe('leaf lifecycle contract', () => {

@@ -1,6 +1,6 @@
 import { css } from '@emotion/css'
 import { type MouseEvent, useEffect, useMemo, useRef } from 'react'
-import { Range } from 'slate'
+import { RangeApi } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -86,7 +86,7 @@ const HoveringToolbar = () => {
     if (
       !selection ||
       !inFocus ||
-      Range.isCollapsed(selection) ||
+      RangeApi.isCollapsed(selection) ||
       editor.read((state) => state.text.string(selection)) === ''
     ) {
       el.removeAttribute('style')

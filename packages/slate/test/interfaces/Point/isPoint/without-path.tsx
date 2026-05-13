@@ -1,11 +1,11 @@
 /** @jsx jsx */
 
-import { Point } from 'slate'
+import { PointApi } from 'slate'
 
 export const input = {
   offset: 0,
 }
 export const test = (value) => {
-  return Point.isPoint(value)
+  return PointApi.isPoint(value)
 }
 export const output = false

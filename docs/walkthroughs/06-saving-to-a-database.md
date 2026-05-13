@@ -103,14 +103,14 @@ But what if you want something other than JSON? Well, you'd need to serialize yo
 
 ```jsx
 // Import the `Node` helper interface from Slate.
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 
 // Define a serializing function that takes a value and returns a string.
 const serialize = value => {
   return (
     value
       // Return the string content of each paragraph in the value's children.
-      .map(n => Node.string(n))
+      .map(n => NodeApi.string(n))
       // Join them all with line breaks denoting paragraphs.
       .join('\n')
   )

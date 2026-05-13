@@ -9,7 +9,7 @@ import type {
   Range as SlateRange,
   Text as SlateTextNode,
 } from 'slate'
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 import {
   EDITOR_TO_PLACEHOLDER_ELEMENT,
   IS_NODE_MAP_DIRTY,
@@ -238,7 +238,7 @@ const getNearestEditableBlockText = (editor: Editor, path: Path) => {
     }
 
     if (Editor.isEditor(ancestor) || !Editor.isInline(editor, ancestor)) {
-      return Node.string(ancestor)
+      return NodeApi.string(ancestor)
     }
   }
 
@@ -1330,7 +1330,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
         const root = { children: snapshot.children } as Ancestor
         const decorations: SlateDecoration<T>[] = []
 
-        for (const [node, path] of Node.nodes(root)) {
+        for (const [node, path] of NodeApi.nodes(root)) {
           if (path.length === 0) {
             continue
           }

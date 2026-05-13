@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import {
   type Descendant,
   type EditorSnapshot,
-  Node,
+  NodeApi,
   type RuntimeId,
 } from 'slate'
 import { withHistory } from 'slate-history'
@@ -123,7 +123,11 @@ const collectSearchProjections = (
   nodes.forEach((node, nodeIndex) => {
     const nodePath = [...path, nodeIndex]
 
-    if (search && Node.isElement(node) && node.children.every(Node.isText)) {
+    if (
+      search &&
+      NodeApi.isElement(node) &&
+      node.children.every(NodeApi.isText)
+    ) {
       const texts = node.children.map((it) => it.text)
       const str = texts.join('')
       const length = search.length
@@ -170,7 +174,7 @@ const collectSearchProjections = (
       }
     }
 
-    if (Node.isElement(node)) {
+    if (NodeApi.isElement(node)) {
       projections.push(
         ...collectSearchProjections(node.children, search, nodePath)
       )
@@ -190,7 +194,7 @@ const collectTextRuntimeScope = (
   nodes.forEach((node, nodeIndex) => {
     const nodePath = [...path, nodeIndex]
 
-    if (Node.isText(node)) {
+    if (NodeApi.isText(node)) {
       const runtimeId = snapshot.index.pathToId[nodePath.join('.')]
 
       if (runtimeId) {
@@ -199,7 +203,7 @@ const collectTextRuntimeScope = (
       return
     }
 
-    if (Node.isElement(node)) {
+    if (NodeApi.isElement(node)) {
       runtimeIds.push(
         ...collectTextRuntimeScope(snapshot, node.children, nodePath)
       )

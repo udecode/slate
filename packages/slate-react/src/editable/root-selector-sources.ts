@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useMemo, useRef } from 'react'
 import type { Operation, Path, RuntimeId, SnapshotChange } from 'slate'
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 import { useEditorSelector } from '../hooks/use-editor-selector'
 import type { ReactEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
@@ -179,8 +179,8 @@ export const usePlaceholderValue = (placeholder?: ReactNode) => {
         (state) =>
           placeholder &&
           state.value.get().length === 1 &&
-          Array.from(Node.texts(editor)).length === 1 &&
-          Node.string(editor) === ''
+          Array.from(NodeApi.texts(editor)).length === 1 &&
+          NodeApi.string(editor) === ''
       )
         ? placeholder
         : undefined,

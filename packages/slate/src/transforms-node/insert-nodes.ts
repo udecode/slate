@@ -7,10 +7,13 @@ import { nodes as getNodes } from '../editor/nodes'
 import {
   type BaseInsertNodeOperation,
   type Descendant,
-  Location,
-  Node,
-  Path,
-  Range,
+  type Location,
+  LocationApi,
+  type Node,
+  NodeApi,
+  type Path,
+  PathApi,
+  RangeApi,
 } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import type { NodeMutationMethods } from '../interfaces/transforms/node'
@@ -33,7 +36,7 @@ export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
       let at: Location | undefined = options.at
       let { match, select } = options
 
-      const nextNodes = (Node.isNode(nodes) ? [nodes] : nodes) as Node[]
+      const nextNodes = (NodeApi.isNode(nodes) ? [nodes] : nodes) as Node[]
 
       if (nextNodes.length === 0) {
         return
@@ -61,34 +64,34 @@ export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
         select = false
       }
 
-      if (Location.isRange(at)) {
+      if (LocationApi.isRange(at)) {
         if (!hanging) {
           at = Editor.unhangRange(editor, at, { voids })
         }
 
-        if (Range.isCollapsed(at)) {
+        if (RangeApi.isCollapsed(at)) {
           at = at.anchor
         } else {
-          const [, end] = Range.edges(at)
+          const [, end] = RangeApi.edges(at)
           const pointRef = Editor.pointRef(editor, end)
           transforms.delete({ at })
           at = pointRef.unref()!
         }
       }
 
-      if (Location.isPoint(at)) {
+      if (LocationApi.isPoint(at)) {
         if (match == null) {
-          if (Node.isText(node)) {
-            match = (n) => Node.isText(n)
+          if (NodeApi.isText(node)) {
+            match = (n) => NodeApi.isText(n)
           } else if (
-            Node.isElement(node) &&
+            NodeApi.isElement(node) &&
             getEditorSchema(editor).isInline(node)
           ) {
             match = (n) =>
-              Node.isText(n) ||
-              (Node.isElement(n) && Editor.isInline(editor, n))
+              NodeApi.isText(n) ||
+              (NodeApi.isElement(n) && Editor.isInline(editor, n))
           } else {
-            match = (n) => Node.isElement(n) && Editor.isBlock(editor, n)
+            match = (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n)
           }
         }
 
@@ -108,14 +111,14 @@ export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
         const isAtEnd = Editor.isEnd(editor, at, matchPath)
         transforms.splitNodes({ at, match, mode, voids })
         const path = pathRef.unref()!
-        at = isAtEnd ? Path.next(path) : path
+        at = isAtEnd ? PathApi.next(path) : path
       }
 
-      if (Location.isPath(at) && at.length === 0) {
+      if (LocationApi.isPath(at) && at.length === 0) {
         throw new Error('Cannot insert into the editor root.')
       }
 
-      const parentPath = Path.parent(at)
+      const parentPath = PathApi.parent(at)
       let index = at.at(-1)!
 
       if (!voids && Editor.void(editor, { at: parentPath })) {
@@ -124,7 +127,7 @@ export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
 
       if (batchDirty) {
         const batchedOps: BaseInsertNodeOperation[] = []
-        const newDirtyPaths: Path[] = Path.levels(parentPath)
+        const newDirtyPaths: Path[] = PathApi.levels(parentPath)
 
         batchDirtyPaths(
           editor,
@@ -140,14 +143,14 @@ export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
               }
 
               applyOperation(editor, op)
-              at = Path.next(at as Path)
+              at = PathApi.next(at as Path)
               batchedOps.push(op)
 
-              if (Node.isText(child)) {
+              if (NodeApi.isText(child)) {
                 newDirtyPaths.push(path)
               } else {
                 newDirtyPaths.push(
-                  ...Array.from(Node.nodes(child), ([, childPath]) =>
+                  ...Array.from(NodeApi.nodes(child), ([, childPath]) =>
                     path.concat(childPath)
                   )
                 )
@@ -159,7 +162,7 @@ export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
               let nextPath: Path | null = path
 
               for (const op of batchedOps) {
-                nextPath = Path.transform(nextPath, op)
+                nextPath = PathApi.transform(nextPath, op)
 
                 if (!nextPath) {
                   return null
@@ -180,11 +183,11 @@ export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
             path,
             node: child as Descendant,
           })
-          at = Path.next(at as Path)
+          at = PathApi.next(at as Path)
         }
       }
 
-      at = Path.previous(at)
+      at = PathApi.previous(at)
 
       if (select) {
         const point = Editor.point(editor, at, { edge: 'end' })

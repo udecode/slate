@@ -2,33 +2,40 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { Editor } from 'slate/internal'
 
-import { createEditor, Element, Node, Operation, Range, Text } from '../src'
+import {
+  createEditor,
+  ElementApi,
+  NodeApi,
+  OperationApi,
+  RangeApi,
+  TextApi,
+} from '../src'
 
 describe('slate interfaces contract', () => {
   it('treats editors as nodes, not elements', () => {
     const editor = createEditor()
 
-    assert.equal(Node.isNode(editor), true)
-    assert.equal(Element.isElement(editor), false)
+    assert.equal(NodeApi.isNode(editor), true)
+    assert.equal(ElementApi.isElement(editor), false)
   })
 
   it('treats arrays of editor-like values as not an element list', () => {
     const editor = createEditor()
 
-    assert.equal(Element.isElementList([editor]), false)
+    assert.equal(ElementApi.isElementList([editor]), false)
   })
 
   it('treats plain text objects as text', () => {
-    assert.equal(Text.isText({ text: '' }), true)
+    assert.equal(TextApi.isText({ text: '' }), true)
   })
 
   it('rejects plain objects as nodes', () => {
-    assert.equal(Node.isNode({}), false)
+    assert.equal(NodeApi.isNode({}), false)
   })
 
   it('recognizes move_node operations', () => {
     assert.equal(
-      Operation.isOperation({
+      OperationApi.isOperation({
         type: 'move_node',
         path: [0],
         newPath: [1],
@@ -39,7 +46,7 @@ describe('slate interfaces contract', () => {
 
   it('recognizes operation lists', () => {
     assert.equal(
-      Operation.isOperationList([
+      OperationApi.isOperationList([
         {
           type: 'set_node',
           path: [0],
@@ -58,9 +65,9 @@ describe('slate interfaces contract', () => {
       payload: true,
     }
 
-    assert.equal(Operation.isOperation(customOperation), false)
+    assert.equal(OperationApi.isOperation(customOperation), false)
     assert.equal(
-      Operation.isOperationList([
+      OperationApi.isOperationList([
         {
           offset: 0,
           path: [0, 0],
@@ -75,7 +82,7 @@ describe('slate interfaces contract', () => {
 
   it('recognizes concrete operation subtypes', () => {
     assert.equal(
-      Operation.isInsertTextOperation({
+      OperationApi.isInsertTextOperation({
         offset: 0,
         path: [0, 0],
         text: 'x',
@@ -84,7 +91,7 @@ describe('slate interfaces contract', () => {
       true
     )
     assert.equal(
-      Operation.isReplaceChildrenOperation({
+      OperationApi.isReplaceChildrenOperation({
         children: [],
         index: 0,
         newChildren: [],
@@ -96,7 +103,7 @@ describe('slate interfaces contract', () => {
       true
     )
     assert.equal(
-      Operation.isInsertNodeOperation({
+      OperationApi.isInsertNodeOperation({
         type: 'custom_operation',
         path: [0],
         payload: true,
@@ -107,7 +114,7 @@ describe('slate interfaces contract', () => {
 
   it('recognizes ranges', () => {
     assert.equal(
-      Range.isRange({
+      RangeApi.isRange({
         anchor: { path: [0, 1], offset: 0 },
         focus: { path: [0, 1], offset: 0 },
       }),
@@ -117,7 +124,7 @@ describe('slate interfaces contract', () => {
 
   it('rejects insert_fragment operations whose at target is only a Path', () => {
     assert.equal(
-      Operation.isOperation({
+      OperationApi.isOperation({
         type: 'insert_fragment',
         fragment: [],
         at: [0],
@@ -160,6 +167,6 @@ describe('slate interfaces contract', () => {
     assert.equal(Editor.isEditor(editor), true)
     assert.equal(Editor.hasPath(editor, [0, 0]), true)
     assert.equal(Editor.string(editor, []), 'one')
-    assert.equal(Node.isNode(editor), true)
+    assert.equal(NodeApi.isNode(editor), true)
   })
 })

@@ -10,7 +10,7 @@ import {
   runEditorTransaction,
 } from '../core/public-state'
 import type { Editor, EditorStaticApi } from '../interfaces/editor'
-import { Node, type NodeEntry } from '../interfaces/node'
+import { NodeApi, type NodeEntry } from '../interfaces/node'
 import type { Operation } from '../interfaces/operation'
 import { DIRTY_PATH_KEYS, DIRTY_PATHS } from '../utils/weak-maps'
 import { isNormalizing } from './is-normalizing'
@@ -69,11 +69,14 @@ export const normalize: EditorStaticApi['normalize'] = (
     })
 
   const collectNormalizeEntries = (): NodeEntry[] =>
-    Array.from(Node.nodes(editor), ([node, path]) => [node, path] as NodeEntry)
+    Array.from(
+      NodeApi.nodes(editor),
+      ([node, path]) => [node, path] as NodeEntry
+    )
 
   const collectDirtyNormalizeEntries = (): NodeEntry[] =>
     getDirtyPaths(editor)
-      .filter((path) => Node.has(editor, path))
+      .filter((path) => NodeApi.has(editor, path))
       .map((path) => node(editor, path))
 
   const runNormalizePasses = () => {
@@ -87,7 +90,7 @@ export const normalize: EditorStaticApi['normalize'] = (
     }
 
     if (force) {
-      const allPaths = Array.from(Node.nodes(editor), ([, p]) => p)
+      const allPaths = Array.from(NodeApi.nodes(editor), ([, p]) => p)
       const allPathKeys = new Set(allPaths.map((p) => p.join(',')))
       DIRTY_PATHS.set(editor, allPaths)
       DIRTY_PATH_KEYS.set(editor, allPathKeys)

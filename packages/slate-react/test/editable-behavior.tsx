@@ -1,5 +1,5 @@
 import { act, fireEvent, render } from '@testing-library/react'
-import { createEditor, Text } from 'slate'
+import { createEditor, TextApi } from 'slate'
 import { Editor } from 'slate/internal'
 import {
   defaultScrollSelectionIntoView,
@@ -143,7 +143,7 @@ describe('slate-react editable behavior', () => {
           { bold: true },
           {
             at: { path: [0, 0], offset: 2 },
-            match: Text.isText,
+            match: TextApi.isText,
             split: true,
           }
         )

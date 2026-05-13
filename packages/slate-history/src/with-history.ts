@@ -1,8 +1,11 @@
 import {
-  Operation,
-  Path,
-  Point,
-  Range,
+  type Operation,
+  OperationApi,
+  type Path,
+  PathApi,
+  PointApi,
+  type Range,
+  RangeApi,
   type SnapshotChange,
   type ValueOf,
 } from 'slate'
@@ -61,7 +64,7 @@ export const withHistory = <T extends Editor<any>>(
 
     HistoryEditor.withoutSaving(e, () => {
       e.update((tx) => {
-        const inverseOps = batch.operations.map(Operation.inverse).reverse()
+        const inverseOps = batch.operations.map(OperationApi.inverse).reverse()
 
         tx.operations.replay(inverseOps)
         if (batch.selectionBefore) {
@@ -172,7 +175,7 @@ const shouldMerge = (op: Operation, prev: Operation | undefined): boolean => {
     op.type === 'insert_text' &&
     prev.type === 'insert_text' &&
     op.offset === prev.offset + prev.text.length &&
-    Path.equals(op.path, prev.path)
+    PathApi.equals(op.path, prev.path)
   ) {
     return true
   }
@@ -182,7 +185,7 @@ const shouldMerge = (op: Operation, prev: Operation | undefined): boolean => {
     op.type === 'remove_text' &&
     prev.type === 'remove_text' &&
     op.offset + op.text.length === prev.offset &&
-    Path.equals(op.path, prev.path)
+    PathApi.equals(op.path, prev.path)
   ) {
     return true
   }
@@ -265,7 +268,7 @@ const transformSelectionPatch = (
   const next = { ...selection }
 
   if (next.anchor) {
-    const anchor = Point.transform(next.anchor, operation)
+    const anchor = PointApi.transform(next.anchor, operation)
 
     if (!anchor) {
       return null
@@ -275,7 +278,7 @@ const transformSelectionPatch = (
   }
 
   if (next.focus) {
-    const focus = Point.transform(next.focus, operation)
+    const focus = PointApi.transform(next.focus, operation)
 
     if (!focus) {
       return null
@@ -290,7 +293,7 @@ const transformSelectionPatch = (
 const transformRange = (
   range: Range | null,
   operation: Operation
-): Range | null => (range == null ? null : Range.transform(range, operation))
+): Range | null => (range == null ? null : RangeApi.transform(range, operation))
 
 const transformTextOperation = <HistoryValue extends ValueOf<Editor<any>>>(
   operation: Operation<HistoryValue> & {
@@ -299,7 +302,7 @@ const transformTextOperation = <HistoryValue extends ValueOf<Editor<any>>>(
   },
   applied: Operation
 ): Operation<HistoryValue> | null => {
-  const point = Point.transform(
+  const point = PointApi.transform(
     { path: operation.path, offset: operation.offset },
     applied
   )
@@ -319,7 +322,7 @@ const transformPathOperation = <HistoryValue extends ValueOf<Editor<any>>>(
   operation: Operation<HistoryValue> & { path: Path },
   applied: Operation
 ): Operation<HistoryValue> | null => {
-  const path = Path.transform(operation.path, applied)
+  const path = PathApi.transform(operation.path, applied)
 
   if (!path) {
     return null
@@ -334,7 +337,7 @@ const transformChildIndex = (
   applied: Operation
 ): number | null => {
   const indexedPath = path.concat(index)
-  const nextPath = Path.transform(indexedPath, applied)
+  const nextPath = PathApi.transform(indexedPath, applied)
 
   if (!nextPath) {
     return null
@@ -375,7 +378,7 @@ const transformOperation = <HistoryValue extends ValueOf<Editor<any>>>(
         return next
       }
 
-      const point = Point.transform(
+      const point = PointApi.transform(
         { path: operation.path, offset: operation.position },
         applied
       )
@@ -388,8 +391,8 @@ const transformOperation = <HistoryValue extends ValueOf<Editor<any>>>(
     }
 
     case 'move_node': {
-      const path = Path.transform(operation.path, applied)
-      const newPath = Path.transform(operation.newPath, applied)
+      const path = PathApi.transform(operation.path, applied)
+      const newPath = PathApi.transform(operation.newPath, applied)
 
       if (!path || !newPath) {
         return null
@@ -399,7 +402,7 @@ const transformOperation = <HistoryValue extends ValueOf<Editor<any>>>(
     }
 
     case 'replace_fragment': {
-      const path = Path.transform(operation.path, applied)
+      const path = PathApi.transform(operation.path, applied)
 
       if (!path) {
         return null
@@ -414,7 +417,7 @@ const transformOperation = <HistoryValue extends ValueOf<Editor<any>>>(
     }
 
     case 'replace_children': {
-      const path = Path.transform(operation.path, applied)
+      const path = PathApi.transform(operation.path, applied)
 
       if (!path) {
         return null

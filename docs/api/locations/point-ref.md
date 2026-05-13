@@ -25,7 +25,7 @@ It also returns the current value.
 
 ### Transform methods
 
-#### `PointRef.transform(ref: PointRef, op: Operation)`
+#### `PointRefApi.transform(ref: PointRef, op: Operation)`
 
 Transform the point refs current value by an `op`.
 The editor calls this as needed, so normally you won't need to.

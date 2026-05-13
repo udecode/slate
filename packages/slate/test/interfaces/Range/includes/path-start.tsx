@@ -1,6 +1,6 @@
 /** @jsx jsx */
 
-import { Range } from 'slate'
+import { RangeApi } from 'slate'
 
 export const input = {
   range: {
@@ -16,6 +16,6 @@ export const input = {
   target: [1],
 }
 export const test = ({ range, target }) => {
-  return Range.includes(range, target)
+  return RangeApi.includes(range, target)
 }
 export const output = true

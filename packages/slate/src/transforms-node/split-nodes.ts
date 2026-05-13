@@ -3,21 +3,21 @@ import { applyOperation, runEditorTransaction } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { node as getNode } from '../editor/node'
 import { nodes as getNodes } from '../editor/nodes'
-import { Location } from '../interfaces'
+import { LocationApi } from '../interfaces'
 import { Editor } from '../interfaces/editor'
-import { Node } from '../interfaces/node'
-import { Path } from '../interfaces/path'
+import { NodeApi } from '../interfaces/node'
+import { type Path, PathApi } from '../interfaces/path'
 import type { Point } from '../interfaces/point'
 import type { PointRef } from '../interfaces/point-ref'
-import { Range } from '../interfaces/range'
+import { type Range, RangeApi } from '../interfaces/range'
 import type { NodeMutationMethods } from '../interfaces/transforms/node'
 
 const deleteRange = (editor: Editor, range: Range): Point | null => {
-  if (Range.isCollapsed(range)) {
+  if (RangeApi.isCollapsed(range)) {
     return range.anchor
   }
 
-  const [, end] = Range.edges(range)
+  const [, end] = RangeApi.edges(range)
   const pointRef = Editor.pointRef(editor, end)
   getEditorTransformRegistry(editor).delete({ at: range })
   return pointRef.unref()
@@ -35,16 +35,16 @@ const getTextEndForwardPoint = (
   const [node] = getNode(editor, point.path)
 
   if (
-    !Node.isText(node) ||
+    !NodeApi.isText(node) ||
     node.text !== '' ||
     point.offset !== node.text.length
   ) {
     return null
   }
 
-  const nextPath = Path.next(point.path)
+  const nextPath = PathApi.next(point.path)
 
-  if (!Node.has(editor, nextPath)) {
+  if (!NodeApi.has(editor, nextPath)) {
     return null
   }
 
@@ -67,17 +67,17 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
       }
 
       if (match == null) {
-        match = (n) => Node.isElement(n) && Editor.isBlock(editor, n)
+        match = (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n)
       }
 
-      if (Location.isRange(at)) {
+      if (LocationApi.isRange(at)) {
         at = deleteRange(editor, at)
         if (!at) {
           return
         }
       }
 
-      if (Location.isPath(at)) {
+      if (LocationApi.isPath(at)) {
         if (at.length === 0) {
           throw new Error('Cannot split the editor root.')
         }
@@ -90,7 +90,7 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
             type: 'split_node',
             path,
             position: options.position,
-            properties: Node.extractProps(node),
+            properties: NodeApi.extractProps(node),
           })
 
           return
@@ -106,7 +106,7 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
         always = true
       }
 
-      if (!Location.isPoint(at)) {
+      if (!LocationApi.isPoint(at)) {
         return
       }
 
@@ -132,7 +132,7 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
 
             if (!after) {
               const text = { text: '' }
-              const afterPath = Path.next(voidPath)
+              const afterPath = PathApi.next(voidPath)
               transforms.insertNodes(text, { at: afterPath, voids })
               after = Editor.point(editor, afterPath)!
             }
@@ -167,7 +167,7 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
           if (
             path.length < highestPath.length ||
             path.length === 0 ||
-            (!voids && Node.isElement(node) && Editor.isVoid(editor, node))
+            (!voids && NodeApi.isElement(node) && Editor.isVoid(editor, node))
           ) {
             break
           }
@@ -175,7 +175,7 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
           const point = beforeRef.current!
           const isEnd = Editor.isEnd(editor, point, path)
 
-          if (textEndForwardPoint && Path.equals(path, at.path)) {
+          if (textEndForwardPoint && PathApi.equals(path, at.path)) {
             split = false
           } else if (always || !Editor.isEdge(editor, point, path)) {
             split = true
@@ -183,7 +183,7 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
               type: 'split_node',
               path,
               position,
-              properties: Node.extractProps(node),
+              properties: NodeApi.extractProps(node),
             })
           }
 

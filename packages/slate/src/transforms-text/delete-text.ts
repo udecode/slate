@@ -6,13 +6,14 @@ import { node as getNode } from '../editor/node'
 import { nodes as getNodes } from '../editor/nodes'
 import {
   type Descendant,
-  Location,
-  Node as NodeApi,
+  type Location,
+  LocationApi,
+  NodeApi,
   type Operation,
   type Path,
-  Path as PathApi,
-  Point as PointApi,
-  Range as RangeApi,
+  PathApi,
+  PointApi,
+  RangeApi,
   type Element as SlateElement,
 } from '../interfaces'
 import { type Editor, Editor as EditorApi } from '../interfaces/editor'
@@ -692,12 +693,12 @@ const resolveDeleteTarget = (
 
   let isCollapsed = false
 
-  if (Location.isRange(at) && RangeApi.isCollapsed(at)) {
+  if (LocationApi.isRange(at) && RangeApi.isCollapsed(at)) {
     isCollapsed = true
     at = at.anchor
   }
 
-  if (Location.isPoint(at)) {
+  if (LocationApi.isPoint(at)) {
     isCollapsed = true
     const nonEditable = voids ? undefined : getHighestNonEditable(editor, at)
 
@@ -744,7 +745,7 @@ const resolveDeleteTarget = (
     }
   }
 
-  if (Location.isPath(at)) {
+  if (LocationApi.isPath(at)) {
     const selection = getCurrentSelection(editor)
     const selectionInside =
       selection &&
@@ -850,7 +851,7 @@ const resolveDeleteTarget = (
     )
   const originalHangingBlockRange =
     !!initialAt &&
-    Location.isRange(initialAt) &&
+    LocationApi.isRange(initialAt) &&
     !RangeApi.isCollapsed(initialAt) &&
     (() => {
       const [, originalEnd] = RangeApi.edges(initialAt)
@@ -1207,9 +1208,9 @@ const resolveDeleteSelection = (
   let point = normalizeFinalDeletePoint(editor, collapseTarget, {
     reverse: plan.reverse,
     allowForwardBoundaryJump:
-      (plan.initialAt != null && Location.isPoint(plan.initialAt)) ||
+      (plan.initialAt != null && LocationApi.isPoint(plan.initialAt)) ||
       (plan.initialAt != null &&
-        Location.isRange(plan.initialAt) &&
+        LocationApi.isRange(plan.initialAt) &&
         RangeApi.isCollapsed(plan.initialAt)),
   })
 
@@ -1274,7 +1275,7 @@ const resolveDeleteSelection = (
     }
   }
 
-  if ((!plan.initialAt || !Location.isPath(plan.initialAt)) && point) {
+  if ((!plan.initialAt || !LocationApi.isPath(plan.initialAt)) && point) {
     tx.setSelection({
       anchor: point,
       focus: point,
@@ -1290,9 +1291,9 @@ const resolveDeleteSelection = (
       {
         reverse: plan.reverse,
         allowForwardBoundaryJump:
-          (plan.initialAt != null && Location.isPoint(plan.initialAt)) ||
+          (plan.initialAt != null && LocationApi.isPoint(plan.initialAt)) ||
           (plan.initialAt != null &&
-            Location.isRange(plan.initialAt) &&
+            LocationApi.isRange(plan.initialAt) &&
             RangeApi.isCollapsed(plan.initialAt)),
       }
     )

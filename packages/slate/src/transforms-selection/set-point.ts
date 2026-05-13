@@ -1,6 +1,6 @@
 import { getCurrentSelection } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
-import { Range } from '../interfaces/range'
+import { RangeApi } from '../interfaces/range'
 import type { SelectionMutationMethods } from '../interfaces/transforms/selection'
 
 export const setPoint: SelectionMutationMethods['setPoint'] = (
@@ -16,11 +16,11 @@ export const setPoint: SelectionMutationMethods['setPoint'] = (
   }
 
   if (edge === 'start') {
-    edge = Range.isBackward(selection) ? 'focus' : 'anchor'
+    edge = RangeApi.isBackward(selection) ? 'focus' : 'anchor'
   }
 
   if (edge === 'end') {
-    edge = Range.isBackward(selection) ? 'anchor' : 'focus'
+    edge = RangeApi.isBackward(selection) ? 'anchor' : 'focus'
   }
 
   const { anchor, focus } = selection

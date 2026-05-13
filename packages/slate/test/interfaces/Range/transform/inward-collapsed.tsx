@@ -1,6 +1,6 @@
 /** @jsx jsx */
 
-import { Range } from 'slate'
+import { RangeApi } from 'slate'
 
 export const input = {
   anchor: {
@@ -13,7 +13,7 @@ export const input = {
   },
 }
 export const test = (value) => {
-  return Range.transform(
+  return RangeApi.transform(
     value,
     {
       type: 'split_node',

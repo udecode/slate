@@ -14,7 +14,7 @@ import { type ChangeEvent, type PointerEvent, useCallback } from 'react'
 import {
   type Descendant,
   type EditorSnapshot,
-  Node,
+  NodeApi,
   type RuntimeId,
 } from 'slate'
 import { isHotkey } from 'slate-dom'
@@ -173,14 +173,14 @@ const convertSelectionToCodeBlock = (editor: CustomEditor) => {
     tx.nodes.wrap(
       { type: CodeBlockType, language: 'html', children: [] },
       {
-        match: (node) => Node.isElement(node) && node.type === ParagraphType,
+        match: (node) => NodeApi.isElement(node) && node.type === ParagraphType,
         split: true,
       }
     )
     tx.nodes.set(
       { type: CodeLineType },
       {
-        match: (node) => Node.isElement(node) && node.type === ParagraphType,
+        match: (node) => NodeApi.isElement(node) && node.type === ParagraphType,
       }
     )
   })
@@ -196,17 +196,17 @@ const collectCodeProjections = (
   nodes.forEach((node, nodeIndex) => {
     const nodePath = [...path, nodeIndex]
     const nodeLanguage =
-      Node.isElement(node) && node.type === CodeBlockType
+      NodeApi.isElement(node) && node.type === CodeBlockType
         ? (node as CodeBlockElement).language
         : language
 
-    if (Node.isText(node) && nodeLanguage) {
+    if (NodeApi.isText(node) && nodeLanguage) {
       projections.push(
         ...collectCodeTextProjections(node.text, nodePath, nodeLanguage)
       )
     }
 
-    if (Node.isElement(node)) {
+    if (NodeApi.isElement(node)) {
       projections.push(
         ...collectCodeProjections(node.children, nodePath, nodeLanguage)
       )
@@ -227,11 +227,11 @@ const collectCodeRuntimeScope = (
   nodes.forEach((node, nodeIndex) => {
     const nodePath = [...path, nodeIndex]
     const nodeLanguage =
-      Node.isElement(node) && node.type === CodeBlockType
+      NodeApi.isElement(node) && node.type === CodeBlockType
         ? (node as CodeBlockElement).language
         : language
 
-    if (Node.isText(node) && nodeLanguage) {
+    if (NodeApi.isText(node) && nodeLanguage) {
       const runtimeId = snapshot.index.pathToId[nodePath.join('.')]
 
       if (runtimeId) {
@@ -240,7 +240,7 @@ const collectCodeRuntimeScope = (
       return
     }
 
-    if (Node.isElement(node)) {
+    if (NodeApi.isElement(node)) {
       runtimeIds.push(
         ...collectCodeRuntimeScope(
           snapshot,
@@ -432,7 +432,7 @@ const getSelectedCodeLinePaths = (
     startIndex == null ||
     endIndex == null ||
     !codeBlock ||
-    !Node.isElement(codeBlock) ||
+    !NodeApi.isElement(codeBlock) ||
     codeBlock.type !== CodeBlockType
   ) {
     return []
@@ -441,7 +441,7 @@ const getSelectedCodeLinePaths = (
   const codeLinePaths: number[][] = []
 
   codeBlock.children.slice(startIndex, endIndex + 1).forEach((node, index) => {
-    if (Node.isElement(node) && node.type === CodeLineType) {
+    if (NodeApi.isElement(node) && node.type === CodeLineType) {
       codeLinePaths.push([...startCodeBlockPath, startIndex + index])
     }
   })
@@ -455,14 +455,14 @@ const getCodeLinePath = (
 ) => {
   const node = getDescendant(children, path)
 
-  if (node && Node.isElement(node) && node.type === CodeLineType) {
+  if (node && NodeApi.isElement(node) && node.type === CodeLineType) {
     return [...path]
   }
 
   const parentPath = path.slice(0, -1)
   const parent = getDescendant(children, parentPath)
 
-  if (parent && Node.isElement(parent) && parent.type === CodeLineType) {
+  if (parent && NodeApi.isElement(parent) && parent.type === CodeLineType) {
     return parentPath
   }
 
@@ -475,11 +475,11 @@ const getFirstTextPath = (
 ) => {
   const line = getDescendant(children, linePath)
 
-  if (!line || !Node.isElement(line)) {
+  if (!line || !NodeApi.isElement(line)) {
     return null
   }
 
-  const textIndex = line.children.findIndex((child) => Node.isText(child))
+  const textIndex = line.children.findIndex((child) => NodeApi.isText(child))
 
   return textIndex === -1 ? null : [...linePath, textIndex]
 }
@@ -490,7 +490,7 @@ const getOutdentWidth = (
 ) => {
   const textNode = getDescendant(children, textPath)
 
-  if (!textNode || !Node.isText(textNode)) {
+  if (!textNode || !NodeApi.isText(textNode)) {
     return 0
   }
 
@@ -519,7 +519,7 @@ const getDescendant = (
       return null
     }
 
-    descendants = Node.isElement(node) ? node.children : []
+    descendants = NodeApi.isElement(node) ? node.children : []
   }
 
   return node

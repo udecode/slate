@@ -56,25 +56,25 @@ In addition to the typing information, each interface in Slate also exposes a se
 For example, when working with nodes:
 
 ```javascript
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 
 // Get the string content of an element node.
-const string = Node.string(element)
+const string = NodeApi.string(element)
 
 // Get the node at a specific path inside a root node.
-const descendant = Node.get(value, path)
+const descendant = NodeApi.get(value, path)
 ```
 
 Or, when working with ranges:
 
 ```javascript
-import { Range } from 'slate'
+import { RangeApi } from 'slate'
 
 // Get the start and end points of a range in order.
-const [start, end] = Range.edges(range)
+const [start, end] = RangeApi.edges(range)
 
 // Check if a range is collapsed to a single point.
-if (Range.isCollapsed(range)) {
+if (RangeApi.isCollapsed(range)) {
   // ...
 }
 ```
@@ -98,7 +98,7 @@ You can define these as one-off functions easily. But you might also bundle them
 For example:
 
 ```javascript
-import { Element } from 'slate'
+import { ElementApi } from 'slate'
 
 // You can use `MyElement` everywhere to have access to your extensions.
 export const MyElement = {

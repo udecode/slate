@@ -1,4 +1,4 @@
-import { Text } from 'slate'
+import { type Text, TextApi } from 'slate'
 
 const merge = (leaf: Text, dec: { decoration: number[] }) => {
   const { decoration, ...rest } = dec
@@ -33,7 +33,7 @@ export const input = [
   },
 ]
 export const test = (decorations) => {
-  return Text.decorations({ text: 'abc', mark: 'mark' }, decorations)
+  return TextApi.decorations({ text: 'abc', mark: 'mark' }, decorations)
 }
 export const output = [
   {

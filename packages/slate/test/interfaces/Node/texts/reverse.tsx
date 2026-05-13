@@ -1,5 +1,5 @@
 /** @jsx jsx  */
-import { Node } from 'slate'
+import { NodeApi } from 'slate'
 
 export const input = (
   <editor>
@@ -10,7 +10,7 @@ export const input = (
   </editor>
 )
 export const test = (value) => {
-  return Array.from(Node.texts(value, { reverse: true }))
+  return Array.from(NodeApi.texts(value, { reverse: true }))
 }
 export const output = [
   [<text key="b" />, [0, 1]],

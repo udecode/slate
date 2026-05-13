@@ -1,6 +1,6 @@
 import { act, render, waitFor } from '@testing-library/react'
 import React from 'react'
-import { createEditor, type Descendant, Node } from 'slate'
+import { createEditor, type Descendant, NodeApi } from 'slate'
 import { Editor } from 'slate/internal'
 import { DOMCoverage } from 'slate-dom/internal'
 import { Editable, EditableElement, Slate, withReact } from '../src'
@@ -742,7 +742,7 @@ describe('DOM coverage private boundary harness', () => {
         <Editable
           id="dom-coverage-large-boundary-expand"
           renderElement={({ children, element }) => {
-            const text = Node.string(element)
+            const text = NodeApi.string(element)
 
             if (text.startsWith('Hidden item ')) {
               renderCounts.hiddenItems += 1
@@ -821,7 +821,7 @@ describe('DOM coverage private boundary harness', () => {
         <Editable
           id="dom-coverage-hidden-update-dirtiness"
           renderElement={({ children, element }) => {
-            const text = Node.string(element)
+            const text = NodeApi.string(element)
 
             if (text.startsWith('Hidden alpha')) {
               renderCounts.hiddenBody += 1

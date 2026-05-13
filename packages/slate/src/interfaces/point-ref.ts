@@ -1,4 +1,4 @@
-import { type Operation, Point } from '..'
+import { type Operation, type Point, PointApi } from '..'
 import type { TextDirection } from '../types/types'
 
 /**
@@ -21,7 +21,7 @@ export interface PointRefInterface {
 }
 
 // eslint-disable-next-line no-redeclare
-export const PointRef: PointRefInterface = {
+export const PointRefApi: PointRefInterface = {
   transform(ref: PointRef, op: Operation): void {
     const { current, affinity } = ref
 
@@ -29,7 +29,7 @@ export const PointRef: PointRefInterface = {
       return
     }
 
-    const point = Point.transform(current, op, { affinity })
+    const point = PointApi.transform(current, op, { affinity })
     ref.current = point
 
     if (point == null) {

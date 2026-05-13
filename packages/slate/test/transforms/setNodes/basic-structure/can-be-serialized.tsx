@@ -5,7 +5,7 @@ import { jsx } from '../../..'
 jsx
 
 import assert from 'node:assert/strict'
-import { Operation } from 'slate'
+import { type Operation } from 'slate'
 export const run = (editor) => {
   editor.nodes.set({ someKey: true }, { at: [0] })
   const [op] = editor.value.operations()

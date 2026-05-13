@@ -1,11 +1,12 @@
 import { node as getNode } from '../editor/node'
 import {
   type Descendant,
-  Element,
-  Node,
+  type Element,
+  ElementApi,
+  NodeApi,
   type NodeEntry,
   type Operation,
-  Text,
+  TextApi,
 } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import {
@@ -29,10 +30,10 @@ type NormalizeNodeOptions = {
 }
 
 const getNodeChildren = (editor: Editor, node: Editor | Element) =>
-  Node.isEditor(node) ? Editor.getChildren(editor) : node.children
+  NodeApi.isEditor(node) ? Editor.getChildren(editor) : node.children
 
 const shouldHaveInlineChildren = (editor: Editor, node: Editor | Element) => {
-  if (Node.isEditor(node)) {
+  if (NodeApi.isEditor(node)) {
     return false
   }
 
@@ -40,24 +41,24 @@ const shouldHaveInlineChildren = (editor: Editor, node: Editor | Element) => {
 
   return (
     getEditorSchema(editor).isInline(node) ||
-    Text.isText(firstChild) ||
-    (Element.isElement(firstChild) &&
+    TextApi.isText(firstChild) ||
+    (ElementApi.isElement(firstChild) &&
       getEditorSchema(editor).isInline(firstChild))
   )
 }
 
 const isInlineChild = (editor: Editor, node: Descendant) =>
-  Element.isElement(node) && getEditorSchema(editor).isInline(node)
+  ElementApi.isElement(node) && getEditorSchema(editor).isInline(node)
 
 const isTextChild = (
   node: Descendant
-): node is Extract<Descendant, { text: string }> => Text.isText(node)
+): node is Extract<Descendant, { text: string }> => TextApi.isText(node)
 
 const collectInlineCompatibleDescendants = (
   editor: Editor,
   node: Descendant
 ): Descendant[] => {
-  if (Text.isText(node) || isInlineChild(editor, node)) {
+  if (TextApi.isText(node) || isInlineChild(editor, node)) {
     return [node]
   }
 
@@ -148,7 +149,7 @@ const normalizeExplicitInlineChildren = (
         continue
       }
 
-      if (Text.equals(child, prev, { loose: true })) {
+      if (TextApi.equals(child, prev, { loose: true })) {
         mergeNodes(editor, { at: [...path, index], voids: true })
         skippedIndexes.add(index)
         mutatedThisRound = true
@@ -243,11 +244,11 @@ export const normalizeNode = (
   const { fallbackElement } = options
   const [node, path] = entry
 
-  if (Text.isText(node)) {
+  if (TextApi.isText(node)) {
     return
   }
 
-  if (!Node.isEditor(node) && node.children.length === 0) {
+  if (!NodeApi.isEditor(node) && node.children.length === 0) {
     insertNodes(editor, { text: '' }, { at: [...path, 0] })
     return
   }
@@ -279,11 +280,11 @@ export const normalizeNode = (
       const canCanonicalizeAdjacentText =
         options.explicit && !touchesDirectChildCleanup
 
-      if (Text.isText(child) && Text.isText(prev)) {
+      if (TextApi.isText(child) && TextApi.isText(prev)) {
         if (
           canCanonicalizeAdjacentText &&
           child.text === '' &&
-          (!next || Text.isText(next))
+          (!next || TextApi.isText(next))
         ) {
           removeNodes(editor, { at: [...path, index], voids: true })
           return
@@ -292,7 +293,7 @@ export const normalizeNode = (
         if (
           canCanonicalizeAdjacentText &&
           prev.text === '' &&
-          (!nodeChildren[index - 2] || Text.isText(nodeChildren[index - 2]!))
+          (!nodeChildren[index - 2] || TextApi.isText(nodeChildren[index - 2]!))
         ) {
           removeNodes(editor, { at: [...path, index - 1], voids: true })
           return
@@ -300,7 +301,7 @@ export const normalizeNode = (
 
         if (
           canCanonicalizeAdjacentText &&
-          Text.equals(child, prev, { loose: true })
+          TextApi.equals(child, prev, { loose: true })
         ) {
           mergeNodes(editor, { at: [...path, index], voids: true })
           return
@@ -309,8 +310,8 @@ export const normalizeNode = (
 
       if (
         touchesDirectChildCleanup &&
-        Text.isText(child) &&
-        Text.isText(prev)
+        TextApi.isText(child) &&
+        TextApi.isText(prev)
       ) {
         if (child.text === '') {
           removeNodes(editor, { at: [...path, index], voids: true })
@@ -326,7 +327,7 @@ export const normalizeNode = (
       if (
         Array.isArray(directChildIndexes) &&
         directChildIndexes.includes(index) &&
-        !Text.isText(child) &&
+        !TextApi.isText(child) &&
         !isInlineChild(editor, child)
       ) {
         const replacement = collectInlineCompatibleDescendants(editor, child)
@@ -347,12 +348,12 @@ export const normalizeNode = (
         continue
       }
 
-      if (!prev || !Text.isText(prev)) {
+      if (!prev || !TextApi.isText(prev)) {
         insertNodes(editor, { text: '' }, { at: [...path, index], voids: true })
         return
       }
 
-      if (!next || !Text.isText(next)) {
+      if (!next || !TextApi.isText(next)) {
         insertNodes(
           editor,
           { text: '' },
@@ -378,7 +379,7 @@ export const normalizeNode = (
     for (const index of directChildIndexes) {
       const child = nodeChildren[index]
 
-      if (!child || (!Text.isText(child) && !isInlineChild(editor, child))) {
+      if (!child || (!TextApi.isText(child) && !isInlineChild(editor, child))) {
         continue
       }
 
@@ -409,7 +410,7 @@ export const normalizeNode = (
   }
 
   for (const [index, child] of getNodeChildren(editor, node).entries()) {
-    if (!Text.isText(child) && !isInlineChild(editor, child)) {
+    if (!TextApi.isText(child) && !isInlineChild(editor, child)) {
       continue
     }
 

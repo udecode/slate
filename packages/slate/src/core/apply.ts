@@ -2,10 +2,10 @@ import { transformBookmarks } from '../editor/bookmark'
 import { allRangeRefs, publishRangeRefDrafts } from '../editor/range-ref'
 import { Editor } from '../interfaces/editor'
 import type { Operation } from '../interfaces/operation'
-import { Path } from '../interfaces/path'
-import { PathRef } from '../interfaces/path-ref'
-import { PointRef } from '../interfaces/point-ref'
-import { RangeRef } from '../interfaces/range-ref'
+import { type Path, PathApi } from '../interfaces/path'
+import { PathRefApi } from '../interfaces/path-ref'
+import { PointRefApi } from '../interfaces/point-ref'
+import { RangeRefApi } from '../interfaces/range-ref'
 import { transform } from '../interfaces/transforms/general'
 import { isBatchingDirtyPaths } from './batch-dirty-paths'
 import {
@@ -47,11 +47,11 @@ export const apply = (editor: Editor, op: Operation) => {
     const previousMarks = previousSnapshot?.marks ?? getCurrentMarks(editor)
 
     for (const ref of Editor.pointRefs(editor)) {
-      PointRef.transform(ref, op)
+      PointRefApi.transform(ref, op)
     }
 
     for (const ref of allRangeRefs(editor)) {
-      RangeRef.transform(ref, op)
+      RangeRefApi.transform(ref, op)
     }
 
     transformBookmarks(editor, op)
@@ -114,15 +114,15 @@ export const apply = (editor: Editor, op: Operation) => {
   }
 
   for (const ref of Editor.pathRefs(editor)) {
-    PathRef.transform(ref, op)
+    PathRefApi.transform(ref, op)
   }
 
   for (const ref of Editor.pointRefs(editor)) {
-    PointRef.transform(ref, op)
+    PointRefApi.transform(ref, op)
   }
 
   for (const ref of allRangeRefs(editor)) {
-    RangeRef.transform(ref, op)
+    RangeRefApi.transform(ref, op)
   }
 
   transformBookmarks(editor, op)
@@ -130,8 +130,8 @@ export const apply = (editor: Editor, op: Operation) => {
 
   // update dirty paths
   if (!isBatchingDirtyPaths(editor)) {
-    const transform = Path.operationCanTransformPath(op)
-      ? (p: Path) => Path.transform(p, op)
+    const transform = PathApi.operationCanTransformPath(op)
+      ? (p: Path) => PathApi.transform(p, op)
       : undefined
     updateDirtyPaths(editor, Editor.getDirtyPaths(editor, op), transform)
   }

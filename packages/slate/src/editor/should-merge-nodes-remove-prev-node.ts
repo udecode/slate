@@ -1,4 +1,4 @@
-import { Node } from '../interfaces'
+import { NodeApi } from '../interfaces'
 import { Editor, type EditorStaticApi } from '../interfaces/editor'
 
 export const shouldMergeNodesRemovePrevNode: EditorStaticApi['shouldMergeNodesRemovePrevNode'] =
@@ -10,7 +10,9 @@ export const shouldMergeNodesRemovePrevNode: EditorStaticApi['shouldMergeNodesRe
     // if prevNode is first child in parent,don't remove it.
 
     return (
-      (Node.isElement(prevNode) && Editor.isEmpty(editor, prevNode)) ||
-      (Node.isText(prevNode) && prevNode.text === '' && prevPath.at(-1)! !== 0)
+      (NodeApi.isElement(prevNode) && Editor.isEmpty(editor, prevNode)) ||
+      (NodeApi.isText(prevNode) &&
+        prevNode.text === '' &&
+        prevPath.at(-1)! !== 0)
     )
   }
