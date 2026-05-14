@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { createEditor, defineEditorExtension, elementProperty } from '../src'
+import {
+  createEditor,
+  defineEditorExtension,
+  type EditorElementSpec,
+  elementProperty,
+} from '../src'
 
 describe('editor schema', () => {
   it('owns element predicates for app-defined specs', () => {
@@ -92,6 +97,27 @@ describe('editor schema', () => {
       editor.read((state) => state.schema.getElementSpec('embed')),
       null
     )
+  })
+
+  it('does not normalize boolean shorthand as a void kind', () => {
+    const editor = createEditor()
+    const cleanup = editor.extend(
+      defineEditorExtension({
+        elements: [
+          { type: 'legacy', void: true } as unknown as EditorElementSpec,
+        ],
+        name: 'legacy-boolean-void',
+      })
+    )
+
+    assert.equal(
+      editor.read((state) =>
+        state.schema.isVoid({ type: 'legacy', children: [] })
+      ),
+      false
+    )
+
+    cleanup()
   })
 
   it('rejects duplicate element specs', () => {

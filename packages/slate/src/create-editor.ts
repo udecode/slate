@@ -151,7 +151,11 @@ const getElementType = (element: { type?: unknown }) =>
 const isInlineVoidKind = (kind: EditorElementSpec['void']) =>
   kind === 'inline' || kind === 'markable-inline'
 
-const isVoidKind = (kind: EditorElementSpec['void']) => Boolean(kind)
+const isVoidKind = (kind: EditorElementSpec['void']) =>
+  kind === 'block' ||
+  kind === 'editable-island' ||
+  kind === 'inline' ||
+  kind === 'markable-inline'
 
 const isEditableIslandVoidKind = (kind: EditorElementSpec['void']) =>
   kind === 'editable-island'

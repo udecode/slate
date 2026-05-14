@@ -384,7 +384,6 @@ export type EditorSchemaApi = EditorStateSchemaApi & {
 }
 
 export type EditorElementVoidKind =
-  | boolean
   | 'block'
   | 'editable-island'
   | 'inline'

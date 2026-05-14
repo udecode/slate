@@ -27,7 +27,7 @@
   "scripts": {
     "build": "tsdown --config ./tsdown.config.mts --log-level warn",
     "clean": "rimraf dist lib",
-    "typecheck": "tsc --project tsconfig.json --noEmit"
+    "typecheck": "tsc --project tsconfig.json --noEmit && tsc --project test/tsconfig.generic-types.json --noEmit"
   },
   "devDependencies": {
     "lodash": "^4.17.21"

@@ -5,7 +5,8 @@
     "./generic-editor-api-contract.ts",
     "./generic-extension-contract.ts",
     "./generic-extension-namespace-contract.ts",
-    "./generic-operation-contract.ts"
+    "./generic-operation-contract.ts",
+    "./public-element-void-kind-contract.ts"
   ],
   "compilerOptions": {
     "composite": false,
