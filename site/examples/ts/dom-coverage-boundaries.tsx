@@ -29,7 +29,77 @@ const HiddenBoundaryContext = React.createContext<HiddenBoundaryState>({
 })
 
 const DomCoverageBoundariesExample = () => {
-  const editor = useSlateEditor({ withEditor: withHistory, initialValue })
+  const editor = useSlateEditor({
+    withEditor: withHistory,
+    initialValue: [
+      {
+        type: 'header',
+        children: [{ text: 'Hidden header text' }],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'Visible introduction before the collapsed section.' },
+        ],
+      },
+      {
+        type: 'section',
+        children: [
+          {
+            type: 'summary',
+            children: [{ text: 'Section summary stays mounted.' }],
+          },
+          {
+            type: 'paragraph',
+            children: [{ text: 'Hidden alpha' }],
+          },
+          {
+            type: 'nested-section',
+            children: [
+              {
+                type: 'summary',
+                children: [{ text: 'Nested summary stays mounted.' }],
+              },
+              {
+                type: 'paragraph',
+                children: [{ text: 'Nested hidden body' }],
+              },
+              {
+                type: 'deep-section',
+                children: [
+                  {
+                    type: 'summary',
+                    children: [{ text: 'Deep summary stays mounted.' }],
+                  },
+                  {
+                    type: 'paragraph',
+                    children: [{ text: 'Deep hidden body' }],
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            type: 'bulleted-list',
+            children: [
+              {
+                type: 'list-item',
+                children: [{ text: 'Hidden list item' }],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'Visible paragraph after the collapsed section.' }],
+      },
+      {
+        type: 'footer',
+        children: [{ text: 'Hidden footer text' }],
+      },
+    ] as SlateElement[],
+  })
   const [headerHidden, setHeaderHidden] = useState(true)
   const [footerHidden, setFooterHidden] = useState(true)
   const [outerHidden, setOuterHidden] = useState(true)
@@ -276,73 +346,6 @@ const CoveragePlaceholder = ({
     {children}
   </span>
 )
-
-const initialValue = [
-  {
-    type: 'header',
-    children: [{ text: 'Hidden header text' }],
-  },
-  {
-    type: 'paragraph',
-    children: [{ text: 'Visible introduction before the collapsed section.' }],
-  },
-  {
-    type: 'section',
-    children: [
-      {
-        type: 'summary',
-        children: [{ text: 'Section summary stays mounted.' }],
-      },
-      {
-        type: 'paragraph',
-        children: [{ text: 'Hidden alpha' }],
-      },
-      {
-        type: 'nested-section',
-        children: [
-          {
-            type: 'summary',
-            children: [{ text: 'Nested summary stays mounted.' }],
-          },
-          {
-            type: 'paragraph',
-            children: [{ text: 'Nested hidden body' }],
-          },
-          {
-            type: 'deep-section',
-            children: [
-              {
-                type: 'summary',
-                children: [{ text: 'Deep summary stays mounted.' }],
-              },
-              {
-                type: 'paragraph',
-                children: [{ text: 'Deep hidden body' }],
-              },
-            ],
-          },
-        ],
-      },
-      {
-        type: 'bulleted-list',
-        children: [
-          {
-            type: 'list-item',
-            children: [{ text: 'Hidden list item' }],
-          },
-        ],
-      },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [{ text: 'Visible paragraph after the collapsed section.' }],
-  },
-  {
-    type: 'footer',
-    children: [{ text: 'Hidden footer text' }],
-  },
-] as SlateElement[]
 
 const styles = {
   copy: {

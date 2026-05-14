@@ -1,4 +1,4 @@
-import type { Descendant, EditorSnapshot, Value } from 'slate'
+import type { Descendant, EditorSnapshot } from 'slate'
 import {
   Editable,
   Slate,
@@ -6,13 +6,6 @@ import {
   useSlateDecorationSource,
   useSlateEditor,
 } from 'slate-react'
-
-const initialChildren: Value = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'alpha beta' }],
-  },
-]
 
 type HighlightProjectionData = {
   hashtag?: true
@@ -82,7 +75,14 @@ const collectHighlightProjections = (
 }
 
 const HighlightedTextExample = () => {
-  const editor = useSlateEditor({ initialValue: initialChildren })
+  const editor = useSlateEditor({
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha beta' }],
+      },
+    ],
+  })
 
   const highlightSource = useSlateDecorationSource(editor, {
     dirtiness: ['text', 'node'],

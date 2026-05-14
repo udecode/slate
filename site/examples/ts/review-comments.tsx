@@ -36,25 +36,6 @@ type CommentProjection = {
   tone: CommentTone
 }
 
-const initialChildren: Value = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'Review comments in Slate v2 ride bookmark-backed annotations instead of trying to smuggle durable state through decorate.',
-      },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'Select text, add a comment, then insert content before it to watch the anchor, inline highlight, sidebar state, and widget lane stay in sync.',
-      },
-    ],
-  },
-]
-
 const panelCss = css`
   max-width: 1040px;
   margin: 40px auto;
@@ -503,12 +484,29 @@ const ReviewCommentsContent = ({
 }
 
 const ReviewCommentsExample = () => {
-  const editor = useSlateEditor({
+  const editor = useSlateEditor<Value>({
     initialSelection: {
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 0 },
     },
-    initialValue: initialChildren,
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'Review comments in Slate v2 ride bookmark-backed annotations instead of trying to smuggle durable state through decorate.',
+          },
+        ],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'Select text, add a comment, then insert content before it to watch the anchor, inline highlight, sidebar state, and widget lane stay in sync.',
+          },
+        ],
+      },
+    ],
   })
   const [comments, setComments] = useState<CommentThread[]>([])
   const annotations = useMemo(

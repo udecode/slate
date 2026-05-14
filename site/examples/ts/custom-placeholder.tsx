@@ -1,4 +1,3 @@
-import type { Value } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
@@ -13,15 +12,16 @@ declare global {
   }
 }
 
-const initialValue: Value = [
-  {
-    type: 'paragraph',
-    children: [{ text: '' }],
-  },
-]
-
 const PlainTextExample = () => {
-  const editor = useSlateEditor({ withEditor: withHistory, initialValue })
+  const editor = useSlateEditor({
+    withEditor: withHistory,
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [{ text: '' }],
+      },
+    ],
+  })
   const recordBlur = () => {
     window.__slateCustomPlaceholderBlurCount =
       (window.__slateCustomPlaceholderBlurCount ?? 0) + 1

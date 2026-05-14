@@ -34,8 +34,8 @@ import type {
   CodeBlockElement,
   CodeLineElement,
   CustomEditor,
-  CustomElement,
   CustomText,
+  CustomValue,
 } from './custom-types.d'
 import { normalizeTokens } from './utils/normalize-tokens'
 
@@ -45,9 +45,63 @@ const CodeLineType = 'code-line'
 const CodeIndent = '  '
 
 const CodeHighlightingExample = () => {
-  const editor = useSlateEditor({
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
     withEditor: withHistory,
+    initialValue: [
+      {
+        type: ParagraphType,
+        children: toChildren(
+          "Here's one containing a single paragraph block with some text in it:"
+        ),
+      },
+      {
+        type: CodeBlockType,
+        language: 'jsx',
+        children: toCodeLines(`// Add the initial value.
+const initialValue = [
+  {
+    type: 'paragraph',
+    children: [{ text: 'A line of text in a paragraph.' }]
+  }
+]
+
+const App = () => {
+  const editor = useSlateEditor<CustomValue, CustomEditor>({
     initialValue,
+  })
+
+  return (
+    <Slate editor={editor}>
+      <Editable />
+    </Slate>
+  )
+}`),
+      },
+      {
+        type: ParagraphType,
+        children: toChildren(
+          'If you are using TypeScript, create the editor with a value generic and compose editor wrappers from that typed editor. The example below includes the custom types required for the rest of this example.'
+        ),
+      },
+      {
+        type: CodeBlockType,
+        language: 'typescript',
+        children: toCodeLines(`// TypeScript users only add this code
+import { Descendant } from 'slate'
+import type { ReactEditor } from 'slate-react'
+import { useSlateEditor } from 'slate-react'
+
+type CustomElement = { type: 'paragraph'; children: CustomText[] }
+type CustomText = { text: string }
+type CustomValue = CustomElement[]
+
+const editor = useSlateEditor<CustomValue>({ initialValue })`),
+      },
+      {
+        type: ParagraphType,
+        children: toChildren('There you have it!'),
+      },
+    ],
   })
 
   const onKeyDown = useOnKeydown(editor)
@@ -595,62 +649,6 @@ const toCodeLines = (content: string): CodeLineElement[] =>
   content
     .split('\n')
     .map((line) => ({ type: CodeLineType, children: toChildren(line) }))
-
-const initialValue: CustomElement[] = [
-  {
-    type: ParagraphType,
-    children: toChildren(
-      "Here's one containing a single paragraph block with some text in it:"
-    ),
-  },
-  {
-    type: CodeBlockType,
-    language: 'jsx',
-    children: toCodeLines(`// Add the initial value.
-const initialValue = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'A line of text in a paragraph.' }]
-  }
-]
-
-const App = () => {
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    initialValue,
-  })
-
-  return (
-    <Slate editor={editor}>
-      <Editable />
-    </Slate>
-  )
-}`),
-  },
-  {
-    type: ParagraphType,
-    children: toChildren(
-      'If you are using TypeScript, create the editor with a value generic and compose editor wrappers from that typed editor. The example below includes the custom types required for the rest of this example.'
-    ),
-  },
-  {
-    type: CodeBlockType,
-    language: 'typescript',
-    children: toCodeLines(`// TypeScript users only add this code
-import { Descendant } from 'slate'
-import type { ReactEditor } from 'slate-react'
-import { useSlateEditor } from 'slate-react'
-
-type CustomElement = { type: 'paragraph'; children: CustomText[] }
-type CustomText = { text: string }
-type CustomValue = CustomElement[]
-
-const editor = useSlateEditor<CustomValue>({ initialValue })`),
-  },
-  {
-    type: ParagraphType,
-    children: toChildren('There you have it!'),
-  },
-]
 
 // Prismjs theme stored as a string instead of emotion css function.
 // It is useful for copy/pasting different themes. Also lets keeping simpler Leaf implementation

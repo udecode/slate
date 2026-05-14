@@ -17,14 +17,33 @@ import {
 } from 'slate-react'
 
 import { Icon, Toolbar } from './components'
-import type { CustomText, CustomValue } from './custom-types.d'
+import type { CustomText } from './custom-types.d'
 
 const SearchHighlightingExample = () => {
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const searchRef = useRef('')
   const editor = useSlateEditor({
     withEditor: withHistory,
-    initialValue,
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'This is editable text that you can search. As you search, it looks for matching strings of text, and adds ',
+          },
+          { text: 'decorations', bold: true },
+          { text: ' to them in realtime.' },
+        ],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'Try it out for yourself by typing in the search box above!',
+          },
+        ],
+      },
+    ],
   })
   const searchSource = useSlateDecorationSource<{ highlight: true }>(editor, {
     id: 'search-highlighting',
@@ -232,24 +251,5 @@ const Leaf = ({ attributes, children, leaf }: SearchLeafProps) => {
     </span>
   )
 }
-
-const initialValue: CustomValue = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'This is editable text that you can search. As you search, it looks for matching strings of text, and adds ',
-      },
-      { text: 'decorations', bold: true },
-      { text: ' to them in realtime.' },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      { text: 'Try it out for yourself by typing in the search box above!' },
-    ],
-  },
-]
 
 export default SearchHighlightingExample

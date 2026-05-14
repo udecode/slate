@@ -112,7 +112,20 @@ const withLayout = (editor: CustomEditor) => {
 const ForcedLayoutExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
     withEditor: (editor) => withLayout(withHistory(editor)),
-    initialValue,
+    initialValue: [
+      {
+        type: 'title',
+        children: [{ text: 'Enforce Your Layout!' }],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'This example shows how to enforce your layout with domain-specific constraints. This document will always have a title block at the top and at least one paragraph in the body. Try deleting them and see what happens!',
+          },
+        ],
+      },
+    ],
   })
   return (
     <Slate editor={editor}>
@@ -134,20 +147,5 @@ const Element = ({ attributes, children, element }: RenderElementProps) => {
       return <p {...attributes}>{children}</p>
   }
 }
-
-const initialValue: CustomValue = [
-  {
-    type: 'title',
-    children: [{ text: 'Enforce Your Layout!' }],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'This example shows how to enforce your layout with domain-specific constraints. This document will always have a title block at the top and at least one paragraph in the body. Try deleting them and see what happens!',
-      },
-    ],
-  },
-]
 
 export default ForcedLayoutExample

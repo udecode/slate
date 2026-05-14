@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { Value } from 'slate'
 import { withHistory } from 'slate-history'
 import { Editable, Slate, useSlateEditor } from 'slate-react'
 
@@ -29,7 +28,17 @@ const ShadowDOM = () => {
 }
 
 const ShadowEditor = () => {
-  const editor = useSlateEditor({ withEditor: withHistory, initialValue })
+  const editor = useSlateEditor({
+    withEditor: withHistory,
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'This Editor is rendered within a nested Shadow DOM.' },
+        ],
+      },
+    ],
+  })
 
   return (
     <Slate editor={editor}>
@@ -37,12 +46,5 @@ const ShadowEditor = () => {
     </Slate>
   )
 }
-
-const initialValue: Value = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'This Editor is rendered within a nested Shadow DOM.' }],
-  },
-]
 
 export default ShadowDOM

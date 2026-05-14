@@ -23,7 +23,34 @@ import { withHtml } from './paste-html-import'
 const PasteHtmlExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
     withEditor: (editor) => withHtml(withHistory(editor)),
-    initialValue,
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: "By default, pasting content into a Slate editor will use the clipboard's ",
+          },
+          { text: "'text/plain'", code: true },
+          {
+            text: " data. That's okay for some use cases, but sometimes you want users to be able to paste in content and have it maintain its formatting. To do this, your editor needs to handle ",
+          },
+          { text: "'text/html'", code: true },
+          { text: ' data. ' },
+        ],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'This is an example of doing exactly that!' }],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: "Try it out for yourself! Copy and paste some rendered HTML rich text content (not the source code) from another site into this editor and it's formatting should be preserved.",
+          },
+        ],
+      },
+    ],
   })
 
   return (
@@ -228,34 +255,5 @@ const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
     </span>
   )
 }
-
-const initialValue: CustomValue = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: "By default, pasting content into a Slate editor will use the clipboard's ",
-      },
-      { text: "'text/plain'", code: true },
-      {
-        text: " data. That's okay for some use cases, but sometimes you want users to be able to paste in content and have it maintain its formatting. To do this, your editor needs to handle ",
-      },
-      { text: "'text/html'", code: true },
-      { text: ' data. ' },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [{ text: 'This is an example of doing exactly that!' }],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: "Try it out for yourself! Copy and paste some rendered HTML rich text content (not the source code) from another site into this editor and it's formatting should be preserved.",
-      },
-    ],
-  },
-]
 
 export default PasteHtmlExample

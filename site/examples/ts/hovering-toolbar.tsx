@@ -20,7 +20,31 @@ import { isMarkActive, toggleMark } from './mark-utils'
 const HoveringMenuExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
     withEditor: (editor) => withHistory(editor),
-    initialValue,
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'This example shows how you can make a hovering menu appear above your content, which you can use to make text ',
+          },
+          { text: 'bold', bold: true },
+          { text: ', ' },
+          { text: 'italic', italic: true },
+          { text: ', or anything else you might want to do!' },
+        ],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'Try it out yourself! Just ' },
+          {
+            text: 'select any piece of text and the menu will appear',
+            bold: true,
+          },
+          { text: '.' },
+        ],
+      },
+    ],
   })
 
   return (
@@ -146,28 +170,5 @@ const FormatButton = ({ format, icon }: FormatButtonProps) => {
     </Button>
   )
 }
-
-const initialValue: CustomValue = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'This example shows how you can make a hovering menu appear above your content, which you can use to make text ',
-      },
-      { text: 'bold', bold: true },
-      { text: ', ' },
-      { text: 'italic', italic: true },
-      { text: ', or anything else you might want to do!' },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      { text: 'Try it out yourself! Just ' },
-      { text: 'select any piece of text and the menu will appear', bold: true },
-      { text: '.' },
-    ],
-  },
-]
 
 export default HoveringMenuExample

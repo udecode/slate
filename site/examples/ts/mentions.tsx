@@ -34,7 +34,55 @@ const MentionExample = () => {
   const [search, setSearch] = useState('')
   const editor = useSlateEditor<CustomValue, CustomEditor>({
     withEditor: (editor) => withMentions(withHistory(editor)),
-    initialValue,
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'This example shows how you might implement a simple ',
+          },
+          {
+            text: '@-mentions',
+            bold: true,
+          },
+          {
+            text: ' feature that lets users autocomplete mentioning a user by their username. Which, in this case means Star Wars characters. The ',
+          },
+          {
+            text: 'mentions',
+            bold: true,
+          },
+          {
+            text: ' are rendered as ',
+          },
+          {
+            text: 'void inline elements',
+            code: true,
+          },
+          {
+            text: ' inside the document.',
+          },
+        ],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'Try mentioning characters, like ' },
+          {
+            type: 'mention',
+            character: 'R2-D2',
+            children: [{ text: '', bold: true }],
+          },
+          { text: ' or ' },
+          {
+            type: 'mention',
+            character: 'Mace Windu',
+            children: [{ text: '' }],
+          },
+          { text: '!' },
+        ],
+      },
+    ],
   })
 
   const chars = CHARACTERS.filter((c) =>
@@ -266,56 +314,6 @@ const Mention = ({ element }: RenderVoidProps<MentionElement>) => {
     </span>
   )
 }
-
-const initialValue: CustomValue = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'This example shows how you might implement a simple ',
-      },
-      {
-        text: '@-mentions',
-        bold: true,
-      },
-      {
-        text: ' feature that lets users autocomplete mentioning a user by their username. Which, in this case means Star Wars characters. The ',
-      },
-      {
-        text: 'mentions',
-        bold: true,
-      },
-      {
-        text: ' are rendered as ',
-      },
-      {
-        text: 'void inline elements',
-        code: true,
-      },
-      {
-        text: ' inside the document.',
-      },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      { text: 'Try mentioning characters, like ' },
-      {
-        type: 'mention',
-        character: 'R2-D2',
-        children: [{ text: '', bold: true }],
-      },
-      { text: ' or ' },
-      {
-        type: 'mention',
-        character: 'Mace Windu',
-        children: [{ text: '' }],
-      },
-      { text: '!' },
-    ],
-  },
-]
 
 const CHARACTERS = [
   'Aayla Secura',

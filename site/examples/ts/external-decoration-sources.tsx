@@ -1,6 +1,5 @@
 import { css } from '@emotion/css'
 import { type CSSProperties, useRef, useState } from 'react'
-import type { Value } from 'slate'
 import {
   Editable,
   Slate,
@@ -18,25 +17,6 @@ type DiagnosticProjection = SlateProjection<{
   label: string
   tone: Tone
 }>
-
-const initialChildren: Value = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'External diagnostics can highlight editor content without pretending the data lives inside the Slate document.',
-      },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'Use this when search hits, review overlays, or remote diagnostics are owned by app state outside the editor snapshot.',
-      },
-    ],
-  },
-]
 
 const panelCss = css`
   max-width: 760px;
@@ -156,7 +136,26 @@ const nextTone = (tone: Tone): Tone =>
   tone === 'warm' ? 'cool' : tone === 'cool' ? 'danger' : 'warm'
 
 const ExternalDecorationSourcesExample = () => {
-  const editor = useSlateEditor({ initialValue: initialChildren })
+  const editor = useSlateEditor({
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'External diagnostics can highlight editor content without pretending the data lives inside the Slate document.',
+          },
+        ],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'Use this when search hits, review overlays, or remote diagnostics are owned by app state outside the editor snapshot.',
+          },
+        ],
+      },
+    ],
+  })
   const [mode, setMode] = useState<Mode>('alpha')
   const [tone, setTone] = useState<Tone>('warm')
   const [externalSnapshot, setExternalSnapshot] = useState<

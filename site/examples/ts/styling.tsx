@@ -1,29 +1,24 @@
-import type { Value } from 'slate'
 import { withHistory } from 'slate-history'
 import { Editable, Slate, useSlateEditor } from 'slate-react'
-
-const styleInitialValue: Value = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'This editor is styled using the style prop.' }],
-  },
-]
-
-const classInitialValue: Value = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'This editor is styled using the className prop.' }],
-  },
-]
 
 const StylingExample = () => {
   const editor1 = useSlateEditor({
     withEditor: withHistory,
-    initialValue: styleInitialValue,
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'This editor is styled using the style prop.' }],
+      },
+    ],
   })
   const editor2 = useSlateEditor({
     withEditor: withHistory,
-    initialValue: classInitialValue,
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'This editor is styled using the className prop.' }],
+      },
+    ],
   })
 
   return (

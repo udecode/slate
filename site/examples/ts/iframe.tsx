@@ -29,7 +29,42 @@ const MARK_HOTKEYS = Object.entries(HOTKEYS)
 const IFrameExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
     withEditor: (editor) => withHistory(editor),
-    initialValue,
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'In this example, the document gets rendered into a controlled ',
+          },
+          { text: '<iframe>', code: true },
+          {
+            text: '. This is ',
+          },
+          {
+            text: 'particularly',
+            italic: true,
+          },
+          {
+            text: ' useful, when you need to separate the styles for your editor contents from the ones addressing your UI.',
+          },
+        ],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'This also the only reliable method to preview any ',
+          },
+          {
+            text: 'media queries',
+            bold: true,
+          },
+          {
+            text: ' in your CSS.',
+          },
+        ],
+      },
+    ],
   })
 
   const handleBlur = useCallback(() => editor.dom.deselect(), [editor])
@@ -127,42 +162,5 @@ const IFrame = ({ children, ...props }: IFrameProps) => {
     </iframe>
   )
 }
-
-const initialValue: CustomValue = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'In this example, the document gets rendered into a controlled ',
-      },
-      { text: '<iframe>', code: true },
-      {
-        text: '. This is ',
-      },
-      {
-        text: 'particularly',
-        italic: true,
-      },
-      {
-        text: ' useful, when you need to separate the styles for your editor contents from the ones addressing your UI.',
-      },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'This also the only reliable method to preview any ',
-      },
-      {
-        text: 'media queries',
-        bold: true,
-      },
-      {
-        text: ' in your CSS.',
-      },
-    ],
-  },
-]
 
 export default IFrameExample

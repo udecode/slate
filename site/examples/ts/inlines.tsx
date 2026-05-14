@@ -26,58 +26,57 @@ import type {
   RenderElementPropsFor,
 } from './custom-types.d'
 
-const initialValue: CustomValue = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'In addition to block nodes, you can create inline nodes. Here is a ',
-      },
-      {
-        type: 'link',
-        url: 'https://en.wikipedia.org/wiki/Hypertext',
-        children: [{ text: 'hyperlink' }],
-      },
-      {
-        text: ', and here is a more unusual inline: an ',
-      },
-      {
-        type: 'button',
-        children: [{ text: 'editable button' }],
-      },
-      {
-        text: '! Here is a read-only inline: ',
-      },
-      {
-        type: 'badge',
-        children: [{ text: 'Approved' }],
-      },
-      {
-        text: '.',
-      },
-    ],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'There are two ways to add links. You can either add a link via the toolbar icon above, or if you want in on a little secret, copy a URL to your keyboard and paste it while a range of text is selected. ',
-      },
-      // The following is an example of an inline at the end of a block.
-      // This is an edge case that can cause issues.
-      {
-        type: 'link',
-        url: 'https://twitter.com/JustMissEmma/status/1448679899531726852',
-        children: [{ text: 'Finally, here is our favorite dog video.' }],
-      },
-      { text: '' },
-    ],
-  },
-]
 const InlinesExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
     withEditor: (editor) => withInlines(withHistory(editor)),
-    initialValue,
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'In addition to block nodes, you can create inline nodes. Here is a ',
+          },
+          {
+            type: 'link',
+            url: 'https://en.wikipedia.org/wiki/Hypertext',
+            children: [{ text: 'hyperlink' }],
+          },
+          {
+            text: ', and here is a more unusual inline: an ',
+          },
+          {
+            type: 'button',
+            children: [{ text: 'editable button' }],
+          },
+          {
+            text: '! Here is a read-only inline: ',
+          },
+          {
+            type: 'badge',
+            children: [{ text: 'Approved' }],
+          },
+          {
+            text: '.',
+          },
+        ],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'There are two ways to add links. You can either add a link via the toolbar icon above, or if you want in on a little secret, copy a URL to your keyboard and paste it while a range of text is selected. ',
+          },
+          // The following is an example of an inline at the end of a block.
+          // This is an edge case that can cause issues.
+          {
+            type: 'link',
+            url: 'https://twitter.com/JustMissEmma/status/1448679899531726852',
+            children: [{ text: 'Finally, here is our favorite dog video.' }],
+          },
+          { text: '' },
+        ],
+      },
+    ],
   })
   const inputRules = useMemo(
     () =>

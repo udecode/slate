@@ -21,7 +21,28 @@ import RichTextEditor from './richtext'
 const EditableVoidsExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
     withEditor: (editor) => withEditableVoids(withHistory(editor)),
-    initialValue,
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'In addition to nodes that contain editable text, you can insert void nodes, which can also contain editable elements, inputs, or an entire other Slate editor.',
+          },
+        ],
+      },
+      {
+        type: 'editable-void',
+        children: [{ text: '' }],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: '',
+          },
+        ],
+      },
+    ],
   })
 
   return (
@@ -132,28 +153,5 @@ const InsertEditableVoidButton = () => {
     </Button>
   )
 }
-
-const initialValue: CustomValue = [
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: 'In addition to nodes that contain editable text, you can insert void nodes, which can also contain editable elements, inputs, or an entire other Slate editor.',
-      },
-    ],
-  },
-  {
-    type: 'editable-void',
-    children: [{ text: '' }],
-  },
-  {
-    type: 'paragraph',
-    children: [
-      {
-        text: '',
-      },
-    ],
-  },
-]
 
 export default EditableVoidsExample
