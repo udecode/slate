@@ -1114,11 +1114,18 @@ export const prepareEditableKeyDownKernel = ({
             ? 'model-owned'
             : 'no-op'
 
+  const shouldPreservePreferredModelSelection =
+    intent === 'delete' &&
+    inputController.preferModelSelectionForInputRef.current &&
+    selectionBefore !== null &&
+    RangeApi.isExpanded(selectionBefore)
+
   const shouldForceDOMImport =
-    intent === 'delete' ||
-    intent === 'format' ||
-    intent === 'insert-break' ||
-    intent === 'model-selection-move'
+    !shouldPreservePreferredModelSelection &&
+    (intent === 'delete' ||
+      intent === 'format' ||
+      intent === 'insert-break' ||
+      intent === 'model-selection-move')
 
   return {
     command,

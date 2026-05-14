@@ -455,9 +455,23 @@ const applyFullBlockDeleteFragment = (
     return false
   }
 
+  const children = editor.read((state) => state.value.get())
+  const removesWholeDocument =
+    blockPaths.length === children.length &&
+    blockPaths.every(
+      (blockPath, index) => blockPath.length === 1 && blockPath[0] === index
+    )
+
   editor.update((tx) => {
     for (const blockPath of [...blockPaths].reverse()) {
       tx.nodes.remove({ at: blockPath })
+    }
+
+    if (removesWholeDocument) {
+      const selectionPoint = { path: [0, 0], offset: 0 }
+
+      tx.nodes.insert(createDefaultParagraph(), { at: [0] })
+      tx.selection.set({ anchor: selectionPoint, focus: selectionPoint })
     }
   })
 

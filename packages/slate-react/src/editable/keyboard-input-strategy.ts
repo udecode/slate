@@ -209,15 +209,15 @@ export const applyEditableKeyDown = ({
 
     if (isSelectAllHotkey(nativeEvent)) {
       event.preventDefault()
-      applyEditableCommand({ command: { kind: 'select-all' }, editor })
       const shellRenderingStrategy = isShellRenderingStrategy(renderingStrategy)
-      if (shellRenderingStrategy) {
-        setEditableModelSelectionPreference({
-          inputController,
-          preferModelSelection: true,
-          selectionSource: 'shell-backed',
-        })
-      }
+      setEditableModelSelectionPreference({
+        inputController,
+        preferModelSelection: true,
+        selectionSource: shellRenderingStrategy
+          ? 'shell-backed'
+          : 'model-owned',
+      })
+      applyEditableCommand({ command: { kind: 'select-all' }, editor })
       setExplicitShellBackedSelection(shellRenderingStrategy)
       forceRender()
       return keyDownHandled()

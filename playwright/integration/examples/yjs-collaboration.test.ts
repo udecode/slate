@@ -1,6 +1,33 @@
 import { expect, test } from '@playwright/test'
 
 test.describe('yjs collaboration example', () => {
+  test('does not throw when deleting a keyboard select-all range', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+    page.on('pageerror', (error) => pageErrors.push(error.message))
+
+    await page.goto('/examples/yjs-collaboration')
+    await expect(page.locator('#yjs-left-text')).toHaveText(
+      'Alpha shared document'
+    )
+
+    await page.locator('#yjs-left-editor').click()
+    const selectAllHotkey = await page
+      .locator('#yjs-left-editor')
+      .evaluate(() =>
+        /Mac OS X/.test(navigator.userAgent) ? 'Meta+A' : 'Control+A'
+      )
+
+    await page.keyboard.press(selectAllHotkey)
+    await page.keyboard.press('Delete')
+
+    await expect(page.locator('#yjs-left-text')).toHaveText('')
+    await expect(page.locator('#yjs-right-text')).toHaveText('')
+    await expect(page.locator('#yjs-shared-text')).toHaveText('')
+    await expect.poll(() => pageErrors).toEqual([])
+  })
+
   test('syncs document edits, awareness cursors, and paused peer recovery', async ({
     page,
   }) => {
