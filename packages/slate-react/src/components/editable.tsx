@@ -15,7 +15,11 @@ import {
   isDOMNode,
 } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
-import type { EditableRepairRequest } from '../editable/input-controller'
+import type { EditableCommand } from '../editable/editable-command-types'
+import type {
+  EditableRepairRequest,
+  InputIntent,
+} from '../editable/input-controller'
 import { useEditableRootRuntime } from '../editable/runtime-root-engine'
 import { readLiveSelection } from '../editable/runtime-selection-state'
 import { useEditor } from '../hooks/use-editor'
@@ -89,7 +93,8 @@ export type EditableDOMRootProps = {
     type: 'staged' | 'shell' | 'virtualized'
   } | null
   renderingStrategyMetrics?: EditableRenderingStrategyMetricsBase | null
-  onDOMBeforeInput?: (event: InputEvent) => void
+  onDOMBeforeInput?: EditableDOMBeforeInputHandler
+  onCommand?: EditableCommandHandler
   onKeyDown?: EditableKeyDownHandler
   onRenderingStrategyMetrics?: (
     metrics: EditableRenderingStrategyMetrics
@@ -198,6 +203,32 @@ export type EditableInputRule = (
   context: EditableInputRuleContext
 ) => EditableInputRuleResult
 
+export type EditableCommandContext = {
+  data: unknown
+  editor: ReactEditor
+  event?: InputEvent | React.KeyboardEvent<HTMLDivElement>
+  inputType?: string
+  intent: InputIntent | null
+  native: boolean
+  selection: Range | null
+}
+
+export type EditableCommandHandler = (
+  command: EditableCommand,
+  context: EditableCommandContext
+) => EditableInputRuleResult
+
+export type EditableDOMBeforeInputContext = EditableCommandContext & {
+  command: EditableCommand | null
+  event: InputEvent
+  inputType: string
+}
+
+export type EditableDOMBeforeInputHandler = (
+  event: InputEvent,
+  context: EditableDOMBeforeInputContext
+) => EditableInputRuleResult
+
 export type EditableKeyDownContext = {
   editor: ReactEditor
 }
@@ -223,6 +254,7 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     renderingStrategyMetrics = null,
     onKeyDown: propsOnKeyDown,
     onDOMBeforeInput: propsOnDOMBeforeInput,
+    onCommand,
     onRenderingStrategyMetrics,
     readOnly = false,
     scrollSelectionIntoView = defaultScrollSelectionIntoView,
@@ -240,6 +272,7 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     inputRules,
     renderingStrategy,
     onDOMBeforeInput: propsOnDOMBeforeInput,
+    onCommand,
     onKeyDown: propsOnKeyDown,
     readOnly,
     scrollSelectionIntoView,

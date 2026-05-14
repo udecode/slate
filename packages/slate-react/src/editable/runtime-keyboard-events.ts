@@ -1,6 +1,9 @@
 import { type KeyboardEvent, useCallback } from 'react'
 import type { RuntimeId } from 'slate'
-import type { EditableKeyDownHandler } from '../components/editable'
+import type {
+  EditableCommandHandler,
+  EditableKeyDownHandler,
+} from '../components/editable'
 import type { ReactEditor } from '../plugin/react-editor'
 import type { MountedTopLevelRange } from '../rendering-strategy/rendering-strategy-commands'
 import { prepareEditableKeyDownKernel } from './editing-kernel'
@@ -13,6 +16,7 @@ export const useRuntimeKeyboardEvents = ({
   editor,
   inputController,
   renderingStrategy,
+  onCommand,
   onKeyDown,
   readOnly,
   runtime,
@@ -26,6 +30,7 @@ export const useRuntimeKeyboardEvents = ({
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
   } | null
+  onCommand?: EditableCommandHandler
   onKeyDown?: EditableKeyDownHandler
   readOnly: boolean
   runtime: EditableEventRuntimeCore
@@ -50,6 +55,7 @@ export const useRuntimeKeyboardEvents = ({
         forceRender: runtime.repair.forceRender,
         inputController,
         renderingStrategy,
+        onCommand,
         onKeyDown,
         readOnly,
         setExplicitShellBackedSelection,
@@ -78,6 +84,7 @@ export const useRuntimeKeyboardEvents = ({
       editor,
       inputController,
       renderingStrategy,
+      onCommand,
       onKeyDown,
       readOnly,
       runtime,
@@ -118,6 +125,7 @@ export const useRuntimeKeyboardEvents = ({
         forceRender: runtime.repair.forceRender,
         inputController,
         renderingStrategy,
+        onCommand,
         onKeyDown,
         readOnly,
         setExplicitShellBackedSelection,
@@ -137,6 +145,7 @@ export const useRuntimeKeyboardEvents = ({
       editor,
       inputController,
       renderingStrategy,
+      onCommand,
       onKeyDown,
       readOnly,
       runtime,

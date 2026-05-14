@@ -9,6 +9,7 @@ import {
   type InputEvent as ReactInputEvent,
   type RefObject,
   useCallback,
+  useState,
 } from 'react'
 import {
   EDITOR_TO_ELEMENT,
@@ -132,8 +133,26 @@ export const useEditableRootRef = ({
   onDOMSelectionChange: CancelableCallback
   rootRef: MutableRefBox<HTMLDivElement | null>
   scheduleOnDOMSelectionChange: CancelableCallback
-}) =>
-  useCallback(
+}) => {
+  const [nativeInputHandlers] = useState(() => {
+    const handlers = {
+      onDOMBeforeInput: null as ((event: InputEvent) => void) | null,
+      onDOMInput: null as ((event: Event) => void) | null,
+      handleDOMBeforeInput(event: InputEvent) {
+        handlers.onDOMBeforeInput?.(event)
+      },
+      handleDOMInput(event: Event) {
+        handlers.onDOMInput?.(event)
+      },
+    }
+
+    return handlers
+  })
+
+  nativeInputHandlers.onDOMBeforeInput = onDOMBeforeInput
+  nativeInputHandlers.onDOMInput = onDOMInput
+
+  return useCallback(
     (node: HTMLDivElement | null) => {
       if (node == null) {
         onDOMSelectionChange.cancel()
@@ -150,8 +169,8 @@ export const useEditableRootRef = ({
         detachNativeInputListenersRef.current =
           attachEditableNativeInputListeners({
             node,
-            onDOMBeforeInput,
-            onDOMInput,
+            onDOMBeforeInput: nativeInputHandlers.handleDOMBeforeInput,
+            onDOMInput: nativeInputHandlers.handleDOMInput,
           })
       }
       rootRef.current = node
@@ -165,13 +184,13 @@ export const useEditableRootRef = ({
       detachNativeInputListenersRef,
       editor,
       forwardedRef,
-      onDOMBeforeInput,
-      onDOMInput,
+      nativeInputHandlers,
       onDOMSelectionChange,
       rootRef,
       scheduleOnDOMSelectionChange,
     ]
   )
+}
 
 export const useEditableDOMInputHandler = ({
   editor,

@@ -1,11 +1,12 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 import { act, render } from '@testing-library/react'
-import { useEffect } from 'react'
+import { type ComponentProps, useEffect } from 'react'
 import { createEditor, type Value } from 'slate'
 import * as SlateReact from '../src'
 import {
   Editable,
+  type EditableCommandContext,
   type ReactEditor,
   type RenderElementProps,
   type RenderVoidProps,
@@ -36,10 +37,16 @@ type RenderVoidHasPath = 'path' extends keyof RenderVoidProps ? true : false
 type RenderElementDoesNotExposePath = ExpectFalse<RenderElementHasPath>
 type RenderElementDoesNotExposeIndex = ExpectFalse<RenderElementHasIndex>
 type RenderVoidDoesNotExposePath = ExpectFalse<RenderVoidHasPath>
+type EditableDOMBeforeInputProps = ComponentProps<
+  typeof Editable
+>['onDOMBeforeInput']
+type EditableCommandProps = ComponentProps<typeof Editable>['onCommand']
 
 void (null as unknown as RenderElementDoesNotExposePath)
 void (null as unknown as RenderElementDoesNotExposeIndex)
 void (null as unknown as RenderVoidDoesNotExposePath)
+void (null as unknown as EditableDOMBeforeInputProps)
+void (null as unknown as EditableCommandProps)
 
 const listSourceFiles = (roots: readonly string[]) => {
   const files: string[] = []
@@ -123,6 +130,34 @@ const expectSurfaceInventory = (
 }
 
 describe('slate-react surface contract', () => {
+  test('Editable exposes native beforeinput context and semantic command handlers', () => {
+    const editor = createReactEditor([
+      { type: 'paragraph', children: [{ text: 'test' }] },
+    ])
+    let commandContext: EditableCommandContext | null = null
+
+    render(
+      <Slate editor={editor}>
+        <Editable
+          onCommand={(command, context) => {
+            commandContext = context
+
+            if (command.kind === 'format') {
+              return command.format === 'bold'
+            }
+          }}
+          onDOMBeforeInput={(event, context) => {
+            event.preventDefault()
+            context.editor.update(() => {})
+            return true
+          }}
+        />
+      </Slate>
+    )
+
+    expect(commandContext).toBe(null)
+  })
+
   test('synced text render policy stays out of the public selector surface', () => {
     const publicRoots = [
       'docs/api',

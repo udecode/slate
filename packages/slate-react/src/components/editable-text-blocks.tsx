@@ -63,6 +63,8 @@ import {
   DOMCoverageSelfBoundary,
 } from './dom-coverage-boundary'
 import {
+  type EditableCommandHandler,
+  type EditableDOMBeforeInputHandler,
   EditableDOMRoot,
   type EditableInputRule,
   type EditableKeyDownHandler,
@@ -536,7 +538,8 @@ export type EditableTextBlocksProps<
    */
   renderingStrategy?: RenderingStrategyOptions | null
   onBeforeInput?: React.FormEventHandler<HTMLDivElement>
-  onDOMBeforeInput?: (event: InputEvent) => void
+  onDOMBeforeInput?: EditableDOMBeforeInputHandler
+  onCommand?: EditableCommandHandler
   onKeyDown?: EditableKeyDownHandler
   onRenderingStrategyMetrics?: (
     metrics: EditableRenderingStrategyMetrics
@@ -1290,6 +1293,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   renderingStrategy,
   onBeforeInput,
   onDOMBeforeInput,
+  onCommand,
   onKeyDown,
   onRenderingStrategyMetrics,
   onPaste,
@@ -1777,6 +1781,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
         disableDefaultStyles={disableDefaultStyles}
         id={id}
         inputRules={inputRules}
+        onCommand={onCommand}
         onDOMBeforeInput={domBeforeInputHandler}
         onKeyDown={onKeyDown}
         onPaste={onPaste}

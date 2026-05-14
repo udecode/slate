@@ -8,7 +8,10 @@ import {
   IS_IOS,
   IS_WEBKIT,
 } from 'slate-dom'
-import type { EditableKeyDownHandler } from '../components/editable'
+import type {
+  EditableCommandHandler,
+  EditableKeyDownHandler,
+} from '../components/editable'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { ReactEditor } from '../plugin/react-editor'
 import { isSelectAllHotkey } from '../rendering-strategy/rendering-strategy-commands'
@@ -118,6 +121,49 @@ const applyUserKeyDownHandler = ({
     : keyDownUnhandled()
 }
 
+const applyUserEditableCommandHandler = ({
+  command,
+  editor,
+  event,
+  handler,
+  selection,
+}: {
+  command: NonNullable<ReturnType<typeof getEditableCommandFromKeyDown>>
+  editor: ReactEditor
+  event: ReactKeyboardEvent<HTMLDivElement>
+  handler?: EditableCommandHandler
+  selection: ReturnType<typeof readRuntimeSelection>
+}): EditableKeyDownResult => {
+  if (!handler) {
+    return keyDownUnhandled()
+  }
+
+  const result = handler(command, {
+    data: undefined,
+    editor,
+    event,
+    intent: command.kind === 'format' ? 'format' : null,
+    native: false,
+    selection,
+  })
+
+  if (result != null) {
+    if (!result) {
+      return keyDownUnhandled()
+    }
+
+    event.preventDefault()
+
+    return keyDownHandled(
+      result === true ? DEFAULT_MODEL_COMMAND_REPAIR : result
+    )
+  }
+
+  return event.isDefaultPrevented() || event.isPropagationStopped()
+    ? keyDownHandled()
+    : keyDownUnhandled()
+}
+
 export const applyEditableKeyDown = ({
   androidInputManagerRef,
   editor,
@@ -125,6 +171,7 @@ export const applyEditableKeyDown = ({
   forceRender,
   inputController,
   renderingStrategy,
+  onCommand,
   onKeyDown,
   readOnly,
   setExplicitShellBackedSelection,
@@ -137,6 +184,7 @@ export const applyEditableKeyDown = ({
   forceRender: () => void
   inputController: EditableInputController
   renderingStrategy: unknown
+  onCommand?: EditableCommandHandler
   onKeyDown?: EditableKeyDownHandler
   readOnly: boolean
   setExplicitShellBackedSelection: (nextValue: boolean) => void
@@ -298,6 +346,20 @@ export const applyEditableKeyDown = ({
       event,
       selection,
     })
+
+    if (keyDownCommand?.kind === 'format') {
+      const editableCommandResult = applyUserEditableCommandHandler({
+        command: keyDownCommand,
+        editor,
+        event,
+        handler: onCommand,
+        selection,
+      })
+
+      if (editableCommandResult.handled) {
+        return editableCommandResult
+      }
+    }
 
     if (
       keyDownCommand?.kind === 'delete' &&

@@ -19,7 +19,14 @@ type EditableProps = {
   id?: string
   renderingStrategy?: RenderingStrategyOptions | null
   onBeforeInput?: React.FormEventHandler<HTMLDivElement>
-  onDOMBeforeInput?: (event: InputEvent) => void
+  onDOMBeforeInput?: (
+    event: InputEvent,
+    context: EditableDOMBeforeInputContext
+  ) => boolean | EditableRepairRequest | void
+  onCommand?: (
+    command: EditableCommand,
+    context: EditableCommandContext
+  ) => boolean | EditableRepairRequest | void
   onKeyDown?: EditableKeyDownHandler
   onRenderingStrategyMetrics?: (
     metrics: EditableRenderingStrategyMetrics
@@ -235,7 +242,29 @@ Use `onKeyDown` for keyboard shortcuts.
 />
 ```
 
-Use `onDOMBeforeInput` only when you need the native `InputEvent`. Keep model writes inside `editor.update(...)`.
+Use `onCommand` for editor behavior that can arrive from native input or keyboard shortcuts. Slate passes semantic commands for formatting, history, delete, paste, text insertion, and line breaks without making app code parse browser `inputType` strings.
+
+```tsx
+<Editable
+  onCommand={(command, { editor }) => {
+    if (command.kind !== 'format') {
+      return
+    }
+
+    switch (command.format) {
+      case 'bold':
+      case 'italic':
+      case 'underline':
+        editor.update(tx => {
+          tx.marks.toggle(command.format)
+        })
+        return true
+    }
+  }}
+/>
+```
+
+Use `onDOMBeforeInput` only when you need the raw native `InputEvent`. It receives the native event plus Slate's current command/context classification. Returning `true` or calling `event.preventDefault()` marks the event handled.
 
 ## Projection Sources
 

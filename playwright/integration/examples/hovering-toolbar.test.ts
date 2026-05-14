@@ -137,6 +137,44 @@ test.describe('hovering toolbar example', () => {
     }
   })
 
+  test('native format beforeinput routes through the semantic command handler', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium native proof')
+
+    const editor = await openExample(page, 'hovering-toolbar', {
+      ready: {
+        editor: 'visible',
+        text: /This example shows/,
+      },
+    })
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+    await page.keyboard.insertText('hello')
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 5 },
+    })
+
+    const prevented = await editor.root.evaluate((element) => {
+      const event = new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'formatBold',
+      }) as InputEvent & { getTargetRanges: () => StaticRange[] }
+
+      event.getTargetRanges = () => []
+      element.dispatchEvent(event)
+
+      return event.defaultPrevented
+    })
+
+    expect(prevented).toBe(true)
+    await expect(editor.root.locator('strong')).toHaveText('hello')
+  })
+
   test('keeps hovering toolbar hidden during IME composition', async ({
     page,
   }, testInfo) => {

@@ -10,6 +10,8 @@ import {
 import type { Range, RuntimeId } from 'slate'
 import { type DOMRange, IS_READ_ONLY } from 'slate-dom'
 import type {
+  EditableCommandHandler,
+  EditableDOMBeforeInputHandler,
   EditableInputRule,
   EditableKeyDownHandler,
 } from '../components/editable'
@@ -98,6 +100,7 @@ export const useEditableRootRuntime = ({
   inputRules,
   renderingStrategy,
   onDOMBeforeInput,
+  onCommand,
   onKeyDown,
   readOnly,
   scrollSelectionIntoView,
@@ -112,7 +115,8 @@ export const useEditableRootRuntime = ({
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
   } | null
-  onDOMBeforeInput?: (event: InputEvent) => boolean | void
+  onDOMBeforeInput?: EditableDOMBeforeInputHandler
+  onCommand?: EditableCommandHandler
   onKeyDown?: EditableKeyDownHandler
   readOnly: boolean
   scrollSelectionIntoView: (editor: ReactEditor, domRange: DOMRange) => void
@@ -321,6 +325,7 @@ export const useEditableRootRuntime = ({
     isShellBackedSelection,
     renderingStrategy,
     onDOMBeforeInput,
+    onCommand,
     onKeyDown,
     onUserInput,
     processing,

@@ -15,6 +15,10 @@ export {
   type SlateResolvedAnnotation,
 } from './annotation-store'
 export type {
+  EditableCommandContext,
+  EditableCommandHandler,
+  EditableDOMBeforeInputContext,
+  EditableDOMBeforeInputHandler,
   EditableInputRule,
   EditableInputRuleContext,
   EditableInputRuleResult,

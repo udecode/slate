@@ -200,6 +200,51 @@ describe('slate-react editable behavior', () => {
     )
   })
 
+  test('Editable onCommand receives semantic native format commands', async () => {
+    const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
+    const editor = withReact(createEditor({ initialValue }))
+    const onCommand = jest.fn((command, context) => {
+      if (command.kind !== 'format') {
+        return
+      }
+
+      expect(command.format).toBe('bold')
+      expect(context.editor).toBe(editor)
+      expect(context.inputType).toBe('formatBold')
+      expect(context.native).toBe(false)
+      return true
+    })
+
+    let rendered!: ReturnType<typeof render>
+    act(() => {
+      rendered = render(
+        <Slate editor={editor}>
+          <Editable onCommand={onCommand} />
+        </Slate>
+      )
+    })
+
+    const editable = rendered.container.querySelector('[data-slate-editor]')
+    expect(editable).toBeTruthy()
+    Object.defineProperty(editable, 'isContentEditable', {
+      configurable: true,
+      value: true,
+    })
+
+    const event = new InputEvent('beforeinput', {
+      bubbles: true,
+      cancelable: true,
+      inputType: 'formatBold',
+    })
+
+    await act(async () => {
+      editable!.dispatchEvent(event)
+    })
+
+    expect(onCommand).toHaveBeenCalledTimes(1)
+    expect(event.defaultPrevented).toBe(true)
+  })
+
   test('Editable reads input rules from editor extension capabilities', () => {
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
     const editor = withReact(createEditor({ initialValue }))

@@ -1,5 +1,5 @@
 import { css } from '@emotion/css'
-import { type MouseEvent, useEffect, useMemo, useRef } from 'react'
+import { type MouseEvent, useEffect, useRef } from 'react'
 import { RangeApi } from 'slate'
 import { withHistory } from 'slate-history'
 import {
@@ -22,31 +22,24 @@ const HoveringMenuExample = () => {
     withEditor: (editor) => withHistory(editor),
     initialValue,
   })
-  const handleDOMBeforeInput = useMemo(
-    () => (event: InputEvent) => {
-      switch (event.inputType) {
-        case 'formatBold':
-          event.preventDefault()
-          toggleMark(editor, 'bold')
-          return true
-        case 'formatItalic':
-          event.preventDefault()
-          toggleMark(editor, 'italic')
-          return true
-        case 'formatUnderline':
-          event.preventDefault()
-          toggleMark(editor, 'underline')
-          return true
-      }
-    },
-    [editor]
-  )
 
   return (
     <Slate editor={editor}>
       <HoveringToolbar />
       <Editable
-        onDOMBeforeInput={handleDOMBeforeInput}
+        onCommand={(command) => {
+          if (command.kind !== 'format') {
+            return
+          }
+
+          switch (command.format) {
+            case 'bold':
+            case 'italic':
+            case 'underline':
+              toggleMark(editor, command.format)
+              return true
+          }
+        }}
         placeholder="Enter some text..."
         renderLeaf={Leaf}
       />

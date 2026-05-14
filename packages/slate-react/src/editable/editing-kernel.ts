@@ -13,6 +13,7 @@ import {
   type ReactEditor as ReactEditorInstance,
 } from '../plugin/react-editor'
 import { getInputEventData, isDataTransferInput } from './dom-input-event'
+import type { EditableCommand } from './editable-command-types'
 import {
   closeEditableEditingEpochAfterTrace,
   getEditableEditingEpochForTrace,
@@ -86,33 +87,7 @@ export type EditableOwnership =
   | 'native-denied'
   | 'no-op'
 
-export type EditableCommand =
-  | {
-      kind: 'delete'
-      direction: 'backward' | 'forward'
-      unit?: 'block' | 'line' | 'word'
-    }
-  | { kind: 'delete-both'; unit: 'line' }
-  | {
-      kind: 'delete-fragment'
-      direction?: 'backward' | 'forward'
-      selection?: Range | null
-    }
-  | { kind: 'history'; direction: 'redo' | 'undo' }
-  | { kind: 'insert-break'; variant: 'open-line' | 'paragraph' | 'soft' }
-  | { kind: 'insert-data'; data: DataTransfer }
-  | { kind: 'insert-text'; inputType?: string; text: string }
-  | { kind: 'transpose-character' }
-  | {
-      kind: 'move-selection'
-      axis: 'horizontal' | 'line' | 'word'
-      extend?: boolean
-      reverse?: boolean
-    }
-  | { kind: 'select'; selection: Range }
-  | { kind: 'select-all' }
-  | { kind: 'set-block'; blockType: string; wrap?: string }
-  | { kind: 'toggle-mark'; mark: string }
+export type { EditableCommand } from './editable-command-types'
 
 export type EditableCommandKind = EditableCommand['kind']
 
@@ -129,6 +104,11 @@ const defineEditableCommand = <TKind extends EditableCommandKind>(
 ) => Object.freeze(definition)
 
 export const EDITABLE_COMMAND_DEFINITIONS = {
+  format: defineEditableCommand({
+    inputFamilies: ['beforeinput', 'keydown'],
+    kind: 'format',
+    modelOwned: false,
+  }),
   delete: defineEditableCommand({
     inputFamilies: ['beforeinput', 'keydown'],
     kind: 'delete',
@@ -867,6 +847,30 @@ const getBeforeInputDeleteCommand = ({
   }
 }
 
+const getBeforeInputFormatCommand = (
+  inputType: string
+): EditableCommand | null => {
+  switch (inputType) {
+    case 'formatBold':
+      return { format: 'bold', kind: 'format' }
+    case 'formatItalic':
+      return { format: 'italic', kind: 'format' }
+    case 'formatUnderline':
+      return { format: 'underline', kind: 'format' }
+    case 'formatStrikeThrough':
+      return { format: 'strikethrough', kind: 'format' }
+    default:
+      return inputType.startsWith('format')
+        ? {
+            format:
+              inputType.charAt('format'.length).toLowerCase() +
+              inputType.slice('format'.length + 1),
+            kind: 'format',
+          }
+        : null
+  }
+}
+
 export const getEditableCommandFromBeforeInputType = ({
   data,
   inputType,
@@ -881,6 +885,9 @@ export const getEditableCommandFromBeforeInputType = ({
   }
   if (inputType === 'historyRedo') {
     return { direction: 'redo', kind: 'history' }
+  }
+  if (inputType.startsWith('format')) {
+    return getBeforeInputFormatCommand(inputType)
   }
   if (inputType.startsWith('delete')) {
     return getBeforeInputDeleteCommand({ inputType, selection })
@@ -939,6 +946,12 @@ export const getEditableCommandFromKeyDown = ({
   }
   if (Hotkeys.isUndo(nativeEvent)) {
     return { direction: 'undo', kind: 'history' }
+  }
+  if (Hotkeys.isBold(nativeEvent)) {
+    return { format: 'bold', kind: 'format' }
+  }
+  if (Hotkeys.isItalic(nativeEvent)) {
+    return { format: 'italic', kind: 'format' }
   }
   if (Hotkeys.isSoftBreak(nativeEvent)) {
     return { kind: 'insert-break', variant: 'soft' }

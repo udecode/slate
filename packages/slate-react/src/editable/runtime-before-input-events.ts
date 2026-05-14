@@ -1,5 +1,11 @@
 import { type FormEvent, type RefObject, useCallback } from 'react'
 import type { Range } from 'slate'
+import type {
+  EditableCommandContext,
+  EditableCommandHandler,
+  EditableDOMBeforeInputContext,
+  EditableDOMBeforeInputHandler,
+} from '../components/editable'
 import { ReactEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
 import { shouldSkipDuplicateEditableEditingEpochCommand } from './editing-epoch-kernel'
@@ -38,10 +44,19 @@ type ApplyInputRules = ({
   selection: Range | null
 }) => boolean
 
-type DOMBeforeInputHandler = (event: InputEvent) => boolean | void
 type ReactBeforeInputHandler = (
   event: FormEvent<HTMLDivElement>
 ) => boolean | void
+
+const DEFAULT_EDITABLE_COMMAND_REPAIR = {
+  focus: true,
+  kind: 'repair-caret',
+  selectionSourceTransition: {
+    preferModelSelection: true,
+    reason: 'model-command',
+    selectionSource: 'model-owned',
+  },
+} as const
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
 
@@ -63,18 +78,53 @@ const profileBeforeInputDuration = <T>(id: string, callback: () => T): T => {
   }
 }
 
-const isDOMEventHandled = <E extends Event>(
-  event: E,
-  handler?: (event: E) => void | boolean
+const isDOMBeforeInputHandled = (
+  event: InputEvent,
+  handler: EditableDOMBeforeInputHandler | undefined,
+  context: EditableDOMBeforeInputContext
 ) => {
   if (!handler) {
     return false
   }
 
-  const shouldTreatEventAsHandled = handler(event)
+  const shouldTreatEventAsHandled = handler(event, context)
 
   if (shouldTreatEventAsHandled != null) {
     return shouldTreatEventAsHandled
+  }
+
+  return event.defaultPrevented
+}
+
+const applyCommandHandler = ({
+  command,
+  context,
+  event,
+  handler,
+  repair,
+}: {
+  command: NonNullable<EditableDOMBeforeInputContext['command']>
+  context: EditableCommandContext
+  event: InputEvent
+  handler?: EditableCommandHandler
+  repair: EditableEventRuntime['repair']
+}) => {
+  if (!handler) {
+    return false
+  }
+
+  const result = handler(command, context)
+
+  if (result != null) {
+    if (!result) {
+      return false
+    }
+
+    event.preventDefault()
+    repair.requestEditableRepair(
+      result === true ? DEFAULT_EDITABLE_COMMAND_REPAIR : result
+    )
+    return true
   }
 
   return event.defaultPrevented
@@ -89,6 +139,7 @@ export const useRuntimeBeforeInputEvents = ({
   inputController,
   onBeforeInput,
   onDOMBeforeInput,
+  onCommand,
   onInput,
   onKeyDown,
   onUserInput,
@@ -106,7 +157,8 @@ export const useRuntimeBeforeInputEvents = ({
   handledDOMBeforeInputRef: RefObject<boolean>
   inputController: EditableInputController
   onBeforeInput?: ReactBeforeInputHandler
-  onDOMBeforeInput?: DOMBeforeInputHandler
+  onDOMBeforeInput?: EditableDOMBeforeInputHandler
+  onCommand?: EditableCommandHandler
   onInput?: unknown
   onKeyDown?: unknown
   onUserInput: () => void
@@ -173,16 +225,8 @@ export const useRuntimeBeforeInputEvents = ({
       }
       onUserInput()
 
-      if (
-        !readOnly &&
-        ReactEditor.hasEditableTarget(editor, event.target) &&
-        !isDOMEventHandled(event, onDOMBeforeInput)
-      ) {
+      if (!readOnly && ReactEditor.hasEditableTarget(editor, event.target)) {
         handledDOMBeforeInputRef.current = true
-        if (androidInputManagerRef.current) {
-          return androidInputManagerRef.current.handleDOMBeforeInput(event)
-        }
-
         profileBeforeInputDuration('beforeinput-flush-selection', () =>
           selection.flushSelectionChange()
         )
@@ -192,7 +236,7 @@ export const useRuntimeBeforeInputEvents = ({
           () => readLiveSelection(editor)
         )
         const hasAppInputPolicy = Boolean(
-          onDOMBeforeInput || onBeforeInput || onInput || onKeyDown
+          onDOMBeforeInput || onCommand || onBeforeInput || onInput || onKeyDown
         )
         const beforeInputDecision = profileBeforeInputDuration(
           'beforeinput-native-decision',
@@ -208,8 +252,34 @@ export const useRuntimeBeforeInputEvents = ({
           data,
           inputType: type,
           isCompositionChange,
+          native: initialNative,
           shouldAbortForCompositionChange,
         } = beforeInputDecision
+
+        const domBeforeInputContext: EditableDOMBeforeInputContext = {
+          command: decision.command,
+          data,
+          editor,
+          event,
+          inputType: type,
+          intent: decision.intent,
+          native: initialNative,
+          selection: currentSelection,
+        }
+
+        if (
+          isDOMBeforeInputHandled(
+            event,
+            onDOMBeforeInput,
+            domBeforeInputContext
+          )
+        ) {
+          return
+        }
+
+        if (androidInputManagerRef.current) {
+          return androidInputManagerRef.current.handleDOMBeforeInput(event)
+        }
 
         if (shouldAbortForCompositionChange) {
           return
@@ -276,6 +346,27 @@ export const useRuntimeBeforeInputEvents = ({
           return
         }
 
+        if (
+          decision.command &&
+          applyCommandHandler({
+            command: decision.command,
+            context: {
+              data,
+              editor,
+              event,
+              inputType: type,
+              intent: decision.intent,
+              native,
+              selection: currentSelection,
+            },
+            event,
+            handler: onCommand,
+            repair,
+          })
+        ) {
+          return
+        }
+
         if (!native) {
           event.preventDefault()
         }
@@ -319,6 +410,7 @@ export const useRuntimeBeforeInputEvents = ({
       inputController,
       onBeforeInput,
       onDOMBeforeInput,
+      onCommand,
       onInput,
       onKeyDown,
       onUserInput,
