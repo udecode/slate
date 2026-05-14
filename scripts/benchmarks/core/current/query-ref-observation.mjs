@@ -9,6 +9,7 @@ import {
 const iterations = Number(process.env.DRIFT_BENCH_ITERATIONS || 5)
 const blockCount = Number(process.env.DRIFT_BENCH_BLOCKS || 200)
 const writeOps = Number(process.env.DRIFT_BENCH_WRITE_OPS || 40)
+const queryOps = Number(process.env.DRIFT_BENCH_QUERY_OPS || 200)
 const refCount = Number(process.env.DRIFT_BENCH_REFS || 50)
 
 const createChildren = (count) =>
@@ -46,6 +47,46 @@ const countIterator = (iterator) => {
 
   return count
 }
+
+const collectIterator = (iterator) => {
+  const entries = []
+
+  for (const entry of iterator) {
+    entries.push(entry)
+  }
+
+  return entries
+}
+
+const matchesTopLevelPath = (targetIndex) => (_node, path) =>
+  path.length === 1 && path[0] === targetIndex
+
+const readFirstMatchByArray = (editor, targetIndex) =>
+  editor.read(
+    (state) =>
+      collectIterator(
+        state.nodes.entries({
+          at: [],
+          match: matchesTopLevelPath(targetIndex),
+        })
+      )[0]
+  )
+
+const readFirstMatchByFind = (editor, targetIndex) =>
+  editor.read((state) =>
+    state.nodes.find({
+      at: [],
+      match: matchesTopLevelPath(targetIndex),
+    })
+  )
+
+const readFirstMatchBySome = (editor, targetIndex) =>
+  editor.read((state) =>
+    state.nodes.some({
+      at: [],
+      match: matchesTopLevelPath(targetIndex),
+    })
+  )
 
 const measureLane = (setup, run) => {
   const samples = []
@@ -90,7 +131,7 @@ const nodesReadAfterWriteMs = measureLane(
       })
 
       nodeCount += editor.read((state) =>
-        countIterator(state.nodes.match({ at: [] }))
+        countIterator(state.nodes.entries({ at: [] }))
       )
     }
 
@@ -99,6 +140,76 @@ const nodesReadAfterWriteMs = measureLane(
     }
   }
 )
+
+const firstMatchArrayMs = measureLane(createEditorWithChildren, (editor) => {
+  let seen = 0
+
+  for (let index = 0; index < queryOps; index += 1) {
+    if (readFirstMatchByArray(editor, 0)) {
+      seen += 1
+    }
+  }
+
+  if (seen !== queryOps) {
+    throw new Error('firstMatchArrayMs did not observe every first match')
+  }
+})
+
+const firstMatchFindMs = measureLane(createEditorWithChildren, (editor) => {
+  let seen = 0
+
+  for (let index = 0; index < queryOps; index += 1) {
+    if (readFirstMatchByFind(editor, 0)) {
+      seen += 1
+    }
+  }
+
+  if (seen !== queryOps) {
+    throw new Error('firstMatchFindMs did not observe every first match')
+  }
+})
+
+const firstMatchSomeMs = measureLane(createEditorWithChildren, (editor) => {
+  let seen = 0
+
+  for (let index = 0; index < queryOps; index += 1) {
+    if (readFirstMatchBySome(editor, 0)) {
+      seen += 1
+    }
+  }
+
+  if (seen !== queryOps) {
+    throw new Error('firstMatchSomeMs did not observe every first match')
+  }
+})
+
+const lastMatchFindMs = measureLane(createEditorWithChildren, (editor) => {
+  let seen = 0
+
+  for (let index = 0; index < queryOps; index += 1) {
+    if (readFirstMatchByFind(editor, blockCount - 1)) {
+      seen += 1
+    }
+  }
+
+  if (seen !== queryOps) {
+    throw new Error('lastMatchFindMs did not observe every last match')
+  }
+})
+
+const noMatchFindMs = measureLane(createEditorWithChildren, (editor) => {
+  let missing = 0
+
+  for (let index = 0; index < queryOps; index += 1) {
+    if (!readFirstMatchByFind(editor, blockCount + 1)) {
+      missing += 1
+    }
+  }
+
+  if (missing !== queryOps) {
+    throw new Error('noMatchFindMs unexpectedly found a match')
+  }
+})
 
 const positionsReadAfterWriteMs = measureLane(
   createEditorWithChildren,
@@ -218,12 +329,18 @@ const summary = {
   iterations,
   config: {
     blockCount,
+    queryOps,
     refCount,
     writeOps,
   },
   lanes: {
     writeOnlyInsertTextMs,
     nodesReadAfterWriteMs,
+    firstMatchArrayMs,
+    firstMatchFindMs,
+    firstMatchSomeMs,
+    lastMatchFindMs,
+    noMatchFindMs,
     positionsReadAfterWriteMs,
     pathRefRebaseMs,
     rangeRefRebaseMs,

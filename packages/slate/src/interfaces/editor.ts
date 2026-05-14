@@ -195,9 +195,13 @@ export type EditorStateNodesApi = {
   levels: <T extends Node>(
     options?: EditorLevelsOptions<T>
   ) => Generator<NodeEntry<T>, void, undefined>
-  match: <T extends Node>(
+  entries: <T extends Node>(
     options?: EditorNodesOptions<T>
   ) => Generator<NodeEntry<T>, void, undefined>
+  find: <T extends Node>(
+    options?: EditorNodesOptions<T>
+  ) => NodeEntry<T> | undefined
+  some: <T extends Node>(options?: EditorNodesOptions<T>) => boolean
   next: <T extends Descendant>(
     options?: EditorNextOptions<T>
   ) => NodeEntry<T> | undefined

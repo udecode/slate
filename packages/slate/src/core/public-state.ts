@@ -957,8 +957,20 @@ const getStateView = <V extends Value>(
           void,
           undefined
         >,
-      match: <T extends SlateNode>(options = {}) =>
+      entries: <T extends SlateNode>(options = {}) =>
         getNodes(editor, options) as Generator<[T, Path], void, undefined>,
+      find: <T extends SlateNode>(options = {}) => {
+        for (const entry of getNodes(editor, options)) {
+          return entry as [T, Path]
+        }
+      },
+      some: (options = {}) => {
+        for (const _entry of getNodes(editor, options)) {
+          return true
+        }
+
+        return false
+      },
       next: <T extends SlateNode>(options = {}) =>
         getEditorRuntime(editor).next(options) as [T, Path] | undefined,
       parent: (at: Location) => getEditorRuntime(editor).parent(at),

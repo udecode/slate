@@ -1,7 +1,6 @@
 import {
   type ComponentProps,
   type CSSProperties,
-  type ReactNode,
   useEffect,
   useMemo,
   useRef,
@@ -36,6 +35,27 @@ const editorStyle = {
   minHeight: 80,
   padding: 12,
 } satisfies CSSProperties
+
+type EditableRenderElementProps = Parameters<
+  NonNullable<ComponentProps<typeof Editable>['renderElement']>
+>[0]
+
+type EditableRenderLeafProps = Parameters<
+  NonNullable<ComponentProps<typeof Editable>['renderLeaf']>
+>[0]
+
+type EditableRenderTextProps = Parameters<
+  NonNullable<ComponentProps<typeof Editable>['renderText']>
+>[0]
+
+type EditableRenderVoidProps = Parameters<
+  NonNullable<ComponentProps<typeof Editable>['renderVoid']>
+>[0]
+
+type RuntimeElementShape = {
+  type?: string
+  url?: string
+}
 
 const virtualizedEditorStyle = {
   ...editorStyle,
@@ -298,11 +318,7 @@ const collectProjectionProbes = (
 const renderCustomText = ({
   attributes,
   children,
-}: NonNullable<ComponentProps<typeof Editable>['renderText']> extends (
-  props: infer TProps
-) => unknown
-  ? TProps
-  : never) => (
+}: EditableRenderTextProps) => (
   <span {...attributes} data-runtime-custom-text="true">
     {children}
   </span>
@@ -312,11 +328,7 @@ const renderCustomLeaf = ({
   attributes,
   children,
   leaf,
-}: NonNullable<ComponentProps<typeof Editable>['renderLeaf']> extends (
-  props: infer TProps
-) => unknown
-  ? TProps
-  : never) => (
+}: EditableRenderLeafProps) => (
   <span
     {...attributes}
     data-runtime-bold={(leaf as { bold?: boolean }).bold ? 'true' : undefined}
@@ -330,15 +342,13 @@ const renderMixedElement = ({
   attributes,
   children,
   element,
-}: {
-  attributes: Record<string, any>
-  children: ReactNode
-  element: { type?: string; url?: string }
-}) => {
-  switch ((element as { type?: string }).type) {
+}: EditableRenderElementProps) => {
+  const runtimeElement = element as RuntimeElementShape
+
+  switch (runtimeElement.type) {
     case 'runtime-link':
       return (
-        <a {...attributes} data-runtime-inline="true" href={element.url}>
+        <a {...attributes} data-runtime-inline="true" href={runtimeElement.url}>
           {children}
         </a>
       )
@@ -357,12 +367,10 @@ const renderMixedElement = ({
   }
 }
 
-const renderMixedVoid = ({
-  element,
-}: {
-  element: { type?: string; url?: string }
-}) => {
-  switch (element.type) {
+const renderMixedVoid = ({ element }: EditableRenderVoidProps) => {
+  const runtimeElement = element as RuntimeElementShape
+
+  switch (runtimeElement.type) {
     case 'runtime-void':
       return (
         <div data-runtime-void="true">

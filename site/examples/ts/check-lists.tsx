@@ -116,12 +116,10 @@ const applyChecklistBackspaceStart = (
     return false
   }
 
-  const [match] = editor.read((state) =>
-    Array.from(
-      state.nodes.match({
-        match: (n) => NodeApi.isElement(n) && n.type === 'check-list-item',
-      })
-    )
+  const match = editor.read((state) =>
+    state.nodes.find({
+      match: (n) => NodeApi.isElement(n) && n.type === 'check-list-item',
+    })
   )
 
   if (!match) {

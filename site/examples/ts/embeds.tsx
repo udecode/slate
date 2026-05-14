@@ -4,6 +4,7 @@ import { withHistory } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
+  type RenderVoidProps,
   Slate,
   useEditor,
   useSlateEditor,
@@ -76,7 +77,7 @@ const isVideoElement = (element: SlateElement): element is VideoElementType =>
 
 const allowedSchemes = ['http:', 'https:']
 
-const VideoElement = ({ element }: { element: VideoElementType }) => {
+const VideoElement = ({ element }: RenderVoidProps<VideoElementType>) => {
   const editor = useEditor<CustomEditor>()
   const { url } = element
 

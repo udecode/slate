@@ -433,24 +433,20 @@ const isBlockActive = (
   const selection = editor.read((state) => state.selection.get())
   if (!selection) return false
 
-  const [match] = editor.read((state) =>
-    Array.from(
-      state.nodes.match({
-        at: state.ranges.unhang(selection),
-        match: (n) => {
-          if (NodeApi.isElement(n)) {
-            if (blockType === 'align' && isAlignElement(n)) {
-              return n.align === format
-            }
-            return n.type === format
+  return editor.read((state) =>
+    state.nodes.some({
+      at: state.ranges.unhang(selection),
+      match: (n) => {
+        if (NodeApi.isElement(n)) {
+          if (blockType === 'align' && isAlignElement(n)) {
+            return n.align === format
           }
-          return false
-        },
-      })
-    )
+          return n.type === format
+        }
+        return false
+      },
+    })
   )
-
-  return !!match
 }
 
 const Element = ({ attributes, children, element }: RenderElementProps) => {

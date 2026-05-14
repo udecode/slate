@@ -73,11 +73,11 @@ const getNodeEntries = (
   options?: Parameters<ReturnType<typeof createEditor>['read']>[0] extends (
     state: infer State
   ) => unknown
-    ? State extends { nodes: { match: (options?: infer Options) => unknown } }
+    ? State extends { nodes: { entries: (options?: infer Options) => unknown } }
       ? Options
       : never
     : never
-) => editor.read((state) => state.nodes.match(options))
+) => editor.read((state) => state.nodes.entries(options))
 
 const getMarks = (editor: ReturnType<typeof createEditor>) =>
   editor.read((state) => state.marks.get())
@@ -1860,6 +1860,82 @@ it('nodes supports pass and universal on the current traversal contract', () => 
       ],
     ]
   )
+})
+
+it('state node query helpers keep lazy traversal and early-exit first-match checks', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'target',
+        children: [{ text: 'one' }],
+      } as Descendant,
+      {
+        type: 'paragraph',
+        children: [{ text: 'two' }],
+      },
+      {
+        type: 'target',
+        children: [{ text: 'three' }],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  const entries = editor.read((state) =>
+    Array.from(
+      state.nodes.entries({
+        at: [],
+        match: (node) => 'type' in node && node.type === 'target',
+      })
+    )
+  )
+
+  assert.deepEqual(
+    entries.map(([, path]) => path),
+    [[0], [2]]
+  )
+
+  let findVisits = 0
+  const found = editor.read((state) =>
+    state.nodes.find({
+      at: [],
+      match: (node) => {
+        findVisits += 1
+
+        return 'type' in node && node.type === 'target'
+      },
+    })
+  )
+
+  assert.deepEqual(found?.[1], [0])
+  assert.equal(findVisits, 2)
+
+  let someVisits = 0
+  const hasTarget = editor.read((state) =>
+    state.nodes.some({
+      at: [],
+      match: (node) => {
+        someVisits += 1
+
+        return 'type' in node && node.type === 'target'
+      },
+    })
+  )
+
+  assert.equal(hasTarget, true)
+  assert.equal(someVisits, 2)
+
+  const hasMissing = editor.read((state) =>
+    state.nodes.some({
+      at: [],
+      match: (node) => 'type' in node && node.type === 'missing',
+    })
+  )
+
+  assert.equal(hasMissing, false)
 })
 
 it('nodes covers sibling and range traversal for nested inline documents', () => {

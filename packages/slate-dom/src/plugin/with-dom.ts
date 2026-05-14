@@ -1,6 +1,7 @@
 import {
   LocationApi,
   NodeApi,
+  type NodeEntry,
   type Path,
   PathApi,
   type PathRef,
@@ -276,15 +277,19 @@ const getMatches = (e: DOMEditor<any>, path: Path) => {
 const getPathRefMatches = (e: DOMEditor<any>, path: Path) => {
   const matches: [PathRef, Key][] = []
 
-  const entries = e.read((state) =>
-    Array.from(
-      state.nodes.match({
-        at: path,
-        mode: 'all',
-        voids: true,
-      })
-    )
-  )
+  const entries = e.read((state) => {
+    const matches: NodeEntry[] = []
+
+    for (const entry of state.nodes.entries({
+      at: path,
+      mode: 'all',
+      voids: true,
+    })) {
+      matches.push(entry)
+    }
+
+    return matches
+  })
 
   for (const [n, p] of entries) {
     const key = DOMEditor.findKey(e, n)

@@ -7,6 +7,7 @@ import {
   Editable,
   type RenderElementProps,
   type RenderLeafProps,
+  type RenderVoidProps,
   Slate,
   useEditorFocused,
   useElementSelected,
@@ -205,7 +206,7 @@ const SafeLink = ({ children, href, attributes }: SafeLinkProps) => {
   )
 }
 
-const ImageElement = ({ element }: { element: ImageElementType }) => {
+const ImageElement = ({ element }: RenderVoidProps<ImageElementType>) => {
   const focused = useEditorFocused()
   const selected = useElementSelected()
 

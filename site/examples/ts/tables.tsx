@@ -125,12 +125,10 @@ const applyTableBoundaryCommand = (editor: CustomEditor, key: string) => {
     return false
   }
 
-  const [cell] = editor.read((state) =>
-    Array.from(
-      state.nodes.match({
-        match: (n) => NodeApi.isElement(n) && n.type === 'table-cell',
-      })
-    )
+  const cell = editor.read((state) =>
+    state.nodes.find({
+      match: (n) => NodeApi.isElement(n) && n.type === 'table-cell',
+    })
   )
 
   if (!cell) {

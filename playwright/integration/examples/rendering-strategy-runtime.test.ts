@@ -729,12 +729,13 @@ test.describe('rendering strategy runtime example', () => {
     await expect(editor.root.getByText('virtualized block 1000')).toBeVisible()
   })
 
-  test('exposes the TanStack-backed experimental virtualized example with controls and warning', async ({
+  test('exposes TanStack-backed experimental virtualized controls and warning', async ({
     page,
   }) => {
-    const editor = await openExample(page, 'rendering-strategy-virtualized', {
+    const editor = await openExample(page, 'rendering-strategy-runtime', {
       query: {
         blocks: 1000,
+        runtime_mode: 'virtualized-full',
       },
       ready: {
         editor: 'visible',

@@ -172,25 +172,19 @@ const insertButton = (editor: CustomEditor) => {
 }
 
 const isLinkActive = (editor: CustomEditor): boolean => {
-  const [link] = editor.read((state) =>
-    Array.from(
-      state.nodes.match({
-        match: (n) => NodeApi.isElement(n) && n.type === 'link',
-      })
-    )
+  return editor.read((state) =>
+    state.nodes.some({
+      match: (n) => NodeApi.isElement(n) && n.type === 'link',
+    })
   )
-  return !!link
 }
 
 const isButtonActive = (editor: CustomEditor): boolean => {
-  const [button] = editor.read((state) =>
-    Array.from(
-      state.nodes.match({
-        match: (n) => NodeApi.isElement(n) && n.type === 'button',
-      })
-    )
+  return editor.read((state) =>
+    state.nodes.some({
+      match: (n) => NodeApi.isElement(n) && n.type === 'button',
+    })
   )
-  return !!button
 }
 
 const unwrapLink = (editor: CustomEditor) => {

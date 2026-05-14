@@ -8,6 +8,7 @@ import { withHistory } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
+  type RenderVoidProps,
   Slate,
   useEditor,
   useEditorFocused,
@@ -153,7 +154,7 @@ const Element = (props: RenderElementProps) => {
   return <p {...attributes}>{children}</p>
 }
 
-const Image = ({ element }: { element: ImageElement }) => {
+const Image = ({ element }: RenderVoidProps<ImageElement>) => {
   const editor = useEditor<CustomEditor>()
   const focused = useEditorFocused()
   const selected = useElementSelected({ mode: 'collapsed' })

@@ -13,7 +13,6 @@ export const EXAMPLE_NAMES_AND_PATHS = [
   ['Hovering Toolbar', 'hovering-toolbar'],
   ['Huge Document', 'huge-document'],
   ['Rendering Strategy Runtime', 'rendering-strategy-runtime'],
-  ['Experimental Virtualized Rendering', 'rendering-strategy-virtualized'],
   ['Images', 'images'],
   ['Inlines', 'inlines'],
   ['Markdown Preview', 'markdown-preview'],
