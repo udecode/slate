@@ -53,6 +53,7 @@ const EXAMPLE_IMPORTERS: Record<
   'shadow-dom': () => import('../../examples/ts/shadow-dom'),
   styling: () => import('../../examples/ts/styling'),
   tables: () => import('../../examples/ts/tables'),
+  'yjs-collaboration': () => import('../../examples/ts/yjs-collaboration'),
 }
 
 const EXAMPLES: ExampleTuple[] = EXAMPLE_NAMES_AND_PATHS.map(([name, path]) => [

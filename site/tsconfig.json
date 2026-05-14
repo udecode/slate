@@ -22,6 +22,10 @@
       "slate-dom/internal": ["../packages/slate-dom/src/internal/index.ts"],
       "slate-history": ["../packages/slate-history/src/index.ts"],
       "slate-hyperscript": ["../packages/slate-hyperscript/src/index.ts"],
+      "slate-yjs": ["../packages/slate-yjs/src/index.ts"],
+      "slate-yjs/core": ["../packages/slate-yjs/src/core/index.ts"],
+      "slate-yjs/internal": ["../packages/slate-yjs/src/internal/index.ts"],
+      "slate-yjs/react": ["../packages/slate-yjs/src/react/index.tsx"],
       "slate/internal": ["../packages/slate/src/internal/index.ts"],
       "slate-react": ["../packages/slate-react/src/index.ts"]
     },

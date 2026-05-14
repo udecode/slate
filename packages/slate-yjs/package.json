@@ -1,0 +1,74 @@
+{
+  "name": "slate-yjs",
+  "description": "Yjs collaboration bindings for Slate.",
+  "version": "0.124.1",
+  "license": "MIT",
+  "repository": "git://github.com/ianstormtaylor/slate.git",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js",
+      "default": "./dist/core/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js",
+      "default": "./dist/react/index.js"
+    },
+    "./internal": {
+      "types": "./dist/internal/index.d.ts",
+      "import": "./dist/internal/index.js",
+      "default": "./dist/internal/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsdown --config ./tsdown.config.mts --log-level warn",
+    "clean": "rimraf dist lib",
+    "test": "bun test --preload ../../config/bun-test-setup.ts ./test",
+    "typecheck": "tsc --project ./tsconfig.test.json --noEmit"
+  },
+  "dependencies": {
+    "yjs": "^13.6.30"
+  },
+  "peerDependencies": {
+    "react": ">=19.0.0",
+    "slate": ">=0.124.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^20.8.7",
+    "@types/react": "^19.2.14",
+    "react": "^19.2.5",
+    "slate": "workspace:*"
+  },
+  "subpaths": [
+    "core",
+    "react",
+    "internal"
+  ],
+  "keywords": [
+    "collaboration",
+    "crdt",
+    "editor",
+    "slate",
+    "yjs"
+  ]
+}

@@ -209,12 +209,39 @@ editor.extend(
 That shape gives product frameworks a migration backbone without turning raw
 Slate into a framework adapter.
 
+## Use `slate-yjs` for Yjs
+
+The `slate-yjs` package is the Yjs adapter for this substrate. It creates a
+Slate extension controller around a shared `Y.XmlText` root, exports local
+commits into Yjs, imports remote Yjs events through `editor.update(...)`, and
+keeps selection-only traffic in awareness.
+
+```tsx
+import { createEditor } from 'slate'
+import { createYjsExtension, createYjsLocalAwareness } from 'slate-yjs'
+import * as Y from 'yjs'
+
+const editor = createEditor()
+const doc = new Y.Doc()
+const sharedRoot = doc.get('content', Y.XmlText)
+const yjs = createYjsExtension({
+  awareness: createYjsLocalAwareness(doc.clientID),
+  sharedRoot,
+})
+
+const unextend = editor.extend(yjs.extension)
+yjs.connect()
+```
+
+React helpers in `slate-yjs/react` expose controller state, remote cursor
+states, cursor decorations, and a small cursor overlay component. The examples
+site includes a local two-editor Yjs collaboration example at
+`/examples/yjs-collaboration`.
+
 ## What this page does not cover
 
-This page does not provide a full multiplayer recipe. It does not configure a
-provider, draw remote cursors, or define a CRDT merge policy. Those belong in
-adapter packages that can prove their behavior against Slate's operation and
-browser contracts.
+This page does not choose a hosted provider, persistence model, authorization
+policy, or product collaboration UI. Those belong to the app or provider layer.
 
 You now have the contract those adapters build on: commits for observation,
 operations for replay, tags for routing, and local runtime ids for projection.

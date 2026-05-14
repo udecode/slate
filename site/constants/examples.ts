@@ -31,6 +31,7 @@ export const EXAMPLE_NAMES_AND_PATHS = [
   ['Shadow DOM', 'shadow-dom'],
   ['Styling', 'styling'],
   ['Tables', 'tables'],
+  ['Yjs Collaboration', 'yjs-collaboration'],
 ] as const
 
 export const HIDDEN_EXAMPLES = [

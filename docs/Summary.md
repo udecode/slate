@@ -65,6 +65,7 @@
   - [withHistory](libraries/slate-history/with-history.md)
   - [HistoryEditor](libraries/slate-history/history-editor.md)
   - [History](libraries/slate-history/history.md)
+- [Slate Yjs](libraries/slate-yjs/README.md)
 - [Slate Hyperscript](libraries/slate-hyperscript.md)
 
 ## General

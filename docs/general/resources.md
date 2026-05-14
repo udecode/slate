@@ -7,6 +7,7 @@ A few resources that are helpful for building with Slate.
 These Slate utilities are helpful when developing editor keyboard behavior:
 
 - `Hotkeys` from `slate-dom` provides semantic editor checks like `Hotkeys.isBold(event)`.
+- `slate-yjs` provides Yjs document binding, awareness projection, relative-position helpers, and React cursor helpers for Slate editors.
 
 ## Extensions and Plugins
 
@@ -17,7 +18,6 @@ These extensions and plugins add additional features and capabilities to Slate:
 - [Plate](https://github.com/udecode/plate) Rich text editor plugin system for Slate & React
 - [`slate-angular`](https://github.com/worktile/slate-angular) Angular-based view layer, which is a useful supplement to
   Slate for building a rich text editor using Angular.
-- [`slate-yjs`](https://github.com/BitPhinix/slate-yjs/) Collaborative editing utilities for Slate leveraging Yjs
 - [`slate-collaborative`](https://github.com/cudr/slate-collaborative) Collaborative editing utilities for Slate
   leveraging Automerge
 - [`slate-vue3`](https://github.com/Guan-Erjia/slate-vue3) Which is a useful supplement to Slate for building a rich text editor using Vue3, integrated all functions in an npm package

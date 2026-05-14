@@ -110,6 +110,7 @@
     "slate-dom": "workspace:*",
     "slate-history": "workspace:*",
     "slate-hyperscript": "workspace:*",
+    "slate-yjs": "workspace:*",
     "slate-react": "workspace:*",
     "tsdown": "^0.16.6",
     "turbo": "2.9.5",
