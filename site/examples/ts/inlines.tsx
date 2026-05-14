@@ -411,7 +411,7 @@ const Text = (props: RenderLeafProps) => {
 
 const AddLinkButton = () => {
   const editor = useEditor<CustomEditor>()
-  const active = useEditorSelector<boolean, CustomEditor>((editor) =>
+  const active = useEditorSelector((editor: CustomEditor) =>
     isLinkActive(editor)
   )
   return (
@@ -433,7 +433,7 @@ const AddLinkButton = () => {
 
 const RemoveLinkButton = () => {
   const editor = useEditor<CustomEditor>()
-  const active = useEditorSelector<boolean, CustomEditor>((editor) =>
+  const active = useEditorSelector((editor: CustomEditor) =>
     isLinkActive(editor)
   )
 

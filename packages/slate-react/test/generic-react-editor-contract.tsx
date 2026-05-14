@@ -84,8 +84,8 @@ const selectorOptions: EditorSelectorOptions<typeof reactEditor> = {
 }
 
 const SelectorProbe = () => {
-  const selected = useEditorSelector<number, typeof reactEditor>(
-    (selectedEditor, operations) => {
+  const selected = useEditorSelector(
+    (selectedEditor: typeof reactEditor, operations) => {
       const valueFromSelector: CustomValue = selectedEditor.read((state) =>
         state.value.get()
       )
@@ -100,7 +100,9 @@ const SelectorProbe = () => {
     undefined,
     selectorOptions
   )
+  const inferredSelected: number = selected
 
+  void inferredSelected
   void selected
 
   return null

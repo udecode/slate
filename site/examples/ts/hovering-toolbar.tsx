@@ -144,7 +144,7 @@ interface FormatButtonProps {
 
 const FormatButton = ({ format, icon }: FormatButtonProps) => {
   const editor = useEditor<CustomEditor>()
-  const active = useEditorSelector<boolean, CustomEditor>((editor) =>
+  const active = useEditorSelector((editor: CustomEditor) =>
     isMarkActive(editor, format)
   )
   return (

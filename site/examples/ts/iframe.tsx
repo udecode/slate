@@ -94,7 +94,7 @@ interface MarkButtonProps {
 
 const MarkButton = ({ format, icon }: MarkButtonProps) => {
   const editor = useEditor<CustomEditor>()
-  const active = useEditorSelector<boolean, CustomEditor>((editor) =>
+  const active = useEditorSelector((editor: CustomEditor) =>
     isMarkActive(editor, format)
   )
   return (
