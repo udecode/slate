@@ -305,16 +305,31 @@ describe('slate-dom bridge', () => {
       expect(() =>
         editor.dom.toSlateRange(domSelection, {
           exactMatch: false,
-          suppressThrow: false,
         })
       ).toThrow('Cannot resolve a Slate range from DOM range')
       expect(
-        editor.dom.toSlateRange(domSelection, {
+        editor.dom.resolveSlateRange(domSelection, {
           exactMatch: false,
-          suppressThrow: true,
         })
       ).toBeNull()
     })
+  })
+
+  it('resolves recoverable DOM bridge gaps to null while strict APIs still throw', () => {
+    const editor = createParagraphEditor()
+    const [textNode] = editor.read((state) => state.nodes.get([0, 0]))
+    const range = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    }
+
+    expect(() => editor.dom.toDOMNode(textNode)).toThrow(
+      'Cannot resolve a DOM node from Slate node'
+    )
+    expect(editor.dom.resolveDOMNode(textNode)).toBeNull()
+    expect(() => editor.dom.toDOMRange(range)).toThrow()
+    expect(editor.dom.resolveDOMRange(range)).toBeNull()
+    expect(editor.dom.resolvePath({ text: 'detached' })).toBeNull()
   })
 
   it('keeps parent and nested editor DOM point ownership separate', () => {
@@ -343,7 +358,6 @@ describe('slate-dom bridge', () => {
       expect(
         nested.dom.toSlatePoint([nestedText, 3], {
           exactMatch: false,
-          suppressThrow: false,
         })
       ).toEqual<Point>({
         path: [0, 0],
@@ -352,13 +366,11 @@ describe('slate-dom bridge', () => {
       expect(() =>
         parent.dom.toSlatePoint([nestedText, 3], {
           exactMatch: false,
-          suppressThrow: false,
         })
       ).toThrow()
       expect(
-        parent.dom.toSlatePoint([nestedText, 3], {
+        parent.dom.resolveSlatePoint([nestedText, 3], {
           exactMatch: false,
-          suppressThrow: true,
         })
       ).toBeNull()
     })
@@ -447,7 +459,6 @@ describe('slate-dom bridge', () => {
       expect(
         editor.dom.toSlatePoint([textNode, 1], {
           exactMatch: false,
-          suppressThrow: false,
         })
       ).toEqual<Point>({
         path: [0, 0],
@@ -479,16 +490,14 @@ describe('slate-dom bridge', () => {
       expect(
         editor.dom.toSlatePoint([domText, domText.textContent!.length], {
           exactMatch: false,
-          suppressThrow: false,
         })
       ).toEqual<Point>({
         path: [0, 0],
         offset: 1,
       })
       expect(
-        editor.dom.toSlatePoint([domText, domText.textContent!.length], {
+        editor.dom.resolveSlatePoint([domText, domText.textContent!.length], {
           exactMatch: true,
-          suppressThrow: true,
         })
       ).toBeNull()
     })
@@ -568,7 +577,6 @@ describe('slate-dom bridge', () => {
       expect(
         editor.dom.toSlateRange(range, {
           exactMatch: false,
-          suppressThrow: false,
         })
       ).toEqual({
         anchor: { path: [0, 0], offset: 2 },

@@ -1,5 +1,5 @@
 import { css } from '@emotion/css'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Bookmark, Range, Value } from 'slate'
 import {
   Editable,
@@ -170,8 +170,10 @@ const ReviewCommentsContent = ({
     CommentData,
     CommentProjection
   >()
-  const widgets = useMemo(
-    () =>
+  const widgetStore = useSlateWidgetStore(editor, {
+    annotationStore,
+    deps: [comments],
+    project: () =>
       comments.map((comment) => ({
         anchor: {
           annotationId: comment.id,
@@ -183,9 +185,7 @@ const ReviewCommentsContent = ({
         },
         id: `${comment.id}-widget`,
       })),
-    [comments]
-  )
-  const widgetStore = useSlateWidgetStore(editor, widgets, annotationStore)
+  })
   const widgetSnapshot = useSlateWidgets(widgetStore)
   const commentsRef = useRef(comments)
 
@@ -509,8 +509,9 @@ const ReviewCommentsExample = () => {
     ],
   })
   const [comments, setComments] = useState<CommentThread[]>([])
-  const annotations = useMemo(
-    () =>
+  const annotationStore = useSlateAnnotationStore(editor, {
+    deps: [comments],
+    project: () =>
       comments.map((comment) => ({
         anchor: comment.anchor,
         data: {
@@ -523,9 +524,7 @@ const ReviewCommentsExample = () => {
           tone: comment.tone,
         },
       })),
-    [comments]
-  )
-  const annotationStore = useSlateAnnotationStore(editor, annotations)
+  })
 
   return (
     <Slate annotationStore={annotationStore} editor={editor}>

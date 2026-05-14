@@ -233,6 +233,7 @@ describe('state/tx public API contract', () => {
       isEmpty: state.nodes.isEmpty({ children: [{ text: '' }] }),
       last: state.nodes.last([]),
       levels: Array.from(state.nodes.levels({ at: [0, 0] })),
+      nodePaths: state.nodes.toArray({ at: [] }, ([, path]) => path),
       projected: state.ranges.project({
         anchor: { path: [0, 0], offset: 0 },
         focus: { path: [0, 0], offset: 3 },
@@ -255,6 +256,7 @@ describe('state/tx public API contract', () => {
     assert.equal(state.isEmpty, true)
     assert.deepEqual(state.last?.[1], [1, 0])
     assert.ok(state.levels.length > 0)
+    assert.deepEqual(state.nodePaths, [[], [0], [0, 0], [1], [1, 0]])
     assert.ok(state.projected.length > 0)
     assert.deepEqual(state.range, {
       anchor: { path: [0, 0], offset: 0 },

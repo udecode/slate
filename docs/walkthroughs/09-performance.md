@@ -41,7 +41,9 @@ Make sure you only normalize the node passed into `normalizeNode` and (occasiona
 
 The `renderElement` prop and any React component it returns will re-render every time the element or any of its descendants changes. This is unavoidable. However, sometimes custom logic can cause React components to re-render more often than this, which can have a detrimental effect on performance.
 
-Ensure that function props such as `renderElement`, `renderLeaf`, `renderText`, and `renderSegment` do not change on every render. Either they should be defined at the top level of the file (not inside a component or hook), or they should be wrapped inside a `useCallback` and all dependencies should be properly memoized.
+Prefer stable renderer registration with `editableRenderers(...)`, or define raw
+renderer functions at module scope when you need an `Editable` escape hatch.
+Avoid creating renderer functions inside the editor component during render.
 
 If unmodified elements are being re-rendered, check to see if they are subscribing to any contexts or hooks that are causing unnecessary re-renders. You can also apply these techniques to any toolbars or other non-element React components that may be re-rendering in response to changes in the editor.
 

@@ -125,7 +125,12 @@ export const splitDecorationsByChild = (
     return decorationsByChild
   }
 
-  const path = DOMEditor.findPath(editor, node)
+  const path = DOMEditor.resolvePath(editor, node)
+
+  if (!path) {
+    return decorationsByChild
+  }
+
   const level = path.length
   const ancestorRange = editor.read((state) => state.ranges.get(path))
 

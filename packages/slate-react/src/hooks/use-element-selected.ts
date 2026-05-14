@@ -33,7 +33,7 @@ export const useElementSelected = ({
       const selectedPath =
         path ??
         contextPath ??
-        (element ? ReactEditor.findPath(editor, element) : null)
+        (element ? ReactEditor.resolvePath(editor, element) : null)
       if (!selectedPath) return false
       if (!Editor.hasPath(editor, selectedPath)) return false
 

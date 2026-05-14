@@ -49,48 +49,57 @@ const toggleCodeBlock = editor => {
 These functions are not added to the editor object. They are normal JavaScript
 functions that receive an editor.
 
-## Using Commands From Events
+## Using Commands From Editor Events
 
-Use the same commands from `onKeyDown`:
+Use the same commands from Slate's semantic command and key-command surfaces:
 
 ```jsx
-const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+import { defineEditorExtension } from 'slate'
+import { editableKeyCommands, editableRenderers } from 'slate-react'
 
-  const renderElement = useCallback(props => {
-    switch (props.element.type) {
-      case 'code':
-        return <CodeElement {...props} />
-      default:
-        return <DefaultElement {...props} />
+const rendering = defineEditorExtension({
+  name: 'command-guide-rendering',
+  capabilities: editableRenderers({
+    elements: {
+      code: CodeElement,
+      paragraph: DefaultElement,
+    },
+    leaves: {
+      bold: Leaf,
+    },
+  }),
+})
+
+const commandHotkeys = defineEditorExtension({
+  name: 'command-guide-hotkeys',
+  capabilities: editableKeyCommands(({ editor, event }) => {
+    if (event.key === '`' && event.ctrlKey) {
+      toggleCodeBlock(editor)
+      return true
     }
-  }, [])
+  }),
+})
 
-  const renderLeaf = useCallback(props => {
-    return <Leaf {...props} />
-  }, [])
+const App = () => {
+  const [editor] = useState(() => {
+    const editor = withReact(createEditor())
+    editor.extend(rendering)
+    editor.extend(commandHotkeys)
+    return editor
+  })
 
   return (
     <Slate editor={editor} initialValue={initialValue}>
       <Editable
-        renderElement={renderElement}
-        renderLeaf={renderLeaf}
-        onKeyDown={event => {
-          if (!event.ctrlKey) {
+        onCommand={(command, { editor }) => {
+          if (command.kind !== 'format') {
             return
           }
 
-          switch (event.key) {
-            case '`': {
-              event.preventDefault()
-              toggleCodeBlock(editor)
-              break
-            }
-
-            case 'b': {
-              event.preventDefault()
+          switch (command.format) {
+            case 'bold': {
               toggleBold(editor)
-              break
+              return true
             }
           }
         }}

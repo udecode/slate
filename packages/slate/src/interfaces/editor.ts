@@ -202,6 +202,13 @@ export type EditorStateNodesApi = {
     options?: EditorNodesOptions<T>
   ) => NodeEntry<T> | undefined
   some: <T extends Node>(options?: EditorNodesOptions<T>) => boolean
+  toArray: {
+    <T extends Node>(options?: EditorNodesOptions<T>): NodeEntry<T>[]
+    <T extends Node, R>(
+      options: EditorNodesOptions<T> | undefined,
+      map: (entry: NodeEntry<T>) => R
+    ): R[]
+  }
   next: <T extends Descendant>(
     options?: EditorNextOptions<T>
   ) => NodeEntry<T> | undefined

@@ -186,7 +186,12 @@ const CheckListItemElement = ({
         <input
           checked={checked}
           onChange={(event: ChangeEvent<HTMLInputElement>) => {
-            const path = editor.dom.findPath(element)
+            const path = editor.dom.resolvePath(element)
+
+            if (!path) {
+              return
+            }
+
             const newProperties: Partial<SlateElement> = {
               checked: event.target.checked,
             }

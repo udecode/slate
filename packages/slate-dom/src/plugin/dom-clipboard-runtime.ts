@@ -281,11 +281,9 @@ export const writeDOMSelectionData = <V extends Value>(
 
   // Create a fake selection so that we can add a Base64-encoded copy of the
   // fragment to the HTML, to decode on future pastes.
-  let domRange: globalThis.Range
+  const domRange = DOMEditor.resolveDOMRange(editor, selection)
 
-  try {
-    domRange = DOMEditor.toDOMRange(editor, selection)
-  } catch {
+  if (!domRange) {
     writeModelBackedSelectionData(editor, data, clipboardFormatKey)
     return
   }

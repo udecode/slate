@@ -389,19 +389,21 @@ export function createAndroidInputManager({
 
     const [start] = RangeApi.edges(range)
 
-    try {
-      const [domNode] = ReactEditor.toDOMPoint(editor, start)
-      const element = isDOMText(domNode)
-        ? domNode.parentElement
-        : isDOMElement(domNode)
-          ? domNode
-          : null
-      const textHost = element?.closest('[data-slate-node="text"]')
+    const domPoint = ReactEditor.resolveDOMPoint(editor, start)
 
-      return textHost?.getAttribute('data-slate-dom-sync') === 'true'
-    } catch {
+    if (!domPoint) {
       return false
     }
+
+    const [domNode] = domPoint
+    const element = isDOMText(domNode)
+      ? domNode.parentElement
+      : isDOMElement(domNode)
+        ? domNode
+        : null
+    const textHost = element?.closest('[data-slate-node="text"]')
+
+    return textHost?.getAttribute('data-slate-dom-sync') === 'true'
   }
 
   const scheduleAction = (
@@ -460,9 +462,8 @@ export function createAndroidInputManager({
     let nativeTargetRange: StaticRange | globalThis.Selection | undefined =
       getInputEventTargetRanges(event)[0]
     if (nativeTargetRange) {
-      targetRange = ReactEditor.toSlateRange(editor, nativeTargetRange, {
+      targetRange = ReactEditor.resolveSlateRange(editor, nativeTargetRange, {
         exactMatch: false,
-        suppressThrow: true,
       })
     }
 
@@ -472,9 +473,8 @@ export function createAndroidInputManager({
     const domSelection = window.getSelection()
     if (!targetRange && domSelection) {
       nativeTargetRange = domSelection
-      targetRange = ReactEditor.toSlateRange(editor, domSelection, {
+      targetRange = ReactEditor.resolveSlateRange(editor, domSelection, {
         exactMatch: false,
-        suppressThrow: true,
       })
     }
 

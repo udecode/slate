@@ -77,6 +77,21 @@ export {
   editableInputRules,
 } from './editable/editable-input-rules'
 export {
+  EDITABLE_KEY_COMMAND_CAPABILITY,
+  type EditableKeyCommand,
+  type EditableKeyCommandContext,
+  editableKeyCommands,
+} from './editable/editable-key-commands'
+export {
+  EDITABLE_RENDERERS_CAPABILITY,
+  type EditableLeafRenderer,
+  type EditableLeafRendererProps,
+  type EditableRenderers,
+  type EditableSegmentRenderer,
+  type EditableTextRenderer,
+  editableRenderers,
+} from './editable/editable-renderers'
+export {
   type EditorDecorationSelectorContext,
   type EditorDecorationSelectorOptions,
   useDecorationSelector,
@@ -107,7 +122,10 @@ export {
   useNodeSelector,
   useTextSelector,
 } from './hooks/use-node-selector'
-export { useSlateAnnotationStore } from './hooks/use-slate-annotation-store'
+export {
+  type SlateAnnotationStoreProjector,
+  useSlateAnnotationStore,
+} from './hooks/use-slate-annotation-store'
 export {
   useSlateAnnotation,
   useSlateAnnotations,
@@ -124,7 +142,10 @@ export {
   type SlateProjectionStore,
   useSlateProjections,
 } from './hooks/use-slate-projections'
-export { useSlateWidgetStore } from './hooks/use-slate-widget-store'
+export {
+  type SlateWidgetStoreProjector,
+  useSlateWidgetStore,
+} from './hooks/use-slate-widget-store'
 export { useSlateWidget, useSlateWidgets } from './hooks/use-slate-widgets'
 // Plugin
 export type { ReactEditor } from './plugin/react-editor'

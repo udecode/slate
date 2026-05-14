@@ -1,5 +1,5 @@
 import { css } from '@emotion/css'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import type { Bookmark, createEditor, Path, Point, Range, Value } from 'slate'
 import {
   Slate,
@@ -457,8 +457,9 @@ const AnchoredProjectionContent = ({
 const PersistentAnnotationAnchorsExample = () => {
   const editor = useSlateEditor({ initialValue: createChildren() })
   const [annotation, setAnnotation] = useState<Bookmark | null>(null)
-  const annotations = useMemo(
-    () =>
+  const annotationStore = useSlateAnnotationStore(editor, {
+    deps: [annotation],
+    project: () =>
       annotation
         ? [
             {
@@ -476,11 +477,11 @@ const PersistentAnnotationAnchorsExample = () => {
             },
           ]
         : [],
-    [annotation]
-  )
-  const annotationStore = useSlateAnnotationStore(editor, annotations)
-  const widgets = useMemo(
-    () =>
+  })
+  const widgetStore = useSlateWidgetStore(editor, {
+    annotationStore,
+    deps: [annotation],
+    project: () =>
       annotation
         ? [
             {
@@ -495,9 +496,7 @@ const PersistentAnnotationAnchorsExample = () => {
             },
           ]
         : [],
-    [annotation]
-  )
-  const widgetStore = useSlateWidgetStore(editor, widgets, annotationStore)
+  })
 
   return (
     <Slate annotationStore={annotationStore} editor={editor}>

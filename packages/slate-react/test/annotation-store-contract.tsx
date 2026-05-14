@@ -10,6 +10,7 @@ import {
   useSlateAnnotationStore,
   useSlateAnnotations,
   useSlateProjections,
+  withReact,
 } from '../src'
 
 type CommentData = {
@@ -123,6 +124,48 @@ const AnnotationHarness = ({
   )
 }
 
+type CommentSource = {
+  anchor: SlateAnnotation<CommentData, CommentProjection>['anchor']
+  id: string
+  label: string
+  tone: string
+}
+
+const ProjectedAnnotationHarness = ({
+  comments,
+  editor,
+}: {
+  comments: readonly CommentSource[]
+  editor: ReturnType<typeof createEditor>
+}) => {
+  const annotationStore = useSlateAnnotationStore<
+    CommentData,
+    CommentProjection
+  >(editor, {
+    deps: [comments],
+    project: () =>
+      comments.map((comment) => ({
+        anchor: comment.anchor,
+        data: {
+          kind: 'annotation',
+          label: comment.label,
+          tone: comment.tone,
+        },
+        id: comment.id,
+        projection: {
+          kind: 'annotation',
+          tone: comment.tone,
+        },
+      })),
+  })
+
+  return (
+    <Slate annotationStore={annotationStore} editor={editor}>
+      <AnnotationOverlaySlices />
+    </Slate>
+  )
+}
+
 describe('slate-react annotation store contract', () => {
   test('one annotation entity drives inline projection and sidebar state from one store', async () => {
     const editor = createEditor()
@@ -183,6 +226,61 @@ describe('slate-react annotation store contract', () => {
     expect(
       mounted.container.querySelector('#single-annotation')?.textContent
     ).toBe('comment-1:Comment 1:0.0:2|0.0:5')
+  })
+
+  test('annotation hook projector options refresh without caller memoization', async () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: createChildren(),
+      selection: null,
+    })
+
+    const bookmark = Editor.bookmark(editor, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 4 },
+    })
+    const comments = [
+      {
+        anchor: bookmark,
+        id: 'comment-1',
+        label: 'Comment 1',
+        tone: 'draft',
+      },
+    ] as const
+
+    const mounted = render(
+      <ProjectedAnnotationHarness comments={comments} editor={editor} />
+    )
+
+    expect(
+      mounted.container.querySelector('#annotation-sidebar')?.textContent
+    ).toBe('comment-1:Comment 1:0.0:1|0.0:4')
+    expect(
+      mounted.container.querySelector('#inline-projection')?.textContent
+    ).toBe('comment-1:1-4:annotation:draft:comment-1')
+
+    await act(async () => {
+      mounted.rerender(
+        <ProjectedAnnotationHarness
+          comments={[
+            {
+              ...comments[0],
+              label: 'Updated',
+              tone: 'reviewed',
+            },
+          ]}
+          editor={editor}
+        />
+      )
+    })
+
+    expect(
+      mounted.container.querySelector('#annotation-sidebar')?.textContent
+    ).toBe('comment-1:Updated:0.0:1|0.0:4')
+    expect(
+      mounted.container.querySelector('#inline-projection')?.textContent
+    ).toBe('comment-1:1-4:annotation:reviewed:comment-1')
   })
 
   test('annotation stores ignore selection-only changes and update when bookmark ranges rebase', async () => {
@@ -263,6 +361,58 @@ describe('slate-react annotation store contract', () => {
     ).toBe('0.0:2|0.0:5')
 
     unsubscribe()
+    store.destroy()
+  })
+
+  test('annotation stores refresh when root runtime order changes', async () => {
+    const editor = withReact(createEditor())
+
+    Editor.replace(editor, {
+      children: createChildren(),
+      selection: null,
+    })
+
+    const bookmark = Editor.bookmark(editor, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 4 },
+    })
+    const store = createSlateAnnotationStore(editor, () => [
+      {
+        anchor: bookmark,
+        data: {
+          kind: 'annotation',
+          label: 'Comment 1',
+        },
+        id: 'comment-1',
+        projection: {
+          kind: 'annotation',
+        },
+      },
+    ])
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.selection.set({
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 0 },
+        })
+        tx.fragment.insert([
+          {
+            type: 'paragraph',
+            children: [{ text: 'intro-a' }],
+          },
+          {
+            type: 'paragraph',
+            children: [{ text: 'intro-b' }],
+          },
+        ])
+      })
+    })
+
+    expect(
+      formatRange(store.getSnapshot().byId.get('comment-1')?.range ?? null)
+    ).toBe('1.0:8|1.0:11')
+
     store.destroy()
   })
 

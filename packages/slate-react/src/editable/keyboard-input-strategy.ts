@@ -16,6 +16,7 @@ import type { AndroidInputManager } from '../hooks/android-input-manager/android
 import { ReactEditor } from '../plugin/react-editor'
 import { isSelectAllHotkey } from '../rendering-strategy/rendering-strategy-commands'
 import { applyEditableCaretMovement } from './caret-engine'
+import { getEditableKeyCommands } from './editable-key-commands'
 import {
   isDestructiveEditableCommand,
   markEditableEditingEpochCommandHandled,
@@ -119,6 +120,32 @@ const applyUserKeyDownHandler = ({
   return event.isDefaultPrevented() || event.isPropagationStopped()
     ? keyDownHandled()
     : keyDownUnhandled()
+}
+
+const applyExtensionKeyCommands = ({
+  editor,
+  event,
+  selection,
+}: {
+  editor: ReactEditor
+  event: ReactKeyboardEvent<HTMLDivElement>
+  selection: ReturnType<typeof readRuntimeSelection>
+}): EditableKeyDownResult => {
+  for (const command of getEditableKeyCommands(editor)) {
+    const result = command({ editor, event, selection })
+
+    if (!result) {
+      continue
+    }
+
+    event.preventDefault()
+
+    return keyDownHandled(
+      result === true ? DEFAULT_MODEL_COMMAND_REPAIR : result
+    )
+  }
+
+  return keyDownUnhandled()
 }
 
 const applyUserEditableCommandHandler = ({
@@ -242,6 +269,21 @@ export const applyEditableKeyDown = ({
       setComposing(false)
     }
 
+    if (ReactEditor.isComposing(editor)) {
+      return keyDownHandled()
+    }
+
+    const selection = readRuntimeSelection(editor)
+    const extensionKeyCommandResult = applyExtensionKeyCommands({
+      editor,
+      event,
+      selection,
+    })
+
+    if (extensionKeyCommandResult.handled) {
+      return extensionKeyCommandResult
+    }
+
     const userKeyDownResult = applyUserKeyDownHandler({
       editor,
       event,
@@ -249,10 +291,6 @@ export const applyEditableKeyDown = ({
     })
     if (userKeyDownResult.handled) {
       return userKeyDownResult
-    }
-
-    if (ReactEditor.isComposing(editor)) {
-      return keyDownHandled()
     }
 
     if (isSelectAllHotkey(nativeEvent)) {
@@ -271,7 +309,6 @@ export const applyEditableKeyDown = ({
       return keyDownHandled()
     }
 
-    const selection = readRuntimeSelection(editor)
     const children = editor.read((state) => state.value.get())
     const element = children[selection === null ? 0 : selection.focus.path[0]]
     const isRTL = getDirection(NodeApi.string(element)) === 'rtl'
@@ -347,7 +384,7 @@ export const applyEditableKeyDown = ({
       selection,
     })
 
-    if (keyDownCommand?.kind === 'format') {
+    if (keyDownCommand) {
       const editableCommandResult = applyUserEditableCommandHandler({
         command: keyDownCommand,
         editor,

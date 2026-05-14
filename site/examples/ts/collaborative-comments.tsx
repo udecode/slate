@@ -1,5 +1,5 @@
 import { css } from '@emotion/css'
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { Bookmark, Range, Value } from 'slate'
 import {
   Editable,
@@ -458,18 +458,20 @@ const CollaborativeCommentsExample = () => {
   const [documentWrites, setDocumentWrites] = useState(0)
   const [commentWrites, setCommentWrites] = useState(0)
 
-  const annotations = useMemo(
-    () => createCommentAnnotations(comments),
-    [comments]
-  )
   const writerAnnotationStore = useSlateAnnotationStore<
     CommentData,
     CommentProjection
-  >(writerEditor, annotations)
+  >(writerEditor, {
+    deps: [comments],
+    project: () => createCommentAnnotations(comments),
+  })
   const reviewerAnnotationStore = useSlateAnnotationStore<
     CommentData,
     CommentProjection
-  >(reviewerEditor, annotations)
+  >(reviewerEditor, {
+    deps: [comments],
+    project: () => createCommentAnnotations(comments),
+  })
 
   const syncReviewerFromDocumentChannel = (value: Value) => {
     reviewerEditor.update((tx) => {

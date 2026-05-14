@@ -113,18 +113,19 @@ const resolveDragTarget = (editor: ReactEditor, target: EventTarget) => {
     }
   }
 
-  try {
-    const node = ReactEditor.toSlateNode(editor, target)
-    const path = ReactEditor.findPath(editor, node)
+  const node = ReactEditor.resolveSlateNode(editor, target)
+  const fallbackPath = node ? ReactEditor.resolvePath(editor, node) : null
 
-    if (!Editor.hasPath(editor, path) || NodeApi.get(editor, path) !== node) {
-      return null
-    }
-
-    return { node, path }
-  } catch {
+  if (
+    !node ||
+    !fallbackPath ||
+    !Editor.hasPath(editor, fallbackPath) ||
+    NodeApi.get(editor, fallbackPath) !== node
+  ) {
     return null
   }
+
+  return { node, path: fallbackPath }
 }
 
 const isClipboardEventTargetInput = ({
@@ -438,7 +439,12 @@ export const applyEditableDrop = ({
     const draggedRange = readRuntimeSelection(editor)
 
     // Find the range where the drop happened
-    const range = ReactEditor.findEventRange(editor, event)
+    const range = ReactEditor.resolveEventRange(editor, event)
+
+    if (!range) {
+      return clipboardResult({ command: null })
+    }
+
     const data = event.dataTransfer
     const command: EditableCommand = { data, kind: 'insert-data' }
 

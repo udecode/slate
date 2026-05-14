@@ -1,11 +1,15 @@
 import { createEditor } from 'slate'
 import { describe, expect, it, vi } from 'vitest'
-import type { ReactEditor } from '../src'
+import {
+  editableKeyCommands,
+  type ReactEditor as ReactEditorType,
+} from '../src'
 
 import {
   applyEditableKeyDown,
   shouldDeferBackspaceToNativeInput,
 } from '../src/editable/keyboard-input-strategy'
+import { ReactEditor } from '../src/plugin/react-editor'
 
 const keyEvent = (key: string) =>
   ({
@@ -58,7 +62,7 @@ describe('keyboard input strategy', () => {
   })
 
   it('does not route undo hotkeys while read-only', () => {
-    const editor = createEditor() as ReactEditor
+    const editor = createEditor() as ReactEditorType
     const undo = vi.fn()
     const forceRender = vi.fn()
     const event = reactKeyEvent({
@@ -85,5 +89,90 @@ describe('keyboard input strategy', () => {
     expect(event.preventDefault).not.toHaveBeenCalled()
     expect(undo).not.toHaveBeenCalled()
     expect(forceRender).not.toHaveBeenCalled()
+  })
+
+  it('routes non-format keydown commands through onCommand before default mutation', () => {
+    const editor = createEditor({
+      initialValue: [{ children: [{ text: 'test' }] }],
+    }) as ReactEditorType
+    const event = reactKeyEvent(keyEvent('Enter'))
+    const onCommand = vi.fn(() => true)
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(false)
+
+    const result = applyEditableKeyDown({
+      androidInputManagerRef: { current: null },
+      editor,
+      event,
+      forceRender: vi.fn(),
+      inputController: {} as any,
+      onCommand,
+      readOnly: false,
+      renderingStrategy: null,
+      setComposing: vi.fn(),
+      setExplicitShellBackedSelection: vi.fn(),
+      shellBackedSelection: false,
+    })
+
+    expect(result.handled).toBe(true)
+    expect(onCommand).toHaveBeenCalledWith(
+      { kind: 'insert-break', variant: 'paragraph' },
+      expect.objectContaining({
+        editor,
+        native: false,
+      })
+    )
+    expect(event.preventDefault).toHaveBeenCalled()
+
+    hasEditableTarget.mockRestore()
+    isComposing.mockRestore()
+  })
+
+  it('runs extension key commands before raw keydown fallback', () => {
+    const editor = createEditor({
+      initialValue: [{ children: [{ text: 'test' }] }],
+    }) as ReactEditorType
+    const event = reactKeyEvent(keyEvent('Tab'))
+    const keyCommand = vi.fn(() => true)
+    const onKeyDown = vi.fn()
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(false)
+
+    editor.extend({
+      capabilities: editableKeyCommands(keyCommand),
+      name: 'test-key-commands',
+    })
+
+    const result = applyEditableKeyDown({
+      androidInputManagerRef: { current: null },
+      editor,
+      event,
+      forceRender: vi.fn(),
+      inputController: {} as any,
+      onKeyDown,
+      readOnly: false,
+      renderingStrategy: null,
+      setComposing: vi.fn(),
+      setExplicitShellBackedSelection: vi.fn(),
+      shellBackedSelection: false,
+    })
+
+    expect(result.handled).toBe(true)
+    expect(keyCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ editor, event })
+    )
+    expect(onKeyDown).not.toHaveBeenCalled()
+    expect(event.preventDefault).toHaveBeenCalled()
+
+    hasEditableTarget.mockRestore()
+    isComposing.mockRestore()
   })
 })

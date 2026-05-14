@@ -299,7 +299,6 @@ describe('DOM coverage boundaries', () => {
       expect(
         editor.dom.toSlatePoint([placeholder, 0], {
           exactMatch: true,
-          suppressThrow: false,
         })
       ).toEqual({
         path: [0, 1, 0],
@@ -315,7 +314,6 @@ describe('DOM coverage boundaries', () => {
       expect(
         editor.dom.toSlatePoint([root, 1], {
           exactMatch: true,
-          suppressThrow: false,
         })
       ).toEqual({
         path: [0, 1, 0],

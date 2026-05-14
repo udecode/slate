@@ -12,7 +12,9 @@ import type {
   EditorCoreUpdateTransaction,
   EditorFragmentReadOptions,
   EditorMarks,
+  EditorNodesOptions,
   EditorSnapshot,
+  EditorStateNodesApi,
   EditorStateView,
   EditorTargetRuntime,
   EditorTransaction,
@@ -36,6 +38,7 @@ import {
   type Descendant,
   type DescendantIn,
   NodeApi,
+  type NodeEntry,
   type Node as SlateNode,
 } from '../interfaces/node'
 import type { Operation } from '../interfaces/operation'
@@ -915,6 +918,40 @@ const getSelectionMarks = <V extends Value>(
   return rest as EditorMarks<V>
 }
 
+const createNodesToArray = (editor: Editor): EditorStateNodesApi['toArray'] => {
+  function toArray<T extends SlateNode>(
+    options?: EditorNodesOptions<T>
+  ): NodeEntry<T>[]
+  function toArray<T extends SlateNode, R>(
+    options: EditorNodesOptions<T> | undefined,
+    map: (entry: NodeEntry<T>) => R
+  ): R[]
+  function toArray<T extends SlateNode, R>(
+    options: EditorNodesOptions<T> = {},
+    map?: (entry: NodeEntry<T>) => R
+  ): NodeEntry<T>[] | R[] {
+    if (map) {
+      const mapped: R[] = []
+
+      for (const entry of getNodes(editor, options)) {
+        mapped.push(map(entry))
+      }
+
+      return mapped
+    }
+
+    const entries: NodeEntry<T>[] = []
+
+    for (const entry of getNodes(editor, options)) {
+      entries.push(entry)
+    }
+
+    return entries
+  }
+
+  return toArray
+}
+
 const getStateView = <V extends Value>(
   editor: Editor<V>
 ): EditorStateView<V> => {
@@ -971,6 +1008,7 @@ const getStateView = <V extends Value>(
 
         return false
       },
+      toArray: createNodesToArray(editor),
       next: <T extends SlateNode>(options = {}) =>
         getEditorRuntime(editor).next(options) as [T, Path] | undefined,
       parent: (at: Location) => getEditorRuntime(editor).parent(at),

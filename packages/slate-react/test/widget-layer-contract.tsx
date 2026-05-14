@@ -85,6 +85,45 @@ const WidgetHarness = ({
   )
 }
 
+const ProjectedWidgetHarness = ({
+  counts,
+  editor,
+  labels,
+}: {
+  counts: ReturnType<typeof createRenderCounts>
+  editor: ReturnType<typeof createEditor>
+  labels: readonly string[]
+}) => {
+  const widgetStore = useSlateWidgetStore(editor, {
+    deps: [labels],
+    project: () =>
+      labels.map((label) => ({
+        anchor: {
+          type: 'selection' as const,
+        },
+        data: {
+          label,
+        },
+        id: 'toolbar-widget',
+      })),
+  })
+  const toolbarWidget = useSlateWidget(widgetStore, 'toolbar-widget')
+
+  return (
+    <Slate editor={editor}>
+      <MemoTextSlice counts={counts} slot="left" />
+      <MemoTextSlice counts={counts} slot="right" />
+      <span id="widget-state">
+        {toolbarWidget
+          ? `${toolbarWidget.id}:${
+              toolbarWidget.visible ? 'visible' : 'hidden'
+            }:${toolbarWidget.data?.label ?? 'none'}`
+          : 'none'}
+      </span>
+    </Slate>
+  )
+}
+
 describe('slate-react widget layer contract', () => {
   test('selection widgets toggle without rerendering text slices', async () => {
     const editor = createEditor()
@@ -154,6 +193,45 @@ describe('slate-react widget layer contract', () => {
     )
 
     mounted.unmount()
+  })
+
+  test('widget hook projector options refresh without caller memoization', async () => {
+    const editor = createEditor()
+    const counts = createRenderCounts()
+
+    Editor.replace(editor, {
+      children: createChildren(),
+      selection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 4 },
+      },
+    })
+
+    const mounted = render(
+      <ProjectedWidgetHarness
+        counts={counts}
+        editor={editor}
+        labels={['Toolbar']}
+      />
+    )
+
+    expect(mounted.container.querySelector('#widget-state')?.textContent).toBe(
+      'toolbar-widget:visible:Toolbar'
+    )
+
+    await act(async () => {
+      mounted.rerender(
+        <ProjectedWidgetHarness
+          counts={counts}
+          editor={editor}
+          labels={['Updated']}
+        />
+      )
+    })
+
+    expect(mounted.container.querySelector('#widget-state')?.textContent).toBe(
+      'toolbar-widget:visible:Updated'
+    )
   })
 
   test('selection widget stores ignore unrelated text changes', async () => {

@@ -10,7 +10,7 @@ import 'prismjs/components/prism-sql'
 import 'prismjs/components/prism-tsx'
 import 'prismjs/components/prism-typescript'
 import type React from 'react'
-import { type ChangeEvent, type PointerEvent, useCallback } from 'react'
+import type { ChangeEvent, PointerEvent } from 'react'
 import {
   type Descendant,
   type EditorSnapshot,
@@ -21,6 +21,8 @@ import { isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
   Editable,
+  type EditableKeyCommand,
+  editableKeyCommands,
   type RenderElementProps,
   Slate,
   type SlateProjection,
@@ -46,7 +48,7 @@ const CodeIndent = '  '
 
 const CodeHighlightingExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: withHistory,
+    withEditor: (editor) => withCodeHighlighting(withHistory(editor)),
     initialValue: [
       {
         type: ParagraphType,
@@ -104,7 +106,6 @@ const editor = useSlateEditor<CustomValue>({ initialValue })`),
     ],
   })
 
-  const onKeyDown = useOnKeydown(editor)
   const codeHighlightingSource = useSlateDecorationSource(editor, {
     id: 'code-highlighting',
     dirtiness: ['text', 'node'],
@@ -116,7 +117,6 @@ const editor = useSlateEditor<CustomValue>({ initialValue })`),
     <Slate decorationSources={[codeHighlightingSource]} editor={editor}>
       <ExampleToolbar />
       <Editable
-        onKeyDown={onKeyDown}
         renderElement={ElementWrapper}
         renderSegment={(segment, children) => {
           const data = Object.assign(
@@ -138,6 +138,47 @@ const editor = useSlateEditor<CustomValue>({ initialValue })`),
       <style>{prismThemeCss}</style>
     </Slate>
   )
+}
+
+const codeHighlightingKeyCommand: EditableKeyCommand = ({ editor, event }) => {
+  const codeEditor = editor as CustomEditor
+
+  if (isHotkey(['mod+shift+c', 'mod+alt+c'], event)) {
+    event.preventDefault()
+    convertSelectionToCodeBlock(codeEditor)
+    return true
+  }
+
+  const isTab = isHotkey('tab', event)
+  const isShiftTab = isHotkey('shift+tab', event)
+
+  if (!isTab && !isShiftTab) {
+    return
+  }
+
+  event.preventDefault()
+
+  const handledCodeLines = updateSelectedCodeLines(
+    codeEditor,
+    isShiftTab ? 'outdent' : 'indent'
+  )
+
+  if (!handledCodeLines && isTab) {
+    codeEditor.update((tx) => {
+      tx.text.insert(CodeIndent)
+    })
+  }
+
+  return true
+}
+
+const withCodeHighlighting = (editor: CustomEditor) => {
+  editor.extend({
+    capabilities: editableKeyCommands(codeHighlightingKeyCommand),
+    name: 'code-highlighting',
+  })
+
+  return editor
 }
 
 const ElementWrapper = (props: RenderElementProps) => {
@@ -355,41 +396,6 @@ const collectCodeTextProjections = (
   })
 
   return projections
-}
-
-const useOnKeydown = (editor: CustomEditor) => {
-  const onKeyDown: React.KeyboardEventHandler<HTMLDivElement> = useCallback(
-    (e) => {
-      if (isHotkey(['mod+shift+c', 'mod+alt+c'], e)) {
-        e.preventDefault()
-        convertSelectionToCodeBlock(editor)
-        return
-      }
-
-      const isTab = isHotkey('tab', e)
-      const isShiftTab = isHotkey('shift+tab', e)
-
-      if (!isTab && !isShiftTab) {
-        return
-      }
-
-      e.preventDefault()
-
-      const handledCodeLines = updateSelectedCodeLines(
-        editor,
-        isShiftTab ? 'outdent' : 'indent'
-      )
-
-      if (!handledCodeLines && isTab) {
-        editor.update((tx) => {
-          tx.text.insert(CodeIndent)
-        })
-      }
-    },
-    [editor]
-  )
-
-  return onKeyDown
 }
 
 type CodeIndentAction = 'indent' | 'outdent'

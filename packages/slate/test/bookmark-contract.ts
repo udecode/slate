@@ -252,6 +252,47 @@ describe('slate bookmark contract', () => {
     assert.equal(Editor.string(editor, resolved), 'et')
   })
 
+  it('survives replace_children when fragment insertion preserves the bookmarked text', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: createSplitChildren(),
+      selection: null,
+      marks: null,
+    })
+
+    const bookmark = Editor.bookmark(
+      editor,
+      createRange({ path: [0, 0], offset: 1 }, { path: [0, 0], offset: 4 })
+    )
+
+    editor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+      tx.fragment.insert([
+        {
+          type: 'paragraph',
+          children: [{ text: 'intro-a' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: 'intro-b' }],
+        },
+      ])
+    })
+
+    const resolved = bookmark.resolve()
+
+    assert.ok(resolved)
+    assert.deepEqual(resolved, {
+      anchor: { path: [1, 0], offset: 8 },
+      focus: { path: [1, 0], offset: 11 },
+    })
+    assert.equal(Editor.string(editor, resolved), 'lph')
+  })
+
   it('rebases across normalization-driven spacer insertion', () => {
     const editor = createEditor()
     extendTestSchema(editor, { type: 'inline', inline: true })

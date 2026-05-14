@@ -120,13 +120,12 @@ const MentionExample = () => {
   useEffect(() => {
     if (target && chars.length > 0 && ref.current) {
       const el = ref.current
-      let domRange: globalThis.Range
-      try {
-        domRange = editor.dom.toDOMRange(target)
-      } catch {
+      const rect = editor.dom.resolveRangeRect(target)
+
+      if (!rect) {
         return
       }
-      const rect = domRange.getBoundingClientRect()
+
       el.style.top = `${rect.top + window.pageYOffset + 24}px`
       el.style.left = `${rect.left + window.pageXOffset}px`
     }

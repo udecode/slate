@@ -67,16 +67,18 @@ But... if you refresh the page, everything is still reset. That's because we nee
 const App = () => {
   const [editor] = useState(() => withReact(createEditor()))
   // Update the initial content to be pulled from Local Storage if it exists.
-  const initialValue = useMemo(
-    () =>
-      JSON.parse(localStorage.getItem('content')) || [
-        {
-          type: 'paragraph',
-          children: [{ text: 'A line of text in a paragraph.' }],
-        },
-      ],
-    []
-  )
+  const [initialValue] = useState(() => {
+    const savedContent = localStorage.getItem('content')
+
+    return savedContent
+      ? JSON.parse(savedContent)
+      : [
+          {
+            type: 'paragraph',
+            children: [{ text: 'A line of text in a paragraph.' }],
+          },
+        ]
+  })
 
   return (
     <Slate
@@ -129,9 +131,8 @@ const deserialize = string => {
 const App = () => {
   const [editor] = useState(() => withReact(createEditor()))
   // Use our deserializing function to read the data from Local Storage.
-  const initialValue = useMemo(
-    deserialize(localStorage.getItem('content')) || '',
-    []
+  const [initialValue] = useState(() =>
+    deserialize(localStorage.getItem('content') || '')
   )
 
   return (

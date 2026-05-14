@@ -114,7 +114,11 @@ const VideoElement = ({ element }: RenderVoidProps<VideoElementType>) => {
       </div>
       <UrlInput
         onChange={(val) => {
-          const path = editor.dom.findPath(element)
+          const path = editor.dom.resolvePath(element)
+
+          if (!path) {
+            return
+          }
 
           editor.update((tx) => {
             tx.nodes.set({ url: val }, { at: path, voids: true })

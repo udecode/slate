@@ -1,5 +1,5 @@
 import type React from 'react'
-import type { KeyboardEvent, PointerEvent } from 'react'
+import type { PointerEvent } from 'react'
 import {
   type Descendant,
   type Node,
@@ -15,6 +15,8 @@ import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
   Editable,
+  type EditableKeyCommand,
+  editableKeyCommands,
   type RenderElementProps,
   type RenderLeafProps,
   Slate,
@@ -134,34 +136,6 @@ const RichTextExample = () => {
       </Toolbar>
       <Editable
         autoFocus
-        onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
-          if (handleExitBlockEnter(editor, event)) {
-            event.preventDefault()
-            return true
-          }
-
-          if (isHotkey(CLEAR_FORMATTING_HOTKEY, event)) {
-            event.preventDefault()
-            clearRichTextFormatting(editor)
-            return true
-          }
-
-          for (const [hotkey, format] of BLOCK_HOTKEYS) {
-            if (isHotkey(hotkey, event)) {
-              event.preventDefault()
-              toggleBlock(editor, format)
-              return true
-            }
-          }
-
-          for (const [hotkey, mark] of MARK_HOTKEYS) {
-            if (isHotkey(hotkey, event)) {
-              event.preventDefault()
-              toggleMark(editor, mark)
-              return true
-            }
-          }
-        }}
         placeholder="Enter some rich text…"
         renderElement={Element}
         renderLeaf={Leaf}
@@ -171,9 +145,36 @@ const RichTextExample = () => {
   )
 }
 
+const richTextKeyCommand: EditableKeyCommand = ({ editor, event }) => {
+  const richTextEditor = editor as CustomEditor
+
+  if (handleExitBlockEnter(richTextEditor, event)) {
+    return true
+  }
+
+  if (isHotkey(CLEAR_FORMATTING_HOTKEY, event)) {
+    clearRichTextFormatting(richTextEditor)
+    return true
+  }
+
+  for (const [hotkey, format] of BLOCK_HOTKEYS) {
+    if (isHotkey(hotkey, event)) {
+      toggleBlock(richTextEditor, format)
+      return true
+    }
+  }
+
+  for (const [hotkey, mark] of MARK_HOTKEYS) {
+    if (isHotkey(hotkey, event)) {
+      toggleMark(richTextEditor, mark)
+      return true
+    }
+  }
+}
+
 const handleExitBlockEnter = (
   editor: CustomEditor,
-  event: KeyboardEvent<HTMLDivElement>
+  event: React.KeyboardEvent<HTMLDivElement>
 ) => {
   if (
     event.key !== 'Enter' ||
@@ -418,6 +419,7 @@ const withRichTextHtml = (editor: CustomEditor) => {
   editor.extend({
     name: 'richtext-html-paste',
     capabilities: {
+      ...editableKeyCommands(richTextKeyCommand),
       'dom.clipboard.insertData': insertData,
     },
   })

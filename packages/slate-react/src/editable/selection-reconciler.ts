@@ -276,9 +276,9 @@ export const applyEditableBlur = ({
     ReactEditor.hasDOMNode(editor, relatedTarget)
   ) {
     try {
-      const node = ReactEditor.toSlateNode(editor, relatedTarget)
+      const node = ReactEditor.resolveSlateNode(editor, relatedTarget)
 
-      if (NodeApi.isElement(node) && !Editor.isVoid(editor, node)) {
+      if (node && NodeApi.isElement(node) && !Editor.isVoid(editor, node)) {
         return
       }
     } catch {
@@ -368,14 +368,16 @@ const resolveEditableClickTarget = (
   }
 
   try {
-    const node = ReactEditor.toSlateNode(editor, target)
-    const fallbackPath = ReactEditor.findPath(editor, node)
+    const node = ReactEditor.resolveSlateNode(editor, target)
+    const fallbackPath = node ? ReactEditor.resolvePath(editor, node) : null
 
     // At this time, the Slate document may be arbitrarily different,
     // because onClick handlers can change the document before we get here.
     // Therefore we must check that this path actually exists,
     // and that it still refers to the same node.
     if (
+      !node ||
+      !fallbackPath ||
       !Editor.hasPath(editor, fallbackPath) ||
       NodeApi.get(editor, fallbackPath) !== node
     ) {
@@ -609,7 +611,7 @@ export const syncSelectionForBeforeInput = ({
   // COMPAT: Most deleting forward/backward input types can derive the target
   // from the current selection, but IME/focus cleanup can provide an expanded
   // beforeinput target range that must become the model delete range.
-  // If the NODE_MAP is dirty, we can't trust the selection anchor (eg ReactEditor.toDOMPoint via ReactEditor.toSlateRange)
+  // If the NODE_MAP is dirty, we can't trust DOM selection import.
   if (allowDOMSelectionImport && !IS_NODE_MAP_DIRTY.get(editor)) {
     const [targetRange] = getInputEventTargetRanges(event)
 
@@ -619,9 +621,8 @@ export const syncSelectionForBeforeInput = ({
       ReactEditor.hasSelectableTarget(editor, targetRange.startContainer) &&
       ReactEditor.hasSelectableTarget(editor, targetRange.endContainer)
     ) {
-      const range = ReactEditor.toSlateRange(editor, targetRange, {
+      const range = ReactEditor.resolveSlateRange(editor, targetRange, {
         exactMatch: false,
-        suppressThrow: true,
       })
       const shouldUseTargetRange =
         range &&
@@ -669,9 +670,8 @@ export const syncSelectionForBeforeInput = ({
       toSlateRangeFromDOMSelection(editor, domSelection, editorElement) ??
       (IS_NODE_MAP_DIRTY.get(editor)
         ? null
-        : ReactEditor.toSlateRange(editor, domSelection, {
+        : ReactEditor.resolveSlateRange(editor, domSelection, {
             exactMatch: false,
-            suppressThrow: true,
           }))
 
     if (range && (!nextSelection || !RangeApi.equals(nextSelection, range))) {
@@ -775,9 +775,8 @@ export const handleWebKitShadowDOMBeforeInput = ({
   newRange.setEnd(range.endContainer, range.endOffset)
 
   // Translate the DOM Range into a Slate Range
-  const slateRange = ReactEditor.toSlateRange(editor, newRange, {
+  const slateRange = ReactEditor.resolveSlateRange(editor, newRange, {
     exactMatch: false,
-    suppressThrow: true,
   })
 
   if (!slateRange) {
@@ -888,12 +887,11 @@ export const useEditableSelectionReconciler = ({
         selection &&
         !forceChange
       ) {
-        const slateRange = ReactEditor.toSlateRange(editor, domSelection, {
+        const slateRange = ReactEditor.resolveSlateRange(editor, domSelection, {
           exactMatch: true,
 
           // domSelection is not necessarily a valid Slate range
           // (e.g. when clicking on contentEditable:false element)
-          suppressThrow: true,
         })
 
         const isCollapsedElementSelection =
@@ -915,9 +913,8 @@ export const useEditableSelectionReconciler = ({
       if (selection && !ReactEditor.hasRange(editor, selection)) {
         writeRuntimeSelection(
           editor,
-          ReactEditor.toSlateRange(editor, domSelection, {
+          ReactEditor.resolveSlateRange(editor, domSelection, {
             exactMatch: false,
-            suppressThrow: true,
           })
         )
         return
@@ -929,11 +926,9 @@ export const useEditableSelectionReconciler = ({
 
       let newDomRange: DOMRange | null = null
 
-      try {
-        newDomRange = selection && ReactEditor.toDOMRange(editor, selection)
-      } catch (_e) {
-        // Ignore, dom and state might be out of sync
-      }
+      newDomRange = selection
+        ? ReactEditor.resolveDOMRange(editor, selection)
+        : null
 
       if (newDomRange) {
         if (ReactEditor.isComposing(editor) && !IS_ANDROID) {

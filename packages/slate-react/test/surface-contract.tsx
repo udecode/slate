@@ -7,6 +7,7 @@ import * as SlateReact from '../src'
 import {
   Editable,
   type EditableCommandContext,
+  editableRenderers,
   type ReactEditor,
   type RenderElementProps,
   type RenderVoidProps,
@@ -390,6 +391,21 @@ describe('slate-react surface contract', () => {
     )
   })
 
+  test('beginner rendering docs teach registered renderers instead of callback memoization', () => {
+    const docs = [
+      'docs/concepts/09-rendering.md',
+      'docs/walkthroughs/03-defining-custom-elements.md',
+      'docs/walkthroughs/04-applying-custom-formatting.md',
+      'docs/walkthroughs/05-executing-commands.md',
+      'docs/walkthroughs/09-performance.md',
+    ]
+      .map((file) => readFileSync(resolve(repoRoot, file), 'utf8'))
+      .join('\n')
+
+    expect(docs).toMatch(/\beditableRenderers\b/)
+    expect(docs).not.toMatch(/\buseCallback\b/)
+  })
+
   test('adapter static namespaces stay out of the public root at runtime', () => {
     expect('ReactEditor' in SlateReact).toBe(false)
     expect('DOMEditor' in SlateReact).toBe(false)
@@ -414,6 +430,45 @@ describe('slate-react surface contract', () => {
     expect(segmentPlanSource).toContain("type: 'virtualized'")
     expect(segmentPlanSource).toContain('Intentionally object-only')
     expect(editableSource).toContain('`virtualized` is experimental')
+  })
+
+  test('Editable renderingStrategy option objects normalize through primitive fields', () => {
+    const editableSource = readFileSync(
+      resolve(packageRoot, 'src/components/editable-text-blocks.tsx'),
+      'utf8'
+    )
+
+    expect(editableSource).toMatch(/\brenderingStrategyShellOverscan\b/)
+    expect(editableSource).toMatch(/\brenderingStrategyVirtualizedOverscan\b/)
+    expect(editableSource).not.toContain(
+      '[renderingStrategyType, renderingStrategyShellOptions]'
+    )
+    expect(editableSource).not.toContain(
+      '[renderingStrategyType, renderingStrategyVirtualizedOptions]'
+    )
+  })
+
+  test('saving walkthrough uses lazy state for one-shot initial content', () => {
+    const docs = readFileSync(
+      resolve(repoRoot, 'docs/walkthroughs/06-saving-to-a-database.md'),
+      'utf8'
+    )
+
+    expect(docs).toMatch(/\bconst \[initialValue\] = useState\(\(\) =>/)
+    expect(docs).not.toMatch(/\buseMemo\b/)
+  })
+
+  test('hotkey examples use registered key commands instead of raw Editable keydown props', () => {
+    for (const file of [
+      'site/examples/ts/iframe.tsx',
+      'site/examples/ts/images.tsx',
+      'site/examples/ts/richtext.tsx',
+    ]) {
+      const source = readFileSync(resolve(repoRoot, file), 'utf8')
+
+      expect(source).toMatch(/\beditableKeyCommands\b/)
+      expect(source).not.toMatch(/\bonKeyDown=/)
+    }
   })
 
   test('Editable defaults translate="no" and allows override', () => {
@@ -443,6 +498,120 @@ describe('slate-react surface contract', () => {
         .querySelector('[data-slate-editor]')
         ?.getAttribute('translate')
     ).toBe('yes')
+  })
+
+  test('Editable consumes extension-registered element, leaf, text, segment, and void renderers', () => {
+    const editor = createReactEditor([
+      {
+        type: 'code',
+        children: [{ text: 'const answer = 42', bold: true }],
+      },
+      {
+        type: 'image',
+        url: 'about:blank',
+        children: [{ text: '' }],
+      },
+    ]) as ReactEditor
+
+    editor.extend({
+      capabilities: editableRenderers({
+        elements: {
+          code: ({ attributes, children }) => (
+            <pre {...attributes} data-renderer="code">
+              <code>{children}</code>
+            </pre>
+          ),
+        },
+        leaves: {
+          bold: ({ children }) => (
+            <strong data-renderer="bold">{children}</strong>
+          ),
+        },
+        segment: (segment, children) => (
+          <mark data-renderer="segment" data-start={segment.start}>
+            {children}
+          </mark>
+        ),
+        text: ({ attributes, children }) => (
+          <span {...attributes} data-renderer="text">
+            {children}
+          </span>
+        ),
+        voids: {
+          image: ({ element }) => (
+            <img
+              alt=""
+              data-renderer="image"
+              height={1}
+              src={(element as { url: string }).url}
+              width={1}
+            />
+          ),
+        },
+      }),
+      elements: [{ type: 'image', void: 'block' }],
+      name: 'test-renderers',
+    })
+
+    const rendered = render(
+      <Slate editor={editor}>
+        <Editable />
+      </Slate>
+    )
+
+    expect(
+      rendered.container.querySelector('[data-renderer="code"]')
+    ).toBeTruthy()
+    expect(
+      rendered.container.querySelector('[data-renderer="bold"]')
+    ).toBeTruthy()
+    expect(
+      rendered.container.querySelector('[data-renderer="segment"]')
+    ).toBeTruthy()
+    expect(
+      rendered.container.querySelector('[data-renderer="text"]')
+    ).toBeTruthy()
+    expect(
+      rendered.container.querySelector('[data-renderer="image"]')
+    ).toBeTruthy()
+  })
+
+  test('raw Editable render props override extension-registered renderers', () => {
+    const editor = createReactEditor([
+      { type: 'code', children: [{ text: 'const answer = 42' }] },
+    ])
+
+    editor.extend({
+      capabilities: editableRenderers({
+        elements: {
+          code: ({ attributes, children }) => (
+            <pre {...attributes} data-renderer="registered">
+              {children}
+            </pre>
+          ),
+        },
+      }),
+      name: 'test-registered-renderer-override',
+    })
+
+    const rendered = render(
+      <Slate editor={editor}>
+        <Editable
+          renderElement={({ attributes, children }) => (
+            <div {...attributes} data-renderer="raw">
+              {children}
+            </div>
+          )}
+        />
+      </Slate>
+    )
+
+    expect(
+      rendered.container.querySelector('[data-renderer="raw"]')
+    ).toBeTruthy()
+    expect(
+      rendered.container.querySelector('[data-renderer="registered"]')
+    ).toBeNull()
   })
 
   test('structured render surface keeps mount identity stable across split and merge', async () => {

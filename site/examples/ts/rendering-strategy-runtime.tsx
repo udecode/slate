@@ -505,16 +505,12 @@ export const VirtualizedFullRuntime = () => {
   )
   const metricsSignatureRef = useRef<string | null>(null)
   const virtualizedRootRef = useRef<HTMLDivElement>(null)
-  const renderingStrategy = useMemo(
-    () =>
-      ({
-        estimatedBlockSize,
-        overscan,
-        type: 'virtualized',
-        threshold: 1,
-      }) as const,
-    [estimatedBlockSize, overscan]
-  )
+  const renderingStrategy = {
+    estimatedBlockSize,
+    overscan,
+    type: 'virtualized',
+    threshold: 1,
+  } as const
   const editableStyle = useMemo(
     () => ({
       ...virtualizedEditorStyle,

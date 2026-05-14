@@ -303,13 +303,11 @@ describe('DOM coverage private boundary harness', () => {
     expect(
       editor.dom.toSlatePoint([headerPlaceholder!, 0], {
         exactMatch: false,
-        suppressThrow: false,
       })
     ).toEqual({ offset: 0, path: [0, 0] })
     expect(
       editor.dom.toSlatePoint([footerPlaceholder!, 0], {
         exactMatch: false,
-        suppressThrow: false,
       })
     ).toEqual({ offset: 0, path: [2, 0] })
   })

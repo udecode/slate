@@ -57,6 +57,9 @@ const App = () => {
 Next, we'll edit the `onKeyDown` handler to make it so that when you press `control-B`, it adds a `bold` format to the currently selected text:
 
 ```jsx
+import { defineEditorExtension } from 'slate'
+import { editableRenderers } from 'slate-react'
+
 const initialValue = [
   {
     type: 'paragraph',
@@ -64,22 +67,26 @@ const initialValue = [
   },
 ]
 
-const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+const rendering = defineEditorExtension({
+  name: 'formatting-rendering',
+  capabilities: editableRenderers({
+    elements: {
+      code: CodeElement,
+      paragraph: DefaultElement,
+    },
+  }),
+})
 
-  const renderElement = useCallback(props => {
-    switch (props.element.type) {
-      case 'code':
-        return <CodeElement {...props} />
-      default:
-        return <DefaultElement {...props} />
-    }
-  }, [])
+const App = () => {
+  const [editor] = useState(() => {
+    const editor = withReact(createEditor())
+    editor.extend(rendering)
+    return editor
+  })
 
   return (
     <Slate editor={editor} initialValue={initialValue}>
       <Editable
-        renderElement={renderElement}
         onKeyDown={event => {
           if (!event.ctrlKey) {
             return
@@ -131,22 +138,21 @@ For every format you add, you need to tell Slate how to render it, just like for
 ```jsx
 // Define a React component to render leaves with bold text.
 const Leaf = props => {
-  return (
-    <span
-      {...props.attributes}
-      style={{ fontWeight: props.leaf.bold ? 'bold' : 'normal' }}
-    >
-      {props.children}
-    </span>
-  )
+  return <strong>{props.children}</strong>
 }
 ```
 
-Pretty familiar, right? Note that it is described with a `span` - This is because all leaves must be an [inline element](https://developer.mozilla.org/en-US/docs/Web/HTML/Inline_elements). You can learn more about leaves in the [Rendering section](../concepts/09-rendering.md#leaves).
+Pretty familiar, right? Registered leaf components render inside Slate's leaf
+DOM shell, so the component only needs to return inline content. You can learn
+more about leaves in the [Rendering section](../concepts/09-rendering.md#leaves).
 
-Next, let's tell Slate about that leaf. To do that, we'll pass in the `renderLeaf` prop to our editor.
+Next, let's tell Slate about that leaf. To do that, we'll add it to our
+`editableRenderers(...)` extension capability.
 
 ```jsx
+import { defineEditorExtension } from 'slate'
+import { editableRenderers } from 'slate-react'
+
 const initialValue = [
   {
     type: 'paragraph',
@@ -154,29 +160,29 @@ const initialValue = [
   },
 ]
 
+const rendering = defineEditorExtension({
+  name: 'formatting-rendering',
+  capabilities: editableRenderers({
+    elements: {
+      code: CodeElement,
+      paragraph: DefaultElement,
+    },
+    leaves: {
+      bold: Leaf,
+    },
+  }),
+})
+
 const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
-
-  const renderElement = useCallback(props => {
-    switch (props.element.type) {
-      case 'code':
-        return <CodeElement {...props} />
-      default:
-        return <DefaultElement {...props} />
-    }
-  }, [])
-
-  // Define a leaf rendering function that is memoized with `useCallback`.
-  const renderLeaf = useCallback(props => {
-    return <Leaf {...props} />
-  }, [])
+  const [editor] = useState(() => {
+    const editor = withReact(createEditor())
+    editor.extend(rendering)
+    return editor
+  })
 
   return (
     <Slate editor={editor} initialValue={initialValue}>
       <Editable
-        renderElement={renderElement}
-        // Pass in the `renderLeaf` function.
-        renderLeaf={renderLeaf}
         onKeyDown={event => {
           if (!event.ctrlKey) {
             return
@@ -217,14 +223,7 @@ const App = () => {
 }
 
 const Leaf = props => {
-  return (
-    <span
-      {...props.attributes}
-      style={{ fontWeight: props.leaf.bold ? 'bold' : 'normal' }}
-    >
-      {props.children}
-    </span>
-  )
+  return <strong>{props.children}</strong>
 }
 ```
 

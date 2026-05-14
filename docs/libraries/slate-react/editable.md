@@ -4,7 +4,7 @@
 
 ```tsx
 <Slate editor={editor} initialValue={initialValue}>
-  <Editable renderElement={renderElement} renderLeaf={renderLeaf} />
+  <Editable />
 </Slate>
 ```
 
@@ -50,6 +50,35 @@ type EditableProps = {
 ```
 
 `Editable` also accepts safe `div` attributes such as `aria-*`, `data-*`, and event handlers that are not owned by Slate.
+
+## Renderer Extensions
+
+Use `editableRenderers(...)` when an editor extension owns how document content
+is rendered. Raw `Editable` render props remain available and take precedence
+when passed.
+
+```tsx
+import { defineEditorExtension } from 'slate'
+import { editableRenderers } from 'slate-react'
+
+const articleRendering = defineEditorExtension({
+  name: 'article-rendering',
+  capabilities: editableRenderers({
+    elements: {
+      code: CodeElement,
+      paragraph: ParagraphElement,
+    },
+    leaves: {
+      bold: BoldLeaf,
+    },
+    segment: SearchSegment,
+    text: TextNode,
+    voids: {
+      image: ImageVoid,
+    },
+  }),
+})
+```
 
 ## `renderElement`
 
@@ -227,19 +256,22 @@ Keep the provided attributes. They make the placeholder behave like editor chrom
 
 ## Event Props
 
-Use `onKeyDown` for keyboard shortcuts.
+Use `editableKeyCommands(...)` in editor extensions for reusable custom
+hotkeys. The command receives the current editor, React keyboard event, and
+selection.
 
 ```tsx
-<Editable
-  onKeyDown={event => {
-    if (event.key === 'b' && event.metaKey) {
-      event.preventDefault()
+editor.extend({
+  name: 'code-block-hotkeys',
+  capabilities: editableKeyCommands(({ editor, event }) => {
+    if (event.key === '`' && event.ctrlKey) {
       editor.update(tx => {
-        tx.marks.toggle('bold')
+        tx.nodes.set({ type: 'code' })
       })
+      return true
     }
-  }}
-/>
+  }),
+})
 ```
 
 Use `onCommand` for editor behavior that can arrive from native input or keyboard shortcuts. Slate passes semantic commands for formatting, history, delete, paste, text insertion, and line breaks without making app code parse browser `inputType` strings.
@@ -263,6 +295,9 @@ Use `onCommand` for editor behavior that can arrive from native input or keyboar
   }}
 />
 ```
+
+Use `onKeyDown` only when you need the raw React keyboard event escape hatch on
+one `Editable` instance.
 
 Use `onDOMBeforeInput` only when you need the raw native `InputEvent`. It receives the native event plus Slate's current command/context classification. Returning `true` or calling `event.preventDefault()` marks the event handled.
 

@@ -1,10 +1,12 @@
 import type React from 'react'
-import { type PointerEvent, useCallback, useState } from 'react'
+import { type PointerEvent, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
   Editable,
+  type EditableKeyCommand,
+  editableKeyCommands,
   type RenderElementProps,
   type RenderLeafProps,
   Slate,
@@ -28,7 +30,7 @@ const MARK_HOTKEYS = Object.entries(HOTKEYS)
 
 const IFrameExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withHistory(editor),
+    withEditor: (editor) => withIFrameKeyCommands(withHistory(editor)),
     initialValue: [
       {
         type: 'paragraph',
@@ -67,8 +69,6 @@ const IFrameExample = () => {
     ],
   })
 
-  const handleBlur = useCallback(() => editor.dom.deselect(), [editor])
-
   return (
     <Slate editor={editor}>
       <Toolbar>
@@ -77,17 +77,9 @@ const IFrameExample = () => {
         <MarkButton format="underline" icon="format_underlined" />
         <MarkButton format="code" icon="code" />
       </Toolbar>
-      <IFrame onBlur={handleBlur}>
+      <IFrame onBlur={() => editor.dom.deselect()}>
         <Editable
           autoFocus
-          onKeyDown={(event) => {
-            for (const [hotkey, mark] of MARK_HOTKEYS) {
-              if (isHotkey(hotkey, event)) {
-                event.preventDefault()
-                toggleMark(editor, mark)
-              }
-            }
-          }}
           placeholder="Enter some rich text…"
           renderElement={Element}
           renderLeaf={Leaf}
@@ -96,6 +88,26 @@ const IFrameExample = () => {
       </IFrame>
     </Slate>
   )
+}
+
+const iframeKeyCommand: EditableKeyCommand = ({ editor, event }) => {
+  const iframeEditor = editor as CustomEditor
+
+  for (const [hotkey, mark] of MARK_HOTKEYS) {
+    if (isHotkey(hotkey, event)) {
+      toggleMark(iframeEditor, mark)
+      return true
+    }
+  }
+}
+
+const withIFrameKeyCommands = (editor: CustomEditor) => {
+  editor.extend({
+    capabilities: editableKeyCommands(iframeKeyCommand),
+    name: 'iframe-key-commands',
+  })
+
+  return editor
 }
 
 const Element = ({ attributes, children }: RenderElementProps) => (

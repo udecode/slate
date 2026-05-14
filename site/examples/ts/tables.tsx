@@ -1,10 +1,9 @@
 import { css } from '@emotion/css'
-import { useCallback } from 'react'
 import { NodeApi, PointApi, RangeApi } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  type EditableKeyDownHandler,
+  type EditableCommandHandler,
   type RenderElementProps,
   type RenderLeafProps,
   Slate,
@@ -102,15 +101,13 @@ const TablesExample = () => {
       },
     ],
   })
-  const handleKeyDown = useCallback<EditableKeyDownHandler>(
-    (event) => applyTableBoundaryCommand(editor, event.key),
-    [editor]
-  )
+  const handleCommand: EditableCommandHandler = (command) =>
+    applyTableBoundaryCommand(editor, command)
 
   return (
     <Slate editor={editor}>
       <Editable
-        onKeyDown={handleKeyDown}
+        onCommand={handleCommand}
         renderElement={Element}
         renderLeaf={Leaf}
       />
@@ -118,7 +115,10 @@ const TablesExample = () => {
   )
 }
 
-const applyTableBoundaryCommand = (editor: CustomEditor, key: string) => {
+const applyTableBoundaryCommand = (
+  editor: CustomEditor,
+  command: Parameters<EditableCommandHandler>[0]
+) => {
   const selection = editor.read((state) => state.selection.get())
 
   if (!selection || !RangeApi.isCollapsed(selection)) {
@@ -137,17 +137,17 @@ const applyTableBoundaryCommand = (editor: CustomEditor, key: string) => {
 
   const [, cellPath] = cell
 
-  if (key === 'Backspace') {
+  if (command.kind === 'delete' && command.direction === 'backward') {
     const start = editor.read((state) => state.points.start(cellPath))
     return PointApi.equals(selection.anchor, start)
   }
 
-  if (key === 'Delete') {
+  if (command.kind === 'delete' && command.direction === 'forward') {
     const end = editor.read((state) => state.points.end(cellPath))
     return PointApi.equals(selection.anchor, end)
   }
 
-  if (key === 'Enter') {
+  if (command.kind === 'insert-break') {
     return true
   }
 

@@ -44,7 +44,7 @@ export const canUseNativeSingleCharacterInput = ({
     return false
   }
 
-  // If the NODE_MAP is dirty, we can't trust the selection anchor (eg ReactEditor.toDOMPoint)
+  // If the NODE_MAP is dirty, we can't trust the selection anchor's DOM projection.
   if (IS_NODE_MAP_DIRTY.get(editor)) {
     return false
   }
@@ -53,7 +53,13 @@ export const canUseNativeSingleCharacterInput = ({
   // Therefore we don't allow native events to insert text at the end of anchor nodes.
   const { anchor } = selection
 
-  const [node, offset] = ReactEditor.toDOMPoint(editor, anchor)
+  const domPoint = ReactEditor.resolveDOMPoint(editor, anchor)
+
+  if (!domPoint) {
+    return false
+  }
+
+  const [node, offset] = domPoint
   const textHost = node.parentElement?.closest('[data-slate-node="text"]')
 
   if (textHost?.getAttribute('data-slate-dom-sync') !== 'true') {

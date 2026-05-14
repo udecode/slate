@@ -77,7 +77,7 @@ const getNodeEntries = (
       ? Options
       : never
     : never
-) => editor.read((state) => state.nodes.entries(options))
+) => editor.read((state) => state.nodes.toArray(options))
 
 const getMarks = (editor: ReturnType<typeof createEditor>) =>
   editor.read((state) => state.marks.get())
@@ -1885,18 +1885,34 @@ it('state node query helpers keep lazy traversal and early-exit first-match chec
   })
 
   const entries = editor.read((state) =>
-    Array.from(
-      state.nodes.entries({
-        at: [],
-        match: (node) => 'type' in node && node.type === 'target',
-      })
-    )
+    state.nodes.toArray({
+      at: [],
+      match: (node) => 'type' in node && node.type === 'target',
+    })
   )
 
   assert.deepEqual(
     entries.map(([, path]) => path),
     [[0], [2]]
   )
+
+  let mappedEntries = 0
+  const mappedPaths = editor.read((state) =>
+    state.nodes.toArray(
+      {
+        at: [],
+        match: (node) => 'type' in node && node.type === 'target',
+      },
+      ([, path]) => {
+        mappedEntries += 1
+
+        return path
+      }
+    )
+  )
+
+  assert.deepEqual(mappedPaths, [[0], [2]])
+  assert.equal(mappedEntries, 2)
 
   let findVisits = 0
   const found = editor.read((state) =>

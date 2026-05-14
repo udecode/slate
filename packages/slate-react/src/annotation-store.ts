@@ -591,6 +591,14 @@ const getCandidateAnnotationIds = (
     return []
   }
 
+  if (
+    change.fullDocumentChanged ||
+    change.rootRuntimeIdsChanged ||
+    change.topLevelOrderChanged
+  ) {
+    return null
+  }
+
   if (!change.decorationImpactRuntimeIds) {
     return null
   }

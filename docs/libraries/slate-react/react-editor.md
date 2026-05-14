@@ -91,13 +91,23 @@ Find a Slate node from a native DOM node.
 
 Get the target range from a DOM event.
 
-#### `editor.dom.toSlatePoint(domPoint: DOMPoint, options: { exactMatch: boolean; searchDirection?: 'backward' | 'forward'; suppressThrow?: boolean }): Point | null`
+#### `editor.dom.toSlatePoint(domPoint: DOMPoint, options: { exactMatch: boolean; searchDirection?: 'backward' | 'forward' }): Point`
 
 Find a Slate point from a DOM point.
 
-#### `editor.dom.toSlateRange(domRange: DOMRange | DOMStaticRange | DOMSelection, options: { exactMatch: boolean; suppressThrow?: boolean }): Range | null`
+#### `editor.dom.resolveSlatePoint(domPoint: DOMPoint, options: { exactMatch: boolean; searchDirection?: 'backward' | 'forward' }): Point | null`
+
+Resolve a Slate point from a DOM point. Returns `null` when the DOM point is not
+currently mappable.
+
+#### `editor.dom.toSlateRange(domRange: DOMRange | DOMStaticRange | DOMSelection, options: { exactMatch: boolean }): Range`
 
 Find a Slate range from a DOM range or selection.
+
+#### `editor.dom.resolveSlateRange(domRange: DOMRange | DOMStaticRange | DOMSelection, options: { exactMatch: boolean }): Range | null`
+
+Resolve a Slate range from a DOM range or selection. Returns `null` when the DOM
+range is not currently mappable.
 
 ## DataTransfer
 

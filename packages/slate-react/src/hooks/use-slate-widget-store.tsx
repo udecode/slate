@@ -9,14 +9,47 @@ import {
 } from '../widget-store'
 import { useIsomorphicLayoutEffect } from './use-isomorphic-layout-effect'
 
-export const useSlateWidgetStore = <
+export type SlateWidgetStoreProjector<
+  T extends Record<string, unknown>,
+  TAnnotation extends Record<string, unknown>,
+> = {
+  annotationStore?: SlateAnnotationStore<TAnnotation> | null
+  deps: readonly unknown[]
+  project: () => readonly SlateWidget<T>[]
+}
+
+const isSlateWidgetStoreProjector = <
+  T extends Record<string, unknown>,
+  TAnnotation extends Record<string, unknown>,
+>(
+  value: readonly SlateWidget<T>[] | SlateWidgetStoreProjector<T, TAnnotation>
+): value is SlateWidgetStoreProjector<T, TAnnotation> => !Array.isArray(value)
+
+export function useSlateWidgetStore<
   T extends Record<string, unknown>,
   TAnnotation extends Record<string, unknown>,
 >(
   editor: Editor,
-  widgets: readonly SlateWidget<T>[],
-  annotationStore?: SlateAnnotationStore<TAnnotation> | null
-): SlateWidgetStore<T, TAnnotation> => {
+  widgetsOrOptions:
+    | readonly SlateWidget<T>[]
+    | SlateWidgetStoreProjector<T, TAnnotation>,
+  annotationStoreArg?: SlateAnnotationStore<TAnnotation> | null
+): SlateWidgetStore<T, TAnnotation> {
+  const widgetDeps = isSlateWidgetStoreProjector(widgetsOrOptions)
+    ? widgetsOrOptions.deps
+    : [widgetsOrOptions]
+  const widgets = useMemo(
+    () =>
+      isSlateWidgetStoreProjector(widgetsOrOptions)
+        ? widgetsOrOptions.project()
+        : widgetsOrOptions,
+    // `deps` intentionally owns projector closure freshness.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    widgetDeps
+  )
+  const annotationStore = isSlateWidgetStoreProjector(widgetsOrOptions)
+    ? widgetsOrOptions.annotationStore
+    : annotationStoreArg
   const [widgetsCell] = useState(() => ({ current: widgets }))
 
   const store = useMemo(

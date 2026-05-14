@@ -1,4 +1,3 @@
-import { type KeyboardEvent, useCallback, useMemo } from 'react'
 import {
   NodeApi,
   PathApi,
@@ -9,7 +8,9 @@ import {
 import { withHistory } from 'slate-history'
 import {
   Editable,
+  type EditableCommandHandler,
   type EditableInputRule,
+  editableInputRules,
   type RenderElementProps,
   Slate,
   useSlateEditor,
@@ -48,7 +49,7 @@ const ORDERED_LIST_SHORTCUT = /^(\d+)\.$/
 
 const MarkdownShortcutsExample = () => {
   const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withHistory(editor),
+    withEditor: (editor) => withMarkdownShortcuts(withHistory(editor)),
     initialValue: [
       {
         type: 'paragraph',
@@ -84,82 +85,86 @@ const MarkdownShortcutsExample = () => {
       },
     ],
   })
-  const inputRules = useMemo(
-    () =>
-      [
-        ({ data, inputType }) => {
-          if (inputType === 'insertText' && typeof data === 'string') {
-            return applyMarkdownTextShortcut(editor, data)
-          }
-        },
-      ] satisfies readonly EditableInputRule[],
-    [editor]
-  )
-  const handleDOMBeforeInput = useCallback(
-    (e: InputEvent) => {
-      queueMicrotask(() => {
-        const pendingDiffs = editor.dom.androidPendingDiffs()
+  const handleCommand: EditableCommandHandler = (command) => {
+    if (
+      command.kind === 'insert-break' &&
+      applyMarkdownHeadingStartEnter(editor)
+    ) {
+      return true
+    }
 
-        const scheduleFlush = pendingDiffs?.some(({ diff, path }) => {
-          if (!diff.text.endsWith(' ')) {
-            return false
-          }
-
-          const { text } = NodeApi.leaf(editor, path)
-          const beforeText = text.slice(0, diff.start) + diff.text.slice(0, -1)
-          if (!(beforeText in SHORTCUTS)) {
-            return false
-          }
-
-          const blockEntry = editor.read((state) =>
-            state.nodes.above({
-              at: path,
-              match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
-            })
-          )
-          if (!blockEntry) {
-            return false
-          }
-
-          const [, blockPath] = blockEntry
-          const start = editor.read((state) => state.points.start(path))
-          return editor.read((state) => state.points.isStart(start, blockPath))
-        })
-
-        if (scheduleFlush) {
-          editor.dom.androidScheduleFlush()
-        }
-      })
-    },
-    [editor]
-  )
-  const handleKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLDivElement>) => {
-      if (event.key === 'Enter' && applyMarkdownHeadingStartEnter(editor)) {
-        event.preventDefault()
-        return true
-      }
-
-      if (event.key === 'Backspace' && applyMarkdownBackspaceShortcut(editor)) {
-        return true
-      }
-    },
-    [editor]
-  )
+    if (
+      command.kind === 'delete' &&
+      command.direction === 'backward' &&
+      applyMarkdownBackspaceShortcut(editor)
+    ) {
+      return true
+    }
+  }
 
   return (
     <Slate editor={editor}>
       <Editable
         autoFocus
-        inputRules={inputRules}
-        onDOMBeforeInput={handleDOMBeforeInput}
-        onKeyDown={handleKeyDown}
+        onCommand={handleCommand}
+        onDOMBeforeInput={() => scheduleAndroidMarkdownShortcutFlush(editor)}
         placeholder="Write some markdown..."
         renderElement={Element}
         spellCheck
       />
     </Slate>
   )
+}
+
+const markdownInputRule: EditableInputRule = ({ data, editor, inputType }) => {
+  if (inputType === 'insertText' && typeof data === 'string') {
+    return applyMarkdownTextShortcut(editor as CustomEditor, data)
+  }
+}
+
+const withMarkdownShortcuts = (editor: CustomEditor) => {
+  editor.extend({
+    capabilities: editableInputRules(markdownInputRule),
+    name: 'markdown-shortcuts',
+  })
+
+  return editor
+}
+
+const scheduleAndroidMarkdownShortcutFlush = (editor: CustomEditor) => {
+  queueMicrotask(() => {
+    const pendingDiffs = editor.dom.androidPendingDiffs()
+
+    const scheduleFlush = pendingDiffs?.some(({ diff, path }) => {
+      if (!diff.text.endsWith(' ')) {
+        return false
+      }
+
+      const { text } = NodeApi.leaf(editor, path)
+      const beforeText = text.slice(0, diff.start) + diff.text.slice(0, -1)
+      if (!(beforeText in SHORTCUTS)) {
+        return false
+      }
+
+      const blockEntry = editor.read((state) =>
+        state.nodes.above({
+          at: path,
+          match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
+        })
+      )
+      if (!blockEntry) {
+        return false
+      }
+
+      const [, blockPath] = blockEntry
+      const start = editor.read((state) => state.points.start(path))
+      return editor.read((state) => state.points.isStart(start, blockPath))
+    })
+
+    if (scheduleFlush) {
+      editor.dom.androidScheduleFlush()
+    }
+  })
 }
 
 const applyMarkdownTextShortcut = (editor: CustomEditor, text: string) => {

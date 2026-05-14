@@ -17,8 +17,12 @@ const areRangesSameLine = (
   range1: Range,
   range2: Range
 ) => {
-  const rect1 = DOMEditor.toDOMRange(editor, range1).getBoundingClientRect()
-  const rect2 = DOMEditor.toDOMRange(editor, range2).getBoundingClientRect()
+  const rect1 = DOMEditor.resolveRangeRect(editor, range1)
+  const rect2 = DOMEditor.resolveRangeRect(editor, range2)
+
+  if (!rect1 || !rect2) {
+    return false
+  }
 
   return doRectsIntersect(rect1, rect2) && doRectsIntersect(rect2, rect1)
 }

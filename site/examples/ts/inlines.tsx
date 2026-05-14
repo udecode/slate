@@ -1,14 +1,15 @@
 import { css } from '@emotion/css'
 import isUrl from 'is-url'
 import type React from 'react'
-import { type ClipboardEvent, type PointerEvent, useMemo } from 'react'
+import { type PointerEvent, useMemo } from 'react'
 import { NodeApi, RangeApi } from 'slate'
-import { isHotkey } from 'slate-dom'
+import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import * as SlateReact from 'slate-react'
 import {
   Editable,
   type EditableInputRule,
+  editableInputRules,
   type RenderElementProps,
   type RenderLeafProps,
   useEditor,
@@ -78,30 +79,6 @@ const InlinesExample = () => {
       },
     ],
   })
-  const inputRules = useMemo(
-    () =>
-      [
-        ({ data, inputType }) => {
-          if (
-            inputType === 'insertText' &&
-            typeof data === 'string' &&
-            isUrl(data)
-          ) {
-            return wrapLink(editor, data)
-          }
-        },
-      ] satisfies readonly EditableInputRule[],
-    [editor]
-  )
-  const onPaste = (event: ClipboardEvent<HTMLDivElement>) => {
-    const text = event.clipboardData.getData('text/plain')
-
-    if (text && isUrl(text)) {
-      event.preventDefault()
-      wrapLink(editor, text)
-    }
-  }
-
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const selection = editor.read((state) => state.selection.get())
 
@@ -135,9 +112,7 @@ const InlinesExample = () => {
         <ToggleEditableButtonButton />
       </Toolbar>
       <Editable
-        inputRules={inputRules}
         onKeyDown={onKeyDown}
-        onPaste={onPaste}
         placeholder="Enter some text..."
         renderElement={Element}
         renderLeaf={Text}
@@ -147,7 +122,14 @@ const InlinesExample = () => {
 }
 
 const withInlines = (editor: CustomEditor) => {
+  const insertData: DOMClipboardInsertDataHandler = (_editor, data) =>
+    insertLinkData(editor, data)
+
   editor.extend({
+    capabilities: {
+      ...editableInputRules(inlineLinkInputRule),
+      'dom.clipboard.insertData': insertData,
+    },
     name: 'inlines',
     elements: [
       { inline: true, type: 'link' },
@@ -157,6 +139,25 @@ const withInlines = (editor: CustomEditor) => {
   })
 
   return editor
+}
+
+const inlineLinkInputRule: EditableInputRule = ({
+  data,
+  editor,
+  inputType,
+}) => {
+  if (inputType === 'insertText' && typeof data === 'string' && isUrl(data)) {
+    return wrapLink(editor as CustomEditor, data)
+  }
+}
+
+const insertLinkData = (editor: CustomEditor, data: DataTransfer) => {
+  const text = data.getData('text/plain')
+
+  if (text && isUrl(text)) {
+    wrapLink(editor, text)
+    return true
+  }
 }
 
 const insertLink = (editor: CustomEditor, url: string) => {

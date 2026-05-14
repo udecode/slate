@@ -7,6 +7,8 @@ import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
   Editable,
+  type EditableKeyCommand,
+  editableKeyCommands,
   type RenderElementProps,
   type RenderVoidProps,
   Slate,
@@ -71,14 +73,6 @@ const ImagesExample = () => {
         <InsertImageButton />
       </Toolbar>
       <Editable
-        onKeyDown={(event) => {
-          if (isHotkey('mod+a', event)) {
-            editor.update((tx) => {
-              tx.selection.set([])
-            })
-            return true
-          }
-        }}
         placeholder="Enter some text..."
         renderElement={Element}
         renderVoid={(props) =>
@@ -91,6 +85,18 @@ const ImagesExample = () => {
   )
 }
 
+const imagesKeyCommand: EditableKeyCommand = ({ editor, event }) => {
+  if (!isHotkey('mod+a', event)) {
+    return
+  }
+
+  editor.update((tx) => {
+    tx.selection.set([])
+  })
+
+  return true
+}
+
 const withImages = (editor: CustomEditor) => {
   const insertData: DOMClipboardInsertDataHandler = (_editor, data) =>
     insertImageData(editor, data)
@@ -98,6 +104,7 @@ const withImages = (editor: CustomEditor) => {
   editor.extend({
     name: 'images',
     capabilities: {
+      ...editableKeyCommands(imagesKeyCommand),
       'dom.clipboard.insertData': insertData,
     },
     elements: [{ type: 'image', void: 'block' }],
@@ -180,7 +187,11 @@ const Image = ({ element }: RenderVoidProps<ImageElement>) => {
           background-color: white;
         `}
         onClick={() => {
-          const path = editor.dom.findPath(element)
+          const path = editor.dom.resolvePath(element)
+
+          if (!path) {
+            return
+          }
 
           editor.update((tx) => {
             tx.nodes.remove({ at: path, voids: true })

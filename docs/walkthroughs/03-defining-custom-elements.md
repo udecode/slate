@@ -68,6 +68,9 @@ const DefaultElement = props => {
 Now, let's add that renderer to our `Editor`:
 
 ```jsx
+import { defineEditorExtension } from 'slate'
+import { editableRenderers } from 'slate-react'
+
 const initialValue = [
   {
     type: 'paragraph',
@@ -75,25 +78,26 @@ const initialValue = [
   },
 ]
 
-const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+const rendering = defineEditorExtension({
+  name: 'code-rendering',
+  capabilities: editableRenderers({
+    elements: {
+      code: CodeElement,
+      paragraph: DefaultElement,
+    },
+  }),
+})
 
-  // Define a rendering function based on the element passed to `props`. We use
-  // `useCallback` here to memoize the function for subsequent renders.
-  const renderElement = useCallback(props => {
-    switch (props.element.type) {
-      case 'code':
-        return <CodeElement {...props} />
-      default:
-        return <DefaultElement {...props} />
-    }
-  }, [])
+const App = () => {
+  const [editor] = useState(() => {
+    const editor = withReact(createEditor())
+    editor.extend(rendering)
+    return editor
+  })
 
   return (
     <Slate editor={editor} initialValue={initialValue}>
       <Editable
-        // Pass in the `renderElement` function.
-        renderElement={renderElement}
         onKeyDown={event => {
           if (event.key === '&') {
             event.preventDefault()
@@ -123,8 +127,9 @@ const DefaultElement = props => {
 Okay, but now we'll need a way for the user to actually turn a block into a code block. So let's change our `onKeyDown` function to add a `` Ctrl-` `` shortcut that does just that:
 
 ```jsx
-// Import the `Element` helper from Slate.
-import { ElementApi } from 'slate'
+// Import the `Element` helper and renderer-extension helpers.
+import { defineEditorExtension, ElementApi } from 'slate'
+import { editableRenderers } from 'slate-react'
 
 const initialValue = [
   {
@@ -133,22 +138,26 @@ const initialValue = [
   },
 ]
 
-const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+const rendering = defineEditorExtension({
+  name: 'code-rendering',
+  capabilities: editableRenderers({
+    elements: {
+      code: CodeElement,
+      paragraph: DefaultElement,
+    },
+  }),
+})
 
-  const renderElement = useCallback(props => {
-    switch (props.element.type) {
-      case 'code':
-        return <CodeElement {...props} />
-      default:
-        return <DefaultElement {...props} />
-    }
-  }, [])
+const App = () => {
+  const [editor] = useState(() => {
+    const editor = withReact(createEditor())
+    editor.extend(rendering)
+    return editor
+  })
 
   return (
     <Slate editor={editor} initialValue={initialValue}>
       <Editable
-        renderElement={renderElement}
         onKeyDown={event => {
           if (event.key === '`' && event.ctrlKey) {
             // Prevent the "`" from being inserted by default.
@@ -187,6 +196,9 @@ Now, if you press `` Ctrl-` `` the block your cursor is in should turn into a co
 But we forgot one thing. When you hit `` Ctrl-` `` again, it should change the code block back into a paragraph. To do that, we'll need to add a bit of logic to change the type we set based on whether any of the currently selected blocks are already a code block:
 
 ```jsx
+import { defineEditorExtension, ElementApi } from 'slate'
+import { editableRenderers } from 'slate-react'
+
 const initialValue = [
   {
     type: 'paragraph',
@@ -194,22 +206,26 @@ const initialValue = [
   },
 ]
 
-const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+const rendering = defineEditorExtension({
+  name: 'code-rendering',
+  capabilities: editableRenderers({
+    elements: {
+      code: CodeElement,
+      paragraph: DefaultElement,
+    },
+  }),
+})
 
-  const renderElement = useCallback(props => {
-    switch (props.element.type) {
-      case 'code':
-        return <CodeElement {...props} />
-      default:
-        return <DefaultElement {...props} />
-    }
-  }, [])
+const App = () => {
+  const [editor] = useState(() => {
+    const editor = withReact(createEditor())
+    editor.extend(rendering)
+    return editor
+  })
 
   return (
     <Slate editor={editor} initialValue={initialValue}>
       <Editable
-        renderElement={renderElement}
         onKeyDown={event => {
           if (event.key === '`' && event.ctrlKey) {
             event.preventDefault()

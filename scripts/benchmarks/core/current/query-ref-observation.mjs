@@ -72,6 +72,15 @@ const readFirstMatchByArray = (editor, targetIndex) =>
       )[0]
   )
 
+const readFirstMatchByToArray = (editor, targetIndex) =>
+  editor.read(
+    (state) =>
+      state.nodes.toArray({
+        at: [],
+        match: matchesTopLevelPath(targetIndex),
+      })[0]
+  )
+
 const readFirstMatchByFind = (editor, targetIndex) =>
   editor.read((state) =>
     state.nodes.find({
@@ -86,6 +95,19 @@ const readFirstMatchBySome = (editor, targetIndex) =>
       at: [],
       match: matchesTopLevelPath(targetIndex),
     })
+  )
+
+const readAllByArray = (editor) =>
+  editor.read(
+    (state) => collectIterator(state.nodes.entries({ at: [] })).length
+  )
+
+const readAllByToArray = (editor) =>
+  editor.read((state) => state.nodes.toArray({ at: [] }).length)
+
+const readAllByMappedToArray = (editor) =>
+  editor.read(
+    (state) => state.nodes.toArray({ at: [] }, ([, path]) => path).length
   )
 
 const measureLane = (setup, run) => {
@@ -155,6 +177,20 @@ const firstMatchArrayMs = measureLane(createEditorWithChildren, (editor) => {
   }
 })
 
+const firstMatchToArrayMs = measureLane(createEditorWithChildren, (editor) => {
+  let seen = 0
+
+  for (let index = 0; index < queryOps; index += 1) {
+    if (readFirstMatchByToArray(editor, 0)) {
+      seen += 1
+    }
+  }
+
+  if (seen !== queryOps) {
+    throw new Error('firstMatchToArrayMs did not observe every first match')
+  }
+})
+
 const firstMatchFindMs = measureLane(createEditorWithChildren, (editor) => {
   let seen = 0
 
@@ -182,6 +218,45 @@ const firstMatchSomeMs = measureLane(createEditorWithChildren, (editor) => {
     throw new Error('firstMatchSomeMs did not observe every first match')
   }
 })
+
+const allEntriesArrayMs = measureLane(createEditorWithChildren, (editor) => {
+  let total = 0
+
+  for (let index = 0; index < queryOps; index += 1) {
+    total += readAllByArray(editor)
+  }
+
+  if (total <= 0) {
+    throw new Error('allEntriesArrayMs did not observe any entries')
+  }
+})
+
+const allEntriesToArrayMs = measureLane(createEditorWithChildren, (editor) => {
+  let total = 0
+
+  for (let index = 0; index < queryOps; index += 1) {
+    total += readAllByToArray(editor)
+  }
+
+  if (total <= 0) {
+    throw new Error('allEntriesToArrayMs did not observe any entries')
+  }
+})
+
+const allEntriesMappedToArrayMs = measureLane(
+  createEditorWithChildren,
+  (editor) => {
+    let total = 0
+
+    for (let index = 0; index < queryOps; index += 1) {
+      total += readAllByMappedToArray(editor)
+    }
+
+    if (total <= 0) {
+      throw new Error('allEntriesMappedToArrayMs did not observe any entries')
+    }
+  }
+)
 
 const lastMatchFindMs = measureLane(createEditorWithChildren, (editor) => {
   let seen = 0
@@ -337,8 +412,12 @@ const summary = {
     writeOnlyInsertTextMs,
     nodesReadAfterWriteMs,
     firstMatchArrayMs,
+    firstMatchToArrayMs,
     firstMatchFindMs,
     firstMatchSomeMs,
+    allEntriesArrayMs,
+    allEntriesToArrayMs,
+    allEntriesMappedToArrayMs,
     lastMatchFindMs,
     noMatchFindMs,
     positionsReadAfterWriteMs,

@@ -281,9 +281,8 @@ export const syncEditorSelectionFromDOM = ({
     return
   }
 
-  const range = ReactEditor.toSlateRange(editor, domSelection, {
+  const range = ReactEditor.resolveSlateRange(editor, domSelection, {
     exactMatch: false,
-    suppressThrow: true,
   })
   const selection = readRuntimeSelection(editor)
 
@@ -489,9 +488,8 @@ export const resolveEditableImplicitTarget = ({
   }
 
   const target =
-    ReactEditor.toSlateRange(editor, domSelection, {
+    ReactEditor.resolveSlateRange(editor, domSelection, {
       exactMatch: false,
-      suppressThrow: true,
     }) ?? request.fallback
 
   if (
@@ -606,9 +604,8 @@ export const applyEditableDOMSelectionChange = ({
   const domSelectionBelongsToEditor =
     anchorNodeSelectable && focusNodeSelectable
   const range = domSelectionBelongsToEditor
-    ? ReactEditor.toSlateRange(editor, domSelection, {
+    ? ReactEditor.resolveSlateRange(editor, domSelection, {
         exactMatch: false,
-        suppressThrow: true,
       })
     : null
   const selectionChangeOrigin = state.selectionChangeOrigin ?? 'native-user'
@@ -739,7 +736,11 @@ export const syncEditableDOMSelectionToEditor = ({
         editor,
         editorElement,
         selection,
-      }) ?? ReactEditor.toDOMRange(editor, selection)
+      }) ?? ReactEditor.resolveDOMRange(editor, selection)
+
+    if (!domRange) {
+      return
+    }
 
     state.isUpdatingSelection = true
     state.selectionChangeOrigin = 'programmatic-export'

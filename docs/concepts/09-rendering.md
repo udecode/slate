@@ -4,34 +4,54 @@ One of the best parts of Slate is that it's built with React, so it fits right i
 
 To that end, Slate gives you control over the rendering behavior of your custom nodes and properties in your richtext domain.
 
-You can define these behaviors by passing "render props" to the top-level `<Editable>` component.
+Install stable renderers on the editor with `editableRenderers(...)`. That keeps
+renderer identity owned by Slate instead of making every app component manage
+callback stability.
 
-For example if you wanted to render custom element components, you'd pass in the `renderElement` prop:
+For example, custom element renderers can be registered with an editor
+extension:
 
 ```jsx
-import { createEditor } from 'slate'
-import { Slate, Editable, withReact } from 'slate-react'
+import { createEditor, defineEditorExtension } from 'slate'
+import { Slate, Editable, editableRenderers, withReact } from 'slate-react'
+
+const rendering = defineEditorExtension({
+  name: 'article-rendering',
+  capabilities: editableRenderers({
+    elements: {
+      paragraph: ParagraphElement,
+      quote: QuoteElement,
+      link: LinkElement,
+    },
+  }),
+})
+
+const ParagraphElement = ({ attributes, children }) => {
+  return <p {...attributes}>{children}</p>
+}
+
+const QuoteElement = ({ attributes, children }) => {
+  return <blockquote {...attributes}>{children}</blockquote>
+}
+
+const LinkElement = ({ attributes, children, element }) => {
+  return (
+    <a {...attributes} href={element.url}>
+      {children}
+    </a>
+  )
+}
 
 const MyEditor = () => {
-  const [editor] = useState(() => withReact(createEditor()))
-  const renderElement = useCallback(({ attributes, children, element }) => {
-    switch (element.type) {
-      case 'quote':
-        return <blockquote {...attributes}>{children}</blockquote>
-      case 'link':
-        return (
-          <a {...attributes} href={element.url}>
-            {children}
-          </a>
-        )
-      default:
-        return <p {...attributes}>{children}</p>
-    }
-  }, [])
+  const [editor] = useState(() => {
+    const editor = withReact(createEditor())
+    editor.extend(rendering)
+    return editor
+  })
 
   return (
     <Slate editor={editor}>
-      <Editable renderElement={renderElement} />
+      <Editable />
     </Slate>
   )
 }
@@ -39,10 +59,10 @@ const MyEditor = () => {
 
 > 🤖 Be sure to mix in `props.attributes` and render `props.children` in your custom components! The attributes must be added to the top-level DOM element inside the component, as they are required for Slate's DOM helper functions to work. And the children are the "leaves" holding text content and inline elements.
 
-You don't have to use simple HTML elements, you can use your own custom React components too:
+Raw render props are still available for one-off escape hatches:
 
 ```javascript
-const renderElement = useCallback(props => {
+const renderElement = props => {
   switch (props.element.type) {
     case 'quote':
       return <QuoteElement {...props} />
@@ -51,34 +71,43 @@ const renderElement = useCallback(props => {
     default:
       return <DefaultElement {...props} />
   }
-}, [])
+}
+
+<Editable renderElement={renderElement} />
 ```
 
 ## Leaves
 
 When text-level formatting is rendered, the characters are grouped into "leaves" of text that each contain the same formatting (marks) applied to them.
 
-To customize the rendering of each leaf, you use a custom `renderLeaf` prop:
+To customize leaf rendering through the editor extension, register leaf
+components by mark name:
 
 ```jsx
-const renderLeaf = useCallback(({ attributes, children, leaf }) => {
-  return (
-    <span
-      {...attributes}
-      style={{
-        fontWeight: leaf.bold ? 'bold' : 'normal',
-        fontStyle: leaf.italic ? 'italic' : 'normal',
-      }}
-    >
-      {children}
-    </span>
-  )
-}, [])
+const BoldLeaf = ({ children }) => {
+  return <strong>{children}</strong>
+}
+
+const ItalicLeaf = ({ children }) => {
+  return <em>{children}</em>
+}
+
+const rendering = defineEditorExtension({
+  name: 'formatting-rendering',
+  capabilities: editableRenderers({
+    leaves: {
+      bold: BoldLeaf,
+      italic: ItalicLeaf,
+    },
+  }),
+})
 ```
 
-Notice though how we've handled it slightly differently than `renderElement`. Since text formatting tends to be fairly simple, we've opted to ditch the `switch` statement and just toggle on/off a few styles instead. \(But there's nothing preventing you from using custom components if you'd like!\)
+Slate wraps registered leaf components in the leaf DOM shell. The component only
+needs to render its `children`.
 
-> 🤖 As with the Element renderer, be sure to mix in `props.attributes` and render `props.children` in your leaf renderer! The attributes must be added to the top-level DOM element inside the component, as they are required for Slate's DOM helper functions to work. And the children are the actual text content of your document which Slate manages for you automatically.
+If you pass a raw `renderLeaf` prop to `Editable`, keep spreading
+`props.attributes` and rendering `props.children`.
 
 When decorations split a single text node, the `renderLeaf` function will receive an additional `leafPosition` property. This object contains the `start` and `end` offsets of the leaf within the original text node, along with optional `isFirst` and `isLast` booleans. This `leafPosition` property is only added when a text node is actually split by decorations.
 
@@ -105,23 +134,26 @@ Of course, this leaf stuff sounds pretty complex. But, you do not have to think 
 
 While `renderLeaf` allows you to customize the rendering of individual leaves based on their formatting (marks and decorations), sometimes you need to customize the rendering for an entire text node, regardless of how decorations might split it into multiple leaves.
 
-This is where the `renderText` prop comes in. It allows you to render a component that wraps all the leaves generated for a single `Text` node.
+This is where a registered text renderer or the raw `renderText` prop comes in.
+It allows you to render a component that wraps all the leaves generated for a
+single `Text` node.
 
 ```jsx
-const renderText = useCallback(({ attributes, children, text }) => {
+const TextNode = ({ attributes, children, text }) => {
   return (
     <span {...attributes} className="custom-text">
       {children}
       {/* Render anything you want here */}
     </span>
   )
-}, [])
+}
 
-// In your editor component:
-<Editable
-  renderText={renderText}
-  renderLeaf={renderLeaf}
-/>
+const rendering = defineEditorExtension({
+  name: 'text-rendering',
+  capabilities: editableRenderers({
+    text: TextNode,
+  }),
+})
 ```
 
 **When to use `renderLeaf` vs `renderText`:**
