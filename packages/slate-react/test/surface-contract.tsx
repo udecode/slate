@@ -471,6 +471,26 @@ describe('slate-react surface contract', () => {
     }
   })
 
+  test('examples infer editable behavior callback types inline', () => {
+    const violations = listSourceFiles(['site/examples/ts']).flatMap(
+      (absolutePath) => {
+        const source = readFileSync(absolutePath, 'utf8')
+        const relativePath = relative(repoRoot, absolutePath)
+        const patterns = [
+          /\bconst\s+\w+\s*:\s*Editable(?:CommandHandler|InputRule|KeyCommand)\b/,
+          /\btype\s+Editable(?:CommandHandler|InputRule|KeyCommand)\b/,
+          /\bParameters<EditableCommandHandler>\b/,
+        ]
+
+        return patterns.some((pattern) => pattern.test(source))
+          ? [relativePath]
+          : []
+      }
+    )
+
+    expect(violations).toEqual([])
+  })
+
   test('Editable defaults translate="no" and allows override', () => {
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
     const editor = createReactEditor(initialValue)

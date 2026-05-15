@@ -8,8 +8,6 @@ import {
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  type EditableCommandHandler,
-  type EditableInputRule,
   editableInputRules,
   type RenderElementProps,
   Slate,
@@ -85,28 +83,26 @@ const MarkdownShortcutsExample = () => {
       },
     ],
   })
-  const handleCommand: EditableCommandHandler = (command) => {
-    if (
-      command.kind === 'insert-break' &&
-      applyMarkdownHeadingStartEnter(editor)
-    ) {
-      return true
-    }
-
-    if (
-      command.kind === 'delete' &&
-      command.direction === 'backward' &&
-      applyMarkdownBackspaceShortcut(editor)
-    ) {
-      return true
-    }
-  }
-
   return (
     <Slate editor={editor}>
       <Editable
         autoFocus
-        onCommand={handleCommand}
+        onCommand={(command) => {
+          if (
+            command.kind === 'insert-break' &&
+            applyMarkdownHeadingStartEnter(editor)
+          ) {
+            return true
+          }
+
+          if (
+            command.kind === 'delete' &&
+            command.direction === 'backward' &&
+            applyMarkdownBackspaceShortcut(editor)
+          ) {
+            return true
+          }
+        }}
         onDOMBeforeInput={() => scheduleAndroidMarkdownShortcutFlush(editor)}
         placeholder="Write some markdown..."
         renderElement={Element}
@@ -116,15 +112,13 @@ const MarkdownShortcutsExample = () => {
   )
 }
 
-const markdownInputRule: EditableInputRule = ({ data, editor, inputType }) => {
-  if (inputType === 'insertText' && typeof data === 'string') {
-    return applyMarkdownTextShortcut(editor as CustomEditor, data)
-  }
-}
-
 const withMarkdownShortcuts = (editor: CustomEditor) => {
   editor.extend({
-    capabilities: editableInputRules(markdownInputRule),
+    capabilities: editableInputRules(({ data, editor, inputType }) => {
+      if (inputType === 'insertText' && typeof data === 'string') {
+        return applyMarkdownTextShortcut(editor as CustomEditor, data)
+      }
+    }),
     name: 'markdown-shortcuts',
   })
 

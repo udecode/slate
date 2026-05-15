@@ -5,7 +5,6 @@ import { isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  type EditableKeyCommand,
   editableKeyCommands,
   type RenderElementProps,
   type RenderLeafProps,
@@ -90,20 +89,18 @@ const IFrameExample = () => {
   )
 }
 
-const iframeKeyCommand: EditableKeyCommand = ({ editor, event }) => {
-  const iframeEditor = editor as CustomEditor
-
-  for (const [hotkey, mark] of MARK_HOTKEYS) {
-    if (isHotkey(hotkey, event)) {
-      toggleMark(iframeEditor, mark)
-      return true
-    }
-  }
-}
-
 const withIFrameKeyCommands = (editor: CustomEditor) => {
   editor.extend({
-    capabilities: editableKeyCommands(iframeKeyCommand),
+    capabilities: editableKeyCommands(({ editor, event }) => {
+      const iframeEditor = editor as CustomEditor
+
+      for (const [hotkey, mark] of MARK_HOTKEYS) {
+        if (isHotkey(hotkey, event)) {
+          toggleMark(iframeEditor, mark)
+          return true
+        }
+      }
+    }),
     name: 'iframe-key-commands',
   })
 

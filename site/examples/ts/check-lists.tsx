@@ -10,7 +10,6 @@ import {
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  type EditableInputRule,
   editableInputRules,
   type ReactEditor,
   type RenderElementProps,
@@ -87,21 +86,15 @@ const CheckListsExample = () => {
   )
 }
 
-const checklistInputRule: EditableInputRule = ({
-  editor,
-  inputType,
-  selection,
-}) => {
-  if (inputType !== 'deleteContentBackward') {
-    return
-  }
-
-  return applyChecklistBackspaceStart(editor, selection)
-}
-
 const withChecklists = <T extends ReactEditor<CustomValue>>(editor: T): T => {
   editor.extend({
-    capabilities: editableInputRules(checklistInputRule),
+    capabilities: editableInputRules(({ editor, inputType, selection }) => {
+      if (inputType !== 'deleteContentBackward') {
+        return
+      }
+
+      return applyChecklistBackspaceStart(editor, selection)
+    }),
     name: 'checklists',
   })
 

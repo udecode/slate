@@ -3,7 +3,6 @@ import { NodeApi, PointApi, RangeApi } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  type EditableCommandHandler,
   type RenderElementProps,
   type RenderLeafProps,
   Slate,
@@ -101,57 +100,49 @@ const TablesExample = () => {
       },
     ],
   })
-  const handleCommand: EditableCommandHandler = (command) =>
-    applyTableBoundaryCommand(editor, command)
-
   return (
     <Slate editor={editor}>
       <Editable
-        onCommand={handleCommand}
+        onCommand={(command) => {
+          const selection = editor.read((state) => state.selection.get())
+
+          if (!selection || !RangeApi.isCollapsed(selection)) {
+            return false
+          }
+
+          const cell = editor.read((state) =>
+            state.nodes.find({
+              match: (n) => NodeApi.isElement(n) && n.type === 'table-cell',
+            })
+          )
+
+          if (!cell) {
+            return false
+          }
+
+          const [, cellPath] = cell
+
+          if (command.kind === 'delete' && command.direction === 'backward') {
+            const start = editor.read((state) => state.points.start(cellPath))
+            return PointApi.equals(selection.anchor, start)
+          }
+
+          if (command.kind === 'delete' && command.direction === 'forward') {
+            const end = editor.read((state) => state.points.end(cellPath))
+            return PointApi.equals(selection.anchor, end)
+          }
+
+          if (command.kind === 'insert-break') {
+            return true
+          }
+
+          return false
+        }}
         renderElement={Element}
         renderLeaf={Leaf}
       />
     </Slate>
   )
-}
-
-const applyTableBoundaryCommand = (
-  editor: CustomEditor,
-  command: Parameters<EditableCommandHandler>[0]
-) => {
-  const selection = editor.read((state) => state.selection.get())
-
-  if (!selection || !RangeApi.isCollapsed(selection)) {
-    return false
-  }
-
-  const cell = editor.read((state) =>
-    state.nodes.find({
-      match: (n) => NodeApi.isElement(n) && n.type === 'table-cell',
-    })
-  )
-
-  if (!cell) {
-    return false
-  }
-
-  const [, cellPath] = cell
-
-  if (command.kind === 'delete' && command.direction === 'backward') {
-    const start = editor.read((state) => state.points.start(cellPath))
-    return PointApi.equals(selection.anchor, start)
-  }
-
-  if (command.kind === 'delete' && command.direction === 'forward') {
-    const end = editor.read((state) => state.points.end(cellPath))
-    return PointApi.equals(selection.anchor, end)
-  }
-
-  if (command.kind === 'insert-break') {
-    return true
-  }
-
-  return false
 }
 
 const Element = ({ attributes, children, element }: RenderElementProps) => {

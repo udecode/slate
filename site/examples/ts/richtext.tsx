@@ -15,7 +15,6 @@ import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  type EditableKeyCommand,
   editableKeyCommands,
   type RenderElementProps,
   type RenderLeafProps,
@@ -143,33 +142,6 @@ const RichTextExample = () => {
       />
     </Slate>
   )
-}
-
-const richTextKeyCommand: EditableKeyCommand = ({ editor, event }) => {
-  const richTextEditor = editor as CustomEditor
-
-  if (handleExitBlockEnter(richTextEditor, event)) {
-    return true
-  }
-
-  if (isHotkey(CLEAR_FORMATTING_HOTKEY, event)) {
-    clearRichTextFormatting(richTextEditor)
-    return true
-  }
-
-  for (const [hotkey, format] of BLOCK_HOTKEYS) {
-    if (isHotkey(hotkey, event)) {
-      toggleBlock(richTextEditor, format)
-      return true
-    }
-  }
-
-  for (const [hotkey, mark] of MARK_HOTKEYS) {
-    if (isHotkey(hotkey, event)) {
-      toggleMark(richTextEditor, mark)
-      return true
-    }
-  }
 }
 
 const handleExitBlockEnter = (
@@ -419,7 +391,32 @@ const withRichTextHtml = (editor: CustomEditor) => {
   editor.extend({
     name: 'richtext-html-paste',
     capabilities: {
-      ...editableKeyCommands(richTextKeyCommand),
+      ...editableKeyCommands(({ editor, event }) => {
+        const richTextEditor = editor as CustomEditor
+
+        if (handleExitBlockEnter(richTextEditor, event)) {
+          return true
+        }
+
+        if (isHotkey(CLEAR_FORMATTING_HOTKEY, event)) {
+          clearRichTextFormatting(richTextEditor)
+          return true
+        }
+
+        for (const [hotkey, format] of BLOCK_HOTKEYS) {
+          if (isHotkey(hotkey, event)) {
+            toggleBlock(richTextEditor, format)
+            return true
+          }
+        }
+
+        for (const [hotkey, mark] of MARK_HOTKEYS) {
+          if (isHotkey(hotkey, event)) {
+            toggleMark(richTextEditor, mark)
+            return true
+          }
+        }
+      }),
       'dom.clipboard.insertData': insertData,
     },
   })

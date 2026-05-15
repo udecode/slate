@@ -21,7 +21,6 @@ import { isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  type EditableKeyCommand,
   editableKeyCommands,
   type RenderElementProps,
   Slate,
@@ -140,41 +139,39 @@ const editor = useSlateEditor<CustomValue>({ initialValue })`),
   )
 }
 
-const codeHighlightingKeyCommand: EditableKeyCommand = ({ editor, event }) => {
-  const codeEditor = editor as CustomEditor
-
-  if (isHotkey(['mod+shift+c', 'mod+alt+c'], event)) {
-    event.preventDefault()
-    convertSelectionToCodeBlock(codeEditor)
-    return true
-  }
-
-  const isTab = isHotkey('tab', event)
-  const isShiftTab = isHotkey('shift+tab', event)
-
-  if (!isTab && !isShiftTab) {
-    return
-  }
-
-  event.preventDefault()
-
-  const handledCodeLines = updateSelectedCodeLines(
-    codeEditor,
-    isShiftTab ? 'outdent' : 'indent'
-  )
-
-  if (!handledCodeLines && isTab) {
-    codeEditor.update((tx) => {
-      tx.text.insert(CodeIndent)
-    })
-  }
-
-  return true
-}
-
 const withCodeHighlighting = (editor: CustomEditor) => {
   editor.extend({
-    capabilities: editableKeyCommands(codeHighlightingKeyCommand),
+    capabilities: editableKeyCommands(({ editor, event }) => {
+      const codeEditor = editor as CustomEditor
+
+      if (isHotkey(['mod+shift+c', 'mod+alt+c'], event)) {
+        event.preventDefault()
+        convertSelectionToCodeBlock(codeEditor)
+        return true
+      }
+
+      const isTab = isHotkey('tab', event)
+      const isShiftTab = isHotkey('shift+tab', event)
+
+      if (!isTab && !isShiftTab) {
+        return
+      }
+
+      event.preventDefault()
+
+      const handledCodeLines = updateSelectedCodeLines(
+        codeEditor,
+        isShiftTab ? 'outdent' : 'indent'
+      )
+
+      if (!handledCodeLines && isTab) {
+        codeEditor.update((tx) => {
+          tx.text.insert(CodeIndent)
+        })
+      }
+
+      return true
+    }),
     name: 'code-highlighting',
   })
 

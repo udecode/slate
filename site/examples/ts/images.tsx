@@ -7,7 +7,6 @@ import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  type EditableKeyCommand,
   editableKeyCommands,
   type RenderElementProps,
   type RenderVoidProps,
@@ -85,18 +84,6 @@ const ImagesExample = () => {
   )
 }
 
-const imagesKeyCommand: EditableKeyCommand = ({ editor, event }) => {
-  if (!isHotkey('mod+a', event)) {
-    return
-  }
-
-  editor.update((tx) => {
-    tx.selection.set([])
-  })
-
-  return true
-}
-
 const withImages = (editor: CustomEditor) => {
   const insertData: DOMClipboardInsertDataHandler = (_editor, data) =>
     insertImageData(editor, data)
@@ -104,7 +91,17 @@ const withImages = (editor: CustomEditor) => {
   editor.extend({
     name: 'images',
     capabilities: {
-      ...editableKeyCommands(imagesKeyCommand),
+      ...editableKeyCommands(({ editor, event }) => {
+        if (!isHotkey('mod+a', event)) {
+          return
+        }
+
+        editor.update((tx) => {
+          tx.selection.set([])
+        })
+
+        return true
+      }),
       'dom.clipboard.insertData': insertData,
     },
     elements: [{ type: 'image', void: 'block' }],
