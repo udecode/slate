@@ -109,8 +109,16 @@ test.describe('placeholder example', () => {
       },
     })
 
+    await editor.root.evaluate((element: HTMLElement) => {
+      element.dataset.blurCount = '0'
+      element.addEventListener('blur', () => {
+        element.dataset.blurCount = String(
+          Number(element.dataset.blurCount ?? '0') + 1
+        )
+      })
+    })
+
     await page.evaluate(() => {
-      ;(window as any).__slateCustomPlaceholderBlurCount = 0
       document.getElementById('composition-blur-target')?.remove()
 
       const button = document.createElement('button')
@@ -139,8 +147,8 @@ test.describe('placeholder example', () => {
     await expect(blurTarget).toBeFocused()
     await expect
       .poll(() =>
-        page.evaluate(
-          () => (window as any).__slateCustomPlaceholderBlurCount ?? 0
+        editor.root.evaluate((element: HTMLElement) =>
+          Number(element.dataset.blurCount ?? '0')
         )
       )
       .toBe(1)
