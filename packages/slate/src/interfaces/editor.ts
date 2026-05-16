@@ -182,6 +182,9 @@ export type EditorStateNodesApi = {
     options?: EditorAboveOptions<T>
   ) => NodeEntry<T> | undefined
   children: (at?: Location) => readonly Node[]
+  elementReadOnly: (
+    options?: EditorElementReadOnlyOptions
+  ) => NodeEntry<Element> | undefined
   first: (at: Location) => NodeEntry
   get: <T extends Node>(at: Location) => NodeEntry<T>
   hasBlocks: (element: Element) => boolean
@@ -195,6 +198,7 @@ export type EditorStateNodesApi = {
   levels: <T extends Node>(
     options?: EditorLevelsOptions<T>
   ) => Generator<NodeEntry<T>, void, undefined>
+  path: (at: Location, options?: EditorPathOptions) => Path
   entries: <T extends Node>(
     options?: EditorNodesOptions<T>
   ) => Generator<NodeEntry<T>, void, undefined>
@@ -216,6 +220,10 @@ export type EditorStateNodesApi = {
   previous: <T extends Node>(
     options?: EditorPreviousOptions<T>
   ) => NodeEntry<T> | undefined
+  shouldMergeNodesRemovePrevNode: (
+    previous: NodeEntry,
+    current: NodeEntry
+  ) => boolean
   void: (options?: EditorVoidOptions) => NodeEntry<Element> | undefined
 }
 
@@ -316,6 +324,9 @@ export type EditorStatePointsApi = {
   isEdge: (point: Point, at: Location) => boolean
   isEnd: (point: Point, at: Location) => boolean
   isStart: (point: Point, at: Location) => boolean
+  positions: (
+    options?: EditorPositionsOptions
+  ) => Generator<Point, void, undefined>
   start: (at: Location) => Point
 }
 
@@ -621,6 +632,147 @@ export type EditorTransformNext<TArgs extends object> = (
   overrides?: Partial<TArgs>
 ) => EditorCommandResult
 
+export type EditorPublicTransformMiddlewareKey = Exclude<
+  keyof EditorTransformApi,
+  'bookmark' | 'normalize' | 'setNormalizing' | 'withoutNormalizing'
+>
+
+type EmptyTransformMiddlewareArgs = Record<never, never>
+
+export type EditorTransformMiddlewareArgs<V extends Value = Value> = {
+  addMark: { key: string; value: unknown }
+  collapse: { options?: SelectionCollapseOptions }
+  delete: { options?: TextDeleteOptions }
+  deleteBackward: { unit: TextUnit }
+  deleteForward: { unit: TextUnit }
+  deleteFragment: { options?: EditorFragmentDeletionOptions }
+  deselect: EmptyTransformMiddlewareArgs
+  insertBreak: EmptyTransformMiddlewareArgs
+  insertFragment: {
+    fragment: DescendantIn<V>[]
+    options?: TextInsertFragmentOptions
+  }
+  insertNode: {
+    node: ElementOrTextIn<V>
+    options?: NodeInsertNodesOptions<ElementOrTextIn<V>>
+  }
+  insertNodes: {
+    nodes: ElementOrTextIn<V> | ElementOrTextIn<V>[]
+    options?: NodeInsertNodesOptions<ElementOrTextIn<V>>
+  }
+  insertSoftBreak: EmptyTransformMiddlewareArgs
+  insertText: { options?: TextInsertTextOptions; text: string }
+  liftNodes: {
+    options?: {
+      at?: Location
+      match?: NodeMatch<NodeIn<V>>
+      mode?: MaximizeMode
+      voids?: boolean
+    }
+  }
+  mergeNodes: {
+    options?: {
+      at?: Location
+      match?: NodeMatch<NodeIn<V>>
+      mode?: RangeMode
+      hanging?: boolean
+      voids?: boolean
+    }
+  }
+  move: { options?: SelectionMoveOptions }
+  moveNodes: {
+    options: {
+      at?: Location
+      match?: NodeMatch<NodeIn<V>>
+      mode?: MaximizeMode
+      to: Path
+      voids?: boolean
+    }
+  }
+  removeMark: { key: string }
+  removeNodes: {
+    options?: {
+      at?: Location
+      match?: NodeMatch<NodeIn<V>>
+      mode?: RangeMode
+      hanging?: boolean
+      voids?: boolean
+    }
+  }
+  select: { target: Location }
+  setNodes: {
+    props: Partial<NodeProps<NodeIn<V>>>
+    options?: {
+      at?: Location
+      match?: NodeMatch<NodeIn<V>>
+      mode?: MaximizeMode
+      hanging?: boolean
+      split?: boolean
+      voids?: boolean
+      compare?: PropsCompare
+      merge?: PropsMerge
+    }
+  }
+  setPoint: { options?: SelectionSetPointOptions; props: Partial<Point> }
+  setSelection: { props: Partial<Range> }
+  splitNodes: {
+    options?: {
+      at?: Location
+      match?: NodeMatch<NodeIn<V>>
+      mode?: RangeMode
+      always?: boolean
+      height?: number
+      position?: number
+      voids?: boolean
+    }
+  }
+  toggleMark: { key: string; value?: unknown }
+  unsetNodes: {
+    props: string | string[]
+    options?: {
+      at?: Location
+      match?: NodeMatch<NodeIn<V>>
+      mode?: MaximizeMode
+      hanging?: boolean
+      split?: boolean
+      voids?: boolean
+    }
+  }
+  unwrapNodes: {
+    options?: {
+      at?: Location
+      match?: NodeMatch<NodeIn<V>>
+      mode?: MaximizeMode
+      split?: boolean
+      voids?: boolean
+    }
+  }
+  wrapNodes: {
+    element: ElementIn<V>
+    options?: {
+      at?: Location
+      match?: NodeMatch<NodeIn<V>>
+      mode?: MaximizeMode
+      split?: boolean
+      voids?: boolean
+    }
+  }
+}
+
+type MissingEditorTransformMiddlewareArgs = Exclude<
+  EditorPublicTransformMiddlewareKey,
+  keyof EditorTransformMiddlewareArgs
+>
+type ExtraEditorTransformMiddlewareArgs = Exclude<
+  keyof EditorTransformMiddlewareArgs,
+  EditorPublicTransformMiddlewareKey
+>
+type AssertEditorTransformMiddlewareKey<T extends never> = T
+type _NoMissingEditorTransformMiddlewareArgs =
+  AssertEditorTransformMiddlewareKey<MissingEditorTransformMiddlewareArgs>
+type _NoExtraEditorTransformMiddlewareArgs =
+  AssertEditorTransformMiddlewareKey<ExtraEditorTransformMiddlewareArgs>
+
 export type EditorTransformMiddlewareContext<
   TEditor extends BaseEditor<any>,
   TArgs extends object,
@@ -629,31 +781,203 @@ export type EditorTransformMiddlewareContext<
   next: EditorTransformNext<TArgs>
 }
 
-export type EditorDeleteBackwardTransformArgs = {
-  unit: TextUnit
-}
-
-export type EditorInsertTextTransformArgs = {
-  options?: TextInsertTextOptions
-  text: string
-}
-
 export type EditorTransformMiddlewareMap<
   TEditor extends BaseEditor<any> = Editor,
 > = {
-  deleteBackward?: (
+  [K in EditorPublicTransformMiddlewareKey]?: (
     context: EditorTransformMiddlewareContext<
       TEditor,
-      EditorDeleteBackwardTransformArgs
-    >
-  ) => EditorCommandResult | void
-  insertText?: (
-    context: EditorTransformMiddlewareContext<
-      TEditor,
-      EditorInsertTextTransformArgs
+      EditorTransformMiddlewareArgs<ValueOf<TEditor>>[K]
     >
   ) => EditorCommandResult | void
 }
+
+type EmptyQueryMiddlewareArgs = Record<never, never>
+
+export type EditorQueryMiddlewareArgs<_V extends Value = Value> = {
+  fragment: {
+    get: { options?: EditorFragmentReadOptions }
+  }
+  marks: {
+    get: EmptyQueryMiddlewareArgs
+  }
+  nodes: {
+    above: { options?: EditorAboveOptions<Ancestor> }
+    children: { at?: Location }
+    elementReadOnly: { options?: EditorElementReadOnlyOptions }
+    entries: { options?: EditorNodesOptions<Node> }
+    find: { options?: EditorNodesOptions<Node> }
+    first: { at: Location }
+    get: { at: Location }
+    hasBlocks: { element: Element }
+    hasInlines: { element: Element }
+    hasPath: { path: Path }
+    hasTexts: { element: Element }
+    isBlock: { element: Element }
+    isEmpty: { element: Element }
+    last: { at: Location }
+    leaf: { at: Location; options?: EditorLeafOptions }
+    levels: { options?: EditorLevelsOptions<Node> }
+    next: { options?: EditorNextOptions<Descendant> }
+    parent: { at: Location; options?: EditorParentOptions }
+    path: { at: Location; options?: EditorPathOptions }
+    previous: { options?: EditorPreviousOptions<Node> }
+    shouldMergeNodesRemovePrevNode: {
+      current: NodeEntry
+      previous: NodeEntry
+    }
+    some: { options?: EditorNodesOptions<Node> }
+    toArray: {
+      map?: (entry: NodeEntry<Node>) => unknown
+      options?: EditorNodesOptions<Node>
+    }
+    void: { options?: EditorVoidOptions }
+  }
+  points: {
+    after: { at: Location; options?: EditorAfterOptions }
+    before: { at: Location; options?: EditorBeforeOptions }
+    end: { at: Location }
+    get: { at: Location; options?: EditorPointOptions }
+    isEdge: { at: Location; point: Point }
+    isEnd: { at: Location; point: Point }
+    isStart: { at: Location; point: Point }
+    positions: { options?: EditorPositionsOptions }
+    start: { at: Location }
+  }
+  ranges: {
+    edges: { at: Location }
+    get: { at: Location; to?: Location }
+    project: { range: Range }
+    unhang: { options?: EditorUnhangRangeOptions; range: Range }
+  }
+  text: {
+    string: { at: Location; options?: EditorStringOptions }
+  }
+}
+
+export type EditorQueryMiddlewareResult<V extends Value = Value> = {
+  fragment: {
+    get: DescendantIn<V>[]
+  }
+  marks: {
+    get: EditorMarks<V> | null
+  }
+  nodes: {
+    above: NodeEntry<Ancestor> | undefined
+    children: readonly Node[]
+    elementReadOnly: NodeEntry<Element> | undefined
+    entries: Generator<NodeEntry<Node>, void, undefined>
+    find: NodeEntry<Node> | undefined
+    first: NodeEntry
+    get: NodeEntry<Node>
+    hasBlocks: boolean
+    hasInlines: boolean
+    hasPath: boolean
+    hasTexts: boolean
+    isBlock: boolean
+    isEmpty: boolean
+    last: NodeEntry
+    leaf: NodeEntry<Text>
+    levels: Generator<NodeEntry<Node>, void, undefined>
+    next: NodeEntry<Descendant> | undefined
+    parent: NodeEntry<Ancestor>
+    path: Path
+    previous: NodeEntry<Node> | undefined
+    shouldMergeNodesRemovePrevNode: boolean
+    some: boolean
+    toArray: NodeEntry<Node>[] | unknown[]
+    void: NodeEntry<Element> | undefined
+  }
+  points: {
+    after: Point | undefined
+    before: Point | undefined
+    end: Point
+    get: Point
+    isEdge: boolean
+    isEnd: boolean
+    isStart: boolean
+    positions: Generator<Point, void, undefined>
+    start: Point
+  }
+  ranges: {
+    edges: [Point, Point]
+    get: Range
+    project: readonly ProjectedRangeSegment[]
+    unhang: Range
+  }
+  text: {
+    string: string
+  }
+}
+
+export type EditorQueryGroup = keyof EditorQueryMiddlewareArgs
+
+export type EditorQueryMiddlewareContext<
+  TEditor extends BaseEditor<any>,
+  TArgs extends object,
+  TResult,
+> = TArgs & {
+  editor: TEditor
+  next: (overrides?: Partial<TArgs>) => TResult
+}
+
+type EditorQueryMiddlewareEntry<
+  TEditor extends BaseEditor<any>,
+  TArgs extends object,
+  TResult,
+> = (context: EditorQueryMiddlewareContext<TEditor, TArgs, TResult>) => TResult
+
+export type EditorQueryMiddlewareMap<TEditor extends BaseEditor<any> = Editor> =
+  {
+    fragment?: {
+      get?: EditorQueryMiddlewareEntry<
+        TEditor,
+        EditorQueryMiddlewareArgs<ValueOf<TEditor>>['fragment']['get'],
+        EditorQueryMiddlewareResult<ValueOf<TEditor>>['fragment']['get']
+      >
+    }
+    marks?: {
+      get?: EditorQueryMiddlewareEntry<
+        TEditor,
+        EditorQueryMiddlewareArgs<ValueOf<TEditor>>['marks']['get'],
+        EditorQueryMiddlewareResult<ValueOf<TEditor>>['marks']['get']
+      >
+    }
+    nodes?: {
+      [K in keyof EditorQueryMiddlewareArgs<
+        ValueOf<TEditor>
+      >['nodes']]?: EditorQueryMiddlewareEntry<
+        TEditor,
+        EditorQueryMiddlewareArgs<ValueOf<TEditor>>['nodes'][K],
+        EditorQueryMiddlewareResult<ValueOf<TEditor>>['nodes'][K]
+      >
+    }
+    points?: {
+      [K in keyof EditorQueryMiddlewareArgs<
+        ValueOf<TEditor>
+      >['points']]?: EditorQueryMiddlewareEntry<
+        TEditor,
+        EditorQueryMiddlewareArgs<ValueOf<TEditor>>['points'][K],
+        EditorQueryMiddlewareResult<ValueOf<TEditor>>['points'][K]
+      >
+    }
+    ranges?: {
+      [K in keyof EditorQueryMiddlewareArgs<
+        ValueOf<TEditor>
+      >['ranges']]?: EditorQueryMiddlewareEntry<
+        TEditor,
+        EditorQueryMiddlewareArgs<ValueOf<TEditor>>['ranges'][K],
+        EditorQueryMiddlewareResult<ValueOf<TEditor>>['ranges'][K]
+      >
+    }
+    text?: {
+      string?: EditorQueryMiddlewareEntry<
+        TEditor,
+        EditorQueryMiddlewareArgs<ValueOf<TEditor>>['text']['string'],
+        EditorQueryMiddlewareResult<ValueOf<TEditor>>['text']['string']
+      >
+    }
+  }
 
 export type EditorTransformRegistry<V extends Value = Value> =
   EditorTransformApi<V>
@@ -845,6 +1169,35 @@ export type EditorOperationMiddleware<
   next: EditorOperationNext<TEditor>
 ) => void
 
+export type EditorNormalizeNodeOptions<_V extends Value = Value> = {
+  explicit?: boolean
+  fallbackElement?: Element | (() => Element)
+  force?: boolean
+  operation?: Operation
+}
+
+export type EditorNormalizerArgs<V extends Value = Value> =
+  EditorNormalizeNodeOptions<V> & {
+    entry: NodeEntry
+  }
+
+export type EditorNormalizerNext<TArgs extends object> = (
+  overrides?: Partial<TArgs>
+) => void
+
+export type EditorNormalizerContext<TEditor extends BaseEditor<any> = Editor> =
+  EditorNormalizerArgs<ValueOf<TEditor>> & {
+    editor: TEditor
+    next: EditorNormalizerNext<EditorNormalizerArgs<ValueOf<TEditor>>>
+  }
+
+export type EditorNormalizer<TEditor extends BaseEditor<any> = Editor> = (
+  context: EditorNormalizerContext<TEditor>
+) => void
+
+export type EditorNormalizerMap<TEditor extends BaseEditor<any> = Editor> =
+  Record<string, EditorNormalizer<TEditor>>
+
 export type EditorCommandOptions = {
   priority?: number
 }
@@ -925,8 +1278,9 @@ export type EditorExtensionRegistrationOutput<
   commitListeners?: readonly EditorCommitListener<ValueOf<TEditor>>[]
   editor?: EditorExtensionEditorGroups<TEditor>
   elements?: readonly EditorElementSpec[]
-  normalizers?: Record<string, unknown>
+  normalizers?: EditorNormalizerMap<TEditor>
   operationMiddlewares?: readonly EditorOperationMiddleware<TEditor>[]
+  queries?: EditorQueryMiddlewareMap<TEditor>
   state?: EditorExtensionStateGroups<TEditor>
   transforms?: EditorTransformMiddlewareMap<TEditor>
   tx?: EditorExtensionTxGroups<TEditor>
@@ -943,10 +1297,11 @@ export type EditorExtension<
   editor?: EditorExtensionEditorGroups<TEditor>
   elements?: readonly EditorElementSpec[]
   name: string
-  normalizers?: Record<string, unknown>
+  normalizers?: EditorNormalizerMap<TEditor>
   operationMiddlewares?: readonly EditorOperationMiddleware<TEditor>[]
   options?: TOptions
   peerDependencies?: readonly string[]
+  queries?: EditorQueryMiddlewareMap<TEditor>
   register?: (
     context: EditorExtensionRegistrationContext<TEditor, TOptions>
   ) => EditorExtensionRegistrationOutput<TEditor> | void
@@ -972,8 +1327,9 @@ export type EditorExtensionRegistry = {
   commands: Map<string, unknown[]>
   commitListeners: Set<EditorCommitListener>
   extensions: Map<string, RegisteredEditorExtension>
-  normalizers: Map<string, unknown>
+  normalizers: Map<string, EditorNormalizer>
   operationMiddlewares: Set<EditorOperationMiddleware>
+  queryMiddlewares: Map<string, unknown[]>
 }
 
 export type EditorCommitListener<V extends Value = Value> = (
@@ -1630,7 +1986,7 @@ export interface EditorStaticApi {
   registerNormalizer: (
     editor: Editor,
     id: string,
-    normalizer: unknown
+    normalizer: EditorNormalizer
   ) => () => void
 
   /**
@@ -1850,7 +2206,7 @@ const InternalEditor: EditorStaticApi = {
   },
 
   getFragment(editor) {
-    return getEditorRuntime(editor).getFragment()
+    return editor.read((state) => state.fragment.get())
   },
 
   getChildren(editor) {
@@ -1927,9 +2283,9 @@ const InternalEditor: EditorStaticApi = {
     )
   },
 
-  insertNode(editor, node) {
+  insertNode(editor, node, options) {
     runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).insertNode(node)
+      getEditorTransformRegistry(editor).insertNode(node, options)
     )
   },
 

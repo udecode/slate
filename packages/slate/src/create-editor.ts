@@ -35,6 +35,8 @@ import {
   subscribe,
   updateEditor,
 } from './core/public-state'
+import { executeQueryMiddleware } from './core/query-middleware'
+import { executeTransformMiddleware } from './core/transform-middleware'
 import { setEditorTransformRegistry } from './core/transform-registry'
 import {
   above,
@@ -48,7 +50,6 @@ import {
   edges,
   elementReadOnly,
   first,
-  fragment,
   getVoid,
   hasBlocks,
   hasInlines,
@@ -104,17 +105,21 @@ import type {
   EditorLevelsOptions,
   EditorNextOptions,
   EditorPreviousOptions,
+  EditorPublicTransformMiddlewareKey,
   EditorSchemaApi,
   EditorSnapshot,
+  EditorTransformMiddlewareArgs,
   EditorTransformRegistry,
   EditorUpdateOptions,
   EditorUpdateTransaction,
   Element,
   Node,
+  NodeEntry,
   Operation,
   SnapshotChange,
   Value,
 } from './interfaces'
+import { RangeApi } from './interfaces'
 import {
   insertNodes,
   liftNodes,
@@ -358,42 +363,135 @@ const createEditorTransformRegistry = <V extends Value>(
   const getRuntimeEditor = () => getEditor() as Editor
   const bind = <T extends EditorMethod>(method: T) =>
     bindEditorMethod(getEditor, method)
-  const bindRuntime = <T extends EditorMethod>(method: T) =>
-    bindEditorMethod(getRuntimeEditor, method)
+  const runMiddleware = <TKey extends EditorPublicTransformMiddlewareKey>(
+    key: TKey,
+    args: EditorTransformMiddlewareArgs<V>[TKey],
+    applyDefault: (args: EditorTransformMiddlewareArgs<V>[TKey]) => void
+  ) => {
+    executeTransformMiddleware(getEditor(), key, args, applyDefault)
+  }
 
   return Object.freeze({
-    addMark: bind(addMark),
+    addMark: (key, value) =>
+      runMiddleware('addMark', { key, value }, (args) =>
+        addMark(getEditor(), args.key, args.value)
+      ),
     bookmark: bind(bookmark),
-    collapse: bind(collapse),
-    delete: bindRuntime(deleteText),
-    deleteBackward: bind(deleteBackward),
-    deleteForward: bind(deleteForward),
-    deleteFragment: bind(deleteFragment),
-    deselect: bind(deselect),
-    insertBreak: bind(insertBreak),
-    insertFragment: bindRuntime(insertFragment),
-    insertNode: bindRuntime(insertNode),
-    insertNodes: bindRuntime(insertNodes),
-    insertSoftBreak: bind(insertSoftBreak),
-    insertText: bind(insertText),
-    liftNodes: bindRuntime(liftNodes),
-    mergeNodes: bindRuntime(mergeNodes),
-    move: bind(move),
-    moveNodes: bindRuntime(moveNodes),
+    collapse: (options) =>
+      runMiddleware('collapse', { options }, (args) =>
+        collapse(getEditor(), args.options)
+      ),
+    delete: (options) =>
+      runMiddleware('delete', { options }, (args) =>
+        deleteText(getRuntimeEditor(), args.options)
+      ),
+    deleteBackward: (unit) =>
+      runMiddleware('deleteBackward', { unit }, (args) =>
+        deleteBackward(getEditor(), args.unit)
+      ),
+    deleteForward: (unit) =>
+      runMiddleware('deleteForward', { unit }, (args) =>
+        deleteForward(getEditor(), args.unit)
+      ),
+    deleteFragment: (options) =>
+      runMiddleware('deleteFragment', { options }, (args) =>
+        deleteFragment(getEditor(), args.options)
+      ),
+    deselect: () => runMiddleware('deselect', {}, () => deselect(getEditor())),
+    insertBreak: () =>
+      runMiddleware('insertBreak', {}, () => insertBreak(getEditor())),
+    insertFragment: (fragment, options) =>
+      runMiddleware('insertFragment', { fragment, options }, (args) =>
+        insertFragment(getRuntimeEditor(), args.fragment, args.options)
+      ),
+    insertNode: (node, options) =>
+      runMiddleware('insertNode', { node, options }, (args) =>
+        insertNode(getRuntimeEditor(), args.node, args.options)
+      ),
+    insertNodes: (nodes, options) =>
+      runMiddleware('insertNodes', { nodes, options }, (args) =>
+        insertNodes(getRuntimeEditor(), args.nodes, args.options)
+      ),
+    insertSoftBreak: () =>
+      runMiddleware('insertSoftBreak', {}, () => insertSoftBreak(getEditor())),
+    insertText: (text, options) =>
+      runMiddleware('insertText', { options, text }, (args) =>
+        insertText(getEditor(), args.text, args.options)
+      ),
+    liftNodes: (options) =>
+      runMiddleware('liftNodes', { options }, (args) =>
+        liftNodes(getRuntimeEditor(), args.options)
+      ),
+    mergeNodes: (options) =>
+      runMiddleware('mergeNodes', { options }, (args) =>
+        mergeNodes(getRuntimeEditor(), args.options)
+      ),
+    move: (options) =>
+      runMiddleware('move', { options }, (args) =>
+        move(getEditor(), args.options)
+      ),
+    moveNodes: (options) =>
+      runMiddleware('moveNodes', { options }, (args) =>
+        moveNodes(getRuntimeEditor(), args.options)
+      ),
     normalize: bind(normalize),
-    removeMark: bind(removeMark),
-    removeNodes: bindRuntime(removeNodes),
-    select: bind(select),
-    setNodes: bindRuntime(setNodes),
+    removeMark: (key) =>
+      runMiddleware('removeMark', { key }, (args) =>
+        removeMark(getEditor(), args.key)
+      ),
+    removeNodes: (options) =>
+      runMiddleware('removeNodes', { options }, (args) =>
+        removeNodes(getRuntimeEditor(), args.options)
+      ),
+    select: (target) =>
+      runMiddleware('select', { target }, (args) =>
+        select(getEditor(), args.target)
+      ),
+    setNodes: (props, options) =>
+      runMiddleware(
+        'setNodes',
+        {
+          options:
+            options as EditorTransformMiddlewareArgs<V>['setNodes']['options'],
+          props: props as EditorTransformMiddlewareArgs<V>['setNodes']['props'],
+        },
+        (args) =>
+          setNodes(
+            getRuntimeEditor(),
+            args.props as EditorTransformMiddlewareArgs['setNodes']['props'],
+            args.options as EditorTransformMiddlewareArgs['setNodes']['options']
+          )
+      ),
     setNormalizing: bind(setNormalizing),
-    setPoint: bind(setPoint),
-    setSelection: bind(setSelection),
-    splitNodes: bindRuntime(splitNodes),
-    toggleMark: bind(toggleMark),
-    unsetNodes: bindRuntime(unsetNodes),
-    unwrapNodes: bindRuntime(unwrapNodes),
+    setPoint: (props, options) =>
+      runMiddleware('setPoint', { options, props }, (args) =>
+        setPoint(getEditor(), args.props, args.options)
+      ),
+    setSelection: (props) =>
+      runMiddleware('setSelection', { props }, (args) =>
+        setSelection(getEditor(), args.props)
+      ),
+    splitNodes: (options) =>
+      runMiddleware('splitNodes', { options }, (args) =>
+        splitNodes(getRuntimeEditor(), args.options)
+      ),
+    toggleMark: (key, value) =>
+      runMiddleware('toggleMark', { key, value }, (args) =>
+        toggleMark(getEditor(), args.key, args.value)
+      ),
+    unsetNodes: (props, options) =>
+      runMiddleware('unsetNodes', { options, props }, (args) =>
+        unsetNodes(getRuntimeEditor(), args.props, args.options)
+      ),
+    unwrapNodes: (options) =>
+      runMiddleware('unwrapNodes', { options }, (args) =>
+        unwrapNodes(getRuntimeEditor(), args.options)
+      ),
     withoutNormalizing: bind(withoutNormalizing),
-    wrapNodes: bindRuntime(wrapNodes),
+    wrapNodes: (element, options) =>
+      runMiddleware('wrapNodes', { element, options }, (args) =>
+        wrapNodes(getRuntimeEditor(), args.element, args.options)
+      ),
   } satisfies EditorTransformRegistry<V>)
 }
 
@@ -443,45 +541,246 @@ export const createEditor = <V extends Value = Value>(
   const transformRuntime = {
     normalizeNode: (entry, options) => normalizeNode(editor, entry, options),
     shouldNormalize: (options) => shouldNormalize(editor, options),
-  } satisfies InternalEditorTransformRuntime
+  } satisfies InternalEditorTransformRuntime<V>
 
   const queryRuntime = {
     above: <T extends Ancestor>(options?: EditorAboveOptions<T>) =>
-      above(editor, options),
-    after: bind(after),
-    before: bind(before),
-    edges: bind(edges),
-    elementReadOnly: bind(elementReadOnly),
-    first: bind(first),
-    fragment: bind(fragment),
-    hasBlocks: bind(hasBlocks),
-    hasInlines: bind(hasInlines),
-    hasPath: bind(hasPath),
-    hasTexts: bind(hasTexts),
-    isBlock: bind(isBlock),
-    isEdge: bind(isEdge),
-    isEmpty: bind(isEmpty),
-    isEnd: bind(isEnd),
+      executeQueryMiddleware(
+        editor,
+        'nodes',
+        'above',
+        { options },
+        ({ options }) => above(editor, options)
+      ) as NodeEntry<T> | undefined,
+    after: (at, options) =>
+      executeQueryMiddleware(
+        editor,
+        'points',
+        'after',
+        { at, options },
+        ({ at, options }) => after(editor, at, options)
+      ),
+    before: (at, options) =>
+      executeQueryMiddleware(
+        editor,
+        'points',
+        'before',
+        { at, options },
+        ({ at, options }) => before(editor, at, options)
+      ),
+    edges: (at) =>
+      executeQueryMiddleware(editor, 'ranges', 'edges', { at }, ({ at }) =>
+        edges(editor, at)
+      ),
+    elementReadOnly: (options) =>
+      executeQueryMiddleware(
+        editor,
+        'nodes',
+        'elementReadOnly',
+        { options },
+        ({ options }) => elementReadOnly(editor, options)
+      ),
+    first: (at) =>
+      executeQueryMiddleware(editor, 'nodes', 'first', { at }, ({ at }) =>
+        first(editor, at)
+      ),
+    fragment: (at) =>
+      executeQueryMiddleware(
+        editor,
+        'fragment',
+        'get',
+        { options: { at: range(editor, at) } },
+        ({ options }) =>
+          options?.at && RangeApi.isCollapsed(options.at)
+            ? []
+            : (getFragment(editor, options) as DescendantIn<V>[])
+      ),
+    hasBlocks: (element) =>
+      executeQueryMiddleware(
+        editor,
+        'nodes',
+        'hasBlocks',
+        { element },
+        ({ element }) => hasBlocks(editor, element)
+      ),
+    hasInlines: (element) =>
+      executeQueryMiddleware(
+        editor,
+        'nodes',
+        'hasInlines',
+        { element },
+        ({ element }) => hasInlines(editor, element)
+      ),
+    hasPath: (path) =>
+      executeQueryMiddleware(editor, 'nodes', 'hasPath', { path }, ({ path }) =>
+        hasPath(editor, path)
+      ),
+    hasTexts: (element) =>
+      executeQueryMiddleware(
+        editor,
+        'nodes',
+        'hasTexts',
+        { element },
+        ({ element }) => hasTexts(editor, element)
+      ),
+    isBlock: (element) =>
+      executeQueryMiddleware(
+        editor,
+        'nodes',
+        'isBlock',
+        { element },
+        ({ element }) => isBlock(editor, element)
+      ),
+    isEdge: (point, at) =>
+      executeQueryMiddleware(
+        editor,
+        'points',
+        'isEdge',
+        { at, point },
+        ({ at, point }) => isEdge(editor, point, at)
+      ),
+    isEmpty: (element) =>
+      executeQueryMiddleware(
+        editor,
+        'nodes',
+        'isEmpty',
+        { element },
+        ({ element }) => isEmpty(editor, element)
+      ),
+    isEnd: (point, at) =>
+      executeQueryMiddleware(
+        editor,
+        'points',
+        'isEnd',
+        { at, point },
+        ({ at, point }) => isEnd(editor, point, at)
+      ),
     isNormalizing: bind(isNormalizing),
-    isStart: bind(isStart),
-    last: bind(last),
-    leaf: bind(leaf),
+    isStart: (point, at) =>
+      executeQueryMiddleware(
+        editor,
+        'points',
+        'isStart',
+        { at, point },
+        ({ at, point }) => isStart(editor, point, at)
+      ),
+    last: (at) =>
+      executeQueryMiddleware(editor, 'nodes', 'last', { at }, ({ at }) =>
+        last(editor, at)
+      ),
+    leaf: (at, options) =>
+      executeQueryMiddleware(
+        editor,
+        'nodes',
+        'leaf',
+        { at, options },
+        ({ at, options }) => leaf(editor, at, options)
+      ),
     levels: <T extends Node>(options?: EditorLevelsOptions<T>) =>
-      levels(editor, options),
+      executeQueryMiddleware(
+        editor,
+        'nodes',
+        'levels',
+        { options: options as EditorLevelsOptions<Node> | undefined },
+        ({ options }) => levels(editor, options)
+      ) as Generator<NodeEntry<T>, void, undefined>,
     next: <T extends Descendant>(options?: EditorNextOptions<T>) =>
-      next(editor, options),
-    parent: bind(parent),
-    path: bind(path),
-    point: bind(point),
-    positions: bind(positions),
+      executeQueryMiddleware(
+        editor,
+        'nodes',
+        'next',
+        { options: options as EditorNextOptions<Descendant> | undefined },
+        ({ options }) => next(editor, options)
+      ) as NodeEntry<T> | undefined,
+    parent: (at, options) =>
+      executeQueryMiddleware(
+        editor,
+        'nodes',
+        'parent',
+        { at, options },
+        ({ at, options }) => parent(editor, at, options)
+      ),
+    path: (at, options) =>
+      executeQueryMiddleware(
+        editor,
+        'nodes',
+        'path',
+        { at, options },
+        ({ at, options }) => path(editor, at, options)
+      ),
+    point: (at, options) =>
+      executeQueryMiddleware(
+        editor,
+        'points',
+        'get',
+        { at, options },
+        ({ at, options }) => point(editor, at, options)
+      ),
+    positions: (options) =>
+      executeQueryMiddleware(
+        editor,
+        'points',
+        'positions',
+        { options },
+        ({ options }) => positions(editor, options)
+      ),
     previous: <T extends Node>(options?: EditorPreviousOptions<T>) =>
-      previous(editor, options),
-    projectRange: bind(projectRange),
-    range: bind(range),
-    string: bind(string),
-    unhangRange: bind(unhangRange),
-    void: bind(getVoid),
-    shouldMergeNodesRemovePrevNode: bind(shouldMergeNodesRemovePrevNode),
+      executeQueryMiddleware(
+        editor,
+        'nodes',
+        'previous',
+        { options: options as EditorPreviousOptions<Node> | undefined },
+        ({ options }) => previous(editor, options)
+      ) as NodeEntry<T> | undefined,
+    projectRange: (range) =>
+      executeQueryMiddleware(
+        editor,
+        'ranges',
+        'project',
+        { range },
+        ({ range }) => projectRange(editor, range)
+      ),
+    range: (at, to) =>
+      executeQueryMiddleware(
+        editor,
+        'ranges',
+        'get',
+        { at, to },
+        ({ at, to }) => range(editor, at, to)
+      ),
+    string: (at, options) =>
+      executeQueryMiddleware(
+        editor,
+        'text',
+        'string',
+        { at, options },
+        ({ at, options }) => string(editor, at, options)
+      ),
+    unhangRange: (range, options) =>
+      executeQueryMiddleware(
+        editor,
+        'ranges',
+        'unhang',
+        { options, range },
+        ({ options, range }) => unhangRange(editor, range, options)
+      ),
+    void: (options) =>
+      executeQueryMiddleware(
+        editor,
+        'nodes',
+        'void',
+        { options },
+        ({ options }) => getVoid(editor, options)
+      ),
+    shouldMergeNodesRemovePrevNode: (previous, current) =>
+      executeQueryMiddleware(
+        editor,
+        'nodes',
+        'shouldMergeNodesRemovePrevNode',
+        { current, previous },
+        ({ current, previous }) =>
+          shouldMergeNodesRemovePrevNode(editor, previous, current)
+      ),
   } satisfies InternalEditorQueryRuntime
 
   const refRuntime = {

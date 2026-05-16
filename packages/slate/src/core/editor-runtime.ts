@@ -2,7 +2,6 @@ import type {
   Ancestor,
   Descendant,
   DescendantIn,
-  Element,
   Location,
   Node,
   NodeEntry,
@@ -19,6 +18,7 @@ import type {
   EditorLeafOptions,
   EditorLevelsOptions,
   EditorNextOptions,
+  EditorNormalizeNodeOptions,
   EditorOperationDirtinessOptions,
   EditorPointOptions,
   EditorPreviousOptions,
@@ -119,15 +119,10 @@ export type InternalEditorTransactionRuntime<V extends Value = Value> = {
   ) => void
 }
 
-export type InternalEditorTransformRuntime = {
+export type InternalEditorTransformRuntime<V extends Value = Value> = {
   normalizeNode: (
     entry: NodeEntry,
-    options?: {
-      explicit?: boolean
-      fallbackElement?: Element | (() => Element)
-      force?: boolean
-      operation?: Operation
-    }
+    options?: EditorNormalizeNodeOptions<V>
   ) => void
   shouldNormalize: (options: {
     explicit?: boolean
@@ -147,7 +142,7 @@ export type InternalEditorRuntime<V extends Value = Value> =
     InternalEditorRefRuntime &
     InternalEditorSnapshotRuntime<V> &
     InternalEditorTransactionRuntime<V> &
-    InternalEditorTransformRuntime
+    InternalEditorTransformRuntime<V>
 
 const EDITOR_RUNTIME = new WeakMap<Editor, InternalEditorRuntime>()
 

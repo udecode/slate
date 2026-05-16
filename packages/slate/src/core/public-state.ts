@@ -55,6 +55,10 @@ import {
 } from '../utils/runtime-ids'
 import { getEditorRuntime, getEditorSchema } from './editor-runtime'
 import { getExtensionRegistry } from './extension-registry'
+import {
+  executeQueryMiddleware,
+  isExecutingQueryMiddleware,
+} from './query-middleware'
 import { getEditorTransformRegistry } from './transform-registry'
 
 type TransactionSnapshot = {
@@ -930,23 +934,34 @@ const createNodesToArray = (editor: Editor): EditorStateNodesApi['toArray'] => {
     options: EditorNodesOptions<T> = {},
     map?: (entry: NodeEntry<T>) => R
   ): NodeEntry<T>[] | R[] {
-    if (map) {
-      const mapped: R[] = []
+    return executeQueryMiddleware(
+      editor,
+      'nodes',
+      'toArray',
+      {
+        map: map as ((entry: NodeEntry<SlateNode>) => unknown) | undefined,
+        options: options as EditorNodesOptions<SlateNode>,
+      },
+      ({ map, options = {} }) => {
+        if (map) {
+          const mapped: unknown[] = []
 
-      for (const entry of getNodes(editor, options)) {
-        mapped.push(map(entry))
+          for (const entry of getNodes(editor, options)) {
+            mapped.push(map(entry))
+          }
+
+          return mapped
+        }
+
+        const entries: NodeEntry<SlateNode>[] = []
+
+        for (const entry of getNodes(editor, options)) {
+          entries.push(entry)
+        }
+
+        return entries
       }
-
-      return mapped
-    }
-
-    const entries: NodeEntry<T>[] = []
-
-    for (const entry of getNodes(editor, options)) {
-      entries.push(entry)
-    }
-
-    return entries
+    ) as NodeEntry<T>[] | R[]
   }
 
   return toArray
@@ -957,88 +972,332 @@ const getStateView = <V extends Value>(
 ): EditorStateView<V> => {
   const state = {
     fragment: Object.freeze({
-      get: (options = {}) => getFragment(editor, options) as DescendantIn<V>[],
+      get: (options = {}) =>
+        executeQueryMiddleware(
+          editor,
+          'fragment',
+          'get',
+          { options },
+          ({ options }) => getFragment(editor, options) as DescendantIn<V>[]
+        ),
     }),
     marks: Object.freeze({
-      get: () => getSelectionMarks(editor),
+      get: () =>
+        executeQueryMiddleware(editor, 'marks', 'get', {}, () =>
+          getSelectionMarks(editor)
+        ),
     }),
     nodes: Object.freeze({
       above: <T extends Ancestor>(options = {}) =>
-        getEditorRuntime(editor).above(options) as [T, Path] | undefined,
+        executeQueryMiddleware(
+          editor,
+          'nodes',
+          'above',
+          { options },
+          ({ options }) =>
+            getEditorRuntime(editor).above(options) as
+              | NodeEntry<Ancestor>
+              | undefined
+        ) as [T, Path] | undefined,
       children(at: Location = []) {
-        const [node] = getNode(editor, at)
+        return executeQueryMiddleware(
+          editor,
+          'nodes',
+          'children',
+          { at },
+          ({ at = [] }) => {
+            const [node] = getNode(editor, at)
 
-        return 'children' in node && Array.isArray(node.children)
-          ? node.children
-          : []
+            return 'children' in node && Array.isArray(node.children)
+              ? node.children
+              : []
+          }
+        )
       },
-      first: (at: Location) => getEditorRuntime(editor).first(at),
+      elementReadOnly: (options = {}) =>
+        executeQueryMiddleware(
+          editor,
+          'nodes',
+          'elementReadOnly',
+          { options },
+          ({ options }) => getEditorRuntime(editor).elementReadOnly(options)
+        ),
+      first: (at: Location) =>
+        executeQueryMiddleware(editor, 'nodes', 'first', { at }, ({ at }) =>
+          getEditorRuntime(editor).first(at)
+        ),
       get: <T extends SlateNode>(at: Location) =>
-        getNode(editor, at) as [T, Path],
+        executeQueryMiddleware(editor, 'nodes', 'get', { at }, ({ at }) =>
+          getNode(editor, at)
+        ) as [T, Path],
       hasBlocks: (element: import('../interfaces/element').Element) =>
-        getEditorRuntime(editor).hasBlocks(element),
+        executeQueryMiddleware(
+          editor,
+          'nodes',
+          'hasBlocks',
+          { element },
+          ({ element }) => getEditorRuntime(editor).hasBlocks(element)
+        ),
       hasInlines: (element: import('../interfaces/element').Element) =>
-        getEditorRuntime(editor).hasInlines(element),
-      hasPath: (path: Path) => getEditorRuntime(editor).hasPath(path),
+        executeQueryMiddleware(
+          editor,
+          'nodes',
+          'hasInlines',
+          { element },
+          ({ element }) => getEditorRuntime(editor).hasInlines(element)
+        ),
+      hasPath: (path: Path) =>
+        executeQueryMiddleware(
+          editor,
+          'nodes',
+          'hasPath',
+          { path },
+          ({ path }) => getEditorRuntime(editor).hasPath(path)
+        ),
       hasTexts: (element: import('../interfaces/element').Element) =>
-        getEditorRuntime(editor).hasTexts(element),
+        executeQueryMiddleware(
+          editor,
+          'nodes',
+          'hasTexts',
+          { element },
+          ({ element }) => getEditorRuntime(editor).hasTexts(element)
+        ),
       isBlock: (element: import('../interfaces/element').Element) =>
-        getEditorRuntime(editor).isBlock(element),
+        executeQueryMiddleware(
+          editor,
+          'nodes',
+          'isBlock',
+          { element },
+          ({ element }) => getEditorRuntime(editor).isBlock(element)
+        ),
       isEmpty: (element: import('../interfaces/element').Element) =>
-        getEditorRuntime(editor).isEmpty(element),
-      last: (at: Location) => getEditorRuntime(editor).last(at),
-      leaf: (at, options = {}) => getEditorRuntime(editor).leaf(at, options),
+        executeQueryMiddleware(
+          editor,
+          'nodes',
+          'isEmpty',
+          { element },
+          ({ element }) => getEditorRuntime(editor).isEmpty(element)
+        ),
+      last: (at: Location) =>
+        executeQueryMiddleware(editor, 'nodes', 'last', { at }, ({ at }) =>
+          getEditorRuntime(editor).last(at)
+        ),
+      leaf: (at, options = {}) =>
+        executeQueryMiddleware(
+          editor,
+          'nodes',
+          'leaf',
+          { at, options },
+          ({ at, options }) => getEditorRuntime(editor).leaf(at, options)
+        ),
       levels: <T extends SlateNode>(options = {}) =>
-        getEditorRuntime(editor).levels(options) as Generator<
-          [T, Path],
-          void,
-          undefined
-        >,
+        executeQueryMiddleware(
+          editor,
+          'nodes',
+          'levels',
+          { options },
+          ({ options }) =>
+            getEditorRuntime(editor).levels(options) as Generator<
+              NodeEntry<SlateNode>,
+              void,
+              undefined
+            >
+        ) as Generator<[T, Path], void, undefined>,
+      path: (at: Location, options = {}) =>
+        executeQueryMiddleware(
+          editor,
+          'nodes',
+          'path',
+          { at, options },
+          ({ at, options }) => getEditorRuntime(editor).path(at, options)
+        ),
       entries: <T extends SlateNode>(options = {}) =>
-        getNodes(editor, options) as Generator<[T, Path], void, undefined>,
+        executeQueryMiddleware(
+          editor,
+          'nodes',
+          'entries',
+          { options },
+          ({ options }) =>
+            getNodes(editor, options) as Generator<
+              NodeEntry<SlateNode>,
+              void,
+              undefined
+            >
+        ) as Generator<[T, Path], void, undefined>,
       find: <T extends SlateNode>(options = {}) => {
-        for (const entry of getNodes(editor, options)) {
-          return entry as [T, Path]
-        }
+        return executeQueryMiddleware(
+          editor,
+          'nodes',
+          'find',
+          { options },
+          ({ options }) => {
+            for (const entry of getNodes(editor, options)) {
+              return entry
+            }
+          }
+        ) as [T, Path] | undefined
       },
       some: (options = {}) => {
-        for (const _entry of getNodes(editor, options)) {
-          return true
-        }
+        return executeQueryMiddleware(
+          editor,
+          'nodes',
+          'some',
+          { options },
+          ({ options }) => {
+            for (const _entry of getNodes(editor, options)) {
+              return true
+            }
 
-        return false
+            return false
+          }
+        )
       },
       toArray: createNodesToArray(editor),
       next: <T extends SlateNode>(options = {}) =>
-        getEditorRuntime(editor).next(options) as [T, Path] | undefined,
-      parent: (at: Location) => getEditorRuntime(editor).parent(at),
+        executeQueryMiddleware(
+          editor,
+          'nodes',
+          'next',
+          { options },
+          ({ options }) =>
+            getEditorRuntime(editor).next(options) as
+              | NodeEntry<Descendant>
+              | undefined
+        ) as [T, Path] | undefined,
       previous: <T extends SlateNode>(options = {}) =>
-        getEditorRuntime(editor).previous(options) as [T, Path] | undefined,
-      void: (options = {}) => getEditorRuntime(editor).void(options),
+        executeQueryMiddleware(
+          editor,
+          'nodes',
+          'previous',
+          { options },
+          ({ options }) =>
+            getEditorRuntime(editor).previous(options) as
+              | NodeEntry<SlateNode>
+              | undefined
+        ) as [T, Path] | undefined,
+      shouldMergeNodesRemovePrevNode: (previous, current) =>
+        executeQueryMiddleware(
+          editor,
+          'nodes',
+          'shouldMergeNodesRemovePrevNode',
+          { current, previous },
+          ({ current, previous }) =>
+            getEditorRuntime(editor).shouldMergeNodesRemovePrevNode(
+              previous,
+              current
+            )
+        ),
+      parent: (at: Location) =>
+        executeQueryMiddleware(editor, 'nodes', 'parent', { at }, ({ at }) =>
+          getEditorRuntime(editor).parent(at)
+        ),
+      void: (options = {}) =>
+        executeQueryMiddleware(
+          editor,
+          'nodes',
+          'void',
+          { options },
+          ({ options }) => getEditorRuntime(editor).void(options)
+        ),
     }),
     points: Object.freeze({
       after: (at: Location, options = {}) =>
-        getEditorRuntime(editor).after(at, options),
+        executeQueryMiddleware(
+          editor,
+          'points',
+          'after',
+          { at, options },
+          ({ at, options }) => getEditorRuntime(editor).after(at, options)
+        ),
       before: (at: Location, options = {}) =>
-        getEditorRuntime(editor).before(at, options),
+        executeQueryMiddleware(
+          editor,
+          'points',
+          'before',
+          { at, options },
+          ({ at, options }) => getEditorRuntime(editor).before(at, options)
+        ),
       end: (at: Location) =>
-        getEditorRuntime(editor).point(at, { edge: 'end' }),
+        executeQueryMiddleware(editor, 'points', 'end', { at }, ({ at }) =>
+          getEditorRuntime(editor).point(at, { edge: 'end' })
+        ),
       get: (at: Location, options = {}) =>
-        getEditorRuntime(editor).point(at, options),
-      isEdge: (point, at) => getEditorRuntime(editor).isEdge(point, at),
-      isEnd: (point, at) => getEditorRuntime(editor).isEnd(point, at),
-      isStart: (point, at) => getEditorRuntime(editor).isStart(point, at),
+        executeQueryMiddleware(
+          editor,
+          'points',
+          'get',
+          { at, options },
+          ({ at, options }) => getEditorRuntime(editor).point(at, options)
+        ),
+      isEdge: (point, at) =>
+        executeQueryMiddleware(
+          editor,
+          'points',
+          'isEdge',
+          { at, point },
+          ({ at, point }) => getEditorRuntime(editor).isEdge(point, at)
+        ),
+      isEnd: (point, at) =>
+        executeQueryMiddleware(
+          editor,
+          'points',
+          'isEnd',
+          { at, point },
+          ({ at, point }) => getEditorRuntime(editor).isEnd(point, at)
+        ),
+      isStart: (point, at) =>
+        executeQueryMiddleware(
+          editor,
+          'points',
+          'isStart',
+          { at, point },
+          ({ at, point }) => getEditorRuntime(editor).isStart(point, at)
+        ),
+      positions: (options = {}) =>
+        executeQueryMiddleware(
+          editor,
+          'points',
+          'positions',
+          { options },
+          ({ options }) => getEditorRuntime(editor).positions(options)
+        ),
       start: (at: Location) =>
-        getEditorRuntime(editor).point(at, { edge: 'start' }),
+        executeQueryMiddleware(editor, 'points', 'start', { at }, ({ at }) =>
+          getEditorRuntime(editor).point(at, { edge: 'start' })
+        ),
     }),
     ranges: Object.freeze({
       bookmark: (range, options = {}) =>
         getEditorTransformRegistry(editor).bookmark(range, options),
-      edges: (at: Location) => getEditorRuntime(editor).edges(at),
-      get: (at: Location) => getEditorRuntime(editor).range(at),
-      project: (range) => getEditorRuntime(editor).projectRange(range),
+      edges: (at: Location) =>
+        executeQueryMiddleware(editor, 'ranges', 'edges', { at }, ({ at }) =>
+          getEditorRuntime(editor).edges(at)
+        ),
+      get: (at: Location, to?: Location) =>
+        executeQueryMiddleware(
+          editor,
+          'ranges',
+          'get',
+          { at, to },
+          ({ at, to }) => getEditorRuntime(editor).range(at, to)
+        ),
+      project: (range) =>
+        executeQueryMiddleware(
+          editor,
+          'ranges',
+          'project',
+          { range },
+          ({ range }) => getEditorRuntime(editor).projectRange(range)
+        ),
       unhang: (range, options = {}) =>
-        getEditorRuntime(editor).unhangRange(range, options),
+        executeQueryMiddleware(
+          editor,
+          'ranges',
+          'unhang',
+          { options, range },
+          ({ options, range }) =>
+            getEditorRuntime(editor).unhangRange(range, options)
+        ),
     }),
     runtime: Object.freeze({
       idAt: (path: Path) => getRuntimeId(editor, path),
@@ -1269,6 +1528,10 @@ export const updateEditor = <V extends Value>(
   fn: (transaction: EditorUpdateTransaction<V>) => void,
   options: EditorUpdateOptions = {}
 ) => {
+  if (isExecutingQueryMiddleware(editor)) {
+    throw new Error('editor.update cannot be started inside query middleware')
+  }
+
   if ((READ_DEPTH.get(editor) ?? 0) > 0 && !isInTransaction(editor)) {
     throw new Error(
       'editor.update cannot be started inside editor.read outside an active update'

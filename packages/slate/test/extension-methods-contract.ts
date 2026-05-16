@@ -281,6 +281,331 @@ describe('extension method hard cut', () => {
     assert.equal(Editor.string(editor, [0]), 'one')
   })
 
+  it('extension transform middleware covers every public mutating transform key', () => {
+    const createEditorWithTransformSpy = (seen: string[]) => {
+      const editor = createEditor()
+
+      Editor.replace(editor, {
+        children: [
+          { type: 'paragraph', children: [{ text: 'one' }] },
+          { type: 'paragraph', children: [{ text: 'two' }] },
+        ],
+        selection: {
+          anchor: { path: [0, 0], offset: 1 },
+          focus: { path: [0, 0], offset: 2 },
+        },
+        marks: null,
+      })
+
+      editor.extend(
+        defineEditorExtension({
+          name: 'full-transform-spy',
+          transforms: {
+            addMark({ key }) {
+              assert.equal(key, 'bold')
+              seen.push('addMark')
+            },
+            collapse({ options }) {
+              assert.equal(options?.edge, 'start')
+              seen.push('collapse')
+            },
+            delete({ options }) {
+              assert.equal(options?.unit, 'character')
+              seen.push('delete')
+            },
+            deleteBackward({ unit }) {
+              assert.equal(unit, 'character')
+              seen.push('deleteBackward')
+            },
+            deleteForward({ unit }) {
+              assert.equal(unit, 'word')
+              seen.push('deleteForward')
+            },
+            deleteFragment({ options }) {
+              assert.equal(options?.direction, 'backward')
+              seen.push('deleteFragment')
+            },
+            deselect() {
+              seen.push('deselect')
+            },
+            insertBreak() {
+              seen.push('insertBreak')
+            },
+            insertFragment({ fragment }) {
+              assert.deepEqual(fragment, [
+                { type: 'paragraph', children: [{ text: 'fragment' }] },
+              ])
+              seen.push('insertFragment')
+            },
+            insertNode({ node }) {
+              assert.deepEqual(node, {
+                type: 'paragraph',
+                children: [{ text: 'node' }],
+              })
+              seen.push('insertNode')
+            },
+            insertNodes({ nodes }) {
+              assert.equal(Array.isArray(nodes), true)
+              seen.push('insertNodes')
+            },
+            insertSoftBreak() {
+              seen.push('insertSoftBreak')
+            },
+            insertText({ text }) {
+              assert.equal(text, '!')
+              seen.push('insertText')
+            },
+            liftNodes({ options }) {
+              assert.deepEqual(options?.at, [0])
+              seen.push('liftNodes')
+            },
+            mergeNodes({ options }) {
+              assert.deepEqual(options?.at, [1])
+              seen.push('mergeNodes')
+            },
+            move({ options }) {
+              assert.equal(options?.distance, 1)
+              seen.push('move')
+            },
+            moveNodes({ options }) {
+              assert.deepEqual(options.to, [1])
+              seen.push('moveNodes')
+            },
+            removeMark({ key }) {
+              assert.equal(key, 'bold')
+              seen.push('removeMark')
+            },
+            removeNodes({ options }) {
+              assert.deepEqual(options?.at, [0])
+              seen.push('removeNodes')
+            },
+            select({ target }) {
+              assert.deepEqual(target, { path: [0, 0], offset: 0 })
+              seen.push('select')
+            },
+            setNodes({ props }) {
+              assert.deepEqual(props, { type: 'heading' })
+              seen.push('setNodes')
+            },
+            setPoint({ options, props }) {
+              assert.equal(options?.edge, 'anchor')
+              assert.equal(props.offset, 0)
+              seen.push('setPoint')
+            },
+            setSelection({ props }) {
+              assert.equal(props.anchor?.offset, 0)
+              seen.push('setSelection')
+            },
+            splitNodes({ options }) {
+              assert.equal(options?.always, true)
+              seen.push('splitNodes')
+            },
+            toggleMark({ key, value }) {
+              assert.equal(key, 'bold')
+              assert.equal(value, true)
+              seen.push('toggleMark')
+            },
+            unsetNodes({ props }) {
+              assert.deepEqual(props, ['bold'])
+              seen.push('unsetNodes')
+            },
+            unwrapNodes({ options }) {
+              assert.deepEqual(options?.at, [0])
+              seen.push('unwrapNodes')
+            },
+            wrapNodes({ element }) {
+              assert.equal(element.type, 'quote')
+              seen.push('wrapNodes')
+            },
+          },
+        })
+      )
+
+      return editor
+    }
+
+    const expectTransformHandled = (
+      name: string,
+      invoke: (editor: ReturnType<typeof createEditor>) => void
+    ) => {
+      const seen: string[] = []
+      const editor = createEditorWithTransformSpy(seen)
+
+      invoke(editor)
+
+      assert.deepEqual(seen, [name])
+    }
+
+    expectTransformHandled('addMark', (editor) =>
+      Editor.addMark(editor, 'bold', true)
+    )
+    expectTransformHandled('collapse', (editor) =>
+      Editor.collapse(editor, { edge: 'start' })
+    )
+    expectTransformHandled('delete', (editor) =>
+      Editor.delete(editor, { unit: 'character' })
+    )
+    expectTransformHandled('deleteBackward', (editor) =>
+      Editor.deleteBackward(editor)
+    )
+    expectTransformHandled('deleteForward', (editor) =>
+      Editor.deleteForward(editor, { unit: 'word' })
+    )
+    expectTransformHandled('deleteFragment', (editor) =>
+      Editor.deleteFragment(editor, { direction: 'backward' })
+    )
+    expectTransformHandled('deselect', (editor) => Editor.deselect(editor))
+    expectTransformHandled('insertBreak', (editor) =>
+      Editor.insertBreak(editor)
+    )
+    expectTransformHandled('insertFragment', (editor) =>
+      Editor.insertFragment(editor, [
+        { type: 'paragraph', children: [{ text: 'fragment' }] },
+      ])
+    )
+    expectTransformHandled('insertNode', (editor) =>
+      Editor.insertNode(editor, {
+        type: 'paragraph',
+        children: [{ text: 'node' }],
+      })
+    )
+    expectTransformHandled('insertNodes', (editor) =>
+      Editor.insertNodes(editor, [
+        { type: 'paragraph', children: [{ text: 'nodes' }] },
+      ])
+    )
+    expectTransformHandled('insertSoftBreak', (editor) =>
+      Editor.insertSoftBreak(editor)
+    )
+    expectTransformHandled('insertText', (editor) =>
+      Editor.insertText(editor, '!')
+    )
+    expectTransformHandled('liftNodes', (editor) =>
+      Editor.liftNodes(editor, { at: [0] })
+    )
+    expectTransformHandled('mergeNodes', (editor) =>
+      Editor.mergeNodes(editor, { at: [1] })
+    )
+    expectTransformHandled('move', (editor) =>
+      Editor.move(editor, { distance: 1 })
+    )
+    expectTransformHandled('moveNodes', (editor) =>
+      Editor.moveNodes(editor, { at: [0], to: [1] })
+    )
+    expectTransformHandled('removeMark', (editor) =>
+      Editor.removeMark(editor, 'bold')
+    )
+    expectTransformHandled('removeNodes', (editor) =>
+      Editor.removeNodes(editor, { at: [0] })
+    )
+    expectTransformHandled('select', (editor) =>
+      Editor.select(editor, { path: [0, 0], offset: 0 })
+    )
+    expectTransformHandled('setNodes', (editor) =>
+      Editor.setNodes(editor, { type: 'heading' })
+    )
+    expectTransformHandled('setPoint', (editor) =>
+      Editor.setPoint(editor, { offset: 0 }, { edge: 'anchor' })
+    )
+    expectTransformHandled('setSelection', (editor) =>
+      Editor.setSelection(editor, {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+    )
+    expectTransformHandled('splitNodes', (editor) =>
+      Editor.splitNodes(editor, { always: true })
+    )
+    expectTransformHandled('toggleMark', (editor) =>
+      Editor.toggleMark(editor, 'bold', true)
+    )
+    expectTransformHandled('unsetNodes', (editor) =>
+      Editor.unsetNodes(editor, ['bold'])
+    )
+    expectTransformHandled('unwrapNodes', (editor) =>
+      Editor.unwrapNodes(editor, { at: [0] })
+    )
+    expectTransformHandled('wrapNodes', (editor) =>
+      Editor.wrapNodes(editor, {
+        type: 'quote',
+        children: [],
+      })
+    )
+  })
+
+  it('extension transform middleware can delegate and override insertNode args', () => {
+    const editor = createEditor()
+    const seenNodes: unknown[] = []
+
+    Editor.replace(editor, {
+      children: [{ type: 'paragraph', children: [{ text: 'one' }] }],
+      selection: null,
+      marks: null,
+    })
+
+    editor.extend(
+      defineEditorExtension({
+        name: 'insert-node-transform',
+        transforms: {
+          insertNode({ next, node, options }) {
+            seenNodes.push(node)
+            next({
+              node: {
+                type: 'paragraph',
+                children: [{ text: 'override' }],
+              },
+              options,
+            })
+          },
+        },
+      })
+    )
+
+    Editor.insertNode(
+      editor,
+      { type: 'paragraph', children: [{ text: 'original' }] },
+      { at: [1] }
+    )
+
+    assert.deepEqual(seenNodes, [
+      { type: 'paragraph', children: [{ text: 'original' }] },
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      { type: 'paragraph', children: [{ text: 'one' }] },
+      { type: 'paragraph', children: [{ text: 'override' }] },
+    ])
+  })
+
+  it('extension transform middleware rejects double next calls', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ type: 'paragraph', children: [{ text: 'one' }] }],
+      selection: {
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 3 },
+      },
+      marks: null,
+    })
+
+    editor.extend(
+      defineEditorExtension({
+        name: 'double-next-transform',
+        transforms: {
+          insertText({ next }) {
+            next()
+            next()
+          },
+        },
+      })
+    )
+
+    assert.throws(
+      () => Editor.insertText(editor, '!'),
+      /Transform middleware next\(\) cannot be called more than once\./
+    )
+  })
+
   it('validates peer dependencies and conflicts before mutating the editor', () => {
     const editor = createEditor()
     const missingPeer = defineEditorExtension({

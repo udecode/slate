@@ -18,6 +18,112 @@ describe('slate normalization contract', () => {
     ])
   })
 
+  it('runs extension normalizers in order before the built-in fallback', () => {
+    const editor = createEditor()
+    const seen: string[] = []
+
+    editor.extend({
+      name: 'ordered-normalizers',
+      normalizers: {
+        first({ entry, next }) {
+          if (entry[1].join('.') === '0') {
+            seen.push('first')
+          }
+
+          next()
+        },
+        second({ entry, next }) {
+          if (entry[1].join('.') === '0') {
+            seen.push('second')
+          }
+
+          next()
+        },
+      },
+    })
+
+    Editor.replace(editor, {
+      children: [{ type: 'block', children: [] } as Descendant],
+      selection: null,
+      marks: null,
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      { type: 'block', children: [{ text: '' }] },
+    ])
+    assert.deepEqual(seen.slice(0, 2), ['first', 'second'])
+  })
+
+  it('lets extension normalizers override fallback options and clean up', () => {
+    const editor = createEditor()
+    let calls = 0
+
+    const unextend = editor.extend({
+      name: 'fallback-normalizer',
+      normalizers: {
+        wrapRootText({ entry, next }) {
+          if (Editor.isEditor(entry[0])) {
+            calls += 1
+            next({
+              fallbackElement: () => ({
+                type: 'paragraph',
+                children: [{ text: '' }],
+              }),
+            })
+            return
+          }
+
+          next()
+        },
+      },
+    })
+
+    Editor.replace(editor, {
+      children: [{ text: 'stray' } as Descendant],
+      selection: null,
+      marks: null,
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'paragraph',
+        children: [{ text: 'stray' }],
+      },
+    ])
+    assert.equal(calls > 0, true)
+
+    unextend()
+    calls = 0
+
+    Editor.normalize(editor)
+
+    assert.equal(Editor.getExtensionRegistry(editor).normalizers.size, 0)
+    assert.equal(calls, 0)
+  })
+
+  it('rejects calling normalizer next twice', () => {
+    const editor = createEditor()
+
+    editor.extend({
+      name: 'double-next-normalizer',
+      normalizers: {
+        once({ next }) {
+          next()
+          assert.throws(
+            () => next(),
+            /Normalizer next\(\) cannot be called more than once\./
+          )
+        },
+      },
+    })
+
+    Editor.replace(editor, {
+      children: [{ type: 'block', children: [] } as Descendant],
+      selection: null,
+      marks: null,
+    })
+  })
+
   it('removes stray top-level text during replace-time block-only cleanup', () => {
     const editor = createEditor()
 

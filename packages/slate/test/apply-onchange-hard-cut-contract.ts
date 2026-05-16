@@ -112,6 +112,6 @@ describe('apply/onChange hard cuts', () => {
     unsubscribeSubscribe()
     unsubscribeCommit()
 
-    assert.deepEqual(events, ['subscribe:2', 'commit:2'])
+    assert.deepEqual(events, ['commit:2', 'subscribe:2'])
   })
 })

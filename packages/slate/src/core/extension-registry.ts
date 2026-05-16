@@ -5,7 +5,10 @@ import type {
   EditorExtensionEditorGroup,
   EditorExtensionStateGroup,
   EditorExtensionTxGroup,
+  EditorNormalizer,
   EditorOperationMiddleware,
+  EditorQueryGroup,
+  EditorQueryMiddlewareMap,
   RegisteredEditorExtension,
   ValueOf,
 } from '../interfaces/editor'
@@ -33,8 +36,9 @@ export type ExtensionRegistry<TEditor extends Editor = Editor> = {
   elementSpecs: Map<string, EditorElementSpecRegistration>
   editorGroups: Map<string, EditorEditorGroupRegistration<TEditor>>
   extensions: Map<string, RegisteredEditorExtension>
-  normalizers: Map<string, unknown>
+  normalizers: Map<string, EditorNormalizer<TEditor>>
   operationMiddlewares: Set<EditorOperationMiddleware<TEditor>>
+  queryMiddlewares: Map<string, unknown[]>
   stateGroups: Map<string, EditorStateGroupRegistration<TEditor>>
   txGroups: Map<string, EditorTxGroupRegistration<TEditor>>
 }
@@ -95,6 +99,7 @@ export const getExtensionRegistry = <TEditor extends Editor>(
       extensions: new Map(),
       normalizers: new Map(),
       operationMiddlewares: new Set(),
+      queryMiddlewares: new Map(),
       stateGroups: new Map(),
       txGroups: new Map(),
     }
@@ -190,10 +195,10 @@ export const registerCapability = (
   }
 }
 
-export const registerNormalizer = (
-  editor: Editor,
+export const registerNormalizer = <TEditor extends Editor>(
+  editor: TEditor,
   id: string,
-  normalizer: unknown
+  normalizer: EditorNormalizer<TEditor>
 ) => {
   const registry = getExtensionRegistry(editor)
   registry.normalizers.set(id, normalizer)
@@ -226,6 +231,46 @@ export const registerOperationMiddleware = <TEditor extends Editor>(
 
   return () => {
     registry.operationMiddlewares.delete(middleware)
+  }
+}
+
+export const getQueryMiddlewareKey = (
+  group: EditorQueryGroup,
+  method: string
+) => `${group}.${method}`
+
+export const registerQueryMiddleware = <
+  TEditor extends Editor,
+  TGroup extends EditorQueryGroup,
+  TMethod extends keyof NonNullable<EditorQueryMiddlewareMap<TEditor>[TGroup]>,
+>(
+  editor: TEditor,
+  group: TGroup,
+  method: TMethod,
+  middleware: NonNullable<EditorQueryMiddlewareMap<TEditor>[TGroup]>[TMethod]
+) => {
+  const registry = getExtensionRegistry(editor)
+  const key = getQueryMiddlewareKey(group, String(method))
+  const middlewares = registry.queryMiddlewares.get(key) ?? []
+
+  middlewares.push(middleware)
+  registry.queryMiddlewares.set(key, middlewares)
+
+  return () => {
+    const current = registry.queryMiddlewares.get(key)
+
+    if (!current) {
+      return
+    }
+
+    const index = current.indexOf(middleware)
+    if (index >= 0) {
+      current.splice(index, 1)
+    }
+
+    if (current.length === 0) {
+      registry.queryMiddlewares.delete(key)
+    }
   }
 }
 

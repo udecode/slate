@@ -2,16 +2,16 @@ import type {
   BaseEditor,
   Editor,
   EditorCommandResult,
-  EditorDeleteBackwardTransformArgs,
   EditorExtension,
   EditorExtensionInput,
   EditorExtensionRegistrationContext,
   EditorExtensionRegistrationOutput,
   EditorExtensionRuntimeState,
-  EditorInsertTextTransformArgs,
+  EditorPublicTransformMiddlewareKey,
+  EditorTransformMiddlewareArgs,
+  EditorTransformMiddlewareContext,
+  ValueOf,
 } from '../interfaces/editor'
-import type { TextInsertTextOptions } from '../interfaces/transforms/text'
-import type { TextUnit } from '../types/types'
 import { registerCommand } from './command-registry'
 import {
   getExtensionRegistry,
@@ -21,9 +21,14 @@ import {
   registerElementSpec,
   registerNormalizer,
   registerOperationMiddleware,
+  registerQueryMiddleware,
   registerStateGroup,
   registerTxGroup,
 } from './extension-registry'
+import {
+  EDITOR_TRANSFORM_MIDDLEWARE_KEYS,
+  getTransformCommandType,
+} from './transform-middleware'
 
 type ExtensionRecord = {
   cleanups: Array<() => void>
@@ -35,17 +40,27 @@ type ExtensionState = {
   records: Map<string, ExtensionRecord>
 }
 
-type DeleteCommand = {
-  direction: 'backward' | 'forward'
-  type: 'delete'
-  unit: TextUnit
+type TransformMiddlewareArgs<
+  TEditor extends BaseEditor<any>,
+  TKey extends EditorPublicTransformMiddlewareKey,
+> = EditorTransformMiddlewareArgs<ValueOf<TEditor>>[TKey]
+
+type TransformMiddlewareCommand<
+  TEditor extends BaseEditor<any>,
+  TKey extends EditorPublicTransformMiddlewareKey,
+> = TransformMiddlewareArgs<TEditor, TKey> & {
+  type: string
 }
 
-type InsertTextCommand = {
-  options?: TextInsertTextOptions
-  text: string
-  type: 'insert_text'
-}
+type TransformMiddleware<
+  TEditor extends BaseEditor<any>,
+  TKey extends EditorPublicTransformMiddlewareKey,
+> = (
+  context: EditorTransformMiddlewareContext<
+    TEditor,
+    TransformMiddlewareArgs<TEditor, TKey>
+  >
+) => EditorCommandResult | void
 
 const EXTENSION_STATE = new WeakMap<Editor, ExtensionState>()
 
@@ -295,60 +310,28 @@ const registerExtensionSlots = <TEditor extends Editor>(
   } satisfies EditorExtensionRegistrationContext<TEditor, any>
 
   const registerSlots = (slots: EditorExtensionRegistrationOutput<TEditor>) => {
-    if (slots.transforms?.deleteBackward) {
-      const middleware = slots.transforms.deleteBackward
+    for (const key of EDITOR_TRANSFORM_MIDDLEWARE_KEYS) {
+      const middleware = slots.transforms?.[key] as
+        | TransformMiddleware<TEditor, typeof key>
+        | undefined
+
+      if (!middleware) {
+        continue
+      }
 
       cleanups.push(
-        registerCommand<DeleteCommand>(editor, 'delete', (context, next) => {
-          if (context.command.direction !== 'backward') {
-            return next()
-          }
-
-          let delegated = false
-          let nextResult: EditorCommandResult = { handled: false }
-
-          const runNext = (
-            overrides: Partial<EditorDeleteBackwardTransformArgs> = {}
-          ) => {
-            if (delegated) {
-              throw new Error(
-                'Transform middleware next() cannot be called more than once.'
-              )
-            }
-
-            delegated = true
-            nextResult = next({
-              ...context.command,
-              unit: overrides.unit ?? context.command.unit,
-            })
-
-            return nextResult
-          }
-
-          const result = middleware({
-            editor,
-            next: runNext,
-            unit: context.command.unit,
-          })
-
-          return resolveTransformResult(result, delegated, nextResult)
-        })
-      )
-    }
-
-    if (slots.transforms?.insertText) {
-      const middleware = slots.transforms.insertText
-
-      cleanups.push(
-        registerCommand<InsertTextCommand>(
+        registerCommand<TransformMiddlewareCommand<TEditor, typeof key>>(
           editor,
-          'insert_text',
+          getTransformCommandType(key),
           (context, next) => {
+            const { type: _type, ...commandArgs } = context.command
             let delegated = false
             let nextResult: EditorCommandResult = { handled: false }
 
             const runNext = (
-              overrides: Partial<EditorInsertTextTransformArgs> = {}
+              overrides: Partial<
+                TransformMiddlewareArgs<TEditor, typeof key>
+              > = {}
             ) => {
               if (delegated) {
                 throw new Error(
@@ -359,18 +342,17 @@ const registerExtensionSlots = <TEditor extends Editor>(
               delegated = true
               nextResult = next({
                 ...context.command,
-                options: overrides.options ?? context.command.options,
-                text: overrides.text ?? context.command.text,
+                ...overrides,
+                type: context.command.type,
               })
 
               return nextResult
             }
 
             const result = middleware({
+              ...(commandArgs as TransformMiddlewareArgs<TEditor, typeof key>),
               editor,
               next: runNext,
-              options: context.command.options,
-              text: context.command.text,
             })
 
             return resolveTransformResult(result, delegated, nextResult)
@@ -411,6 +393,21 @@ const registerExtensionSlots = <TEditor extends Editor>(
 
     for (const middleware of slots.operationMiddlewares ?? []) {
       cleanups.push(registerOperationMiddleware(editor, middleware))
+    }
+
+    for (const [group, methods] of Object.entries(slots.queries ?? {})) {
+      for (const [method, middleware] of Object.entries(methods ?? {})) {
+        if (middleware) {
+          cleanups.push(
+            registerQueryMiddleware(
+              editor,
+              group as never,
+              method as never,
+              middleware as never
+            )
+          )
+        }
+      }
     }
 
     for (const groupName of Object.keys(slots.state ?? {})) {

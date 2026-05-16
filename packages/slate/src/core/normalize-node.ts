@@ -1,12 +1,15 @@
 import { node as getNode } from '../editor/node'
 import {
   type Descendant,
+  type EditorNormalizeNodeOptions,
+  type EditorNormalizerArgs,
   type Element,
   ElementApi,
   NodeApi,
   type NodeEntry,
   type Operation,
   TextApi,
+  type Value,
 } from '../interfaces'
 import { Editor } from '../interfaces/editor'
 import {
@@ -16,18 +19,12 @@ import {
   wrapNodes,
 } from '../transforms-node'
 import { getEditorSchema } from './editor-runtime'
+import { getExtensionRegistry } from './extension-registry'
 
 const resolveFallbackElement = (
-  fallbackElement: NormalizeNodeOptions['fallbackElement']
+  fallbackElement: EditorNormalizeNodeOptions['fallbackElement']
 ) =>
   typeof fallbackElement === 'function' ? fallbackElement() : fallbackElement
-
-type NormalizeNodeOptions = {
-  operation?: Operation
-  fallbackElement?: Element | (() => Element)
-  explicit?: boolean
-  force?: boolean
-}
 
 const getNodeChildren = (editor: Editor, node: Editor | Element) =>
   NodeApi.isEditor(node) ? Editor.getChildren(editor) : node.children
@@ -203,7 +200,7 @@ const isDirectChildPath = (
 
 const getBlockOnlyChildIndexesToValidate = (
   path: readonly number[],
-  operation?: import('../interfaces').Operation
+  operation?: Operation
 ) => {
   if (!operation) {
     return null
@@ -236,10 +233,10 @@ const getBlockOnlyChildIndexesToValidate = (
   }
 }
 
-export const normalizeNode = (
+const normalizeNodeDefault = (
   editor: Editor,
   entry: NodeEntry,
-  options: NormalizeNodeOptions = {}
+  options: EditorNormalizeNodeOptions = {}
 ) => {
   const { fallbackElement } = options
   const [node, path] = entry
@@ -426,4 +423,48 @@ export const normalizeNode = (
     })
     return
   }
+}
+
+export const normalizeNode = <V extends Value>(
+  editor: Editor<V>,
+  entry: NodeEntry,
+  options: EditorNormalizeNodeOptions<V> = {}
+) => {
+  const normalizers = [...getExtensionRegistry(editor).normalizers.values()]
+
+  if (normalizers.length === 0) {
+    normalizeNodeDefault(editor, entry, options)
+    return
+  }
+
+  const run = (index: number, currentArgs: EditorNormalizerArgs) => {
+    const normalizer = normalizers[index]
+
+    if (!normalizer) {
+      const { entry, ...nextOptions } = currentArgs
+
+      normalizeNodeDefault(editor, entry, nextOptions)
+      return
+    }
+
+    let delegated = false
+
+    normalizer({
+      ...currentArgs,
+      editor,
+      next(overrides = {}) {
+        if (delegated) {
+          throw new Error('Normalizer next() cannot be called more than once.')
+        }
+
+        delegated = true
+        run(index + 1, {
+          ...currentArgs,
+          ...overrides,
+        })
+      },
+    })
+  }
+
+  run(0, { ...options, entry })
 }

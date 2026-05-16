@@ -1,4 +1,9 @@
-import { createEditor, defineEditorExtension, type Value } from 'slate'
+import {
+  createEditor,
+  defineEditorExtension,
+  type EditorPublicTransformMiddlewareKey,
+  type Value,
+} from 'slate'
 
 type CustomText = {
   text: string
@@ -18,6 +23,53 @@ type ImageElement = {
 }
 
 type CustomValue = (ParagraphElement | ImageElement)[]
+
+type AssertNever<T extends never> = T
+
+const acceptedTransformMiddlewareKeys = [
+  'addMark',
+  'collapse',
+  'delete',
+  'deleteBackward',
+  'deleteForward',
+  'deleteFragment',
+  'deselect',
+  'insertBreak',
+  'insertFragment',
+  'insertNode',
+  'insertNodes',
+  'insertSoftBreak',
+  'insertText',
+  'liftNodes',
+  'mergeNodes',
+  'move',
+  'moveNodes',
+  'removeMark',
+  'removeNodes',
+  'select',
+  'setNodes',
+  'setPoint',
+  'setSelection',
+  'splitNodes',
+  'toggleMark',
+  'unsetNodes',
+  'unwrapNodes',
+  'wrapNodes',
+] as const satisfies readonly EditorPublicTransformMiddlewareKey[]
+
+type AcceptedTransformMiddlewareKey =
+  (typeof acceptedTransformMiddlewareKeys)[number]
+type MissingTransformMiddlewareKey = Exclude<
+  EditorPublicTransformMiddlewareKey,
+  AcceptedTransformMiddlewareKey
+>
+type ExtraTransformMiddlewareKey = Exclude<
+  AcceptedTransformMiddlewareKey,
+  EditorPublicTransformMiddlewareKey
+>
+type _NoMissingTransformMiddlewareKey =
+  AssertNever<MissingTransformMiddlewareKey>
+type _NoExtraTransformMiddlewareKey = AssertNever<ExtraTransformMiddlewareKey>
 
 declare module 'slate' {
   interface EditorStateExtensionGroups<V extends Value = Value> {
@@ -193,6 +245,14 @@ defineEditorExtension<typeof editor>({
     },
   ],
   name: 'bad-command-namespace',
+})
+
+defineEditorExtension<typeof editor>({
+  name: 'bad-engine-transform',
+  transforms: {
+    // @ts-expect-error engine controls are not transform middleware keys
+    normalize() {},
+  },
 })
 
 editor.extend(extension)
