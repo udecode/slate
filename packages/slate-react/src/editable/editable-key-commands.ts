@@ -1,6 +1,6 @@
 import type React from 'react'
 import type { Range } from 'slate'
-import type { EditableInputRuleResult } from '../components/editable'
+import type { EditableHandlerResult } from '../components/editable'
 import type { ReactEditor } from '../plugin/react-editor'
 import { type Editor, getEditorExtensionRegistry } from './runtime-editor-api'
 
@@ -14,7 +14,7 @@ export type EditableKeyCommandContext = {
 
 export type EditableKeyCommand = (
   context: EditableKeyCommandContext
-) => EditableInputRuleResult
+) => EditableHandlerResult
 
 export const editableKeyCommands = (
   ...commands: readonly EditableKeyCommand[]

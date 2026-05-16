@@ -19,9 +19,7 @@ export type {
   EditableCommandHandler,
   EditableDOMBeforeInputContext,
   EditableDOMBeforeInputHandler,
-  EditableInputRule,
-  EditableInputRuleContext,
-  EditableInputRuleResult,
+  EditableHandlerResult,
   EditableKeyDownContext,
   EditableKeyDownHandler,
   EditableRenderingStrategyCohort,
@@ -72,10 +70,6 @@ export {
   type SlateDecorationSourceOptions,
   type SlateDecorationSourceReadContext,
 } from './decoration-source'
-export {
-  EDITABLE_INPUT_RULE_CAPABILITY,
-  editableInputRules,
-} from './editable/editable-input-rules'
 export {
   EDITABLE_KEY_COMMAND_CAPABILITY,
   type EditableKeyCommand,

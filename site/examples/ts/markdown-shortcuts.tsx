@@ -8,7 +8,6 @@ import {
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  editableInputRules,
   type RenderElementProps,
   Slate,
   useSlateEditor,
@@ -114,12 +113,14 @@ const MarkdownShortcutsExample = () => {
 
 const withMarkdownShortcuts = (editor: CustomEditor) => {
   editor.extend({
-    capabilities: editableInputRules(({ data, editor, inputType }) => {
-      if (inputType === 'insertText' && typeof data === 'string') {
-        return applyMarkdownTextShortcut(editor as CustomEditor, data)
-      }
-    }),
     name: 'markdown-shortcuts',
+    transforms: {
+      insertText({ editor, next, text }) {
+        if (applyMarkdownTextShortcut(editor as CustomEditor, text)) return
+
+        next()
+      },
+    },
   })
 
   return editor

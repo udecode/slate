@@ -86,7 +86,6 @@ export interface RenderTextProps {
 
 export type EditableDOMRootProps = {
   children?: React.ReactNode
-  inputRules?: readonly EditableInputRule[]
   renderingStrategy?: {
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
@@ -189,19 +188,7 @@ const getEditableRenderingStrategyDOMMetrics = ({
   }
 }
 
-export type EditableInputRuleContext = {
-  data: unknown
-  editor: ReactEditor
-  event?: InputEvent
-  inputType: string
-  selection: Range | null
-}
-
-export type EditableInputRuleResult = boolean | EditableRepairRequest | void
-
-export type EditableInputRule = (
-  context: EditableInputRuleContext
-) => EditableInputRuleResult
+export type EditableHandlerResult = boolean | EditableRepairRequest | void
 
 export type EditableCommandContext = {
   data: unknown
@@ -216,7 +203,7 @@ export type EditableCommandContext = {
 export type EditableCommandHandler = (
   command: EditableCommand,
   context: EditableCommandContext
-) => EditableInputRuleResult
+) => EditableHandlerResult
 
 export type EditableDOMBeforeInputContext = EditableCommandContext & {
   command: EditableCommand | null
@@ -227,7 +214,7 @@ export type EditableDOMBeforeInputContext = EditableCommandContext & {
 export type EditableDOMBeforeInputHandler = (
   event: InputEvent,
   context: EditableDOMBeforeInputContext
-) => EditableInputRuleResult
+) => EditableHandlerResult
 
 export type EditableKeyDownContext = {
   editor: ReactEditor
@@ -236,7 +223,7 @@ export type EditableKeyDownContext = {
 export type EditableKeyDownHandler = (
   event: React.KeyboardEvent<HTMLDivElement>,
   context: EditableKeyDownContext
-) => EditableInputRuleResult
+) => EditableHandlerResult
 
 /**
  * Editable.
@@ -249,7 +236,6 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
   const {
     autoFocus,
     children: customChildren,
-    inputRules,
     renderingStrategy = null,
     renderingStrategyMetrics = null,
     onKeyDown: propsOnKeyDown,
@@ -269,7 +255,6 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     callbacks: attributes,
     editor,
     forwardedRef,
-    inputRules,
     renderingStrategy,
     onDOMBeforeInput: propsOnDOMBeforeInput,
     onCommand,

@@ -12,7 +12,6 @@ import { type DOMRange, IS_READ_ONLY } from 'slate-dom'
 import type {
   EditableCommandHandler,
   EditableDOMBeforeInputHandler,
-  EditableInputRule,
   EditableKeyDownHandler,
 } from '../components/editable'
 import { useFlushDeferredSelectorsOnRender } from '../hooks/use-editor-selector'
@@ -22,7 +21,6 @@ import type { MountedTopLevelRange } from '../rendering-strategy/rendering-strat
 import { isSelectionShellBacked } from '../rendering-strategy/rendering-strategy-commands'
 import { usePendingInsertionMarksEffect } from './composition-state'
 import type { DOMRepairQueue } from './dom-repair-queue'
-import { getEditableInputRules } from './editable-input-rules'
 import {
   createEditableInputController,
   createEditableInputControllerState,
@@ -97,7 +95,6 @@ export const useEditableRootRuntime = ({
   callbacks,
   editor,
   forwardedRef,
-  inputRules,
   renderingStrategy,
   onDOMBeforeInput,
   onCommand,
@@ -109,7 +106,6 @@ export const useEditableRootRuntime = ({
   callbacks: EditableRootCallbackProps
   editor: ReactEditor
   forwardedRef?: ForwardedRef<HTMLDivElement>
-  inputRules?: readonly EditableInputRule[]
   renderingStrategy: {
     type: 'staged' | 'shell' | 'virtualized'
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
@@ -140,10 +136,6 @@ export const useEditableRootRuntime = ({
     () => ({
       current: null,
     })
-  )
-  const effectiveInputRules = useMemo(
-    () => getEditableInputRules(editor, inputRules),
-    [editor, inputRules]
   )
   const processing = useRef(false)
   const { onUserInput, receivedUserInput } = useTrackUserInput()
@@ -261,56 +253,7 @@ export const useEditableRootRuntime = ({
     editor,
     inputController,
   })
-  const applyInputRules = useCallback(
-    ({
-      data,
-      event,
-      inputType,
-      selection,
-    }: {
-      data: unknown
-      event?: InputEvent
-      inputType: string
-      selection: Range | null
-    }) => {
-      if (!effectiveInputRules.length) {
-        return false
-      }
-
-      for (const rule of effectiveInputRules) {
-        const result = rule({
-          data,
-          editor,
-          event,
-          inputType,
-          selection,
-        })
-
-        if (!result) {
-          continue
-        }
-
-        event?.preventDefault()
-        repairRuntime.requestEditableRepair(
-          result === true
-            ? {
-                focus: true,
-                kind: 'repair-caret',
-                selectionSourceTransition: {
-                  preferModelSelection: true,
-                  reason: 'model-command',
-                  selectionSource: 'model-owned',
-                },
-              }
-            : result
-        )
-        return true
-      }
-
-      return false
-    },
-    [editor, effectiveInputRules, repairRuntime]
-  )
+  const applyInputRules = useCallback(() => false, [])
 
   const eventRuntime = useEditableEventRuntime({
     androidInputManagerRef,

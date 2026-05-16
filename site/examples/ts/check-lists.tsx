@@ -4,13 +4,11 @@ import {
   NodeApi,
   PointApi,
   RangeApi,
-  type Selection,
   type Element as SlateElement,
 } from 'slate'
 import { withHistory } from 'slate-history'
 import {
   Editable,
-  editableInputRules,
   type ReactEditor,
   type RenderElementProps,
   Slate,
@@ -88,23 +86,22 @@ const CheckListsExample = () => {
 
 const withChecklists = <T extends ReactEditor<CustomValue>>(editor: T): T => {
   editor.extend({
-    capabilities: editableInputRules(({ editor, inputType, selection }) => {
-      if (inputType !== 'deleteContentBackward') {
-        return
-      }
-
-      return applyChecklistBackspaceStart(editor, selection)
-    }),
     name: 'checklists',
+    transforms: {
+      deleteBackward({ editor, next }) {
+        if (applyChecklistBackspaceStart(editor)) return
+
+        next()
+      },
+    },
   })
 
   return editor
 }
 
-const applyChecklistBackspaceStart = (
-  editor: ReactEditor,
-  selection: Selection
-) => {
+const applyChecklistBackspaceStart = (editor: ReactEditor) => {
+  const selection = editor.read((state) => state.selection.get())
+
   if (!selection || !RangeApi.isCollapsed(selection)) {
     return false
   }

@@ -8,7 +8,6 @@ import { withHistory } from 'slate-history'
 import * as SlateReact from 'slate-react'
 import {
   Editable,
-  editableInputRules,
   type RenderElementProps,
   type RenderLeafProps,
   useEditor,
@@ -126,18 +125,16 @@ const withInlines = (editor: CustomEditor) => {
 
   editor.extend({
     capabilities: {
-      ...editableInputRules(({ data, editor, inputType }) => {
-        if (
-          inputType === 'insertText' &&
-          typeof data === 'string' &&
-          isUrl(data)
-        ) {
-          return wrapLink(editor as CustomEditor, data)
-        }
-      }),
       'dom.clipboard.insertData': insertData,
     },
     name: 'inlines',
+    transforms: {
+      insertText({ editor, next, text }) {
+        if (isUrl(text) && wrapLink(editor as CustomEditor, text)) return
+
+        next()
+      },
+    },
     elements: [
       { inline: true, type: 'link' },
       { inline: true, type: 'button' },

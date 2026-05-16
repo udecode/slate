@@ -1,12 +1,18 @@
 import type {
   BaseEditor,
   Editor,
+  EditorCommandResult,
+  EditorDeleteBackwardTransformArgs,
   EditorExtension,
   EditorExtensionInput,
   EditorExtensionRegistrationContext,
   EditorExtensionRegistrationOutput,
   EditorExtensionRuntimeState,
+  EditorInsertTextTransformArgs,
 } from '../interfaces/editor'
+import type { TextInsertTextOptions } from '../interfaces/transforms/text'
+import type { TextUnit } from '../types/types'
+import { registerCommand } from './command-registry'
 import {
   getExtensionRegistry,
   registerCapability,
@@ -27,6 +33,18 @@ type ExtensionRecord = {
 
 type ExtensionState = {
   records: Map<string, ExtensionRecord>
+}
+
+type DeleteCommand = {
+  direction: 'backward' | 'forward'
+  type: 'delete'
+  unit: TextUnit
+}
+
+type InsertTextCommand = {
+  options?: TextInsertTextOptions
+  text: string
+  type: 'insert_text'
 }
 
 const EXTENSION_STATE = new WeakMap<Editor, ExtensionState>()
@@ -108,6 +126,18 @@ const createRuntimeState = <TValue>(
           : value
     },
   }
+}
+
+const resolveTransformResult = (
+  result: EditorCommandResult | void,
+  delegated: boolean,
+  nextResult: EditorCommandResult
+): EditorCommandResult => {
+  if (result) {
+    return result
+  }
+
+  return delegated ? nextResult : { handled: true }
 }
 
 const hasExtensionNamed = (
@@ -265,6 +295,90 @@ const registerExtensionSlots = <TEditor extends Editor>(
   } satisfies EditorExtensionRegistrationContext<TEditor, any>
 
   const registerSlots = (slots: EditorExtensionRegistrationOutput<TEditor>) => {
+    if (slots.transforms?.deleteBackward) {
+      const middleware = slots.transforms.deleteBackward
+
+      cleanups.push(
+        registerCommand<DeleteCommand>(editor, 'delete', (context, next) => {
+          if (context.command.direction !== 'backward') {
+            return next()
+          }
+
+          let delegated = false
+          let nextResult: EditorCommandResult = { handled: false }
+
+          const runNext = (
+            overrides: Partial<EditorDeleteBackwardTransformArgs> = {}
+          ) => {
+            if (delegated) {
+              throw new Error(
+                'Transform middleware next() cannot be called more than once.'
+              )
+            }
+
+            delegated = true
+            nextResult = next({
+              ...context.command,
+              unit: overrides.unit ?? context.command.unit,
+            })
+
+            return nextResult
+          }
+
+          const result = middleware({
+            editor,
+            next: runNext,
+            unit: context.command.unit,
+          })
+
+          return resolveTransformResult(result, delegated, nextResult)
+        })
+      )
+    }
+
+    if (slots.transforms?.insertText) {
+      const middleware = slots.transforms.insertText
+
+      cleanups.push(
+        registerCommand<InsertTextCommand>(
+          editor,
+          'insert_text',
+          (context, next) => {
+            let delegated = false
+            let nextResult: EditorCommandResult = { handled: false }
+
+            const runNext = (
+              overrides: Partial<EditorInsertTextTransformArgs> = {}
+            ) => {
+              if (delegated) {
+                throw new Error(
+                  'Transform middleware next() cannot be called more than once.'
+                )
+              }
+
+              delegated = true
+              nextResult = next({
+                ...context.command,
+                options: overrides.options ?? context.command.options,
+                text: overrides.text ?? context.command.text,
+              })
+
+              return nextResult
+            }
+
+            const result = middleware({
+              editor,
+              next: runNext,
+              options: context.command.options,
+              text: context.command.text,
+            })
+
+            return resolveTransformResult(result, delegated, nextResult)
+          }
+        )
+      )
+    }
+
     for (const [name, value] of Object.entries(slots.capabilities ?? {})) {
       const values = Array.isArray(value) ? value : [value]
 

@@ -4,11 +4,9 @@ import { Editor } from 'slate/internal'
 import {
   defaultScrollSelectionIntoView,
   Editable,
-  editableInputRules,
   Slate,
   withReact,
 } from '../src'
-import { getEditableInputRules } from '../src/editable/editable-input-rules'
 
 describe('slate-react editable behavior', () => {
   test('renders initial editor children into the editable DOM', () => {
@@ -243,23 +241,6 @@ describe('slate-react editable behavior', () => {
 
     expect(onCommand).toHaveBeenCalledTimes(1)
     expect(event.defaultPrevented).toBe(true)
-  })
-
-  test('Editable reads input rules from editor extension capabilities', () => {
-    const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
-    const editor = withReact(createEditor({ initialValue }))
-    const propRule = jest.fn()
-    const extensionRule = jest.fn()
-
-    editor.extend({
-      capabilities: editableInputRules(extensionRule),
-      name: 'test-input-rules',
-    })
-
-    expect(getEditableInputRules(editor, [propRule])).toEqual([
-      propRule,
-      extensionRule,
-    ])
   })
 
   test('default scroll restores leaf measurement after scrolling a collapsed range', () => {

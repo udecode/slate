@@ -211,6 +211,76 @@ describe('extension method hard cut', () => {
     )
   })
 
+  it('extension transform middleware can delegate and override insertText args', () => {
+    const editor = createEditor()
+    const seenText: string[] = []
+
+    Editor.replace(editor, {
+      children: [{ type: 'paragraph', children: [{ text: 'one' }] }],
+      selection: {
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 3 },
+      },
+      marks: null,
+    })
+
+    editor.extend(
+      defineEditorExtension({
+        name: 'insert-text-transform',
+        transforms: {
+          insertText({ next, text }) {
+            seenText.push(text)
+
+            if (text === '?') {
+              next({ text: '!' })
+              return
+            }
+
+            next()
+          },
+        },
+      })
+    )
+
+    editor.update(() => {
+      Editor.insertText(editor, '!')
+      Editor.insertText(editor, '?')
+    })
+
+    assert.deepEqual(seenText, ['!', '?'])
+    assert.equal(Editor.string(editor, [0]), 'one!!')
+  })
+
+  it('extension transform middleware handles deleteBackward by not calling next', () => {
+    const editor = createEditor()
+    const seenUnits: string[] = []
+
+    Editor.replace(editor, {
+      children: [{ type: 'paragraph', children: [{ text: 'one' }] }],
+      selection: {
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 3 },
+      },
+      marks: null,
+    })
+
+    editor.extend(
+      defineEditorExtension({
+        name: 'delete-backward-transform',
+        transforms: {
+          deleteBackward({ unit }) {
+            seenUnits.push(unit)
+          },
+        },
+      })
+    )
+
+    Editor.deleteBackward(editor)
+
+    assert.deepEqual(seenUnits, ['character'])
+    assert.equal(Editor.string(editor, [0]), 'one')
+  })
+
   it('validates peer dependencies and conflicts before mutating the editor', () => {
     const editor = createEditor()
     const missingPeer = defineEditorExtension({

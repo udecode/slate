@@ -71,7 +71,6 @@ import {
   type EditableCommandHandler,
   type EditableDOMBeforeInputHandler,
   EditableDOMRoot,
-  type EditableInputRule,
   type EditableKeyDownHandler,
   type EditableRenderingStrategyCohort,
   type EditableRenderingStrategyMetrics,
@@ -588,7 +587,6 @@ export type EditableTextBlocksProps<
   decorate?: EditableDecorate<T>
   disableDefaultStyles?: boolean
   id?: string
-  inputRules?: readonly EditableInputRule[]
   /**
    * Rendering strategy for large documents. `virtualized` is experimental and
    * must use the object form: `{ type: 'virtualized', ... }`.
@@ -1366,7 +1364,6 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   disableDefaultStyles = false,
   enableVirtualizedRendering = false,
   id,
-  inputRules,
   renderingStrategy,
   onBeforeInput,
   onDOMBeforeInput,
@@ -1882,7 +1879,6 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
         className={className}
         disableDefaultStyles={disableDefaultStyles}
         id={id}
-        inputRules={inputRules}
         onCommand={onCommand}
         onDOMBeforeInput={domBeforeInputHandler}
         onKeyDown={onKeyDown}

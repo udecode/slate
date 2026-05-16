@@ -617,6 +617,44 @@ export interface EditorTransformApi<V extends Value = Value> {
   ) => void
 }
 
+export type EditorTransformNext<TArgs extends object> = (
+  overrides?: Partial<TArgs>
+) => EditorCommandResult
+
+export type EditorTransformMiddlewareContext<
+  TEditor extends BaseEditor<any>,
+  TArgs extends object,
+> = TArgs & {
+  editor: TEditor
+  next: EditorTransformNext<TArgs>
+}
+
+export type EditorDeleteBackwardTransformArgs = {
+  unit: TextUnit
+}
+
+export type EditorInsertTextTransformArgs = {
+  options?: TextInsertTextOptions
+  text: string
+}
+
+export type EditorTransformMiddlewareMap<
+  TEditor extends BaseEditor<any> = Editor,
+> = {
+  deleteBackward?: (
+    context: EditorTransformMiddlewareContext<
+      TEditor,
+      EditorDeleteBackwardTransformArgs
+    >
+  ) => EditorCommandResult | void
+  insertText?: (
+    context: EditorTransformMiddlewareContext<
+      TEditor,
+      EditorInsertTextTransformArgs
+    >
+  ) => EditorCommandResult | void
+}
+
 export type EditorTransformRegistry<V extends Value = Value> =
   EditorTransformApi<V>
 
@@ -890,6 +928,7 @@ export type EditorExtensionRegistrationOutput<
   normalizers?: Record<string, unknown>
   operationMiddlewares?: readonly EditorOperationMiddleware<TEditor>[]
   state?: EditorExtensionStateGroups<TEditor>
+  transforms?: EditorTransformMiddlewareMap<TEditor>
   tx?: EditorExtensionTxGroups<TEditor>
 }
 
@@ -912,6 +951,7 @@ export type EditorExtension<
     context: EditorExtensionRegistrationContext<TEditor, TOptions>
   ) => EditorExtensionRegistrationOutput<TEditor> | void
   state?: EditorExtensionStateGroups<TEditor>
+  transforms?: EditorTransformMiddlewareMap<TEditor>
   tx?: EditorExtensionTxGroups<TEditor>
 }
 
