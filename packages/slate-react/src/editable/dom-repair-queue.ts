@@ -4,7 +4,7 @@ import {
   getSlateNodeElementByPath,
   getSlateNodePathFromDOMElement,
 } from '../hooks/use-slate-node-ref'
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import type { EditableRepairPolicy } from './editing-kernel'
 import {
   getCurrentEditableEventFrame,
@@ -70,9 +70,12 @@ export const createDOMRepairQueue = ({
   inputController,
   scrollSelectionIntoView,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
-  scrollSelectionIntoView: (editor: ReactEditor, domRange: DOMRange) => void
+  scrollSelectionIntoView: (
+    editor: ReactRuntimeEditor,
+    domRange: DOMRange
+  ) => void
   syncDOMSelectionToEditor: () => void
 }): DOMRepairQueue => {
   const frameState = createDOMRepairFrameState()

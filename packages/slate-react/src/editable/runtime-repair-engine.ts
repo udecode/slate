@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useReducer } from 'react'
 import { EDITOR_TO_FORCE_RENDER } from 'slate-dom'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { createDOMRepairQueue } from './dom-repair-queue'
 import type { EditableInputController } from './input-state'
 import {
@@ -14,7 +14,7 @@ export const useRuntimeRepairEngine = ({
   scrollSelectionIntoView,
   syncDOMSelectionToEditor,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
   scrollSelectionIntoView: Parameters<
     typeof createDOMRepairQueue

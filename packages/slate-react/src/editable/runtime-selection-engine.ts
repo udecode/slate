@@ -2,7 +2,7 @@ import debounce from 'lodash/debounce'
 import throttle from 'lodash/throttle'
 import type { RefObject } from 'react'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import {
   beginEditableEventFrame,
@@ -37,7 +37,7 @@ export const createRuntimeSelectionChangeHandler = ({
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
   domRepairQueueRef: RefObject<DOMRepairQueue | null>
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
   processing: RefObject<boolean>
   readOnly: boolean
@@ -129,7 +129,7 @@ export const createRuntimeSelectionImportController = ({
   onDOMSelectionChange,
   scheduleOnDOMSelectionChange,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
   onDOMSelectionChange: RuntimeSelectionChangeHandler
   scheduleOnDOMSelectionChange: RuntimeSelectionChangeHandler

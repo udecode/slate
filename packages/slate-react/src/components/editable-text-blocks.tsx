@@ -53,7 +53,7 @@ import { useEditor } from '../hooks/use-editor'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { useMountedNodeRenderSelector } from '../hooks/use-node-selector'
 import { useSlateNodeRef } from '../hooks/use-slate-node-ref'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { ProjectionContext } from '../projection-context'
 import { recordSlateReactRender } from '../render-profiler'
 import type { RenderingStrategyOptions } from '../rendering-strategy/create-segment-plan'
@@ -347,7 +347,7 @@ const EditableRenderedElement = <
   props: EditableRenderElementProps<TElement>
   renderElement: RenderElementRenderer<TElement>
 }) => {
-  const editor = useEditor<ReactEditor>()
+  const editor = useEditor<ReactRuntimeEditor>()
   const rendered = renderElement(props)
 
   useIsomorphicLayoutEffect(() => {
@@ -395,7 +395,7 @@ const getFirstTextPath = (node: Descendant, path: Path): Path | null => {
 const assertRenderedElementChildrenHaveDOMOrCoverage = <
   TElement extends SlateElementNode,
 >(
-  editor: ReactEditor,
+  editor: ReactRuntimeEditor,
   { element, path }: { element: TElement; path: Path }
 ) => {
   element.children.forEach((child, index) => {

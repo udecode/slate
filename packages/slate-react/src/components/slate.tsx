@@ -23,10 +23,10 @@ import {
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { SlateAnnotationStoreContext } from '../hooks/use-slate-annotations'
 import { syncTextOperationsToDOM } from '../hooks/use-slate-node-ref'
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import type {
   ReactEditorContextValue,
-  ReactEditorInstance,
+  ReactEditor as ReactEditorType,
 } from '../plugin/with-react'
 import { ProjectionContext } from '../projection-context'
 import { recordSlateReactRender } from '../render-profiler'
@@ -68,7 +68,7 @@ export type SlateProps<
   V extends Value = Value,
   TExtensions extends readonly unknown[] = readonly unknown[],
 > = {
-  editor: ReactEditorInstance<V, TExtensions>
+  editor: ReactEditorType<V, TExtensions>
   annotationStore?: SlateAnnotationStore<any, any> | null
   children: React.ReactNode
   decorationSources?: readonly SlateDecorationSource<any>[] | null
@@ -105,7 +105,7 @@ export const Slate = <
     throw new Error('[Slate] editor is invalid!')
   }
 
-  const reactEditor = editor as unknown as ReactEditor<V>
+  const reactEditor = editor as unknown as ReactRuntimeEditor<V>
   const { selectorContext, onChange: handleSelectorChange } =
     useEditorSelectorContext()
   const lastOperationCountRef = useRef(

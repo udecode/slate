@@ -1,5 +1,5 @@
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { resolveEditableImplicitTarget } from './input-controller'
 import type { EditableInputController } from './input-state'
 import { writeTargetRuntime } from './runtime-mutation-state'
@@ -9,7 +9,7 @@ export const useRuntimeTargetBridge = ({
   inputController,
   syncDOMSelectionToEditor,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
   syncDOMSelectionToEditor: () => void
 }) => {

@@ -29,7 +29,7 @@ import {
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { getInputEventTargetRanges } from './dom-input-event'
 import {
   type EditableInputController,
@@ -224,7 +224,7 @@ export const applyEditableBlur = ({
   readOnly,
   state,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: FocusEvent<HTMLDivElement>
   onBlur?: EditableFocusHandler
   readOnly: boolean
@@ -304,7 +304,7 @@ export const applyEditableFocus = ({
   readOnly,
   state,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: FocusEvent<HTMLDivElement>
   onFocus?: EditableFocusHandler
   readOnly: boolean
@@ -336,7 +336,7 @@ export const applyEditableFocus = ({
 }
 
 const resolveEditableClickTarget = (
-  editor: ReactEditor,
+  editor: ReactRuntimeEditor,
   target: EventTarget
 ) => {
   if (!isDOMNode(target)) {
@@ -391,7 +391,7 @@ const resolveEditableClickTarget = (
 }
 
 const resolveEditableVoidClickTarget = (
-  editor: ReactEditor,
+  editor: ReactRuntimeEditor,
   target: EventTarget
 ) => {
   const resolvedTarget = resolveEditableClickTarget(editor, target)
@@ -412,7 +412,7 @@ const preferModelSelectionForVoidTarget = ({
   inputController,
   target,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
   target: EventTarget | null
 }) => {
@@ -440,7 +440,7 @@ export const applyEditableClick = ({
   inputController,
   readOnly,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: MouseEvent<HTMLDivElement>
   inputController: EditableInputController
   onClick?: EditableMouseHandler
@@ -525,7 +525,7 @@ export const applyEditableMouseDown = ({
   inputController,
   onMouseDown,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: MouseEvent<HTMLDivElement>
   inputController: EditableInputController
   onMouseDown?: EditableMouseHandler
@@ -584,7 +584,7 @@ export const syncSelectionForBeforeInput = ({
 }: {
   allowDOMSelectionImport?: boolean
   data: unknown
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   editorElement: HTMLElement
   event: InputEvent
   inputType: string
@@ -728,7 +728,7 @@ export const syncSelectionForBeforeInput = ({
 export const restoreUserSelectionAfterBeforeInput = ({
   editor,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
 }) => {
   // Restore the actual user section if nothing manually set it.
   const toRestore = EDITOR_TO_USER_SELECTION.get(editor)?.unref()
@@ -752,7 +752,7 @@ export const handleWebKitShadowDOMBeforeInput = ({
   root,
   window,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: InputEvent
   processing: RefObject<boolean>
   root: globalThis.Node
@@ -802,10 +802,13 @@ export const useEditableSelectionReconciler = ({
   state,
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
   rootRef: RefObject<HTMLDivElement | null>
-  scrollSelectionIntoView: (editor: ReactEditor, domRange: DOMRange) => void
+  scrollSelectionIntoView: (
+    editor: ReactRuntimeEditor,
+    domRange: DOMRange
+  ) => void
   shellBackedSelection: boolean
   state: EditableSelectionReconcilerState
 }) => {

@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useMemo, useRef } from 'react'
 import type { Operation, Path, RuntimeId, SnapshotChange } from 'slate'
 import { NodeApi } from 'slate'
 import { useEditorSelector } from '../hooks/use-editor-selector'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
 import { createSegmentPlan } from '../rendering-strategy/create-segment-plan'
 
@@ -94,7 +94,7 @@ const sameRuntimeIds = (
   left.length === right.length &&
   left.every((runtimeId, index) => runtimeId === right[index])
 
-const selectRootRuntimeIds = (editor: ReactEditor) => {
+const selectRootRuntimeIds = (editor: ReactRuntimeEditor) => {
   return editor.read((state) => {
     return state.value
       .get()
@@ -122,7 +122,7 @@ export const useRootRuntimeIds = () =>
 export const useRootDocumentEpoch = () => {
   const lastEpochRef = useRef(0)
   const selector = useCallback(
-    (editor: ReactEditor) =>
+    (editor: ReactRuntimeEditor) =>
       editor.read((state) => {
         const commit = state.value.lastCommit()
 
@@ -143,7 +143,7 @@ export const useRootDocumentEpoch = () => {
 
 export const useTopLevelSelectionIndex = (enabled: boolean) => {
   const selector = useCallback(
-    (editor: ReactEditor) => {
+    (editor: ReactRuntimeEditor) => {
       if (!enabled) {
         return null
       }
@@ -174,7 +174,7 @@ export const useTopLevelSelectionIndex = (enabled: boolean) => {
 
 export const usePlaceholderValue = (placeholder?: ReactNode) => {
   const selector = useCallback(
-    (editor: ReactEditor) =>
+    (editor: ReactRuntimeEditor) =>
       editor.read(
         (state) =>
           placeholder &&
@@ -195,7 +195,7 @@ export const usePlaceholderValue = (placeholder?: ReactNode) => {
 
 export const useEditableRootCommitWakeup = () => {
   useEditorSelector(
-    (editor: ReactEditor) =>
+    (editor: ReactRuntimeEditor) =>
       editor.read((state) => state.value.lastCommit()?.version ?? 0),
     Object.is,
     {

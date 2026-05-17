@@ -1,5 +1,5 @@
 import { type RefObject, useMemo } from 'react'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import type { EditableInputController } from './input-controller'
 import type { RuntimeAndroidInputManager } from './runtime-android-engine'
@@ -21,7 +21,7 @@ export const useEditableRootSelectionImport = ({
     RuntimeAndroidInputManager | null | undefined
   >
   domRepairQueueRef: RefObject<DOMRepairQueue | null>
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
   processing: RefObject<boolean>
   readOnly: boolean

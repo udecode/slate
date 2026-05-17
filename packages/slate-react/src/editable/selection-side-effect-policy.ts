@@ -1,9 +1,9 @@
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 
-const getLastCommit = (editor: ReactEditor) =>
+const getLastCommit = (editor: ReactRuntimeEditor) =>
   editor.read((state) => state.value.lastCommit())
 
-export const shouldSkipSelectionScroll = (editor: ReactEditor) => {
+export const shouldSkipSelectionScroll = (editor: ReactRuntimeEditor) => {
   const commit = getLastCommit(editor)
 
   return Boolean(
@@ -12,7 +12,7 @@ export const shouldSkipSelectionScroll = (editor: ReactEditor) => {
   )
 }
 
-export const shouldSkipSelectionFocus = (editor: ReactEditor) => {
+export const shouldSkipSelectionFocus = (editor: ReactRuntimeEditor) => {
   const commit = getLastCommit(editor)
 
   return Boolean(

@@ -6,7 +6,7 @@ import type {
   EditableDOMBeforeInputContext,
   EditableDOMBeforeInputHandler,
 } from '../components/editable'
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
 import { shouldSkipDuplicateEditableEditingEpochCommand } from './editing-epoch-kernel'
 import { prepareEditableBeforeInputKernel } from './editing-kernel'
@@ -153,7 +153,7 @@ export const useRuntimeBeforeInputEvents = ({
   androidInputManagerRef: EditableEventRuntime['android']['managerRef']
   applyInputRules: ApplyInputRules
   deferredOperations: RefObject<DeferredOperation[]>
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   handledDOMBeforeInputRef: RefObject<boolean>
   inputController: EditableInputController
   onBeforeInput?: ReactBeforeInputHandler

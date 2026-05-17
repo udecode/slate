@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import type { Editor } from 'slate'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import {
   type EditableCompositionStateSetter,
   setEditableComposingState,
@@ -12,7 +12,7 @@ export const useRuntimeCompositionEngine = ({
   inputController,
   setIsComposing,
 }: {
-  editor: Editor | ReactEditor
+  editor: Editor | ReactRuntimeEditor
   inputController: EditableInputController
   setIsComposing: EditableCompositionStateSetter
 }) =>

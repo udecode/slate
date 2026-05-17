@@ -1,5 +1,5 @@
 import { type FocusEvent, type MouseEvent, useCallback, useRef } from 'react'
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { prepareEditableFocusMouseKernel } from './editing-kernel'
 import {
   isInteractiveInternalTarget,
@@ -37,7 +37,7 @@ export const useRuntimeFocusMouseEvents = ({
   syncDOMSelectionToEditor,
   trace,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
   onBlur?: FocusHandler
   onClick?: MouseHandler

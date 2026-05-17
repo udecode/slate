@@ -1,9 +1,6 @@
 import { createEditor } from 'slate'
 import { describe, expect, it, vi } from 'vitest'
-import {
-  editableKeyCommands,
-  type ReactEditor as ReactEditorType,
-} from '../src'
+import { editableKeyCommands } from '../src'
 
 import {
   applyEditableKeyDown,

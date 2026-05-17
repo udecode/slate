@@ -147,7 +147,7 @@ export {
   type CreateReactEditorOptions,
   createReactEditor,
   type ReactApi,
-  type ReactEditorInstance,
+  type ReactEditor,
   type ReactEditorOptions,
   react,
 } from './plugin/with-react'

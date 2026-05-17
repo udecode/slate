@@ -1,9 +1,9 @@
 import {
   createEditor,
+  defineEditorExtension,
   type Operation,
   type Node as SlateNode,
   type SnapshotChange,
-  type Value,
   type ValueOf,
 } from 'slate'
 import { history } from 'slate-history'
@@ -11,6 +11,7 @@ import * as SlateReact from 'slate-react'
 import {
   createReactEditor,
   type EditorSelectorOptions,
+  type ReactEditor,
   react,
   useEditorSelector,
   useSlateEditor,
@@ -47,6 +48,15 @@ const ReactExtension = react()
 const _reactExtensionName: 'react' = ReactExtension.name
 const HistoryExtension = history()
 const _historyExtensionName: 'history' = HistoryExtension.name
+const DisabledHistoryExtension = history({ enabled: false })
+const CustomApiExtension = defineEditorExtension({
+  name: 'custom-api',
+  capabilities: {
+    customApi: {
+      ping: () => 'pong' as const,
+    },
+  },
+})
 const baseEditor = createEditor({ initialValue })
 const historyOnlyEditor = createEditor({
   extensions: [HistoryExtension],
@@ -66,7 +76,11 @@ const historyReactEditor = createReactEditor({
 })
 const defaultHistoryReactEditor = createReactEditor({ initialValue })
 const noHistoryReactEditor = createReactEditor({
-  extensions: [history({ enabled: false })],
+  extensions: [DisabledHistoryExtension],
+  initialValue,
+})
+const customApiReactEditor = createReactEditor({
+  extensions: [CustomApiExtension],
   initialValue,
 })
 const rendererCapabilities = SlateReact.editableRenderers<
@@ -154,6 +168,30 @@ defaultHistoryReactEditor.update((tx) => {
 })
 
 defaultHistoryReactEditor.api.history.withoutSaving(() => {})
+const typedDefaultReactEditor: ReactEditor<CustomValue> =
+  defaultHistoryReactEditor
+const typedNamespaceReactEditor: SlateReact.ReactEditor<CustomValue> =
+  defaultHistoryReactEditor
+const typedCustomApiReactEditor: ReactEditor<
+  CustomValue,
+  readonly [typeof CustomApiExtension]
+> = customApiReactEditor
+const typedNoHistoryReactEditor: ReactEditor<
+  CustomValue,
+  readonly [typeof DisabledHistoryExtension]
+> = noHistoryReactEditor
+
+typedDefaultReactEditor.api.history.withoutSaving(() => {})
+typedDefaultReactEditor.api.dom.focus()
+typedDefaultReactEditor.api.react.isComposing()
+typedNamespaceReactEditor.api.history.withoutSaving(() => {})
+const customApiResult: 'pong' = typedCustomApiReactEditor.api.customApi.ping()
+
+// @ts-expect-error ReactEditor exposes DOM through api.dom, not root dom
+typedDefaultReactEditor.dom
+
+// @ts-expect-error disabled history does not contribute public ReactEditor api
+typedNoHistoryReactEditor.api.history.withoutSaving(() => {})
 
 // @ts-expect-error disabled default history removes state history
 noHistoryReactEditor.read((state) => state.history.undos())
@@ -247,9 +285,6 @@ baseEditor.api.react.isComposing()
 // @ts-expect-error DOM is not installed on a plain editor
 baseEditor.api.dom.focus()
 
-// @ts-expect-error public React helper namespace is cut
-type _NoReactEditor = SlateReact.ReactEditor<Value>
-
 // @ts-expect-error public withReact wrapper is cut
 SlateReact.withReact
 
@@ -261,6 +296,7 @@ useSlateEditor({
 
 void baseValue
 void reactValue
+void customApiResult
 void rendererCapabilities
 void SelectorProbe
 void HookProbe

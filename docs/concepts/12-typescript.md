@@ -9,7 +9,7 @@ union, then pass that value to `createEditor<Value>()` or
 
 ```typescript
 import { type ElementOf, type TextOf, type ValueOf } from 'slate'
-import { createReactEditor, type ReactEditorInstance } from 'slate-react'
+import { createReactEditor, type ReactEditor } from 'slate-react'
 
 type CustomText = { text: string; bold?: true }
 
@@ -28,7 +28,7 @@ type CustomValue = (ParagraphElement | HeadingElement)[]
 
 const editor = createReactEditor<CustomValue>()
 
-type CustomEditor = ReactEditorInstance<CustomValue>
+type CustomEditor = ReactEditor<CustomValue>
 type CustomElement = ElementOf<typeof editor>
 type EditorText = TextOf<typeof editor>
 type EditorValue = ValueOf<typeof editor>

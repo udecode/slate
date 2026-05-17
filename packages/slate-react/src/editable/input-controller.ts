@@ -7,7 +7,7 @@ import type {
 import type { Editor } from 'slate'
 import { Hotkeys, IS_COMPOSING, isDOMElement, isDOMText } from 'slate-dom'
 
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import type { EditableInputController, InputIntent } from './input-state'
 
 export type {
@@ -48,7 +48,7 @@ export {
 } from './selection-controller'
 
 export const isInteractiveInternalTarget = (
-  editor: ReactEditor,
+  editor: ReactRuntimeEditor,
   target: EventTarget | null
 ) => {
   const element = isDOMElement(target)
@@ -74,7 +74,7 @@ export const isInteractiveInternalTarget = (
 }
 
 export const isNativeInternalControlTarget = (
-  editor: ReactEditor,
+  editor: ReactRuntimeEditor,
   target: EventTarget | null
 ) => {
   const element = isDOMElement(target)
@@ -126,7 +126,7 @@ export const classifyKeyboardIntent = ({
   isComposing = false,
   renderingStrategy,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: ReactKeyboardEvent<HTMLDivElement>
   isComposing?: boolean
   renderingStrategy: unknown
@@ -199,7 +199,7 @@ export const classifyBeforeInputIntent = ({
   event,
   internalTarget = isInteractiveInternalTarget(editor, event.target),
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: InputEvent
   internalTarget?: boolean
 }): InputIntent | null => {
@@ -244,7 +244,7 @@ export const classifyClipboardIntent = ({
   editor,
   event,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: ReactClipboardEvent<HTMLDivElement> | ReactDragEvent<HTMLDivElement>
 }): InputIntent => {
   if (isInteractiveInternalTarget(editor, event.target)) {
@@ -258,7 +258,7 @@ export const classifyCompositionIntent = ({
   editor,
   event,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: ReactCompositionEvent<HTMLDivElement>
 }): InputIntent => {
   if (isInteractiveInternalTarget(editor, event.target)) {
@@ -276,7 +276,7 @@ export const setEditableComposingState = ({
   nextValue,
   setIsComposing,
 }: {
-  editor: ReactEditor | Editor
+  editor: ReactRuntimeEditor | Editor
   inputController: EditableInputController
   nextValue: boolean
   setIsComposing: (nextValue: boolean) => void

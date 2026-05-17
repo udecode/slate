@@ -10,13 +10,13 @@ import {
 } from 'slate'
 import { NodeRuntimeIdContext } from '../context'
 import { readRuntimeNodeById } from '../editable/runtime-live-state'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { useEditorSelector } from './use-editor-selector'
 
 const refEquality = (a: unknown, b: unknown) => a === b
 
 export type EditorNodeSelectorContext = {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   node: Node | null
   path: Path | null
   runtimeId: RuntimeId | null
@@ -82,7 +82,7 @@ function useRuntimeNodeSelector<T>(
   const contextRuntimeId = useContext(NodeRuntimeIdContext)
   const runtimeId = runtimeIdProp ?? contextRuntimeId
   const nodeSelector = useCallback(
-    (editor: ReactEditor) => {
+    (editor: ReactRuntimeEditor) => {
       const { node, path } = readRuntimeNodeById(editor, runtimeId)
 
       return selector({

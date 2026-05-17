@@ -13,7 +13,7 @@ import type {
   EditableKeyDownHandler,
 } from '../components/editable'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { isSelectAllHotkey } from '../rendering-strategy/rendering-strategy-commands'
 import { applyEditableCaretMovement } from './caret-engine'
 import { getEditableKeyCommands } from './editable-key-commands'
@@ -58,7 +58,7 @@ const DEFAULT_MODEL_COMMAND_REPAIR: EditableRepairRequest = {
 }
 
 const getModelOwnedHistoryRepair = (
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
 ): EditableRepairRequest => ({
   focus: true,
   forceRender: shouldForceRenderAfterModelOwnedHistory(editor),
@@ -91,7 +91,7 @@ const applyUserKeyDownHandler = ({
   event,
   handler,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: ReactKeyboardEvent<HTMLDivElement>
   handler?: EditableKeyDownHandler
 }): EditableKeyDownResult => {
@@ -127,7 +127,7 @@ const applyExtensionKeyCommands = ({
   event,
   selection,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: ReactKeyboardEvent<HTMLDivElement>
   selection: ReturnType<typeof readRuntimeSelection>
 }): EditableKeyDownResult => {
@@ -156,7 +156,7 @@ const applyUserEditableCommandHandler = ({
   selection,
 }: {
   command: NonNullable<ReturnType<typeof getEditableCommandFromKeyDown>>
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: ReactKeyboardEvent<HTMLDivElement>
   handler?: EditableCommandHandler
   selection: ReturnType<typeof readRuntimeSelection>
@@ -206,7 +206,7 @@ export const applyEditableKeyDown = ({
   shellBackedSelection,
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: ReactKeyboardEvent<HTMLDivElement>
   forceRender: () => void
   inputController: EditableInputController

@@ -4,7 +4,7 @@ import {
   useCallback,
   useRef,
 } from 'react'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { prepareEditableInputKernel } from './editing-kernel'
 import {
   useEditableDOMInputHandler,
@@ -31,7 +31,7 @@ export const useRuntimeInputEvents = ({
 }: {
   androidInputManagerRef: EditableEventRuntime['android']['managerRef']
   deferredOperations: RefObject<DeferredOperation[]>
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   handledDOMBeforeInputRef: RefObject<boolean>
   inputController: EditableInputController
   onInput?: InputHandler

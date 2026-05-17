@@ -4,7 +4,10 @@ import { describe, it } from 'node:test'
 import { createEditor } from 'slate'
 import { Editor } from '../src/editable/runtime-editor-api'
 import { syncSelectionForBeforeInput } from '../src/editable/selection-reconciler'
-import { ReactEditor } from '../src/plugin/react-editor'
+import {
+  ReactEditor,
+  type ReactRuntimeEditor,
+} from '../src/plugin/react-editor'
 
 const createRootWithoutSelection = () =>
   ({ getSelection: () => null }) as unknown as Document
@@ -41,7 +44,7 @@ describe('selection reconciler', () => {
       const result = syncSelectionForBeforeInput({
         allowDOMSelectionImport: false,
         data: 'x',
-        editor: editor as ReactEditor,
+        editor: editor as ReactRuntimeEditor,
         editorElement: {} as HTMLElement,
         event: { getTargetRanges: () => [] } as unknown as InputEvent,
         inputType: 'insertText',
@@ -77,7 +80,7 @@ describe('selection reconciler', () => {
       const result = syncSelectionForBeforeInput({
         allowDOMSelectionImport: true,
         data: null,
-        editor: editor as ReactEditor,
+        editor: editor as ReactRuntimeEditor,
         editorElement: {} as HTMLElement,
         event: {
           getTargetRanges: () => [targetRange],
@@ -116,7 +119,7 @@ describe('selection reconciler', () => {
       const result = syncSelectionForBeforeInput({
         allowDOMSelectionImport: true,
         data: '. ',
-        editor: editor as ReactEditor,
+        editor: editor as ReactRuntimeEditor,
         editorElement: {} as HTMLElement,
         event: {
           getTargetRanges: () => [targetRange],

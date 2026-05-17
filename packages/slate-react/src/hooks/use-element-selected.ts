@@ -3,7 +3,7 @@ import { type Operation, type Path, RangeApi, type SnapshotChange } from 'slate'
 import { ElementPathContext, NodeRuntimeIdContext } from '../context'
 import { Editor } from '../editable/runtime-editor-api'
 import { readRuntimeSelection } from '../editable/runtime-selection-state'
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { useEditorSelector } from './use-editor-selector'
 import { useOptionalElementContext } from './use-element'
 
@@ -23,7 +23,7 @@ export const useElementSelected = ({
   const runtimeId = useContext(NodeRuntimeIdContext)
 
   const selector = useCallback(
-    (editor: ReactEditor) => {
+    (editor: ReactRuntimeEditor) => {
       if (!element && !path) return false
 
       const selection = readRuntimeSelection(editor)

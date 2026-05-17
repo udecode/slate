@@ -2,7 +2,7 @@ import { useCallback, useContext } from 'react'
 import type { Operation, Path, SnapshotChange } from 'slate'
 import { NodeRuntimeIdContext } from '../context'
 import { Editor } from '../editable/runtime-editor-api'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { useEditorSelector } from './use-editor-selector'
 
 const samePath = (left: Path | null, right: Path | null) => {
@@ -16,7 +16,7 @@ export const useElementPath = (): Path | null => {
   const runtimeId = useContext(NodeRuntimeIdContext)
 
   const selector = useCallback(
-    (editor: ReactEditor) => {
+    (editor: ReactRuntimeEditor) => {
       if (!runtimeId) {
         return null
       }

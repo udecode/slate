@@ -1,7 +1,7 @@
 import type { RefObject } from 'react'
 import type { Range } from 'slate'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import {
   attachSlateBrowserHandle,
   type SlateBrowserHandleElement,
@@ -37,7 +37,7 @@ export const useRuntimeBrowserHandle = ({
   browserHandleRangeRefs: RefObject<
     Map<string, ReturnType<typeof Editor.rangeRef>>
   >
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   forceRender: () => void
   inputController: EditableInputController
   isShellBackedSelection: (selection: Range | null) => boolean

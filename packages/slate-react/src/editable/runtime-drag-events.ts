@@ -1,5 +1,5 @@
 import { type DragEvent, useCallback } from 'react'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import {
   applyEditableDragEnd,
   applyEditableDragOver,
@@ -28,7 +28,7 @@ export const useRuntimeDragEvents = ({
   state,
   trace,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
   onDragEnd?: DragHandler
   onDragOver?: DragHandler

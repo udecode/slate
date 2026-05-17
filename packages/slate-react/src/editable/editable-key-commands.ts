@@ -1,13 +1,13 @@
 import type React from 'react'
 import type { Range } from 'slate'
 import type { EditableHandlerResult } from '../components/editable'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { type Editor, getEditorExtensionRegistry } from './runtime-editor-api'
 
 export const EDITABLE_KEY_COMMAND_CAPABILITY = 'slate-react.editable.keyCommand'
 
 export type EditableKeyCommandContext = {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: React.KeyboardEvent<HTMLDivElement>
   selection: Range | null
 }

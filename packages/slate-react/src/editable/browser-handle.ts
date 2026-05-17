@@ -10,7 +10,7 @@ import {
   didSyncTextPathToDOM,
   getSlateNodeElementByPath,
 } from '../hooks/use-slate-node-ref'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import {
   beginEditableEventFrame,
   type EditableCommand,
@@ -89,7 +89,7 @@ export const attachSlateBrowserHandle = ({
   browserHandleRangeRefs: RefBox<
     Map<string, ReturnType<typeof Editor.rangeRef>>
   >
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   element: SlateBrowserHandleElement
   inputController: EditableInputController
   forceRender: () => void

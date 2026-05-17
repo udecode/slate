@@ -1,5 +1,5 @@
 import { type ClipboardEvent, useCallback } from 'react'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import {
   applyEditableCopy,
   applyEditableCut,
@@ -29,7 +29,7 @@ export const useRuntimeClipboardEvents = ({
   shellBackedSelection,
   trace,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
   onCopy?: ClipboardHandler
   onCut?: ClipboardHandler

@@ -3,7 +3,7 @@ import type { Range } from 'slate'
 import { getSelection, isDOMElement, isDOMText } from 'slate-dom'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { commitInsertFromComposition } from './composition-state'
 import { isDataTransferInput } from './dom-input-event'
 import {
@@ -79,7 +79,7 @@ export const applyEditableInput = ({
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
   deferredOperations: RefBox<DeferredOperation[]>
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: ReactInputEvent<HTMLDivElement>
   handledDOMBeforeInputRef: RefBox<boolean>
   inputController: import('./input-controller').EditableInputController
@@ -212,7 +212,7 @@ export const applyModelOwnedBeforeInputOperation = ({
   command?: EditableCommand | null
   data: unknown
   deferredOperations: RefBox<DeferredOperation[]>
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputType: string
   native: boolean
   selection: Range | null

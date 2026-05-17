@@ -11,7 +11,7 @@ import type {
   EditableDOMBeforeInputHandler,
   EditableKeyDownHandler,
 } from '../components/editable'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import type { MountedTopLevelRange } from '../rendering-strategy/rendering-strategy-commands'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import type {
@@ -140,7 +140,7 @@ export const useEditableEventRuntime = ({
   >
   callbacks: EditableRootCallbackProps
   deferredOperations: RefObject<DeferredOperation[]>
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   handledDOMBeforeInputRef: RefObject<boolean>
   inputController: EditableInputController
   isShellBackedSelection: (selection: Range | null) => boolean

@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react'
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import {
   beginEditableEditingEpoch,
@@ -35,7 +35,7 @@ export const useRuntimeKernelTraceEngine = ({
   inputController,
 }: {
   domRepairQueue: DOMRepairQueue
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
 }) => {
   const pendingKernelFrameIdRef = useRef<number | null>(null)

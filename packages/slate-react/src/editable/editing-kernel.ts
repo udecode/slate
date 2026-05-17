@@ -8,10 +8,7 @@ import type {
 } from 'react'
 import { type Editor, type Operation, type Range, RangeApi } from 'slate'
 import { Hotkeys } from 'slate-dom'
-import {
-  ReactEditor,
-  type ReactEditor as ReactEditorInstance,
-} from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { getInputEventData, isDataTransferInput } from './dom-input-event'
 import type { EditableCommand } from './editable-command-types'
 import {
@@ -318,7 +315,7 @@ export type EditableKernelResult = {
 }
 
 export type EditableKernelContext = {
-  editor: ReactEditorInstance
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
 }
 
@@ -1091,7 +1088,7 @@ export const prepareEditableKeyDownKernel = ({
   inputController,
   renderingStrategy,
 }: {
-  editor: ReactEditorInstance
+  editor: ReactRuntimeEditor
   event: ReactKeyboardEvent<HTMLDivElement>
   inputController: EditableInputController
   renderingStrategy: unknown
@@ -1171,7 +1168,7 @@ export const prepareEditableBeforeInputKernel = ({
   event,
   inputController,
 }: {
-  editor: ReactEditorInstance
+  editor: ReactRuntimeEditor
   event: InputEvent
   inputController: EditableInputController
 }): EditableBeforeInputKernelDecision => {
@@ -1225,7 +1222,7 @@ export const prepareEditableClipboardKernel = ({
   event,
   inputController,
 }: {
-  editor: ReactEditorInstance
+  editor: ReactRuntimeEditor
   event: ReactClipboardEvent<HTMLDivElement> | ReactDragEvent<HTMLDivElement>
   inputController: EditableInputController
 }): EditableClipboardKernelDecision => {
@@ -1260,7 +1257,7 @@ export const prepareEditableCompositionKernel = ({
   event,
   inputController,
 }: {
-  editor: ReactEditorInstance
+  editor: ReactRuntimeEditor
   event: ReactCompositionEvent<HTMLDivElement>
   inputController: EditableInputController
 }): EditableCompositionKernelDecision => {
@@ -1299,7 +1296,7 @@ export const prepareEditableFocusMouseKernel = ({
   event,
   inputController,
 }: {
-  editor: ReactEditorInstance
+  editor: ReactRuntimeEditor
   event: ReactFocusEvent<HTMLDivElement> | ReactMouseEvent<HTMLDivElement>
   inputController: EditableInputController
 }): EditableFocusMouseKernelDecision => {
@@ -1335,7 +1332,7 @@ export const prepareEditableInputKernel = ({
   event,
   inputController,
 }: {
-  editor: ReactEditorInstance
+  editor: ReactRuntimeEditor
   event: React.FormEvent<HTMLDivElement>
   inputController: EditableInputController
 }): EditableInputKernelDecision => {

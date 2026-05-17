@@ -17,7 +17,7 @@ import {
   applyEditableDrop,
   applyEditablePaste,
 } from '../src/editable/clipboard-input-strategy'
-import type { ReactEditor } from '../src/plugin/react-editor'
+import type { ReactRuntimeEditor } from '../src/plugin/react-editor'
 
 class FakeDataTransfer {
   private readonly data = new Map<string, string>()
@@ -55,7 +55,7 @@ const createChildren = (): Descendant[] => [
   },
 ]
 
-const getRuntimeId = (editor: ReactEditor, path: number[]) => {
+const getRuntimeId = (editor: ReactRuntimeEditor, path: number[]) => {
   const runtimeId = Editor.getRuntimeId(editor, path)
 
   if (!runtimeId) {
@@ -65,7 +65,7 @@ const getRuntimeId = (editor: ReactEditor, path: number[]) => {
   return runtimeId
 }
 
-const mountEditorRoot = (editor: ReactEditor) => {
+const mountEditorRoot = (editor: ReactRuntimeEditor) => {
   const root = document.createElement('div')
 
   root.setAttribute('contenteditable', 'true')
@@ -174,7 +174,7 @@ const createStagedSelectionEditor = () => {
   return editor
 }
 
-const cleanupEditorRoot = (editor: ReactEditor, root: HTMLElement) => {
+const cleanupEditorRoot = (editor: ReactRuntimeEditor, root: HTMLElement) => {
   DOMCoverage.clear(editor)
   EDITOR_TO_ELEMENT.delete(editor)
   EDITOR_TO_WINDOW.delete(editor)

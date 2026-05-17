@@ -10,7 +10,7 @@ import {
 } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { isFullDocumentSelection } from '../rendering-strategy/rendering-strategy-commands'
 import type { EditableCommand } from './editing-kernel'
 import type { EditableRepairRequest } from './input-controller'
@@ -89,7 +89,7 @@ const isDragEventHandled = ({
   return event.isDefaultPrevented() || event.isPropagationStopped()
 }
 
-const resolveDragTarget = (editor: ReactEditor, target: EventTarget) => {
+const resolveDragTarget = (editor: ReactRuntimeEditor, target: EventTarget) => {
   if (!isDOMNode(target)) {
     return null
   }
@@ -139,7 +139,7 @@ const isClipboardEventTargetInput = ({
   )
 }
 
-const materializePasteTargetBoundaries = (editor: ReactEditor) => {
+const materializePasteTargetBoundaries = (editor: ReactRuntimeEditor) => {
   const selection = editor.read((state) => state.selection.get())
 
   if (!selection) {
@@ -160,7 +160,7 @@ export const applyEditableCopy = ({
   event,
   onCopy,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: ClipboardEvent<HTMLDivElement>
   onCopy?: EditablePasteHandler
 }) => {
@@ -185,7 +185,7 @@ export const applyEditableCut = ({
   onCut,
   readOnly,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: ClipboardEvent<HTMLDivElement>
   onCut?: EditablePasteHandler
   readOnly: boolean
@@ -329,7 +329,7 @@ export const applyEditableDragEnd = ({
   readOnly,
   state,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: DragEvent<HTMLDivElement>
   onDragEnd?: EditableDragHandler
   readOnly: boolean
@@ -350,7 +350,7 @@ export const applyEditableDragOver = ({
   event,
   onDragOver,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: DragEvent<HTMLDivElement>
   onDragOver?: EditableDragHandler
 }) => {
@@ -377,7 +377,7 @@ export const applyEditableDragStart = ({
   readOnly,
   state,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: DragEvent<HTMLDivElement>
   onDragStart?: EditableDragHandler
   readOnly: boolean
@@ -422,7 +422,7 @@ export const applyEditableDrop = ({
   readOnly,
   state,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: DragEvent<HTMLDivElement>
   onDrop?: EditableDragHandler
   readOnly: boolean
@@ -498,7 +498,7 @@ export const applyEditablePaste = ({
   readOnly,
   shellBackedSelection,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: ClipboardEvent<HTMLDivElement>
   onPaste?: EditablePasteHandler
   readOnly: boolean

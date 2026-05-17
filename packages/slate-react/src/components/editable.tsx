@@ -26,7 +26,7 @@ import { useEditor } from '../hooks/use-editor'
 import { ComposingContext } from '../hooks/use-editor-composing'
 import { ReadOnlyContext } from '../hooks/use-editor-read-only'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
 import type { MountedTopLevelRange } from '../rendering-strategy/rendering-strategy-commands'
 import { RestoreDOM } from './restore-dom/restore-dom'
@@ -99,7 +99,10 @@ export type EditableDOMRootProps = {
     metrics: EditableRenderingStrategyMetrics
   ) => void
   readOnly?: boolean
-  scrollSelectionIntoView?: (editor: ReactEditor, domRange: DOMRange) => void
+  scrollSelectionIntoView?: (
+    editor: ReactRuntimeEditor,
+    domRange: DOMRange
+  ) => void
   as?: React.ElementType
   disableDefaultStyles?: boolean
 } & Omit<React.ComponentPropsWithRef<'div'>, 'children' | 'onKeyDown'>
@@ -160,7 +163,7 @@ const getEditableRenderingStrategyDOMMetrics = ({
   metrics,
   rootElement,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   metrics: EditableRenderingStrategyMetricsBase
   rootElement: HTMLElement
 }): EditableRenderingStrategyMetrics => {
@@ -192,7 +195,7 @@ export type EditableHandlerResult = boolean | EditableRepairRequest | void
 
 export type EditableCommandContext = {
   data: unknown
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event?: InputEvent | React.KeyboardEvent<HTMLDivElement>
   inputType?: string
   intent: InputIntent | null
@@ -217,7 +220,7 @@ export type EditableDOMBeforeInputHandler = (
 ) => EditableHandlerResult
 
 export type EditableKeyDownContext = {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
 }
 
 export type EditableKeyDownHandler = (
@@ -249,7 +252,7 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     disableDefaultStyles = false,
     ...attributes
   } = editableProps
-  const editor = useEditor<ReactEditor>()
+  const editor = useEditor<ReactRuntimeEditor>()
   const rootRuntime = useEditableRootRuntime({
     autoFocus,
     callbacks: attributes,
@@ -549,7 +552,7 @@ const scrollRectIntoViewIfNeeded = ({
  */
 
 export const defaultScrollSelectionIntoView = (
-  editor: ReactEditor,
+  editor: ReactRuntimeEditor,
   domRange: DOMRange
 ) => {
   // Scroll to the focus point of the selection, in case the selection is expanded

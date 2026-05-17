@@ -1,5 +1,5 @@
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import type { EditableInputControllerState } from './input-controller'
 import { attachEditableGlobalDragLifecycleListeners } from './input-router'
 import { attachEditableSelectionChangeListener } from './selection-reconciler'
@@ -9,7 +9,7 @@ export const useEditableRootGlobalLifecycle = ({
   scheduleOnDOMSelectionChange,
   state,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   scheduleOnDOMSelectionChange: () => void
   state: EditableInputControllerState
 }) => {

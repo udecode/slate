@@ -1,7 +1,7 @@
 import type { KeyboardEvent } from 'react'
 import { type Range, RangeApi } from 'slate'
 import { Hotkeys } from 'slate-dom'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import type { EditableRepairRequest } from './mutation-controller'
 
 export type EditableCaretMovementResult = {
@@ -32,7 +32,7 @@ export const applyEditableCaretMovement = ({
   isRTL,
   selection,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: KeyboardEvent<HTMLDivElement>
   isRTL: boolean
   selection: Range | null

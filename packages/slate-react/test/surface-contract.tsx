@@ -13,7 +13,7 @@ import {
   Slate,
   useElementSelected,
 } from '../src'
-import type { ReactEditor } from '../src/plugin/react-editor'
+import type { ReactRuntimeEditor } from '../src/plugin/react-editor'
 
 const cwd = process.cwd()
 const packageRoot = cwd.endsWith(`${sep}packages${sep}slate-react`)
@@ -531,7 +531,7 @@ describe('slate-react surface contract', () => {
           children: [{ text: '' }],
         },
       ],
-    }) as ReactEditor
+    }) as ReactRuntimeEditor
 
     editor.extend({
       capabilities: editableRenderers({
@@ -704,7 +704,7 @@ describe('slate-react surface contract', () => {
         { id: '1', children: [{ text: '' }] },
         { id: '2', children: [{ text: '' }] },
       ],
-    }) as ReactEditor
+    }) as ReactRuntimeEditor
     const elementSelectedRenders: Record<string, boolean[] | undefined> = {}
 
     const renderElement = ({
@@ -782,7 +782,7 @@ describe('slate-react surface contract', () => {
         { id: 'first', children: [{ text: '' }] },
         { id: 'target', children: [{ text: '' }] },
       ],
-    }) as ReactEditor
+    }) as ReactRuntimeEditor
     const renderCounts: Record<string, number | undefined> = {}
     let readTargetPath = (): number[] => {
       throw new Error('Target element did not render.')
@@ -830,7 +830,7 @@ describe('slate-react surface contract', () => {
       initialValue: [
         { type: 'image', url: 'about:blank', children: [{ text: '' }] },
       ],
-    }) as ReactEditor
+    }) as ReactRuntimeEditor
     let renderVoidProps: RenderVoidProps | null = null
     const renderElement = jest.fn(({ children }: RenderElementProps) => {
       return <p>{children}</p>
@@ -891,7 +891,7 @@ describe('slate-react surface contract', () => {
           ],
         },
       ],
-    }) as ReactEditor
+    }) as ReactRuntimeEditor
     let renderVoidProps: RenderVoidProps | null = null
 
     editor.extend({

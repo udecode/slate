@@ -16,7 +16,7 @@ import type {
 } from '../components/editable'
 import { useFlushDeferredSelectorsOnRender } from '../hooks/use-editor-selector'
 import { useTrackUserInput } from '../hooks/use-track-user-input'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import type { MountedTopLevelRange } from '../rendering-strategy/rendering-strategy-commands'
 import { isSelectionShellBacked } from '../rendering-strategy/rendering-strategy-commands'
 import { usePendingInsertionMarksEffect } from './composition-state'
@@ -104,7 +104,7 @@ export const useEditableRootRuntime = ({
 }: {
   autoFocus?: boolean
   callbacks: EditableRootCallbackProps
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   forwardedRef?: ForwardedRef<HTMLDivElement>
   renderingStrategy: {
     type: 'staged' | 'shell' | 'virtualized'
@@ -115,7 +115,10 @@ export const useEditableRootRuntime = ({
   onCommand?: EditableCommandHandler
   onKeyDown?: EditableKeyDownHandler
   readOnly: boolean
-  scrollSelectionIntoView: (editor: ReactEditor, domRange: DOMRange) => void
+  scrollSelectionIntoView: (
+    editor: ReactRuntimeEditor,
+    domRange: DOMRange
+  ) => void
 }) => {
   useEditableRootCommitWakeup()
   useFlushDeferredSelectorsOnRender()

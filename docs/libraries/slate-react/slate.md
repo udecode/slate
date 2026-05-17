@@ -16,7 +16,7 @@ type SlateProps = {
   annotationStore?: SlateAnnotationStore | null
   children: React.ReactNode
   decorationSources?: readonly SlateDecorationSource[] | null
-  editor: ReactEditorInstance
+  editor: ReactEditor
   onChange?: (value: Descendant[], change: SlateChange) => void
 }
 

@@ -1,5 +1,5 @@
 import { type CompositionEvent, useCallback } from 'react'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import {
   applyEditableCompositionEnd,
   applyEditableCompositionStart,
@@ -25,7 +25,7 @@ export const useRuntimeCompositionEvents = ({
   trace,
 }: {
   androidInputManagerRef: EditableEventRuntime['android']['managerRef']
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
   onCompositionEnd?: CompositionHandler
   onCompositionStart?: CompositionHandler

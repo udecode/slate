@@ -4,7 +4,7 @@ import type {
   EditableCommandHandler,
   EditableKeyDownHandler,
 } from '../components/editable'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import type { MountedTopLevelRange } from '../rendering-strategy/rendering-strategy-commands'
 import { prepareEditableKeyDownKernel } from './editing-kernel'
 import { useEditableKeyboardHandler } from './input-router'
@@ -23,7 +23,7 @@ export const useRuntimeKeyboardEvents = ({
   setExplicitShellBackedSelection,
   shellBackedSelection,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
   renderingStrategy: {
     type: 'staged' | 'shell' | 'virtualized'

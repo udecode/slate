@@ -44,7 +44,7 @@ import { applyEditableCommand } from '../../editable/mutation-controller'
 import { Editor } from '../../editable/runtime-editor-api'
 import { writeRuntimeMarks } from '../../editable/runtime-mutation-state'
 import { readRuntimeSelection } from '../../editable/runtime-selection-state'
-import { ReactEditor } from '../../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../../plugin/react-editor'
 import { isDOMTextSyncMutation } from '../use-slate-node-ref'
 
 export type Action = { at?: Point | Range; run: () => void }
@@ -77,7 +77,7 @@ const cloneRange = (range: Range): Range => ({
 })
 
 export type CreateAndroidInputManagerOptions = {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   receivedUserInput: RefObject<boolean>
 
   scheduleOnDOMSelectionChange: DebouncedFunc<() => void>

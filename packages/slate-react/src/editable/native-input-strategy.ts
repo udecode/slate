@@ -1,6 +1,6 @@
 import { NodeApi, type Range, RangeApi } from 'slate'
 import { type DOMText, IS_NODE_MAP_DIRTY } from 'slate-dom'
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { getInputEventData } from './dom-input-event'
 import { Editor } from './runtime-editor-api'
 
@@ -15,7 +15,7 @@ export const canUseNativeSingleCharacterInput = ({
   hasAppInputPolicy,
   selection,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   eventData: string | null
   hasAppInputPolicy: boolean
   selection: Range | null
@@ -105,7 +105,7 @@ export const getNativeBeforeInputDecision = ({
   hasAppInputPolicy,
   selection,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: InputEvent
   hasAppInputPolicy: boolean
   selection: Range | null

@@ -1,5 +1,5 @@
 import type { BooleanMarkKeysOf, Descendant, Element, Range } from 'slate'
-import type { ReactEditorInstance } from 'slate-react'
+import type { ReactEditor } from 'slate-react'
 
 export type BlockQuoteElement = {
   type: 'block-quote'
@@ -180,6 +180,6 @@ export type EmptyText = {
   text: string
 }
 
-export type CustomEditor = ReactEditorInstance<CustomValue> & {
+export type CustomEditor = ReactEditor<CustomValue> & {
   nodeToDecorations?: Map<Element, Range[]>
 }

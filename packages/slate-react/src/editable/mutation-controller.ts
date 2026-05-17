@@ -9,7 +9,7 @@ import {
   type Range,
   RangeApi,
 } from 'slate'
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import {
@@ -595,7 +595,7 @@ export const applyModelOwnedDataTransferInput = ({
   editor,
 }: {
   data: DataTransfer
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
 }) => {
   editor.update(() => {
     editor.api.clipboard.insertData(data)
@@ -681,7 +681,7 @@ export const applyModelOwnedTextInput = ({
 
   if (inputType === 'insertText') {
     return {
-      forceRender: ReactEditor.isComposing(editor as ReactEditor),
+      forceRender: ReactEditor.isComposing(editor as ReactRuntimeEditor),
       kind: 'repair-caret-after-text-insert',
       selectionSourceTransition: {
         preferModelSelection: true,
@@ -703,7 +703,7 @@ export const applyEditableRepairRequest = ({
   syncDOMSelectionToEditor,
 }: {
   domRepairQueue: DOMRepairQueue
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   forceRender: () => void
   inputController: EditableInputController
   request: EditableRepairRequest

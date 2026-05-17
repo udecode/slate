@@ -21,7 +21,7 @@ import {
 import { DOMCoverage } from 'slate-dom/internal'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { getSlateNodeElementByPath } from '../hooks/use-slate-node-ref'
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import type { EditableSelectionPolicy } from './editing-kernel'
 import type {
   EditableInputController,
@@ -72,7 +72,7 @@ export const executeEditableSelectionExport = ({
 }
 
 const getDOMPointForSlateTextPoint = (
-  editor: ReactEditor,
+  editor: ReactRuntimeEditor,
   point: Point
 ): { node: globalThis.Node; offset: number } | null => {
   const textHost = getSlateNodeElementByPath(editor, point.path)
@@ -116,7 +116,10 @@ const getDOMPointForSlateTextPoint = (
   return null
 }
 
-const isFullDocumentSelection = (editor: ReactEditor, selection: Range) => {
+const isFullDocumentSelection = (
+  editor: ReactRuntimeEditor,
+  selection: Range
+) => {
   try {
     const [start, end] = RangeApi.edges(selection)
     const [documentStart, documentEnd] = editor.read((state) => [
@@ -137,7 +140,7 @@ const shouldKeepFullDocumentSelectionModelBacked = ({
   editorElement,
   selection,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   editorElement: HTMLElement
   selection: Range
 }) => {
@@ -177,7 +180,7 @@ const createFastDOMSelectionRange = ({
   editorElement,
   selection,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   editorElement: HTMLElement
   selection: Range
 }): DOMRange | null => {
@@ -221,7 +224,7 @@ const materializeOrModelBackDOMCoverageSelection = ({
   selection,
 }: {
   domSelection: globalThis.Selection
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   selection: Range
 }) => {
   const boundaries = DOMCoverage.getBoundariesForRange(editor, selection)
@@ -252,7 +255,7 @@ export const syncEditorSelectionFromDOM = ({
   ignoreModelSelectionPreference = false,
   inputController,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   ignoreModelSelectionPreference?: boolean
   inputController: EditableInputController
 }) => {
@@ -460,7 +463,7 @@ export const resolveEditableImplicitTarget = ({
   },
   syncDOMSelectionToEditor,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
   request: TargetFreshnessRequest
   scheduleSelectionSync?: (callback: () => void) => void
@@ -523,7 +526,7 @@ export const applyEditableDOMSelectionChange = ({
   rerunOnDirtyNodeMap,
 }: {
   androidInputManager: AndroidInputManager | null | undefined
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   inputController: EditableInputController
   processing: RefObject<boolean>
   readOnly: boolean
@@ -687,8 +690,11 @@ export const syncEditableDOMSelectionToEditor = ({
   shellBackedSelection,
   state,
 }: {
-  editor: ReactEditor
-  scrollSelectionIntoView: (editor: ReactEditor, domRange: DOMRange) => void
+  editor: ReactRuntimeEditor
+  scrollSelectionIntoView: (
+    editor: ReactRuntimeEditor,
+    domRange: DOMRange
+  ) => void
   shellBackedSelection: boolean
   state: {
     isUpdatingSelection: boolean

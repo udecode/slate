@@ -12,7 +12,7 @@ import {
   isDOMNode,
 } from 'slate-dom'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import type { EditableCompositionStateSetter } from './input-controller'
 import { getNativeTextInputHistoryMetadata } from './input-history'
 import type { EditableInputController } from './input-state'
@@ -228,7 +228,7 @@ export const applyEditableCompositionEnd = ({
   setComposing,
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: CompositionEvent<HTMLDivElement>
   inputController: EditableInputController
   onCompositionEnd?: EditableCompositionHandler
@@ -282,7 +282,7 @@ export const applyEditableCompositionStart = ({
   setComposing,
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: CompositionEvent<HTMLDivElement>
   onCompositionStart?: EditableCompositionHandler
   setComposing: EditableCompositionStateSetter
@@ -331,7 +331,7 @@ export const applyEditableCompositionUpdate = ({
   onCompositionUpdate,
   setComposing,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   event: CompositionEvent<HTMLDivElement>
   onCompositionUpdate?: EditableCompositionHandler
   setComposing: EditableCompositionStateSetter

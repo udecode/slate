@@ -17,7 +17,7 @@ import {
   NODE_TO_ELEMENT,
 } from 'slate-dom'
 
-import { ReactEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { isInteractiveInternalTarget } from './input-controller'
 
 type MutableRefBox<T> = {
@@ -126,7 +126,7 @@ export const useEditableRootRef = ({
   scheduleOnDOMSelectionChange,
 }: {
   detachNativeInputListenersRef: MutableRefBox<(() => void) | null>
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   forwardedRef?: ForwardedRef<HTMLDivElement>
   onDOMBeforeInput: (event: InputEvent) => void
   onDOMInput: (event: Event) => void
@@ -198,7 +198,7 @@ export const useEditableDOMInputHandler = ({
   repairDOMInput,
   rootRef,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   onHandledDOMInput?: (event: Event) => void
   repairDOMInput: RepairDOMInput
   rootRef: RefObject<HTMLElement | null>
@@ -240,7 +240,7 @@ export const useEditableReactBeforeInputHandler = ({
   onBeforeInput,
   readOnly,
 }: {
-  editor: ReactEditor
+  editor: ReactRuntimeEditor
   handleFallbackInsertText: HandleEditableReactBeforeInputFallback
   onBeforeInput?:
     | ((event: React.FormEvent<HTMLDivElement>) => boolean | void)

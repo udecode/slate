@@ -29,20 +29,17 @@ export type ReactApi = {
 }
 
 type ReactExtension = ReturnType<typeof react>
-const defaultHistoryExtension = history()
-type HistoryExtension = typeof defaultHistoryExtension
+const historyExtension = history()
+type HistoryExtension = typeof historyExtension
 type ReactDefaultExtensions<TExtensions extends readonly unknown[]> = readonly [
   ReactExtension,
   HistoryExtension,
   ...TExtensions,
 ]
-export type ReactEditorInstance<
+export type ReactEditor<
   V extends Value = Value,
   TExtensions extends readonly unknown[] = readonly [],
-> = Omit<Editor<V, ReactDefaultExtensions<TExtensions>>, 'api' | 'getApi'> & {
-  api: Editor<V, ReactDefaultExtensions<TExtensions>>['api']
-  getApi: Editor<V, ReactDefaultExtensions<TExtensions>>['getApi']
-}
+> = Editor<V, ReactDefaultExtensions<TExtensions>>
 
 export type ReactEditorContextValue<V extends Value = Value> = Omit<
   Editor<V, readonly [ReactExtension]>,
@@ -111,14 +108,14 @@ export function createReactEditor<
   const TExtensions extends readonly unknown[] = readonly [],
 >(
   options?: CreateReactEditorOptions<V, TExtensions>
-): ReactEditorInstance<V, TExtensions>
+): ReactEditor<V, TExtensions>
 
 export function createReactEditor<
   V extends Value = Value,
   const TExtensions extends readonly unknown[] = readonly [],
 >(
   options: CreateReactEditorOptions<V, TExtensions> = {}
-): ReactEditorInstance<V, TExtensions> {
+): ReactEditor<V, TExtensions> {
   const { clipboardFormatKey, extensions, ...editorOptions } = options
   const reactOptions = { clipboardFormatKey }
   const editorExtensions = [
@@ -130,5 +127,5 @@ export function createReactEditor<
   return createEditor({
     ...editorOptions,
     extensions: editorExtensions,
-  }) as ReactEditorInstance<V, TExtensions>
+  }) as ReactEditor<V, TExtensions>
 }
