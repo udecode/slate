@@ -95,6 +95,61 @@ const OtherChecklistExtension = defineEditorExtension({
   },
 })
 
+const DisabledChecklistExtension = defineEditorExtension({
+  enabled: false,
+  name: 'checklist',
+})
+
+const disabledEditor = createEditor({
+  initialValue,
+  extensions: [ChecklistExtension, DisabledChecklistExtension],
+})
+
+// @ts-expect-error disabled extensions do not contribute state groups
+disabledEditor.read((state) => state.checklist.isActive())
+
+// @ts-expect-error disabled extensions do not contribute tx groups
+disabledEditor.update((tx) => tx.checklist.toggle())
+
+// @ts-expect-error disabled extensions do not contribute api handles
+disabledEditor.api.checklist.toggle()
+
+// @ts-expect-error disabled extension tokens cannot access installed API
+disabledEditor.getApi(ChecklistExtension)
+
+const FirstSameNameExtension = defineEditorExtension({
+  name: 'same-name',
+  capabilities: {
+    sameName: {
+      firstOnly() {},
+    },
+  },
+})
+
+const SecondSameNameExtension = defineEditorExtension({
+  name: 'same-name',
+  capabilities: {
+    sameName: {
+      secondOnly() {},
+    },
+  },
+})
+
+const latestWinsEditor = createEditor({
+  initialValue,
+  extensions: [FirstSameNameExtension, SecondSameNameExtension],
+})
+
+latestWinsEditor.api.sameName.secondOnly()
+
+// @ts-expect-error latest same-name extension replaces earlier type output
+latestWinsEditor.api.sameName.firstOnly()
+
+latestWinsEditor.getApi(SecondSameNameExtension).secondOnly()
+
+// @ts-expect-error replaced extension tokens cannot access installed API
+latestWinsEditor.getApi(FirstSameNameExtension)
+
 const plainEditor = createEditor({ initialValue })
 
 // @ts-expect-error extension state groups are only present when installed

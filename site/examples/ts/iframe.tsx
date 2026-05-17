@@ -3,7 +3,6 @@ import { type PointerEvent, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { defineEditorExtension } from 'slate'
 import { isHotkey } from 'slate-dom'
-import { history } from 'slate-history'
 import {
   Editable,
   editableKeyCommands,
@@ -66,7 +65,7 @@ const IFrameExample = () => {
     },
   ]
   const editor = useSlateEditor({
-    extensions: [history(), iframeKeyCommands()],
+    extensions: [iframeKeyCommands()],
     initialValue,
   })
 

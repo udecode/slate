@@ -2,7 +2,6 @@ import { css } from '@emotion/css'
 import type React from 'react'
 import { useMemo } from 'react'
 import type { Element as SlateElement } from 'slate'
-import { history } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
@@ -19,7 +18,7 @@ import { html } from './paste-html-import'
 
 const PasteHtmlExample = () => {
   const editor = useSlateEditor({
-    extensions: [history(), html()],
+    extensions: [html()],
     initialValue: [
       {
         type: 'paragraph',

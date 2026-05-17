@@ -3,7 +3,6 @@ import {
   NodeApi,
   type Element as SlateElement,
 } from 'slate'
-import { history } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
@@ -107,7 +106,7 @@ const layout = () =>
 
 const ForcedLayoutExample = () => {
   const editor = useSlateEditor({
-    extensions: [history(), layout()],
+    extensions: [layout()],
     initialValue: [
       {
         type: 'title',

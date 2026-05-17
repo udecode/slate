@@ -6,7 +6,6 @@ import {
   RangeApi,
   type Element as SlateElement,
 } from 'slate'
-import { history } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
@@ -81,7 +80,7 @@ const MarkdownShortcutsExample = () => {
     },
   ]
   const editor = useSlateEditor({
-    extensions: [history(), markdownShortcuts()],
+    extensions: [markdownShortcuts()],
     initialValue,
   })
   return (

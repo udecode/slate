@@ -4,7 +4,6 @@ import type React from 'react'
 import { type PointerEvent, useMemo } from 'react'
 import { defineEditorExtension, NodeApi, RangeApi } from 'slate'
 import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
-import { history } from 'slate-history'
 import * as SlateReact from 'slate-react'
 import {
   Editable,
@@ -26,7 +25,7 @@ import type {
 
 const InlinesExample = () => {
   const editor = useSlateEditor({
-    extensions: [history(), inline()],
+    extensions: [inline()],
     initialValue: [
       {
         type: 'paragraph',

@@ -1,7 +1,6 @@
 import { css } from '@emotion/css'
 import { type MouseEvent, useEffect, useRef } from 'react'
 import { RangeApi } from 'slate'
-import { history } from 'slate-history'
 import {
   Editable,
   type RenderLeafProps,
@@ -44,7 +43,6 @@ const HoveringMenuExample = () => {
     },
   ]
   const editor = useSlateEditor({
-    extensions: [history()],
     initialValue,
   })
 

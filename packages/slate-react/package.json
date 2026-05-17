@@ -19,7 +19,8 @@
     "@juggle/resize-observer": "^3.4.0",
     "@tanstack/react-virtual": "^3.13.24",
     "direction": "^1.0.4",
-    "lodash": "^4.17.21"
+    "lodash": "^4.17.21",
+    "slate-history": "workspace:*"
   },
   "scripts": {
     "build": "tsdown --config ../../config/tsdown.config.mts --log-level warn",
@@ -41,7 +42,6 @@
     "react-dom": "^19.2.5",
     "slate": "workspace:*",
     "slate-dom": "workspace:*",
-    "slate-history": "workspace:*",
     "slate-hyperscript": "workspace:*",
     "vitest": "^4.1.0"
   },

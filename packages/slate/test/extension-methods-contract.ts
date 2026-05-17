@@ -706,4 +706,70 @@ describe('extension method hard cut', () => {
 
     cleanupInstalled()
   })
+
+  it('uses latest same-name extensions and enabled false tombstones', () => {
+    const editor = createEditor()
+    const first = defineEditorExtension({
+      capabilities: {
+        duplicate: {
+          value: 'first',
+        },
+      },
+      name: 'duplicate',
+      state: {
+        duplicate() {
+          return { value: () => 'first' }
+        },
+      },
+    })
+    const second = defineEditorExtension({
+      capabilities: {
+        duplicate: {
+          value: 'second',
+        },
+      },
+      name: 'duplicate',
+      state: {
+        duplicate() {
+          return { value: () => 'second' }
+        },
+      },
+    })
+
+    editor.extend([first, second])
+
+    assert.equal(
+      (editor.api as { duplicate?: { value: string } }).duplicate?.value,
+      'second'
+    )
+    assert.equal(
+      editor.read((state) =>
+        (
+          state as unknown as { duplicate: { value: () => string } }
+        ).duplicate.value()
+      ),
+      'second'
+    )
+    assert.throws(
+      () => editor.getApi(first),
+      /Editor extension "duplicate" is not installed on this editor\./
+    )
+
+    editor.extend(
+      defineEditorExtension({
+        enabled: false,
+        name: 'duplicate',
+      })
+    )
+
+    assert.equal((editor.api as { duplicate?: unknown }).duplicate, undefined)
+    assert.equal(
+      editor.read((state) => 'duplicate' in state),
+      false
+    )
+    assert.equal(
+      Editor.getExtensionRegistry(editor).extensions.has('duplicate'),
+      false
+    )
+  })
 })

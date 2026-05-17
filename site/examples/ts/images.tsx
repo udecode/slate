@@ -4,7 +4,6 @@ import isUrl from 'is-url'
 import type { PointerEvent } from 'react'
 import { defineEditorExtension, type Element as SlateElement } from 'slate'
 import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
-import { history } from 'slate-history'
 import {
   Editable,
   editableKeyCommands,
@@ -27,7 +26,7 @@ import type {
 
 const ImagesExample = () => {
   const editor = useSlateEditor({
-    extensions: [history(), image()],
+    extensions: [image()],
     initialValue: [
       {
         type: 'paragraph',

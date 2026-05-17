@@ -19,7 +19,6 @@ import {
   type RuntimeId,
 } from 'slate'
 import { isHotkey } from 'slate-dom'
-import { history } from 'slate-history'
 import {
   Editable,
   editableKeyCommands,
@@ -47,7 +46,7 @@ const CodeIndent = '  '
 
 const CodeHighlightingExample = () => {
   const editor = useSlateEditor({
-    extensions: [history(), codeHighlighting()],
+    extensions: [codeHighlighting()],
     initialValue: [
       {
         type: ParagraphType,

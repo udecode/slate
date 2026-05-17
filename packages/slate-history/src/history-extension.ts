@@ -37,6 +37,10 @@ export type HistoryControlApi = {
   withoutSaving: (fn: () => void) => void
 }
 
+export type HistoryOptions<TEnabled extends boolean | undefined = undefined> = {
+  enabled?: TEnabled
+}
+
 declare module 'slate' {
   interface EditorStateExtensionGroups<V extends Value = Value> {
     history: HistoryStateApi<V>
@@ -170,9 +174,40 @@ const applyUndo = <V extends Value>(editor: Editor<V>) => {
   history.undos.pop()
 }
 
-export const history = () => {
+export const history = <const TEnabled extends boolean | undefined = undefined>(
+  options: HistoryOptions<TEnabled> = {}
+) => {
   const extension = {
+    enabled: options.enabled as TEnabled,
     name: 'history',
+    options,
+    state: {
+      history(_state: unknown, editor: Editor) {
+        return {
+          get: () => getHistory(editor),
+          redos: () => getHistory(editor).redos,
+          undos: () => getHistory(editor).undos,
+        }
+      },
+    },
+    tx: {
+      history(_tx: unknown, editor: Editor) {
+        return {
+          redo() {
+            executeCommand(editor, { type: 'history_redo' }, () => {
+              applyRedo(editor)
+              return { handled: true }
+            })
+          },
+          undo() {
+            executeCommand(editor, { type: 'history_undo' }, () => {
+              applyUndo(editor)
+              return { handled: true }
+            })
+          },
+        }
+      },
+    },
     register(context: EditorExtensionRegistrationContext<Editor>) {
       const editor = context.editor
 
@@ -266,33 +301,6 @@ export const history = () => {
             }
           },
         ],
-        state: {
-          history() {
-            return {
-              get: () => getHistory(editor),
-              redos: () => getHistory(editor).redos,
-              undos: () => getHistory(editor).undos,
-            }
-          },
-        },
-        tx: {
-          history() {
-            return {
-              redo() {
-                executeCommand(editor, { type: 'history_redo' }, () => {
-                  applyRedo(editor)
-                  return { handled: true }
-                })
-              },
-              undo() {
-                executeCommand(editor, { type: 'history_undo' }, () => {
-                  applyUndo(editor)
-                  return { handled: true }
-                })
-              },
-            }
-          },
-        },
       }
     },
   } as const

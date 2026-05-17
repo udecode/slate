@@ -24,7 +24,10 @@ import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect
 import { SlateAnnotationStoreContext } from '../hooks/use-slate-annotations'
 import { syncTextOperationsToDOM } from '../hooks/use-slate-node-ref'
 import { ReactEditor } from '../plugin/react-editor'
-import type { ReactEditorInstance } from '../plugin/with-react'
+import type {
+  ReactEditorContextValue,
+  ReactEditorInstance,
+} from '../plugin/with-react'
 import { ProjectionContext } from '../projection-context'
 import { recordSlateReactRender } from '../render-profiler'
 import { REACT_MAJOR_VERSION } from '../utils/environment'
@@ -227,7 +230,9 @@ export const Slate = <
     <EditorSelectorContext.Provider value={selectorContext}>
       <ProjectionContext.Provider value={projectionContextValue}>
         <SlateAnnotationStoreContext.Provider value={annotationStore}>
-          <EditorContext.Provider value={editor}>
+          <EditorContext.Provider
+            value={editor as ReactEditorContextValue<any>}
+          >
             <FocusedContext.Provider value={isFocused}>
               {children}
             </FocusedContext.Provider>

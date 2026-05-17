@@ -12,6 +12,7 @@ import {
   EDITOR_TO_PENDING_SELECTION,
 } from 'slate-dom'
 import { installDOM } from 'slate-dom/internal'
+import { history } from 'slate-history'
 import {
   getEditorTransformRegistry,
   setEditorTransformRegistry,
@@ -28,14 +29,27 @@ export type ReactApi = {
 }
 
 type ReactExtension = ReturnType<typeof react>
+const defaultHistoryExtension = history()
+type HistoryExtension = typeof defaultHistoryExtension
+type ReactDefaultExtensions<TExtensions extends readonly unknown[]> = readonly [
+  ReactExtension,
+  HistoryExtension,
+  ...TExtensions,
+]
 export type ReactEditorInstance<
   V extends Value = Value,
   TExtensions extends readonly unknown[] = readonly [],
-> = Omit<Editor<V, TExtensions>, 'api' | 'getApi'> & {
-  api: Editor<V, readonly [ReactExtension]>['api'] &
-    Editor<V, TExtensions>['api']
-  getApi: Editor<V, readonly [ReactExtension]>['getApi'] &
-    Editor<V, TExtensions>['getApi']
+> = Omit<Editor<V, ReactDefaultExtensions<TExtensions>>, 'api' | 'getApi'> & {
+  api: Editor<V, ReactDefaultExtensions<TExtensions>>['api']
+  getApi: Editor<V, ReactDefaultExtensions<TExtensions>>['getApi']
+}
+
+export type ReactEditorContextValue<V extends Value = Value> = Omit<
+  Editor<V, readonly [ReactExtension]>,
+  'api' | 'getApi'
+> & {
+  api: Editor<V, readonly [ReactExtension]>['api']
+  getApi: Editor<V, readonly [ReactExtension]>['getApi']
 }
 
 export type CreateReactEditorOptions<
@@ -109,6 +123,7 @@ export function createReactEditor<
   const reactOptions = { clipboardFormatKey }
   const editorExtensions = [
     react(reactOptions),
+    history(),
     ...((extensions ?? []) as TExtensions),
   ] as const
 

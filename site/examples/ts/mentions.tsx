@@ -8,7 +8,6 @@ import {
   useState,
 } from 'react'
 import { defineEditorExtension, type Range, RangeApi } from 'slate'
-import { history } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
@@ -82,7 +81,7 @@ const MentionExample = () => {
     },
   ]
   const editor = useSlateEditor({
-    extensions: [history(), mention()],
+    extensions: [mention()],
     initialValue,
   })
 

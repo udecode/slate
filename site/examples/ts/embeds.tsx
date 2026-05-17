@@ -1,6 +1,5 @@
 import React, { type ChangeEvent, useMemo } from 'react'
 import { defineEditorExtension, type Element as SlateElement } from 'slate'
-import { history } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
@@ -16,7 +15,7 @@ import type {
 
 const EmbedsExample = () => {
   const editor = useSlateEditor({
-    extensions: [history(), embed()],
+    extensions: [embed()],
     initialValue: [
       {
         type: 'paragraph',

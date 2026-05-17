@@ -86,6 +86,31 @@ const normalizeExtensionInput = <TEditor extends Editor>(
     ? input
     : [input]) as readonly EditorExtension<TEditor>[]
 
+const resolveLatestExtensionEntries = (
+  extensions: readonly EditorExtension<Editor, any>[]
+) => {
+  const entries = new Map<string, EditorExtension<Editor, any> | null>()
+
+  for (const extension of extensions) {
+    assertNoLegacySlots(extension)
+
+    if (!extension.name) {
+      throw new Error('Editor extension must have a name.')
+    }
+
+    entries.delete(extension.name)
+    entries.set(extension.name, extension.enabled === false ? null : extension)
+  }
+
+  return {
+    extensions: [...entries.values()].filter(
+      (extension): extension is EditorExtension<Editor, any> =>
+        extension !== null
+    ),
+    replacedNames: [...entries.keys()],
+  }
+}
+
 type DefineEditorExtension = {
   <TEditor extends BaseEditor<any> = Editor>(): <
     const TExtension extends EditorExtension<TEditor, any>,
@@ -229,18 +254,6 @@ const resolveExtensionOrder = (
   const visited = new Set<string>()
 
   for (const extension of extensions) {
-    assertNoLegacySlots(extension)
-
-    if (!extension.name) {
-      throw new Error('Editor extension must have a name.')
-    }
-
-    if (pending.has(extension.name) || state.records.has(extension.name)) {
-      throw new Error(
-        `Editor extension "${extension.name}" is already installed.`
-      )
-    }
-
     pending.set(extension.name, extension)
   }
 
@@ -511,10 +524,13 @@ export const extendEditor = <TEditor extends Editor>(
   const state = getExtensionState(editor)
   const registry = getExtensionRegistry(editor)
   const extensions = normalizeExtensionInput(input)
-  const orderedExtensions = resolveExtensionOrder(
-    state,
+  const latest = resolveLatestExtensionEntries(
     extensions as readonly EditorExtension<Editor, any>[]
   )
+
+  cleanupInstalledExtensions(state, registry, latest.replacedNames)
+
+  const orderedExtensions = resolveExtensionOrder(state, latest.extensions)
   const installedNames: string[] = []
 
   try {

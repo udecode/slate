@@ -8,7 +8,6 @@ import {
   RangeApi,
   type Element as SlateElement,
 } from 'slate'
-import { history } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
@@ -25,7 +24,7 @@ import type {
 
 const CheckListsExample = () => {
   const editor = useSlateEditor({
-    extensions: [history(), checklist()],
+    extensions: [checklist()],
     initialValue: [
       {
         type: 'paragraph',

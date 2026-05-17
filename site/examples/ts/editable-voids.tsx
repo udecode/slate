@@ -2,7 +2,6 @@ import { css } from '@emotion/css'
 import type React from 'react'
 import { type PointerEvent, useState } from 'react'
 import { defineEditorExtension } from 'slate'
-import { history } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
@@ -17,7 +16,7 @@ import RichTextEditor from './richtext'
 
 const EditableVoidsExample = () => {
   const editor = useSlateEditor({
-    extensions: [history(), editableVoid()],
+    extensions: [editableVoid()],
     initialValue: [
       {
         type: 'paragraph',

@@ -1,4 +1,3 @@
-import { history } from 'slate-history'
 import {
   Editable,
   type RenderPlaceholderProps,
@@ -8,7 +7,6 @@ import {
 
 const PlainTextExample = () => {
   const editor = useSlateEditor({
-    extensions: [history()],
     initialValue: [
       {
         type: 'paragraph',

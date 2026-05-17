@@ -13,7 +13,6 @@ import {
   TextApi,
 } from 'slate'
 import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
-import { history } from 'slate-history'
 import {
   Editable,
   editableKeyCommands,
@@ -78,7 +77,7 @@ const CLEAR_FORMATTING_HOTKEY = 'mod+\\'
 
 const RichTextExample = () => {
   const editor = useSlateEditor({
-    extensions: [history(), richTextHtml()],
+    extensions: [richTextHtml()],
     initialValue: [
       {
         type: 'paragraph',

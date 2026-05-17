@@ -507,7 +507,9 @@ export interface BaseEditor<
   TExtensions extends readonly unknown[] = readonly [],
 > {
   api: Readonly<EditorInstalledApiGroups<TExtensions>>
-  getApi: <TExtension extends TExtensions[number]>(
+  getApi: <
+    TExtension extends EditorResolvedInstalledExtensions<TExtensions>[number],
+  >(
     extension: TExtension
   ) => EditorApiValueFromExtension<TExtension>
   read: <T>(fn: (state: EditorStateView<V, TExtensions>) => T) => T
@@ -1311,6 +1313,7 @@ export type EditorExtension<
   commitListeners?: readonly EditorCommitListener<ValueOf<TEditor>>[]
   conflicts?: readonly string[]
   dependencies?: readonly string[]
+  enabled?: boolean
   editor?: EditorExtensionEditorGroups<TEditor>
   elements?: readonly EditorElementSpec[]
   name: string
@@ -1344,6 +1347,39 @@ type EditorRegistrationOutputFromExtension<TExtension> = TExtension extends {
 }
   ? Extract<NonNullable<TResult>, object>
   : unknown
+
+type EditorExtensionName<TExtension> = TExtension extends {
+  name: infer TName extends PropertyKey
+}
+  ? TName
+  : never
+
+type EditorExtensionEnabled<TExtension> = TExtension extends { enabled: false }
+  ? never
+  : TExtension
+
+export type EditorResolvedInstalledExtensions<
+  TExtensions extends readonly unknown[],
+  TSeenNames extends PropertyKey = never,
+> = TExtensions extends readonly []
+  ? readonly []
+  : TExtensions extends readonly [
+        ...infer TRest extends readonly unknown[],
+        infer TLast,
+      ]
+    ? EditorExtensionName<TLast> extends infer TName extends PropertyKey
+      ? TName extends TSeenNames
+        ? EditorResolvedInstalledExtensions<TRest, TSeenNames>
+        : TLast extends { enabled: false }
+          ? EditorResolvedInstalledExtensions<TRest, TSeenNames | TName>
+          : [
+              ...EditorResolvedInstalledExtensions<TRest, TSeenNames | TName>,
+              TLast,
+            ]
+      : EditorResolvedInstalledExtensions<TRest, TSeenNames>
+    : number extends TExtensions['length']
+      ? readonly EditorExtensionEnabled<TExtensions[number]>[]
+      : readonly []
 
 type EditorStateSlotsFromExtension<TExtension> = (TExtension extends {
   state?: infer TState
@@ -1398,50 +1434,73 @@ type EditorTxGroupResult<
     ? TResult
     : never
 
-type EditorStateGroupsFromExtension<V extends Value, TExtension> =
-  EditorStateSlotsFromExtension<TExtension> extends infer TState
+type EditorStateGroupsFromExtension<
+  V extends Value,
+  TExtension,
+> = TExtension extends unknown
+  ? EditorStateSlotsFromExtension<TExtension> extends infer TState
     ? keyof TState extends never
-      ? unknown
+      ? never
       : {
           [K in keyof TState]: EditorStateGroupResult<V, K, TState[K]>
         }
     : never
+  : never
 
-type EditorTxGroupsFromExtension<V extends Value, TExtension> =
-  EditorTxSlotsFromExtension<TExtension> extends infer TTx
+type EditorTxGroupsFromExtension<
+  V extends Value,
+  TExtension,
+> = TExtension extends unknown
+  ? EditorTxSlotsFromExtension<TExtension> extends infer TTx
     ? keyof TTx extends never
-      ? unknown
+      ? never
       : {
           [K in keyof TTx]: EditorTxGroupResult<V, K, TTx[K]>
         }
     : never
+  : never
 
 type EditorApiValue<TValue> = TValue extends readonly (infer TItem)[]
   ? TItem
   : TValue
 
-type EditorApiGroupsFromExtension<TExtension> =
-  EditorCapabilitySlotsFromExtension<TExtension> extends infer TCapabilities
+type EditorApiGroupsFromExtension<TExtension> = TExtension extends unknown
+  ? EditorCapabilitySlotsFromExtension<TExtension> extends infer TCapabilities
     ? keyof TCapabilities extends never
-      ? unknown
+      ? never
       : {
           [K in keyof TCapabilities]: EditorApiValue<TCapabilities[K]>
         }
     : never
+  : never
 
 export type EditorInstalledStateGroups<
   V extends Value = Value,
   TExtensions extends readonly unknown[] = readonly [],
-> = UnionToIntersection<EditorStateGroupsFromExtension<V, TExtensions[number]>>
+> = UnionToIntersection<
+  EditorStateGroupsFromExtension<
+    V,
+    EditorResolvedInstalledExtensions<TExtensions>[number]
+  >
+>
 
 export type EditorInstalledTxGroups<
   V extends Value = Value,
   TExtensions extends readonly unknown[] = readonly [],
-> = UnionToIntersection<EditorTxGroupsFromExtension<V, TExtensions[number]>>
+> = UnionToIntersection<
+  EditorTxGroupsFromExtension<
+    V,
+    EditorResolvedInstalledExtensions<TExtensions>[number]
+  >
+>
 
 export type EditorInstalledApiGroups<
   TExtensions extends readonly unknown[] = readonly [],
-> = UnionToIntersection<EditorApiGroupsFromExtension<TExtensions[number]>>
+> = UnionToIntersection<
+  EditorApiGroupsFromExtension<
+    EditorResolvedInstalledExtensions<TExtensions>[number]
+  >
+>
 
 export type EditorApiValueFromExtension<TExtension> =
   EditorApiGroupsFromExtension<TExtension> extends infer TApi

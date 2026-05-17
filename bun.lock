@@ -112,6 +112,7 @@
         "@tanstack/react-virtual": "^3.13.24",
         "direction": "^1.0.4",
         "lodash": "^4.17.21",
+        "slate-history": "workspace:*",
       },
       "devDependencies": {
         "@testing-library/dom": "^10.4.1",
@@ -126,7 +127,6 @@
         "react-dom": "^19.2.5",
         "slate": "workspace:*",
         "slate-dom": "workspace:*",
-        "slate-history": "workspace:*",
         "slate-hyperscript": "workspace:*",
         "vitest": "^4.1.0",
       },

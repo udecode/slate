@@ -1,6 +1,5 @@
 import { css } from '@emotion/css'
 import { NodeApi, PointApi, RangeApi } from 'slate'
-import { history } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
@@ -11,7 +10,6 @@ import {
 
 const TablesExample = () => {
   const editor = useSlateEditor({
-    extensions: [history()],
     initialValue: [
       {
         type: 'paragraph',

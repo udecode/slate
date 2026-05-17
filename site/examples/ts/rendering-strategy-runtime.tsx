@@ -14,7 +14,6 @@ import {
   type Value,
 } from 'slate'
 import type { DOMClipboardInsertDataHandler } from 'slate-dom'
-import { history } from 'slate-history'
 import {
   createReactEditor,
   Editable,
@@ -181,7 +180,7 @@ const createRuntimeEditor = (
   extensions: readonly EditorExtension<any, any>[] = []
 ) =>
   createReactEditor({
-    extensions: [history(), ...extensions],
+    extensions,
     initialValue: children,
   })
 
