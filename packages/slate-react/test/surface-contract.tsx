@@ -328,7 +328,6 @@ describe('slate-react surface contract', () => {
     expect(providerInitialValueViolations).toEqual([])
     expect(valueReplaceInventory).toEqual({
       'site/examples/ts/collaborative-comments.tsx': 1,
-      'site/examples/ts/rendering-strategy-runtime.tsx': 1,
     })
   })
 

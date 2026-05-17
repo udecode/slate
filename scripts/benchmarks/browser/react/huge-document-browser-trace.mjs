@@ -61,7 +61,7 @@ const surfaces = [
   {
     key: 'stagedDomPresent',
     label: 'v2 staged DOM-present',
-    path: `/examples/rendering-strategy-runtime?runtime_mode=staged-native-input&blocks=${blocks}`,
+    path: `/examples/huge-document?blocks=${blocks}&content_visibility=none&strict=false&strategy=staged`,
   },
 ].filter((surface) => selectedSurfaces.has(surface.key))
 

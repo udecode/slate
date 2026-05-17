@@ -74,16 +74,6 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
   },
   {
     assertions: [
-      'rendering-strategy runtime void uses the same runtime-owned shell',
-      'hidden spacer is present without visible layout ownership',
-      'scoped runtime editor selection lands on the void text anchor',
-      'stress replay preserves the scoped editor surface',
-    ],
-    family: 'rendering-strategy-runtime-void-shell',
-    routes: ['rendering-strategy-runtime'],
-  },
-  {
-    assertions: [
       'remote remove nulls local runtime targets',
       'remote move rebases local runtime targets',
       'remote import commit metadata is tagged',
@@ -158,15 +148,6 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
   },
   {
     assertions: [
-      'rendering-strategy projection overlays render inside the active segment',
-      'far overlay refresh stays inside render budget',
-      'editor selection remains scoped to the projection editor',
-    ],
-    family: 'overlay-rendering-strategy-budget',
-    routes: ['rendering-strategy-runtime'],
-  },
-  {
-    assertions: [
       'real mouse drag creates native and model selections',
       'hovering toolbar becomes visible',
       'focus remains editor-owned',
@@ -213,7 +194,7 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
       'artifact can replay the generated steps',
     ],
     family: 'ime-composition-undo',
-    routes: ['rendering-strategy-runtime'],
+    routes: ['richtext'],
   },
 ] satisfies readonly SlateBrowserOperationFamilyContract[]
 
@@ -279,7 +260,6 @@ export const SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY =
       rows: rowsByFamily([
         'block-void-navigation',
         'paste-html-image-void',
-        'rendering-strategy-runtime-void-shell',
         'stale-target-remote-rebase',
       ]),
     }),
@@ -306,10 +286,6 @@ export const SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY =
         'overlay-widget-dirty-id',
         'overlay-mixed-update',
       ]),
-    }),
-    defineSlateBrowserPluginContract({
-      plugin: 'rendering-strategy-overlays',
-      rows: rowsByFamily(['overlay-rendering-strategy-budget']),
     }),
     defineSlateBrowserPluginContract({
       plugin: 'selection-ui',

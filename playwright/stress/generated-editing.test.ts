@@ -636,48 +636,6 @@ const editableIslandNativeFocus = (): StressCase =>
     ],
   })
 
-const renderingStrategyRuntimeVoidShell = (): StressCase =>
-  createStressCase({
-    family: 'rendering-strategy-runtime-void-shell',
-    route: 'rendering-strategy-runtime',
-    steps: [
-      {
-        count: 1,
-        kind: 'assertLocatorCount',
-        label: 'assert-runtime-void-content',
-        selector: '[data-runtime-void="true"]',
-      },
-      {
-        count: 1,
-        kind: 'assertLocatorCount',
-        label: 'assert-large-runtime-void-shell',
-        selector: '[data-slate-void="true"]',
-      },
-      {
-        count: 1,
-        kind: 'assertLocatorCount',
-        label: 'assert-large-runtime-void-spacer',
-        selector: '[data-slate-void="true"] [data-slate-spacer]',
-      },
-      {
-        kind: 'select',
-        label: 'select-large-runtime-void',
-        selection: collapsedSelection([0, 0], 0),
-      },
-      {
-        kind: 'assertSelection',
-        label: 'assert-large-runtime-void-selection',
-        selection: collapsedSelection([0, 0], 0),
-      },
-      {
-        kind: 'assertSelectionLocation',
-        label: 'assert-large-runtime-void-dom-location',
-        location: { anchorPath: [0, 0], isCollapsed: true },
-      },
-    ],
-    surface: { scope: '[data-runtime-editor="void"]' },
-  })
-
 const tableCellBoundaryNavigation = (): StressCase =>
   createStressCase({
     family: 'table-cell-boundary-navigation',
@@ -953,37 +911,6 @@ const overlayMixedUpdate = (): StressCase =>
     ],
   })
 
-const overlayRenderingStrategyBudget = (): StressCase =>
-  createStressCase({
-    family: 'overlay-rendering-strategy-budget',
-    route: 'rendering-strategy-runtime',
-    steps: [
-      {
-        count: 1,
-        kind: 'assertLocatorCount',
-        label: 'assert-rendering-strategy-projection-visible',
-        selector: '[data-runtime-projection="true"]',
-      },
-      { kind: 'resetRenderProfiler', label: 'reset-large-projection-render' },
-      {
-        kind: 'select',
-        label: 'select-large-projection-text',
-        selection: collapsedSelection([0, 0], 4),
-      },
-      {
-        focusOwner: 'editor',
-        kind: 'assertFocusOwner',
-        label: 'assert-large-projection-focus',
-      },
-      {
-        budget: { byKind: { editable: { max: 1 } } },
-        kind: 'assertRenderBudget',
-        label: 'assert-large-projection-render-budget',
-      },
-    ],
-    surface: { scope: '[data-runtime-editor="projection"]' },
-  })
-
 const mouseSelectionToolbar = (): StressCase =>
   createStressCase({
     family: 'mouse-selection-toolbar',
@@ -1167,13 +1094,12 @@ const imeCompositionInlineVoidBoundary = (): StressCase => {
 }
 
 const imeCompositionUndo = (): StressCase => {
-  const initialText = 'default block 1'
+  const initialText = 'This is editable '
   const composedText = `${initialText}すし`
 
   return createStressCase({
     family: 'ime-composition-undo',
-    route: 'rendering-strategy-runtime',
-    surface: { scope: '[data-runtime-editor="default"]' },
+    route: 'richtext',
     steps: [
       {
         kind: 'clickTextOffset',
@@ -1230,7 +1156,6 @@ const stressCases: StressCase[] = [
   staleTargetRemoteRebase(),
   pasteHtmlImageVoid(),
   editableIslandNativeFocus(),
-  renderingStrategyRuntimeVoidShell(),
   tableCellBoundaryNavigation(),
   externalDecorationRefresh(),
   overlayManyDecorationSources(),
@@ -1238,7 +1163,6 @@ const stressCases: StressCase[] = [
   overlayAnnotationBookmarkRebase(),
   overlayWidgetDirtyId(),
   overlayMixedUpdate(),
-  overlayRenderingStrategyBudget(),
   mouseSelectionToolbar(),
   webkitBackwardSelection(),
   hugeDocumentCut(),

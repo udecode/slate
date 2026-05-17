@@ -21,6 +21,9 @@ const insertBlocks = Number(
   process.env.NORMALIZATION_BENCH_INSERT_BLOCKS || 500
 )
 const insertOps = Number(process.env.NORMALIZATION_BENCH_INSERT_OPS || 50)
+const forcedLayoutCases = Number(
+  process.env.NORMALIZATION_BENCH_FORCED_LAYOUT_CASES || 100
+)
 
 const benchmarkSource = `
 import assert from 'node:assert/strict';
@@ -47,6 +50,7 @@ const iterations = Number(process.env.NORMALIZATION_BENCH_ITERATIONS || 3);
 const explicitBlocks = Number(process.env.NORMALIZATION_BENCH_EXPLICIT_BLOCKS || 250);
 const insertBlocks = Number(process.env.NORMALIZATION_BENCH_INSERT_BLOCKS || 500);
 const insertOps = Number(process.env.NORMALIZATION_BENCH_INSERT_OPS || 50);
+const forcedLayoutCases = Number(process.env.NORMALIZATION_BENCH_FORCED_LAYOUT_CASES || 100);
 
 const now = () => performance.now();
 const round = (value) => Number(value.toFixed(2));
@@ -102,6 +106,23 @@ const createInsertChildren = (blocks) =>
     children: [{ text: \`block-\${index}\` }],
   }));
 
+const createForcedLayoutChildren = () => [
+  {
+    type: 'paragraph',
+    children: [{ text: 'alpha' }],
+  },
+];
+
+const createTitle = () => ({
+  type: 'title',
+  children: [{ text: 'Untitled' }],
+});
+
+const createParagraph = () => ({
+  type: 'paragraph',
+  children: [{ text: '' }],
+});
+
 const replaceEditor = (editor, input) => {
   if (typeof Editor.replace === 'function') {
     Editor.replace(editor, input);
@@ -142,8 +163,128 @@ const insertText = (editor, text, options) => {
   legacyTransforms.insertText(editor, text, options);
 };
 
-const measureLane = (setup, run) => {
+const isEditorNode = (node) => Editor.isEditor(node);
+
+const nodeString = (node) => {
+  if (!node) {
+    return '';
+  }
+
+  if (typeof Slate.NodeApi?.string === 'function') {
+    return Slate.NodeApi.string(node);
+  }
+
+  return Slate.Node.string(node);
+};
+
+const installNoopNormalizer = (editor) => {
+  if (typeof editor.extend === 'function') {
+    editor.extend({
+      name: 'benchmark-noop-normalizer',
+      normalizers: {
+        node({ next }) {
+          next();
+        },
+      },
+    });
+    return;
+  }
+
+  const normalizeNode = editor.normalizeNode;
+  editor.normalizeNode = (entry) => {
+    normalizeNode(entry);
+  };
+};
+
+const installForcedLayoutNormalizer = (editor) => {
+  if (typeof editor.extend === 'function') {
+    editor.extend({
+      name: 'benchmark-forced-layout-normalizer',
+      normalizers: {
+        node({ entry, next, tx }) {
+          const [node, path] = entry;
+
+          if (!isEditorNode(node) || path.length !== 0) {
+            next();
+            return;
+          }
+
+          const children = tx.value.get();
+          const first = children[0];
+          const second = children[1];
+          const firstText = nodeString(first);
+
+          if (children.length <= 1 && firstText === '') {
+            tx.nodes.insert(createTitle(), { at: [0], select: true });
+            return;
+          }
+
+          if (children.length < 2) {
+            tx.nodes.insert(createParagraph(), { at: [1] });
+            return;
+          }
+
+          if (first && 'children' in first && first.type !== 'title') {
+            tx.nodes.set({ type: 'title' }, { at: [0] });
+            return;
+          }
+
+          if (second && 'children' in second && second.type !== 'paragraph') {
+            tx.nodes.set({ type: 'paragraph' }, { at: [1] });
+            return;
+          }
+
+          next();
+        },
+      },
+    });
+    return;
+  }
+
+  const normalizeNode = editor.normalizeNode;
+  editor.normalizeNode = (entry) => {
+    const [node, path] = entry;
+
+    if (!isEditorNode(node) || path.length !== 0) {
+      normalizeNode(entry);
+      return;
+    }
+
+    const children = getChildren(editor);
+    const first = children[0];
+    const second = children[1];
+    const firstText = nodeString(first);
+
+    if (children.length <= 1 && firstText === '') {
+      legacyTransforms.insertNodes(editor, createTitle(), {
+        at: [0],
+        select: true,
+      });
+      return;
+    }
+
+    if (children.length < 2) {
+      legacyTransforms.insertNodes(editor, createParagraph(), { at: [1] });
+      return;
+    }
+
+    if (first && 'children' in first && first.type !== 'title') {
+      legacyTransforms.setNodes(editor, { type: 'title' }, { at: [0] });
+      return;
+    }
+
+    if (second && 'children' in second && second.type !== 'paragraph') {
+      legacyTransforms.setNodes(editor, { type: 'paragraph' }, { at: [1] });
+      return;
+    }
+
+    normalizeNode(entry);
+  };
+};
+
+const measureLane = (setup, run, options = {}) => {
   const samples = [];
+  const sampleDivisor = options.sampleDivisor ?? 1;
 
   for (let iteration = 0; iteration < iterations + 1; iteration += 1) {
     const editor = setup();
@@ -152,7 +293,7 @@ const measureLane = (setup, run) => {
     const duration = now() - start;
 
     if (iteration > 0) {
-      samples.push(duration);
+      samples.push(duration / sampleDivisor);
     }
   }
 
@@ -219,17 +360,66 @@ const insertTextReadAfterEachMs = measureLane(
   }
 );
 
+const noopNormalizerExplicitAdjacentTextNormalizeMs = measureLane(
+  () => {
+    const editor = createEditor();
+    installNoopNormalizer(editor);
+    replaceEditor(editor, {
+      children: createAdjacentTextChildren(explicitBlocks),
+      selection: null,
+    });
+    return editor;
+  },
+  (editor) => {
+    normalizeEditor(editor, { force: true });
+    assert.deepEqual(getChildren(editor)[0]?.children, [{ text: 'alphabeta', bold: true }]);
+  }
+);
+
+const forcedLayoutRepairMs = measureLane(
+  () => {
+    return Array.from({ length: forcedLayoutCases }, () => {
+      const editor = createEditor();
+      installForcedLayoutNormalizer(editor);
+      replaceEditor(editor, {
+        children: createForcedLayoutChildren(),
+        selection: null,
+      });
+      return editor;
+    });
+  },
+  (editors) => {
+    for (const editor of editors) {
+      normalizeEditor(editor, { force: true });
+      assert.deepEqual(getChildren(editor).slice(0, 2), [
+        {
+          type: 'title',
+          children: [{ text: 'alpha' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: '' }],
+        },
+      ]);
+    }
+  },
+  { sampleDivisor: forcedLayoutCases }
+);
+
 console.log(JSON.stringify({
   iterations,
   config: {
     explicitBlocks,
     insertBlocks,
     insertOps,
+    forcedLayoutCases,
   },
   lanes: {
     explicitAdjacentTextNormalizeMs,
     explicitInlineFlattenNormalizeMs,
     insertTextReadAfterEachMs,
+    noopNormalizerExplicitAdjacentTextNormalizeMs,
+    forcedLayoutRepairMs,
   },
 }));
 `
@@ -245,6 +435,7 @@ const env = {
   NORMALIZATION_BENCH_EXPLICIT_BLOCKS: String(explicitBlocks),
   NORMALIZATION_BENCH_INSERT_BLOCKS: String(insertBlocks),
   NORMALIZATION_BENCH_INSERT_OPS: String(insertOps),
+  NORMALIZATION_BENCH_FORCED_LAYOUT_CASES: String(forcedLayoutCases),
 }
 
 const current = await benchmarkRepo({
@@ -269,6 +460,7 @@ const summary = {
     explicitBlocks,
     insertBlocks,
     insertOps,
+    forcedLayoutCases,
   },
   current: current.lanes,
   legacy: legacy.lanes,
@@ -284,6 +476,14 @@ const summary = {
     insertTextReadAfterEachMs: round(
       current.lanes.insertTextReadAfterEachMs.mean -
         legacy.lanes.insertTextReadAfterEachMs.mean
+    ),
+    noopNormalizerExplicitAdjacentTextNormalizeMs: round(
+      current.lanes.noopNormalizerExplicitAdjacentTextNormalizeMs.mean -
+        legacy.lanes.noopNormalizerExplicitAdjacentTextNormalizeMs.mean
+    ),
+    forcedLayoutRepairMs: round(
+      current.lanes.forcedLayoutRepairMs.mean -
+        legacy.lanes.forcedLayoutRepairMs.mean
     ),
   },
 }

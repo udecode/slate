@@ -2,7 +2,6 @@ import {
   createEditor,
   defineEditorExtension,
   type Editor,
-  type EditorExtension,
   type EditorPublicTransformMiddlewareKey,
   type Value,
 } from 'slate'
@@ -242,6 +241,7 @@ defineEditorExtension<CustomEditor>()({
 })
 
 defineEditorExtension<CustomEditor>()({
+  name: 'bad-command-namespace',
   // @ts-expect-error raw Slate extensions do not expose public command slots
   commands: [
     {
@@ -249,14 +249,52 @@ defineEditorExtension<CustomEditor>()({
       type: 'insert_text',
     },
   ],
-  name: 'bad-command-namespace',
-} satisfies EditorExtension<CustomEditor>)
+})
 
 defineEditorExtension<CustomEditor>()({
   name: 'bad-engine-transform',
   transforms: {
     // @ts-expect-error engine controls are not transform middleware keys
     normalize() {},
+  },
+})
+
+defineEditorExtension<CustomEditor>()({
+  name: 'normalizer-node-typing',
+  normalizers: {
+    node({ entry, next, tx }) {
+      const value: CustomValue = tx.value.get()
+
+      tx.nodes.insert({
+        type: 'paragraph',
+        children: [{ text: entry[1].join('.') }],
+      } satisfies ParagraphElement)
+
+      // @ts-expect-error normalizer tx cannot recursively normalize
+      tx.normalize()
+      // @ts-expect-error normalizer tx cannot disable normalizing
+      tx.withoutNormalizing(() => {})
+      // @ts-expect-error normalizer tx cannot replay arbitrary operations
+      tx.operations.replay([])
+      // @ts-expect-error normalizer tx cannot replace the whole value
+      tx.value.replace({ children: value, marks: null, selection: null })
+
+      next()
+    },
+  },
+})
+
+defineEditorExtension<CustomEditor>()({
+  name: 'bad-top-level-normalize-node',
+  // @ts-expect-error extensions use normalizers.node, not a top-level normalizeNode slot
+  normalizeNode() {},
+})
+
+defineEditorExtension<CustomEditor>()({
+  name: 'bad-arbitrary-normalizer-key',
+  normalizers: {
+    // @ts-expect-error normalizers only exposes typed public lanes
+    root() {},
   },
 })
 

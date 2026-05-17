@@ -173,6 +173,21 @@ describe('primary public surface examples', () => {
       assert.deepEqual(failures, [])
     })
   }
+
+  it('forced-layout teaches normalizer repair instead of post-commit repair', () => {
+    const source = readFileSync(
+      resolve(repoRoot, 'site/examples/ts/forced-layout.tsx'),
+      'utf8'
+    )
+
+    assert.equal(
+      /ENFORCING_LAYOUT|WeakSet<CustomEditor>|commitListeners|register\(\{ editor \}\)|editor\.update\(/.test(
+        source
+      ),
+      false
+    )
+    assert.match(source, /normalizers:\s*\{\s*node\(/)
+  })
 })
 
 describe('public data helper namespace examples', () => {

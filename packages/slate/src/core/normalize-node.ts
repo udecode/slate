@@ -3,6 +3,7 @@ import {
   type Descendant,
   type EditorNormalizeNodeOptions,
   type EditorNormalizerArgs,
+  type EditorNormalizerContext,
   type Element,
   ElementApi,
   NodeApi,
@@ -20,6 +21,7 @@ import {
 } from '../transforms-node'
 import { getEditorSchema } from './editor-runtime'
 import { getExtensionRegistry } from './extension-registry'
+import { getNormalizerUpdateView } from './public-state'
 
 const resolveFallbackElement = (
   fallbackElement: EditorNormalizeNodeOptions['fallbackElement']
@@ -437,6 +439,10 @@ export const normalizeNode = <V extends Value>(
     return
   }
 
+  const tx = getNormalizerUpdateView(editor) as EditorNormalizerContext<
+    typeof editor
+  >['tx']
+
   const run = (index: number, currentArgs: EditorNormalizerArgs) => {
     const normalizer = normalizers[index]
 
@@ -463,6 +469,7 @@ export const normalizeNode = <V extends Value>(
           ...overrides,
         })
       },
+      tx,
     })
   }
 

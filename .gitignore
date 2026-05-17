@@ -12,3 +12,4 @@ site/out/
 test-results/
 coverage
 .DS_Store
+.clawpatch

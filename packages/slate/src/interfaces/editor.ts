@@ -1204,18 +1204,29 @@ export type EditorNormalizerNext<TArgs extends object> = (
   overrides?: Partial<TArgs>
 ) => void
 
+export type EditorNormalizerTransaction<V extends Value = Value> = Pick<
+  EditorCoreUpdateTransaction<V>,
+  'break' | 'fragment' | 'marks' | 'nodes' | 'selection' | 'text'
+> & {
+  value: Pick<EditorCoreUpdateTransaction<V>['value'], 'get'>
+}
+
 export type EditorNormalizerContext<TEditor extends BaseEditor<any> = Editor> =
   EditorNormalizerArgs<ValueOf<TEditor>> & {
     editor: TEditor
     next: EditorNormalizerNext<EditorNormalizerArgs<ValueOf<TEditor>>>
+    tx: EditorNormalizerTransaction<ValueOf<TEditor>>
   }
 
 export type EditorNormalizer<TEditor extends BaseEditor<any> = Editor> = (
   context: EditorNormalizerContext<TEditor>
 ) => void
 
-export type EditorNormalizerMap<TEditor extends BaseEditor<any> = Editor> =
-  Record<string, EditorNormalizer<TEditor>>
+export type EditorNormalizerMiddlewareMap<
+  TEditor extends BaseEditor<any> = Editor,
+> = {
+  node?: EditorNormalizer<TEditor>
+}
 
 export type EditorCommandOptions = {
   priority?: number
@@ -1297,7 +1308,7 @@ export type EditorExtensionRegistrationOutput<
   commitListeners?: readonly EditorCommitListener<ValueOf<TEditor>>[]
   editor?: EditorExtensionEditorGroups<TEditor>
   elements?: readonly EditorElementSpec[]
-  normalizers?: EditorNormalizerMap<TEditor>
+  normalizers?: EditorNormalizerMiddlewareMap<TEditor>
   operationMiddlewares?: readonly EditorOperationMiddleware<TEditor>[]
   queries?: EditorQueryMiddlewareMap<TEditor>
   state?: EditorExtensionStateGroups<TEditor>
@@ -1317,7 +1328,7 @@ export type EditorExtension<
   editor?: EditorExtensionEditorGroups<TEditor>
   elements?: readonly EditorElementSpec[]
   name: string
-  normalizers?: EditorNormalizerMap<TEditor>
+  normalizers?: EditorNormalizerMiddlewareMap<TEditor>
   operationMiddlewares?: readonly EditorOperationMiddleware<TEditor>[]
   options?: TOptions
   peerDependencies?: readonly string[]

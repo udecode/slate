@@ -13,6 +13,7 @@ import type {
   EditorFragmentReadOptions,
   EditorMarks,
   EditorNodesOptions,
+  EditorNormalizerTransaction,
   EditorSnapshot,
   EditorStateNodesApi,
   EditorStateView,
@@ -1494,6 +1495,24 @@ const getUpdateView = <
   }
 
   return Object.freeze(txRecord) as EditorUpdateTransaction<V, TExtensions>
+}
+
+export const getNormalizerUpdateView = <V extends Value>(
+  editor: Editor<V>
+): EditorNormalizerTransaction<V> => {
+  const tx = getUpdateView(editor)
+
+  return Object.freeze({
+    break: tx.break,
+    fragment: tx.fragment,
+    marks: tx.marks,
+    nodes: tx.nodes,
+    selection: tx.selection,
+    text: tx.text,
+    value: Object.freeze({
+      get: tx.value.get,
+    }),
+  } satisfies EditorNormalizerTransaction<V>)
 }
 
 const getFragment = <V extends Value>(

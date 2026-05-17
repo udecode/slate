@@ -86,6 +86,9 @@ const normalizeExtensionInput = <TEditor extends Editor>(
     ? input
     : [input]) as readonly EditorExtension<TEditor>[]
 
+const getExtensionSlotId = (extensionName: string, slot: string) =>
+  `${extensionName}:${slot}`
+
 const resolveLatestExtensionEntries = (
   extensions: readonly EditorExtension<Editor, any>[]
 ) => {
@@ -115,12 +118,23 @@ type DefineEditorExtension = {
   <TEditor extends BaseEditor<any> = Editor>(): <
     const TExtension extends EditorExtension<TEditor, any>,
   >(
-    extension: TExtension
+    extension: NoExtraEditorExtensionProperties<
+      TExtension,
+      EditorExtension<TEditor, any>
+    >
   ) => TExtension
   <const TExtension extends EditorExtension<any, any>>(
-    extension: TExtension
+    extension: NoExtraEditorExtensionProperties<
+      TExtension,
+      EditorExtension<any, any>
+    >
   ): TExtension
 }
+
+type NoExtraEditorExtensionProperties<
+  TExtension extends EditorExtension<any, any>,
+  TShape extends EditorExtension<any, any>,
+> = TExtension & Record<Exclude<keyof TExtension, keyof TShape>, never>
 
 export const defineEditorExtension = ((
   extension?: EditorExtension<any, any>
@@ -418,8 +432,14 @@ const registerExtensionSlots = <TEditor extends Editor>(
       cleanups.push(registerElementSpec(editor, extension.name, spec))
     }
 
-    for (const [id, normalizer] of Object.entries(slots.normalizers ?? {})) {
-      cleanups.push(registerNormalizer(editor, id, normalizer))
+    if (slots.normalizers?.node) {
+      cleanups.push(
+        registerNormalizer(
+          editor,
+          getExtensionSlotId(extension.name, 'normalizers.node'),
+          slots.normalizers.node
+        )
+      )
     }
 
     for (const listener of slots.commitListeners ?? []) {

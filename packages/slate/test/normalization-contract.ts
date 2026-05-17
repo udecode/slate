@@ -22,25 +22,34 @@ describe('slate normalization contract', () => {
     const editor = createEditor()
     const seen: string[] = []
 
-    editor.extend({
-      name: 'ordered-normalizers',
-      normalizers: {
-        first({ entry, next }) {
-          if (entry[1].join('.') === '0') {
-            seen.push('first')
-          }
+    editor.extend([
+      {
+        name: 'first-normalizer',
+        normalizers: {
+          node({ entry, next }) {
+            if (entry[1].join('.') === '0') {
+              seen.push('first')
+            }
 
-          next()
-        },
-        second({ entry, next }) {
-          if (entry[1].join('.') === '0') {
-            seen.push('second')
-          }
-
-          next()
+            next()
+          },
         },
       },
-    })
+      {
+        name: 'second-normalizer',
+        normalizers: {
+          node({ entry, next }) {
+            if (entry[1].join('.') === '0') {
+              seen.push('second')
+            }
+
+            next()
+          },
+        },
+      },
+    ])
+
+    assert.equal(Editor.getExtensionRegistry(editor).normalizers.size, 2)
 
     Editor.replace(editor, {
       children: [{ type: 'block', children: [] } as Descendant],
@@ -54,6 +63,108 @@ describe('slate normalization contract', () => {
     assert.deepEqual(seen.slice(0, 2), ['first', 'second'])
   })
 
+  it('uses extension-local node normalizer ids for same-lane registration', () => {
+    const editor = createEditor()
+    const seen: string[] = []
+
+    editor.extend([
+      {
+        name: 'same-lane-a',
+        normalizers: {
+          node({ entry, next }) {
+            if (entry[1].join('.') === '0') {
+              seen.push('a')
+            }
+
+            next()
+          },
+        },
+      },
+      {
+        name: 'same-lane-b',
+        normalizers: {
+          node({ entry, next }) {
+            if (entry[1].join('.') === '0') {
+              seen.push('b')
+            }
+
+            next()
+          },
+        },
+      },
+    ])
+
+    assert.deepEqual(
+      [...Editor.getExtensionRegistry(editor).normalizers.keys()],
+      ['same-lane-a:normalizers.node', 'same-lane-b:normalizers.node']
+    )
+
+    Editor.replace(editor, {
+      children: [{ type: 'block', children: [] } as Descendant],
+      selection: null,
+      marks: null,
+    })
+
+    assert.deepEqual(seen.slice(0, 2), ['a', 'b'])
+  })
+
+  it('provides a scoped normalizer tx for one-repair reruns', () => {
+    const editor = createEditor()
+    let rootCalls = 0
+
+    editor.extend({
+      name: 'layout-normalizer',
+      normalizers: {
+        node({ entry, next, tx }) {
+          const [node, path] = entry
+
+          if (!Editor.isEditor(node) || path.length !== 0) {
+            next()
+            return
+          }
+
+          rootCalls += 1
+
+          if (tx.value.get().length < 2) {
+            tx.nodes.insert(
+              {
+                type: 'paragraph',
+                children: [{ text: '' }],
+              } as Descendant,
+              { at: [1] }
+            )
+            return
+          }
+
+          next()
+        },
+      },
+    })
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'alpha' }],
+        } as Descendant,
+      ],
+      selection: null,
+      marks: null,
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: '' }],
+      },
+    ])
+    assert.equal(rootCalls >= 2, true)
+  })
+
   it('lets extension normalizers override fallback options and clean up', () => {
     const editor = createEditor()
     let calls = 0
@@ -61,7 +172,12 @@ describe('slate normalization contract', () => {
     const unextend = editor.extend({
       name: 'fallback-normalizer',
       normalizers: {
-        wrapRootText({ entry, next }) {
+        node({ entry, next }) {
+          if (entry[1].join('.') === '0') {
+            next()
+            return
+          }
+
           if (Editor.isEditor(entry[0])) {
             calls += 1
             next({
@@ -107,7 +223,7 @@ describe('slate normalization contract', () => {
     editor.extend({
       name: 'double-next-normalizer',
       normalizers: {
-        once({ next }) {
+        node({ next }) {
           next()
           assert.throws(
             () => next(),

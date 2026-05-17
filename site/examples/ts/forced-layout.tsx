@@ -18,8 +18,6 @@ import type {
   TitleElement,
 } from './custom-types.d'
 
-const ENFORCING_LAYOUT = new WeakSet<CustomEditor>()
-
 const createTitle = (): TitleElement => ({
   type: 'title',
   children: [{ text: 'Untitled' }],
@@ -33,68 +31,7 @@ const createParagraph = (): ParagraphElement => ({
 const setType = (type: CustomElementType) =>
   ({ type }) satisfies Partial<SlateElement>
 
-const enforceLayout = (editor: CustomEditor) => {
-  if (ENFORCING_LAYOUT.has(editor)) {
-    return
-  }
-
-  const children = editor.read((state) => state.value.get())
-  const plannedChildren = [...children]
-  const firstText = plannedChildren[0] ? NodeApi.string(plannedChildren[0]) : ''
-  const insertTitle = plannedChildren.length <= 1 && firstText === ''
-
-  if (insertTitle) {
-    plannedChildren.splice(0, 0, createTitle())
-  }
-
-  const insertParagraph = plannedChildren.length < 2
-
-  if (insertParagraph) {
-    plannedChildren.splice(1, 0, createParagraph())
-  }
-
-  const first = plannedChildren[0]
-  const second = plannedChildren[1]
-  const enforceTitle =
-    NodeApi.isElement(first) &&
-    first.type !== ('title' satisfies CustomElementType)
-  const enforceParagraph =
-    NodeApi.isElement(second) &&
-    second.type !== ('paragraph' satisfies CustomElementType)
-
-  if (!insertTitle && !insertParagraph && !enforceTitle && !enforceParagraph) {
-    return
-  }
-
-  ENFORCING_LAYOUT.add(editor)
-
-  try {
-    editor.update((tx) => {
-      if (insertTitle) {
-        tx.nodes.insert(createTitle(), {
-          at: [0],
-          select: true,
-        })
-      }
-
-      if (insertParagraph) {
-        tx.nodes.insert(createParagraph(), { at: [1] })
-      }
-
-      if (enforceTitle) {
-        tx.nodes.set(setType('title'), { at: [0] })
-      }
-
-      if (enforceParagraph) {
-        tx.nodes.set(setType('paragraph'), { at: [1] })
-      }
-    })
-  } finally {
-    ENFORCING_LAYOUT.delete(editor)
-  }
-}
-
-const layout = () =>
+const forcedLayout = () =>
   defineEditorExtension<CustomEditor>()({
     capabilities: editableRenderers<unknown, CustomElement>({
       elements: {
@@ -103,18 +40,57 @@ const layout = () =>
       },
     }),
     name: 'forced-layout',
-    register({ editor }) {
-      enforceLayout(editor)
+    normalizers: {
+      node({ entry, next, tx }) {
+        const [node, path] = entry
 
-      return {
-        commitListeners: [() => enforceLayout(editor)],
-      }
+        if (!NodeApi.isEditor(node) || path.length !== 0) {
+          next()
+          return
+        }
+
+        const children = tx.value.get()
+        const first = children[0]
+        const second = children[1]
+        const firstText = first ? NodeApi.string(first) : ''
+
+        if (children.length <= 1 && firstText === '') {
+          tx.nodes.insert(createTitle(), {
+            at: [0],
+            select: true,
+          })
+          return
+        }
+
+        if (children.length < 2) {
+          tx.nodes.insert(createParagraph(), { at: [1] })
+          return
+        }
+
+        if (
+          NodeApi.isElement(first) &&
+          first.type !== ('title' satisfies CustomElementType)
+        ) {
+          tx.nodes.set(setType('title'), { at: [0] })
+          return
+        }
+
+        if (
+          NodeApi.isElement(second) &&
+          second.type !== ('paragraph' satisfies CustomElementType)
+        ) {
+          tx.nodes.set(setType('paragraph'), { at: [1] })
+          return
+        }
+
+        next()
+      },
     },
   })
 
 const ForcedLayoutExample = () => {
   const editor = useSlateEditor({
-    extensions: [layout()],
+    extensions: [forcedLayout()],
     initialValue: [
       {
         type: 'title',
