@@ -1,9 +1,8 @@
 import { render } from '@testing-library/react'
 import { useMemo, useRef } from 'react'
-import { createEditor } from 'slate'
 
 import { useEditableRootRef } from '../src/editable/input-router'
-import { withReact } from '../src/plugin/with-react'
+import { createReactEditor } from '../src/plugin/with-react'
 
 const cancelable = () => ({ cancel: () => {} })
 
@@ -12,7 +11,7 @@ const RootRefProbe = ({
 }: {
   onDOMBeforeInput: (event: InputEvent) => void
 }) => {
-  const editor = useMemo(() => withReact(createEditor()), [])
+  const editor = useMemo(() => createReactEditor(), [])
   const detachNativeInputListenersRef = useRef<(() => void) | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const lifecycle = useMemo(cancelable, [])

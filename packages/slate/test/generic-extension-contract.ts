@@ -1,6 +1,7 @@
 import {
   createEditor,
   defineEditorExtension,
+  type Editor,
   type Operation,
   type ValueOf,
 } from 'slate'
@@ -17,9 +18,13 @@ type ParagraphElement = {
 
 type CustomValue = ParagraphElement[]
 
-const editor = createEditor<CustomValue>()
+type CustomEditor = Editor<CustomValue>
 
-const extension = defineEditorExtension<typeof editor>({
+const initialValue: CustomValue = [
+  { type: 'paragraph', children: [{ text: 'paragraph' }] },
+]
+
+const extension = defineEditorExtension<CustomEditor>()({
   name: 'generic-extension',
   operationMiddlewares: [
     (context, next) => {
@@ -43,4 +48,7 @@ const extension = defineEditorExtension<typeof editor>({
   ],
 })
 
-editor.extend(extension)
+const editor = createEditor({ extensions: [extension], initialValue })
+const value: CustomValue = editor.read((state) => state.value.get())
+
+void value

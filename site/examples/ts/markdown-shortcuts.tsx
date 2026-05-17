@@ -1,11 +1,12 @@
 import {
+  defineEditorExtension,
   NodeApi,
   PathApi,
   PointApi,
   RangeApi,
   type Element as SlateElement,
 } from 'slate'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
@@ -45,42 +46,43 @@ const HEADING_TYPES = new Set<CustomElementType>([
 const ORDERED_LIST_SHORTCUT = /^(\d+)\.$/
 
 const MarkdownShortcutsExample = () => {
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withMarkdownShortcuts(withHistory(editor)),
-    initialValue: [
-      {
-        type: 'paragraph',
-        children: [
-          {
-            text: 'The editor gives you full control over the logic you can add. For example, it\'s fairly common to want to add markdown-like shortcuts to editors. So that, when you start a line with "> " you get a blockquote that looks like this:',
-          },
-        ],
-      },
-      {
-        type: 'block-quote',
-        children: [{ text: 'A wise quote.' }],
-      },
-      {
-        type: 'paragraph',
-        children: [
-          {
-            text: 'Order when you start a line with "## " you get a level-two heading, like this:',
-          },
-        ],
-      },
-      {
-        type: 'heading-two',
-        children: [{ text: 'Try it out!' }],
-      },
-      {
-        type: 'paragraph',
-        children: [
-          {
-            text: 'Try it out for yourself! Try starting a new line with ">", "-", or "#"s.',
-          },
-        ],
-      },
-    ],
+  const initialValue: CustomValue = [
+    {
+      type: 'paragraph',
+      children: [
+        {
+          text: 'The editor gives you full control over the logic you can add. For example, it\'s fairly common to want to add markdown-like shortcuts to editors. So that, when you start a line with "> " you get a blockquote that looks like this:',
+        },
+      ],
+    },
+    {
+      type: 'block-quote',
+      children: [{ text: 'A wise quote.' }],
+    },
+    {
+      type: 'paragraph',
+      children: [
+        {
+          text: 'Order when you start a line with "## " you get a level-two heading, like this:',
+        },
+      ],
+    },
+    {
+      type: 'heading-two',
+      children: [{ text: 'Try it out!' }],
+    },
+    {
+      type: 'paragraph',
+      children: [
+        {
+          text: 'Try it out for yourself! Try starting a new line with ">", "-", or "#"s.',
+        },
+      ],
+    },
+  ]
+  const editor = useSlateEditor({
+    extensions: [history(), markdownShortcuts()],
+    initialValue,
   })
   return (
     <Slate editor={editor}>
@@ -111,24 +113,21 @@ const MarkdownShortcutsExample = () => {
   )
 }
 
-const withMarkdownShortcuts = (editor: CustomEditor) => {
-  editor.extend({
+const markdownShortcuts = () =>
+  defineEditorExtension<CustomEditor>()({
     name: 'markdown-shortcuts',
     transforms: {
       insertText({ editor, next, text }) {
-        if (applyMarkdownTextShortcut(editor as CustomEditor, text)) return
+        if (applyMarkdownTextShortcut(editor, text)) return
 
         next()
       },
     },
   })
 
-  return editor
-}
-
 const scheduleAndroidMarkdownShortcutFlush = (editor: CustomEditor) => {
   queueMicrotask(() => {
-    const pendingDiffs = editor.dom.androidPendingDiffs()
+    const pendingDiffs = editor.api.dom.androidPendingDiffs()
 
     const scheduleFlush = pendingDiffs?.some(({ diff, path }) => {
       if (!diff.text.endsWith(' ')) {
@@ -157,7 +156,7 @@ const scheduleAndroidMarkdownShortcutFlush = (editor: CustomEditor) => {
     })
 
     if (scheduleFlush) {
-      editor.dom.androidScheduleFlush()
+      editor.api.dom.androidScheduleFlush()
     }
   })
 }
@@ -216,7 +215,7 @@ const applyMarkdownTextShortcut = (editor: CustomEditor, text: string) => {
 
     selectCurrentBlockStart(editor)
   })
-  editor.dom.focus()
+  editor.api.dom.focus()
 
   return true
 }
@@ -390,7 +389,7 @@ const applyMarkdownBackspaceShortcut = (editor: CustomEditor) => {
 
     selectCurrentBlockStart(editor)
   })
-  editor.dom.focus()
+  editor.api.dom.focus()
 
   return true
 }

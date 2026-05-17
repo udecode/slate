@@ -8,17 +8,13 @@ import React, {
   useMemo,
   useState,
 } from 'react'
+import type { Editor, Value } from 'slate'
 import {
-  type Editor,
-  createEditor as slateCreateEditor,
-  type Value,
-} from 'slate'
-import {
+  createReactEditor,
   Editable,
   type RenderElementProps,
   Slate,
   useElementSelected,
-  withReact,
 } from 'slate-react'
 
 import type { HeadingElement, ParagraphElement } from './custom-types.d'
@@ -145,7 +141,7 @@ const initialInitialValue: Value =
     : getInitialValue(initialConfig.blocks)
 
 const createEditor = (_config: Config, initialValue: Value) =>
-  withReact(slateCreateEditor({ initialValue }))
+  createReactEditor({ initialValue })
 
 const HugeDocumentExample = () => {
   const [rendering, setRendering] = useState(false)

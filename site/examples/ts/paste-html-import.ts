@@ -1,4 +1,4 @@
-import { type Descendant, NodeApi } from 'slate'
+import { type Descendant, defineEditorExtension, NodeApi } from 'slate'
 import type { DOMClipboardInsertDataHandler } from 'slate-dom'
 import { jsx } from 'slate-hyperscript'
 
@@ -37,7 +37,7 @@ const ELEMENT_TAGS: Record<string, (el: HTMLElement) => ElementAttributes> = {
   IMG: (el) => ({ type: 'image', url: el.getAttribute('src')! }),
   LI: () => ({ type: 'list-item' }),
   OL: () => ({ type: 'numbered-list' }),
-  P: (el) => withElementAlign({ type: 'paragraph' }, el),
+  P: (el) => elementAttributes({ type: 'paragraph' }, el),
   PRE: () => ({ type: 'code-block' }),
   TABLE: () => ({ type: 'table' }),
   TD: () => ({ type: 'table-cell' }),
@@ -80,7 +80,7 @@ const getElementAlign = (el: HTMLElement) => {
   return ELEMENT_ALIGN_VALUES.has(value) ? value : undefined
 }
 
-const withElementAlign = (
+const elementAttributes = (
   attrs: ElementAttributes,
   el: HTMLElement
 ): ElementAttributes => {
@@ -524,20 +524,18 @@ const insertHtmlData = (editor: CustomEditor, data: DataTransfer) => {
   return true
 }
 
-export const withHtml = (editor: CustomEditor) => {
-  const insertData: DOMClipboardInsertDataHandler = (_domEditor, data) =>
-    insertHtmlData(editor, data)
+export const html = () => {
+  const insertData: DOMClipboardInsertDataHandler = (editor, data) =>
+    insertHtmlData(editor as unknown as CustomEditor, data)
 
-  editor.extend({
+  return defineEditorExtension<CustomEditor>()({
     name: 'paste-html',
     capabilities: {
-      'dom.clipboard.insertData': insertData,
+      'clipboard.insertData': insertData,
     },
     elements: [
       { inline: true, type: 'link' },
       { type: 'image', void: 'block' },
     ],
   })
-
-  return editor
 }

@@ -1,9 +1,9 @@
 import { css } from '@emotion/css'
 import { useRef, useState } from 'react'
-import type { Bookmark, Range, Value } from 'slate'
+import type { Bookmark, Editor, Range, Value } from 'slate'
 import {
   Editable,
-  type ReactEditor,
+  type react,
   Slate,
   useEditorSelection,
   useSlateAnnotationStore,
@@ -36,6 +36,8 @@ type CommentProjection = {
   status: CommentStatus
   tone: CommentTone
 }
+
+type CommentEditor = Editor<Value, readonly [ReturnType<typeof react>]>
 
 const initialChildren: Value = [
   {
@@ -312,7 +314,7 @@ const CommentList = ({
   )
 }
 
-const WriterPane = ({ editor }: { editor: ReactEditor }) => {
+const WriterPane = ({ editor }: { editor: CommentEditor }) => {
   const snapshot = useSlateAnnotations<CommentData, CommentProjection>()
   const firstAnnotation =
     snapshot.allIds[0] == null
@@ -358,7 +360,7 @@ const ReviewerPane = ({
   comments: readonly CommentThread[]
   onCommentWrite: () => void
   setComments: React.Dispatch<React.SetStateAction<CommentThread[]>>
-  writerEditor: ReactEditor
+  writerEditor: CommentEditor
 }) => {
   const nextCommentId = useRef(1)
   const selection = useEditorSelection()

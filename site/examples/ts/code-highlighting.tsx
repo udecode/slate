@@ -13,12 +13,13 @@ import type React from 'react'
 import type { ChangeEvent, PointerEvent } from 'react'
 import {
   type Descendant,
+  defineEditorExtension,
   type EditorSnapshot,
   NodeApi,
   type RuntimeId,
 } from 'slate'
 import { isHotkey } from 'slate-dom'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import {
   Editable,
   editableKeyCommands,
@@ -36,7 +37,6 @@ import type {
   CodeLineElement,
   CustomEditor,
   CustomText,
-  CustomValue,
 } from './custom-types.d'
 import { normalizeTokens } from './utils/normalize-tokens'
 
@@ -46,8 +46,8 @@ const CodeLineType = 'code-line'
 const CodeIndent = '  '
 
 const CodeHighlightingExample = () => {
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withCodeHighlighting(withHistory(editor)),
+  const editor = useSlateEditor({
+    extensions: [history(), codeHighlighting()],
     initialValue: [
       {
         type: ParagraphType,
@@ -67,7 +67,7 @@ const initialValue = [
 ]
 
 const App = () => {
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
+  const editor = useSlateEditor({
     initialValue,
   })
 
@@ -81,7 +81,7 @@ const App = () => {
       {
         type: ParagraphType,
         children: toChildren(
-          'If you are using TypeScript, create the editor with a value generic and compose editor wrappers from that typed editor. The example below includes the custom types required for the rest of this example.'
+          'If you are using TypeScript, create the editor from the final value shape and pass extension factories at creation time. The example below includes the custom types required for the rest of this example.'
         ),
       },
       {
@@ -89,7 +89,6 @@ const App = () => {
         language: 'typescript',
         children: toCodeLines(`// TypeScript users only add this code
 import { Descendant } from 'slate'
-import type { ReactEditor } from 'slate-react'
 import { useSlateEditor } from 'slate-react'
 
 type CustomElement = { type: 'paragraph'; children: CustomText[] }
@@ -139,10 +138,10 @@ const editor = useSlateEditor<CustomValue>({ initialValue })`),
   )
 }
 
-const withCodeHighlighting = (editor: CustomEditor) => {
-  editor.extend({
+const codeHighlighting = () =>
+  defineEditorExtension<CustomEditor>()({
     capabilities: editableKeyCommands(({ editor, event }) => {
-      const codeEditor = editor as CustomEditor
+      const codeEditor = editor as unknown as CustomEditor
 
       if (isHotkey(['mod+shift+c', 'mod+alt+c'], event)) {
         event.preventDefault()
@@ -174,9 +173,6 @@ const withCodeHighlighting = (editor: CustomEditor) => {
     }),
     name: 'code-highlighting',
   })
-
-  return editor
-}
 
 const ElementWrapper = (props: RenderElementProps) => {
   const { attributes, children, element } = props

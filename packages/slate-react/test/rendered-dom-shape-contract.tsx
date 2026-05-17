@@ -1,9 +1,9 @@
 import { act, render, waitFor } from '@testing-library/react'
 import React from 'react'
-import { createEditor, type Descendant } from 'slate'
+import { type Descendant } from 'slate'
 import { Editor } from 'slate/internal'
 
-import { Editable, Slate, withReact } from '../src'
+import { createReactEditor, Editable, Slate } from '../src'
 
 const getFirstElement = (container: HTMLElement) => {
   const element = container.querySelector('[data-slate-node="element"]')
@@ -22,7 +22,7 @@ const getZeroWidthLineBreaks = (element: HTMLElement) =>
 
 describe('rendered DOM shape contract', () => {
   test('custom element and text renderers include mounted path metadata', () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: [
@@ -55,7 +55,7 @@ describe('rendered DOM shape contract', () => {
   })
 
   test('non-empty blocks do not render empty marked leaves as visual line breaks', () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: [
@@ -89,7 +89,7 @@ describe('rendered DOM shape contract', () => {
   })
 
   test('empty inline elements inside non-empty blocks do not render visual line breaks', () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     editor.extend({
       elements: [{ inline: true, type: 'link' }],
@@ -138,7 +138,7 @@ describe('rendered DOM shape contract', () => {
   })
 
   test('empty blocks still render one line-break placeholder', () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: [
@@ -161,7 +161,7 @@ describe('rendered DOM shape contract', () => {
   })
 
   test('custom placeholder height contributes to editable root height', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
     const originalGetBoundingClientRect =
       HTMLElement.prototype.getBoundingClientRect
 
@@ -224,7 +224,7 @@ describe('rendered DOM shape contract', () => {
   })
 
   test('custom placeholder restores children and height after deleting text', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
     const originalGetBoundingClientRect =
       HTMLElement.prototype.getBoundingClientRect
 

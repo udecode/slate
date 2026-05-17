@@ -1,6 +1,6 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import React from 'react'
-import { createEditor, type Descendant } from 'slate'
+import { type Descendant } from 'slate'
 import { Editor } from 'slate/internal'
 import {
   EDITOR_TO_ELEMENT,
@@ -13,10 +13,10 @@ import { DOMCoverage } from 'slate-dom/internal'
 
 import {
   createDecorationSource,
+  createReactEditor,
   Editable,
   type EditableRenderingStrategyMetrics,
   Slate,
-  withReact,
 } from '../src'
 import { syncEditableDOMSelectionToEditor } from '../src/editable/selection-controller'
 import { didSyncTextPathToDOM } from '../src/hooks/use-slate-node-ref'
@@ -33,7 +33,10 @@ const TestEditorSurface = ({
   </Slate>
 )
 
-const getRuntimeId = (editor: ReturnType<typeof withReact>, path: number[]) => {
+const getRuntimeId = (
+  editor: ReturnType<typeof createReactEditor>,
+  path: number[]
+) => {
   const runtimeId = Editor.getRuntimeId(editor, path)
 
   if (!runtimeId) {
@@ -70,7 +73,7 @@ const fireEditorPaste = (
 }
 
 test('Editable renderingStrategy shells far segments without mounting editable descendants', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 6 }, (_, index) => ({
@@ -149,7 +152,7 @@ test('Editable renderingStrategy shells far segments without mounting editable d
 })
 
 test('Editable renderingStrategy mounts active radius corridor segments', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 6 }, (_, index) => ({
@@ -195,7 +198,7 @@ test('Editable renderingStrategy mounts active radius corridor segments', async 
 })
 
 test('Editable renderingStrategy experimental virtualized mode uses viewport DOM coverage and materializes selected segments', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 6 }, (_, index) => ({
@@ -277,7 +280,7 @@ test('Editable renderingStrategy experimental virtualized mode uses viewport DOM
 })
 
 test('Editable renderingStrategy experimental virtualized mode keeps broad selections model-backed', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 6 }, (_, index) => ({
@@ -326,7 +329,7 @@ test('Editable renderingStrategy experimental virtualized mode keeps broad selec
 })
 
 test('Editable reports renderingStrategy metrics for experimental virtualized surfaces', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
   const recordedMetrics: EditableRenderingStrategyMetrics[] = []
 
   Editor.replace(editor, {
@@ -385,7 +388,7 @@ test('Editable reports renderingStrategy metrics for experimental virtualized su
 })
 
 test('Editable reports renderingStrategy metrics for staged DOM-present surfaces', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
   const recordedMetrics: EditableRenderingStrategyMetrics[] = []
 
   Editor.replace(editor, {
@@ -430,8 +433,8 @@ test('Editable reports renderingStrategy metrics for staged DOM-present surfaces
 })
 
 test('Editable reports renderingStrategy degradation mode for plain and shell surfaces', async () => {
-  const plainEditor = withReact(createEditor())
-  const shellEditor = withReact(createEditor())
+  const plainEditor = createReactEditor()
+  const shellEditor = createReactEditor()
   const plainMetrics: EditableRenderingStrategyMetrics[] = []
   const shellMetrics: EditableRenderingStrategyMetrics[] = []
 
@@ -490,7 +493,7 @@ test('Editable reports renderingStrategy degradation mode for plain and shell su
 })
 
 test('Editable marks only default plain text as DOM-sync capable', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: [
@@ -528,7 +531,7 @@ test('Editable marks only default plain text as DOM-sync capable', async () => {
 })
 
 test('Editable disables DOM text sync for app-owned text renderers', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: [
@@ -571,8 +574,8 @@ test('Editable disables DOM text sync for app-owned text renderers', async () =>
 })
 
 test('Editable disables DOM text sync for app-owned leaf and segment renderers', async () => {
-  const leafEditor = withReact(createEditor())
-  const segmentEditor = withReact(createEditor())
+  const leafEditor = createReactEditor()
+  const segmentEditor = createReactEditor()
 
   const children: Descendant[] = [
     {
@@ -646,7 +649,7 @@ test('Editable disables DOM text sync for app-owned leaf and segment renderers',
 })
 
 test('Editable disables DOM text sync when projections affect the text node', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: [
@@ -700,7 +703,7 @@ test('Editable disables DOM text sync when projections affect the text node', as
 })
 
 test('Editable disables DOM text sync for empty zero-width text', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: [
@@ -742,7 +745,7 @@ test('Editable disables DOM text sync for empty zero-width text', async () => {
 })
 
 test('Editable falls back to React updates while composing', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: [
@@ -785,7 +788,7 @@ test('Editable falls back to React updates while composing', async () => {
 })
 
 test('Editable staged full-document replacement removes stale far DOM immediately', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 1001 }, (_, index) => ({
@@ -845,7 +848,7 @@ test('Editable staged full-document replacement removes stale far DOM immediatel
 })
 
 test('Editable staged full-document replacement resets staged coverage without stale far DOM', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 1001 }, (_, index) => ({
@@ -912,7 +915,7 @@ test('Editable staged full-document replacement resets staged coverage without s
 })
 
 test('Editable staged stages far root groups without shell placeholders', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 1001 }, (_, index) => ({
@@ -957,7 +960,7 @@ test('Editable staged stages far root groups without shell placeholders', async 
 })
 
 test('Editable staged registers pending root groups as DOM coverage boundaries', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 1001 }, (_, index) => ({
@@ -996,7 +999,7 @@ test('Editable staged registers pending root groups as DOM coverage boundaries',
 })
 
 test('Editable staged selection export consults DOM coverage before raw DOM lookup', () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
   const materialized: string[] = []
   const root = document.createElement('div')
   const selection = {
@@ -1081,7 +1084,7 @@ test('Editable staged selection export consults DOM coverage before raw DOM look
 })
 
 test('Editable staged materializes pending root groups through DOM coverage', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 1001 }, (_, index) => ({
@@ -1115,7 +1118,7 @@ test('Editable staged materializes pending root groups through DOM coverage', as
 })
 
 test('Editable staged materializes the selected root group urgently', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 1001 }, (_, index) => ({
@@ -1153,7 +1156,7 @@ test('Editable staged materializes the selected root group urgently', async () =
 })
 
 test('Editable renderingStrategy promotes a shelled segment on mouse down', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 6 }, (_, index) => ({
@@ -1217,7 +1220,7 @@ test('Editable renderingStrategy promotes a shelled segment on mouse down', asyn
 })
 
 test('Editable renderingStrategy shell focus does not activate or change model selection', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 6 }, (_, index) => ({
@@ -1264,7 +1267,7 @@ test('Editable renderingStrategy shell focus does not activate or change model s
 })
 
 test('Editable renderingStrategy shell interaction does not promote during composition', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 6 }, (_, index) => ({
@@ -1316,7 +1319,7 @@ test('Editable renderingStrategy shell interaction does not promote during compo
 })
 
 test('Editable renderingStrategy promotes a shell with keyboard activation', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 6 }, (_, index) => ({
@@ -1372,7 +1375,7 @@ test('Editable renderingStrategy promotes a shell with keyboard activation', asy
 })
 
 test('Editable renderingStrategy promotes a shell with Space keyboard activation', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 6 }, (_, index) => ({
@@ -1424,7 +1427,7 @@ test('Editable renderingStrategy promotes a shell with Space keyboard activation
 })
 
 test('Editable renderingStrategy maps Ctrl+A to a full-document model selection without expanding shells', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 6 }, (_, index) => ({
@@ -1474,7 +1477,7 @@ test('Editable renderingStrategy maps Ctrl+A to a full-document model selection 
 })
 
 test('Editable renderingStrategy derives shell-backed state for programmatic broad selections', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 6 }, (_, index) => ({
@@ -1521,7 +1524,7 @@ test('Editable renderingStrategy derives shell-backed state for programmatic bro
 })
 
 test('Editable renderingStrategy keeps broad select-all from replanning the active segment', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
   const counter = createSlateReactRenderCounter()
   const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
   let rendered: ReturnType<typeof render> | null = null
@@ -1580,7 +1583,7 @@ test('Editable renderingStrategy keeps broad select-all from replanning the acti
 })
 
 test('Editable renderingStrategy pastes over full-document shell-backed selection through the model', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 6 }, (_, index) => ({
@@ -1633,7 +1636,7 @@ test('Editable renderingStrategy pastes over full-document shell-backed selectio
 })
 
 test('Editable renderingStrategy preserves Slate fragment data for shell-backed paste', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: Array.from({ length: 6 }, (_, index) => ({
@@ -1693,7 +1696,7 @@ test('Editable renderingStrategy preserves Slate fragment data for shell-backed 
 })
 
 test('Editable forwards scrollSelectionIntoView to app-owned code', async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
   const seen: string[] = []
 
   Editor.replace(editor, {

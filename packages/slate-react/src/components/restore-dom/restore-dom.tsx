@@ -7,6 +7,7 @@ import {
 } from 'react'
 import { IS_ANDROID } from 'slate-dom'
 import { EditorContext } from '../../hooks/use-editor'
+import type { ReactEditor } from '../../plugin/react-editor'
 import {
   createRestoreDomManager,
   type RestoreDOMManager,
@@ -45,7 +46,7 @@ class RestoreDOMComponent extends Component<RestoreDOMProps> {
 
   componentDidMount() {
     const { receivedUserInput } = this.props
-    const editor = this.context!
+    const editor = this.context! as unknown as ReactEditor
 
     this.manager = createRestoreDomManager(editor, receivedUserInput)
     this.mutationObserver = new MutationObserver(this.manager.registerMutations)

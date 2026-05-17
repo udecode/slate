@@ -7,18 +7,22 @@ import {
   useState,
 } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { createEditor, type EditorSnapshot, type Value } from 'slate'
-import type { DOMClipboardInsertDataHandler } from 'slate-dom'
-import { withHistory } from 'slate-history'
 import {
+  defineEditorExtension,
+  type EditorExtension,
+  type EditorSnapshot,
+  type Value,
+} from 'slate'
+import type { DOMClipboardInsertDataHandler } from 'slate-dom'
+import { history } from 'slate-history'
+import {
+  createReactEditor,
   Editable,
   type EditableProps,
-  type ReactEditor,
   Slate,
   type SlateDecorationSource,
   type SlateProjection,
   useSlateDecorationSource,
-  withReact,
 } from 'slate-react'
 
 const renderingStrategyOptions = {
@@ -172,9 +176,16 @@ const getRuntimeSearchParams = () =>
     ? new URLSearchParams()
     : new URLSearchParams(document.location.search)
 
-const createRuntimeEditor = (children: Value) => {
-  return withHistory(withReact(createEditor({ initialValue: children })))
-}
+const createRuntimeEditor = (
+  children: Value,
+  extensions: readonly EditorExtension<any, any>[] = []
+) =>
+  createReactEditor({
+    extensions: [history(), ...extensions],
+    initialValue: children,
+  })
+
+type RuntimeEditor = ReturnType<typeof createRuntimeEditor>
 
 const createMixedBlocks = (): Value =>
   [
@@ -234,8 +245,8 @@ const createTableBlocks = (): Value =>
     })),
   ] as Value
 
-const withMixedRuntime = (editor: ReturnType<typeof createRuntimeEditor>) => {
-  editor.extend({
+const mixedRuntime = () =>
+  defineEditorExtension<RuntimeEditor>()({
     name: 'rendering-strategy-runtime',
     elements: [
       { inline: true, type: 'runtime-link' },
@@ -243,24 +254,19 @@ const withMixedRuntime = (editor: ReturnType<typeof createRuntimeEditor>) => {
     ],
   })
 
-  return editor
-}
+const runtimeHtml = () => {
+  const insertData: DOMClipboardInsertDataHandler = (editor, data) =>
+    insertRuntimeHtmlData(editor as unknown as RuntimeEditor, data)
 
-const withRuntimeHtml = (editor: ReturnType<typeof createRuntimeEditor>) => {
-  const insertData: DOMClipboardInsertDataHandler = (_domEditor, data) =>
-    insertRuntimeHtmlData(editor, data)
-
-  editor.extend({
+  return defineEditorExtension<RuntimeEditor>()({
     capabilities: {
-      'dom.clipboard.insertData': insertData,
+      'clipboard.insertData': insertData,
     },
     name: 'rendering-strategy-runtime-html',
   })
-
-  return editor
 }
 
-const insertRuntimeHtmlData = (editor: ReactEditor, data: DataTransfer) => {
+const insertRuntimeHtmlData = (editor: RuntimeEditor, data: DataTransfer) => {
   const html = data.getData('text/html')
 
   if (!html) {
@@ -384,7 +390,7 @@ const renderMixedVoid = ({ element }: EditableRenderVoidProps) => {
 
 type RuntimeEditableProps = EditableProps & {
   decorationSources?: readonly SlateDecorationSource[]
-  editor: ReactEditor
+  editor: RuntimeEditor
 }
 
 const RuntimeEditable = ({
@@ -736,16 +742,16 @@ const DefaultRenderingStrategyRuntime = () => {
   )
   const [leafEditor] = useState(() => createRuntimeEditor(createBlocks('leaf')))
   const [richEditor] = useState(() =>
-    withRuntimeHtml(createRuntimeEditor(createBlocks('rich')))
+    createRuntimeEditor(createBlocks('rich'), [runtimeHtml()])
   )
   const [mixedEditor] = useState(() =>
-    withMixedRuntime(createRuntimeEditor(createMixedBlocks()))
+    createRuntimeEditor(createMixedBlocks(), [mixedRuntime()])
   )
   const [voidEditor] = useState(() =>
-    withMixedRuntime(createRuntimeEditor(createVoidBlocks()))
+    createRuntimeEditor(createVoidBlocks(), [mixedRuntime()])
   )
   const [tableEditor] = useState(() =>
-    withMixedRuntime(createRuntimeEditor(createTableBlocks()))
+    createRuntimeEditor(createTableBlocks(), [mixedRuntime()])
   )
   const [projectionEditor] = useState(() =>
     createRuntimeEditor(createBlocks('projection'))

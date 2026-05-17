@@ -1,18 +1,21 @@
 import { createContext, useContext } from 'react'
-import type { ReactEditor } from '../plugin/react-editor'
+import type { Editor } from 'slate'
+import type { ReactEditorInstance } from '../plugin/with-react'
 
 /**
  * A React context for sharing the editor object.
  */
 
-export const EditorContext = createContext<ReactEditor<any> | null>(null)
+export const EditorContext = createContext<ReactEditorInstance<any> | null>(
+  null
+)
 
 /**
  * Get the current editor object from the React context.
  */
 
 export const useEditor = <
-  TEditor extends ReactEditor<any> = ReactEditor<any>,
+  TEditor extends Editor<any> = ReactEditorInstance<any>,
 >(): TEditor => {
   const editor = useContext(EditorContext)
 
@@ -22,5 +25,5 @@ export const useEditor = <
     )
   }
 
-  return editor as TEditor
+  return editor as unknown as TEditor
 }

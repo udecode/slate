@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef } from 'react'
-import { ReactEditor } from '../plugin/react-editor'
+import {
+  ReactEditor,
+  type ReactEditor as ReactEditorType,
+} from '../plugin/react-editor'
 import { useEditor } from './use-editor'
 
 export function useTrackUserInput() {
-  const editor = useEditor()
+  const editor = useEditor<ReactEditorType>()
 
   const receivedUserInput = useRef<boolean>(false)
   const animationFrameIdRef = useRef<number>(0)

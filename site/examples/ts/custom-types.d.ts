@@ -1,6 +1,5 @@
-import type { Descendant, Element, Range } from 'slate'
-import type { ReactEditor, RenderElementProps } from 'slate-react'
-import { HistoryEditor } from 'slate-history'
+import type { BooleanMarkKeysOf, Descendant, Element, Range } from 'slate'
+import type { ReactEditorInstance, RenderElementProps } from 'slate-react'
 
 export type BlockQuoteElement = {
   type: 'block-quote'
@@ -175,11 +174,7 @@ export type CustomText = {
   text: string
 }
 
-type BooleanTextKey<T> = {
-  [K in keyof T]: Exclude<T[K], undefined> extends boolean ? K : never
-}[keyof T]
-
-export type CustomTextKey = Extract<BooleanTextKey<CustomText>, string>
+export type CustomTextKey = BooleanMarkKeysOf<CustomText>
 
 export type EmptyText = {
   text: string
@@ -187,7 +182,6 @@ export type EmptyText = {
 
 export type RenderElementPropsFor<T extends Element> = RenderElementProps<any>
 
-export type CustomEditor = ReactEditor<CustomValue> &
-  HistoryEditor<CustomValue> & {
-    nodeToDecorations?: Map<Element, Range[]>
-  }
+export type CustomEditor = ReactEditorInstance<CustomValue> & {
+  nodeToDecorations?: Map<Element, Range[]>
+}

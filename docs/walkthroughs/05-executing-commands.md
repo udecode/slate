@@ -82,14 +82,14 @@ const commandHotkeys = defineEditorExtension({
 
 const App = () => {
   const [editor] = useState(() => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor({ initialValue })
     editor.extend(rendering)
     editor.extend(commandHotkeys)
     return editor
   })
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable
         onCommand={(command, { editor }) => {
           if (command.kind !== 'format') {

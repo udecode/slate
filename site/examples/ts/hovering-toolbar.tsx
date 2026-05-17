@@ -1,7 +1,7 @@
 import { css } from '@emotion/css'
 import { type MouseEvent, useEffect, useRef } from 'react'
 import { RangeApi } from 'slate'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import {
   Editable,
   type RenderLeafProps,
@@ -18,33 +18,34 @@ import type { CustomEditor, CustomTextKey, CustomValue } from './custom-types.d'
 import { isMarkActive, toggleMark } from './mark-utils'
 
 const HoveringMenuExample = () => {
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withHistory(editor),
-    initialValue: [
-      {
-        type: 'paragraph',
-        children: [
-          {
-            text: 'This example shows how you can make a hovering menu appear above your content, which you can use to make text ',
-          },
-          { text: 'bold', bold: true },
-          { text: ', ' },
-          { text: 'italic', italic: true },
-          { text: ', or anything else you might want to do!' },
-        ],
-      },
-      {
-        type: 'paragraph',
-        children: [
-          { text: 'Try it out yourself! Just ' },
-          {
-            text: 'select any piece of text and the menu will appear',
-            bold: true,
-          },
-          { text: '.' },
-        ],
-      },
-    ],
+  const initialValue: CustomValue = [
+    {
+      type: 'paragraph',
+      children: [
+        {
+          text: 'This example shows how you can make a hovering menu appear above your content, which you can use to make text ',
+        },
+        { text: 'bold', bold: true },
+        { text: ', ' },
+        { text: 'italic', italic: true },
+        { text: ', or anything else you might want to do!' },
+      ],
+    },
+    {
+      type: 'paragraph',
+      children: [
+        { text: 'Try it out yourself! Just ' },
+        {
+          text: 'select any piece of text and the menu will appear',
+          bold: true,
+        },
+        { text: '.' },
+      ],
+    },
+  ]
+  const editor = useSlateEditor({
+    extensions: [history()],
+    initialValue,
   })
 
   return (

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import { Editable, Slate, useSlateEditor } from 'slate-react'
 
 const ShadowDOM = () => {
@@ -29,7 +29,7 @@ const ShadowDOM = () => {
 
 const ShadowEditor = () => {
   const editor = useSlateEditor({
-    withEditor: withHistory,
+    extensions: [history()],
     initialValue: [
       {
         type: 'paragraph',

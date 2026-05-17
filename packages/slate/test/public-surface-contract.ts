@@ -193,7 +193,13 @@ describe('public data helper namespace examples', () => {
 })
 
 describe('primary slate package surface', () => {
-  const publicEditorMethods = ['extend', 'read', 'subscribe', 'update'].sort()
+  const publicEditorMethods = [
+    'extend',
+    'getApi',
+    'read',
+    'subscribe',
+    'update',
+  ].sort()
   const requiredSlateRootExports = [
     'createEditor',
     'defineEditorExtension',

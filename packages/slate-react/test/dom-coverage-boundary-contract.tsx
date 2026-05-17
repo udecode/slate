@@ -1,9 +1,9 @@
 import { act, render, waitFor } from '@testing-library/react'
 import React from 'react'
-import { createEditor, type Descendant, NodeApi } from 'slate'
+import { type Descendant, NodeApi } from 'slate'
 import { Editor } from 'slate/internal'
 import { DOMCoverage } from 'slate-dom/internal'
-import { Editable, EditableElement, Slate, withReact } from '../src'
+import { createReactEditor, Editable, EditableElement, Slate } from '../src'
 import {
   DOMCoverageBoundaryRange,
   DOMCoverageSelfBoundary,
@@ -68,7 +68,7 @@ const createLargeHiddenBoundaryChildren = (
 
 describe('DOM coverage private boundary harness', () => {
   test('BoundaryRange registers a hidden child range and omits its stale DOM', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: createNestedChildren(),
@@ -124,7 +124,7 @@ describe('DOM coverage private boundary harness', () => {
   })
 
   test('BoundaryRange registers before dev safety reports omitted children', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
     const errors: string[] = []
     const errorSpy = jest
       .spyOn(console, 'error')
@@ -185,7 +185,7 @@ describe('DOM coverage private boundary harness', () => {
   })
 
   test('BoundaryRange unregisters and renders current model content when expanded', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: createNestedChildren(),
@@ -236,7 +236,7 @@ describe('DOM coverage private boundary harness', () => {
   })
 
   test('SelfBoundary covers hidden first and last root nodes', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: createHeaderFooterChildren(),
@@ -301,19 +301,19 @@ describe('DOM coverage private boundary harness', () => {
     expect(headerPlaceholder).toBeTruthy()
     expect(footerPlaceholder).toBeTruthy()
     expect(
-      editor.dom.toSlatePoint([headerPlaceholder!, 0], {
+      editor.api.dom.toSlatePoint([headerPlaceholder!, 0], {
         exactMatch: false,
       })
     ).toEqual({ offset: 0, path: [0, 0] })
     expect(
-      editor.dom.toSlatePoint([footerPlaceholder!, 0], {
+      editor.api.dom.toSlatePoint([footerPlaceholder!, 0], {
         exactMatch: false,
       })
     ).toEqual({ offset: 0, path: [2, 0] })
   })
 
   test('renderElement slots expose one unstable boundary adapter for child ranges and self coverage', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: createHeaderFooterChildren(),
@@ -376,7 +376,7 @@ describe('DOM coverage private boundary harness', () => {
   })
 
   test('renderElement slots cover child ranges without exposing runtime ids', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: createNestedChildren(),
@@ -427,7 +427,7 @@ describe('DOM coverage private boundary harness', () => {
   })
 
   test('BoundaryRange does not leak duplicate boundaries in StrictMode', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: createNestedChildren(),
@@ -484,7 +484,7 @@ describe('DOM coverage private boundary harness', () => {
   })
 
   test('BoundaryRange replaces stale boundary ids across rerenders', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: createNestedChildren(),
@@ -541,7 +541,7 @@ describe('DOM coverage private boundary harness', () => {
   })
 
   test('BoundaryRange follows owner path after structural insert before owner', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: createNestedChildren(),
@@ -609,7 +609,7 @@ describe('DOM coverage private boundary harness', () => {
   })
 
   test('BoundaryRange follows owner path after structural move', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: createNestedChildren(),
@@ -671,7 +671,7 @@ describe('DOM coverage private boundary harness', () => {
   })
 
   test('BoundaryRange unregisters when its owner is structurally removed', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: createNestedChildren(),
@@ -723,7 +723,7 @@ describe('DOM coverage private boundary harness', () => {
   })
 
   test('BoundaryRange expands a 1000-descendant hidden boundary without waking document-scale siblings', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
     const hiddenCount = 1000
     const renderCounts = {
       hiddenItems: 0,
@@ -803,7 +803,7 @@ describe('DOM coverage private boundary harness', () => {
   })
 
   test('BoundaryRange keeps hidden model updates out of visible sibling rendering', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
     const renderCounts = {
       hiddenBody: 0,
       visibleSibling: 0,
@@ -877,7 +877,7 @@ describe('DOM coverage private boundary harness', () => {
   })
 
   test('renderElement dropping editable children without a boundary reports a dev safety error', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
     const errors: string[] = []
     const errorSpy = jest
       .spyOn(console, 'error')

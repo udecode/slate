@@ -1,6 +1,6 @@
 import React, { type ChangeEvent, useMemo } from 'react'
-import type { Element as SlateElement } from 'slate'
-import { withHistory } from 'slate-history'
+import { defineEditorExtension, type Element as SlateElement } from 'slate'
+import { history } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
@@ -11,13 +11,12 @@ import {
 } from 'slate-react'
 import type {
   CustomEditor,
-  CustomValue,
   VideoElement as VideoElementType,
 } from './custom-types.d'
 
 const EmbedsExample = () => {
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withEmbeds(withHistory(editor)),
+  const editor = useSlateEditor({
+    extensions: [history(), embed()],
     initialValue: [
       {
         type: 'paragraph',
@@ -57,14 +56,11 @@ const EmbedsExample = () => {
   )
 }
 
-const withEmbeds = (editor: CustomEditor) => {
-  editor.extend({
-    name: 'embeds',
+const embed = () =>
+  defineEditorExtension<CustomEditor>()({
+    name: 'embed',
     elements: [{ type: 'video', void: 'block' }],
   })
-
-  return editor
-}
 
 const Element = (props: RenderElementProps) => {
   const { attributes, children } = props
@@ -114,7 +110,7 @@ const VideoElement = ({ element }: RenderVoidProps<VideoElementType>) => {
       </div>
       <UrlInput
         onChange={(val) => {
-          const path = editor.dom.resolvePath(element)
+          const path = editor.api.dom.resolvePath(element)
 
           if (!path) {
             return

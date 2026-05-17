@@ -15,10 +15,10 @@ const initialValue = [
 ]
 
 const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+  const [editor] = useState(() => createReactEditor({ initialValue }))
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable
         onKeyDown={event => {
           if (event.key === '&') {
@@ -90,13 +90,13 @@ const rendering = defineEditorExtension({
 
 const App = () => {
   const [editor] = useState(() => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor({ initialValue })
     editor.extend(rendering)
     return editor
   })
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable
         onKeyDown={event => {
           if (event.key === '&') {
@@ -150,13 +150,13 @@ const rendering = defineEditorExtension({
 
 const App = () => {
   const [editor] = useState(() => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor({ initialValue })
     editor.extend(rendering)
     return editor
   })
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable
         onKeyDown={event => {
           if (event.key === '`' && event.ctrlKey) {
@@ -218,13 +218,13 @@ const rendering = defineEditorExtension({
 
 const App = () => {
   const [editor] = useState(() => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor({ initialValue })
     editor.extend(rendering)
     return editor
   })
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable
         onKeyDown={event => {
           if (event.key === '`' && event.ctrlKey) {

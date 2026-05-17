@@ -1,11 +1,10 @@
-import { createEditor } from 'slate'
 import {
   EDITOR_TO_ELEMENT,
   EDITOR_TO_WINDOW,
   ELEMENT_TO_NODE,
   NODE_TO_ELEMENT,
 } from 'slate-dom'
-import { withReact } from '../src'
+import { createReactEditor } from '../src'
 import { createRestoreDomManager } from '../src/components/restore-dom/restore-dom-manager'
 import {
   beginDOMRepairFrame,
@@ -60,7 +59,7 @@ const markEditable = (element: HTMLElement) => {
   })
 }
 
-const mountEditorRoot = (editor: ReturnType<typeof withReact>) => {
+const mountEditorRoot = (editor: ReturnType<typeof createReactEditor>) => {
   const root = document.createElement('div')
 
   root.setAttribute('contenteditable', 'true')
@@ -90,7 +89,7 @@ test('repair frame state rejects work scheduled by an older frame', () => {
 })
 
 test('restore manager rolls back structural DOM mutations and leaves text sync mutations', () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
   const root = mountEditorRoot(editor)
   const paragraph = document.createElement('p')
   const textWrapper = document.createElement('span')

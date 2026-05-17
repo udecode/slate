@@ -1,10 +1,13 @@
 import {
+  defineEditorExtension,
+  type EditorExtensionRegistrationContext,
   LocationApi,
   NodeApi,
   type Path,
   PathApi,
   type PathRef,
   RangeApi,
+  type Editor as SlateEditor,
 } from 'slate'
 import {
   Editor,
@@ -32,7 +35,7 @@ import {
   NODE_TO_KEY,
 } from '../utils/weak-maps'
 import { setDOMClipboardFormatKey } from './dom-clipboard-runtime'
-import { createDOMEditorCapability, DOMEditor } from './dom-editor'
+import { createDOMEditorCapability, type DOMApi, DOMEditor } from './dom-editor'
 
 const DEFAULT_CLIPBOARD_FORMAT_KEY = 'x-slate-fragment'
 
@@ -46,13 +49,13 @@ export interface DOMEditorOptions {
 }
 
 /**
- * `withDOM` adds DOM specific behaviors to the editor.
+ * Install DOM-specific behavior for the dom() extension.
  *
  * TypeScript value generics are preserved from the editor passed to this
  * plugin.
  */
 
-export const withDOM = <
+export const installDOM = <
   V extends import('slate').Value,
   T extends import('slate').Editor<V>,
 >(
@@ -263,6 +266,24 @@ export const withDOM = <
 
   return e
 }
+
+export const dom = (options: DOMEditorOptions = {}) =>
+  defineEditorExtension({
+    name: 'dom',
+    register(context: EditorExtensionRegistrationContext<SlateEditor>) {
+      const editor = installDOM(context.editor, options)
+      const { clipboard, ...domApi } = editor.dom
+
+      Reflect.deleteProperty(editor, 'dom')
+
+      return {
+        capabilities: {
+          clipboard,
+          dom: Object.freeze(domApi) as DOMApi,
+        },
+      }
+    },
+  })
 
 const getMatches = (e: DOMEditor<any>, path: Path) => {
   const matches: [Path, Key][] = []

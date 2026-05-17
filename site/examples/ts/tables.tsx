@@ -1,6 +1,6 @@
 import { css } from '@emotion/css'
 import { NodeApi, PointApi, RangeApi } from 'slate'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
@@ -8,11 +8,10 @@ import {
   Slate,
   useSlateEditor,
 } from 'slate-react'
-import type { CustomEditor, CustomValue } from './custom-types.d'
 
 const TablesExample = () => {
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withHistory(editor),
+  const editor = useSlateEditor({
+    extensions: [history()],
     initialValue: [
       {
         type: 'paragraph',

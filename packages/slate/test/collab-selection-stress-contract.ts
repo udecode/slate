@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { Editor } from 'slate/internal'
 
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 
 import {
   createEditor,
@@ -35,7 +35,7 @@ const createCollabEditor = ({
   children?: Descendant[]
   selection: Range
 }) => {
-  const editor = withHistory(createEditor())
+  const editor = createEditor({ extensions: [history()] })
 
   Editor.replace(editor, {
     children,
@@ -114,12 +114,18 @@ describe('collab remote selection stress contract', () => {
       collapsed([0, 0], 53)
     )
     assertLastRemoteCommit(editor)
-    assert.equal(editor.history.undos.length, 0)
+    assert.equal(
+      editor.read((state) => state.history.undos().length),
+      0
+    )
 
     insertLocal(editor, '!')
 
     assert.equal(Editor.string(editor, [0]).endsWith('one!'), true)
-    assert.equal(editor.history.undos.length, 1)
+    assert.equal(
+      editor.read((state) => state.history.undos().length),
+      1
+    )
   })
 
   it('keeps same-offset remote contention deterministic for follow-up local typing', () => {
@@ -197,13 +203,19 @@ describe('collab remote selection stress contract', () => {
 
     assert.deepEqual(Editor.getSnapshot(editor).selection, collapsed([0, 0], 3))
     assertLastRemoteCommit(editor)
-    assert.equal(editor.history.undos.length, 0)
+    assert.equal(
+      editor.read((state) => state.history.undos().length),
+      0
+    )
 
     editor.update((tx) => {
       tx.text.insert('!')
     })
 
     assert.equal(Editor.string(editor, [0]), 'one!')
-    assert.equal(editor.history.undos.length, 1)
+    assert.equal(
+      editor.read((state) => state.history.undos().length),
+      1
+    )
   })
 })

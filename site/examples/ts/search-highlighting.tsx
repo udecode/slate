@@ -6,7 +6,7 @@ import {
   NodeApi,
   type RuntimeId,
 } from 'slate'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import {
   Editable,
   type EditableProps,
@@ -23,7 +23,7 @@ const SearchHighlightingExample = () => {
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const searchRef = useRef('')
   const editor = useSlateEditor({
-    withEditor: withHistory,
+    extensions: [history()],
     initialValue: [
       {
         type: 'paragraph',

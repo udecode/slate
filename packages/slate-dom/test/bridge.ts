@@ -9,7 +9,7 @@ import {
 import { Editor } from 'slate/internal'
 
 import {
-  type DOMEditor,
+  dom,
   EDITOR_TO_ELEMENT,
   EDITOR_TO_KEY_TO_ELEMENT,
   EDITOR_TO_WINDOW,
@@ -19,11 +19,10 @@ import {
   NODE_TO_INDEX,
   NODE_TO_PARENT,
   NODE_TO_RUNTIME_ID,
-  withDOM,
 } from '../src/index'
 
 const createParagraphEditor = (text = 'alpha beta') => {
-  const editor = withDOM(createEditor())
+  const editor = createEditor({ extensions: [dom()] })
 
   Editor.replace(editor, {
     children: [
@@ -103,15 +102,11 @@ const mountEditorRoot = (
   return root
 }
 
-const bindTextOwner = (
-  editor: DOMEditor,
-  path: number[],
-  owner: HTMLElement
-) => {
+const bindTextOwner = (editor: any, path: number[], owner: HTMLElement) => {
   owner.setAttribute('data-slate-node', 'text')
 
   const [node] = editor.read((state) => state.nodes.get(path))
-  const key = editor.dom.findKey(node)
+  const key = editor.api.dom.findKey(node)
 
   EDITOR_TO_KEY_TO_ELEMENT.get(editor)!.set(key, owner)
   ELEMENT_TO_NODE.set(owner, node)
@@ -153,8 +148,8 @@ describe('slate-dom bridge', () => {
       paragraph.appendChild(textOwner)
       root.appendChild(paragraph)
 
-      expect(editor.dom.toSlateNode(paragraph)).toBe(paragraphNode)
-      expect(editor.dom.toSlateNode(textOwner)).toBe(textNode)
+      expect(editor.api.dom.toSlateNode(paragraph)).toBe(paragraphNode)
+      expect(editor.api.dom.toSlateNode(textOwner)).toBe(textNode)
     })
   })
 
@@ -182,8 +177,8 @@ describe('slate-dom bridge', () => {
       owner.appendChild(leaf)
       root.appendChild(owner)
 
-      expect(editor.dom.toDOMNode(textNode)).toBe(owner)
-      expect(editor.dom.toDOMPoint({ path: [0, 0], offset: 5 })).toEqual([
+      expect(editor.api.dom.toDOMNode(textNode)).toBe(owner)
+      expect(editor.api.dom.toDOMPoint({ path: [0, 0], offset: 5 })).toEqual([
         domText,
         5,
       ])
@@ -191,7 +186,9 @@ describe('slate-dom bridge', () => {
   })
 
   it('resolves Slate node paths when user code attaches custom metadata', () => {
-    const editor = createParagraphEditor() as DOMEditor & {
+    const editor = createParagraphEditor() as ReturnType<
+      typeof createParagraphEditor
+    > & {
       customMetadata?: unknown[]
     }
     const [textNode] = editor.read((state) => state.nodes.get([0, 0]))
@@ -203,11 +200,11 @@ describe('slate-dom bridge', () => {
       },
     ]
 
-    expect(editor.dom.findPath(textNode)).toEqual([0, 0])
+    expect(editor.api.dom.findPath(textNode)).toEqual([0, 0])
   })
 
   it('resolves Slate node paths by runtime id before stale weak-map indexes', () => {
-    const editor = withDOM(createEditor())
+    const editor = createEditor({ extensions: [dom()] })
 
     Editor.replace(editor, {
       children: [
@@ -239,7 +236,7 @@ describe('slate-dom bridge', () => {
     })
 
     expect(Editor.getPathByRuntimeId(editor, runtimeId!)).toEqual([2])
-    expect(editor.dom.findPath(targetNode)).toEqual([2])
+    expect(editor.api.dom.findPath(targetNode)).toEqual([2])
   })
 
   it('resolves Slate points by mounted DOM path when node path maps lag', () => {
@@ -268,7 +265,7 @@ describe('slate-dom bridge', () => {
       NODE_TO_INDEX.delete(textNode)
       NODE_TO_PARENT.delete(textNode)
 
-      expect(editor.dom.toDOMPoint({ path: [0, 0], offset: 5 })).toEqual([
+      expect(editor.api.dom.toDOMPoint({ path: [0, 0], offset: 5 })).toEqual([
         domText,
         5,
       ])
@@ -284,7 +281,7 @@ describe('slate-dom bridge', () => {
       foreign.setAttribute('data-slate-node', 'element')
       foreign.setAttribute('data-slate-path', '0')
 
-      expect(() => editor.dom.toSlateNode(foreign)).toThrow(
+      expect(() => editor.api.dom.toSlateNode(foreign)).toThrow(
         'Cannot resolve a Slate node from DOM node'
       )
     })
@@ -303,12 +300,12 @@ describe('slate-dom bridge', () => {
       domSelection.removeAllRanges()
 
       expect(() =>
-        editor.dom.toSlateRange(domSelection, {
+        editor.api.dom.toSlateRange(domSelection, {
           exactMatch: false,
         })
       ).toThrow('Cannot resolve a Slate range from DOM range')
       expect(
-        editor.dom.resolveSlateRange(domSelection, {
+        editor.api.dom.resolveSlateRange(domSelection, {
           exactMatch: false,
         })
       ).toBeNull()
@@ -323,13 +320,13 @@ describe('slate-dom bridge', () => {
       focus: { path: [0, 0], offset: 0 },
     }
 
-    expect(() => editor.dom.toDOMNode(textNode)).toThrow(
+    expect(() => editor.api.dom.toDOMNode(textNode)).toThrow(
       'Cannot resolve a DOM node from Slate node'
     )
-    expect(editor.dom.resolveDOMNode(textNode)).toBeNull()
-    expect(() => editor.dom.toDOMRange(range)).toThrow()
-    expect(editor.dom.resolveDOMRange(range)).toBeNull()
-    expect(editor.dom.resolvePath({ text: 'detached' })).toBeNull()
+    expect(editor.api.dom.resolveDOMNode(textNode)).toBeNull()
+    expect(() => editor.api.dom.toDOMRange(range)).toThrow()
+    expect(editor.api.dom.resolveDOMRange(range)).toBeNull()
+    expect(editor.api.dom.resolvePath({ text: 'detached' })).toBeNull()
   })
 
   it('keeps parent and nested editor DOM point ownership separate', () => {
@@ -352,11 +349,11 @@ describe('slate-dom bridge', () => {
       nestedRoot.appendChild(nestedOwner)
       bindTextOwner(nested, [0, 0], nestedOwner)
 
-      expect(parent.dom.hasDOMNode(nestedText)).toBe(false)
-      expect(nested.dom.hasDOMNode(nestedText)).toBe(true)
-      expect(() => parent.dom.toSlateNode(nestedOwner)).toThrow()
+      expect(parent.api.dom.hasDOMNode(nestedText)).toBe(false)
+      expect(nested.api.dom.hasDOMNode(nestedText)).toBe(true)
+      expect(() => parent.api.dom.toSlateNode(nestedOwner)).toThrow()
       expect(
-        nested.dom.toSlatePoint([nestedText, 3], {
+        nested.api.dom.toSlatePoint([nestedText, 3], {
           exactMatch: false,
         })
       ).toEqual<Point>({
@@ -364,12 +361,12 @@ describe('slate-dom bridge', () => {
         offset: 3,
       })
       expect(() =>
-        parent.dom.toSlatePoint([nestedText, 3], {
+        parent.api.dom.toSlatePoint([nestedText, 3], {
           exactMatch: false,
         })
       ).toThrow()
       expect(
-        parent.dom.resolveSlatePoint([nestedText, 3], {
+        parent.api.dom.resolveSlatePoint([nestedText, 3], {
           exactMatch: false,
         })
       ).toBeNull()
@@ -408,7 +405,7 @@ describe('slate-dom bridge', () => {
       ;(document as any).caretRangeFromPoint = () => caretRange
 
       expect(
-        editor.dom.findEventRange({
+        editor.api.dom.findEventRange({
           clientX: 0,
           clientY: 0,
           target: paragraph,
@@ -430,9 +427,9 @@ describe('slate-dom bridge', () => {
       root.appendChild(staleParagraph)
 
       expect(() =>
-        editor.dom.isTargetInsideNonReadonlyVoid(staleParagraph)
+        editor.api.dom.isTargetInsideNonReadonlyVoid(staleParagraph)
       ).not.toThrow()
-      expect(editor.dom.isTargetInsideNonReadonlyVoid(staleParagraph)).toBe(
+      expect(editor.api.dom.isTargetInsideNonReadonlyVoid(staleParagraph)).toBe(
         false
       )
     })
@@ -457,7 +454,7 @@ describe('slate-dom bridge', () => {
       bindTextOwner(editor, [0, 0], owner)
 
       expect(
-        editor.dom.toSlatePoint([textNode, 1], {
+        editor.api.dom.toSlatePoint([textNode, 1], {
           exactMatch: false,
         })
       ).toEqual<Point>({
@@ -488,7 +485,7 @@ describe('slate-dom bridge', () => {
       bindTextOwner(editor, [0, 0], owner)
 
       expect(
-        editor.dom.toSlatePoint([domText, domText.textContent!.length], {
+        editor.api.dom.toSlatePoint([domText, domText.textContent!.length], {
           exactMatch: false,
         })
       ).toEqual<Point>({
@@ -496,9 +493,12 @@ describe('slate-dom bridge', () => {
         offset: 1,
       })
       expect(
-        editor.dom.resolveSlatePoint([domText, domText.textContent!.length], {
-          exactMatch: true,
-        })
+        editor.api.dom.resolveSlatePoint(
+          [domText, domText.textContent!.length],
+          {
+            exactMatch: true,
+          }
+        )
       ).toBeNull()
     })
   })
@@ -530,7 +530,7 @@ describe('slate-dom bridge', () => {
       root.appendChild(owner)
       bindTextOwner(editor, [0, 0], owner)
 
-      expect(editor.dom.toDOMPoint({ path: [0, 0], offset: 10 })).toEqual([
+      expect(editor.api.dom.toDOMPoint({ path: [0, 0], offset: 10 })).toEqual([
         placeholderText,
         1,
       ])
@@ -575,7 +575,7 @@ describe('slate-dom bridge', () => {
       range.setEnd(lastText, 2)
 
       expect(
-        editor.dom.toSlateRange(range, {
+        editor.api.dom.toSlateRange(range, {
           exactMatch: false,
         })
       ).toEqual({
@@ -603,7 +603,7 @@ describe('slate-dom bridge', () => {
       root.appendChild(owner)
       bindTextOwner(editor, [0, 0], owner)
 
-      const domRange = editor.dom.toDOMRange({
+      const domRange = editor.api.dom.toDOMRange({
         anchor: { path: [0, 0], offset: 0 },
         focus: { path: [0, 0], offset: 0 },
       })

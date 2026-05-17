@@ -19,3 +19,4 @@ export type {
 export { DOMCoverage } from '../plugin/dom-coverage'
 export type { DOMEditorInterface } from '../plugin/dom-editor'
 export { DOMEditor } from '../plugin/dom-editor'
+export { installDOM } from '../plugin/with-dom'

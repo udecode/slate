@@ -1,8 +1,9 @@
 import type React from 'react'
 import { type PointerEvent, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { defineEditorExtension } from 'slate'
 import { isHotkey } from 'slate-dom'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import {
   Editable,
   editableKeyCommands,
@@ -28,44 +29,45 @@ const HOTKEYS: Record<string, CustomTextKey> = {
 const MARK_HOTKEYS = Object.entries(HOTKEYS)
 
 const IFrameExample = () => {
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withIFrameKeyCommands(withHistory(editor)),
-    initialValue: [
-      {
-        type: 'paragraph',
-        children: [
-          {
-            text: 'In this example, the document gets rendered into a controlled ',
-          },
-          { text: '<iframe>', code: true },
-          {
-            text: '. This is ',
-          },
-          {
-            text: 'particularly',
-            italic: true,
-          },
-          {
-            text: ' useful, when you need to separate the styles for your editor contents from the ones addressing your UI.',
-          },
-        ],
-      },
-      {
-        type: 'paragraph',
-        children: [
-          {
-            text: 'This also the only reliable method to preview any ',
-          },
-          {
-            text: 'media queries',
-            bold: true,
-          },
-          {
-            text: ' in your CSS.',
-          },
-        ],
-      },
-    ],
+  const initialValue: CustomValue = [
+    {
+      type: 'paragraph',
+      children: [
+        {
+          text: 'In this example, the document gets rendered into a controlled ',
+        },
+        { text: '<iframe>', code: true },
+        {
+          text: '. This is ',
+        },
+        {
+          text: 'particularly',
+          italic: true,
+        },
+        {
+          text: ' useful, when you need to separate the styles for your editor contents from the ones addressing your UI.',
+        },
+      ],
+    },
+    {
+      type: 'paragraph',
+      children: [
+        {
+          text: 'This also the only reliable method to preview any ',
+        },
+        {
+          text: 'media queries',
+          bold: true,
+        },
+        {
+          text: ' in your CSS.',
+        },
+      ],
+    },
+  ]
+  const editor = useSlateEditor({
+    extensions: [history(), iframeKeyCommands()],
+    initialValue,
   })
 
   return (
@@ -76,7 +78,7 @@ const IFrameExample = () => {
         <MarkButton format="underline" icon="format_underlined" />
         <MarkButton format="code" icon="code" />
       </Toolbar>
-      <IFrame onBlur={() => editor.dom.deselect()}>
+      <IFrame onBlur={() => editor.api.dom.deselect()}>
         <Editable
           autoFocus
           placeholder="Enter some rich text…"
@@ -89,10 +91,10 @@ const IFrameExample = () => {
   )
 }
 
-const withIFrameKeyCommands = (editor: CustomEditor) => {
-  editor.extend({
+const iframeKeyCommands = () =>
+  defineEditorExtension<CustomEditor>()({
     capabilities: editableKeyCommands(({ editor, event }) => {
-      const iframeEditor = editor as CustomEditor
+      const iframeEditor = editor as unknown as CustomEditor
 
       for (const [hotkey, mark] of MARK_HOTKEYS) {
         if (isHotkey(hotkey, event)) {
@@ -103,9 +105,6 @@ const withIFrameKeyCommands = (editor: CustomEditor) => {
     }),
     name: 'iframe-key-commands',
   })
-
-  return editor
-}
 
 const Element = ({ attributes, children }: RenderElementProps) => (
   <p {...attributes}>{children}</p>

@@ -75,7 +75,7 @@ Get the current element object inside an element renderer.
 
 Subscribe to the current path of the rendered element. Use this only for UI
 that displays or derives live path state during render. Event handlers should
-usually call `editor.dom.findPath(element)` when they need the current path.
+usually call `editor.api.dom.findPath(element)` when they need the current path.
 
 #### `useElementSelected(options?: UseElementSelectedOptions): boolean`
 

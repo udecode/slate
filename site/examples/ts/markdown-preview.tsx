@@ -3,7 +3,7 @@ import Prism from 'prismjs'
 import 'prismjs/components/prism-markdown'
 import type { ReactNode } from 'react'
 import { type Descendant, NodeApi } from 'slate'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import {
   Editable,
   Slate,
@@ -14,7 +14,7 @@ import {
 
 const MarkdownPreviewExample = () => {
   const editor = useSlateEditor({
-    withEditor: withHistory,
+    extensions: [history()],
     initialValue: [
       {
         type: 'paragraph',

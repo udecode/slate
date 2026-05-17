@@ -56,14 +56,38 @@ export const applyModelOwnedHistoryIntent = ({
   direction: 'redo' | 'undo'
   editor: Editor
 }) => {
-  const maybeHistoryEditor: any = editor
-  const fn = maybeHistoryEditor[direction]
+  const hasHistory = editor.read((state) => {
+    const history = (state as { history?: unknown }).history as
+      | { redos?: unknown; undos?: unknown }
+      | undefined
 
-  if (typeof fn !== 'function') {
+    return (
+      typeof history?.redos === 'function' &&
+      typeof history?.undos === 'function'
+    )
+  })
+
+  if (!hasHistory) {
     return false
   }
 
-  fn()
+  editor.update((tx) => {
+    const history = (
+      tx as {
+        history?: {
+          redo?: () => void
+          undo?: () => void
+        }
+      }
+    ).history
+    const fn = history?.[direction]
+
+    if (typeof fn !== 'function') {
+      throw new Error(`Editor history API does not expose ${direction}.`)
+    }
+
+    fn()
+  })
   return true
 }
 
@@ -525,9 +549,11 @@ export const applyEditableCommand = ({
 
     case 'insert-data':
       editor.update(() => {
-        const domEditor = editor as ReactEditor
-
-        domEditor.dom.clipboard.insertData(command.data)
+        ;(
+          editor.api as {
+            clipboard: { insertData: (data: DataTransfer) => void }
+          }
+        ).clipboard.insertData(command.data)
       })
       return true
 
@@ -572,7 +598,7 @@ export const applyModelOwnedDataTransferInput = ({
   editor: ReactEditor
 }) => {
   editor.update(() => {
-    editor.dom.clipboard.insertData(data)
+    editor.api.clipboard.insertData(data)
   })
 }
 

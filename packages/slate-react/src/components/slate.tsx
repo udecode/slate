@@ -24,6 +24,7 @@ import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect
 import { SlateAnnotationStoreContext } from '../hooks/use-slate-annotations'
 import { syncTextOperationsToDOM } from '../hooks/use-slate-node-ref'
 import { ReactEditor } from '../plugin/react-editor'
+import type { ReactEditorInstance } from '../plugin/with-react'
 import { ProjectionContext } from '../projection-context'
 import { recordSlateReactRender } from '../render-profiler'
 import { REACT_MAJOR_VERSION } from '../utils/environment'
@@ -60,8 +61,11 @@ export type SlateChange<V extends Value = Value> = {
   valueChanged: boolean
 }
 
-export type SlateProps<V extends Value = Value> = {
-  editor: ReactEditor<V>
+export type SlateProps<
+  V extends Value = Value,
+  TExtensions extends readonly unknown[] = readonly unknown[],
+> = {
+  editor: ReactEditorInstance<V, TExtensions>
   annotationStore?: SlateAnnotationStore<any, any> | null
   children: React.ReactNode
   decorationSources?: readonly SlateDecorationSource<any>[] | null
@@ -78,7 +82,12 @@ export type SlateProps<V extends Value = Value> = {
  * the editor is a mutable singleton.
  */
 
-export const Slate = <V extends Value = Value>(props: SlateProps<V>) => {
+export const Slate = <
+  V extends Value = Value,
+  const TExtensions extends readonly unknown[] = readonly unknown[],
+>(
+  props: SlateProps<V, TExtensions>
+) => {
   const {
     annotationStore = null,
     decorationSources = null,
@@ -93,6 +102,7 @@ export const Slate = <V extends Value = Value>(props: SlateProps<V>) => {
     throw new Error('[Slate] editor is invalid!')
   }
 
+  const reactEditor = editor as unknown as ReactEditor<V>
   const { selectorContext, onChange: handleSelectorChange } =
     useEditorSelectorContext()
   const lastOperationCountRef = useRef(
@@ -122,10 +132,10 @@ export const Slate = <V extends Value = Value>(props: SlateProps<V>) => {
 
       maybeBatchUpdates(() => {
         profileRuntimeDuration('focused-state', () => {
-          setIsFocused(ReactEditor.isFocused(editor))
+          setIsFocused(ReactEditor.isFocused(reactEditor))
         })
         const textSync = profileRuntimeDuration('dom-text-sync', () =>
-          syncTextOperationsToDOM(editor, nextOperations)
+          syncTextOperationsToDOM(reactEditor, nextOperations)
         )
         const hasUnsyncedTextOperation =
           textSync.textOperationCount > textSync.syncedTextOperationCount
@@ -171,7 +181,7 @@ export const Slate = <V extends Value = Value>(props: SlateProps<V>) => {
     return editor.subscribe(onContextChange)
   }, [editor, handleSelectorChange, onChange, onSelectionChange, onValueChange])
 
-  const [isFocused, setIsFocused] = useState(ReactEditor.isFocused(editor))
+  const [isFocused, setIsFocused] = useState(ReactEditor.isFocused(reactEditor))
   const projectionContextValue = useMemo(() => {
     if (!annotationStore) {
       return composeDecorationSources(decorationSources)
@@ -184,14 +194,14 @@ export const Slate = <V extends Value = Value>(props: SlateProps<V>) => {
   }, [annotationStore, decorationSources])
 
   useEffect(() => {
-    setIsFocused(ReactEditor.isFocused(editor))
-  }, [editor])
+    setIsFocused(ReactEditor.isFocused(reactEditor))
+  }, [reactEditor])
 
   useIsomorphicLayoutEffect(() => {
     const fn = () => {
-      setIsFocused(ReactEditor.isFocused(editor))
+      setIsFocused(ReactEditor.isFocused(reactEditor))
       queueMicrotask(() => {
-        setIsFocused(ReactEditor.isFocused(editor))
+        setIsFocused(ReactEditor.isFocused(reactEditor))
       })
     }
     if (REACT_MAJOR_VERSION >= 17) {
@@ -211,7 +221,7 @@ export const Slate = <V extends Value = Value>(props: SlateProps<V>) => {
       document.removeEventListener('focus', fn, true)
       document.removeEventListener('blur', fn, true)
     }
-  }, [editor])
+  }, [reactEditor])
 
   return (
     <EditorSelectorContext.Provider value={selectorContext}>

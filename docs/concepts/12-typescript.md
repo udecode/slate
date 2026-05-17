@@ -2,14 +2,15 @@
 
 Slate types custom document models through editor value generics. Define the
 element and text shapes for your editor, create a `Value` from the element
-union, then pass that value to `createEditor<Value>()`.
+union, then pass that value to `createEditor<Value>()` or
+`createReactEditor<Value>()`.
 
 ## Defining Element And Text Types
 
 ```typescript
-import { createEditor, type ElementOf, type TextOf, type ValueOf } from 'slate'
-import { withHistory, type HistoryEditor } from 'slate-history'
-import { withReact, type ReactEditor } from 'slate-react'
+import { type ElementOf, type TextOf, type ValueOf } from 'slate'
+import { history } from 'slate-history'
+import { createReactEditor, type ReactEditorInstance } from 'slate-react'
 
 type CustomText = { text: string; bold?: true }
 
@@ -26,9 +27,11 @@ type HeadingElement = {
 
 type CustomValue = (ParagraphElement | HeadingElement)[]
 
-const editor = withReact(withHistory(createEditor<CustomValue>()))
+const editor = createReactEditor<CustomValue>({
+  extensions: [history()],
+})
 
-type CustomEditor = ReactEditor<CustomValue> & HistoryEditor<CustomValue>
+type CustomEditor = ReactEditorInstance<CustomValue>
 type CustomElement = ElementOf<typeof editor>
 type EditorText = TextOf<typeof editor>
 type EditorValue = ValueOf<typeof editor>
@@ -40,8 +43,7 @@ Annotate the editor's initial value with your value type.
 
 ```tsx
 import React, { useState } from 'react'
-import { createEditor } from 'slate'
-import { Editable, Slate, withReact } from 'slate-react'
+import { Editable, Slate, createReactEditor } from 'slate-react'
 
 type CustomText = { text: string; bold?: true }
 type ParagraphElement = { type: 'paragraph'; children: CustomText[] }
@@ -55,10 +57,12 @@ const initialValue: CustomValue = [
 ]
 
 const App = () => {
-  const [editor] = useState(() => withReact(createEditor<CustomValue>()))
+  const [editor] = useState(() =>
+    createReactEditor<CustomValue>({ initialValue })
+  )
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable />
     </Slate>
   )

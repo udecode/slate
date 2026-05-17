@@ -86,9 +86,31 @@ const normalizeExtensionInput = <TEditor extends Editor>(
     ? input
     : [input]) as readonly EditorExtension<TEditor>[]
 
-export const defineEditorExtension = <TEditor extends BaseEditor<any> = Editor>(
-  extension: EditorExtension<TEditor, any>
-) => extension
+type DefineEditorExtension = {
+  <TEditor extends BaseEditor<any> = Editor>(): <
+    const TExtension extends EditorExtension<TEditor, any>,
+  >(
+    extension: TExtension
+  ) => TExtension
+  <const TExtension extends EditorExtension<any, any>>(
+    extension: TExtension
+  ): TExtension
+}
+
+export const defineEditorExtension = ((
+  extension?: EditorExtension<any, any>
+) =>
+  extension === undefined
+    ? <const TExtension extends EditorExtension<any, any>>(
+        typedExtension: TExtension
+      ) => typedExtension
+    : extension) as DefineEditorExtension
+
+export const isEditorExtensionInstalled = (
+  editor: Editor,
+  extension: EditorExtension<any, any>
+) =>
+  getExtensionState(editor).records.get(extension.name)?.extension === extension
 
 const assertNoLegacySlots = (extension: EditorExtension<Editor, any>) => {
   const legacyMethods = (extension as unknown as { methods?: unknown }).methods

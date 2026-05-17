@@ -1,17 +1,19 @@
 import {
   createEditor,
   type Operation,
+  type Node as SlateNode,
   type SnapshotChange,
   type Value,
   type ValueOf,
 } from 'slate'
-import { type HistoryEditor, withHistory } from 'slate-history'
+import { history } from 'slate-history'
+import * as SlateReact from 'slate-react'
 import {
+  createReactEditor,
   type EditorSelectorOptions,
-  type ReactEditor,
+  react,
   useEditorSelector,
   useSlateEditor,
-  withReact,
 } from 'slate-react'
 
 type CustomText = {
@@ -32,45 +34,54 @@ type LinkElement = {
 
 type CustomValue = (ParagraphElement | LinkElement)[]
 
-type FooEditor<V> = {
-  fooValue(): V
-}
-
-type OptionalDecorationEditor<V extends Value> = ReactEditor<V> &
-  HistoryEditor<V> & {
-    nodeToDecorations?: Map<object, unknown[]>
-  }
-
-const withFoo = <T extends ReactEditor<any>>(
-  editor: T
-): T & FooEditor<ValueOf<T>> => editor as T & FooEditor<ValueOf<T>>
-
-const baseEditor = createEditor<CustomValue>()
-const editor = withReact(baseEditor)
-const historyReactEditor = withHistory(withReact(createEditor<CustomValue>()))
-const reactEditor: ReactEditor<CustomValue> = editor
-const typedHistoryReactEditor: ReactEditor<CustomValue> &
-  HistoryEditor<CustomValue> = historyReactEditor
 const initialValue: CustomValue = [
   { type: 'paragraph', children: [{ text: 'initial', bold: true }] },
 ]
+
+declare const dataTransfer: DataTransfer
+declare const slateNode: SlateNode
+
+const ReactExtension = react()
+const HistoryExtension = history()
+const baseEditor = createEditor({ initialValue })
+const reactEditor = createEditor({
+  extensions: [ReactExtension],
+  initialValue,
+})
+const historyReactEditor = createReactEditor({
+  extensions: [HistoryExtension],
+  initialValue,
+})
 
 const baseValue: ValueOf<typeof baseEditor> = [
   { type: 'paragraph', children: [{ text: 'one', bold: true }] },
 ]
 
-editor.extend({
-  elements: [{ inline: true, type: 'link' }],
-  name: 'generic-react-editor-contract',
-})
-
-type _Value = ValueOf<typeof reactEditor>
-
-const value: _Value = [
+const reactValue: ValueOf<typeof reactEditor> = [
   { type: 'paragraph', children: [{ text: 'one', bold: true }] },
 ]
 
-const selectorOptions: EditorSelectorOptions<typeof reactEditor> = {
+reactEditor.api.dom.resolvePath(slateNode)
+reactEditor.api.clipboard.insertData(dataTransfer)
+reactEditor.api.react.isComposing()
+reactEditor.getApi(ReactExtension).isComposing()
+
+historyReactEditor.read((state) => {
+  const undos = state.history.undos()
+
+  void undos
+})
+
+historyReactEditor.update((tx) => {
+  tx.history.undo()
+})
+
+historyReactEditor.api.history.withoutSaving(() => {})
+historyReactEditor.api.dom.focus()
+historyReactEditor.api.clipboard.writeSelection(dataTransfer)
+historyReactEditor.api.react.isFocused()
+
+const selectorOptions: EditorSelectorOptions<typeof historyReactEditor> = {
   shouldUpdate: (operations, change) => {
     const typedOperations: readonly Operation<CustomValue>[] | undefined =
       operations
@@ -85,7 +96,7 @@ const selectorOptions: EditorSelectorOptions<typeof reactEditor> = {
 
 const SelectorProbe = () => {
   const selected = useEditorSelector(
-    (selectedEditor: typeof reactEditor, operations) => {
+    (selectedEditor: typeof historyReactEditor, operations) => {
       const valueFromSelector: CustomValue = selectedEditor.read((state) =>
         state.value.get()
       )
@@ -110,35 +121,51 @@ const SelectorProbe = () => {
 
 const HookProbe = () => {
   const hookEditor = useSlateEditor({
+    extensions: [history()],
     initialValue,
-    withEditor: withHistory,
   })
-  const typedHookEditor: ReactEditor<CustomValue> & HistoryEditor<CustomValue> =
-    hookEditor
-  const optionalDecorationEditor: OptionalDecorationEditor<CustomValue> =
-    hookEditor
   const valueFromHook: CustomValue = hookEditor.read((state) =>
     state.value.get()
   )
-  const composedHookEditor = useSlateEditor({
-    initialValue,
-    withEditor: (editor) => withFoo(withHistory(editor)),
-  })
-  const typedComposedHookEditor: ReactEditor<CustomValue> &
-    HistoryEditor<CustomValue> &
-    FooEditor<CustomValue> = composedHookEditor
 
-  typedHookEditor.undo()
-  optionalDecorationEditor.undo()
-  typedComposedHookEditor.undo()
+  hookEditor.read((state) => {
+    const undos = state.history.undos()
+
+    void undos
+  })
+
+  hookEditor.update((tx) => {
+    tx.history.undo()
+  })
+
+  hookEditor.api.history.withoutSaving(() => {})
+  hookEditor.api.dom.focus()
+  hookEditor.api.react.isComposing()
 
   void valueFromHook
 
   return null
 }
 
-void value
+// @ts-expect-error React is not installed on a plain editor
+baseEditor.api.react.isComposing()
+
+// @ts-expect-error DOM is not installed on a plain editor
+baseEditor.api.dom.focus()
+
+// @ts-expect-error public React helper namespace is cut
+type _NoReactEditor = SlateReact.ReactEditor<Value>
+
+// @ts-expect-error public withReact wrapper is cut
+SlateReact.withReact
+
+useSlateEditor({
+  initialValue,
+  // @ts-expect-error withEditor wrapper composition is cut
+  withEditor: (editor) => editor,
+})
+
 void baseValue
-void typedHistoryReactEditor
+void reactValue
 void SelectorProbe
 void HookProbe

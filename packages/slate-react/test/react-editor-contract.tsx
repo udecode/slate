@@ -1,13 +1,12 @@
 import { act, render } from '@testing-library/react'
-import { createEditor } from 'slate'
 import { Editor } from 'slate/internal'
-import { Editable, Slate, withReact } from '../src'
+import { createReactEditor, Editable, Slate } from '../src'
 import { ReactEditor } from '../src/plugin/react-editor'
 
 describe('slate-react DOM capability contract', () => {
-  test('editor.dom.focus initializes a null selection at the top of the document', async () => {
+  test('editor.api.dom.focus initializes a null selection at the top of the document', async () => {
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
-    const editor = withReact(createEditor({ initialValue }))
+    const editor = createReactEditor({ initialValue })
     const expectedSelection = {
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 0 },
@@ -24,12 +23,12 @@ describe('slate-react DOM capability contract', () => {
     expect(Editor.getSelection(editor)).toBe(null)
 
     await act(async () => {
-      editor.dom.focus()
+      editor.api.dom.focus()
     })
 
     expect(Editor.getSelection(editor)).toEqual(expectedSelection)
 
-    const windowSelection = editor.dom.getWindow().getSelection()
+    const windowSelection = editor.api.dom.getWindow().getSelection()
 
     expect(windowSelection?.focusNode?.textContent).toBe('test')
     expect(windowSelection?.anchorNode?.textContent).toBe('test')
@@ -37,9 +36,9 @@ describe('slate-react DOM capability contract', () => {
     expect(windowSelection?.focusOffset).toBe(expectedSelection.focus.offset)
   })
 
-  test('editor.dom.focus stays safe when called mid-transform', async () => {
+  test('editor.api.dom.focus stays safe when called mid-transform', async () => {
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
-    const editor = withReact(createEditor({ initialValue }))
+    const editor = createReactEditor({ initialValue })
     const propagatedValue = [
       { type: 'block', children: [{ text: 'foo' }] },
       { type: 'block', children: [{ text: 'bar' }] },
@@ -63,21 +62,21 @@ describe('slate-react DOM capability contract', () => {
         tx.nodes.insert(propagatedValue)
         tx.selection.set(expectedSelection)
       })
-      editor.dom.focus()
+      editor.api.dom.focus()
     })
 
     expect(Editor.getSelection(editor)).toEqual(expectedSelection)
 
     await act(async () => {
-      editor.dom.focus()
+      editor.api.dom.focus()
     })
 
     expect(Editor.getSelection(editor)).toEqual(expectedSelection)
   })
 
-  test('editor.dom.focus reports a selection change without a value change', async () => {
+  test('editor.api.dom.focus reports a selection change without a value change', async () => {
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
-    const editor = withReact(createEditor({ initialValue }))
+    const editor = createReactEditor({ initialValue })
     const onChange = jest.fn()
     const onSelectionChange = jest.fn()
     const onValueChange = jest.fn()
@@ -96,7 +95,7 @@ describe('slate-react DOM capability contract', () => {
     })
 
     await act(async () => {
-      editor.dom.focus()
+      editor.api.dom.focus()
     })
 
     expect(Editor.getSelection(editor)).toEqual({
@@ -128,7 +127,7 @@ describe('slate-react DOM capability contract', () => {
       { type: 'block', children: [{ text: 'alpha' }] },
       { type: 'block', children: [{ text: 'bravo' }] },
     ]
-    const editor = withReact(createEditor({ initialValue }))
+    const editor = createReactEditor({ initialValue })
 
     const mounted = render(
       <Slate editor={editor}>
@@ -178,7 +177,7 @@ describe('slate-react DOM capability contract', () => {
       type: 'block',
       children: [{ text: `block-${index}` }],
     }))
-    const editor = withReact(createEditor({ initialValue }))
+    const editor = createReactEditor({ initialValue })
 
     const mounted = render(
       <Slate editor={editor}>
@@ -206,7 +205,7 @@ describe('slate-react DOM capability contract', () => {
 
   test('browser handle resolves mounted elements by Slate path without DOM scans', () => {
     const initialValue = [{ type: 'block', children: [{ text: 'lookup' }] }]
-    const editor = withReact(createEditor({ initialValue }))
+    const editor = createReactEditor({ initialValue })
 
     const mounted = render(
       <Slate editor={editor}>

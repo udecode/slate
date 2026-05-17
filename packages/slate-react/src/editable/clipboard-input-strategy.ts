@@ -175,7 +175,7 @@ export const applyEditableCopy = ({
     !isClipboardEventTargetInput({ event })
   ) {
     event.preventDefault()
-    editor.dom.clipboard.writeSelection(clipboardData)
+    editor.api.clipboard.writeSelection(clipboardData)
   }
 }
 
@@ -202,7 +202,7 @@ export const applyEditableCut = ({
     !isClipboardEventTargetInput({ event })
   ) {
     event.preventDefault()
-    editor.dom.clipboard.writeSelection(clipboardData)
+    editor.api.clipboard.writeSelection(clipboardData)
     const selection = editor.read((state) => state.selection.get())
 
     if (selection) {
@@ -411,7 +411,7 @@ export const applyEditableDragStart = ({
 
     state.isDraggingInternally = true
 
-    editor.dom.clipboard.writeSelection(event.dataTransfer)
+    editor.api.clipboard.writeSelection(event.dataTransfer)
   }
 }
 

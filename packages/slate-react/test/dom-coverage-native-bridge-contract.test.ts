@@ -1,5 +1,5 @@
 import type { ClipboardEvent, DragEvent } from 'react'
-import { createEditor, type Descendant } from 'slate'
+import { type Descendant } from 'slate'
 import { Editor } from 'slate/internal'
 import {
   EDITOR_TO_ELEMENT,
@@ -9,7 +9,7 @@ import {
 } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
 
-import { withReact } from '../src'
+import { createReactEditor } from '../src'
 import {
   applyEditableCopy,
   applyEditableCut,
@@ -98,7 +98,7 @@ const decodeFragmentPayload = (payload: string) =>
   JSON.parse(decodeURIComponent(window.atob(payload)))
 
 const createHiddenSelectionEditor = () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: createChildren(),
@@ -132,7 +132,7 @@ const createHiddenSelectionEditor = () => {
 }
 
 const createStagedSelectionEditor = () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: [
@@ -278,7 +278,7 @@ describe('DOM coverage native bridge', () => {
   })
 
   test('drop is ignored when the editor is read-only', () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: [
@@ -320,7 +320,7 @@ describe('DOM coverage native bridge', () => {
   })
 
   test('paste is ignored when the editor is read-only', () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: [
@@ -362,7 +362,7 @@ describe('DOM coverage native bridge', () => {
   })
 
   test('paste is ignored when the application handler owns the event', () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: [
@@ -477,7 +477,7 @@ describe('DOM coverage native bridge', () => {
   })
 
   test('cutting a selected block void writes model data, deletes once, and requests model-owned repair', () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     editor.extend({
       elements: [{ type: 'image', void: 'block' }],

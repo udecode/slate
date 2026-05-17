@@ -249,7 +249,7 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     disableDefaultStyles = false,
     ...attributes
   } = editableProps
-  const editor = useEditor()
+  const editor = useEditor<ReactEditor>()
   const rootRuntime = useEditableRootRuntime({
     autoFocus,
     callbacks: attributes,

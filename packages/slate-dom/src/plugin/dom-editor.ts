@@ -148,6 +148,10 @@ export interface DOMEditorClipboardCapability {
   writeSelection: (data: Pick<DataTransfer, 'getData' | 'setData'>) => void
 }
 
+export type DOMApi = Omit<DOMEditorCapability, 'clipboard'>
+
+export type DOMClipboardApi = DOMEditorClipboardCapability
+
 export type DOMClipboardInsertDataHandler<V extends Value = Value> = (
   editor: DOMEditor<V>,
   data: DataTransfer

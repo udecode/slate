@@ -1,15 +1,10 @@
 import { act, render, renderHook, waitFor } from '@testing-library/react'
 import _ from 'lodash'
 import { Component, type ReactNode } from 'react'
-import {
-  createEditor,
-  type Operation,
-  type SnapshotChange,
-  TextApi,
-  type Value,
-} from 'slate'
+import { type Operation, type SnapshotChange, TextApi } from 'slate'
 import { Editor } from 'slate/internal'
 import {
+  createReactEditor,
   Editable,
   Slate,
   useEditor,
@@ -18,7 +13,6 @@ import {
   useNodeSelector,
   useSlateEditor,
   useTextSelector,
-  withReact,
 } from '../src'
 import {
   usePlaceholderValue,
@@ -32,9 +26,6 @@ import {
 import { createSlateReactRenderCounter } from '../src/render-profiler'
 
 const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
-
-const createReactEditor = <V extends Value>(initialValue: V) =>
-  withReact(createEditor({ initialValue }))
 
 class SelectorErrorBoundary extends Component<
   {
@@ -75,8 +66,8 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('useEditor updates when the provider editor changes', () => {
-    const editorA = createReactEditor(initialValue)
-    const editorB = createReactEditor(initialValue)
+    const editorA = createReactEditor({ initialValue })
+    const editorB = createReactEditor({ initialValue })
     const seen: unknown[] = []
 
     const ShowStaticEditor = () => {
@@ -111,7 +102,7 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('useEditorSelector honors the equality function when selector identity changes', async () => {
-    const editor = createReactEditor(initialValue)
+    const editor = createReactEditor({ initialValue })
     const callback1 = jest.fn(() => [])
     const callback2 = jest.fn(() => [])
 
@@ -149,7 +140,7 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('useEditorSelector replays subscription errors during render with context', async () => {
-    const editor = createReactEditor(initialValue)
+    const editor = createReactEditor({ initialValue })
     const initialVersion = Editor.getLastCommit(editor)?.version ?? 0
     const onError = jest.fn()
     const consoleError = jest
@@ -208,7 +199,7 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('useEditorSelector passes commit operations into selector updates', async () => {
-    const editor = createReactEditor(initialValue)
+    const editor = createReactEditor({ initialValue })
     const seenOperations: (readonly Operation[] | undefined)[] = []
     const selector = jest.fn((_editor, operations?: readonly Operation[]) => {
       seenOperations.push(operations)
@@ -243,7 +234,7 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('deferred editor selectors preserve profiler markers while coalescing renders', async () => {
-    const editor = createReactEditor(initialValue)
+    const editor = createReactEditor({ initialValue })
     const selector = jest.fn(() => Editor.getLastCommit(editor)?.version ?? 0)
     const counter = createSlateReactRenderCounter()
     const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
@@ -292,7 +283,7 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('useEditorSelector passes commit facts to shouldUpdate', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: [
@@ -347,7 +338,7 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('useEditorState reads through editor.read and filters by commit facts', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: [
@@ -418,7 +409,7 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('runtime selector hooks skip unrelated runtime id commits', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: [
@@ -488,7 +479,7 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('runtime selector listeners do not fan out to unrelated runtime ids', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: [
@@ -585,7 +576,7 @@ describe('slate-react provider hooks contract', () => {
       type: 'block',
       children: [{ text: `line ${index}` }],
     }))
-    const editor = createReactEditor(value)
+    const editor = createReactEditor({ initialValue: value })
     const counter = createSlateReactRenderCounter()
     const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
     let rendered: ReturnType<typeof render> | null = null
@@ -642,7 +633,7 @@ describe('slate-react provider hooks contract', () => {
       type: 'block',
       children: [{ text: `line ${index}` }],
     }))
-    const editor = createReactEditor(value)
+    const editor = createReactEditor({ initialValue: value })
     const counter = createSlateReactRenderCounter()
     const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
     let rendered: ReturnType<typeof render> | null = null
@@ -672,7 +663,7 @@ describe('slate-react provider hooks contract', () => {
       type: 'block',
       children: [{ text: `line ${index}` }],
     }))
-    const editor = createReactEditor(value)
+    const editor = createReactEditor({ initialValue: value })
     const counter = createSlateReactRenderCounter()
     const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
     let rendered: ReturnType<typeof render> | null = null
@@ -697,7 +688,7 @@ describe('slate-react provider hooks contract', () => {
       type: 'block',
       children: [{ text: `line ${index}` }],
     }))
-    const editor = createReactEditor(value)
+    const editor = createReactEditor({ initialValue: value })
     const counter = createSlateReactRenderCounter()
     const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
     let rendered: ReturnType<typeof render> | null = null
@@ -738,7 +729,7 @@ describe('slate-react provider hooks contract', () => {
       type: 'block',
       children: [{ text: `line ${index}` }],
     }))
-    const editor = createReactEditor(value)
+    const editor = createReactEditor({ initialValue: value })
     const counter = createSlateReactRenderCounter()
     const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
     let rendered: ReturnType<typeof render> | null = null
@@ -779,7 +770,7 @@ describe('slate-react provider hooks contract', () => {
       type: 'block',
       children: [{ text: `line ${index}` }],
     }))
-    const editor = createReactEditor(value)
+    const editor = createReactEditor({ initialValue: value })
     const counter = createSlateReactRenderCounter()
     const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
     let rendered: ReturnType<typeof render> | null = null
@@ -819,7 +810,7 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('mounted render selector hooks skip synced text commits but catch the next node commit', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: [{ type: 'block', children: [{ text: 'one' }] }],
@@ -901,7 +892,7 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('root selector sources track structural ids and selected top-level index', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: [
@@ -962,7 +953,7 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('placeholder root source tracks empty editor state', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: [{ type: 'block', children: [{ text: '' }] }],
@@ -1003,7 +994,7 @@ describe('slate-react provider hooks contract', () => {
   })
 
   test('placeholder root source ignores selection-only commits', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: [{ type: 'block', children: [{ text: '' }] }],

@@ -1,4 +1,4 @@
-import { createEditor, type EditorUpdateOptions } from 'slate'
+import { type EditorUpdateOptions } from 'slate'
 import { Editor } from 'slate/internal'
 
 import { createEditableInputController } from '../src/editable/input-state'
@@ -8,7 +8,7 @@ import {
   shouldSkipSelectionScroll,
 } from '../src/editable/selection-side-effect-policy'
 import { ReactEditor } from '../src/plugin/react-editor'
-import { withReact } from '../src/plugin/with-react'
+import { createReactEditor } from '../src/plugin/with-react'
 
 const remoteSelectionOptions = {
   metadata: {
@@ -20,7 +20,7 @@ const remoteSelectionOptions = {
 } satisfies EditorUpdateOptions
 
 const createRemoteSelectionEditor = () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
 
   Editor.replace(editor, {
     children: [{ type: 'paragraph', children: [{ text: 'one' }] }],

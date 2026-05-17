@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Editor, getEditorTransformRegistry } from 'slate/internal'
-import { History, withHistory } from '../src'
+import { History, history } from '../src'
 
 const testsDir = dirname(fileURLToPath(import.meta.url))
 
@@ -49,6 +49,8 @@ const runFixtureTree = (
 }
 
 const withTest = (editor: any) => {
+  editor.extend(history())
+
   const { isInline, isVoid, isElementReadOnly, isSelectable } = editor
   const transforms = () => getEditorTransformRegistry(editor)
 
@@ -71,7 +73,19 @@ const withTest = (editor: any) => {
       value: (...args: any[]) => transforms().insertText(...args),
     },
     move: { value: (...args: any[]) => transforms().move(...args) },
+    redo: {
+      value: () =>
+        editor.update((tx: any) => {
+          tx.history.redo()
+        }),
+    },
     select: { value: (...args: any[]) => transforms().select(...args) },
+    undo: {
+      value: () =>
+        editor.update((tx: any) => {
+          tx.history.undo()
+        }),
+    },
   })
 
   editor.isInline = (element: any) => {
@@ -93,10 +107,13 @@ const withTest = (editor: any) => {
   return editor
 }
 
+const getHistory = (editor: any) =>
+  editor.read((state: any) => state.history.get())
+
 describe('slate-history', () => {
   runFixtureTree(resolve(testsDir, 'undo'), (module) => {
     const { input, output, run } = module
-    const editor = withTest(withHistory(input))
+    const editor = withTest(input)
     const initialSnapshot = Editor.getSnapshot(editor)
     const initialExpected = {
       children: structuredClone(initialSnapshot.children),
@@ -104,7 +121,9 @@ describe('slate-history', () => {
     }
 
     run(editor)
-    editor.undo()
+    editor.update((tx: any) => {
+      tx.history.undo()
+    })
 
     const snapshot = Editor.getSnapshot(editor)
     const expected = Editor.isEditor(output)
@@ -119,10 +138,10 @@ describe('slate-history', () => {
 
   runFixtureTree(resolve(testsDir, 'isHistory'), (module) => {
     const { input, output, run } = module
-    const editor = withTest(withHistory(input))
+    const editor = withTest(input)
 
     run(editor)
 
-    assert.strictEqual(History.isHistory(editor.history), output)
+    assert.strictEqual(History.isHistory(getHistory(editor)), output)
   })
 })

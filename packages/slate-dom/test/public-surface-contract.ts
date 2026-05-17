@@ -8,11 +8,12 @@ import * as SlateDOM from '../src'
 describe('slate-dom public surface contract', () => {
   it('keeps the internal DOMEditor static namespace out of the public root at runtime', () => {
     assert.equal('DOMEditor' in SlateDOM, false)
-    assert.equal(typeof SlateDOM.withDOM, 'function')
+    assert.equal('withDOM' in SlateDOM, false)
+    assert.equal(typeof SlateDOM.dom, 'function')
   })
 
   it('exposes nullable resolver methods without try-style aliases', () => {
-    const editor = SlateDOM.withDOM(createEditor())
+    const editor = createEditor({ extensions: [SlateDOM.dom()] })
     const resolverNames = [
       'resolveDOMNode',
       'resolveDOMPoint',
@@ -27,12 +28,12 @@ describe('slate-dom public surface contract', () => {
 
     for (const name of resolverNames) {
       assert.equal(
-        typeof editor.dom[name as keyof typeof editor.dom],
+        typeof editor.api.dom[name as keyof typeof editor.api.dom],
         'function'
       )
     }
 
-    for (const name of Object.keys(editor.dom)) {
+    for (const name of Object.keys(editor.api.dom)) {
       assert.equal(
         /^try/i.test(name),
         false,

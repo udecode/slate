@@ -7,9 +7,10 @@ import {
   ElementApi as SlateElement,
 } from 'slate'
 import { Editor } from 'slate/internal'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 
 import {
+  dom,
   EDITOR_TO_ELEMENT,
   EDITOR_TO_KEY_TO_ELEMENT,
   EDITOR_TO_WINDOW,
@@ -17,7 +18,6 @@ import {
   NODE_TO_ELEMENT,
   NODE_TO_INDEX,
   NODE_TO_PARENT,
-  withDOM,
 } from '../src/index'
 
 class FakeDataTransfer {
@@ -47,6 +47,15 @@ const createChildren = (): Descendant[] => [
   },
 ]
 
+const getHistory = (editor: Editor) =>
+  editor.read((state: any) => state.history.get())
+
+const undo = (editor: Editor) => {
+  editor.update((tx: any) => {
+    tx.history.undo()
+  })
+}
+
 const seedNodeMaps = (editor: Editor, children: Descendant[]) => {
   const visit = (parent: Editor | SlateElement, child: Node, index: number) => {
     NODE_TO_PARENT.set(child, parent)
@@ -70,10 +79,9 @@ const createClipboardEditor = (
   clipboardFormatKey?: string,
   configureEditor?: (editor: Editor) => void
 ) => {
-  const editor = withDOM(
-    createEditor(),
-    clipboardFormatKey ? { clipboardFormatKey } : undefined
-  )
+  const editor = createEditor({
+    extensions: [dom(clipboardFormatKey ? { clipboardFormatKey } : {})],
+  })
 
   configureEditor?.(editor)
 
@@ -119,7 +127,7 @@ const mountEditorRoot = (editor: Editor, document: Document) => {
 }
 
 const bindDOMNode = (editor: Editor, node: Node, element: HTMLElement) => {
-  const key = editor.dom.findKey(node)
+  const key = editor.api.dom.findKey(node)
 
   EDITOR_TO_KEY_TO_ELEMENT.get(editor)!.set(key, element)
   ELEMENT_TO_NODE.set(element, node)
@@ -308,7 +316,7 @@ const mountDecoratedEditorDOM = (editor: Editor, document: Document) => {
   root.appendChild(blockEl)
 
   const [node] = editor.read((state) => state.nodes.get([0, 0]))
-  const key = editor.dom.findKey(node)
+  const key = editor.api.dom.findKey(node)
   EDITOR_TO_KEY_TO_ELEMENT.get(editor)!.set(key, owner)
   ELEMENT_TO_NODE.set(owner, node)
   NODE_TO_ELEMENT.set(node, owner)
@@ -325,12 +333,12 @@ const decodeFragmentPayload = (document: Document, payload: string) =>
 
 describe('slate-dom clipboard boundary', () => {
   it('installs DOM host capabilities on the editor instance', () => {
-    const editor = withDOM(createEditor())
+    const editor = createEditor({ extensions: [dom()] })
     const headlessEditor = createEditor()
 
     expect('dom' in headlessEditor).toBe(false)
-    expect(typeof editor.dom.clipboard.insertData).toBe('function')
-    expect(typeof editor.dom.clipboard.writeSelection).toBe('function')
+    expect(typeof editor.api.clipboard.insertData).toBe('function')
+    expect(typeof editor.api.clipboard.writeSelection).toBe('function')
     expect('clipboard' in editor).toBe(false)
   })
 
@@ -352,14 +360,14 @@ describe('slate-dom clipboard boundary', () => {
       mountSimpleEditorDOM(source, document)
       mountEditorRoot(target, document)
 
-      source.dom.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+      source.api.clipboard.writeSelection(clipboard as unknown as DataTransfer)
 
       expect(clipboard.getData('application/x-slate-fragment')).not.toBe('')
       expect(clipboard.getData('text/html')).toContain('data-slate-fragment=')
       expect(clipboard.getData('text/plain')).toBe('alpha')
 
       target.update(() => {
-        target.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+        target.api.clipboard.insertData(clipboard as unknown as DataTransfer)
       })
 
       expect(Editor.getSnapshot(target).children).toEqual([
@@ -405,10 +413,10 @@ describe('slate-dom clipboard boundary', () => {
       mountSimpleEditorDOM(source, document)
       mountEditorRoot(target, document)
 
-      source.dom.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+      source.api.clipboard.writeSelection(clipboard as unknown as DataTransfer)
 
       target.update(() => {
-        target.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+        target.api.clipboard.insertData(clipboard as unknown as DataTransfer)
       })
 
       expect(Editor.getSnapshot(target).children).toEqual([
@@ -462,7 +470,7 @@ describe('slate-dom clipboard boundary', () => {
       mountSimpleEditorDOM(source, document)
       mountEditorRoot(target, document)
 
-      source.dom.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+      source.api.clipboard.writeSelection(clipboard as unknown as DataTransfer)
 
       expect(clipboard.getData('application/x-slate-fragment')).not.toBe('')
       expect(clipboard.getData('text/html')).toContain('data-slate-fragment=')
@@ -471,7 +479,7 @@ describe('slate-dom clipboard boundary', () => {
       const operationsBefore = Editor.getOperations(target).length
 
       target.update(() => {
-        target.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+        target.api.clipboard.insertData(clipboard as unknown as DataTransfer)
       })
 
       expect(Editor.getSnapshot(target).children).toEqual([
@@ -530,12 +538,12 @@ describe('slate-dom clipboard boundary', () => {
       mountSimpleEditorDOM(source, document)
       mountEditorRoot(target, document)
 
-      source.dom.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+      source.api.clipboard.writeSelection(clipboard as unknown as DataTransfer)
 
       const operationsBefore = Editor.getOperations(target).length
 
       target.update(() => {
-        target.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+        target.api.clipboard.insertData(clipboard as unknown as DataTransfer)
       })
 
       expect(Editor.getSnapshot(target).children).toEqual([
@@ -582,13 +590,13 @@ describe('slate-dom clipboard boundary', () => {
       mountSimpleEditorDOM(source, document)
       mountEditorRoot(target, document)
 
-      source.dom.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+      source.api.clipboard.writeSelection(clipboard as unknown as DataTransfer)
 
       expect(clipboard.getData('application/x-slate-fragment')).toBe('')
       expect(clipboard.getData('application/x-proof-fragment')).not.toBe('')
 
       target.update(() => {
-        target.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+        target.api.clipboard.insertData(clipboard as unknown as DataTransfer)
       })
 
       expect(
@@ -616,13 +624,13 @@ describe('slate-dom clipboard boundary', () => {
       mountSimpleEditorDOM(source, document)
       mountEditorRoot(target, document)
 
-      source.dom.clipboard.writeSelection(
+      source.api.clipboard.writeSelection(
         encodedClipboard as unknown as DataTransfer
       )
       clipboard.setData('text/html', encodedClipboard.getData('text/html'))
 
       target.update(() => {
-        target.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+        target.api.clipboard.insertData(clipboard as unknown as DataTransfer)
       })
 
       expect(
@@ -658,14 +666,14 @@ describe('slate-dom clipboard boundary', () => {
       mountSimpleEditorDOM(source, document)
       mountEditorRoot(target, document)
 
-      source.dom.clipboard.writeSelection(
+      source.api.clipboard.writeSelection(
         encodedClipboard as unknown as DataTransfer
       )
       clipboard.setData('text/html', encodedClipboard.getData('text/html'))
       clipboard.setData('text/plain', 'plain fallback')
 
       target.update(() => {
-        target.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+        target.api.clipboard.insertData(clipboard as unknown as DataTransfer)
       })
 
       expect(
@@ -697,14 +705,14 @@ describe('slate-dom clipboard boundary', () => {
       mountSimpleEditorDOM(source, document)
       mountEditorRoot(target, document)
 
-      source.dom.clipboard.writeSelection(
+      source.api.clipboard.writeSelection(
         encodedClipboard as unknown as DataTransfer
       )
       clipboard.setData('text/html', encodedClipboard.getData('text/html'))
       clipboard.setData('text/plain', 'plain fallback')
 
       target.update(() => {
-        target.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+        target.api.clipboard.insertData(clipboard as unknown as DataTransfer)
       })
 
       expect(
@@ -727,7 +735,7 @@ describe('slate-dom clipboard boundary', () => {
     clipboard.setData('text/plain', 'hello')
 
     editor.update(() => {
-      editor.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+      editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
     })
 
     expect(
@@ -769,7 +777,7 @@ describe('slate-dom clipboard boundary', () => {
     clipboard.setData('text/plain', 'replaced')
 
     editor.update(() => {
-      editor.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+      editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
     })
 
     expect(Editor.getSnapshot(editor).children).toEqual([
@@ -810,7 +818,7 @@ describe('slate-dom clipboard boundary', () => {
     clipboard.setData('text/plain', 'world\nAnd text below')
 
     editor.update(() => {
-      editor.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+      editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
     })
 
     expect(Editor.getSnapshot(editor).children).toEqual([
@@ -848,7 +856,7 @@ describe('slate-dom clipboard boundary', () => {
     clipboard.setData('text/plain', 'hello\tworld\nhello\tworld')
 
     editor.update(() => {
-      editor.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+      editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
     })
 
     expect(Editor.getSnapshot(editor).children).toEqual([
@@ -881,7 +889,7 @@ describe('slate-dom clipboard boundary', () => {
 
       expect(() => {
         editor.update(() => {
-          editor.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+          editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
         })
       }).not.toThrow()
 
@@ -908,7 +916,7 @@ describe('slate-dom clipboard boundary', () => {
 
       expect(() => {
         editor.update(() => {
-          editor.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+          editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
         })
       }).not.toThrow()
 
@@ -939,7 +947,7 @@ describe('slate-dom clipboard boundary', () => {
 
         expect(() => {
           editor.update(() => {
-            editor.dom.clipboard.insertData(
+            editor.api.clipboard.insertData(
               clipboard as unknown as DataTransfer
             )
           })
@@ -966,7 +974,7 @@ describe('slate-dom clipboard boundary', () => {
 
       expect(() => {
         editor.update(() => {
-          editor.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+          editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
         })
       }).not.toThrow()
 
@@ -994,7 +1002,7 @@ describe('slate-dom clipboard boundary', () => {
 
       mountDecoratedEditorDOM(source, document)
 
-      source.dom.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+      source.api.clipboard.writeSelection(clipboard as unknown as DataTransfer)
 
       expect(clipboard.getData('application/x-slate-fragment')).not.toBe('')
       expect(clipboard.getData('text/plain')).toBe('lph')
@@ -1057,7 +1065,7 @@ describe('slate-dom clipboard boundary', () => {
       mountEditorRoot(target, document)
 
       expect(() => {
-        source.dom.clipboard.writeSelection(
+        source.api.clipboard.writeSelection(
           clipboard as unknown as DataTransfer
         )
       }).not.toThrow()
@@ -1085,7 +1093,7 @@ describe('slate-dom clipboard boundary', () => {
       const operationsBefore = Editor.getOperations(target).length
 
       target.update(() => {
-        target.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+        target.api.clipboard.insertData(clipboard as unknown as DataTransfer)
       })
 
       expect(Editor.getSnapshot(target).children).toEqual([
@@ -1159,7 +1167,7 @@ describe('slate-dom clipboard boundary', () => {
 
       mountBlockVoidEditorDOM(source, document)
 
-      source.dom.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+      source.api.clipboard.writeSelection(clipboard as unknown as DataTransfer)
 
       const encoded = clipboard.getData('application/x-slate-fragment')
       const html = clipboard.getData('text/html')
@@ -1198,7 +1206,7 @@ describe('slate-dom clipboard boundary', () => {
     clipboard.setData('text/plain', 'A\nB')
 
     editor.update(() => {
-      editor.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+      editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
     })
 
     expect(Editor.getSnapshot(editor).children).toEqual([
@@ -1241,7 +1249,7 @@ describe('slate-dom clipboard boundary', () => {
     clipboard.setData('text/plain', 'one\ntwo\nthree')
 
     editor.update(() => {
-      editor.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+      editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
     })
 
     expect(Editor.getSnapshot(editor).children).toEqual([
@@ -1292,7 +1300,7 @@ describe('slate-dom clipboard boundary', () => {
     clipboard.setData('text/plain', 'paste one\npaste two')
 
     editor.update(() => {
-      editor.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+      editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
     })
 
     expect(Editor.getSnapshot(editor).children).toEqual([
@@ -1327,7 +1335,7 @@ describe('slate-dom clipboard boundary', () => {
     clipboard.setData('text/plain', 'one\ntwo\nthree')
 
     editor.update(() => {
-      editor.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+      editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
     })
 
     expect(Editor.getSnapshot(editor).children).toEqual([
@@ -1354,7 +1362,7 @@ describe('slate-dom clipboard boundary', () => {
   })
 
   it('records multiline plain-text fallback as one undoable history batch', () => {
-    const editor = withDOM(withHistory(createEditor()))
+    const editor = createEditor({ extensions: [history(), dom()] })
     const clipboard = new FakeDataTransfer()
 
     Editor.replace(editor, {
@@ -1374,13 +1382,13 @@ describe('slate-dom clipboard boundary', () => {
     clipboard.setData('text/plain', 'one\ntwo\nthree')
 
     editor.update(() => {
-      editor.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+      editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
     })
 
-    expect(editor.history.undos).toHaveLength(1)
-    expect(editor.history.undos[0]?.operations).toHaveLength(1)
+    expect(getHistory(editor).undos).toHaveLength(1)
+    expect(getHistory(editor).undos[0]?.operations).toHaveLength(1)
 
-    editor.undo()
+    undo(editor)
 
     expect(Editor.getSnapshot(editor).children).toEqual([
       {

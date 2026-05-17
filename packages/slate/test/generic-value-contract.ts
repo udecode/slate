@@ -1,6 +1,8 @@
 import {
   type AncestorEntry,
   type AncestorIn,
+  type BooleanMarkKeysOf,
+  type BooleanMarksOf,
   type ChildOf,
   createEditor,
   type DescendantEntry,
@@ -58,6 +60,19 @@ type PlainText = {
 type PlainElement = {
   type: 'plain'
   children: PlainText[]
+}
+
+type RichText = {
+  text: string
+  bold?: true
+  code?: true
+  fontSize?: string
+  italic?: boolean
+}
+
+type RichElement = {
+  type: 'rich'
+  children: RichText[]
 }
 
 type RequiredMarkText = {
@@ -128,6 +143,18 @@ type _OptionalMarkKeysFollowPlateFallback = Assert<
 >
 type _MarkKeysAreUnknownWhenNoMarksExist = Assert<
   Equal<MarkKeysOf<PlainElement>, unknown>
+>
+type _BooleanMarkKeysFromText = Assert<
+  Equal<BooleanMarkKeysOf<RichText>, 'bold' | 'code' | 'italic'>
+>
+type _BooleanMarkKeysFromElement = Assert<
+  Equal<BooleanMarkKeysOf<RichElement>, 'bold' | 'code' | 'italic'>
+>
+type _BooleanMarksFromText = Assert<
+  Equal<
+    BooleanMarksOf<RichText>,
+    { bold?: true; code?: true; italic?: boolean }
+  >
 >
 type _AncestorEntry = Assert<
   Equal<

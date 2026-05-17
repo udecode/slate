@@ -6,7 +6,7 @@ import {
   type Editor as SlateEditor,
 } from 'slate'
 import { Editor } from 'slate/internal'
-import { History, HistoryEditor, withHistory } from 'slate-history'
+import { History, history } from 'slate-history'
 import { createHyperscript } from 'slate-hyperscript'
 
 import { jsx } from './index.js'
@@ -29,7 +29,7 @@ const createSelectedEditor = (): SlateEditor =>
 
 describe('slate headless contract', () => {
   it('supports package-split headless composition through source-resolved package imports', () => {
-    const editor = withHistory(createEditor())
+    const editor = createEditor({ extensions: [history()] })
     const input = createSelectedEditor()
     const h = createHyperscript({
       elements: {
@@ -42,7 +42,10 @@ describe('slate headless contract', () => {
       h('paragraph', {}, 'alpha')
     ) as Descendant[]
 
-    assert.equal(History.isHistory(editor.history), true)
+    assert.equal(
+      editor.read((state) => History.isHistory(state.history.get())),
+      true
+    )
 
     Editor.replace(editor, {
       children: Editor.getChildren(input) as Descendant[],
@@ -51,8 +54,6 @@ describe('slate headless contract', () => {
     })
 
     const inputSelection = Editor.getSelection(input)!
-    const ref = Editor.rangeRef(editor, inputSelection)
-
     editor.update((tx) => {
       tx.fragment.insert(fragment)
     })
@@ -73,9 +74,9 @@ describe('slate headless contract', () => {
       anchor: { path: [1, 0], offset: 7 },
       focus: { path: [1, 0], offset: 7 },
     })
-    assert.deepEqual(ref.current, snapshot.selection)
-
-    HistoryEditor.undo(editor)
+    editor.update((tx) => {
+      tx.history.undo()
+    })
 
     assert.deepEqual(
       Editor.getSnapshot(editor).children,

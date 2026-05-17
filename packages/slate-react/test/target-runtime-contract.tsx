@@ -1,7 +1,7 @@
 import { act, render } from '@testing-library/react'
-import { createEditor, type Range } from 'slate'
+import { type Range } from 'slate'
 import { Editor } from 'slate/internal'
-import { Editable, Slate, withReact } from '../src'
+import { createReactEditor, Editable, Slate } from '../src'
 import {
   createEditableInputController,
   createEditableInputControllerState,
@@ -39,7 +39,7 @@ const domSelectionForText = (text: string) => {
 }
 
 test('target runtime imports the current DOM selection for implicit editor commands', async () => {
-  const editor = withReact(createEditor({ initialValue }))
+  const editor = createReactEditor({ initialValue })
   const inputController = createEditableInputController({
     preferModelSelectionForInputRef: { current: false },
     state: createEditableInputControllerState(),
@@ -84,7 +84,7 @@ test('target runtime imports the current DOM selection for implicit editor comma
 })
 
 test('Editable target runtime routes implicit block commands to the current DOM selection', async () => {
-  const editor = withReact(createEditor({ initialValue }))
+  const editor = createReactEditor({ initialValue })
 
   act(() => {
     render(

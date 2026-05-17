@@ -22,16 +22,15 @@ const withNavigator = async (userAgent: string, run: () => Promise<void>) => {
   }
 }
 
-test('withReact clears pending selection before Android insertText bridge calls', async () => {
+test('react() clears pending selection before Android insertText bridge calls', async () => {
   await withNavigator(
     'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36',
     async () => {
-      const [{ withReact }, { EDITOR_TO_PENDING_SELECTION }] =
-        await Promise.all([
-          import('../src/plugin/with-react.ts'),
-          import('slate-dom'),
-        ])
-      const editor = withReact(createEditor())
+      const [{ react }, { EDITOR_TO_PENDING_SELECTION }] = await Promise.all([
+        import('../src/plugin/with-react.ts'),
+        import('slate-dom'),
+      ])
+      const editor = createEditor({ extensions: [react()] })
 
       Editor.replace(editor, {
         children: [

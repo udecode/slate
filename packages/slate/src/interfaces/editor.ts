@@ -476,8 +476,10 @@ export type EditorCoreStateView<V extends Value = Value> = {
   value: EditorStateValueApi<V>
 }
 
-export type EditorStateView<V extends Value = Value> = EditorCoreStateView<V> &
-  EditorStateExtensionGroups<V>
+export type EditorStateView<
+  V extends Value = Value,
+  TExtensions extends readonly unknown[] = readonly [],
+> = EditorCoreStateView<V> & EditorInstalledStateGroups<V, TExtensions>
 
 export type EditorCoreUpdateTransaction<V extends Value = Value> = Omit<
   EditorCoreStateView<V>,
@@ -495,15 +497,24 @@ export type EditorCoreUpdateTransaction<V extends Value = Value> = Omit<
   withoutNormalizing: (fn: () => void) => void
 }
 
-export type EditorUpdateTransaction<V extends Value = Value> =
-  EditorCoreUpdateTransaction<V> & EditorTxExtensionGroups<V>
+export type EditorUpdateTransaction<
+  V extends Value = Value,
+  TExtensions extends readonly unknown[] = readonly [],
+> = EditorCoreUpdateTransaction<V> & EditorInstalledTxGroups<V, TExtensions>
 
-export interface BaseEditor<V extends Value = Value> {
-  read: <T>(fn: (state: EditorStateView<V>) => T) => T
+export interface BaseEditor<
+  V extends Value = Value,
+  TExtensions extends readonly unknown[] = readonly [],
+> {
+  api: Readonly<EditorInstalledApiGroups<TExtensions>>
+  getApi: <TExtension extends TExtensions[number]>(
+    extension: TExtension
+  ) => EditorApiValueFromExtension<TExtension>
+  read: <T>(fn: (state: EditorStateView<V, TExtensions>) => T) => T
   subscribe: (listener: SnapshotListener<any>) => () => void
   update: BivariantMethod<
     [
-      fn: (transaction: EditorUpdateTransaction<V>) => void,
+      fn: (transaction: EditorUpdateTransaction<V, TExtensions>) => void,
       options?: EditorUpdateOptions,
     ],
     void
@@ -982,10 +993,16 @@ export type EditorQueryMiddlewareMap<TEditor extends BaseEditor<any> = Editor> =
 export type EditorTransformRegistry<V extends Value = Value> =
   EditorTransformApi<V>
 
-export type Editor<V extends Value = any> = BaseEditor<V> &
-  EditorExtensionGroups<V>
+export type Editor<
+  V extends Value = any,
+  TExtensions extends readonly unknown[] = readonly [],
+> = BaseEditor<V, TExtensions> & EditorExtensionGroups<V>
 
-export type CreateEditorOptions<V extends Value = Value> = {
+export type CreateEditorOptions<
+  V extends Value = Value,
+  TExtensions extends readonly unknown[] = readonly [],
+> = {
+  extensions?: TExtensions
   initialSelection?: Selection
   initialValue?: V
 }
@@ -1313,6 +1330,127 @@ export type EditorExtension<
 export type EditorExtensionInput<TEditor extends BaseEditor<any> = Editor> =
   | EditorExtension<TEditor, any>
   | readonly EditorExtension<TEditor, any>[]
+
+type UnionToIntersection<T> = (
+  T extends unknown
+    ? (value: T) => void
+    : never
+) extends (value: infer TIntersection) => void
+  ? TIntersection
+  : never
+
+type EditorRegistrationOutputFromExtension<TExtension> = TExtension extends {
+  register?: (...args: any[]) => infer TResult
+}
+  ? Extract<NonNullable<TResult>, object>
+  : unknown
+
+type EditorStateSlotsFromExtension<TExtension> = (TExtension extends {
+  state?: infer TState
+}
+  ? NonNullable<TState>
+  : unknown) &
+  (EditorRegistrationOutputFromExtension<TExtension> extends {
+    state?: infer TState
+  }
+    ? NonNullable<TState>
+    : unknown)
+
+type EditorTxSlotsFromExtension<TExtension> = (TExtension extends {
+  tx?: infer TTx
+}
+  ? NonNullable<TTx>
+  : unknown) &
+  (EditorRegistrationOutputFromExtension<TExtension> extends {
+    tx?: infer TTx
+  }
+    ? NonNullable<TTx>
+    : unknown)
+
+type EditorCapabilitySlotsFromExtension<TExtension> = (TExtension extends {
+  capabilities?: infer TCapabilities
+}
+  ? NonNullable<TCapabilities>
+  : unknown) &
+  (EditorRegistrationOutputFromExtension<TExtension> extends {
+    capabilities?: infer TCapabilities
+  }
+    ? NonNullable<TCapabilities>
+    : unknown)
+
+type EditorStateGroupResult<
+  V extends Value,
+  K,
+  TFactory,
+> = K extends keyof EditorStateExtensionGroups<V>
+  ? EditorStateExtensionGroups<V>[K]
+  : TFactory extends (...args: any[]) => infer TResult
+    ? TResult
+    : never
+
+type EditorTxGroupResult<
+  V extends Value,
+  K,
+  TFactory,
+> = K extends keyof EditorTxExtensionGroups<V>
+  ? EditorTxExtensionGroups<V>[K]
+  : TFactory extends (...args: any[]) => infer TResult
+    ? TResult
+    : never
+
+type EditorStateGroupsFromExtension<V extends Value, TExtension> =
+  EditorStateSlotsFromExtension<TExtension> extends infer TState
+    ? keyof TState extends never
+      ? unknown
+      : {
+          [K in keyof TState]: EditorStateGroupResult<V, K, TState[K]>
+        }
+    : never
+
+type EditorTxGroupsFromExtension<V extends Value, TExtension> =
+  EditorTxSlotsFromExtension<TExtension> extends infer TTx
+    ? keyof TTx extends never
+      ? unknown
+      : {
+          [K in keyof TTx]: EditorTxGroupResult<V, K, TTx[K]>
+        }
+    : never
+
+type EditorApiValue<TValue> = TValue extends readonly (infer TItem)[]
+  ? TItem
+  : TValue
+
+type EditorApiGroupsFromExtension<TExtension> =
+  EditorCapabilitySlotsFromExtension<TExtension> extends infer TCapabilities
+    ? keyof TCapabilities extends never
+      ? unknown
+      : {
+          [K in keyof TCapabilities]: EditorApiValue<TCapabilities[K]>
+        }
+    : never
+
+export type EditorInstalledStateGroups<
+  V extends Value = Value,
+  TExtensions extends readonly unknown[] = readonly [],
+> = UnionToIntersection<EditorStateGroupsFromExtension<V, TExtensions[number]>>
+
+export type EditorInstalledTxGroups<
+  V extends Value = Value,
+  TExtensions extends readonly unknown[] = readonly [],
+> = UnionToIntersection<EditorTxGroupsFromExtension<V, TExtensions[number]>>
+
+export type EditorInstalledApiGroups<
+  TExtensions extends readonly unknown[] = readonly [],
+> = UnionToIntersection<EditorApiGroupsFromExtension<TExtensions[number]>>
+
+export type EditorApiValueFromExtension<TExtension> =
+  EditorApiGroupsFromExtension<TExtension> extends infer TApi
+    ? TExtension extends { name: infer TName }
+      ? TName extends keyof TApi
+        ? TApi[TName]
+        : TApi[keyof TApi]
+      : TApi[keyof TApi]
+    : never
 
 export type RegisteredEditorExtension = {
   conflicts: readonly string[]
@@ -2480,7 +2618,9 @@ const InternalEditor: EditorStaticApi = {
   },
 
   defineEditorExtension(extension) {
-    return defineEditorExtensionCore(extension)
+    return defineEditorExtensionCore(
+      extension as EditorExtension<any, any>
+    ) as never
   },
 
   replace(editor, input) {

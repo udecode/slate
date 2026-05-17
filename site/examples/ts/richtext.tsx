@@ -2,6 +2,7 @@ import type React from 'react'
 import type { PointerEvent } from 'react'
 import {
   type Descendant,
+  defineEditorExtension,
   type Node,
   NodeApi,
   PathApi,
@@ -12,7 +13,7 @@ import {
   TextApi,
 } from 'slate'
 import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import {
   Editable,
   editableKeyCommands,
@@ -76,8 +77,8 @@ const BLOCK_HOTKEYS: [string, CustomElementFormat][] = [
 const CLEAR_FORMATTING_HOTKEY = 'mod+\\'
 
 const RichTextExample = () => {
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withRichTextHtml(withHistory(editor)),
+  const editor = useSlateEditor({
+    extensions: [history(), richTextHtml()],
     initialValue: [
       {
         type: 'paragraph',
@@ -384,15 +385,15 @@ const insertRichTextHtmlData = (editor: CustomEditor, data: DataTransfer) => {
   return true
 }
 
-const withRichTextHtml = (editor: CustomEditor) => {
-  const insertData: DOMClipboardInsertDataHandler = (_domEditor, data) =>
-    insertRichTextHtmlData(editor, data)
+const richTextHtml = () => {
+  const insertData: DOMClipboardInsertDataHandler = (editor, data) =>
+    insertRichTextHtmlData(editor as unknown as CustomEditor, data)
 
-  editor.extend({
+  return defineEditorExtension<CustomEditor>()({
     name: 'richtext-html-paste',
     capabilities: {
       ...editableKeyCommands(({ editor, event }) => {
-        const richTextEditor = editor as CustomEditor
+        const richTextEditor = editor as unknown as CustomEditor
 
         if (handleExitBlockEnter(richTextEditor, event)) {
           return true
@@ -417,11 +418,9 @@ const withRichTextHtml = (editor: CustomEditor) => {
           }
         }
       }),
-      'dom.clipboard.insertData': insertData,
+      'clipboard.insertData': insertData,
     },
   })
-
-  return editor
 }
 
 const isBlockActive = (

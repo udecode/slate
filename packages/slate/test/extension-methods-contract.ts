@@ -211,6 +211,41 @@ describe('extension method hard cut', () => {
     )
   })
 
+  it('resolves editor api handles only from installed extension tokens', () => {
+    const installed = defineEditorExtension({
+      name: 'history',
+      capabilities: {
+        history: {
+          withoutSaving(fn: () => void) {
+            fn()
+          },
+        },
+      },
+    })
+    const fresh = defineEditorExtension({
+      name: 'history',
+      capabilities: {
+        history: {
+          withoutSaving(fn: () => void) {
+            fn()
+          },
+        },
+      },
+    })
+    const editor = createEditor({ extensions: [installed] })
+    let called = false
+
+    assert.equal(editor.getApi(installed), editor.api.history)
+    editor.getApi(installed).withoutSaving(() => {
+      called = true
+    })
+    assert.equal(called, true)
+    assert.throws(
+      () => editor.getApi(fresh),
+      /Editor extension "history" is not installed on this editor\./
+    )
+  })
+
   it('extension transform middleware can delegate and override insertText args', () => {
     const editor = createEditor()
     const seenText: string[] = []

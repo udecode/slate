@@ -3,7 +3,7 @@ import {
   NodeApi,
   type Element as SlateElement,
 } from 'slate'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
@@ -13,7 +13,6 @@ import {
 import type {
   CustomEditor,
   CustomElementType,
-  CustomValue,
   ParagraphElement,
   TitleElement,
 } from './custom-types.d'
@@ -94,24 +93,21 @@ const enforceLayout = (editor: CustomEditor) => {
   }
 }
 
-const forcedLayout = defineEditorExtension<CustomEditor>({
-  name: 'forced-layout',
-  register({ editor }) {
-    return {
-      commitListeners: [() => enforceLayout(editor)],
-    }
-  },
-})
+const layout = () =>
+  defineEditorExtension<CustomEditor>()({
+    name: 'forced-layout',
+    register({ editor }) {
+      enforceLayout(editor)
 
-const withLayout = (editor: CustomEditor) => {
-  editor.extend(forcedLayout)
-  enforceLayout(editor)
-  return editor
-}
+      return {
+        commitListeners: [() => enforceLayout(editor)],
+      }
+    },
+  })
 
 const ForcedLayoutExample = () => {
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withLayout(withHistory(editor)),
+  const editor = useSlateEditor({
+    extensions: [history(), layout()],
     initialValue: [
       {
         type: 'title',

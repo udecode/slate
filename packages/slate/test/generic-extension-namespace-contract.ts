@@ -1,6 +1,8 @@
 import {
   createEditor,
   defineEditorExtension,
+  type Editor,
+  type EditorExtension,
   type EditorPublicTransformMiddlewareKey,
   type Value,
 } from 'slate'
@@ -23,6 +25,11 @@ type ImageElement = {
 }
 
 type CustomValue = (ParagraphElement | ImageElement)[]
+type CustomEditor = Editor<CustomValue>
+
+const initialValue: CustomValue = [
+  { type: 'paragraph', children: [{ text: 'paragraph' }] },
+]
 
 type AssertNever<T extends never> = T
 
@@ -103,9 +110,7 @@ declare module 'slate' {
   }
 }
 
-const editor = createEditor<CustomValue>()
-
-const extension = defineEditorExtension<typeof editor>({
+const extension = defineEditorExtension<CustomEditor>()({
   name: 'generic-namespace',
   state: {
     link(state) {
@@ -224,7 +229,7 @@ defineEditorExtension({
   },
 })
 
-defineEditorExtension<typeof editor>({
+defineEditorExtension<CustomEditor>()({
   name: 'bad-link-namespace',
   state: {
     // @ts-expect-error augmented link state groups must return the declared shape
@@ -236,7 +241,7 @@ defineEditorExtension<typeof editor>({
   },
 })
 
-defineEditorExtension<typeof editor>({
+defineEditorExtension<CustomEditor>()({
   // @ts-expect-error raw Slate extensions do not expose public command slots
   commands: [
     {
@@ -245,9 +250,9 @@ defineEditorExtension<typeof editor>({
     },
   ],
   name: 'bad-command-namespace',
-})
+} satisfies EditorExtension<CustomEditor>)
 
-defineEditorExtension<typeof editor>({
+defineEditorExtension<CustomEditor>()({
   name: 'bad-engine-transform',
   transforms: {
     // @ts-expect-error engine controls are not transform middleware keys
@@ -255,7 +260,7 @@ defineEditorExtension<typeof editor>({
   },
 })
 
-editor.extend(extension)
+const editor = createEditor({ extensions: [extension], initialValue })
 
 const selectedHref: string | null = editor.read((state) =>
   state.link.selectedHref()

@@ -1,7 +1,7 @@
 import { css } from '@emotion/css'
 import { useEffect, useState } from 'react'
 import type { Value } from 'slate'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import {
   Editable,
   type RenderLeafProps,
@@ -243,7 +243,7 @@ const AndroidTestsExample = () => {
 
 const TestCase = ({ value }: AndroidTestCase) => {
   const editor = useSlateEditor({
-    withEditor: withHistory,
+    extensions: [history()],
     initialValue: value,
   })
 

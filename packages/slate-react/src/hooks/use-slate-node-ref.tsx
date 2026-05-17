@@ -208,7 +208,7 @@ export const useSlateNodeRef = (
     const slateNode =
       providedSlateNode ?? editor.read((state) => state.nodes.get(path))[0]
     const nextPathKey = pathKey(path)
-    const key = editor.dom.findKey(slateNode)
+    const key = editor.api.dom.findKey(slateNode)
     const keyToElement = EDITOR_TO_KEY_TO_ELEMENT.get(editor) ?? new WeakMap()
 
     if (!EDITOR_TO_KEY_TO_ELEMENT.has(editor)) {

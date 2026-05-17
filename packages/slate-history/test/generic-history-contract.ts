@@ -1,5 +1,5 @@
 import { createEditor, type Operation, type ValueOf } from 'slate'
-import { type HistoryEditor, withHistory } from 'slate-history'
+import { history } from 'slate-history'
 
 type CustomText = {
   text: string
@@ -13,15 +13,54 @@ type ParagraphElement = {
 
 type CustomValue = ParagraphElement[]
 
-const editor = withHistory(createEditor<CustomValue>())
-const historyEditor: HistoryEditor<CustomValue> = editor
+const initialValue: CustomValue = [
+  { type: 'paragraph', children: [{ text: '' }] },
+]
+
+const HistoryExtension = history()
+const editor = createEditor({ extensions: [HistoryExtension], initialValue })
 
 editor.update((tx) => {
   tx.text.insert('a')
 })
 
-const operation: Operation<ValueOf<typeof editor>> | undefined =
-  editor.history.undos[0]?.operations[0]
+const operation: Operation<ValueOf<typeof editor>> | undefined = editor.read(
+  (state) => state.history.undos()[0]?.operations[0]
+)
+const historyValue = editor.read((state) => state.history.get())
 
-void historyEditor
+editor.update((tx) => {
+  tx.history.undo()
+  tx.history.redo()
+})
+
+editor.api.history.withoutSaving(() => {
+  editor.update((tx) => {
+    tx.text.insert('b')
+  })
+})
+editor.api.history.withoutMerging(() => {
+  editor.update((tx) => {
+    tx.text.insert('c')
+  })
+})
+editor.getApi(HistoryExtension).withNewBatch(() => {
+  editor.update((tx) => {
+    tx.text.insert('d')
+  })
+})
+
+// @ts-expect-error history stacks are read through state.history
+editor.api.history.undos()
+
+// @ts-expect-error undo is a replayable tx action, not an ambient api action
+editor.api.history.undo()
+
+// @ts-expect-error history is extension state, not an editor root field
+editor.history
+
+// @ts-expect-error undo is exposed on tx.history, not the editor root
+editor.undo()
+
+void historyValue
 void operation

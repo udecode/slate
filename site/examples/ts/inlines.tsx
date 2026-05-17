@@ -2,9 +2,9 @@ import { css } from '@emotion/css'
 import isUrl from 'is-url'
 import type React from 'react'
 import { type PointerEvent, useMemo } from 'react'
-import { NodeApi, RangeApi } from 'slate'
+import { defineEditorExtension, NodeApi, RangeApi } from 'slate'
 import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import * as SlateReact from 'slate-react'
 import {
   Editable,
@@ -20,14 +20,13 @@ import { Button, Icon, Toolbar } from './components'
 import type {
   ButtonElement,
   CustomEditor,
-  CustomValue,
   LinkElement,
   RenderElementPropsFor,
 } from './custom-types.d'
 
 const InlinesExample = () => {
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withInlines(withHistory(editor)),
+  const editor = useSlateEditor({
+    extensions: [history(), inline()],
     initialValue: [
       {
         type: 'paragraph',
@@ -119,18 +118,18 @@ const InlinesExample = () => {
   )
 }
 
-const withInlines = (editor: CustomEditor) => {
-  const insertData: DOMClipboardInsertDataHandler = (_editor, data) =>
-    insertLinkData(editor, data)
+const inline = () => {
+  const insertData: DOMClipboardInsertDataHandler = (editor, data) =>
+    insertLinkData(editor as unknown as CustomEditor, data)
 
-  editor.extend({
+  return defineEditorExtension<CustomEditor>()({
     capabilities: {
-      'dom.clipboard.insertData': insertData,
+      'clipboard.insertData': insertData,
     },
-    name: 'inlines',
+    name: 'inline',
     transforms: {
       insertText({ editor, next, text }) {
-        if (isUrl(text) && wrapLink(editor as CustomEditor, text)) return
+        if (isUrl(text) && wrapLink(editor, text)) return
 
         next()
       },
@@ -141,8 +140,6 @@ const withInlines = (editor: CustomEditor) => {
       { inline: true, readOnly: true, selectable: false, type: 'badge' },
     ],
   })
-
-  return editor
 }
 
 const insertLinkData = (editor: CustomEditor, data: DataTransfer) => {

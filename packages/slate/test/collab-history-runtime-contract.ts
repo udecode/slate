@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { Editor } from 'slate/internal'
 
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 
 import { createEditor, type Descendant, type Operation } from '../src'
 
@@ -26,7 +26,23 @@ const createCollabEditor = () => {
   return editor
 }
 
+const createHistoryCollabEditor = () => {
+  const editor = createEditor({ extensions: [history()] })
+
+  Editor.replace(editor, {
+    children: [paragraph('one'), paragraph('two'), paragraph('three')],
+    selection: {
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    },
+    marks: null,
+  })
+
+  return editor
+}
+
 type CollabEditor = ReturnType<typeof createCollabEditor>
+type HistoryCollabEditor = ReturnType<typeof createHistoryCollabEditor>
 type CollabCommit = NonNullable<ReturnType<typeof Editor.getLastCommit>>
 
 const lastCommit = (editor: CollabEditor): CollabCommit => {
@@ -36,6 +52,12 @@ const lastCommit = (editor: CollabEditor): CollabCommit => {
 
   return commit
 }
+
+const historyUndoCount = (editor: HistoryCollabEditor) =>
+  editor.read((state) => state.history.undos().length)
+
+const firstUndoOperations = (editor: HistoryCollabEditor) =>
+  editor.read((state) => state.history.undos()[0]?.operations)
 
 const remoteReplayMetadata = {
   collab: { origin: 'remote', saveToHistory: false },
@@ -61,7 +83,7 @@ const replayRemoteCommit = (
 
 describe('collab and history runtime contract', () => {
   it('publishes one commit truth for collab subscribers, extension listeners, and history', () => {
-    const editor = withHistory(createEditor())
+    const editor = createEditor({ extensions: [history()] })
 
     Editor.replace(editor, {
       children: [paragraph('one')],
@@ -136,10 +158,16 @@ describe('collab and history runtime contract', () => {
     assert.equal(commit.dirty.wholeDocument, false)
     assert.equal(Object.isFrozen(commit.operations), true)
 
-    assert.equal(editor.history.undos.length, 1)
-    assert.deepEqual(editor.history.undos[0]?.operations, commit.operations)
+    assert.equal(
+      editor.read((state) => state.history.undos().length),
+      1
+    )
     assert.deepEqual(
-      editor.history.undos[0]?.selectionBefore,
+      editor.read((state) => state.history.undos()[0]?.operations),
+      commit.operations
+    )
+    assert.deepEqual(
+      editor.read((state) => state.history.undos()[0]?.selectionBefore),
       commit.selectionBefore
     )
   })
@@ -187,7 +215,7 @@ describe('collab and history runtime contract', () => {
 
   it('uses typed remote collaboration metadata to skip local undo history', () => {
     const source = createCollabEditor()
-    const remote = withHistory(createCollabEditor())
+    const remote = createHistoryCollabEditor()
 
     source.update(
       (tx) => {
@@ -223,7 +251,7 @@ describe('collab and history runtime contract', () => {
       saveToHistory: false,
     })
     assert.deepEqual(remoteCommit.metadata.history, { mode: 'skip' })
-    assert.equal(remote.history.undos.length, 0)
+    assert.equal(historyUndoCount(remote), 0)
     assert.deepEqual(
       Editor.getSnapshot(remote).children,
       Editor.getSnapshot(source).children
@@ -240,9 +268,9 @@ describe('collab and history runtime contract', () => {
       expectedChildren: Descendant[]
       tag: string
     }) => {
-      const source = withHistory(createCollabEditor())
-      const peerB = withHistory(createCollabEditor())
-      const peerC = withHistory(createCollabEditor())
+      const source = createHistoryCollabEditor()
+      const peerB = createHistoryCollabEditor()
+      const peerC = createHistoryCollabEditor()
 
       edit(source)
 
@@ -260,9 +288,9 @@ describe('collab and history runtime contract', () => {
         Editor.getSnapshot(peerC).children,
         Editor.getSnapshot(source).children
       )
-      assert.equal(source.history.undos.length, 1)
-      assert.equal(peerB.history.undos.length, 0)
-      assert.equal(peerC.history.undos.length, 0)
+      assert.equal(historyUndoCount(source), 1)
+      assert.equal(historyUndoCount(peerB), 0)
+      assert.equal(historyUndoCount(peerC), 0)
       assert.deepEqual(lastCommit(peerB).metadata, remoteReplayMetadata)
       assert.deepEqual(lastCommit(peerC).metadata, remoteReplayMetadata)
     }
@@ -351,7 +379,7 @@ describe('collab and history runtime contract', () => {
 
   it('replays replace_children paste operations through the collaboration import path', () => {
     const source = createCollabEditor()
-    const remote = withHistory(createCollabEditor())
+    const remote = createHistoryCollabEditor()
 
     Editor.replace(source, {
       children: Editor.getSnapshot(source).children,
@@ -420,11 +448,11 @@ describe('collab and history runtime contract', () => {
       Editor.getSnapshot(remote).selection,
       Editor.getSnapshot(source).selection
     )
-    assert.equal(remote.history.undos.length, 0)
+    assert.equal(historyUndoCount(remote), 0)
   })
 
   it('stores replace_children range delete as one undoable history batch', () => {
-    const editor = withHistory(createCollabEditor())
+    const editor = createHistoryCollabEditor()
     const before = Editor.getSnapshot(editor)
 
     editor.update((tx) => {
@@ -437,20 +465,22 @@ describe('collab and history runtime contract', () => {
     })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [paragraph('three')])
-    assert.equal(editor.history.undos.length, 1)
+    assert.equal(historyUndoCount(editor), 1)
     assert.deepEqual(
-      editor.history.undos[0]?.operations.map((operation) => operation.type),
+      firstUndoOperations(editor)?.map((operation) => operation.type),
       ['replace_children']
     )
 
-    editor.undo()
+    editor.update((tx) => {
+      tx.history.undo()
+    })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, before.children)
     assert.deepEqual(Editor.getSnapshot(editor).selection, before.selection)
   })
 
   it('rebases local undo and redo batches across remote text commits', () => {
-    const editor = withHistory(createCollabEditor())
+    const editor = createHistoryCollabEditor()
 
     editor.update(
       (tx) => {
@@ -477,10 +507,12 @@ describe('collab and history runtime contract', () => {
     )
 
     assert.equal(Editor.string(editor, [0]), '?one!')
-    assert.equal(editor.history.undos[0]?.operations[0]?.type, 'insert_text')
-    assert.equal(editor.history.undos[0]?.operations[0]?.offset, 4)
+    assert.equal(firstUndoOperations(editor)?.[0]?.type, 'insert_text')
+    assert.equal(firstUndoOperations(editor)?.[0]?.offset, 4)
 
-    editor.undo()
+    editor.update((tx) => {
+      tx.history.undo()
+    })
 
     assert.equal(Editor.string(editor, [0]), '?one')
     assert.deepEqual(Editor.getSnapshot(editor).selection, {
@@ -488,7 +520,9 @@ describe('collab and history runtime contract', () => {
       focus: { path: [0, 0], offset: 4 },
     })
 
-    editor.redo()
+    editor.update((tx) => {
+      tx.history.redo()
+    })
 
     assert.equal(Editor.string(editor, [0]), '?one!')
   })

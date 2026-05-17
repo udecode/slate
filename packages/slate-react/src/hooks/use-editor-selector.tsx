@@ -1,12 +1,12 @@
 import { createContext, useCallback, useContext, useMemo, useRef } from 'react'
 import type {
+  Editor,
   EditorStateView,
   Operation,
   RuntimeId,
   SnapshotChange,
   ValueOf,
 } from 'slate'
-import type { ReactEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
 import { useEditor } from './use-editor'
 import { useGenericSelector } from './use-generic-selector'
@@ -26,7 +26,7 @@ export type EditorSelectorContextValue = {
 }
 
 export interface EditorSelectorOptions<
-  TEditor extends ReactEditor<any> = ReactEditor<any>,
+  TEditor extends Editor<any> = Editor<any>,
 > {
   deferred?: boolean
   profileId?: string
@@ -39,7 +39,7 @@ export interface EditorSelectorOptions<
 
 export interface EditorStateSelectorOptions<
   T,
-  TEditor extends ReactEditor<any> = ReactEditor<any>,
+  TEditor extends Editor<any> = Editor<any>,
 > {
   deferred?: boolean
   deps?: readonly unknown[]
@@ -79,10 +79,7 @@ export function useRequiredEditorSelectorContext() {
   return context
 }
 
-export function useEditorSelector<
-  T,
-  TEditor extends ReactEditor<any> = ReactEditor<any>,
->(
+export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
   selector: (
     editor: TEditor,
     operations?: readonly Operation<ValueOf<TEditor>>[]
@@ -158,10 +155,7 @@ export function useEditorSelector<
   return selectedState
 }
 
-export function useEditorState<
-  T,
-  TEditor extends ReactEditor<any> = ReactEditor<any>,
->(
+export function useEditorState<T, TEditor extends Editor<any> = Editor<any>>(
   selector: (state: EditorStateView<ValueOf<TEditor>>) => T,
   {
     deferred,

@@ -1,16 +1,16 @@
 import { act, render } from '@testing-library/react'
 import type React from 'react'
-import { createEditor, type Descendant, type EditorUpdateOptions } from 'slate'
+import { type Descendant, type EditorUpdateOptions } from 'slate'
 import { Editor } from 'slate/internal'
 
 import {
   createDecorationSource,
+  createReactEditor,
   Editable,
   EditableElement,
   Slate,
   type SlateDecorationSource,
   useSlateDecorationSource,
-  withReact,
 } from '../src'
 
 const createChildren = (left = 'alpha', right = 'beta'): Descendant[] => [
@@ -46,7 +46,7 @@ const remoteSelectionOptions = {
 
 describe('slate-react app-owned customization', () => {
   test('useSlateDecorationSource owns source lifecycle while reading latest options', async () => {
-    const editor = withReact(createEditor({ initialValue: createChildren() }))
+    const editor = createReactEditor({ initialValue: createChildren() })
     const sources: SlateDecorationSource<{ token: string }>[] = []
 
     const Probe = ({ token }: { token: string }) => {
@@ -102,7 +102,7 @@ describe('slate-react app-owned customization', () => {
   })
 
   test('Editable supports app-owned markdown preview projections', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     const collectMarkdownProjections = (text: string, path: number[]) => {
       const projections: Array<{
@@ -203,7 +203,7 @@ describe('slate-react app-owned customization', () => {
   })
 
   test('Editable supports app-owned markdown shortcuts', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
     const applyShortcut = (type: 'block-quote' | 'list-item', at: number[]) => {
       editor.update((tx) => {
         if (type === 'list-item') {
@@ -295,7 +295,7 @@ describe('slate-react app-owned customization', () => {
   })
 
   test('Editable supports app-owned forced layout enforcement', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     const createTitle = () =>
       ({
@@ -393,7 +393,7 @@ describe('slate-react app-owned customization', () => {
   })
 
   test('Editable forwards scrollSelectionIntoView to app-owned code', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
     const seen: string[] = []
 
     Editor.replace(editor, {
@@ -424,7 +424,7 @@ describe('slate-react app-owned customization', () => {
   })
 
   test('Editable skips scrollSelectionIntoView for remote collaboration selection updates', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
     const seen: string[] = []
 
     Editor.replace(editor, {

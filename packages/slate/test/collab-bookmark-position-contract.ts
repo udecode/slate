@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { Editor } from 'slate/internal'
 
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 
 import {
   createEditor,
@@ -34,7 +34,7 @@ const remoteCollabOptions = {
 } satisfies EditorUpdateOptions
 
 const createCollabEditor = (children: Descendant[]) => {
-  const editor = withHistory(createEditor())
+  const editor = createEditor({ extensions: [history()] })
 
   Editor.replace(editor, {
     children,
@@ -70,7 +70,10 @@ const assertLastRemoteCommit = (
   assert(commit)
   assert.deepEqual(commit.tags, ['collaboration', 'remote-import'])
   assert.deepEqual(commit.metadata, remoteCollabOptions.metadata)
-  assert.equal(editor.history.undos.length, 0)
+  assert.equal(
+    editor.read((state) => state.history.undos().length),
+    0
+  )
 }
 
 describe('collab bookmark position contract', () => {

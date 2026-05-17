@@ -13,7 +13,7 @@ extension:
 
 ```jsx
 import { createEditor, defineEditorExtension } from 'slate'
-import { Slate, Editable, editableRenderers, withReact } from 'slate-react'
+import { Slate, Editable, editableRenderers, createReactEditor } from 'slate-react'
 
 const rendering = defineEditorExtension({
   name: 'article-rendering',
@@ -44,7 +44,7 @@ const LinkElement = ({ attributes, children, element }) => {
 
 const MyEditor = () => {
   const [editor] = useState(() => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor({ initialValue })
     editor.extend(rendering)
     return editor
   })
@@ -182,7 +182,7 @@ A common use case for this is rendering a toolbar with formatting buttons that a
 
 ```jsx
 const MyEditor = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+  const [editor] = useState(() => createReactEditor({ initialValue }))
   return (
     <Slate editor={editor}>
       <Toolbar />
@@ -213,7 +213,7 @@ Custom styles can be applied to the editor itself by using the `style` prop on t
 
 ```jsx
 const MyEditor = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+  const [editor] = useState(() => createReactEditor({ initialValue }))
   return (
     <Slate editor={editor}>
       <Editable style={{ minHeight: '200px', backgroundColor: 'lime' }} />

@@ -3,6 +3,7 @@ import {
   extendEditor,
   getDirtyPaths,
   getFragment,
+  isEditorExtensionInstalled,
   normalizeNode,
   shouldNormalize,
 } from './core'
@@ -102,6 +103,8 @@ import type {
   EditorElementBehavior,
   EditorElementPropertyDescriptor,
   EditorElementSpec,
+  EditorExtension,
+  EditorExtensionInput,
   EditorLevelsOptions,
   EditorNextOptions,
   EditorPreviousOptions,
@@ -495,10 +498,16 @@ const createEditorTransformRegistry = <V extends Value>(
   } satisfies EditorTransformRegistry<V>)
 }
 
-export const createEditor = <V extends Value = Value>(
-  options: CreateEditorOptions<V> = {}
-): Editor<V> => {
-  let editor!: Editor<V>
+export function createEditor<
+  V extends Value = Value,
+  const TExtensions extends readonly unknown[] = readonly [],
+>(options?: CreateEditorOptions<V, TExtensions>): Editor<V, TExtensions>
+
+export function createEditor<
+  V extends Value = Value,
+  const TExtensions extends readonly unknown[] = readonly [],
+>(options: CreateEditorOptions<V, TExtensions> = {}): Editor<V, TExtensions> {
+  let editor!: Editor<V, TExtensions>
   const runtimeEditor = () => editor as Editor
   const bind = <T extends EditorMethod>(method: T) =>
     bindEditorMethod(runtimeEditor, method)
@@ -801,10 +810,69 @@ export const createEditor = <V extends Value = Value>(
     ...transformRuntime,
   } satisfies InternalEditorRuntime<V>
 
-  const baseEditor: Editor<V> = {
+  const api = new Proxy(Object.create(null) as Record<string, unknown>, {
+    get(_target, property) {
+      if (typeof property !== 'string') {
+        return undefined
+      }
+
+      const capabilities = getExtensionRegistry(
+        editor as Editor
+      ).capabilities.get(property)
+
+      if (!capabilities || capabilities.length === 0) {
+        return undefined
+      }
+
+      if (capabilities.length === 1) {
+        return capabilities[0]
+      }
+
+      return Object.freeze(Object.assign({}, ...capabilities))
+    },
+  }) as Editor<V, TExtensions>['api']
+
+  const getApi = (extension: EditorExtension<any, any>) => {
+    if (!isEditorExtensionInstalled(editor as Editor, extension)) {
+      throw new Error(
+        `Editor extension "${extension.name}" is not installed on this editor.`
+      )
+    }
+
+    const capabilityNames = Object.keys(extension.capabilities ?? {})
+    const capabilityName = capabilityNames.includes(extension.name)
+      ? extension.name
+      : capabilityNames[0]
+
+    if (
+      capabilityNames.length !== 1 &&
+      !capabilityNames.includes(extension.name)
+    ) {
+      throw new Error(
+        `Editor extension "${extension.name}" must expose exactly one capability or a capability matching its extension name to be used with editor.getApi().`
+      )
+    }
+
+    const capability = api[capabilityName as keyof typeof api]
+
+    if (capability === undefined) {
+      throw new Error(
+        `Editor extension "${extension.name}" capability "${capabilityName}" is not installed.`
+      )
+    }
+
+    return capability
+  }
+
+  const baseEditor: Editor<V, TExtensions> = {
+    api,
+    getApi: getApi as Editor<V, TExtensions>['getApi'],
     read: (fn) => readEditor(editor, fn),
     subscribe: (listener) => subscribe(editor, listener),
-    update: (fn: (transaction: EditorUpdateTransaction<V>) => void, options) =>
+    update: (
+      fn: (transaction: EditorUpdateTransaction<V, TExtensions>) => void,
+      options
+    ) =>
       updateEditor(
         editor,
         fn as (transaction: EditorUpdateTransaction<V>) => void,
@@ -824,6 +892,10 @@ export const createEditor = <V extends Value = Value>(
   setBaseApply(editor, (...args) => apply(editor, ...args))
 
   initializePublicState(editor, options)
+
+  if (options.extensions) {
+    extendEditor(editor as Editor, options.extensions as EditorExtensionInput)
+  }
 
   return editor
 }

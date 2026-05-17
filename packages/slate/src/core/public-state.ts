@@ -967,9 +967,12 @@ const createNodesToArray = (editor: Editor): EditorStateNodesApi['toArray'] => {
   return toArray
 }
 
-const getStateView = <V extends Value>(
-  editor: Editor<V>
-): EditorStateView<V> => {
+const getStateView = <
+  V extends Value,
+  TExtensions extends readonly unknown[] = readonly [],
+>(
+  editor: Editor<V, TExtensions>
+): EditorStateView<V, TExtensions> => {
   const state = {
     fragment: Object.freeze({
       get: (options = {}) =>
@@ -1364,8 +1367,7 @@ const getStateView = <V extends Value>(
     }),
   } satisfies EditorCoreStateView<V>
 
-  const stateRecord = state as unknown as EditorStateView<V> &
-    Record<string, unknown>
+  const stateRecord = state as unknown as Record<string, unknown>
 
   for (const [groupName, registration] of getExtensionRegistry(editor)
     .stateGroups) {
@@ -1375,12 +1377,15 @@ const getStateView = <V extends Value>(
     )
   }
 
-  return Object.freeze(stateRecord) as EditorStateView<V>
+  return Object.freeze(stateRecord) as EditorStateView<V, TExtensions>
 }
 
-const getUpdateView = <V extends Value>(
-  editor: Editor<V>
-): EditorUpdateTransaction<V> => {
+const getUpdateView = <
+  V extends Value,
+  TExtensions extends readonly unknown[] = readonly [],
+>(
+  editor: Editor<V, TExtensions>
+): EditorUpdateTransaction<V, TExtensions> => {
   const state = getStateView(editor)
   const transforms = getEditorTransformRegistry(editor)
   const tx = {
@@ -1478,8 +1483,7 @@ const getUpdateView = <V extends Value>(
     withoutNormalizing: (fn: () => void) => transforms.withoutNormalizing(fn),
   } satisfies EditorCoreUpdateTransaction<V>
 
-  const txRecord = tx as unknown as EditorUpdateTransaction<V> &
-    Record<string, unknown>
+  const txRecord = tx as unknown as Record<string, unknown>
 
   for (const [groupName, registration] of getExtensionRegistry(editor)
     .txGroups) {
@@ -1489,7 +1493,7 @@ const getUpdateView = <V extends Value>(
     )
   }
 
-  return Object.freeze(txRecord) as EditorUpdateTransaction<V>
+  return Object.freeze(txRecord) as EditorUpdateTransaction<V, TExtensions>
 }
 
 const getFragment = <V extends Value>(
@@ -1505,9 +1509,13 @@ const getFragment = <V extends Value>(
   return NodeApi.fragment(editor, range)
 }
 
-export const readEditor = <V extends Value, T>(
-  editor: Editor<V>,
-  fn: (state: EditorStateView<V>) => T
+export const readEditor = <
+  V extends Value,
+  TExtensions extends readonly unknown[] = readonly [],
+  T = unknown,
+>(
+  editor: Editor<V, TExtensions>,
+  fn: (state: EditorStateView<V, TExtensions>) => T
 ): T => {
   const depth = READ_DEPTH.get(editor) ?? 0
   READ_DEPTH.set(editor, depth + 1)
@@ -1523,9 +1531,12 @@ export const readEditor = <V extends Value, T>(
   }
 }
 
-export const updateEditor = <V extends Value>(
-  editor: Editor<V>,
-  fn: (transaction: EditorUpdateTransaction<V>) => void,
+export const updateEditor = <
+  V extends Value,
+  TExtensions extends readonly unknown[] = readonly [],
+>(
+  editor: Editor<V, TExtensions>,
+  fn: (transaction: EditorUpdateTransaction<V, TExtensions>) => void,
   options: EditorUpdateOptions = {}
 ) => {
   if (isExecutingQueryMiddleware(editor)) {
@@ -2947,9 +2958,12 @@ export const subscribeSource = <V extends Value>(
   }
 }
 
-export const initializePublicState = <V extends Value>(
-  editor: Editor<V>,
-  options: CreateEditorOptions<V> = {}
+export const initializePublicState = <
+  V extends Value,
+  TExtensions extends readonly unknown[] = readonly [],
+>(
+  editor: Editor<V, TExtensions>,
+  options: CreateEditorOptions<V, TExtensions> = {}
 ) => {
   const initialChildren = cloneValue([...(options.initialValue ?? [])])
 

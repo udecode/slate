@@ -13,7 +13,7 @@ Once the packages are installed, import the editor factory from `slate` and the 
 ```tsx
 import { useState } from 'react'
 import { createEditor, type Value } from 'slate'
-import { Editable, Slate, withReact } from 'slate-react'
+import { Editable, Slate, createReactEditor } from 'slate-react'
 ```
 
 Before we render anything, let's define the document shape for this editor.
@@ -34,7 +34,7 @@ const initialValue: CustomValue = [
 `CustomValue` is the TypeScript shape of this editor's document. Passing it to `createEditor` keeps element and text types attached to the editor API.
 
 ```tsx
-const [editor] = useState(() => withReact(createEditor<CustomValue>()))
+const [editor] = useState(() => createReactEditor<CustomValue>({ initialValue }))
 ```
 
 We create the editor inside `useState` so React keeps the same editor object for the lifetime of the component.
@@ -43,10 +43,10 @@ Now we can render the editor with `<Slate>` and `<Editable>`.
 
 ```tsx
 const App = () => {
-  const [editor] = useState(() => withReact(createEditor<CustomValue>()))
+  const [editor] = useState(() => createReactEditor<CustomValue>({ initialValue }))
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable />
     </Slate>
   )
@@ -63,7 +63,7 @@ Most applications save the document value somewhere. Pass `onChange` to `<Slate>
 
 ```tsx
 const App = () => {
-  const [editor] = useState(() => withReact(createEditor<CustomValue>()))
+  const [editor] = useState(() => createReactEditor<CustomValue>({ initialValue }))
 
   const handleChange = (nextValue: Value, change: SlateChange) => {
     if (!change.valueChanged) return
@@ -74,7 +74,6 @@ const App = () => {
   return (
     <Slate
       editor={editor}
-      initialValue={initialValue}
       onChange={handleChange}
     >
       <Editable />

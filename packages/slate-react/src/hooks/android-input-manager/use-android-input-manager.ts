@@ -1,5 +1,6 @@
 import { type RefObject, useEffect, useState } from 'react'
 import { EDITOR_TO_SCHEDULE_FLUSH, IS_ANDROID } from 'slate-dom'
+import type { ReactEditor } from '../../plugin/react-editor'
 import { useEditor } from '../use-editor'
 import { useMutationObserver } from '../use-mutation-observer'
 import {
@@ -23,7 +24,7 @@ export const useAndroidInputManager = IS_ANDROID
         return null
       }
 
-      const editor = useEditor()
+      const editor = useEditor<ReactEditor>()
 
       const [inputManager] = useState(() =>
         createAndroidInputManager({

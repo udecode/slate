@@ -1,24 +1,28 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import type {
-  Descendant,
-  Operation,
-  Selection,
-  Editor as SlateEditor,
-} from 'slate'
+import type { Descendant, Selection, Editor as SlateEditor } from 'slate'
 import { createEditor } from 'slate'
 import { Editor } from 'slate/internal'
 
-import { HistoryEditor, withHistory } from '../src'
+import { history } from '../src'
 
 const paragraph = (text: string): Descendant => ({
   type: 'paragraph',
   children: [{ text }],
 })
 
-const withHistoryTest = () => {
-  return withHistory(createEditor())
+const historyTestEditor = () => {
+  return createEditor({ extensions: [history()] })
+}
+
+const getHistory = (editor: SlateEditor) =>
+  editor.read((state: any) => state.history.get())
+
+const undo = (editor: SlateEditor) => {
+  editor.update((tx: any) => {
+    tx.history.undo()
+  })
 }
 
 const replace = (
@@ -55,7 +59,7 @@ const write = (
 
 describe('slate-history integrity contract', () => {
   it('treats one outer transaction as one undo unit', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('one')], {
       anchor: { path: [0, 0], offset: 3 },
@@ -69,17 +73,20 @@ describe('slate-history integrity contract', () => {
       tx.text.insert('b')
     })
 
-    assert.equal(editor.history.undos.length, 1)
-    assert.equal(editor.history.undos[0]?.operations.length, 2)
-    assert.deepEqual(editor.history.undos[0]?.selectionBefore, before.selection)
+    assert.equal(getHistory(editor).undos.length, 1)
+    assert.equal(getHistory(editor).undos[0]?.operations.length, 2)
+    assert.deepEqual(
+      getHistory(editor).undos[0]?.selectionBefore,
+      before.selection
+    )
 
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('withNewBatch splits once then merges the rest of the scope', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('one')], {
       anchor: { path: [0, 0], offset: 3 },
@@ -90,26 +97,26 @@ describe('slate-history integrity contract', () => {
       tx.text.insert('a')
     })
 
-    HistoryEditor.withNewBatch(editor, () => {
+    editor.api.history.withNewBatch(() => {
       write(editor, (tx) => {
         tx.text.insert('b')
         tx.text.insert('c')
       })
     })
 
-    assert.equal(editor.history.undos.length, 2)
-    assert.equal(editor.history.undos[0]?.operations.length, 1)
-    assert.equal(editor.history.undos[1]?.operations.length, 2)
+    assert.equal(getHistory(editor).undos.length, 2)
+    assert.equal(getHistory(editor).undos[0]?.operations.length, 1)
+    assert.equal(getHistory(editor).undos[1]?.operations.length, 2)
 
-    editor.undo()
+    undo(editor)
     assert.equal(getText(editor), 'onea')
 
-    editor.undo()
+    undo(editor)
     assert.equal(getText(editor), 'one')
   })
 
   it('withoutMerging forces a fresh batch', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('one')], {
       anchor: { path: [0, 0], offset: 3 },
@@ -120,41 +127,41 @@ describe('slate-history integrity contract', () => {
       tx.text.insert('a')
     })
 
-    HistoryEditor.withoutMerging(editor, () => {
+    editor.api.history.withoutMerging(() => {
       write(editor, (tx) => {
         tx.text.insert('b')
       })
     })
 
-    assert.equal(editor.history.undos.length, 2)
+    assert.equal(getHistory(editor).undos.length, 2)
 
-    editor.undo()
+    undo(editor)
     assert.equal(getText(editor), 'onea')
 
-    editor.undo()
+    undo(editor)
     assert.equal(getText(editor), 'one')
   })
 
   it('withoutSaving suppresses history recording', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('one')], {
       anchor: { path: [0, 0], offset: 3 },
       focus: { path: [0, 0], offset: 3 },
     })
 
-    HistoryEditor.withoutSaving(editor, () => {
+    editor.api.history.withoutSaving(() => {
       write(editor, (tx) => {
         tx.text.insert('a')
       })
     })
 
     assert.equal(getText(editor), 'onea')
-    assert.equal(editor.history.undos.length, 0)
+    assert.equal(getHistory(editor).undos.length, 0)
   })
 
   it('does not save selection-only command commits to history', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
     const seenCommands: string[] = []
 
     replace(editor, [paragraph('one')], {
@@ -180,12 +187,12 @@ describe('slate-history integrity contract', () => {
     unsubscribe()
 
     assert.deepEqual(seenCommands, ['set_selection'])
-    assert.equal(editor.history.undos.length, 0)
+    assert.equal(getHistory(editor).undos.length, 0)
     assert.deepEqual(Editor.getLastCommit(editor)?.classes, ['selection'])
   })
 
   it('does not save movement command commits to history', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
     const seenCommands: string[] = []
 
     replace(editor, [paragraph('one')], {
@@ -208,12 +215,12 @@ describe('slate-history integrity contract', () => {
     unsubscribe()
 
     assert.deepEqual(seenCommands, ['move_selection'])
-    assert.equal(editor.history.undos.length, 0)
+    assert.equal(getHistory(editor).undos.length, 0)
     assert.deepEqual(Editor.getLastCommit(editor)?.classes, ['selection'])
   })
 
   it('does not save collapsed mark command commits to history', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
     const seenCommands: string[] = []
 
     replace(editor, [paragraph('one')], {
@@ -234,41 +241,38 @@ describe('slate-history integrity contract', () => {
     unsubscribe()
 
     assert.deepEqual(seenCommands, ['add_mark'])
-    assert.equal(editor.history.undos.length, 0)
+    assert.equal(getHistory(editor).undos.length, 0)
     assert.deepEqual(Editor.getLastCommit(editor)?.classes, ['mark'])
   })
 
-  it('writeHistory remains the real stack-write seam', () => {
-    const editor = withHistoryTest()
-    const calls: Array<{ stack: 'redos' | 'undos'; types: string[] }> = []
-    const originalWriteHistory = editor.writeHistory
+  it('tx.history.undo moves the current undo batch onto the redo stack', () => {
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('one')], {
       anchor: { path: [0, 0], offset: 3 },
       focus: { path: [0, 0], offset: 3 },
     })
 
-    editor.writeHistory = (stack, batch) => {
-      calls.push({
-        stack,
-        types: batch.operations.map((operation: Operation) => operation.type),
-      })
-      originalWriteHistory(stack, batch)
-    }
-
     write(editor, (tx) => {
       tx.text.insert('a')
     })
-    editor.undo()
+    assert.equal(getHistory(editor).undos.length, 1)
+    assert.equal(getHistory(editor).redos.length, 0)
 
-    assert.deepEqual(calls, [
-      { stack: 'undos', types: ['insert_text'] },
-      { stack: 'redos', types: ['insert_text'] },
-    ])
+    undo(editor)
+
+    assert.equal(getHistory(editor).undos.length, 0)
+    assert.equal(getHistory(editor).redos.length, 1)
+    assert.deepEqual(
+      getHistory(editor).redos[0]?.operations.map(
+        (operation) => operation.type
+      ),
+      ['insert_text']
+    )
   })
 
   it('captures committed batches before subscriber reentry mutates the editor again', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
     let reentered = false
 
     replace(editor, [paragraph('one')])
@@ -305,8 +309,8 @@ describe('slate-history integrity contract', () => {
     })
     unsubscribe()
 
-    assert.equal(editor.history.undos.length, 1)
-    assert.deepEqual(editor.history.undos[0]?.operations, [
+    assert.equal(getHistory(editor).undos.length, 1)
+    assert.deepEqual(getHistory(editor).undos[0]?.operations, [
       {
         type: 'insert_text',
         path: [0, 0],
@@ -323,7 +327,7 @@ describe('slate-history integrity contract', () => {
   })
 
   it('exposes insertText transaction commit metadata to history', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('one')], {
       anchor: { path: [0, 0], offset: 3 },
@@ -373,7 +377,10 @@ describe('slate-history integrity contract', () => {
     assert.deepEqual(commit.dirty.paths, [[], [0], [0, 0]])
     assert.deepEqual(commit.dirty.runtimeIds, [textRuntimeId])
     assert.deepEqual(commit.touchedRuntimeIds, [textRuntimeId])
-    assert.deepEqual(editor.history.undos[0]?.operations, commit.operations)
-    assert.deepEqual(editor.history.undos[0]?.selectionBefore, selectionBefore)
+    assert.deepEqual(getHistory(editor).undos[0]?.operations, commit.operations)
+    assert.deepEqual(
+      getHistory(editor).undos[0]?.selectionBefore,
+      selectionBefore
+    )
   })
 })

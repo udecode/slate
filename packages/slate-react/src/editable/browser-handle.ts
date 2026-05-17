@@ -18,7 +18,10 @@ import {
   recordEditableKernelTrace,
 } from './editing-kernel'
 import type { EditableInputController } from './input-state'
-import { applyEditableCommand } from './mutation-controller'
+import {
+  applyEditableCommand,
+  applyModelOwnedHistoryIntent,
+} from './mutation-controller'
 import { Editor } from './runtime-editor-api'
 import { readRuntimeSelection } from './runtime-selection-state'
 import {
@@ -290,13 +293,10 @@ export const attachSlateBrowserHandle = ({
       }
     },
     redo: () => {
-      const maybeHistoryEditor: any = editor
-
-      if (typeof maybeHistoryEditor.redo !== 'function') {
-        throw new Error('Editor does not expose redo')
+      if (!applyModelOwnedHistoryIntent({ direction: 'redo', editor })) {
+        throw new Error('Editor does not expose history redo')
       }
 
-      maybeHistoryEditor.redo()
       forceRender()
     },
     resolveRangeRef: (id) => {
@@ -330,13 +330,10 @@ export const attachSlateBrowserHandle = ({
       setExplicitShellBackedSelection(isShellBackedSelection(selection))
     },
     undo: () => {
-      const maybeHistoryEditor: any = editor
-
-      if (typeof maybeHistoryEditor.undo !== 'function') {
-        throw new Error('Editor does not expose undo')
+      if (!applyModelOwnedHistoryIntent({ direction: 'undo', editor })) {
+        throw new Error('Editor does not expose history undo')
       }
 
-      maybeHistoryEditor.undo()
       forceRender()
     },
     unrefRangeRef: (id) => {

@@ -3,19 +3,20 @@ import { createEditor, type Descendant, type Range } from 'slate'
 import { Editor } from 'slate/internal'
 
 import {
-  type DOMEditor,
+  dom,
   EDITOR_TO_ELEMENT,
   EDITOR_TO_KEY_TO_ELEMENT,
   EDITOR_TO_WINDOW,
   ELEMENT_TO_NODE,
   IS_COMPOSING,
   NODE_TO_ELEMENT,
-  withDOM,
 } from '../src/index'
 import { DOMCoverage } from '../src/internal'
 
+type DOMTestEditor = ReturnType<typeof createNestedEditor>
+
 const createNestedEditor = () => {
-  const editor = withDOM(createEditor()) as DOMEditor
+  const editor = createEditor({ extensions: [dom()] })
 
   Editor.replace(editor, {
     children: [
@@ -47,7 +48,7 @@ const createNestedEditor = () => {
 }
 
 const createLargeEditor = (blocks: number) => {
-  const editor = withDOM(createEditor()) as DOMEditor
+  const editor = createEditor({ extensions: [dom()] })
 
   Editor.replace(editor, {
     children: Array.from({ length: blocks }, (_, index) => ({
@@ -70,7 +71,7 @@ const withDom = (run: (document: Document) => void) => {
 }
 
 const mountEditorRoot = (
-  editor: DOMEditor,
+  editor: DOMTestEditor,
   document: Document,
   root = document.createElement('div')
 ) => {
@@ -90,7 +91,7 @@ const mountEditorRoot = (
   return root
 }
 
-const getRuntimeId = (editor: DOMEditor, path: number[]) => {
+const getRuntimeId = (editor: DOMTestEditor, path: number[]) => {
   const runtimeId = Editor.getRuntimeId(editor, path)
 
   if (!runtimeId) {
@@ -112,7 +113,7 @@ class FakeDataTransfer {
   }
 }
 
-const registerSectionBodyBoundary = (editor: DOMEditor) =>
+const registerSectionBodyBoundary = (editor: DOMTestEditor) =>
   DOMCoverage.registerBoundary(editor, {
     boundaryId: 'section-body',
     anchor: { type: 'summary-slot', runtimeId: getRuntimeId(editor, [0, 0]) },
@@ -133,7 +134,7 @@ const registerSectionBodyBoundary = (editor: DOMEditor) =>
     version: 1,
   })
 
-const registerNestedParagraphBoundary = (editor: DOMEditor) =>
+const registerNestedParagraphBoundary = (editor: DOMTestEditor) =>
   DOMCoverage.registerBoundary(editor, {
     boundaryId: 'nested-paragraph',
     anchor: { type: 'placeholder', runtimeId: getRuntimeId(editor, [0, 1]) },
@@ -176,7 +177,7 @@ describe('DOM coverage boundaries', () => {
 
       const hiddenPoint = { path: [0, 1, 0], offset: 3 }
 
-      expect(() => editor.dom.toDOMPoint(hiddenPoint)).toThrow(
+      expect(() => editor.api.dom.toDOMPoint(hiddenPoint)).toThrow(
         /Cannot resolve a DOM node from Slate node/
       )
       expect(
@@ -297,7 +298,7 @@ describe('DOM coverage boundaries', () => {
         type: 'boundary-point',
       })
       expect(
-        editor.dom.toSlatePoint([placeholder, 0], {
+        editor.api.dom.toSlatePoint([placeholder, 0], {
           exactMatch: true,
         })
       ).toEqual({
@@ -312,7 +313,7 @@ describe('DOM coverage boundaries', () => {
         type: 'boundary-point',
       })
       expect(
-        editor.dom.toSlatePoint([root, 1], {
+        editor.api.dom.toSlatePoint([root, 1], {
           exactMatch: true,
         })
       ).toEqual({
@@ -385,7 +386,7 @@ describe('DOM coverage boundaries', () => {
         })
       })
 
-      editor.dom.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+      editor.api.clipboard.writeSelection(clipboard as unknown as DataTransfer)
 
       expect(clipboard.getData('text/plain')).toBe('Hidden alpha')
       expect(clipboard.getData('text/html')).toContain('Hidden alpha')
@@ -411,7 +412,7 @@ describe('DOM coverage boundaries', () => {
           anchor: { path: [0, 1, 0], offset: 0 },
           focus: { path: [0, 1, 0], offset: 12 },
         })
-        editor.dom.clipboard.insertData(clipboard as unknown as DataTransfer)
+        editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
       })
 
       expect(Editor.getSnapshot(editor).children).toEqual([
@@ -452,7 +453,7 @@ describe('DOM coverage boundaries', () => {
       return true
     })
 
-    expect(() => editor.dom.toDOMPoint(hiddenPoint)).toThrow(
+    expect(() => editor.api.dom.toDOMPoint(hiddenPoint)).toThrow(
       /Cannot resolve a DOM node from Slate node/
     )
     expect(DOMCoverage.toDOMPointOrBoundary(editor, hiddenPoint)).toMatchObject(
@@ -494,7 +495,7 @@ describe('DOM coverage boundaries', () => {
   })
 
   test('invalidates a boundary when merge removes its owner runtime', () => {
-    const editor = withDOM(createEditor()) as DOMEditor
+    const editor = createEditor({ extensions: [dom()] })
 
     Editor.replace(editor, {
       children: [

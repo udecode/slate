@@ -2,9 +2,9 @@ import { css } from '@emotion/css'
 import imageExtensions from 'image-extensions'
 import isUrl from 'is-url'
 import type { PointerEvent } from 'react'
-import type { Element as SlateElement } from 'slate'
+import { defineEditorExtension, type Element as SlateElement } from 'slate'
 import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import {
   Editable,
   editableKeyCommands,
@@ -26,8 +26,8 @@ import type {
 } from './custom-types.d'
 
 const ImagesExample = () => {
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withImages(withHistory(editor)),
+  const editor = useSlateEditor({
+    extensions: [history(), image()],
     initialValue: [
       {
         type: 'paragraph',
@@ -84,12 +84,14 @@ const ImagesExample = () => {
   )
 }
 
-const withImages = (editor: CustomEditor) => {
-  const insertData: DOMClipboardInsertDataHandler = (_editor, data) =>
-    insertImageData(editor, data)
+const image = () => {
+  const insertData: DOMClipboardInsertDataHandler<CustomValue> = (
+    editor,
+    data
+  ) => insertImageData(editor as unknown as CustomEditor, data)
 
-  editor.extend({
-    name: 'images',
+  return defineEditorExtension<CustomEditor>()({
+    name: 'image',
     capabilities: {
       ...editableKeyCommands(({ editor, event }) => {
         if (!isHotkey('mod+a', event)) {
@@ -102,12 +104,10 @@ const withImages = (editor: CustomEditor) => {
 
         return true
       }),
-      'dom.clipboard.insertData': insertData,
+      'clipboard.insertData': insertData,
     },
     elements: [{ type: 'image', void: 'block' }],
   })
-
-  return editor
 }
 
 const insertImageData = (editor: CustomEditor, data: DataTransfer) => {
@@ -184,7 +184,7 @@ const Image = ({ element }: RenderVoidProps<ImageElement>) => {
           background-color: white;
         `}
         onClick={() => {
-          const path = editor.dom.resolvePath(element)
+          const path = editor.api.dom.resolvePath(element)
 
           if (!path) {
             return

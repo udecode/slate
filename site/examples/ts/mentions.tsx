@@ -7,8 +7,8 @@ import {
   useRef,
   useState,
 } from 'react'
-import { type Range, RangeApi } from 'slate'
-import { withHistory } from 'slate-history'
+import { defineEditorExtension, type Range, RangeApi } from 'slate'
+import { history } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
@@ -32,57 +32,58 @@ const MentionExample = () => {
   const [target, setTarget] = useState<Range | null>(null)
   const [index, setIndex] = useState(0)
   const [search, setSearch] = useState('')
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withMentions(withHistory(editor)),
-    initialValue: [
-      {
-        type: 'paragraph',
-        children: [
-          {
-            text: 'This example shows how you might implement a simple ',
-          },
-          {
-            text: '@-mentions',
-            bold: true,
-          },
-          {
-            text: ' feature that lets users autocomplete mentioning a user by their username. Which, in this case means Star Wars characters. The ',
-          },
-          {
-            text: 'mentions',
-            bold: true,
-          },
-          {
-            text: ' are rendered as ',
-          },
-          {
-            text: 'void inline elements',
-            code: true,
-          },
-          {
-            text: ' inside the document.',
-          },
-        ],
-      },
-      {
-        type: 'paragraph',
-        children: [
-          { text: 'Try mentioning characters, like ' },
-          {
-            type: 'mention',
-            character: 'R2-D2',
-            children: [{ text: '', bold: true }],
-          },
-          { text: ' or ' },
-          {
-            type: 'mention',
-            character: 'Mace Windu',
-            children: [{ text: '' }],
-          },
-          { text: '!' },
-        ],
-      },
-    ],
+  const initialValue: CustomValue = [
+    {
+      type: 'paragraph',
+      children: [
+        {
+          text: 'This example shows how you might implement a simple ',
+        },
+        {
+          text: '@-mentions',
+          bold: true,
+        },
+        {
+          text: ' feature that lets users autocomplete mentioning a user by their username. Which, in this case means Star Wars characters. The ',
+        },
+        {
+          text: 'mentions',
+          bold: true,
+        },
+        {
+          text: ' are rendered as ',
+        },
+        {
+          text: 'void inline elements',
+          code: true,
+        },
+        {
+          text: ' inside the document.',
+        },
+      ],
+    },
+    {
+      type: 'paragraph',
+      children: [
+        { text: 'Try mentioning characters, like ' },
+        {
+          type: 'mention',
+          character: 'R2-D2',
+          children: [{ text: '', bold: true }],
+        },
+        { text: ' or ' },
+        {
+          type: 'mention',
+          character: 'Mace Windu',
+          children: [{ text: '' }],
+        },
+        { text: '!' },
+      ],
+    },
+  ]
+  const editor = useSlateEditor({
+    extensions: [history(), mention()],
+    initialValue,
   })
 
   const chars = CHARACTERS.filter((c) =>
@@ -120,7 +121,7 @@ const MentionExample = () => {
   useEffect(() => {
     if (target && chars.length > 0 && ref.current) {
       const el = ref.current
-      const rect = editor.dom.resolveRangeRect(target)
+      const rect = editor.api.dom.resolveRangeRect(target)
 
       if (!rect) {
         return
@@ -228,14 +229,11 @@ const MentionExample = () => {
   )
 }
 
-const withMentions = (editor: CustomEditor) => {
-  editor.extend({
-    name: 'mentions',
+const mention = () =>
+  defineEditorExtension<CustomEditor>()({
+    name: 'mention',
     elements: [{ type: 'mention', void: 'markable-inline' }],
   })
-
-  return editor
-}
 
 const insertMention = (
   editor: CustomEditor,
@@ -257,7 +255,7 @@ const insertMention = (
 }
 
 // Borrow Leaf renderer from the Rich Text example.
-// In a real project you would get this via `withRichText(editor)` or similar.
+// In a real project you would get this from the same mark/rendering module.
 const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
   if (leaf.bold) {
     children = <strong>{children}</strong>

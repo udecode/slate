@@ -3,7 +3,7 @@
 `Slate` provides a React context for one editor. Render it above `Editable`, toolbars, sidebars, and any component that needs editor state.
 
 ```tsx
-<Slate editor={editor} initialValue={initialValue} onChange={handleChange}>
+<Slate editor={editor} onChange={handleChange}>
   <Toolbar />
   <Editable />
 </Slate>
@@ -16,8 +16,7 @@ type SlateProps = {
   annotationStore?: SlateAnnotationStore | null
   children: React.ReactNode
   decorationSources?: readonly SlateDecorationSource[] | null
-  editor: ReactEditor
-  initialValue?: Descendant[]
+  editor: ReactEditorInstance
   onChange?: (value: Descendant[], change: SlateChange) => void
 }
 
@@ -36,10 +35,12 @@ type SlateChange = {
 
 ### `editor`
 
-Pass the editor created with `withReact(createEditor())`.
+Pass the editor created with `createReactEditor` or `useSlateEditor`.
 
 ```tsx
-const [editor] = useState(() => withReact(createEditor<CustomValue>()))
+const [editor] = useState(() =>
+  createReactEditor<CustomValue>({ initialValue })
+)
 ```
 
 ### `initialValue`
@@ -47,7 +48,7 @@ const [editor] = useState(() => withReact(createEditor<CustomValue>()))
 Pass the document used to seed the editor when the provider mounts.
 
 ```tsx
-<Slate editor={editor} initialValue={initialValue}>
+<Slate editor={editor}>
   <Editable />
 </Slate>
 ```
@@ -59,7 +60,7 @@ Use editor APIs for later document replacement. `initialValue` is not a controll
 Render `Editable` and any editor UI inside the provider.
 
 ```tsx
-<Slate editor={editor} initialValue={initialValue}>
+<Slate editor={editor}>
   <Toolbar />
   <Editable />
 </Slate>
@@ -72,7 +73,6 @@ Use `onChange` when you need to hear about every committed editor change. It fir
 ```tsx
 <Slate
   editor={editor}
-  initialValue={initialValue}
   onChange={(value, change) => {
     if (change.selectionChanged) {
       updateToolbar(change.selection)
@@ -96,7 +96,6 @@ Use `onChange` and `change.valueChanged` when you only need committed document-v
 ```tsx
 <Slate
   editor={editor}
-  initialValue={initialValue}
   onChange={(value, change) => {
     if (!change.valueChanged) return
 
@@ -114,7 +113,6 @@ Use `onChange` and `change.selectionChanged` for UI that follows the model selec
 ```tsx
 <Slate
   editor={editor}
-  initialValue={initialValue}
   onChange={(_, change) => {
     if (!change.selectionChanged) return
 

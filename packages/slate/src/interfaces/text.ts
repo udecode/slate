@@ -56,6 +56,16 @@ export type MarksIn<V extends readonly unknown[]> = MarksOf<V[number]>
 
 export type MarkKeysOf<N> = {} extends MarksOf<N> ? unknown : keyof MarksOf<N>
 
+type BooleanKeys<T> = {
+  [K in keyof T]-?: Exclude<T[K], undefined> extends boolean ? K : never
+}[keyof T]
+
+export type BooleanMarkKeysOf<N> = Extract<BooleanKeys<MarksOf<N>>, string>
+
+export type BooleanMarksOf<N> = Partial<
+  Pick<MarksOf<N>, BooleanMarkKeysOf<N> & keyof MarksOf<N>>
+>
+
 export interface LeafPosition {
   start: number
   end: number

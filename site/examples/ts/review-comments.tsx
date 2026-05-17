@@ -1,9 +1,9 @@
 import { css } from '@emotion/css'
 import { useEffect, useRef, useState } from 'react'
-import type { Bookmark, Range, Value } from 'slate'
+import type { Bookmark, Editor, Range, Value } from 'slate'
 import {
   Editable,
-  type ReactEditor,
+  type react,
   Slate,
   type SlateAnnotationStore,
   useEditorSelection,
@@ -35,6 +35,8 @@ type CommentData = {
 type CommentProjection = {
   tone: CommentTone
 }
+
+type CommentEditor = Editor<Value, readonly [ReturnType<typeof react>]>
 
 const panelCss = css`
   max-width: 1040px;
@@ -161,7 +163,7 @@ const ReviewCommentsContent = ({
 }: {
   annotationStore: SlateAnnotationStore<CommentData, CommentProjection>
   comments: readonly CommentThread[]
-  editor: ReactEditor
+  editor: CommentEditor
   setComments: React.Dispatch<React.SetStateAction<CommentThread[]>>
 }) => {
   const nextCommentId = useRef(1)

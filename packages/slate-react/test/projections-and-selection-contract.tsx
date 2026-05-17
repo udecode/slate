@@ -10,6 +10,7 @@ import {
 import { Editor } from 'slate/internal'
 import {
   createDecorationSource,
+  createReactEditor,
   createSlateProjectionStore,
   Editable,
   type ReactEditor,
@@ -19,7 +20,6 @@ import {
   type SlateProjectionSource,
   useDecorationSelector,
   useSlateProjections,
-  withReact,
 } from '../src'
 import { ProjectionContext } from '../src/projection-context'
 
@@ -31,7 +31,7 @@ type RenderedProjectionEditor = RenderResult & {
   store: SlateDecorationSource<Record<string, unknown>>
 }
 
-const createEditor = () => withReact(createSlateEditor())
+const createEditor = () => createReactEditor(createSlateEditor())
 
 const renderSegment = (segment: SegmentLike, children: ReactNode) => {
   const decorations = segment.slices

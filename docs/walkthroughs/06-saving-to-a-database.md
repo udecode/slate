@@ -15,10 +15,10 @@ const initialValue = [
 ]
 
 const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+  const [editor] = useState(() => createReactEditor({ initialValue }))
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable />
     </Slate>
   )
@@ -40,12 +40,11 @@ const initialValue = [
 ]
 
 const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+  const [editor] = useState(() => createReactEditor({ initialValue }))
 
   return (
     <Slate
       editor={editor}
-      initialValue={initialValue}
       onChange={(value, change) => {
         if (!change.valueChanged) return
 
@@ -65,7 +64,7 @@ But... if you refresh the page, everything is still reset. That's because we nee
 
 ```jsx
 const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+  const [editor] = useState(() => createReactEditor({ initialValue }))
   // Update the initial content to be pulled from Local Storage if it exists.
   const [initialValue] = useState(() => {
     const savedContent = localStorage.getItem('content')
@@ -83,7 +82,6 @@ const App = () => {
   return (
     <Slate
       editor={editor}
-      initialValue={initialValue}
       onChange={(value, change) => {
         if (!change.valueChanged) return
 
@@ -129,7 +127,7 @@ const deserialize = string => {
 }
 
 const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+  const [editor] = useState(() => createReactEditor({ initialValue }))
   // Use our deserializing function to read the data from Local Storage.
   const [initialValue] = useState(() =>
     deserialize(localStorage.getItem('content') || '')
@@ -138,7 +136,6 @@ const App = () => {
   return (
     <Slate
       editor={editor}
-      initialValue={initialValue}
       onChange={(value, change) => {
         if (!change.valueChanged) return
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { Editor } from 'slate/internal'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 
 import { createEditor, type Descendant } from '../src'
 import { extendTestSchema } from './support/schema'
@@ -468,7 +468,7 @@ describe('slate clipboard contract', () => {
   })
 
   it('records full-document fragment replacement as one undoable operation', () => {
-    const editor = withHistory(createEditor())
+    const editor = createEditor({ extensions: [history()] })
     const children = createChildren()
     const replacement: Descendant[] = [
       {
@@ -500,10 +500,18 @@ describe('slate clipboard contract', () => {
       focus: { path: [1, 0], offset: 'two'.length },
     })
     assert.equal(Editor.getOperations(editor).length, 1)
-    assert.equal(editor.history.undos.length, 1)
-    assert.equal(editor.history.undos[0]?.operations.length, 1)
+    assert.equal(
+      editor.read((state) => state.history.undos().length),
+      1
+    )
+    assert.equal(
+      editor.read((state) => state.history.undos()[0]?.operations.length),
+      1
+    )
 
-    editor.undo()
+    editor.update((tx) => {
+      tx.history.undo()
+    })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, children)
     assert.deepEqual(Editor.getSnapshot(editor).selection, {

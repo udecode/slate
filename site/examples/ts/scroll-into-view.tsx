@@ -1,6 +1,6 @@
 import { css } from '@emotion/css'
 import range from 'lodash/range'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import { Editable, Slate, useSlateEditor } from 'slate-react'
 
 /**
@@ -48,7 +48,7 @@ const ScrollIntoViewExample = () => {
 
 const PlainTextEditor = () => {
   const editor = useSlateEditor({
-    withEditor: withHistory,
+    extensions: [history()],
     initialValue: range(5).map(() => ({
       type: 'paragraph',
       children: [

@@ -2,6 +2,7 @@ import { act, render } from '@testing-library/react'
 import { createEditor } from 'slate'
 import { Editor } from 'slate/internal'
 import {
+  createReactEditor,
   createSlateAnnotationStore,
   Slate,
   type SlateAnnotation,
@@ -10,7 +11,6 @@ import {
   useSlateAnnotationStore,
   useSlateAnnotations,
   useSlateProjections,
-  withReact,
 } from '../src'
 
 type CommentData = {
@@ -365,7 +365,7 @@ describe('slate-react annotation store contract', () => {
   })
 
   test('annotation stores refresh when root runtime order changes', async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
 
     Editor.replace(editor, {
       children: createChildren(),

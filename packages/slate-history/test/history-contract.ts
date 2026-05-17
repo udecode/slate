@@ -10,7 +10,7 @@ import type {
 import { createEditor } from 'slate'
 import { Editor } from 'slate/internal'
 
-import { History, withHistory } from '../src'
+import { History, history } from '../src'
 
 const paragraph = (
   text: string,
@@ -21,8 +21,23 @@ const paragraph = (
   children: [{ text }],
 })
 
-const withHistoryTest = () => {
-  return withHistory(createEditor())
+const historyTestEditor = () => {
+  return createEditor({ extensions: [history()] })
+}
+
+const getHistory = (editor: SlateEditor) =>
+  editor.read((state: any) => state.history.get())
+
+const undo = (editor: SlateEditor) => {
+  editor.update((tx: any) => {
+    tx.history.undo()
+  })
+}
+
+const redo = (editor: SlateEditor) => {
+  editor.update((tx: any) => {
+    tx.history.redo()
+  })
 }
 
 const replace = (
@@ -55,29 +70,29 @@ const write = (
 
 describe('slate-history contract', () => {
   it('keeps History.isHistory true before edits and across edit, undo, and redo', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('Initial text')], {
       anchor: { path: [0, 0], offset: 12 },
       focus: { path: [0, 0], offset: 12 },
     })
 
-    assert.equal(History.isHistory(editor.history), true)
+    assert.equal(History.isHistory(getHistory(editor)), true)
 
     write(editor, (tx) => {
       tx.text.insert(' additional text')
     })
-    assert.equal(History.isHistory(editor.history), true)
+    assert.equal(History.isHistory(getHistory(editor)), true)
 
-    editor.undo()
-    assert.equal(History.isHistory(editor.history), true)
+    undo(editor)
+    assert.equal(History.isHistory(getHistory(editor)), true)
 
-    editor.redo()
-    assert.equal(History.isHistory(editor.history), true)
+    redo(editor)
+    assert.equal(History.isHistory(getHistory(editor)), true)
   })
 
   it('undoes a plain insertText commit', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('one')], {
       anchor: { path: [0, 0], offset: 3 },
@@ -89,13 +104,13 @@ describe('slate-history contract', () => {
     write(editor, (tx) => {
       tx.text.insert('text')
     })
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('undoes a full-document selected text replacement as one structural batch', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
     const selection = {
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [1, 0], offset: 'two'.length },
@@ -109,19 +124,21 @@ describe('slate-history contract', () => {
     })
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [paragraph('Z')])
-    assert.equal(editor.history.undos.length, 1)
+    assert.equal(getHistory(editor).undos.length, 1)
     assert.deepEqual(
-      editor.history.undos[0]?.operations.map((operation) => operation.type),
+      getHistory(editor).undos[0]?.operations.map(
+        (operation) => operation.type
+      ),
       ['replace_children']
     )
 
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('routes compatibility undo and redo through history commands', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
     const commands: string[] = []
 
     replace(editor, [paragraph('one')], {
@@ -149,8 +166,8 @@ describe('slate-history contract', () => {
     write(editor, (tx) => {
       tx.text.insert('!')
     })
-    editor.undo()
-    editor.redo()
+    undo(editor)
+    redo(editor)
     unsubscribeUndo()
     unsubscribeRedo()
 
@@ -159,7 +176,7 @@ describe('slate-history contract', () => {
   })
 
   it('merges contiguous insertText commits into one undo unit', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('one')], {
       anchor: { path: [0, 0], offset: 3 },
@@ -178,15 +195,15 @@ describe('slate-history contract', () => {
       tx.text.insert('o')
     })
 
-    assert.equal(editor.history.undos.length, 1)
+    assert.equal(getHistory(editor).undos.length, 1)
 
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('uses update metadata to push, merge, and skip history batches', () => {
-    const pushEditor = withHistoryTest()
+    const pushEditor = historyTestEditor()
 
     replace(pushEditor, [paragraph('')], {
       anchor: { path: [0, 0], offset: 0 },
@@ -203,9 +220,9 @@ describe('slate-history contract', () => {
       { metadata: { history: { mode: 'push' } } }
     )
 
-    assert.equal(pushEditor.history.undos.length, 2)
+    assert.equal(getHistory(pushEditor).undos.length, 2)
 
-    const mergeEditor = withHistoryTest()
+    const mergeEditor = historyTestEditor()
 
     replace(mergeEditor, [paragraph('')], {
       anchor: { path: [0, 0], offset: 0 },
@@ -226,9 +243,9 @@ describe('slate-history contract', () => {
       { metadata: { history: { mode: 'merge' } } }
     )
 
-    assert.equal(mergeEditor.history.undos.length, 1)
+    assert.equal(getHistory(mergeEditor).undos.length, 1)
 
-    const skipEditor = withHistoryTest()
+    const skipEditor = historyTestEditor()
 
     replace(skipEditor, [paragraph('')], {
       anchor: { path: [0, 0], offset: 0 },
@@ -242,11 +259,11 @@ describe('slate-history contract', () => {
       { metadata: { history: { mode: 'skip' } } }
     )
 
-    assert.equal(skipEditor.history.undos.length, 0)
+    assert.equal(getHistory(skipEditor).undos.length, 0)
   })
 
   it('clears redo history when a new edit follows undo', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('one')], {
       anchor: { path: [0, 0], offset: 3 },
@@ -257,30 +274,30 @@ describe('slate-history contract', () => {
     write(editor, (tx) => {
       tx.text.insert('a')
     })
-    editor.undo()
+    undo(editor)
 
-    assert.equal(editor.history.undos.length, 0)
-    assert.equal(editor.history.redos.length, 1)
+    assert.equal(getHistory(editor).undos.length, 0)
+    assert.equal(getHistory(editor).redos.length, 1)
 
     write(editor, (tx) => {
       tx.text.insert('b')
     })
 
-    assert.equal(editor.history.undos.length, 1)
-    assert.equal(editor.history.redos.length, 0)
+    assert.equal(getHistory(editor).undos.length, 1)
+    assert.equal(getHistory(editor).redos.length, 0)
     assert.equal(Editor.string(editor, [0]), 'oneb')
 
-    editor.redo()
+    redo(editor)
 
     assert.equal(Editor.string(editor, [0]), 'oneb')
 
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('undoes and redoes a selected block property change', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('AAA'), paragraph('BBB')], {
       anchor: { path: [0, 0], offset: 0 },
@@ -300,11 +317,11 @@ describe('slate-history contract', () => {
       paragraph('BBB'),
     ])
 
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
 
-    editor.redo()
+    redo(editor)
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [
       {
@@ -316,7 +333,7 @@ describe('slate-history contract', () => {
   })
 
   it('saves node property commits but ignores empty updates', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('Initial text')], {
       anchor: { path: [0, 0], offset: 12 },
@@ -326,7 +343,7 @@ describe('slate-history contract', () => {
 
     editor.update(() => {})
 
-    assert.equal(editor.history.undos.length, 0)
+    assert.equal(getHistory(editor).undos.length, 0)
 
     editor.update((tx) => {
       tx.operations.replay([
@@ -339,7 +356,7 @@ describe('slate-history contract', () => {
       ])
     })
 
-    assert.equal(editor.history.undos.length, 1)
+    assert.equal(getHistory(editor).undos.length, 1)
     assert.deepEqual(Editor.getSnapshot(editor).children, [
       {
         type: 'paragraph',
@@ -348,13 +365,13 @@ describe('slate-history contract', () => {
       },
     ])
 
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('merges contiguous text commits when selection import shares a text commit', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('')], null)
     const before = getVisibleState(editor)
@@ -388,15 +405,15 @@ describe('slate-history contract', () => {
       ])
     })
 
-    assert.equal(editor.history.undos.length, 1)
+    assert.equal(getHistory(editor).undos.length, 1)
 
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('undo restores the imported caret when selection import leads a text commit', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
     const start = {
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 0 },
@@ -426,14 +443,14 @@ describe('slate-history contract', () => {
 
     assert.equal(Editor.string(editor, [0]), 'abcXdef')
 
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), {
       children: [paragraph('abcdef')],
       selection: middle,
     })
 
-    editor.redo()
+    redo(editor)
 
     assert.deepEqual(getVisibleState(editor), {
       children: [paragraph('abcXdef')],
@@ -445,7 +462,7 @@ describe('slate-history contract', () => {
   })
 
   it('redo preserves explicit selection after the first saveable operation', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
     const middle = {
       anchor: { path: [0, 0], offset: 3 },
       focus: { path: [0, 0], offset: 3 },
@@ -482,14 +499,14 @@ describe('slate-history contract', () => {
       selection: trailing,
     })
 
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), {
       children: [paragraph('abcdef')],
       selection: middle,
     })
 
-    editor.redo()
+    redo(editor)
 
     assert.deepEqual(getVisibleState(editor), {
       children: [paragraph('abcXdef')],
@@ -498,7 +515,7 @@ describe('slate-history contract', () => {
   })
 
   it('undoes a committed composition as one history unit', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('This is editable')], {
       anchor: { path: [0, 0], offset: 'This is '.length },
@@ -516,16 +533,16 @@ describe('slate-history contract', () => {
       { metadata: { history: { mode: 'merge' } }, tag: 'composition' }
     )
 
-    assert.equal(editor.history.undos.length, 1)
+    assert.equal(getHistory(editor).undos.length, 1)
     assert.equal(Editor.string(editor, [0]), 'This is すしeditable')
 
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('does not save canceled composition text to history', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('This is editable')], {
       anchor: { path: [0, 0], offset: 'This is '.length },
@@ -541,12 +558,12 @@ describe('slate-history contract', () => {
       { metadata: { history: { mode: 'skip' } }, tag: 'composition-cancel' }
     )
 
-    assert.equal(editor.history.undos.length, 0)
+    assert.equal(getHistory(editor).undos.length, 0)
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('does not replay partial set_selection patches during undo after selection is cleared', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('')], {
       anchor: { path: [0, 0], offset: 0 },
@@ -578,13 +595,13 @@ describe('slate-history contract', () => {
       tx.selection.clear()
     })
 
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('does not merge follow-up typing into a structural text batch', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('Alpha')], {
       anchor: { path: [0, 0], offset: 5 },
@@ -601,15 +618,15 @@ describe('slate-history contract', () => {
       tx.text.insert('!')
     })
 
-    assert.equal(editor.history.undos.length, 2)
+    assert.equal(getHistory(editor).undos.length, 2)
 
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), afterStructuralBatch)
   })
 
   it('reselects the restored text after deleteFragment and undo', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('abcdef')], {
       anchor: { path: [0, 0], offset: 1 },
@@ -619,7 +636,7 @@ describe('slate-history contract', () => {
     write(editor, () => {
       Editor.deleteFragment(editor)
     })
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [paragraph('abcdef')])
     assert.deepEqual(Editor.getSnapshot(editor).selection, {
@@ -629,7 +646,7 @@ describe('slate-history contract', () => {
   })
 
   it('restores the saved expanded selection after deleteFragment, blur, refocus, and undo', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('Hello')], {
       anchor: { path: [0, 0], offset: 0 },
@@ -662,7 +679,7 @@ describe('slate-history contract', () => {
       })
     })
 
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(Editor.getSnapshot(editor).children, [paragraph('Hello')])
     assert.deepEqual(Editor.getSnapshot(editor).selection, {
@@ -672,7 +689,7 @@ describe('slate-history contract', () => {
   })
 
   it('restores the saved multi-block selection after insertBreak and undo', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('one'), paragraph('two'), paragraph('three')], {
       anchor: { path: [0, 0], offset: 2 },
@@ -684,13 +701,13 @@ describe('slate-history contract', () => {
     write(editor, () => {
       Editor.insertBreak(editor)
     })
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('restores marks and selection after marked Enter undo', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     const children: Descendant[] = [
       {
@@ -726,13 +743,13 @@ describe('slate-history contract', () => {
       focus: { path: [1, 0], offset: 0 },
     })
 
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('undoes a moveNodes commit back to the original tree and selection', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('one'), paragraph('two'), paragraph('three')], {
       anchor: { path: [0, 0], offset: 1 },
@@ -744,13 +761,13 @@ describe('slate-history contract', () => {
     write(editor, () => {
       Editor.moveNodes(editor, { at: [0], to: [3] })
     })
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('undoes reverse block joins cleanly', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('Hello'), paragraph('world!')], {
       anchor: { path: [1, 0], offset: 0 },
@@ -762,13 +779,13 @@ describe('slate-history contract', () => {
     write(editor, () => {
       Editor.deleteBackward(editor)
     })
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('undoes reverse nested block joins cleanly', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(
       editor,
@@ -790,13 +807,13 @@ describe('slate-history contract', () => {
     write(editor, () => {
       Editor.deleteBackward(editor)
     })
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('undoes reverse same-text deletes cleanly', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(editor, [paragraph('word')], {
       anchor: { path: [0, 0], offset: 2 },
@@ -808,13 +825,13 @@ describe('slate-history contract', () => {
     write(editor, (tx) => {
       tx.text.delete({ reverse: true })
     })
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('undoes same-text deletes without dropping custom props', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(
       editor,
@@ -830,13 +847,13 @@ describe('slate-history contract', () => {
     write(editor, (tx) => {
       tx.text.delete()
     })
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('undoes insertBreak commits cleanly', () => {
-    const editor = withHistoryTest()
+    const editor = historyTestEditor()
 
     replace(
       editor,
@@ -857,7 +874,7 @@ describe('slate-history contract', () => {
     write(editor, () => {
       Editor.insertBreak(editor)
     })
-    editor.undo()
+    undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
   })

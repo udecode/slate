@@ -3,7 +3,7 @@
 `Editable` renders the editable document surface for the nearest `Slate` provider. App code customizes what content looks like; the runtime owns browser selection, DOM repair, void shells, and editing events.
 
 ```tsx
-<Slate editor={editor} initialValue={initialValue}>
+<Slate editor={editor}>
   <Editable />
 </Slate>
 ```
@@ -138,7 +138,7 @@ const ImageElement = ({ element }) => {
   return (
     <button
       onClick={() => {
-        const path = editor.dom.findPath(element)
+        const path = editor.api.dom.findPath(element)
 
         editor.update((tx) => {
           tx.nodes.remove({ at: path, voids: true })

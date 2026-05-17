@@ -17,10 +17,10 @@ const initialValue = [
 ]
 
 const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+  const [editor] = useState(() => createReactEditor({ initialValue }))
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable />
     </Slate>
   )
@@ -38,10 +38,10 @@ const initialValue = [
 ]
 
 const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+  const [editor] = useState(() => createReactEditor({ initialValue }))
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable
         // Define a new handler which prints the key that was pressed.
         onKeyDown={event => {
@@ -68,10 +68,10 @@ const initialValue = [
 ]
 
 const App = () => {
-  const [editor] = useState(() => withReact(createEditor()))
+  const [editor] = useState(() => createReactEditor({ initialValue }))
 
   return (
-    <Slate editor={editor} initialValue={initialValue}>
+    <Slate editor={editor}>
       <Editable
         onKeyDown={event => {
           if (event.key === '&') {

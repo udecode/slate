@@ -1,7 +1,8 @@
 import { css } from '@emotion/css'
 import type React from 'react'
 import { type PointerEvent, useState } from 'react'
-import { withHistory } from 'slate-history'
+import { defineEditorExtension } from 'slate'
+import { history } from 'slate-history'
 import {
   Editable,
   type RenderElementProps,
@@ -11,16 +12,12 @@ import {
 } from 'slate-react'
 
 import { Button, Icon, Toolbar } from './components'
-import type {
-  CustomEditor,
-  CustomValue,
-  EditableVoidElement,
-} from './custom-types.d'
+import type { CustomEditor, EditableVoidElement } from './custom-types.d'
 import RichTextEditor from './richtext'
 
 const EditableVoidsExample = () => {
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withEditableVoids(withHistory(editor)),
+  const editor = useSlateEditor({
+    extensions: [history(), editableVoid()],
     initialValue: [
       {
         type: 'paragraph',
@@ -60,14 +57,11 @@ const EditableVoidsExample = () => {
   )
 }
 
-const withEditableVoids = (editor: CustomEditor) => {
-  editor.extend({
+const editableVoid = () =>
+  defineEditorExtension({
     name: 'editable-voids',
     elements: [{ type: 'editable-void', void: 'editable-island' }],
   })
-
-  return editor
-}
 
 const insertEditableVoid = (editor: CustomEditor) => {
   const text = { text: '' }

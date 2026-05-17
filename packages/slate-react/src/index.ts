@@ -126,7 +126,6 @@ export {
 } from './hooks/use-slate-annotations'
 export { useSlateDecorationSource } from './hooks/use-slate-decoration-source'
 export {
-  type SlateEditorComposer,
   type UseSlateEditorOptions,
   useSlateEditor,
 } from './hooks/use-slate-editor'
@@ -142,8 +141,14 @@ export {
 } from './hooks/use-slate-widget-store'
 export { useSlateWidget, useSlateWidgets } from './hooks/use-slate-widgets'
 // Plugin
-export type { ReactEditor } from './plugin/react-editor'
-export { type ReactEditorOptions, withReact } from './plugin/with-react'
+export {
+  type CreateReactEditorOptions,
+  createReactEditor,
+  type ReactApi,
+  type ReactEditorInstance,
+  type ReactEditorOptions,
+  react,
+} from './plugin/with-react'
 export {
   createSlateProjectionStore,
   isSlateSourceDirty,

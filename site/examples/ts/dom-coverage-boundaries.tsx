@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react'
 import { NodeApi, type Element as SlateElement } from 'slate'
 import { DOMCoverage } from 'slate-dom/internal'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import {
   Editable,
   EditableElement,
@@ -30,7 +30,7 @@ const HiddenBoundaryContext = React.createContext<HiddenBoundaryState>({
 
 const DomCoverageBoundariesExample = () => {
   const editor = useSlateEditor({
-    withEditor: withHistory,
+    extensions: [history()],
     initialValue: [
       {
         type: 'header',
@@ -161,7 +161,7 @@ const DomCoverageBoundariesExample = () => {
   const copySelection = useCallback(() => {
     const data = new DataTransfer()
 
-    editor.dom.clipboard.writeSelection(data)
+    editor.api.clipboard.writeSelection(data)
     setCopyPreview(
       [
         `text/plain: ${data.getData('text/plain')}`,

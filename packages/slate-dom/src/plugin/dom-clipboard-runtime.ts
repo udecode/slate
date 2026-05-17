@@ -395,7 +395,7 @@ export const insertDOMData = <V extends Value>(
   data: DataTransfer
 ) => {
   const handlers = Editor.getExtensionRegistry(editor).capabilities.get(
-    'dom.clipboard.insertData'
+    'clipboard.insertData'
   ) as DOMClipboardInsertDataHandler<V>[] | undefined
 
   for (const handler of handlers ?? []) {

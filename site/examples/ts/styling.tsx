@@ -1,9 +1,9 @@
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import { Editable, Slate, useSlateEditor } from 'slate-react'
 
 const StylingExample = () => {
   const editor1 = useSlateEditor({
-    withEditor: withHistory,
+    extensions: [history()],
     initialValue: [
       {
         type: 'paragraph',
@@ -12,7 +12,7 @@ const StylingExample = () => {
     ],
   })
   const editor2 = useSlateEditor({
-    withEditor: withHistory,
+    extensions: [history()],
     initialValue: [
       {
         type: 'paragraph',

@@ -2,19 +2,18 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 import { act, render } from '@testing-library/react'
 import { type ComponentProps, useEffect } from 'react'
-import { createEditor, type Value } from 'slate'
 import * as SlateReact from '../src'
 import {
+  createReactEditor,
   Editable,
   type EditableCommandContext,
   editableRenderers,
-  type ReactEditor,
   type RenderElementProps,
   type RenderVoidProps,
   Slate,
   useElementSelected,
-  withReact,
 } from '../src'
+import type { ReactEditor } from '../src/plugin/react-editor'
 
 const cwd = process.cwd()
 const packageRoot = cwd.endsWith(`${sep}packages${sep}slate-react`)
@@ -22,9 +21,6 @@ const packageRoot = cwd.endsWith(`${sep}packages${sep}slate-react`)
   : resolve(cwd, 'packages/slate-react')
 const repoRoot = resolve(packageRoot, '../..')
 const sourceFilePattern = /\.(md|ts|tsx)$/
-
-const createReactEditor = <V extends Value>(initialValue: V) =>
-  withReact(createEditor({ initialValue }))
 
 type ExpectFalse<T extends false> = T
 type RenderElementHasPath = 'path' extends keyof RenderElementProps
@@ -132,9 +128,9 @@ const expectSurfaceInventory = (
 
 describe('slate-react surface contract', () => {
   test('Editable exposes native beforeinput context and semantic command handlers', () => {
-    const editor = createReactEditor([
-      { type: 'paragraph', children: [{ text: 'test' }] },
-    ])
+    const editor = createReactEditor({
+      initialValue: [{ type: 'paragraph', children: [{ text: 'test' }] }],
+    })
     let commandContext: EditableCommandContext | null = null
 
     render(
@@ -409,7 +405,9 @@ describe('slate-react surface contract', () => {
   test('adapter static namespaces stay out of the public root at runtime', () => {
     expect('ReactEditor' in SlateReact).toBe(false)
     expect('DOMEditor' in SlateReact).toBe(false)
-    expect(SlateReact.withReact).toBe(withReact)
+    expect('withReact' in SlateReact).toBe(false)
+    expect(typeof SlateReact.react).toBe('function')
+    expect(typeof SlateReact.createReactEditor).toBe('function')
   })
 
   test('virtualized rendering stays object-only and experimental', () => {
@@ -493,7 +491,7 @@ describe('slate-react surface contract', () => {
 
   test('Editable defaults translate="no" and allows override', () => {
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
-    const editor = createReactEditor(initialValue)
+    const editor = createReactEditor({ initialValue })
 
     const defaultRender = render(
       <Slate editor={editor}>
@@ -521,17 +519,19 @@ describe('slate-react surface contract', () => {
   })
 
   test('Editable consumes extension-registered element, leaf, text, segment, and void renderers', () => {
-    const editor = createReactEditor([
-      {
-        type: 'code',
-        children: [{ text: 'const answer = 42', bold: true }],
-      },
-      {
-        type: 'image',
-        url: 'about:blank',
-        children: [{ text: '' }],
-      },
-    ]) as ReactEditor
+    const editor = createReactEditor({
+      initialValue: [
+        {
+          type: 'code',
+          children: [{ text: 'const answer = 42', bold: true }],
+        },
+        {
+          type: 'image',
+          url: 'about:blank',
+          children: [{ text: '' }],
+        },
+      ],
+    }) as ReactEditor
 
     editor.extend({
       capabilities: editableRenderers({
@@ -597,9 +597,11 @@ describe('slate-react surface contract', () => {
   })
 
   test('raw Editable render props override extension-registered renderers', () => {
-    const editor = createReactEditor([
-      { type: 'code', children: [{ text: 'const answer = 42' }] },
-    ])
+    const editor = createReactEditor({
+      initialValue: [
+        { type: 'code', children: [{ text: 'const answer = 42' }] },
+      ],
+    })
 
     editor.extend({
       capabilities: editableRenderers({
@@ -635,9 +637,9 @@ describe('slate-react surface contract', () => {
   })
 
   test('structured render surface keeps mount identity stable across split and merge', async () => {
-    const editor = createReactEditor([
-      { type: 'block', children: [{ text: 'test' }] },
-    ])
+    const editor = createReactEditor({
+      initialValue: [{ type: 'block', children: [{ text: 'test' }] }],
+    })
     const mounts = jest.fn()
 
     const renderElement = ({ children }: RenderElementProps) => {
@@ -660,10 +662,12 @@ describe('slate-react surface contract', () => {
     expect(mounts).toHaveBeenCalledTimes(2)
     rendered.unmount()
 
-    const mergeEditor = createReactEditor([
-      { type: 'block', children: [{ text: 'te' }] },
-      { type: 'block', children: [{ text: 'st' }] },
-    ])
+    const mergeEditor = createReactEditor({
+      initialValue: [
+        { type: 'block', children: [{ text: 'te' }] },
+        { type: 'block', children: [{ text: 'st' }] },
+      ],
+    })
     const mergeMounts = jest.fn()
 
     const mergeRenderElement = ({ children }: RenderElementProps) => {
@@ -687,18 +691,20 @@ describe('slate-react surface contract', () => {
   })
 
   test('useElementSelected remains stable when the selected element path shifts after structural edits', async () => {
-    const editor = createReactEditor([
-      {
-        id: '0',
-        children: [
-          { id: '0.0', children: [{ text: '' }] },
-          { id: '0.1', children: [{ text: '' }] },
-          { id: '0.2', children: [{ text: '' }] },
-        ],
-      },
-      { id: '1', children: [{ text: '' }] },
-      { id: '2', children: [{ text: '' }] },
-    ]) as ReactEditor
+    const editor = createReactEditor({
+      initialValue: [
+        {
+          id: '0',
+          children: [
+            { id: '0.0', children: [{ text: '' }] },
+            { id: '0.1', children: [{ text: '' }] },
+            { id: '0.2', children: [{ text: '' }] },
+          ],
+        },
+        { id: '1', children: [{ text: '' }] },
+        { id: '2', children: [{ text: '' }] },
+      ],
+    }) as ReactEditor
     const elementSelectedRenders: Record<string, boolean[] | undefined> = {}
 
     const renderElement = ({
@@ -771,10 +777,12 @@ describe('slate-react surface contract', () => {
   })
 
   test('custom element handlers resolve the current path after leading inserts without shifted rerender', async () => {
-    const editor = createReactEditor([
-      { id: 'first', children: [{ text: '' }] },
-      { id: 'target', children: [{ text: '' }] },
-    ]) as ReactEditor
+    const editor = createReactEditor({
+      initialValue: [
+        { id: 'first', children: [{ text: '' }] },
+        { id: 'target', children: [{ text: '' }] },
+      ],
+    }) as ReactEditor
     const renderCounts: Record<string, number | undefined> = {}
     let readTargetPath = (): number[] => {
       throw new Error('Target element did not render.')
@@ -789,7 +797,7 @@ describe('slate-react surface contract', () => {
       renderCounts[id] = (renderCounts[id] ?? 0) + 1
 
       if (id === 'target') {
-        readTargetPath = () => editor.dom.findPath(element)
+        readTargetPath = () => editor.api.dom.findPath(element)
       }
 
       return <div {...attributes}>{children}</div>
@@ -818,9 +826,11 @@ describe('slate-react surface contract', () => {
   })
 
   test('renderVoid receives content-only props and runtime owns block void spacer', () => {
-    const editor = createReactEditor([
-      { type: 'image', url: 'about:blank', children: [{ text: '' }] },
-    ]) as ReactEditor
+    const editor = createReactEditor({
+      initialValue: [
+        { type: 'image', url: 'about:blank', children: [{ text: '' }] },
+      ],
+    }) as ReactEditor
     let renderVoidProps: RenderVoidProps | null = null
     const renderElement = jest.fn(({ children }: RenderElementProps) => {
       return <p>{children}</p>
@@ -866,20 +876,22 @@ describe('slate-react surface contract', () => {
   })
 
   test('renderVoid receives content-only props and runtime owns inline void anchor', () => {
-    const editor = createReactEditor([
-      {
-        type: 'paragraph',
-        children: [
-          { text: 'Before ' },
-          {
-            type: 'mention',
-            character: 'R2-D2',
-            children: [{ text: '' }],
-          },
-          { text: ' after' },
-        ],
-      },
-    ]) as ReactEditor
+    const editor = createReactEditor({
+      initialValue: [
+        {
+          type: 'paragraph',
+          children: [
+            { text: 'Before ' },
+            {
+              type: 'mention',
+              character: 'R2-D2',
+              children: [{ text: '' }],
+            },
+            { text: ' after' },
+          ],
+        },
+      ],
+    }) as ReactEditor
     let renderVoidProps: RenderVoidProps | null = null
 
     editor.extend({

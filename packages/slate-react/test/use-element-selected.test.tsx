@@ -1,14 +1,13 @@
 import { act, render } from '@testing-library/react'
 import { useEffect } from 'react'
-import { createEditor } from 'slate'
 import { Editor } from 'slate/internal'
 import {
+  createReactEditor,
   Editable,
   type ReactEditor,
   RenderElementProps,
   Slate,
   useElementSelected,
-  withReact,
 } from '../src'
 
 let editor: ReactEditor
@@ -31,7 +30,7 @@ const initialValue = () => [
 describe('useElementSelected', () => {
   const withEditor = () => {
     beforeEach(() => {
-      editor = withReact(createEditor({ initialValue: initialValue() }))
+      editor = createReactEditor({ initialValue: initialValue() })
 
       latestSelectedById = {}
       latestCollapsedSelectedById = {}
@@ -172,7 +171,7 @@ describe('useElementSelected', () => {
   })
 
   it('unmounts cleanly when the selected rendered element removes itself', async () => {
-    editor = withReact(createEditor({ initialValue: initialValue() }))
+    editor = createReactEditor({ initialValue: initialValue() })
 
     const removedIds = new Set<string>()
     const unmountedIds = new Set<string>()
@@ -201,7 +200,7 @@ describe('useElementSelected', () => {
 
         removedIds.add(id)
         editor.update((tx) => {
-          const path = editor.dom.findPath(element)
+          const path = editor.api.dom.findPath(element)
 
           tx.nodes.remove({ at: path })
         })
@@ -232,7 +231,7 @@ describe('useElementSelected', () => {
   })
 
   it('returns false when an explicit watched path is removed', async () => {
-    editor = withReact(createEditor({ initialValue: initialValue() }))
+    editor = createReactEditor({ initialValue: initialValue() })
 
     const watchedPath = [2]
     const selectedValues: boolean[] = []
@@ -276,7 +275,7 @@ describe('useElementSelected', () => {
   })
 
   it('supports collapsed-only mode with an explicit watched path', async () => {
-    editor = withReact(createEditor({ initialValue: initialValue() }))
+    editor = createReactEditor({ initialValue: initialValue() })
 
     const watchedPath = [2]
     const selectedValues: boolean[] = []

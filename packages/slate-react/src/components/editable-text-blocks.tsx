@@ -53,6 +53,7 @@ import { useEditor } from '../hooks/use-editor'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { useMountedNodeRenderSelector } from '../hooks/use-node-selector'
 import { useSlateNodeRef } from '../hooks/use-slate-node-ref'
+import type { ReactEditor } from '../plugin/react-editor'
 import { ProjectionContext } from '../projection-context'
 import { recordSlateReactRender } from '../render-profiler'
 import type { RenderingStrategyOptions } from '../rendering-strategy/create-segment-plan'
@@ -334,11 +335,11 @@ const EditableRenderedElement = <
   props: EditableRenderElementProps<TElement>
   renderElement: RenderElementRenderer<TElement>
 }) => {
-  const editor = useEditor()
+  const editor = useEditor<ReactEditor>()
   const rendered = renderElement(props)
 
   useIsomorphicLayoutEffect(() => {
-    if (!isDevelopment || !('dom' in editor)) {
+    if (!isDevelopment) {
       return
     }
 
@@ -382,7 +383,7 @@ const getFirstTextPath = (node: Descendant, path: Path): Path | null => {
 const assertRenderedElementChildrenHaveDOMOrCoverage = <
   TElement extends SlateElementNode,
 >(
-  editor: ReturnType<typeof useEditor>,
+  editor: ReactEditor,
   { element, path }: { element: TElement; path: Path }
 ) => {
   element.children.forEach((child, index) => {
@@ -399,7 +400,7 @@ const assertRenderedElementChildrenHaveDOMOrCoverage = <
       return
     }
 
-    if (!editor.dom.resolveDOMPoint(point)) {
+    if (!editor.api.dom.resolveDOMPoint(point)) {
       console.error(
         `Slate renderElement for "${String(
           element.type

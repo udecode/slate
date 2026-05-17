@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { Editor } from 'slate/internal'
 
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 
 import {
   createEditor,
@@ -26,7 +26,7 @@ const remoteCollabOptions = {
 } satisfies EditorUpdateOptions
 
 const createCollabEditor = () => {
-  const editor = withHistory(createEditor())
+  const editor = createEditor({ extensions: [history()] })
 
   Editor.replace(editor, {
     children: [paragraph('one'), paragraph('two')],
@@ -91,7 +91,10 @@ describe('collab canonical remote reconcile contract', () => {
     assert.deepEqual(commit.metadata, remoteCollabOptions.metadata)
     assert.equal(commit.fullDocumentChanged, true)
     assert.equal(commit.rootRuntimeIdsChanged, true)
-    assert.equal(editor.history.undos.length, 0)
+    assert.equal(
+      editor.read((state) => state.history.undos().length),
+      0
+    )
     assert.deepEqual(Editor.getSnapshot(editor).children, [
       paragraph('remote'),
       paragraph('canonical'),
@@ -139,6 +142,9 @@ describe('collab canonical remote reconcile contract', () => {
       focus: false,
       scroll: false,
     })
-    assert.equal(editor.history.undos.length, 0)
+    assert.equal(
+      editor.read((state) => state.history.undos().length),
+      0
+    )
   })
 })

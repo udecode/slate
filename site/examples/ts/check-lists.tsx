@@ -1,15 +1,16 @@
 import { css } from '@emotion/css'
 import type { ChangeEvent } from 'react'
 import {
+  defineEditorExtension,
+  type Editor,
   NodeApi,
   PointApi,
   RangeApi,
   type Element as SlateElement,
 } from 'slate'
-import { withHistory } from 'slate-history'
+import { history } from 'slate-history'
 import {
   Editable,
-  type ReactEditor,
   type RenderElementProps,
   Slate,
   useEditor,
@@ -19,13 +20,12 @@ import {
 import type {
   CheckListItemElement as CheckListItemType,
   CustomEditor,
-  CustomValue,
   RenderElementPropsFor,
 } from './custom-types.d'
 
 const CheckListsExample = () => {
-  const editor = useSlateEditor<CustomValue, CustomEditor>({
-    withEditor: (editor) => withChecklists(withHistory(editor)),
+  const editor = useSlateEditor({
+    extensions: [history(), checklist()],
     initialValue: [
       {
         type: 'paragraph',
@@ -84,8 +84,8 @@ const CheckListsExample = () => {
   )
 }
 
-const withChecklists = <T extends ReactEditor<CustomValue>>(editor: T): T => {
-  editor.extend({
+const checklist = () =>
+  defineEditorExtension({
     name: 'checklists',
     transforms: {
       deleteBackward({ editor, next }) {
@@ -96,10 +96,7 @@ const withChecklists = <T extends ReactEditor<CustomValue>>(editor: T): T => {
     },
   })
 
-  return editor
-}
-
-const applyChecklistBackspaceStart = (editor: ReactEditor) => {
+const applyChecklistBackspaceStart = (editor: Editor) => {
   const selection = editor.read((state) => state.selection.get())
 
   if (!selection || !RangeApi.isCollapsed(selection)) {
@@ -176,7 +173,7 @@ const CheckListItemElement = ({
         <input
           checked={checked}
           onChange={(event: ChangeEvent<HTMLInputElement>) => {
-            const path = editor.dom.resolvePath(element)
+            const path = editor.api.dom.resolvePath(element)
 
             if (!path) {
               return

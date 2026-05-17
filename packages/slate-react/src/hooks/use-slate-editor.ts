@@ -1,33 +1,23 @@
 import { useState } from 'react'
-import { type CreateEditorOptions, createEditor, type Value } from 'slate'
+import type { Value } from 'slate'
 
-import type { ReactEditor } from '../plugin/react-editor'
-import { withReact } from '../plugin/with-react'
-
-export type SlateEditorComposer<
-  V extends Value,
-  E extends ReactEditor<V> = ReactEditor<V>,
-> = (editor: ReactEditor<V>) => E
+import {
+  type CreateReactEditorOptions,
+  createReactEditor,
+} from '../plugin/with-react'
 
 export type UseSlateEditorOptions<
   V extends Value = Value,
-  E extends ReactEditor<V> = ReactEditor<V>,
-> = CreateEditorOptions<V> & {
-  withEditor?: SlateEditorComposer<V, E>
-}
+  TExtensions extends readonly unknown[] = readonly [],
+> = CreateReactEditorOptions<V, TExtensions>
 
 export const useSlateEditor = <
   V extends Value = Value,
-  E extends ReactEditor<V> = ReactEditor<V>,
+  const TExtensions extends readonly unknown[] = readonly [],
 >(
-  options: UseSlateEditorOptions<V, E> = {}
-): E => {
-  const [editor] = useState(() => {
-    const { withEditor, ...editorOptions } = options
-    const reactEditor = withReact(createEditor<V>(editorOptions))
-
-    return withEditor ? withEditor(reactEditor) : (reactEditor as unknown as E)
-  })
+  options: UseSlateEditorOptions<V, TExtensions> = {}
+) => {
+  const [editor] = useState(() => createReactEditor(options))
 
   return editor
 }
