@@ -10,8 +10,9 @@ import {
 import { defineEditorExtension, type Range, RangeApi } from 'slate'
 import {
   Editable,
+  type EditableLeafRendererProps,
+  editableRenderers,
   type RenderElementProps,
-  type RenderLeafProps,
   type RenderVoidProps,
   Slate,
   useEditorFocused,
@@ -22,8 +23,11 @@ import {
 import { Portal } from './components'
 import type {
   CustomEditor,
+  CustomElement,
+  CustomText,
   CustomValue,
   MentionElement,
+  ParagraphElement,
 } from './custom-types.d'
 
 const MentionExample = () => {
@@ -181,13 +185,7 @@ const MentionExample = () => {
         setTarget(null)
       }}
     >
-      <Editable
-        onKeyDown={onKeyDown}
-        placeholder="Enter some text..."
-        renderElement={Element}
-        renderLeaf={Leaf}
-        renderVoid={Mention}
-      />
+      <Editable onKeyDown={onKeyDown} placeholder="Enter some text..." />
       {target && chars.length > 0 && (
         <Portal>
           <div
@@ -230,6 +228,20 @@ const MentionExample = () => {
 
 const mention = () =>
   defineEditorExtension<CustomEditor>()({
+    capabilities: editableRenderers<CustomText, CustomElement>({
+      elements: {
+        paragraph: Paragraph,
+      },
+      leaves: {
+        underline: UnderlineLeaf,
+        italic: ItalicLeaf,
+        code: CodeLeaf,
+        bold: BoldLeaf,
+      },
+      voids: {
+        mention: ({ element }) => <Mention element={element} />,
+      },
+    }),
     name: 'mention',
     elements: [{ type: 'mention', void: 'markable-inline' }],
   })
@@ -253,33 +265,28 @@ const insertMention = (
   })
 }
 
-// Borrow Leaf renderer from the Rich Text example.
-// In a real project you would get this from the same mark/rendering module.
-const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
-  if (leaf.bold) {
-    children = <strong>{children}</strong>
-  }
+// Borrow mark renderers from the Rich Text example.
+// In a real project you would get these from the same mark/rendering module.
+const BoldLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
+  <strong>{children}</strong>
+)
 
-  if (leaf.code) {
-    children = <code>{children}</code>
-  }
+const CodeLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
+  <code>{children}</code>
+)
 
-  if (leaf.italic) {
-    children = <em>{children}</em>
-  }
+const ItalicLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
+  <em>{children}</em>
+)
 
-  if (leaf.underline) {
-    children = <u>{children}</u>
-  }
+const UnderlineLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
+  <u>{children}</u>
+)
 
-  return <span {...attributes}>{children}</span>
-}
-
-const Element = (props: RenderElementProps) => {
-  const { attributes, children } = props
-
-  return <p {...attributes}>{children}</p>
-}
+const Paragraph = ({
+  attributes,
+  children,
+}: RenderElementProps<ParagraphElement>) => <p {...attributes}>{children}</p>
 
 const Mention = ({ element }: RenderVoidProps<MentionElement>) => {
   const focused = useEditorFocused()

@@ -1,7 +1,8 @@
 import React, { type ChangeEvent, useMemo } from 'react'
-import { defineEditorExtension, type Element as SlateElement } from 'slate'
+import { defineEditorExtension } from 'slate'
 import {
   Editable,
+  editableRenderers,
   type RenderElementProps,
   type RenderVoidProps,
   Slate,
@@ -10,6 +11,8 @@ import {
 } from 'slate-react'
 import type {
   CustomEditor,
+  CustomElement,
+  ParagraphElement as ParagraphElementType,
   VideoElement as VideoElementType,
 } from './custom-types.d'
 
@@ -42,33 +45,31 @@ const EmbedsExample = () => {
   })
   return (
     <Slate editor={editor}>
-      <Editable
-        placeholder="Enter some text..."
-        renderElement={(props) => <Element {...props} />}
-        renderVoid={(props) =>
-          isVideoElement(props.element) ? (
-            <VideoElement element={props.element} />
-          ) : null
-        }
-      />
+      <Editable placeholder="Enter some text..." />
     </Slate>
   )
 }
 
 const embed = () =>
   defineEditorExtension<CustomEditor>()({
+    capabilities: editableRenderers<unknown, CustomElement>({
+      elements: {
+        paragraph: ParagraphElement,
+      },
+      voids: {
+        video: ({ element }) => <VideoElement element={element} />,
+      },
+    }),
     name: 'embed',
     elements: [{ type: 'video', void: 'block' }],
   })
 
-const Element = (props: RenderElementProps) => {
-  const { attributes, children } = props
-
-  return <p {...attributes}>{children}</p>
-}
-
-const isVideoElement = (element: SlateElement): element is VideoElementType =>
-  element.type === 'video'
+const ParagraphElement = ({
+  attributes,
+  children,
+}: RenderElementProps<ParagraphElementType>) => (
+  <p {...attributes}>{children}</p>
+)
 
 const allowedSchemes = ['http:', 'https:']
 

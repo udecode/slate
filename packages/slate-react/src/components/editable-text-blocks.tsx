@@ -216,7 +216,13 @@ const getTypedElementRenderer = <TElement extends SlateElementNode>(
 ): RenderElementRenderer<TElement> | undefined => {
   const type = (element as { type?: unknown }).type
 
-  return typeof type === 'string' ? renderers?.[type] : undefined
+  return typeof type === 'string'
+    ? (
+        renderers as
+          | Record<string, RenderElementRenderer<TElement> | undefined>
+          | undefined
+      )?.[type]
+    : undefined
 }
 
 const getTypedVoidRenderer = <TElement extends SlateElementNode>(
@@ -225,7 +231,13 @@ const getTypedVoidRenderer = <TElement extends SlateElementNode>(
 ): RenderVoidRenderer<TElement> | undefined => {
   const type = (element as { type?: unknown }).type
 
-  return typeof type === 'string' ? renderers?.[type] : undefined
+  return typeof type === 'string'
+    ? (
+        renderers as
+          | Record<string, RenderVoidRenderer<TElement> | undefined>
+          | undefined
+      )?.[type]
+    : undefined
 }
 
 const createRegisteredRenderLeaf = <T,>(

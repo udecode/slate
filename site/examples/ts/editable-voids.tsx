@@ -4,6 +4,7 @@ import { type PointerEvent, useState } from 'react'
 import { defineEditorExtension } from 'slate'
 import {
   Editable,
+  editableRenderers,
   type RenderElementProps,
   Slate,
   useEditor,
@@ -11,7 +12,12 @@ import {
 } from 'slate-react'
 
 import { Button, Icon, Toolbar } from './components'
-import type { CustomEditor, EditableVoidElement } from './custom-types.d'
+import type {
+  CustomEditor,
+  CustomElement,
+  EditableVoidElement,
+  ParagraphElement as ParagraphElementType,
+} from './custom-types.d'
 import RichTextEditor from './richtext'
 
 const EditableVoidsExample = () => {
@@ -47,37 +53,31 @@ const EditableVoidsExample = () => {
         <InsertEditableVoidButton />
       </Toolbar>
 
-      <Editable
-        placeholder="Enter some text..."
-        renderElement={Element}
-        renderVoid={() => <EditableVoid />}
-      />
+      <Editable placeholder="Enter some text..." />
     </Slate>
   )
 }
 
 const editableVoid = () =>
   defineEditorExtension({
+    capabilities: editableRenderers<unknown, CustomElement>({
+      elements: {
+        paragraph: ParagraphElement,
+      },
+      voids: {
+        'editable-void': () => <EditableVoid />,
+      },
+    }),
     name: 'editable-voids',
     elements: [{ type: 'editable-void', void: 'editable-island' }],
   })
 
-const insertEditableVoid = (editor: CustomEditor) => {
-  const text = { text: '' }
-  const voidNode: EditableVoidElement = {
-    type: 'editable-void',
-    children: [text],
-  }
-  editor.update((tx) => {
-    tx.nodes.insert(voidNode)
-  })
-}
-
-const Element = (props: RenderElementProps) => {
-  const { attributes, children } = props
-
-  return <p {...attributes}>{children}</p>
-}
+const ParagraphElement = ({
+  attributes,
+  children,
+}: RenderElementProps<ParagraphElementType>) => (
+  <p {...attributes}>{children}</p>
+)
 
 const unsetWidthStyle = css`
   width: unset;
@@ -137,7 +137,17 @@ const InsertEditableVoidButton = () => {
   const editor = useEditor<CustomEditor>()
   return (
     <Button
-      onClick={() => insertEditableVoid(editor)}
+      onClick={() => {
+        const text = { text: '' }
+        const voidNode: EditableVoidElement = {
+          type: 'editable-void',
+          children: [text],
+        }
+
+        editor.update((tx) => {
+          tx.nodes.insert(voidNode)
+        })
+      }}
       onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
         event.preventDefault()
       }}

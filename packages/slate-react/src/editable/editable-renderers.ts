@@ -31,15 +31,42 @@ export type EditableTextRenderer = (
   props: EditableTextRenderTextProps
 ) => ReactNode
 
+type ElementTypeOf<TElement extends SlateElementNode> = TElement extends {
+  type: infer TType extends string
+}
+  ? TType
+  : string
+
+type ElementForType<TElement extends SlateElementNode, TType extends string> =
+  Extract<TElement, { type: TType }> extends never
+    ? TElement
+    : Extract<TElement, { type: TType }>
+
+export type EditableElementRendererMap<
+  TElement extends SlateElementNode = SlateElementNode,
+> = {
+  [TType in ElementTypeOf<TElement>]?: RenderElementRenderer<
+    ElementForType<TElement, TType>
+  >
+}
+
+export type EditableVoidRendererMap<
+  TElement extends SlateElementNode = SlateElementNode,
+> = {
+  [TType in ElementTypeOf<TElement>]?: RenderVoidRenderer<
+    ElementForType<TElement, TType>
+  >
+}
+
 export type EditableRenderers<
   T = unknown,
   TElement extends SlateElementNode = any,
 > = {
-  elements?: Record<string, RenderElementRenderer<TElement>>
+  elements?: EditableElementRendererMap<TElement>
   leaves?: Record<string, EditableLeafRenderer<T>>
   segment?: EditableSegmentRenderer<T>
   text?: EditableTextRenderer
-  voids?: Record<string, RenderVoidRenderer<TElement>>
+  voids?: EditableVoidRendererMap<TElement>
 }
 
 const EMPTY_RENDERERS = Object.freeze({}) as EditableRenderers

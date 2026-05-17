@@ -5,9 +5,10 @@ import { defineEditorExtension } from 'slate'
 import { isHotkey } from 'slate-dom'
 import {
   Editable,
+  type EditableLeafRendererProps,
   editableKeyCommands,
+  editableRenderers,
   type RenderElementProps,
-  type RenderLeafProps,
   Slate,
   useEditor,
   useEditorSelector,
@@ -15,7 +16,13 @@ import {
 } from 'slate-react'
 
 import { Button, Icon, Toolbar } from './components'
-import type { CustomEditor, CustomTextKey, CustomValue } from './custom-types.d'
+import type {
+  CustomEditor,
+  CustomText,
+  CustomTextKey,
+  CustomValue,
+  ParagraphElement as ParagraphElementType,
+} from './custom-types.d'
 import { isMarkActive, toggleMark } from './mark-utils'
 
 const HOTKEYS: Record<string, CustomTextKey> = {
@@ -78,13 +85,7 @@ const IFrameExample = () => {
         <MarkButton format="code" icon="code" />
       </Toolbar>
       <IFrame onBlur={() => editor.api.dom.deselect()}>
-        <Editable
-          autoFocus
-          placeholder="Enter some rich text…"
-          renderElement={Element}
-          renderLeaf={Leaf}
-          spellCheck
-        />
+        <Editable autoFocus placeholder="Enter some rich text…" spellCheck />
       </IFrame>
     </Slate>
   )
@@ -92,42 +93,54 @@ const IFrameExample = () => {
 
 const iframeKeyCommands = () =>
   defineEditorExtension<CustomEditor>()({
-    capabilities: editableKeyCommands(({ editor, event }) => {
-      const iframeEditor = editor as unknown as CustomEditor
+    capabilities: {
+      ...editableRenderers<CustomText, ParagraphElementType>({
+        elements: {
+          paragraph: ParagraphElement,
+        },
+        leaves: {
+          underline: UnderlineLeaf,
+          italic: ItalicLeaf,
+          code: CodeLeaf,
+          bold: BoldLeaf,
+        },
+      }),
+      ...editableKeyCommands(({ editor, event }) => {
+        const iframeEditor = editor as unknown as CustomEditor
 
-      for (const [hotkey, mark] of MARK_HOTKEYS) {
-        if (isHotkey(hotkey, event)) {
-          toggleMark(iframeEditor, mark)
-          return true
+        for (const [hotkey, mark] of MARK_HOTKEYS) {
+          if (isHotkey(hotkey, event)) {
+            toggleMark(iframeEditor, mark)
+            return true
+          }
         }
-      }
-    }),
+      }),
+    },
     name: 'iframe-key-commands',
   })
 
-const Element = ({ attributes, children }: RenderElementProps) => (
+const ParagraphElement = ({
+  attributes,
+  children,
+}: RenderElementProps<ParagraphElementType>) => (
   <p {...attributes}>{children}</p>
 )
 
-const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
-  if (leaf.bold) {
-    children = <strong>{children}</strong>
-  }
+const BoldLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
+  <strong>{children}</strong>
+)
 
-  if (leaf.code) {
-    children = <code>{children}</code>
-  }
+const CodeLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
+  <code>{children}</code>
+)
 
-  if (leaf.italic) {
-    children = <em>{children}</em>
-  }
+const ItalicLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
+  <em>{children}</em>
+)
 
-  if (leaf.underline) {
-    children = <u>{children}</u>
-  }
-
-  return <span {...attributes}>{children}</span>
-}
+const UnderlineLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
+  <u>{children}</u>
+)
 
 interface MarkButtonProps {
   format: CustomTextKey

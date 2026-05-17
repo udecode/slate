@@ -1,11 +1,13 @@
 import { css } from '@emotion/css'
 import type React from 'react'
 import { useMemo } from 'react'
-import type { Element as SlateElement } from 'slate'
+import { defineEditorExtension, type Element as SlateElement } from 'slate'
 import {
   Editable,
+  type EditableLeafRendererProps,
+  editableRenderers,
   type RenderElementProps,
-  type RenderLeafProps,
+  type RenderTextProps,
   type RenderVoidProps,
   Slate,
   useEditorFocused,
@@ -13,12 +15,16 @@ import {
   useSlateEditor,
 } from 'slate-react'
 
-import type { ImageElement as ImageElementType } from './custom-types.d'
+import type {
+  CustomElement,
+  CustomText,
+  ImageElement as ImageElementType,
+} from './custom-types.d'
 import { html } from './paste-html-import'
 
 const PasteHtmlExample = () => {
   const editor = useSlateEditor({
-    extensions: [html()],
+    extensions: [html(), htmlRenderers()],
     initialValue: [
       {
         type: 'paragraph',
@@ -51,21 +57,48 @@ const PasteHtmlExample = () => {
 
   return (
     <Slate editor={editor}>
-      <Editable
-        placeholder="Paste in some HTML..."
-        renderElement={Element}
-        renderLeaf={Leaf}
-        renderVoid={(props) =>
-          isImageElement(props.element) ? (
-            <ImageElement element={props.element} />
-          ) : null
-        }
-      />
+      <Editable placeholder="Paste in some HTML..." />
     </Slate>
   )
 }
 
-const Element = (props: RenderElementProps) => {
+const htmlRenderers = () =>
+  defineEditorExtension({
+    capabilities: editableRenderers<CustomText, CustomElement>({
+      elements: {
+        'block-quote': Element,
+        'bulleted-list': Element,
+        'code-block': Element,
+        'heading-five': Element,
+        'heading-four': Element,
+        'heading-one': Element,
+        'heading-six': Element,
+        'heading-three': Element,
+        'heading-two': Element,
+        'list-item': Element,
+        link: Element,
+        'numbered-list': Element,
+        paragraph: Element,
+        table: Element,
+        'table-cell': Element,
+        'table-row': Element,
+      },
+      leaves: {
+        strikethrough: StrikethroughLeaf,
+        underline: UnderlineLeaf,
+        italic: ItalicLeaf,
+        code: CodeLeaf,
+        bold: BoldLeaf,
+      },
+      text: FontSizeText,
+      voids: {
+        image: ({ element }) => <ImageElement element={element} />,
+      },
+    }),
+    name: 'html-renderers',
+  })
+
+const Element = (props: RenderElementProps<CustomElement>) => {
   const { attributes, children, element } = props
   const style = getElementStyle(element)
 
@@ -218,32 +251,28 @@ const ImageElement = ({ element }: RenderVoidProps<ImageElementType>) => {
   )
 }
 
-const isImageElement = (element: SlateElement): element is ImageElementType =>
-  element.type === 'image'
+const BoldLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
+  <strong>{children}</strong>
+)
 
-const Leaf = ({ attributes, children, leaf }: RenderLeafProps) => {
-  const leafFontSize = (leaf as unknown as { fontSize?: unknown }).fontSize
-  const fontSize = typeof leafFontSize === 'string' ? leafFontSize : undefined
+const CodeLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
+  <code>{children}</code>
+)
 
-  if (leaf.bold) {
-    children = <strong>{children}</strong>
-  }
+const ItalicLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
+  <em>{children}</em>
+)
 
-  if (leaf.code) {
-    children = <code>{children}</code>
-  }
+const UnderlineLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
+  <u>{children}</u>
+)
 
-  if (leaf.italic) {
-    children = <em>{children}</em>
-  }
+const StrikethroughLeaf = ({
+  children,
+}: EditableLeafRendererProps<CustomText>) => <del>{children}</del>
 
-  if (leaf.underline) {
-    children = <u>{children}</u>
-  }
-
-  if (leaf.strikethrough) {
-    children = <del>{children}</del>
-  }
+const FontSizeText = ({ attributes, children, text }: RenderTextProps) => {
+  const fontSize = typeof text.fontSize === 'string' ? text.fontSize : undefined
 
   return (
     <span {...attributes} style={fontSize ? { fontSize } : undefined}>

@@ -21,7 +21,9 @@ import {
 import { isHotkey } from 'slate-dom'
 import {
   Editable,
+  type EditableSegmentRenderer,
   editableKeyCommands,
+  editableRenderers,
   type RenderElementProps,
   Slate,
   type SlateProjection,
@@ -35,6 +37,7 @@ import type {
   CodeBlockElement,
   CodeLineElement,
   CustomEditor,
+  CustomElement,
   CustomText,
 } from './custom-types.d'
 import { normalizeTokens } from './utils/normalize-tokens'
@@ -113,25 +116,7 @@ const editor = useSlateEditor<CustomValue>({ initialValue })`),
   return (
     <Slate decorationSources={[codeHighlightingSource]} editor={editor}>
       <ExampleToolbar />
-      <Editable
-        renderElement={ElementWrapper}
-        renderSegment={(segment, children) => {
-          const data = Object.assign(
-            {},
-            ...segment.slices.map((slice) => slice.data ?? {})
-          )
-          const className = Object.entries(data)
-            .filter(([, value]) => value === true)
-            .map(([key]) => key)
-            .join(' ')
-
-          return className ? (
-            <span className={className}>{children}</span>
-          ) : (
-            children
-          )
-        }}
-      />
+      <Editable />
       <style>{prismThemeCss}</style>
     </Slate>
   )
@@ -139,41 +124,51 @@ const editor = useSlateEditor<CustomValue>({ initialValue })`),
 
 const codeHighlighting = () =>
   defineEditorExtension<CustomEditor>()({
-    capabilities: editableKeyCommands(({ editor, event }) => {
-      const codeEditor = editor as unknown as CustomEditor
+    capabilities: {
+      ...editableKeyCommands(({ editor, event }) => {
+        const codeEditor = editor as unknown as CustomEditor
 
-      if (isHotkey(['mod+shift+c', 'mod+alt+c'], event)) {
+        if (isHotkey(['mod+shift+c', 'mod+alt+c'], event)) {
+          event.preventDefault()
+          convertSelectionToCodeBlock(codeEditor)
+          return true
+        }
+
+        const isTab = isHotkey('tab', event)
+        const isShiftTab = isHotkey('shift+tab', event)
+
+        if (!isTab && !isShiftTab) {
+          return
+        }
+
         event.preventDefault()
-        convertSelectionToCodeBlock(codeEditor)
+
+        const handledCodeLines = updateSelectedCodeLines(
+          codeEditor,
+          isShiftTab ? 'outdent' : 'indent'
+        )
+
+        if (!handledCodeLines && isTab) {
+          codeEditor.update((tx) => {
+            tx.text.insert(CodeIndent)
+          })
+        }
+
         return true
-      }
-
-      const isTab = isHotkey('tab', event)
-      const isShiftTab = isHotkey('shift+tab', event)
-
-      if (!isTab && !isShiftTab) {
-        return
-      }
-
-      event.preventDefault()
-
-      const handledCodeLines = updateSelectedCodeLines(
-        codeEditor,
-        isShiftTab ? 'outdent' : 'indent'
-      )
-
-      if (!handledCodeLines && isTab) {
-        codeEditor.update((tx) => {
-          tx.text.insert(CodeIndent)
-        })
-      }
-
-      return true
-    }),
+      }),
+      ...editableRenderers<CustomText, CustomElement>({
+        elements: {
+          'code-block': (props) => <ElementWrapper {...props} />,
+          'code-line': (props) => <ElementWrapper {...props} />,
+          paragraph: (props) => <ElementWrapper {...props} />,
+        },
+        segment: CodeSegment,
+      }),
+    },
     name: 'code-highlighting',
   })
 
-const ElementWrapper = (props: RenderElementProps) => {
+const ElementWrapper = (props: RenderElementProps<CustomElement>) => {
   const { attributes, children, element } = props
   const editor = useEditor<CustomEditor>()
   const path = useElementPath()
@@ -228,6 +223,22 @@ const ElementWrapper = (props: RenderElementProps) => {
       {children}
     </Tag>
   )
+}
+
+const CodeSegment: EditableSegmentRenderer<CustomText> = (
+  segment,
+  children
+) => {
+  const data = Object.assign(
+    {},
+    ...segment.slices.map((slice) => slice.data ?? {})
+  )
+  const className = Object.entries(data)
+    .filter(([, value]) => value === true)
+    .map(([key]) => key)
+    .join(' ')
+
+  return className ? <span className={className}>{children}</span> : children
 }
 
 const ExampleToolbar = () => {

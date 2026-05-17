@@ -253,46 +253,41 @@ const mixedRuntime = () =>
     ],
   })
 
-const runtimeHtml = () => {
-  const insertData: DOMClipboardInsertDataHandler = (editor, data) =>
-    insertRuntimeHtmlData(editor as unknown as RuntimeEditor, data)
-
-  return defineEditorExtension<RuntimeEditor>()({
+const runtimeHtml = () =>
+  defineEditorExtension<RuntimeEditor>()({
     capabilities: {
-      'clipboard.insertData': insertData,
+      'clipboard.insertData': ((editor, data) => {
+        const runtimeEditor = editor as unknown as RuntimeEditor
+        const html = data.getData('text/html')
+
+        if (!html) {
+          return false
+        }
+
+        const document = new DOMParser().parseFromString(html, 'text/html')
+        const text = document.body.textContent ?? ''
+        const isBold = !!document.body.querySelector('strong,b')
+
+        runtimeEditor.update((tx) => {
+          tx.fragment.insert([
+            {
+              type: 'paragraph',
+              children: [
+                isBold
+                  ? {
+                      bold: true,
+                      text,
+                    }
+                  : { text },
+              ],
+            },
+          ])
+        })
+        return true
+      }) satisfies DOMClipboardInsertDataHandler,
     },
     name: 'rendering-strategy-runtime-html',
   })
-}
-
-const insertRuntimeHtmlData = (editor: RuntimeEditor, data: DataTransfer) => {
-  const html = data.getData('text/html')
-
-  if (!html) {
-    return false
-  }
-
-  const document = new DOMParser().parseFromString(html, 'text/html')
-  const text = document.body.textContent ?? ''
-  const isBold = !!document.body.querySelector('strong,b')
-
-  editor.update((tx) => {
-    tx.fragment.insert([
-      {
-        type: 'paragraph',
-        children: [
-          isBold
-            ? {
-                bold: true,
-                text,
-              }
-            : { text },
-        ],
-      },
-    ])
-  })
-  return true
-}
 
 const collectProjectionProbes = (
   snapshot: EditorSnapshot

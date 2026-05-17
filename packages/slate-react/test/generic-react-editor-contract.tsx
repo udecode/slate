@@ -32,7 +32,9 @@ type LinkElement = {
   children: CustomText[]
 }
 
-type CustomValue = (ParagraphElement | LinkElement)[]
+type CustomElement = ParagraphElement | LinkElement
+
+type CustomValue = CustomElement[]
 
 const initialValue: CustomValue = [
   { type: 'paragraph', children: [{ text: 'initial', bold: true }] },
@@ -66,6 +68,42 @@ const defaultHistoryReactEditor = createReactEditor({ initialValue })
 const noHistoryReactEditor = createReactEditor({
   extensions: [history({ enabled: false })],
   initialValue,
+})
+const rendererCapabilities = SlateReact.editableRenderers<
+  CustomText,
+  CustomElement
+>({
+  elements: {
+    paragraph: ({ element }) => {
+      const paragraphType: 'paragraph' = element.type
+
+      // @ts-expect-error paragraph renderers receive paragraph elements only
+      element.url
+      void paragraphType
+
+      return null
+    },
+    link: ({ element }) => {
+      const linkType: 'link' = element.type
+      const linkUrl: string = element.url
+
+      void linkType
+      void linkUrl
+
+      return null
+    },
+  },
+  voids: {
+    link: ({ element }) => {
+      const linkType: 'link' = element.type
+      const linkUrl: string = element.url
+
+      void linkType
+      void linkUrl
+
+      return null
+    },
+  },
 })
 
 const baseValue: ValueOf<typeof baseEditor> = [
@@ -223,6 +261,7 @@ useSlateEditor({
 
 void baseValue
 void reactValue
+void rendererCapabilities
 void SelectorProbe
 void HookProbe
 void NoHistoryHookProbe

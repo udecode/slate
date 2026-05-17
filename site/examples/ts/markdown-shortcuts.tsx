@@ -6,16 +6,12 @@ import {
   RangeApi,
   type Element as SlateElement,
 } from 'slate'
-import {
-  Editable,
-  type RenderElementProps,
-  Slate,
-  useSlateEditor,
-} from 'slate-react'
+import { Editable, editableRenderers, Slate, useSlateEditor } from 'slate-react'
 
 import type {
   BulletedListElement,
   CustomEditor,
+  CustomElement,
   CustomElementType,
   CustomValue,
   NumberedListItemElement,
@@ -88,24 +84,96 @@ const MarkdownShortcutsExample = () => {
       <Editable
         autoFocus
         onCommand={(command) => {
-          if (
-            command.kind === 'insert-break' &&
-            applyMarkdownHeadingStartEnter(editor)
-          ) {
-            return true
+          if (command.kind === 'insert-break') {
+            const selection = editor.read((state) => state.selection.get())
+
+            if (selection && RangeApi.isCollapsed(selection)) {
+              const blockEntry = editor.read((state) =>
+                state.nodes.above({
+                  at: selection,
+                  match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
+                })
+              )
+
+              if (blockEntry) {
+                const [block, blockPath] = blockEntry
+
+                if (
+                  NodeApi.isElement(block) &&
+                  HEADING_TYPES.has(block.type as CustomElementType)
+                ) {
+                  const start = editor.read((state) =>
+                    state.points.start(blockPath)
+                  )
+
+                  if (PointApi.equals(selection.anchor, start)) {
+                    editor.update((tx) => {
+                      tx.break.insert()
+                      tx.nodes.set(
+                        { type: 'paragraph' },
+                        {
+                          at: blockPath,
+                          match: (n) =>
+                            NodeApi.isElement(n) && tx.nodes.isBlock(n),
+                        }
+                      )
+                    })
+
+                    return true
+                  }
+                }
+              }
+            }
           }
 
-          if (
-            command.kind === 'delete' &&
-            command.direction === 'backward' &&
-            applyMarkdownBackspaceShortcut(editor)
-          ) {
-            return true
+          if (command.kind === 'delete' && command.direction === 'backward') {
+            const selection = editor.read((state) => state.selection.get())
+
+            if (selection && RangeApi.isCollapsed(selection)) {
+              const match = editor.read((state) =>
+                state.nodes.above({
+                  match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
+                })
+              )
+
+              if (match) {
+                const [block, path] = match
+                const start = editor.read((state) => state.points.start(path))
+
+                if (
+                  NodeApi.isElement(block) &&
+                  block.type !== 'paragraph' &&
+                  PointApi.equals(selection.anchor, start)
+                ) {
+                  const newProperties: Partial<SlateElement> = {
+                    type: 'paragraph',
+                  }
+
+                  editor.update((tx) => {
+                    tx.nodes.set(newProperties)
+
+                    if (block.type === 'list-item') {
+                      tx.nodes.unwrap({
+                        match: (n) =>
+                          NodeApi.isElement(n) &&
+                          (n.type === 'bulleted-list' ||
+                            n.type === 'numbered-list'),
+                        split: true,
+                      })
+                    }
+
+                    selectCurrentBlockStart(editor)
+                  })
+                  editor.api.dom.focus()
+
+                  return true
+                }
+              }
+            }
           }
         }}
         onDOMBeforeInput={() => scheduleAndroidMarkdownShortcutFlush(editor)}
         placeholder="Write some markdown..."
-        renderElement={Element}
         spellCheck
       />
     </Slate>
@@ -114,10 +182,104 @@ const MarkdownShortcutsExample = () => {
 
 const markdownShortcuts = () =>
   defineEditorExtension<CustomEditor>()({
+    capabilities: editableRenderers<unknown, CustomElement>({
+      elements: {
+        'block-quote': ({ attributes, children }) => (
+          <blockquote {...attributes}>{children}</blockquote>
+        ),
+        'bulleted-list': ({ attributes, children }) => (
+          <ul {...attributes}>{children}</ul>
+        ),
+        'heading-five': ({ attributes, children }) => (
+          <h5 {...attributes}>{children}</h5>
+        ),
+        'heading-four': ({ attributes, children }) => (
+          <h4 {...attributes}>{children}</h4>
+        ),
+        'heading-one': ({ attributes, children }) => (
+          <h1 {...attributes}>{children}</h1>
+        ),
+        'heading-six': ({ attributes, children }) => (
+          <h6 {...attributes}>{children}</h6>
+        ),
+        'heading-three': ({ attributes, children }) => (
+          <h3 {...attributes}>{children}</h3>
+        ),
+        'heading-two': ({ attributes, children }) => (
+          <h2 {...attributes}>{children}</h2>
+        ),
+        'list-item': ({ attributes, children }) => (
+          <li {...attributes}>{children}</li>
+        ),
+        'numbered-list': ({ attributes, children, element }) => (
+          <ol start={element.start} {...attributes}>
+            {children}
+          </ol>
+        ),
+        paragraph: ({ attributes, children }) => (
+          <p {...attributes}>{children}</p>
+        ),
+      },
+    }),
     name: 'markdown-shortcuts',
     transforms: {
       insertText({ editor, next, text }) {
-        if (applyMarkdownTextShortcut(editor, text)) return
+        const selection = editor.read((state) => state.selection.get())
+
+        if (
+          text.endsWith(' ') &&
+          selection &&
+          RangeApi.isCollapsed(selection)
+        ) {
+          const { anchor } = selection
+          const block = editor.read((state) =>
+            state.nodes.above({
+              match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
+            })
+          )
+          const path = block ? block[1] : []
+          const start = editor.read((state) => state.points.start(path))
+          const range = { anchor, focus: start }
+          const beforeText =
+            editor.read((state) => state.text.string(range)) + text.slice(0, -1)
+          const orderedListMatch = ORDERED_LIST_SHORTCUT.exec(beforeText)
+          const type = orderedListMatch ? 'list-item' : SHORTCUTS[beforeText]
+
+          if (type) {
+            const newProperties: Partial<SlateElement> = {
+              type,
+            }
+
+            editor.update((tx) => {
+              tx.selection.set(range)
+
+              if (!RangeApi.isCollapsed(range)) {
+                tx.text.delete()
+              }
+
+              tx.nodes.set(newProperties, {
+                match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
+              })
+
+              if (type === 'list-item') {
+                const list = createListElement(beforeText, orderedListMatch)
+
+                tx.nodes.wrap(list, {
+                  match: (n) => NodeApi.isElement(n) && n.type === 'list-item',
+                })
+
+                if (list.type === 'bulleted-list') {
+                  mergeAdjacentBulletedLists(editor, tx)
+                }
+              }
+
+              selectCurrentBlockStart(editor)
+            })
+            editor.api.dom.focus()
+
+            return
+          }
+        }
 
         next()
       },
@@ -158,112 +320,6 @@ const scheduleAndroidMarkdownShortcutFlush = (editor: CustomEditor) => {
       editor.api.dom.androidScheduleFlush()
     }
   })
-}
-
-const applyMarkdownTextShortcut = (editor: CustomEditor, text: string) => {
-  const selection = editor.read((state) => state.selection.get())
-
-  if (!text.endsWith(' ') || !selection || !RangeApi.isCollapsed(selection)) {
-    return false
-  }
-
-  const { anchor } = selection
-  const block = editor.read((state) =>
-    state.nodes.above({
-      match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
-    })
-  )
-  const path = block ? block[1] : []
-  const start = editor.read((state) => state.points.start(path))
-  const range = { anchor, focus: start }
-  const beforeText =
-    editor.read((state) => state.text.string(range)) + text.slice(0, -1)
-  const orderedListMatch = ORDERED_LIST_SHORTCUT.exec(beforeText)
-  const type = orderedListMatch ? 'list-item' : SHORTCUTS[beforeText]
-
-  if (!type) {
-    return false
-  }
-
-  const newProperties: Partial<SlateElement> = {
-    type,
-  }
-
-  editor.update((tx) => {
-    tx.selection.set(range)
-
-    if (!RangeApi.isCollapsed(range)) {
-      tx.text.delete()
-    }
-
-    tx.nodes.set(newProperties, {
-      match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
-    })
-
-    if (type === 'list-item') {
-      const list = createListElement(beforeText, orderedListMatch)
-
-      tx.nodes.wrap(list, {
-        match: (n) => NodeApi.isElement(n) && n.type === 'list-item',
-      })
-
-      if (list.type === 'bulleted-list') {
-        mergeAdjacentBulletedLists(editor, tx)
-      }
-    }
-
-    selectCurrentBlockStart(editor)
-  })
-  editor.api.dom.focus()
-
-  return true
-}
-
-const applyMarkdownHeadingStartEnter = (editor: CustomEditor) => {
-  const selection = editor.read((state) => state.selection.get())
-
-  if (!selection || !RangeApi.isCollapsed(selection)) {
-    return false
-  }
-
-  const blockEntry = editor.read((state) =>
-    state.nodes.above({
-      at: selection,
-      match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
-    })
-  )
-
-  if (!blockEntry) {
-    return false
-  }
-
-  const [block, blockPath] = blockEntry
-
-  if (
-    !NodeApi.isElement(block) ||
-    !HEADING_TYPES.has(block.type as CustomElementType)
-  ) {
-    return false
-  }
-
-  const start = editor.read((state) => state.points.start(blockPath))
-
-  if (!PointApi.equals(selection.anchor, start)) {
-    return false
-  }
-
-  editor.update((tx) => {
-    tx.break.insert()
-    tx.nodes.set(
-      { type: 'paragraph' },
-      {
-        at: blockPath,
-        match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
-      }
-    )
-  })
-
-  return true
 }
 
 const createListElement = (
@@ -343,56 +399,6 @@ const mergeAdjacentBulletedLists = (
   }
 }
 
-const applyMarkdownBackspaceShortcut = (editor: CustomEditor) => {
-  const selection = editor.read((state) => state.selection.get())
-
-  if (!selection || !RangeApi.isCollapsed(selection)) {
-    return false
-  }
-
-  const match = editor.read((state) =>
-    state.nodes.above({
-      match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
-    })
-  )
-
-  if (!match) {
-    return false
-  }
-
-  const [block, path] = match
-  const start = editor.read((state) => state.points.start(path))
-
-  if (
-    !NodeApi.isElement(block) ||
-    block.type === 'paragraph' ||
-    !PointApi.equals(selection.anchor, start)
-  ) {
-    return false
-  }
-
-  const newProperties: Partial<SlateElement> = {
-    type: 'paragraph',
-  }
-  editor.update((tx) => {
-    tx.nodes.set(newProperties)
-
-    if (block.type === 'list-item') {
-      tx.nodes.unwrap({
-        match: (n) =>
-          NodeApi.isElement(n) &&
-          (n.type === 'bulleted-list' || n.type === 'numbered-list'),
-        split: true,
-      })
-    }
-
-    selectCurrentBlockStart(editor)
-  })
-  editor.api.dom.focus()
-
-  return true
-}
-
 const selectCurrentBlockStart = (editor: CustomEditor) => {
   const block = editor.read((state) =>
     state.nodes.above({
@@ -406,37 +412,6 @@ const selectCurrentBlockStart = (editor: CustomEditor) => {
     editor.update((tx) => {
       tx.selection.set(start)
     })
-  }
-}
-
-const Element = ({ attributes, children, element }: RenderElementProps) => {
-  switch (element.type) {
-    case 'block-quote':
-      return <blockquote {...attributes}>{children}</blockquote>
-    case 'bulleted-list':
-      return <ul {...attributes}>{children}</ul>
-    case 'heading-one':
-      return <h1 {...attributes}>{children}</h1>
-    case 'heading-two':
-      return <h2 {...attributes}>{children}</h2>
-    case 'heading-three':
-      return <h3 {...attributes}>{children}</h3>
-    case 'heading-four':
-      return <h4 {...attributes}>{children}</h4>
-    case 'heading-five':
-      return <h5 {...attributes}>{children}</h5>
-    case 'heading-six':
-      return <h6 {...attributes}>{children}</h6>
-    case 'list-item':
-      return <li {...attributes}>{children}</li>
-    case 'numbered-list':
-      return (
-        <ol start={element.start} {...attributes}>
-          {children}
-        </ol>
-      )
-    default:
-      return <p {...attributes}>{children}</p>
   }
 }
 

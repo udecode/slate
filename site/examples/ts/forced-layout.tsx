@@ -5,12 +5,14 @@ import {
 } from 'slate'
 import {
   Editable,
+  editableRenderers,
   type RenderElementProps,
   Slate,
   useSlateEditor,
 } from 'slate-react'
 import type {
   CustomEditor,
+  CustomElement,
   CustomElementType,
   ParagraphElement,
   TitleElement,
@@ -94,6 +96,12 @@ const enforceLayout = (editor: CustomEditor) => {
 
 const layout = () =>
   defineEditorExtension<CustomEditor>()({
+    capabilities: editableRenderers<unknown, CustomElement>({
+      elements: {
+        paragraph: Paragraph,
+        title: Title,
+      },
+    }),
     name: 'forced-layout',
     register({ editor }) {
       enforceLayout(editor)
@@ -124,23 +132,18 @@ const ForcedLayoutExample = () => {
   })
   return (
     <Slate editor={editor}>
-      <Editable
-        autoFocus
-        placeholder="Enter a title…"
-        renderElement={Element}
-        spellCheck
-      />
+      <Editable autoFocus placeholder="Enter a title…" spellCheck />
     </Slate>
   )
 }
 
-const Element = ({ attributes, children, element }: RenderElementProps) => {
-  switch (element.type) {
-    case 'title':
-      return <h2 {...attributes}>{children}</h2>
-    case 'paragraph':
-      return <p {...attributes}>{children}</p>
-  }
-}
+const Title = ({ attributes, children }: RenderElementProps<TitleElement>) => (
+  <h2 {...attributes}>{children}</h2>
+)
+
+const Paragraph = ({
+  attributes,
+  children,
+}: RenderElementProps<ParagraphElement>) => <p {...attributes}>{children}</p>
 
 export default ForcedLayoutExample

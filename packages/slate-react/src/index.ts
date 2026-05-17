@@ -78,11 +78,13 @@ export {
 } from './editable/editable-key-commands'
 export {
   EDITABLE_RENDERERS_CAPABILITY,
+  type EditableElementRendererMap,
   type EditableLeafRenderer,
   type EditableLeafRendererProps,
   type EditableRenderers,
   type EditableSegmentRenderer,
   type EditableTextRenderer,
+  type EditableVoidRendererMap,
   editableRenderers,
 } from './editable/editable-renderers'
 export {

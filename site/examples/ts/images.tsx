@@ -2,11 +2,12 @@ import { css } from '@emotion/css'
 import imageExtensions from 'image-extensions'
 import isUrl from 'is-url'
 import type { PointerEvent } from 'react'
-import { defineEditorExtension, type Element as SlateElement } from 'slate'
+import { defineEditorExtension } from 'slate'
 import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
 import {
   Editable,
   editableKeyCommands,
+  editableRenderers,
   type RenderElementProps,
   type RenderVoidProps,
   Slate,
@@ -19,7 +20,7 @@ import {
 import { Button, Icon, Toolbar } from './components'
 import type {
   CustomEditor,
-  CustomValue,
+  CustomElement,
   ImageElement,
   ParagraphElement,
 } from './custom-types.d'
@@ -70,26 +71,13 @@ const ImagesExample = () => {
       <Toolbar>
         <InsertImageButton />
       </Toolbar>
-      <Editable
-        placeholder="Enter some text..."
-        renderElement={Element}
-        renderVoid={(props) =>
-          isImageElement(props.element) ? (
-            <Image element={props.element} />
-          ) : null
-        }
-      />
+      <Editable placeholder="Enter some text..." />
     </Slate>
   )
 }
 
-const image = () => {
-  const insertData: DOMClipboardInsertDataHandler<CustomValue> = (
-    editor,
-    data
-  ) => insertImageData(editor as unknown as CustomEditor, data)
-
-  return defineEditorExtension<CustomEditor>()({
+const image = () =>
+  defineEditorExtension<CustomEditor>()({
     name: 'image',
     capabilities: {
       ...editableKeyCommands(({ editor, event }) => {
@@ -103,37 +91,43 @@ const image = () => {
 
         return true
       }),
-      'clipboard.insertData': insertData,
+      ...editableRenderers<unknown, CustomElement>({
+        elements: {
+          paragraph: Paragraph,
+        },
+        voids: {
+          image: ({ element }) => <Image element={element} />,
+        },
+      }),
+      'clipboard.insertData': ((editor, data) => {
+        const imageEditor = editor as unknown as CustomEditor
+        const text = data.getData('text/plain')
+        const imageFiles = Array.from(data.files ?? []).filter(
+          (file) => file.type.split('/')[0] === 'image'
+        )
+
+        if (imageFiles.length > 0) {
+          imageFiles.forEach((file) => {
+            const reader = new FileReader()
+
+            reader.addEventListener('load', () => {
+              const url = reader.result
+              insertImage(imageEditor, url as string)
+            })
+
+            reader.readAsDataURL(file)
+          })
+          return true
+        }
+
+        if (isImageUrl(text)) {
+          insertImage(imageEditor, text)
+          return true
+        }
+      }) satisfies DOMClipboardInsertDataHandler,
     },
     elements: [{ type: 'image', void: 'block' }],
   })
-}
-
-const insertImageData = (editor: CustomEditor, data: DataTransfer) => {
-  const text = data.getData('text/plain')
-  const imageFiles = Array.from(data.files ?? []).filter(
-    (file) => file.type.split('/')[0] === 'image'
-  )
-
-  if (imageFiles.length > 0) {
-    imageFiles.forEach((file) => {
-      const reader = new FileReader()
-
-      reader.addEventListener('load', () => {
-        const url = reader.result
-        insertImage(editor, url as string)
-      })
-
-      reader.readAsDataURL(file)
-    })
-    return true
-  }
-
-  if (isImageUrl(text)) {
-    insertImage(editor, text)
-    return true
-  }
-}
 
 const insertImage = (editor: CustomEditor, url: string) => {
   const text = { text: '' }
@@ -148,14 +142,10 @@ const insertImage = (editor: CustomEditor, url: string) => {
   })
 }
 
-const isImageElement = (element: SlateElement): element is ImageElement =>
-  element.type === 'image'
-
-const Element = (props: RenderElementProps) => {
-  const { attributes, children } = props
-
-  return <p {...attributes}>{children}</p>
-}
+const Paragraph = ({
+  attributes,
+  children,
+}: RenderElementProps<ParagraphElement>) => <p {...attributes}>{children}</p>
 
 const Image = ({ element }: RenderVoidProps<ImageElement>) => {
   const editor = useEditor<CustomEditor>()

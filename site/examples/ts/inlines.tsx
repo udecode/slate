@@ -7,8 +7,9 @@ import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
 import * as SlateReact from 'slate-react'
 import {
   Editable,
+  editableRenderers,
   type RenderElementProps,
-  type RenderLeafProps,
+  type RenderTextProps,
   useEditor,
   useEditorSelector,
   useElementSelected,
@@ -17,10 +18,12 @@ import {
 
 import { Button, Icon, Toolbar } from './components'
 import type {
+  BadgeElement,
   ButtonElement,
   CustomEditor,
+  CustomElement,
   LinkElement,
-  RenderElementPropsFor,
+  ParagraphElement,
 } from './custom-types.d'
 
 const InlinesExample = () => {
@@ -107,23 +110,32 @@ const InlinesExample = () => {
         <RemoveLinkButton />
         <ToggleEditableButtonButton />
       </Toolbar>
-      <Editable
-        onKeyDown={onKeyDown}
-        placeholder="Enter some text..."
-        renderElement={Element}
-        renderLeaf={Text}
-      />
+      <Editable onKeyDown={onKeyDown} placeholder="Enter some text..." />
     </SlateReact.Slate>
   )
 }
 
-const inline = () => {
-  const insertData: DOMClipboardInsertDataHandler = (editor, data) =>
-    insertLinkData(editor as unknown as CustomEditor, data)
-
-  return defineEditorExtension<CustomEditor>()({
+const inline = () =>
+  defineEditorExtension<CustomEditor>()({
     capabilities: {
-      'clipboard.insertData': insertData,
+      ...editableRenderers<unknown, CustomElement>({
+        elements: {
+          badge: (props) => <BadgeComponent {...props} />,
+          button: EditableButtonComponent,
+          link: (props) => <LinkComponent {...props} />,
+          paragraph: ParagraphComponent,
+        },
+        text: InlineText,
+      }),
+      'clipboard.insertData': ((editor, data) => {
+        const inlineEditor = editor as unknown as CustomEditor
+        const text = data.getData('text/plain')
+
+        if (text && isUrl(text)) {
+          wrapLink(inlineEditor, text)
+          return true
+        }
+      }) satisfies DOMClipboardInsertDataHandler,
     },
     name: 'inline',
     transforms: {
@@ -139,28 +151,6 @@ const inline = () => {
       { inline: true, readOnly: true, selectable: false, type: 'badge' },
     ],
   })
-}
-
-const insertLinkData = (editor: CustomEditor, data: DataTransfer) => {
-  const text = data.getData('text/plain')
-
-  if (text && isUrl(text)) {
-    wrapLink(editor, text)
-    return true
-  }
-}
-
-const insertLink = (editor: CustomEditor, url: string) => {
-  if (editor.read((state) => state.selection.get())) {
-    wrapLink(editor, url)
-  }
-}
-
-const insertButton = (editor: CustomEditor) => {
-  if (editor.read((state) => state.selection.get())) {
-    wrapButton(editor)
-  }
-}
 
 const isLinkActive = (editor: CustomEditor): boolean => {
   return editor.read((state) =>
@@ -261,7 +251,7 @@ const LinkComponent = ({
   attributes,
   children,
   element,
-}: RenderElementPropsFor<LinkElement>) => {
+}: RenderElementProps<LinkElement>) => {
   const selected = useElementSelected()
   const safeUrl = useMemo(() => {
     let parsedUrl: URL | null = null
@@ -296,7 +286,7 @@ const LinkComponent = ({
 const EditableButtonComponent = ({
   attributes,
   children,
-}: RenderElementProps) => {
+}: RenderElementProps<ButtonElement>) => {
   return (
     /*
       Note that this is not a true button, but a span with button-like CSS.
@@ -331,8 +321,7 @@ const EditableButtonComponent = ({
 const BadgeComponent = ({
   attributes,
   children,
-  element,
-}: RenderElementProps) => {
+}: RenderElementProps<BadgeElement>) => {
   const selected = useElementSelected()
 
   return (
@@ -356,22 +345,13 @@ const BadgeComponent = ({
   )
 }
 
-const Element = (props: RenderElementProps) => {
-  const { attributes, children, element } = props
-  switch (element.type) {
-    case 'link':
-      return <LinkComponent {...props} />
-    case 'button':
-      return <EditableButtonComponent {...props} />
-    case 'badge':
-      return <BadgeComponent {...props} />
-    default:
-      return <p {...attributes}>{children}</p>
-  }
-}
+const ParagraphComponent = ({
+  attributes,
+  children,
+}: RenderElementProps<ParagraphElement>) => <p {...attributes}>{children}</p>
 
-const Text = (props: RenderLeafProps) => {
-  const { attributes, children, leaf } = props
+const InlineText = (props: RenderTextProps) => {
+  const { attributes, children, text } = props
   return (
     <span
       // The following is a workaround for a Chromium bug where,
@@ -380,7 +360,7 @@ const Text = (props: RenderLeafProps) => {
       // instead of inside the final {text: ''} node
       // https://github.com/ianstormtaylor/slate/issues/4704#issuecomment-1006696364
       className={
-        leaf.text === ''
+        text.text === ''
           ? css`
               padding-left: 0.1px;
             `
@@ -404,7 +384,10 @@ const AddLinkButton = () => {
       onClick={() => {
         const url = window.prompt('Enter the URL of the link:')
         if (!url) return
-        insertLink(editor, url)
+
+        if (editor.read((state) => state.selection.get())) {
+          wrapLink(editor, url)
+        }
       }}
       onPointerDown={(event: PointerEvent<HTMLButtonElement>) =>
         event.preventDefault()
@@ -446,8 +429,8 @@ const ToggleEditableButtonButton = () => {
       onClick={() => {
         if (isButtonActive(editor)) {
           unwrapButton(editor)
-        } else {
-          insertButton(editor)
+        } else if (editor.read((state) => state.selection.get())) {
+          wrapButton(editor)
         }
       }}
       onPointerDown={(event: PointerEvent<HTMLButtonElement>) =>

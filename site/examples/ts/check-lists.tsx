@@ -2,7 +2,6 @@ import { css } from '@emotion/css'
 import type { ChangeEvent } from 'react'
 import {
   defineEditorExtension,
-  type Editor,
   NodeApi,
   PointApi,
   RangeApi,
@@ -10,6 +9,7 @@ import {
 } from 'slate'
 import {
   Editable,
+  editableRenderers,
   type RenderElementProps,
   Slate,
   useEditor,
@@ -19,7 +19,7 @@ import {
 import type {
   CheckListItemElement as CheckListItemType,
   CustomEditor,
-  RenderElementPropsFor,
+  ParagraphElement as ParagraphElementType,
 } from './custom-types.d'
 
 const CheckListsExample = () => {
@@ -73,80 +73,72 @@ const CheckListsExample = () => {
 
   return (
     <Slate editor={editor}>
-      <Editable
-        autoFocus
-        placeholder="Get to work…"
-        renderElement={Element}
-        spellCheck
-      />
+      <Editable autoFocus placeholder="Get to work…" spellCheck />
     </Slate>
   )
 }
 
 const checklist = () =>
-  defineEditorExtension({
+  defineEditorExtension<CustomEditor>()({
+    capabilities: editableRenderers<
+      unknown,
+      CheckListItemType | ParagraphElementType
+    >({
+      elements: {
+        'check-list-item': (props) => <CheckListItemElement {...props} />,
+        paragraph: ParagraphElement,
+      },
+    }),
     name: 'checklists',
     transforms: {
       deleteBackward({ editor, next }) {
-        if (applyChecklistBackspaceStart(editor)) return
+        const selection = editor.read((state) => state.selection.get())
+
+        if (selection && RangeApi.isCollapsed(selection)) {
+          const match = editor.read((state) =>
+            state.nodes.find({
+              match: (n) =>
+                NodeApi.isElement(n) && n.type === 'check-list-item',
+            })
+          )
+
+          if (match) {
+            const [, path] = match
+            const start = editor.read((state) => state.points.start(path))
+
+            if (PointApi.equals(selection.anchor, start)) {
+              editor.update((tx) => {
+                tx.nodes.set(
+                  { type: 'paragraph' } satisfies Partial<SlateElement>,
+                  {
+                    match: (n) =>
+                      NodeApi.isElement(n) && n.type === 'check-list-item',
+                  }
+                )
+                tx.selection.set(start)
+              })
+              return
+            }
+          }
+        }
 
         next()
       },
     },
   })
 
-const applyChecklistBackspaceStart = (editor: Editor) => {
-  const selection = editor.read((state) => state.selection.get())
-
-  if (!selection || !RangeApi.isCollapsed(selection)) {
-    return false
-  }
-
-  const match = editor.read((state) =>
-    state.nodes.find({
-      match: (n) => NodeApi.isElement(n) && n.type === 'check-list-item',
-    })
-  )
-
-  if (!match) {
-    return false
-  }
-
-  const [, path] = match
-  const start = editor.read((state) => state.points.start(path))
-
-  if (!PointApi.equals(selection.anchor, start)) {
-    return false
-  }
-
-  const newProperties: Partial<SlateElement> = {
-    type: 'paragraph',
-  }
-  editor.update((tx) => {
-    tx.nodes.set(newProperties, {
-      match: (n) => NodeApi.isElement(n) && n.type === 'check-list-item',
-    })
-    tx.selection.set(start)
-  })
-  return true
-}
-
-const Element = (props: RenderElementProps) => {
-  const { attributes, children, element } = props
-
-  switch (element.type) {
-    case 'check-list-item':
-      return <CheckListItemElement {...props} />
-    default:
-      return <p {...attributes}>{children}</p>
-  }
-}
+const ParagraphElement = ({
+  attributes,
+  children,
+}: RenderElementProps<ParagraphElementType>) => (
+  <p {...attributes}>{children}</p>
+)
 
 const CheckListItemElement = ({
   attributes,
   children,
   element,
-}: RenderElementPropsFor<CheckListItemType>) => {
+}: RenderElementProps<CheckListItemType>) => {
   const { checked } = element
   const editor = useEditor<CustomEditor>()
   const readOnly = useEditorReadOnly()
