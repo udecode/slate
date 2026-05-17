@@ -277,7 +277,7 @@ export const dom = (options: DOMEditorOptions = {}) =>
       Reflect.deleteProperty(editor, 'dom')
 
       return {
-        capabilities: {
+        api: {
           clipboard,
           dom: Object.freeze(domApi) as DOMApi,
         },

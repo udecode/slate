@@ -10,9 +10,8 @@ import {
 import { defineEditorExtension, type Range, RangeApi } from 'slate'
 import {
   Editable,
-  type EditableLeafRendererProps,
-  editableRenderers,
   type RenderElementProps,
+  type RenderLeafProps,
   type RenderVoidProps,
   Slate,
   useEditorFocused,
@@ -185,7 +184,13 @@ const MentionExample = () => {
         setTarget(null)
       }}
     >
-      <Editable onKeyDown={onKeyDown} placeholder="Enter some text..." />
+      <Editable
+        onKeyDown={onKeyDown}
+        placeholder="Enter some text..."
+        renderElement={renderElement}
+        renderLeaf={Leaf}
+        renderVoid={renderVoid}
+      />
       {target && chars.length > 0 && (
         <Portal>
           <div
@@ -228,23 +233,27 @@ const MentionExample = () => {
 
 const mention = () =>
   defineEditorExtension<CustomEditor>()({
-    capabilities: editableRenderers<CustomText, CustomElement>({
-      elements: {
-        paragraph: Paragraph,
-      },
-      leaves: {
-        underline: UnderlineLeaf,
-        italic: ItalicLeaf,
-        code: CodeLeaf,
-        bold: BoldLeaf,
-      },
-      voids: {
-        mention: ({ element }) => <Mention element={element} />,
-      },
-    }),
     name: 'mention',
     elements: [{ type: 'mention', void: 'markable-inline' }],
   })
+
+const renderElement = (props: RenderElementProps<CustomElement>) => {
+  switch (props.element.type) {
+    case 'paragraph':
+      return <Paragraph {...(props as RenderElementProps<ParagraphElement>)} />
+    default:
+      return <span {...props.attributes}>{props.children}</span>
+  }
+}
+
+const renderVoid = ({ element }: RenderVoidProps<CustomElement>) => {
+  switch (element.type) {
+    case 'mention':
+      return <Mention element={element as MentionElement} />
+    default:
+      return null
+  }
+}
 
 const insertMention = (
   editor: CustomEditor,
@@ -267,21 +276,22 @@ const insertMention = (
 
 // Borrow mark renderers from the Rich Text example.
 // In a real project you would get these from the same mark/rendering module.
-const BoldLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
-  <strong>{children}</strong>
-)
+const Leaf = ({ attributes, children, leaf }: RenderLeafProps<CustomText>) => {
+  if (leaf.bold) {
+    children = <strong>{children}</strong>
+  }
+  if (leaf.code) {
+    children = <code>{children}</code>
+  }
+  if (leaf.italic) {
+    children = <em>{children}</em>
+  }
+  if (leaf.underline) {
+    children = <u>{children}</u>
+  }
 
-const CodeLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
-  <code>{children}</code>
-)
-
-const ItalicLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
-  <em>{children}</em>
-)
-
-const UnderlineLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
-  <u>{children}</u>
-)
+  return <span {...attributes}>{children}</span>
+}
 
 const Paragraph = ({
   attributes,

@@ -198,18 +198,18 @@ describe('slate-react editable behavior', () => {
     )
   })
 
-  test('Editable onCommand receives semantic native format commands', async () => {
+  test('Editable onDOMBeforeInput exposes raw native format input', async () => {
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
     const editor = createReactEditor({ initialValue })
-    const onCommand = jest.fn((command, context) => {
-      if (command.kind !== 'format') {
+    const onDOMBeforeInput = jest.fn((event, context) => {
+      if (event.inputType !== 'formatBold') {
         return
       }
 
-      expect(command.format).toBe('bold')
       expect(context.editor).toBe(editor)
       expect(context.inputType).toBe('formatBold')
       expect(context.native).toBe(false)
+      event.preventDefault()
       return true
     })
 
@@ -217,7 +217,7 @@ describe('slate-react editable behavior', () => {
     act(() => {
       rendered = render(
         <Slate editor={editor}>
-          <Editable onCommand={onCommand} />
+          <Editable onDOMBeforeInput={onDOMBeforeInput} />
         </Slate>
       )
     })
@@ -239,7 +239,7 @@ describe('slate-react editable behavior', () => {
       editable!.dispatchEvent(event)
     })
 
-    expect(onCommand).toHaveBeenCalledTimes(1)
+    expect(onDOMBeforeInput).toHaveBeenCalledTimes(1)
     expect(event.defaultPrevented).toBe(true)
   })
 

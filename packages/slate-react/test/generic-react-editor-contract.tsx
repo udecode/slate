@@ -51,7 +51,7 @@ const _historyExtensionName: 'history' = HistoryExtension.name
 const DisabledHistoryExtension = history({ enabled: false })
 const CustomApiExtension = defineEditorExtension({
   name: 'custom-api',
-  capabilities: {
+  api: {
     customApi: {
       ping: () => 'pong' as const,
     },
@@ -82,42 +82,6 @@ const noHistoryReactEditor = createReactEditor({
 const customApiReactEditor = createReactEditor({
   extensions: [CustomApiExtension],
   initialValue,
-})
-const rendererCapabilities = SlateReact.editableRenderers<
-  CustomText,
-  CustomElement
->({
-  elements: {
-    paragraph: ({ element }) => {
-      const paragraphType: 'paragraph' = element.type
-
-      // @ts-expect-error paragraph renderers receive paragraph elements only
-      element.url
-      void paragraphType
-
-      return null
-    },
-    link: ({ element }) => {
-      const linkType: 'link' = element.type
-      const linkUrl: string = element.url
-
-      void linkType
-      void linkUrl
-
-      return null
-    },
-  },
-  voids: {
-    link: ({ element }) => {
-      const linkType: 'link' = element.type
-      const linkUrl: string = element.url
-
-      void linkType
-      void linkUrl
-
-      return null
-    },
-  },
 })
 
 const baseValue: ValueOf<typeof baseEditor> = [
@@ -186,6 +150,15 @@ typedDefaultReactEditor.api.dom.focus()
 typedDefaultReactEditor.api.react.isComposing()
 typedNamespaceReactEditor.api.history.withoutSaving(() => {})
 const customApiResult: 'pong' = typedCustomApiReactEditor.api.customApi.ping()
+
+// @ts-expect-error Slate React no longer exports extension-owned renderer maps
+SlateReact.editableRenderers
+
+// @ts-expect-error Slate React no longer exports extension-owned key commands
+SlateReact.editableKeyCommands
+
+// @ts-expect-error public Editable command types are not root exports
+type _NoEditableCommandContext = SlateReact.EditableCommandContext
 
 // @ts-expect-error ReactEditor exposes DOM through api.dom, not root dom
 typedDefaultReactEditor.dom
@@ -297,7 +270,6 @@ useSlateEditor({
 void baseValue
 void reactValue
 void customApiResult
-void rendererCapabilities
 void SelectorProbe
 void HookProbe
 void NoHistoryHookProbe

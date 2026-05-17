@@ -2,7 +2,6 @@ import React, { type ChangeEvent, useMemo } from 'react'
 import { defineEditorExtension } from 'slate'
 import {
   Editable,
-  editableRenderers,
   type RenderElementProps,
   type RenderVoidProps,
   Slate,
@@ -45,24 +44,42 @@ const EmbedsExample = () => {
   })
   return (
     <Slate editor={editor}>
-      <Editable placeholder="Enter some text..." />
+      <Editable
+        placeholder="Enter some text..."
+        renderElement={renderElement}
+        renderVoid={renderVoid}
+      />
     </Slate>
   )
 }
 
 const embed = () =>
   defineEditorExtension<CustomEditor>()({
-    capabilities: editableRenderers<unknown, CustomElement>({
-      elements: {
-        paragraph: ParagraphElement,
-      },
-      voids: {
-        video: ({ element }) => <VideoElement element={element} />,
-      },
-    }),
     name: 'embed',
     elements: [{ type: 'video', void: 'block' }],
   })
+
+const renderElement = (props: RenderElementProps<CustomElement>) => {
+  switch (props.element.type) {
+    case 'paragraph':
+      return (
+        <ParagraphElement
+          {...(props as RenderElementProps<ParagraphElementType>)}
+        />
+      )
+    default:
+      return <p {...props.attributes}>{props.children}</p>
+  }
+}
+
+const renderVoid = ({ element }: RenderVoidProps<CustomElement>) => {
+  switch (element.type) {
+    case 'video':
+      return <VideoElement element={element as VideoElementType} />
+    default:
+      return null
+  }
+}
 
 const ParagraphElement = ({
   attributes,

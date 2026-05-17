@@ -5,7 +5,7 @@ import type {
   EditorExtensionEditorGroup,
   EditorExtensionStateGroup,
   EditorExtensionTxGroup,
-  EditorNormalizer,
+  EditorNodeNormalizer,
   EditorOperationMiddleware,
   EditorQueryGroup,
   EditorQueryMiddlewareMap,
@@ -36,7 +36,7 @@ export type ExtensionRegistry<TEditor extends Editor = Editor> = {
   elementSpecs: Map<string, EditorElementSpecRegistration>
   editorGroups: Map<string, EditorEditorGroupRegistration<TEditor>>
   extensions: Map<string, RegisteredEditorExtension>
-  normalizers: Map<string, EditorNormalizer<TEditor>>
+  normalizers: Map<string, EditorNodeNormalizer<TEditor>>
   operationMiddlewares: Set<EditorOperationMiddleware<TEditor>>
   queryMiddlewares: Map<string, unknown[]>
   stateGroups: Map<string, EditorStateGroupRegistration<TEditor>>
@@ -198,7 +198,7 @@ export const registerCapability = (
 export const registerNormalizer = <TEditor extends Editor>(
   editor: TEditor,
   id: string,
-  normalizer: EditorNormalizer<TEditor>
+  normalizer: EditorNodeNormalizer<TEditor>
 ) => {
   const registry = getExtensionRegistry(editor)
   registry.normalizers.set(id, normalizer)

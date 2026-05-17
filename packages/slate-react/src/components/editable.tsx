@@ -15,7 +15,6 @@ import {
   isDOMNode,
 } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
-import type { EditableCommand } from '../editable/editable-command-types'
 import type {
   EditableRepairRequest,
   InputIntent,
@@ -93,7 +92,6 @@ export type EditableDOMRootProps = {
   } | null
   renderingStrategyMetrics?: EditableRenderingStrategyMetricsBase | null
   onDOMBeforeInput?: EditableDOMBeforeInputHandler
-  onCommand?: EditableCommandHandler
   onKeyDown?: EditableKeyDownHandler
   onRenderingStrategyMetrics?: (
     metrics: EditableRenderingStrategyMetrics
@@ -193,7 +191,7 @@ const getEditableRenderingStrategyDOMMetrics = ({
 
 export type EditableHandlerResult = boolean | EditableRepairRequest | void
 
-export type EditableCommandContext = {
+export type EditableInputEventContext = {
   data: unknown
   editor: ReactRuntimeEditor
   event?: InputEvent | React.KeyboardEvent<HTMLDivElement>
@@ -203,13 +201,7 @@ export type EditableCommandContext = {
   selection: Range | null
 }
 
-export type EditableCommandHandler = (
-  command: EditableCommand,
-  context: EditableCommandContext
-) => EditableHandlerResult
-
-export type EditableDOMBeforeInputContext = EditableCommandContext & {
-  command: EditableCommand | null
+export type EditableDOMBeforeInputContext = EditableInputEventContext & {
   event: InputEvent
   inputType: string
 }
@@ -243,7 +235,6 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     renderingStrategyMetrics = null,
     onKeyDown: propsOnKeyDown,
     onDOMBeforeInput: propsOnDOMBeforeInput,
-    onCommand,
     onRenderingStrategyMetrics,
     readOnly = false,
     scrollSelectionIntoView = defaultScrollSelectionIntoView,
@@ -260,7 +251,6 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     forwardedRef,
     renderingStrategy,
     onDOMBeforeInput: propsOnDOMBeforeInput,
-    onCommand,
     onKeyDown: propsOnKeyDown,
     readOnly,
     scrollSelectionIntoView,

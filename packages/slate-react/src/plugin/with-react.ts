@@ -94,7 +94,7 @@ export const react = (options: ReactEditorOptions = {}) =>
       const frozenDOMApi = Object.freeze(domApi) as DOMApi
 
       return {
-        capabilities: {
+        api: {
           clipboard,
           dom: frozenDOMApi,
           react: createReactApi(frozenDOMApi),

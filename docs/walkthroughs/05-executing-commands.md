@@ -55,11 +55,11 @@ Use the same commands from Slate's semantic command and key-command surfaces:
 
 ```jsx
 import { defineEditorExtension } from 'slate'
-import { editableKeyCommands, editableRenderers } from 'slate-react'
+import { onKeyDown, renderElement } from 'slate-react'
 
 const rendering = defineEditorExtension({
   name: 'command-guide-rendering',
-  capabilities: editableRenderers({
+  api: renderElement({
     elements: {
       code: CodeElement,
       paragraph: DefaultElement,
@@ -72,7 +72,7 @@ const rendering = defineEditorExtension({
 
 const commandHotkeys = defineEditorExtension({
   name: 'command-guide-hotkeys',
-  capabilities: editableKeyCommands(({ editor, event }) => {
+  api: onKeyDown(({ editor, event }) => {
     if (event.key === '`' && event.ctrlKey) {
       toggleCodeBlock(editor)
       return true
@@ -91,7 +91,7 @@ const App = () => {
   return (
     <Slate editor={editor}>
       <Editable
-        onCommand={(command, { editor }) => {
+        onKeyDown={(command, { editor }) => {
           if (command.kind !== 'format') {
             return
           }

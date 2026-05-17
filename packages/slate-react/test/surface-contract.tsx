@@ -6,8 +6,6 @@ import * as SlateReact from '../src'
 import {
   createReactEditor,
   Editable,
-  type EditableCommandContext,
-  editableRenderers,
   type RenderElementProps,
   type RenderVoidProps,
   Slate,
@@ -37,13 +35,18 @@ type RenderVoidDoesNotExposePath = ExpectFalse<RenderVoidHasPath>
 type EditableDOMBeforeInputProps = ComponentProps<
   typeof Editable
 >['onDOMBeforeInput']
-type EditableCommandProps = ComponentProps<typeof Editable>['onCommand']
+type EditableHasOnCommand = 'onCommand' extends keyof ComponentProps<
+  typeof Editable
+>
+  ? true
+  : false
+type EditableDoesNotExposeOnCommand = ExpectFalse<EditableHasOnCommand>
 
 void (null as unknown as RenderElementDoesNotExposePath)
 void (null as unknown as RenderElementDoesNotExposeIndex)
 void (null as unknown as RenderVoidDoesNotExposePath)
 void (null as unknown as EditableDOMBeforeInputProps)
-void (null as unknown as EditableCommandProps)
+void (null as unknown as EditableDoesNotExposeOnCommand)
 
 const listSourceFiles = (roots: readonly string[]) => {
   const files: string[] = []
@@ -127,24 +130,20 @@ const expectSurfaceInventory = (
 }
 
 describe('slate-react surface contract', () => {
-  test('Editable exposes native beforeinput context and semantic command handlers', () => {
+  test('Editable exposes native beforeinput context without public command handlers', () => {
     const editor = createReactEditor({
       initialValue: [{ type: 'paragraph', children: [{ text: 'test' }] }],
     })
-    let commandContext: EditableCommandContext | null = null
+    let beforeInputContext:
+      | Parameters<NonNullable<EditableDOMBeforeInputProps>>[1]
+      | null = null
 
     render(
       <Slate editor={editor}>
         <Editable
-          onCommand={(command, context) => {
-            commandContext = context
-
-            if (command.kind === 'format') {
-              return command.format === 'bold'
-            }
-          }}
           onDOMBeforeInput={(event, context) => {
             event.preventDefault()
+            beforeInputContext = context
             context.editor.update(() => {})
             return true
           }}
@@ -152,7 +151,7 @@ describe('slate-react surface contract', () => {
       </Slate>
     )
 
-    expect(commandContext).toBe(null)
+    expect(beforeInputContext).toBe(null)
   })
 
   test('synced text render policy stays out of the public selector surface', () => {
@@ -386,7 +385,7 @@ describe('slate-react surface contract', () => {
     )
   })
 
-  test('beginner rendering docs teach registered renderers instead of callback memoization', () => {
+  test('beginner rendering docs teach raw render props without callback memoization', () => {
     const docs = [
       'docs/concepts/09-rendering.md',
       'docs/walkthroughs/03-defining-custom-elements.md',
@@ -397,8 +396,9 @@ describe('slate-react surface contract', () => {
       .map((file) => readFileSync(resolve(repoRoot, file), 'utf8'))
       .join('\n')
 
-    expect(docs).toMatch(/\beditableRenderers\b/)
+    expect(docs).toMatch(/\brenderElement\b/)
     expect(docs).not.toMatch(/\buseCallback\b/)
+    expect(docs).not.toMatch(/\beditableRenderers\b/)
   })
 
   test('adapter static namespaces stay out of the public root at runtime', () => {
@@ -455,7 +455,7 @@ describe('slate-react surface contract', () => {
     expect(docs).not.toMatch(/\buseMemo\b/)
   })
 
-  test('hotkey examples use registered key commands instead of raw Editable keydown props', () => {
+  test('hotkey examples use raw Editable keydown props instead of registered key commands', () => {
     for (const file of [
       'site/examples/ts/iframe.tsx',
       'site/examples/ts/images.tsx',
@@ -463,8 +463,8 @@ describe('slate-react surface contract', () => {
     ]) {
       const source = readFileSync(resolve(repoRoot, file), 'utf8')
 
-      expect(source).toMatch(/\beditableKeyCommands\b/)
-      expect(source).not.toMatch(/\bonKeyDown=/)
+      expect(source).toMatch(/\bonKeyDown=/)
+      expect(source).not.toMatch(/\beditableKeyCommands\b/)
     }
   })
 
@@ -517,7 +517,7 @@ describe('slate-react surface contract', () => {
     ).toBe('yes')
   })
 
-  test('Editable consumes extension-registered element, leaf, text, segment, and void renderers', () => {
+  test('Editable consumes raw element, leaf, text, segment, and void render props', () => {
     const editor = createReactEditor({
       initialValue: [
         {
@@ -533,31 +533,32 @@ describe('slate-react surface contract', () => {
     }) as ReactRuntimeEditor
 
     editor.extend({
-      capabilities: editableRenderers({
-        elements: {
-          code: ({ attributes, children }) => (
+      elements: [{ type: 'image', void: 'block' }],
+      name: 'test-renderers',
+    })
+
+    const rendered = render(
+      <Slate editor={editor}>
+        <Editable
+          renderElement={({ attributes, children }) => (
             <pre {...attributes} data-renderer="code">
               <code>{children}</code>
             </pre>
-          ),
-        },
-        leaves: {
-          bold: ({ children }) => (
+          )}
+          renderLeaf={({ children }) => (
             <strong data-renderer="bold">{children}</strong>
-          ),
-        },
-        segment: (segment, children) => (
-          <mark data-renderer="segment" data-start={segment.start}>
-            {children}
-          </mark>
-        ),
-        text: ({ attributes, children }) => (
-          <span {...attributes} data-renderer="text">
-            {children}
-          </span>
-        ),
-        voids: {
-          image: ({ element }) => (
+          )}
+          renderSegment={(segment, children) => (
+            <mark data-renderer="segment" data-start={segment.start}>
+              {children}
+            </mark>
+          )}
+          renderText={({ attributes, children }) => (
+            <span {...attributes} data-renderer="text">
+              {children}
+            </span>
+          )}
+          renderVoid={({ element }) => (
             <img
               alt=""
               data-renderer="image"
@@ -565,16 +566,8 @@ describe('slate-react surface contract', () => {
               src={(element as { url: string }).url}
               width={1}
             />
-          ),
-        },
-      }),
-      elements: [{ type: 'image', void: 'block' }],
-      name: 'test-renderers',
-    })
-
-    const rendered = render(
-      <Slate editor={editor}>
-        <Editable />
+          )}
+        />
       </Slate>
     )
 
@@ -593,46 +586,6 @@ describe('slate-react surface contract', () => {
     expect(
       rendered.container.querySelector('[data-renderer="image"]')
     ).toBeTruthy()
-  })
-
-  test('raw Editable render props override extension-registered renderers', () => {
-    const editor = createReactEditor({
-      initialValue: [
-        { type: 'code', children: [{ text: 'const answer = 42' }] },
-      ],
-    })
-
-    editor.extend({
-      capabilities: editableRenderers({
-        elements: {
-          code: ({ attributes, children }) => (
-            <pre {...attributes} data-renderer="registered">
-              {children}
-            </pre>
-          ),
-        },
-      }),
-      name: 'test-registered-renderer-override',
-    })
-
-    const rendered = render(
-      <Slate editor={editor}>
-        <Editable
-          renderElement={({ attributes, children }) => (
-            <div {...attributes} data-renderer="raw">
-              {children}
-            </div>
-          )}
-        />
-      </Slate>
-    )
-
-    expect(
-      rendered.container.querySelector('[data-renderer="raw"]')
-    ).toBeTruthy()
-    expect(
-      rendered.container.querySelector('[data-renderer="registered"]')
-    ).toBeNull()
   })
 
   test('structured render surface keeps mount identity stable across split and merge', async () => {

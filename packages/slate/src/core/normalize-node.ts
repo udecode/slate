@@ -1,9 +1,9 @@
 import { node as getNode } from '../editor/node'
 import {
   type Descendant,
+  type EditorNodeNormalizerArgs,
+  type EditorNodeNormalizerContext,
   type EditorNormalizeNodeOptions,
-  type EditorNormalizerArgs,
-  type EditorNormalizerContext,
   type Element,
   ElementApi,
   NodeApi,
@@ -439,11 +439,11 @@ export const normalizeNode = <V extends Value>(
     return
   }
 
-  const tx = getNormalizerUpdateView(editor) as EditorNormalizerContext<
+  const tx = getNormalizerUpdateView(editor) as EditorNodeNormalizerContext<
     typeof editor
   >['tx']
 
-  const run = (index: number, currentArgs: EditorNormalizerArgs) => {
+  const run = (index: number, currentArgs: EditorNodeNormalizerArgs) => {
     const normalizer = normalizers[index]
 
     if (!normalizer) {

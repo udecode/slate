@@ -3,11 +3,9 @@ import imageExtensions from 'image-extensions'
 import isUrl from 'is-url'
 import type { PointerEvent } from 'react'
 import { defineEditorExtension } from 'slate'
-import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
+import { isHotkey } from 'slate-dom'
 import {
   Editable,
-  editableKeyCommands,
-  editableRenderers,
   type RenderElementProps,
   type RenderVoidProps,
   Slate,
@@ -71,7 +69,22 @@ const ImagesExample = () => {
       <Toolbar>
         <InsertImageButton />
       </Toolbar>
-      <Editable placeholder="Enter some text..." />
+      <Editable
+        onKeyDown={(event) => {
+          if (!isHotkey('mod+a', event)) {
+            return
+          }
+
+          editor.update((tx) => {
+            tx.selection.set([])
+          })
+
+          return true
+        }}
+        placeholder="Enter some text..."
+        renderElement={renderElement}
+        renderVoid={renderVoid}
+      />
     </Slate>
   )
 }
@@ -79,28 +92,8 @@ const ImagesExample = () => {
 const image = () =>
   defineEditorExtension<CustomEditor>()({
     name: 'image',
-    capabilities: {
-      ...editableKeyCommands(({ editor, event }) => {
-        if (!isHotkey('mod+a', event)) {
-          return
-        }
-
-        editor.update((tx) => {
-          tx.selection.set([])
-        })
-
-        return true
-      }),
-      ...editableRenderers<unknown, CustomElement>({
-        elements: {
-          paragraph: Paragraph,
-        },
-        voids: {
-          image: ({ element }) => <Image element={element} />,
-        },
-      }),
-      'clipboard.insertData': ((editor, data) => {
-        const imageEditor = editor as unknown as CustomEditor
+    clipboard: {
+      insertData(data, { editor, next }) {
         const text = data.getData('text/plain')
         const imageFiles = Array.from(data.files ?? []).filter(
           (file) => file.type.split('/')[0] === 'image'
@@ -112,7 +105,7 @@ const image = () =>
 
             reader.addEventListener('load', () => {
               const url = reader.result
-              insertImage(imageEditor, url as string)
+              insertImage(editor, url as string)
             })
 
             reader.readAsDataURL(file)
@@ -121,13 +114,32 @@ const image = () =>
         }
 
         if (isImageUrl(text)) {
-          insertImage(imageEditor, text)
+          insertImage(editor, text)
           return true
         }
-      }) satisfies DOMClipboardInsertDataHandler,
+        return next()
+      },
     },
     elements: [{ type: 'image', void: 'block' }],
   })
+
+const renderElement = (props: RenderElementProps<CustomElement>) => {
+  switch (props.element.type) {
+    case 'paragraph':
+      return <Paragraph {...(props as RenderElementProps<ParagraphElement>)} />
+    default:
+      return <p {...props.attributes}>{props.children}</p>
+  }
+}
+
+const renderVoid = ({ element }: RenderVoidProps<CustomElement>) => {
+  switch (element.type) {
+    case 'image':
+      return <Image element={element as ImageElement} />
+    default:
+      return null
+  }
+}
 
 const insertImage = (editor: CustomEditor, url: string) => {
   const text = { text: '' }

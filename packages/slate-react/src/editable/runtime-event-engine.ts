@@ -7,7 +7,6 @@ import {
 } from 'react'
 import type { Range, RuntimeId } from 'slate'
 import type {
-  EditableCommandHandler,
   EditableDOMBeforeInputHandler,
   EditableKeyDownHandler,
 } from '../components/editable'
@@ -115,7 +114,6 @@ export const useEditableEventRuntime = ({
   isShellBackedSelection,
   renderingStrategy,
   onDOMBeforeInput,
-  onCommand,
   onKeyDown,
   onUserInput,
   processing,
@@ -150,7 +148,6 @@ export const useEditableEventRuntime = ({
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
   } | null
   onDOMBeforeInput?: EditableDOMBeforeInputHandler
-  onCommand?: EditableCommandHandler
   onKeyDown?: EditableKeyDownHandler
   onUserInput: () => void
   processing: RefObject<boolean>
@@ -209,7 +206,6 @@ export const useEditableEventRuntime = ({
       | ((event: FormEvent<HTMLDivElement>) => boolean | void)
       | undefined,
     onDOMBeforeInput,
-    onCommand,
     onInput: callbacks.onInput,
     onKeyDown,
     onUserInput,
@@ -286,7 +282,6 @@ export const useEditableEventRuntime = ({
     editor,
     inputController,
     renderingStrategy,
-    onCommand,
     onKeyDown,
     readOnly,
     runtime,

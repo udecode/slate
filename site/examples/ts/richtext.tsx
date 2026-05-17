@@ -12,13 +12,11 @@ import {
   type Text as SlateText,
   TextApi,
 } from 'slate'
-import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
+import { isHotkey } from 'slate-dom'
 import {
   Editable,
-  type EditableLeafRendererProps,
-  editableKeyCommands,
-  editableRenderers,
   type RenderElementProps,
+  type RenderLeafProps,
   Slate,
   useEditor,
   useEditorSelector,
@@ -77,43 +75,44 @@ const BLOCK_HOTKEYS: [string, CustomElementFormat][] = [
 const CLEAR_FORMATTING_HOTKEY = 'mod+\\'
 
 const RichTextExample = () => {
+  const initialValue: CustomValue = [
+    {
+      type: 'paragraph',
+      children: [
+        { text: 'This is editable ' },
+        { text: 'rich', bold: true },
+        { text: ' text, ' },
+        { text: 'much', italic: true },
+        { text: ' better than a ' },
+        { text: '<textarea>', code: true },
+        { text: '!' },
+      ],
+    },
+    {
+      type: 'paragraph',
+      children: [
+        {
+          text: "Since it's rich text, you can do things like turn a selection of text ",
+        },
+        { text: 'bold', bold: true },
+        {
+          text: ', or add a semantically rendered block quote in the middle of the page, like this:',
+        },
+      ],
+    },
+    {
+      type: 'block-quote',
+      children: [{ text: 'A wise quote.' }],
+    },
+    {
+      type: 'paragraph',
+      align: 'center',
+      children: [{ text: 'Try it out for yourself!' }],
+    },
+  ]
   const editor = useSlateEditor({
     extensions: [richTextHtml()],
-    initialValue: [
-      {
-        type: 'paragraph',
-        children: [
-          { text: 'This is editable ' },
-          { text: 'rich', bold: true },
-          { text: ' text, ' },
-          { text: 'much', italic: true },
-          { text: ' better than a ' },
-          { text: '<textarea>', code: true },
-          { text: '!' },
-        ],
-      },
-      {
-        type: 'paragraph',
-        children: [
-          {
-            text: "Since it's rich text, you can do things like turn a selection of text ",
-          },
-          { text: 'bold', bold: true },
-          {
-            text: ', or add a semantically rendered block quote in the middle of the page, like this:',
-          },
-        ],
-      },
-      {
-        type: 'block-quote',
-        children: [{ text: 'A wise quote.' }],
-      },
-      {
-        type: 'paragraph',
-        align: 'center',
-        children: [{ text: 'Try it out for yourself!' }],
-      },
-    ],
+    initialValue,
   })
 
   return (
@@ -134,7 +133,14 @@ const RichTextExample = () => {
         <BlockButton format="justify" icon="format_align_justify" />
         <ClearFormattingButton />
       </Toolbar>
-      <Editable autoFocus placeholder="Enter some rich text…" spellCheck />
+      <Editable
+        autoFocus
+        onKeyDown={(event) => handleRichTextKeyDown(editor, event)}
+        placeholder="Enter some rich text…"
+        renderElement={Element}
+        renderLeaf={Leaf}
+        spellCheck
+      />
     </Slate>
   )
 }
@@ -293,115 +299,19 @@ const normalizeRichTextHtmlFragment = (fragment: unknown): CustomValue => {
 const richTextHtml = () =>
   defineEditorExtension<CustomEditor>()({
     name: 'richtext-html-paste',
-    capabilities: {
-      ...editableRenderers<CustomText, CustomElement>({
-        elements: {
-          'block-quote': Element,
-          'bulleted-list': Element,
-          'heading-one': Element,
-          'heading-two': Element,
-          'list-item': Element,
-          'numbered-list': Element,
-          paragraph: Element,
-        },
-        leaves: {
-          underline: UnderlineLeaf,
-          italic: ItalicLeaf,
-          code: CodeLeaf,
-          bold: BoldLeaf,
-        },
-      }),
-      ...editableKeyCommands(({ editor, event }) => {
-        const richTextEditor = editor as unknown as CustomEditor
-
-        if (
-          event.key === 'Enter' &&
-          !event.altKey &&
-          !event.ctrlKey &&
-          !event.metaKey &&
-          !event.shiftKey
-        ) {
-          const selection = richTextEditor.read((state) =>
-            state.selection.get()
-          )
-
-          if (selection && RangeApi.isCollapsed(selection)) {
-            const blockEntry = richTextEditor.read((state) =>
-              state.nodes.above({
-                at: selection,
-                match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
-              })
-            )
-
-            if (blockEntry) {
-              const [block, blockPath] = blockEntry
-
-              if (
-                NodeApi.isElement(block) &&
-                isExitOnEnterType(block.type as CustomElementType)
-              ) {
-                const blockText = NodeApi.string(block)
-                const end = richTextEditor.read((state) =>
-                  state.points.end(blockPath)
-                )
-
-                if (
-                  blockText === '' ||
-                  PointApi.equals(selection.anchor, end)
-                ) {
-                  const paragraphPath = PathApi.next(blockPath)
-
-                  richTextEditor.update((tx) => {
-                    tx.break.insert()
-                    tx.nodes.set(
-                      { type: 'paragraph' },
-                      {
-                        at: paragraphPath,
-                        match: (n) =>
-                          NodeApi.isElement(n) && tx.nodes.isBlock(n),
-                      }
-                    )
-                  })
-
-                  return true
-                }
-              }
-            }
-          }
-        }
-
-        if (isHotkey(CLEAR_FORMATTING_HOTKEY, event)) {
-          clearRichTextFormatting(richTextEditor)
-          return true
-        }
-
-        for (const [hotkey, format] of BLOCK_HOTKEYS) {
-          if (isHotkey(hotkey, event)) {
-            toggleBlock(richTextEditor, format)
-            return true
-          }
-        }
-
-        for (const [hotkey, mark] of MARK_HOTKEYS) {
-          if (isHotkey(hotkey, event)) {
-            toggleMark(richTextEditor, mark)
-            return true
-          }
-        }
-      }),
-      'clipboard.insertData': ((editor, data) => {
-        const richTextEditor = editor as unknown as CustomEditor
+    clipboard: {
+      insertData(data, { editor, next }) {
         const html = data.getData('text/html')
 
         if (!html) {
-          return false
+          return next()
         }
 
         const hasPlainText = Array.from(data.types).includes('text/plain')
         const text = hasPlainText ? data.getData('text/plain') : ''
 
         if (text && html === text) {
-          richTextEditor.update((tx) => {
+          editor.update((tx) => {
             tx.text.insert(text)
           })
           return true
@@ -410,13 +320,85 @@ const richTextHtml = () =>
         const parsed = new DOMParser().parseFromString(html, 'text/html')
         const fragment = normalizeRichTextHtmlFragment(deserialize(parsed.body))
 
-        richTextEditor.update((tx) => {
+        editor.update((tx) => {
           tx.nodes.insert(fragment)
         })
         return true
-      }) satisfies DOMClipboardInsertDataHandler,
+      },
     },
   })
+
+const handleRichTextKeyDown = (
+  editor: CustomEditor,
+  event: React.KeyboardEvent<HTMLDivElement>
+) => {
+  if (
+    event.key === 'Enter' &&
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey
+  ) {
+    const selection = editor.read((state) => state.selection.get())
+
+    if (selection && RangeApi.isCollapsed(selection)) {
+      const blockEntry = editor.read((state) =>
+        state.nodes.above({
+          at: selection,
+          match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
+        })
+      )
+
+      if (blockEntry) {
+        const [block, blockPath] = blockEntry
+
+        if (
+          NodeApi.isElement(block) &&
+          isExitOnEnterType(block.type as CustomElementType)
+        ) {
+          const blockText = NodeApi.string(block)
+          const end = editor.read((state) => state.points.end(blockPath))
+
+          if (blockText === '' || PointApi.equals(selection.anchor, end)) {
+            const paragraphPath = PathApi.next(blockPath)
+
+            editor.update((tx) => {
+              tx.break.insert()
+              tx.nodes.set(
+                { type: 'paragraph' },
+                {
+                  at: paragraphPath,
+                  match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
+                }
+              )
+            })
+
+            return true
+          }
+        }
+      }
+    }
+  }
+
+  if (isHotkey(CLEAR_FORMATTING_HOTKEY, event)) {
+    clearRichTextFormatting(editor)
+    return true
+  }
+
+  for (const [hotkey, format] of BLOCK_HOTKEYS) {
+    if (isHotkey(hotkey, event)) {
+      toggleBlock(editor, format)
+      return true
+    }
+  }
+
+  for (const [hotkey, mark] of MARK_HOTKEYS) {
+    if (isHotkey(hotkey, event)) {
+      toggleMark(editor, mark)
+      return true
+    }
+  }
+}
 
 const isBlockActive = (
   editor: CustomEditor,
@@ -497,21 +479,22 @@ const Element = ({
   }
 }
 
-const BoldLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
-  <strong>{children}</strong>
-)
+const Leaf = ({ attributes, children, leaf }: RenderLeafProps<CustomText>) => {
+  if (leaf.bold) {
+    children = <strong>{children}</strong>
+  }
+  if (leaf.code) {
+    children = <code>{children}</code>
+  }
+  if (leaf.italic) {
+    children = <em>{children}</em>
+  }
+  if (leaf.underline) {
+    children = <u>{children}</u>
+  }
 
-const CodeLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
-  <code>{children}</code>
-)
-
-const ItalicLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
-  <em>{children}</em>
-)
-
-const UnderlineLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
-  <u>{children}</u>
-)
+  return <span {...attributes}>{children}</span>
+}
 
 interface BlockButtonProps {
   format: CustomElementFormat

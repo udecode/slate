@@ -4,8 +4,8 @@ import { type PointerEvent, useState } from 'react'
 import { defineEditorExtension } from 'slate'
 import {
   Editable,
-  editableRenderers,
   type RenderElementProps,
+  type RenderVoidProps,
   Slate,
   useEditor,
   useSlateEditor,
@@ -53,24 +53,42 @@ const EditableVoidsExample = () => {
         <InsertEditableVoidButton />
       </Toolbar>
 
-      <Editable placeholder="Enter some text..." />
+      <Editable
+        placeholder="Enter some text..."
+        renderElement={renderElement}
+        renderVoid={renderVoid}
+      />
     </Slate>
   )
 }
 
 const editableVoid = () =>
   defineEditorExtension({
-    capabilities: editableRenderers<unknown, CustomElement>({
-      elements: {
-        paragraph: ParagraphElement,
-      },
-      voids: {
-        'editable-void': () => <EditableVoid />,
-      },
-    }),
     name: 'editable-voids',
     elements: [{ type: 'editable-void', void: 'editable-island' }],
   })
+
+const renderElement = (props: RenderElementProps<CustomElement>) => {
+  switch (props.element.type) {
+    case 'paragraph':
+      return (
+        <ParagraphElement
+          {...(props as RenderElementProps<ParagraphElementType>)}
+        />
+      )
+    default:
+      return <p {...props.attributes}>{props.children}</p>
+  }
+}
+
+const renderVoid = (props: RenderVoidProps<CustomElement>) => {
+  switch (props.element.type) {
+    case 'editable-void':
+      return <EditableVoid />
+    default:
+      return null
+  }
+}
 
 const ParagraphElement = ({
   attributes,

@@ -7,7 +7,9 @@ import type {
   EditorExtensionRegistrationContext,
   EditorExtensionRegistrationOutput,
   EditorExtensionRuntimeState,
+  EditorNodeNormalizerContext,
   EditorPublicTransformMiddlewareKey,
+  EditorRootNormalizerArgs,
   EditorTransformMiddlewareArgs,
   EditorTransformMiddlewareContext,
   ValueOf,
@@ -410,12 +412,26 @@ const registerExtensionSlots = <TEditor extends Editor>(
       )
     }
 
-    for (const [name, value] of Object.entries(slots.capabilities ?? {})) {
+    for (const [name, value] of Object.entries(slots.api ?? {})) {
       const values = Array.isArray(value) ? value : [value]
 
       for (const capability of values) {
         cleanups.push(registerCapability(editor, name, capability))
       }
+    }
+
+    if (slots.clipboard?.insertData) {
+      cleanups.push(
+        registerCapability(
+          editor,
+          'clipboard.insertData',
+          ((_runtimeEditor, data) =>
+            slots.clipboard?.insertData?.(data, {
+              editor,
+              next: () => false,
+            }) === true) as (editor: TEditor, data: DataTransfer) => boolean
+        )
+      )
     }
 
     for (const groupName of Object.keys(slots.editor ?? {})) {
@@ -432,12 +448,49 @@ const registerExtensionSlots = <TEditor extends Editor>(
       cleanups.push(registerElementSpec(editor, extension.name, spec))
     }
 
+    if (slots.normalizers?.editor) {
+      cleanups.push(
+        registerNormalizer(
+          editor,
+          getExtensionSlotId(extension.name, 'normalizers.editor'),
+          (context) => {
+            if (context.entry[1].length !== 0) {
+              context.next()
+              return
+            }
+
+            const { entry, ...normalizerOptions } = context
+
+            slots.normalizers?.editor?.({
+              ...normalizerOptions,
+              next(
+                overrides: Partial<
+                  EditorRootNormalizerArgs<ValueOf<TEditor>>
+                > = {}
+              ) {
+                context.next(overrides)
+              },
+            })
+          }
+        )
+      )
+    }
+
     if (slots.normalizers?.node) {
       cleanups.push(
         registerNormalizer(
           editor,
           getExtensionSlotId(extension.name, 'normalizers.node'),
-          slots.normalizers.node
+          (context) => {
+            if (context.entry[1].length === 0) {
+              context.next()
+              return
+            }
+
+            slots.normalizers?.node?.(
+              context as EditorNodeNormalizerContext<TEditor>
+            )
+          }
         )
       )
     }

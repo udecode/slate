@@ -58,7 +58,7 @@ Next, we'll edit the `onKeyDown` handler to make it so that when you press `cont
 
 ```jsx
 import { defineEditorExtension } from 'slate'
-import { editableRenderers } from 'slate-react'
+import { renderElement } from 'slate-react'
 
 const initialValue = [
   {
@@ -69,7 +69,7 @@ const initialValue = [
 
 const rendering = defineEditorExtension({
   name: 'formatting-rendering',
-  capabilities: editableRenderers({
+  api: renderElement({
     elements: {
       code: CodeElement,
       paragraph: DefaultElement,
@@ -147,11 +147,11 @@ DOM shell, so the component only needs to return inline content. You can learn
 more about leaves in the [Rendering section](../concepts/09-rendering.md#leaves).
 
 Next, let's tell Slate about that leaf. To do that, we'll add it to our
-`editableRenderers(...)` extension capability.
+`renderElement(...)` extension capability.
 
 ```jsx
 import { defineEditorExtension } from 'slate'
-import { editableRenderers } from 'slate-react'
+import { renderElement } from 'slate-react'
 
 const initialValue = [
   {
@@ -162,7 +162,7 @@ const initialValue = [
 
 const rendering = defineEditorExtension({
   name: 'formatting-rendering',
-  capabilities: editableRenderers({
+  api: renderElement({
     elements: {
       code: CodeElement,
       paragraph: DefaultElement,

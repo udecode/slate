@@ -69,7 +69,7 @@ Now, let's add that renderer to our `Editor`:
 
 ```jsx
 import { defineEditorExtension } from 'slate'
-import { editableRenderers } from 'slate-react'
+import { renderElement } from 'slate-react'
 
 const initialValue = [
   {
@@ -80,7 +80,7 @@ const initialValue = [
 
 const rendering = defineEditorExtension({
   name: 'code-rendering',
-  capabilities: editableRenderers({
+  api: renderElement({
     elements: {
       code: CodeElement,
       paragraph: DefaultElement,
@@ -129,7 +129,7 @@ Okay, but now we'll need a way for the user to actually turn a block into a code
 ```jsx
 // Import the `Element` helper and renderer-extension helpers.
 import { defineEditorExtension, ElementApi } from 'slate'
-import { editableRenderers } from 'slate-react'
+import { renderElement } from 'slate-react'
 
 const initialValue = [
   {
@@ -140,7 +140,7 @@ const initialValue = [
 
 const rendering = defineEditorExtension({
   name: 'code-rendering',
-  capabilities: editableRenderers({
+  api: renderElement({
     elements: {
       code: CodeElement,
       paragraph: DefaultElement,
@@ -197,7 +197,7 @@ But we forgot one thing. When you hit `` Ctrl-` `` again, it should change the c
 
 ```jsx
 import { defineEditorExtension, ElementApi } from 'slate'
-import { editableRenderers } from 'slate-react'
+import { renderElement } from 'slate-react'
 
 const initialValue = [
   {
@@ -208,7 +208,7 @@ const initialValue = [
 
 const rendering = defineEditorExtension({
   name: 'code-rendering',
-  capabilities: editableRenderers({
+  api: renderElement({
     elements: {
       code: CodeElement,
       paragraph: DefaultElement,

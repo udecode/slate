@@ -50,16 +50,16 @@ const HoveringMenuExample = () => {
     <Slate editor={editor}>
       <HoveringToolbar />
       <Editable
-        onCommand={(command) => {
-          if (command.kind !== 'format') {
-            return
-          }
-
-          switch (command.format) {
-            case 'bold':
-            case 'italic':
-            case 'underline':
-              toggleMark(editor, command.format)
+        onDOMBeforeInput={(event) => {
+          switch (event.inputType) {
+            case 'formatBold':
+              toggleMark(editor, 'bold')
+              return true
+            case 'formatItalic':
+              toggleMark(editor, 'italic')
+              return true
+            case 'formatUnderline':
+              toggleMark(editor, 'underline')
               return true
           }
         }}

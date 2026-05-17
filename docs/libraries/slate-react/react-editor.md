@@ -1,8 +1,7 @@
 # React Editor
 
-`createReactEditor` creates an editor with React, DOM, and clipboard host
-capabilities installed. Hooks such as `useSlateEditor` create the same editor
-shape.
+`createReactEditor` creates an editor with React, DOM, and clipboard host APIs
+installed. Hooks such as `useSlateEditor` create the same editor shape.
 
 ```typescript
 import { createReactEditor } from 'slate-react'
@@ -115,7 +114,7 @@ range is not currently mappable.
 
 Insert data from a `DataTransfer` into the editor.
 
-Slate runs `clipboard.insertData` capability handlers first. A handler that
+Slate runs typed `clipboard.insertData` extension handlers first. A handler that
 returns `true` stops the default import path. When no handler claims the data,
 Slate tries an internal Slate fragment for the editor's configured
 `clipboardFormatKey`, then plain text.

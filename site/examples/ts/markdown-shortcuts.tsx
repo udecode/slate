@@ -6,7 +6,12 @@ import {
   RangeApi,
   type Element as SlateElement,
 } from 'slate'
-import { Editable, editableRenderers, Slate, useSlateEditor } from 'slate-react'
+import {
+  Editable,
+  type RenderElementProps,
+  Slate,
+  useSlateEditor,
+} from 'slate-react'
 
 import type {
   BulletedListElement,
@@ -83,8 +88,15 @@ const MarkdownShortcutsExample = () => {
     <Slate editor={editor}>
       <Editable
         autoFocus
-        onCommand={(command) => {
-          if (command.kind === 'insert-break') {
+        onDOMBeforeInput={() => scheduleAndroidMarkdownShortcutFlush(editor)}
+        onKeyDown={(event) => {
+          if (
+            event.key === 'Enter' &&
+            !event.altKey &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.shiftKey
+          ) {
             const selection = editor.read((state) => state.selection.get())
 
             if (selection && RangeApi.isCollapsed(selection)) {
@@ -126,7 +138,12 @@ const MarkdownShortcutsExample = () => {
             }
           }
 
-          if (command.kind === 'delete' && command.direction === 'backward') {
+          if (
+            event.key === 'Backspace' &&
+            !event.altKey &&
+            !event.ctrlKey &&
+            !event.metaKey
+          ) {
             const selection = editor.read((state) => state.selection.get())
 
             if (selection && RangeApi.isCollapsed(selection)) {
@@ -172,8 +189,8 @@ const MarkdownShortcutsExample = () => {
             }
           }
         }}
-        onDOMBeforeInput={() => scheduleAndroidMarkdownShortcutFlush(editor)}
         placeholder="Write some markdown..."
+        renderElement={renderElement}
         spellCheck
       />
     </Slate>
@@ -182,45 +199,6 @@ const MarkdownShortcutsExample = () => {
 
 const markdownShortcuts = () =>
   defineEditorExtension<CustomEditor>()({
-    capabilities: editableRenderers<unknown, CustomElement>({
-      elements: {
-        'block-quote': ({ attributes, children }) => (
-          <blockquote {...attributes}>{children}</blockquote>
-        ),
-        'bulleted-list': ({ attributes, children }) => (
-          <ul {...attributes}>{children}</ul>
-        ),
-        'heading-five': ({ attributes, children }) => (
-          <h5 {...attributes}>{children}</h5>
-        ),
-        'heading-four': ({ attributes, children }) => (
-          <h4 {...attributes}>{children}</h4>
-        ),
-        'heading-one': ({ attributes, children }) => (
-          <h1 {...attributes}>{children}</h1>
-        ),
-        'heading-six': ({ attributes, children }) => (
-          <h6 {...attributes}>{children}</h6>
-        ),
-        'heading-three': ({ attributes, children }) => (
-          <h3 {...attributes}>{children}</h3>
-        ),
-        'heading-two': ({ attributes, children }) => (
-          <h2 {...attributes}>{children}</h2>
-        ),
-        'list-item': ({ attributes, children }) => (
-          <li {...attributes}>{children}</li>
-        ),
-        'numbered-list': ({ attributes, children, element }) => (
-          <ol start={element.start} {...attributes}>
-            {children}
-          </ol>
-        ),
-        paragraph: ({ attributes, children }) => (
-          <p {...attributes}>{children}</p>
-        ),
-      },
-    }),
     name: 'markdown-shortcuts',
     transforms: {
       insertText({ editor, next, text }) {
@@ -285,6 +263,41 @@ const markdownShortcuts = () =>
       },
     },
   })
+
+const renderElement = ({
+  attributes,
+  children,
+  element,
+}: RenderElementProps<CustomElement>) => {
+  switch (element.type) {
+    case 'block-quote':
+      return <blockquote {...attributes}>{children}</blockquote>
+    case 'bulleted-list':
+      return <ul {...attributes}>{children}</ul>
+    case 'heading-five':
+      return <h5 {...attributes}>{children}</h5>
+    case 'heading-four':
+      return <h4 {...attributes}>{children}</h4>
+    case 'heading-one':
+      return <h1 {...attributes}>{children}</h1>
+    case 'heading-six':
+      return <h6 {...attributes}>{children}</h6>
+    case 'heading-three':
+      return <h3 {...attributes}>{children}</h3>
+    case 'heading-two':
+      return <h2 {...attributes}>{children}</h2>
+    case 'list-item':
+      return <li {...attributes}>{children}</li>
+    case 'numbered-list':
+      return (
+        <ol start={element.start} {...attributes}>
+          {children}
+        </ol>
+      )
+    default:
+      return <p {...attributes}>{children}</p>
+  }
+}
 
 const scheduleAndroidMarkdownShortcutFlush = (editor: CustomEditor) => {
   queueMicrotask(() => {

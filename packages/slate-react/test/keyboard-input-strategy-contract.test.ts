@@ -1,6 +1,5 @@
 import { createEditor } from 'slate'
 import { describe, expect, it, vi } from 'vitest'
-import { editableKeyCommands } from '../src'
 
 import {
   applyEditableKeyDown,
@@ -88,12 +87,11 @@ describe('keyboard input strategy', () => {
     expect(forceRender).not.toHaveBeenCalled()
   })
 
-  it('routes non-format keydown commands through onCommand before default mutation', () => {
+  it('applies model-owned keydown commands without a public onCommand hook', () => {
     const editor = createEditor({
       initialValue: [{ children: [{ text: 'test' }] }],
     }) as ReactEditorType
     const event = reactKeyEvent(keyEvent('Enter'))
-    const onCommand = vi.fn(() => true)
     const hasEditableTarget = vi
       .spyOn(ReactEditor, 'hasEditableTarget')
       .mockReturnValue(true)
@@ -107,7 +105,6 @@ describe('keyboard input strategy', () => {
       event,
       forceRender: vi.fn(),
       inputController: {} as any,
-      onCommand,
       readOnly: false,
       renderingStrategy: null,
       setComposing: vi.fn(),
@@ -116,37 +113,24 @@ describe('keyboard input strategy', () => {
     })
 
     expect(result.handled).toBe(true)
-    expect(onCommand).toHaveBeenCalledWith(
-      { kind: 'insert-break', variant: 'paragraph' },
-      expect.objectContaining({
-        editor,
-        native: false,
-      })
-    )
     expect(event.preventDefault).toHaveBeenCalled()
 
     hasEditableTarget.mockRestore()
     isComposing.mockRestore()
   })
 
-  it('runs extension key commands before raw keydown fallback', () => {
+  it('runs raw keydown before model fallback', () => {
     const editor = createEditor({
       initialValue: [{ children: [{ text: 'test' }] }],
     }) as ReactEditorType
     const event = reactKeyEvent(keyEvent('Tab'))
-    const keyCommand = vi.fn(() => true)
-    const onKeyDown = vi.fn()
+    const onKeyDown = vi.fn(() => true)
     const hasEditableTarget = vi
       .spyOn(ReactEditor, 'hasEditableTarget')
       .mockReturnValue(true)
     const isComposing = vi
       .spyOn(ReactEditor, 'isComposing')
       .mockReturnValue(false)
-
-    editor.extend({
-      capabilities: editableKeyCommands(keyCommand),
-      name: 'test-key-commands',
-    })
 
     const result = applyEditableKeyDown({
       androidInputManagerRef: { current: null },
@@ -163,10 +147,7 @@ describe('keyboard input strategy', () => {
     })
 
     expect(result.handled).toBe(true)
-    expect(keyCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ editor, event })
-    )
-    expect(onKeyDown).not.toHaveBeenCalled()
+    expect(onKeyDown).toHaveBeenCalledWith(event, { editor })
     expect(event.preventDefault).toHaveBeenCalled()
 
     hasEditableTarget.mockRestore()

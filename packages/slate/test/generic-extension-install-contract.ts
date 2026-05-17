@@ -39,7 +39,7 @@ const initialValue: CustomValue = [
 
 const ChecklistExtension = defineEditorExtension({
   name: 'checklist',
-  capabilities: {
+  api: {
     checklist: {
       toggle() {},
     },
@@ -88,6 +88,16 @@ editor.getApi(ChecklistExtension).toggle()
 
 const OtherChecklistExtension = defineEditorExtension({
   name: 'other-checklist',
+  api: {
+    checklist: {
+      toggle() {},
+    },
+  },
+})
+
+defineEditorExtension({
+  name: 'old-capabilities',
+  // @ts-expect-error public extension authoring uses api, not capabilities
   capabilities: {
     checklist: {
       toggle() {},
@@ -119,7 +129,7 @@ disabledEditor.getApi(ChecklistExtension)
 
 const FirstSameNameExtension = defineEditorExtension({
   name: 'same-name',
-  capabilities: {
+  api: {
     sameName: {
       firstOnly() {},
     },
@@ -128,7 +138,7 @@ const FirstSameNameExtension = defineEditorExtension({
 
 const SecondSameNameExtension = defineEditorExtension({
   name: 'same-name',
-  capabilities: {
+  api: {
     sameName: {
       secondOnly() {},
     },

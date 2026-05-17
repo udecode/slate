@@ -1,8 +1,6 @@
 import { type FormEvent, type RefObject, useCallback } from 'react'
 import type { Range } from 'slate'
 import type {
-  EditableCommandContext,
-  EditableCommandHandler,
   EditableDOMBeforeInputContext,
   EditableDOMBeforeInputHandler,
 } from '../components/editable'
@@ -48,16 +46,6 @@ type ReactBeforeInputHandler = (
   event: FormEvent<HTMLDivElement>
 ) => boolean | void
 
-const DEFAULT_EDITABLE_COMMAND_REPAIR = {
-  focus: true,
-  kind: 'repair-caret',
-  selectionSourceTransition: {
-    preferModelSelection: true,
-    reason: 'model-command',
-    selectionSource: 'model-owned',
-  },
-} as const
-
 const now = () => globalThis.performance?.now?.() ?? Date.now()
 
 const profileBeforeInputDuration = <T>(id: string, callback: () => T): T => {
@@ -96,40 +84,6 @@ const isDOMBeforeInputHandled = (
   return event.defaultPrevented
 }
 
-const applyCommandHandler = ({
-  command,
-  context,
-  event,
-  handler,
-  repair,
-}: {
-  command: NonNullable<EditableDOMBeforeInputContext['command']>
-  context: EditableCommandContext
-  event: InputEvent
-  handler?: EditableCommandHandler
-  repair: EditableEventRuntime['repair']
-}) => {
-  if (!handler) {
-    return false
-  }
-
-  const result = handler(command, context)
-
-  if (result != null) {
-    if (!result) {
-      return false
-    }
-
-    event.preventDefault()
-    repair.requestEditableRepair(
-      result === true ? DEFAULT_EDITABLE_COMMAND_REPAIR : result
-    )
-    return true
-  }
-
-  return event.defaultPrevented
-}
-
 export const useRuntimeBeforeInputEvents = ({
   androidInputManagerRef,
   applyInputRules,
@@ -139,7 +93,6 @@ export const useRuntimeBeforeInputEvents = ({
   inputController,
   onBeforeInput,
   onDOMBeforeInput,
-  onCommand,
   onInput,
   onKeyDown,
   onUserInput,
@@ -158,7 +111,6 @@ export const useRuntimeBeforeInputEvents = ({
   inputController: EditableInputController
   onBeforeInput?: ReactBeforeInputHandler
   onDOMBeforeInput?: EditableDOMBeforeInputHandler
-  onCommand?: EditableCommandHandler
   onInput?: unknown
   onKeyDown?: unknown
   onUserInput: () => void
@@ -236,7 +188,7 @@ export const useRuntimeBeforeInputEvents = ({
           () => readLiveSelection(editor)
         )
         const hasAppInputPolicy = Boolean(
-          onDOMBeforeInput || onCommand || onBeforeInput || onInput || onKeyDown
+          onDOMBeforeInput || onBeforeInput || onInput || onKeyDown
         )
         const beforeInputDecision = profileBeforeInputDuration(
           'beforeinput-native-decision',
@@ -257,7 +209,6 @@ export const useRuntimeBeforeInputEvents = ({
         } = beforeInputDecision
 
         const domBeforeInputContext: EditableDOMBeforeInputContext = {
-          command: decision.command,
           data,
           editor,
           event,
@@ -346,27 +297,6 @@ export const useRuntimeBeforeInputEvents = ({
           return
         }
 
-        if (
-          decision.command &&
-          applyCommandHandler({
-            command: decision.command,
-            context: {
-              data,
-              editor,
-              event,
-              inputType: type,
-              intent: decision.intent,
-              native,
-              selection: currentSelection,
-            },
-            event,
-            handler: onCommand,
-            repair,
-          })
-        ) {
-          return
-        }
-
         if (!native) {
           event.preventDefault()
         }
@@ -410,7 +340,6 @@ export const useRuntimeBeforeInputEvents = ({
       inputController,
       onBeforeInput,
       onDOMBeforeInput,
-      onCommand,
       onInput,
       onKeyDown,
       onUserInput,

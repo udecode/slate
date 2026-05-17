@@ -214,7 +214,7 @@ describe('extension method hard cut', () => {
   it('resolves editor api handles only from installed extension tokens', () => {
     const installed = defineEditorExtension({
       name: 'history',
-      capabilities: {
+      api: {
         history: {
           withoutSaving(fn: () => void) {
             fn()
@@ -224,7 +224,7 @@ describe('extension method hard cut', () => {
     })
     const fresh = defineEditorExtension({
       name: 'history',
-      capabilities: {
+      api: {
         history: {
           withoutSaving(fn: () => void) {
             fn()
@@ -710,7 +710,7 @@ describe('extension method hard cut', () => {
   it('uses latest same-name extensions and enabled false tombstones', () => {
     const editor = createEditor()
     const first = defineEditorExtension({
-      capabilities: {
+      api: {
         duplicate: {
           value: 'first',
         },
@@ -723,7 +723,7 @@ describe('extension method hard cut', () => {
       },
     })
     const second = defineEditorExtension({
-      capabilities: {
+      api: {
         duplicate: {
           value: 'second',
         },

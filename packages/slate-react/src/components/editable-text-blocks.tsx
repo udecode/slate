@@ -36,11 +36,6 @@ import {
   type SlateOverlayProjectionStore,
 } from '../decoration-source'
 import {
-  type EditableLeafRendererProps,
-  type EditableRenderers,
-  getEditableRenderers,
-} from '../editable/editable-renderers'
-import {
   type RenderingStrategyRootConfig,
   usePlaceholderValue,
   useRenderingStrategyRootSources,
@@ -69,7 +64,6 @@ import {
   DOMCoverageSelfBoundary,
 } from './dom-coverage-boundary'
 import {
-  type EditableCommandHandler,
   type EditableDOMBeforeInputHandler,
   EditableDOMRoot,
   type EditableKeyDownHandler,
@@ -85,7 +79,6 @@ import {
   type EditableTextRenderTextProps,
   type EditableTextSegment,
 } from './editable-text'
-import { SlateLeaf } from './slate-leaf'
 import { SlateInlineVoidShell, SlateVoidShell } from './slate-void-shell'
 
 const isText = (value: Descendant): value is SlateTextNode =>
@@ -209,69 +202,6 @@ const sameDirectTextChildNodes = (
 ) =>
   left.length === right.length &&
   left.every((node, index) => node === right[index])
-
-const getTypedElementRenderer = <TElement extends SlateElementNode>(
-  renderers: EditableRenderers<unknown, TElement>['elements'] | undefined,
-  element: TElement
-): RenderElementRenderer<TElement> | undefined => {
-  const type = (element as { type?: unknown }).type
-
-  return typeof type === 'string'
-    ? (
-        renderers as
-          | Record<string, RenderElementRenderer<TElement> | undefined>
-          | undefined
-      )?.[type]
-    : undefined
-}
-
-const getTypedVoidRenderer = <TElement extends SlateElementNode>(
-  renderers: EditableRenderers<unknown, TElement>['voids'] | undefined,
-  element: TElement
-): RenderVoidRenderer<TElement> | undefined => {
-  const type = (element as { type?: unknown }).type
-
-  return typeof type === 'string'
-    ? (
-        renderers as
-          | Record<string, RenderVoidRenderer<TElement> | undefined>
-          | undefined
-      )?.[type]
-    : undefined
-}
-
-const createRegisteredRenderLeaf = <T,>(
-  leafRenderers: EditableRenderers<T>['leaves'] | undefined
-): ((props: EditableTextLeafProps<T>) => ReactNode) | undefined => {
-  const entries = Object.entries(leafRenderers ?? {})
-
-  if (!entries.length) {
-    return undefined
-  }
-
-  return (props) => {
-    let children = props.children
-    const leafRecord = props.leaf as Record<string, unknown>
-
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
-      const [key, Renderer] = entries[index]!
-
-      if (!leafRecord[key]) {
-        continue
-      }
-
-      children = Renderer({
-        children,
-        leaf: props.leaf,
-        leafPosition: props.leafPosition,
-        segment: props.segment,
-        text: props.text,
-      } satisfies EditableLeafRendererProps<T>)
-    }
-
-    return <SlateLeaf>{children}</SlateLeaf>
-  }
-}
 
 const sameDescendantBinding = (
   left: {
@@ -528,18 +458,13 @@ const EditableRenderedVoid = <
   element,
   isInline,
   renderVoid,
-  voidRenderers,
 }: {
   children: ReactNode
   element: TElement
   isInline: boolean
   renderVoid?: RenderVoidRenderer<TElement>
-  voidRenderers?: EditableRenderers<unknown, TElement>['voids']
 }) => {
-  const content =
-    (renderVoid ?? getTypedVoidRenderer(voidRenderers, element))?.({
-      element,
-    }) ?? null
+  const content = renderVoid?.({ element }) ?? null
 
   return isInline ? (
     <SlateInlineVoidShell content={content}>{children}</SlateInlineVoidShell>
@@ -607,7 +532,6 @@ export type EditableTextBlocksProps<
   renderingStrategy?: RenderingStrategyOptions | null
   onBeforeInput?: React.FormEventHandler<HTMLDivElement>
   onDOMBeforeInput?: EditableDOMBeforeInputHandler
-  onCommand?: EditableCommandHandler
   onKeyDown?: EditableKeyDownHandler
   onRenderingStrategyMetrics?: (
     metrics: EditableRenderingStrategyMetrics
@@ -643,7 +567,6 @@ export type EditableTextBlocksProps<
 >
 
 const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
-  elementRenderers,
   placeholder,
   placeholderRef,
   renderElement,
@@ -653,9 +576,7 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
   renderText,
   renderVoid,
   runtimeId,
-  voidRenderers,
 }: {
-  elementRenderers?: EditableRenderers<unknown, TElement>['elements']
   placeholder?: ReactNode
   placeholderRef?: React.RefCallback<HTMLElement>
   renderElement?: RenderElementRenderer<TElement>
@@ -668,7 +589,6 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
   renderText?: (props: EditableTextRenderTextProps) => ReactNode
   renderVoid?: RenderVoidRenderer<TElement>
   runtimeId: RuntimeId
-  voidRenderers?: EditableRenderers<unknown, TElement>['voids']
 }) => {
   const editor = useEditor()
   const projectionStore = React.useContext(ProjectionContext)
@@ -772,7 +692,6 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
   }
   const children = childRuntimeIds.map((childRuntimeId) => (
     <EditableDescendantNode
-      elementRenderers={elementRenderers}
       key={childRuntimeId}
       placeholder={placeholder}
       placeholderRef={placeholderRef}
@@ -783,7 +702,6 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
       renderText={renderText}
       renderVoid={renderVoid}
       runtimeId={childRuntimeId}
-      voidRenderers={voidRenderers}
     />
   ))
   const defaultChildren = childRuntimeIds.map((childRuntimeId, index) => {
@@ -829,7 +747,6 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
 
     return (
       <EditableDescendantNode
-        elementRenderers={elementRenderers}
         key={childRuntimeId}
         placeholder={placeholder}
         placeholderRef={placeholderRef}
@@ -840,7 +757,6 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
         renderText={renderText}
         renderVoid={renderVoid}
         runtimeId={childRuntimeId}
-        voidRenderers={voidRenderers}
       />
     )
   })
@@ -858,7 +774,6 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
               element={node as TElement}
               isInline={inline}
               renderVoid={renderVoid}
-              voidRenderers={voidRenderers}
             >
               {children}
             </EditableRenderedVoid>
@@ -868,8 +783,7 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
     )
   }
 
-  const nodeRenderElement =
-    renderElement ?? getTypedElementRenderer(elementRenderers, node as TElement)
+  const nodeRenderElement = renderElement
 
   if (nodeRenderElement) {
     if (!path) {
@@ -1170,7 +1084,6 @@ const useMountedRootGroupIds = ({
 
 const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
   endIndex,
-  elementRenderers,
   groupId,
   placeholder,
   placeholderRef,
@@ -1182,10 +1095,8 @@ const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
   renderVoid,
   runtimeIds,
   startIndex,
-  voidRenderers,
 }: {
   endIndex: number
-  elementRenderers?: EditableRenderers<unknown, TElement>['elements']
   groupId: string
   placeholder?: ReactNode
   placeholderRef?: React.RefCallback<HTMLElement>
@@ -1200,7 +1111,6 @@ const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
   renderVoid?: RenderVoidRenderer<TElement>
   runtimeIds: readonly RuntimeId[]
   startIndex: number
-  voidRenderers?: EditableRenderers<unknown, TElement>['voids']
 }) => {
   recordSlateReactRender({
     id: `${startIndex}-${endIndex}`,
@@ -1218,7 +1128,6 @@ const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
     >
       {runtimeIds.map((runtimeId) => (
         <EditableDescendantNode
-          elementRenderers={elementRenderers}
           key={runtimeId}
           placeholder={placeholder}
           placeholderRef={placeholderRef}
@@ -1229,7 +1138,6 @@ const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
           renderText={renderText}
           renderVoid={renderVoid}
           runtimeId={runtimeId}
-          voidRenderers={voidRenderers}
         />
       ))}
     </div>
@@ -1240,7 +1148,6 @@ const EditableRootGroup = React.memo(
   EditableRootGroupInner,
   (previous, next) =>
     previous.endIndex === next.endIndex &&
-    previous.elementRenderers === next.elementRenderers &&
     previous.groupId === next.groupId &&
     previous.placeholder === next.placeholder &&
     previous.placeholderRef === next.placeholderRef &&
@@ -1251,7 +1158,6 @@ const EditableRootGroup = React.memo(
     previous.renderText === next.renderText &&
     previous.renderVoid === next.renderVoid &&
     previous.startIndex === next.startIndex &&
-    previous.voidRenderers === next.voidRenderers &&
     sameRuntimeIds(previous.runtimeIds, next.runtimeIds)
 ) as typeof EditableRootGroupInner
 
@@ -1380,7 +1286,6 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   renderingStrategy,
   onBeforeInput,
   onDOMBeforeInput,
-  onCommand,
   onKeyDown,
   onRenderingStrategyMetrics,
   onPaste,
@@ -1400,21 +1305,6 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   enableVirtualizedRendering?: boolean
 }) => {
   const editor = useEditor()
-  const extensionRenderers = React.useMemo(
-    () => getEditableRenderers<T, TElement>(editor),
-    [editor]
-  )
-  const registeredRenderLeaf = React.useMemo(
-    () => createRegisteredRenderLeaf<T>(extensionRenderers.leaves),
-    [extensionRenderers.leaves]
-  )
-  const effectiveRenderLeaf = renderLeaf ?? registeredRenderLeaf
-  const effectiveRenderSegment = renderSegment ?? extensionRenderers.segment
-  const effectiveRenderText = renderText ?? extensionRenderers.text
-  const elementRenderers = renderElement
-    ? undefined
-    : extensionRenderers.elements
-  const voidRenderers = renderVoid ? undefined : extensionRenderers.voids
   const upstreamProjectionStore = React.useContext(ProjectionContext)
   const [decorateCell] = React.useState(() => ({ current: decorate }))
   decorateCell.current = decorate
@@ -1892,7 +1782,6 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
         className={className}
         disableDefaultStyles={disableDefaultStyles}
         id={id}
-        onCommand={onCommand}
         onDOMBeforeInput={domBeforeInputHandler}
         onKeyDown={onKeyDown}
         onPaste={onPaste}
@@ -1968,17 +1857,15 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
                 }}
               >
                 <EditableDescendantNode
-                  elementRenderers={elementRenderers}
                   placeholder={placeholderValue}
                   placeholderRef={placeholderRef}
                   renderElement={renderElement}
-                  renderLeaf={effectiveRenderLeaf}
+                  renderLeaf={renderLeaf}
                   renderPlaceholder={renderPlaceholder}
-                  renderSegment={effectiveRenderSegment}
-                  renderText={effectiveRenderText}
+                  renderSegment={renderSegment}
+                  renderText={renderText}
                   renderVoid={renderVoid}
                   runtimeId={item.runtimeId}
-                  voidRenderers={voidRenderers}
                 />
               </div>
             ))}
@@ -1988,18 +1875,16 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
             segment.isActive ? (
               segment.mountedRuntimeIds.map((runtimeId) => (
                 <EditableDescendantNode
-                  elementRenderers={elementRenderers}
                   key={runtimeId}
                   placeholder={placeholderValue}
                   placeholderRef={placeholderRef}
                   renderElement={renderElement}
-                  renderLeaf={effectiveRenderLeaf}
+                  renderLeaf={renderLeaf}
                   renderPlaceholder={renderPlaceholder}
-                  renderSegment={effectiveRenderSegment}
-                  renderText={effectiveRenderText}
+                  renderSegment={renderSegment}
+                  renderText={renderText}
                   renderVoid={renderVoid}
                   runtimeId={runtimeId}
-                  voidRenderers={voidRenderers}
                 />
               ))
             ) : (
@@ -2023,21 +1908,19 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
           renderedRootGroupItems.map((item) =>
             item.kind === 'mounted' ? (
               <EditableRootGroup
-                elementRenderers={elementRenderers}
                 endIndex={item.group.endIndex}
                 groupId={item.group.groupId}
                 key={item.group.groupId}
                 placeholder={placeholderValue}
                 placeholderRef={placeholderRef}
                 renderElement={renderElement}
-                renderLeaf={effectiveRenderLeaf}
+                renderLeaf={renderLeaf}
                 renderPlaceholder={renderPlaceholder}
-                renderSegment={effectiveRenderSegment}
-                renderText={effectiveRenderText}
+                renderSegment={renderSegment}
+                renderText={renderText}
                 renderVoid={renderVoid}
                 runtimeIds={item.group.runtimeIds}
                 startIndex={item.group.startIndex}
-                voidRenderers={voidRenderers}
               />
             ) : (
               <EditableRootGroupPlaceholder
@@ -2053,18 +1936,16 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
         ) : (
           topLevelRuntimeIds.map((runtimeId) => (
             <EditableDescendantNode
-              elementRenderers={elementRenderers}
               key={runtimeId}
               placeholder={placeholderValue}
               placeholderRef={placeholderRef}
               renderElement={renderElement}
-              renderLeaf={effectiveRenderLeaf}
+              renderLeaf={renderLeaf}
               renderPlaceholder={renderPlaceholder}
-              renderSegment={effectiveRenderSegment}
-              renderText={effectiveRenderText}
+              renderSegment={renderSegment}
+              renderText={renderText}
               renderVoid={renderVoid}
               runtimeId={runtimeId}
-              voidRenderers={voidRenderers}
             />
           ))
         )}

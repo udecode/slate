@@ -15,11 +15,10 @@ export {
   type SlateResolvedAnnotation,
 } from './annotation-store'
 export type {
-  EditableCommandContext,
-  EditableCommandHandler,
   EditableDOMBeforeInputContext,
   EditableDOMBeforeInputHandler,
   EditableHandlerResult,
+  EditableInputEventContext,
   EditableKeyDownContext,
   EditableKeyDownHandler,
   EditableRenderingStrategyCohort,
@@ -70,23 +69,6 @@ export {
   type SlateDecorationSourceOptions,
   type SlateDecorationSourceReadContext,
 } from './decoration-source'
-export {
-  EDITABLE_KEY_COMMAND_CAPABILITY,
-  type EditableKeyCommand,
-  type EditableKeyCommandContext,
-  editableKeyCommands,
-} from './editable/editable-key-commands'
-export {
-  EDITABLE_RENDERERS_CAPABILITY,
-  type EditableElementRendererMap,
-  type EditableLeafRenderer,
-  type EditableLeafRendererProps,
-  type EditableRenderers,
-  type EditableSegmentRenderer,
-  type EditableTextRenderer,
-  type EditableVoidRendererMap,
-  editableRenderers,
-} from './editable/editable-renderers'
 export {
   type EditorDecorationSelectorContext,
   type EditorDecorationSelectorOptions,

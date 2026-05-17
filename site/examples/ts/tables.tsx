@@ -100,7 +100,7 @@ const TablesExample = () => {
   return (
     <Slate editor={editor}>
       <Editable
-        onCommand={(command) => {
+        onKeyDown={(event) => {
           const selection = editor.read((state) => state.selection.get())
 
           if (!selection || !RangeApi.isCollapsed(selection)) {
@@ -119,17 +119,17 @@ const TablesExample = () => {
 
           const [, cellPath] = cell
 
-          if (command.kind === 'delete' && command.direction === 'backward') {
+          if (event.key === 'Backspace') {
             const start = editor.read((state) => state.points.start(cellPath))
             return PointApi.equals(selection.anchor, start)
           }
 
-          if (command.kind === 'delete' && command.direction === 'forward') {
+          if (event.key === 'Delete') {
             const end = editor.read((state) => state.points.end(cellPath))
             return PointApi.equals(selection.anchor, end)
           }
 
-          if (command.kind === 'insert-break') {
+          if (event.key === 'Enter') {
             return true
           }
 

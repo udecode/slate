@@ -186,7 +186,7 @@ describe('primary public surface examples', () => {
       ),
       false
     )
-    assert.match(source, /normalizers:\s*\{\s*node\(/)
+    assert.match(source, /normalizers:\s*\{\s*editor\(/)
   })
 })
 

@@ -78,7 +78,8 @@ Slate installs `links` before `mentions` because `mentions` declares the depende
 Use `register(context)` when an extension needs install-time options,
 extension-local runtime state, cleanup, or hooks that share one setup context.
 The returned slots are the same raw Slate slots as top-level `state`, `tx`,
-`commitListeners`, `operationMiddlewares`, and `capabilities`.
+`commitListeners`, `operationMiddlewares`, `api`, and package-owned facets such
+as `clipboard`.
 
 ```javascript
 const tables = defineEditorExtension({
@@ -234,7 +235,8 @@ Extensions can also register lower-level runtime hooks:
 | `normalizers` | named normalizer entries |
 | `commitListeners` | observing committed changes |
 | `operationMiddlewares` | operation import/export policy |
-| `capabilities` | extension-owned metadata |
+| `api` | mounted runtime handles exposed through `editor.api` |
+| `clipboard` | DataTransfer ingress hooks |
 
 Keep product-specific APIs above these raw slots. Plate, for example, can build richer plugin conventions on top of Slate's smaller extension substrate.
 

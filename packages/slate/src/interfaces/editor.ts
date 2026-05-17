@@ -1195,10 +1195,13 @@ export type EditorNormalizeNodeOptions<_V extends Value = Value> = {
   operation?: Operation
 }
 
-export type EditorNormalizerArgs<V extends Value = Value> =
+export type EditorNodeNormalizerArgs<V extends Value = Value> =
   EditorNormalizeNodeOptions<V> & {
     entry: NodeEntry
   }
+
+export type EditorRootNormalizerArgs<V extends Value = Value> =
+  EditorNormalizeNodeOptions<V>
 
 export type EditorNormalizerNext<TArgs extends object> = (
   overrides?: Partial<TArgs>
@@ -1211,21 +1214,35 @@ export type EditorNormalizerTransaction<V extends Value = Value> = Pick<
   value: Pick<EditorCoreUpdateTransaction<V>['value'], 'get'>
 }
 
-export type EditorNormalizerContext<TEditor extends BaseEditor<any> = Editor> =
-  EditorNormalizerArgs<ValueOf<TEditor>> & {
-    editor: TEditor
-    next: EditorNormalizerNext<EditorNormalizerArgs<ValueOf<TEditor>>>
-    tx: EditorNormalizerTransaction<ValueOf<TEditor>>
-  }
+export type EditorNodeNormalizerContext<
+  TEditor extends BaseEditor<any> = Editor,
+> = EditorNodeNormalizerArgs<ValueOf<TEditor>> & {
+  editor: TEditor
+  next: EditorNormalizerNext<EditorNodeNormalizerArgs<ValueOf<TEditor>>>
+  tx: EditorNormalizerTransaction<ValueOf<TEditor>>
+}
 
-export type EditorNormalizer<TEditor extends BaseEditor<any> = Editor> = (
-  context: EditorNormalizerContext<TEditor>
+export type EditorRootNormalizerContext<
+  TEditor extends BaseEditor<any> = Editor,
+> = EditorRootNormalizerArgs<ValueOf<TEditor>> & {
+  editor: TEditor
+  next: EditorNormalizerNext<EditorRootNormalizerArgs<ValueOf<TEditor>>>
+  tx: EditorNormalizerTransaction<ValueOf<TEditor>>
+}
+
+export type EditorRootNormalizer<TEditor extends BaseEditor<any> = Editor> = (
+  context: EditorRootNormalizerContext<TEditor>
+) => void
+
+export type EditorNodeNormalizer<TEditor extends BaseEditor<any> = Editor> = (
+  context: EditorNodeNormalizerContext<TEditor>
 ) => void
 
 export type EditorNormalizerMiddlewareMap<
   TEditor extends BaseEditor<any> = Editor,
 > = {
-  node?: EditorNormalizer<TEditor>
+  editor?: EditorRootNormalizer<TEditor>
+  node?: EditorNodeNormalizer<TEditor>
 }
 
 export type EditorCommandOptions = {
@@ -1282,6 +1299,24 @@ export type EditorExtensionTxGroups<TEditor extends BaseEditor<any> = Editor> =
     >
   } & Record<string, EditorExtensionTxGroup<TEditor> | undefined>
 
+export type EditorExtensionApiMap = Record<string, unknown | readonly unknown[]>
+
+export type EditorClipboardInsertDataContext<
+  TEditor extends BaseEditor<any> = Editor,
+> = {
+  editor: TEditor
+  next: () => boolean | void
+}
+
+export type EditorClipboardMiddlewareMap<
+  TEditor extends BaseEditor<any> = Editor,
+> = {
+  insertData?: (
+    data: DataTransfer,
+    context: EditorClipboardInsertDataContext<TEditor>
+  ) => boolean | void
+}
+
 export type EditorExtensionRuntimeState<TValue> = {
   get: () => TValue
   set: (value: TValue | ((previous: TValue) => TValue)) => void
@@ -1303,7 +1338,8 @@ export type EditorExtensionRegistrationContext<
 export type EditorExtensionRegistrationOutput<
   TEditor extends BaseEditor<any> = Editor,
 > = {
-  capabilities?: Record<string, unknown | readonly unknown[]>
+  api?: EditorExtensionApiMap
+  clipboard?: EditorClipboardMiddlewareMap<TEditor>
   cleanup?: () => void
   commitListeners?: readonly EditorCommitListener<ValueOf<TEditor>>[]
   editor?: EditorExtensionEditorGroups<TEditor>
@@ -1320,7 +1356,8 @@ export type EditorExtension<
   TEditor extends BaseEditor<any> = Editor,
   TOptions = unknown,
 > = {
-  capabilities?: Record<string, unknown | readonly unknown[]>
+  api?: EditorExtensionApiMap
+  clipboard?: EditorClipboardMiddlewareMap<TEditor>
   commitListeners?: readonly EditorCommitListener<ValueOf<TEditor>>[]
   conflicts?: readonly string[]
   dependencies?: readonly string[]
@@ -1414,15 +1451,15 @@ type EditorTxSlotsFromExtension<TExtension> = (TExtension extends {
     ? NonNullable<TTx>
     : unknown)
 
-type EditorCapabilitySlotsFromExtension<TExtension> = (TExtension extends {
-  capabilities?: infer TCapabilities
+type EditorApiSlotsFromExtension<TExtension> = (TExtension extends {
+  api?: infer TApi
 }
-  ? NonNullable<TCapabilities>
+  ? NonNullable<TApi>
   : unknown) &
   (EditorRegistrationOutputFromExtension<TExtension> extends {
-    capabilities?: infer TCapabilities
+    api?: infer TApi
   }
-    ? NonNullable<TCapabilities>
+    ? NonNullable<TApi>
     : unknown)
 
 type EditorStateGroupResult<
@@ -1476,11 +1513,11 @@ type EditorApiValue<TValue> = TValue extends readonly (infer TItem)[]
   : TValue
 
 type EditorApiGroupsFromExtension<TExtension> = TExtension extends unknown
-  ? EditorCapabilitySlotsFromExtension<TExtension> extends infer TCapabilities
-    ? keyof TCapabilities extends never
+  ? EditorApiSlotsFromExtension<TExtension> extends infer TApi
+    ? keyof TApi extends never
       ? never
       : {
-          [K in keyof TCapabilities]: EditorApiValue<TCapabilities[K]>
+          [K in keyof TApi]: EditorApiValue<TApi[K]>
         }
     : never
   : never
@@ -1535,7 +1572,7 @@ export type EditorExtensionRegistry = {
   commands: Map<string, unknown[]>
   commitListeners: Set<EditorCommitListener>
   extensions: Map<string, RegisteredEditorExtension>
-  normalizers: Map<string, EditorNormalizer>
+  normalizers: Map<string, EditorNodeNormalizer>
   operationMiddlewares: Set<EditorOperationMiddleware>
   queryMiddlewares: Map<string, unknown[]>
 }
@@ -2194,7 +2231,7 @@ export interface EditorStaticApi {
   registerNormalizer: (
     editor: Editor,
     id: string,
-    normalizer: EditorNormalizer
+    normalizer: EditorNodeNormalizer
   ) => () => void
 
   /**

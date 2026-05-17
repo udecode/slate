@@ -201,14 +201,7 @@ const installForcedLayoutNormalizer = (editor) => {
     editor.extend({
       name: 'benchmark-forced-layout-normalizer',
       normalizers: {
-        node({ entry, next, tx }) {
-          const [node, path] = entry;
-
-          if (!isEditorNode(node) || path.length !== 0) {
-            next();
-            return;
-          }
-
+        editor({ next, tx }) {
           const children = tx.value.get();
           const first = children[0];
           const second = children[1];

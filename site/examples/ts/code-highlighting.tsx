@@ -13,7 +13,6 @@ import type React from 'react'
 import type { ChangeEvent, PointerEvent } from 'react'
 import {
   type Descendant,
-  defineEditorExtension,
   type EditorSnapshot,
   NodeApi,
   type RuntimeId,
@@ -21,9 +20,6 @@ import {
 import { isHotkey } from 'slate-dom'
 import {
   Editable,
-  type EditableSegmentRenderer,
-  editableKeyCommands,
-  editableRenderers,
   type RenderElementProps,
   Slate,
   type SlateProjection,
@@ -39,6 +35,7 @@ import type {
   CustomEditor,
   CustomElement,
   CustomText,
+  CustomValue,
 } from './custom-types.d'
 import { normalizeTokens } from './utils/normalize-tokens'
 
@@ -48,19 +45,17 @@ const CodeLineType = 'code-line'
 const CodeIndent = '  '
 
 const CodeHighlightingExample = () => {
-  const editor = useSlateEditor({
-    extensions: [codeHighlighting()],
-    initialValue: [
-      {
-        type: ParagraphType,
-        children: toChildren(
-          "Here's one containing a single paragraph block with some text in it:"
-        ),
-      },
-      {
-        type: CodeBlockType,
-        language: 'jsx',
-        children: toCodeLines(`// Add the initial value.
+  const initialValue: CustomValue = [
+    {
+      type: ParagraphType,
+      children: toChildren(
+        "Here's one containing a single paragraph block with some text in it:"
+      ),
+    },
+    {
+      type: CodeBlockType,
+      language: 'jsx',
+      children: toCodeLines(`// Add the initial value.
 const initialValue = [
   {
     type: 'paragraph',
@@ -79,17 +74,17 @@ const App = () => {
     </Slate>
   )
 }`),
-      },
-      {
-        type: ParagraphType,
-        children: toChildren(
-          'If you are using TypeScript, create the editor from the final value shape and pass extension factories at creation time. The example below includes the custom types required for the rest of this example.'
-        ),
-      },
-      {
-        type: CodeBlockType,
-        language: 'typescript',
-        children: toCodeLines(`// TypeScript users only add this code
+    },
+    {
+      type: ParagraphType,
+      children: toChildren(
+        'If you are using TypeScript, create the editor from the final value shape and pass extension factories at creation time. The example below includes the custom types required for the rest of this example.'
+      ),
+    },
+    {
+      type: CodeBlockType,
+      language: 'typescript',
+      children: toCodeLines(`// TypeScript users only add this code
 import { Descendant } from 'slate'
 import { useSlateEditor } from 'slate-react'
 
@@ -98,13 +93,13 @@ type CustomText = { text: string }
 type CustomValue = CustomElement[]
 
 const editor = useSlateEditor<CustomValue>({ initialValue })`),
-      },
-      {
-        type: ParagraphType,
-        children: toChildren('There you have it!'),
-      },
-    ],
-  })
+    },
+    {
+      type: ParagraphType,
+      children: toChildren('There you have it!'),
+    },
+  ]
+  const editor = useSlateEditor({ initialValue })
 
   const codeHighlightingSource = useSlateDecorationSource(editor, {
     id: 'code-highlighting',
@@ -116,57 +111,40 @@ const editor = useSlateEditor<CustomValue>({ initialValue })`),
   return (
     <Slate decorationSources={[codeHighlightingSource]} editor={editor}>
       <ExampleToolbar />
-      <Editable />
+      <Editable
+        onKeyDown={(event) => {
+          if (isHotkey(['mod+shift+c', 'mod+alt+c'], event)) {
+            convertSelectionToCodeBlock(editor)
+            return true
+          }
+
+          const isTab = isHotkey('tab', event)
+          const isShiftTab = isHotkey('shift+tab', event)
+
+          if (!isTab && !isShiftTab) {
+            return
+          }
+
+          const handledCodeLines = updateSelectedCodeLines(
+            editor,
+            isShiftTab ? 'outdent' : 'indent'
+          )
+
+          if (!handledCodeLines && isTab) {
+            editor.update((tx) => {
+              tx.text.insert(CodeIndent)
+            })
+          }
+
+          return true
+        }}
+        renderElement={ElementWrapper}
+        renderSegment={CodeSegment}
+      />
       <style>{prismThemeCss}</style>
     </Slate>
   )
 }
-
-const codeHighlighting = () =>
-  defineEditorExtension<CustomEditor>()({
-    capabilities: {
-      ...editableKeyCommands(({ editor, event }) => {
-        const codeEditor = editor as unknown as CustomEditor
-
-        if (isHotkey(['mod+shift+c', 'mod+alt+c'], event)) {
-          event.preventDefault()
-          convertSelectionToCodeBlock(codeEditor)
-          return true
-        }
-
-        const isTab = isHotkey('tab', event)
-        const isShiftTab = isHotkey('shift+tab', event)
-
-        if (!isTab && !isShiftTab) {
-          return
-        }
-
-        event.preventDefault()
-
-        const handledCodeLines = updateSelectedCodeLines(
-          codeEditor,
-          isShiftTab ? 'outdent' : 'indent'
-        )
-
-        if (!handledCodeLines && isTab) {
-          codeEditor.update((tx) => {
-            tx.text.insert(CodeIndent)
-          })
-        }
-
-        return true
-      }),
-      ...editableRenderers<CustomText, CustomElement>({
-        elements: {
-          'code-block': (props) => <ElementWrapper {...props} />,
-          'code-line': (props) => <ElementWrapper {...props} />,
-          paragraph: (props) => <ElementWrapper {...props} />,
-        },
-        segment: CodeSegment,
-      }),
-    },
-    name: 'code-highlighting',
-  })
 
 const ElementWrapper = (props: RenderElementProps<CustomElement>) => {
   const { attributes, children, element } = props
@@ -225,10 +203,11 @@ const ElementWrapper = (props: RenderElementProps<CustomElement>) => {
   )
 }
 
-const CodeSegment: EditableSegmentRenderer<CustomText> = (
-  segment,
-  children
-) => {
+const CodeSegment: NonNullable<
+  React.ComponentProps<
+    typeof Editable<CustomText, CustomElement>
+  >['renderSegment']
+> = (segment, children) => {
   const data = Object.assign(
     {},
     ...segment.slices.map((slice) => slice.data ?? {})

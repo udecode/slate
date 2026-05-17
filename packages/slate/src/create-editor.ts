@@ -839,15 +839,12 @@ export function createEditor<
       )
     }
 
-    const capabilityNames = Object.keys(extension.capabilities ?? {})
-    const capabilityName = capabilityNames.includes(extension.name)
+    const apiNames = Object.keys(extension.api ?? {})
+    const capabilityName = apiNames.includes(extension.name)
       ? extension.name
-      : capabilityNames[0]
+      : (apiNames[0] ?? extension.name)
 
-    if (
-      capabilityNames.length !== 1 &&
-      !capabilityNames.includes(extension.name)
-    ) {
+    if (apiNames.length > 1 && !apiNames.includes(extension.name)) {
       throw new Error(
         `Editor extension "${extension.name}" must expose exactly one capability or a capability matching its extension name to be used with editor.getApi().`
       )

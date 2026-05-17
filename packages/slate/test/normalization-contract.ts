@@ -63,6 +63,38 @@ describe('slate normalization contract', () => {
     assert.deepEqual(seen.slice(0, 2), ['first', 'second'])
   })
 
+  it('routes editor root entries to editor normalizers and non-root entries to node normalizers', () => {
+    const editor = createEditor()
+    const seen: string[] = []
+
+    editor.extend({
+      name: 'split-normalizers',
+      normalizers: {
+        editor({ next }) {
+          seen.push('editor')
+          next()
+        },
+        node({ entry, next }) {
+          seen.push(`node:${entry[1].join('.')}`)
+          next()
+        },
+      },
+    })
+
+    Editor.replace(editor, {
+      children: [{ type: 'block', children: [] } as Descendant],
+      selection: null,
+      marks: null,
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      { type: 'block', children: [{ text: '' }] },
+    ])
+    assert.equal(seen.includes('editor'), true)
+    assert.equal(seen.includes('node:'), false)
+    assert.equal(seen.includes('node:0'), true)
+  })
+
   it('uses extension-local node normalizer ids for same-lane registration', () => {
     const editor = createEditor()
     const seen: string[] = []
@@ -115,14 +147,7 @@ describe('slate normalization contract', () => {
     editor.extend({
       name: 'layout-normalizer',
       normalizers: {
-        node({ entry, next, tx }) {
-          const [node, path] = entry
-
-          if (!Editor.isEditor(node) || path.length !== 0) {
-            next()
-            return
-          }
-
+        editor({ next, tx }) {
           rootCalls += 1
 
           if (tx.value.get().length < 2) {
@@ -172,24 +197,14 @@ describe('slate normalization contract', () => {
     const unextend = editor.extend({
       name: 'fallback-normalizer',
       normalizers: {
-        node({ entry, next }) {
-          if (entry[1].join('.') === '0') {
-            next()
-            return
-          }
-
-          if (Editor.isEditor(entry[0])) {
-            calls += 1
-            next({
-              fallbackElement: () => ({
-                type: 'paragraph',
-                children: [{ text: '' }],
-              }),
-            })
-            return
-          }
-
-          next()
+        editor({ next }) {
+          calls += 1
+          next({
+            fallbackElement: () => ({
+              type: 'paragraph',
+              children: [{ text: '' }],
+            }),
+          })
         },
       },
     })

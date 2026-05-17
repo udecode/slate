@@ -9,7 +9,6 @@ import {
 } from 'slate'
 import {
   Editable,
-  editableRenderers,
   type RenderElementProps,
   Slate,
   useEditor,
@@ -73,22 +72,18 @@ const CheckListsExample = () => {
 
   return (
     <Slate editor={editor}>
-      <Editable autoFocus placeholder="Get to work…" spellCheck />
+      <Editable
+        autoFocus
+        placeholder="Get to work…"
+        renderElement={renderElement}
+        spellCheck
+      />
     </Slate>
   )
 }
 
 const checklist = () =>
   defineEditorExtension<CustomEditor>()({
-    capabilities: editableRenderers<
-      unknown,
-      CheckListItemType | ParagraphElementType
-    >({
-      elements: {
-        'check-list-item': (props) => <CheckListItemElement {...props} />,
-        paragraph: ParagraphElement,
-      },
-    }),
     name: 'checklists',
     transforms: {
       deleteBackward({ editor, next }) {
@@ -126,6 +121,25 @@ const checklist = () =>
       },
     },
   })
+
+const renderElement = (
+  props: RenderElementProps<CheckListItemType | ParagraphElementType>
+) => {
+  switch (props.element.type) {
+    case 'check-list-item':
+      return (
+        <CheckListItemElement
+          {...(props as RenderElementProps<CheckListItemType>)}
+        />
+      )
+    case 'paragraph':
+      return (
+        <ParagraphElement
+          {...(props as RenderElementProps<ParagraphElementType>)}
+        />
+      )
+  }
+}
 
 const ParagraphElement = ({
   attributes,

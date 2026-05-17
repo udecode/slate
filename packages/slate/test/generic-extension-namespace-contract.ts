@@ -262,6 +262,20 @@ defineEditorExtension<CustomEditor>()({
 defineEditorExtension<CustomEditor>()({
   name: 'normalizer-node-typing',
   normalizers: {
+    editor(context) {
+      const value: CustomValue = context.tx.value.get()
+
+      // @ts-expect-error editor normalizers do not expose node entries
+      context.entry
+      // @ts-expect-error normalizer tx cannot replace the whole value
+      context.tx.value.replace({
+        children: value,
+        marks: null,
+        selection: null,
+      })
+
+      context.next()
+    },
     node({ entry, next, tx }) {
       const value: CustomValue = tx.value.get()
 

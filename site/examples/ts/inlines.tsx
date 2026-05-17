@@ -3,11 +3,10 @@ import isUrl from 'is-url'
 import type React from 'react'
 import { type PointerEvent, useMemo } from 'react'
 import { defineEditorExtension, NodeApi, RangeApi } from 'slate'
-import { type DOMClipboardInsertDataHandler, isHotkey } from 'slate-dom'
+import { isHotkey } from 'slate-dom'
 import * as SlateReact from 'slate-react'
 import {
   Editable,
-  editableRenderers,
   type RenderElementProps,
   type RenderTextProps,
   useEditor,
@@ -110,32 +109,28 @@ const InlinesExample = () => {
         <RemoveLinkButton />
         <ToggleEditableButtonButton />
       </Toolbar>
-      <Editable onKeyDown={onKeyDown} placeholder="Enter some text..." />
+      <Editable
+        onKeyDown={onKeyDown}
+        placeholder="Enter some text..."
+        renderElement={renderElement}
+        renderText={InlineText}
+      />
     </SlateReact.Slate>
   )
 }
 
 const inline = () =>
   defineEditorExtension<CustomEditor>()({
-    capabilities: {
-      ...editableRenderers<unknown, CustomElement>({
-        elements: {
-          badge: (props) => <BadgeComponent {...props} />,
-          button: EditableButtonComponent,
-          link: (props) => <LinkComponent {...props} />,
-          paragraph: ParagraphComponent,
-        },
-        text: InlineText,
-      }),
-      'clipboard.insertData': ((editor, data) => {
-        const inlineEditor = editor as unknown as CustomEditor
+    clipboard: {
+      insertData(data, { editor, next }) {
         const text = data.getData('text/plain')
 
         if (text && isUrl(text)) {
-          wrapLink(inlineEditor, text)
+          wrapLink(editor, text)
           return true
         }
-      }) satisfies DOMClipboardInsertDataHandler,
+        return next()
+      },
     },
     name: 'inline',
     transforms: {
@@ -151,6 +146,27 @@ const inline = () =>
       { inline: true, readOnly: true, selectable: false, type: 'badge' },
     ],
   })
+
+const renderElement = (props: RenderElementProps<CustomElement>) => {
+  switch (props.element.type) {
+    case 'badge':
+      return <BadgeComponent {...(props as RenderElementProps<BadgeElement>)} />
+    case 'button':
+      return (
+        <EditableButtonComponent
+          {...(props as RenderElementProps<ButtonElement>)}
+        />
+      )
+    case 'link':
+      return <LinkComponent {...(props as RenderElementProps<LinkElement>)} />
+    case 'paragraph':
+      return (
+        <ParagraphComponent
+          {...(props as RenderElementProps<ParagraphElement>)}
+        />
+      )
+  }
+}
 
 const isLinkActive = (editor: CustomEditor): boolean => {
   return editor.read((state) =>

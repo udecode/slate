@@ -41,7 +41,7 @@ Make sure you only normalize the node passed into `normalizeNode` and (occasiona
 
 The `renderElement` prop and any React component it returns will re-render every time the element or any of its descendants changes. This is unavoidable. However, sometimes custom logic can cause React components to re-render more often than this, which can have a detrimental effect on performance.
 
-Prefer stable renderer registration with `editableRenderers(...)`, or define raw
+Prefer stable renderer registration with `renderElement(...)`, or define raw
 renderer functions at module scope when you need an `Editable` escape hatch.
 Avoid creating renderer functions inside the editor component during render.
 

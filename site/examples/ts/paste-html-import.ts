@@ -1,5 +1,4 @@
 import { type Descendant, defineEditorExtension, NodeApi } from 'slate'
-import type { DOMClipboardInsertDataHandler } from 'slate-dom'
 import { jsx } from 'slate-hyperscript'
 
 import type {
@@ -525,13 +524,12 @@ const insertHtmlData = (editor: CustomEditor, data: DataTransfer) => {
 }
 
 export const html = () => {
-  const insertData: DOMClipboardInsertDataHandler = (editor, data) =>
-    insertHtmlData(editor as unknown as CustomEditor, data)
-
   return defineEditorExtension<CustomEditor>()({
     name: 'paste-html',
-    capabilities: {
-      'clipboard.insertData': insertData,
+    clipboard: {
+      insertData(data, { editor, next }) {
+        return insertHtmlData(editor, data) || next()
+      },
     },
     elements: [
       { inline: true, type: 'link' },

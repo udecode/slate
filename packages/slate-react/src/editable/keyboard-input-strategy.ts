@@ -8,15 +8,11 @@ import {
   IS_IOS,
   IS_WEBKIT,
 } from 'slate-dom'
-import type {
-  EditableCommandHandler,
-  EditableKeyDownHandler,
-} from '../components/editable'
+import type { EditableKeyDownHandler } from '../components/editable'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { isSelectAllHotkey } from '../rendering-strategy/rendering-strategy-commands'
 import { applyEditableCaretMovement } from './caret-engine'
-import { getEditableKeyCommands } from './editable-key-commands'
 import {
   isDestructiveEditableCommand,
   markEditableEditingEpochCommandHandled,
@@ -122,75 +118,6 @@ const applyUserKeyDownHandler = ({
     : keyDownUnhandled()
 }
 
-const applyExtensionKeyCommands = ({
-  editor,
-  event,
-  selection,
-}: {
-  editor: ReactRuntimeEditor
-  event: ReactKeyboardEvent<HTMLDivElement>
-  selection: ReturnType<typeof readRuntimeSelection>
-}): EditableKeyDownResult => {
-  for (const command of getEditableKeyCommands(editor)) {
-    const result = command({ editor, event, selection })
-
-    if (!result) {
-      continue
-    }
-
-    event.preventDefault()
-
-    return keyDownHandled(
-      result === true ? DEFAULT_MODEL_COMMAND_REPAIR : result
-    )
-  }
-
-  return keyDownUnhandled()
-}
-
-const applyUserEditableCommandHandler = ({
-  command,
-  editor,
-  event,
-  handler,
-  selection,
-}: {
-  command: NonNullable<ReturnType<typeof getEditableCommandFromKeyDown>>
-  editor: ReactRuntimeEditor
-  event: ReactKeyboardEvent<HTMLDivElement>
-  handler?: EditableCommandHandler
-  selection: ReturnType<typeof readRuntimeSelection>
-}): EditableKeyDownResult => {
-  if (!handler) {
-    return keyDownUnhandled()
-  }
-
-  const result = handler(command, {
-    data: undefined,
-    editor,
-    event,
-    intent: command.kind === 'format' ? 'format' : null,
-    native: false,
-    selection,
-  })
-
-  if (result != null) {
-    if (!result) {
-      return keyDownUnhandled()
-    }
-
-    event.preventDefault()
-
-    return keyDownHandled(
-      result === true ? DEFAULT_MODEL_COMMAND_REPAIR : result
-    )
-  }
-
-  return event.isDefaultPrevented() || event.isPropagationStopped()
-    ? keyDownHandled()
-    : keyDownUnhandled()
-}
-
 export const applyEditableKeyDown = ({
   androidInputManagerRef,
   editor,
@@ -198,7 +125,6 @@ export const applyEditableKeyDown = ({
   forceRender,
   inputController,
   renderingStrategy,
-  onCommand,
   onKeyDown,
   readOnly,
   setExplicitShellBackedSelection,
@@ -211,7 +137,6 @@ export const applyEditableKeyDown = ({
   forceRender: () => void
   inputController: EditableInputController
   renderingStrategy: unknown
-  onCommand?: EditableCommandHandler
   onKeyDown?: EditableKeyDownHandler
   readOnly: boolean
   setExplicitShellBackedSelection: (nextValue: boolean) => void
@@ -274,16 +199,6 @@ export const applyEditableKeyDown = ({
     }
 
     const selection = readRuntimeSelection(editor)
-    const extensionKeyCommandResult = applyExtensionKeyCommands({
-      editor,
-      event,
-      selection,
-    })
-
-    if (extensionKeyCommandResult.handled) {
-      return extensionKeyCommandResult
-    }
-
     const userKeyDownResult = applyUserKeyDownHandler({
       editor,
       event,
@@ -383,20 +298,6 @@ export const applyEditableKeyDown = ({
       event,
       selection,
     })
-
-    if (keyDownCommand) {
-      const editableCommandResult = applyUserEditableCommandHandler({
-        command: keyDownCommand,
-        editor,
-        event,
-        handler: onCommand,
-        selection,
-      })
-
-      if (editableCommandResult.handled) {
-        return editableCommandResult
-      }
-    }
 
     if (
       keyDownCommand?.kind === 'delete' &&

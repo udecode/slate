@@ -1,12 +1,11 @@
 import { css } from '@emotion/css'
 import type React from 'react'
 import { useMemo } from 'react'
-import { defineEditorExtension, type Element as SlateElement } from 'slate'
+import type { Element as SlateElement } from 'slate'
 import {
   Editable,
-  type EditableLeafRendererProps,
-  editableRenderers,
   type RenderElementProps,
+  type RenderLeafProps,
   type RenderTextProps,
   type RenderVoidProps,
   Slate,
@@ -24,7 +23,7 @@ import { html } from './paste-html-import'
 
 const PasteHtmlExample = () => {
   const editor = useSlateEditor({
-    extensions: [html(), htmlRenderers()],
+    extensions: [html()],
     initialValue: [
       {
         type: 'paragraph',
@@ -57,46 +56,23 @@ const PasteHtmlExample = () => {
 
   return (
     <Slate editor={editor}>
-      <Editable placeholder="Paste in some HTML..." />
+      <Editable
+        placeholder="Paste in some HTML..."
+        renderElement={Element}
+        renderLeaf={Leaf}
+        renderText={FontSizeText}
+        renderVoid={({ element }) => {
+          switch (element.type) {
+            case 'image':
+              return <ImageElement element={element} />
+            default:
+              return null
+          }
+        }}
+      />
     </Slate>
   )
 }
-
-const htmlRenderers = () =>
-  defineEditorExtension({
-    capabilities: editableRenderers<CustomText, CustomElement>({
-      elements: {
-        'block-quote': Element,
-        'bulleted-list': Element,
-        'code-block': Element,
-        'heading-five': Element,
-        'heading-four': Element,
-        'heading-one': Element,
-        'heading-six': Element,
-        'heading-three': Element,
-        'heading-two': Element,
-        'list-item': Element,
-        link: Element,
-        'numbered-list': Element,
-        paragraph: Element,
-        table: Element,
-        'table-cell': Element,
-        'table-row': Element,
-      },
-      leaves: {
-        strikethrough: StrikethroughLeaf,
-        underline: UnderlineLeaf,
-        italic: ItalicLeaf,
-        code: CodeLeaf,
-        bold: BoldLeaf,
-      },
-      text: FontSizeText,
-      voids: {
-        image: ({ element }) => <ImageElement element={element} />,
-      },
-    }),
-    name: 'html-renderers',
-  })
 
 const Element = (props: RenderElementProps<CustomElement>) => {
   const { attributes, children, element } = props
@@ -251,25 +227,25 @@ const ImageElement = ({ element }: RenderVoidProps<ImageElementType>) => {
   )
 }
 
-const BoldLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
-  <strong>{children}</strong>
-)
+const Leaf = ({ attributes, children, leaf }: RenderLeafProps<CustomText>) => {
+  if (leaf.bold) {
+    children = <strong>{children}</strong>
+  }
+  if (leaf.code) {
+    children = <code>{children}</code>
+  }
+  if (leaf.italic) {
+    children = <em>{children}</em>
+  }
+  if (leaf.underline) {
+    children = <u>{children}</u>
+  }
+  if (leaf.strikethrough) {
+    children = <del>{children}</del>
+  }
 
-const CodeLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
-  <code>{children}</code>
-)
-
-const ItalicLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
-  <em>{children}</em>
-)
-
-const UnderlineLeaf = ({ children }: EditableLeafRendererProps<CustomText>) => (
-  <u>{children}</u>
-)
-
-const StrikethroughLeaf = ({
-  children,
-}: EditableLeafRendererProps<CustomText>) => <del>{children}</del>
+  return <span {...attributes}>{children}</span>
+}
 
 const FontSizeText = ({ attributes, children, text }: RenderTextProps) => {
   const fontSize = typeof text.fontSize === 'string' ? text.fontSize : undefined

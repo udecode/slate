@@ -214,7 +214,7 @@ export const history = <const TEnabled extends boolean | undefined = undefined>(
       getHistory(editor)
 
       return {
-        capabilities: {
+        api: {
           history: {
             isMerging: () => isMerging(editor),
             isSaving: () => isSaving(editor),
