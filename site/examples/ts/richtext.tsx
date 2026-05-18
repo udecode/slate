@@ -111,7 +111,7 @@ const RichTextExample = () => {
     },
   ]
   const editor = useSlateEditor({
-    extensions: [richTextHtml()],
+    extensions: [richText()],
     initialValue,
   })
 
@@ -296,9 +296,9 @@ const normalizeRichTextHtmlFragment = (fragment: unknown): CustomValue => {
     : [{ type: 'paragraph', children: [{ text: '' }] }]
 }
 
-const richTextHtml = () =>
+const richText = () =>
   defineEditorExtension<CustomEditor>()({
-    name: 'richtext-html-paste',
+    name: 'richtext',
     clipboard: {
       insertData(data, { editor, next }) {
         const html = data.getData('text/html')
@@ -326,60 +326,57 @@ const richTextHtml = () =>
         return true
       },
     },
+    transforms: {
+      insertBreak({ editor, next }) {
+        const selection = editor.read((state) => state.selection.get())
+
+        if (selection && RangeApi.isCollapsed(selection)) {
+          const blockEntry = editor.read((state) =>
+            state.nodes.above({
+              at: selection,
+              match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
+            })
+          )
+
+          if (blockEntry) {
+            const [block, blockPath] = blockEntry
+
+            if (
+              NodeApi.isElement(block) &&
+              isExitOnEnterType(block.type as CustomElementType)
+            ) {
+              const blockText = NodeApi.string(block)
+              const end = editor.read((state) => state.points.end(blockPath))
+
+              if (blockText === '' || PointApi.equals(selection.anchor, end)) {
+                const paragraphPath = PathApi.next(blockPath)
+                const result = next()
+
+                editor.update((tx) => {
+                  tx.nodes.set(
+                    { type: 'paragraph' },
+                    {
+                      at: paragraphPath,
+                      match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
+                    }
+                  )
+                })
+
+                return result
+              }
+            }
+          }
+        }
+
+        return next()
+      },
+    },
   })
 
 const handleRichTextKeyDown = (
   editor: CustomEditor,
   event: React.KeyboardEvent<HTMLDivElement>
 ) => {
-  if (
-    event.key === 'Enter' &&
-    !event.altKey &&
-    !event.ctrlKey &&
-    !event.metaKey &&
-    !event.shiftKey
-  ) {
-    const selection = editor.read((state) => state.selection.get())
-
-    if (selection && RangeApi.isCollapsed(selection)) {
-      const blockEntry = editor.read((state) =>
-        state.nodes.above({
-          at: selection,
-          match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
-        })
-      )
-
-      if (blockEntry) {
-        const [block, blockPath] = blockEntry
-
-        if (
-          NodeApi.isElement(block) &&
-          isExitOnEnterType(block.type as CustomElementType)
-        ) {
-          const blockText = NodeApi.string(block)
-          const end = editor.read((state) => state.points.end(blockPath))
-
-          if (blockText === '' || PointApi.equals(selection.anchor, end)) {
-            const paragraphPath = PathApi.next(blockPath)
-
-            editor.update((tx) => {
-              tx.break.insert()
-              tx.nodes.set(
-                { type: 'paragraph' },
-                {
-                  at: paragraphPath,
-                  match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
-                }
-              )
-            })
-
-            return true
-          }
-        }
-      }
-    }
-  }
-
   if (isHotkey(CLEAR_FORMATTING_HOTKEY, event)) {
     clearRichTextFormatting(editor)
     return true

@@ -152,7 +152,7 @@ describe('slate-react editable behavior', () => {
     expect(onValueChange).toHaveBeenCalled()
   })
 
-  test('Editable onKeyDown receives editor context and can handle model commands', async () => {
+  test('Editable onKeyDown receives editor context for UI hotkeys', async () => {
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
     const editor = createReactEditor({ initialValue })
     const onChange = jest.fn()

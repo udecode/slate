@@ -218,6 +218,23 @@ describe('primitive method runtime contract', () => {
     })
   })
 
+  it('insertText keeps null selection when an explicit full-document range is used on a deselected editor', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [paragraph('one'), paragraph('two')],
+      selection: null,
+      marks: null,
+    })
+
+    Editor.insertText(editor, 'replacement', {
+      at: Editor.range(editor, []),
+    })
+
+    assert.deepEqual(Editor.getChildren(editor), [paragraph('replacement')])
+    assert.equal(Editor.getSelection(editor), null)
+  })
+
   it('insertText in an empty block remains an operation commit, not a replacement', () => {
     const editor = createEditor()
 

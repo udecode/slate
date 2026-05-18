@@ -68,7 +68,9 @@ function* wrapGeneratorContext(
       sent = yield result.value
     }
   } finally {
-    generator.return?.(undefined)
+    run(() => {
+      generator.return?.(undefined)
+    })
   }
 }
 

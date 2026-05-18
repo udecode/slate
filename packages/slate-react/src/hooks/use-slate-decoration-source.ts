@@ -13,9 +13,15 @@ export const useSlateDecorationSource = <T = unknown>(
 ): SlateDecorationSource<T> => {
   const [optionsCell] = useState(() => ({ current: options }))
   const optionsId = options.id
+  const dirtiness = options.dirtiness
+  const runtimeScope = options.runtimeScope
 
   const source = useMemo(() => {
-    const initialOptions = optionsCell.current
+    const initialOptions = {
+      ...optionsCell.current,
+      dirtiness,
+      runtimeScope,
+    }
 
     return createDecorationSource<T>(editor, {
       ...initialOptions,
@@ -35,7 +41,7 @@ export const useSlateDecorationSource = <T = unknown>(
           }
         : undefined,
     })
-  }, [editor, optionsCell, optionsId])
+  }, [dirtiness, editor, optionsCell, optionsId, runtimeScope])
 
   useEffect(() => () => source.destroy(), [source])
   useEffect(() => {

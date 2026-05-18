@@ -23,7 +23,20 @@ const baseUrl =
   process.env.SLATE_BROWSER_SOAK_BASE_URL ??
   process.env.PLAYWRIGHT_BASE_URL ??
   `http://localhost:${port}`
-const iterations = Number(process.env.SLATE_BROWSER_SOAK_ITERATIONS ?? '5')
+const MIN_SOAK_ITERATIONS = 5
+const parseSoakIterations = () => {
+  const raw = process.env.SLATE_BROWSER_SOAK_ITERATIONS ?? '5'
+  const iterations = Number(raw)
+
+  if (!Number.isInteger(iterations) || iterations < MIN_SOAK_ITERATIONS) {
+    throw new Error(
+      `SLATE_BROWSER_SOAK_ITERATIONS must be an integer >= ${MIN_SOAK_ITERATIONS}`
+    )
+  }
+
+  return iterations
+}
+const iterations = parseSoakIterations()
 const artifactPath = resolve(
   repoRoot,
   process.env.SLATE_BROWSER_SOAK_ARTIFACT ??

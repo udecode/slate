@@ -562,4 +562,45 @@ describe('extension query middleware', () => {
     assert.equal(Editor.string(editor, [0]), 'one')
     assert.equal(Editor.getOperations(editor).length, operationsBefore)
   })
+
+  it('does not allow generator cleanup to mutate editor state after iteration stops early', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children,
+      selection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+      marks: null,
+    })
+
+    editor.extend(
+      defineEditorExtension({
+        name: 'read-only-query-generator-cleanup',
+        queries: {
+          points: {
+            positions({ editor, next, options }) {
+              return (function* () {
+                try {
+                  yield* next({ options })
+                } finally {
+                  editor.update((tx) => {
+                    tx.text.insert('!')
+                  })
+                }
+              })()
+            },
+          },
+        },
+      })
+    )
+
+    assert.throws(() => {
+      for (const _point of Editor.positions(editor, { at: [0] })) {
+        break
+      }
+    }, /editor\.update cannot be started inside query middleware/)
+    assert.equal(Editor.string(editor, [0]), 'one')
+  })
 })

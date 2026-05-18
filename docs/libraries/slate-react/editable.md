@@ -243,8 +243,8 @@ Use `onKeyDown` for UI hotkeys on one `Editable` instance.
 />
 ```
 
-Use extension `transforms` for reusable model behavior that should apply
-regardless of the React event source.
+Use extension `transforms` for model behavior such as `deleteBackward`, `deleteForward`, and `insertBreak`.
+Those handlers run for keyboard input, native input, programmatic transforms, and tests.
 
 ```tsx
 const markdown = defineEditorExtension({

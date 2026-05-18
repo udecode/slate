@@ -245,6 +245,18 @@ const writeModelBackedSelectionData = <V extends Value>(
   )
 }
 
+const getDefaultFragmentAttach = (contents: DocumentFragment) => {
+  let attach: ChildNode | null = contents.childNodes[0] ?? null
+
+  contents.childNodes.forEach((node) => {
+    if (node.textContent && node.textContent.trim() !== '') {
+      attach = node
+    }
+  })
+
+  return attach
+}
+
 export const writeDOMSelectionData = <V extends Value>(
   editor: DOMEditor<V>,
   data: Pick<DataTransfer, 'getData' | 'setData'>
@@ -264,17 +276,39 @@ export const writeDOMSelectionData = <V extends Value>(
     return
   }
 
-  const coveredBoundaries = DOMCoverage.getBoundariesForRange(editor, selection)
+  let coveredBoundaries = DOMCoverage.getBoundariesForRange(editor, selection)
+  const materializedBoundaryIds = new Set<string>()
 
   for (const boundary of coveredBoundaries) {
     if (boundary.copyPolicy === 'materialize') {
-      DOMCoverage.materializeBoundary(editor, boundary.boundaryId, 'copy', {
-        range: selection,
-      })
+      const result = DOMCoverage.materializeBoundary(
+        editor,
+        boundary.boundaryId,
+        'copy',
+        {
+          range: selection,
+        }
+      )
+
+      if (result.status === 'handled') {
+        materializedBoundaryIds.add(boundary.boundaryId)
+      }
     }
   }
 
-  if (coveredBoundaries.some((boundary) => boundary.copyPolicy !== 'exclude')) {
+  if (materializedBoundaryIds.size > 0) {
+    coveredBoundaries = DOMCoverage.getBoundariesForRange(editor, selection)
+  }
+
+  const hasPolicyBoundaries = coveredBoundaries.length > 0
+  const shouldWriteModelBackedSelection = coveredBoundaries.some(
+    (boundary) =>
+      boundary.copyPolicy === 'include-model' ||
+      (boundary.copyPolicy === 'materialize' &&
+        materializedBoundaryIds.has(boundary.boundaryId))
+  )
+
+  if (shouldWriteModelBackedSelection) {
     writeModelBackedSelectionData(editor, data, clipboardFormatKey)
     return
   }
@@ -284,18 +318,15 @@ export const writeDOMSelectionData = <V extends Value>(
   const domRange = DOMEditor.resolveDOMRange(editor, selection)
 
   if (!domRange) {
+    if (hasPolicyBoundaries) {
+      return
+    }
+
     writeModelBackedSelectionData(editor, data, clipboardFormatKey)
     return
   }
   let contents = domRange.cloneContents()
-  let attach: ChildNode | null = contents.childNodes[0] ?? null
-
-  // Make sure attach is non-empty, since empty nodes will not get copied.
-  contents.childNodes.forEach((node) => {
-    if (node.textContent && node.textContent.trim() !== '') {
-      attach = node
-    }
-  })
+  let attach = getDefaultFragmentAttach(contents)
 
   // COMPAT: Void selections can be anchored in their hidden spacer DOM. Clone
   // the full void element so external HTML payloads include visible content.
@@ -315,6 +346,7 @@ export const writeDOMSelectionData = <V extends Value>(
     }
 
     contents = r.cloneContents()
+    attach = getDefaultFragmentAttach(contents)
   }
 
   // COMPAT: If the start node is a void node, we need to attach the encoded
@@ -369,15 +401,17 @@ export const writeDOMSelectionData = <V extends Value>(
     attachElement = span
   }
 
-  const fragment = editor.read((state) => state.fragment.get())
-  const string = JSON.stringify(fragment)
-  const encoded = DOMEditor.getWindow(editor).btoa(encodeURIComponent(string))
-  attachElement.setAttribute('data-slate-fragment', encoded)
-  attachElement.setAttribute(
-    SLATE_FRAGMENT_FORMAT_ATTRIBUTE,
-    clipboardFormatKey
-  )
-  data.setData(`application/${clipboardFormatKey}`, encoded)
+  if (!hasPolicyBoundaries) {
+    const fragment = editor.read((state) => state.fragment.get())
+    const string = JSON.stringify(fragment)
+    const encoded = DOMEditor.getWindow(editor).btoa(encodeURIComponent(string))
+    attachElement.setAttribute('data-slate-fragment', encoded)
+    attachElement.setAttribute(
+      SLATE_FRAGMENT_FORMAT_ATTRIBUTE,
+      clipboardFormatKey
+    )
+    data.setData(`application/${clipboardFormatKey}`, encoded)
+  }
 
   // Add the content to a <div> so that we can get its inner HTML.
   const div = contents.ownerDocument.createElement('div')

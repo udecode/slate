@@ -468,6 +468,46 @@ describe('slate-react surface contract', () => {
     }
   })
 
+  test('examples route transform-equivalent model behavior through extensions', () => {
+    const tables = readFileSync(
+      resolve(repoRoot, 'site/examples/ts/tables.tsx'),
+      'utf8'
+    )
+    const markdown = readFileSync(
+      resolve(repoRoot, 'site/examples/ts/markdown-shortcuts.tsx'),
+      'utf8'
+    )
+    const richtext = readFileSync(
+      resolve(repoRoot, 'site/examples/ts/richtext.tsx'),
+      'utf8'
+    )
+    const editableDocs = readFileSync(
+      resolve(repoRoot, 'docs/libraries/slate-react/editable.md'),
+      'utf8'
+    )
+
+    expect(tables).toMatch(/\bdefineEditorExtension\b/)
+    expect(tables).toMatch(/\bdeleteBackward\(\{ editor, next, unit \}\)/)
+    expect(tables).toMatch(/\bdeleteForward\(\{ editor, next, unit \}\)/)
+    expect(tables).toMatch(/\binsertBreak\(\{ editor, next \}\)/)
+    expect(tables).not.toMatch(/event\.key === ['"]Backspace['"]/)
+    expect(tables).not.toMatch(/event\.key === ['"]Delete['"]/)
+    expect(tables).not.toMatch(/event\.key === ['"]Enter['"]/)
+
+    expect(markdown).toMatch(/\bdeleteBackward\(\{ editor, next, unit \}\)/)
+    expect(markdown).toMatch(/\binsertBreak\(\{ editor, next \}\)/)
+    expect(markdown).toMatch(/\binsertText\(\{ editor, next, text \}\)/)
+    expect(markdown).not.toMatch(/\bonKeyDown=/)
+
+    expect(richtext).toMatch(/\binsertBreak\(\{ editor, next \}\)/)
+    expect(richtext).toMatch(/\bonKeyDown=/)
+    expect(richtext).not.toMatch(/event\.key === ['"]Enter['"]/)
+
+    expect(editableDocs).toContain(
+      'Use extension `transforms` for model behavior such as `deleteBackward`, `deleteForward`, and `insertBreak`.'
+    )
+  })
+
   test('examples infer editable behavior callback types inline', () => {
     const violations = listSourceFiles(['site/examples/ts']).flatMap(
       (absolutePath) => {

@@ -219,6 +219,28 @@ describe('state/tx public API contract', () => {
     assert.deepEqual(state.path, [0, 0])
   })
 
+  it('invalidates runtime index caches when a failed transaction rolls back inserted nodes', () => {
+    const editor = createSeededEditor()
+    let insertedRuntimeId: string | null = null
+
+    assert.throws(() => {
+      editor.update((tx) => {
+        tx.nodes.insert(paragraph('draft'), { at: [1] })
+        insertedRuntimeId = tx.runtime.idAt([1])
+        throw new Error('rollback')
+      })
+    }, /rollback/)
+
+    assert.deepEqual(Editor.getChildren(editor), [
+      paragraph('one'),
+      paragraph('two'),
+    ])
+    assert.equal(
+      editor.read((state) => state.runtime.pathOf(insertedRuntimeId!)),
+      null
+    )
+  })
+
   it('exposes complete query groups through state instead of direct editor aliases', () => {
     const editor = createSeededEditor()
 

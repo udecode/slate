@@ -183,6 +183,68 @@ const media = defineEditorExtension({
 
 This split matters. Read helpers cannot accidentally write, and write helpers can read transaction-local state after earlier writes in the same update.
 
+## Transform Middleware
+
+Use `transforms` when an extension changes the behavior of a Slate transform.
+Backspace, Delete, Enter, paste insertion, and text insertion policies belong
+here when the behavior should apply beyond one React keyboard handler.
+
+```javascript
+import { defineEditorExtension, ElementApi, PointApi, RangeApi } from 'slate'
+
+const table = defineEditorExtension({
+  name: 'table',
+  transforms: {
+    deleteBackward({ editor, next, unit }) {
+      const selection = editor.read(state => state.selection.get())
+
+      if (selection && RangeApi.isCollapsed(selection)) {
+        const cell = editor.read(state =>
+          state.nodes.find({
+            match: node =>
+              ElementApi.isElement(node) && node.type === 'table-cell',
+          })
+        )
+
+        if (cell) {
+          const [, cellPath] = cell
+          const start = editor.read(state => state.points.start(cellPath))
+
+          if (PointApi.equals(selection.anchor, start)) {
+            return
+          }
+        }
+      }
+
+      return next({ unit })
+    },
+    insertBreak({ editor, next }) {
+      const selection = editor.read(state => state.selection.get())
+
+      if (selection && RangeApi.isCollapsed(selection)) {
+        const cell = editor.read(state =>
+          state.nodes.find({
+            match: node =>
+              ElementApi.isElement(node) && node.type === 'table-cell',
+          })
+        )
+
+        if (cell) {
+          return
+        }
+      }
+
+      return next()
+    },
+  },
+})
+```
+
+Use `Editable onKeyDown` for UI shortcuts that are specifically keyboard
+commands. Use transform middleware for behavior equivalent to Slate transform
+names such as `deleteBackward`, `deleteForward`, `insertBreak`, and
+`insertText`.
+
 ## Element Specs
 
 Use `elements` when an extension owns editor behavior for an element type.

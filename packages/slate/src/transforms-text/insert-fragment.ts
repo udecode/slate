@@ -66,12 +66,13 @@ const getFragmentEndSelection = (fragment: Descendant[]) => {
 
 const getOffsetFragmentEndSelection = (
   fragment: Descendant[],
-  startIndex: number
+  startIndex: number,
+  pathPrefix: Path = []
 ) => {
   const selection = getFragmentEndSelection(fragment)
   const offsetPoint = (point: (typeof selection)['anchor']) => ({
     offset: point.offset,
-    path: [point.path[0] + startIndex].concat(point.path.slice(1)),
+    path: pathPrefix.concat([point.path[0] + startIndex], point.path.slice(1)),
   })
 
   return {
@@ -1065,7 +1066,8 @@ const getNestedTextBlockFragmentReplacement = (
 
       selection = getOffsetFragmentEndSelection(
         [fragmentNode],
-        middleBlockIndex
+        middleBlockIndex,
+        parentPath.slice(0, -1)
       )
     }
   }

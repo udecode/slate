@@ -1,5 +1,5 @@
 import { css } from '@emotion/css'
-import { NodeApi, PointApi, RangeApi } from 'slate'
+import { defineEditorExtension, NodeApi, PointApi, RangeApi } from 'slate'
 import {
   Editable,
   type RenderElementProps,
@@ -7,140 +7,174 @@ import {
   Slate,
   useSlateEditor,
 } from 'slate-react'
+import type { CustomEditor, CustomValue } from './custom-types.d'
 
-const TablesExample = () => {
-  const editor = useSlateEditor({
-    initialValue: [
+const initialValue: CustomValue = [
+  {
+    type: 'paragraph',
+    children: [
       {
-        type: 'paragraph',
+        text: 'Since the editor is based on a recursive tree model, similar to an HTML document, you can create complex nested structures, like tables:',
+      },
+    ],
+  },
+  {
+    type: 'table',
+    children: [
+      {
+        type: 'table-row',
         children: [
           {
-            text: 'Since the editor is based on a recursive tree model, similar to an HTML document, you can create complex nested structures, like tables:',
+            type: 'table-cell',
+            children: [{ text: '' }],
+          },
+          {
+            type: 'table-cell',
+            children: [{ text: 'Human', bold: true }],
+          },
+          {
+            type: 'table-cell',
+            children: [{ text: 'Dog', bold: true }],
+          },
+          {
+            type: 'table-cell',
+            children: [{ text: 'Cat', bold: true }],
           },
         ],
       },
       {
-        type: 'table',
+        type: 'table-row',
         children: [
           {
-            type: 'table-row',
-            children: [
-              {
-                type: 'table-cell',
-                children: [{ text: '' }],
-              },
-              {
-                type: 'table-cell',
-                children: [{ text: 'Human', bold: true }],
-              },
-              {
-                type: 'table-cell',
-                children: [{ text: 'Dog', bold: true }],
-              },
-              {
-                type: 'table-cell',
-                children: [{ text: 'Cat', bold: true }],
-              },
-            ],
+            type: 'table-cell',
+            children: [{ text: '# of Feet', bold: true }],
           },
           {
-            type: 'table-row',
-            children: [
-              {
-                type: 'table-cell',
-                children: [{ text: '# of Feet', bold: true }],
-              },
-              {
-                type: 'table-cell',
-                children: [{ text: '2' }],
-              },
-              {
-                type: 'table-cell',
-                children: [{ text: '4' }],
-              },
-              {
-                type: 'table-cell',
-                children: [{ text: '4' }],
-              },
-            ],
+            type: 'table-cell',
+            children: [{ text: '2' }],
           },
           {
-            type: 'table-row',
-            children: [
-              {
-                type: 'table-cell',
-                children: [{ text: '# of Lives', bold: true }],
-              },
-              {
-                type: 'table-cell',
-                children: [{ text: '1' }],
-              },
-              {
-                type: 'table-cell',
-                children: [{ text: '1' }],
-              },
-              {
-                type: 'table-cell',
-                children: [{ text: '9' }],
-              },
-            ],
+            type: 'table-cell',
+            children: [{ text: '4' }],
+          },
+          {
+            type: 'table-cell',
+            children: [{ text: '4' }],
           },
         ],
       },
       {
-        type: 'paragraph',
+        type: 'table-row',
         children: [
           {
-            text: "This table is just a basic example of rendering a table, and it doesn't have fancy functionality. But you could augment it to add support for navigating with arrow keys, displaying table headers, adding column and rows, or even formulas if you wanted to get really crazy!",
+            type: 'table-cell',
+            children: [{ text: '# of Lives', bold: true }],
+          },
+          {
+            type: 'table-cell',
+            children: [{ text: '1' }],
+          },
+          {
+            type: 'table-cell',
+            children: [{ text: '1' }],
+          },
+          {
+            type: 'table-cell',
+            children: [{ text: '9' }],
           },
         ],
       },
     ],
+  },
+  {
+    type: 'paragraph',
+    children: [
+      {
+        text: "This table is just a basic example of rendering a table, and it doesn't have fancy functionality. But you could augment it to add support for navigating with arrow keys, displaying table headers, adding column and rows, or even formulas if you wanted to get really crazy!",
+      },
+    ],
+  },
+]
+
+const TablesExample = () => {
+  const editor = useSlateEditor({
+    extensions: [table()],
+    initialValue,
   })
   return (
     <Slate editor={editor}>
-      <Editable
-        onKeyDown={(event) => {
-          const selection = editor.read((state) => state.selection.get())
+      <Editable renderElement={Element} renderLeaf={Leaf} />
+    </Slate>
+  )
+}
 
-          if (!selection || !RangeApi.isCollapsed(selection)) {
-            return false
-          }
+const table = () =>
+  defineEditorExtension<CustomEditor>()({
+    name: 'table',
+    transforms: {
+      deleteBackward({ editor, next, unit }) {
+        const selection = editor.read((state) => state.selection.get())
 
+        if (selection && RangeApi.isCollapsed(selection)) {
           const cell = editor.read((state) =>
             state.nodes.find({
               match: (n) => NodeApi.isElement(n) && n.type === 'table-cell',
             })
           )
 
-          if (!cell) {
-            return false
-          }
-
-          const [, cellPath] = cell
-
-          if (event.key === 'Backspace') {
+          if (cell) {
+            const [, cellPath] = cell
             const start = editor.read((state) => state.points.start(cellPath))
-            return PointApi.equals(selection.anchor, start)
-          }
 
-          if (event.key === 'Delete') {
+            if (PointApi.equals(selection.anchor, start)) {
+              return
+            }
+          }
+        }
+
+        return next({ unit })
+      },
+      deleteForward({ editor, next, unit }) {
+        const selection = editor.read((state) => state.selection.get())
+
+        if (selection && RangeApi.isCollapsed(selection)) {
+          const cell = editor.read((state) =>
+            state.nodes.find({
+              match: (n) => NodeApi.isElement(n) && n.type === 'table-cell',
+            })
+          )
+
+          if (cell) {
+            const [, cellPath] = cell
             const end = editor.read((state) => state.points.end(cellPath))
-            return PointApi.equals(selection.anchor, end)
-          }
 
-          if (event.key === 'Enter') {
-            return true
+            if (PointApi.equals(selection.anchor, end)) {
+              return
+            }
           }
+        }
 
-          return false
-        }}
-        renderElement={Element}
-        renderLeaf={Leaf}
-      />
-    </Slate>
-  )
-}
+        return next({ unit })
+      },
+      insertBreak({ editor, next }) {
+        const selection = editor.read((state) => state.selection.get())
+
+        if (selection && RangeApi.isCollapsed(selection)) {
+          const cell = editor.read((state) =>
+            state.nodes.find({
+              match: (n) => NodeApi.isElement(n) && n.type === 'table-cell',
+            })
+          )
+
+          if (cell) {
+            return
+          }
+        }
+
+        return next()
+      },
+    },
+  })
 
 const Element = ({ attributes, children, element }: RenderElementProps) => {
   switch (element.type) {

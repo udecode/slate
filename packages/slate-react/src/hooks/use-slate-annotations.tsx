@@ -15,7 +15,6 @@ const EMPTY_SNAPSHOT = Object.freeze({
   byId: new Map(),
 }) as SlateAnnotationSnapshot<any, any>
 
-const getEmptyAnnotation = () => null
 const subscribeEmpty = () => () => {}
 
 const getEmptySnapshot = <
@@ -62,7 +61,7 @@ export function useSlateAnnotation<
     [id, resolvedStore]
   )
 
-  return useSyncExternalStore(subscribe, getSnapshot, getEmptyAnnotation)
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
 export function useSlateAnnotations<
@@ -83,9 +82,5 @@ export function useSlateAnnotations<
     [resolvedStore]
   )
 
-  return useSyncExternalStore(
-    subscribe,
-    getSnapshot,
-    getEmptySnapshot<TData, TProjection>
-  )
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }

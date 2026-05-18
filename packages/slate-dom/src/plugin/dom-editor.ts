@@ -640,8 +640,13 @@ export const DOMEditor: DOMEditorInterface = {
   findDocumentOrShadowRoot: (editor) => {
     const el = DOMEditor.toDOMNode(editor, editor)
     const root = el.getRootNode()
+    const view = el.ownerDocument.defaultView
 
-    if (root instanceof Document || root instanceof ShadowRoot) {
+    if (
+      root === el.ownerDocument ||
+      (view?.ShadowRoot && root instanceof view.ShadowRoot) ||
+      'host' in root
+    ) {
       return root
     }
 
@@ -816,7 +821,7 @@ export const DOMEditor: DOMEditorInterface = {
     const syncDomSelection = () => {
       const selection = getEditorLiveSelection(editor)
 
-      if (selection && root instanceof Document) {
+      if (selection) {
         const domSelection = getSelection(root)
         const domRange = DOMEditor.resolveDOMRange(editor, selection)
 
@@ -854,7 +859,7 @@ export const DOMEditor: DOMEditorInterface = {
       IS_FOCUSED.set(editor, true)
       el.focus({ preventScroll: true })
       trySyncDomSelection()
-      if (selectionAtFocus && root instanceof Document) {
+      if (selectionAtFocus) {
         queueMicrotask(() => {
           if (root.activeElement !== el) {
             return

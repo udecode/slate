@@ -413,6 +413,10 @@ const getIndexedBoundaries = (
   registry: DOMCoverageRegistry,
   rootKeys: readonly string[]
 ) => {
+  if (rootKeys.includes(ALL_ROOTS_KEY)) {
+    return [...registry.boundaries.values()]
+  }
+
   const boundaryIds = new Set<string>()
   const boundaries: DOMCoverageBoundary[] = []
 

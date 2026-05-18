@@ -89,106 +89,6 @@ const MarkdownShortcutsExample = () => {
       <Editable
         autoFocus
         onDOMBeforeInput={() => scheduleAndroidMarkdownShortcutFlush(editor)}
-        onKeyDown={(event) => {
-          if (
-            event.key === 'Enter' &&
-            !event.altKey &&
-            !event.ctrlKey &&
-            !event.metaKey &&
-            !event.shiftKey
-          ) {
-            const selection = editor.read((state) => state.selection.get())
-
-            if (selection && RangeApi.isCollapsed(selection)) {
-              const blockEntry = editor.read((state) =>
-                state.nodes.above({
-                  at: selection,
-                  match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
-                })
-              )
-
-              if (blockEntry) {
-                const [block, blockPath] = blockEntry
-
-                if (
-                  NodeApi.isElement(block) &&
-                  HEADING_TYPES.has(block.type as CustomElementType)
-                ) {
-                  const start = editor.read((state) =>
-                    state.points.start(blockPath)
-                  )
-
-                  if (PointApi.equals(selection.anchor, start)) {
-                    editor.update((tx) => {
-                      tx.break.insert()
-                      tx.nodes.set(
-                        { type: 'paragraph' },
-                        {
-                          at: blockPath,
-                          match: (n) =>
-                            NodeApi.isElement(n) && tx.nodes.isBlock(n),
-                        }
-                      )
-                    })
-
-                    return true
-                  }
-                }
-              }
-            }
-          }
-
-          if (
-            event.key === 'Backspace' &&
-            !event.altKey &&
-            !event.ctrlKey &&
-            !event.metaKey
-          ) {
-            const selection = editor.read((state) => state.selection.get())
-
-            if (selection && RangeApi.isCollapsed(selection)) {
-              const match = editor.read((state) =>
-                state.nodes.above({
-                  match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
-                })
-              )
-
-              if (match) {
-                const [block, path] = match
-                const start = editor.read((state) => state.points.start(path))
-
-                if (
-                  NodeApi.isElement(block) &&
-                  block.type !== 'paragraph' &&
-                  PointApi.equals(selection.anchor, start)
-                ) {
-                  const newProperties: Partial<SlateElement> = {
-                    type: 'paragraph',
-                  }
-
-                  editor.update((tx) => {
-                    tx.nodes.set(newProperties)
-
-                    if (block.type === 'list-item') {
-                      tx.nodes.unwrap({
-                        match: (n) =>
-                          NodeApi.isElement(n) &&
-                          (n.type === 'bulleted-list' ||
-                            n.type === 'numbered-list'),
-                        split: true,
-                      })
-                    }
-
-                    selectCurrentBlockStart(editor)
-                  })
-                  editor.api.dom.focus()
-
-                  return true
-                }
-              }
-            }
-          }
-        }}
         placeholder="Write some markdown..."
         renderElement={renderElement}
         spellCheck
@@ -201,6 +101,97 @@ const markdownShortcuts = () =>
   defineEditorExtension<CustomEditor>()({
     name: 'markdown-shortcuts',
     transforms: {
+      deleteBackward({ editor, next, unit }) {
+        const selection = editor.read((state) => state.selection.get())
+
+        if (
+          unit === 'character' &&
+          selection &&
+          RangeApi.isCollapsed(selection)
+        ) {
+          const match = editor.read((state) =>
+            state.nodes.above({
+              match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
+            })
+          )
+
+          if (match) {
+            const [block, path] = match
+            const start = editor.read((state) => state.points.start(path))
+
+            if (
+              NodeApi.isElement(block) &&
+              block.type !== 'paragraph' &&
+              PointApi.equals(selection.anchor, start)
+            ) {
+              editor.update((tx) => {
+                tx.nodes.set({
+                  type: 'paragraph',
+                } satisfies Partial<SlateElement>)
+
+                if (block.type === 'list-item') {
+                  tx.nodes.unwrap({
+                    match: (n) =>
+                      NodeApi.isElement(n) &&
+                      (n.type === 'bulleted-list' ||
+                        n.type === 'numbered-list'),
+                    split: true,
+                  })
+                }
+
+                selectCurrentBlockStart(editor)
+              })
+              editor.api.dom.focus()
+              return
+            }
+          }
+        }
+
+        return next({ unit })
+      },
+      insertBreak({ editor, next }) {
+        const selection = editor.read((state) => state.selection.get())
+
+        if (selection && RangeApi.isCollapsed(selection)) {
+          const blockEntry = editor.read((state) =>
+            state.nodes.above({
+              at: selection,
+              match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
+            })
+          )
+
+          if (blockEntry) {
+            const [block, blockPath] = blockEntry
+
+            if (
+              NodeApi.isElement(block) &&
+              HEADING_TYPES.has(block.type as CustomElementType)
+            ) {
+              const start = editor.read((state) =>
+                state.points.start(blockPath)
+              )
+
+              if (PointApi.equals(selection.anchor, start)) {
+                const result = next()
+
+                editor.update((tx) => {
+                  tx.nodes.set(
+                    { type: 'paragraph' },
+                    {
+                      at: blockPath,
+                      match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
+                    }
+                  )
+                })
+
+                return result
+              }
+            }
+          }
+        }
+
+        return next()
+      },
       insertText({ editor, next, text }) {
         const selection = editor.read((state) => state.selection.get())
 

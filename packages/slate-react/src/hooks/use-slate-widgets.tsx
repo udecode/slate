@@ -49,13 +49,6 @@ export function useSlateWidgetStore<
   return store
 }
 
-const EMPTY_SNAPSHOT = Object.freeze({
-  allIds: Object.freeze([]),
-  byId: new Map(),
-}) as SlateWidgetSnapshot<Record<string, never>, Record<string, never>>
-
-const getEmptyWidget = () => null
-
 export function useSlateWidget<
   T extends Record<string, unknown>,
   TAnnotation extends Record<string, unknown>,
@@ -69,7 +62,7 @@ export function useSlateWidget<
   )
   const getSnapshot = useCallback(() => store.getWidget(id), [id, store])
 
-  return useSyncExternalStore(subscribe, getSnapshot, getEmptyWidget)
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
 export function useSlateWidgets<
@@ -81,6 +74,6 @@ export function useSlateWidgets<
   return useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
-    () => EMPTY_SNAPSHOT as unknown as SlateWidgetSnapshot<T, TAnnotation>
+    store.getSnapshot
   )
 }

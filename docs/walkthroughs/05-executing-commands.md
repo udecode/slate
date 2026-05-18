@@ -51,59 +51,139 @@ functions that receive an editor.
 
 ## Using Commands From Editor Events
 
-Use the same commands from Slate's semantic command and key-command surfaces:
+Use `Editable onKeyDown` for keyboard shortcuts that belong to one editor UI:
 
 ```jsx
-import { defineEditorExtension } from 'slate'
-import { onKeyDown, renderElement } from 'slate-react'
+const App = () => {
+  const [editor] = useState(() => createReactEditor({ initialValue }))
 
-const rendering = defineEditorExtension({
-  name: 'command-guide-rendering',
-  api: renderElement({
-    elements: {
-      code: CodeElement,
-      paragraph: DefaultElement,
-    },
-    leaves: {
-      bold: Leaf,
-    },
-  }),
-})
+  return (
+    <Slate editor={editor}>
+      <Editable
+        onKeyDown={(event, { editor }) => {
+          if (event.key === '`' && event.ctrlKey) {
+            event.preventDefault()
+            toggleCodeBlock(editor)
+            return true
+          }
 
-const commandHotkeys = defineEditorExtension({
-  name: 'command-guide-hotkeys',
-  api: onKeyDown(({ editor, event }) => {
-    if (event.key === '`' && event.ctrlKey) {
-      toggleCodeBlock(editor)
-      return true
-    }
-  }),
+          if (event.key === 'b' && event.ctrlKey) {
+            event.preventDefault()
+            toggleBold(editor)
+            return true
+          }
+        }}
+        renderElement={renderElement}
+        renderLeaf={renderLeaf}
+      />
+    </Slate>
+  )
+}
+```
+
+Use extension `transforms` for behavior that maps to Slate transform names.
+That keeps model behavior available to keyboard input, native input, toolbar
+logic, programmatic calls, and tests.
+
+```jsx
+import { defineEditorExtension, ElementApi, PointApi, RangeApi } from 'slate'
+
+const markdownBlocks = defineEditorExtension({
+  name: 'markdown-blocks',
+  transforms: {
+    deleteBackward({ editor, next, unit }) {
+      const selection = editor.read(state => state.selection.get())
+
+      if (
+        unit === 'character' &&
+        selection &&
+        RangeApi.isCollapsed(selection)
+      ) {
+        const blockEntry = editor.read(state =>
+          state.nodes.above({
+            at: selection,
+            match: node => ElementApi.isElement(node) && state.nodes.isBlock(node),
+          })
+        )
+
+        if (blockEntry) {
+          const [block, blockPath] = blockEntry
+          const start = editor.read(state => state.points.start(blockPath))
+
+          if (
+            ElementApi.isElement(block) &&
+            block.type !== 'paragraph' &&
+            PointApi.equals(selection.anchor, start)
+          ) {
+            editor.update(tx => {
+              tx.nodes.set(
+                { type: 'paragraph' },
+                {
+                  at: blockPath,
+                  match: node =>
+                    ElementApi.isElement(node) && tx.nodes.isBlock(node),
+                }
+              )
+            })
+            return
+          }
+        }
+      }
+
+      return next({ unit })
+    },
+    insertBreak({ editor, next }) {
+      const selection = editor.read(state => state.selection.get())
+
+      if (selection && RangeApi.isCollapsed(selection)) {
+        const blockEntry = editor.read(state =>
+          state.nodes.above({
+            at: selection,
+            match: node => ElementApi.isElement(node) && state.nodes.isBlock(node),
+          })
+        )
+
+        if (blockEntry) {
+          const [block, blockPath] = blockEntry
+
+          if (ElementApi.isElement(block) && block.type === 'heading-one') {
+            const start = editor.read(state => state.points.start(blockPath))
+
+            if (PointApi.equals(selection.anchor, start)) {
+              const result = next()
+
+              editor.update(tx => {
+                tx.nodes.set(
+                  { type: 'paragraph' },
+                  {
+                    at: blockPath,
+                    match: node =>
+                      ElementApi.isElement(node) && tx.nodes.isBlock(node),
+                  }
+                )
+              })
+
+              return result
+            }
+          }
+        }
+      }
+
+      return next()
+    },
+  },
 })
 
 const App = () => {
   const [editor] = useState(() => {
     const editor = createReactEditor({ initialValue })
-    editor.extend(rendering)
-    editor.extend(commandHotkeys)
+    editor.extend(markdownBlocks)
     return editor
   })
 
   return (
     <Slate editor={editor}>
-      <Editable
-        onKeyDown={(command, { editor }) => {
-          if (command.kind !== 'format') {
-            return
-          }
-
-          switch (command.format) {
-            case 'bold': {
-              toggleBold(editor)
-              return true
-            }
-          }
-        }}
-      />
+      <Editable renderElement={renderElement} renderLeaf={renderLeaf} />
     </Slate>
   )
 }

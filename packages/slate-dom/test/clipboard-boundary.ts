@@ -19,6 +19,7 @@ import {
   NODE_TO_INDEX,
   NODE_TO_PARENT,
 } from '../src/index'
+import { DOMCoverage } from '../src/internal'
 
 class FakeDataTransfer {
   private readonly store = new Map<string, string>()
@@ -331,6 +332,16 @@ const encodeRawFragmentPayload = (document: Document, payload: string) =>
 const decodeFragmentPayload = (document: Document, payload: string) =>
   JSON.parse(decodeURIComponent(document.defaultView!.atob(payload)))
 
+const getRuntimeId = (editor: Editor, path: number[]) => {
+  const runtimeId = Editor.getRuntimeId(editor, path)
+
+  if (!runtimeId) {
+    throw new Error(`Missing runtime id at ${path.join('.')}`)
+  }
+
+  return runtimeId
+}
+
 describe('slate-dom clipboard boundary', () => {
   it('installs DOM host capabilities on the editor instance', () => {
     const editor = createEditor({ extensions: [dom()] })
@@ -384,6 +395,40 @@ describe('slate-dom clipboard boundary', () => {
         anchor: { path: [1, 0], offset: 5 },
         focus: { path: [1, 0], offset: 5 },
       })
+    })
+  })
+
+  it('does not emit hidden model fragments for summary-only coverage copy policy', () => {
+    withDom((document) => {
+      const source = createClipboardEditor(createChildren(), {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 5 },
+      })
+      const clipboard = new FakeDataTransfer()
+
+      mountSimpleEditorDOM(source, document)
+      DOMCoverage.registerBoundary(source, {
+        boundaryId: 'summary-alpha',
+        anchor: { type: 'placeholder', runtimeId: getRuntimeId(source, [0]) },
+        copyPolicy: 'summary-only',
+        coveredPathRanges: [{ anchor: [0, 0], focus: [0, 0] }],
+        coveredRuntimeRanges: [],
+        findPolicy: 'not-native-until-mounted',
+        ownerPath: [0],
+        ownerRuntimeId: getRuntimeId(source, [0]),
+        reason: 'app-collapse',
+        selectionPolicy: 'boundary',
+        state: 'intentionally-hidden',
+        version: 1,
+      })
+
+      source.api.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+
+      expect(clipboard.getData('text/plain')).toBe('alpha')
+      expect(clipboard.getData('text/html')).not.toContain(
+        'data-slate-fragment='
+      )
+      expect(clipboard.getData('application/x-slate-fragment')).toBe('')
     })
   })
 
@@ -1184,6 +1229,48 @@ describe('slate-dom clipboard boundary', () => {
       expect(html).toContain('<img')
       expect(html).toContain('https://example.com/image.png')
       expect(clipboard.getData('text/plain')).not.toContain('\uFEFF')
+    })
+  })
+
+  it('attaches fragment metadata to cloned DOM when the selection ends in a block void', () => {
+    withDom((document) => {
+      const source = createClipboardEditor(
+        [
+          {
+            type: 'paragraph',
+            children: [{ text: 'before' }],
+          },
+          {
+            type: 'image',
+            url: 'https://example.com/image.png',
+            children: [{ text: '' }],
+          },
+          {
+            type: 'paragraph',
+            children: [{ text: 'after' }],
+          },
+        ],
+        {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [1, 0], offset: 0 },
+        },
+        undefined,
+        (editor) => {
+          editor.extend({
+            elements: [{ type: 'image', void: 'block' }],
+            name: 'block-void-end-copy',
+          })
+        }
+      )
+      const clipboard = new FakeDataTransfer()
+
+      mountBlockVoidEditorDOM(source, document)
+
+      source.api.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+
+      expect(clipboard.getData('application/x-slate-fragment')).not.toBe('')
+      expect(clipboard.getData('text/html')).toContain('data-slate-fragment=')
+      expect(clipboard.getData('text/html')).toContain('<img')
     })
   })
 

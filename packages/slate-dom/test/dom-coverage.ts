@@ -9,6 +9,8 @@ import {
   EDITOR_TO_WINDOW,
   ELEMENT_TO_NODE,
   IS_COMPOSING,
+  IS_FOCUSED,
+  IS_NODE_MAP_DIRTY,
   NODE_TO_ELEMENT,
 } from '../src/index'
 import { DOMCoverage } from '../src/internal'
@@ -77,7 +79,9 @@ const mountEditorRoot = (
 ) => {
   root.setAttribute('data-slate-editor', 'true')
   root.setAttribute('contenteditable', 'true')
-  document.body.appendChild(root)
+  if (!root.parentNode) {
+    document.body.appendChild(root)
+  }
 
   EDITOR_TO_ELEMENT.set(editor, root)
   EDITOR_TO_WINDOW.set(editor, document.defaultView!)
@@ -89,6 +93,33 @@ const mountEditorRoot = (
   )
 
   return root
+}
+
+const bindDOMNode = (
+  editor: DOMTestEditor,
+  node: Descendant,
+  element: HTMLElement
+) => {
+  const key = editor.api.dom.findKey(node)
+
+  EDITOR_TO_KEY_TO_ELEMENT.get(editor)!.set(key, element)
+  ELEMENT_TO_NODE.set(element, node)
+  NODE_TO_ELEMENT.set(node, element)
+}
+
+const createTextDOM = (document: Document, text: string) => {
+  const owner = document.createElement('span')
+  const leaf = document.createElement('span')
+  const string = document.createElement('span')
+
+  owner.setAttribute('data-slate-node', 'text')
+  leaf.setAttribute('data-slate-leaf', 'true')
+  string.setAttribute('data-slate-string', 'true')
+  string.appendChild(document.createTextNode(text))
+  leaf.appendChild(string)
+  owner.appendChild(leaf)
+
+  return owner
 }
 
 const getRuntimeId = (editor: DOMTestEditor, path: number[]) => {
@@ -251,6 +282,57 @@ describe('DOM coverage boundaries', () => {
       boundaries: [{ boundaryId: 'section-body' }],
       range,
       type: 'boundary-range',
+    })
+  })
+
+  test('syncs native selection inside a shadow root when focusing', () => {
+    withDom((document) => {
+      const editor = createEditor({ extensions: [dom()] })
+      const host = document.createElement('div')
+      const shadowRoot = host.attachShadow({ mode: 'open' })
+      const root = document.createElement('div')
+      let getSelectionCalls = 0
+      const selectionCalls: unknown[][] = []
+      const fakeSelection = {
+        setBaseAndExtent(...args: unknown[]) {
+          selectionCalls.push(args)
+        },
+      } as unknown as Selection
+
+      document.body.appendChild(host)
+      shadowRoot.appendChild(root)
+      Object.defineProperty(shadowRoot, 'getSelection', {
+        configurable: true,
+        value: () => {
+          getSelectionCalls += 1
+          return fakeSelection
+        },
+      })
+
+      Editor.replace(editor, {
+        children: [
+          {
+            type: 'paragraph',
+            children: [{ text: 'shadow' }],
+          },
+        ] satisfies Descendant[],
+        selection: {
+          anchor: { path: [0, 0], offset: 2 },
+          focus: { path: [0, 0], offset: 2 },
+        },
+      })
+
+      mountEditorRoot(editor, document, root)
+      IS_FOCUSED.delete(editor)
+      IS_NODE_MAP_DIRTY.delete(editor)
+      const textDOM = createTextDOM(document, 'shadow')
+      root.appendChild(textDOM)
+      const [textNode] = editor.read((state) => state.nodes.get([0, 0]))
+      bindDOMNode(editor, textNode as Descendant, textDOM)
+
+      editor.api.dom.focus({ retries: 1 })
+
+      expect(getSelectionCalls).toBeGreaterThan(0)
     })
   })
 
@@ -586,5 +668,31 @@ describe('DOM coverage boundaries', () => {
     expect(
       median(coverageSamples) - median(baselineSamples)
     ).toBeLessThanOrEqual(5)
+  })
+
+  test('includes specifically indexed boundaries when querying a large root range', () => {
+    const editor = createLargeEditor(500)
+
+    DOMCoverage.registerBoundary(editor, {
+      boundaryId: 'hidden-200',
+      anchor: { type: 'placeholder', runtimeId: getRuntimeId(editor, [200]) },
+      copyPolicy: 'include-model',
+      coveredPathRanges: [{ anchor: [200, 0], focus: [200, 0] }],
+      coveredRuntimeRanges: [],
+      findPolicy: 'not-native-until-mounted',
+      ownerPath: [200],
+      ownerRuntimeId: getRuntimeId(editor, [200]),
+      reason: 'viewport-virtualization',
+      selectionPolicy: 'boundary',
+      state: 'virtualized',
+      version: 1,
+    })
+
+    expect(
+      DOMCoverage.getBoundariesForRange(editor, {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [300, 0], offset: 0 },
+      }).map((boundary) => boundary.boundaryId)
+    ).toEqual(['hidden-200'])
   })
 })

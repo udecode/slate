@@ -2746,6 +2746,9 @@ const restoreTransactionSnapshot = (
 
   seedFromPreviousIndex(restoredChildren)
   CHILDREN.set(editor, restoredChildren)
+  bumpMutationVersion(editor)
+  bumpRuntimeIndexVersion(editor)
+  SNAPSHOT_CACHE.delete(editor)
   setCurrentSelection(editor, transactionSnapshot.selection)
   setCurrentMarks(editor, transactionSnapshot.marks)
   setOperations(editor, transactionSnapshot.operations)

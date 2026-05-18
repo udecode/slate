@@ -228,3 +228,8 @@ const Leaf = props => {
 ```
 
 Now, if you try selecting a piece of text and hitting `Ctrl-B` you should see it turn bold! Magic!
+
+Hotkeys like `Ctrl-B` belong in `onKeyDown` because they are UI shortcuts.
+Editing behavior that maps to Slate transforms, such as `deleteBackward`,
+`deleteForward`, `insertBreak`, or `insertText`, belongs in extension
+`transforms` instead.

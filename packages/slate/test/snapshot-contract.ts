@@ -1363,6 +1363,55 @@ it('insertSoftBreak currently aliases insertBreak on the proved block split seam
   })
 })
 
+it('insertFragment keeps nested selection paths under the insertion ancestor', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'article',
+        children: [
+          {
+            type: 'section',
+            children: [
+              {
+                type: 'paragraph',
+                children: [{ text: 'xx' }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0, 0, 0], offset: 1 },
+      focus: { path: [0, 0, 0, 0], offset: 1 },
+    },
+    marks: null,
+  })
+
+  Editor.insertFragment(editor, [
+    {
+      type: 'paragraph',
+      children: [{ text: 'AA' }],
+    },
+    {
+      type: 'container',
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'BB' }],
+        },
+      ],
+    },
+  ])
+
+  assert.deepEqual(Editor.getSnapshot(editor).selection, {
+    anchor: { path: [0, 1, 0, 0], offset: 2 },
+    focus: { path: [0, 1, 0, 0], offset: 2 },
+  })
+})
+
 it('publishes once after a transaction and keeps same-version reads stable', () => {
   const editor = createEditor()
   const snapshots = [Editor.getSnapshot(editor)]

@@ -65,6 +65,8 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
   options: TextInsertTextOptions = {}
 ) => {
   const { voids = false } = options
+  const explicitAtPreservesNullSelection =
+    options.at != null && getPublicSelection(editor) == null
   const defaultAt = options.at ?? getDefaultInsertLocation(editor)
   const preflightAt = (() => {
     if (LocationApi.isPath(defaultAt)) {
@@ -96,22 +98,24 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
       children: [...Editor.getChildren(editor)] as Value,
       index: 0,
       newChildren: createFullDocumentTextReplacement(editor, text) as Value,
-      newSelection: {
-        anchor: { path: [0, 0], offset: text.length },
-        focus: { path: [0, 0], offset: text.length },
-      },
+      newSelection: explicitAtPreservesNullSelection
+        ? null
+        : {
+            anchor: { path: [0, 0], offset: text.length },
+            focus: { path: [0, 0], offset: text.length },
+          },
       path: [],
       selection: getPublicSelection(editor),
       type: 'replace_children',
     })
-    syncImplicitTargetToCurrentSelection(editor)
+    if (options.at == null) {
+      syncImplicitTargetToCurrentSelection(editor)
+    }
     return
   }
 
   Editor.withoutNormalizing(editor, () => {
     const transforms = getEditorTransformRegistry(editor)
-    const preserveNullSelection =
-      options.at != null && getPublicSelection(editor) == null
     let { at = getDefaultInsertLocation(editor) } = options
 
     if (LocationApi.isPath(at)) {
@@ -150,7 +154,7 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
 
         if (options.at == null) {
           transforms.setSelection({ anchor: nextAt, focus: nextAt })
-        } else if (preserveNullSelection) {
+        } else if (explicitAtPreservesNullSelection) {
           transforms.deselect()
         }
       }

@@ -97,7 +97,13 @@ export const syncTextOperationsToDOM = (
       operation.type === 'insert_text' || operation.type === 'remove_text'
   ).length
   const result = () => ({
-    syncedTextOperationCount: synced.size,
+    syncedTextOperationCount: operations.filter(
+      (operation) =>
+        (operation.type === 'insert_text' ||
+          operation.type === 'remove_text') &&
+        operation.path &&
+        synced.has(pathKey(operation.path))
+    ).length,
     textOperationCount,
   })
 
