@@ -1,7 +1,7 @@
 import { executeCommand } from '../core/command-registry'
 import { runEditorTransaction } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
-import type { EditorTransformApi } from '../interfaces/editor'
+import type { Editor, EditorTransformApi } from '../interfaces/editor'
 import { RangeApi } from '../interfaces/range'
 import type { TextUnit } from '../types/types'
 import type { WithEditorFirstArg } from '../utils/types'
@@ -12,9 +12,7 @@ type DeleteCommand = {
   unit: TextUnit
 }
 
-const applyDeleteForward: WithEditorFirstArg<
-  EditorTransformApi['deleteForward']
-> = (editor, unit) => {
+const applyDelete = (editor: Editor, command: DeleteCommand) => {
   runEditorTransaction(editor, (tx) => {
     const selection = tx.resolveTarget()
 
@@ -23,7 +21,10 @@ const applyDeleteForward: WithEditorFirstArg<
       RangeApi.isRange(selection) &&
       RangeApi.isCollapsed(selection)
     ) {
-      getEditorTransformRegistry(editor).delete({ unit })
+      getEditorTransformRegistry(editor).delete({
+        unit: command.unit,
+        reverse: command.direction === 'backward',
+      })
     }
   })
 }
@@ -35,7 +36,7 @@ export const deleteForward: WithEditorFirstArg<
     editor,
     { direction: 'forward', type: 'delete', unit },
     (command) => {
-      applyDeleteForward(editor, command.unit)
+      applyDelete(editor, command)
       return { handled: true }
     }
   )

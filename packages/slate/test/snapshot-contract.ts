@@ -6289,6 +6289,40 @@ it('uses addMark as the active mark write path', () => {
   ])
 })
 
+it('preserves inherited leaf marks when addMark is collapsed', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'hi', italic: true }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 2 },
+    },
+    marks: null,
+  })
+
+  Editor.addMark(editor, 'bold', true)
+
+  assert.deepEqual(getMarks(editor), { italic: true, bold: true })
+
+  Editor.insertText(editor, '!')
+
+  const snapshot = Editor.getSnapshot(editor)
+  const firstBlock = snapshot.children[0] as Descendant & {
+    children: Array<Descendant & { bold?: boolean; italic?: boolean }>
+  }
+
+  assert.deepEqual(firstBlock.children, [
+    { text: 'hi', italic: true },
+    { text: '!', italic: true, bold: true },
+  ])
+})
+
 it('uses select as the selection write path', () => {
   const editor = createEditor()
 

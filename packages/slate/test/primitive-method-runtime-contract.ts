@@ -197,6 +197,27 @@ describe('primitive method runtime contract', () => {
     })
   })
 
+  it('insertText appends at the document end when selection is null and at is omitted', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [paragraph('one'), paragraph('two')],
+      selection: null,
+      marks: null,
+    })
+
+    Editor.insertText(editor, '!')
+
+    assert.deepEqual(Editor.getChildren(editor), [
+      paragraph('one'),
+      paragraph('two!'),
+    ])
+    assert.deepEqual(Editor.getSelection(editor), {
+      anchor: { path: [1, 0], offset: 4 },
+      focus: { path: [1, 0], offset: 4 },
+    })
+  })
+
   it('insertText in an empty block remains an operation commit, not a replacement', () => {
     const editor = createEditor()
 

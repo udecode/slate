@@ -24,6 +24,12 @@ const paragraph = (
   children: [{ text }],
 })
 
+type DeleteCommand = {
+  direction: 'backward' | 'forward'
+  type: 'delete'
+  unit: 'character' | 'word' | 'line' | 'block'
+}
+
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
@@ -717,6 +723,61 @@ describe('slate transaction contract', () => {
     })
   })
 
+  it('routes insertSoftBreak through command middleware and preserves structural commit metadata', () => {
+    const editor = createEditor()
+    const seenCommands: unknown[] = []
+
+    replaceChildren(editor, [paragraph('one')])
+    editor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      })
+    })
+
+    const unsubscribe = Editor.registerCommand(
+      editor,
+      'insert_soft_break',
+      (context, next) => {
+        seenCommands.push(context.command)
+        return next()
+      }
+    )
+
+    editor.update((tx) => {
+      Editor.insertSoftBreak(editor)
+    })
+    unsubscribe()
+
+    const commit = Editor.getLastCommit(editor)
+
+    assert.deepEqual(seenCommands, [{ type: 'insert_soft_break' }])
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      paragraph('o'),
+      paragraph('ne'),
+    ])
+    assert(commit)
+    assert.deepEqual(commit.command, {
+      origin: 'command',
+      type: 'insert_soft_break',
+    })
+    assert.deepEqual(commit.classes, ['structural'])
+    assert.deepEqual(
+      commit.operations.map((operation) => operation.type),
+      ['split_node', 'split_node']
+    )
+    assert.equal(commit.structureChanged, true)
+    assert.equal(commit.selectionChanged, true)
+    assert.deepEqual(commit.selectionBefore, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
+    assert.deepEqual(commit.selectionAfter, {
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    })
+  })
+
   it('routes delete commands through command middleware and preserves history-shaped commits', () => {
     const backwardEditor = createEditor()
     const fragmentEditor = createEditor()
@@ -798,6 +859,50 @@ describe('slate transaction contract', () => {
       fragmentCommit.operations.map((operation) => operation.type),
       ['remove_text', 'set_selection']
     )
+  })
+
+  it('honors delete command direction overrides from middleware', () => {
+    const deleteCommand = Editor.defineCommand<DeleteCommand>('delete')
+    const backwardEditor = createEditor()
+    const forwardEditor = createEditor()
+
+    replaceChildren(backwardEditor, [paragraph('abc')])
+    selectEditor(backwardEditor, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
+
+    const unsubscribeBackward = Editor.registerCommand(
+      backwardEditor,
+      deleteCommand,
+      (context, next) => next({ ...context.command, direction: 'forward' })
+    )
+
+    backwardEditor.update(() => {
+      Editor.deleteBackward(backwardEditor)
+    })
+    unsubscribeBackward()
+
+    assert.equal(Editor.string(backwardEditor, [0]), 'ac')
+
+    replaceChildren(forwardEditor, [paragraph('abc')])
+    selectEditor(forwardEditor, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
+
+    const unsubscribeForward = Editor.registerCommand(
+      forwardEditor,
+      deleteCommand,
+      (context, next) => next({ ...context.command, direction: 'backward' })
+    )
+
+    forwardEditor.update(() => {
+      Editor.deleteForward(forwardEditor)
+    })
+    unsubscribeForward()
+
+    assert.equal(Editor.string(forwardEditor, [0]), 'bc')
   })
 
   it('routes selection through command middleware and preserves selection-only commit metadata', () => {

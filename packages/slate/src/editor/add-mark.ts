@@ -1,6 +1,6 @@
 import { executeCommand } from '../core/command-registry'
 import { getEditorSchema } from '../core/editor-runtime'
-import { getCurrentMarks, runEditorTransaction } from '../core/public-state'
+import { runEditorTransaction } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { Editor, type EditorStaticApi } from '../interfaces/editor'
 import { type Node, NodeApi } from '../interfaces/node'
@@ -57,7 +57,7 @@ const applyAddMark: EditorStaticApi['addMark'] = (editor, key, value) => {
       )
     } else {
       const marks = {
-        ...(getCurrentMarks(editor) || {}),
+        ...(editor.read((state) => state.marks.get()) || {}),
         [key]: value,
       }
 

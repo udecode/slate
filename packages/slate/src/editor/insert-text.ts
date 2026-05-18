@@ -14,6 +14,7 @@ import type { EditorStaticApi } from '../interfaces/editor'
 import { Editor } from '../interfaces/editor'
 import type { TextInsertTextOptions } from '../interfaces/transforms/text'
 import { applyInsertText } from '../transforms-text/insert-text'
+import { getDefaultInsertLocation } from '../utils'
 import { elementReadOnly } from './element-read-only'
 
 type InsertTextCommand = {
@@ -55,8 +56,12 @@ export const insertText: EditorStaticApi['insertText'] = (
 
       runEditorTransaction(editor, (tx) => {
         const hasExplicitAt = command.options?.at !== undefined
-        const target = tx.resolveTarget({ at: command.options?.at })
+        let target = tx.resolveTarget({ at: command.options?.at })
         const marks = getCurrentMarks(editor)
+
+        if (!target && !hasExplicitAt && tx.getModelSelection() == null) {
+          target = getDefaultInsertLocation(editor)
+        }
 
         if (!target) {
           return
@@ -75,6 +80,15 @@ export const insertText: EditorStaticApi['insertText'] = (
             voids: command.options?.voids,
           })
         } else {
+          if (
+            command.text.length > 0 &&
+            !hasExplicitAt &&
+            tx.getModelSelection() == null &&
+            LocationApi.isPoint(target)
+          ) {
+            getEditorTransformRegistry(editor).select(target)
+          }
+
           applyInsertText(editor, command.text, {
             ...command.options,
             at: target,
