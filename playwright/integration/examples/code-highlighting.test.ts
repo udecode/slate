@@ -22,6 +22,18 @@ test.describe('code highlighting', () => {
     await expect(editor.locator('.punctuation').first()).toBeVisible()
   })
 
+  test('updates the code block language through the select', async ({
+    page,
+  }) => {
+    const languageSelect = page.getByTestId('language-select').first()
+
+    await expect(languageSelect).toHaveValue('jsx')
+
+    await languageSelect.selectOption('typescript')
+
+    await expect(languageSelect).toHaveValue('typescript')
+  })
+
   test('converts a selected paragraph into a code block with code lines', async ({
     page,
   }) => {

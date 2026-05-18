@@ -26,26 +26,42 @@ const initialValue: CustomValue = [
 
 const extension = defineEditorExtension<CustomEditor>()({
   name: 'generic-extension',
-  operationMiddlewares: [
-    (context, next) => {
+  operations: {
+    apply(context) {
       const operation: Operation<CustomValue> = context.operation
       const value: ValueOf<typeof context.editor> = context.editor.read(
         (state) => state.value.get()
       )
 
-      next(operation)
+      context.next(operation)
       void value
     },
-  ],
-  commitListeners: [
-    (commit, snapshot) => {
-      const operation: Operation<CustomValue> | undefined = commit.operations[0]
-      const children: CustomValue = snapshot.children
+  },
+  onCommit({ commit, snapshot }) {
+    const operation: Operation<CustomValue> | undefined = commit.operations[0]
+    const children: CustomValue = snapshot.children
 
-      void operation
-      void children
-    },
-  ],
+    void operation
+    void children
+  },
+})
+
+defineEditorExtension<CustomEditor>()({
+  name: 'bad-operation-middlewares',
+  // @ts-expect-error extension authors use operations.apply
+  operationMiddlewares: [() => {}],
+})
+
+defineEditorExtension<CustomEditor>()({
+  name: 'bad-commit-listeners',
+  // @ts-expect-error extension authors use onCommit
+  commitListeners: [() => {}],
+})
+
+defineEditorExtension<CustomEditor>()({
+  name: 'bad-register',
+  // @ts-expect-error extension authors use setup
+  register() {},
 })
 
 const editor = createEditor({ extensions: [extension], initialValue })

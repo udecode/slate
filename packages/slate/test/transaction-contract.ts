@@ -406,7 +406,7 @@ describe('slate transaction contract', () => {
     assert.deepEqual(commits[0]?.dirty.topLevelRange, [0, 0])
   })
 
-  it('tx.apply routes through operation middleware and the core transaction seam', () => {
+  it('tx.apply routes through operations.apply and the core transaction writer', () => {
     const editor = createEditor()
 
     replaceChildren(editor, [paragraph('one')])
@@ -414,12 +414,12 @@ describe('slate transaction contract', () => {
     const seenOperations: Operation[] = []
     const unextend = editor.extend({
       name: 'operation-spy',
-      operationMiddlewares: [
-        ({ operation }, next) => {
+      operations: {
+        apply({ operation, next }) {
           seenOperations.push(operation)
           next(operation)
         },
-      ],
+      },
     })
 
     runEditorTransaction(editor, (transaction) => {
@@ -1276,18 +1276,16 @@ describe('slate transaction contract', () => {
 
     const unextend = editor.extend({
       name: 'lifecycle-extension',
-      register: (context) => {
+      setup: (context) => {
         signal = context.signal
 
         return {
           cleanup: () => {
             cleanupCalls += 1
           },
-          commitListeners: [
-            (commit) => {
-              commits.push(commit)
-            },
-          ],
+          onCommit({ commit }) {
+            commits.push(commit)
+          },
         }
       },
     })

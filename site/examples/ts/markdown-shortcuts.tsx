@@ -201,19 +201,18 @@ const markdownShortcuts = () =>
           const type = orderedListMatch ? 'list-item' : SHORTCUTS[beforeText]
 
           if (type) {
-            const newProperties: Partial<SlateElement> = {
-              type,
-            }
-
             tx.selection.set(range)
 
             if (!RangeApi.isCollapsed(range)) {
               tx.text.delete()
             }
 
-            tx.nodes.set(newProperties, {
-              match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
-            })
+            tx.nodes.set(
+              { type },
+              {
+                match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
+              }
+            )
 
             if (type === 'list-item') {
               const list = createListElement(beforeText, orderedListMatch)

@@ -24,7 +24,6 @@ import {
   Slate,
   type SlateRangeDecoration,
   useEditor,
-  useElementPath,
   useSlateEditor,
   useSlateRangeDecorationSource,
 } from 'slate-react'
@@ -149,15 +148,21 @@ const editor = useSlateEditor<CustomValue>({ initialValue })`),
 const ElementWrapper = (props: RenderElementProps<CustomElement>) => {
   const { attributes, children, element } = props
   const editor = useEditor<CustomEditor>()
-  const path = useElementPath()
 
   if (element.type === CodeBlockType) {
     const setLanguage = (language: string) => {
-      if (!path) {
-        return
-      }
-
       editor.update((tx) => {
+        const entry = tx.nodes.find({
+          at: [],
+          match: (node) => node === element,
+        })
+
+        if (!entry) {
+          return
+        }
+
+        const [, path] = entry
+
         tx.nodes.set({ language }, { at: path })
       })
     }

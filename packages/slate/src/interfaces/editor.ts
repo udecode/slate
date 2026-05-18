@@ -1183,6 +1183,22 @@ export type EditorOperationNext<TEditor extends BaseEditor<any> = Editor> = (
   operation?: Operation<ValueOf<TEditor>>
 ) => void
 
+export type EditorOperationApplyContext<
+  TEditor extends BaseEditor<any> = Editor,
+> = EditorOperationContext<TEditor> & {
+  next: EditorOperationNext<TEditor>
+}
+
+export type EditorOperationApplyHandler<
+  TEditor extends BaseEditor<any> = Editor,
+> = (context: EditorOperationApplyContext<TEditor>) => void
+
+export type EditorExtensionOperations<
+  TEditor extends BaseEditor<any> = Editor,
+> = {
+  apply?: EditorOperationApplyHandler<TEditor>
+}
+
 export type EditorOperationMiddleware<
   TEditor extends BaseEditor<any> = Editor,
 > = (
@@ -1325,7 +1341,7 @@ export type EditorExtensionRuntimeState<TValue> = {
   set: (value: TValue | ((previous: TValue) => TValue)) => void
 }
 
-export type EditorExtensionRegistrationContext<
+export type EditorExtensionSetupContext<
   TEditor extends BaseEditor<any> = Editor,
   TOptions = unknown,
 > = {
@@ -1338,17 +1354,27 @@ export type EditorExtensionRegistrationContext<
   signal: AbortSignal
 }
 
-export type EditorExtensionRegistrationOutput<
+export type EditorCommitContext<TEditor extends BaseEditor<any> = Editor> = {
+  commit: EditorCommit<ValueOf<TEditor>>
+  editor: TEditor
+  snapshot: EditorSnapshot<ValueOf<TEditor>>
+}
+
+export type EditorCommitHandler<TEditor extends BaseEditor<any> = Editor> = (
+  context: EditorCommitContext<TEditor>
+) => void
+
+export type EditorExtensionSetupOutput<
   TEditor extends BaseEditor<any> = Editor,
 > = {
   api?: EditorExtensionApiMap
   clipboard?: EditorClipboardMiddlewareMap<TEditor>
   cleanup?: () => void
-  commitListeners?: readonly EditorCommitListener<ValueOf<TEditor>>[]
   editor?: EditorExtensionEditorGroups<TEditor>
   elements?: readonly EditorElementSpec[]
   normalizers?: EditorNormalizerMiddlewareMap<TEditor>
-  operationMiddlewares?: readonly EditorOperationMiddleware<TEditor>[]
+  onCommit?: EditorCommitHandler<TEditor>
+  operations?: EditorExtensionOperations<TEditor>
   queries?: EditorQueryMiddlewareMap<TEditor>
   state?: EditorExtensionStateGroups<TEditor>
   transforms?: EditorTransformMiddlewareMap<TEditor>
@@ -1361,7 +1387,6 @@ export type EditorExtension<
 > = {
   api?: EditorExtensionApiMap
   clipboard?: EditorClipboardMiddlewareMap<TEditor>
-  commitListeners?: readonly EditorCommitListener<ValueOf<TEditor>>[]
   conflicts?: readonly string[]
   dependencies?: readonly string[]
   enabled?: boolean
@@ -1369,13 +1394,14 @@ export type EditorExtension<
   elements?: readonly EditorElementSpec[]
   name: string
   normalizers?: EditorNormalizerMiddlewareMap<TEditor>
-  operationMiddlewares?: readonly EditorOperationMiddleware<TEditor>[]
+  onCommit?: EditorCommitHandler<TEditor>
+  operations?: EditorExtensionOperations<TEditor>
   options?: TOptions
   peerDependencies?: readonly string[]
   queries?: EditorQueryMiddlewareMap<TEditor>
-  register?: (
-    context: EditorExtensionRegistrationContext<TEditor, TOptions>
-  ) => EditorExtensionRegistrationOutput<TEditor> | void
+  setup?: (
+    context: EditorExtensionSetupContext<TEditor, TOptions>
+  ) => EditorExtensionSetupOutput<TEditor> | void
   state?: EditorExtensionStateGroups<TEditor>
   transforms?: EditorTransformMiddlewareMap<TEditor>
   tx?: EditorExtensionTxGroups<TEditor>
@@ -1393,8 +1419,8 @@ type UnionToIntersection<T> = (
   ? TIntersection
   : never
 
-type EditorRegistrationOutputFromExtension<TExtension> = TExtension extends {
-  register?: (...args: any[]) => infer TResult
+type EditorSetupOutputFromExtension<TExtension> = TExtension extends {
+  setup?: (...args: any[]) => infer TResult
 }
   ? Extract<NonNullable<TResult>, object>
   : unknown
@@ -1437,7 +1463,7 @@ type EditorStateSlotsFromExtension<TExtension> = (TExtension extends {
 }
   ? NonNullable<TState>
   : unknown) &
-  (EditorRegistrationOutputFromExtension<TExtension> extends {
+  (EditorSetupOutputFromExtension<TExtension> extends {
     state?: infer TState
   }
     ? NonNullable<TState>
@@ -1448,7 +1474,7 @@ type EditorTxSlotsFromExtension<TExtension> = (TExtension extends {
 }
   ? NonNullable<TTx>
   : unknown) &
-  (EditorRegistrationOutputFromExtension<TExtension> extends {
+  (EditorSetupOutputFromExtension<TExtension> extends {
     tx?: infer TTx
   }
     ? NonNullable<TTx>
@@ -1459,7 +1485,7 @@ type EditorApiSlotsFromExtension<TExtension> = (TExtension extends {
 }
   ? NonNullable<TApi>
   : unknown) &
-  (EditorRegistrationOutputFromExtension<TExtension> extends {
+  (EditorSetupOutputFromExtension<TExtension> extends {
     api?: infer TApi
   }
     ? NonNullable<TApi>

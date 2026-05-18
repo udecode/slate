@@ -15,7 +15,6 @@ import { Button, Icon, Toolbar } from './components'
 import type {
   CustomEditor,
   CustomElement,
-  EditableVoidElement,
   ParagraphElement as ParagraphElementType,
 } from './custom-types.d'
 import RichTextEditor from './richtext'
@@ -156,14 +155,11 @@ const InsertEditableVoidButton = () => {
   return (
     <Button
       onClick={() => {
-        const text = { text: '' }
-        const voidNode: EditableVoidElement = {
-          type: 'editable-void',
-          children: [text],
-        }
-
         editor.update((tx) => {
-          tx.nodes.insert(voidNode)
+          tx.nodes.insert({
+            type: 'editable-void',
+            children: [{ text: '' }],
+          })
         })
       }}
       onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {

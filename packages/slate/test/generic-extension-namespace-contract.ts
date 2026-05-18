@@ -176,7 +176,7 @@ const runtimeExtension = defineEditorExtension({
   options: {
     initialMode: 'text' as const,
   },
-  register(context) {
+  setup(context) {
     const initialMode: 'text' = context.options.initialMode
     const signal: AbortSignal = context.signal
     const mode = context.runtimeState<'text' | 'cell'>(initialMode)
@@ -215,8 +215,8 @@ const runtimeExtension = defineEditorExtension({
 
 defineEditorExtension({
   name: 'bad-runtime-command-namespace',
-  // @ts-expect-error registration output does not expose public command slots
-  register() {
+  // @ts-expect-error setup output does not expose public command slots
+  setup() {
     return {
       commands: [
         {
@@ -225,6 +225,14 @@ defineEditorExtension({
         },
       ],
     }
+  },
+})
+
+defineEditorExtension({
+  name: 'bad-register-slot',
+  // @ts-expect-error extension lifecycle uses setup
+  register() {
+    return {}
   },
 })
 

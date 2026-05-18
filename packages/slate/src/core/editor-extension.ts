@@ -2,11 +2,12 @@ import type {
   BaseEditor,
   Editor,
   EditorCommandResult,
+  EditorCommitContext,
   EditorExtension,
   EditorExtensionInput,
-  EditorExtensionRegistrationContext,
-  EditorExtensionRegistrationOutput,
   EditorExtensionRuntimeState,
+  EditorExtensionSetupContext,
+  EditorExtensionSetupOutput,
   EditorNodeNormalizerContext,
   EditorPublicTransformMiddlewareKey,
   EditorRootNormalizerArgs,
@@ -27,7 +28,11 @@ import {
   registerStateGroup,
   registerTxGroup,
 } from './extension-registry'
-import { getActiveUpdateView, getEditorStateView } from './public-state'
+import {
+  getActiveUpdateView,
+  getEditorStateView,
+  getSnapshot,
+} from './public-state'
 import {
   EDITOR_TRANSFORM_MIDDLEWARE_KEYS,
   getTransformCommandType,
@@ -158,6 +163,13 @@ const assertNoLegacySlots = (extension: EditorExtension<Editor, any>) => {
   const legacyMethods = (extension as unknown as { methods?: unknown }).methods
   const publicCommands = (extension as unknown as { commands?: unknown })
     .commands
+  const commitListeners = (
+    extension as unknown as { commitListeners?: unknown }
+  ).commitListeners
+  const operationMiddlewares = (
+    extension as unknown as { operationMiddlewares?: unknown }
+  ).operationMiddlewares
+  const register = (extension as unknown as { register?: unknown }).register
 
   if (legacyMethods !== undefined) {
     throw new Error(
@@ -168,6 +180,54 @@ const assertNoLegacySlots = (extension: EditorExtension<Editor, any>) => {
   if (publicCommands !== undefined) {
     throw new Error(
       `Editor extension "${extension.name}" cannot use commands. Add state or tx groups instead.`
+    )
+  }
+
+  if (operationMiddlewares !== undefined) {
+    throw new Error(
+      `Editor extension "${extension.name}" cannot use operationMiddlewares. Add operations.apply instead.`
+    )
+  }
+
+  if (commitListeners !== undefined) {
+    throw new Error(
+      `Editor extension "${extension.name}" cannot use commitListeners. Add onCommit instead.`
+    )
+  }
+
+  if (register !== undefined) {
+    throw new Error(
+      `Editor extension "${extension.name}" cannot use register. Add setup instead.`
+    )
+  }
+}
+
+const assertNoLegacySetupOutput = (
+  extensionName: string,
+  slots: EditorExtensionSetupOutput<Editor>
+) => {
+  const commitListeners = (slots as unknown as { commitListeners?: unknown })
+    .commitListeners
+  const operationMiddlewares = (
+    slots as unknown as { operationMiddlewares?: unknown }
+  ).operationMiddlewares
+  const commands = (slots as unknown as { commands?: unknown }).commands
+
+  if (commands !== undefined) {
+    throw new Error(
+      `Editor extension "${extensionName}" setup output cannot use commands. Add state or tx groups instead.`
+    )
+  }
+
+  if (operationMiddlewares !== undefined) {
+    throw new Error(
+      `Editor extension "${extensionName}" setup output cannot use operationMiddlewares. Add operations.apply instead.`
+    )
+  }
+
+  if (commitListeners !== undefined) {
+    throw new Error(
+      `Editor extension "${extensionName}" setup output cannot use commitListeners. Add onCommit instead.`
     )
   }
 }
@@ -359,9 +419,14 @@ const registerExtensionSlots = <TEditor extends Editor>(
       return state
     },
     signal: abortController.signal,
-  } satisfies EditorExtensionRegistrationContext<TEditor, any>
+  } satisfies EditorExtensionSetupContext<TEditor, any>
 
-  const registerSlots = (slots: EditorExtensionRegistrationOutput<TEditor>) => {
+  const registerSlots = (slots: EditorExtensionSetupOutput<TEditor>) => {
+    assertNoLegacySetupOutput(
+      extension.name,
+      slots as EditorExtensionSetupOutput<Editor>
+    )
+
     for (const key of EDITOR_TRANSFORM_MIDDLEWARE_KEYS) {
       const middleware = slots.transforms?.[key] as
         | TransformMiddleware<TEditor, typeof key>
@@ -498,12 +563,33 @@ const registerExtensionSlots = <TEditor extends Editor>(
       )
     }
 
-    for (const listener of slots.commitListeners ?? []) {
-      cleanups.push(registerCommitListener(editor, listener))
+    if (slots.onCommit) {
+      cleanups.push(
+        registerCommitListener(editor, (commit) => {
+          let snapshot: ReturnType<typeof getSnapshot> | null = null
+
+          slots.onCommit?.({
+            commit,
+            editor,
+            get snapshot() {
+              snapshot ??= getSnapshot(editor)
+
+              return snapshot
+            },
+          } as EditorCommitContext<TEditor>)
+        })
+      )
     }
 
-    for (const middleware of slots.operationMiddlewares ?? []) {
-      cleanups.push(registerOperationMiddleware(editor, middleware))
+    if (slots.operations?.apply) {
+      cleanups.push(
+        registerOperationMiddleware(editor, (context, next) => {
+          slots.operations?.apply?.({
+            ...context,
+            next,
+          })
+        })
+      )
     }
 
     for (const [group, methods] of Object.entries(slots.queries ?? {})) {
@@ -543,17 +629,17 @@ const registerExtensionSlots = <TEditor extends Editor>(
   }
 
   try {
-    const registrationOutput = extension.register?.(context) ?? {}
+    const setupOutput = extension.setup?.(context) ?? {}
 
     registerSlots(extension)
-    registerSlots(registrationOutput)
+    registerSlots(setupOutput)
 
     for (const cleanup of runtimeStateCleanups) {
       cleanups.push(cleanup)
     }
 
-    if (registrationOutput.cleanup) {
-      cleanups.push(registrationOutput.cleanup)
+    if (setupOutput.cleanup) {
+      cleanups.push(setupOutput.cleanup)
     }
 
     cleanups.push(() => abortController.abort())

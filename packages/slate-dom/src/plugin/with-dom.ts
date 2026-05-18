@@ -1,6 +1,6 @@
 import {
   defineEditorExtension,
-  type EditorExtensionRegistrationContext,
+  type EditorExtensionSetupContext,
   LocationApi,
   NodeApi,
   type Path,
@@ -142,8 +142,8 @@ export const installDOM = <
   // as operation application changes object references and invalidates NODE_TO_KEY.
   e.extend({
     name: 'slate-dom-operation-middleware',
-    operationMiddlewares: [
-      ({ operation: op }, next) => {
+    operations: {
+      apply({ operation: op, next }) {
         const matches: [Path, Key][] = []
         const pathRefMatches: [PathRef, Key][] = []
 
@@ -261,7 +261,7 @@ export const installDOM = <
           pathRef.unref()
         }
       },
-    ],
+    },
   })
 
   return e
@@ -270,7 +270,7 @@ export const installDOM = <
 export const dom = (options: DOMEditorOptions = {}) =>
   defineEditorExtension({
     name: 'dom',
-    register(context: EditorExtensionRegistrationContext<SlateEditor>) {
+    setup(context: EditorExtensionSetupContext<SlateEditor>) {
       const editor = installDOM(context.editor, options)
       const { clipboard, ...domApi } = editor.dom
 

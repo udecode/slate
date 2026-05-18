@@ -73,13 +73,12 @@ editor.extend([mentions, links])
 
 Slate installs `links` before `mentions` because `mentions` declares the dependency.
 
-## Runtime Registration
+## Runtime Setup
 
-Use `register(context)` when an extension needs install-time options,
+Use `setup(context)` when an extension needs install-time options,
 extension-local runtime state, cleanup, or hooks that share one setup context.
 The returned slots are the same raw Slate slots as top-level `state`, `tx`,
-`commitListeners`, `operationMiddlewares`, `api`, and package-owned facets such
-as `clipboard`.
+`onCommit`, `operations`, `api`, and package-owned facets such as `clipboard`.
 
 ```javascript
 const tables = defineEditorExtension({
@@ -89,7 +88,7 @@ const tables = defineEditorExtension({
   options: {
     navigation: 'cell-boundary',
   },
-  register(context) {
+  setup(context) {
     const mode = context.runtimeState('text')
 
     context.signal.addEventListener('abort', () => {
@@ -120,16 +119,14 @@ const tables = defineEditorExtension({
           }
         },
       },
-      commitListeners: [
-        (commit) => {
-          if (commit.tags.includes('collaboration')) {
-            syncTableOverlay(commit)
-          }
-          if (commit.selectionChanged) {
-            mode.set('cell')
-          }
-        },
-      ],
+      onCommit({ commit }) {
+        if (commit.tags.includes('collaboration')) {
+          syncTableOverlay(commit)
+        }
+        if (commit.selectionChanged) {
+          mode.set('cell')
+        }
+      },
     }
   },
 })
@@ -138,7 +135,7 @@ const tables = defineEditorExtension({
 `dependencies` control install order. `peerDependencies` require a companion
 extension without forcing order. `conflicts` prevents incompatible extensions
 from being installed together. The cleanup function returned by
-`editor.extend(...)` aborts `context.signal`, runs registration cleanup, removes
+`editor.extend(...)` aborts `context.signal`, runs setup cleanup, removes
 extension-local state, and unregisters the extension slots.
 
 ## State And Tx Groups
@@ -295,8 +292,8 @@ Extensions can also register lower-level runtime hooks:
 | --- | --- |
 | `elements` | element schema specs |
 | `normalizers` | named normalizer entries |
-| `commitListeners` | observing committed changes |
-| `operationMiddlewares` | operation import/export policy |
+| `onCommit` | observing committed changes |
+| `operations.apply` | operation import/export policy |
 | `api` | mounted runtime handles exposed through `editor.api` |
 | `clipboard` | DataTransfer ingress hooks |
 

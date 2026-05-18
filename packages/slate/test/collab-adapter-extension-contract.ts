@@ -64,7 +64,7 @@ const createFakeCollabAdapterExtension = () => {
 
   const extension = defineEditorExtension({
     name: 'fake-collab-adapter',
-    register(context) {
+    setup(context) {
       const adapterState = context.runtimeState<FakeAdapterState>({
         connected: true,
         exports: [],
@@ -119,30 +119,28 @@ const createFakeCollabAdapterExtension = () => {
         cleanup() {
           setAdapterState({ connected: false, paused: true })
         },
-        commitListeners: [
-          (commit) => {
-            listenerEvents.push(`commit:${commit.tags.join(',')}`)
+        onCommit({ commit }) {
+          listenerEvents.push(`commit:${commit.tags.join(',')}`)
 
-            const state = adapterState.get()
+          const state = adapterState.get()
 
-            if (!state.connected || state.paused) {
-              return
-            }
-            if (commit.tags.includes('skip-collab')) {
-              return
-            }
-            if (commit.tags.includes('collaboration')) {
-              return
-            }
-            if (commit.metadata.collab?.origin === 'remote') {
-              return
-            }
+          if (!state.connected || state.paused) {
+            return
+          }
+          if (commit.tags.includes('skip-collab')) {
+            return
+          }
+          if (commit.tags.includes('collaboration')) {
+            return
+          }
+          if (commit.metadata.collab?.origin === 'remote') {
+            return
+          }
 
-            setAdapterState({
-              exports: [...state.exports, clone(commit.operations)],
-            })
-          },
-        ],
+          setAdapterState({
+            exports: [...state.exports, clone(commit.operations)],
+          })
+        },
       }
     },
   })

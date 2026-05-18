@@ -19,8 +19,6 @@ import {
   useElementSelected,
 } from 'slate-react'
 
-import type { HeadingElement, ParagraphElement } from './custom-types.d'
-
 const SUPPORTS_EVENT_TIMING =
   typeof window !== 'undefined' && 'PerformanceEventTiming' in window
 
@@ -149,17 +147,15 @@ const getInitialValue = (blocks: number) => {
 
   for (let i = cachedInitialValue.length; i < blocks; i++) {
     if (i % 100 === 0) {
-      const heading: HeadingElement = {
+      cachedInitialValue.push({
         type: 'heading-one',
         children: [{ text: faker.lorem.sentence() }],
-      }
-      cachedInitialValue.push(heading)
+      })
     } else {
-      const paragraph: ParagraphElement = {
+      cachedInitialValue.push({
         type: 'paragraph',
         children: [{ text: faker.lorem.paragraph() }],
-      }
-      cachedInitialValue.push(paragraph)
+      })
     }
   }
 

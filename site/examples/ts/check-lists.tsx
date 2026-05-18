@@ -179,11 +179,8 @@ const CheckListItemElement = ({
               return
             }
 
-            const newProperties: Partial<SlateElement> = {
-              checked: event.target.checked,
-            }
             editor.update((tx) => {
-              tx.nodes.set(newProperties, { at: path })
+              tx.nodes.set({ checked: event.target.checked }, { at: path })
             })
           }}
           type="checkbox"

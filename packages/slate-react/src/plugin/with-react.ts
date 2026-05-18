@@ -3,7 +3,7 @@ import {
   createEditor,
   defineEditorExtension,
   type Editor,
-  type EditorExtensionRegistrationContext,
+  type EditorExtensionSetupContext,
   type Value,
 } from 'slate'
 import {
@@ -84,7 +84,7 @@ export const react = (options: ReactEditorOptions = {}) =>
   defineEditorExtension({
     conflicts: ['dom'],
     name: 'react',
-    register(context: EditorExtensionRegistrationContext<Editor>) {
+    setup(context: EditorExtensionSetupContext<Editor>) {
       const editor = installDOM(context.editor, options)
       const { clipboard, ...domApi } = editor.dom
 

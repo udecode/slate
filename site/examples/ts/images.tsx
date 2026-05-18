@@ -142,15 +142,9 @@ const renderVoid = ({ element }: RenderVoidProps<CustomElement>) => {
 }
 
 const insertImage = (editor: CustomEditor, url: string) => {
-  const text = { text: '' }
-  const image: ImageElement = { type: 'image', url, children: [text] }
-  const paragraph: ParagraphElement = {
-    type: 'paragraph',
-    children: [{ text: '' }],
-  }
   editor.update((tx) => {
-    tx.nodes.insert(image)
-    tx.nodes.insert(paragraph)
+    tx.nodes.insert({ type: 'image', url, children: [{ text: '' }] })
+    tx.nodes.insert({ type: 'paragraph', children: [{ text: '' }] })
   })
 }
 

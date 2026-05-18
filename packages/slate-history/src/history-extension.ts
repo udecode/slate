@@ -1,7 +1,7 @@
 import {
   defineEditorExtension,
   type Editor,
-  type EditorExtensionRegistrationContext,
+  type EditorExtensionSetupContext,
   type EditorUpdateTransaction,
   type Operation,
   OperationApi,
@@ -208,7 +208,7 @@ export const history = <const TEnabled extends boolean | undefined = undefined>(
         }
       },
     },
-    register(context: EditorExtensionRegistrationContext<Editor>) {
+    setup(context: EditorExtensionSetupContext<Editor>) {
       const editor = context.editor
 
       getHistory(editor)
@@ -230,77 +230,75 @@ export const history = <const TEnabled extends boolean | undefined = undefined>(
           MERGING.delete(editor)
           SPLITTING_ONCE.delete(editor)
         },
-        commitListeners: [
-          (change: SnapshotChange) => {
-            const committedOps = [...(change?.operations ?? [])]
+        onCommit({ commit: change }: { commit: SnapshotChange }) {
+          const committedOps = [...(change?.operations ?? [])]
 
-            if (committedOps.length === 0) {
+          if (committedOps.length === 0) {
+            return
+          }
+
+          const history = getHistory(editor)
+          const { undos } = history
+          const lastBatch = undos.at(-1)
+          let save = isSaving(editor)
+          let merge = isMerging(editor)
+
+          if (save == null) {
+            save = shouldSaveCommit(change, committedOps)
+          }
+
+          if (!save && shouldRebaseHistory(change)) {
+            rebaseHistory(history.undos, committedOps)
+            rebaseHistory(history.redos, committedOps)
+          }
+
+          if (save) {
+            const preparedBatch = prepareHistoryBatch(
+              change?.selectionBefore ?? null,
+              committedOps
+            )
+
+            if (!preparedBatch) {
               return
             }
 
-            const history = getHistory(editor)
-            const { undos } = history
-            const lastBatch = undos.at(-1)
-            let save = isSaving(editor)
-            let merge = isMerging(editor)
-
-            if (save == null) {
-              save = shouldSaveCommit(change, committedOps)
-            }
-
-            if (!save && shouldRebaseHistory(change)) {
-              rebaseHistory(history.undos, committedOps)
-              rebaseHistory(history.redos, committedOps)
-            }
-
-            if (save) {
-              const preparedBatch = prepareHistoryBatch(
-                change?.selectionBefore ?? null,
-                committedOps
-              )
-
-              if (!preparedBatch) {
-                return
-              }
-
-              if (merge == null) {
-                if (lastBatch == null) {
-                  merge = false
-                } else if (change?.metadata.history?.mode === 'push') {
-                  merge = false
-                } else if (change?.metadata.history?.mode === 'merge') {
-                  merge = true
-                } else if (change?.tags.includes('history-push')) {
-                  merge = false
-                } else if (change?.tags.includes('history-merge')) {
-                  merge = true
-                } else {
-                  merge = shouldMergeBatch(
-                    preparedBatch.operations,
-                    lastBatch.operations
-                  )
-                }
-              }
-
-              if (isSplittingOnce(editor)) {
+            if (merge == null) {
+              if (lastBatch == null) {
                 merge = false
-                setSplittingOnce(editor, undefined)
-              }
-
-              if (lastBatch && merge) {
-                lastBatch.operations.push(...preparedBatch.operations)
+              } else if (change?.metadata.history?.mode === 'push') {
+                merge = false
+              } else if (change?.metadata.history?.mode === 'merge') {
+                merge = true
+              } else if (change?.tags.includes('history-push')) {
+                merge = false
+              } else if (change?.tags.includes('history-merge')) {
+                merge = true
               } else {
-                writeHistory(editor, 'undos', preparedBatch)
+                merge = shouldMergeBatch(
+                  preparedBatch.operations,
+                  lastBatch.operations
+                )
               }
-
-              while (undos.length > 100) {
-                undos.shift()
-              }
-
-              history.redos = []
             }
-          },
-        ],
+
+            if (isSplittingOnce(editor)) {
+              merge = false
+              setSplittingOnce(editor, undefined)
+            }
+
+            if (lastBatch && merge) {
+              lastBatch.operations.push(...preparedBatch.operations)
+            } else {
+              writeHistory(editor, 'undos', preparedBatch)
+            }
+
+            while (undos.length > 100) {
+              undos.shift()
+            }
+
+            history.redos = []
+          }
+        },
       }
     },
   } as const

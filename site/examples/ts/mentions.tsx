@@ -260,16 +260,15 @@ const insertMention = (
   character: string,
   target?: Range | null
 ) => {
-  const mention: MentionElement = {
-    type: 'mention',
-    character,
-    children: [{ text: '' }],
-  }
   editor.update((tx) => {
     if (target) {
       tx.selection.set(target)
     }
-    tx.nodes.insert(mention)
+    tx.nodes.insert({
+      type: 'mention',
+      character,
+      children: [{ text: '' }],
+    })
     tx.selection.move()
   })
 }

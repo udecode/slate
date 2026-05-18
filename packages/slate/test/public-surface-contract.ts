@@ -78,6 +78,11 @@ const bannedPublicSurface = [
     pattern: /\beditor\.(apply|onChange)\s*=/,
     reason: 'primary examples must not teach method override extension points',
   },
+  {
+    pattern: /\b(operationMiddlewares|commitListeners)\b|\bregister\s*[:(]/,
+    reason:
+      'public authoring examples must teach operations.apply, onCommit, and setup',
+  },
 ]
 
 const bannedPublicDocumentationSurface = [

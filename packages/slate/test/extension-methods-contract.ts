@@ -52,6 +52,42 @@ describe('extension method hard cut', () => {
     assert.equal(Editor.getExtensionRegistry(editor).commands.size, 0)
   })
 
+  it('rejects legacy extension lifecycle slots before mutating the editor', () => {
+    const editor = createEditor()
+
+    assert.throws(
+      () =>
+        editor.extend(
+          asExtensionInput({
+            name: 'legacy-register',
+            register() {},
+          })
+        ),
+      /Editor extension "legacy-register" cannot use register\. Add setup instead\./
+    )
+    assert.throws(
+      () =>
+        editor.extend(
+          asExtensionInput({
+            name: 'legacy-operations',
+            operationMiddlewares: [() => {}],
+          })
+        ),
+      /Editor extension "legacy-operations" cannot use operationMiddlewares\. Add operations\.apply instead\./
+    )
+    assert.throws(
+      () =>
+        editor.extend(
+          asExtensionInput({
+            commitListeners: [() => {}],
+            name: 'legacy-commits',
+          })
+        ),
+      /Editor extension "legacy-commits" cannot use commitListeners\. Add onCommit instead\./
+    )
+    assert.equal(Editor.getExtensionRegistry(editor).extensions.size, 0)
+  })
+
   it('rejects legacy functional methods before mutating the editor', () => {
     const editor = createEditor()
     const legacyExtension = asExtensionInput({
@@ -133,7 +169,7 @@ describe('extension method hard cut', () => {
     )
   })
 
-  it('installs register output with options, cleanup signal, and extension-local state', () => {
+  it('installs setup output with options, cleanup signal, and extension-local state', () => {
     const editor = createEditor()
     const cleanupEvents: string[] = []
     let runtimeMode: EditorExtensionRuntimeState<'text' | 'cell'> | null = null
@@ -142,7 +178,7 @@ describe('extension method hard cut', () => {
       defineEditorExtension({
         name: 'runtime-table',
         options: { initialMode: 'text' as const },
-        register(context) {
+        setup(context) {
           assert.equal(context.name, 'runtime-table')
           assert.equal(context.options.initialMode, 'text')
 

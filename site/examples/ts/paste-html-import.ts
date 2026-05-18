@@ -459,11 +459,10 @@ export const deserialize = (el: HTMLElement | ChildNode): any => {
     children = [{ text: '' }]
   }
 
-  const textAttributes = {
+  children = applyTextAttributes(children, {
     ...getTextTagAttributes(nodeName, el as HTMLElement),
     ...getStyledTextAttributes(el as HTMLElement),
-  }
-  children = applyTextAttributes(children, textAttributes)
+  })
 
   if (nodeName === 'P') {
     const meaningfulChildren = getMeaningfulChildren(children)
