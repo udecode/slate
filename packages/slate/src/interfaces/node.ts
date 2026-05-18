@@ -114,6 +114,44 @@ export interface NodeTextsOptions {
   pass?: (node: NodeEntry) => boolean
 }
 
+/**
+ * A code-unit text match inside the concatenated text for one text run.
+ */
+export interface NodeTextRangeMatch {
+  end: number
+  start: number
+}
+
+/**
+ * A lightweight root for snapshot reads where callers already have children
+ * but not a live editor object.
+ */
+export interface NodeTextRangeRoot {
+  children: Descendant[]
+}
+
+export type NodeTextRangeEntry = [Node | NodeTextRangeRoot, Path]
+
+/**
+ * Match text inside a Slate node. String queries are literal, regular
+ * expressions use their own flags, and callbacks can return custom offsets.
+ */
+export type NodeTextRangeQuery =
+  | RegExp
+  | string
+  | ((
+      text: string,
+      entry: NodeTextRangeEntry
+    ) => Iterable<NodeTextRangeMatch> | readonly NodeTextRangeMatch[])
+
+export interface NodeFindTextRangesOptions {
+  /**
+   * Match string queries by exact case. Regular expressions use their own
+   * flags.
+   */
+  caseSensitive?: boolean
+}
+
 export interface NodeInterface {
   /**
    * Get the node at a specific path, asserting that it's an ancestor node.
@@ -188,6 +226,17 @@ export interface NodeInterface {
    * Get the sliced fragment represented by a range inside a root node.
    */
   fragment: <T extends Ancestor = Editor>(root: T, range: Range) => Descendant[]
+
+  /**
+   * Find ranges for a text query inside text leaves or text-only ancestor
+   * children. String queries are literal; use a regular expression or callback
+   * for custom matching.
+   */
+  findTextRanges: (
+    root: Node | NodeTextRangeRoot,
+    query: NodeTextRangeQuery,
+    options?: NodeFindTextRangesOptions
+  ) => Range[]
 
   /**
    * Get the descendant node referred to by a specific path. If the path is an
@@ -332,6 +381,141 @@ const getWholeTopLevelChildFragment = (
   }
 
   return children.slice(startIndex, endIndex + 1)
+}
+
+const getTextRangeChildren = (
+  node: Ancestor | NodeTextRangeRoot
+): Descendant[] =>
+  NodeApi.isEditor(node as Node)
+    ? Editor.getChildren(node as Editor)
+    : (node as Element | NodeTextRangeRoot).children
+
+const getStringMatches = (
+  text: string,
+  query: string,
+  { caseSensitive = true }: NodeFindTextRangesOptions
+): NodeTextRangeMatch[] => {
+  if (!query) {
+    return []
+  }
+
+  const matches: NodeTextRangeMatch[] = []
+  const source = caseSensitive ? text : text.toLowerCase()
+  const target = caseSensitive ? query : query.toLowerCase()
+  let start = source.indexOf(target)
+
+  while (start !== -1) {
+    matches.push({ end: start + target.length, start })
+    start = source.indexOf(target, start + target.length)
+  }
+
+  return matches
+}
+
+const getRegExpMatches = (
+  text: string,
+  query: RegExp
+): NodeTextRangeMatch[] => {
+  const flags = query.flags.includes('g') ? query.flags : `${query.flags}g`
+  const expression = new RegExp(query.source, flags)
+  const matches: NodeTextRangeMatch[] = []
+
+  for (const match of text.matchAll(expression)) {
+    const start = match.index
+    const value = match[0]
+
+    if (value.length === 0) {
+      continue
+    }
+
+    matches.push({ end: start + value.length, start })
+  }
+
+  return matches
+}
+
+const getTextRangeMatches = (
+  text: string,
+  entry: NodeTextRangeEntry,
+  query: NodeTextRangeQuery,
+  options: NodeFindTextRangesOptions
+): NodeTextRangeMatch[] => {
+  if (typeof query === 'string') {
+    return getStringMatches(text, query, options)
+  }
+
+  if (query instanceof RegExp) {
+    return getRegExpMatches(text, query)
+  }
+
+  return Array.from(query(text, entry))
+}
+
+const isTextRangeMatch = (
+  value: NodeTextRangeMatch,
+  textLength: number
+): boolean =>
+  Number.isInteger(value.start) &&
+  Number.isInteger(value.end) &&
+  value.start >= 0 &&
+  value.end > value.start &&
+  value.end <= textLength
+
+const getTextOffsetPoint = (
+  entries: NodeEntry<Text>[],
+  offset: number,
+  affinity: 'backward' | 'forward'
+): Range['anchor'] => {
+  let current = 0
+
+  for (let index = 0; index < entries.length; index++) {
+    const [node, path] = entries[index]
+    const end = current + node.text.length
+
+    if (
+      offset < end ||
+      (offset === end &&
+        (affinity === 'backward' || index === entries.length - 1))
+    ) {
+      return {
+        offset: offset - current,
+        path,
+      }
+    }
+
+    current = end
+  }
+
+  const [node, path] = entries.at(-1)!
+
+  return {
+    offset: node.text.length,
+    path,
+  }
+}
+
+const getTextEntryRanges = (
+  entries: NodeEntry<Text>[],
+  entry: NodeTextRangeEntry,
+  query: NodeTextRangeQuery,
+  options: NodeFindTextRangesOptions
+): Range[] => {
+  const text = entries.map(([node]) => node.text).join('')
+  const matches = getTextRangeMatches(text, entry, query, options)
+  const ranges: Range[] = []
+
+  for (const match of matches) {
+    if (!isTextRangeMatch(match, text.length)) {
+      continue
+    }
+
+    ranges.push({
+      anchor: getTextOffsetPoint(entries, match.start, 'forward'),
+      focus: getTextOffsetPoint(entries, match.end, 'backward'),
+    })
+  }
+
+  return ranges
 }
 
 // eslint-disable-next-line no-redeclare
@@ -521,6 +705,52 @@ export const NodeApi: NodeInterface = {
     }
 
     return newRoot.children
+  },
+
+  findTextRanges(
+    root: Node | NodeTextRangeRoot,
+    query: NodeTextRangeQuery,
+    options: NodeFindTextRangesOptions = {}
+  ): Range[] {
+    const ranges: Range[] = []
+
+    const visit = (node: Node | NodeTextRangeRoot, path: Path) => {
+      if (NodeApi.isText(node as Node)) {
+        ranges.push(
+          ...getTextEntryRanges(
+            [[node as Text, path]],
+            [node as Text, path],
+            query,
+            options
+          )
+        )
+        return
+      }
+
+      const children = getTextRangeChildren(
+        node as Ancestor | NodeTextRangeRoot
+      )
+
+      if (children.every(NodeApi.isText)) {
+        ranges.push(
+          ...getTextEntryRanges(
+            children.map((child, index) => [child, path.concat(index)]),
+            [node, path],
+            query,
+            options
+          )
+        )
+        return
+      }
+
+      children.forEach((child, index) => {
+        visit(child, path.concat(index))
+      })
+    }
+
+    visit(root, [])
+
+    return ranges
   },
 
   get(root: Node, path: Path): Node {

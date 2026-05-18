@@ -10,6 +10,7 @@ import {
 import { Editor } from 'slate/internal'
 import {
   createDecorationSource,
+  createRangeDecorationSource,
   createReactEditor,
   createSlateProjectionStore,
   Editable,
@@ -24,7 +25,10 @@ import {
 import { ProjectionContext } from '../src/projection-context'
 
 type SegmentLike = {
+  end: number
   slices: readonly { data?: Record<string, unknown> }[]
+  start: number
+  text: string
 }
 
 type RenderedProjectionEditor = RenderResult & {
@@ -38,7 +42,18 @@ const renderSegment = (segment: SegmentLike, children: ReactNode) => {
     .flatMap((slice) => Object.keys(slice.data ?? {}))
     .sort()
 
-  return <span data-decorations={JSON.stringify(decorations)}>{children}</span>
+  return (
+    <span
+      data-decorations={JSON.stringify(decorations)}
+      data-segment={JSON.stringify({
+        end: segment.end,
+        start: segment.start,
+        text: segment.text,
+      })}
+    >
+      {children}
+    </span>
+  )
 }
 
 const getProjectedSegments = (
@@ -50,6 +65,18 @@ const getProjectedSegments = (
         (segment as HTMLElement).dataset.decorations ?? '[]'
       ),
       text: segment.textContent ?? '',
+    })
+  )
+
+const getProjectedSegmentMetadata = (
+  container: HTMLElement
+): { end: number; start: number; text: string; decorations: string[] }[] =>
+  Array.from(container.querySelectorAll('[data-decorations]')).map(
+    (segment) => ({
+      ...JSON.parse((segment as HTMLElement).dataset.segment ?? '{}'),
+      decorations: JSON.parse(
+        (segment as HTMLElement).dataset.decorations ?? '[]'
+      ),
     })
   )
 
@@ -149,6 +176,39 @@ describe('slate-react projections and selection contract', () => {
     spelling.destroy()
   })
 
+  test('creates decoration sources from plain ranges', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          children: [{ text: 'Hello world' }],
+        },
+      ],
+      selection: null,
+    })
+
+    const source = createRangeDecorationSource(editor, {
+      data: { search: true },
+      id: 'range-search',
+      read: ({ snapshot }) =>
+        NodeApi.findTextRanges({ children: snapshot.children }, 'world'),
+    })
+
+    const rendered = render(
+      <Slate decorationSources={[source]} editor={editor}>
+        <Editable renderSegment={renderSegment} />
+      </Slate>
+    )
+
+    expect(getProjectedSegments(rendered.container)).toEqual([
+      { text: 'Hello ', decorations: [] },
+      { text: 'world', decorations: ['search'] },
+    ])
+
+    source.destroy()
+  })
+
   test('supports simple Editable decorate ranges without a decoration source', () => {
     const editor = createEditor()
 
@@ -213,6 +273,32 @@ describe('slate-react projections and selection contract', () => {
       { text: 'Hello ', decorations: ['bold'] },
       { text: 'world', decorations: ['bold', 'italic'] },
       { text: '!', decorations: ['italic'] },
+    ])
+
+    rendered.store.destroy()
+  })
+
+  test('renders collapsed projection slices at interior text offsets', () => {
+    const editor = createEditor()
+    const rendered = renderProjectedEditor(
+      editor,
+      [{ children: [{ text: 'abcdef' }] }],
+      () => [
+        {
+          data: { widget: true },
+          key: 'widget',
+          range: {
+            anchor: { path: [0, 0], offset: 3 },
+            focus: { path: [0, 0], offset: 3 },
+          },
+        },
+      ]
+    )
+
+    expect(getProjectedSegmentMetadata(rendered.container)).toEqual([
+      { decorations: [], end: 3, start: 0, text: 'abc' },
+      { decorations: ['widget'], end: 3, start: 3, text: '' },
+      { decorations: [], end: 6, start: 3, text: 'def' },
     ])
 
     rendered.store.destroy()

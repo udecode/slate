@@ -22,11 +22,11 @@ import {
   Editable,
   type RenderElementProps,
   Slate,
-  type SlateProjection,
+  type SlateRangeDecoration,
   useEditor,
   useElementPath,
-  useSlateDecorationSource,
   useSlateEditor,
+  useSlateRangeDecorationSource,
 } from 'slate-react'
 import { Button, Icon, Toolbar } from './components'
 import type {
@@ -101,10 +101,10 @@ const editor = useSlateEditor<CustomValue>({ initialValue })`),
   ]
   const editor = useSlateEditor({ initialValue })
 
-  const codeHighlightingSource = useSlateDecorationSource(editor, {
+  const codeHighlightingSource = useSlateRangeDecorationSource(editor, {
     id: 'code-highlighting',
     dirtiness: ['text', 'node'],
-    read: ({ snapshot }) => collectCodeProjections(snapshot.children),
+    read: ({ snapshot }) => collectCodeRanges(snapshot.children),
     runtimeScope: ({ snapshot }) => collectCodeRuntimeScope(snapshot),
   })
 
@@ -263,12 +263,12 @@ const convertSelectionToCodeBlock = (editor: CustomEditor) => {
   })
 }
 
-const collectCodeProjections = (
+const collectCodeRanges = (
   nodes: readonly Descendant[],
   path: number[] = [],
   language: string | undefined = undefined
-): SlateProjection<Record<string, true>>[] => {
-  const projections: SlateProjection<Record<string, true>>[] = []
+): SlateRangeDecoration<Record<string, true>>[] => {
+  const ranges: SlateRangeDecoration<Record<string, true>>[] = []
 
   nodes.forEach((node, nodeIndex) => {
     const nodePath = [...path, nodeIndex]
@@ -278,19 +278,15 @@ const collectCodeProjections = (
         : language
 
     if (NodeApi.isText(node) && nodeLanguage) {
-      projections.push(
-        ...collectCodeTextProjections(node.text, nodePath, nodeLanguage)
-      )
+      ranges.push(...collectCodeTextRanges(node.text, nodePath, nodeLanguage))
     }
 
     if (NodeApi.isElement(node)) {
-      projections.push(
-        ...collectCodeProjections(node.children, nodePath, nodeLanguage)
-      )
+      ranges.push(...collectCodeRanges(node.children, nodePath, nodeLanguage))
     }
   })
 
-  return projections
+  return ranges
 }
 
 const collectCodeRuntimeScope = (
@@ -332,11 +328,11 @@ const collectCodeRuntimeScope = (
   return runtimeIds
 }
 
-const collectCodeTextProjections = (
+const collectCodeTextRanges = (
   text: string,
   path: number[],
   language = 'jsx'
-): SlateProjection<Record<string, true>>[] => {
+): SlateRangeDecoration<Record<string, true>>[] => {
   const grammar = Prism.languages[language]
 
   if (!grammar) {
@@ -345,7 +341,7 @@ const collectCodeTextProjections = (
 
   const tokens = Prism.tokenize(text, grammar)
   const normalizedTokens = normalizeTokens(tokens)
-  const projections: SlateProjection<Record<string, true>>[] = []
+  const ranges: SlateRangeDecoration<Record<string, true>>[] = []
   let start = 0
 
   normalizedTokens.forEach((lineTokens, lineIndex) => {
@@ -357,7 +353,7 @@ const collectCodeTextProjections = (
 
       const end = start + length
 
-      projections.push({
+      ranges.push({
         data: {
           token: true,
           ...Object.fromEntries(token.types.map((type) => [type, true])),
@@ -377,7 +373,7 @@ const collectCodeTextProjections = (
     }
   })
 
-  return projections
+  return ranges
 }
 
 type CodeIndentAction = 'indent' | 'outdent'

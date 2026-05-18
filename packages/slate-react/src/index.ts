@@ -64,10 +64,13 @@ export { ZeroWidthString } from './components/zero-width-string'
 export {
   composeDecorationSources,
   createDecorationSource,
+  createRangeDecorationSource,
   type SlateDecoration,
   type SlateDecorationSource,
   type SlateDecorationSourceOptions,
   type SlateDecorationSourceReadContext,
+  type SlateRangeDecoration,
+  type SlateRangeDecorationSourceOptions,
 } from './decoration-source'
 export {
   type EditorDecorationSelectorContext,
@@ -108,7 +111,12 @@ export {
   useSlateAnnotation,
   useSlateAnnotations,
 } from './hooks/use-slate-annotations'
-export { useSlateDecorationSource } from './hooks/use-slate-decoration-source'
+export {
+  type UseSlateDecorationSourceOptions,
+  type UseSlateRangeDecorationSourceOptions,
+  useSlateDecorationSource,
+  useSlateRangeDecorationSource,
+} from './hooks/use-slate-decoration-source'
 export {
   type UseSlateEditorOptions,
   useSlateEditor,

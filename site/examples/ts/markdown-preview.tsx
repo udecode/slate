@@ -6,9 +6,9 @@ import { type Descendant, NodeApi } from 'slate'
 import {
   Editable,
   Slate,
-  type SlateProjection,
-  useSlateDecorationSource,
+  type SlateRangeDecoration,
   useSlateEditor,
+  useSlateRangeDecorationSource,
 } from 'slate-react'
 
 const MarkdownPreviewExample = () => {
@@ -32,12 +32,12 @@ const MarkdownPreviewExample = () => {
       },
     ],
   })
-  const markdownSource = useSlateDecorationSource<Record<string, true>>(
+  const markdownSource = useSlateRangeDecorationSource<Record<string, true>>(
     editor,
     {
       id: 'markdown-preview',
       dirtiness: 'text',
-      read: ({ snapshot }) => collectMarkdownProjections(snapshot.children),
+      read: ({ snapshot }) => collectMarkdownRanges(snapshot.children),
     }
   )
 
@@ -74,11 +74,11 @@ const getTokenLength = (token: string | Prism.Token): number => {
   )
 }
 
-const collectMarkdownProjections = (
+const collectMarkdownRanges = (
   nodes: readonly Descendant[],
   path: number[] = []
-): SlateProjection<Record<string, true>>[] => {
-  const projections: SlateProjection<Record<string, true>>[] = []
+): SlateRangeDecoration<Record<string, true>>[] => {
+  const ranges: SlateRangeDecoration<Record<string, true>>[] = []
 
   nodes.forEach((node, nodeIndex) => {
     const nodePath = [...path, nodeIndex]
@@ -92,7 +92,7 @@ const collectMarkdownProjections = (
         const end = start + length
 
         if (typeof token !== 'string') {
-          projections.push({
+          ranges.push({
             data: { [token.type]: true },
             key: `markdown:${nodePath.join('.')}:${start}:${end}`,
             range: {
@@ -107,11 +107,11 @@ const collectMarkdownProjections = (
     }
 
     if (NodeApi.isElement(node)) {
-      projections.push(...collectMarkdownProjections(node.children, nodePath))
+      ranges.push(...collectMarkdownRanges(node.children, nodePath))
     }
   })
 
-  return projections
+  return ranges
 }
 
 const MarkdownSegment = ({

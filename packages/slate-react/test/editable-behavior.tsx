@@ -243,6 +243,45 @@ describe('slate-react editable behavior', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
+  test('Editable onBeforeInput is not replayed from native beforeinput', async () => {
+    const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
+    const editor = createReactEditor({ initialValue })
+    const onBeforeInput = jest.fn()
+    const onDOMBeforeInput = jest.fn()
+
+    let rendered!: ReturnType<typeof render>
+    act(() => {
+      rendered = render(
+        <Slate editor={editor}>
+          <Editable
+            onBeforeInput={onBeforeInput}
+            onDOMBeforeInput={onDOMBeforeInput}
+          />
+        </Slate>
+      )
+    })
+
+    const editable = rendered.container.querySelector('[data-slate-editor]')
+    expect(editable).toBeTruthy()
+    Object.defineProperty(editable, 'isContentEditable', {
+      configurable: true,
+      value: true,
+    })
+
+    await act(async () => {
+      editable!.dispatchEvent(
+        new InputEvent('beforeinput', {
+          bubbles: true,
+          cancelable: true,
+          inputType: 'formatBold',
+        })
+      )
+    })
+
+    expect(onDOMBeforeInput).toHaveBeenCalledTimes(1)
+    expect(onBeforeInput).not.toHaveBeenCalled()
+  })
+
   test('default scroll restores leaf measurement after scrolling a collapsed range', () => {
     const editor = createReactEditor()
 

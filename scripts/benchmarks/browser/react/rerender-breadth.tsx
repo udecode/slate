@@ -12,16 +12,17 @@ import React, {
   useState,
   useSyncExternalStore,
 } from 'react'
-import {
-  type Bookmark,
+import type {
+  Bookmark,
   createEditor,
-  type Descendant,
-  type EditorSnapshot,
-  type Range,
-  type RuntimeId,
+  Descendant,
+  EditorSnapshot,
+  Range,
+  RuntimeId,
 } from '../../../../packages/slate/src/index.ts'
 import { Editor } from '../../../../packages/slate/src/internal/index.ts'
 import {
+  createReactEditor,
   createSlateProjectionStore,
   Editable,
   EditableElement,
@@ -39,7 +40,6 @@ import {
   useEditorSelector as useSlateSelector,
   useSlateWidgetStore,
   useSlateWidgets,
-  withReact,
 } from '../../../../packages/slate-react/src/index.ts'
 import {
   cloneCounts,
@@ -877,7 +877,7 @@ const measureLane = async (run: () => Promise<Record<string, number>>) => {
 
 const measureSelectionBreadth = async () =>
   measureLane(async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
     const counts: Record<string, number> = {}
 
     Editor.replace(editor, {
@@ -922,7 +922,7 @@ const measureSelectionBreadth = async () =>
 
 const measureManyLeafBreadth = async () =>
   measureLane(async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
     const blockCounts: Record<string, number> = {}
     const leafCounts: Record<string, number> = {}
     const targetLeafKey = `leaf-${targetLeafIndex}`
@@ -984,7 +984,7 @@ const measureManyLeafBreadth = async () =>
 
 const measureDeepAncestorBreadth = async () =>
   measureLane(async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
     const elementCounts: Record<string, number> = {}
     const leafCounts: Record<string, number> = {}
     const { ancestorKeys, children, deepTextPath } =
@@ -1041,7 +1041,7 @@ const measureDeepAncestorBreadth = async () =>
 
 const measureDecorationSourceToggleBreadth = async () =>
   measureLane(async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
     const counts: Record<string, number> = {}
     let projectionStore: SlateProjectionStore<{
       highlight?: boolean
@@ -1099,7 +1099,7 @@ const measureDecorationSourceToggleBreadth = async () =>
 
 const measureHiddenPanelActivity = async () =>
   measureLane(async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
     const counts: Record<string, number> = {}
 
     Editor.replace(editor, {
@@ -1200,7 +1200,7 @@ const measureHiddenPanelActivity = async () =>
 
 const measureAnnotationWidgetBreadth = async () =>
   measureLane(async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
     const counts: Record<string, number> = {}
     let annotationStore: SlateAnnotationStore<{
       kind: string
@@ -1302,7 +1302,7 @@ const measureAnnotationWidgetBreadth = async () =>
 
 const measureSourceScopedInvalidation = async () =>
   measureLane(async () => {
-    const editor = withReact(createEditor())
+    const editor = createReactEditor()
     const counts: Record<string, number> = {}
     const externalActiveRef = { current: false }
 

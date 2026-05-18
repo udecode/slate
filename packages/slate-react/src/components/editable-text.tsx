@@ -142,6 +142,8 @@ const splitTextByProjections = <T,>(
   slices: readonly SlateProjectionSlice<T>[],
   marks: Omit<SlateTextNode, 'text'>
 ): EditableTextSegment<T>[] => {
+  const clampOffset = (offset: number) =>
+    Math.max(0, Math.min(text.length, offset))
   const zeroLengthSlices = slices.filter((slice) => slice.start === slice.end)
   const rangedSlices = slices.filter((slice) => slice.start !== slice.end)
 
@@ -164,8 +166,12 @@ const splitTextByProjections = <T,>(
   const boundaries = new Set<number>([0, text.length])
 
   rangedSlices.forEach((slice) => {
-    boundaries.add(Math.max(0, Math.min(text.length, slice.start)))
-    boundaries.add(Math.max(0, Math.min(text.length, slice.end)))
+    boundaries.add(clampOffset(slice.start))
+    boundaries.add(clampOffset(slice.end))
+  })
+
+  zeroLengthSlices.forEach((slice) => {
+    boundaries.add(clampOffset(slice.start))
   })
 
   const sorted = Array.from(boundaries).sort((left, right) => left - right)
@@ -173,7 +179,7 @@ const splitTextByProjections = <T,>(
 
   const pushZeroLengthSegmentsAt = (offset: number) => {
     zeroLengthSlices
-      .filter((slice) => slice.start === offset)
+      .filter((slice) => clampOffset(slice.start) === offset)
       .forEach((slice) => {
         segments.push({
           end: offset,

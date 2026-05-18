@@ -1,4 +1,10 @@
-import type { EditorSnapshot, RuntimeId, Editor as SlateEditor } from 'slate'
+import type {
+  EditorSnapshot,
+  Range,
+  RuntimeId,
+  Editor as SlateEditor,
+} from 'slate'
+import { RangeApi } from 'slate'
 
 import {
   createSlateProjectionStore,
@@ -10,6 +16,14 @@ import {
 } from './projection-store'
 
 export type SlateDecoration<T = unknown> = SlateProjection<T>
+
+export type SlateRangeDecoration<T = unknown> =
+  | Range
+  | {
+      data?: T
+      key?: string
+      range: Range
+    }
 
 export type SlateDecorationSourceReadContext = {
   editor: SlateEditor
@@ -24,6 +38,19 @@ export type SlateDecorationSourceOptions<T = unknown> = Omit<
   read: (
     context: SlateDecorationSourceReadContext
   ) => readonly SlateDecoration<T>[]
+}
+
+export type SlateRangeDecorationSourceOptions<T = unknown> = Omit<
+  SlateDecorationSourceOptions<T>,
+  'read'
+> & {
+  /**
+   * Data attached to every range that does not provide its own data.
+   */
+  data?: T
+  read: (
+    context: SlateDecorationSourceReadContext
+  ) => readonly SlateRangeDecoration<T>[]
 }
 
 export type SlateDecorationSource<T = unknown> = {
@@ -108,6 +135,32 @@ const subscribeAll = (
   }
 }
 
+const getRangeDecorationKey = (sourceId: string, range: Range, index: number) =>
+  `${sourceId}:${range.anchor.path.join('.')}:${range.anchor.offset}:${range.focus.path.join('.')}:${range.focus.offset}:${index}`
+
+export const toSlateRangeDecorations = <T>(
+  ranges: readonly SlateRangeDecoration<T>[],
+  options: Pick<SlateRangeDecorationSourceOptions<T>, 'data' | 'id'>
+): SlateDecoration<T>[] =>
+  ranges.map((rangeDecoration, index) => {
+    const isRange = RangeApi.isRange(rangeDecoration)
+    const range = isRange ? rangeDecoration : rangeDecoration.range
+    const data = isRange
+      ? options.data
+      : 'data' in rangeDecoration
+        ? rangeDecoration.data
+        : options.data
+
+    return {
+      data,
+      key: isRange
+        ? getRangeDecorationKey(options.id, range, index)
+        : (rangeDecoration.key ??
+          getRangeDecorationKey(options.id, range, index)),
+      range,
+    }
+  })
+
 export const createDecorationSource = <T = unknown>(
   editor: SlateEditor,
   options: SlateDecorationSourceOptions<T>
@@ -125,6 +178,22 @@ export const createDecorationSource = <T = unknown>(
   return Object.freeze({
     ...store,
     id: options.id,
+  })
+}
+
+export const createRangeDecorationSource = <T = unknown>(
+  editor: SlateEditor,
+  options: SlateRangeDecorationSourceOptions<T>
+): SlateDecorationSource<T> => {
+  const { data, read, ...sourceOptions } = options
+
+  return createDecorationSource<T>(editor, {
+    ...sourceOptions,
+    read: (context) =>
+      toSlateRangeDecorations(read(context), {
+        data,
+        id: options.id,
+      }),
   })
 }
 

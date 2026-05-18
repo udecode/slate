@@ -1,10 +1,10 @@
-import type { Descendant, EditorSnapshot } from 'slate'
+import { type EditorSnapshot, NodeApi } from 'slate'
 import {
   Editable,
   Slate,
-  type SlateProjection,
-  useSlateDecorationSource,
+  type SlateRangeDecoration,
   useSlateEditor,
+  useSlateRangeDecorationSource,
 } from 'slate-react'
 
 type HighlightProjectionData = {
@@ -12,56 +12,31 @@ type HighlightProjectionData = {
   tone?: string
 }
 
-const isTextNode = (
-  node: Descendant
-): node is Extract<Descendant, { text: string }> =>
-  'text' in node && typeof node.text === 'string'
-
-const collectHashtagProjections = (
-  nodes: readonly Descendant[],
-  path: number[] = []
-): SlateProjection<HighlightProjectionData>[] =>
-  nodes.flatMap((node, index) => {
-    const currentPath = [...path, index]
-
-    if (isTextNode(node)) {
-      return [...node.text.matchAll(/#[^\s#]+/g)].map((match) => {
-        const offset = match.index ?? 0
-        const text = match[0]
-
-        return {
-          data: { hashtag: true },
-          key: `hashtag-${currentPath.join('-')}-${offset}`,
-          range: {
-            anchor: { path: currentPath, offset },
-            focus: { path: currentPath, offset: offset + text.length },
-          },
-        }
-      })
-    }
-
-    return collectHashtagProjections(node.children, currentPath)
-  })
-
-const collectHighlightProjections = (
+const collectHighlightRanges = (
   snapshot: EditorSnapshot
-): SlateProjection<HighlightProjectionData>[] => {
+): SlateRangeDecoration<HighlightProjectionData>[] => {
   const firstBlock = snapshot.children[0]
 
   if (
     !firstBlock ||
-    !('children' in firstBlock) ||
+    !NodeApi.isElement(firstBlock) ||
     !firstBlock.children[0] ||
-    !isTextNode(firstBlock.children[0])
+    !NodeApi.isText(firstBlock.children[0])
   ) {
     return []
   }
 
   const firstText = firstBlock.children[0].text
-  const projections = collectHashtagProjections(snapshot.children)
+  const ranges: SlateRangeDecoration<HighlightProjectionData>[] =
+    NodeApi.findTextRanges({ children: snapshot.children }, /#[^\s#]+/g).map(
+      (range) => ({
+        data: { hashtag: true as const },
+        range,
+      })
+    )
 
   if (!firstText.startsWith('#') && firstText.length > 1) {
-    projections.unshift({
+    ranges.unshift({
       data: { tone: 'warm' },
       key: 'highlight',
       range: {
@@ -71,7 +46,7 @@ const collectHighlightProjections = (
     })
   }
 
-  return projections
+  return ranges
 }
 
 const HighlightedTextExample = () => {
@@ -84,10 +59,10 @@ const HighlightedTextExample = () => {
     ],
   })
 
-  const highlightSource = useSlateDecorationSource(editor, {
+  const highlightSource = useSlateRangeDecorationSource(editor, {
     dirtiness: ['text', 'node'],
     id: 'highlighted-text',
-    read: ({ snapshot }) => collectHighlightProjections(snapshot),
+    read: ({ snapshot }) => collectHighlightRanges(snapshot),
   })
 
   return (

@@ -1,6 +1,6 @@
 import { act, render } from '@testing-library/react'
 import type React from 'react'
-import { type Descendant, type EditorUpdateOptions } from 'slate'
+import { type Descendant, type EditorUpdateOptions, NodeApi } from 'slate'
 import { Editor } from 'slate/internal'
 
 import {
@@ -11,6 +11,7 @@ import {
   Slate,
   type SlateDecorationSource,
   useSlateDecorationSource,
+  useSlateRangeDecorationSource,
 } from '../src'
 
 const createChildren = (left = 'alpha', right = 'beta'): Descendant[] => [
@@ -98,6 +99,109 @@ describe('slate-react app-owned customization', () => {
 
     expect(
       rendered.container.querySelector('[data-hook-token="two"]')?.textContent
+    ).toBe('alpha')
+  })
+
+  test('useSlateDecorationSource refreshes from explicit deps', async () => {
+    const editor = createReactEditor({ initialValue: createChildren() })
+    const sources: SlateDecorationSource<{ token: string }>[] = []
+
+    const Probe = ({ token }: { token: string }) => {
+      const source = useSlateDecorationSource<{ token: string }>(editor, {
+        deps: [token],
+        id: 'hook-deps-source',
+        read: () => [
+          {
+            data: { token },
+            key: 'hook-deps-token',
+            range: {
+              anchor: { path: [0, 0], offset: 0 },
+              focus: { path: [0, 0], offset: 5 },
+            },
+          },
+        ],
+      })
+
+      sources.push(source)
+
+      return (
+        <Slate decorationSources={[source]} editor={editor}>
+          <Editable
+            renderSegment={(segment, children) => {
+              const token = segment.slices[0]?.data?.token
+
+              return token ? (
+                <span data-deps-token={token}>{children}</span>
+              ) : (
+                children
+              )
+            }}
+          />
+        </Slate>
+      )
+    }
+
+    const rendered = render(<Probe token="one" />)
+
+    expect(
+      rendered.container.querySelector('[data-deps-token="one"]')?.textContent
+    ).toBe('alpha')
+
+    await act(async () => {
+      rendered.rerender(<Probe token="two" />)
+    })
+
+    expect(sources[0]).toBe(sources[1])
+    expect(
+      rendered.container.querySelector('[data-deps-token="two"]')?.textContent
+    ).toBe('alpha')
+  })
+
+  test('useSlateRangeDecorationSource maps ranges and refreshes from deps', async () => {
+    const editor = createReactEditor({ initialValue: createChildren() })
+    const sources: SlateDecorationSource<{ token: string }>[] = []
+
+    const Probe = ({ token }: { token: string }) => {
+      const source = useSlateRangeDecorationSource<{ token: string }>(editor, {
+        data: { token },
+        deps: [token],
+        id: 'range-hook-source',
+        read: ({ snapshot }) =>
+          NodeApi.findTextRanges({ children: snapshot.children }, 'alpha'),
+      })
+
+      sources.push(source)
+
+      return (
+        <Slate decorationSources={[source]} editor={editor}>
+          <Editable
+            renderSegment={(segment, children) => {
+              const token = segment.slices[0]?.data?.token
+
+              return token ? (
+                <span data-range-token={token}>{children}</span>
+              ) : (
+                children
+              )
+            }}
+          />
+        </Slate>
+      )
+    }
+
+    const rendered = render(<Probe token="one" />)
+
+    expect(
+      rendered.container.querySelector('[data-range-token="one"]')?.textContent
+    ).toBe('alpha')
+
+    await act(async () => {
+      rendered.rerender(<Probe token="two" />)
+    })
+
+    expect(sources[0]).toBe(sources[1])
+    expect(
+      rendered.container.querySelector('[data-range-token="two"]')?.textContent
     ).toBe('alpha')
   })
 

@@ -1,26 +1,23 @@
 import { css } from '@emotion/css'
-import { useEffect, useRef } from 'react'
-import {
-  type Descendant,
-  type EditorSnapshot,
-  NodeApi,
-  type RuntimeId,
-} from 'slate'
+import { memo, useState } from 'react'
+import { NodeApi } from 'slate'
 import {
   Editable,
   type EditableProps,
+  type ReactEditor,
   Slate,
-  type SlateProjection,
-  useSlateDecorationSource,
+  type SlateDecorationSource,
   useSlateEditor,
+  useSlateRangeDecorationSource,
 } from 'slate-react'
 
 import { Icon, Toolbar } from './components'
 import type { CustomText } from './custom-types.d'
 
+const searchHighlightingDirtiness = ['text', 'external'] as const
+
 const SearchHighlightingExample = () => {
-  const searchInputRef = useRef<HTMLInputElement | null>(null)
-  const searchRef = useRef('')
+  const [search, setSearch] = useState('')
   const editor = useSlateEditor({
     initialValue: [
       {
@@ -43,36 +40,21 @@ const SearchHighlightingExample = () => {
       },
     ],
   })
-  const searchSource = useSlateDecorationSource<{ highlight: true }>(editor, {
-    id: 'search-highlighting',
-    dirtiness: ['text', 'external'],
-    read: ({ snapshot }) =>
-      collectSearchProjections(snapshot.children, searchRef.current),
-    runtimeScope: ({ snapshot }) => collectTextRuntimeScope(snapshot),
-  })
-
-  useEffect(() => {
-    const input = searchInputRef.current
-
-    if (!input) {
-      return
+  const searchSource = useSlateRangeDecorationSource<{ highlight: true }>(
+    editor,
+    {
+      data: { highlight: true },
+      deps: [search],
+      id: 'search-highlighting',
+      dirtiness: searchHighlightingDirtiness,
+      read: ({ snapshot }) =>
+        search
+          ? NodeApi.findTextRanges({ children: snapshot.children }, search, {
+              caseSensitive: false,
+            })
+          : [],
     }
-
-    const handleSearchInput = () => {
-      searchRef.current = input.value
-      searchSource.refresh({
-        forceInvalidate: true,
-        reason: 'external',
-        sourceId: 'search-highlighting',
-      })
-    }
-
-    input.addEventListener('input', handleSearchInput)
-
-    return () => {
-      input.removeEventListener('input', handleSearchInput)
-    }
-  }, [searchSource])
+  )
 
   return (
     <>
@@ -97,138 +79,51 @@ const SearchHighlightingExample = () => {
               padding-left: 2.5em !important;
               width: 100%;
             `}
+            onChange={(event) => setSearch(event.target.value)}
             placeholder="Search the text..."
-            ref={searchInputRef}
             type="search"
+            value={search}
           />
         </div>
       </Toolbar>
-      <Slate decorationSources={[searchSource]} editor={editor}>
-        <Editable
-          id="search-highlighting"
-          renderLeaf={Leaf}
-          renderSegment={(segment, children) =>
-            segment.slices.some(
-              (slice) =>
-                (slice.data as { highlight?: true } | undefined)?.highlight
-            ) ? (
-              <span
-                className={css`
-                  background-color: #ffeeba;
-                `}
-                data-cy="search-highlighted"
-              >
-                {children}
-              </span>
-            ) : (
-              children
-            )
-          }
-        />
-      </Slate>
+      <SearchHighlightingEditor editor={editor} searchSource={searchSource} />
     </>
   )
 }
 
-const collectSearchProjections = (
-  nodes: readonly Descendant[],
-  search: string,
-  path: number[] = []
-): SlateProjection<{ highlight: true }>[] => {
-  const projections: SlateProjection<{ highlight: true }>[] = []
-
-  nodes.forEach((node, nodeIndex) => {
-    const nodePath = [...path, nodeIndex]
-
-    if (
-      search &&
-      NodeApi.isElement(node) &&
-      node.children.every(NodeApi.isText)
-    ) {
-      const texts = node.children.map((it) => it.text)
-      const str = texts.join('')
-      const length = search.length
-      let start = str.indexOf(search)
-      let index = 0
-      let iterated = 0
-
-      while (start !== -1) {
-        while (
-          index < texts.length &&
-          start >= iterated + texts[index].length
-        ) {
-          iterated += texts[index].length
-          index++
+const SearchHighlightingEditor = memo(
+  ({
+    editor,
+    searchSource,
+  }: {
+    editor: ReactEditor<any>
+    searchSource: SlateDecorationSource<{ highlight: true }>
+  }) => (
+    <Slate decorationSources={[searchSource]} editor={editor}>
+      <Editable
+        id="search-highlighting"
+        renderLeaf={Leaf}
+        renderSegment={(segment, children) =>
+          segment.slices.some(
+            (slice) =>
+              (slice.data as { highlight?: true } | undefined)?.highlight
+          ) ? (
+            <span
+              className={css`
+                background-color: #ffeeba;
+              `}
+              data-cy="search-highlighted"
+            >
+              {children}
+            </span>
+          ) : (
+            children
+          )
         }
-
-        let offset = start - iterated
-        let remaining = length
-
-        while (index < texts.length && remaining > 0) {
-          const currentText = texts[index]
-          const currentPath = [...nodePath, index]
-          const taken = Math.min(remaining, currentText.length - offset)
-
-          projections.push({
-            data: { highlight: true },
-            key: `search:${currentPath.join('.')}:${offset}:${taken}`,
-            range: {
-              anchor: { path: currentPath, offset },
-              focus: { path: currentPath, offset: offset + taken },
-            },
-          })
-
-          remaining -= taken
-
-          if (remaining > 0) {
-            iterated += currentText.length
-            offset = 0
-            index++
-          }
-        }
-
-        start = str.indexOf(search, start + search.length)
-      }
-    }
-
-    if (NodeApi.isElement(node)) {
-      projections.push(
-        ...collectSearchProjections(node.children, search, nodePath)
-      )
-    }
-  })
-
-  return projections
-}
-
-const collectTextRuntimeScope = (
-  snapshot: EditorSnapshot,
-  nodes: readonly Descendant[] = snapshot.children,
-  path: number[] = []
-): RuntimeId[] => {
-  const runtimeIds: RuntimeId[] = []
-
-  nodes.forEach((node, nodeIndex) => {
-    const nodePath = [...path, nodeIndex]
-
-    if (NodeApi.isText(node)) {
-      const runtimeId = snapshot.index.pathToId[nodePath.join('.')]
-
-      if (runtimeId) {
-        runtimeIds.push(runtimeId)
-      }
-      return
-    }
-
-    if (NodeApi.isElement(node)) {
-      runtimeIds.push(
-        ...collectTextRuntimeScope(snapshot, node.children, nodePath)
-      )
-    }
-  })
-
-  return runtimeIds
-}
+      />
+    </Slate>
+  )
+)
 
 interface HighlightLeaf extends CustomText {
   highlight?: boolean

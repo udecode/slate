@@ -1673,14 +1673,6 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     placeholderHeight && !disableDefaultStyles
       ? { minHeight: placeholderHeight, ...style }
       : style
-  const fallbackDOMBeforeInput = React.useCallback(
-    (event: InputEvent) => {
-      onBeforeInput?.(event as unknown as React.FormEvent<HTMLDivElement>)
-    },
-    [onBeforeInput]
-  )
-  const domBeforeInputHandler =
-    onDOMBeforeInput ?? (onBeforeInput ? fallbackDOMBeforeInput : undefined)
   const renderingStrategyMetrics = React.useMemo(() => {
     const documentSize = topLevelRuntimeIds.length
     const mountedTopLevelCount = virtualizedPlan
@@ -1782,7 +1774,8 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
         className={className}
         disableDefaultStyles={disableDefaultStyles}
         id={id}
-        onDOMBeforeInput={domBeforeInputHandler}
+        onBeforeInput={onBeforeInput}
+        onDOMBeforeInput={onDOMBeforeInput}
         onKeyDown={onKeyDown}
         onPaste={onPaste}
         onRenderingStrategyMetrics={onRenderingStrategyMetrics}

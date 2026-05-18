@@ -1,23 +1,22 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 
 import React, { act, memo, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  createEditor,
-  type Descendant,
-  type EditorSnapshot,
-  type Path,
-  type RuntimeId,
+import type {
+  Descendant,
+  EditorSnapshot,
+  RuntimeId,
 } from '../../../../packages/slate/src/index.ts'
 import { Editor } from '../../../../packages/slate/src/internal/index.ts'
 import {
   createDecorationSource,
+  createReactEditor,
   Editable,
   type ReactEditor,
   Slate,
   type SlateDecorationSource,
   useEditorSelector,
+  useElementPath,
   useSlateProjections,
-  withReact,
 } from '../../../../packages/slate-react/src/index.ts'
 import {
   cloneCounts,
@@ -167,7 +166,6 @@ const TrackedElement = ({
   children,
   counts,
   isInline,
-  path,
 }: {
   attributes: {
     'data-slate-inline'?: true
@@ -178,9 +176,10 @@ const TrackedElement = ({
   children: React.ReactNode
   counts: Record<string, number>
   isInline: boolean
-  path: Path
 }) => {
-  if (path.length === 1) {
+  const path = useElementPath()
+
+  if (path?.length === 1) {
     if (path[0] === 0) {
       increment(counts, 'activeElement')
     }
@@ -297,12 +296,11 @@ const RenderingStrategyOverlayInner = ({
       />
       <Editable
         id="huge-document-overlays"
-        renderElement={({ attributes, children, isInline, path }) => (
+        renderElement={({ attributes, children, isInline }) => (
           <TrackedElement
             attributes={attributes}
             counts={counts}
             isInline={isInline}
-            path={path}
           >
             {children}
           </TrackedElement>
@@ -326,7 +324,7 @@ const countShells = (container: HTMLElement) =>
     .length
 
 const setupScenario = async () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
   const counts: Record<string, number> = {}
   let decorationSource: SlateDecorationSource<{ highlight?: boolean }> | null =
     null
