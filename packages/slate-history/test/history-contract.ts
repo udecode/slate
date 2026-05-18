@@ -137,6 +137,74 @@ describe('slate-history contract', () => {
     assert.deepEqual(getVisibleState(editor), before)
   })
 
+  it('keeps replace_children undo batches when a remote insert shifts the parent path', () => {
+    const editor = historyTestEditor()
+    const oldChild = paragraph('old')
+    const newChild = paragraph('new')
+
+    replace(
+      editor,
+      [
+        paragraph('intro'),
+        {
+          type: 'quote',
+          children: [oldChild, paragraph('tail')],
+        } as Descendant,
+      ],
+      {
+        anchor: { path: [1, 0, 0], offset: 3 },
+        focus: { path: [1, 0, 0], offset: 3 },
+      }
+    )
+
+    write(editor, (tx) => {
+      tx.operations.replay([
+        {
+          type: 'replace_children',
+          path: [1],
+          index: 0,
+          children: [oldChild],
+          newChildren: [newChild],
+          selection: {
+            anchor: { path: [1, 0, 0], offset: 3 },
+            focus: { path: [1, 0, 0], offset: 3 },
+          },
+          newSelection: {
+            anchor: { path: [1, 0, 0], offset: 3 },
+            focus: { path: [1, 0, 0], offset: 3 },
+          },
+        },
+      ])
+    })
+
+    editor.update(
+      (tx) => {
+        tx.operations.replay([
+          {
+            type: 'insert_node',
+            path: [0],
+            node: paragraph('remote'),
+          },
+        ])
+      },
+      {
+        metadata: { collab: { origin: 'remote', saveToHistory: false } },
+        tag: ['collaboration', 'remote-insert'],
+      }
+    )
+
+    const operation = getHistory(editor).undos[0]?.operations[0]
+
+    assert.equal(getHistory(editor).undos.length, 1)
+
+    if (operation?.type !== 'replace_children') {
+      assert.fail('Expected replace_children to remain in undo history')
+    }
+
+    assert.deepEqual(operation.path, [2])
+    assert.equal(operation.index, 0)
+  })
+
   it('routes compatibility undo and redo through history commands', () => {
     const editor = historyTestEditor()
     const commands: string[] = []

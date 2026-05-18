@@ -570,13 +570,13 @@ const pasteHtmlImageVoid = (): StressCase =>
         text: 'Before image\nAfter image',
       },
       {
-        count: 2,
+        count: 1,
         kind: 'assertLocatorCount',
         label: 'assert-pasted-images-rendered',
         selector: 'img[src^="https://example.com/pasted-"]',
       },
       {
-        count: 2,
+        count: 1,
         kind: 'assertLocatorCount',
         label: 'assert-pasted-image-void-shell',
         selector: '[data-slate-void="true"]',
@@ -615,13 +615,13 @@ const editableIslandNativeFocus = (): StressCase =>
     route: 'editable-voids',
     steps: [
       {
-        count: 1,
+        count: 2,
         kind: 'assertLocatorCount',
         label: 'assert-editable-island-shell',
         selector: '[data-slate-void="true"]',
       },
       {
-        count: 1,
+        count: 2,
         kind: 'assertLocatorCount',
         label: 'assert-editable-island-spacer',
         selector: '[data-slate-void="true"] [data-slate-spacer]',
@@ -742,20 +742,12 @@ const overlayManyDecorationSources = (): StressCase =>
 
 const addReviewCommentSteps = (): SlateBrowserScenarioStep[] => [
   {
-    kind: 'select',
-    label: 'select-review-comment-range',
-    selection: {
-      anchor: { path: [0, 0], offset: 0 },
-      focus: { path: [0, 0], offset: 24 },
-    },
-  },
-  {
     kind: 'clickSelector',
-    label: 'add-comment',
-    selector: 'button:has-text("Add comment on selection")',
+    label: 'seed-review-comment',
+    selector: 'button:has-text("Seed example comment")',
   },
   {
-    count: 1,
+    count: 2,
     kind: 'assertLocatorCount',
     label: 'assert-review-comment-slice',
     selector: '[data-comment-tone="review"]',
@@ -781,7 +773,7 @@ const overlayAnnotationMetadataOnly = (): StressCase =>
         selector: 'button:has-text("Retone first comment")',
       },
       {
-        count: 1,
+        count: 2,
         kind: 'assertLocatorCount',
         label: 'assert-question-comment-slice',
         selector: '[data-comment-tone="question"]',
@@ -819,7 +811,7 @@ const overlayAnnotationBookmarkRebase = (): StressCase =>
         selector: '#comment-card-comment-1',
       },
       {
-        count: 1,
+        count: 2,
         kind: 'assertLocatorCount',
         label: 'assert-rebased-inline-comment',
         selector: '[data-comment-tone="review"]',
@@ -880,7 +872,7 @@ const overlayMixedUpdate = (): StressCase =>
         selector: 'button:has-text("Insert prefix before first comment")',
       },
       {
-        count: 1,
+        count: 2,
         kind: 'assertLocatorCount',
         label: 'assert-mixed-inline-comment',
         selector: '[data-comment-tone]',

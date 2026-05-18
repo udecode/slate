@@ -37,7 +37,10 @@ export const IS_ANDROID_CHROME_LEGACY =
   typeof navigator !== 'undefined' &&
   /Chrome?\/(?:[0-5]?\d)(?:\.)/i.test(navigator.userAgent)
 
-const SAFARI_VERSION = navigator.userAgent.match(/Version\/(\d+)/)?.[1]
+const SAFARI_VERSION =
+  typeof navigator === 'undefined'
+    ? undefined
+    : navigator.userAgent.match(/Version\/(\d+)/)?.[1]
 
 // Firefox did not support `beforeInput` until `v87`.
 export const IS_FIREFOX_LEGACY =
@@ -74,7 +77,8 @@ export const IS_SAFARI_LEGACY =
 // COMPAT: Firefox/Edge Legacy don't support the `beforeinput` event
 // Chrome Legacy doesn't support `beforeinput` correctly
 export const HAS_BEFORE_INPUT_SUPPORT =
-  (!IS_CHROME_LEGACY || !IS_ANDROID_CHROME_LEGACY) &&
+  !IS_CHROME_LEGACY &&
+  !IS_ANDROID_CHROME_LEGACY &&
   !IS_EDGE_LEGACY &&
   // globalThis is undefined in older browsers
   typeof globalThis !== 'undefined' &&

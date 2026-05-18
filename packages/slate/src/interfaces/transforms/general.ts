@@ -47,6 +47,71 @@ export const NON_SETTABLE_SELECTION_PROPERTIES = Object.getOwnPropertyNames(
   Object.prototype
 )
 
+const assertChildIndex = (
+  op: Operation,
+  path: Path,
+  index: number,
+  childCount: number,
+  allowEnd: boolean
+) => {
+  const max = allowEnd ? childCount : childCount - 1
+
+  if (!Number.isInteger(index) || index < 0 || index > max) {
+    throw new Error(
+      `Cannot apply a "${op.type}" operation at path [${path}] because the child index ${index} is invalid for a node with ${childCount} children.`
+    )
+  }
+}
+
+const assertChildRange = (
+  op: Extract<Operation, { type: 'replace_children' }>,
+  childCount: number,
+  removeCount: number
+) => {
+  if (
+    !Number.isInteger(op.index) ||
+    op.index < 0 ||
+    op.index + removeCount > childCount
+  ) {
+    throw new Error(
+      `Cannot apply a "replace_children" operation at path [${op.path}] because the child range starting at index ${op.index} is invalid for a node with ${childCount} children.`
+    )
+  }
+}
+
+const assertTextOffset = (
+  op: Operation,
+  path: Path,
+  offset: number,
+  textLength: number
+) => {
+  if (!Number.isInteger(offset) || offset < 0 || offset > textLength) {
+    throw new Error(
+      `Cannot apply a "${op.type}" operation at path [${path}] because offset ${offset} is invalid for text of length ${textLength}.`
+    )
+  }
+}
+
+const getChildContainerChildren = (
+  editor: Editor,
+  op: Operation,
+  path: Path
+): Descendant[] => {
+  const node = NodeApi.get(editor, path)
+
+  if (NodeApi.isEditor(node)) {
+    return Editor.getChildren(editor)
+  }
+
+  if (NodeApi.isText(node)) {
+    throw new Error(
+      `Cannot apply a "${op.type}" operation at path [${path}] because it refers to a leaf node.`
+    )
+  }
+
+  return node.children
+}
+
 export interface OperationTransformMethods {
   /**
    * Transform the editor by an operation.
@@ -83,12 +148,7 @@ export const transform: OperationTransformMethods['transform'] = (
 
       modifyChildren(editor, PathApi.parent(path), (children) => {
         const index = path.at(-1)!
-
-        if (index > children.length) {
-          throw new Error(
-            `Cannot apply an "insert_node" operation at path [${path}] because the destination is past the end of the node.`
-          )
-        }
+        assertChildIndex(op, path, index, children.length, true)
 
         return insertChildren(children, index, node)
       })
@@ -102,6 +162,8 @@ export const transform: OperationTransformMethods['transform'] = (
       if (text.length === 0) break
 
       modifyLeaf(editor, path, (node) => {
+        assertTextOffset(op, path, offset, node.text.length)
+
         const before = node.text.slice(0, offset)
         const after = node.text.slice(offset)
 
@@ -169,6 +231,39 @@ export const transform: OperationTransformMethods['transform'] = (
       const { path, newPath } = op
       const index = path.at(-1)!
 
+      if (path.length === 0) {
+        throw new Error('Cannot move the editor root.')
+      }
+
+      if (newPath.length === 0) {
+        throw new Error(
+          `Cannot apply a "move_node" operation at path [${newPath}] because the destination must be a child path.`
+        )
+      }
+
+      const sourceParentPath = PathApi.parent(path)
+      const sourceChildren = getChildContainerChildren(
+        editor,
+        op,
+        sourceParentPath
+      )
+      assertChildIndex(op, path, index, sourceChildren.length, false)
+
+      const destinationParentPath = PathApi.parent(newPath)
+      const destinationIndex = newPath.at(-1)!
+      const destinationChildren = getChildContainerChildren(
+        editor,
+        op,
+        destinationParentPath
+      )
+      assertChildIndex(
+        op,
+        newPath,
+        destinationIndex,
+        destinationChildren.length,
+        true
+      )
+
       if (PathApi.equals(path, newPath)) {
         break
       }
@@ -179,16 +274,8 @@ export const transform: OperationTransformMethods['transform'] = (
         )
       }
 
-      const node = NodeApi.get(editor, path)
-      if (NodeApi.isEditor(node)) {
-        throw new Error('Cannot move the editor root.')
-      }
-      const parentBeforeMove = NodeApi.get(editor, PathApi.parent(path))
-      const parentBeforeMoveChildren = NodeApi.isEditor(parentBeforeMove)
-        ? Editor.getChildren(editor)
-        : NodeApi.isText(parentBeforeMove)
-          ? []
-          : parentBeforeMove.children
+      const node = sourceChildren[index]
+      const parentBeforeMoveChildren = sourceChildren
       const sameParentForwardMove =
         path.length === newPath.length &&
         path.at(-1) != null &&
@@ -241,9 +328,11 @@ export const transform: OperationTransformMethods['transform'] = (
       const { path } = op
       const index = path.at(-1)!
 
-      modifyChildren(editor, PathApi.parent(path), (children) =>
-        removeChildren(children, index, 1)
-      )
+      modifyChildren(editor, PathApi.parent(path), (children) => {
+        assertChildIndex(op, path, index, children.length, false)
+
+        return removeChildren(children, index, 1)
+      })
 
       // Transform all the points in the value, but if the point was in the
       // node that was removed we need to update the range or remove it.
@@ -306,6 +395,15 @@ export const transform: OperationTransformMethods['transform'] = (
       if (text.length === 0) break
 
       modifyLeaf(editor, path, (node) => {
+        assertTextOffset(op, path, offset, node.text.length)
+        assertTextOffset(op, path, offset + text.length, node.text.length)
+
+        if (node.text.slice(offset, offset + text.length) !== text) {
+          throw new Error(
+            `Cannot apply a "remove_text" operation at path [${path}] because the text at offset ${offset} does not match the operation text.`
+          )
+        }
+
         const before = node.text.slice(0, offset)
         const after = node.text.slice(offset + text.length)
 
@@ -327,14 +425,16 @@ export const transform: OperationTransformMethods['transform'] = (
     }
 
     case 'replace_children': {
-      modifyChildren(editor, op.path, (children) =>
-        replaceChildren(
+      modifyChildren(editor, op.path, (children) => {
+        assertChildRange(op, children.length, op.children.length)
+
+        return replaceChildren(
           children,
           op.index,
           op.children.length,
           ...(op.newChildren as Descendant[])
         )
-      )
+      })
       setCurrentSelection(editor, op.newSelection)
       syncImplicitTargetToCurrentSelection(editor)
       break
@@ -381,6 +481,13 @@ export const transform: OperationTransformMethods['transform'] = (
         // properties that were previously defined, but are now missing, must be deleted
         for (const key in properties) {
           if (!Object.hasOwn(properties, key)) continue
+          if (NON_SETTABLE_NODE_PROPERTIES.includes(key)) {
+            if (key === 'children') {
+              throw new Error('set_node does not update child content')
+            }
+            throw new Error(`Cannot set the "${key}" property of nodes!`)
+          }
+
           if (!Object.hasOwn(newProperties, key)) {
             delete newNode[<keyof Node>key]
           }
@@ -462,11 +569,15 @@ export const transform: OperationTransformMethods['transform'] = (
       if (typeof index !== 'number') throw new Error('Index must be number')
 
       modifyChildren(editor, PathApi.parent(path), (children) => {
+        assertChildIndex(op, path, index, children.length, false)
+
         const node = children[index]
         let newNode: Descendant
         let nextNode: Descendant
 
         if (NodeApi.isText(node)) {
+          assertTextOffset(op, path, position, node.text.length)
+
           const before = node.text.slice(0, position)
           const after = node.text.slice(position)
           newNode = {
@@ -478,6 +589,8 @@ export const transform: OperationTransformMethods['transform'] = (
             text: after,
           }
         } else {
+          assertChildIndex(op, path, position, node.children.length, true)
+
           const before = node.children.slice(0, position)
           const after = node.children.slice(position)
           newNode = {

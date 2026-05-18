@@ -548,11 +548,12 @@ const transformPathOperation = <V extends Value>(
 }
 
 const transformChildIndex = (
+  originalPath: Path,
   path: Path,
   index: number,
   applied: Operation
 ): number | null => {
-  const indexedPath = path.concat(index)
+  const indexedPath = originalPath.concat(index)
   const nextPath = PathApi.transform(indexedPath, applied)
 
   if (!nextPath) {
@@ -639,7 +640,12 @@ const transformOperation = <V extends Value>(
         return null
       }
 
-      const index = transformChildIndex(path, operation.index, applied)
+      const index = transformChildIndex(
+        operation.path,
+        path,
+        operation.index,
+        applied
+      )
 
       if (index == null) {
         return null

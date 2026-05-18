@@ -245,4 +245,34 @@ describe('slate range ref contract', () => {
       focus: { path: [0, 1], offset: 1 },
     })
   })
+
+  it('keeps public range refs alive when an invalidating transaction rolls back', () => {
+    const editor = createEditor()
+    const children = createChildren()
+
+    Editor.replace(editor, {
+      children,
+      selection: null,
+      marks: null,
+    })
+
+    const ref = Editor.rangeRef(editor, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 4 },
+    })
+
+    assert.throws(() => {
+      editor.update((tx) => {
+        tx.nodes.remove({ at: [0] })
+        throw new Error('rollback')
+      })
+    }, /rollback/)
+
+    assert.deepEqual(Editor.getChildren(editor), children)
+    assert.equal(Editor.rangeRefs(editor).size, 1)
+    assert.deepEqual(ref.current, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 4 },
+    })
+  })
 })

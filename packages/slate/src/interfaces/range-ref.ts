@@ -41,7 +41,7 @@ export const RangeRefApi: RangeRefInterface = {
       ref.current = next
     }
 
-    if (next == null) {
+    if (next == null && internalRef.__visibility !== 'public') {
       ref.unref()
     }
   },

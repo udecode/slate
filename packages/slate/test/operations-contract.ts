@@ -320,6 +320,118 @@ describe('slate operations contract', () => {
     assert.deepEqual(after.selection, collapsedSelection([1, 0], 0))
   })
 
+  it('rejects replay operations with negative positions without changing the snapshot', () => {
+    const children: Descendant[] = [
+      {
+        type: 'element',
+        children: [{ text: 'one' }, { text: 'two' }],
+      },
+      {
+        type: 'element',
+        children: [{ text: 'three' }],
+      },
+    ]
+    const operations: SlateOperation[] = [
+      {
+        type: 'insert_node',
+        path: [0, -1],
+        node: { text: 'bad' },
+      },
+      {
+        type: 'remove_node',
+        path: [0, -1],
+        node: { text: 'two' },
+      },
+      {
+        type: 'replace_children',
+        path: [0],
+        index: -1,
+        children: [{ text: 'two' }],
+        newChildren: [{ text: 'bad' }],
+        selection: null,
+        newSelection: null,
+      },
+      {
+        type: 'insert_text',
+        path: [0, 0],
+        offset: -1,
+        text: 'bad',
+      },
+      {
+        type: 'remove_text',
+        path: [0, 0],
+        offset: -1,
+        text: 'e',
+      },
+      {
+        type: 'split_node',
+        path: [0, 0],
+        position: -1,
+        properties: {},
+      },
+      {
+        type: 'split_node',
+        path: [0],
+        position: -1,
+        properties: {},
+      },
+      {
+        type: 'move_node',
+        path: [0, -1],
+        newPath: [0, 1],
+      },
+      {
+        type: 'move_node',
+        path: [0, 1],
+        newPath: [0, -1],
+      },
+    ]
+
+    for (const operation of operations) {
+      const editor = createEditor()
+
+      Editor.replace(editor, {
+        children,
+        selection: null,
+        marks: null,
+      })
+
+      const before = Editor.getSnapshot(editor)
+
+      assert.throws(() => applyOperation(editor, operation), /Cannot apply/)
+      assert.deepEqual(Editor.getSnapshot(editor), before)
+    }
+  })
+
+  it('rejects remove_text replay when operation text does not match the current text', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'element',
+          children: [{ text: 'one' }],
+        },
+      ],
+      selection: null,
+      marks: null,
+    })
+
+    const before = Editor.getSnapshot(editor)
+
+    assert.throws(
+      () =>
+        applyOperation(editor, {
+          type: 'remove_text',
+          path: [0, 0],
+          offset: 1,
+          text: 'x',
+        }),
+      /does not match/
+    )
+    assert.deepEqual(Editor.getSnapshot(editor), before)
+  })
+
   it('applies partial set_selection patches against the current selection', () => {
     const editor = createEditor()
 
@@ -767,6 +879,62 @@ describe('slate operations contract', () => {
         children: [{ text: 'a' }],
       },
     ])
+  })
+
+  it('rejects raw set_node patches that omit protected node properties', () => {
+    const textEditor = createEditor()
+
+    Editor.replace(textEditor, {
+      children: [
+        {
+          type: 'element',
+          children: [{ text: 'a' }],
+        },
+      ],
+      selection: null,
+      marks: null,
+    })
+
+    const beforeText = Editor.getSnapshot(textEditor)
+
+    assert.throws(
+      () =>
+        applyOperation(textEditor, {
+          type: 'set_node',
+          path: [0, 0],
+          properties: { text: 'a' },
+          newProperties: {},
+        }),
+      /Cannot set the "text" property of nodes!/
+    )
+    assert.deepEqual(Editor.getSnapshot(textEditor), beforeText)
+
+    const childrenEditor = createEditor()
+
+    Editor.replace(childrenEditor, {
+      children: [
+        {
+          type: 'element',
+          children: [{ text: 'a' }],
+        },
+      ],
+      selection: null,
+      marks: null,
+    })
+
+    const beforeChildren = Editor.getSnapshot(childrenEditor)
+
+    assert.throws(
+      () =>
+        applyOperation(childrenEditor, {
+          type: 'set_node',
+          path: [0],
+          properties: { children: [{ text: 'a' }] },
+          newProperties: {},
+        }),
+      /set_node does not update child content/
+    )
+    assert.deepEqual(Editor.getSnapshot(childrenEditor), beforeChildren)
   })
 
   it('splits a text node with empty split_node properties and clears the right branch props', () => {

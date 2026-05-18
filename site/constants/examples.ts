@@ -2,7 +2,7 @@ export const EXAMPLE_NAMES_AND_PATHS = [
   ['Android Tests', 'android-tests'],
   ['Checklists', 'check-lists'],
   ['Code Highlighting', 'code-highlighting'],
-  ['Collaborative Comments', 'collaborative-comments'],
+  ['Comment-Only Collaboration', 'collaborative-comments'],
   ['Custom Placeholder', 'custom-placeholder'],
   ['DOM Coverage Boundaries', 'dom-coverage-boundaries'],
   ['Editable Voids', 'editable-voids'],
@@ -21,7 +21,7 @@ export const EXAMPLE_NAMES_AND_PATHS = [
   ['Persistent Annotation Anchors', 'persistent-annotation-anchors'],
   ['Plain Text', 'plaintext'],
   ['Read-only', 'read-only'],
-  ['Review Comments', 'review-comments'],
+  ['Comment Mode', 'review-comments'],
   ['Rendering in iframes', 'iframe'],
   ['Rich Text', 'richtext'],
   ['Search Highlighting', 'search-highlighting'],
@@ -32,7 +32,9 @@ export const EXAMPLE_NAMES_AND_PATHS = [
 
 export const HIDDEN_EXAMPLES = [
   'android-tests',
+  'collaborative-comments',
   'dom-coverage-boundaries',
+  'persistent-annotation-anchors',
 ] as const
 
 const hiddenExamplePaths: readonly string[] = HIDDEN_EXAMPLES

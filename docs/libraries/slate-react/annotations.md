@@ -159,14 +159,14 @@ A read-only reviewer can select text, create a comment anchor, and update a
 thread without document-write permission. The collaboration adapter resolves the
 anchor against the current document snapshot for rendering.
 
-The `collaborative-comments` example renders this as two editors:
+The `review-comments` example renders this as two panes:
 
-- writer editor on the left, editable document channel
-- reviewer editor on the right, read-only document with writable comments
+- edit mode on the left, editable document channel
+- comment mode on the right, read-only document with writable comments
 - shared external comment state
 - same resolved anchors rendered in both panes
 
-The reviewer comment controls do not call `editor.update` or mutate the
+The comment-mode controls do not call `editor.update` or mutate the
 document.
 
 ## Yjs-Style Adapter

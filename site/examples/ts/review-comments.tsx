@@ -1,5 +1,11 @@
 import { css } from '@emotion/css'
-import { useEffect, useRef, useState } from 'react'
+import {
+  type Dispatch,
+  type SetStateAction,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import type { Bookmark, Editor, Range, Value } from 'slate'
 import {
   Editable,
@@ -38,84 +44,149 @@ type CommentProjection = {
 
 type CommentEditor = Editor<Value, readonly [ReturnType<typeof react>]>
 
+const initialValue: Value = [
+  {
+    type: 'paragraph',
+    children: [
+      {
+        text: 'Review comments in Slate v2 ride bookmark-backed annotations instead of trying to smuggle durable state through decorate.',
+      },
+    ],
+  },
+  {
+    type: 'paragraph',
+    children: [
+      {
+        text: 'Select text in comment mode, add a comment, then edit the document to watch the anchor, inline highlight, sidebar, and widget stay in sync.',
+      },
+    ],
+  },
+]
+
 const panelCss = css`
-  max-width: 1040px;
+  max-width: 1180px;
   margin: 40px auto;
   padding: 0 24px 48px;
 `
 
-const controlsCss = css`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin: 0 0 16px;
+const proofGridCss = css`
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+
+  @media (max-width: 760px) {
+    grid-template-columns: 1fr;
+  }
 `
 
-const buttonCss = css`
-  border: 1px solid #d1d5db;
-  background: white;
-  padding: 10px 14px;
-  border-radius: 10px;
-  cursor: pointer;
-  font-weight: 600;
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
-  }
+const proofCellCss = css`
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f8fafc;
 `
 
 const layoutCss = css`
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
 
   @media (max-width: 900px) {
     grid-template-columns: 1fr;
   }
 `
 
-const editorPanelCss = css`
+const paneCss = css`
   border: 1px solid #e5e7eb;
-  border-radius: 16px;
-  padding: 18px;
-  background: white;
-`
-
-const sidebarCss = css`
-  display: grid;
-  gap: 12px;
-  align-content: start;
-`
-
-const sidebarPanelCss = css`
-  border: 1px solid #e5e7eb;
-  border-radius: 16px;
+  border-radius: 8px;
   padding: 16px;
   background: white;
 `
 
+const writerPaneCss = css`
+  order: 1;
+`
+
+const commentPaneCss = css`
+  order: 2;
+`
+
+const paneHeaderCss = css`
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+`
+
+const titleCss = css`
+  font-size: 15px;
+  font-weight: 700;
+`
+
+const mutedCss = css`
+  color: #64748b;
+  font-size: 13px;
+`
+
+const editorCss = css`
+  min-height: 138px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+`
+
+const controlsCss = css`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 0;
+`
+
+const buttonCss = css`
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  cursor: pointer;
+  font-weight: 600;
+  padding: 8px 10px;
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+`
+
 const codeCss = css`
-  padding: 3px 8px;
-  border-radius: 999px;
+  display: inline-flex;
+  width: fit-content;
+  padding: 3px 7px;
+  border-radius: 6px;
   background: #111827;
   color: white;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
+  font-size: 12px;
+`
+
+const sidebarCss = css`
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+`
+
+const commentCardCss = css`
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
 `
 
 const widgetRowCss = css`
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-`
-
-const commentCardCss = css`
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 12px;
-  display: grid;
   gap: 8px;
 `
 
@@ -132,9 +203,8 @@ const toneBadgeCss = (tone: CommentTone) => css`
   font-weight: 700;
 `
 
-const selectionOutlineCss = css`
-  margin-top: 14px;
-`
+const cloneValue = (value: Value): Value =>
+  JSON.parse(JSON.stringify(value)) as Value
 
 const isCollapsed = (range: Range | null) =>
   !range ||
@@ -155,131 +225,69 @@ const commentBackground = (tone: CommentTone, overlapCount: number) => ({
       : 'inset 0 -2px 0 rgba(0, 0, 0, 0.08)',
 })
 
-const ReviewCommentsContent = ({
-  annotationStore,
-  comments,
-  editor,
-  setComments,
+const createCommentAnnotations = (comments: readonly CommentThread[]) =>
+  comments.map((comment) => ({
+    anchor: comment.anchor,
+    data: {
+      body: comment.body,
+      label: comment.label,
+      tone: comment.tone,
+    },
+    id: comment.id,
+    projection: {
+      tone: comment.tone,
+    },
+  }))
+
+const CommentedEditable = ({
+  id,
+  readOnly = false,
 }: {
-  annotationStore: SlateAnnotationStore<CommentData, CommentProjection>
-  comments: readonly CommentThread[]
-  editor: CommentEditor
-  setComments: React.Dispatch<React.SetStateAction<CommentThread[]>>
-}) => {
-  const nextCommentId = useRef(1)
+  id: string
+  readOnly?: boolean
+}) => (
+  <Editable
+    className={editorCss}
+    id={id}
+    readOnly={readOnly}
+    renderSegment={(segment, children) => {
+      if (segment.slices.length === 0) {
+        return children
+      }
+
+      const firstSlice =
+        (segment.slices[0]?.data as
+          | {
+              tone?: CommentTone
+            }
+          | undefined) ?? null
+
+      return (
+        <span
+          data-comment-count={String(segment.slices.length)}
+          data-comment-tone={firstSlice?.tone ?? 'review'}
+          style={commentBackground(
+            firstSlice?.tone ?? 'review',
+            segment.slices.length
+          )}
+        >
+          {children}
+        </span>
+      )
+    }}
+  />
+)
+
+const WriterPane = ({ editor }: { editor: CommentEditor }) => {
   const selection = useEditorSelection()
   const annotationSnapshot = useSlateAnnotations<
     CommentData,
     CommentProjection
   >()
-  const widgetStore = useSlateWidgetStore(editor, {
-    annotationStore,
-    deps: [comments],
-    project: () =>
-      comments.map((comment) => ({
-        anchor: {
-          annotationId: comment.id,
-          type: 'annotation' as const,
-        },
-        data: {
-          label: comment.label,
-          tone: comment.tone,
-        },
-        id: `${comment.id}-widget`,
-      })),
-  })
-  const widgetSnapshot = useSlateWidgets(widgetStore)
-  const commentsRef = useRef(comments)
-
-  useEffect(() => {
-    commentsRef.current = comments
-  }, [comments])
-
-  useEffect(() => {
-    return () => {
-      commentsRef.current.forEach((comment) => {
-        comment.anchor.unref()
-      })
-    }
-  }, [])
-
   const firstAnnotation =
     annotationSnapshot.allIds[0] == null
       ? null
       : (annotationSnapshot.byId.get(annotationSnapshot.allIds[0]) ?? null)
-
-  const createComment = (range: Range) => {
-    const id = `comment-${nextCommentId.current}`
-    const tone: CommentTone =
-      nextCommentId.current % 2 === 0 ? 'question' : 'review'
-    const snippet =
-      editor
-        .read((state) => state.text.string(range))
-        .replace(/\s+/g, ' ')
-        .trim() || 'selection'
-    const bookmark = editor.read((state) => state.ranges.bookmark(range))
-
-    nextCommentId.current += 1
-
-    setComments((current) => [
-      ...current,
-      {
-        anchor: bookmark,
-        body: `Discuss: ${snippet.slice(0, 56)}`,
-        id,
-        label: `Comment ${current.length + 1}`,
-        tone,
-      },
-    ])
-  }
-
-  const addComment = () => {
-    if (!selection || isCollapsed(selection)) {
-      return
-    }
-
-    createComment(selection)
-  }
-
-  const seedComment = () => {
-    createComment({
-      anchor: { path: [0, 0], offset: 0 },
-      focus: { path: [0, 0], offset: 24 },
-    })
-  }
-
-  const removeComment = (id: string) => {
-    setComments((current) => {
-      const target = current.find((comment) => comment.id === id)
-
-      target?.anchor.unref()
-
-      return current.filter((comment) => comment.id !== id)
-    })
-  }
-
-  const clearComments = () => {
-    setComments((current) => {
-      current.forEach((comment) => {
-        comment.anchor.unref()
-      })
-
-      return []
-    })
-  }
-
-  const retoneFirstComment = () => {
-    setComments((current) =>
-      current.map((comment, index) =>
-        index === 0
-          ? {
-              ...comment,
-              tone: comment.tone === 'review' ? 'question' : 'review',
-            }
-          : comment
-      )
-    )
-  }
 
   const insertPrefixBeforeFirstComment = () => {
     if (!firstAnnotation?.range) {
@@ -328,25 +336,13 @@ const ReviewCommentsContent = ({
   }
 
   return (
-    <>
-      <Instruction>
-        This is the feature-grade comments path: selection creates a
-        <code> Bookmark</code>, the annotation store owns durable comment data,
-        the runtime paints inline slices, and the widget lane exposes comment UI
-        without shoving everything through one decorate callback.
-      </Instruction>
+    <div className={`${paneCss} ${writerPaneCss}`}>
+      <div className={paneHeaderCss}>
+        <span className={titleCss}>Edit mode</span>
+        <span className={mutedCss}>document writes enabled</span>
+      </div>
+      <CommentedEditable id="review-comments-document" />
       <div className={controlsCss}>
-        <button
-          className={buttonCss}
-          disabled={isCollapsed(selection)}
-          onClick={addComment}
-          type="button"
-        >
-          Add comment on selection
-        </button>
-        <button className={buttonCss} onClick={seedComment} type="button">
-          Seed example comment
-        </button>
         <button
           className={buttonCss}
           disabled={!firstAnnotation?.range}
@@ -362,6 +358,159 @@ const ReviewCommentsContent = ({
           type="button"
         >
           Insert paragraph before first comment
+        </button>
+        <span className={codeCss}>selection:{formatRange(selection)}</span>
+      </div>
+    </div>
+  )
+}
+
+const CommentModePane = ({
+  annotationStore,
+  comments,
+  editor,
+  onCommentWrite,
+  setComments,
+  writerEditor,
+}: {
+  annotationStore: SlateAnnotationStore<CommentData, CommentProjection>
+  comments: readonly CommentThread[]
+  editor: CommentEditor
+  onCommentWrite: () => void
+  setComments: Dispatch<SetStateAction<CommentThread[]>>
+  writerEditor: CommentEditor
+}) => {
+  const nextCommentId = useRef(1)
+  const selection = useEditorSelection()
+  const annotationSnapshot = useSlateAnnotations<
+    CommentData,
+    CommentProjection
+  >()
+  const widgetStore = useSlateWidgetStore(editor, {
+    annotationStore,
+    deps: [comments],
+    project: () =>
+      comments.map((comment) => ({
+        anchor: {
+          annotationId: comment.id,
+          type: 'annotation' as const,
+        },
+        data: {
+          label: comment.label,
+          tone: comment.tone,
+        },
+        id: `${comment.id}-widget`,
+      })),
+  })
+  const widgetSnapshot = useSlateWidgets(widgetStore)
+  const commentsRef = useRef(comments)
+
+  useEffect(() => {
+    commentsRef.current = comments
+  }, [comments])
+
+  useEffect(() => {
+    return () => {
+      commentsRef.current.forEach((comment) => {
+        comment.anchor.unref()
+      })
+    }
+  }, [])
+
+  const createComment = (range: Range) => {
+    const id = `comment-${nextCommentId.current}`
+    const tone: CommentTone =
+      nextCommentId.current % 2 === 0 ? 'question' : 'review'
+    const snippet =
+      writerEditor
+        .read((state) => state.text.string(range))
+        .replace(/\s+/g, ' ')
+        .trim() || 'selection'
+    const anchor = writerEditor.read((state) => state.ranges.bookmark(range))
+
+    nextCommentId.current += 1
+    onCommentWrite()
+    setComments((current) => [
+      ...current,
+      {
+        anchor,
+        body: `Discuss: ${snippet.slice(0, 56)}`,
+        id,
+        label: `Comment ${current.length + 1}`,
+        tone,
+      },
+    ])
+  }
+
+  const addComment = () => {
+    if (!selection || isCollapsed(selection)) {
+      return
+    }
+
+    createComment(selection)
+  }
+
+  const seedComment = () => {
+    createComment({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 24 },
+    })
+  }
+
+  const removeComment = (id: string) => {
+    onCommentWrite()
+    setComments((current) => {
+      const target = current.find((comment) => comment.id === id)
+
+      target?.anchor.unref()
+
+      return current.filter((comment) => comment.id !== id)
+    })
+  }
+
+  const clearComments = () => {
+    onCommentWrite()
+    setComments((current) => {
+      current.forEach((comment) => {
+        comment.anchor.unref()
+      })
+
+      return []
+    })
+  }
+
+  const retoneFirstComment = () => {
+    onCommentWrite()
+    setComments((current) =>
+      current.map((comment, index) =>
+        index === 0
+          ? {
+              ...comment,
+              tone: comment.tone === 'review' ? 'question' : 'review',
+            }
+          : comment
+      )
+    )
+  }
+
+  return (
+    <div className={`${paneCss} ${commentPaneCss}`}>
+      <div className={paneHeaderCss}>
+        <span className={titleCss}>Comment mode</span>
+        <span className={mutedCss}>read-only document, writable comments</span>
+      </div>
+      <CommentedEditable id="review-comments" readOnly />
+      <div className={controlsCss}>
+        <button
+          className={buttonCss}
+          disabled={isCollapsed(selection)}
+          onClick={addComment}
+          type="button"
+        >
+          Add comment on selection
+        </button>
+        <button className={buttonCss} onClick={seedComment} type="button">
+          Seed example comment
         </button>
         <button
           className={buttonCss}
@@ -379,166 +528,167 @@ const ReviewCommentsContent = ({
         >
           Clear comments
         </button>
+        <span className={codeCss} id="review-comments-selection">
+          selection:{formatRange(selection)}
+        </span>
       </div>
-      <div className={layoutCss}>
-        <div className={editorPanelCss}>
-          <Editable
-            id="review-comments"
-            renderSegment={(segment, children) => {
-              if (segment.slices.length === 0) {
-                return children
-              }
+      <div className={sidebarCss}>
+        {annotationSnapshot.allIds.length === 0 ? (
+          <span className={codeCss} id="comments-empty">
+            comments:none
+          </span>
+        ) : (
+          annotationSnapshot.allIds.map((id) => {
+            const annotation = annotationSnapshot.byId.get(id)!
 
-              const firstSlice =
-                (segment.slices[0]?.data as
-                  | {
-                      tone?: CommentTone
-                    }
-                  | undefined) ?? null
-
-              return (
+            return (
+              <div
+                className={commentCardCss}
+                id={`comment-card-${annotation.id}`}
+                key={annotation.id}
+              >
                 <span
-                  data-comment-count={String(segment.slices.length)}
-                  data-comment-tone={firstSlice?.tone ?? 'review'}
-                  style={commentBackground(
-                    firstSlice?.tone ?? 'review',
-                    segment.slices.length
-                  )}
+                  className={toneBadgeCss(annotation.data?.tone ?? 'review')}
                 >
-                  {children}
+                  {annotation.data?.label ?? annotation.id}
                 </span>
-              )
-            }}
-            style={{ minHeight: 120 }}
-          />
-          <div className={selectionOutlineCss}>
-            <span className={codeCss} id="review-comments-selection">
-              selection:{formatRange(selection)}
+                <strong>{annotation.data?.body}</strong>
+                <span className={codeCss}>
+                  range:{formatRange(annotation.range)}
+                </span>
+                <button
+                  className={buttonCss}
+                  onClick={() => removeComment(annotation.id)}
+                  type="button"
+                >
+                  Remove comment
+                </button>
+              </div>
+            )
+          })
+        )}
+        <div className={widgetRowCss}>
+          {widgetSnapshot.allIds.length === 0 ? (
+            <span className={codeCss} id="widgets-empty">
+              widgets:none
             </span>
-          </div>
-        </div>
-        <div className={sidebarCss}>
-          <div className={sidebarPanelCss}>
-            <strong>Comments</strong>
-            <div className={widgetRowCss}>
-              {annotationSnapshot.allIds.length === 0 ? (
-                <span className={codeCss} id="comments-empty">
-                  none
-                </span>
-              ) : (
-                annotationSnapshot.allIds.map((id) => {
-                  const annotation = annotationSnapshot.byId.get(id)!
+          ) : (
+            widgetSnapshot.allIds.map((id) => {
+              const widget = widgetSnapshot.byId.get(id)!
 
-                  return (
-                    <div
-                      className={commentCardCss}
-                      id={`comment-card-${annotation.id}`}
-                      key={annotation.id}
-                    >
-                      <span
-                        className={toneBadgeCss(
-                          annotation.data?.tone ?? 'review'
-                        )}
-                      >
-                        {annotation.data?.label ?? annotation.id}
-                      </span>
-                      <strong>{annotation.data?.body}</strong>
-                      <span className={codeCss}>
-                        range:{formatRange(annotation.range)}
-                      </span>
-                      <button
-                        className={buttonCss}
-                        onClick={() => removeComment(annotation.id)}
-                        type="button"
-                      >
-                        Remove comment
-                      </button>
-                    </div>
-                  )
-                })
-              )}
-            </div>
-          </div>
-          <div className={sidebarPanelCss}>
-            <strong>Annotation-backed widgets</strong>
-            <div className={widgetRowCss}>
-              {widgetSnapshot.allIds.length === 0 ? (
-                <span className={codeCss} id="widgets-empty">
-                  none
+              return widget.visible ? (
+                <span className={codeCss} key={widget.id}>
+                  {widget.id}:{widget.data?.label ?? 'none'}
                 </span>
-              ) : (
-                widgetSnapshot.allIds.map((id) => {
-                  const widget = widgetSnapshot.byId.get(id)!
-
-                  return widget.visible ? (
-                    <span className={codeCss} key={widget.id}>
-                      {widget.id}:{widget.data?.label ?? 'none'}
-                    </span>
-                  ) : null
-                })
-              )}
-            </div>
-          </div>
+              ) : null
+            })
+          )}
         </div>
       </div>
-    </>
+    </div>
   )
 }
 
 const ReviewCommentsExample = () => {
-  const editor = useSlateEditor<Value>({
+  const writerEditor = useSlateEditor<Value>({
     initialSelection: {
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 0 },
     },
-    initialValue: [
-      {
-        type: 'paragraph',
-        children: [
-          {
-            text: 'Review comments in Slate v2 ride bookmark-backed annotations instead of trying to smuggle durable state through decorate.',
-          },
-        ],
-      },
-      {
-        type: 'paragraph',
-        children: [
-          {
-            text: 'Select text, add a comment, then insert content before it to watch the anchor, inline highlight, sidebar state, and widget lane stay in sync.',
-          },
-        ],
-      },
-    ],
+    initialValue: cloneValue(initialValue),
+  })
+  const commentEditor = useSlateEditor<Value>({
+    initialSelection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    initialValue: cloneValue(initialValue),
   })
   const [comments, setComments] = useState<CommentThread[]>([])
-  const annotationStore = useSlateAnnotationStore(editor, {
+  const [documentWrites, setDocumentWrites] = useState(0)
+  const [commentWrites, setCommentWrites] = useState(0)
+  const writerAnnotationStore = useSlateAnnotationStore<
+    CommentData,
+    CommentProjection
+  >(writerEditor, {
     deps: [comments],
-    project: () =>
-      comments.map((comment) => ({
-        anchor: comment.anchor,
-        data: {
-          body: comment.body,
-          label: comment.label,
-          tone: comment.tone,
-        },
-        id: comment.id,
-        projection: {
-          tone: comment.tone,
-        },
-      })),
+    project: () => createCommentAnnotations(comments),
+  })
+  const commentAnnotationStore = useSlateAnnotationStore<
+    CommentData,
+    CommentProjection
+  >(commentEditor, {
+    deps: [comments],
+    project: () => createCommentAnnotations(comments),
   })
 
+  const syncCommentModeFromDocument = (value: Value) => {
+    commentEditor.update((tx) => {
+      tx.value.replace({
+        children: cloneValue(value),
+        selection: null,
+      })
+    })
+  }
+
+  const handleWriterValueChange = (value: Value) => {
+    setDocumentWrites((count) => count + 1)
+    syncCommentModeFromDocument(value)
+  }
+
   return (
-    <Slate annotationStore={annotationStore} editor={editor}>
-      <div className={panelCss}>
-        <ReviewCommentsContent
-          annotationStore={annotationStore}
-          comments={comments}
-          editor={editor}
-          setComments={setComments}
-        />
+    <div className={panelCss}>
+      <Instruction>
+        Edit mode owns document writes. Comment mode renders the same document
+        read-only, creates bookmark-backed comments, and writes only to the
+        external comment channel.
+      </Instruction>
+      <div className={proofGridCss}>
+        <div className={proofCellCss}>
+          <strong>document writes</strong>
+          <br />
+          <span className={codeCss} id="review-comments-document-writes">
+            {documentWrites}
+          </span>
+        </div>
+        <div className={proofCellCss}>
+          <strong>comment writes</strong>
+          <br />
+          <span className={codeCss} id="review-comments-comment-writes">
+            {commentWrites}
+          </span>
+        </div>
+        <div className={proofCellCss}>
+          <strong>comment-mode document writes</strong>
+          <br />
+          <span
+            className={codeCss}
+            id="review-comments-comment-mode-document-writes"
+          >
+            0
+          </span>
+        </div>
       </div>
-    </Slate>
+      <div className={layoutCss}>
+        <Slate annotationStore={commentAnnotationStore} editor={commentEditor}>
+          <CommentModePane
+            annotationStore={commentAnnotationStore}
+            comments={comments}
+            editor={commentEditor}
+            onCommentWrite={() => setCommentWrites((count) => count + 1)}
+            setComments={setComments}
+            writerEditor={writerEditor}
+          />
+        </Slate>
+        <Slate
+          annotationStore={writerAnnotationStore}
+          editor={writerEditor}
+          onValueChange={handleWriterValueChange}
+        >
+          <WriterPane editor={writerEditor} />
+        </Slate>
+      </div>
+    </div>
   )
 }
 

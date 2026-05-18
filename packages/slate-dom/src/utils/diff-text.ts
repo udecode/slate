@@ -84,7 +84,7 @@ function longestCommonSuffixLength(
   const length = Math.min(str.length, another.length, max)
 
   for (let i = 0; i < length; i++) {
-    if (str.at(i + 1) !== another.at(i + 1)) {
+    if (str.at(-i - 1) !== another.at(-i - 1)) {
       return i
     }
   }
@@ -347,22 +347,20 @@ export function transformTextDiff(
         return textDiff
       }
 
-      if (op.offset + op.text.length <= diff.start) {
-        return {
-          diff: {
-            start: diff.start - op.text.length,
-            end: diff.end - op.text.length,
-            text: diff.text,
-          },
-          id,
-          path,
-        }
-      }
+      const opEnd = op.offset + op.text.length
+      const removedBeforeStart = Math.max(
+        0,
+        Math.min(opEnd, diff.start) - op.offset
+      )
+      const removedWithinDiff = Math.max(
+        0,
+        Math.min(opEnd, diff.end) - Math.max(op.offset, diff.start)
+      )
 
       return {
         diff: {
-          start: diff.start,
-          end: diff.end - op.text.length,
+          start: diff.start - removedBeforeStart,
+          end: diff.end - removedBeforeStart - removedWithinDiff,
           text: diff.text,
         },
         id,
