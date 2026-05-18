@@ -8,6 +8,7 @@ import {
   type EditorExtensionInput,
   type EditorExtensionRuntimeState,
 } from '../src'
+import { hasTransformMiddleware } from '../src/core/transform-middleware'
 
 const asExtensionInput = (extension: unknown): EditorExtensionInput =>
   extension as EditorExtensionInput
@@ -284,6 +285,113 @@ describe('extension method hard cut', () => {
 
     assert.deepEqual(seenText, ['!', '?'])
     assert.equal(Editor.string(editor, [0]), 'one!!')
+  })
+
+  it('extension transform middleware receives transaction-local tx', () => {
+    const editor = createEditor()
+    const seenOffsets: number[] = []
+
+    Editor.replace(editor, {
+      children: [{ type: 'paragraph', children: [{ text: 'one' }] }],
+      selection: {
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 3 },
+      },
+      marks: null,
+    })
+
+    editor.extend(
+      defineEditorExtension({
+        name: 'transaction-local-transform',
+        transforms: {
+          insertText({ next, text, tx }) {
+            seenOffsets.push(tx.selection.get()?.anchor.offset ?? -1)
+            next({ text: text.toUpperCase() })
+            seenOffsets.push(tx.selection.get()?.anchor.offset ?? -1)
+          },
+        },
+      })
+    )
+
+    Editor.insertText(editor, '!')
+
+    assert.deepEqual(seenOffsets, [3, 4])
+    assert.equal(Editor.string(editor, [0]), 'one!')
+  })
+
+  it('extension clipboard middleware receives read-only state without tx', () => {
+    const editor = createEditor()
+    const seenOffsets: number[] = []
+    let hasTx = true
+
+    Editor.replace(editor, {
+      children: [{ type: 'paragraph', children: [{ text: 'one' }] }],
+      selection: {
+        anchor: { path: [0, 0], offset: 2 },
+        focus: { path: [0, 0], offset: 2 },
+      },
+      marks: null,
+    })
+
+    editor.extend(
+      defineEditorExtension({
+        name: 'clipboard-state',
+        clipboard: {
+          insertData(_data, context) {
+            hasTx = 'tx' in context
+            seenOffsets.push(context.state.selection.get()?.anchor.offset ?? -1)
+
+            return context.next()
+          },
+        },
+      })
+    )
+
+    const [handler] =
+      Editor.getExtensionRegistry(editor).capabilities.get(
+        'clipboard.insertData'
+      ) ?? []
+
+    assert.equal(typeof handler, 'function')
+    assert.equal(
+      (
+        handler as (runtimeEditor: typeof editor, data: DataTransfer) => boolean
+      )(editor, {} as DataTransfer),
+      false
+    )
+    assert.deepEqual(seenOffsets, [2])
+    assert.equal(hasTx, false)
+  })
+
+  it('detects registered transform middleware by key', () => {
+    const editor = createEditor({
+      extensions: [
+        defineEditorExtension({
+          name: 'insert-break-transform',
+          transforms: {
+            insertBreak({ next }) {
+              next()
+            },
+          },
+        }),
+      ],
+    })
+
+    assert.equal(hasTransformMiddleware(editor, 'insertText'), false)
+    assert.equal(hasTransformMiddleware(editor, 'insertBreak'), true)
+
+    editor.extend(
+      defineEditorExtension({
+        name: 'insert-text-transform',
+        transforms: {
+          insertText({ next }) {
+            next()
+          },
+        },
+      })
+    )
+
+    assert.equal(hasTransformMiddleware(editor, 'insertText'), true)
   })
 
   it('extension transform middleware handles deleteBackward by not calling next', () => {

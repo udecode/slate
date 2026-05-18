@@ -86,32 +86,27 @@ const checklist = () =>
   defineEditorExtension<CustomEditor>()({
     name: 'checklists',
     transforms: {
-      deleteBackward({ editor, next }) {
-        const selection = editor.read((state) => state.selection.get())
+      deleteBackward({ next, tx }) {
+        const selection = tx.selection.get()
 
         if (selection && RangeApi.isCollapsed(selection)) {
-          const match = editor.read((state) =>
-            state.nodes.find({
-              match: (n) =>
-                NodeApi.isElement(n) && n.type === 'check-list-item',
-            })
-          )
+          const match = tx.nodes.find({
+            match: (n) => NodeApi.isElement(n) && n.type === 'check-list-item',
+          })
 
           if (match) {
             const [, path] = match
-            const start = editor.read((state) => state.points.start(path))
+            const start = tx.points.start(path)
 
             if (PointApi.equals(selection.anchor, start)) {
-              editor.update((tx) => {
-                tx.nodes.set(
-                  { type: 'paragraph' } satisfies Partial<SlateElement>,
-                  {
-                    match: (n) =>
-                      NodeApi.isElement(n) && n.type === 'check-list-item',
-                  }
-                )
-                tx.selection.set(start)
-              })
+              tx.nodes.set(
+                { type: 'paragraph' } satisfies Partial<SlateElement>,
+                {
+                  match: (n) =>
+                    NodeApi.isElement(n) && n.type === 'check-list-item',
+                }
+              )
+              tx.selection.set(start)
               return
             }
           }

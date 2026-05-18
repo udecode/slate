@@ -112,19 +112,17 @@ const table = () =>
   defineEditorExtension<CustomEditor>()({
     name: 'table',
     transforms: {
-      deleteBackward({ editor, next, unit }) {
-        const selection = editor.read((state) => state.selection.get())
+      deleteBackward({ next, tx, unit }) {
+        const selection = tx.selection.get()
 
         if (selection && RangeApi.isCollapsed(selection)) {
-          const cell = editor.read((state) =>
-            state.nodes.find({
-              match: (n) => NodeApi.isElement(n) && n.type === 'table-cell',
-            })
-          )
+          const cell = tx.nodes.find({
+            match: (n) => NodeApi.isElement(n) && n.type === 'table-cell',
+          })
 
           if (cell) {
             const [, cellPath] = cell
-            const start = editor.read((state) => state.points.start(cellPath))
+            const start = tx.points.start(cellPath)
 
             if (PointApi.equals(selection.anchor, start)) {
               return
@@ -134,19 +132,17 @@ const table = () =>
 
         return next({ unit })
       },
-      deleteForward({ editor, next, unit }) {
-        const selection = editor.read((state) => state.selection.get())
+      deleteForward({ next, tx, unit }) {
+        const selection = tx.selection.get()
 
         if (selection && RangeApi.isCollapsed(selection)) {
-          const cell = editor.read((state) =>
-            state.nodes.find({
-              match: (n) => NodeApi.isElement(n) && n.type === 'table-cell',
-            })
-          )
+          const cell = tx.nodes.find({
+            match: (n) => NodeApi.isElement(n) && n.type === 'table-cell',
+          })
 
           if (cell) {
             const [, cellPath] = cell
-            const end = editor.read((state) => state.points.end(cellPath))
+            const end = tx.points.end(cellPath)
 
             if (PointApi.equals(selection.anchor, end)) {
               return
@@ -156,15 +152,13 @@ const table = () =>
 
         return next({ unit })
       },
-      insertBreak({ editor, next }) {
-        const selection = editor.read((state) => state.selection.get())
+      insertBreak({ next, tx }) {
+        const selection = tx.selection.get()
 
         if (selection && RangeApi.isCollapsed(selection)) {
-          const cell = editor.read((state) =>
-            state.nodes.find({
-              match: (n) => NodeApi.isElement(n) && n.type === 'table-cell',
-            })
-          )
+          const cell = tx.nodes.find({
+            match: (n) => NodeApi.isElement(n) && n.type === 'table-cell',
+          })
 
           if (cell) {
             return

@@ -5,6 +5,7 @@ export {
   getEditorLiveSelection,
   getEditorLiveText,
   getEditorTransformRegistry,
+  hasEditorTransformMiddleware,
   setEditorMarks,
   setEditorSelection,
   setEditorTargetRuntime,

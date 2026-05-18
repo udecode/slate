@@ -20,6 +20,7 @@ import {
   shouldForceRenderAfterModelOwnedHistory,
 } from './model-input-strategy'
 import { getNativeBeforeInputDecision } from './native-input-strategy'
+import { hasEditorTransformMiddleware } from './runtime-editor-api'
 import type { EditableEventRuntime } from './runtime-event-engine'
 import { readLiveSelection } from './runtime-selection-state'
 import {
@@ -188,7 +189,11 @@ export const useRuntimeBeforeInputEvents = ({
           () => readLiveSelection(editor)
         )
         const hasAppInputPolicy = Boolean(
-          onDOMBeforeInput || onBeforeInput || onInput || onKeyDown
+          onDOMBeforeInput ||
+            onBeforeInput ||
+            onInput ||
+            onKeyDown ||
+            hasEditorTransformMiddleware(editor, 'insertText')
         )
         const beforeInputDecision = profileBeforeInputDuration(
           'beforeinput-native-decision',

@@ -69,6 +69,16 @@ export const getTransformCommandType = (
   key: EditorPublicTransformMiddlewareKey
 ) => `${TRANSFORM_COMMAND_PREFIX}${key}`
 
+export const hasTransformMiddleware = (
+  editor: Editor,
+  key: EditorPublicTransformMiddlewareKey
+) => {
+  const type = getTransformCommandType(key)
+  const handlers = getExtensionRegistry(editor).commands.get(type)
+
+  return !!handlers?.length
+}
+
 const isApplyingTransformDefault = (editor: Editor) =>
   (DEFAULT_DEPTH.get(editor) ?? 0) > 0
 

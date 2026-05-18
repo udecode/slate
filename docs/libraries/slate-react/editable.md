@@ -250,9 +250,13 @@ Those handlers run for keyboard input, native input, programmatic transforms, an
 const markdown = defineEditorExtension({
   name: 'markdown',
   transforms: {
-    insertText({ editor, next, text }) {
+    insertText({ next, text, tx }) {
       if (text === ' ') {
-        // inspect the model and apply a shortcut
+        const selection = tx.selection.get()
+
+        if (selection) {
+          tx.nodes.set({ type: 'code' })
+        }
         return
       }
 

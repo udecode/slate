@@ -1,4 +1,4 @@
-import { createEditor } from 'slate'
+import { createEditor, defineEditorExtension } from 'slate'
 import { Editor } from 'slate/internal'
 import { describe, expect, it, vi } from 'vitest'
 import type { ReactEditor } from '../src'
@@ -69,6 +69,48 @@ describe('model input strategy', () => {
     expect(Editor.getSelection(editor)).toEqual({
       anchor: { path: [0, 0], offset: 3 },
       focus: { path: [0, 0], offset: 3 },
+    })
+  })
+
+  it('routes model-owned insertText through transform middleware', () => {
+    const editor = createTextEditor('-', 1)
+
+    editor.extend(
+      defineEditorExtension({
+        name: 'markdown-shortcut-transform',
+        transforms: {
+          insertText({ editor, next, text }) {
+            if (text === ' ') {
+              editor.update((tx) => {
+                tx.selection.set({
+                  anchor: { path: [0, 0], offset: 0 },
+                  focus: { path: [0, 0], offset: 1 },
+                })
+                tx.text.delete()
+                tx.nodes.set({ type: 'list-item' })
+              })
+              return
+            }
+
+            next()
+          },
+        },
+      })
+    )
+
+    applyModelOwnedBeforeInputOperation({
+      data: ' ',
+      deferredOperations: { current: [] },
+      editor: editor as ReactEditor,
+      inputType: 'insertText',
+      native: false,
+      selection: Editor.getSelection(editor),
+      setComposing: () => {},
+    })
+
+    expect(editor.read((state) => state.nodes.get([0])[0])).toEqual({
+      type: 'list-item',
+      children: [{ text: '' }],
     })
   })
 

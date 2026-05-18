@@ -260,6 +260,42 @@ defineEditorExtension<CustomEditor>()({
 })
 
 defineEditorExtension<CustomEditor>()({
+  name: 'middleware-context-typing',
+  clipboard: {
+    insertData(_data, context) {
+      context.state.selection.get()
+
+      // @ts-expect-error clipboard middleware gets state, not tx
+      context.tx
+
+      return context.next()
+    },
+  },
+  queries: {
+    text: {
+      string(context) {
+        context.state.selection.get()
+
+        // @ts-expect-error query middleware gets state, not tx
+        context.tx
+
+        return context.next({ at: context.at, options: context.options })
+      },
+    },
+  },
+  transforms: {
+    insertText(context) {
+      context.tx.selection.get()
+
+      // @ts-expect-error transform middleware gets tx, not separate state
+      context.state
+
+      context.next({ text: context.text })
+    },
+  },
+})
+
+defineEditorExtension<CustomEditor>()({
   name: 'normalizer-node-typing',
   normalizers: {
     editor(context) {

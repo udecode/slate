@@ -8,6 +8,7 @@ import {
   DOMCoverageBoundaryRange,
   DOMCoverageSelfBoundary,
 } from '../src/components/dom-coverage-boundary'
+import { isSlateReactDevelopmentEnvironment } from '../src/components/editable-text-blocks'
 
 const createNestedChildren = (): Descendant[] => [
   {
@@ -67,6 +68,34 @@ const createLargeHiddenBoundaryChildren = (
 ]
 
 describe('DOM coverage private boundary harness', () => {
+  test('renderElement dev coverage guard treats missing process env as production-safe', () => {
+    const originalProcess = Object.getOwnPropertyDescriptor(
+      globalThis,
+      'process'
+    )
+
+    try {
+      Object.defineProperty(globalThis, 'process', {
+        configurable: true,
+        value: undefined,
+      })
+
+      expect(isSlateReactDevelopmentEnvironment()).toBe(false)
+      expect(isSlateReactDevelopmentEnvironment({})).toBe(false)
+      expect(isSlateReactDevelopmentEnvironment({ env: {} })).toBe(false)
+      expect(
+        isSlateReactDevelopmentEnvironment({ env: { NODE_ENV: 'production' } })
+      ).toBe(false)
+      expect(
+        isSlateReactDevelopmentEnvironment({ env: { NODE_ENV: 'development' } })
+      ).toBe(true)
+    } finally {
+      if (originalProcess) {
+        Object.defineProperty(globalThis, 'process', originalProcess)
+      }
+    }
+  })
+
   test('BoundaryRange registers a hidden child range and omits its stale DOM', async () => {
     const editor = createReactEditor()
 

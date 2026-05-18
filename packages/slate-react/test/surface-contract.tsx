@@ -487,19 +487,19 @@ describe('slate-react surface contract', () => {
     )
 
     expect(tables).toMatch(/\bdefineEditorExtension\b/)
-    expect(tables).toMatch(/\bdeleteBackward\(\{ editor, next, unit \}\)/)
-    expect(tables).toMatch(/\bdeleteForward\(\{ editor, next, unit \}\)/)
-    expect(tables).toMatch(/\binsertBreak\(\{ editor, next \}\)/)
+    expect(tables).toMatch(/\bdeleteBackward\(\{ next, tx, unit \}\)/)
+    expect(tables).toMatch(/\bdeleteForward\(\{ next, tx, unit \}\)/)
+    expect(tables).toMatch(/\binsertBreak\(\{ next, tx \}\)/)
     expect(tables).not.toMatch(/event\.key === ['"]Backspace['"]/)
     expect(tables).not.toMatch(/event\.key === ['"]Delete['"]/)
     expect(tables).not.toMatch(/event\.key === ['"]Enter['"]/)
 
-    expect(markdown).toMatch(/\bdeleteBackward\(\{ editor, next, unit \}\)/)
-    expect(markdown).toMatch(/\binsertBreak\(\{ editor, next \}\)/)
-    expect(markdown).toMatch(/\binsertText\(\{ editor, next, text \}\)/)
+    expect(markdown).toMatch(/\bdeleteBackward\(\{ editor, next, tx, unit \}\)/)
+    expect(markdown).toMatch(/\binsertBreak\(\{ next, tx \}\)/)
+    expect(markdown).toMatch(/\binsertText\(\{ editor, next, text, tx \}\)/)
     expect(markdown).not.toMatch(/\bonKeyDown=/)
 
-    expect(richtext).toMatch(/\binsertBreak\(\{ editor, next \}\)/)
+    expect(richtext).toMatch(/\binsertBreak\(\{ next, tx \}\)/)
     expect(richtext).toMatch(/\bonKeyDown=/)
     expect(richtext).not.toMatch(/event\.key === ['"]Enter['"]/)
 

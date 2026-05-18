@@ -1381,6 +1381,13 @@ const getStateView = <
   return Object.freeze(stateRecord) as EditorStateView<V, TExtensions>
 }
 
+export const getEditorStateView = <
+  V extends Value,
+  TExtensions extends readonly unknown[] = readonly [],
+>(
+  editor: Editor<V, TExtensions>
+): EditorStateView<V, TExtensions> => getStateView(editor)
+
 const getUpdateView = <
   V extends Value,
   TExtensions extends readonly unknown[] = readonly [],
@@ -1495,6 +1502,21 @@ const getUpdateView = <
   }
 
   return Object.freeze(txRecord) as EditorUpdateTransaction<V, TExtensions>
+}
+
+export const getActiveUpdateView = <
+  V extends Value,
+  TExtensions extends readonly unknown[] = readonly [],
+>(
+  editor: Editor<V, TExtensions>
+): EditorUpdateTransaction<V, TExtensions> => {
+  if (!isInTransaction(editor)) {
+    throw new Error(
+      'transform middleware tx is only available during editor.update'
+    )
+  }
+
+  return getUpdateView(editor)
 }
 
 export const getNormalizerUpdateView = <V extends Value>(

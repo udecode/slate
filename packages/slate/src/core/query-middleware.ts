@@ -10,6 +10,7 @@ import {
   getExtensionRegistry,
   getQueryMiddlewareKey,
 } from './extension-registry'
+import { getEditorStateView } from './public-state'
 
 type QueryMethod<
   V extends Value,
@@ -184,6 +185,7 @@ export const executeQueryMiddleware = <
         ...currentArgs,
         editor,
         next,
+        state: getEditorStateView(editor),
       } as EditorQueryMiddlewareContext<
         Editor<V>,
         QueryArgs<V, TGroup, TMethod> & object,

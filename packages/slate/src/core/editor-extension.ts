@@ -27,6 +27,7 @@ import {
   registerStateGroup,
   registerTxGroup,
 } from './extension-registry'
+import { getActiveUpdateView, getEditorStateView } from './public-state'
 import {
   EDITOR_TRANSFORM_MIDDLEWARE_KEYS,
   getTransformCommandType,
@@ -404,6 +405,7 @@ const registerExtensionSlots = <TEditor extends Editor>(
               ...(commandArgs as TransformMiddlewareArgs<TEditor, typeof key>),
               editor,
               next: runNext,
+              tx: getActiveUpdateView(editor),
             })
 
             return resolveTransformResult(result, delegated, nextResult)
@@ -429,6 +431,7 @@ const registerExtensionSlots = <TEditor extends Editor>(
             slots.clipboard?.insertData?.(data, {
               editor,
               next: () => false,
+              state: getEditorStateView(editor),
             }) === true) as (editor: TEditor, data: DataTransfer) => boolean
         )
       )

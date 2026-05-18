@@ -41,7 +41,10 @@ import {
   getEditableCommandFromBeforeInputType,
 } from '../../editable/editing-kernel'
 import { applyEditableCommand } from '../../editable/mutation-controller'
-import { Editor } from '../../editable/runtime-editor-api'
+import {
+  Editor,
+  hasEditorTransformMiddleware,
+} from '../../editable/runtime-editor-api'
 import { writeRuntimeMarks } from '../../editable/runtime-mutation-state'
 import { readRuntimeSelection } from '../../editable/runtime-selection-state'
 import { ReactEditor, type ReactRuntimeEditor } from '../../plugin/react-editor'
@@ -75,6 +78,11 @@ const cloneRange = (range: Range): Range => ({
   anchor: clonePoint(range.anchor),
   focus: clonePoint(range.focus),
 })
+
+export const shouldFlushStoredTextDiffForTransformMiddleware = (
+  editor: ReactRuntimeEditor,
+  diff: StringDiff
+) => diff.text.length > 0 && hasEditorTransformMiddleware(editor, 'insertText')
 
 export type CreateAndroidInputManagerOptions = {
   editor: ReactRuntimeEditor
@@ -843,6 +851,9 @@ export function createAndroidInputManager({
                 },
                 { at: newPoint }
               )
+            }
+            if (shouldFlushStoredTextDiffForTransformMiddleware(editor, diff)) {
+              scheduleFlush()
             }
             return
           }

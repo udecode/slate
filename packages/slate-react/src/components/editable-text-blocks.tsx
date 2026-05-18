@@ -84,9 +84,21 @@ import { SlateInlineVoidShell, SlateVoidShell } from './slate-void-shell'
 const isText = (value: Descendant): value is SlateTextNode =>
   typeof (value as SlateTextNode).text === 'string'
 
-const isDevelopment =
-  (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process?.env
-    ?.NODE_ENV !== 'production'
+type ProcessLike = {
+  env?: {
+    NODE_ENV?: string
+  }
+}
+
+export const isSlateReactDevelopmentEnvironment = (
+  processLike: ProcessLike | undefined = (
+    globalThis as { process?: ProcessLike }
+  ).process
+) =>
+  processLike?.env?.NODE_ENV != null &&
+  processLike.env.NODE_ENV !== 'production'
+
+const isDevelopment = isSlateReactDevelopmentEnvironment()
 
 const EMPTY_RUNTIME_IDS = Object.freeze([]) as readonly RuntimeId[]
 const EMPTY_DIRECT_TEXT_CHILD_NODES = Object.freeze(

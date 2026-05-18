@@ -19,6 +19,7 @@ export {
   setCurrentSelection as setEditorSelection,
   setTargetRuntime as setEditorTargetRuntime,
 } from '../core/public-state'
+export { hasTransformMiddleware as hasEditorTransformMiddleware } from '../core/transform-middleware'
 export {
   getEditorTransformRegistry,
   setEditorTransformRegistry,

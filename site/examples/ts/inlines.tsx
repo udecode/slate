@@ -134,8 +134,36 @@ const inline = () =>
     },
     name: 'inline',
     transforms: {
-      insertText({ editor, next, text }) {
-        if (isUrl(text) && wrapLink(editor, text)) return
+      insertText({ next, text, tx }) {
+        if (isUrl(text)) {
+          if (
+            tx.nodes.some({
+              match: (n) => NodeApi.isElement(n) && n.type === 'link',
+            })
+          ) {
+            tx.nodes.unwrap({
+              match: (n) => NodeApi.isElement(n) && n.type === 'link',
+            })
+          }
+
+          const selection = tx.selection.get()
+          const isCollapsed = selection && RangeApi.isCollapsed(selection)
+          const link: LinkElement = {
+            type: 'link',
+            url: text,
+            children: isCollapsed ? [{ text }] : [],
+          }
+
+          if (isCollapsed) {
+            tx.nodes.insert(link)
+            tx.selection.move({ unit: 'offset' })
+          } else {
+            tx.nodes.wrap(link, { split: true })
+            tx.selection.collapse({ edge: 'end' })
+          }
+
+          return
+        }
 
         next()
       },

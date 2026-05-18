@@ -792,6 +792,7 @@ export type EditorTransformMiddlewareContext<
 > = TArgs & {
   editor: TEditor
   next: EditorTransformNext<TArgs>
+  tx: EditorUpdateTransaction<ValueOf<TEditor>>
 }
 
 export type EditorTransformMiddlewareMap<
@@ -932,6 +933,7 @@ export type EditorQueryMiddlewareContext<
 > = TArgs & {
   editor: TEditor
   next: (overrides?: Partial<TArgs>) => TResult
+  state: EditorStateView<ValueOf<TEditor>>
 }
 
 type EditorQueryMiddlewareEntry<
@@ -1306,6 +1308,7 @@ export type EditorClipboardInsertDataContext<
 > = {
   editor: TEditor
   next: () => boolean | void
+  state: EditorStateView<ValueOf<TEditor>>
 }
 
 export type EditorClipboardMiddlewareMap<

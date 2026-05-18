@@ -89,6 +89,46 @@ describe('extension query middleware', () => {
     ])
   })
 
+  it('provides read-only state to query middleware', () => {
+    const editor = createEditor()
+    const seenOffsets: number[] = []
+    let hasTx = true
+
+    Editor.replace(editor, {
+      children,
+      selection: {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      },
+      marks: null,
+    })
+
+    editor.extend(
+      defineEditorExtension({
+        name: 'query-state',
+        queries: {
+          text: {
+            string(context) {
+              hasTx = 'tx' in context
+              seenOffsets.push(
+                context.state.selection.get()?.anchor.offset ?? -1
+              )
+
+              return context.next({
+                at: context.at,
+                options: context.options,
+              })
+            },
+          },
+        },
+      })
+    )
+
+    assert.equal(Editor.string(editor, [0]), 'one')
+    assert.deepEqual(seenOffsets, [1])
+    assert.equal(hasTx, false)
+  })
+
   it('covers accepted grouped query keys', () => {
     const editor = createEditor()
     const seen: string[] = []

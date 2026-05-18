@@ -327,16 +327,14 @@ const richText = () =>
       },
     },
     transforms: {
-      insertBreak({ editor, next }) {
-        const selection = editor.read((state) => state.selection.get())
+      insertBreak({ next, tx }) {
+        const selection = tx.selection.get()
 
         if (selection && RangeApi.isCollapsed(selection)) {
-          const blockEntry = editor.read((state) =>
-            state.nodes.above({
-              at: selection,
-              match: (n) => NodeApi.isElement(n) && state.nodes.isBlock(n),
-            })
-          )
+          const blockEntry = tx.nodes.above({
+            at: selection,
+            match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
+          })
 
           if (blockEntry) {
             const [block, blockPath] = blockEntry
@@ -346,21 +344,19 @@ const richText = () =>
               isExitOnEnterType(block.type as CustomElementType)
             ) {
               const blockText = NodeApi.string(block)
-              const end = editor.read((state) => state.points.end(blockPath))
+              const end = tx.points.end(blockPath)
 
               if (blockText === '' || PointApi.equals(selection.anchor, end)) {
                 const paragraphPath = PathApi.next(blockPath)
                 const result = next()
 
-                editor.update((tx) => {
-                  tx.nodes.set(
-                    { type: 'paragraph' },
-                    {
-                      at: paragraphPath,
-                      match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
-                    }
-                  )
-                })
+                tx.nodes.set(
+                  { type: 'paragraph' },
+                  {
+                    at: paragraphPath,
+                    match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
+                  }
+                )
 
                 return result
               }
