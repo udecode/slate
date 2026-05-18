@@ -109,6 +109,7 @@ describe('slate-react app-owned customization', () => {
     const Probe = ({ token }: { token: string }) => {
       const source = useSlateDecorationSource<{ token: string }>(editor, {
         deps: [token],
+        dirtiness: ['text', 'node'],
         id: 'hook-deps-source',
         read: () => [
           {
@@ -165,6 +166,7 @@ describe('slate-react app-owned customization', () => {
       const source = useSlateRangeDecorationSource<{ token: string }>(editor, {
         data: { token },
         deps: [token],
+        dirtiness: ['text', 'node'],
         id: 'range-hook-source',
         read: ({ snapshot }) =>
           NodeApi.findTextRanges({ children: snapshot.children }, 'alpha'),

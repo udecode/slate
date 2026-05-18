@@ -14,8 +14,6 @@ import {
 import { Icon, Toolbar } from './components'
 import type { CustomText } from './custom-types.d'
 
-const searchHighlightingDirtiness = ['text', 'external'] as const
-
 const SearchHighlightingExample = () => {
   const [search, setSearch] = useState('')
   const editor = useSlateEditor({
@@ -46,7 +44,7 @@ const SearchHighlightingExample = () => {
       data: { highlight: true },
       deps: [search],
       id: 'search-highlighting',
-      dirtiness: searchHighlightingDirtiness,
+      dirtiness: 'text',
       read: ({ snapshot }) =>
         search
           ? NodeApi.findTextRanges({ children: snapshot.children }, search, {

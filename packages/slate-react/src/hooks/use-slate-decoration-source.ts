@@ -8,6 +8,7 @@ import {
   type SlateRangeDecorationSourceOptions,
   toSlateRangeDecorations,
 } from '../decoration-source'
+import type { SlateSourceDirtiness } from '../projection-store'
 
 export type UseSlateDecorationSourceOptions<T = unknown> =
   SlateDecorationSourceOptions<T> & {
@@ -25,6 +26,22 @@ export type UseSlateRangeDecorationSourceOptions<T = unknown> =
     deps?: readonly unknown[]
   }
 
+const getDirtinessIdentity = (dirtiness: SlateSourceDirtiness | undefined) => {
+  if (!Array.isArray(dirtiness)) {
+    return dirtiness
+  }
+
+  return `list:${[...new Set(dirtiness)].sort().join('|')}`
+}
+
+const useStableDirtiness = (dirtiness: SlateSourceDirtiness | undefined) => {
+  const dirtinessIdentity = getDirtinessIdentity(dirtiness)
+
+  // Structural dirtiness owns source identity for inline class lists.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => dirtiness, [dirtinessIdentity])
+}
+
 export const useSlateDecorationSource = <T = unknown>(
   editor: SlateEditor,
   options: UseSlateDecorationSourceOptions<T>
@@ -32,7 +49,7 @@ export const useSlateDecorationSource = <T = unknown>(
   const optionsCell = useRef(options)
   optionsCell.current = options
   const optionsId = options.id
-  const dirtiness = options.dirtiness
+  const dirtiness = useStableDirtiness(options.dirtiness)
   const refreshDeps = options.deps ?? [options]
   const runtimeScope = options.runtimeScope
 
@@ -74,7 +91,7 @@ export const useSlateRangeDecorationSource = <T = unknown>(
   const optionsCell = useRef(options)
   optionsCell.current = options
   const optionsId = options.id
-  const dirtiness = options.dirtiness
+  const dirtiness = useStableDirtiness(options.dirtiness)
   const refreshDeps = options.deps ?? [options]
   const runtimeScope = options.runtimeScope
 
