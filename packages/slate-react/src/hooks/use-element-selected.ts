@@ -45,6 +45,17 @@ export const useElementSelected = ({
 
   const shouldUpdate = useCallback(
     (_operations?: readonly Operation[], change?: SnapshotChange) => {
+      if (path) {
+        return (
+          !change ||
+          change.fullDocumentChanged ||
+          change.rootRuntimeIdsChanged ||
+          change.selectionChanged ||
+          change.structureChanged ||
+          change.topLevelOrderChanged
+        )
+      }
+
       if (!runtimeId || !change) {
         return true
       }
@@ -64,7 +75,7 @@ export const useElementSelected = ({
 
       return change.selectionImpactRuntimeIds.includes(runtimeId)
     },
-    [runtimeId]
+    [path, runtimeId]
   )
 
   return useEditorSelector(selector, undefined, {

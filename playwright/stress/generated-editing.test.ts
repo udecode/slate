@@ -717,20 +717,20 @@ const overlayManyDecorationSources = (): StressCase =>
       { kind: 'resetRenderProfiler', label: 'reset-render-before-overlays' },
       {
         kind: 'clickSelector',
-        label: 'show-both-diagnostics',
-        selector: 'button:has-text("Show both diagnostics")',
+        label: 'run-linter',
+        selector: 'button:has-text("Run linter")',
       },
       {
-        contains: 'mode:both',
+        contains: 'issues:2',
         kind: 'assertLocatorText',
-        label: 'assert-both-diagnostics-mode',
-        selector: '#external-decoration-mode',
+        label: 'assert-lint-issue-count',
+        selector: '#linting-count',
       },
       {
         kind: 'assertLocatorCount',
         label: 'assert-many-decoration-slices',
         min: 2,
-        selector: '[data-external-tone]',
+        selector: '[data-lint-severity]',
       },
       {
         budget: { byKind: { editable: { max: 1 } } },

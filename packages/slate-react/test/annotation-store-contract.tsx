@@ -25,6 +25,11 @@ type CommentProjection = {
   tone?: string
 }
 
+type NonJsonProjection = {
+  kind: string
+  payload?: Map<string, number>
+}
+
 const formatProjection = (
   projections: readonly {
     key: string
@@ -361,6 +366,71 @@ describe('slate-react annotation store contract', () => {
     ).toBe('0.0:2|0.0:5')
 
     unsubscribe()
+    store.destroy()
+  })
+
+  test('annotation stores normalize stale resolved ranges that no longer fit committed text', async () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: createChildren(),
+      selection: null,
+    })
+
+    const runtimeId = Editor.getRuntimeId(editor, [0, 0])
+    const staleRange = {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 4 },
+    }
+    const store = createSlateAnnotationStore(editor, () => [
+      {
+        anchor: {
+          resolve: () => staleRange,
+        },
+        data: {
+          kind: 'annotation',
+          label: 'Comment 1',
+        },
+        id: 'comment-1',
+        projection: {
+          kind: 'annotation',
+        },
+      },
+    ])
+
+    if (!runtimeId) {
+      throw new Error('Expected runtime id for stale annotation range proof')
+    }
+
+    expect(formatRange(store.getAnnotation('comment-1')?.range ?? null)).toBe(
+      '0.0:1|0.0:4'
+    )
+    expect(store.projectionStore.getRuntimeSnapshot(runtimeId)).toEqual([
+      {
+        data: {
+          annotationId: 'comment-1',
+          kind: 'annotation',
+        },
+        end: 4,
+        key: 'comment-1',
+        start: 1,
+      },
+    ])
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.text.delete({
+          at: {
+            anchor: { path: [0, 0], offset: 1 },
+            focus: { path: [0, 0], offset: 4 },
+          },
+        })
+      })
+    })
+
+    expect(store.getAnnotation('comment-1')?.range).toBeNull()
+    expect(store.projectionStore.getRuntimeSnapshot(runtimeId)).toEqual([])
+
     store.destroy()
   })
 
@@ -714,6 +784,187 @@ describe('slate-react annotation store contract', () => {
 
     store.destroy()
     bookmark.unref()
+  })
+
+  test('partial annotation projection refresh preserves annotation order in shared runtime buckets', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: createChildren(),
+      selection: null,
+    })
+
+    const runtimeId = Editor.getRuntimeId(editor, [0, 0])
+
+    if (!runtimeId) {
+      throw new Error('Expected runtime id for annotation order proof')
+    }
+
+    const firstBookmark = Editor.bookmark(editor, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 4 },
+    })
+    const secondBookmark = Editor.bookmark(editor, {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 5 },
+    })
+    let annotations: readonly SlateAnnotation<
+      CommentData,
+      CommentProjection
+    >[] = [
+      {
+        anchor: firstBookmark,
+        data: {
+          kind: 'annotation',
+          label: 'Comment 1',
+          tone: 'draft',
+        },
+        id: 'comment-1',
+        projection: {
+          kind: 'annotation',
+          tone: 'draft',
+        },
+      },
+      {
+        anchor: secondBookmark,
+        data: {
+          kind: 'annotation',
+          label: 'Comment 2',
+          tone: 'review',
+        },
+        id: 'comment-2',
+        projection: {
+          kind: 'annotation',
+          tone: 'review',
+        },
+      },
+    ]
+    const store = createSlateAnnotationStore(editor, () => annotations)
+    const projectionKeys = () =>
+      store.projectionStore
+        .getRuntimeSnapshot(runtimeId)
+        .map((entry) => `${entry.key}:${entry.data?.tone ?? 'none'}`)
+
+    expect(projectionKeys()).toEqual(['comment-1:draft', 'comment-2:review'])
+
+    annotations = [
+      {
+        ...annotations[0]!,
+        data: {
+          ...annotations[0]!.data!,
+          tone: 'approved',
+        },
+        projection: {
+          kind: 'annotation',
+          tone: 'approved',
+        },
+      },
+      annotations[1]!,
+    ]
+
+    store.refresh({ ids: ['comment-1'], reason: 'annotation' })
+
+    expect(projectionKeys()).toEqual(['comment-1:approved', 'comment-2:review'])
+
+    store.destroy()
+    firstBookmark.unref()
+    secondBookmark.unref()
+  })
+
+  test('annotation metadata uses reference equality for non-JSON data', () => {
+    const editor = createEditor()
+    let annotationNotifications = 0
+    let projectionNotifications = 0
+    let runtimeNotifications = 0
+
+    Editor.replace(editor, {
+      children: createChildren(),
+      selection: null,
+    })
+
+    const runtimeId = Editor.getRuntimeId(editor, [0, 0])
+
+    if (!runtimeId) {
+      throw new Error('Expected runtime id for annotation metadata proof')
+    }
+
+    const circularData: Record<string, unknown> = {}
+    circularData.self = circularData
+
+    let metadata: unknown = circularData
+    let projection: NonJsonProjection = {
+      kind: 'annotation',
+      payload: new Map([['value', 0]]),
+    }
+    const store = createSlateAnnotationStore<unknown, NonJsonProjection>(
+      editor,
+      () => [
+        {
+          anchor: {
+            resolve: () => ({
+              anchor: { path: [0, 0], offset: 1 },
+              focus: { path: [0, 0], offset: 4 },
+            }),
+          },
+          data: metadata,
+          id: 'comment-1',
+          projection,
+        },
+      ]
+    )
+
+    store.subscribeAnnotation('comment-1', () => {
+      annotationNotifications += 1
+    })
+    store.projectionStore.subscribe(() => {
+      projectionNotifications += 1
+    })
+    store.projectionStore.subscribeRuntimeId?.(runtimeId, () => {
+      runtimeNotifications += 1
+    })
+
+    expect(() => {
+      store.refresh({ ids: ['comment-1'], reason: 'annotation' })
+    }).not.toThrow()
+    expect(annotationNotifications).toBe(0)
+    expect(projectionNotifications).toBe(0)
+    expect(runtimeNotifications).toBe(0)
+
+    metadata = new Map([['value', 1]])
+    store.refresh({ ids: ['comment-1'], reason: 'annotation' })
+
+    expect(annotationNotifications).toBe(1)
+    expect(projectionNotifications).toBe(0)
+    expect(runtimeNotifications).toBe(0)
+
+    metadata = new Map([['value', 2]])
+    store.refresh({ ids: ['comment-1'], reason: 'annotation' })
+
+    expect(annotationNotifications).toBe(2)
+    expect(projectionNotifications).toBe(0)
+    expect(runtimeNotifications).toBe(0)
+
+    projection = {
+      kind: 'annotation',
+      payload: new Map([['value', 1]]),
+    }
+    store.refresh({ ids: ['comment-1'], reason: 'annotation' })
+
+    expect(annotationNotifications).toBe(3)
+    expect(projectionNotifications).toBe(1)
+    expect(runtimeNotifications).toBe(1)
+
+    projection = {
+      kind: 'annotation',
+      payload: new Map([['value', 2]]),
+    }
+    store.refresh({ ids: ['comment-1'], reason: 'annotation' })
+
+    expect(annotationNotifications).toBe(4)
+    expect(projectionNotifications).toBe(2)
+    expect(runtimeNotifications).toBe(2)
+
+    store.destroy()
   })
 
   test('annotation projection changes wake only affected runtime buckets', () => {

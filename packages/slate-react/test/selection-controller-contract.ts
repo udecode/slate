@@ -1,3 +1,4 @@
+import { Editor } from 'slate/internal'
 import { createEditableInputController } from '../src/editable/input-state'
 import {
   completeEditableSelectionChangeImport,
@@ -7,7 +8,10 @@ import {
   prepareEditableSelectionChangeImport,
   setEditableModelSelectionPreference,
   shouldImportChangedExpandedDOMSelection,
+  syncEditableDOMSelectionToEditor,
 } from '../src/editable/selection-controller'
+import { ReactEditor } from '../src/plugin/react-editor'
+import { createReactEditor } from '../src/plugin/with-react'
 
 test('selection import executes only for import-dom policy', () => {
   let calls = 0
@@ -53,6 +57,66 @@ test('selection export executes only for export-model policy', () => {
     })
   ).toBe(true)
   expect(calls).toBe(1)
+})
+
+test('failed DOM selection export clears the updating guard', () => {
+  vi.useFakeTimers()
+
+  const editor = createReactEditor()
+  const editorElement = document.createElement('div')
+  const textNode = document.createTextNode('abc')
+  const domSelection = document.getSelection()
+
+  if (!domSelection) {
+    throw new Error('Expected document selection')
+  }
+
+  editorElement.append(textNode)
+  document.body.append(editorElement)
+
+  const domRange = document.createRange()
+  domRange.setStart(textNode, 0)
+  domRange.setEnd(textNode, 1)
+
+  Editor.replace(editor, {
+    children: [{ type: 'paragraph', children: [{ text: 'abc' }] }],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 1 },
+    },
+  })
+
+  vi.spyOn(ReactEditor, 'findDocumentOrShadowRoot').mockReturnValue(document)
+  vi.spyOn(ReactEditor, 'assertDOMNode').mockReturnValue(editorElement)
+  vi.spyOn(ReactEditor, 'resolveDOMRange').mockReturnValue(domRange)
+  vi.spyOn(domSelection, 'setBaseAndExtent').mockImplementation(() => {
+    throw new Error('stale DOM bridge')
+  })
+
+  const state = {
+    isUpdatingSelection: false,
+    selectionChangeOrigin: null,
+  }
+
+  try {
+    syncEditableDOMSelectionToEditor({
+      editor,
+      scrollSelectionIntoView: vi.fn(),
+      shellBackedSelection: false,
+      state,
+    })
+
+    expect(state.isUpdatingSelection).toBe(true)
+
+    vi.runOnlyPendingTimers()
+
+    expect(state.isUpdatingSelection).toBe(false)
+    expect(state.selectionChangeOrigin).toBe('programmatic-export')
+  } finally {
+    editorElement.remove()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  }
 })
 
 test('native editor-owned selectionchange clears model preference before DOM import', () => {

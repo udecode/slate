@@ -70,6 +70,32 @@ describe('release proof helpers', () => {
     ])
   })
 
+  test('does not let forged proxy mobile fields satisfy raw device claims', () => {
+    const result = validateSlateBrowserReleaseProof({
+      artifacts: [
+        {
+          capabilities: [
+            'device-browser-text-input',
+            'device-browser-ime-commit',
+          ],
+          evidenceClass: 'automated-direct',
+          kind: 'mobile-device',
+          passed: true,
+          platform: 'ios-safari',
+          releaseGateCapable: true,
+          scenario: 'placeholder-ime',
+          transport: 'agent-browser-ios',
+        } satisfies SlateBrowserMobileDeviceProofArtifact,
+      ],
+      claims: ['ios-safari-device-browser-ime-commit'],
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.issues).toEqual([
+      'Missing automated-direct release proof for ios-safari device-browser-ime-commit',
+    ])
+  })
+
   test('keeps native mobile clipboard outside the release claim without explicit direct evidence', () => {
     const android = createBrowserMobileReleaseProofArtifact({
       passed: true,
@@ -131,6 +157,24 @@ describe('release proof helpers', () => {
     expect(result.issues).toEqual([
       'Missing release discipline guards: public-field-hard-cut-contract, escape-hatch-inventory-contract, write-boundary-contract, leaf-lifecycle-contract, selection-rebase-contract, rendered-dom-shape-contract, destructive-leaf-boundary-gauntlet, leaf-delete-parity, compat-alias-hard-cut-contract',
     ])
+  })
+
+  test('accepts a later complete release discipline artifact', () => {
+    const result = validateSlateBrowserReleaseProof({
+      artifacts: [
+        createReleaseDisciplineProofArtifact({
+          guards: ['public-surface-contract'],
+          passed: true,
+        }),
+        createReleaseDisciplineProofArtifact({
+          guards: [...SLATE_BROWSER_RELEASE_DISCIPLINE_GUARDS],
+          passed: true,
+        }),
+      ],
+      claims: ['release-discipline-guards'],
+    })
+
+    expect(result).toEqual({ issues: [], ok: true })
   })
 
   test('throws with actionable release proof failures', () => {

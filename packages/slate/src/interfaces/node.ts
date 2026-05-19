@@ -896,8 +896,7 @@ export const NodeApi: NodeInterface = {
   matches(node: Node, props: Partial<Node>): boolean {
     return (
       (NodeApi.isElement(node) &&
-        ElementApi.isElementProps(props) &&
-        ElementApi.matches(node, props)) ||
+        ElementApi.matches(node, props as Partial<Element>)) ||
       (NodeApi.isText(node) &&
         TextApi.isTextProps(props) &&
         TextApi.matches(node, props))

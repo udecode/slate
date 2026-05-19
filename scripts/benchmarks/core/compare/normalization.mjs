@@ -56,6 +56,16 @@ const now = () => performance.now();
 const round = (value) => Number(value.toFixed(2));
 
 const summarize = (samples) => {
+  if (samples.length === 0) {
+    return {
+      samples: [],
+      mean: 0,
+      median: 0,
+      min: 0,
+      max: 0,
+    };
+  }
+
   const sorted = [...samples].sort((left, right) => left - right);
   const mean = samples.reduce((total, sample) => total + sample, 0) / samples.length;
   const middle = Math.floor(sorted.length / 2);

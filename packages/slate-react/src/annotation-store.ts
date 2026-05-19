@@ -110,6 +110,12 @@ const EMPTY_METRICS = Object.freeze({
   runtimeSubscriberWakeCount: 0,
 }) as SlateAnnotationStoreMetrics
 
+const INVALID_ANNOTATION_RANGE_ERROR =
+  /Cannot project a range outside the committed snapshot|Point offset .* is outside text bounds/
+
+const isInvalidAnnotationRangeError = (error: unknown) =>
+  error instanceof Error && INVALID_ANNOTATION_RANGE_ERROR.test(error.message)
+
 const addMappedListener = (
   listeners: Map<string, Set<() => void>>,
   id: string,
@@ -171,13 +177,129 @@ const areRangesEqual = (left: Range | null, right: Range | null) => {
   )
 }
 
-const areDataEqual = (left: unknown, right: unknown) =>
-  JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
+const isPlainObject = (value: object) => {
+  const prototype = Object.getPrototypeOf(value)
+
+  return prototype === Object.prototype || prototype === null
+}
+
+const isJsonComparable = (
+  value: unknown,
+  seen = new WeakSet<object>()
+): boolean => {
+  if (value === null) return true
+
+  switch (typeof value) {
+    case 'boolean':
+    case 'string':
+      return true
+    case 'number':
+      return Number.isFinite(value)
+    case 'object': {
+      if (seen.has(value)) return false
+      if (Array.isArray(value)) {
+        seen.add(value)
+
+        return value.every((entry) => isJsonComparable(entry, seen))
+      }
+      if (!isPlainObject(value)) return false
+
+      seen.add(value)
+
+      return Object.values(value).every((entry) =>
+        isJsonComparable(entry, seen)
+      )
+    }
+    default:
+      return false
+  }
+}
+
+const areDataEqual = (left: unknown, right: unknown) => {
+  if (Object.is(left, right)) return true
+  if (!isJsonComparable(left) || !isJsonComparable(right)) return false
+
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+const annotationProjectionDataSources = new WeakMap<object, unknown>()
+
+const createAnnotationProjectionData = <
+  TProjection extends Record<string, unknown>,
+>(
+  annotation: SlateResolvedAnnotation<unknown, TProjection>
+) => {
+  const data = {
+    ...(annotation.projection ?? {}),
+    annotationId: annotation.id,
+  } as SlateAnnotationProjectionData<TProjection>
+
+  annotationProjectionDataSources.set(data, annotation.projection)
+
+  return data
+}
+
+const getAnnotationProjectionDataSource = (data: unknown) => {
+  if (!data || typeof data !== 'object') {
+    return null
+  }
+
+  const key = data as object
+
+  return annotationProjectionDataSources.has(key)
+    ? { source: annotationProjectionDataSources.get(key) }
+    : null
+}
+
+const areAnnotationProjectionDataEqual = (left: unknown, right: unknown) => {
+  if (Object.is(left, right)) return true
+
+  const leftSource = getAnnotationProjectionDataSource(left)
+  const rightSource = getAnnotationProjectionDataSource(right)
+
+  if (leftSource || rightSource) {
+    return Boolean(
+      leftSource &&
+        rightSource &&
+        (left as SlateAnnotationProjectionData | undefined)?.annotationId ===
+          (right as SlateAnnotationProjectionData | undefined)?.annotationId &&
+        Object.is(leftSource.source, rightSource.source)
+    )
+  }
+
+  return areDataEqual(left, right)
+}
+
+const projectAnnotationRange = (editor: SlateEditor, range: Range) => {
+  try {
+    return Editor.projectRange(editor, range)
+  } catch (error) {
+    if (isInvalidAnnotationRangeError(error)) {
+      return null
+    }
+
+    throw error
+  }
+}
+
+const resolveAnnotationRange = (
+  editor: SlateEditor,
+  anchor: SlateAnnotationAnchor
+) => {
+  const range = anchor.resolve()
+
+  if (!range) {
+    return null
+  }
+
+  return projectAnnotationRange(editor, range) ? range : null
+}
 
 const buildAnnotationSnapshot = <
   TData,
   TProjection extends Record<string, unknown>,
 >(
+  editor: SlateEditor,
   annotations: readonly SlateAnnotation<TData, TProjection>[]
 ): SlateAnnotationSnapshot<TData, TProjection> => {
   if (annotations.length === 0) {
@@ -192,7 +314,7 @@ const buildAnnotationSnapshot = <
       data: annotation.data,
       id: annotation.id,
       projection: annotation.projection,
-      range: annotation.anchor.resolve(),
+      range: resolveAnnotationRange(editor, annotation.anchor),
     })
   })
 
@@ -216,6 +338,7 @@ const buildAnnotationSnapshotForCandidates = <
   TData,
   TProjection extends Record<string, unknown>,
 >(
+  editor: SlateEditor,
   current: SlateAnnotationSnapshot<TData, TProjection>,
   annotations: readonly SlateAnnotation<TData, TProjection>[],
   candidateAnnotationIds: readonly string[] | null
@@ -224,7 +347,7 @@ const buildAnnotationSnapshotForCandidates = <
     return {
       fullFallback: true,
       resolveCount: annotations.length,
-      snapshot: buildAnnotationSnapshot(annotations),
+      snapshot: buildAnnotationSnapshot(editor, annotations),
     }
   }
 
@@ -252,7 +375,7 @@ const buildAnnotationSnapshotForCandidates = <
       data: annotation.data,
       id: annotation.id,
       projection: annotation.projection,
-      range: annotation.anchor.resolve(),
+      range: resolveAnnotationRange(editor, annotation.anchor),
     })
   })
 
@@ -301,16 +424,17 @@ const buildProjectionSnapshot = <
       return
     }
 
-    const projected = Editor.projectRange(editor, annotation.range)
+    const projected = projectAnnotationRange(editor, annotation.range)
+
+    if (!projected) {
+      return
+    }
 
     projected.forEach((segment) => {
       const entries = [
         ...(projectionByRuntimeId[segment.runtimeId] ?? []),
         {
-          data: {
-            ...(annotation.projection ?? {}),
-            annotationId,
-          } as SlateAnnotationProjectionData<TProjection>,
+          data: createAnnotationProjectionData(annotation),
           end: segment.end,
           key: annotationId,
           start: segment.start,
@@ -362,6 +486,9 @@ const buildProjectionSnapshotForCandidates = <
   }
 
   const candidateSet = new Set(candidateAnnotationIds)
+  const annotationOrder = new Map(
+    annotationSnapshot.allIds.map((id, index) => [id, index])
+  )
   const nextProjectionByRuntimeId: Record<
     RuntimeId,
     SlateProjectionEntry<SlateAnnotationProjectionData<TProjection>>[]
@@ -405,8 +532,21 @@ const buildProjectionSnapshotForCandidates = <
   )
 
   Object.keys(nextProjectionByRuntimeId).forEach((runtimeId) => {
+    const entries = nextProjectionByRuntimeId[runtimeId]!
+
+    entries.sort((left, right) => {
+      const leftOrder =
+        annotationOrder.get(left.data?.annotationId ?? '') ??
+        Number.MAX_SAFE_INTEGER
+      const rightOrder =
+        annotationOrder.get(right.data?.annotationId ?? '') ??
+        Number.MAX_SAFE_INTEGER
+
+      return leftOrder - rightOrder
+    })
+
     nextProjectionByRuntimeId[runtimeId] = Object.freeze(
-      nextProjectionByRuntimeId[runtimeId]!
+      entries
     ) as SlateProjectionEntry<SlateAnnotationProjectionData<TProjection>>[]
   })
 
@@ -513,7 +653,7 @@ const areProjectionSnapshotsEqual = (
         leftEntry.key !== rightEntry.key ||
         leftEntry.start !== rightEntry.start ||
         leftEntry.end !== rightEntry.end ||
-        !areDataEqual(leftEntry.data, rightEntry.data)
+        !areAnnotationProjectionDataEqual(leftEntry.data, rightEntry.data)
       ) {
         return false
       }
@@ -656,7 +796,7 @@ export function createSlateAnnotationStore<
   const getAnnotations = typeof source === 'function' ? source : () => source
 
   const initialAnnotations = getAnnotations()
-  let annotationSnapshot = buildAnnotationSnapshot(initialAnnotations)
+  let annotationSnapshot = buildAnnotationSnapshot(editor, initialAnnotations)
   let projectionSnapshot = buildProjectionSnapshot(editor, annotationSnapshot)
   let annotationRuntimeIds = buildAnnotationRuntimeIds(projectionSnapshot)
   let metrics = Object.freeze({
@@ -674,6 +814,7 @@ export function createSlateAnnotationStore<
   ) => {
     const annotations = getAnnotations()
     const annotationBuild = buildAnnotationSnapshotForCandidates(
+      editor,
       annotationSnapshot,
       annotations,
       candidateAnnotationIds

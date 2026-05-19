@@ -657,7 +657,7 @@ export const DOMCoverage = {
     }
 
     return {
-      domPoint: editor.dom.toDOMPoint(point),
+      domPoint: editor.dom.assertDOMPoint(point),
       type: 'dom-point',
     }
   },
@@ -677,7 +677,7 @@ export const DOMCoverage = {
     }
 
     return {
-      domRange: editor.dom.toDOMRange(range),
+      domRange: editor.dom.assertDOMRange(range),
       type: 'dom-range',
     }
   },

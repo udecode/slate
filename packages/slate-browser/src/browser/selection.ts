@@ -15,26 +15,26 @@ export type DOMSelectionSnapshot = {
   focusOffset: number
 }
 
-const getEditorTextNodes = (root: ParentNode) =>
-  Array.from(root.querySelectorAll('[data-slate-node="text"]'))
+const parseSlatePath = (value: string) => {
+  const path = value.split(',').map((part) => Number.parseInt(part, 10))
 
-const hasZeroWidthMarker = (node: Node | null) => {
-  const element = node?.nodeType === 1 ? (node as Element) : node?.parentElement
+  if (path.some((part) => !Number.isInteger(part))) {
+    throw new Error('Invalid Slate DOM path')
+  }
 
-  return !!element?.getAttribute('data-slate-zero-width')
+  return path
 }
 
-const getNodeLength = (node: Node | null) =>
-  node?.nodeType === 3
-    ? (node.textContent?.length ?? 0)
-    : (node?.childNodes.length ?? 0)
+const findZeroWidthMarker = (node: Node | null) => {
+  const element = node?.nodeType === 1 ? (node as Element) : node?.parentElement
+
+  return element?.closest('[data-slate-zero-width]') ?? null
+}
 
 const toEditorOffset = (node: Node | null, offset: number) =>
-  hasZeroWidthMarker(node) && offset === 1 && getNodeLength(node) <= 1
-    ? 0
-    : offset
+  findZeroWidthMarker(node) ? 0 : offset
 
-const findTextIndex = (root: ParentNode, node: Node | null) => {
+const findTextPath = (root: ParentNode, node: Node | null) => {
   const owner =
     node?.nodeType === 1
       ? (node as Element).closest('[data-slate-node="text"]')
@@ -44,18 +44,22 @@ const findTextIndex = (root: ParentNode, node: Node | null) => {
     throw new Error('Cannot resolve selection to a Slate text node')
   }
 
-  const index = getEditorTextNodes(root).indexOf(owner)
-
-  if (index < 0) {
+  if (!(root as Node).contains(owner)) {
     throw new Error('Selection text node is outside the editor root')
   }
 
-  return index
+  const pathAttribute = owner.getAttribute('data-slate-path')
+
+  if (pathAttribute) {
+    return parseSlatePath(pathAttribute)
+  }
+
+  throw new Error('Cannot resolve selection to a Slate DOM path')
 }
 
-const findTextIndexOrNull = (root: ParentNode, node: Node | null) => {
+const findTextPathOrNull = (root: ParentNode, node: Node | null) => {
   try {
-    return findTextIndex(root, node)
+    return findTextPath(root, node)
   } catch {
     return null
   }
@@ -84,20 +88,20 @@ export const takeEditorSelectionSnapshot = (
     return null
   }
 
-  const anchorIndex = findTextIndexOrNull(root, selection.anchorNode)
-  const focusIndex = findTextIndexOrNull(root, selection.focusNode)
+  const anchorPath = findTextPathOrNull(root, selection.anchorNode)
+  const focusPath = findTextPathOrNull(root, selection.focusNode)
 
-  if (anchorIndex === null || focusIndex === null) {
+  if (anchorPath === null || focusPath === null) {
     return null
   }
 
   return {
     anchor: {
-      path: [anchorIndex, 0],
+      path: anchorPath,
       offset: toEditorOffset(selection.anchorNode, selection.anchorOffset),
     },
     focus: {
-      path: [focusIndex, 0],
+      path: focusPath,
       offset: toEditorOffset(selection.focusNode, selection.focusOffset),
     },
   }

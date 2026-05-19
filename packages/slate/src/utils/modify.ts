@@ -46,6 +46,8 @@ export const modifyDescendant = <N extends Descendant>(
   path: Path,
   f: (node: N) => N
 ) => {
+  const owner = NodeApi.isEditor(root) ? root : undefined
+
   if (path.length === 0) {
     throw new Error('Cannot modify the editor')
   }
@@ -53,7 +55,7 @@ export const modifyDescendant = <N extends Descendant>(
   const node = NodeApi.get(root, path) as N
   const slicedPath = path.slice()
   let modifiedNode: Descendant = f(node)
-  inheritRuntimeId(modifiedNode, node)
+  inheritRuntimeId(modifiedNode, node, owner)
 
   while (slicedPath.length > 1) {
     const index = slicedPath.pop()!
@@ -71,7 +73,7 @@ export const modifyDescendant = <N extends Descendant>(
         modifiedNode
       ),
     }
-    inheritRuntimeId(modifiedNode, ancestorNode)
+    inheritRuntimeId(modifiedNode, ancestorNode, owner)
   }
 
   const index = slicedPath.pop()!

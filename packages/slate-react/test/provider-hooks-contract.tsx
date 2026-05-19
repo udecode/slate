@@ -233,6 +233,48 @@ describe('slate-react provider hooks contract', () => {
     ])
   })
 
+  test('deferred useEditorSelector passes commit operations into selector updates', async () => {
+    const editor = createReactEditor({ initialValue })
+    const seenOperations: (readonly Operation[] | undefined)[] = []
+    const selector = jest.fn((_editor, operations?: readonly Operation[]) => {
+      seenOperations.push(operations)
+
+      return operations?.map((operation) => operation.type).join(',') ?? 'idle'
+    })
+
+    const { result } = renderHook(
+      () =>
+        useEditorSelector(selector, Object.is, {
+          deferred: true,
+        }),
+      {
+        wrapper: ({ children }) => (
+          <Slate editor={editor}>
+            <Editable />
+            {children}
+          </Slate>
+        ),
+      }
+    )
+
+    expect(result.current).toBe('idle')
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.text.insert('!', { at: { path: [0, 0], offset: 4 } })
+      })
+      editor.update((tx) => {
+        tx.text.insert('?', { at: { path: [0, 0], offset: 5 } })
+      })
+    })
+
+    expect(result.current).toBe('insert_text,insert_text')
+    expect(seenOperations.at(-1)?.map((operation) => operation.type)).toEqual([
+      'insert_text',
+      'insert_text',
+    ])
+  })
+
   test('deferred editor selectors preserve profiler markers while coalescing renders', async () => {
     const editor = createReactEditor({ initialValue })
     const selector = jest.fn(() => Editor.getLastCommit(editor)?.version ?? 0)
@@ -950,6 +992,44 @@ describe('slate-react provider hooks contract', () => {
 
     expect(result.current.topLevelRuntimeIds).toHaveLength(3)
     expect(result.current.topLevelRuntimeIds).not.toBe(initialRootRuntimeIds)
+  })
+
+  test('root selector sources track broad selection index changes', async () => {
+    const editor = createReactEditor()
+
+    Editor.replace(editor, {
+      children: Array.from({ length: 200 }, (_value, index) => ({
+        type: 'block',
+        children: [{ text: `block ${index}` }],
+      })),
+      selection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+    })
+
+    const { result } = renderHook(() => useTopLevelSelectionIndex(true), {
+      wrapper: ({ children }) => (
+        <Slate editor={editor}>
+          <Editable />
+          {children}
+        </Slate>
+      ),
+    })
+
+    expect(result.current).toBe(0)
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.selection.set({
+          anchor: { path: [50, 0], offset: 0 },
+          focus: { path: [199, 0], offset: 'block 199'.length },
+        })
+      })
+    })
+
+    expect(Editor.getLastCommit(editor)?.selectionImpactRuntimeIds).toBe(null)
+    expect(result.current).toBe(50)
   })
 
   test('placeholder root source tracks empty editor state', async () => {

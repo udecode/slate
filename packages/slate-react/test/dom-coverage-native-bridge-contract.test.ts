@@ -94,6 +94,20 @@ const mountVisibleDragTarget = (root: HTMLElement) => {
   return target
 }
 
+const mountInternalControlDragTarget = (root: HTMLElement) => {
+  const host = document.createElement('p')
+  const button = document.createElement('button')
+
+  host.setAttribute('data-slate-node', 'element')
+  host.setAttribute('data-slate-path', '0')
+  button.type = 'button'
+  button.textContent = 'Internal control'
+  host.append(button)
+  root.append(host)
+
+  return button
+}
+
 const decodeFragmentPayload = (payload: string) =>
   JSON.parse(decodeURIComponent(window.atob(payload)))
 
@@ -272,6 +286,59 @@ describe('DOM coverage native bridge', () => {
       expect(state.isDraggingInternally).toBe(true)
       expect(dataTransfer.getData('text/plain')).toBe('Hidden alpha')
       expect(dataTransfer.getData('text/html')).toContain('Hidden alpha')
+    } finally {
+      cleanupEditorRoot(editor, root)
+    }
+  })
+
+  test('drag and drop on internal controls does not run editor-owned handling', () => {
+    const editor = createReactEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Original text' }],
+        },
+      ],
+      selection: {
+        anchor: { offset: 0, path: [0, 0] },
+        focus: { offset: 'Original text'.length, path: [0, 0] },
+      },
+    })
+
+    const root = mountEditorRoot(editor)
+    const button = mountInternalControlDragTarget(root)
+    const dragData = new FakeDataTransfer()
+    const dropData = new FakeDataTransfer()
+    const dragState = { isDraggingInternally: false }
+    const dropEvent = createDragEvent(button, dropData)
+
+    dropData.setData('text/plain', 'Dropped text')
+
+    try {
+      applyEditableDragStart({
+        editor,
+        event: createDragEvent(button, dragData),
+        readOnly: false,
+        state: dragState,
+      })
+      const result = applyEditableDrop({
+        editor,
+        event: dropEvent,
+        readOnly: false,
+        state: dragState,
+      })
+
+      expect(dragState.isDraggingInternally).toBe(false)
+      expect(dragData.types).toEqual([])
+      expect(dropEvent.preventDefault).not.toHaveBeenCalled()
+      expect(result.command).toBe(null)
+      expect(Editor.string(editor, [])).toBe('Original text')
+      expect(Editor.getSnapshot(editor).selection).toEqual({
+        anchor: { offset: 0, path: [0, 0] },
+        focus: { offset: 'Original text'.length, path: [0, 0] },
+      })
     } finally {
       cleanupEditorRoot(editor, root)
     }

@@ -26,6 +26,19 @@ const percentile = (sorted: number[], ratio: number) => {
 }
 
 export const summarize = (samples: number[]) => {
+  if (samples.length === 0) {
+    return {
+      max: 0,
+      mean: 0,
+      median: 0,
+      min: 0,
+      p75: 0,
+      p95: 0,
+      p99: 0,
+      samples: [],
+    }
+  }
+
   const sorted = [...samples].sort((left, right) => left - right)
   const mean =
     samples.reduce((total, sample) => total + sample, 0) / samples.length

@@ -46,7 +46,7 @@ const shouldUpdateSelectedTopLevelIndex = (
   change?: SnapshotChange
 ) =>
   change
-    ? (change.selectionChanged && change.selectionImpactRuntimeIds !== null) ||
+    ? change.selectionChanged ||
       change.rootRuntimeIdsChanged ||
       change.topLevelOrderChanged
     : hasNoOperations(operations) ||
@@ -216,6 +216,10 @@ export const useRenderingStrategyRootSources = ({
   const selectedTopLevelIndex = useTopLevelSelectionIndex(
     renderingStrategyConfig != null
   )
+  const selectedSegmentIndex =
+    renderingStrategyConfig && selectedTopLevelIndex != null
+      ? Math.floor(selectedTopLevelIndex / renderingStrategyConfig.segmentSize)
+      : 0
 
   return useMemo(() => {
     recordSlateReactRender({
@@ -230,12 +234,7 @@ export const useRenderingStrategyRootSources = ({
       topLevelRuntimeIds.length >= renderingStrategyConfig.threshold
         ? createSegmentPlan({
             overscan: renderingStrategyConfig.overscan,
-            defaultActiveSegmentIndex:
-              selectedTopLevelIndex == null
-                ? 0
-                : Math.floor(
-                    selectedTopLevelIndex / renderingStrategyConfig.segmentSize
-                  ),
+            defaultActiveSegmentIndex: selectedSegmentIndex,
             segmentSize: renderingStrategyConfig.segmentSize,
             promotedSegmentIndex,
             topLevelRuntimeIds,
@@ -266,7 +265,7 @@ export const useRenderingStrategyRootSources = ({
   }, [
     renderingStrategyConfig,
     promotedSegmentIndex,
-    selectedTopLevelIndex,
+    selectedSegmentIndex,
     topLevelRuntimeIds,
   ])
 }

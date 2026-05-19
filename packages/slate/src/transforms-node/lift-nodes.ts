@@ -29,18 +29,18 @@ export const liftNodes: NodeMutationMethods['liftNodes'] = (
     const [node] = getNode(editor, path)
 
     if (NodeApi.isText(node)) {
-      throw new Error('liftNodes currently supports only element nodes')
+      return
     }
 
     if (path.length < 2) {
-      throw new Error('liftNodes requires a path with depth of at least 2')
+      return
     }
 
     const parentPath = path.slice(0, -1)
     const [parent] = getNode(editor, parentPath)
 
     if (NodeApi.isText(parent)) {
-      throw new Error('liftNodes requires an element parent')
+      return
     }
 
     const index = path.at(-1)!
@@ -142,18 +142,14 @@ export const liftNodes: NodeMutationMethods['liftNodes'] = (
       endParentPath.length !== 1 ||
       PathApi.compare(startParentPath, endParentPath) !== 0
     ) {
-      throw new Error(
-        'liftNodes currently supports only top-level wrapper-child ranges'
-      )
+      return
     }
 
     const startIndex = startChildPath.at(-1)
     const endIndex = endChildPath.at(-1)
 
     if (startIndex == null || endIndex == null) {
-      throw new Error(
-        'liftNodes currently supports only top-level wrapper-child ranges'
-      )
+      return
     }
 
     const wrapperIndex = startParentPath[0]!

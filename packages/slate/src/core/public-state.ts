@@ -1890,6 +1890,11 @@ const getTransactionView = (editor: Editor): EditorTransaction => {
     setSelection(selection: Selection) {
       const currentSelection = getCurrentSelection(editor)
       const operation = createSetSelectionOperation(currentSelection, selection)
+
+      if (!operation) {
+        return
+      }
+
       applyWithOperationMiddlewares(editor, operation)
     },
   }) as unknown as EditorTransaction

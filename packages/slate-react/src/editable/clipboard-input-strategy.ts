@@ -11,9 +11,11 @@ import {
 import { DOMCoverage } from 'slate-dom/internal'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
-import { isFullDocumentSelection } from '../rendering-strategy/rendering-strategy-commands'
 import type { EditableCommand } from './editing-kernel'
-import type { EditableRepairRequest } from './input-controller'
+import {
+  type EditableRepairRequest,
+  isInteractiveInternalTarget,
+} from './input-controller'
 import { applyEditableCommand } from './mutation-controller'
 import { Editor } from './runtime-editor-api'
 import { readRuntimeNode } from './runtime-live-state'
@@ -88,6 +90,19 @@ const isDragEventHandled = ({
 
   return event.isDefaultPrevented() || event.isPropagationStopped()
 }
+
+const shouldHandleEditorDragEvent = ({
+  editor,
+  event,
+  handler,
+}: {
+  editor: ReactRuntimeEditor
+  event: DragEvent<HTMLDivElement>
+  handler?: EditableDragHandler
+}) =>
+  ReactEditor.hasTarget(editor, event.target) &&
+  !isDragEventHandled({ event, handler }) &&
+  !isInteractiveInternalTarget(editor, event.target)
 
 const resolveDragTarget = (editor: ReactRuntimeEditor, target: EventTarget) => {
   if (!isDOMNode(target)) {
@@ -335,13 +350,12 @@ export const applyEditableDragEnd = ({
   readOnly: boolean
   state: EditableDragState
 }) => {
-  if (
-    !readOnly &&
-    state.isDraggingInternally &&
-    onDragEnd &&
-    ReactEditor.hasTarget(editor, event.target)
-  ) {
-    onDragEnd(event)
+  if (!readOnly && state.isDraggingInternally && onDragEnd) {
+    shouldHandleEditorDragEvent({
+      editor,
+      event,
+      handler: onDragEnd,
+    })
   }
 }
 
@@ -355,8 +369,11 @@ export const applyEditableDragOver = ({
   onDragOver?: EditableDragHandler
 }) => {
   if (
-    ReactEditor.hasTarget(editor, event.target) &&
-    !isDragEventHandled({ event, handler: onDragOver })
+    shouldHandleEditorDragEvent({
+      editor,
+      event,
+      handler: onDragOver,
+    })
   ) {
     // Only when the target is void, call `preventDefault` to signal
     // that drops are allowed. Editable content is droppable by
@@ -385,8 +402,11 @@ export const applyEditableDragStart = ({
 }) => {
   if (
     !readOnly &&
-    ReactEditor.hasTarget(editor, event.target) &&
-    !isDragEventHandled({ event, handler: onDragStart })
+    shouldHandleEditorDragEvent({
+      editor,
+      event,
+      handler: onDragStart,
+    })
   ) {
     const target = resolveDragTarget(editor, event.target)
 
@@ -430,8 +450,11 @@ export const applyEditableDrop = ({
 }): EditableClipboardResult => {
   if (
     !readOnly &&
-    ReactEditor.hasTarget(editor, event.target) &&
-    !isDragEventHandled({ event, handler: onDrop })
+    shouldHandleEditorDragEvent({
+      editor,
+      event,
+      handler: onDrop,
+    })
   ) {
     event.preventDefault()
 
@@ -510,41 +533,6 @@ export const applyEditablePaste = ({
     !isClipboardEventHandled({ event, handler: onPaste })
 
   if (shellBackedSelection && event.clipboardData && canHandlePaste) {
-    const text = event.clipboardData.getData('text/plain')
-    const selection = editor.read((state) => state.selection.get())
-    const isFullDocumentShellSelection = isFullDocumentSelection(
-      editor,
-      selection
-    )
-
-    if (
-      text &&
-      isFullDocumentShellSelection &&
-      isPlainTextOnlyPaste(event.nativeEvent)
-    ) {
-      event.preventDefault()
-      editor.update((tx) => {
-        tx.value.replace({
-          children: [
-            {
-              type: 'paragraph',
-              children: [{ text }],
-            },
-          ],
-          selection: {
-            anchor: { path: [0, 0], offset: text.length },
-            focus: { path: [0, 0], offset: text.length },
-          },
-        })
-      })
-
-      return clipboardResult({
-        command: null,
-        explicitShellBackedSelection: false,
-        repair: { kind: 'repair-caret' },
-      })
-    }
-
     event.preventDefault()
     materializePasteTargetBoundaries(editor)
     const command: EditableCommand = {

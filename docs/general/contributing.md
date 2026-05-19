@@ -71,13 +71,20 @@ bun dev
 
 To run the tests, start by building the monorepo as described in the [Repository Setup](contributing.md#repository-setup) section.
 
-The canonical repository gate is:
+The fast local repository gate is:
 
 ```text
 bun check
 ```
 
-It runs the full local gate: lint, typecheck, tests, and integration coverage.
+It runs lint, typecheck, and tests. Playwright integration coverage lives in
+the fuller gates:
+
+```text
+bun check:ci
+bun check:full
+```
+
 Package typechecking pulls the package build prerequisites through Turbo
 instead of front-loading a full root build. For purely mechanical formatting
 fixes, run:

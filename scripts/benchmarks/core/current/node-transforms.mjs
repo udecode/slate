@@ -88,15 +88,21 @@ const insertNodesMs = measureLane(createEditorWithChildren, (editor) => {
 })
 
 const setNodesMs = measureLane(createEditorWithChildren, (editor) => {
+  const focusIndex = selectionBlocks - 1
+  const selectedRange = {
+    anchor: { path: [0, 0], offset: 0 },
+    focus: {
+      path: [focusIndex, 0],
+      offset: Editor.string(editor, [focusIndex]).length,
+    },
+  }
+
   write(editor, (tx) => {
-    tx.selection.set({
-      anchor: { path: [0, 0], offset: 0 },
-      focus: { path: [selectionBlocks - 1, 0], offset: 0 },
-    })
+    tx.selection.set(selectedRange)
     tx.nodes.set(
       { type: 'heading-one' },
       {
-        at: [],
+        at: selectedRange,
         match: (node) =>
           Editor.isBlock(editor, node) && node.type === 'paragraph',
       }
@@ -109,6 +115,12 @@ const setNodesMs = measureLane(createEditorWithChildren, (editor) => {
     !changed.every((node) => 'children' in node && node.type === 'heading-one')
   ) {
     throw new Error('setNodesMs did not rewrite the selected block range')
+  }
+
+  const next = Editor.getSnapshot(editor).children[selectionBlocks]
+
+  if (next && (!('children' in next) || next.type !== 'paragraph')) {
+    throw new Error('setNodesMs rewrote blocks outside the selected range')
   }
 })
 

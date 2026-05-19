@@ -142,6 +142,7 @@ bun run bench:core:node-transforms:local
 bun run bench:core:text-selection:local
 bun run bench:core:editor-store:local
 bun run bench:core:refs-projection:local
+bun run bench:core:clipboard-large-payload:local
 bun run bench:core:normalization:compare:local
 bun run bench:core:observation:compare:local
 bun run bench:core:huge-document:compare:local

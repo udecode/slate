@@ -153,4 +153,101 @@ describe('keyboard input strategy', () => {
     hasEditableTarget.mockRestore()
     isComposing.mockRestore()
   })
+
+  it('keeps DeleteForward direction in the Chrome/WebKit void-node fallback', async () => {
+    vi.resetModules()
+
+    const applyEditableCommand = vi.fn(() => true)
+
+    vi.doMock('slate-dom', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('slate-dom')>()
+
+      return {
+        ...actual,
+        HAS_BEFORE_INPUT_SUPPORT: true,
+        IS_CHROME: true,
+        IS_WEBKIT: false,
+      }
+    })
+    vi.doMock('../src/editable/editing-kernel', async (importOriginal) => {
+      const actual =
+        await importOriginal<typeof import('../src/editable/editing-kernel')>()
+
+      return {
+        ...actual,
+        getEditableCommandFromKeyDown: vi.fn(() => null),
+      }
+    })
+    vi.doMock('../src/editable/mutation-controller', async (importOriginal) => {
+      const actual =
+        await importOriginal<
+          typeof import('../src/editable/mutation-controller')
+        >()
+
+      return {
+        ...actual,
+        applyEditableCommand,
+      }
+    })
+
+    try {
+      const [
+        { createEditor, defineEditorExtension },
+        { ReactEditor },
+        { applyEditableKeyDown },
+      ] = await Promise.all([
+        import('slate'),
+        import('../src/plugin/react-editor'),
+        import('../src/editable/keyboard-input-strategy'),
+      ])
+      const editor = createEditor({
+        extensions: [
+          defineEditorExtension({
+            elements: [{ type: 'image', void: 'block' }],
+            name: 'keyboard-input-strategy-void-test',
+          }),
+        ],
+        initialSelection: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 0 },
+        },
+        initialValue: [{ type: 'image', children: [{ text: '' }] }],
+      }) as ReactEditorType
+      const event = reactKeyEvent(keyEvent('Delete'))
+      const hasEditableTarget = vi
+        .spyOn(ReactEditor, 'hasEditableTarget')
+        .mockReturnValue(true)
+      const isComposing = vi
+        .spyOn(ReactEditor, 'isComposing')
+        .mockReturnValue(false)
+
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        renderingStrategy: null,
+        setComposing: vi.fn(),
+        setExplicitShellBackedSelection: vi.fn(),
+        shellBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(event.preventDefault).toHaveBeenCalled()
+      expect(applyEditableCommand).toHaveBeenCalledWith({
+        command: { direction: 'forward', kind: 'delete', unit: 'block' },
+        editor,
+      })
+
+      hasEditableTarget.mockRestore()
+      isComposing.mockRestore()
+    } finally {
+      vi.doUnmock('slate-dom')
+      vi.doUnmock('../src/editable/editing-kernel')
+      vi.doUnmock('../src/editable/mutation-controller')
+      vi.resetModules()
+    }
+  })
 })

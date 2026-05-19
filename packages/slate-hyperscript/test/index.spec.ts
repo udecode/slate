@@ -2,6 +2,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+import { jsx as slateJsx } from '../src'
+
 type FixtureModule = {
   input: Record<string, unknown> | unknown[]
   output: Record<string, unknown> | unknown[]
@@ -89,5 +91,31 @@ const runFixtures = (path: string) => {
 }
 
 describe('slate-hyperscript', () => {
+  it('rejects numeric children instead of dropping them', () => {
+    expect(() => slateJsx('element', {}, 0)).toThrow(
+      'Unexpected hyperscript child object: 0'
+    )
+  })
+
+  it('ignores direct JSX no-op children', () => {
+    expect(slateJsx('element', {}, null, undefined, false)).toEqual({
+      children: [],
+    })
+  })
+
+  it('does not let selection props overwrite child points', () => {
+    expect(
+      slateJsx(
+        'selection',
+        { anchor: null, focus: null },
+        slateJsx('anchor', { offset: 1, path: [0, 0] }),
+        slateJsx('focus', { offset: 2, path: [0, 0] })
+      )
+    ).toEqual({
+      anchor: { offset: 1, path: [0, 0] },
+      focus: { offset: 2, path: [0, 0] },
+    })
+  })
+
   runFixtures(fixturesDir)
 })

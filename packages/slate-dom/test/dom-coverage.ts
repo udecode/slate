@@ -208,7 +208,7 @@ describe('DOM coverage boundaries', () => {
 
       const hiddenPoint = { path: [0, 1, 0], offset: 3 }
 
-      expect(() => editor.api.dom.toDOMPoint(hiddenPoint)).toThrow(
+      expect(() => editor.api.dom.assertDOMPoint(hiddenPoint)).toThrow(
         /Cannot resolve a DOM node from Slate node/
       )
       expect(
@@ -380,7 +380,7 @@ describe('DOM coverage boundaries', () => {
         type: 'boundary-point',
       })
       expect(
-        editor.api.dom.toSlatePoint([placeholder, 0], {
+        editor.api.dom.assertSlatePoint([placeholder, 0], {
           exactMatch: true,
         })
       ).toEqual({
@@ -395,7 +395,7 @@ describe('DOM coverage boundaries', () => {
         type: 'boundary-point',
       })
       expect(
-        editor.api.dom.toSlatePoint([root, 1], {
+        editor.api.dom.assertSlatePoint([root, 1], {
           exactMatch: true,
         })
       ).toEqual({
@@ -535,7 +535,7 @@ describe('DOM coverage boundaries', () => {
       return true
     })
 
-    expect(() => editor.api.dom.toDOMPoint(hiddenPoint)).toThrow(
+    expect(() => editor.api.dom.assertDOMPoint(hiddenPoint)).toThrow(
       /Cannot resolve a DOM node from Slate node/
     )
     expect(DOMCoverage.toDOMPointOrBoundary(editor, hiddenPoint)).toMatchObject(

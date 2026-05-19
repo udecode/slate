@@ -515,6 +515,39 @@ describe('slate transforms contract', () => {
     ])
   })
 
+  it('liftNodes and unwrapNodes no-op when the selection has no valid wrapper target', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        { type: 'block', children: [{ text: 'one' }] },
+        { type: 'block', children: [{ text: 'two' }] },
+      ],
+      selection: {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [1, 0], offset: 2 },
+      },
+      marks: null,
+    })
+
+    editor.update((tx) => {
+      tx.nodes.lift()
+      tx.nodes.unwrap()
+    })
+
+    const after = Editor.getSnapshot(editor)
+
+    assert.deepEqual(after.children, [
+      { type: 'block', children: [{ text: 'one' }] },
+      { type: 'block', children: [{ text: 'two' }] },
+    ])
+    assert.deepEqual(after.selection, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [1, 0], offset: 2 },
+    })
+    assert.equal(after.marks, null)
+  })
+
   it('liftNodes can target inside a void element when voids is true', () => {
     const editor = createEditor()
     editor.extend(

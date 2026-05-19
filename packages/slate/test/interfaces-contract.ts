@@ -29,6 +29,17 @@ describe('slate interfaces contract', () => {
     assert.equal(TextApi.isText({ text: '' }), true)
   })
 
+  it('rejects invalid text props without throwing', () => {
+    const inheritedText = Object.create({ text: '' })
+
+    assert.equal(TextApi.isTextProps(null), false)
+    assert.equal(TextApi.isTextProps(undefined), false)
+    assert.equal(TextApi.isTextProps('abc'), false)
+    assert.equal(TextApi.isTextProps({}), false)
+    assert.equal(TextApi.isTextProps(inheritedText), false)
+    assert.equal(TextApi.isTextProps({ text: '' }), true)
+  })
+
   it('rejects plain objects as nodes', () => {
     assert.equal(NodeApi.isNode({}), false)
   })

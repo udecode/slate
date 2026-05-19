@@ -17,7 +17,11 @@ const cloneRange = (range: Range | null): Range | null =>
 export const createSetSelectionOperation = (
   previous: Range | null,
   next: Range | null
-): SetSelectionOperation => {
+): SetSelectionOperation | null => {
+  if (previous == null && next == null) {
+    return null
+  }
+
   if (previous == null) {
     return {
       type: 'set_selection',

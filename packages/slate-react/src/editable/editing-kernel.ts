@@ -417,6 +417,8 @@ export type EditableKernelTraceInput = Omit<
   transition?: EditableKernelTransition
 }
 
+export const EDITABLE_KERNEL_TRACE_LIMIT = 200
+
 const EDITOR_TO_KERNEL_TRACE = new WeakMap<Editor, EditableKernelTraceEntry[]>()
 const EDITOR_TO_CURRENT_EVENT_FRAME = new WeakMap<Editor, EditableEventFrame>()
 const EDITOR_TO_NEXT_EVENT_FRAME_ID = new WeakMap<Editor, number>()
@@ -531,6 +533,9 @@ export const recordEditableKernelTrace = ({
   const traces = EDITOR_TO_KERNEL_TRACE.get(editor) ?? []
 
   traces.push(entry)
+  if (traces.length > EDITABLE_KERNEL_TRACE_LIMIT) {
+    traces.splice(0, traces.length - EDITABLE_KERNEL_TRACE_LIMIT)
+  }
   EDITOR_TO_KERNEL_TRACE.set(editor, traces)
   closeEditableEditingEpochAfterTrace(editor, {
     command: entry.command,

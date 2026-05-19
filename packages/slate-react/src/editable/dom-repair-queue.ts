@@ -50,6 +50,10 @@ export const beginDOMRepairFrame = (
   state: DOMRepairFrameState,
   frameId: number
 ) => {
+  if (frameId < state.cancelledBeforeFrameId) {
+    return
+  }
+
   state.currentFrameId = frameId
 }
 

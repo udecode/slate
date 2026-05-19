@@ -1,18 +1,12 @@
 import {
   type BrowserMobileDescriptor,
   type BrowserMobileTarget,
+  createBrowserMobileUrl,
   resolveBrowserMobileSurface,
 } from './contracts'
 
 export const AGENT_BROWSER_IOS_DEVICE_DEFAULT = 'iPhone 17 Pro'
 export const AGENT_BROWSER_IOS_SESSION_DEFAULT = 'ios-proof'
-
-const createUrl = ({
-  debugQuery = 'debug=1',
-  example,
-  port,
-}: BrowserMobileTarget) =>
-  `http://localhost:${port}/examples/${example}${debugQuery ? `?${debugQuery}` : ''}`
 
 export const createAgentBrowserIosDescriptor = (
   target: BrowserMobileTarget,
@@ -23,10 +17,10 @@ export const createAgentBrowserIosDescriptor = (
   return {
     ...target,
     ...surface,
-    hostReadyUrl: createUrl(target),
+    hostReadyUrl: createBrowserMobileUrl(target),
     scenario,
     transport: 'agent-browser-ios',
-    url: createUrl(target),
+    url: createBrowserMobileUrl(target),
   }
 }
 

@@ -53,6 +53,16 @@ const forceGc = () => {
   return false
 }
 
+const summarizeHeapDeltas = (samples) => ({
+  samples,
+  mean:
+    samples.length === 0
+      ? 0
+      : round(samples.reduce((sum, value) => sum + value, 0) / samples.length),
+  max: samples.length === 0 ? 0 : Math.max(...samples),
+  min: samples.length === 0 ? 0 : Math.min(...samples),
+})
+
 const createHistoryEditor = (children, selection) => {
   const editor = withHistory(createEditor())
 
@@ -108,7 +118,9 @@ const getHistoryShape = (editor, operationsBefore) => {
 
 const measureRetainedLane = (name, setup, run) => {
   const durationSamples = []
-  const retainedHeapSamples = []
+  const gcBeforeSamples = []
+  const gcAfterSamples = []
+  const heapDeltaSamples = []
   let metadata = null
 
   for (let sample = 0; sample < iterations; sample += 1) {
@@ -118,30 +130,44 @@ const measureRetainedLane = (name, setup, run) => {
     const start = performance.now()
     const result = run(context)
     const duration = performance.now() - start
+    const gcAfter = forceGc()
     const heapAfter = heapUsed()
 
     durationSamples.push(duration)
-    retainedHeapSamples.push(heapAfter - heapBefore)
+    gcBeforeSamples.push(gcBefore)
+    gcAfterSamples.push(gcAfter)
+    heapDeltaSamples.push(heapAfter - heapBefore)
     metadata = {
       ...result,
-      gcAvailable: gcBefore,
-      heapMeasurement: 'process.memoryUsage.heapUsed',
+      gcAvailable: gcBefore && gcAfter,
+      heapMeasurement: gcAfter
+        ? 'process.memoryUsage.heapUsed after post-run GC'
+        : 'process.memoryUsage.heapUsed without post-run GC',
       lane: name,
+      postRunGcAvailable: gcAfter,
+      preRunGcAvailable: gcBefore,
     }
   }
 
+  const gcAvailable =
+    gcBeforeSamples.every(Boolean) && gcAfterSamples.every(Boolean)
+  const heapDeltaMetric = gcAvailable
+    ? 'retainedHeapDeltaBytes'
+    : 'heapGrowthDeltaBytes'
+
   return {
     durationMs: summarize(durationSamples),
-    retainedHeapDeltaBytes: {
-      samples: retainedHeapSamples,
-      mean: round(
-        retainedHeapSamples.reduce((sum, value) => sum + value, 0) /
-          retainedHeapSamples.length
-      ),
-      max: Math.max(...retainedHeapSamples),
-      min: Math.min(...retainedHeapSamples),
+    [heapDeltaMetric]: summarizeHeapDeltas(heapDeltaSamples),
+    metadata: {
+      ...metadata,
+      gcAvailable,
+      heapDeltaMetric,
+      heapMeasurement: gcAvailable
+        ? 'process.memoryUsage.heapUsed after post-run GC'
+        : 'process.memoryUsage.heapUsed without complete GC',
+      postRunGcAvailable: gcAfterSamples.every(Boolean),
+      preRunGcAvailable: gcBeforeSamples.every(Boolean),
     },
-    metadata,
   }
 }
 

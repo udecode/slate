@@ -17,6 +17,11 @@ type Callback = (
   change?: SnapshotChange
 ) => void
 
+type DeferredCallbackPayload = {
+  change?: SnapshotChange
+  operations?: readonly Operation[]
+}
+
 export type EditorSelectorContextValue = {
   addEventListener: (
     callback: Callback,
@@ -67,6 +72,23 @@ const scheduleMicrotask =
     : (callback: () => void) => {
         Promise.resolve().then(callback)
       }
+
+const queueDeferredCallback = (
+  queue: Map<Callback, DeferredCallbackPayload>,
+  callback: Callback,
+  operations?: readonly Operation[],
+  change?: SnapshotChange
+) => {
+  const existing = queue.get(callback)
+
+  queue.set(callback, {
+    change,
+    operations:
+      existing?.operations && operations
+        ? [...existing.operations, ...operations]
+        : (operations ?? existing?.operations),
+  })
+}
 
 export function useRequiredEditorSelectorContext() {
   const context = useContext(EditorSelectorContext)
@@ -191,13 +213,15 @@ export function useEditorState<T, TEditor extends Editor<any> = Editor<any>>(
 export function useEditorSelectorContext() {
   const eventListeners = useRef(new Set<Callback>())
   const runtimeEventListeners = useRef(new Map<RuntimeId, Set<Callback>>())
-  const deferredEventListeners = useRef(new Set<Callback>())
+  const deferredEventListeners = useRef(
+    new Map<Callback, DeferredCallbackPayload>()
+  )
   const deferredFlushScheduled = useRef(false)
 
   const flushDeferred = useCallback(() => {
     deferredFlushScheduled.current = false
-    deferredEventListeners.current.forEach((listener) => {
-      listener()
+    deferredEventListeners.current.forEach((payload, listener) => {
+      listener(payload.operations, payload.change)
     })
     deferredEventListeners.current.clear()
   }, [])
@@ -286,7 +310,12 @@ export function useEditorSelectorContext() {
                 kind: 'selector',
                 runtimeId,
               })
-              deferredEventListeners.current.add(callbackProp)
+              queueDeferredCallback(
+                deferredEventListeners.current,
+                callbackProp,
+                operations,
+                change
+              )
             }
           }
         : (operations?: readonly Operation[], change?: SnapshotChange) => {

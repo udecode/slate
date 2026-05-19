@@ -4,15 +4,18 @@ import {
   beginEditableEventFrame,
   createEditableKernelResult,
   EDITABLE_COMMAND_DEFINITIONS,
+  EDITABLE_KERNEL_TRACE_LIMIT,
   getCurrentEditableEventFrame,
   getEditableCommandDefinition,
   getEditableCommandFromBeforeInputType,
   getEditableCommandFromKeyDown,
+  getEditableKernelTrace,
   getEditableKernelTransition,
   getEditableMovementOwnershipTrace,
   getEditableSelectionChangeOwnership,
   prepareEditableCompositionKernel,
   prepareEditableKeyDownKernel,
+  recordEditableKernelTrace,
 } from '../src/editable/editing-kernel'
 import {
   classifyBeforeInputIntent,
@@ -278,6 +281,31 @@ test('kernel traces preserve selectionchange origin metadata', () => {
   })
 
   expect(result.trace.selectionChangeOrigin).toBe('repair-induced')
+})
+
+test('editable kernel trace keeps only the newest bounded entries', () => {
+  const editor = createEditor()
+
+  for (let index = 0; index < EDITABLE_KERNEL_TRACE_LIMIT + 2; index++) {
+    recordEditableKernelTrace({
+      editor,
+      trace: {
+        ...createBaseTrace(),
+        selectionBefore: {
+          anchor: { offset: 0, path: [index] },
+          focus: { offset: 0, path: [index] },
+        },
+      },
+    })
+  }
+
+  const trace = getEditableKernelTrace(editor)
+
+  expect(trace).toHaveLength(EDITABLE_KERNEL_TRACE_LIMIT)
+  expect(trace[0]?.selectionBefore?.anchor.path).toEqual([2])
+  expect(trace.at(-1)?.selectionBefore?.anchor.path).toEqual([
+    EDITABLE_KERNEL_TRACE_LIMIT + 1,
+  ])
 })
 
 test('movement ownership trace records model-owned horizontal reason', () => {

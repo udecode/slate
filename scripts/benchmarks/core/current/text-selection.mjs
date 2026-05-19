@@ -37,6 +37,26 @@ const createEditorWithChildren = () => {
   return editor
 }
 
+const createMoveEditor = () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'x'.repeat(steps + 20) }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  return editor
+}
+
 const write = (editor, fn) => {
   editor.update(fn)
 }
@@ -153,21 +173,7 @@ const setPointMs = measureLane(createEditorWithChildren, (editor) => {
   assert.ok(Editor.getSnapshot(editor).selection)
 })
 
-const moveMs = measureLane(createEditorWithChildren, (editor) => {
-  Editor.replace(editor, {
-    children: [
-      {
-        type: 'paragraph',
-        children: [{ text: 'x'.repeat(steps + 20) }],
-      },
-    ],
-    selection: {
-      anchor: { path: [0, 0], offset: 0 },
-      focus: { path: [0, 0], offset: 0 },
-    },
-    marks: null,
-  })
-
+const moveMs = measureLane(createMoveEditor, (editor) => {
   for (let index = 0; index < steps; index += 1) {
     write(editor, (tx) => tx.selection.move({ distance: 1, unit: 'offset' }))
   }

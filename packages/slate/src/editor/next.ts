@@ -11,6 +11,10 @@ export const next: EditorStaticApi['next'] = (editor, options = {}) => {
     return
   }
 
+  if (LocationApi.isPath(at) && at.length === 0) {
+    return
+  }
+
   const pointAfterLocation = Editor.after(editor, at, { voids })
 
   if (!pointAfterLocation) return
@@ -18,10 +22,6 @@ export const next: EditorStaticApi['next'] = (editor, options = {}) => {
   const [, to] = Editor.last(editor, [])
 
   const span: Span = [pointAfterLocation.path, to]
-
-  if (LocationApi.isPath(at) && at.length === 0) {
-    throw new Error('Cannot get the next node from the root node!')
-  }
 
   if (match == null) {
     if (LocationApi.isPath(at)) {

@@ -8,8 +8,8 @@ import {
 it('captures DOM and editor-shaped selection snapshots for a simple editor tree', () => {
   document.body.innerHTML = `
     <div data-slate-editor="true">
-      <span data-slate-node="text"><span data-slate-string>alpha</span></span>
-      <span data-slate-node="text"><span data-slate-string>beta</span></span>
+      <span data-slate-node="text" data-slate-path="0,0"><span data-slate-string>alpha</span></span>
+      <span data-slate-node="text" data-slate-path="1,0"><span data-slate-string>beta</span></span>
     </div>
   `
 
@@ -42,10 +42,75 @@ it('captures DOM and editor-shaped selection snapshots for a simple editor tree'
   })
 })
 
-it('normalizes FEFF zero-width DOM offsets back to editor offset zero', () => {
+it('uses Slate DOM paths for sibling text nodes inside the same element', () => {
   document.body.innerHTML = `
     <div data-slate-editor="true">
-      <span data-slate-node="text">
+      <div data-slate-node="element" data-slate-path="0">
+        <span data-slate-node="text" data-slate-path="0,0">
+          <span data-slate-string>alpha</span>
+        </span>
+        <span data-slate-node="text" data-slate-path="0,1">
+          <span data-slate-string>beta</span>
+        </span>
+      </div>
+    </div>
+  `
+
+  const root = document.querySelector('[data-slate-editor="true"]')!
+  const second = root.querySelectorAll('[data-slate-string]')[1]!
+    .firstChild as Text
+  const selection = document.getSelection()!
+  const range = document.createRange()
+
+  range.setStart(second, 1)
+  range.setEnd(second, 3)
+  selection.removeAllRanges()
+  selection.addRange(range)
+
+  expect(takeEditorSelectionSnapshot(root, selection)).toEqual({
+    anchor: {
+      path: [0, 1],
+      offset: 1,
+    },
+    focus: {
+      path: [0, 1],
+      offset: 3,
+    },
+  })
+})
+
+it('fails closed instead of flattening nested text nodes without Slate DOM paths', () => {
+  document.body.innerHTML = `
+    <div data-slate-editor="true">
+      <div data-slate-node="element">
+        <span data-slate-node="text">
+          <span data-slate-string>alpha</span>
+        </span>
+        <span data-slate-node="text">
+          <span data-slate-string>beta</span>
+        </span>
+      </div>
+    </div>
+  `
+
+  const root = document.querySelector('[data-slate-editor="true"]')!
+  const second = root.querySelectorAll('[data-slate-string]')[1]!
+    .firstChild as Text
+  const selection = document.getSelection()!
+  const range = document.createRange()
+
+  range.setStart(second, 1)
+  range.setEnd(second, 3)
+  selection.removeAllRanges()
+  selection.addRange(range)
+
+  expect(takeEditorSelectionSnapshot(root, selection)).toBeNull()
+})
+
+it('normalizes zero-width DOM artifact offsets back to editor offset zero', () => {
+  document.body.innerHTML = `
+    <div data-slate-editor="true">
+      <span data-slate-node="text" data-slate-path="0,0">
         <span data-slate-leaf="true">
           <span data-slate-zero-width="n" data-slate-length="0">\uFEFF<br /></span>
         </span>
@@ -56,9 +121,30 @@ it('normalizes FEFF zero-width DOM offsets back to editor offset zero', () => {
   const root = document.querySelector('[data-slate-editor="true"]')!
   const marker = root.querySelector('[data-slate-zero-width="n"]')!
   const text = marker.firstChild as Text
+  const br = marker.querySelector('br')!
   const selection = document.getSelection()!
-  const range = document.createRange()
 
+  const expectZeroWidthOffset = (node: Node, offset: number) => {
+    const range = document.createRange()
+
+    range.setStart(node, offset)
+    range.setEnd(node, offset)
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    expect(takeEditorSelectionSnapshot(root, selection)).toEqual({
+      anchor: {
+        path: [0, 0],
+        offset: 0,
+      },
+      focus: {
+        path: [0, 0],
+        offset: 0,
+      },
+    })
+  }
+
+  const range = document.createRange()
   range.setStart(text, 1)
   range.setEnd(text, 1)
   selection.removeAllRanges()
@@ -71,16 +157,9 @@ it('normalizes FEFF zero-width DOM offsets back to editor offset zero', () => {
     focusOffset: 1,
   })
 
-  expect(takeEditorSelectionSnapshot(root, selection)).toEqual({
-    anchor: {
-      path: [0, 0],
-      offset: 0,
-    },
-    focus: {
-      path: [0, 0],
-      offset: 0,
-    },
-  })
+  expectZeroWidthOffset(text, 1)
+  expectZeroWidthOffset(marker, 1)
+  expectZeroWidthOffset(br, 0)
 })
 
 it('maps RTL DOM selections while preserving browser geometry direction', () => {
@@ -90,7 +169,7 @@ it('maps RTL DOM selections while preserving browser geometry direction', () => 
       dir="rtl"
       style="font: 18px Arial; line-height: 24px; width: 240px;"
     >
-      <span data-slate-node="text"><span data-slate-string>אבגד</span></span>
+      <span data-slate-node="text" data-slate-path="0,0"><span data-slate-string>אבגד</span></span>
     </div>
   `
 
@@ -131,7 +210,7 @@ it('keeps wrapped-line DOM rectangles tied to one editor selection', () => {
       data-slate-editor="true"
       style="font: 16px monospace; line-height: 20px; width: 90px;"
     >
-      <span data-slate-node="text">
+      <span data-slate-node="text" data-slate-path="0,0">
         <span data-slate-string>alpha beta gamma delta epsilon</span>
       </span>
     </div>
@@ -170,7 +249,7 @@ it('maps editor selections inside a shadow root against the local root', () => {
   const shadowRoot = host.attachShadow({ mode: 'open' })
   shadowRoot.innerHTML = `
     <div data-slate-editor="true">
-      <span data-slate-node="text"><span data-slate-string>shadow alpha</span></span>
+      <span data-slate-node="text" data-slate-path="0,0"><span data-slate-string>shadow alpha</span></span>
     </div>
   `
   document.body.append(host)
@@ -204,7 +283,7 @@ it('maps editor selections inside a shadow root against the local root', () => {
 it('fails closed when the DOM selection is outside the editor root', () => {
   document.body.innerHTML = `
     <div data-slate-editor="true">
-      <span data-slate-node="text"><span data-slate-string>inside</span></span>
+      <span data-slate-node="text" data-slate-path="0,0"><span data-slate-string>inside</span></span>
     </div>
     <p id="outside">outside</p>
   `
@@ -231,7 +310,7 @@ it('fails closed when the DOM selection is outside the editor root', () => {
 it('fails closed when the DOM selection only partly belongs to the editor', () => {
   document.body.innerHTML = `
     <div data-slate-editor="true">
-      <span data-slate-node="text"><span data-slate-string>inside</span></span>
+      <span data-slate-node="text" data-slate-path="0,0"><span data-slate-string>inside</span></span>
     </div>
     <p id="outside">outside</p>
   `

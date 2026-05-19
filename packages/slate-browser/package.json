@@ -4,7 +4,7 @@
   "version": "0.0.0-private",
   "private": true,
   "license": "MIT",
-  "repository": "git://github.com/ianstormtaylor/slate.git",
+  "repository": "https://github.com/ianstormtaylor/slate.git",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

@@ -90,7 +90,7 @@ const createFactory = <T extends HyperscriptCreators>(creators: T) => {
     }
 
     normalizedChildren = normalizedChildren
-      .filter((child) => Boolean(child))
+      .filter((child) => child != null && child !== false)
       .flat()
     const ret = creator(tagName, normalizedAttributes, normalizedChildren)
     return ret

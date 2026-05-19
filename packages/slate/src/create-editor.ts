@@ -312,15 +312,25 @@ const createEditorSchema = (getEditor: () => Editor<any>): EditorSchemaApi => {
 
   return Object.freeze({
     define: (specs, options) => {
-      const cleanups = normalizeElementSpecs(specs).map((spec) =>
-        registerElementSpec(getEditor(), options?.source ?? 'schema', spec)
-      )
-
-      return () => {
+      const cleanups: Array<() => void> = []
+      const cleanupRegisteredSpecs = () => {
         for (const cleanup of cleanups.slice().reverse()) {
           cleanup()
         }
       }
+
+      try {
+        for (const spec of normalizeElementSpecs(specs)) {
+          cleanups.push(
+            registerElementSpec(getEditor(), options?.source ?? 'schema', spec)
+          )
+        }
+      } catch (error) {
+        cleanupRegisteredSpecs()
+        throw error
+      }
+
+      return cleanupRegisteredSpecs
     },
     getElementSpec: (type) =>
       getExtensionRegistry(getEditor()).elementSpecs.get(type)?.spec ?? null,

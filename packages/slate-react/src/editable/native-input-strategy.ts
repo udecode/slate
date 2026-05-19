@@ -68,11 +68,13 @@ export const canUseNativeSingleCharacterInput = ({
 
   const anchorNode = node.parentElement?.closest('a')
   const window = ReactEditor.getWindow(editor)
+  const nodeFilter = (window as Window & { NodeFilter: typeof NodeFilter })
+    .NodeFilter
 
   if (anchorNode && ReactEditor.hasDOMNode(editor, anchorNode)) {
     // Find the last text node inside the anchor.
     const lastText = window?.document
-      .createTreeWalker(anchorNode, NodeFilter.SHOW_TEXT)
+      .createTreeWalker(anchorNode, nodeFilter.SHOW_TEXT)
       .lastChild() as DOMText | null
 
     if (lastText === node && lastText.textContent?.length === offset) {

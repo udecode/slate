@@ -88,6 +88,17 @@ test('repair frame state rejects work scheduled by an older frame', () => {
   expect(isDOMRepairFrameCurrent(state, 4)).toBe(true)
 })
 
+test('stale repair frames cannot replace the active frame', () => {
+  const state = createDOMRepairFrameState()
+
+  beginDOMRepairFrame(state, 2)
+  cancelDOMRepairBefore(state, 2)
+  beginDOMRepairFrame(state, 1)
+
+  expect(isDOMRepairFrameCurrent(state, 1)).toBe(false)
+  expect(isDOMRepairFrameCurrent(state, 2)).toBe(true)
+})
+
 test('restore manager rolls back structural DOM mutations and leaves text sync mutations', () => {
   const editor = createReactEditor()
   const root = mountEditorRoot(editor)

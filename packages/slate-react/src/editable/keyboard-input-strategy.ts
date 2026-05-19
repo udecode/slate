@@ -350,11 +350,11 @@ export const applyEditableKeyDown = ({
           selection && RangeApi.isCollapsed(selection)
             ? NodeApi.parent(editor, selection.anchor.path)
             : null
+        const isDeleteForward = Hotkeys.isDeleteForward(nativeEvent)
 
         if (
           selection &&
-          (Hotkeys.isDeleteBackward(nativeEvent) ||
-            Hotkeys.isDeleteForward(nativeEvent)) &&
+          (Hotkeys.isDeleteBackward(nativeEvent) || isDeleteForward) &&
           RangeApi.isCollapsed(selection) &&
           currentNode &&
           NodeApi.isElement(currentNode) &&
@@ -364,7 +364,11 @@ export const applyEditableKeyDown = ({
         ) {
           event.preventDefault()
           applyEditableCommand({
-            command: { direction: 'backward', kind: 'delete', unit: 'block' },
+            command: {
+              direction: isDeleteForward ? 'forward' : 'backward',
+              kind: 'delete',
+              unit: 'block',
+            },
             editor,
           })
 

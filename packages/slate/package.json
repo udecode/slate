@@ -3,7 +3,7 @@
   "description": "A completely customizable framework for building rich text editors.",
   "version": "0.124.1",
   "license": "MIT",
-  "repository": "git://github.com/ianstormtaylor/slate.git",
+  "repository": "https://github.com/ianstormtaylor/slate.git",
   "type": "module",
   "exports": {
     ".": {

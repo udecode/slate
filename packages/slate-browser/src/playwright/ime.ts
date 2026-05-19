@@ -1,7 +1,21 @@
-import type { Page } from '@playwright/test'
+import type { Frame, Page } from '@playwright/test'
 
-export const enableCompositionKeyEvents = async (page: Page) => {
-  await page.evaluate(() => {
+type CompositionSurface = Page | Frame
+
+export const enableCompositionKeyEvents = async (
+  surface: CompositionSurface
+) => {
+  await surface.evaluate(() => {
+    const target = window as Window & {
+      __SLATE_BROWSER_COMPOSITION_KEY_EVENTS__?: boolean
+    }
+
+    if (target.__SLATE_BROWSER_COMPOSITION_KEY_EVENTS__) {
+      return
+    }
+
+    target.__SLATE_BROWSER_COMPOSITION_KEY_EVENTS__ = true
+
     window.addEventListener(
       'compositionstart',
       () => {
@@ -21,6 +35,7 @@ export const enableCompositionKeyEvents = async (page: Page) => {
 
 export const composeText = async (
   page: Page,
+  surface: CompositionSurface,
   steps: readonly string[],
   committedText: string,
   {
@@ -32,7 +47,7 @@ export const composeText = async (
   const browserName = page.context().browser()?.browserType().name()
 
   if (browserName !== 'chromium' || transport === 'synthetic') {
-    await page.evaluate(
+    await surface.evaluate(
       ({ composedSteps, finalText }) => {
         const active = document.activeElement as HTMLElement | null
         const selection = document.getSelection()

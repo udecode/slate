@@ -186,12 +186,17 @@ export const attachEditableSelectionChangeListener = ({
   scheduleOnDOMSelectionChange: () => void
   targetDocument: Document
 }) => {
+  const HTMLElementConstructor = targetDocument.defaultView?.HTMLElement
+
   // COMPAT: In Chrome, `selectionchange` events can fire when <input> and
   // <textarea> elements are appended to the DOM, causing
   // `editor.selection` to be overwritten in some circumstances.
   // (2025/01/16) https://issues.chromium.org/issues/389368412
   const handleNativeSelectionChange = ({ target }: Event) => {
-    const targetElement = target instanceof HTMLElement ? target : null
+    const targetElement =
+      HTMLElementConstructor && target instanceof HTMLElementConstructor
+        ? target
+        : null
     const targetTagName = targetElement?.tagName
     if (targetTagName === 'INPUT' || targetTagName === 'TEXTAREA') {
       return
@@ -249,7 +254,7 @@ export const applyEditableBlur = ({
   }
 
   const { relatedTarget } = event
-  const el = ReactEditor.toDOMNode(editor, editor)
+  const el = ReactEditor.assertDOMNode(editor, editor)
 
   // COMPAT: The event should be ignored if the focus is returning
   // to the editor from an embedded editable element (eg. an <input>
@@ -316,7 +321,7 @@ export const applyEditableFocus = ({
     ReactEditor.hasEditableTarget(editor, event.target) &&
     !isReactEventHandled({ event, handler: onFocus })
   ) {
-    const el = ReactEditor.toDOMNode(editor, editor)
+    const el = ReactEditor.assertDOMNode(editor, editor)
     const root = ReactEditor.findDocumentOrShadowRoot(editor)
     state.latestElement = root.activeElement
 
@@ -758,7 +763,17 @@ export const handleWebKitShadowDOMBeforeInput = ({
   root: globalThis.Node
   window: Window & typeof globalThis
 }) => {
-  if (!(processing.current && IS_WEBKIT && root instanceof ShadowRoot)) {
+  const rootWindow = root.ownerDocument?.defaultView ?? window
+  const ShadowRootConstructor = rootWindow.ShadowRoot
+
+  if (
+    !(
+      processing.current &&
+      IS_WEBKIT &&
+      ShadowRootConstructor &&
+      root instanceof ShadowRootConstructor
+    )
+  ) {
     return false
   }
 
@@ -769,7 +784,7 @@ export const handleWebKitShadowDOMBeforeInput = ({
     return true
   }
 
-  const newRange = new window.Range()
+  const newRange = new rootWindow.Range()
 
   newRange.setStart(range.startContainer, range.startOffset)
   newRange.setEnd(range.endContainer, range.endOffset)
@@ -842,6 +857,12 @@ export const useEditableSelectionReconciler = ({
     if (shellBackedSelection) {
       domSelection.removeAllRanges()
       return
+    }
+
+    const clearUpdatingSelection = () => {
+      setTimeout(() => {
+        state.isUpdatingSelection = false
+      })
     }
 
     const setDomSelection = (forceChange?: boolean) => {
@@ -972,16 +993,19 @@ export const useEditableSelectionReconciler = ({
 
     // In firefox if there is more then 1 range and we call setDomSelection we remove the ability to select more cells in a table
     if (domSelection.rangeCount <= 1) {
-      setDomSelection()
+      try {
+        setDomSelection()
+      } catch (_e) {
+        clearUpdatingSelection()
+        return
+      }
     }
 
     const ensureSelection =
       androidInputManagerRef.current?.isFlushing() === 'action'
 
     if (!IS_ANDROID || !ensureSelection) {
-      setTimeout(() => {
-        state.isUpdatingSelection = false
-      })
+      clearUpdatingSelection()
       return
     }
 
@@ -990,7 +1014,7 @@ export const useEditableSelectionReconciler = ({
       if (ensureSelection) {
         const ensureDomSelection = (forceChange?: boolean) => {
           try {
-            const el = ReactEditor.toDOMNode(editor, editor)
+            const el = ReactEditor.assertDOMNode(editor, editor)
             if (!shouldSkipSelectionFocus(editor)) {
               el.focus()
             }

@@ -191,14 +191,16 @@ const measureScenario = async ({
         })
       })
       const promotionMs = now() - start
+      const promotedMountedText = mountedTextCount(context.container)
+      const typingMetrics = measureTyping(context, blockIndex)
 
       if (iteration > 0) {
         samples.push({
           beforePromotionMountedText,
           selectionMs: 0,
           promotionMs,
-          promotedMountedText: mountedTextCount(context.container),
-          ...measureTyping(context, blockIndex),
+          promotedMountedText,
+          ...typingMetrics,
         })
       }
     } else {
@@ -217,13 +219,15 @@ const measureScenario = async ({
         selectionMs = now() - start
       }
 
+      const typingMetrics = measureTyping(context, blockIndex)
+
       if (iteration > 0) {
         samples.push({
           beforePromotionMountedText,
           promotedMountedText: beforePromotionMountedText,
           promotionMs: 0,
           selectionMs,
-          ...measureTyping(context, blockIndex),
+          ...typingMetrics,
         })
       }
     }

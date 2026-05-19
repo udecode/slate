@@ -110,7 +110,9 @@ const ImageElement = ({ element }) => {
   return (
     <button
       onClick={() => {
-        const path = editor.api.dom.findPath(element)
+        const path = editor.api.dom.resolvePath(element)
+
+        if (!path) return
 
         editor.update((tx) => {
           tx.nodes.remove({ at: path, voids: true })

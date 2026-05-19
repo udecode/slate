@@ -1582,7 +1582,7 @@ test('Editable renderingStrategy keeps broad select-all from replanning the acti
   }
 })
 
-test('Editable renderingStrategy pastes over full-document shell-backed selection through the model', async () => {
+test('Editable renderingStrategy preserves multiline plain text over a full-document shell-backed selection', async () => {
   const editor = createReactEditor()
 
   Editor.replace(editor, {
@@ -1620,19 +1620,27 @@ test('Editable renderingStrategy pastes over full-document shell-backed selectio
     fireEditorPaste(root!, {
       types: ['text/plain'],
       getData: (type = 'text/plain') =>
-        type === 'text/plain' ? 'replacement marker' : '',
+        type === 'text/plain' ? 'one\ntwo' : '',
     })
   })
 
-  expect(rendered.container.textContent?.includes('replacement marker')).toBe(
-    true
-  )
+  expect(rendered.container.textContent?.includes('one')).toBe(true)
+  expect(rendered.container.textContent?.includes('two')).toBe(true)
   expect(
     rendered.container.querySelectorAll(
       '[data-slate-rendering-strategy-shell="true"]'
     ).length
   ).toBe(0)
-  expect(Editor.string(editor, [])).toBe('replacement marker')
+  expect(Editor.getSnapshot(editor).children).toEqual([
+    {
+      type: 'paragraph',
+      children: [{ text: 'one' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: 'two' }],
+    },
+  ])
 })
 
 test('Editable renderingStrategy preserves Slate fragment data for shell-backed paste', async () => {

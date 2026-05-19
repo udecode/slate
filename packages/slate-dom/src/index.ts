@@ -4,6 +4,7 @@ export type {
   DOMClipboardApi,
   DOMClipboardInsertDataHandler,
 } from './plugin/dom-editor'
+export { SlateDOMResolutionError } from './plugin/dom-editor'
 export type { DOMEditorOptions } from './plugin/with-dom'
 export { dom } from './plugin/with-dom'
 

@@ -103,8 +103,8 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
   },
   {
     assertions: [
-      'many external decoration ranges update from app state',
-      'overlay refresh reports visible projected slices',
+      'app-owned lint diagnostics update external decoration ranges',
+      'lint result refresh reports visible projected slices',
       'editor focus and render ownership remain stable',
     ],
     family: 'overlay-many-decoration-sources',

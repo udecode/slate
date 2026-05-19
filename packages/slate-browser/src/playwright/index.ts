@@ -2707,26 +2707,64 @@ const includesPasteText = (candidate: string, text: string) => {
   )
 }
 
+const selectionsEqual = (
+  left: SelectionSnapshot | null,
+  right: SelectionSnapshot | null
+) =>
+  left === right ||
+  (!!left &&
+    !!right &&
+    left.anchor.offset === right.anchor.offset &&
+    left.focus.offset === right.focus.offset &&
+    left.anchor.path.join(',') === right.anchor.path.join(',') &&
+    left.focus.path.join(',') === right.focus.path.join(','))
+
 const didPasteApplyText = async ({
   afterText,
+  afterSelection,
+  afterTrace,
+  beforeSelectedText,
+  beforeSelection,
+  beforeTraceLength,
   beforeText,
   root,
   text,
 }: {
   afterText: string
+  afterSelection: SelectionSnapshot | null
+  afterTrace: readonly SlateBrowserKernelTraceEntry[]
+  beforeSelectedText: string
+  beforeSelection: SelectionSnapshot | null
+  beforeTraceLength: number
   beforeText: string
   root: Locator
   text: string
 }) => {
-  if (afterText === beforeText) {
-    return false
-  }
-
-  if (includesPasteText(afterText, text)) {
+  if (
+    afterTrace
+      .slice(beforeTraceLength)
+      .some(
+        (entry) =>
+          entry.eventFamily === 'paste' && entry.command?.kind === 'insert-data'
+      )
+  ) {
     return true
   }
 
-  return includesPasteText((await getBlockTexts(root)).join('\n'), text)
+  if (afterText !== beforeText) {
+    if (includesPasteText(afterText, text)) {
+      return true
+    }
+
+    return includesPasteText((await getBlockTexts(root)).join('\n'), text)
+  }
+
+  return (
+    hasExpandedSelection(beforeSelection) &&
+    !selectionsEqual(beforeSelection, afterSelection) &&
+    beforeSelectedText !== '' &&
+    includesPasteText(beforeSelectedText, text)
+  )
 }
 
 const getRenderedBlockDOMShapes = async (
@@ -3883,9 +3921,6 @@ export const takeSelectionSnapshot = async (
         return handle.getSelection()
       }
 
-      const textNodes = Array.from(
-        root.querySelectorAll('[data-slate-node="text"]')
-      )
       const getTextSegments = (owner: Element) =>
         Array.from(
           owner.querySelectorAll('[data-slate-string], [data-slate-zero-width]')
@@ -3902,15 +3937,11 @@ export const takeSelectionSnapshot = async (
             trueLength,
           }
         })
-      const getNodeLength = (node: Node | null) =>
-        node?.nodeType === 3
-          ? (node.textContent?.length ?? 0)
-          : (node?.childNodes.length ?? 0)
-      const hasZeroWidthMarker = (node: Node | null) => {
+      const findZeroWidthMarker = (node: Node | null) => {
         const element =
           node?.nodeType === 1 ? (node as Element) : node?.parentElement
 
-        return !!element?.getAttribute('data-slate-zero-width')
+        return element?.closest('[data-slate-zero-width]') ?? null
       }
       const toEditorOffset = (node: Node | null, offset: number) => {
         const owner =
@@ -3926,10 +3957,7 @@ export const takeSelectionSnapshot = async (
                 '[data-slate-string], [data-slate-zero-width]'
               )
 
-        const localOffset =
-          hasZeroWidthMarker(node) && offset === 1 && getNodeLength(node) <= 1
-            ? 0
-            : offset
+        const localOffset = findZeroWidthMarker(node) ? 0 : offset
 
         if (!owner || !segment) {
           return localOffset
@@ -3960,13 +3988,25 @@ export const takeSelectionSnapshot = async (
           throw new Error('Cannot resolve selection to a Slate text node')
         }
 
-        const index = textNodes.indexOf(owner)
-
-        if (index < 0) {
+        if (!root.contains(owner)) {
           throw new Error('Selection text node is outside the editor root')
         }
 
-        return [index, 0]
+        const pathAttribute = owner.getAttribute('data-slate-path')
+
+        if (!pathAttribute) {
+          throw new Error('Cannot resolve selection to a Slate DOM path')
+        }
+
+        const path = pathAttribute
+          .split(',')
+          .map((part) => Number.parseInt(part, 10))
+
+        if (path.some((part) => !Number.isInteger(part))) {
+          throw new Error('Invalid Slate DOM path')
+        }
+
+        return path
       }
 
       return {
@@ -4011,10 +4051,6 @@ const takeSelectionSnapshotForRoot = async (
         return null
       }
 
-      const textNodes = Array.from(
-        element.querySelectorAll('[data-slate-node="text"]')
-      )
-
       const getTextSegments = (owner: Element) =>
         Array.from(
           owner.querySelectorAll('[data-slate-string], [data-slate-zero-width]')
@@ -4032,16 +4068,11 @@ const takeSelectionSnapshotForRoot = async (
           }
         })
 
-      const getNodeLength = (node: Node | null) =>
-        node?.nodeType === 3
-          ? (node.textContent?.length ?? 0)
-          : (node?.childNodes.length ?? 0)
-
-      const hasZeroWidthMarker = (node: Node | null) => {
+      const findZeroWidthMarker = (node: Node | null) => {
         const markerElement =
           node?.nodeType === 1 ? (node as Element) : node?.parentElement
 
-        return !!markerElement?.getAttribute('data-slate-zero-width')
+        return markerElement?.closest('[data-slate-zero-width]') ?? null
       }
 
       const toEditorOffset = (node: Node | null, offset: number) => {
@@ -4058,10 +4089,7 @@ const takeSelectionSnapshotForRoot = async (
                 '[data-slate-string], [data-slate-zero-width]'
               )
 
-        const localOffset =
-          hasZeroWidthMarker(node) && offset === 1 && getNodeLength(node) <= 1
-            ? 0
-            : offset
+        const localOffset = findZeroWidthMarker(node) ? 0 : offset
 
         if (!owner || !segment) {
           return localOffset
@@ -4093,13 +4121,25 @@ const takeSelectionSnapshotForRoot = async (
           throw new Error('Cannot resolve selection to a Slate text node')
         }
 
-        const index = textNodes.indexOf(owner)
-
-        if (index < 0) {
+        if (!element.contains(owner)) {
           throw new Error('Selection text node is outside the editor root')
         }
 
-        return [index, 0]
+        const pathAttribute = owner.getAttribute('data-slate-path')
+
+        if (!pathAttribute) {
+          throw new Error('Cannot resolve selection to a Slate DOM path')
+        }
+
+        const path = pathAttribute
+          .split(',')
+          .map((part) => Number.parseInt(part, 10))
+
+        if (path.some((part) => !Number.isInteger(part))) {
+          throw new Error('Invalid Slate DOM path')
+        }
+
+        return path
       }
 
       return {
@@ -4352,7 +4392,7 @@ const setSelection = async (root: Locator, selection: SelectionSnapshot) => {
 
 const setDOMSelection = async (root: Locator, selection: SelectionSnapshot) => {
   await root.evaluate((element: HTMLElement, nextSelection) => {
-    const toDOMPoint = (point: SelectionPoint) => {
+    const selectionPointToDOMPoint = (point: SelectionPoint) => {
       const textElements = Array.from(
         element.querySelectorAll('[data-slate-node="text"]')
       )
@@ -4414,8 +4454,8 @@ const setDOMSelection = async (root: Locator, selection: SelectionSnapshot) => {
       }
     }
 
-    const anchor = toDOMPoint(nextSelection.anchor)
-    const focus = toDOMPoint(nextSelection.focus)
+    const anchor = selectionPointToDOMPoint(nextSelection.anchor)
+    const focus = selectionPointToDOMPoint(nextSelection.focus)
     const range = element.ownerDocument.createRange()
 
     range.setStart(anchor.node, anchor.offset)
@@ -5133,7 +5173,10 @@ const createEditorHarness = (
         }),
       pasteText: async (text: string) => {
         await withExclusiveClipboardAccess(async () => {
+          const beforeSelectedText = await harness.get.selectedText()
+          const beforeSelection = await harness.selection.get()
           const beforeText = await harness.get.modelText()
+          const beforeTraceLength = (await harness.get.kernelTrace()).length
 
           try {
             await writeClipboardText(surface, text)
@@ -5147,11 +5190,18 @@ const createEditorHarness = (
           await root.press('ControlOrMeta+V')
           await page.waitForTimeout(50)
 
+          const afterSelection = await harness.selection.get()
           const afterText = await harness.get.modelText()
+          const afterTrace = await harness.get.kernelTrace()
 
           if (
             !(await didPasteApplyText({
+              afterSelection,
               afterText,
+              afterTrace,
+              beforeSelectedText,
+              beforeSelection,
+              beforeTraceLength,
               beforeText,
               root,
               text,
@@ -5163,7 +5213,10 @@ const createEditorHarness = (
       },
       pasteHtml: async (html: string, plainText?: string) => {
         await withExclusiveClipboardAccess(async () => {
+          const beforeSelectedText = await harness.get.selectedText()
+          const beforeSelection = await harness.selection.get()
           const beforeText = await harness.get.modelText()
+          const beforeTraceLength = (await harness.get.kernelTrace()).length
           const text = plainText ?? (await toPlainText(surface, html))
 
           try {
@@ -5178,11 +5231,18 @@ const createEditorHarness = (
           await root.press('ControlOrMeta+V')
           await page.waitForTimeout(50)
 
+          const afterSelection = await harness.selection.get()
           const afterText = await harness.get.modelText()
+          const afterTrace = await harness.get.kernelTrace()
 
           if (
             !(await didPasteApplyText({
+              afterSelection,
               afterText,
+              afterTrace,
+              beforeSelectedText,
+              beforeSelection,
+              beforeTraceLength,
               beforeText,
               root,
               text,
@@ -5213,7 +5273,7 @@ const createEditorHarness = (
     },
     ime: {
       enableKeyEvents: async () => {
-        await enableCompositionKeyEvents(page)
+        await enableCompositionKeyEvents(surface)
       },
       compose: async ({
         text,
@@ -5221,8 +5281,8 @@ const createEditorHarness = (
         committedText = text,
         transport,
       }) => {
-        await enableCompositionKeyEvents(page)
-        await composeText(page, steps, committedText, { transport })
+        await enableCompositionKeyEvents(surface)
+        await composeText(page, surface, steps, committedText, { transport })
       },
       composeDirect: async ({ text }) => {
         await composeTextDirect(page, text)

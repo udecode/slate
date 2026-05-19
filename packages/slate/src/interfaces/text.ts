@@ -152,7 +152,7 @@ export const TextApi: TextInterface = {
   },
 
   isTextProps<N extends Text = Text>(props: any): props is Partial<N> {
-    return (props as Partial<Text>).text !== undefined
+    return isObject(props) && Object.hasOwn(props, 'text')
   },
 
   matches<N extends Text = Text>(text: N, props: Partial<N>): boolean {

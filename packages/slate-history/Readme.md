@@ -1,1 +1,1 @@
-This package contains the core logic of Slate. Feel free to poke around to learn more!
+This package contains the operation-based history implementation for Slate editors.

@@ -447,7 +447,7 @@ export const PathApi: PathInterface = {
       case 'replace_fragment': {
         const { path: op } = operation
 
-        if (PathApi.equals(op, p) || PathApi.isAncestor(op, p)) {
+        if (PathApi.isAncestor(op, p)) {
           return null
         }
 

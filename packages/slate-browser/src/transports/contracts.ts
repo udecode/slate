@@ -28,18 +28,18 @@ export type BrowserMobileTransportProof = {
   unsupportedClaims: BrowserMobileUnsupportedClaim[]
 }
 
-const DIRECT_DEVICE_SUPPORTED_CLAIMS: BrowserMobileSupportedClaim[] = [
+const DIRECT_DEVICE_SUPPORTED_CLAIMS = [
   'device-browser-text-input',
   'device-browser-ime-commit',
   'debug-snapshot',
-]
+] satisfies readonly BrowserMobileSupportedClaim[]
 
-const DIRECT_DEVICE_UNSUPPORTED_CLAIMS: BrowserMobileUnsupportedClaim[] = [
+const DIRECT_DEVICE_UNSUPPORTED_CLAIMS = [
   'native-mobile-clipboard',
   'human-soft-keyboard',
   'glide-typing',
   'voice-input',
-]
+] satisfies readonly BrowserMobileUnsupportedClaim[]
 
 export const classifyBrowserMobileTransportProof = (
   transport: BrowserMobileTransportId
@@ -50,18 +50,18 @@ export const classifyBrowserMobileTransportProof = (
         evidenceClass: 'automated-direct',
         platform: 'android-chrome',
         releaseGateCapable: true,
-        supportedClaims: DIRECT_DEVICE_SUPPORTED_CLAIMS,
+        supportedClaims: [...DIRECT_DEVICE_SUPPORTED_CLAIMS],
         transport,
-        unsupportedClaims: DIRECT_DEVICE_UNSUPPORTED_CLAIMS,
+        unsupportedClaims: [...DIRECT_DEVICE_UNSUPPORTED_CLAIMS],
       }
     case 'appium-ios':
       return {
         evidenceClass: 'automated-direct',
         platform: 'ios-safari',
         releaseGateCapable: true,
-        supportedClaims: DIRECT_DEVICE_SUPPORTED_CLAIMS,
+        supportedClaims: [...DIRECT_DEVICE_SUPPORTED_CLAIMS],
         transport,
-        unsupportedClaims: DIRECT_DEVICE_UNSUPPORTED_CLAIMS,
+        unsupportedClaims: [...DIRECT_DEVICE_UNSUPPORTED_CLAIMS],
       }
     case 'agent-browser-ios':
       return {
@@ -111,6 +111,12 @@ export type BrowserMobileDescriptor = BrowserMobileTarget & {
   transport: BrowserMobileTransportId
   url: string
 }
+
+export const createBrowserMobileUrl = (
+  { debugQuery = 'debug=1', example, port }: BrowserMobileTarget,
+  host = 'localhost'
+) =>
+  `http://${host}:${port}/examples/${example}${debugQuery ? `?${debugQuery}` : ''}`
 
 const collapseToLeadingTextSelectionScript = `
 (() => {

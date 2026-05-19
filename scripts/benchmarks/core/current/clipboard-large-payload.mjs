@@ -156,6 +156,17 @@ const percentile = (sorted, ratio) => {
 }
 
 const summarizeDurations = (durations) => {
+  if (durations.length === 0) {
+    return {
+      samples: [],
+      mean: 0,
+      p50: 0,
+      p95: 0,
+      min: 0,
+      max: 0,
+    }
+  }
+
   const sorted = [...durations].sort((left, right) => left - right)
   const total = durations.reduce((sum, value) => sum + value, 0)
 
@@ -168,6 +179,17 @@ const summarizeDurations = (durations) => {
     max: round(sorted.at(-1) ?? 0),
   }
 }
+
+const summarizeHeapDeltas = (heapDeltas) => ({
+  max: heapDeltas.length === 0 ? 0 : Math.max(...heapDeltas),
+  mean:
+    heapDeltas.length === 0
+      ? 0
+      : round(
+          heapDeltas.reduce((sum, value) => sum + value, 0) / heapDeltas.length
+        ),
+  samples: heapDeltas,
+})
 
 const measureLane = (sampleCount, run) => {
   const durations = []
@@ -188,13 +210,7 @@ const measureLane = (sampleCount, run) => {
 
   return {
     ...summarizeDurations(durations),
-    heapDeltaBytes: {
-      max: Math.max(...heapDeltas),
-      mean: round(
-        heapDeltas.reduce((sum, value) => sum + value, 0) / heapDeltas.length
-      ),
-      samples: heapDeltas,
-    },
+    heapDeltaBytes: summarizeHeapDeltas(heapDeltas),
     metadata,
   }
 }
@@ -219,13 +235,7 @@ const measurePreparedLane = (sampleCount, setup, run) => {
 
   return {
     ...summarizeDurations(durations),
-    heapDeltaBytes: {
-      max: Math.max(...heapDeltas),
-      mean: round(
-        heapDeltas.reduce((sum, value) => sum + value, 0) / heapDeltas.length
-      ),
-      samples: heapDeltas,
-    },
+    heapDeltaBytes: summarizeHeapDeltas(heapDeltas),
     metadata,
   }
 }

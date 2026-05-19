@@ -11,6 +11,10 @@ export const previous: EditorStaticApi['previous'] = (editor, options = {}) => {
     return
   }
 
+  if (LocationApi.isPath(at) && at.length === 0) {
+    return
+  }
+
   const pointBeforeLocation = Editor.before(editor, at, { voids })
 
   if (!pointBeforeLocation) {
@@ -22,10 +26,6 @@ export const previous: EditorStaticApi['previous'] = (editor, options = {}) => {
   // The search location is from the start of the document to the path of
   // the point before the location passed in
   const span: Span = [pointBeforeLocation.path, to]
-
-  if (LocationApi.isPath(at) && at.length === 0) {
-    throw new Error('Cannot get the previous node from the root node!')
-  }
 
   if (match == null) {
     if (LocationApi.isPath(at)) {

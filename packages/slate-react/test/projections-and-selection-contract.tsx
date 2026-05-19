@@ -1167,6 +1167,58 @@ describe('slate-react projections and selection contract', () => {
     store.destroy()
   })
 
+  test('projection metadata uses reference equality for non-JSON data', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ children: [{ text: 'A' }] }],
+      selection: null,
+    })
+
+    const runtimeId = Editor.getRuntimeId(editor, [0, 0])
+
+    if (!runtimeId) {
+      throw new Error('Expected runtime id for projection metadata proof')
+    }
+
+    const circularData: Record<string, unknown> = {}
+    circularData.self = circularData
+
+    let metadata: unknown = circularData
+    let notifications = 0
+    const store = createSlateProjectionStore<unknown>(editor, () => [
+      {
+        data: metadata,
+        key: 'non-json-metadata',
+        range: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 1 },
+        },
+      },
+    ])
+
+    store.subscribeRuntimeId(runtimeId, () => {
+      notifications += 1
+    })
+
+    expect(() => {
+      store.refresh({ reason: 'external' })
+    }).not.toThrow()
+    expect(notifications).toBe(0)
+
+    metadata = new Map([['value', 1]])
+    store.refresh({ reason: 'external' })
+
+    expect(notifications).toBe(1)
+
+    metadata = new Map([['value', 2]])
+    store.refresh({ reason: 'external' })
+
+    expect(notifications).toBe(2)
+
+    store.destroy()
+  })
+
   test('force refresh invalidates mounted runtime subscribers even when slices are unchanged', () => {
     const editor = createEditor()
 

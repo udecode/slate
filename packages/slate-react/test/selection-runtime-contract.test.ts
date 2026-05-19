@@ -251,6 +251,56 @@ describe('selection runtime', () => {
     expect(syncCalls).toBe(1)
   })
 
+  test('cancels deferred DOM export on unsubscribe', () => {
+    const inputController = createInputController()
+    inputController.state.selectionSource = 'dom-current'
+    inputController.state.selectionChangeOrigin = 'native-user'
+    let listener:
+      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | null = null
+    let scheduled: (() => void) | null = null
+    let cleanupCalls = 0
+    let cancelCalls = 0
+    let syncCalls = 0
+
+    const unsubscribe = subscribeSelectionOnlyDOMExport({
+      addSelectorEventListener(nextListener) {
+        listener = nextListener
+        return () => {
+          cleanupCalls += 1
+        }
+      },
+      getModelSelection: () => expandedSelection,
+      inputController,
+      scheduleDOMExport(callback) {
+        scheduled = callback
+
+        return () => {
+          cancelCalls += 1
+        }
+      },
+      syncDOMSelectionToEditor() {
+        syncCalls += 1
+      },
+    })
+
+    listener?.(
+      undefined,
+      createChange({
+        childrenChanged: true,
+        command: { origin: 'command', type: 'toggle_mark' },
+        selectionChanged: false,
+      })
+    )
+
+    unsubscribe()
+    scheduled?.()
+
+    expect(cancelCalls).toBe(1)
+    expect(cleanupCalls).toBe(1)
+    expect(syncCalls).toBe(0)
+  })
+
   test('does not notify DOM export listener for repaired text input commits', () => {
     const inputController = createInputController()
     inputController.state.activeIntent = 'text-insert'

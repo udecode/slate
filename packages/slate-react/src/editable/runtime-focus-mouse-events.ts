@@ -137,7 +137,7 @@ export const useRuntimeFocusMouseEvents = ({
 
       if (
         handled &&
-        event.target === ReactEditor.toDOMNode(editor, editor) &&
+        event.target === ReactEditor.assertDOMNode(editor, editor) &&
         !nativePointerFocusRef.current
       ) {
         nativeInternalFocusRef.current = false

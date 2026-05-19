@@ -67,7 +67,7 @@ export const isInteractiveInternalTarget = (
 
   return (
     control instanceof HTMLElement &&
-    control !== ReactEditor.toDOMNode(editor, editor) &&
+    control !== ReactEditor.assertDOMNode(editor, editor) &&
     ReactEditor.hasDOMNode(editor, control) &&
     !ReactEditor.hasEditableTarget(editor, control)
   )
@@ -93,7 +93,7 @@ export const isNativeInternalControlTarget = (
 
   return (
     control instanceof HTMLElement &&
-    control !== ReactEditor.toDOMNode(editor, editor) &&
+    control !== ReactEditor.assertDOMNode(editor, editor) &&
     ReactEditor.hasDOMNode(editor, control) &&
     !ReactEditor.hasEditableTarget(editor, control)
   )

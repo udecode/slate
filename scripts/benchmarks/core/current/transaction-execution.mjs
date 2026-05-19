@@ -179,7 +179,9 @@ const runSeparateUpdates = (children, ops) => {
 }
 
 const mean = (values) =>
-  values.reduce((sum, value) => sum + value, 0) / values.length
+  values.length === 0
+    ? 0
+    : values.reduce((sum, value) => sum + value, 0) / values.length
 
 const measureScenario = ({ id, opFamily, operations }) => {
   const children = createChildren(blocks)

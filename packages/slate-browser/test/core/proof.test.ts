@@ -2,6 +2,7 @@ import {
   evaluatePlaceholderInput,
   extractAgentBrowserDebugSnapshot,
   extractAppiumDebugSnapshot,
+  parseDebugSnapshot,
 } from '../../src/core/proof'
 import {
   classifyBrowserMobileTransportProof,
@@ -84,6 +85,20 @@ describe('proof helpers', () => {
       },
       slateSelection: 'none',
     })
+  })
+
+  it('rejects debug snapshots with non-string events', () => {
+    expect(() =>
+      parseDebugSnapshot(
+        JSON.stringify({
+          blockTexts: 'sushi',
+          domSelection: 'sushi@5|sushi@5',
+          events: [1],
+          placeholderShape: null,
+          slateSelection: '0.0:5|0.0:5',
+        })
+      )
+    ).toThrow('Debug snapshot payload is not a recognized snapshot shape')
   })
 
   it('passes a clean placeholder input snapshot', () => {
@@ -205,5 +220,41 @@ describe('proof helpers', () => {
         entry.unsupportedClaims.includes('native-mobile-clipboard')
       )
     ).toBe(true)
+  })
+
+  it('does not reuse direct transport claim arrays across classifications', () => {
+    const expectedSupportedClaims = [
+      'device-browser-text-input',
+      'device-browser-ime-commit',
+      'debug-snapshot',
+    ]
+    const expectedUnsupportedClaims = [
+      'native-mobile-clipboard',
+      'human-soft-keyboard',
+      'glide-typing',
+      'voice-input',
+    ]
+    const appiumAndroid = classifyBrowserMobileTransportProof('appium-android')
+
+    appiumAndroid.supportedClaims.length = 0
+    appiumAndroid.unsupportedClaims.length = 0
+
+    expect(
+      classifyBrowserMobileTransportProof('appium-ios').supportedClaims
+    ).toEqual(expectedSupportedClaims)
+    expect(
+      classifyBrowserMobileTransportProof('appium-ios').unsupportedClaims
+    ).toEqual(expectedUnsupportedClaims)
+
+    const directTransportProofs = getBrowserMobileTransportProofMatrix().filter(
+      (proof) =>
+        proof.transport === 'appium-android' || proof.transport === 'appium-ios'
+    )
+
+    expect(directTransportProofs).toHaveLength(2)
+    for (const proof of directTransportProofs) {
+      expect(proof.supportedClaims).toEqual(expectedSupportedClaims)
+      expect(proof.unsupportedClaims).toEqual(expectedUnsupportedClaims)
+    }
   })
 })

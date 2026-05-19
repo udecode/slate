@@ -3,7 +3,7 @@ import type { Editor } from '../interfaces/editor'
 import type { Path } from '../interfaces/path'
 
 const NODE_OWNERS = new WeakMap<object, Editor>()
-const NODE_RUNTIME_IDS = new WeakMap<object, RuntimeId>()
+const NODE_RUNTIME_IDS = new WeakMap<object, WeakMap<Editor, RuntimeId>>()
 const NEXT_RUNTIME_ID = new WeakMap<Editor, number>()
 
 const pathKey = (path: Path) => path.join('.')
@@ -14,25 +14,47 @@ const allocateRuntimeId = (editor: Editor): RuntimeId => {
   return `n${next}` as RuntimeId
 }
 
+const getRuntimeIds = (node: object) => {
+  let runtimeIds = NODE_RUNTIME_IDS.get(node)
+
+  if (!runtimeIds) {
+    runtimeIds = new WeakMap()
+    NODE_RUNTIME_IDS.set(node, runtimeIds)
+  }
+
+  return runtimeIds
+}
+
+const advanceNextRuntimeId = (editor: Editor, runtimeId: RuntimeId) => {
+  const numericPart = Number.parseInt(runtimeId.slice(1), 10)
+  const next = NEXT_RUNTIME_ID.get(editor) ?? 0
+
+  if (Number.isFinite(numericPart) && numericPart >= next) {
+    NEXT_RUNTIME_ID.set(editor, numericPart + 1)
+  }
+}
+
 export const getOrCreateRuntimeId = (
   node: object,
   owner?: Editor
 ): RuntimeId => {
-  const existing = NODE_RUNTIME_IDS.get(node)
-
-  if (existing) {
-    return existing
-  }
-
   const editor = owner ?? NODE_OWNERS.get(node)
 
   if (!editor) {
     throw new Error('Missing runtime-id owner for node')
   }
 
+  const runtimeIds = getRuntimeIds(node)
+  const existing = runtimeIds.get(editor)
+
+  if (existing) {
+    NODE_OWNERS.set(node, editor)
+    return existing
+  }
+
   const runtimeId = allocateRuntimeId(editor)
   NODE_OWNERS.set(node, editor)
-  NODE_RUNTIME_IDS.set(node, runtimeId)
+  runtimeIds.set(editor, runtimeId)
   return runtimeId
 }
 
@@ -42,26 +64,25 @@ export const setRuntimeId = (
   runtimeId: RuntimeId
 ) => {
   NODE_OWNERS.set(node, editor)
-  NODE_RUNTIME_IDS.set(node, runtimeId)
-
-  const numericPart = Number.parseInt(runtimeId.slice(1), 10)
-  const next = NEXT_RUNTIME_ID.get(editor) ?? 0
-
-  if (Number.isFinite(numericPart) && numericPart >= next) {
-    NEXT_RUNTIME_ID.set(editor, numericPart + 1)
-  }
+  getRuntimeIds(node).set(editor, runtimeId)
+  advanceNextRuntimeId(editor, runtimeId)
 }
 
-export const inheritRuntimeId = (nextNode: object, previousNode: object) => {
-  const runtimeId = NODE_RUNTIME_IDS.get(previousNode)
-  const owner = NODE_OWNERS.get(previousNode)
+export const inheritRuntimeId = (
+  nextNode: object,
+  previousNode: object,
+  owner?: Editor
+) => {
+  const editor = owner ?? NODE_OWNERS.get(previousNode)
+  const runtimeId = editor
+    ? NODE_RUNTIME_IDS.get(previousNode)?.get(editor)
+    : null
 
-  if (!runtimeId || !owner) {
+  if (!runtimeId || !editor) {
     return
   }
 
-  NODE_OWNERS.set(nextNode, owner)
-  NODE_RUNTIME_IDS.set(nextNode, runtimeId)
+  setRuntimeId(nextNode, editor, runtimeId)
 }
 
 export const seedRuntimeIds = (

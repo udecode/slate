@@ -208,6 +208,44 @@ describe('slate operations contract', () => {
     assert.deepEqual(afterRef.unref(), [2, 0])
   })
 
+  it('keeps a ref to the non-root replace_fragment parent', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'element',
+          children: [{ text: 'old' }],
+        },
+        {
+          type: 'element',
+          children: [{ text: 'sibling' }],
+        },
+      ],
+      selection: collapsedSelection([0, 0], 0),
+      marks: null,
+    })
+
+    const parentRef = Editor.pathRef(editor, [0])
+    const childPathRef = Editor.pathRef(editor, [0, 0])
+    const childPointRef = Editor.pointRef(editor, { path: [0, 0], offset: 0 })
+    const siblingRef = Editor.pathRef(editor, [1, 0])
+
+    applyOperation(editor, {
+      type: 'replace_fragment',
+      path: [0],
+      children: [{ text: 'old' }],
+      newChildren: [{ text: 'new' }],
+      selection: collapsedSelection([0, 0], 0),
+      newSelection: collapsedSelection([0, 0], 'new'.length),
+    })
+
+    assert.deepEqual(parentRef.unref(), [0])
+    assert.equal(childPathRef.unref(), null)
+    assert.equal(childPointRef.unref(), null)
+    assert.deepEqual(siblingRef.unref(), [1, 0])
+  })
+
   it('treats move_node as a no-op when path equals newPath', () => {
     const editor = createEditor()
 

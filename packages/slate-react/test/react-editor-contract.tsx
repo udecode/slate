@@ -135,7 +135,7 @@ describe('slate-react DOM capability contract', () => {
       </Slate>
     )
     const editable = mounted.container.querySelector('[data-slate-editor]')!
-    const toDOMRange = jest.spyOn(ReactEditor, 'toDOMRange')
+    const assertDOMRange = jest.spyOn(ReactEditor, 'assertDOMRange')
 
     await act(async () => {
       editor.update((tx) => {
@@ -146,11 +146,11 @@ describe('slate-react DOM capability contract', () => {
       })
     })
 
-    expect(toDOMRange).not.toHaveBeenCalled()
+    expect(assertDOMRange).not.toHaveBeenCalled()
     expect(document.getSelection()?.anchorNode?.textContent).toBe('bravo')
     expect(document.getSelection()?.anchorOffset).toBe(2)
 
-    toDOMRange.mockClear()
+    assertDOMRange.mockClear()
 
     await act(async () => {
       editor.update((tx) => {
@@ -161,7 +161,7 @@ describe('slate-react DOM capability contract', () => {
       })
     })
 
-    expect(toDOMRange).not.toHaveBeenCalled()
+    expect(assertDOMRange).not.toHaveBeenCalled()
     expect(document.getSelection()?.anchorNode).toBe(editable)
     expect(document.getSelection()?.anchorOffset).toBe(0)
     expect(document.getSelection()?.focusNode).toBe(editable)
@@ -169,7 +169,7 @@ describe('slate-react DOM capability contract', () => {
       editable.childNodes.length
     )
 
-    toDOMRange.mockRestore()
+    assertDOMRange.mockRestore()
   })
 
   test('large full-document selections stay model-backed instead of selecting every DOM child', async () => {
@@ -185,7 +185,7 @@ describe('slate-react DOM capability contract', () => {
       </Slate>
     )
     const editable = mounted.container.querySelector('[data-slate-editor]')!
-    const toDOMRange = jest.spyOn(ReactEditor, 'toDOMRange')
+    const assertDOMRange = jest.spyOn(ReactEditor, 'assertDOMRange')
 
     await act(async () => {
       editor.update((tx) => {
@@ -196,11 +196,11 @@ describe('slate-react DOM capability contract', () => {
       })
     })
 
-    expect(toDOMRange).not.toHaveBeenCalled()
+    expect(assertDOMRange).not.toHaveBeenCalled()
     expect(document.getSelection()?.anchorNode).not.toBe(editable)
     expect(document.getSelection()?.focusNode).not.toBe(editable)
 
-    toDOMRange.mockRestore()
+    assertDOMRange.mockRestore()
   })
 
   test('browser handle resolves mounted elements by Slate path without DOM scans', () => {

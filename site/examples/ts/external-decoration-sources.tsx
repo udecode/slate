@@ -1,22 +1,31 @@
 import { css } from '@emotion/css'
-import { type CSSProperties, useRef, useState } from 'react'
+import { type CSSProperties, useState } from 'react'
+import { type EditorSnapshot, NodeApi, type Range } from 'slate'
 import {
   Editable,
   Slate,
-  type SlateProjection,
-  useSlateDecorationSource,
+  type SlateRangeDecoration,
   useSlateEditor,
+  useSlateRangeDecorationSource,
 } from 'slate-react'
 
 import { Instruction } from './components'
 
-type Tone = 'cool' | 'danger' | 'warm'
-type Mode = 'alpha' | 'beta' | 'both' | 'none'
+type LintSeverity = 'error' | 'info' | 'warning'
 
-type DiagnosticProjection = SlateProjection<{
-  label: string
-  tone: Tone
-}>
+type LintIssue = {
+  id: string
+  message: string
+  ruleId: string
+  severity: LintSeverity
+  fixText?: string
+}
+
+type LintIssueDecoration = {
+  data: LintIssue
+  key: string
+  range: Range
+}
 
 const panelCss = css`
   max-width: 760px;
@@ -38,10 +47,16 @@ const buttonCss = css`
   border-radius: 10px;
   cursor: pointer;
   font-weight: 600;
+
+  &:disabled {
+    color: #9ca3af;
+    cursor: not-allowed;
+  }
 `
 
 const statusCss = css`
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin: 0 0 16px;
 `
@@ -55,94 +70,141 @@ const codeCss = css`
   font-size: 13px;
 `
 
-const toneStyles: Record<Tone, CSSProperties> = {
-  cool: {
-    backgroundColor: '#dbeafe',
-    borderBottom: '2px solid #3b82f6',
-  },
-  danger: {
+const issueListCss = css`
+  display: grid;
+  gap: 8px;
+  margin: 0 0 20px;
+  padding: 0;
+  list-style: none;
+`
+
+const issueCss = css`
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+`
+
+const lintStyles: Record<LintSeverity, CSSProperties> = {
+  error: {
     backgroundColor: '#fee2e2',
     borderBottom: '2px solid #dc2626',
   },
-  warm: {
+  info: {
+    backgroundColor: '#dbeafe',
+    borderBottom: '2px solid #2563eb',
+  },
+  warning: {
     backgroundColor: '#fef3c7',
     borderBottom: '2px solid #f59e0b',
   },
 }
 
-const buildSnapshot = (
-  mode: Mode,
-  tone: Tone
-): readonly DiagnosticProjection[] => {
-  if (mode === 'none') {
-    return []
+const rootFor = (snapshot: EditorSnapshot) => ({
+  children: snapshot.children,
+})
+
+const keyFor = (ruleId: string, range: Range) =>
+  `${ruleId}:${range.anchor.path.join('.')}:${range.anchor.offset}`
+
+const createIssue = (
+  range: Range,
+  issue: Omit<LintIssue, 'id'>
+): LintIssueDecoration => {
+  const id = keyFor(issue.ruleId, range)
+
+  return {
+    data: {
+      ...issue,
+      id,
+    },
+    key: id,
+    range,
   }
-
-  const entries: DiagnosticProjection[] = []
-
-  if (mode === 'alpha' || mode === 'both') {
-    entries.push({
-      data: {
-        label: 'diagnostic-alpha',
-        tone,
-      },
-      key: 'diagnostic-alpha',
-      range: {
-        anchor: { path: [0, 0], offset: 0 },
-        focus: { path: [0, 0], offset: 20 },
-      },
-    })
-  }
-
-  if (mode === 'beta' || mode === 'both') {
-    entries.push({
-      data: {
-        label: 'diagnostic-beta',
-        tone,
-      },
-      key: 'diagnostic-beta',
-      range: {
-        anchor: { path: [1, 0], offset: 9 },
-        focus: { path: [1, 0], offset: 34 },
-      },
-    })
-  }
-
-  return entries
 }
 
-const formatSnapshot = (snapshot: readonly DiagnosticProjection[]) =>
-  snapshot.length === 0
-    ? 'none'
-    : snapshot
-        .map((entry) => {
-          const data =
-            (entry.data as
-              | {
-                  label?: string
-                  tone?: Tone
-                }
-              | undefined) ?? {}
+const collectLintIssues = (
+  snapshot: EditorSnapshot,
+  {
+    includeServerDiagnostics = false,
+  }: {
+    includeServerDiagnostics?: boolean
+  } = {}
+): LintIssueDecoration[] => {
+  const root = rootFor(snapshot)
+  const issues: LintIssueDecoration[] = []
 
-          return `${entry.key}:${entry.range.anchor.path.join('.')}.${
-            entry.range.anchor.offset
-          }-${entry.range.focus.path.join('.')}.${entry.range.focus.offset}:${
-            data.label ?? 'none'
-          }:${data.tone ?? 'none'}`
+  issues.push(
+    ...NodeApi.findTextRanges(
+      root,
+      /\b(obviously|clearly|evidently|simply)\b/gi
+    ).map((range) =>
+      createIssue(range, {
+        message: 'Avoid filler words in product copy.',
+        ruleId: 'style-filler-word',
+        severity: 'warning',
+      })
+    )
+  )
+
+  issues.push(
+    ...NodeApi.findTextRanges(root, / , ?/g).map((range) =>
+      createIssue(range, {
+        fixText: ', ',
+        message: 'Remove the space before commas.',
+        ruleId: 'comma-spacing',
+        severity: 'error',
+      })
+    )
+  )
+
+  if (includeServerDiagnostics) {
+    issues.push(
+      ...NodeApi.findTextRanges(root, 'server diagnostics', {
+        caseSensitive: false,
+      }).map((range) =>
+        createIssue(range, {
+          message: 'Server rule prefers "remote lint results" here.',
+          ruleId: 'server-terminology',
+          severity: 'info',
         })
+      )
+    )
+  }
+
+  return issues
+}
+
+const formatIssues = (issues: readonly LintIssueDecoration[]) =>
+  issues.length === 0
+    ? 'none'
+    : issues
+        .map((issue) => `${issue.data.ruleId}:${issue.data.severity}`)
         .join('|')
 
-const nextTone = (tone: Tone): Tone =>
-  tone === 'warm' ? 'cool' : tone === 'cool' ? 'danger' : 'warm'
+const getSegmentIssue = (
+  slices: readonly { data?: unknown }[]
+): LintIssue | null => {
+  const issues = slices
+    .map((slice) => slice.data as LintIssue | undefined)
+    .filter((issue): issue is LintIssue => Boolean(issue))
 
-const ExternalDecorationSourcesExample = () => {
+  return (
+    issues.find((issue) => issue.severity === 'error') ??
+    issues.find((issue) => issue.severity === 'warning') ??
+    issues[0] ??
+    null
+  )
+}
+
+const LintingExample = () => {
   const editor = useSlateEditor({
     initialValue: [
       {
         type: 'paragraph',
         children: [
           {
-            text: 'External diagnostics can highlight editor content without pretending the data lives inside the Slate document.',
+            text: 'This paragraph obviously has a spacing problem ,and the linter should report it.',
           },
         ],
       },
@@ -150,134 +212,131 @@ const ExternalDecorationSourcesExample = () => {
         type: 'paragraph',
         children: [
           {
-            text: 'Use this when search hits, review overlays, or remote diagnostics are owned by app state outside the editor snapshot.',
+            text: 'Server diagnostics can arrive later without changing the Slate document.',
           },
         ],
       },
     ],
   })
-  const [mode, setMode] = useState<Mode>('alpha')
-  const [tone, setTone] = useState<Tone>('warm')
-  const [externalSnapshot, setExternalSnapshot] = useState<
-    readonly DiagnosticProjection[]
-  >(() => buildSnapshot('alpha', 'warm'))
-  const externalSnapshotRef = useRef(externalSnapshot)
+  const [diagnostics, setDiagnostics] = useState<
+    readonly LintIssueDecoration[]
+  >([])
+  const [sourceLabel, setSourceLabel] = useState('idle')
 
-  const externalSource = useSlateDecorationSource(editor, {
+  const lintingSource = useSlateRangeDecorationSource<LintIssue>(editor, {
+    deps: [diagnostics],
+    id: 'linting',
     dirtiness: 'external',
-    id: 'external-diagnostics',
-    read: () => externalSnapshotRef.current,
+    read: (): readonly SlateRangeDecoration<LintIssue>[] => diagnostics,
   })
 
-  const applySnapshot = (
-    next: readonly DiagnosticProjection[],
-    nextMode: Mode,
-    nextToneValue: Tone
-  ) => {
-    externalSnapshotRef.current = next
-    setExternalSnapshot(next)
-    setMode(nextMode)
-    setTone(nextToneValue)
-    externalSource.refresh({
-      reason: 'external',
-      sourceId: 'external-diagnostics',
+  const collectFromEditor = (includeServerDiagnostics = false) =>
+    collectLintIssues(
+      editor.read((state) => state.runtime.snapshot()),
+      {
+        includeServerDiagnostics,
+      }
+    )
+
+  const runLocalLint = () => {
+    setDiagnostics(collectFromEditor())
+    setSourceLabel('local')
+  }
+
+  const applyFirstFix = () => {
+    const fix = diagnostics.find((diagnostic) => diagnostic.data.fixText)
+
+    const fixText = fix?.data.fixText
+
+    if (!fixText) {
+      return
+    }
+
+    editor.update((tx) => {
+      tx.text.delete({ at: fix.range })
+      tx.text.insert(fixText, { at: fix.range.anchor })
     })
+    setDiagnostics(collectFromEditor())
+    setSourceLabel('fixed')
+  }
+
+  const receiveServerDiagnostics = () => {
+    setDiagnostics(collectFromEditor(true))
+    setSourceLabel('server')
+  }
+
+  const clearDiagnostics = () => {
+    setDiagnostics([])
+    setSourceLabel('cleared')
   }
 
   return (
     <div className={panelCss}>
       <Instruction>
-        This example keeps overlay data in app-owned external state. The editor
-        only consumes projected slices. Each button mutates external state, then
-        calls{' '}
-        <code>
-          {
-            'projectionStore.refresh({ reason: "external", sourceId: "external-diagnostics" })'
-          }
-        </code>{' '}
-        to prove the explicit external refresh path.
+        This linter keeps findings outside the Slate document.{' '}
+        <code>useSlateRangeDecorationSource</code> maps app-owned lint results
+        to ranges, and <code>deps</code> refresh the external source when those
+        results change.
       </Instruction>
       <div className={controlsCss}>
-        <button
-          className={buttonCss}
-          onClick={() =>
-            applySnapshot(buildSnapshot('alpha', tone), 'alpha', tone)
-          }
-          type="button"
-        >
-          Show alpha diagnostics
+        <button className={buttonCss} onClick={runLocalLint} type="button">
+          Run linter
         </button>
         <button
           className={buttonCss}
-          onClick={() =>
-            applySnapshot(buildSnapshot('beta', tone), 'beta', tone)
-          }
+          disabled={!diagnostics.some((diagnostic) => diagnostic.data.fixText)}
+          onClick={applyFirstFix}
           type="button"
         >
-          Show beta diagnostics
+          Apply first fix
         </button>
         <button
           className={buttonCss}
-          onClick={() =>
-            applySnapshot(buildSnapshot('both', tone), 'both', tone)
-          }
+          onClick={receiveServerDiagnostics}
           type="button"
         >
-          Show both diagnostics
+          Receive server diagnostics
         </button>
-        <button
-          className={buttonCss}
-          onClick={() =>
-            applySnapshot(buildSnapshot('none', tone), 'none', tone)
-          }
-          type="button"
-        >
+        <button className={buttonCss} onClick={clearDiagnostics} type="button">
           Clear diagnostics
-        </button>
-        <button
-          className={buttonCss}
-          onClick={() => {
-            const updatedTone = nextTone(tone)
-            applySnapshot(buildSnapshot(mode, updatedTone), mode, updatedTone)
-          }}
-          type="button"
-        >
-          Rotate tone
         </button>
       </div>
       <div className={statusCss}>
-        <span className={codeCss} id="external-decoration-mode">
-          mode:{mode}
+        <span className={codeCss} id="linting-source">
+          source:{sourceLabel}
         </span>
-        <span className={codeCss} id="external-decoration-tone">
-          tone:{tone}
+        <span className={codeCss} id="linting-count">
+          issues:{diagnostics.length}
         </span>
-        <span className={codeCss} id="external-decoration-update">
-          {
-            'last-update:refresh({ reason: "external", sourceId: "external-diagnostics" })'
-          }
-        </span>
-        <span className={codeCss} id="external-decoration-snapshot">
-          {formatSnapshot(externalSnapshot)}
+        <span className={codeCss} id="linting-snapshot">
+          {formatIssues(diagnostics)}
         </span>
       </div>
-      <Slate decorationSources={[externalSource]} editor={editor}>
+      <ul className={issueListCss} id="linting-issues">
+        {diagnostics.map((diagnostic) => (
+          <li
+            className={issueCss}
+            data-lint-issue={diagnostic.data.id}
+            key={diagnostic.data.id}
+          >
+            <strong>{diagnostic.data.severity}</strong>:{' '}
+            {diagnostic.data.message}
+          </li>
+        ))}
+      </ul>
+      <Slate decorationSources={[lintingSource]} editor={editor}>
         <Editable
           id="external-decoration-sources"
           renderSegment={(segment, children) => {
-            const slice =
-              (segment.slices[0]?.data as
-                | {
-                    tone?: Tone
-                  }
-                | undefined) ?? null
+            const issue = getSegmentIssue(segment.slices)
 
-            return segment.slices.length > 0 ? (
+            return issue ? (
               <span
-                data-external-tone={slice?.tone ?? 'none'}
+                data-lint-rule={issue.ruleId}
+                data-lint-severity={issue.severity}
                 style={{
                   borderRadius: 4,
-                  ...toneStyles[slice?.tone ?? 'warm'],
+                  ...lintStyles[issue.severity],
                 }}
               >
                 {children}
@@ -293,4 +352,4 @@ const ExternalDecorationSourcesExample = () => {
   )
 }
 
-export default ExternalDecorationSourcesExample
+export default LintingExample

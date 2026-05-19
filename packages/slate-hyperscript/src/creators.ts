@@ -170,6 +170,7 @@ export function createSelection(
   }
 
   return {
+    ...attributes,
     anchor: {
       offset: anchor.offset,
       path: anchor.path,
@@ -178,7 +179,6 @@ export function createSelection(
       offset: focus.offset,
       path: focus.path,
     },
-    ...attributes,
   }
 }
 

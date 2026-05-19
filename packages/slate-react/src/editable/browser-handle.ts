@@ -294,7 +294,7 @@ export const attachSlateBrowserHandle = ({
     },
     redo: () => {
       if (!applyModelOwnedHistoryIntent({ direction: 'redo', editor })) {
-        throw new Error('Editor does not expose history redo')
+        return
       }
 
       forceRender()
@@ -331,7 +331,7 @@ export const attachSlateBrowserHandle = ({
     },
     undo: () => {
       if (!applyModelOwnedHistoryIntent({ direction: 'undo', editor })) {
-        throw new Error('Editor does not expose history undo')
+        return
       }
 
       forceRender()

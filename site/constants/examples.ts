@@ -7,7 +7,7 @@ export const EXAMPLE_NAMES_AND_PATHS = [
   ['DOM Coverage Boundaries', 'dom-coverage-boundaries'],
   ['Editable Voids', 'editable-voids'],
   ['Embeds', 'embeds'],
-  ['External Decoration Sources', 'external-decoration-sources'],
+  ['Linting', 'external-decoration-sources'],
   ['Forced Layout', 'forced-layout'],
   ['Highlighted Text', 'highlighted-text'],
   ['Hovering Toolbar', 'hovering-toolbar'],

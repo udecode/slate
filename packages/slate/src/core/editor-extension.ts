@@ -13,6 +13,7 @@ import type {
   EditorRootNormalizerArgs,
   EditorTransformMiddlewareArgs,
   EditorTransformMiddlewareContext,
+  RegisteredEditorExtension,
   ValueOf,
 } from '../interfaces/editor'
 import { registerCommand } from './command-registry'
@@ -120,6 +121,23 @@ const resolveLatestExtensionEntries = (
     ),
     replacedNames: [...entries.keys()],
   }
+}
+
+const getValidationStateWithoutReplacements = (
+  state: ExtensionState,
+  replacedNames: readonly string[]
+) => {
+  if (replacedNames.length === 0) {
+    return state
+  }
+
+  const records = new Map(state.records)
+
+  for (const name of replacedNames) {
+    records.delete(name)
+  }
+
+  return { records }
 }
 
 type DefineEditorExtension = {
@@ -679,6 +697,66 @@ const cleanupInstalledExtensions = (
   }
 }
 
+const getInstalledExtensionRecords = (
+  state: ExtensionState,
+  installedNames: readonly string[]
+) =>
+  installedNames
+    .map((name) => state.records.get(name))
+    .filter((record): record is ExtensionRecord => record !== undefined)
+    .sort((a, b) => a.order - b.order)
+
+const getRegisteredExtension = (
+  extension: EditorExtension<Editor, any>,
+  order: number
+): RegisteredEditorExtension => ({
+  conflicts: Object.freeze([...(extension.conflicts ?? [])]),
+  dependencies: Object.freeze([...(extension.dependencies ?? [])]),
+  name: extension.name,
+  order,
+  peerDependencies: Object.freeze([...(extension.peerDependencies ?? [])]),
+})
+
+const installExtensionRecord = (
+  state: ExtensionState,
+  registry: { extensions: Map<string, RegisteredEditorExtension> },
+  extension: EditorExtension<Editor, any>,
+  cleanups: Array<() => void>,
+  order: number
+) => {
+  state.records.set(extension.name, {
+    cleanups,
+    extension,
+    order,
+  })
+  registry.extensions.set(
+    extension.name,
+    getRegisteredExtension(extension, order)
+  )
+}
+
+const restoreInstalledExtensionRecords = <TEditor extends Editor>(
+  editor: TEditor,
+  state: ExtensionState,
+  registry: { extensions: Map<string, RegisteredEditorExtension> },
+  records: readonly ExtensionRecord[]
+) => {
+  for (const record of records) {
+    const cleanups = registerExtensionSlots(
+      editor,
+      record.extension as EditorExtension<TEditor, any>
+    )
+
+    installExtensionRecord(
+      state,
+      registry,
+      record.extension,
+      cleanups,
+      record.order
+    )
+  }
+}
+
 export const extendEditor = <TEditor extends Editor>(
   editor: TEditor,
   input: EditorExtensionInput<TEditor>
@@ -689,10 +767,21 @@ export const extendEditor = <TEditor extends Editor>(
   const latest = resolveLatestExtensionEntries(
     extensions as readonly EditorExtension<Editor, any>[]
   )
+  const replacedRecords = getInstalledExtensionRecords(
+    state,
+    latest.replacedNames
+  )
+  const validationState = getValidationStateWithoutReplacements(
+    state,
+    latest.replacedNames
+  )
+  const orderedExtensions = resolveExtensionOrder(
+    validationState,
+    latest.extensions
+  )
 
   cleanupInstalledExtensions(state, registry, latest.replacedNames)
 
-  const orderedExtensions = resolveExtensionOrder(state, latest.extensions)
   const installedNames: string[] = []
 
   try {
@@ -703,24 +792,18 @@ export const extendEditor = <TEditor extends Editor>(
         extension as EditorExtension<TEditor, any>
       )
 
-      state.records.set(extension.name, {
+      installExtensionRecord(
+        state,
+        registry,
+        extension as EditorExtension<Editor, any>,
         cleanups,
-        extension: extension as EditorExtension<Editor, any>,
-        order,
-      })
-      registry.extensions.set(extension.name, {
-        conflicts: Object.freeze([...(extension.conflicts ?? [])]),
-        dependencies: Object.freeze([...(extension.dependencies ?? [])]),
-        name: extension.name,
-        order,
-        peerDependencies: Object.freeze([
-          ...(extension.peerDependencies ?? []),
-        ]),
-      })
+        order
+      )
       installedNames.push(extension.name)
     }
   } catch (error) {
     cleanupInstalledExtensions(state, registry, installedNames)
+    restoreInstalledExtensionRecords(editor, state, registry, replacedRecords)
     throw error
   }
 

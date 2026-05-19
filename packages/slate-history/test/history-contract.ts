@@ -205,6 +205,37 @@ describe('slate-history contract', () => {
     assert.equal(operation.index, 0)
   })
 
+  it('rebases saved undo batches across local withoutSaving document edits', () => {
+    const editor = historyTestEditor()
+
+    replace(editor, [paragraph('abcdef')], {
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    })
+
+    write(editor, (tx) => {
+      tx.text.insert('X')
+    })
+
+    editor.api.history.withoutSaving(() => {
+      write(editor, (tx) => {
+        tx.text.insert('Y', { at: { path: [0, 0], offset: 0 } })
+      })
+    })
+
+    const operation = getHistory(editor).undos[0]?.operations[0]
+
+    if (operation?.type !== 'insert_text') {
+      assert.fail('Expected insert_text to remain in undo history')
+    }
+
+    assert.equal(operation.offset, 4)
+
+    undo(editor)
+
+    assert.equal(Editor.string(editor, [0]), 'Yabcdef')
+  })
+
   it('routes compatibility undo and redo through history commands', () => {
     const editor = historyTestEditor()
     const commands: string[] = []

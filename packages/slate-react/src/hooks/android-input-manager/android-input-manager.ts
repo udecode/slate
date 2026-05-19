@@ -370,7 +370,7 @@ export function createAndroidInputManager({
     if (idx < 0) {
       const normalized = normalizeStringDiff(target.text, diff)
       if (normalized) {
-        pendingDiffs.push({ path, diff, id: idCounter++ })
+        pendingDiffs.push({ path, diff: normalized, id: idCounter++ })
       }
 
       updatePlaceholderVisibility()
@@ -416,9 +416,14 @@ export function createAndroidInputManager({
 
   const scheduleAction = (
     run: () => void,
-    { at }: { at?: Point | Range } = {}
+    {
+      at,
+      preserveInsertPositionHint = false,
+    }: { at?: Point | Range; preserveInsertPositionHint?: boolean } = {}
   ): void => {
-    insertPositionHint = false
+    if (!preserveInsertPositionHint) {
+      insertPositionHint = false
+    }
     debug('scheduleAction', { at, run })
 
     EDITOR_TO_PENDING_SELECTION.delete(editor)
@@ -849,7 +854,7 @@ export function createAndroidInputManager({
                     })
                   })
                 },
-                { at: newPoint }
+                { at: newPoint, preserveInsertPositionHint: true }
               )
             }
             if (shouldFlushStoredTextDiffForTransformMiddleware(editor, diff)) {

@@ -167,8 +167,50 @@ const isSlateSourceDirtinessList = (
   value: SlateSourceDirtiness
 ): value is readonly SlateSourceDirtinessClass[] => Array.isArray(value)
 
-const areDataEqual = (left: unknown, right: unknown) =>
-  JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
+const isPlainObject = (value: object) => {
+  const prototype = Object.getPrototypeOf(value)
+
+  return prototype === Object.prototype || prototype === null
+}
+
+const isJsonComparable = (
+  value: unknown,
+  seen = new WeakSet<object>()
+): boolean => {
+  if (value === null) return true
+
+  switch (typeof value) {
+    case 'boolean':
+    case 'string':
+      return true
+    case 'number':
+      return Number.isFinite(value)
+    case 'object': {
+      if (seen.has(value)) return false
+      if (Array.isArray(value)) {
+        seen.add(value)
+
+        return value.every((entry) => isJsonComparable(entry, seen))
+      }
+      if (!isPlainObject(value)) return false
+
+      seen.add(value)
+
+      return Object.values(value).every((entry) =>
+        isJsonComparable(entry, seen)
+      )
+    }
+    default:
+      return false
+  }
+}
+
+const areDataEqual = (left: unknown, right: unknown) => {
+  if (Object.is(left, right)) return true
+  if (!isJsonComparable(left) || !isJsonComparable(right)) return false
+
+  return JSON.stringify(left) === JSON.stringify(right)
+}
 
 const areSlicesEqual = <T>(
   left: readonly SlateProjectionSlice<T>[],

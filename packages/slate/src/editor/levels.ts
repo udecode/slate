@@ -24,13 +24,13 @@ export function* levels<T extends Node>(
   const path = Editor.path(editor, at)
 
   for (const [n, p] of NodeApi.levels(editor, path)) {
-    if (!match(n, p)) {
-      continue
+    const isVoid = !voids && NodeApi.isElement(n) && Editor.isVoid(editor, n)
+
+    if (match(n, p)) {
+      levels.push([n, p] as NodeEntry<T>)
     }
 
-    levels.push([n, p] as NodeEntry<T>)
-
-    if (!voids && NodeApi.isElement(n) && Editor.isVoid(editor, n)) {
+    if (isVoid) {
       break
     }
   }

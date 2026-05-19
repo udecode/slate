@@ -37,11 +37,13 @@ class RestoreDOMComponent extends Component<RestoreDOMProps> {
 
   observe() {
     const { node } = this.props
-    if (!node.current) {
-      throw new Error('Failed to attach MutationObserver, `node` is undefined')
+    const current = node.current
+
+    if (!current) {
+      return
     }
 
-    this.mutationObserver?.observe(node.current, MUTATION_OBSERVER_CONFIG)
+    this.mutationObserver?.observe(current, MUTATION_OBSERVER_CONFIG)
   }
 
   componentDidMount() {

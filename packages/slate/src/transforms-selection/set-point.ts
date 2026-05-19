@@ -24,6 +24,15 @@ export const setPoint: SelectionMutationMethods['setPoint'] = (
   }
 
   const { anchor, focus } = selection
+
+  if (edge === 'both') {
+    getEditorTransformRegistry(editor).setSelection({
+      anchor: { ...anchor, ...props },
+      focus: { ...focus, ...props },
+    })
+    return
+  }
+
   const point = edge === 'anchor' ? anchor : focus
 
   getEditorTransformRegistry(editor).setSelection({

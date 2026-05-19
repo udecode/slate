@@ -50,9 +50,14 @@ Clear the native DOM selection and the Slate selection.
 
 Find a key for a Slate node.
 
-#### `editor.api.dom.findPath(node: Node): Path`
+#### `editor.api.dom.resolvePath(node: Node): Path | null`
 
-Find the path of a Slate node.
+Resolve the current path of a Slate node. Returns `null` when the node is not
+mounted in the current editor value.
+
+#### `editor.api.dom.assertPath(node: Node): Path`
+
+Assert the current path of a Slate node.
 
 #### `editor.api.dom.hasDOMNode(target: DOMNode, options?: { editable?: boolean }): boolean`
 
@@ -70,38 +75,63 @@ Check if the target can be selected by the editor.
 
 Check if the target is in the editor.
 
-#### `editor.api.dom.toDOMNode(node: Node): HTMLElement`
+#### `editor.api.dom.assertDOMNode(node: Node): HTMLElement`
 
-Find the native DOM element for a Slate node.
+Assert the native DOM element for a Slate node.
 
-#### `editor.api.dom.toDOMPoint(point: Point): DOMPoint`
+#### `editor.api.dom.resolveDOMNode(node: Node): HTMLElement | null`
 
-Find a native DOM selection point from a Slate point.
+Resolve the native DOM element for a Slate node. Returns `null` when the Slate
+node is not mounted.
 
-#### `editor.api.dom.toDOMRange(range: Range): DOMRange`
+#### `editor.api.dom.assertDOMPoint(point: Point): DOMPoint`
 
-Find a native DOM range from a Slate range.
+Assert a native DOM selection point from a Slate point.
 
-#### `editor.api.dom.toSlateNode(domNode: DOMNode): Node`
+#### `editor.api.dom.resolveDOMPoint(point: Point): DOMPoint | null`
 
-Find a Slate node from a native DOM node.
+Resolve a native DOM selection point from a Slate point. Returns `null` when the
+Slate point is not currently mappable.
 
-#### `editor.api.dom.findEventRange(event: unknown): Range`
+#### `editor.api.dom.assertDOMRange(range: Range): DOMRange`
 
-Get the target range from a DOM event.
+Assert a native DOM range from a Slate range.
 
-#### `editor.api.dom.toSlatePoint(domPoint: DOMPoint, options: { exactMatch: boolean; searchDirection?: 'backward' | 'forward' }): Point`
+#### `editor.api.dom.resolveDOMRange(range: Range): DOMRange | null`
 
-Find a Slate point from a DOM point.
+Resolve a native DOM range from a Slate range. Returns `null` when the Slate
+range is not currently mappable.
+
+#### `editor.api.dom.assertSlateNode(domNode: DOMNode): Node`
+
+Assert a Slate node from a native DOM node.
+
+#### `editor.api.dom.resolveSlateNode(domNode: DOMNode): Node | null`
+
+Resolve a Slate node from a native DOM node. Returns `null` when the DOM node is
+not owned by the editor.
+
+#### `editor.api.dom.assertEventRange(event: unknown): Range`
+
+Assert the target range from a DOM event.
+
+#### `editor.api.dom.resolveEventRange(event: unknown): Range | null`
+
+Resolve the target range from a DOM event. Returns `null` when the event target
+cannot be mapped into the editor.
+
+#### `editor.api.dom.assertSlatePoint(domPoint: DOMPoint, options: { exactMatch: boolean; searchDirection?: 'backward' | 'forward' }): Point`
+
+Assert a Slate point from a DOM point.
 
 #### `editor.api.dom.resolveSlatePoint(domPoint: DOMPoint, options: { exactMatch: boolean; searchDirection?: 'backward' | 'forward' }): Point | null`
 
 Resolve a Slate point from a DOM point. Returns `null` when the DOM point is not
 currently mappable.
 
-#### `editor.api.dom.toSlateRange(domRange: DOMRange | DOMStaticRange | DOMSelection, options: { exactMatch: boolean }): Range`
+#### `editor.api.dom.assertSlateRange(domRange: DOMRange | DOMStaticRange | DOMSelection, options: { exactMatch: boolean }): Range`
 
-Find a Slate range from a DOM range or selection.
+Assert a Slate range from a DOM range or selection.
 
 #### `editor.api.dom.resolveSlateRange(domRange: DOMRange | DOMStaticRange | DOMSelection, options: { exactMatch: boolean }): Range | null`
 

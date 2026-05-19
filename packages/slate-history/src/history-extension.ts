@@ -247,7 +247,7 @@ export const history = <const TEnabled extends boolean | undefined = undefined>(
             save = shouldSaveCommit(change, committedOps)
           }
 
-          if (!save && shouldRebaseHistory(change)) {
+          if (!save && shouldRebaseHistory(change, committedOps)) {
             rebaseHistory(history.undos, committedOps)
             rebaseHistory(history.redos, committedOps)
           }
@@ -469,9 +469,10 @@ const shouldSaveCommit = (
   return shouldSaveBatch(operations)
 }
 
-const shouldRebaseHistory = (change: SnapshotChange | undefined): boolean =>
-  change?.metadata.collab?.origin === 'remote' ||
-  change?.metadata.collab?.saveToHistory === false
+const shouldRebaseHistory = (
+  change: SnapshotChange | undefined,
+  operations: readonly Operation[]
+): boolean => !change?.tags.includes('historic') && shouldSaveBatch(operations)
 
 const transformSelectionPatch = (
   selection: Partial<Range> | null,

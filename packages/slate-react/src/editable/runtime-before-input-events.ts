@@ -159,7 +159,7 @@ export const useRuntimeBeforeInputEvents = ({
         return
       }
       const el = profileBeforeInputDuration('beforeinput-root-node', () =>
-        ReactEditor.toDOMNode(editor, editor)
+        ReactEditor.assertDOMNode(editor, editor)
       )
       const root = profileBeforeInputDuration('beforeinput-root-owner', () =>
         el.getRootNode()

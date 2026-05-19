@@ -148,8 +148,8 @@ describe('slate-dom bridge', () => {
       paragraph.appendChild(textOwner)
       root.appendChild(paragraph)
 
-      expect(editor.api.dom.toSlateNode(paragraph)).toBe(paragraphNode)
-      expect(editor.api.dom.toSlateNode(textOwner)).toBe(textNode)
+      expect(editor.api.dom.assertSlateNode(paragraph)).toBe(paragraphNode)
+      expect(editor.api.dom.assertSlateNode(textOwner)).toBe(textNode)
     })
   })
 
@@ -177,11 +177,10 @@ describe('slate-dom bridge', () => {
       owner.appendChild(leaf)
       root.appendChild(owner)
 
-      expect(editor.api.dom.toDOMNode(textNode)).toBe(owner)
-      expect(editor.api.dom.toDOMPoint({ path: [0, 0], offset: 5 })).toEqual([
-        domText,
-        5,
-      ])
+      expect(editor.api.dom.assertDOMNode(textNode)).toBe(owner)
+      expect(
+        editor.api.dom.assertDOMPoint({ path: [0, 0], offset: 5 })
+      ).toEqual([domText, 5])
     })
   })
 
@@ -200,7 +199,7 @@ describe('slate-dom bridge', () => {
       },
     ]
 
-    expect(editor.api.dom.findPath(textNode)).toEqual([0, 0])
+    expect(editor.api.dom.assertPath(textNode)).toEqual([0, 0])
   })
 
   it('resolves Slate node paths by runtime id before stale weak-map indexes', () => {
@@ -236,7 +235,7 @@ describe('slate-dom bridge', () => {
     })
 
     expect(Editor.getPathByRuntimeId(editor, runtimeId!)).toEqual([2])
-    expect(editor.api.dom.findPath(targetNode)).toEqual([2])
+    expect(editor.api.dom.assertPath(targetNode)).toEqual([2])
   })
 
   it('resolves Slate points by mounted DOM path when node path maps lag', () => {
@@ -265,10 +264,9 @@ describe('slate-dom bridge', () => {
       NODE_TO_INDEX.delete(textNode)
       NODE_TO_PARENT.delete(textNode)
 
-      expect(editor.api.dom.toDOMPoint({ path: [0, 0], offset: 5 })).toEqual([
-        domText,
-        5,
-      ])
+      expect(
+        editor.api.dom.assertDOMPoint({ path: [0, 0], offset: 5 })
+      ).toEqual([domText, 5])
     })
   })
 
@@ -281,7 +279,7 @@ describe('slate-dom bridge', () => {
       foreign.setAttribute('data-slate-node', 'element')
       foreign.setAttribute('data-slate-path', '0')
 
-      expect(() => editor.api.dom.toSlateNode(foreign)).toThrow(
+      expect(() => editor.api.dom.assertSlateNode(foreign)).toThrow(
         'Cannot resolve a Slate node from DOM node'
       )
     })
@@ -300,7 +298,7 @@ describe('slate-dom bridge', () => {
       domSelection.removeAllRanges()
 
       expect(() =>
-        editor.api.dom.toSlateRange(domSelection, {
+        editor.api.dom.assertSlateRange(domSelection, {
           exactMatch: false,
         })
       ).toThrow('Cannot resolve a Slate range from DOM range')
@@ -320,11 +318,11 @@ describe('slate-dom bridge', () => {
       focus: { path: [0, 0], offset: 0 },
     }
 
-    expect(() => editor.api.dom.toDOMNode(textNode)).toThrow(
+    expect(() => editor.api.dom.assertDOMNode(textNode)).toThrow(
       'Cannot resolve a DOM node from Slate node'
     )
     expect(editor.api.dom.resolveDOMNode(textNode)).toBeNull()
-    expect(() => editor.api.dom.toDOMRange(range)).toThrow()
+    expect(() => editor.api.dom.assertDOMRange(range)).toThrow()
     expect(editor.api.dom.resolveDOMRange(range)).toBeNull()
     expect(editor.api.dom.resolvePath({ text: 'detached' })).toBeNull()
   })
@@ -351,9 +349,9 @@ describe('slate-dom bridge', () => {
 
       expect(parent.api.dom.hasDOMNode(nestedText)).toBe(false)
       expect(nested.api.dom.hasDOMNode(nestedText)).toBe(true)
-      expect(() => parent.api.dom.toSlateNode(nestedOwner)).toThrow()
+      expect(() => parent.api.dom.assertSlateNode(nestedOwner)).toThrow()
       expect(
-        nested.api.dom.toSlatePoint([nestedText, 3], {
+        nested.api.dom.assertSlatePoint([nestedText, 3], {
           exactMatch: false,
         })
       ).toEqual<Point>({
@@ -361,7 +359,7 @@ describe('slate-dom bridge', () => {
         offset: 3,
       })
       expect(() =>
-        parent.api.dom.toSlatePoint([nestedText, 3], {
+        parent.api.dom.assertSlatePoint([nestedText, 3], {
           exactMatch: false,
         })
       ).toThrow()
@@ -405,7 +403,7 @@ describe('slate-dom bridge', () => {
       ;(document as any).caretRangeFromPoint = () => caretRange
 
       expect(
-        editor.api.dom.findEventRange({
+        editor.api.dom.assertEventRange({
           clientX: 0,
           clientY: 0,
           target: paragraph,
@@ -454,7 +452,7 @@ describe('slate-dom bridge', () => {
       bindTextOwner(editor, [0, 0], owner)
 
       expect(
-        editor.api.dom.toSlatePoint([textNode, 1], {
+        editor.api.dom.assertSlatePoint([textNode, 1], {
           exactMatch: false,
         })
       ).toEqual<Point>({
@@ -485,9 +483,12 @@ describe('slate-dom bridge', () => {
       bindTextOwner(editor, [0, 0], owner)
 
       expect(
-        editor.api.dom.toSlatePoint([domText, domText.textContent!.length], {
-          exactMatch: false,
-        })
+        editor.api.dom.assertSlatePoint(
+          [domText, domText.textContent!.length],
+          {
+            exactMatch: false,
+          }
+        )
       ).toEqual<Point>({
         path: [0, 0],
         offset: 1,
@@ -530,10 +531,9 @@ describe('slate-dom bridge', () => {
       root.appendChild(owner)
       bindTextOwner(editor, [0, 0], owner)
 
-      expect(editor.api.dom.toDOMPoint({ path: [0, 0], offset: 10 })).toEqual([
-        placeholderText,
-        1,
-      ])
+      expect(
+        editor.api.dom.assertDOMPoint({ path: [0, 0], offset: 10 })
+      ).toEqual([placeholderText, 1])
     })
   })
 
@@ -575,7 +575,7 @@ describe('slate-dom bridge', () => {
       range.setEnd(lastText, 2)
 
       expect(
-        editor.api.dom.toSlateRange(range, {
+        editor.api.dom.assertSlateRange(range, {
           exactMatch: false,
         })
       ).toEqual({
@@ -603,7 +603,7 @@ describe('slate-dom bridge', () => {
       root.appendChild(owner)
       bindTextOwner(editor, [0, 0], owner)
 
-      const domRange = editor.api.dom.toDOMRange({
+      const domRange = editor.api.dom.assertDOMRange({
         anchor: { path: [0, 0], offset: 0 },
         focus: { path: [0, 0], offset: 0 },
       })

@@ -193,6 +193,36 @@ describe('scenario helpers', () => {
     expect(scripts['check:full']).toContain('test:integration-local')
   })
 
+  test('documents integration coverage outside the default check script', () => {
+    const packageJsonPath = fileURLToPath(
+      new URL('../../../../package.json', import.meta.url)
+    )
+    const readmePath = fileURLToPath(
+      new URL('../../../../README.md', import.meta.url)
+    )
+    const contributingPath = fileURLToPath(
+      new URL('../../../../docs/general/contributing.md', import.meta.url)
+    )
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const scripts = packageJson.scripts
+    const docs = [
+      readFileSync(readmePath, 'utf8'),
+      readFileSync(contributingPath, 'utf8'),
+    ]
+
+    expect(scripts.check).not.toContain('test:integration')
+    expect(scripts['check:ci']).toContain('test:integration')
+    expect(scripts['check:full']).toContain('test:integration-local')
+    for (const doc of docs) {
+      expect(doc).toContain('bun check')
+      expect(doc).toContain('Playwright integration coverage')
+      expect(doc).toContain('bun check:ci')
+      expect(doc).toContain('bun check:full')
+    }
+  })
+
   test('summarizes reduction candidates without serializing step functions', () => {
     const steps: SlateBrowserScenarioStep[] = [
       {
@@ -340,15 +370,15 @@ describe('scenario helpers', () => {
         label: 'assert-model-selection-expanded',
       },
       {
-        contains: 'mode:both',
+        contains: 'issues:2',
         kind: 'assertLocatorText',
-        label: 'assert-overlay-mode',
-        selector: '#external-decoration-mode',
+        label: 'assert-lint-issue-count',
+        selector: '#linting-count',
       },
       {
         kind: 'clickSelector',
-        label: 'click-overlay-button',
-        selector: 'button:has-text("Show both diagnostics")',
+        label: 'click-linter-button',
+        selector: 'button:has-text("Run linter")',
       },
       {
         kind: 'captureRuntimeId',

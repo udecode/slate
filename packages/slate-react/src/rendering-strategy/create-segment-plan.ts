@@ -46,6 +46,10 @@ export const createSegmentPlan = ({
   promotedSegmentIndex: number | null
   topLevelRuntimeIds: readonly RuntimeId[]
 }) => {
+  if (!Number.isInteger(segmentSize) || segmentSize <= 0) {
+    throw new RangeError('segmentSize must be a positive integer')
+  }
+
   const segments: RenderingStrategySegment[] = []
   const activeSegmentIndex = promotedSegmentIndex ?? defaultActiveSegmentIndex
   const activeStart = Math.max(0, activeSegmentIndex - overscan)

@@ -160,9 +160,15 @@ Before opening a pull request, run the repository gate:
 bun check
 ```
 
-This is the canonical local and CI gate. It runs lint, typecheck, tests, and
-integration. For formatting
-fixes, run:
+This is the fast local gate. It runs lint, typecheck, and tests.
+Playwright integration coverage lives in the fuller gates:
+
+```text
+bun check:ci
+bun check:full
+```
+
+For formatting fixes, run:
 
 ```text
 bun lint:fix

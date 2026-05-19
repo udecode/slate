@@ -72,9 +72,9 @@ export interface DOMEditorCapability {
   blur: () => void
   deselect: () => void
   findDocumentOrShadowRoot: () => Document | ShadowRoot
-  findEventRange: (event: any) => Range
+  assertEventRange: (event: any) => Range
   findKey: (node: Node) => Key
-  findPath: (node: Node) => Path
+  assertPath: (node: Node) => Path
   focus: (options?: { retries: number }) => void
   getWindow: () => Window
   hasDOMNode: (target: DOMNode, options?: { editable?: boolean }) => boolean
@@ -107,18 +107,18 @@ export interface DOMEditorCapability {
       exactMatch: boolean
     }
   ) => Range | null
-  toDOMNode: (node: Node) => HTMLElement
-  toDOMPoint: (point: Point) => DOMPoint
-  toDOMRange: (range: Range) => DOMRange
-  toSlateNode: (domNode: DOMNode) => Node
-  toSlatePoint: (
+  assertDOMNode: (node: Node) => HTMLElement
+  assertDOMPoint: (point: Point) => DOMPoint
+  assertDOMRange: (range: Range) => DOMRange
+  assertSlateNode: (domNode: DOMNode) => Node
+  assertSlatePoint: (
     domPoint: DOMPoint,
     options: {
       exactMatch: boolean
       searchDirection?: 'backward' | 'forward'
     }
   ) => Point
-  toSlateRange: (
+  assertSlateRange: (
     domRange: DOMRange | DOMSelection | DOMStaticRange | globalThis.Selection,
     options: {
       exactMatch: boolean
@@ -151,6 +151,27 @@ export interface DOMEditorClipboardCapability {
 export type DOMApi = Omit<DOMEditorCapability, 'clipboard'>
 
 export type DOMClipboardApi = DOMEditorClipboardCapability
+
+export class SlateDOMResolutionError extends Error {
+  readonly code: string
+  readonly details: unknown
+
+  constructor(
+    message: string,
+    {
+      code,
+      details,
+    }: {
+      code: string
+      details?: unknown
+    }
+  ) {
+    super(message)
+    this.name = 'SlateDOMResolutionError'
+    this.code = code
+    this.details = details
+  }
+}
 
 export type DOMClipboardInsertDataHandler<V extends Value = Value> = (
   editor: DOMEditor<V>,
@@ -211,7 +232,7 @@ export interface DOMEditorInterface {
   /**
    * Get the target range from a DOM `event`.
    */
-  findEventRange: (editor: DOMEditor<any>, event: any) => Range
+  assertEventRange: (editor: DOMEditor<any>, event: any) => Range
 
   /**
    * Find a key for a Slate node.
@@ -221,7 +242,7 @@ export interface DOMEditorInterface {
   /**
    * Find the path of Slate node.
    */
-  findPath: (editor: DOMEditor<any>, node: Node) => Path
+  assertPath: (editor: DOMEditor<any>, node: Node) => Path
 
   /**
    * Focus the editor.
@@ -376,12 +397,12 @@ export interface DOMEditorInterface {
   /**
    * Find the native DOM element from a Slate node.
    */
-  toDOMNode: (editor: DOMEditor<any>, node: Node) => HTMLElement
+  assertDOMNode: (editor: DOMEditor<any>, node: Node) => HTMLElement
 
   /**
    * Find a native DOM selection point from a Slate point.
    */
-  toDOMPoint: (editor: DOMEditor<any>, point: Point) => DOMPoint
+  assertDOMPoint: (editor: DOMEditor<any>, point: Point) => DOMPoint
 
   /**
    * Find a native DOM range from a Slate `range`.
@@ -391,17 +412,17 @@ export interface DOMEditorInterface {
    * there is no way to create a reverse DOM Range using Range.setStart/setEnd
    * according to https://dom.spec.whatwg.org/#concept-range-bp-set.
    */
-  toDOMRange: (editor: DOMEditor<any>, range: Range) => DOMRange
+  assertDOMRange: (editor: DOMEditor<any>, range: Range) => DOMRange
 
   /**
    * Find a Slate node from a native DOM `element`.
    */
-  toSlateNode: (editor: DOMEditor<any>, domNode: DOMNode) => Node
+  assertSlateNode: (editor: DOMEditor<any>, domNode: DOMNode) => Node
 
   /**
    * Find a Slate point from a DOM selection's `domNode` and `domOffset`.
    */
-  toSlatePoint: (
+  assertSlatePoint: (
     editor: DOMEditor<any>,
     domPoint: DOMPoint,
     options: {
@@ -417,7 +438,7 @@ export interface DOMEditorInterface {
   /**
    * Find a Slate range from a DOM range or selection.
    */
-  toSlateRange: (
+  assertSlateRange: (
     editor: DOMEditor<any>,
     domRange: DOMRange | DOMStaticRange | DOMSelection,
     options: {
@@ -612,7 +633,7 @@ export const DOMEditor: DOMEditorInterface = {
   },
 
   blur: (editor) => {
-    const el = DOMEditor.toDOMNode(editor, editor)
+    const el = DOMEditor.assertDOMNode(editor, editor)
     const root = DOMEditor.findDocumentOrShadowRoot(editor)
     IS_FOCUSED.set(editor, false)
 
@@ -638,7 +659,7 @@ export const DOMEditor: DOMEditorInterface = {
   },
 
   findDocumentOrShadowRoot: (editor) => {
-    const el = DOMEditor.toDOMNode(editor, editor)
+    const el = DOMEditor.assertDOMNode(editor, editor)
     const root = el.getRootNode()
     const view = el.ownerDocument.defaultView
 
@@ -653,11 +674,14 @@ export const DOMEditor: DOMEditorInterface = {
     return el.ownerDocument
   },
 
-  findEventRange: (editor, event) => {
+  assertEventRange: (editor, event) => {
     const range = DOMEditor.resolveEventRange(editor, event)
 
     if (!range) {
-      throw new Error(`Cannot resolve a Slate range from a DOM event: ${event}`)
+      throw new SlateDOMResolutionError(
+        `Cannot resolve a Slate range from a DOM event: ${event}`,
+        { code: 'slate-dom/event-range', details: { event } }
+      )
     }
 
     return range
@@ -762,15 +786,16 @@ export const DOMEditor: DOMEditorInterface = {
     return key
   },
 
-  findPath: (editor, node) => {
+  assertPath: (editor, node) => {
     const path = DOMEditor.resolvePath(editor, node)
 
     if (path) {
       return path
     }
 
-    throw new Error(
-      `Unable to find the path for Slate node: ${ScrubberApi.stringify(node)}`
+    throw new SlateDOMResolutionError(
+      `Unable to find the path for Slate node: ${ScrubberApi.stringify(node)}`,
+      { code: 'slate-dom/path', details: { node } }
     )
   },
 
@@ -803,7 +828,7 @@ export const DOMEditor: DOMEditorInterface = {
       return
     }
 
-    const el = DOMEditor.toDOMNode(editor, editor)
+    const el = DOMEditor.assertDOMNode(editor, editor)
     const root = DOMEditor.findDocumentOrShadowRoot(editor)
     const selectionAtFocus = getEditorLiveSelection(editor)
       ? {
@@ -892,7 +917,7 @@ export const DOMEditor: DOMEditorInterface = {
 
   hasDOMNode: (editor, target, options = {}) => {
     const { editable = false } = options
-    const editorEl = DOMEditor.toDOMNode(editor, editor)
+    const editorEl = DOMEditor.assertDOMNode(editor, editor)
     let targetEl: HTMLElement | null | undefined
 
     // COMPAT: In Firefox, reading `target.nodeType` will throw an error if
@@ -1002,15 +1027,18 @@ export const DOMEditor: DOMEditorInterface = {
     return null
   },
 
-  toDOMNode: (editor, node) => {
+  assertDOMNode: (editor, node) => {
     const domNode = DOMEditor.resolveDOMNode(editor, node)
 
     if (domNode) {
       return domNode
     }
 
-    throw new Error(
-      `Cannot resolve a DOM node from Slate node: ${ScrubberApi.stringify(node)}`
+    throw new SlateDOMResolutionError(
+      `Cannot resolve a DOM node from Slate node: ${ScrubberApi.stringify(
+        node
+      )}`,
+      { code: 'slate-dom/dom-node', details: { node } }
     )
   },
 
@@ -1098,7 +1126,7 @@ export const DOMEditor: DOMEditorInterface = {
     return domPoint
   },
 
-  toDOMPoint: (editor, point) => {
+  assertDOMPoint: (editor, point) => {
     const resolvedPoint = Editor.void(editor, { at: point })
       ? { path: point.path, offset: 0 }
       : point
@@ -1115,18 +1143,23 @@ export const DOMEditor: DOMEditorInterface = {
         findMountedDOMNodeByPath(editor, resolvedPoint.path)
 
       if (!domNode) {
-        throw new Error(
+        throw new SlateDOMResolutionError(
           `Cannot resolve a DOM node from Slate node: ${ScrubberApi.stringify(
             node
-          )}`
+          )}`,
+          {
+            code: 'slate-dom/dom-node',
+            details: { node, point: resolvedPoint },
+          }
         )
       }
     }
 
-    throw new Error(
+    throw new SlateDOMResolutionError(
       `Cannot resolve a DOM point from Slate point: ${ScrubberApi.stringify(
         resolvedPoint
-      )}`
+      )}`,
+      { code: 'slate-dom/dom-point', details: { point: resolvedPoint } }
     )
   },
 
@@ -1182,17 +1215,18 @@ export const DOMEditor: DOMEditorInterface = {
     return domRange
   },
 
-  toDOMRange: (editor, range) => {
+  assertDOMRange: (editor, range) => {
     const domRange = DOMEditor.resolveDOMRange(editor, range)
 
     if (domRange) {
       return domRange
     }
 
-    throw new Error(
+    throw new SlateDOMResolutionError(
       `Cannot resolve a DOM range from Slate range: ${ScrubberApi.stringify(
         range
-      )}`
+      )}`,
+      { code: 'slate-dom/dom-range', details: { range } }
     )
   },
 
@@ -1248,7 +1282,7 @@ export const DOMEditor: DOMEditorInterface = {
     return null
   },
 
-  toSlateNode: (editor, domNode) => {
+  assertSlateNode: (editor, domNode) => {
     const node = DOMEditor.resolveSlateNode(editor, domNode)
 
     if (node) {
@@ -1257,7 +1291,10 @@ export const DOMEditor: DOMEditorInterface = {
 
     const domEl = isDOMElement(domNode) ? domNode : domNode.parentElement
 
-    throw new Error(`Cannot resolve a Slate node from DOM node: ${domEl}`)
+    throw new SlateDOMResolutionError(
+      `Cannot resolve a Slate node from DOM node: ${domEl}`,
+      { code: 'slate-dom/slate-node', details: { domNode } }
+    )
   },
 
   resolveSlatePoint: (
@@ -1544,14 +1581,17 @@ export const DOMEditor: DOMEditorInterface = {
     return point
   },
 
-  toSlatePoint: (editor, domPoint, options) => {
+  assertSlatePoint: (editor, domPoint, options) => {
     const point = DOMEditor.resolveSlatePoint(editor, domPoint, options)
 
     if (point) {
       return point
     }
 
-    throw new Error(`Cannot resolve a Slate point from DOM point: ${domPoint}`)
+    throw new SlateDOMResolutionError(
+      `Cannot resolve a Slate point from DOM point: ${domPoint}`,
+      { code: 'slate-dom/slate-point', details: { domPoint } }
+    )
   },
 
   resolveSlateRange: (
@@ -1721,14 +1761,17 @@ export const DOMEditor: DOMEditorInterface = {
     return range
   },
 
-  toSlateRange: (editor, domRange, options) => {
+  assertSlateRange: (editor, domRange, options) => {
     const range = DOMEditor.resolveSlateRange(editor, domRange, options)
 
     if (range) {
       return range
     }
 
-    throw new Error(`Cannot resolve a Slate range from DOM range: ${domRange}`)
+    throw new SlateDOMResolutionError(
+      `Cannot resolve a Slate range from DOM range: ${domRange}`,
+      { code: 'slate-dom/slate-range', details: { domRange } }
+    )
   },
 }
 
@@ -1741,9 +1784,9 @@ export const createDOMEditorCapability = (
     blur: () => DOMEditor.blur(editor),
     deselect: () => DOMEditor.deselect(editor),
     findDocumentOrShadowRoot: () => DOMEditor.findDocumentOrShadowRoot(editor),
-    findEventRange: (event) => DOMEditor.findEventRange(editor, event),
+    assertEventRange: (event) => DOMEditor.assertEventRange(editor, event),
     findKey: (node) => DOMEditor.findKey(editor, node),
-    findPath: (node) => DOMEditor.findPath(editor, node),
+    assertPath: (node) => DOMEditor.assertPath(editor, node),
     focus: (options) => DOMEditor.focus(editor, options),
     getWindow: () => DOMEditor.getWindow(editor),
     hasDOMNode: (target, options) =>
@@ -1779,14 +1822,14 @@ export const createDOMEditorCapability = (
       DOMEditor.resolveSlatePoint(editor, domPoint, options),
     resolveSlateRange: (domRange, options) =>
       DOMEditor.resolveSlateRange(editor, domRange, options),
-    toDOMNode: (node) => DOMEditor.toDOMNode(editor, node),
-    toDOMPoint: (point) => DOMEditor.toDOMPoint(editor, point),
-    toDOMRange: (range) => DOMEditor.toDOMRange(editor, range),
-    toSlateNode: (domNode) => DOMEditor.toSlateNode(editor, domNode),
-    toSlatePoint: (domPoint, options) =>
-      DOMEditor.toSlatePoint(editor, domPoint, options),
-    toSlateRange: (domRange, options) =>
-      DOMEditor.toSlateRange(editor, domRange, options),
+    assertDOMNode: (node) => DOMEditor.assertDOMNode(editor, node),
+    assertDOMPoint: (point) => DOMEditor.assertDOMPoint(editor, point),
+    assertDOMRange: (range) => DOMEditor.assertDOMRange(editor, range),
+    assertSlateNode: (domNode) => DOMEditor.assertSlateNode(editor, domNode),
+    assertSlatePoint: (domPoint, options) =>
+      DOMEditor.assertSlatePoint(editor, domPoint, options),
+    assertSlateRange: (domRange, options) =>
+      DOMEditor.assertSlateRange(editor, domRange, options),
   }
 
   return Object.freeze(capability)

@@ -11,6 +11,8 @@ import { isObject } from './is-object'
   missing keys are deliberately normalised to undefined.
  */
 export const isDeepEqual = (node: object, another: object): boolean => {
+  if (Array.isArray(node) !== Array.isArray(another)) return false
+
   const nodeRecord = node as Record<string, unknown>
   const anotherRecord = another as Record<string, unknown>
 

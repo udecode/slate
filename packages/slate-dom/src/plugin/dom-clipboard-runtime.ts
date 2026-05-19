@@ -335,13 +335,13 @@ export const writeDOMSelectionData = <V extends Value>(
 
     if (startVoid) {
       const [voidNode] = startVoid
-      const domNode = DOMEditor.toDOMNode(editor, voidNode)
+      const domNode = DOMEditor.assertDOMNode(editor, voidNode)
       r.setStartBefore(domNode)
     }
 
     if (endVoid) {
       const [voidNode] = endVoid
-      const domNode = DOMEditor.toDOMNode(editor, voidNode)
+      const domNode = DOMEditor.assertDOMNode(editor, voidNode)
       r.setEndAfter(domNode)
     }
 

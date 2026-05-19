@@ -1,7 +1,20 @@
 import type { Editor } from '../interfaces/editor'
-import { NodeApi } from '../interfaces/node'
+import { type Descendant, NodeApi } from '../interfaces/node'
 import type { Operation } from '../interfaces/operation'
 import { type Path, PathApi } from '../interfaces/path'
+
+const getInsertedChildrenDirtyPaths = (
+  parentPath: Path,
+  startIndex: number,
+  children: readonly Descendant[]
+): Path[] =>
+  children.flatMap((child, offset) => {
+    const childPath = parentPath.concat(startIndex + offset)
+
+    return NodeApi.isText(child)
+      ? [childPath]
+      : Array.from(NodeApi.nodes(child), ([, path]) => childPath.concat(path))
+  })
 
 /**
  * Get the "dirty" paths generated from an operation.
@@ -66,11 +79,21 @@ export const getDirtyPaths = (editor: Editor, op: Operation): Path[] => {
     }
 
     case 'replace_fragment': {
-      return [op.path]
+      const { newChildren, path } = op
+
+      return [
+        ...PathApi.levels(path),
+        ...getInsertedChildrenDirtyPaths(path, 0, newChildren),
+      ]
     }
 
     case 'replace_children': {
-      return [op.path]
+      const { index, newChildren, path } = op
+
+      return [
+        ...PathApi.levels(path),
+        ...getInsertedChildrenDirtyPaths(path, index, newChildren),
+      ]
     }
 
     case 'split_node': {

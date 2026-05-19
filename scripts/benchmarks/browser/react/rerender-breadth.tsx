@@ -397,16 +397,51 @@ const LeafRenderMarker = ({
 }
 
 const ElementRenderMarker = ({
+  as,
   children,
   counts,
+  isInline,
   nodeKey,
 }: {
+  as?: keyof HTMLElementTagNameMap
   children: ReactNode
   counts: Record<string, number>
+  isInline?: boolean
   nodeKey: string
 }) => {
   increment(counts, nodeKey)
-  return <EditableElement>{children}</EditableElement>
+  return (
+    <EditableElement as={as} isInline={isInline}>
+      {children}
+    </EditableElement>
+  )
+}
+
+const assertSingleElementHosts = (
+  container: HTMLElement,
+  expectedCount: number
+) => {
+  const elementHosts = Array.from(
+    container.querySelectorAll<HTMLElement>('[data-slate-node="element"]')
+  )
+  const runtimeIds = elementHosts.map(
+    (elementHost) => elementHost.dataset.slateRuntimeId
+  )
+
+  assert.equal(
+    elementHosts.length,
+    expectedCount,
+    'deep-ancestor lane should render one element host per model element'
+  )
+  assert.ok(
+    runtimeIds.every(Boolean),
+    'deep-ancestor lane should bind every element host to a runtime id'
+  )
+  assert.equal(
+    new Set(runtimeIds).size,
+    elementHosts.length,
+    'deep-ancestor lane should not duplicate element hosts for a runtime id'
+  )
 }
 
 const ManyLeafApp = ({
@@ -453,14 +488,14 @@ const DeepAncestorApp = ({
     <Editable
       renderElement={({ children, element, isInline }) => (
         <ElementRenderMarker
+          as={isInline ? 'span' : 'div'}
           counts={elementCounts}
+          isInline={isInline}
           nodeKey={String(
             (element as { nodeKey?: string }).nodeKey ?? element.type
           )}
         >
-          <EditableElement as={isInline ? 'span' : 'div'} isInline={isInline}>
-            {children}
-          </EditableElement>
+          {children}
         </ElementRenderMarker>
       )}
       renderLeaf={({ children, leaf }) => (
@@ -1005,6 +1040,7 @@ const measureDeepAncestorBreadth = async () =>
         leafCounts={leafCounts}
       />
     )
+    assertSingleElementHosts(mounted.container, ancestorKeys.length + 1)
     const baselineElementCounts = cloneCounts(elementCounts)
     const baselineLeafCounts = cloneCounts(leafCounts)
 

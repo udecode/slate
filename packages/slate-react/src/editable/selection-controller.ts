@@ -9,7 +9,6 @@ import {
 } from 'slate'
 import {
   type DOMRange,
-  getActiveElement,
   getSelection,
   IS_ANDROID,
   IS_FOCUSED,
@@ -40,6 +39,16 @@ export type EditableSelectionController = {
 }
 
 const MODEL_BACKED_FULL_DOCUMENT_CHILD_THRESHOLD = 1000
+
+const getActiveElementInDocument = (targetDocument: Document) => {
+  let activeElement = targetDocument.activeElement
+
+  while (activeElement?.shadowRoot?.activeElement) {
+    activeElement = activeElement.shadowRoot.activeElement
+  }
+
+  return activeElement
+}
 
 export const executeEditableSelectionImport = ({
   importSelection,
@@ -537,16 +546,23 @@ export const applyEditableDOMSelectionChange = ({
     return
   }
 
-  const editorElement = ReactEditor.toDOMNode(editor, editor)
+  const editorElement = ReactEditor.assertDOMNode(editor, editor)
+  const editorDocument = editorElement.ownerDocument
+  const ShadowRootConstructor = editorDocument.defaultView?.ShadowRoot
   const editorRoot = editorElement.getRootNode()
 
-  if (!processing.current && IS_WEBKIT && editorRoot instanceof ShadowRoot) {
+  if (
+    !processing.current &&
+    IS_WEBKIT &&
+    ShadowRootConstructor &&
+    editorRoot instanceof ShadowRootConstructor
+  ) {
     processing.current = true
 
-    const active = getActiveElement()
+    const active = getActiveElementInDocument(editorDocument)
 
     if (active) {
-      document.execCommand('indent')
+      editorDocument.execCommand('indent')
     } else {
       editor.update((tx) => {
         tx.selection.clear()
@@ -715,7 +731,7 @@ export const syncEditableDOMSelectionToEditor = ({
       return
     }
 
-    const editorElement = ReactEditor.toDOMNode(editor, editor)
+    const editorElement = ReactEditor.assertDOMNode(editor, editor)
 
     if (
       shouldKeepFullDocumentSelectionModelBacked({
@@ -751,28 +767,31 @@ export const syncEditableDOMSelectionToEditor = ({
     state.isUpdatingSelection = true
     state.selectionChangeOrigin = 'programmatic-export'
 
-    if (RangeApi.isBackward(selection)) {
-      domSelection.setBaseAndExtent(
-        domRange.endContainer,
-        domRange.endOffset,
-        domRange.startContainer,
-        domRange.startOffset
-      )
-    } else {
-      domSelection.setBaseAndExtent(
-        domRange.startContainer,
-        domRange.startOffset,
-        domRange.endContainer,
-        domRange.endOffset
-      )
-    }
+    try {
+      if (RangeApi.isBackward(selection)) {
+        domSelection.setBaseAndExtent(
+          domRange.endContainer,
+          domRange.endOffset,
+          domRange.startContainer,
+          domRange.startOffset
+        )
+      } else {
+        domSelection.setBaseAndExtent(
+          domRange.startContainer,
+          domRange.startOffset,
+          domRange.endContainer,
+          domRange.endOffset
+        )
+      }
 
-    if (!shouldSkipSelectionScroll(editor)) {
-      scrollSelectionIntoView(editor, domRange)
+      if (!shouldSkipSelectionScroll(editor)) {
+        scrollSelectionIntoView(editor, domRange)
+      }
+    } finally {
+      setTimeout(() => {
+        state.isUpdatingSelection = false
+      })
     }
-    setTimeout(() => {
-      state.isUpdatingSelection = false
-    })
   } catch {
     // Leave browser selection unchanged if the DOM bridge is between commits.
   }

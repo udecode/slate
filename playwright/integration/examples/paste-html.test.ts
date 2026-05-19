@@ -228,6 +228,43 @@ test.describe('paste html example', () => {
     }
   })
 
+  test('does not fallback insert after same-plain-text native HTML paste', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium clipboard proof')
+
+    const editor = await openExample(page, 'paste-html', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selection.selectAll()
+    await editor.insertText('hello')
+    expect(await editor.get.modelText()).toBe('hello')
+
+    await editor.selection.selectAll()
+    const beforeTraceLength = (await editor.get.kernelTrace()).length
+    await editor.clipboard.pasteHtml('<strong>hello</strong>', 'hello')
+    const pasteTrace = (await editor.get.kernelTrace()).slice(beforeTraceLength)
+
+    expect(await editor.get.modelText()).toBe('hello')
+    await expect(editor.root.locator('strong')).toHaveText('hello')
+    expect(
+      pasteTrace.some(
+        (entry) =>
+          entry.eventFamily === 'paste' && entry.command?.kind === 'insert-data'
+      )
+    ).toBe(true)
+    expect(
+      pasteTrace.some(
+        (entry) =>
+          entry.eventFamily === 'repair' &&
+          entry.command?.kind === 'insert-data'
+      )
+    ).toBe(false)
+  })
+
   test('pastes copied rendered Slate content as an internal fragment before HTML import', async ({
     page,
   }, testInfo) => {

@@ -137,15 +137,20 @@ const hasDirectMobileProof = (
   platform: BrowserMobileProofPlatform,
   capability: SlateBrowserMobileReleaseCapability
 ) =>
-  artifacts.some(
-    (artifact) =>
-      artifact.kind === 'mobile-device' &&
-      artifact.passed &&
-      artifact.releaseGateCapable &&
-      artifact.evidenceClass === 'automated-direct' &&
-      artifact.platform === platform &&
-      artifact.capabilities.includes(capability)
-  )
+  artifacts.some((artifact) => {
+    if (artifact.kind !== 'mobile-device' || !artifact.passed) {
+      return false
+    }
+
+    const proof = classifyBrowserMobileTransportProof(artifact.transport)
+
+    return (
+      proof.releaseGateCapable &&
+      proof.evidenceClass === 'automated-direct' &&
+      proof.platform === platform &&
+      proof.supportedClaims.some((claim) => claim === capability)
+    )
+  })
 
 const describeMobileClaim = (
   platform: BrowserMobileProofPlatform,
@@ -195,16 +200,29 @@ const validateReleaseDiscipline = (
   requiredDisciplineGuards: readonly string[]
 ) => {
   const artifact = artifacts.find(
+    (candidate) =>
+      candidate.kind === 'release-discipline' &&
+      candidate.passed &&
+      requiredDisciplineGuards.every((guard) =>
+        candidate.guards.includes(guard)
+      )
+  )
+
+  if (artifact) {
+    return
+  }
+
+  const incompleteArtifact = artifacts.find(
     (candidate) => candidate.kind === 'release-discipline' && candidate.passed
   )
 
-  if (!artifact || artifact.kind !== 'release-discipline') {
+  if (!incompleteArtifact || incompleteArtifact.kind !== 'release-discipline') {
     issues.push('Missing release discipline proof artifact')
     return
   }
 
   const missing = requiredDisciplineGuards.filter(
-    (guard) => !artifact.guards.includes(guard)
+    (guard) => !incompleteArtifact.guards.includes(guard)
   )
 
   if (missing.length > 0) {

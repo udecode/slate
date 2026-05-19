@@ -916,4 +916,59 @@ describe('extension method hard cut', () => {
       false
     )
   })
+
+  it('keeps installed same-name extension when replacement validation fails', () => {
+    const editor = createEditor()
+    const installed = defineEditorExtension({
+      api: {
+        duplicate: {
+          value: 'installed',
+        },
+      },
+      name: 'duplicate',
+      state: {
+        duplicate() {
+          return { value: () => 'installed' }
+        },
+      },
+    })
+    const replacement = defineEditorExtension({
+      dependencies: ['missing'],
+      api: {
+        duplicate: {
+          value: 'replacement',
+        },
+      },
+      name: 'duplicate',
+      state: {
+        duplicate() {
+          return { value: () => 'replacement' }
+        },
+      },
+    })
+
+    editor.extend(installed)
+
+    assert.throws(
+      () => editor.extend(replacement),
+      /missing dependency "missing"/
+    )
+    assert.equal(
+      (editor.api as { duplicate?: { value: string } }).duplicate?.value,
+      'installed'
+    )
+    assert.equal(
+      editor.read((state) =>
+        (
+          state as unknown as { duplicate: { value: () => string } }
+        ).duplicate.value()
+      ),
+      'installed'
+    )
+    assert.equal(editor.getApi(installed), editor.api.duplicate)
+    assert.throws(
+      () => editor.getApi(replacement),
+      /Editor extension "duplicate" is not installed on this editor\./
+    )
+  })
 })

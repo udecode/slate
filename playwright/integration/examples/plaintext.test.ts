@@ -83,6 +83,39 @@ test.describe('plaintext example', () => {
     })
   })
 
+  test('does not fallback insert after same-text native paste', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium clipboard proof')
+
+    const editor = await openExample(page, 'plaintext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const text = await editor.get.modelText()
+
+    await editor.selection.selectAll()
+    const beforeTraceLength = (await editor.get.kernelTrace()).length
+    await editor.clipboard.pasteText(text)
+    const pasteTrace = (await editor.get.kernelTrace()).slice(beforeTraceLength)
+
+    expect(await editor.get.modelText()).toBe(text)
+    expect(
+      pasteTrace.some(
+        (entry) =>
+          entry.eventFamily === 'paste' && entry.command?.kind === 'insert-data'
+      )
+    ).toBe(true)
+    expect(
+      pasteTrace.some(
+        (entry) =>
+          entry.eventFamily === 'repair' &&
+          entry.command?.kind === 'insert-text'
+      )
+    ).toBe(false)
+  })
+
   test('applies beforeinput target ranges for browser text substitutions', async ({
     page,
   }, testInfo) => {

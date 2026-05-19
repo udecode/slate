@@ -77,6 +77,17 @@ const listSourceFiles = (roots: readonly string[]) => {
   return files
 }
 
+const readPackageJson = (packageName: string) =>
+  JSON.parse(
+    readFileSync(
+      resolve(repoRoot, 'packages', packageName, 'package.json'),
+      'utf8'
+    )
+  ) as {
+    peerDependencies?: Record<string, string>
+    version: string
+  }
+
 const allowedSlateInternalImportFiles = new Set([
   'packages/slate-react/src/editable/runtime-editor-api.ts',
   'packages/slate-react/src/editable/runtime-live-state.ts',
@@ -195,6 +206,27 @@ describe('slate-react surface contract', () => {
     )
 
     expect(violations).toEqual([])
+  })
+
+  test('runtime package-private imports pin peer floors to sibling runtime packages', () => {
+    const slateReactPackage = readPackageJson('slate-react')
+    const slatePackage = readPackageJson('slate')
+    const slateDomPackage = readPackageJson('slate-dom')
+    const runtimeSources = [
+      'packages/slate-react/src/editable/runtime-editor-api.ts',
+      'packages/slate-react/src/editable/runtime-repair-engine.ts',
+    ]
+      .map((file) => readFileSync(resolve(repoRoot, file), 'utf8'))
+      .join('\n')
+
+    expect(runtimeSources).toContain("from 'slate/internal'")
+    expect(runtimeSources).toContain("from 'slate-dom'")
+    expect(slateReactPackage.peerDependencies?.slate).toBe(
+      `>=${slatePackage.version}`
+    )
+    expect(slateReactPackage.peerDependencies?.['slate-dom']).toBe(
+      `>=${slateDomPackage.version}`
+    )
   })
 
   test('generic selector substrate uses React external-store subscription primitive', () => {
@@ -790,7 +822,7 @@ describe('slate-react surface contract', () => {
       renderCounts[id] = (renderCounts[id] ?? 0) + 1
 
       if (id === 'target') {
-        readTargetPath = () => editor.api.dom.findPath(element)
+        readTargetPath = () => editor.api.dom.assertPath(element)
       }
 
       return <div {...attributes}>{children}</div>

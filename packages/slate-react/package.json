@@ -3,7 +3,7 @@
   "description": "Tools for building completely customizable richtext editors with React.",
   "version": "0.124.0",
   "license": "MIT",
-  "repository": "git://github.com/ianstormtaylor/slate.git",
+  "repository": "https://github.com/ianstormtaylor/slate.git",
   "type": "module",
   "exports": {
     ".": "./dist/index.js"
@@ -25,7 +25,7 @@
   "scripts": {
     "build": "tsdown --config ../../config/tsdown.config.mts --log-level warn",
     "clean": "rimraf dist lib",
-    "test": "bun test:vitest",
+    "test": "npm run test:vitest",
     "test:vitest": "vitest run --config ./vitest.config.mjs",
     "typecheck": "tsc --project tsconfig.json --noEmit && tsc --project test/tsconfig.generic-types.json --noEmit"
   },
@@ -48,8 +48,8 @@
   "peerDependencies": {
     "react": ">=19.2.0",
     "react-dom": ">=19.2.0",
-    "slate": ">=0.121.0",
-    "slate-dom": ">=0.119.1"
+    "slate": ">=0.124.1",
+    "slate-dom": ">=0.124.1"
   },
   "keywords": [
     "canvas",

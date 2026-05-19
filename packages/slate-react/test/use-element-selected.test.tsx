@@ -200,7 +200,7 @@ describe('useElementSelected', () => {
 
         removedIds.add(id)
         editor.update((tx) => {
-          const path = editor.api.dom.findPath(element)
+          const path = editor.api.dom.assertPath(element)
 
           tx.nodes.remove({ at: path })
         })
@@ -272,6 +272,43 @@ describe('useElementSelected', () => {
 
     expect(Editor.hasPath(editor, watchedPath)).toBe(false)
     expect(selectedValues.at(-1)).toBe(false)
+  })
+
+  it('updates an explicit watched path from inside another rendered element', async () => {
+    editor = createReactEditor({ initialValue: initialValue() })
+
+    const watchedPath = [2]
+    const selectedByHostId: Record<string, boolean | undefined> = {}
+    const renderElement = ({
+      element,
+      attributes,
+      children,
+    }: RenderElementProps) => {
+      const selected = useElementSelected({ at: watchedPath })
+      const { id } = element as any
+
+      if (id === '0') {
+        selectedByHostId[id] = selected
+      }
+
+      return <div {...attributes}>{children}</div>
+    }
+
+    render(
+      <Slate editor={editor}>
+        <Editable renderElement={renderElement} />
+      </Slate>
+    )
+
+    expect(selectedByHostId['0']).toBe(false)
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.selection.set({ path: [2, 0], offset: 0 })
+      })
+    })
+
+    expect(selectedByHostId['0']).toBe(true)
   })
 
   it('supports collapsed-only mode with an explicit watched path', async () => {

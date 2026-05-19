@@ -160,7 +160,7 @@ const getLiveTextEntriesInRange = (
     const entry = getTextEntryAtPath(editor, start.path)
 
     if (!entry) {
-      throw new Error('Cannot project a range outside the live editor state')
+      return []
     }
 
     assertValidPoint(entry, start)
@@ -191,7 +191,7 @@ const getPositionSegments = (
   )
 
   if (!startEntry || !endEntry) {
-    throw new Error('Cannot project a range outside the live editor state')
+    return []
   }
 
   assertValidPoint(startEntry, start)

@@ -84,6 +84,7 @@ const isDebugSnapshot = (value: unknown): value is DebugSnapshot => {
     typeof record.blockTexts === 'string' &&
     typeof record.domSelection === 'string' &&
     Array.isArray(record.events) &&
+    record.events.every((event) => typeof event === 'string') &&
     typeof record.slateSelection === 'string'
   )
 }

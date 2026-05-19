@@ -1,6 +1,7 @@
 import {
   type BrowserMobileDescriptor,
   type BrowserMobileTarget,
+  createBrowserMobileUrl,
   resolveBrowserMobileSurface,
 } from './contracts'
 
@@ -18,14 +19,10 @@ export const createAppiumAndroidDescriptor = (
   return {
     ...target,
     ...surface,
-    hostReadyUrl: `http://localhost:${target.port}/examples/${target.example}${
-      target.debugQuery ? `?${target.debugQuery}` : ''
-    }`,
+    hostReadyUrl: createBrowserMobileUrl(target),
     scenario,
     transport: 'appium-android',
-    url: `http://10.0.2.2:${target.port}/examples/${target.example}${
-      target.debugQuery ? `?${target.debugQuery}` : ''
-    }`,
+    url: createBrowserMobileUrl(target, '10.0.2.2'),
   }
 }
 
@@ -52,14 +49,10 @@ export const createAppiumIosDescriptor = (
   return {
     ...target,
     ...surface,
-    hostReadyUrl: `http://localhost:${target.port}/examples/${target.example}${
-      target.debugQuery ? `?${target.debugQuery}` : ''
-    }`,
+    hostReadyUrl: createBrowserMobileUrl(target),
     scenario,
     transport: 'appium-ios',
-    url: `http://localhost:${target.port}/examples/${target.example}${
-      target.debugQuery ? `?${target.debugQuery}` : ''
-    }`,
+    url: createBrowserMobileUrl(target),
   }
 }
 

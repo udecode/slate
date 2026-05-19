@@ -194,6 +194,18 @@ describe('slate text-units contract', () => {
     assert.equal(getCharacterDistance('🏴🏳️', true), 3)
   })
 
+  it('keeps CRLF as one grapheme cluster', () => {
+    assert.equal(getCharacterDistance('\r\n'), 2)
+    assert.equal(getCharacterDistance('\r\n', true), 2)
+    assert.equal(getCharacterDistance('\r\nx'), 2)
+    assert.equal(getCharacterDistance('x\r\n', true), 2)
+    assert.equal(getCharacterDistance('\rx'), 1)
+    assert.equal(getCharacterDistance('x\r', true), 1)
+    assert.equal(getCharacterDistance('\u0007\u0301'), 1)
+    assert.deepEqual(collectCharacterDistances('\r\nx'), [2, 1])
+    assert.deepEqual(collectCharacterDistances('x\r\n', true), [2, 1])
+  })
+
   it('measures word distance left-to-right', () => {
     assert.equal(getWordDistance('hello foobarbaz'), 5)
     assert.equal(getWordDistance("Don't do this"), 5)

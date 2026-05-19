@@ -210,7 +210,7 @@ export const transform: OperationTransformMethods['transform'] = (
           )
         }
 
-        inheritRuntimeId(newNode, prev)
+        inheritRuntimeId(newNode, prev, editor)
 
         return replaceChildren(children, prevIndex, 2, newNode)
       })
@@ -609,7 +609,7 @@ export const transform: OperationTransformMethods['transform'] = (
           } as Descendant
         }
 
-        inheritRuntimeId(newNode, node)
+        inheritRuntimeId(newNode, node, editor)
 
         for (const key in properties) {
           if (!Object.hasOwn(properties, key)) continue

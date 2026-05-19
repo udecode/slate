@@ -83,14 +83,14 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
     const [node] = getNode(editor, path)
 
     if (NodeApi.isText(node)) {
-      throw new Error('unwrapNodes currently supports only element nodes')
+      return
     }
 
     const parentPath = path.slice(0, -1)
     const index = path.at(-1)
 
     if (index == null) {
-      throw new Error('unwrapNodes requires a non-root path')
+      return
     }
 
     const childCount = getChildren(editor, node).length
@@ -195,9 +195,7 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
     }
 
     if (!LocationApi.isRange(target)) {
-      throw new Error(
-        'unwrapNodes currently supports only exact paths or ranges'
-      )
+      return
     }
 
     const [start, end] =
@@ -206,18 +204,14 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
         : [target.focus, target.anchor]
 
     if (start.path.length < 2 || end.path.length < 2) {
-      throw new Error(
-        'unwrapNodes currently supports only top-level wrapper block ranges'
-      )
+      return
     }
 
     const startWrapperPath = start.path.slice(0, -2)
     const endWrapperPath = end.path.slice(0, -2)
 
     if (startWrapperPath.length !== 1 || endWrapperPath.length !== 1) {
-      throw new Error(
-        'unwrapNodes currently supports only top-level wrapper block ranges'
-      )
+      return
     }
 
     const startWrapperIndex = startWrapperPath[0]!
@@ -235,9 +229,7 @@ export const unwrapNodes: NodeMutationMethods['unwrapNodes'] = (
         NodeApi.isText(wrapperNode) ||
         getChildren(editor, wrapperNode).some((child) => NodeApi.isText(child))
       ) {
-        throw new Error(
-          'unwrapNodes currently supports only top-level wrapper blocks with element children'
-        )
+        return
       }
 
       wrapperChildCounts.push(getChildren(editor, wrapperNode).length)

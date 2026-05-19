@@ -1283,6 +1283,41 @@ it('positions exposes the current point-iteration seam across offset, character,
   )
 })
 
+it('positions returns no points for stale range endpoints but still rejects invalid live offsets', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'one' }],
+      },
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  const staleRange = {
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 3 },
+  }
+
+  assert.deepEqual(Array.from(Editor.positions(editor, { at: staleRange })), [])
+
+  assert.throws(
+    () =>
+      Array.from(
+        Editor.positions(editor, {
+          at: {
+            anchor: { path: [0, 0], offset: 0 },
+            focus: { path: [0, 0], offset: 999 },
+          },
+        })
+      ),
+    /Point offset 999 is outside text bounds/
+  )
+})
+
 it('mirrors the legacy positions/path/inline.tsx oracle row', () => {
   const editor = createEditor()
   defineElement(editor, { type: 'inline', inline: true })
@@ -2777,6 +2812,22 @@ it('mirrors the legacy Editor.next/default.tsx oracle row', () => {
   ])
 })
 
+it('returns undefined when Editor.next is called from the root path', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.equal(Editor.next(editor, { at: [] }), undefined)
+  assert.equal(
+    editor.read((state) => state.nodes.next({ at: [] })),
+    undefined
+  )
+})
+
 it('mirrors the legacy Editor.next/block.tsx oracle row', () => {
   const editor = createEditor()
 
@@ -2835,6 +2886,22 @@ it('mirrors the legacy Editor.previous/default.tsx oracle row', () => {
     },
     [0],
   ])
+})
+
+it('returns undefined when getting the previous node from the root path', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: createLegacyBlockChildren(),
+    selection: null,
+    marks: null,
+  })
+
+  assert.equal(Editor.previous(editor, { at: [] }), undefined)
+  assert.equal(
+    editor.read((state) => state.nodes.previous({ at: [] })),
+    undefined
+  )
 })
 
 it('mirrors the legacy Editor.previous/block.tsx oracle row', () => {

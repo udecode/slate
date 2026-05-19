@@ -90,11 +90,25 @@ const nextPaint = (page) =>
 
 const startStaticServer = async () => {
   const server = createServer((request, response) => {
-    void handler(request, response, {
-      cleanUrls: true,
-      directoryListing: false,
-      public: siteOutRoot,
-    })
+    Promise.resolve()
+      .then(() =>
+        handler(request, response, {
+          cleanUrls: true,
+          directoryListing: false,
+          public: siteOutRoot,
+        })
+      )
+      .catch((error) => {
+        console.error('Browser trace server request failed:', error)
+
+        if (response.headersSent) {
+          response.destroy()
+          return
+        }
+
+        response.statusCode = 500
+        response.end('Internal Server Error')
+      })
   })
 
   await new Promise((resolve, reject) => {

@@ -816,6 +816,99 @@ it('normalizeNode inserts an empty text child into empty elements', () => {
   ])
 })
 
+it('normalizes empty elements inserted by replace_children replay', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha' }],
+      },
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  applyOperation(editor, {
+    type: 'replace_children',
+    path: [],
+    index: 0,
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha' }],
+      },
+    ],
+    newChildren: [
+      {
+        type: 'paragraph',
+        children: [],
+      } as Descendant,
+    ],
+    selection: null,
+    newSelection: null,
+  })
+
+  assert.deepEqual(Editor.getSnapshot(editor).children, [
+    {
+      type: 'paragraph',
+      children: [{ text: '' }],
+    },
+  ])
+})
+
+it('normalizes empty elements inserted by replace_fragment replay', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'quote',
+        children: [
+          {
+            type: 'paragraph',
+            children: [{ text: 'alpha' }],
+          },
+        ],
+      } as Descendant,
+    ],
+    selection: null,
+    marks: null,
+  })
+
+  applyOperation(editor, {
+    type: 'replace_fragment',
+    path: [0],
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha' }],
+      },
+    ],
+    newChildren: [
+      {
+        type: 'paragraph',
+        children: [],
+      } as Descendant,
+    ],
+    selection: null,
+    newSelection: null,
+  })
+
+  assert.deepEqual(Editor.getSnapshot(editor).children, [
+    {
+      type: 'quote',
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: '' }],
+        },
+      ],
+    },
+  ])
+})
+
 it('normalizeNode inserts spacer text around inline-only children', () => {
   const editor = createEditor()
 

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useReducer } from 'react'
 import { EDITOR_TO_FORCE_RENDER } from 'slate-dom'
+import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { createDOMRepairQueue } from './dom-repair-queue'
 import type { EditableInputController } from './input-state'
@@ -33,7 +34,15 @@ export const useRuntimeRepairEngine = ({
     [editor, inputController, scrollSelectionIntoView, syncDOMSelectionToEditor]
   )
 
-  EDITOR_TO_FORCE_RENDER.set(editor, forceRender)
+  useIsomorphicLayoutEffect(() => {
+    EDITOR_TO_FORCE_RENDER.set(editor, forceRender)
+
+    return () => {
+      if (EDITOR_TO_FORCE_RENDER.get(editor) === forceRender) {
+        EDITOR_TO_FORCE_RENDER.delete(editor)
+      }
+    }
+  }, [editor, forceRender])
 
   const requestEditableRepair = useCallback(
     (request: EditableRepairRequest) => {

@@ -3,7 +3,7 @@
   "description": "An operation-based history implementation for Slate editors.",
   "version": "0.115.0",
   "license": "MIT",
-  "repository": "git://github.com/ianstormtaylor/slate.git",
+  "repository": "https://github.com/ianstormtaylor/slate.git",
   "type": "module",
   "exports": {
     ".": "./dist/index.js"

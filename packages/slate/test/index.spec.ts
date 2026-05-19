@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { cloneDeep } from 'lodash'
-import { createEditor } from 'slate'
+import { createEditor, type Descendant } from 'slate'
 import { Editor, getEditorRuntime } from 'slate/internal'
 import { runEditorTransaction as runInternalEditorTransaction } from '../src/core/public-state'
 import {
@@ -191,6 +191,78 @@ describe('slate', () => {
       assert.deepEqual(test(input), output, fixturePath)
     }
   )
+
+  describe('runtime ids', () => {
+    it('keeps same-object nodes owner-scoped across editors', () => {
+      const shared: Descendant = {
+        type: 'paragraph',
+        children: [{ text: 'shared' }],
+      }
+      const other: Descendant = {
+        type: 'paragraph',
+        children: [{ text: 'other' }],
+      }
+      const editor1 = createEditor()
+      const editor2 = createEditor()
+
+      Editor.insertNodes(editor1, shared, { at: [0] })
+      assert(Editor.getRuntimeId(editor1, [0]))
+
+      Editor.insertNodes(editor2, shared, { at: [0] })
+      Editor.insertNodes(editor2, other, { at: [1] })
+
+      const paths = [[0], [0, 0], [1], [1, 0]]
+      const runtimeIds = paths.map((path) => {
+        const runtimeId = Editor.getRuntimeId(editor2, path)
+
+        assert(runtimeId)
+        assert.deepEqual(Editor.getPathByRuntimeId(editor2, runtimeId), path)
+
+        return runtimeId
+      })
+
+      assert.equal(new Set(runtimeIds).size, runtimeIds.length)
+    })
+  })
+
+  describe('schema', () => {
+    it('rolls back earlier specs when batch registration fails', () => {
+      const editor = createEditor()
+      const schema = getEditorRuntime(editor).schema
+
+      assert.throws(() => {
+        schema.define([{ type: 'atomic-a' }, { type: 'atomic-a' }])
+      }, /conflicts/)
+      assert.equal(schema.getElementSpec('atomic-a'), null)
+    })
+  })
+
+  describe('selection operations', () => {
+    it('does not emit a selection operation for null-to-null selection updates', () => {
+      const editor = createEditor()
+
+      Editor.replace(editor, {
+        children: [
+          {
+            type: 'paragraph',
+            children: [{ text: 'one' }],
+          },
+        ],
+        selection: null,
+        marks: null,
+      })
+
+      const operationCount = Editor.getOperations(editor).length
+      const lastCommit = Editor.getLastCommit(editor)
+
+      runEditorTransaction(editor, (tx) => {
+        tx.setSelection(null)
+      })
+
+      assert.equal(Editor.getOperations(editor).length, operationCount)
+      assert.equal(Editor.getLastCommit(editor), lastCommit)
+    })
+  })
 
   describe('batchDirty', () => {
     const runBatchDirtyTree = (path: string) => {

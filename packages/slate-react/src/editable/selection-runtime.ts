@@ -24,6 +24,12 @@ type AddSelectorEventListener = (
   options?: SelectorSubscriptionOptions
 ) => () => void
 
+type CancelScheduledDOMExport = () => void
+
+type ScheduleDOMExport = (
+  callback: () => void
+) => CancelScheduledDOMExport | void
+
 export const shouldExportModelSelectionToDOM = (
   inputController: EditableInputController,
   {
@@ -132,11 +138,18 @@ export const subscribeSelectionOnlyDOMExport = ({
   inputController,
   scheduleDOMExport = (callback) => {
     if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(callback)
-      return
+      const animationFrame = requestAnimationFrame(callback)
+
+      return () => {
+        cancelAnimationFrame(animationFrame)
+      }
     }
 
-    setTimeout(callback)
+    const timeout = setTimeout(callback)
+
+    return () => {
+      clearTimeout(timeout)
+    }
   },
   shouldSkipDOMExport,
   syncDOMSelectionToEditor,
@@ -144,16 +157,23 @@ export const subscribeSelectionOnlyDOMExport = ({
   addSelectorEventListener: AddSelectorEventListener
   getModelSelection?: () => Range | null
   inputController: EditableInputController
-  scheduleDOMExport?: (callback: () => void) => void
+  scheduleDOMExport?: ScheduleDOMExport
   shouldSkipDOMExport?: (
     selection: Range | null,
     commit?: SnapshotChange
   ) => boolean
   syncDOMSelectionToEditor: () => void
-}) =>
-  addSelectorEventListener(
+}) => {
+  const pendingDOMExportCancels = new Set<CancelScheduledDOMExport>()
+  let subscribed = true
+
+  const unsubscribeSelector = addSelectorEventListener(
     (_operations, commit) => {
       const sync = () => {
+        if (!subscribed) {
+          return
+        }
+
         const modelSelection = getModelSelection()
 
         if (shouldSkipDOMExport?.(modelSelection, commit)) {
@@ -173,7 +193,29 @@ export const subscribeSelectionOnlyDOMExport = ({
       }
 
       if (commit?.childrenChanged) {
-        scheduleDOMExport(sync)
+        let cancelScheduledDOMExport: CancelScheduledDOMExport | undefined
+        let didRunScheduledDOMExport = false
+        const runScheduledDOMExport = () => {
+          didRunScheduledDOMExport = true
+          if (cancelScheduledDOMExport) {
+            pendingDOMExportCancels.delete(cancelScheduledDOMExport)
+          }
+
+          sync()
+        }
+
+        const nextCancelScheduledDOMExport = scheduleDOMExport(
+          runScheduledDOMExport
+        )
+
+        if (nextCancelScheduledDOMExport) {
+          cancelScheduledDOMExport = nextCancelScheduledDOMExport
+          if (subscribed && !didRunScheduledDOMExport) {
+            pendingDOMExportCancels.add(cancelScheduledDOMExport)
+          } else if (!didRunScheduledDOMExport) {
+            cancelScheduledDOMExport()
+          }
+        }
       } else {
         sync()
       }
@@ -188,3 +230,13 @@ export const subscribeSelectionOnlyDOMExport = ({
         ),
     }
   )
+
+  return () => {
+    subscribed = false
+    for (const cancelPendingDOMExport of pendingDOMExportCancels) {
+      cancelPendingDOMExport()
+    }
+    pendingDOMExportCancels.clear()
+    unsubscribeSelector()
+  }
+}
