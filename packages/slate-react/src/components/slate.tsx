@@ -14,6 +14,7 @@ import {
   composeProjectionSources,
   type SlateDecorationSource,
 } from '../decoration-source'
+import { Editor } from '../editable/runtime-editor-api'
 import { EditorContext } from '../hooks/use-editor'
 import { FocusedContext } from '../hooks/use-editor-focused'
 import {
@@ -108,11 +109,30 @@ export const Slate = <
   const reactEditor = editor as unknown as ReactRuntimeEditor<V>
   const { selectorContext, onChange: handleSelectorChange } =
     useEditorSelectorContext()
+  const onChangeRef = useRef(onChange)
+  const onSelectionChangeRef = useRef(onSelectionChange)
+  const onValueChangeRef = useRef(onValueChange)
   const lastOperationCountRef = useRef(
     editor.read((state) => state.value.operations().length)
   )
+  const lastCommitVersionRef = useRef(
+    Editor.getLastCommit(editor)?.version ?? 0
+  )
+  const lastEditorRef = useRef(editor)
 
-  useEffect(() => {
+  onChangeRef.current = onChange
+  onSelectionChangeRef.current = onSelectionChange
+  onValueChangeRef.current = onValueChange
+
+  if (lastEditorRef.current !== editor) {
+    lastEditorRef.current = editor
+    lastOperationCountRef.current = editor.read(
+      (state) => state.value.operations().length
+    )
+    lastCommitVersionRef.current = Editor.getLastCommit(editor)?.version ?? 0
+  }
+
+  useIsomorphicLayoutEffect(() => {
     const maybeBatchUpdates =
       REACT_MAJOR_VERSION < 18
         ? ReactDOM.unstable_batchedUpdates
@@ -132,6 +152,9 @@ export const Slate = <
       lastOperationCountRef.current = commit
         ? editor.read((state) => state.value.operations().length)
         : currentOperations.length
+      lastCommitVersionRef.current = commit
+        ? commit.version
+        : lastCommitVersionRef.current
 
       maybeBatchUpdates(() => {
         profileRuntimeDuration('focused-state', () => {
@@ -161,14 +184,14 @@ export const Slate = <
             valueChanged: commit.childrenChanged,
           }
 
-          onChange?.(value, change)
+          onChangeRef.current?.(value, change)
 
           if (commit.childrenChanged) {
-            onValueChange?.(value, change)
+            onValueChangeRef.current?.(value, change)
           }
 
           if (commit.selectionChanged) {
-            onSelectionChange?.(snapshot.selection, change)
+            onSelectionChangeRef.current?.(snapshot.selection, change)
           }
         })
 
@@ -181,8 +204,15 @@ export const Slate = <
       })
     }
 
-    return editor.subscribe(onContextChange)
-  }, [editor, handleSelectorChange, onChange, onSelectionChange, onValueChange])
+    const unsubscribe = editor.subscribe(onContextChange)
+    const latestCommit = Editor.getLastCommit(editor)
+
+    if (latestCommit && latestCommit.version > lastCommitVersionRef.current) {
+      onContextChange(Editor.getSnapshot(editor), latestCommit)
+    }
+
+    return unsubscribe
+  }, [editor, handleSelectorChange, reactEditor])
 
   const [isFocused, setIsFocused] = useState(ReactEditor.isFocused(reactEditor))
   const projectionContextValue = useMemo(() => {

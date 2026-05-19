@@ -282,6 +282,13 @@ describe('slate-react surface contract', () => {
           rationale:
             'The hook exposes editor selection through the public selector contract.',
         },
+        'packages/slate-react/src/rendering-strategy/segment-shell.tsx': {
+          count: 1,
+          next: 'rendering-strategy-preview',
+          owner: 'Rendering strategy shell preview',
+          rationale:
+            'Shelled segment previews subscribe through the public selector contract so hidden preview text refreshes without remounting the whole shell.',
+        },
       }
     )
   })

@@ -159,12 +159,20 @@ export const syncTextOperationsToDOM = (
     const text =
       'text' in node && typeof node.text === 'string' ? node.text : null
 
-    if (!text) {
-      recordDOMTextSyncProfile('skip-empty-text')
+    if (text === null) {
+      recordDOMTextSyncProfile('skip-non-text')
       continue
     }
 
     const stringElement = strings[0]!
+
+    if (text.length === 0) {
+      markDOMTextSyncMutationTarget(stringElement)
+      stringElement.textContent = ''
+      recordDOMTextSyncProfile('skip-empty-text')
+      continue
+    }
+
     const textNode = Array.from(stringElement.childNodes).find(
       (child) => child.nodeType === Node.TEXT_NODE
     )

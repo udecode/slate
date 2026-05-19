@@ -5,6 +5,8 @@ import {
   Editable,
   Slate,
   type SlateRangeDecoration,
+  useEditor,
+  useEditorState,
   useSlateEditor,
   useSlateRangeDecorationSource,
 } from 'slate-react'
@@ -21,11 +23,15 @@ type LintIssue = {
   fixText?: string
 }
 
+type LintMode = 'local' | 'off' | 'server'
+
 type LintIssueDecoration = {
   data: LintIssue
   key: string
   range: Range
 }
+
+const NO_LINT_ISSUES: readonly LintIssueDecoration[] = []
 
 const panelCss = css`
   max-width: 760px;
@@ -197,54 +203,48 @@ const getSegmentIssue = (
   )
 }
 
-const LintingExample = () => {
-  const editor = useSlateEditor({
-    initialValue: [
-      {
-        type: 'paragraph',
-        children: [
-          {
-            text: 'This paragraph obviously has a spacing problem ,and the linter should report it.',
-          },
-        ],
-      },
-      {
-        type: 'paragraph',
-        children: [
-          {
-            text: 'Server diagnostics can arrive later without changing the Slate document.',
-          },
-        ],
-      },
-    ],
-  })
-  const [diagnostics, setDiagnostics] = useState<
-    readonly LintIssueDecoration[]
-  >([])
-  const [sourceLabel, setSourceLabel] = useState('idle')
+const LintingPanel = ({
+  lintMode,
+  setLintMode,
+  setSourceLabel,
+  sourceLabel,
+}: {
+  lintMode: LintMode
+  setLintMode: (mode: LintMode) => void
+  setSourceLabel: (label: string) => void
+  sourceLabel: string
+}) => {
+  const editor = useEditor()
+  const diagnostics = useEditorState(
+    (state) =>
+      lintMode === 'off'
+        ? NO_LINT_ISSUES
+        : collectLintIssues(state.runtime.snapshot(), {
+            includeServerDiagnostics: lintMode === 'server',
+          }),
+    { deps: [lintMode] }
+  )
 
-  const lintingSource = useSlateRangeDecorationSource<LintIssue>(editor, {
-    deps: [diagnostics],
-    id: 'linting',
-    dirtiness: 'external',
-    read: (): readonly SlateRangeDecoration<LintIssue>[] => diagnostics,
-  })
-
-  const collectFromEditor = (includeServerDiagnostics = false) =>
-    collectLintIssues(
-      editor.read((state) => state.runtime.snapshot()),
-      {
-        includeServerDiagnostics,
-      }
-    )
+  const collectFromEditor = (mode: LintMode) =>
+    mode === 'off'
+      ? NO_LINT_ISSUES
+      : collectLintIssues(
+          editor.read((state) => state.runtime.snapshot()),
+          {
+            includeServerDiagnostics: mode === 'server',
+          }
+        )
 
   const runLocalLint = () => {
-    setDiagnostics(collectFromEditor())
+    setLintMode('local')
     setSourceLabel('local')
   }
 
   const applyFirstFix = () => {
-    const fix = diagnostics.find((diagnostic) => diagnostic.data.fixText)
+    const mode = lintMode === 'off' ? 'local' : lintMode
+    const fix = collectFromEditor(mode).find(
+      (diagnostic) => diagnostic.data.fixText
+    )
 
     const fixText = fix?.data.fixText
 
@@ -256,17 +256,17 @@ const LintingExample = () => {
       tx.text.delete({ at: fix.range })
       tx.text.insert(fixText, { at: fix.range.anchor })
     })
-    setDiagnostics(collectFromEditor())
+    setLintMode(mode)
     setSourceLabel('fixed')
   }
 
   const receiveServerDiagnostics = () => {
-    setDiagnostics(collectFromEditor(true))
+    setLintMode('server')
     setSourceLabel('server')
   }
 
   const clearDiagnostics = () => {
-    setDiagnostics([])
+    setLintMode('off')
     setSourceLabel('cleared')
   }
 
@@ -274,9 +274,9 @@ const LintingExample = () => {
     <div className={panelCss}>
       <Instruction>
         This linter keeps findings outside the Slate document.{' '}
-        <code>useSlateRangeDecorationSource</code> maps app-owned lint results
-        to ranges, and <code>deps</code> refresh the external source when those
-        results change.
+        <code>useSlateRangeDecorationSource</code> reads the current editor
+        snapshot, maps lint findings to ranges, and refreshes on text edits or
+        external source changes.
       </Instruction>
       <div className={controlsCss}>
         <button className={buttonCss} onClick={runLocalLint} type="button">
@@ -324,31 +324,77 @@ const LintingExample = () => {
           </li>
         ))}
       </ul>
-      <Slate decorationSources={[lintingSource]} editor={editor}>
-        <Editable
-          id="external-decoration-sources"
-          renderSegment={(segment, children) => {
-            const issue = getSegmentIssue(segment.slices)
+      <Editable
+        id="external-decoration-sources"
+        renderSegment={(segment, children) => {
+          const issue = getSegmentIssue(segment.slices)
 
-            return issue ? (
-              <span
-                data-lint-rule={issue.ruleId}
-                data-lint-severity={issue.severity}
-                style={{
-                  borderRadius: 4,
-                  ...lintStyles[issue.severity],
-                }}
-              >
-                {children}
-              </span>
-            ) : (
-              children
-            )
-          }}
-          style={{ minHeight: 96 }}
-        />
-      </Slate>
+          return issue ? (
+            <span
+              data-lint-rule={issue.ruleId}
+              data-lint-severity={issue.severity}
+              style={{
+                borderRadius: 4,
+                ...lintStyles[issue.severity],
+              }}
+            >
+              {children}
+            </span>
+          ) : (
+            children
+          )
+        }}
+        style={{ minHeight: 96 }}
+      />
     </div>
+  )
+}
+
+const LintingExample = () => {
+  const editor = useSlateEditor({
+    initialValue: [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'This paragraph obviously has a spacing problem ,and the linter should report it.',
+          },
+        ],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          {
+            text: 'Server diagnostics can arrive later without changing the Slate document.',
+          },
+        ],
+      },
+    ],
+  })
+  const [lintMode, setLintMode] = useState<LintMode>('off')
+  const [sourceLabel, setSourceLabel] = useState('idle')
+
+  const lintingSource = useSlateRangeDecorationSource<LintIssue>(editor, {
+    deps: [lintMode],
+    id: 'linting',
+    dirtiness: ['text', 'external'],
+    read: ({ snapshot }): readonly SlateRangeDecoration<LintIssue>[] =>
+      lintMode === 'off'
+        ? []
+        : collectLintIssues(snapshot, {
+            includeServerDiagnostics: lintMode === 'server',
+          }),
+  })
+
+  return (
+    <Slate decorationSources={[lintingSource]} editor={editor}>
+      <LintingPanel
+        lintMode={lintMode}
+        setLintMode={setLintMode}
+        setSourceLabel={setSourceLabel}
+        sourceLabel={sourceLabel}
+      />
+    </Slate>
   )
 }
 

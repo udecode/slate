@@ -18,4 +18,19 @@ describe('release scripts contract', () => {
       'bun prerelease && changeset publish'
     )
   })
+
+  it('keeps direct tsc typecheck scripts read-only', () => {
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
+      scripts: Record<string, string>
+    }
+
+    const emittingTypecheckScripts = Object.entries(packageJson.scripts)
+      .filter(
+        ([name, script]) =>
+          name.startsWith('typecheck') && /\btsc\b/.test(script)
+      )
+      .filter(([, script]) => !/(?:^|\s)--noEmit(?:\s|$)/.test(script))
+
+    assert.deepEqual(emittingTypecheckScripts, [])
+  })
 })

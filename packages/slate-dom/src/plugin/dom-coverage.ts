@@ -642,7 +642,7 @@ export const DOMCoverage = {
     getRegistry(editor).materializeHandler = handler
   },
 
-  toDOMPointOrBoundary(
+  resolveDOMPointOrBoundary(
     editor: DOMEditorType<any>,
     point: Point
   ): DOMCoverageDOMPointResult {
@@ -662,7 +662,7 @@ export const DOMCoverage = {
     }
   },
 
-  toDOMRangeOrBoundary(
+  resolveDOMRangeOrBoundary(
     editor: DOMEditorType<any>,
     range: SlateRange
   ): DOMCoverageDOMRangeResult {
@@ -682,7 +682,7 @@ export const DOMCoverage = {
     }
   },
 
-  toSlatePointFromBoundary(
+  resolveSlatePointFromBoundary(
     editor: SlateEditor,
     domPoint: DOMPoint
   ): DOMCoverageSlatePointResult | null {

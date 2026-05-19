@@ -1,6 +1,13 @@
 import type { CSSProperties } from 'react'
 import React, { useCallback } from 'react'
-import type { Descendant, Path, RuntimeId } from 'slate'
+import type {
+  Descendant,
+  Operation,
+  Path,
+  RuntimeId,
+  Editor as SlateEditor,
+  SnapshotChange,
+} from 'slate'
 import { IS_COMPOSING } from 'slate-dom'
 import type {
   DOMCoverageReason,
@@ -11,6 +18,7 @@ import { Editor } from '../editable/runtime-editor-api'
 
 import { readRuntimeNode } from '../editable/runtime-live-state'
 import { useEditor } from '../hooks/use-editor'
+import { useEditorSelector } from '../hooks/use-editor-selector'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import {
   classifySegmentKind,
@@ -35,6 +43,11 @@ const truncate = (value: string, limit: number) =>
 
 const MAX_PREVIEW_LINES = 3
 
+type SegmentPreview = {
+  kind: RenderingStrategySegmentKind
+  lines: readonly string[]
+}
+
 const shellStyle = {
   borderLeft: '2px solid rgba(148, 163, 184, 0.35)',
   contain: 'layout style paint',
@@ -42,17 +55,67 @@ const shellStyle = {
   paddingLeft: 12,
 } satisfies CSSProperties
 
-const samePreviewRuntimeIds = (
+const sameRuntimeIds = (
   left: readonly RuntimeId[],
   right: readonly RuntimeId[]
 ) => {
   if (left.length !== right.length) return false
 
-  for (let index = 0; index < MAX_PREVIEW_LINES; index += 1) {
+  for (let index = 0; index < left.length; index += 1) {
     if (left[index] !== right[index]) return false
   }
 
   return true
+}
+
+const sameSegmentPreview = (
+  left: SegmentPreview | null,
+  right: SegmentPreview
+) =>
+  left != null &&
+  left.kind === right.kind &&
+  left.lines.length === right.lines.length &&
+  left.lines.every((line, index) => line === right.lines[index])
+
+const topLevelRangesOverlap = (
+  ranges: readonly (readonly [number, number])[] | null | undefined,
+  startIndex: number,
+  endIndex: number
+) =>
+  ranges == null ||
+  ranges.some(([start, end]) => start <= endIndex && end >= startIndex)
+
+const shouldRefreshPreview = ({
+  endIndex,
+  startIndex,
+}: {
+  endIndex: number
+  startIndex: number
+}) => {
+  const previewEndIndex = Math.min(endIndex, startIndex + MAX_PREVIEW_LINES - 1)
+
+  return (_operations?: readonly Operation[], change?: SnapshotChange) => {
+    if (!change) {
+      return true
+    }
+
+    if (
+      change.fullDocumentChanged ||
+      change.rootRuntimeIdsChanged ||
+      change.topLevelOrderChanged
+    ) {
+      return true
+    }
+
+    return (
+      (change.structureChanged || change.textChanged) &&
+      topLevelRangesOverlap(
+        change.dirtyTopLevelRanges,
+        startIndex,
+        previewEndIndex
+      )
+    )
+  }
 }
 
 export const RenderingStrategySegmentShell = React.memo(
@@ -77,9 +140,10 @@ export const RenderingStrategySegmentShell = React.memo(
     startIndex: number
   }) => {
     const editor = useEditor()
-    const previewRuntimeIds = runtimeIds.slice(0, MAX_PREVIEW_LINES)
-    const lines: string[] = []
-    const nodes: Descendant[] = []
+    const previewRuntimeIds = React.useMemo(
+      () => runtimeIds.slice(0, MAX_PREVIEW_LINES),
+      [runtimeIds]
+    )
     const boundaryId = `${coverageReason}:${segmentIndex}`
     const anchorRuntimeId = runtimeIds[0] ?? null
     const focusRuntimeId = runtimeIds.at(-1) ?? null
@@ -126,37 +190,55 @@ export const RenderingStrategySegmentShell = React.memo(
       [boundary, editor]
     )
 
-    previewRuntimeIds.forEach((runtimeId) => {
-      const snapshot = Editor.getSnapshot(editor)
-      const path =
-        Editor.getPathByRuntimeId(editor, runtimeId) ??
-        snapshot.index.idToPath[runtimeId]
+    const selectPreview = React.useCallback(
+      (editorValue: SlateEditor): SegmentPreview => {
+        const lines: string[] = []
+        const nodes: Descendant[] = []
 
-      if (!path || !Editor.hasPath(editor, path)) {
-        return
-      }
+        previewRuntimeIds.forEach((runtimeId) => {
+          const snapshot = Editor.getSnapshot(editorValue)
+          const path =
+            Editor.getPathByRuntimeId(editorValue, runtimeId) ??
+            snapshot.index.idToPath[runtimeId]
 
-      const node =
-        (readRuntimeNode(editor, path) as Descendant | undefined) ??
-        (editor.read((state) => state.nodes.get(path))[0] as Descendant)
+          if (!path || !Editor.hasPath(editorValue, path)) {
+            return
+          }
 
-      if (!node) {
-        return
-      }
+          const node =
+            (readRuntimeNode(editorValue, path) as Descendant | undefined) ??
+            (editorValue.read(
+              (state) => state.nodes.get(path)[0]
+            ) as Descendant)
 
-      nodes.push(node)
-      lines.push(
-        truncate(getDescendantText(node).replace(/\uFEFF/g, ''), previewChars)
-      )
+          if (!node) {
+            return
+          }
+
+          nodes.push(node)
+          lines.push(
+            truncate(
+              getDescendantText(node).replace(/\uFEFF/g, ''),
+              previewChars
+            )
+          )
+        })
+
+        return {
+          kind: classifySegmentKind(nodes),
+          lines,
+        }
+      },
+      [previewChars, previewRuntimeIds]
+    )
+    const shouldUpdatePreview = React.useMemo(
+      () => shouldRefreshPreview({ endIndex, startIndex }),
+      [endIndex, startIndex]
+    )
+    const preview = useEditorSelector(selectPreview, sameSegmentPreview, {
+      profileId: 'rendering-strategy-shell-preview',
+      shouldUpdate: shouldUpdatePreview,
     })
-
-    const preview: {
-      kind: RenderingStrategySegmentKind
-      lines: readonly string[]
-    } = {
-      kind: classifySegmentKind(nodes),
-      lines,
-    }
 
     const handleMouseDown = useCallback(
       (event: React.MouseEvent<HTMLDivElement>) => {
@@ -237,7 +319,10 @@ export const RenderingStrategySegmentShell = React.memo(
   },
   (prev, next) =>
     prev.segmentIndex === next.segmentIndex &&
+    prev.startIndex === next.startIndex &&
+    prev.endIndex === next.endIndex &&
+    prev.coverageReason === next.coverageReason &&
     prev.onPromote === next.onPromote &&
     prev.previewChars === next.previewChars &&
-    samePreviewRuntimeIds(prev.runtimeIds, next.runtimeIds)
+    sameRuntimeIds(prev.runtimeIds, next.runtimeIds)
 )

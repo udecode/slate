@@ -302,6 +302,14 @@ export function useEditorSelectorContext() {
 
         return shouldUpdate ? shouldUpdate(operations, change) : true
       }
+      let isSubscribed = true
+      const queuedCallback = deferred
+        ? (operations?: readonly Operation[], change?: SnapshotChange) => {
+            if (isSubscribed) {
+              callbackProp(operations, change)
+            }
+          }
+        : callbackProp
       const callback = deferred
         ? (operations?: readonly Operation[], change?: SnapshotChange) => {
             if (shouldNotify(operations, change)) {
@@ -312,7 +320,7 @@ export function useEditorSelectorContext() {
               })
               queueDeferredCallback(
                 deferredEventListeners.current,
-                callbackProp,
+                queuedCallback,
                 operations,
                 change
               )
@@ -346,6 +354,8 @@ export function useEditorSelectorContext() {
         runtimeEventListeners.current.set(runtimeId, listeners)
 
         return () => {
+          isSubscribed = false
+          deferredEventListeners.current.delete(queuedCallback)
           listeners.delete(callback)
 
           if (listeners.size === 0) {
@@ -357,6 +367,8 @@ export function useEditorSelectorContext() {
       eventListeners.current.add(callback)
 
       return () => {
+        isSubscribed = false
+        deferredEventListeners.current.delete(queuedCallback)
         eventListeners.current.delete(callback)
       }
     },

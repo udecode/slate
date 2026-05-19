@@ -7,10 +7,29 @@ import type {
 } from 'react'
 import { IS_WEBKIT } from 'slate-dom'
 
-type IntrinsicTag = keyof HTMLElementTagNameMap
+type VoidIntrinsicTag =
+  | 'area'
+  | 'base'
+  | 'br'
+  | 'col'
+  | 'embed'
+  | 'hr'
+  | 'img'
+  | 'input'
+  | 'link'
+  | 'meta'
+  | 'param'
+  | 'source'
+  | 'track'
+  | 'wbr'
+
+export type PlaceholderIntrinsicTag = Exclude<
+  keyof HTMLElementTagNameMap,
+  VoidIntrinsicTag
+>
 
 type SlatePlaceholderProps = {
-  as?: IntrinsicTag
+  as?: PlaceholderIntrinsicTag
   children: ReactNode
   dir?: 'rtl'
   ref?: Ref<HTMLElement>

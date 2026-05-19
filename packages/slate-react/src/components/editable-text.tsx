@@ -19,7 +19,11 @@ import { useSlateNodeRef } from '../hooks/use-slate-node-ref'
 import { useSlateProjections } from '../hooks/use-slate-projections'
 import type { SlateProjectionSlice } from '../projection-store'
 import { SlateLeaf } from './slate-leaf'
-import { getSlatePlaceholderStyle, SlatePlaceholder } from './slate-placeholder'
+import {
+  getSlatePlaceholderStyle,
+  type PlaceholderIntrinsicTag,
+  SlatePlaceholder,
+} from './slate-placeholder'
 import { SlateText } from './slate-text'
 import { TextString } from './text-string'
 import { ZeroWidthString } from './zero-width-string'
@@ -38,8 +42,6 @@ const EMPTY_BOUND_TEXT = Object.freeze({
   slateNode: SlateTextNode | null
   text: string
 }
-
-type IntrinsicTag = keyof HTMLElementTagNameMap
 
 const sameMarks = (
   left: Omit<SlateTextNode, 'text'>,
@@ -232,7 +234,7 @@ type EditableTextProps<T = unknown> = {
   marks?: Omit<SlateTextNode, 'text'>
   path?: Path
   placeholder?: ReactNode
-  placeholderAs?: IntrinsicTag
+  placeholderAs?: PlaceholderIntrinsicTag
   placeholderDir?: 'rtl'
   placeholderRef?: React.RefCallback<HTMLElement>
   placeholderStyle?: CSSProperties

@@ -261,6 +261,21 @@ baseEditor.api.dom.focus()
 // @ts-expect-error public withReact wrapper is cut
 SlateReact.withReact
 
+const _placeholderAsSpan = (
+  <SlateReact.SlatePlaceholder as="span">
+    placeholder
+  </SlateReact.SlatePlaceholder>
+)
+
+const _placeholderAsInput = (
+  <SlateReact.SlatePlaceholder
+    // @ts-expect-error SlatePlaceholder cannot render children inside void elements
+    as="input"
+  >
+    placeholder
+  </SlateReact.SlatePlaceholder>
+)
+
 useSlateEditor({
   initialValue,
   // @ts-expect-error withEditor wrapper composition is cut
@@ -270,6 +285,8 @@ useSlateEditor({
 void baseValue
 void reactValue
 void customApiResult
+void _placeholderAsSpan
+void _placeholderAsInput
 void SelectorProbe
 void HookProbe
 void NoHistoryHookProbe

@@ -343,14 +343,12 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
                     // Allow words to break if they are too long.
                     wordWrap: 'break-word',
                   }),
+              // Work around selection expansion for decorations that depend on the current range.
+              zIndex: -1,
               // Allow for passed-in styles to override anything.
               ...userStyle,
             }}
             suppressContentEditableWarning
-            // in some cases, a decoration needs access to the range / selection to decorate a text node,
-            // then you will select the whole text node when you select part the of text
-            // this magic zIndex="-1" will fix it
-            zindex={-1}
           >
             {customChildren}
           </Component>
@@ -443,6 +441,29 @@ const canScrollAxis = (element: HTMLElement, axis: 'x' | 'y') => {
     : element.scrollWidth > element.clientWidth
 }
 
+const getComposedParentElement = (element: HTMLElement) => {
+  if (element.parentElement) {
+    return element.parentElement
+  }
+
+  const window = element.ownerDocument.defaultView
+
+  if (!window) {
+    return null
+  }
+
+  const ShadowRootConstructor = window.ShadowRoot
+  const root = element.getRootNode()
+
+  if (ShadowRootConstructor && root instanceof ShadowRootConstructor) {
+    const { host } = root
+
+    return host instanceof window.HTMLElement ? host : null
+  }
+
+  return null
+}
+
 const scrollRectIntoViewIfNeeded = ({
   rect,
   startElement,
@@ -453,9 +474,9 @@ const scrollRectIntoViewIfNeeded = ({
   let currentRect = rect
 
   for (
-    let parent = startElement.parentElement;
+    let parent = getComposedParentElement(startElement);
     parent;
-    parent = parent.parentElement
+    parent = getComposedParentElement(parent)
   ) {
     const canScrollY = canScrollAxis(parent, 'y')
     const canScrollX = canScrollAxis(parent, 'x')

@@ -1,6 +1,6 @@
 import { act, render, renderHook, waitFor } from '@testing-library/react'
 import _ from 'lodash'
-import { Component, type ReactNode } from 'react'
+import { Component, type ReactNode, useLayoutEffect } from 'react'
 import { type Operation, type SnapshotChange, TextApi } from 'slate'
 import { Editor } from 'slate/internal'
 import {
@@ -99,6 +99,60 @@ describe('slate-react provider hooks contract', () => {
 
     expect(rendered.getByTestId('static-editor')).toHaveTextContent('B')
     expect(seen.at(-1)).toBe(editorB)
+  })
+
+  test('Slate publishes editor commits from child mount layout effects', () => {
+    const editor = createReactEditor({ initialValue })
+    const onChange = jest.fn()
+    const onValueChange = jest.fn()
+    const shouldUpdate = jest.fn(() => true)
+    const selector = jest.fn((nextEditor: typeof editor) =>
+      nextEditor.read((state) => {
+        const [firstBlock] = state.value.get() as {
+          children: { text: string }[]
+        }[]
+
+        return firstBlock?.children[0]?.text ?? ''
+      })
+    )
+
+    const ProbeAndCommit = () => {
+      const mountedEditor = useEditor<typeof editor>()
+      const text = useEditorSelector(selector, Object.is, { shouldUpdate })
+
+      useLayoutEffect(() => {
+        mountedEditor.update((tx) => {
+          tx.text.insert('!', { at: { path: [0, 0], offset: 4 } })
+        })
+      }, [mountedEditor])
+
+      return <span data-testid="selector-text">{text}</span>
+    }
+
+    const rendered = render(
+      <Slate editor={editor} onChange={onChange} onValueChange={onValueChange}>
+        <Editable />
+        <ProbeAndCommit />
+      </Slate>
+    )
+
+    expect(rendered.getByTestId('selector-text')).toHaveTextContent('test!')
+    expect(onChange).toHaveBeenCalledWith(
+      [{ type: 'block', children: [{ text: 'test!' }] }],
+      expect.objectContaining({
+        operations: [expect.objectContaining({ type: 'insert_text' })],
+        valueChanged: true,
+      })
+    )
+    expect(onValueChange).toHaveBeenCalledWith(
+      [{ type: 'block', children: [{ text: 'test!' }] }],
+      expect.objectContaining({ valueChanged: true })
+    )
+    expect(
+      shouldUpdate.mock.calls.some(([, change]) =>
+        change?.operations.some((operation) => operation.type === 'insert_text')
+      )
+    ).toBe(true)
   })
 
   test('useEditorSelector honors the equality function when selector identity changes', async () => {
@@ -273,6 +327,44 @@ describe('slate-react provider hooks contract', () => {
       'insert_text',
       'insert_text',
     ])
+  })
+
+  test('deferred useEditorSelector cancels queued updates on unmount', async () => {
+    const editor = createReactEditor({ initialValue })
+    const selector = jest.fn((_editor, operations?: readonly Operation[]) => {
+      return operations?.map((operation) => operation.type).join(',') ?? 'idle'
+    })
+
+    const rendered = renderHook(
+      () =>
+        useEditorSelector(selector, Object.is, {
+          deferred: true,
+        }),
+      {
+        wrapper: ({ children }) => (
+          <Slate editor={editor}>
+            <Editable />
+            {children}
+          </Slate>
+        ),
+      }
+    )
+
+    expect(rendered.result.current).toBe('idle')
+    expect(selector).toBeCalledTimes(2)
+
+    act(() => {
+      editor.update((tx) => {
+        tx.text.insert('!', { at: { path: [0, 0], offset: 4 } })
+      })
+      rendered.unmount()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(selector).toBeCalledTimes(2)
   })
 
   test('deferred editor selectors preserve profiler markers while coalescing renders', async () => {
@@ -931,6 +1023,57 @@ describe('slate-react provider hooks contract', () => {
 
     expect(result.current.nodeText).toBe('one!')
     expect(nodeSelector.mock.calls.length).toBeGreaterThan(callsAfterMount.node)
+  })
+
+  test('mounted render selector hooks update when DOM text sync is disabled', async () => {
+    const editor = createReactEditor()
+
+    Editor.replace(editor, {
+      children: [{ type: 'block', children: [{ text: 'one' }] }],
+      selection: null,
+    })
+
+    const textRuntimeId = Editor.getSnapshot(editor).index.pathToId['0.0']
+
+    if (!textRuntimeId) {
+      throw new Error('Expected text runtime id for mounted selector contract')
+    }
+
+    const textSelector = jest.fn(({ text }) => text?.text ?? null)
+
+    const { result } = renderHook(
+      () =>
+        useMountedTextRenderSelector(textSelector, undefined, {
+          runtimeId: textRuntimeId,
+        }),
+      {
+        wrapper: ({ children }) => (
+          <Slate editor={editor}>
+            <Editable
+              renderLeaf={({ attributes, children: leafChildren }) => (
+                <span {...attributes} data-custom-leaf="true">
+                  {leafChildren}
+                </span>
+              )}
+            />
+            {children}
+          </Slate>
+        ),
+      }
+    )
+
+    expect(result.current).toBe('one')
+
+    const callsAfterMount = textSelector.mock.calls.length
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.text.insert('!', { at: { path: [0, 0], offset: 3 } })
+      })
+    })
+
+    expect(result.current).toBe('one!')
+    expect(textSelector.mock.calls.length).toBeGreaterThan(callsAfterMount)
   })
 
   test('root selector sources track structural ids and selected top-level index', async () => {

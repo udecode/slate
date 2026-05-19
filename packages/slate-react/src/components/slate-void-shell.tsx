@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 
 import { recordSlateReactRender } from '../render-profiler'
 import { SlateElement } from './slate-element'
@@ -9,6 +9,22 @@ const MAC_OS_USER_AGENT_RE = /Mac OS X/
 const isApplePlatform = () =>
   typeof navigator !== 'undefined' &&
   MAC_OS_USER_AGENT_RE.test(navigator.userAgent)
+
+const useApplePlatformAfterHydration = () => {
+  const [isApple, setIsApple] = useState(false)
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setIsApple(isApplePlatform())
+    }, 0)
+
+    return () => {
+      clearTimeout(timeoutId)
+    }
+  }, [])
+
+  return isApple
+}
 
 export const SlateVoidShell = ({
   children,
@@ -34,7 +50,7 @@ export const SlateInlineVoidShell = ({
   children: ReactNode
   content: ReactNode
 }) => {
-  const anchorBeforeContent = isApplePlatform()
+  const anchorBeforeContent = useApplePlatformAfterHydration()
 
   recordSlateReactRender({ kind: 'void' })
 

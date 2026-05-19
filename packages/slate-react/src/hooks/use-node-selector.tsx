@@ -11,7 +11,9 @@ import {
 import { NodeRuntimeIdContext } from '../context'
 import { readRuntimeNodeById } from '../editable/runtime-live-state'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
+import { useEditor } from './use-editor'
 import { useEditorSelector } from './use-editor-selector'
+import { didSyncTextPathToDOM } from './use-slate-node-ref'
 
 const refEquality = (a: unknown, b: unknown) => a === b
 
@@ -40,6 +42,7 @@ type InternalEditorRuntimeSelectorOptions = EditorRuntimeSelectorOptions & {
 }
 
 const shouldUpdateRuntimeNode = (
+  editor: ReactRuntimeEditor,
   runtimeId: RuntimeId | null,
   operations?: readonly Operation[],
   change?: SnapshotChange,
@@ -47,14 +50,7 @@ const shouldUpdateRuntimeNode = (
 ) => {
   if (
     updatePolicy === 'skip-synced-text-render' &&
-    operations &&
-    operations.length > 0 &&
-    operations.every(
-      (operation) =>
-        operation.type === 'insert_text' ||
-        operation.type === 'remove_text' ||
-        operation.type === 'set_selection'
-    )
+    shouldSkipSyncedTextRender(editor, runtimeId, operations)
   ) {
     return false
   }
@@ -70,6 +66,64 @@ const shouldUpdateRuntimeNode = (
   return change.nodeImpactRuntimeIds.includes(runtimeId)
 }
 
+const isTextRenderOperation = (operation: Operation) =>
+  operation.type === 'insert_text' ||
+  operation.type === 'remove_text' ||
+  operation.type === 'set_selection'
+
+const isTextOperation = (
+  operation: Operation
+): operation is Extract<Operation, { type: 'insert_text' | 'remove_text' }> =>
+  operation.type === 'insert_text' || operation.type === 'remove_text'
+
+const isAncestorOrSelfPath = (
+  ancestor: readonly number[],
+  path: readonly number[]
+) =>
+  ancestor.length <= path.length &&
+  ancestor.every((part, index) => part === path[index])
+
+const shouldSkipSyncedTextRender = (
+  editor: ReactRuntimeEditor,
+  runtimeId: RuntimeId | null,
+  operations?: readonly Operation[]
+) => {
+  if (
+    !operations ||
+    operations.length === 0 ||
+    !operations.every(isTextRenderOperation)
+  ) {
+    return false
+  }
+
+  const textOperations = operations.filter(isTextOperation)
+
+  if (textOperations.length === 0) {
+    return true
+  }
+
+  if (!runtimeId) {
+    return false
+  }
+
+  const { path } = readRuntimeNodeById(editor, runtimeId)
+
+  if (!path) {
+    return false
+  }
+
+  const relevantTextOperations = textOperations.filter((operation) =>
+    isAncestorOrSelfPath(path, operation.path)
+  )
+
+  return (
+    relevantTextOperations.length === 0 ||
+    relevantTextOperations.every((operation) =>
+      didSyncTextPathToDOM(editor, operation.path)
+    )
+  )
+}
+
 function useRuntimeNodeSelector<T>(
   selector: (context: EditorNodeSelectorContext) => T,
   equalityFn: (a: T | null, b: T) => boolean = refEquality,
@@ -79,6 +133,7 @@ function useRuntimeNodeSelector<T>(
     updatePolicy = 'model-truth',
   }: InternalEditorRuntimeSelectorOptions = {}
 ): T {
+  const editor = useEditor<ReactRuntimeEditor>()
   const contextRuntimeId = useContext(NodeRuntimeIdContext)
   const runtimeId = runtimeIdProp ?? contextRuntimeId
   const nodeSelector = useCallback(
@@ -96,8 +151,14 @@ function useRuntimeNodeSelector<T>(
   )
   const shouldUpdate = useCallback(
     (operations?: readonly Operation[], change?: SnapshotChange) =>
-      shouldUpdateRuntimeNode(runtimeId, operations, change, updatePolicy),
-    [runtimeId, updatePolicy]
+      shouldUpdateRuntimeNode(
+        editor,
+        runtimeId,
+        operations,
+        change,
+        updatePolicy
+      ),
+    [editor, runtimeId, updatePolicy]
   )
 
   return useEditorSelector(nodeSelector, equalityFn, {

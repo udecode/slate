@@ -74,7 +74,7 @@
     "typecheck": "bun typecheck:packages && bun typecheck:site && bun typecheck:root",
     "typecheck:root": "tsc --project ./tsconfig.json --noEmit",
     "typecheck:packages": "turbo --filter \"./packages/*\" typecheck --concurrency=1",
-    "typecheck:site": "cd ./site && tsc --project tsconfig.json"
+    "typecheck:site": "cd ./site && tsc --project tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.11",

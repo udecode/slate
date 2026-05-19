@@ -48,7 +48,7 @@ import {
   shouldSkipSelectionScroll,
 } from './selection-side-effect-policy'
 
-export const toSlateCollapsedRangeFromDOMSelection = (
+export const resolveSlateCollapsedRangeFromDOMSelection = (
   editor: Editor,
   domSelection: globalThis.Selection
 ): Range | null => {
@@ -107,13 +107,13 @@ export const toSlateCollapsedRangeFromDOMSelection = (
   return null
 }
 
-export const toSlateRangeFromDOMSelection = (
+export const resolveSlateRangeFromDOMSelection = (
   editor: Editor,
   domSelection: globalThis.Selection,
   editorElement: HTMLElement
 ): Range | null => {
   if (domSelection.isCollapsed) {
-    return toSlateCollapsedRangeFromDOMSelection(editor, domSelection)
+    return resolveSlateCollapsedRangeFromDOMSelection(editor, domSelection)
   }
 
   if (
@@ -672,7 +672,7 @@ export const syncSelectionForBeforeInput = ({
     domSelectionBelongsToEditor
   ) {
     const range =
-      toSlateRangeFromDOMSelection(editor, domSelection, editorElement) ??
+      resolveSlateRangeFromDOMSelection(editor, domSelection, editorElement) ??
       (IS_NODE_MAP_DIRTY.get(editor)
         ? null
         : ReactEditor.resolveSlateRange(editor, domSelection, {
@@ -713,7 +713,7 @@ export const syncSelectionForBeforeInput = ({
   ) {
     const range =
       domSelectionBelongsToEditor && domSelection
-        ? toSlateRangeFromDOMSelection(editor, domSelection, editorElement)
+        ? resolveSlateRangeFromDOMSelection(editor, domSelection, editorElement)
         : null
 
     if (range && (!nextSelection || !RangeApi.equals(nextSelection, range))) {

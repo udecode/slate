@@ -24,6 +24,23 @@ describe('slate-react editable behavior', () => {
     ).toHaveTextContent('test')
   })
 
+  test('applies the selection z-index workaround as CSS', () => {
+    const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
+    const editor = createReactEditor({ initialValue })
+
+    const rendered = render(
+      <Slate editor={editor}>
+        <Editable />
+      </Slate>
+    )
+
+    const editable = rendered.container.querySelector('[data-slate-editor]')
+
+    expect(editable).toBeInstanceOf(HTMLElement)
+    expect((editable as HTMLElement).style.zIndex).toBe('-1')
+    expect(editable).not.toHaveAttribute('zindex')
+  })
+
   test('calls onChange and onSelectionChange when editor selection changes', async () => {
     const initialValue = [
       { type: 'block', children: [{ text: 'te' }] },
@@ -328,6 +345,77 @@ describe('slate-react editable behavior', () => {
       expect(typeof leaf.getBoundingClientRect).toBe('function')
     } finally {
       leaf.remove()
+    }
+  })
+
+  test('default scroll crosses a shadow root to reach an outer scroll container', () => {
+    const editor = createReactEditor()
+
+    Editor.replace(editor, {
+      children: [{ type: 'block', children: [{ text: 'test' }] }],
+      selection: {
+        anchor: { path: [0, 0], offset: 4 },
+        focus: { path: [0, 0], offset: 4 },
+      },
+    })
+
+    const outer = document.createElement('div')
+    outer.style.overflow = 'auto'
+
+    Object.defineProperties(outer, {
+      clientHeight: { configurable: true, value: 100 },
+      clientWidth: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 300 },
+      scrollWidth: { configurable: true, value: 100 },
+    })
+    Object.defineProperty(outer, 'getBoundingClientRect', {
+      configurable: true,
+      value: () =>
+        ({
+          bottom: 100,
+          height: 100,
+          left: 0,
+          right: 100,
+          top: 0,
+          width: 100,
+          x: 0,
+          y: 0,
+        }) as DOMRect,
+    })
+
+    const host = document.createElement('div')
+    const shadowRoot = host.attachShadow({ mode: 'open' })
+    const leaf = document.createElement('span')
+    const text = document.createTextNode('test')
+    leaf.append(text)
+    shadowRoot.append(leaf)
+    outer.append(host)
+    document.body.append(outer)
+
+    const range = {
+      cloneRange: () => ({
+        collapse: () => {},
+        getBoundingClientRect: () =>
+          ({
+            bottom: 160,
+            height: 20,
+            left: 1,
+            right: 2,
+            top: 140,
+            width: 1,
+            x: 1,
+            y: 140,
+          }) as DOMRect,
+        startContainer: text,
+      }),
+    } as unknown as DOMRange
+
+    try {
+      defaultScrollSelectionIntoView(editor, range)
+
+      expect(outer.scrollTop).toBeGreaterThan(0)
+    } finally {
+      outer.remove()
     }
   })
 })

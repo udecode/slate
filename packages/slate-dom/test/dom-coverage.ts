@@ -212,7 +212,7 @@ describe('DOM coverage boundaries', () => {
         /Cannot resolve a DOM node from Slate node/
       )
       expect(
-        DOMCoverage.toDOMPointOrBoundary(editor, hiddenPoint)
+        DOMCoverage.resolveDOMPointOrBoundary(editor, hiddenPoint)
       ).toMatchObject({
         boundary: {
           boundaryId: 'section-body',
@@ -278,7 +278,7 @@ describe('DOM coverage boundaries', () => {
 
     registerSectionBodyBoundary(editor)
 
-    expect(DOMCoverage.toDOMRangeOrBoundary(editor, range)).toMatchObject({
+    expect(DOMCoverage.resolveDOMRangeOrBoundary(editor, range)).toMatchObject({
       boundaries: [{ boundaryId: 'section-body' }],
       range,
       type: 'boundary-range',
@@ -373,7 +373,7 @@ describe('DOM coverage boundaries', () => {
       root.appendChild(placeholder)
 
       expect(
-        DOMCoverage.toSlatePointFromBoundary(editor, [placeholder, 0])
+        DOMCoverage.resolveSlatePointFromBoundary(editor, [placeholder, 0])
       ).toMatchObject({
         boundary: { boundaryId: 'section-body' },
         edge: 'anchor',
@@ -388,7 +388,7 @@ describe('DOM coverage boundaries', () => {
         offset: 0,
       })
       expect(
-        DOMCoverage.toSlatePointFromBoundary(editor, [root, 1])
+        DOMCoverage.resolveSlatePointFromBoundary(editor, [root, 1])
       ).toMatchObject({
         boundary: { boundaryId: 'section-body' },
         edge: 'anchor',
@@ -538,15 +538,15 @@ describe('DOM coverage boundaries', () => {
     expect(() => editor.api.dom.assertDOMPoint(hiddenPoint)).toThrow(
       /Cannot resolve a DOM node from Slate node/
     )
-    expect(DOMCoverage.toDOMPointOrBoundary(editor, hiddenPoint)).toMatchObject(
-      {
-        boundary: {
-          boundaryId: 'nested-paragraph',
-          selectionPolicy: 'materialize',
-        },
-        type: 'boundary',
-      }
-    )
+    expect(
+      DOMCoverage.resolveDOMPointOrBoundary(editor, hiddenPoint)
+    ).toMatchObject({
+      boundary: {
+        boundaryId: 'nested-paragraph',
+        selectionPolicy: 'materialize',
+      },
+      type: 'boundary',
+    })
     expect(
       DOMCoverage.materializeBoundary(
         editor,

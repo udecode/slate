@@ -68,7 +68,7 @@ describe('slate-react primitives contract', () => {
     expect(textNode?.textContent).toBe('alpha')
   })
 
-  test('SlatePlaceholder supports arbitrary intrinsic tags through as', () => {
+  test('SlatePlaceholder supports non-void intrinsic tags through as', () => {
     const rendered = render(
       <SlatePlaceholder as={'label'} style={{ opacity: '0.5' }}>
         <span>placeholder</span>

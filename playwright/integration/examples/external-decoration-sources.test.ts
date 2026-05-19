@@ -30,6 +30,23 @@ test.describe('linting', () => {
       'comma-spacing'
     )
 
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+    await page.keyboard.insertText('Prefix ')
+
+    await expect(
+      page.locator('[data-lint-rule="style-filler-word"]')
+    ).toHaveText('obviously')
+    await expect
+      .poll(() =>
+        page
+          .locator('[data-lint-rule="comma-spacing"]')
+          .evaluate((element) => element.textContent)
+      )
+      .toBe(' ,')
+
     await page.getByRole('button', { name: 'Apply first fix' }).click()
 
     await expect(page.locator('#linting-source')).toHaveText('source:fixed')
@@ -51,7 +68,7 @@ test.describe('linting', () => {
     )
 
     await editor.assert.text(
-      'This paragraph obviously has a spacing problem, and the linter should report it.Server diagnostics can arrive later without changing the Slate document.'
+      'Prefix This paragraph obviously has a spacing problem, and the linter should report it.Server diagnostics can arrive later without changing the Slate document.'
     )
 
     await page.getByRole('button', { name: 'Clear diagnostics' }).click()

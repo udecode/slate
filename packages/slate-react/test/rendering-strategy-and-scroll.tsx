@@ -151,6 +151,115 @@ test('Editable renderingStrategy shells far segments without mounting editable d
   ).toBe('shell-aggressive:1')
 })
 
+test('Editable renderingStrategy shell updates coverage when the hidden tail runtime changes', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 8 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  render(
+    <TestEditorSurface
+      editor={editor}
+      id="rendering-strategy-shell-tail-runtime"
+      renderingStrategy={{
+        overscan: 0,
+        type: 'shell',
+        segmentSize: 4,
+        threshold: 1,
+      }}
+    />
+  )
+
+  const oldTailRuntimeId = getRuntimeId(editor, [7])
+
+  expect(DOMCoverage.getBoundary(editor, 'shell-aggressive:1')).toMatchObject({
+    coveredPathRanges: [{ anchor: [4], focus: [7] }],
+    coveredRuntimeRanges: [
+      {
+        anchor: getRuntimeId(editor, [4]),
+        focus: oldTailRuntimeId,
+      },
+    ],
+  })
+
+  await act(async () => {
+    editor.update((tx) => {
+      tx.nodes.remove({ at: [7] })
+      tx.nodes.insert(
+        {
+          type: 'paragraph',
+          children: [{ text: 'replacement tail' }],
+        } as Descendant,
+        { at: [7] }
+      )
+    })
+  })
+
+  const newTailRuntimeId = getRuntimeId(editor, [7])
+
+  expect(newTailRuntimeId).not.toBe(oldTailRuntimeId)
+  await waitFor(() =>
+    expect(DOMCoverage.getBoundary(editor, 'shell-aggressive:1')).toMatchObject(
+      {
+        coveredPathRanges: [{ anchor: [4], focus: [7] }],
+        coveredRuntimeRanges: [
+          {
+            anchor: getRuntimeId(editor, [4]),
+            focus: newTailRuntimeId,
+          },
+        ],
+      }
+    )
+  )
+  expect(
+    DOMCoverage.getBoundaryForPoint(editor, { offset: 0, path: [7, 0] })
+      ?.boundaryId
+  ).toBe('shell-aggressive:1')
+})
+
+test('Editable renderingStrategy shell refreshes hidden preview text after model text changes', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 8 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      editor={editor}
+      id="rendering-strategy-shell-preview-refresh"
+      renderingStrategy={{
+        overscan: 0,
+        type: 'shell',
+        segmentSize: 4,
+        threshold: 1,
+      }}
+    />
+  )
+  const shell = rendered.container.querySelector(
+    '[data-slate-rendering-strategy-shell="true"][data-slate-rendering-strategy-segment="1"]'
+  )
+
+  expect(shell?.textContent).toContain('block-5')
+
+  await act(async () => {
+    editor.update((tx) => {
+      tx.text.insert('!', { at: { path: [4, 0], offset: 'block-5'.length } })
+    })
+  })
+
+  await waitFor(() => expect(shell?.textContent).toContain('block-5!'))
+})
+
 test('Editable renderingStrategy mounts active radius corridor segments', async () => {
   const editor = createReactEditor()
 
@@ -729,6 +838,63 @@ test('Editable disables DOM text sync for empty zero-width text', async () => {
     />
   )
 
+  expect(
+    rendered.container
+      .querySelector('[data-slate-node="text"]')
+      ?.hasAttribute('data-slate-dom-sync')
+  ).toBe(false)
+  expect(
+    rendered.container
+      .querySelector('[data-slate-node="text"]')
+      ?.getAttribute('data-slate-dom-sync-reason')
+  ).toBe('empty-text')
+  expect(
+    rendered.container.querySelector('[data-slate-zero-width]')
+  ).toBeTruthy()
+})
+
+test('Editable falls back to React when text sync reaches empty text', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha' }],
+      },
+    ],
+    selection: null,
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      editor={editor}
+      id="rendering-strategy-empty-text-fallback"
+      placeholder="Write something"
+      renderingStrategy={{
+        overscan: 0,
+        type: 'shell',
+        segmentSize: 2,
+        threshold: 1,
+      }}
+    />
+  )
+
+  expect(rendered.container.textContent).toContain('alpha')
+
+  await act(async () => {
+    editor.update((tx) => {
+      tx.text.delete({
+        at: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 5 },
+        },
+      })
+    })
+  })
+
+  expect(didSyncTextPathToDOM(editor, [0, 0])).toBe(false)
+  expect(rendered.container.textContent).not.toContain('alpha')
   expect(
     rendered.container
       .querySelector('[data-slate-node="text"]')

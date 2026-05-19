@@ -561,11 +561,14 @@ const cacheSlateDOMNode = (
   return domNode
 }
 
-const toSlatePointFromDOMCoverageBoundary = (
+const resolveSlatePointFromDOMCoverageBoundary = (
   editor: DOMEditor<any>,
   domPoint: DOMPoint
 ): Point | null => {
-  const boundaryPoint = DOMCoverage.toSlatePointFromBoundary(editor, domPoint)
+  const boundaryPoint = DOMCoverage.resolveSlatePointFromBoundary(
+    editor,
+    domPoint
+  )
 
   if (boundaryPoint?.type !== 'boundary-point') {
     return null
@@ -1306,7 +1309,7 @@ export const DOMEditor: DOMEditorInterface = {
     }
   ): Point | null => {
     const { exactMatch } = options
-    const boundarySlatePoint = toSlatePointFromDOMCoverageBoundary(
+    const boundarySlatePoint = resolveSlatePointFromDOMCoverageBoundary(
       editor,
       domPoint
     )
@@ -1423,10 +1426,10 @@ export const DOMEditor: DOMEditorInterface = {
           offset = 1
         }
       } else if (nonEditableNode) {
-        const boundarySlatePoint = toSlatePointFromDOMCoverageBoundary(editor, [
-          nonEditableNode,
-          0,
-        ])
+        const boundarySlatePoint = resolveSlatePointFromDOMCoverageBoundary(
+          editor,
+          [nonEditableNode, 0]
+        )
 
         if (boundarySlatePoint) {
           return boundarySlatePoint
