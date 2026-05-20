@@ -325,7 +325,7 @@ const LintingPanel = ({
         ))}
       </ul>
       <Editable
-        id="external-decoration-sources"
+        id="linting"
         renderSegment={(segment, children) => {
           const issue = getSegmentIssue(segment.slices)
 

@@ -712,7 +712,7 @@ const externalDecorationRefresh = (): StressCase =>
 const overlayManyDecorationSources = (): StressCase =>
   createStressCase({
     family: 'overlay-many-decoration-sources',
-    route: 'external-decoration-sources',
+    route: 'linting',
     steps: [
       { kind: 'resetRenderProfiler', label: 'reset-render-before-overlays' },
       {
@@ -763,7 +763,7 @@ const addReviewCommentSteps = (): SlateBrowserScenarioStep[] => [
 const overlayAnnotationMetadataOnly = (): StressCase =>
   createStressCase({
     family: 'overlay-annotation-metadata-only',
-    route: 'review-comments',
+    route: 'comment-mode',
     steps: [
       ...addReviewCommentSteps(),
       { kind: 'resetRenderProfiler', label: 'reset-render-before-retone' },
@@ -796,7 +796,7 @@ const overlayAnnotationMetadataOnly = (): StressCase =>
 const overlayAnnotationBookmarkRebase = (): StressCase =>
   createStressCase({
     family: 'overlay-annotation-bookmark-rebase',
-    route: 'review-comments',
+    route: 'comment-mode',
     steps: [
       ...addReviewCommentSteps(),
       {
@@ -828,7 +828,7 @@ const overlayAnnotationBookmarkRebase = (): StressCase =>
 const overlayWidgetDirtyId = (): StressCase =>
   createStressCase({
     family: 'overlay-widget-dirty-id',
-    route: 'review-comments',
+    route: 'comment-mode',
     steps: [
       ...addReviewCommentSteps(),
       {
@@ -863,7 +863,7 @@ const overlayWidgetDirtyId = (): StressCase =>
 const overlayMixedUpdate = (): StressCase =>
   createStressCase({
     family: 'overlay-mixed-update',
-    route: 'review-comments',
+    route: 'comment-mode',
     steps: [
       ...addReviewCommentSteps(),
       {

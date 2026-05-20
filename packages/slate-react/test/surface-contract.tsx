@@ -366,13 +366,13 @@ describe('slate-react surface contract', () => {
     expect(providerInitialValueViolations).toEqual([])
     expect(valueReplaceInventory).toEqual({
       'site/examples/ts/collaborative-comments.tsx': 1,
-      'site/examples/ts/review-comments.tsx': 1,
+      'site/examples/ts/comment-mode.tsx': 1,
     })
   })
 
   test('product comment examples use public annotation substrate', () => {
     const exampleFiles = [
-      'site/examples/ts/review-comments.tsx',
+      'site/examples/ts/comment-mode.tsx',
       'site/examples/ts/collaborative-comments.tsx',
     ]
 

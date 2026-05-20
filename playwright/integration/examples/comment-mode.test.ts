@@ -3,7 +3,7 @@ import { expect, type Page, test } from '@playwright/test'
 import { openExample } from 'slate-browser/playwright'
 
 const selectCommentModeIntro = async (page: Page) => {
-  await page.locator('#review-comments').evaluate((root) => {
+  await page.locator('#comment-mode').evaluate((root) => {
     const document = root.ownerDocument
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
     let textNode: Node | null = null
@@ -11,7 +11,7 @@ const selectCommentModeIntro = async (page: Page) => {
     let nextNode = walker.nextNode()
 
     while (nextNode) {
-      if (nextNode.textContent?.startsWith('Review comments in Slate v2')) {
+      if (nextNode.textContent?.startsWith('Comment mode in Slate v2')) {
         textNode = nextNode
         break
       }
@@ -39,11 +39,11 @@ const selectCommentModeIntro = async (page: Page) => {
   })
 }
 
-test.describe('review comments example', () => {
+test.describe('comment mode example', () => {
   test('keeps comment sidebar, inline review slices, and widget panel in sync', async ({
     page,
   }) => {
-    await openExample(page, 'review-comments', {
+    await openExample(page, 'comment-mode', {
       ready: {
         editor: 'visible',
       },
@@ -53,21 +53,18 @@ test.describe('review comments example', () => {
     await expect(
       page.getByRole('button', { name: 'Add comment on selection' })
     ).toBeEnabled()
+    await expect(page.locator('#comment-mode-selection')).toContainText(
+      '0.0:0|0.0:24'
+    )
 
     await page.getByRole('button', { name: 'Add comment on selection' }).click()
 
-    await expect(page.locator('#review-comments-selection')).toContainText(
-      '0.0:0|0.0:24'
+    await expect(page.locator('#comment-card-comment-1')).toContainText(
+      'range:0.0:0|0.0:24'
     )
-    await expect(page.locator('#review-comments-document-writes')).toHaveText(
-      '0'
-    )
-    await expect(page.locator('#review-comments-comment-writes')).toHaveText(
-      '1'
-    )
-    await expect(
-      page.locator('#review-comments-comment-mode-document-writes')
-    ).toHaveText('0')
+    await expect(page.locator('#comment-mode-document-writes')).toHaveText('0')
+    await expect(page.locator('#comment-mode-comment-writes')).toHaveText('1')
+    await expect(page.locator('#comment-mode-read-only-writes')).toHaveText('0')
     await expect(page.locator('[data-comment-tone]')).toHaveCount(2)
     await expect(page.locator('[data-comment-tone="review"]')).toHaveCount(2)
     await expect(page.locator('#comment-card-comment-1')).toHaveCount(1)
@@ -77,12 +74,8 @@ test.describe('review comments example', () => {
       .getByRole('button', { name: 'Insert paragraph before first comment' })
       .click()
 
-    await expect(page.locator('#review-comments-document-writes')).toHaveText(
-      '1'
-    )
-    await expect(page.locator('#review-comments-comment-writes')).toHaveText(
-      '1'
-    )
+    await expect(page.locator('#comment-mode-document-writes')).toHaveText('1')
+    await expect(page.locator('#comment-mode-comment-writes')).toHaveText('1')
     await expect(page.locator('[data-comment-tone="review"]')).toHaveCount(2)
     await expect(
       page.locator('text=Inserted review context before the first comment.')
@@ -94,20 +87,14 @@ test.describe('review comments example', () => {
       .getByRole('button', { name: 'Insert prefix before first comment' })
       .click()
 
-    await expect(page.locator('#review-comments-document-writes')).toHaveText(
-      '2'
-    )
-    await expect(page.locator('#review-comments-comment-writes')).toHaveText(
-      '1'
-    )
+    await expect(page.locator('#comment-mode-document-writes')).toHaveText('2')
+    await expect(page.locator('#comment-mode-comment-writes')).toHaveText('1')
     await expect(page.locator('[data-comment-tone="review"]')).toHaveCount(2)
     await expect(page.locator('text=comment-1-widget:Comment 1')).toHaveCount(1)
 
     await page.getByRole('button', { name: 'Clear comments' }).click()
 
-    await expect(page.locator('#review-comments-comment-writes')).toHaveText(
-      '2'
-    )
+    await expect(page.locator('#comment-mode-comment-writes')).toHaveText('2')
     await expect(page.locator('#comment-card-comment-1')).toHaveCount(0)
     await expect(page.locator('text=comment-1-widget:Comment 1')).toHaveCount(0)
     await expect(page.locator('[data-comment-tone]')).toHaveCount(0)

@@ -25,8 +25,7 @@ const EXAMPLE_IMPORTERS: Record<
     import('../../examples/ts/dom-coverage-boundaries'),
   'editable-voids': () => import('../../examples/ts/editable-voids'),
   embeds: () => import('../../examples/ts/embeds'),
-  'external-decoration-sources': () =>
-    import('../../examples/ts/external-decoration-sources'),
+  linting: () => import('../../examples/ts/linting'),
   'forced-layout': () => import('../../examples/ts/forced-layout'),
   'highlighted-text': () => import('../../examples/ts/highlighted-text'),
   'hovering-toolbar': () => import('../../examples/ts/hovering-toolbar'),
@@ -41,7 +40,7 @@ const EXAMPLE_IMPORTERS: Record<
     import('../../examples/ts/persistent-annotation-anchors'),
   plaintext: () => import('../../examples/ts/plaintext'),
   'read-only': () => import('../../examples/ts/read-only'),
-  'review-comments': () => import('../../examples/ts/review-comments'),
+  'comment-mode': () => import('../../examples/ts/comment-mode'),
   iframe: () => import('../../examples/ts/iframe'),
   richtext: () => import('../../examples/ts/richtext'),
   'search-highlighting': () => import('../../examples/ts/search-highlighting'),

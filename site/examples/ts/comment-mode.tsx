@@ -49,7 +49,7 @@ const initialValue: Value = [
     type: 'paragraph',
     children: [
       {
-        text: 'Review comments in Slate v2 ride bookmark-backed annotations instead of trying to smuggle durable state through decorate.',
+        text: 'Comment mode in Slate v2 uses bookmark-backed annotations instead of trying to smuggle durable state through decorate.',
       },
     ],
   },
@@ -341,7 +341,7 @@ const WriterPane = ({ editor }: { editor: CommentEditor }) => {
         <span className={titleCss}>Edit mode</span>
         <span className={mutedCss}>document writes enabled</span>
       </div>
-      <CommentedEditable id="review-comments-document" />
+      <CommentedEditable id="comment-mode-document" />
       <div className={controlsCss}>
         <button
           className={buttonCss}
@@ -499,7 +499,7 @@ const CommentModePane = ({
         <span className={titleCss}>Comment mode</span>
         <span className={mutedCss}>read-only document, writable comments</span>
       </div>
-      <CommentedEditable id="review-comments" readOnly />
+      <CommentedEditable id="comment-mode" readOnly />
       <div className={controlsCss}>
         <button
           className={buttonCss}
@@ -528,7 +528,7 @@ const CommentModePane = ({
         >
           Clear comments
         </button>
-        <span className={codeCss} id="review-comments-selection">
+        <span className={codeCss} id="comment-mode-selection">
           selection:{formatRange(selection)}
         </span>
       </div>
@@ -589,7 +589,7 @@ const CommentModePane = ({
   )
 }
 
-const ReviewCommentsExample = () => {
+const CommentModeExample = () => {
   const writerEditor = useSlateEditor<Value>({
     initialSelection: {
       anchor: { path: [0, 0], offset: 0 },
@@ -647,24 +647,21 @@ const ReviewCommentsExample = () => {
         <div className={proofCellCss}>
           <strong>document writes</strong>
           <br />
-          <span className={codeCss} id="review-comments-document-writes">
+          <span className={codeCss} id="comment-mode-document-writes">
             {documentWrites}
           </span>
         </div>
         <div className={proofCellCss}>
           <strong>comment writes</strong>
           <br />
-          <span className={codeCss} id="review-comments-comment-writes">
+          <span className={codeCss} id="comment-mode-comment-writes">
             {commentWrites}
           </span>
         </div>
         <div className={proofCellCss}>
-          <strong>comment-mode document writes</strong>
+          <strong>read-only document writes</strong>
           <br />
-          <span
-            className={codeCss}
-            id="review-comments-comment-mode-document-writes"
-          >
+          <span className={codeCss} id="comment-mode-read-only-writes">
             0
           </span>
         </div>
@@ -692,4 +689,4 @@ const ReviewCommentsExample = () => {
   )
 }
 
-export default ReviewCommentsExample
+export default CommentModeExample

@@ -108,7 +108,7 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
       'editor focus and render ownership remain stable',
     ],
     family: 'overlay-many-decoration-sources',
-    routes: ['external-decoration-sources'],
+    routes: ['linting'],
   },
   {
     assertions: [
@@ -117,7 +117,7 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
       'annotation sidebar remains attached to the same id',
     ],
     family: 'overlay-annotation-metadata-only',
-    routes: ['review-comments'],
+    routes: ['comment-mode'],
   },
   {
     assertions: [
@@ -126,7 +126,7 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
       'annotation widget remains visible after rebase',
     ],
     family: 'overlay-annotation-bookmark-rebase',
-    routes: ['review-comments', 'persistent-annotation-anchors'],
+    routes: ['comment-mode', 'persistent-annotation-anchors'],
   },
   {
     assertions: [
@@ -135,7 +135,7 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
       'clearing annotations clears dependent widgets',
     ],
     family: 'overlay-widget-dirty-id',
-    routes: ['review-comments'],
+    routes: ['comment-mode'],
   },
   {
     assertions: [
@@ -144,7 +144,7 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
       'clear removes inline and widget overlays',
     ],
     family: 'overlay-mixed-update',
-    routes: ['review-comments'],
+    routes: ['comment-mode'],
   },
   {
     assertions: [

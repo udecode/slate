@@ -159,7 +159,7 @@ A read-only reviewer can select text, create a comment anchor, and update a
 thread without document-write permission. The collaboration adapter resolves the
 anchor against the current document snapshot for rendering.
 
-The `review-comments` example renders this as two panes:
+The `comment-mode` example renders this as two panes:
 
 - edit mode on the left, editable document channel
 - comment mode on the right, read-only document with writable comments

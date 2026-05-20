@@ -6,7 +6,7 @@ test.describe('linting', () => {
   test('refreshes app-owned lint diagnostics through an external decoration source', async ({
     page,
   }) => {
-    const editor = await openExample(page, 'external-decoration-sources', {
+    const editor = await openExample(page, 'linting', {
       ready: {
         editor: 'visible',
       },
