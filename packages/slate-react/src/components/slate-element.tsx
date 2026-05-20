@@ -1,7 +1,11 @@
 import type { ElementType, HTMLAttributes, ReactNode, Ref } from 'react'
 import { useCallback, useContext } from 'react'
 
-import { ElementPathContext, NodeRuntimeIdContext } from '../context'
+import {
+  ElementContext,
+  ElementPathContext,
+  NodeRuntimeIdContext,
+} from '../context'
 import { useSlateNodeRef } from '../hooks/use-slate-node-ref'
 import { recordSlateReactRender } from '../render-profiler'
 import { getSlateElementShellAttributes } from '../shell-runtime'
@@ -47,8 +51,9 @@ export const SlateElement = ({
 }: SlateElementProps) => {
   const Component = as as ElementType<SlateElementComponentProps>
   const path = useContext(ElementPathContext)
+  const slateNode = useContext(ElementContext)
   const runtimeId = useContext(NodeRuntimeIdContext)
-  const boundRef = useSlateNodeRef(runtimeId)
+  const boundRef = useSlateNodeRef(runtimeId, { path, slateNode })
 
   recordSlateReactRender({ id, kind: 'element', runtimeId })
 
