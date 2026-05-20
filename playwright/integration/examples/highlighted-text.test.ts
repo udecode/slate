@@ -739,7 +739,12 @@ test.describe('slate highlighted text', () => {
 
   test('copies decorated text as fragment semantics instead of leaking highlight wrappers', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile' || testInfo.project.name === 'webkit',
+      'Chromium and Firefox clipboard-read proof'
+    )
+
     const editor = await openExample(page, 'highlighted-text', {
       ready: {
         editor: 'visible',

@@ -33,15 +33,6 @@ const selectEnd = async (
   await expect.poll(() => editor.selection.get()).toEqual(selection)
 }
 
-const selectAllText = async (
-  editor: ReturnType<typeof createSlateBrowserEditorHarness>
-) => {
-  await editor.selection.select({
-    anchor: { path: [0, 0], offset: 0 },
-    focus: { path: [0, 0], offset: 51 },
-  })
-}
-
 const waitForShadowBreakSync = async ({
   page,
   textbox,
@@ -103,12 +94,7 @@ test.describe('shadow-dom example', () => {
     await expect(textbox).toHaveCount(1)
 
     if (browserName === 'webkit' || testInfo.project.name === 'mobile') {
-      if (testInfo.project.name === 'mobile') {
-        await selectAllText(editor)
-        await editor.deleteFragment()
-      } else {
-        await selectEnd(editor)
-      }
+      await selectEnd(editor)
       await editor.insertText(' Hello, Playwright!')
     } else {
       await textbox.click()

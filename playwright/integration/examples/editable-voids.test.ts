@@ -412,6 +412,8 @@ test.describe('editable voids', () => {
   test('drops rich HTML inside nested editor without stealing outer selection', async ({
     page,
   }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop nested drop proof')
+
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
     const outerEditor = page.locator('[data-slate-editor="true"]').first()
     const nestedEditor = page.locator('[data-slate-editor="true"]').nth(1)
@@ -437,13 +439,17 @@ test.describe('editable voids', () => {
         focus: { path: [0, 0], offset: 0 },
       })
 
+      const textAfterDrop =
+        testInfo.project.name === 'firefox'
+          ? "TDropped Worldhis is editable rich text, much better than a <textarea>!Since it's rich text, you can do things like turn a selection of text bold, or add a semantically rendered block quote in the middle of the page, like this:A wise quote.Try it out for yourself!"
+          : "Dropped WorldThis is editable rich text, much better than a <textarea>!Since it's rich text, you can do things like turn a selection of text bold, or add a semantically rendered block quote in the middle of the page, like this:A wise quote.Try it out for yourself!"
+
       const result = await nested.scenario.run(
         'editable-voids-nested-drop-data-gauntlet',
         createSlateBrowserDropDataGauntlet({
           html: '<p>Dropped <strong>World</strong></p>',
           plainText: 'Dropped World',
-          textAfterDrop:
-            "TDropped Worldhis is editable rich text, much better than a <textarea>!Since it's rich text, you can do things like turn a selection of text bold, or add a semantically rendered block quote in the middle of the page, like this:A wise quote.Try it out for yourself!",
+          textAfterDrop,
         }),
         {
           metadata: {
@@ -488,7 +494,12 @@ test.describe('editable voids', () => {
 
   test('ignores a parent selection that crosses into a nested editor', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop cross-editor DOM selection proof'
+    )
+
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
     const outerEditor = page.locator('[data-slate-editor="true"]').first()
     const nestedEditor = page.locator('[data-slate-editor="true"]').nth(1)

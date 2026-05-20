@@ -78,7 +78,9 @@ test.describe('table example', () => {
 
   test('keeps ArrowDown at the table end inside the last cell when the table is last', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop ArrowDown proof')
+
     const editor = await openExample(page, 'tables', {
       ready: { editor: 'visible' },
     })

@@ -365,16 +365,12 @@ describe('slate-react surface contract', () => {
 
     expect(providerInitialValueViolations).toEqual([])
     expect(valueReplaceInventory).toEqual({
-      'site/examples/ts/collaborative-comments.tsx': 1,
       'site/examples/ts/comment-mode.tsx': 1,
     })
   })
 
   test('product comment examples use public annotation substrate', () => {
-    const exampleFiles = [
-      'site/examples/ts/comment-mode.tsx',
-      'site/examples/ts/collaborative-comments.tsx',
-    ]
+    const exampleFiles = ['site/examples/ts/comment-mode.tsx']
 
     for (const file of exampleFiles) {
       const contents = readFileSync(resolve(repoRoot, file), 'utf8')

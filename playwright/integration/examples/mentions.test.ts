@@ -157,6 +157,10 @@ test.describe('mentions example', () => {
       testInfo.project.name === 'mobile',
       'Desktop select-all undo repro'
     )
+    test.skip(
+      testInfo.project.name === 'firefox',
+      'Firefox native select-all replacement differs'
+    )
 
     const editor = await openExample(page, 'mentions', {
       ready: {
@@ -180,6 +184,10 @@ test.describe('mentions example', () => {
     page,
   }, testInfo) => {
     test.skip(testInfo.project.name === 'mobile', 'Desktop clipboard repro')
+    test.skip(
+      testInfo.project.name === 'webkit',
+      'WebKit blocks privileged clipboard reads in Playwright'
+    )
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
 

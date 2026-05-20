@@ -212,6 +212,7 @@ const DomCoverageBoundariesExample = () => {
               placeholder="Try toggles, selection, and copy"
               renderElement={Element}
               spellCheck
+              style={styles.editor}
             />
           </Slate>
         </HiddenBoundaryContext.Provider>
@@ -364,6 +365,9 @@ const styles = {
   editorWrap: {
     border: '1px solid #cbd5e1',
     padding: 16,
+  },
+  editor: {
+    zIndex: 0,
   },
   page: {
     display: 'grid',

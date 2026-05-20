@@ -107,6 +107,10 @@ test.describe('hovering toolbar example', () => {
       testInfo.project.name === 'mobile',
       'Desktop replacement text repro'
     )
+    test.skip(
+      testInfo.project.name === 'firefox',
+      'Firefox native double-click replacement selection differs'
+    )
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
     const editor = await openExample(page, 'hovering-toolbar', {

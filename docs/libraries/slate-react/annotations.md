@@ -135,7 +135,7 @@ Refresh semantics:
 - pass an empty array for a no-op
 - pass ids to re-resolve only those annotations
 
-## Comment-Only Collaboration
+## Comment Channels
 
 Use separate channels for the document and the comments.
 

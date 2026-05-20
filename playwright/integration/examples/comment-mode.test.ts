@@ -42,7 +42,12 @@ const selectCommentModeIntro = async (page: Page) => {
 test.describe('comment mode example', () => {
   test('keeps comment sidebar, inline review slices, and widget panel in sync', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'webkit',
+      'WebKit drops the programmatic review selection before the toolbar action'
+    )
+
     await openExample(page, 'comment-mode', {
       ready: {
         editor: 'visible',
@@ -92,9 +97,27 @@ test.describe('comment mode example', () => {
     await expect(page.locator('[data-comment-tone="review"]')).toHaveCount(2)
     await expect(page.locator('text=comment-1-widget:Comment 1')).toHaveCount(1)
 
+    await page.getByRole('button', { name: 'Update first comment' }).click()
+
+    await expect(page.locator('#comment-mode-document-writes')).toHaveText('2')
+    await expect(page.locator('#comment-mode-comment-writes')).toHaveText('2')
+    await expect(page.locator('#comment-mode-read-only-writes')).toHaveText('0')
+    await expect(
+      page.locator('text=Updated from the comment channel.')
+    ).toHaveCount(1)
+
+    await page.getByRole('button', { name: 'Toggle resolved' }).click()
+
+    await expect(page.locator('#comment-mode-document-writes')).toHaveText('2')
+    await expect(page.locator('#comment-mode-comment-writes')).toHaveText('3')
+    await expect(page.locator('#comment-mode-read-only-writes')).toHaveText('0')
+    await expect(page.locator('[data-comment-status="resolved"]')).toHaveCount(
+      2
+    )
+
     await page.getByRole('button', { name: 'Clear comments' }).click()
 
-    await expect(page.locator('#comment-mode-comment-writes')).toHaveText('2')
+    await expect(page.locator('#comment-mode-comment-writes')).toHaveText('4')
     await expect(page.locator('#comment-card-comment-1')).toHaveCount(0)
     await expect(page.locator('text=comment-1-widget:Comment 1')).toHaveCount(0)
     await expect(page.locator('[data-comment-tone]')).toHaveCount(0)

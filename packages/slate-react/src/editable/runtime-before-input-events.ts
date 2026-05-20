@@ -79,6 +79,10 @@ const isDOMBeforeInputHandled = (
   const shouldTreatEventAsHandled = handler(event, context)
 
   if (shouldTreatEventAsHandled != null) {
+    if (shouldTreatEventAsHandled) {
+      event.preventDefault()
+    }
+
     return shouldTreatEventAsHandled
   }
 

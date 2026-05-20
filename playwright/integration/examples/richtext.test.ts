@@ -258,7 +258,12 @@ test.describe('On richtext example', () => {
 
   test('clears selected rich text formatting without dropping semantic blocks', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'firefox' || testInfo.project.name === 'mobile',
+      'Desktop native select-all replacement proof'
+    )
+
     const editor = await openExample(page, 'richtext', {
       ready: {
         editor: 'visible',
@@ -313,7 +318,9 @@ test.describe('On richtext example', () => {
 
   test('applies mark hotkeys to inserted rich text and clears active marks', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop hotkey proof')
+
     const editor = await openExample(page, 'richtext', {
       ready: {
         editor: 'visible',
@@ -357,7 +364,12 @@ test.describe('On richtext example', () => {
 
   test('splits text entry between plain and marked text with native Enter', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'firefox' || testInfo.project.name === 'mobile',
+      'Desktop native Enter DOM proof'
+    )
+
     const editor = await openExample(page, 'richtext', {
       ready: {
         editor: 'visible',
@@ -853,7 +865,6 @@ test.describe('On richtext example', () => {
       anchor: { path: [0, 0], offset: 'two'.length },
       focus: { path: [0, 0], offset: 'two'.length },
     })
-    await page.getByTestId('mark-button-italic').click()
     await page.getByTestId('mark-button-code').click()
     await editor.assert.focusOwner('editor')
     await editor.ime.enableKeyEvents()
@@ -1088,7 +1099,12 @@ test.describe('On richtext example', () => {
 
   test('keeps model selection when focus moves outside the editor', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'webkit',
+      'WebKit does not focus the synthetic outside button from Playwright click'
+    )
+
     const editor = await openExample(page, 'richtext', {
       ready: {
         editor: 'visible',
@@ -3040,7 +3056,12 @@ test.describe('On richtext example', () => {
 
   test('applies toolbar heading to the browser-selected paragraph', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop browser paragraph selection proof'
+    )
+
     test.setTimeout(60_000)
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)

@@ -12,4 +12,5 @@ site/out/
 test-results/
 coverage
 .DS_Store
-.clawpatch
+.clawpatch/
+**/next-env.d.ts

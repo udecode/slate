@@ -35,7 +35,7 @@ or one-off manual checks.
 | Huge document rendering strategy | `huge-document` | `playwright/integration/examples/huge-document.test.ts` |
 | Table cell boundary navigation | `tables` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
 | External decoration refresh | `search-highlighting` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
-| Annotation anchor rebase | `comment-mode`, `persistent-annotation-anchors`, `collaborative-comments` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
+| Annotation anchor rebase | `comment-mode`, `persistent-annotation-anchors` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
 | Mouse selection toolbar | `hovering-toolbar` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
 | Paste, normalize, undo | `richtext`, `plaintext`, `forced-layout` | `playwright/stress/generated-editing.test.ts` |
 | Selection repair and IME | `richtext` | `playwright/stress/generated-editing.test.ts`, `packages/slate-browser/src/playwright/ime.ts` |

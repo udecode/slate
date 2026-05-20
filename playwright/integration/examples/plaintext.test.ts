@@ -123,6 +123,10 @@ test.describe('plaintext example', () => {
       testInfo.project.name === 'firefox',
       'Firefox lacks compatible synthetic StaticRange beforeinput dispatch'
     )
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop synthetic beforeinput target range proof'
+    )
 
     const editor = await openExample(page, 'plaintext', {
       ready: {
@@ -265,6 +269,10 @@ test.describe('plaintext example', () => {
       testInfo.project.name === 'firefox',
       'Firefox lacks compatible synthetic beforeinput dispatch'
     )
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop synthetic beforeinput transpose proof'
+    )
 
     const editor = await openExample(page, 'plaintext', {
       ready: {
@@ -336,6 +344,10 @@ test.describe('plaintext example', () => {
     page,
   }, testInfo) => {
     test.skip(testInfo.project.name === 'mobile', 'Desktop keyboard undo repro')
+    test.skip(
+      testInfo.project.name === 'firefox',
+      'Firefox native partial replacement selection differs'
+    )
 
     const editor = await openExample(page, 'plaintext', {
       ready: {

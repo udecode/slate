@@ -157,6 +157,10 @@ const IFrame = ({ children, ...props }: IFrameProps) => {
   const handleLoad = (e: React.SyntheticEvent<HTMLIFrameElement>) => {
     const iframe = e.target as HTMLIFrameElement
     if (!iframe.contentDocument) return
+    Object.assign(iframe.contentDocument.body.style, {
+      position: 'relative',
+      zIndex: '0',
+    })
     setIframeBody(iframe.contentDocument.body)
   }
   return (

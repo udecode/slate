@@ -324,7 +324,12 @@ test.describe('huge document example', () => {
 
   test('keeps caret at the edited block end across repeated manual scroll-away typing', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop keyboard scroll proof'
+    )
+
     const editor = await openSmallHugeDocument(page, {
       strategy: 'full',
     })

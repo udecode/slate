@@ -22,6 +22,7 @@ import {
 
 import { Instruction } from './components'
 
+type CommentStatus = 'open' | 'resolved'
 type CommentTone = 'question' | 'review'
 
 type CommentThread = {
@@ -29,16 +30,19 @@ type CommentThread = {
   body: string
   id: string
   label: string
+  status: CommentStatus
   tone: CommentTone
 }
 
 type CommentData = {
   body: string
   label: string
+  status: CommentStatus
   tone: CommentTone
 }
 
 type CommentProjection = {
+  status: CommentStatus
   tone: CommentTone
 }
 
@@ -190,15 +194,27 @@ const widgetRowCss = css`
   gap: 8px;
 `
 
-const toneBadgeCss = (tone: CommentTone) => css`
+const toneBadgeCss = (tone: CommentTone, status: CommentStatus) => css`
   display: inline-flex;
   align-items: center;
   gap: 6px;
   width: fit-content;
   padding: 3px 8px;
   border-radius: 999px;
-  background: ${tone === 'question' ? '#dbeafe' : '#fef3c7'};
-  color: ${tone === 'question' ? '#1d4ed8' : '#92400e'};
+  background: ${
+    status === 'resolved'
+      ? '#e2e8f0'
+      : tone === 'question'
+        ? '#dbeafe'
+        : '#fef3c7'
+  };
+  color: ${
+    status === 'resolved'
+      ? '#475569'
+      : tone === 'question'
+        ? '#1d4ed8'
+        : '#92400e'
+  };
   font-size: 13px;
   font-weight: 700;
 `
@@ -216,8 +232,17 @@ const formatRange = (range: Range | null) =>
     ? `${range.anchor.path.join('.')}:${range.anchor.offset}|${range.focus.path.join('.')}:${range.focus.offset}`
     : 'none'
 
-const commentBackground = (tone: CommentTone, overlapCount: number) => ({
-  backgroundColor: tone === 'question' ? '#dbeafe' : '#fef3c7',
+const commentBackground = (
+  tone: CommentTone,
+  status: CommentStatus,
+  overlapCount: number
+) => ({
+  backgroundColor:
+    status === 'resolved'
+      ? '#e2e8f0'
+      : tone === 'question'
+        ? '#dbeafe'
+        : '#fef3c7',
   borderRadius: 4,
   boxShadow:
     overlapCount > 1
@@ -231,10 +256,12 @@ const createCommentAnnotations = (comments: readonly CommentThread[]) =>
     data: {
       body: comment.body,
       label: comment.label,
+      status: comment.status,
       tone: comment.tone,
     },
     id: comment.id,
     projection: {
+      status: comment.status,
       tone: comment.tone,
     },
   }))
@@ -258,6 +285,7 @@ const CommentedEditable = ({
       const firstSlice =
         (segment.slices[0]?.data as
           | {
+              status?: CommentStatus
               tone?: CommentTone
             }
           | undefined) ?? null
@@ -265,9 +293,11 @@ const CommentedEditable = ({
       return (
         <span
           data-comment-count={String(segment.slices.length)}
+          data-comment-status={firstSlice?.status ?? 'open'}
           data-comment-tone={firstSlice?.tone ?? 'review'}
           style={commentBackground(
             firstSlice?.tone ?? 'review',
+            firstSlice?.status ?? 'open',
             segment.slices.length
           )}
         >
@@ -437,6 +467,7 @@ const CommentModePane = ({
         body: `Discuss: ${snippet.slice(0, 56)}`,
         id,
         label: `Comment ${current.length + 1}`,
+        status: 'open',
         tone,
       },
     ])
@@ -480,6 +511,10 @@ const CommentModePane = ({
   }
 
   const retoneFirstComment = () => {
+    if (comments.length === 0) {
+      return
+    }
+
     onCommentWrite()
     setComments((current) =>
       current.map((comment, index) =>
@@ -487,6 +522,42 @@ const CommentModePane = ({
           ? {
               ...comment,
               tone: comment.tone === 'review' ? 'question' : 'review',
+            }
+          : comment
+      )
+    )
+  }
+
+  const updateFirstCommentBody = () => {
+    if (comments.length === 0) {
+      return
+    }
+
+    onCommentWrite()
+    setComments((current) =>
+      current.map((comment, index) =>
+        index === 0
+          ? {
+              ...comment,
+              body: `${comment.body} Updated from the comment channel.`,
+            }
+          : comment
+      )
+    )
+  }
+
+  const toggleFirstCommentStatus = () => {
+    if (comments.length === 0) {
+      return
+    }
+
+    onCommentWrite()
+    setComments((current) =>
+      current.map((comment, index) =>
+        index === 0
+          ? {
+              ...comment,
+              status: comment.status === 'open' ? 'resolved' : 'open',
             }
           : comment
       )
@@ -523,6 +594,22 @@ const CommentModePane = ({
         <button
           className={buttonCss}
           disabled={comments.length === 0}
+          onClick={updateFirstCommentBody}
+          type="button"
+        >
+          Update first comment
+        </button>
+        <button
+          className={buttonCss}
+          disabled={comments.length === 0}
+          onClick={toggleFirstCommentStatus}
+          type="button"
+        >
+          Toggle resolved
+        </button>
+        <button
+          className={buttonCss}
+          disabled={comments.length === 0}
           onClick={clearComments}
           type="button"
         >
@@ -548,9 +635,13 @@ const CommentModePane = ({
                 key={annotation.id}
               >
                 <span
-                  className={toneBadgeCss(annotation.data?.tone ?? 'review')}
+                  className={toneBadgeCss(
+                    annotation.data?.tone ?? 'review',
+                    annotation.data?.status ?? 'open'
+                  )}
                 >
-                  {annotation.data?.label ?? annotation.id}
+                  {annotation.data?.label ?? annotation.id} -{' '}
+                  {annotation.data?.status ?? 'open'}
                 </span>
                 <strong>{annotation.data?.body}</strong>
                 <span className={codeCss}>

@@ -40,7 +40,7 @@ const ShadowEditor = () => {
 
   return (
     <Slate editor={editor}>
-      <Editable placeholder="Enter some plain text..." />
+      <Editable placeholder="Enter some plain text..." style={{ zIndex: 0 }} />
     </Slate>
   )
 }

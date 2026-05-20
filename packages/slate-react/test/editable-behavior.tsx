@@ -37,6 +37,9 @@ describe('slate-react editable behavior', () => {
     const editable = rendered.container.querySelector('[data-slate-editor]')
 
     expect(editable).toBeInstanceOf(HTMLElement)
+    expect((editable as HTMLElement).style.position).toBe('relative')
+    expect((editable as HTMLElement).style.whiteSpace).toBe('pre-wrap')
+    expect((editable as HTMLElement).style.wordWrap).toBe('break-word')
     expect((editable as HTMLElement).style.zIndex).toBe('-1')
     expect(editable).not.toHaveAttribute('zindex')
   })
@@ -226,7 +229,6 @@ describe('slate-react editable behavior', () => {
       expect(context.editor).toBe(editor)
       expect(context.inputType).toBe('formatBold')
       expect(context.native).toBe(false)
-      event.preventDefault()
       return true
     })
 
