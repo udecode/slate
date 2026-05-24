@@ -1,0 +1,708 @@
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
+
+import {
+  createEditor,
+  createEditorRuntime,
+  createEditorView,
+  type Descendant,
+  defineEditorExtension,
+  OperationApi,
+  PointApi,
+  RangeApi,
+} from '../src'
+import { Editor } from '../src/interfaces/editor'
+
+const paragraph = (text: string) =>
+  ({
+    type: 'paragraph',
+    children: [{ text }],
+  }) satisfies Descendant
+
+const voidBlock = defineEditorExtension({
+  name: 'test-void-block',
+  elements: [{ type: 'void-block', void: 'block' }],
+})
+
+describe('rooted operation contract', () => {
+  it('publishes root-explicit content operations without putting root keys in Path', () => {
+    const header = [paragraph('header')]
+    const main = [paragraph('body')]
+    const editor = createEditor({
+      initialValue: { roots: { header, main } },
+    })
+
+    editor.update((tx) => {
+      tx.text.insert('!', {
+        at: { path: [0, 0], offset: 4, root: 'main' },
+      })
+    })
+
+    const commit = Editor.getLastCommit(editor)
+    assert(commit)
+    assert.deepEqual(commit.operations, [
+      {
+        offset: 4,
+        path: [0, 0],
+        root: 'main',
+        text: '!',
+        type: 'insert_text',
+      },
+    ])
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          header,
+          main: [paragraph('body!')],
+        },
+      }
+    )
+  })
+
+  it('keeps Point and Range transforms root-local', () => {
+    const operation = {
+      offset: 0,
+      path: [0, 0],
+      root: 'main',
+      text: '!',
+      type: 'insert_text',
+    } as const
+    const headerPoint = { path: [0, 0], offset: 3, root: 'header' } as const
+    const headerRange = { anchor: headerPoint, focus: headerPoint }
+
+    assert.deepEqual(PointApi.transform(headerPoint, operation), headerPoint)
+    assert.deepEqual(RangeApi.transform(headerRange, operation), headerRange)
+    assert.equal(PointApi.isPoint(headerPoint), true)
+    assert.equal(RangeApi.isRange(headerRange), true)
+  })
+
+  it('keeps PathRef root metadata internal and root-local', () => {
+    const runtime = createEditorRuntime({
+      initialValue: {
+        roots: {
+          header: [paragraph('header')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const headerEditor = createEditorView(runtime, { root: 'header' })
+    const ref = Editor.pathRef(headerEditor, [0])
+
+    assert.equal('root' in ref, false)
+
+    mainEditor.update((tx) => {
+      tx.nodes.insert(paragraph('main-before'), { at: [0] })
+    })
+
+    assert.deepEqual(ref.current, [0])
+
+    headerEditor.update((tx) => {
+      tx.nodes.insert(paragraph('header-before'), { at: [0] })
+    })
+
+    assert.deepEqual(ref.current, [1])
+    assert.deepEqual(ref.unref(), [1])
+  })
+
+  it('keeps sibling-root merge and split operations from retagging selection', () => {
+    const mainSelection = {
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    }
+    const mergeEditor = createEditor({
+      initialValue: {
+        roots: {
+          header: [paragraph('a'), paragraph('b')],
+          main: [paragraph('main')],
+        },
+      },
+    })
+
+    mergeEditor.update((tx) => {
+      tx.selection.set(mainSelection)
+    })
+    mergeEditor.update((tx) => {
+      tx.operations.replay([
+        {
+          path: [1],
+          position: 1,
+          properties: {},
+          root: 'header',
+          type: 'merge_node',
+        },
+      ])
+    })
+
+    assert.deepEqual(
+      mergeEditor.read((state) => state.selection.get()),
+      mainSelection
+    )
+
+    const splitEditor = createEditor({
+      initialValue: {
+        roots: {
+          header: [paragraph('ab')],
+          main: [paragraph('main')],
+        },
+      },
+    })
+
+    splitEditor.update((tx) => {
+      tx.selection.set(mainSelection)
+    })
+    splitEditor.update((tx) => {
+      tx.operations.replay([
+        {
+          path: [0, 0],
+          position: 1,
+          properties: {},
+          root: 'header',
+          type: 'split_node',
+        },
+      ])
+    })
+
+    assert.deepEqual(
+      splitEditor.read((state) => state.selection.get()),
+      mainSelection
+    )
+  })
+
+  it('deletes explicit non-main ranges in their own root', () => {
+    const editor = createEditor({
+      initialValue: {
+        roots: {
+          header: [paragraph('header')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.text.delete({
+        at: {
+          anchor: { path: [0, 0], offset: 1, root: 'header' },
+          focus: { path: [0, 0], offset: 3, root: 'header' },
+        },
+      })
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          header: [paragraph('hder')],
+          main: [paragraph('body')],
+        },
+      }
+    )
+    assert.equal(
+      Editor.getLastCommit(editor)?.operations.every(
+        (operation) => operation.root === 'header'
+      ),
+      true
+    )
+  })
+
+  it('replaces explicit non-main ranges in their own root', () => {
+    const editor = createEditor({
+      initialValue: {
+        roots: {
+          header: [paragraph('header')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.text.insert('X', {
+        at: {
+          anchor: { path: [0, 0], offset: 1, root: 'header' },
+          focus: { path: [0, 0], offset: 3, root: 'header' },
+        },
+      })
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          header: [paragraph('hXder')],
+          main: [paragraph('body')],
+        },
+      }
+    )
+    assert.equal(
+      Editor.getLastCommit(editor)?.operations.every(
+        (operation) => operation.root === 'header'
+      ),
+      true
+    )
+  })
+
+  it('routes explicit full-root text replacements through their own root', () => {
+    const editor = createEditor({
+      initialValue: {
+        roots: {
+          header: [paragraph('head')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.text.insert('X', {
+        at: {
+          anchor: { path: [0, 0], offset: 0, root: 'header' },
+          focus: { path: [0, 0], offset: 4, root: 'header' },
+        },
+      })
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          header: [paragraph('X')],
+          main: [paragraph('body')],
+        },
+      }
+    )
+    assert.equal(Editor.getLastCommit(editor)?.operations[0]?.root, 'header')
+  })
+
+  it('checks explicit point inserts against the target root', () => {
+    const editor = createEditor({
+      extensions: [voidBlock],
+      initialValue: {
+        roots: {
+          header: [paragraph('head')],
+          main: [{ type: 'void-block', children: [{ text: '' }] }],
+        },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.text.insert('X', {
+        at: { path: [0, 0], offset: 2, root: 'header' },
+      })
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          header: [paragraph('heXad')],
+          main: [{ type: 'void-block', children: [{ text: '' }] }],
+        },
+      }
+    )
+    assert.equal(Editor.getLastCommit(editor)?.operations[0]?.root, 'header')
+  })
+
+  it('normalizes repairs inside the operation root', () => {
+    const editor = createEditor({
+      initialValue: {
+        roots: {
+          header: [paragraph('head')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          node: { type: 'block', children: [] },
+          path: [1],
+          root: 'header',
+          type: 'insert_node',
+        },
+      ])
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          header: [
+            paragraph('head'),
+            { type: 'block', children: [{ text: '' }] },
+          ],
+          main: [paragraph('body')],
+        },
+      }
+    )
+    assert.equal(
+      Editor.getLastCommit(editor)?.operations.every(
+        (operation) => operation.root === 'header'
+      ),
+      true
+    )
+  })
+
+  it('normalizes every root touched by a transaction', () => {
+    const editor = createEditor({
+      initialValue: {
+        roots: {
+          header: [paragraph('head')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          node: { type: 'block', children: [] },
+          path: [1],
+          root: 'header',
+          type: 'insert_node',
+        },
+        {
+          offset: 4,
+          path: [0, 0],
+          root: 'main',
+          text: '!',
+          type: 'insert_text',
+        },
+      ])
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          header: [
+            paragraph('head'),
+            { type: 'block', children: [{ text: '' }] },
+          ],
+          main: [paragraph('body!')],
+        },
+      }
+    )
+    assert.deepEqual(
+      Editor.getLastCommit(editor)?.operations.map(
+        (operation) => operation.root
+      ),
+      ['header', 'main', 'header']
+    )
+  })
+
+  it('routes explicit point node inserts through their own root', () => {
+    const editor = createEditor({
+      initialValue: {
+        roots: {
+          header: [paragraph('head')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.nodes.insert(paragraph('new'), {
+        at: { path: [0, 0], offset: 2, root: 'header' },
+      })
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          header: [paragraph('he'), paragraph('new'), paragraph('ad')],
+          main: [paragraph('body')],
+        },
+      }
+    )
+    assert.equal(
+      Editor.getLastCommit(editor)?.operations.every(
+        (operation) => operation.root === 'header'
+      ),
+      true
+    )
+  })
+
+  it('routes implicit node inserts through the current transaction selection root', () => {
+    const editor = createEditor({
+      initialValue: {
+        roots: {
+          header: [paragraph('head')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.selection.set({ path: [0, 0], offset: 2, root: 'header' })
+      tx.nodes.insert(paragraph('new'))
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          header: [paragraph('he'), paragraph('new'), paragraph('ad')],
+          main: [paragraph('body')],
+        },
+      }
+    )
+    assert.equal(
+      Editor.getLastCommit(editor)?.operations.every(
+        (operation) => operation.root === 'header'
+      ),
+      true
+    )
+  })
+
+  it('routes static point node inserts through their explicit root', () => {
+    const editor = createEditor({
+      initialValue: {
+        roots: {
+          header: [paragraph('head')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+
+    Editor.insertNodes(editor, paragraph('new'), {
+      at: { path: [0, 0], offset: 2, root: 'header' },
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          header: [paragraph('he'), paragraph('new'), paragraph('ad')],
+          main: [paragraph('body')],
+        },
+      }
+    )
+    assert.equal(
+      Editor.getLastCommit(editor)?.operations.every(
+        (operation) => operation.root === 'header'
+      ),
+      true
+    )
+  })
+
+  it('rejects operations with non-string roots', () => {
+    assert.equal(
+      OperationApi.isOperation({
+        offset: 0,
+        path: [0, 0],
+        root: null,
+        text: 'x',
+        type: 'insert_text',
+      }),
+      false
+    )
+    assert.equal(
+      OperationApi.isOperation({
+        offset: 0,
+        path: [0, 0],
+        root: 1,
+        text: 'x',
+        type: 'insert_text',
+      }),
+      false
+    )
+  })
+
+  it('rejects replayed operations with non-string roots', () => {
+    const editor = createEditor({
+      initialValue: {
+        roots: {
+          header: [paragraph('head')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+
+    assert.throws(() => {
+      editor.update((tx) => {
+        tx.operations.replay([
+          {
+            offset: 0,
+            path: [0, 0],
+            root: null,
+            text: 'x',
+            type: 'insert_text',
+          },
+        ] as never)
+      })
+    }, /Cannot replay an invalid Slate operation/)
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          header: [paragraph('head')],
+          main: [paragraph('body')],
+        },
+      }
+    )
+  })
+
+  it('infers set_selection roots from explicit range points', () => {
+    const editor = createEditor({
+      initialValue: {
+        roots: {
+          header: [paragraph('header')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+    const headerSelection = {
+      anchor: { path: [0, 0], offset: 1, root: 'header' },
+      focus: { path: [0, 0], offset: 1, root: 'header' },
+    }
+
+    editor.update((tx) => {
+      tx.selection.set(headerSelection)
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.selection.get()),
+      headerSelection
+    )
+    assert.equal(Editor.getLastCommit(editor)?.operations[0]?.root, 'header')
+  })
+
+  it('replays inverted selection operations through the restored root', () => {
+    const editor = createEditor({
+      initialValue: {
+        roots: {
+          header: [paragraph('header')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+    const mainSelection = {
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    }
+    const headerSelection = {
+      anchor: { path: [0, 0], offset: 1, root: 'header' },
+      focus: { path: [0, 0], offset: 1, root: 'header' },
+    }
+
+    editor.update((tx) => {
+      tx.selection.set(mainSelection)
+    })
+    editor.update((tx) => {
+      tx.selection.set(headerSelection)
+    })
+
+    const selectionOperation = Editor.getLastCommit(editor)?.operations.find(
+      (operation) => operation.type === 'set_selection'
+    )
+
+    assert(selectionOperation)
+    const inverse = OperationApi.inverse(selectionOperation)
+
+    assert.equal(inverse.root, 'main')
+
+    editor.update((tx) => {
+      tx.operations.replay([inverse])
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.selection.get()),
+      mainSelection
+    )
+  })
+
+  it('inverts selection removal through the removed selection root', () => {
+    const headerSelection = {
+      anchor: { path: [0, 0], offset: 1, root: 'header' },
+      focus: { path: [0, 0], offset: 1, root: 'header' },
+    }
+
+    assert.deepEqual(
+      OperationApi.inverse({
+        type: 'set_selection',
+        properties: headerSelection,
+        newProperties: null,
+        root: 'header',
+      }),
+      {
+        type: 'set_selection',
+        properties: null,
+        newProperties: headerSelection,
+        root: 'header',
+      }
+    )
+  })
+
+  it('preserves operation root when inverting rootless selection removal', () => {
+    const headerSelection = {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    }
+
+    assert.deepEqual(
+      OperationApi.inverse({
+        type: 'set_selection',
+        properties: headerSelection,
+        newProperties: null,
+        root: 'header',
+      }),
+      {
+        type: 'set_selection',
+        properties: null,
+        newProperties: headerSelection,
+        root: 'header',
+      }
+    )
+  })
+
+  it('preserves operation root when inverting rootless selection replacement', () => {
+    const previousSelection = {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    }
+    const nextSelection = {
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    }
+
+    assert.deepEqual(
+      OperationApi.inverse({
+        type: 'set_selection',
+        properties: previousSelection,
+        newProperties: nextSelection,
+        root: 'header',
+      }),
+      {
+        type: 'set_selection',
+        properties: nextSelection,
+        newProperties: previousSelection,
+        root: 'header',
+      }
+    )
+  })
+
+  it('inverts selection creation through the created selection root', () => {
+    const headerSelection = {
+      anchor: { path: [0, 0], offset: 1, root: 'header' },
+      focus: { path: [0, 0], offset: 1, root: 'header' },
+    }
+
+    assert.deepEqual(
+      OperationApi.inverse({
+        type: 'set_selection',
+        properties: null,
+        newProperties: headerSelection,
+        root: 'header',
+      }),
+      {
+        type: 'set_selection',
+        properties: headerSelection,
+        newProperties: null,
+        root: 'header',
+      }
+    )
+  })
+})

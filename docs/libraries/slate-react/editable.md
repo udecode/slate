@@ -17,15 +17,15 @@ type EditableProps = {
   decorate?: (entry: NodeEntry) => EditableDecoration[]
   disableDefaultStyles?: boolean
   id?: string
-  renderingStrategy?: RenderingStrategyOptions | null
+  domStrategy?: DOMStrategyOptions | null
   onBeforeInput?: React.FormEventHandler<HTMLDivElement>
   onDOMBeforeInput?: (
     event: InputEvent,
     context: EditableDOMBeforeInputContext
   ) => boolean | EditableRepairRequest | void
   onKeyDown?: EditableKeyDownHandler
-  onRenderingStrategyMetrics?: (
-    metrics: EditableRenderingStrategyMetrics
+  onDOMStrategyMetrics?: (
+    metrics: EditableDOMStrategyMetrics
   ) => void
   onPaste?: React.ClipboardEventHandler<HTMLDivElement>
   placeholder?: React.ReactNode
@@ -302,36 +302,20 @@ editor.extend({
 
 Product input rules belong in higher-level command layers or editor extensions. Keep raw `Editable` focused on rendering and DOM events.
 
-## Rendering Strategy
+## DOM Strategy
 
-`Editable` applies safe staged rendering automatically. Use `renderingStrategy="staged"` to lock that behavior explicitly, or `renderingStrategy="full"` to render the full document surface for debugging.
+`Editable` applies safe staged rendering automatically. Use `domStrategy="staged"` to lock that behavior explicitly, or `domStrategy="full"` to render the full document surface for debugging.
 
-Use shell mode only when a huge document needs aggressive mounting control. The runtime keeps the active editing corridor mounted and renders far-away regions as semantic shells.
-
-```tsx
-<Editable
-  renderingStrategy={{
-    overscan: 0,
-    type: 'shell',
-    segmentSize: 100,
-    previewChars: 96,
-    threshold: 2000,
-  }}
-/>
-```
-
-Shell mode keeps typing, selection, and overlay work local to the active region.
-
-Use `onRenderingStrategyMetrics` to wire production RUM or a Datadog dashboard. The
+Use `onDOMStrategyMetrics` to wire production RUM or a Datadog dashboard. The
 callback runs after commit and reports the current document cohort, requested
 strategy, effective strategy, degradation mode, mounted/pending counts, DOM
 coverage boundary counts, visible DOM node count, and editable descendant count.
 
 ```tsx
 <Editable
-  renderingStrategy="staged"
-  onRenderingStrategyMetrics={metrics => {
-    datadogRum.addAction('slate.rendering_strategy.surface', metrics)
+  domStrategy="staged"
+  onDOMStrategyMetrics={metrics => {
+    datadogRum.addAction('slate.dom_strategy.surface', metrics)
   }}
 />
 ```
@@ -339,7 +323,7 @@ coverage boundary counts, visible DOM node count, and editable descendant count.
 Track dashboards by interaction name, cohort, document size, requested strategy,
 effective strategy, degradation mode, native surface completion, boundary count,
 visible DOM count, editable descendant count, custom renderer flag, browser,
-mobile/desktop, IME state, and release version. Virtualized, shell, and
+mobile/desktop, IME state, and release version. Virtualized, partial-DOM, and
 `staged-warmup` metrics are degraded-mode signals; do not mix them with complete
 DOM-present default rows.
 

@@ -336,6 +336,19 @@ describe('DOM coverage boundaries', () => {
     })
   })
 
+  test('focus fails closed while the node map is still dirty', () => {
+    withDom((document) => {
+      const editor = createEditor({ extensions: [dom()] })
+
+      mountEditorRoot(editor, document)
+      IS_FOCUSED.delete(editor)
+      IS_NODE_MAP_DIRTY.set(editor, true)
+
+      expect(() => editor.api.dom.focus({ retries: 0 })).not.toThrow()
+      expect(IS_FOCUSED.get(editor)).toBeUndefined()
+    })
+  })
+
   test('uses parent-hidden policy before nested child policy regardless of registration order', () => {
     const editor = createNestedEditor()
 

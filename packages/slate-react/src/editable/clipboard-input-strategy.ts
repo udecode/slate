@@ -33,17 +33,17 @@ type EditableDragState = {
 
 export type EditableClipboardResult = {
   command: EditableCommand | null
-  explicitShellBackedSelection?: boolean
+  explicitPartialDOMBackedSelection?: boolean
   repair?: EditableRepairRequest | null
 }
 
 const clipboardResult = ({
   command,
-  explicitShellBackedSelection,
+  explicitPartialDOMBackedSelection,
   repair,
 }: EditableClipboardResult): EditableClipboardResult => ({
   command,
-  explicitShellBackedSelection,
+  explicitPartialDOMBackedSelection,
   repair,
 })
 
@@ -519,20 +519,20 @@ export const applyEditablePaste = ({
   event,
   onPaste,
   readOnly,
-  shellBackedSelection,
+  partialDOMBackedSelection,
 }: {
   editor: ReactRuntimeEditor
   event: ClipboardEvent<HTMLDivElement>
   onPaste?: EditablePasteHandler
   readOnly: boolean
-  shellBackedSelection: boolean
+  partialDOMBackedSelection: boolean
 }): EditableClipboardResult => {
   const canHandlePaste =
     !readOnly &&
     ReactEditor.hasEditableTarget(editor, event.target) &&
     !isClipboardEventHandled({ event, handler: onPaste })
 
-  if (shellBackedSelection && event.clipboardData && canHandlePaste) {
+  if (partialDOMBackedSelection && event.clipboardData && canHandlePaste) {
     event.preventDefault()
     materializePasteTargetBoundaries(editor)
     const command: EditableCommand = {
@@ -542,7 +542,7 @@ export const applyEditablePaste = ({
     applyEditableCommand({ command, editor })
     return clipboardResult({
       command,
-      explicitShellBackedSelection: false,
+      explicitPartialDOMBackedSelection: false,
       repair: { kind: 'repair-caret' },
     })
   }

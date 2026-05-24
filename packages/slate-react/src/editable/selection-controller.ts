@@ -8,6 +8,7 @@ import {
   type TargetFreshnessRequest,
 } from 'slate'
 import {
+  containsShadowAware,
   type DOMRange,
   getSelection,
   IS_ANDROID,
@@ -32,7 +33,10 @@ import {
   readLiveSelection,
   readRuntimeSelection,
 } from './runtime-selection-state'
-import { shouldSkipSelectionScroll } from './selection-side-effect-policy'
+import {
+  shouldSkipDOMSelection,
+  shouldSkipSelectionScroll,
+} from './selection-side-effect-policy'
 
 export type EditableSelectionController = {
   inputController: EditableInputController
@@ -153,7 +157,7 @@ const shouldKeepFullDocumentSelectionModelBacked = ({
   editorElement: HTMLElement
   selection: Range
 }) => {
-  const rootChildCount = editor.read((state) => state.value.get().length)
+  const rootChildCount = editor.read((state) => state.nodes.children().length)
 
   return (
     (rootChildCount > MODEL_BACKED_FULL_DOCUMENT_CHILD_THRESHOLD ||
@@ -355,8 +359,8 @@ const inferModelSelectionPreferenceReason = ({
       return 'internal-control'
     case 'composition-owned':
       return 'composition'
-    case 'shell-backed':
-      return 'shell-backed'
+    case 'partial-dom-backed':
+      return 'partial-dom-backed'
     default:
       return 'model-command'
   }
@@ -389,7 +393,7 @@ export const isEditableModelSelectionPreferredForInput = ({
     preference.reason === 'composition' ||
     preference.reason === 'internal-control' ||
     preference.reason === 'model-command' ||
-    preference.reason === 'shell-backed'
+    preference.reason === 'partial-dom-backed'
   )
 }
 
@@ -412,6 +416,14 @@ export const shouldImportChangedExpandedDOMSelection = ({
 
   return !currentSelection || !RangeApi.equals(currentSelection, nextSelection)
 }
+
+export const shouldApplyDOMSelectionChange = ({
+  changedExpandedDOMSelection,
+  selectionChangeOrigin,
+}: {
+  changedExpandedDOMSelection: boolean
+  selectionChangeOrigin: SelectionChangeOrigin
+}) => selectionChangeOrigin === 'native-user' || changedExpandedDOMSelection
 
 export const prepareEditableSelectionChangeImport = ({
   domSelectionBelongsToEditor,
@@ -638,7 +650,7 @@ export const applyEditableDOMSelectionChange = ({
   }
 
   if (
-    state.selectionSource === 'shell-backed' &&
+    state.selectionSource === 'partial-dom-backed' &&
     isEditableModelSelectionPreferred(inputController)
   ) {
     return
@@ -651,6 +663,15 @@ export const applyEditableDOMSelectionChange = ({
       nextSelection: range,
       selectionChangeOrigin,
     })
+
+  if (
+    !shouldApplyDOMSelectionChange({
+      changedExpandedDOMSelection: shouldImportChangedExpandedSelection,
+      selectionChangeOrigin,
+    })
+  ) {
+    return
+  }
 
   if (
     state.isUpdatingSelection &&
@@ -703,7 +724,7 @@ export const applyEditableDOMSelectionChange = ({
 export const syncEditableDOMSelectionToEditor = ({
   editor,
   scrollSelectionIntoView,
-  shellBackedSelection,
+  partialDOMBackedSelection,
   state,
 }: {
   editor: ReactRuntimeEditor
@@ -711,7 +732,7 @@ export const syncEditableDOMSelectionToEditor = ({
     editor: ReactRuntimeEditor,
     domRange: DOMRange
   ) => void
-  shellBackedSelection: boolean
+  partialDOMBackedSelection: boolean
   state: {
     isUpdatingSelection: boolean
     selectionChangeOrigin?: SelectionChangeOrigin | null
@@ -719,7 +740,11 @@ export const syncEditableDOMSelectionToEditor = ({
 }) => {
   const selection = readRuntimeSelection(editor)
 
-  if (shellBackedSelection || !selection) {
+  if (
+    partialDOMBackedSelection ||
+    !selection ||
+    shouldSkipDOMSelection(editor)
+  ) {
     return
   }
 
@@ -732,6 +757,16 @@ export const syncEditableDOMSelectionToEditor = ({
     }
 
     const editorElement = ReactEditor.assertDOMNode(editor, editor)
+    const activeElement = root.activeElement
+
+    if (
+      activeElement &&
+      activeElement !== editorElement.ownerDocument.body &&
+      activeElement !== editorElement.ownerDocument.documentElement &&
+      !containsShadowAware(editorElement, activeElement)
+    ) {
+      return
+    }
 
     if (
       shouldKeepFullDocumentSelectionModelBacked({

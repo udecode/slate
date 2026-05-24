@@ -1,4 +1,9 @@
-import { createEditor, TextApi } from 'slate'
+import {
+  createEditor,
+  createEditorRuntime,
+  createEditorView,
+  TextApi,
+} from 'slate'
 import { Editor } from 'slate/internal'
 import {
   readRuntimeNode,
@@ -16,6 +21,24 @@ import {
 } from '../src/editable/runtime-selection-state'
 
 describe('slate-react runtime live state facade', () => {
+  test('resolves live nodes and text through root view editors', () => {
+    const runtime = createEditorRuntime({
+      initialValue: {
+        roots: {
+          header: [{ type: 'block', children: [{ text: 'header' }] }],
+          main: [{ type: 'block', children: [{ text: 'body' }] }],
+        },
+      },
+    })
+    const headerEditor = createEditorView(runtime, { root: 'header' })
+
+    const block = readRuntimeNode(headerEditor, [0])
+    const text = readRuntimeText(headerEditor, [0, 0])
+
+    expect(block && 'children' in block).toBe(true)
+    expect(text?.text).toBe('header')
+  })
+
   test('resolves live nodes, texts, and runtime ids through one owner', () => {
     const editor = createEditor()
 

@@ -2,7 +2,6 @@ import type {
   Editor,
   EditorCommitListener,
   EditorElementSpec,
-  EditorExtensionEditorGroup,
   EditorExtensionStateGroup,
   EditorExtensionTxGroup,
   EditorNodeNormalizer,
@@ -18,11 +17,6 @@ export type EditorStateGroupRegistration<TEditor extends Editor = Editor> = {
   factory: EditorExtensionStateGroup<TEditor>
 }
 
-export type EditorEditorGroupRegistration<TEditor extends Editor = Editor> = {
-  extensionName: string
-  factory: EditorExtensionEditorGroup<TEditor>
-}
-
 export type EditorTxGroupRegistration<TEditor extends Editor = Editor> = {
   extensionName: string
   factory: EditorExtensionTxGroup<TEditor>
@@ -34,7 +28,6 @@ export type ExtensionRegistry<TEditor extends Editor = Editor> = {
   commitListeners: Set<EditorCommitListener<ValueOf<TEditor>>>
   elementMatchers: EditorElementSpecRegistration[]
   elementSpecs: Map<string, EditorElementSpecRegistration>
-  editorGroups: Map<string, EditorEditorGroupRegistration<TEditor>>
   extensions: Map<string, RegisteredEditorExtension>
   normalizers: Map<string, EditorNodeNormalizer<TEditor>>
   operationMiddlewares: Set<EditorOperationMiddleware<TEditor>>
@@ -70,13 +63,6 @@ const reservedStateGroupNames = new Set([
   'value',
 ])
 
-const reservedEditorGroupNames = new Set([
-  'extend',
-  'read',
-  'subscribe',
-  'update',
-])
-
 const reservedTxGroupNames = new Set([
   ...reservedStateGroupNames,
   'normalize',
@@ -95,7 +81,6 @@ export const getExtensionRegistry = <TEditor extends Editor>(
       commitListeners: new Set(),
       elementMatchers: [],
       elementSpecs: new Map(),
-      editorGroups: new Map(),
       extensions: new Map(),
       normalizers: new Map(),
       operationMiddlewares: new Set(),
@@ -107,6 +92,19 @@ export const getExtensionRegistry = <TEditor extends Editor>(
   }
 
   return registry as ExtensionRegistry<TEditor>
+}
+
+export const inheritExtensionRegistry = <
+  TEditor extends Editor,
+  TSourceEditor extends Editor,
+>(
+  editor: TEditor,
+  source: TSourceEditor
+) => {
+  EXTENSION_REGISTRIES.set(
+    editor,
+    getExtensionRegistry(source) as ExtensionRegistry
+  )
 }
 
 export const registerElementSpec = (
@@ -322,47 +320,6 @@ export const registerStateGroup = <TEditor extends Editor>(
     groupName,
     factory
   )
-}
-
-export const registerEditorGroup = <TEditor extends Editor>(
-  editor: TEditor,
-  extensionName: string,
-  groupName: string,
-  factory: EditorExtensionEditorGroup<TEditor>
-) => {
-  const registry = getExtensionRegistry(editor)
-  const editorRecord = editor as unknown as Record<string, unknown>
-
-  if (groupName in editorRecord) {
-    throw new Error(
-      `Editor extension "${extensionName}" editor group "${groupName}" conflicts with an existing editor property.`
-    )
-  }
-
-  const cleanupRegistration = registerViewGroup(
-    registry.editorGroups,
-    reservedEditorGroupNames,
-    'editor',
-    extensionName,
-    groupName,
-    factory
-  )
-  let group: unknown
-
-  try {
-    group = Object.freeze(factory(editor))
-    editorRecord[groupName] = group
-  } catch (error) {
-    cleanupRegistration()
-    throw error
-  }
-
-  return () => {
-    if (editorRecord[groupName] === group) {
-      delete editorRecord[groupName]
-    }
-    cleanupRegistration()
-  }
 }
 
 export const registerTxGroup = <TEditor extends Editor>(

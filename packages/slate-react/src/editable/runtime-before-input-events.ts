@@ -17,6 +17,7 @@ import type { EditableInputController } from './input-state'
 import {
   applyModelOwnedBeforeInputOperation,
   applyModelOwnedNativeHistoryEvent,
+  type DeferredOperation,
   shouldForceRenderAfterModelOwnedHistory,
 } from './model-input-strategy'
 import { getNativeBeforeInputDecision } from './native-input-strategy'
@@ -28,8 +29,6 @@ import {
   restoreUserSelectionAfterBeforeInput,
   syncSelectionForBeforeInput,
 } from './selection-reconciler'
-
-type DeferredOperation = () => void
 
 type ApplyInputRules = ({
   data,
@@ -165,8 +164,9 @@ export const useRuntimeBeforeInputEvents = ({
       const el = profileBeforeInputDuration('beforeinput-root-node', () =>
         ReactEditor.assertDOMNode(editor, editor)
       )
-      const root = profileBeforeInputDuration('beforeinput-root-owner', () =>
-        el.getRootNode()
+      const root = profileBeforeInputDuration(
+        'beforeinput-root-owner',
+        () => el.getRootNode() as Document | ShadowRoot
       )
 
       if (

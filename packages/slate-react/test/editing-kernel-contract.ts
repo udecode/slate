@@ -43,8 +43,18 @@ const createBaseTrace = () =>
   }) satisfies Parameters<typeof createEditableKernelResult>[0]['trace']
 
 test('kernel results expose explicit selection and repair policies', () => {
+  const editor = createEditor()
+
+  beginEditableEventFrame(editor, {
+    eventFamily: 'selectionchange',
+    focusOwner: 'editor',
+    lifecyclePhase: 'event',
+    selectionSource: 'dom-current',
+    targetOwner: 'editor',
+  })
+
   const result = createEditableKernelResult({
-    editor: createEditor(),
+    editor,
     handled: true,
     trace: createBaseTrace(),
   })
@@ -64,11 +74,14 @@ test('kernel results expose explicit selection and repair policies', () => {
 test('kernel traces attach the current editable event frame', () => {
   const editor = createEditor()
   const frame = beginEditableEventFrame(editor, {
+    commitEpoch: 3,
     eventFamily: 'keydown',
     focusOwner: 'editor',
     inputIntent: 'model-selection-move',
+    lifecyclePhase: 'event',
     selectionSource: 'dom-current',
     targetOwner: 'editor',
+    viewEpoch: 5,
   })
 
   const result = createEditableKernelResult({
@@ -92,6 +105,10 @@ test('kernel traces attach the current editable event frame', () => {
   expect(getCurrentEditableEventFrame(editor)).toEqual(frame)
   expect(result.trace.frame).toEqual(frame)
   expect(result.trace.frameId).toBe(frame.id)
+  expect(result.trace.frame?.lifecyclePhase).toBe('event')
+  expect(result.trace.frame?.root).toBe('main')
+  expect(result.trace.frame?.commitEpoch).toBe(3)
+  expect(result.trace.frame?.viewEpoch).toBe(5)
 })
 
 test('kernel traces attach typed command definitions', () => {
@@ -286,6 +303,14 @@ test('kernel traces preserve selectionchange origin metadata', () => {
 test('editable kernel trace keeps only the newest bounded entries', () => {
   const editor = createEditor()
 
+  beginEditableEventFrame(editor, {
+    eventFamily: 'selectionchange',
+    focusOwner: 'editor',
+    lifecyclePhase: 'event',
+    selectionSource: 'dom-current',
+    targetOwner: 'editor',
+  })
+
   for (let index = 0; index < EDITABLE_KERNEL_TRACE_LIMIT + 2; index++) {
     recordEditableKernelTrace({
       editor,
@@ -359,9 +384,144 @@ test('keyboard split-block commands are model-owned structural intent', () => {
         },
         target: null,
       } as any,
-      renderingStrategy: null,
+      domStrategyRuntime: null,
     })
   ).toBe('insert-break')
+})
+
+test('keyboard structural commands keep model selection after programmatic DOM export', () => {
+  const editor = createEditor() as any
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  })
+  inputController.state.selectionChangeOrigin = 'programmatic-export'
+  inputController.state.selectionSource = 'model-owned'
+
+  const decision = prepareEditableKeyDownKernel({
+    editor,
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: false,
+        key: 'Enter',
+        metaKey: false,
+        shiftKey: false,
+        which: 13,
+      },
+      target: null,
+    } as any,
+    inputController,
+    domStrategyRuntime: null,
+  })
+
+  expect(decision).toMatchObject({
+    intent: 'insert-break',
+    ownership: 'model-owned',
+    selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
+    shouldForceDOMImport: false,
+  })
+})
+
+test('keyboard structural commands keep model selection after delayed text repair clears origin', () => {
+  const editor = createEditor() as any
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: createEditableInputControllerState(),
+  })
+  inputController.state.selectionChangeOrigin = null
+  inputController.state.selectionSource = 'model-owned'
+
+  const decision = prepareEditableKeyDownKernel({
+    editor,
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: false,
+        key: 'Enter',
+        metaKey: false,
+        shiftKey: false,
+        which: 13,
+      },
+      target: null,
+    } as any,
+    inputController,
+    domStrategyRuntime: null,
+  })
+
+  expect(decision).toMatchObject({
+    intent: 'insert-break',
+    ownership: 'model-owned',
+    selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
+    shouldForceDOMImport: false,
+  })
+})
+
+test('keyboard model selection moves import DOM selection after programmatic DOM export', () => {
+  const editor = createEditor() as any
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  })
+  inputController.state.selectionChangeOrigin = 'programmatic-export'
+  inputController.state.selectionSource = 'model-owned'
+
+  const decision = prepareEditableKeyDownKernel({
+    editor,
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: false,
+        key: 'ArrowRight',
+        metaKey: false,
+        shiftKey: false,
+        which: 39,
+      },
+      target: null,
+    } as any,
+    inputController,
+    domStrategyRuntime: null,
+  })
+
+  expect(decision).toMatchObject({
+    intent: 'model-selection-move',
+    ownership: 'model-owned',
+    selectionPolicy: { kind: 'import-dom', reason: 'unknown-selection' },
+    shouldForceDOMImport: true,
+  })
+})
+
+test('keyboard structural commands import DOM selection when native selection owns it', () => {
+  const editor = createEditor() as any
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  })
+  inputController.state.selectionSource = 'dom-current'
+
+  const decision = prepareEditableKeyDownKernel({
+    editor,
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: false,
+        key: 'Enter',
+        metaKey: false,
+        shiftKey: false,
+        which: 13,
+      },
+      target: null,
+    } as any,
+    inputController,
+    domStrategyRuntime: null,
+  })
+
+  expect(decision).toMatchObject({
+    intent: 'insert-break',
+    ownership: 'model-owned',
+    selectionPolicy: { kind: 'import-dom', reason: 'unknown-selection' },
+    shouldForceDOMImport: true,
+  })
 })
 
 test('keyboard events during composition stay browser-owned', () => {
@@ -388,7 +548,7 @@ test('keyboard events during composition stay browser-owned', () => {
       target: null,
     } as any,
     inputController,
-    renderingStrategy: null,
+    domStrategyRuntime: null,
   })
 
   expect(decision).toMatchObject({
@@ -534,6 +694,40 @@ test('kernel result creation rejects DOM import during repair frames', () => {
     })
   ).toThrow(
     'Illegal Editable kernel transition: repair cannot import DOM selection'
+  )
+})
+
+test('kernel result creation rejects DOM import from non-event lifecycle frames', () => {
+  const editor = createEditor()
+
+  beginEditableEventFrame(editor, {
+    eventFamily: 'selectionchange',
+    focusOwner: 'editor',
+    lifecyclePhase: 'layout-effect',
+    selectionSource: 'dom-current',
+    targetOwner: 'editor',
+  })
+
+  expect(() =>
+    createEditableKernelResult({
+      editor,
+      handled: true,
+      trace: createBaseTrace(),
+    })
+  ).toThrow(
+    'Illegal Editable kernel transition: selection import requires event lifecycle frame'
+  )
+})
+
+test('kernel result creation rejects DOM import without an event frame', () => {
+  expect(() =>
+    createEditableKernelResult({
+      editor: createEditor(),
+      handled: true,
+      trace: createBaseTrace(),
+    })
+  ).toThrow(
+    'Illegal Editable kernel transition: selection import requires event lifecycle frame'
   )
 })
 

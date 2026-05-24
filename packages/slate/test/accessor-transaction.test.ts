@@ -41,10 +41,19 @@ const runManualTransaction = (
   editor: ReturnType<typeof createEditor>,
   operations: Operation[]
 ) => {
-  editor.update((tx) => {
+  runEditorTransaction(editor, (tx) => {
     for (const operation of clone(operations)) {
       tx.apply(operation)
     }
+  })
+}
+
+const setSelection = (
+  editor: ReturnType<typeof createEditor>,
+  selection: NonNullable<ReturnType<typeof Editor.getSelection>>
+) => {
+  editor.update((tx) => {
+    tx.selection.set(selection)
   })
 }
 
@@ -65,9 +74,9 @@ describe('slate public accessor + transaction seam', () => {
     const value = [paragraph('one')]
 
     Editor.replace(editor, { children: value, selection: null, marks: null })
-    const currentChildren = editor.read((state) => state.value.get())
+    const currentValue = editor.read((state) => state.value.get())
 
-    assert.deepEqual(currentChildren, value)
+    assert.deepEqual(currentValue, { roots: { main: value } })
     assert.equal(Editor.isEditor(editor, { deep: true }), true)
     assert.deepEqual(Editor.getChildren(editor), value)
     assert.equal('children' in editor, false)
@@ -172,8 +181,8 @@ describe('slate public accessor + transaction seam', () => {
 
     replaceChildren(batchEditor, children)
     replaceChildren(manualEditor, children)
-    batchEditor.select(selection)
-    manualEditor.select(selection)
+    setSelection(batchEditor, selection)
+    setSelection(manualEditor, selection)
 
     batchEditor.update((tx) => {
       tx.operations.replay(clone(operations))

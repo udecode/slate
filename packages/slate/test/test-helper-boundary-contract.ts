@@ -56,7 +56,7 @@ describe('test helper snapshot boundary', () => {
     })
 
     assert.deepEqual(
-      editor.read((state) => state.value.get()),
+      editor.read((state) => state.runtime.snapshot().children),
       [paragraph('seeded')]
     )
 

@@ -14,6 +14,7 @@ import type {
   Editor,
   EditorAboveOptions,
   EditorCommit,
+  EditorCommitSource,
   EditorExtensionInput,
   EditorLeafOptions,
   EditorLevelsOptions,
@@ -113,6 +114,10 @@ export type InternalEditorSnapshotRuntime<V extends Value = Value> = {
 export type InternalEditorTransactionRuntime<V extends Value = Value> = {
   read: <T>(fn: (state: EditorStateView<V>) => T) => T
   subscribe: (listener: SnapshotListener<V>) => () => void
+  subscribeSource: (
+    source: EditorCommitSource,
+    listener: SnapshotListener<V>
+  ) => () => void
   update: (
     fn: (transaction: EditorUpdateTransaction<V>) => void,
     options?: EditorUpdateOptions
@@ -152,6 +157,11 @@ export const setEditorRuntime = <V extends Value>(
 ) => {
   EDITOR_RUNTIME.set(editor, runtime as unknown as InternalEditorRuntime)
 }
+
+export const hasEditorRuntime = (value: unknown): value is Editor =>
+  typeof value === 'object' &&
+  value !== null &&
+  EDITOR_RUNTIME.has(value as Editor)
 
 export const getEditorRuntime = <V extends Value = Value>(
   editor: Editor<V>

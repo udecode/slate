@@ -1,4 +1,5 @@
 import {
+  type EditorStatePatch,
   isObject,
   type Operation,
   OperationApi,
@@ -9,6 +10,8 @@ import {
 export interface Batch<V extends Value = Value> {
   operations: Operation<V>[]
   selectionBefore: Range | null
+  selectionBeforeRoot?: string
+  statePatches: EditorStatePatch[]
 }
 
 /**

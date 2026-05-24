@@ -4,6 +4,7 @@ import { Editor } from 'slate/internal'
 import { createEditableInputController } from '../src/editable/input-state'
 import { applyEditableRepairRequest } from '../src/editable/mutation-controller'
 import {
+  shouldSkipDOMSelection,
   shouldSkipSelectionFocus,
   shouldSkipSelectionScroll,
 } from '../src/editable/selection-side-effect-policy'
@@ -43,6 +44,7 @@ const createRemoteSelectionEditor = () => {
 test('remote collaboration selection metadata skips scroll and focus side effects', () => {
   const editor = createRemoteSelectionEditor()
 
+  expect(shouldSkipDOMSelection(editor)).toBe(true)
   expect(shouldSkipSelectionScroll(editor)).toBe(true)
   expect(shouldSkipSelectionFocus(editor)).toBe(true)
 })

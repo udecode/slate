@@ -57,7 +57,7 @@ const getLeafPathByText = (
   editor: ReturnType<typeof createEditor>,
   match: (text: string) => boolean
 ) => {
-  const value = editor.read((state) => state.value.get())
+  const value = editor.read((state) => state.runtime.snapshot().children)
 
   for (const [blockIndex, node] of value.entries()) {
     if (!('children' in node)) {
@@ -78,7 +78,7 @@ const getPointBeforeText = (
   editor: ReturnType<typeof createEditor>,
   textToFind: string
 ): Point => {
-  const value = editor.read((state) => state.value.get())
+  const value = editor.read((state) => state.runtime.snapshot().children)
 
   for (const [blockIndex, node] of value.entries()) {
     if (!('children' in node)) {
@@ -209,7 +209,7 @@ const ProjectionRow = ({
 
 const Outline = () => {
   const outline = useEditorSelector((editor) =>
-    getOutline(editor.read((state) => state.value.get()))
+    getOutline(editor.read((state) => state.runtime.snapshot().children))
   )
 
   return (
@@ -247,7 +247,7 @@ const AnnotationSidebar = () => {
     tone?: string
   }>()
   const rows = useEditorSelector((editor) =>
-    getBlockRows(editor.read((state) => state.value.get()))
+    getBlockRows(editor.read((state) => state.runtime.snapshot().children))
   )
 
   return (
@@ -329,7 +329,7 @@ const AnchoredProjectionContent = ({
   const alphaRow = useEditorSelector(
     (editor) =>
       getBlockRowByText(
-        editor.read((state) => state.value.get()),
+        editor.read((state) => state.runtime.snapshot().children),
         (text) => text.includes('alpha')
       ) ?? null,
     (left, right) =>
@@ -341,7 +341,7 @@ const AnchoredProjectionContent = ({
   const betaRow = useEditorSelector(
     (editor) =>
       getBlockRowByText(
-        editor.read((state) => state.value.get()),
+        editor.read((state) => state.runtime.snapshot().children),
         (text) => text === 'beta'
       ) ?? null,
     (left, right) =>

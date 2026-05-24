@@ -58,7 +58,7 @@ export const createFixtureTransactionApi = (editor, tx) => {
     text: tx.text,
     value: tx.value,
     get children() {
-      return tx.value.get()
+      return tx.value.get().roots.main
     },
     normalize: tx.normalize,
     withoutNormalizing: tx.withoutNormalizing,

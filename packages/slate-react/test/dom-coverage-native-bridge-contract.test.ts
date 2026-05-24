@@ -256,7 +256,7 @@ describe('DOM coverage native bridge', () => {
         editor,
         event: createClipboardEvent(root, clipboard),
         readOnly: false,
-        shellBackedSelection: false,
+        partialDOMBackedSelection: false,
       })
 
       expect(result.command).toMatchObject({ kind: 'insert-data' })
@@ -413,7 +413,7 @@ describe('DOM coverage native bridge', () => {
         editor,
         event,
         readOnly: true,
-        shellBackedSelection: false,
+        partialDOMBackedSelection: false,
       })
 
       expect(event.preventDefault).not.toHaveBeenCalled()
@@ -456,7 +456,7 @@ describe('DOM coverage native bridge', () => {
         event,
         onPaste: () => true,
         readOnly: false,
-        shellBackedSelection: false,
+        partialDOMBackedSelection: false,
       })
 
       expect(event.preventDefault).not.toHaveBeenCalled()
@@ -528,7 +528,7 @@ describe('DOM coverage native bridge', () => {
         editor,
         event: createClipboardEvent(root, clipboard),
         readOnly: false,
-        shellBackedSelection: false,
+        partialDOMBackedSelection: false,
       })
 
       expect(materialized).toEqual([

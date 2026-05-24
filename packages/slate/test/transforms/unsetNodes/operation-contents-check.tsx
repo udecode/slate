@@ -16,6 +16,7 @@ export const run = (editor) => {
     assert.deepStrictEqual(setNode, {
       type: 'set_node',
       path: [0],
+      root: 'main',
       properties: { someKey: true },
       newProperties: {},
     })

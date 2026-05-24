@@ -182,7 +182,7 @@ details > summary {
 }
 
 .example-tab-list.visible {
-  width: 200px;
+  width: 240px;
   visibility: visible;
 }
 
@@ -226,13 +226,47 @@ details > summary {
 }
 
 .example-tab {
-  display: inline-block;
+  align-items: center;
+  display: flex;
+  gap: 0.5em;
+  justify-content: flex-start;
   margin-bottom: 0.2em;
   padding: 0.2em 1em;
   border-radius: 0.2em;
   text-decoration: none;
   color: #777;
   background: transparent;
+}
+
+.example-badge {
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  display: inline-flex;
+  flex-shrink: 0;
+  font-size: 0.7em;
+  font-weight: 500;
+  gap: 0.25rem;
+  justify-content: center;
+  line-height: 1;
+  overflow: hidden;
+  padding: 0.125rem 0.5rem;
+  text-transform: uppercase;
+  transition:
+    color 0.2s,
+    box-shadow 0.2s;
+  white-space: nowrap;
+  width: fit-content;
+}
+
+.example-badge-alpha {
+  background: #fbbf24;
+  color: #1f2937;
+}
+
+.example-badge-new {
+  background: #93c5fd;
+  color: #172554;
 }
 
 .example-tab.active {

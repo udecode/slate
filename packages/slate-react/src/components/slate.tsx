@@ -1,13 +1,18 @@
 import type React from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
 import {
+  type BaseSelection,
+  createEditorView,
   type EditorCommit,
   type EditorSnapshot,
   isEditor,
   type Operation,
+  RangeApi,
+  type RootKey,
   type Value,
 } from 'slate'
+import { EDITOR_TO_ROOT_VIEW_EDITORS } from 'slate-dom/internal'
 import type { SlateAnnotationStore } from '../annotation-store'
 import {
   composeDecorationSources,
@@ -15,8 +20,13 @@ import {
   type SlateDecorationSource,
 } from '../decoration-source'
 import { Editor } from '../editable/runtime-editor-api'
+import {
+  createRootSelectionCache,
+  getSelectionRoot,
+} from '../hooks/root-selection-cache'
 import { EditorContext } from '../hooks/use-editor'
 import { FocusedContext } from '../hooks/use-editor-focused'
+import { ReadOnlyContext } from '../hooks/use-editor-read-only'
 import {
   EditorSelectorContext,
   useEditorSelectorContext,
@@ -24,6 +34,13 @@ import {
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { SlateAnnotationStoreContext } from '../hooks/use-slate-annotations'
 import { syncTextOperationsToDOM } from '../hooks/use-slate-node-ref'
+import {
+  createReactRuntimeViewEditor,
+  createSlateViewEffectQueue,
+  SlateRuntimeContext,
+  type SlateRuntimeValue,
+  useOptionalSlateRuntimeContext,
+} from '../hooks/use-slate-runtime'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import type {
   ReactEditorContextValue,
@@ -53,6 +70,34 @@ const profileRuntimeDuration = <T,>(id: string, callback: () => T): T => {
   }
 }
 
+const isSelectionEqual = (a: BaseSelection, b: BaseSelection) => {
+  if (!a && !b) return true
+  if (!a || !b) return false
+
+  return RangeApi.equals(a, b)
+}
+
+const getOperationRoot = (operation: Operation): RootKey =>
+  ((operation as { root?: RootKey }).root ?? 'main') as RootKey
+
+const isTextOperation = (operation: Operation) =>
+  operation.type === 'insert_text' || operation.type === 'remove_text'
+
+const isRootValueChanged = (root: RootKey, commit: EditorCommit) =>
+  commit.childrenChanged &&
+  (commit.fullDocumentChanged ||
+    commit.operations.some((operation) => getOperationRoot(operation) === root))
+
+const isRootSelectionChanged = (root: RootKey, commit: EditorCommit) =>
+  commit.selectionChanged &&
+  (getSelectionRoot(commit.selectionBefore) === root ||
+    getSelectionRoot(commit.selectionAfter) === root)
+
+const isRootMarksChanged = (root: RootKey, commit: EditorCommit) =>
+  commit.marksChanged &&
+  (getSelectionRoot(commit.selectionBefore) === root ||
+    getSelectionRoot(commit.selectionAfter) === root)
+
 export type SlateChange<V extends Value = Value> = {
   commit: EditorCommit<V>
   marksChanged: boolean
@@ -69,7 +114,7 @@ export type SlateProps<
   V extends Value = Value,
   TExtensions extends readonly unknown[] = readonly unknown[],
 > = {
-  editor: ReactEditorType<V, TExtensions>
+  editor?: ReactEditorType<V, TExtensions>
   annotationStore?: SlateAnnotationStore<any, any> | null
   children: React.ReactNode
   decorationSources?: readonly SlateDecorationSource<any>[] | null
@@ -79,6 +124,8 @@ export type SlateProps<
     change: SlateChange<V>
   ) => void
   onValueChange?: (value: V, change: SlateChange<V>) => void
+  readOnly?: boolean
+  root?: RootKey
 }
 
 /**
@@ -92,6 +139,225 @@ export const Slate = <
 >(
   props: SlateProps<V, TExtensions>
 ) => {
+  const runtimeContext = useOptionalSlateRuntimeContext()
+
+  if (props.editor && props.root) {
+    throw new Error('[Slate] Pass either editor or root, not both.')
+  }
+
+  if (!props.editor) {
+    if (!runtimeContext) {
+      if (props.root) {
+        throw new Error('[Slate] Slate root views require <SlateRuntime>.')
+      }
+
+      throw new Error('[Slate] editor is invalid!')
+    }
+
+    return <SlateRuntimeView {...props} runtimeContext={runtimeContext} />
+  }
+
+  return <SlateSingleEditor {...props} editor={props.editor} />
+}
+
+type SlateRuntimeViewProps<
+  V extends Value = Value,
+  TExtensions extends readonly unknown[] = readonly unknown[],
+> = SlateProps<V, TExtensions> & {
+  runtimeContext: NonNullable<ReturnType<typeof useOptionalSlateRuntimeContext>>
+}
+
+const SlateRuntimeView = <
+  V extends Value = Value,
+  const TExtensions extends readonly unknown[] = readonly unknown[],
+>({
+  annotationStore = null,
+  children,
+  decorationSources = null,
+  onChange,
+  onSelectionChange,
+  onValueChange,
+  readOnly = false,
+  root,
+  runtimeContext,
+}: SlateRuntimeViewProps<V, TExtensions>) => {
+  const { getView, registerViewEditor } = runtimeContext
+  const editor = useMemo(() => {
+    const view = getView({
+      readOnly,
+      root,
+    })
+
+    return createReactRuntimeViewEditor(view)
+  }, [getView, readOnly, root])
+  const reactEditor = editor as unknown as ReactRuntimeEditor<V>
+  const viewRoot = editor.read((state) => state.view.root())
+  const isFocused = ReactEditor.isFocused(reactEditor)
+  useIsomorphicLayoutEffect(
+    () => registerViewEditor(reactEditor, viewRoot),
+    [reactEditor, registerViewEditor, viewRoot]
+  )
+  useSlateChangeCallbacks({
+    editor: editor as unknown as ReactRuntimeEditor<V>,
+    onChange,
+    onSelectionChange,
+    onValueChange,
+    root: viewRoot,
+  })
+  const projectionContextValue = useMemo(() => {
+    if (!annotationStore) {
+      return composeDecorationSources(decorationSources)
+    }
+
+    return composeProjectionSources([
+      ...(decorationSources ?? []),
+      annotationStore.projectionStore,
+    ])
+  }, [annotationStore, decorationSources])
+
+  return (
+    <EditorSelectorContext.Provider value={runtimeContext.selectorContext}>
+      <ProjectionContext.Provider value={projectionContextValue}>
+        <SlateAnnotationStoreContext.Provider value={annotationStore}>
+          <EditorContext.Provider
+            value={editor as ReactEditorContextValue<any>}
+          >
+            <ReadOnlyContext.Provider value={readOnly}>
+              <FocusedContext.Provider value={isFocused}>
+                {children}
+              </FocusedContext.Provider>
+            </ReadOnlyContext.Provider>
+          </EditorContext.Provider>
+        </SlateAnnotationStoreContext.Provider>
+      </ProjectionContext.Provider>
+    </EditorSelectorContext.Provider>
+  )
+}
+
+type SlateSingleEditorProps<
+  V extends Value = Value,
+  TExtensions extends readonly unknown[] = readonly unknown[],
+> = SlateProps<V, TExtensions> & {
+  editor: ReactEditorType<V, TExtensions>
+}
+
+const useSlateChangeCallbacks = <V extends Value>({
+  editor,
+  onChange,
+  onSelectionChange,
+  onValueChange,
+  root,
+}: {
+  editor: {
+    api: ReactRuntimeEditor<V>['api']
+    subscribe: (listener: (...args: any[]) => void) => () => void
+  }
+  onChange?: (value: V, change: SlateChange<V>) => void
+  onSelectionChange?: (
+    selection: EditorSnapshot<V>['selection'],
+    change: SlateChange<V>
+  ) => void
+  onValueChange?: (value: V, change: SlateChange<V>) => void
+  root: RootKey
+}) => {
+  const onChangeRef = useRef(onChange)
+  const onSelectionChangeRef = useRef(onSelectionChange)
+  const onValueChangeRef = useRef(onValueChange)
+  const editorBaseline = useMemo(
+    () => ({
+      commitVersion: Editor.getLastCommit(editor as any)?.version ?? 0,
+      snapshot: Editor.getSnapshot(editor as any),
+    }),
+    [editor]
+  )
+  const lastSnapshotRef = useRef(Editor.getSnapshot(editor as any))
+  const lastCommitVersionRef = useRef(
+    Editor.getLastCommit(editor as any)?.version ?? 0
+  )
+  const hasCallbacks = !!(onChange || onSelectionChange || onValueChange)
+
+  useIsomorphicLayoutEffect(() => {
+    onChangeRef.current = onChange
+    onSelectionChangeRef.current = onSelectionChange
+    onValueChangeRef.current = onValueChange
+  }, [onChange, onSelectionChange, onValueChange])
+
+  useIsomorphicLayoutEffect(() => {
+    lastSnapshotRef.current = editorBaseline.snapshot
+    lastCommitVersionRef.current = editorBaseline.commitVersion
+
+    if (!hasCallbacks) {
+      return
+    }
+
+    const onContextChange = (
+      ...[_snapshot, commit]: [EditorSnapshot<V>, EditorCommit<V> | undefined]
+    ) => {
+      if (!commit) {
+        return
+      }
+
+      const snapshot = Editor.getSnapshot(editor as any) as EditorSnapshot<V>
+      const previousSnapshot = lastSnapshotRef.current as EditorSnapshot<V>
+      const valueChanged =
+        isRootValueChanged(root, commit) &&
+        previousSnapshot.children !== snapshot.children
+      const selectionChanged =
+        commit.selectionChanged &&
+        !isSelectionEqual(previousSnapshot.selection, snapshot.selection)
+      const marksChanged = commit.marksChanged && snapshot.selection !== null
+
+      lastSnapshotRef.current = snapshot
+      lastCommitVersionRef.current = commit.version
+
+      if (!valueChanged && !selectionChanged && !marksChanged) {
+        return
+      }
+
+      const value = snapshot.children as V
+      const change: SlateChange<V> = {
+        commit: commit as EditorCommit<V>,
+        marksChanged,
+        operations: commit.operations as EditorCommit<V>['operations'],
+        selection: snapshot.selection,
+        selectionChanged,
+        snapshot,
+        tags: commit.tags,
+        value,
+        valueChanged,
+      }
+
+      onChangeRef.current?.(value, change)
+
+      if (valueChanged) {
+        onValueChangeRef.current?.(value, change)
+      }
+
+      if (selectionChanged) {
+        onSelectionChangeRef.current?.(snapshot.selection, change)
+      }
+    }
+
+    const unsubscribe = editor.subscribe(onContextChange)
+    const latestCommit = Editor.getLastCommit(editor as any)
+
+    if (latestCommit && latestCommit.version > lastCommitVersionRef.current) {
+      onContextChange(
+        Editor.getSnapshot(editor as any),
+        latestCommit as EditorCommit<V>
+      )
+    }
+
+    return unsubscribe
+  }, [editor, editorBaseline, hasCallbacks, root])
+}
+
+const SlateSingleEditor = <
+  V extends Value = Value,
+  const TExtensions extends readonly unknown[] = readonly unknown[],
+>(
+  props: SlateSingleEditorProps<V, TExtensions>
+) => {
   const {
     annotationStore = null,
     decorationSources = null,
@@ -100,6 +366,7 @@ export const Slate = <
     onChange,
     onSelectionChange,
     onValueChange,
+    readOnly = false,
   } = props
 
   if (!isEditor(editor)) {
@@ -119,6 +386,12 @@ export const Slate = <
     Editor.getLastCommit(editor)?.version ?? 0
   )
   const lastEditorRef = useRef(editor)
+  const mountedViewEditorsRef = useRef(
+    new Map<RootKey, Set<ReactRuntimeEditor<V>>>()
+  )
+  const [viewEffectQueue] = useState(createSlateViewEffectQueue)
+  const [viewEffectVersion, setViewEffectVersion] = useState(0)
+  const lastSelectionCacheRef = useRef(createRootSelectionCache())
 
   onChangeRef.current = onChange
   onSelectionChangeRef.current = onSelectionChange
@@ -132,6 +405,119 @@ export const Slate = <
     lastCommitVersionRef.current = Editor.getLastCommit(editor)?.version ?? 0
   }
 
+  const runtime = useMemo(
+    () =>
+      Object.freeze({
+        api: editor.api,
+        editor,
+        extend: editor.extend,
+        getApi: editor.getApi,
+        read: editor.read,
+        subscribe: editor.subscribe,
+        update: editor.update,
+      }) as SlateRuntimeValue<V, TExtensions>,
+    [editor]
+  )
+  const getView = useCallback(
+    (options = {}) => createEditorView(runtime, options),
+    [runtime]
+  )
+  const registerViewEditor = useCallback(
+    (viewEditor: ReactRuntimeEditor<V>, root: RootKey) => {
+      const viewEditors = mountedViewEditorsRef.current.get(root) ?? new Set()
+      const rootViewEditors =
+        EDITOR_TO_ROOT_VIEW_EDITORS.get(editor) ?? new Set()
+
+      viewEditors.add(viewEditor)
+      mountedViewEditorsRef.current.set(root, viewEditors)
+      rootViewEditors.add(viewEditor)
+      EDITOR_TO_ROOT_VIEW_EDITORS.set(editor, rootViewEditors)
+
+      return () => {
+        viewEditors.delete(viewEditor)
+        rootViewEditors.delete(viewEditor)
+
+        if (viewEditors.size === 0) {
+          mountedViewEditorsRef.current.delete(root)
+        }
+        if (rootViewEditors.size === 0) {
+          EDITOR_TO_ROOT_VIEW_EDITORS.delete(editor)
+        }
+      }
+    },
+    [editor]
+  )
+  const getMountedViewEditor = useCallback(
+    (root: RootKey) => {
+      const viewEditor = mountedViewEditorsRef.current
+        .get(root)
+        ?.values()
+        .next().value
+
+      return (viewEditor ??
+        (root === 'main' ? reactEditor : null)) as ReactRuntimeEditor<V> | null
+    },
+    [reactEditor]
+  )
+  const getLastSelectionForRoot = useCallback(
+    (root: RootKey) => lastSelectionCacheRef.current.get(root),
+    []
+  )
+  const registerViewEffect = useCallback(
+    (effect: () => void) => {
+      const unregister = viewEffectQueue.register(effect)
+
+      setViewEffectVersion((version) => version + 1)
+
+      return unregister
+    },
+    [viewEffectQueue]
+  )
+  const syncMountedRootTextOperationsToDOM = useCallback(
+    (operations: readonly Operation[]) => {
+      const textOperations = operations.filter(isTextOperation)
+
+      if (textOperations.length === 0) {
+        return { syncedTextOperationCount: 0, textOperationCount: 0 }
+      }
+
+      const operationsByRoot = new Map<RootKey, Operation[]>()
+
+      for (const operation of textOperations) {
+        const root = getOperationRoot(operation)
+        const rootOperations = operationsByRoot.get(root) ?? []
+
+        rootOperations.push(operation)
+        operationsByRoot.set(root, rootOperations)
+      }
+
+      for (const [root, rootOperations] of operationsByRoot) {
+        const viewEditors = mountedViewEditorsRef.current.get(root)
+
+        if (!viewEditors) {
+          continue
+        }
+
+        for (const viewEditor of viewEditors) {
+          const textSync = syncTextOperationsToDOM(viewEditor, rootOperations)
+
+          if (textSync.syncedTextOperationCount < textSync.textOperationCount) {
+            return {
+              syncedTextOperationCount: 0,
+              textOperationCount: textOperations.length,
+            }
+          }
+        }
+      }
+
+      return {
+        syncedTextOperationCount: textOperations.length,
+        textOperationCount: textOperations.length,
+      }
+    },
+    []
+  )
+
   useIsomorphicLayoutEffect(() => {
     const maybeBatchUpdates =
       REACT_MAJOR_VERSION < 18
@@ -142,6 +528,8 @@ export const Slate = <
       snapshot,
       commit
     ) => {
+      lastSelectionCacheRef.current.record(snapshot.selection)
+
       let currentOperations: readonly Operation[] = []
       const nextOperations = commit
         ? [...commit.operations]
@@ -149,6 +537,9 @@ export const Slate = <
             currentOperations = state.value.operations()
             return currentOperations.slice(lastOperationCountRef.current)
           })
+
+      lastSelectionCacheRef.current.recordOperations(nextOperations)
+
       lastOperationCountRef.current = commit
         ? editor.read((state) => state.value.operations().length)
         : currentOperations.length
@@ -160,11 +551,19 @@ export const Slate = <
         profileRuntimeDuration('focused-state', () => {
           setIsFocused(ReactEditor.isFocused(reactEditor))
         })
+        const mainOperations = nextOperations.filter(
+          (operation) => getOperationRoot(operation) === 'main'
+        )
         const textSync = profileRuntimeDuration('dom-text-sync', () =>
-          syncTextOperationsToDOM(reactEditor, nextOperations)
+          syncTextOperationsToDOM(reactEditor, mainOperations)
+        )
+        const rootTextSync = profileRuntimeDuration('dom-root-text-sync', () =>
+          syncMountedRootTextOperationsToDOM(nextOperations)
         )
         const hasUnsyncedTextOperation =
-          textSync.textOperationCount > textSync.syncedTextOperationCount
+          textSync.textOperationCount > textSync.syncedTextOperationCount ||
+          rootTextSync.textOperationCount >
+            rootTextSync.syncedTextOperationCount
 
         profileRuntimeDuration('change-callbacks', () => {
           if (!commit) {
@@ -172,25 +571,33 @@ export const Slate = <
           }
 
           const value = snapshot.children as V
+          const valueChanged = isRootValueChanged('main', commit)
+          const selectionChanged = isRootSelectionChanged('main', commit)
+          const marksChanged = isRootMarksChanged('main', commit)
+
+          if (!valueChanged && !selectionChanged && !marksChanged) {
+            return
+          }
+
           const change: SlateChange<V> = {
             commit: commit as EditorCommit<V>,
-            marksChanged: commit.marksChanged,
+            marksChanged,
             operations: commit.operations as EditorCommit<V>['operations'],
             selection: snapshot.selection,
-            selectionChanged: commit.selectionChanged,
+            selectionChanged,
             snapshot: snapshot as EditorSnapshot<V>,
             tags: commit.tags,
             value,
-            valueChanged: commit.childrenChanged,
+            valueChanged,
           }
 
           onChangeRef.current?.(value, change)
 
-          if (commit.childrenChanged) {
+          if (valueChanged) {
             onValueChangeRef.current?.(value, change)
           }
 
-          if (commit.selectionChanged) {
+          if (selectionChanged) {
             onSelectionChangeRef.current?.(snapshot.selection, change)
           }
         })
@@ -201,6 +608,10 @@ export const Slate = <
             commit
           )
         )
+
+        if (viewEffectQueue.hasEffects()) {
+          setViewEffectVersion((version) => version + 1)
+        }
       })
     }
 
@@ -212,9 +623,16 @@ export const Slate = <
     }
 
     return unsubscribe
-  }, [editor, handleSelectorChange, reactEditor])
+  }, [
+    editor,
+    handleSelectorChange,
+    reactEditor,
+    syncMountedRootTextOperationsToDOM,
+    viewEffectQueue,
+  ])
 
   const [isFocused, setIsFocused] = useState(ReactEditor.isFocused(reactEditor))
+  const [focusVersion, setFocusVersion] = useState(0)
   const projectionContextValue = useMemo(() => {
     if (!annotationStore) {
       return composeDecorationSources(decorationSources)
@@ -233,8 +651,10 @@ export const Slate = <
   useIsomorphicLayoutEffect(() => {
     const fn = () => {
       setIsFocused(ReactEditor.isFocused(reactEditor))
+      setFocusVersion((version) => version + 1)
       queueMicrotask(() => {
         setIsFocused(ReactEditor.isFocused(reactEditor))
+        setFocusVersion((version) => version + 1)
       })
     }
     if (REACT_MAJOR_VERSION >= 17) {
@@ -256,17 +676,54 @@ export const Slate = <
     }
   }, [reactEditor])
 
+  useIsomorphicLayoutEffect(() => {
+    if (viewEffectVersion === 0) {
+      return
+    }
+
+    viewEffectQueue.flush()
+  }, [viewEffectQueue, viewEffectVersion])
+
+  const runtimeContextValue = useMemo(
+    () => ({
+      focusVersion,
+      focused: isFocused,
+      getLastSelectionForRoot,
+      getMountedViewEditor,
+      getView,
+      registerViewEffect,
+      registerViewEditor,
+      runtime,
+      selectorContext,
+    }),
+    [
+      getMountedViewEditor,
+      getLastSelectionForRoot,
+      getView,
+      focusVersion,
+      isFocused,
+      registerViewEffect,
+      registerViewEditor,
+      runtime,
+      selectorContext,
+    ]
+  )
+
   return (
     <EditorSelectorContext.Provider value={selectorContext}>
       <ProjectionContext.Provider value={projectionContextValue}>
         <SlateAnnotationStoreContext.Provider value={annotationStore}>
-          <EditorContext.Provider
-            value={editor as ReactEditorContextValue<any>}
-          >
-            <FocusedContext.Provider value={isFocused}>
-              {children}
-            </FocusedContext.Provider>
-          </EditorContext.Provider>
+          <SlateRuntimeContext.Provider value={runtimeContextValue as any}>
+            <EditorContext.Provider
+              value={editor as ReactEditorContextValue<any>}
+            >
+              <ReadOnlyContext.Provider value={readOnly}>
+                <FocusedContext.Provider value={isFocused}>
+                  {children}
+                </FocusedContext.Provider>
+              </ReadOnlyContext.Provider>
+            </EditorContext.Provider>
+          </SlateRuntimeContext.Provider>
         </SlateAnnotationStoreContext.Provider>
       </ProjectionContext.Provider>
     </EditorSelectorContext.Provider>

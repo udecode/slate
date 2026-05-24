@@ -40,12 +40,17 @@ import {
   registerNormalizer as registerEditorNormalizer,
 } from '../core/extension-registry'
 import {
+  getCurrentSelection,
+  getCurrentSelectionRoot,
+  getCollabStatePatches as getEditorCollabStatePatches,
   isInTransaction,
   replaceSnapshot,
-  subscribeSource as subscribeEditorSource,
+  withEditorOperationRoot,
+  withEditorOperationRootChildren,
 } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { isEditor as isEditorValue } from '../editor/is-editor'
+import { getLocationRoot } from '../internal/root-location'
 import type {
   LeafEdge,
   MaximizeMode,
@@ -79,12 +84,70 @@ import type {
  */
 export type Value = TElement[]
 
+export type RootKey = string
+
+export type EditorDocumentValue<V extends Value = Value> = {
+  roots: Record<RootKey, V>
+  state?: Record<string, unknown>
+}
+
+export type InitialValue<V extends Value = Value> =
+  | V
+  | {
+      children: V
+      state?: Record<string, unknown>
+    }
+  | {
+      roots: Record<RootKey, V>
+      state?: Record<string, unknown>
+    }
+
+export type StateFieldCollabPolicy = 'local' | 'shared'
+
+export type StateFieldHistoryPolicy = 'push' | 'skip'
+
+export type StateFieldInitial<TValue> = TValue | (() => TValue)
+
+export type StateFieldDescriptor<TValue = unknown> = {
+  applyPatch?: (value: TValue, patch: unknown) => TValue
+  collab?: StateFieldCollabPolicy
+  diff?: (previous: TValue, value: TValue) => unknown
+  history?: StateFieldHistoryPolicy
+  initial?: StateFieldInitial<TValue>
+  invertPatch?: (patch: unknown, previous: TValue, value: TValue) => unknown
+  key: string
+  persist?: boolean
+}
+
+export type StateFieldValueInput<TValue> =
+  | TValue
+  | ((previous: TValue) => TValue)
+
+export type EditorStatePatch<TValue = unknown> = {
+  key: string
+} & (
+  | {
+      previousValue: TValue | undefined
+      value: TValue | undefined
+    }
+  | {
+      inversePatch: unknown
+      patch: unknown
+    }
+)
+
+export type EditorStateField<TValue = unknown> = EditorExtension<
+  Editor,
+  StateFieldDescriptor<TValue>
+> &
+  StateFieldDescriptor<TValue>
+
 type BivariantMethod<TArgs extends readonly unknown[], TResult> = {
   bivarianceHack(...args: TArgs): TResult
 }['bivarianceHack']
 
 export type EditorStateValueApi<V extends Value = Value> = {
-  get: () => V
+  get: () => EditorDocumentValue<V>
   lastCommit: () => EditorCommit<V> | null
   operations: (startIndex?: number) => readonly Operation<V>[]
 }
@@ -96,6 +159,12 @@ export type EditorTransactionValueApi<V extends Value = Value> =
 
 export type EditorStateSelectionApi = {
   get: () => Selection
+}
+
+export type EditorStateViewApi = {
+  isFocused: () => boolean
+  isReadOnly: () => boolean
+  root: () => RootKey
 }
 
 export type EditorFragmentReadOptions = {
@@ -175,6 +244,10 @@ export type EditorTransactionOperationsApi<V extends Value = Value> = {
     operations: readonly Operation<V>[],
     options?: EditorOperationReplayOptions
   ) => void
+}
+
+export type EditorTransactionStatePatchesApi = {
+  replay: (statePatches: readonly EditorStatePatch[]) => void
 }
 
 export type EditorStateNodesApi = {
@@ -449,12 +522,6 @@ declare const EDITOR_STATE_EXTENSION_VALUE: unique symbol
 
 declare const EDITOR_TX_EXTENSION_VALUE: unique symbol
 
-declare const EDITOR_EXTENSION_VALUE: unique symbol
-
-export interface EditorExtensionGroups<V extends Value = Value> {
-  readonly [EDITOR_EXTENSION_VALUE]?: V
-}
-
 export interface EditorStateExtensionGroups<V extends Value = Value> {
   readonly [EDITOR_STATE_EXTENSION_VALUE]?: V
 }
@@ -465,6 +532,7 @@ export interface EditorTxExtensionGroups<V extends Value = Value> {
 
 export type EditorCoreStateView<V extends Value = Value> = {
   fragment: EditorStateFragmentApi<V>
+  getField: <TValue>(field: EditorStateField<TValue>) => TValue
   marks: EditorStateMarksApi<V>
   nodes: EditorStateNodesApi
   points: EditorStatePointsApi
@@ -474,6 +542,7 @@ export type EditorCoreStateView<V extends Value = Value> = {
   selection: EditorStateSelectionApi
   text: EditorStateTextApi
   value: EditorStateValueApi<V>
+  view: EditorStateViewApi
 }
 
 export type EditorStateView<
@@ -492,6 +561,11 @@ export type EditorCoreUpdateTransaction<V extends Value = Value> = Omit<
   normalize: (options?: EditorNormalizeOptions) => void
   operations: EditorTransactionOperationsApi<V>
   selection: EditorTransactionSelectionApi
+  setField: <TValue>(
+    field: EditorStateField<TValue>,
+    value: StateFieldValueInput<TValue>
+  ) => void
+  statePatches: EditorTransactionStatePatchesApi
   text: EditorTransactionTextApi
   value: EditorTransactionValueApi<V>
   withoutNormalizing: (fn: () => void) => void
@@ -522,6 +596,36 @@ export interface BaseEditor<
     void
   >
   extend: (extension: EditorExtensionInput<any>) => () => void
+}
+
+export type EditorRuntime<
+  V extends Value = Value,
+  TExtensions extends readonly unknown[] = readonly [],
+> = Pick<
+  BaseEditor<V, TExtensions>,
+  'api' | 'extend' | 'getApi' | 'read' | 'subscribe' | 'update'
+> & {
+  editor: Editor<V, TExtensions>
+}
+
+export type EditorRuntimeOptions<
+  V extends Value = Value,
+  TExtensions extends readonly unknown[] = readonly [],
+> = CreateEditorOptions<V, TExtensions>
+
+export type EditorViewOptions = {
+  readOnly?: boolean
+  root?: RootKey
+}
+
+export type EditorView<
+  V extends Value = Value,
+  TExtensions extends readonly unknown[] = readonly [],
+> = BaseEditor<V, TExtensions> & {
+  blur: () => void
+  focus: () => void
+  readonly root: RootKey
+  readonly runtime: EditorRuntime<V, TExtensions>
 }
 
 /**
@@ -1000,7 +1104,7 @@ export type EditorTransformRegistry<V extends Value = Value> =
 export type Editor<
   V extends Value = any,
   TExtensions extends readonly unknown[] = readonly [],
-> = BaseEditor<V, TExtensions> & EditorExtensionGroups<V>
+> = BaseEditor<V, TExtensions>
 
 export type CreateEditorOptions<
   V extends Value = Value,
@@ -1008,7 +1112,7 @@ export type CreateEditorOptions<
 > = {
   extensions?: TExtensions
   initialSelection?: Selection
-  initialValue?: V
+  initialValue?: InitialValue<V>
 }
 
 type IsAny<T> = 0 extends 1 & T ? true : false
@@ -1060,6 +1164,7 @@ export type SnapshotChangeClass =
   | 'text'
   | 'selection'
   | 'mark'
+  | 'state'
   | 'structural'
   | 'replace'
 
@@ -1086,6 +1191,7 @@ export type EditorCommitSource =
   | 'decoration'
   | 'annotation'
   | 'root'
+  | 'state'
   | 'focus'
   | 'composition'
   | 'external'
@@ -1280,22 +1386,6 @@ export type EditorExtensionTxGroup<
   editor: TEditor
 ) => TResult
 
-export type EditorExtensionEditorGroup<
-  TEditor extends BaseEditor<any> = Editor,
-  TResult = unknown,
-> = (editor: TEditor) => TResult
-
-export type EditorExtensionEditorGroups<
-  TEditor extends BaseEditor<any> = Editor,
-> = {
-  [K in keyof EditorExtensionGroups<
-    ValueOf<TEditor>
-  >]?: EditorExtensionEditorGroup<
-    TEditor,
-    EditorExtensionGroups<ValueOf<TEditor>>[K]
-  >
-} & Record<string, EditorExtensionEditorGroup<TEditor> | undefined>
-
 export type EditorExtensionStateGroups<
   TEditor extends BaseEditor<any> = Editor,
 > = {
@@ -1370,7 +1460,6 @@ export type EditorExtensionSetupOutput<
   api?: EditorExtensionApiMap
   clipboard?: EditorClipboardMiddlewareMap<TEditor>
   cleanup?: () => void
-  editor?: EditorExtensionEditorGroups<TEditor>
   elements?: readonly EditorElementSpec[]
   normalizers?: EditorNormalizerMiddlewareMap<TEditor>
   onCommit?: EditorCommitHandler<TEditor>
@@ -1390,7 +1479,6 @@ export type EditorExtension<
   conflicts?: readonly string[]
   dependencies?: readonly string[]
   enabled?: boolean
-  editor?: EditorExtensionEditorGroups<TEditor>
   elements?: readonly EditorElementSpec[]
   name: string
   normalizers?: EditorNormalizerMiddlewareMap<TEditor>
@@ -1633,6 +1721,7 @@ export type EditorCommit<V extends Value = Value> = {
   dirtyElementRuntimeIds: readonly RuntimeId[] | null
   dirtyPaths: readonly Path[]
   dirtyScope: SnapshotDirtyScope
+  dirtyStateKeys: readonly string[]
   dirtyTextRuntimeIds: readonly RuntimeId[] | null
   dirtyTopLevelRanges: readonly TopLevelRuntimeRange[] | null
   dirtyTopLevelRuntimeIds: readonly RuntimeId[] | null
@@ -1651,6 +1740,7 @@ export type EditorCommit<V extends Value = Value> = {
   selectionChanged: boolean
   selectionImpactRuntimeIds: readonly RuntimeId[] | null
   snapshotChanged: boolean
+  statePatches: readonly EditorStatePatch[]
   structureChanged: boolean
   structuralDirtyRuntimeIds: readonly RuntimeId[] | null
   textChanged: boolean
@@ -1753,6 +1843,7 @@ export interface EditorPathOptions {
 
 export interface EditorPathRefOptions {
   affinity?: TextDirection | null
+  root?: RootKey
 }
 
 export interface EditorPointOptions {
@@ -1895,6 +1986,14 @@ export interface EditorStaticApi {
    * Get the latest committed transaction metadata.
    */
   getLastCommit: <V extends Value>(editor: Editor<V>) => EditorCommit<V> | null
+
+  /**
+   * Return document state patches that are marked for collaboration.
+   */
+  getCollabStatePatches: <V extends Value>(
+    editor: Editor<V>,
+    commit: EditorCommit<V>
+  ) => readonly EditorStatePatch[]
 
   /**
    * Get the extension registry for an editor.
@@ -2388,18 +2487,53 @@ export interface EditorStaticApi {
   ) => boolean
 }
 
-const runInternalEditorWrite = <T>(editor: Editor, fn: () => T): T => {
+const getImplicitSelectionRoot = (editor: Editor) =>
+  getCurrentSelection(editor) ? getCurrentSelectionRoot(editor) : undefined
+
+const getWriteRoot = (editor: Editor, at: Location | undefined) =>
+  at === undefined ? getImplicitSelectionRoot(editor) : getLocationRoot(at)
+
+const runInternalEditorWrite = <T>(
+  editor: Editor,
+  fn: () => T,
+  root?: string
+): T => {
+  const runRooted = <TReturn>(callback: () => TReturn) =>
+    root
+      ? withEditorOperationRoot(editor, root, () =>
+          withEditorOperationRootChildren(editor, root, callback)
+        )
+      : callback()
+
   if (isInTransaction(editor)) {
-    return fn()
+    return runRooted(fn)
   }
 
   let result!: T
 
-  editor.update(() => {
-    result = fn()
-  })
+  const runUpdate = () => {
+    editor.update(() => {
+      result = fn()
+    })
+  }
+
+  runRooted(runUpdate)
 
   return result
+}
+
+const isEditorView = (editor: Editor): editor is EditorView =>
+  (editor as { runtime?: EditorRuntime }).runtime?.editor !== undefined
+
+const replaceEditorSnapshot = (editor: Editor, input: SnapshotInput) => {
+  if (isEditorView(editor)) {
+    getEditorRuntime(editor).update((tx) => {
+      tx.value.replace(input)
+    })
+    return
+  }
+
+  replaceSnapshot(editor, input)
 }
 
 const InternalEditor: EditorStaticApi = {
@@ -2408,8 +2542,10 @@ const InternalEditor: EditorStaticApi = {
   },
 
   addMark(editor, key, value) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).addMark(key, value)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).addMark(key, value),
+      getImplicitSelectionRoot(editor)
     )
   },
 
@@ -2427,39 +2563,51 @@ const InternalEditor: EditorStaticApi = {
 
   deleteBackward(editor, options = {}) {
     const { unit = 'character' } = options
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).deleteBackward(unit)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).deleteBackward(unit),
+      getImplicitSelectionRoot(editor)
     )
   },
 
   deleteForward(editor, options = {}) {
     const { unit = 'character' } = options
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).deleteForward(unit)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).deleteForward(unit),
+      getImplicitSelectionRoot(editor)
     )
   },
 
   deleteFragment(editor, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).deleteFragment(options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).deleteFragment(options),
+      getImplicitSelectionRoot(editor)
     )
   },
 
   delete(editor, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).delete(options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).delete(options),
+      getWriteRoot(editor, options?.at)
     )
   },
 
   collapse(editor, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).collapse(options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).collapse(options),
+      getImplicitSelectionRoot(editor)
     )
   },
 
   deselect(editor) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).deselect()
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).deselect(),
+      getImplicitSelectionRoot(editor)
     )
   },
 
@@ -2489,6 +2637,10 @@ const InternalEditor: EditorStaticApi = {
 
   getLastCommit(editor) {
     return getEditorRuntime(editor).getLastCommit()
+  },
+
+  getCollabStatePatches(editor, commit) {
+    return getEditorCollabStatePatches(editor, commit)
   },
 
   getOperationDirtiness(editor, operations, options) {
@@ -2546,38 +2698,51 @@ const InternalEditor: EditorStaticApi = {
   },
 
   insertBreak(editor) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).insertBreak()
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).insertBreak(),
+      getImplicitSelectionRoot(editor)
     )
   },
 
   insertFragment(editor, fragment, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).insertFragment(fragment, options)
+    runInternalEditorWrite(
+      editor,
+      () =>
+        getEditorTransformRegistry(editor).insertFragment(fragment, options),
+      getWriteRoot(editor, options?.at)
     )
   },
 
   insertNode(editor, node, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).insertNode(node, options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).insertNode(node, options),
+      getWriteRoot(editor, options?.at)
     )
   },
 
   insertNodes(editor, nodes, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).insertNodes(nodes, options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).insertNodes(nodes, options),
+      getWriteRoot(editor, options?.at)
     )
   },
 
   insertSoftBreak(editor) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).insertSoftBreak()
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).insertSoftBreak(),
+      getImplicitSelectionRoot(editor)
     )
   },
 
   insertText(editor, text, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).insertText(text, options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).insertText(text, options),
+      getWriteRoot(editor, options?.at)
     )
   },
 
@@ -2634,8 +2799,10 @@ const InternalEditor: EditorStaticApi = {
   },
 
   liftNodes(editor, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).liftNodes(options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).liftNodes(options),
+      getWriteRoot(editor, options?.at)
     )
   },
 
@@ -2657,20 +2824,26 @@ const InternalEditor: EditorStaticApi = {
   },
 
   mergeNodes(editor, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).mergeNodes(options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).mergeNodes(options),
+      getWriteRoot(editor, options?.at)
     )
   },
 
   move(editor, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).move(options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).move(options),
+      getImplicitSelectionRoot(editor)
     )
   },
 
   moveNodes(editor, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).moveNodes(options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).moveNodes(options),
+      getWriteRoot(editor, options.at)
     )
   },
 
@@ -2760,76 +2933,98 @@ const InternalEditor: EditorStaticApi = {
   },
 
   replace(editor, input) {
-    replaceSnapshot(editor, input)
+    replaceEditorSnapshot(editor, input)
   },
 
   reset(editor, input) {
-    replaceSnapshot(editor, input)
+    replaceEditorSnapshot(editor, input)
   },
 
   removeMark(editor, key) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).removeMark(key)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).removeMark(key),
+      getImplicitSelectionRoot(editor)
     )
   },
 
   removeNodes(editor, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).removeNodes(options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).removeNodes(options),
+      getWriteRoot(editor, options?.at)
     )
   },
 
   select(editor, target) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).select(target)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).select(target),
+      getLocationRoot(target) ?? getImplicitSelectionRoot(editor)
     )
   },
 
   setPoint(editor, props, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).setPoint(props, options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).setPoint(props, options),
+      getImplicitSelectionRoot(editor)
     )
   },
 
   setNodes(editor, props, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).setNodes(props, options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).setNodes(props, options),
+      getWriteRoot(editor, options?.at)
     )
   },
 
   setSelection(editor, props) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).setSelection(props)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).setSelection(props),
+      getImplicitSelectionRoot(editor)
     )
   },
 
   splitNodes(editor, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).splitNodes(options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).splitNodes(options),
+      getWriteRoot(editor, options?.at)
     )
   },
 
   toggleMark(editor, key, value = true) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).toggleMark(key, value)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).toggleMark(key, value),
+      getImplicitSelectionRoot(editor)
     )
   },
 
   unsetNodes(editor, props, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).unsetNodes(props, options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).unsetNodes(props, options),
+      getWriteRoot(editor, options?.at)
     )
   },
 
   unwrapNodes(editor, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).unwrapNodes(options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).unwrapNodes(options),
+      getWriteRoot(editor, options?.at)
     )
   },
 
   wrapNodes(editor, element, options) {
-    runInternalEditorWrite(editor, () =>
-      getEditorTransformRegistry(editor).wrapNodes(element, options)
+    runInternalEditorWrite(
+      editor,
+      () => getEditorTransformRegistry(editor).wrapNodes(element, options),
+      getWriteRoot(editor, options?.at)
     )
   },
 
@@ -2848,7 +3043,7 @@ const InternalEditor: EditorStaticApi = {
   },
 
   subscribeSource(editor, source, listener) {
-    return subscribeEditorSource(editor, source, listener)
+    return getEditorRuntime(editor).subscribeSource(source, listener)
   },
 
   update(editor, fn, options) {

@@ -119,10 +119,7 @@ type _ValueKeepsDescendants = Assert<
   Equal<DescendantIn<CustomValue>, ParagraphElement | QuoteElement | CustomText>
 >
 type _ValueKeepsNodes = Assert<
-  Equal<
-    NodeIn<CustomValue>,
-    Editor<CustomValue> | ParagraphElement | QuoteElement | CustomText
-  >
+  Equal<NodeIn<CustomValue>, ParagraphElement | QuoteElement | CustomText>
 >
 type _ValueKeepsAncestors = Assert<
   Equal<
@@ -192,10 +189,7 @@ type _TextEntryFromValue = Assert<
 type _NodeEntryFromValue = Assert<
   Equal<
     NodeEntryIn<CustomValue>,
-    [
-      Editor<CustomValue> | ParagraphElement | QuoteElement | CustomText,
-      import('slate').Path,
-    ]
+    [ParagraphElement | QuoteElement | CustomText, import('slate').Path]
   >
 >
 type _NodeEntryFromEditor = Assert<

@@ -28,9 +28,9 @@ export const useRuntimeBrowserHandle = ({
   editor,
   forceRender,
   inputController,
-  isShellBackedSelection,
+  isPartialDOMBackedSelection,
   rootRef,
-  setExplicitShellBackedSelection,
+  setExplicitPartialDOMBackedSelection,
 }: {
   applyInputRules: DeferredInputRule
   browserHandleNextId: RefObject<number>
@@ -40,9 +40,9 @@ export const useRuntimeBrowserHandle = ({
   editor: ReactRuntimeEditor
   forceRender: () => void
   inputController: EditableInputController
-  isShellBackedSelection: (selection: Range | null) => boolean
+  isPartialDOMBackedSelection: (selection: Range | null) => boolean
   rootRef: RefObject<HTMLDivElement | null>
-  setExplicitShellBackedSelection: (nextValue: boolean) => void
+  setExplicitPartialDOMBackedSelection: (nextValue: boolean) => void
 }) => {
   useIsomorphicLayoutEffect(() => {
     if (!rootRef.current) {
@@ -57,8 +57,8 @@ export const useRuntimeBrowserHandle = ({
       inputController,
       applyInputRules,
       forceRender,
-      isShellBackedSelection,
-      setExplicitShellBackedSelection,
+      isPartialDOMBackedSelection,
+      setExplicitPartialDOMBackedSelection,
     })
   }, [
     applyInputRules,
@@ -67,8 +67,8 @@ export const useRuntimeBrowserHandle = ({
     editor,
     forceRender,
     inputController,
-    isShellBackedSelection,
+    isPartialDOMBackedSelection,
     rootRef,
-    setExplicitShellBackedSelection,
+    setExplicitPartialDOMBackedSelection,
   ])
 }

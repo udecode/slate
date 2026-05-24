@@ -3,7 +3,7 @@ import { performance } from 'node:perf_hooks'
 
 import { createEditor } from '../../../../packages/slate/src/index.ts'
 import { Editor } from '../../../../packages/slate/src/internal/index.ts'
-import { withHistory } from '../../../../packages/slate-history/src/index.ts'
+import { history } from '../../../../packages/slate-history/src/index.ts'
 import {
   round,
   summarize,
@@ -64,7 +64,7 @@ const summarizeHeapDeltas = (samples) => ({
 })
 
 const createHistoryEditor = (children, selection) => {
-  const editor = withHistory(createEditor())
+  const editor = createEditor({ extensions: [history()] })
 
   Editor.replace(editor, {
     children,
@@ -87,16 +87,17 @@ const fullDocumentSelection = (children) => {
 
 const getHistoryShape = (editor, operationsBefore) => {
   const operations = Editor.getOperations(editor).slice(operationsBefore)
-  const undoBatch = editor.history.undos.at(-1)
-  const historyBytes = byteLength(editor.history)
-  const undoBytes = byteLength(editor.history.undos)
-  const redoBytes = byteLength(editor.history.redos)
+  const historyState = editor.read((state) => state.history.get())
+  const undoBatch = historyState.undos.at(-1)
+  const historyBytes = byteLength(historyState)
+  const undoBytes = byteLength(historyState.undos)
+  const redoBytes = byteLength(historyState.redos)
   const operationBytes = byteLength(undoBatch?.operations ?? [])
   const selectionBeforeBytes = byteLength(undoBatch?.selectionBefore ?? null)
 
   return {
-    historyEntryCount: editor.history.undos.length,
-    redoEntryCount: editor.history.redos.length,
+    historyEntryCount: historyState.undos.length,
+    redoEntryCount: historyState.redos.length,
     operationCount: operations.length,
     retainedBatchOperationCount: undoBatch?.operations.length ?? 0,
     retainedOperationTypes: undoBatch?.operations.map((op) => op.type) ?? [],

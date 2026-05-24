@@ -24,7 +24,7 @@ describe('slate-react editable behavior', () => {
     ).toHaveTextContent('test')
   })
 
-  test('applies the selection z-index workaround as CSS', () => {
+  test('applies visible root defaults as CSS', () => {
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
     const editor = createReactEditor({ initialValue })
 
@@ -40,8 +40,43 @@ describe('slate-react editable behavior', () => {
     expect((editable as HTMLElement).style.position).toBe('relative')
     expect((editable as HTMLElement).style.whiteSpace).toBe('pre-wrap')
     expect((editable as HTMLElement).style.wordWrap).toBe('break-word')
-    expect((editable as HTMLElement).style.zIndex).toBe('-1')
+    expect((editable as HTMLElement).style.zIndex).toBe('0')
     expect(editable).not.toHaveAttribute('zindex')
+  })
+
+  test('lets user styles override visible root defaults', () => {
+    const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
+    const editor = createReactEditor({ initialValue })
+
+    const rendered = render(
+      <Slate editor={editor}>
+        <Editable style={{ zIndex: 2 }} />
+      </Slate>
+    )
+
+    const editable = rendered.container.querySelector('[data-slate-editor]')
+
+    expect(editable).toBeInstanceOf(HTMLElement)
+    expect((editable as HTMLElement).style.zIndex).toBe('2')
+  })
+
+  test('keeps disableDefaultStyles as the root style opt-out', () => {
+    const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
+    const editor = createReactEditor({ initialValue })
+
+    const rendered = render(
+      <Slate editor={editor}>
+        <Editable disableDefaultStyles />
+      </Slate>
+    )
+
+    const editable = rendered.container.querySelector('[data-slate-editor]')
+
+    expect(editable).toBeInstanceOf(HTMLElement)
+    expect((editable as HTMLElement).style.position).toBe('')
+    expect((editable as HTMLElement).style.whiteSpace).toBe('')
+    expect((editable as HTMLElement).style.wordWrap).toBe('')
+    expect((editable as HTMLElement).style.zIndex).toBe('')
   })
 
   test('calls onChange and onSelectionChange when editor selection changes', async () => {

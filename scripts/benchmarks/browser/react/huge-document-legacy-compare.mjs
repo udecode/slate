@@ -597,8 +597,9 @@ const currentSharedSource = sharedSource
   )
   .replace(
     "import { withReact } from 'slate-react'",
-    "import { withReact } from '../../packages/slate-react/dist/index.js'"
+    "import { createReactEditor } from '../../packages/slate-react/dist/index.js'"
   )
+  .replaceAll('withReact(createEditor())', 'createReactEditor()')
 
 const legacyBenchmarkSource = `
 ${sharedSource}
@@ -1054,18 +1055,18 @@ const summarizeNumericRecords = (records) => {
 const getRootGroupCount = () => Math.ceil(blocks / rootGroupSize)
 const getShellSegmentCount = () => Math.ceil(blocks / segmentSize)
 
-const getRenderingStrategyOptions = ({ renderingStrategyType, shellRadius = null }) => {
-  switch (renderingStrategyType) {
+const getDOMStrategyOptions = ({ domStrategyType, shellRadius = null }) => {
+  switch (domStrategyType) {
     case 'auto':
     case 'staged':
     case 'full':
-      return renderingStrategyType
-    case 'shell':
+      return domStrategyType
+    case 'partial-dom':
     case 'virtualized':
       return {
         overscan: shellRadius ?? overscan,
         segmentSize,
-        type: renderingStrategyType,
+        type: domStrategyType,
         threshold: 1,
       }
     default:
@@ -1073,12 +1074,13 @@ const getRenderingStrategyOptions = ({ renderingStrategyType, shellRadius = null
   }
 }
 
-const createSurfaceTrace = ({ renderingStrategyType, shellRadius = null }) => {
-  const shellEnabled = renderingStrategyType === 'shell'
-  const virtualizationEnabled = renderingStrategyType === 'virtualized'
+const createSurfaceTrace = ({ domStrategyType, shellRadius = null }) => {
+  const partialDOMPlaceholderEnabled = domStrategyType === 'partial-dom'
+  const shellEnabled = partialDOMPlaceholderEnabled
+  const virtualizationEnabled = domStrategyType === 'virtualized'
   const segmentGroupingEnabled = shellEnabled || virtualizationEnabled
   const domPresentGroupingEnabled =
-    (renderingStrategyType === 'auto' || renderingStrategyType === 'staged') &&
+    (domStrategyType === 'auto' || domStrategyType === 'staged') &&
     blocks >= rootGroupThreshold
   const groupingEnabled = segmentGroupingEnabled || domPresentGroupingEnabled
   const segmentMountedGroups = segmentGroupingEnabled
@@ -1105,7 +1107,7 @@ const createSurfaceTrace = ({ renderingStrategyType, shellRadius = null }) => {
         ? rootGroupSize
         : null,
     interactiveReadyAt: null,
-    renderingStrategyType,
+    domStrategyType,
     maxBackgroundChunkMs: 0,
     mountedGroupCountAtReady: segmentGroupingEnabled
       ? segmentMountedGroups
@@ -1122,18 +1124,18 @@ const createSurfaceTrace = ({ renderingStrategyType, shellRadius = null }) => {
 }
 
 const createSurfaceDefinition = ({
-  renderingStrategyType,
+  domStrategyType,
   name,
-  omitRenderingStrategy = false,
+  omitDOMStrategy = false,
   renderElementEnabled = true,
   shellRadius,
 }) => ({
-  renderingStrategy: omitRenderingStrategy
+  domStrategy: omitDOMStrategy
     ? undefined
-    : getRenderingStrategyOptions({ renderingStrategyType, shellRadius }),
+    : getDOMStrategyOptions({ domStrategyType, shellRadius }),
   name,
   renderElement: renderElementEnabled ? renderElement : undefined,
-  trace: createSurfaceTrace({ renderingStrategyType, shellRadius }),
+  trace: createSurfaceTrace({ domStrategyType, shellRadius }),
 })
 
 const resolveReadyTrace = ({ nativeSurfaceCompleteMs, readyMs, trace }) => ({
@@ -1203,9 +1205,9 @@ const measureReadySurfaceWeights = (container) => {
     root,
     '[data-slate-dom-coverage-boundary]'
   )
-  const shellCount = countElements(
+  const partialDOMCount = countElements(
     root,
-    '[data-slate-rendering-strategy-shell="true"]'
+    '[data-slate-dom-strategy-placeholder="true"]'
   )
   const mountedEditableDescendantCount = slateElementCount + slateTextCount
 
@@ -1233,7 +1235,7 @@ const measureReadySurfaceWeights = (container) => {
     'root-group-mounted-count': mountedRootGroupCount,
     'root-group-pending-count': pendingRootGroupCount,
     'root-group-unstated-count': unstatedRootGroupCount,
-    'shell-count': shellCount,
+    'partial-dom-count': partialDOMCount,
     'slate-element-count': slateElementCount,
     'slate-leaf-count': slateLeafCount,
     'slate-text-count': slateTextCount,
@@ -1260,44 +1262,44 @@ const recordReadySurfaceWeight = (container) => {
 
 const surfaceDefinitions = [
   createSurfaceDefinition({
-    renderingStrategyType: 'full',
+    domStrategyType: 'full',
     name: 'v2Off',
   }),
   createSurfaceDefinition({
-    renderingStrategyType: 'full',
+    domStrategyType: 'full',
     name: 'v2DefaultRenderOff',
     renderElementEnabled: false,
   }),
   createSurfaceDefinition({
-    renderingStrategyType: 'auto',
+    domStrategyType: 'auto',
     name: 'v2DefaultOmitted',
-    omitRenderingStrategy: true,
+    omitDOMStrategy: true,
   }),
   createSurfaceDefinition({
-    renderingStrategyType: 'auto',
+    domStrategyType: 'auto',
     name: 'v2DefaultRenderAuto',
     renderElementEnabled: false,
   }),
   createSurfaceDefinition({
-    renderingStrategyType: 'auto',
+    domStrategyType: 'auto',
     name: 'v2AutoExplicit',
   }),
   createSurfaceDefinition({
-    renderingStrategyType: 'staged',
+    domStrategyType: 'staged',
     name: 'v2DomPresent',
   }),
   createSurfaceDefinition({
-    renderingStrategyType: 'shell',
+    domStrategyType: 'partial-dom',
     name: 'v2ShellExplicitRadius0',
     shellRadius: 0,
   }),
   createSurfaceDefinition({
-    renderingStrategyType: 'shell',
+    domStrategyType: 'partial-dom',
     name: 'v2ShellExplicitRadius1',
     shellRadius: 1,
   }),
   createSurfaceDefinition({
-    renderingStrategyType: 'virtualized',
+    domStrategyType: 'virtualized',
     name: 'v2VirtualizedExperimental',
     shellRadius: 0,
   }),
@@ -1310,14 +1312,14 @@ const selectedSurfaceDefinitions =
       )
     : surfaceDefinitions
 
-const createEditableProps = ({ renderingStrategy, renderElement }) => ({
+const createEditableProps = ({ domStrategy, renderElement }) => ({
   id: 'v2-huge-compare',
-  renderingStrategy,
+  domStrategy,
   renderElement,
 })
 
-const mount = async ({ renderingStrategy, renderElement }) => {
-  const editor = withReact(createEditor())
+const mount = async ({ domStrategy, renderElement }) => {
+  const editor = createReactEditor()
   Editor.replace(editor, {
     children: createChildren(),
     selection: null,
@@ -1332,7 +1334,7 @@ const mount = async ({ renderingStrategy, renderElement }) => {
         { editor },
         React.createElement(
           Editable,
-          createEditableProps({ renderingStrategy, renderElement })
+          createEditableProps({ domStrategy, renderElement })
         )
       )
     )
@@ -1342,7 +1344,7 @@ const mount = async ({ renderingStrategy, renderElement }) => {
 }
 
 const createModelOnlyContext = () => {
-  const editor = withReact(createEditor())
+  const editor = createReactEditor()
   Editor.replace(editor, {
     children: createChildren(),
     selection: null,
@@ -1499,10 +1501,10 @@ const measureModelOnlyLane = async (setup, run) => {
     : summary
 }
 
-const measureReady = async ({ renderingStrategy, renderElement }) =>
+const measureReady = async ({ domStrategy, renderElement }) =>
   measureLane(
     async () => {
-      const editor = withReact(createEditor())
+      const editor = createReactEditor()
       Editor.replace(editor, {
         children: createChildren(),
         selection: null,
@@ -1520,7 +1522,7 @@ const measureReady = async ({ renderingStrategy, renderElement }) =>
             { editor },
             React.createElement(
               Editable,
-              createEditableProps({ renderingStrategy, renderElement })
+              createEditableProps({ domStrategy, renderElement })
             )
           )
         )
@@ -1529,10 +1531,10 @@ const measureReady = async ({ renderingStrategy, renderElement }) =>
     }
   )
 
-const measureNativeSurfaceComplete = async ({ renderingStrategy, renderElement }) =>
+const measureNativeSurfaceComplete = async ({ domStrategy, renderElement }) =>
   measureLane(
     async () => {
-      const editor = withReact(createEditor())
+      const editor = createReactEditor()
       Editor.replace(editor, {
         children: createChildren(),
         selection: null,
@@ -1550,7 +1552,7 @@ const measureNativeSurfaceComplete = async ({ renderingStrategy, renderElement }
             { editor },
             React.createElement(
               Editable,
-              createEditableProps({ renderingStrategy, renderElement })
+              createEditableProps({ domStrategy, renderElement })
             )
           )
         )
@@ -1564,12 +1566,12 @@ const measureNativeSurfaceComplete = async ({ renderingStrategy, renderElement }
 
 const measureType = async ({
   blockIndex,
-  renderingStrategy,
+  domStrategy,
   renderElement,
   selectBefore = false,
 }) =>
   measureLane(
-    () => mount({ renderingStrategy, renderElement }),
+    () => mount({ domStrategy, renderElement }),
     async ({ editor }) => {
       if (selectBefore) {
         await act(async () => {
@@ -1603,9 +1605,9 @@ const selectBlock = async ({ blockIndex, editor }) => {
   })
 }
 
-const measureSelectBlock = async ({ blockIndex, renderingStrategy, renderElement }) =>
+const measureSelectBlock = async ({ blockIndex, domStrategy, renderElement }) =>
   measureLane(
-    () => mount({ renderingStrategy, renderElement }),
+    () => mount({ domStrategy, renderElement }),
     async ({ editor }) => {
       await selectBlock({ blockIndex, editor })
       assert.deepEqual(getSelection(editor)?.anchor, {
@@ -1617,11 +1619,11 @@ const measureSelectBlock = async ({ blockIndex, renderingStrategy, renderElement
 
 const measureTypeAfterSelect = async ({
   blockIndex,
-  renderingStrategy,
+  domStrategy,
   renderElement,
 }) =>
   measurePreparedLane(
-    () => mount({ renderingStrategy, renderElement }),
+    () => mount({ domStrategy, renderElement }),
     async ({ editor }) => {
       await selectBlock({ blockIndex, editor })
     },
@@ -1642,20 +1644,20 @@ const measureTypeAfterSelect = async ({
 
 const measurePromoteThenType = async ({
   blockIndex,
-  renderingStrategy,
+  domStrategy,
   renderElement,
 }) =>
   measureLane(
-    () => mount({ renderingStrategy, renderElement }),
+    () => mount({ domStrategy, renderElement }),
     async ({ container, dom, editor }) => {
       const segmentIndex = Math.floor(blockIndex / segmentSize)
-      const shell = container.querySelector(
-        \`[data-slate-rendering-strategy-shell="true"][data-slate-rendering-strategy-segment="\${segmentIndex}"]\`
+      const partialDOMPlaceholder = container.querySelector(
+        \`[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="\${segmentIndex}"]\`
       )
 
-      if (shell) {
+      if (partialDOMPlaceholder) {
         await act(async () => {
-          shell.dispatchEvent(
+          partialDOMPlaceholder.dispatchEvent(
             new dom.window.MouseEvent('mousedown', {
               bubbles: true,
             })
@@ -1686,13 +1688,13 @@ const measurePromoteThenType = async ({
 
 const promoteAndSelectBlock = async ({ blockIndex, container, dom, editor }) => {
   const segmentIndex = Math.floor(blockIndex / segmentSize)
-  const shell = container.querySelector(
-    \`[data-slate-rendering-strategy-shell="true"][data-slate-rendering-strategy-segment="\${segmentIndex}"]\`
+  const partialDOMPlaceholder = container.querySelector(
+    \`[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="\${segmentIndex}"]\`
   )
 
-  if (shell) {
+  if (partialDOMPlaceholder) {
     await act(async () => {
-      shell.dispatchEvent(
+      partialDOMPlaceholder.dispatchEvent(
         new dom.window.MouseEvent('mousedown', {
           bubbles: true,
         })
@@ -1755,10 +1757,10 @@ const waitForNativeSurfaceComplete = async (container) => {
 
 const setupSelectedTextInputTarget = async ({
   blockIndex,
-  renderingStrategy,
+  domStrategy,
   renderElement,
 }) => {
-  const context = await mount({ renderingStrategy, renderElement })
+  const context = await mount({ domStrategy, renderElement })
   const editableRoot = await promoteAndSelectBlock({
     blockIndex,
     container: context.container,
@@ -1782,11 +1784,11 @@ const setupSelectedTextInputTarget = async ({
 
 const measureSelectThenModelBeforeInputType = async ({
   blockIndex,
-  renderingStrategy,
+  domStrategy,
   renderElement,
 }) =>
   measureLane(
-    () => mount({ renderingStrategy, renderElement }),
+    () => mount({ domStrategy, renderElement }),
     async ({ container, dom, editor }) => {
       const root = await promoteAndSelectBlock({
         blockIndex,
@@ -1838,12 +1840,12 @@ const measureSelectThenModelBeforeInputType = async ({
 
 const measureModelBeforeInputType = async ({
   blockIndex,
-  renderingStrategy,
+  domStrategy,
   renderElement,
 }) =>
   measureLane(
     () =>
-      setupSelectedTextInputTarget({ blockIndex, renderingStrategy, renderElement }),
+      setupSelectedTextInputTarget({ blockIndex, domStrategy, renderElement }),
     async ({ dom, editableRoot, editor, target: initialTarget }) => {
       let target = initialTarget
 
@@ -1885,9 +1887,9 @@ const measureModelBeforeInputType = async ({
     }
   )
 
-const measureSelectAll = async ({ renderingStrategy, renderElement }) =>
+const measureSelectAll = async ({ domStrategy, renderElement }) =>
   measureLane(
-    () => mount({ renderingStrategy, renderElement }),
+    () => mount({ domStrategy, renderElement }),
     async ({ editor }) => {
       await act(async () => {
         select(editor, {
@@ -1900,11 +1902,11 @@ const measureSelectAll = async ({ renderingStrategy, renderElement }) =>
   )
 
 const measureReplaceFullDocumentWithText = async ({
-  renderingStrategy,
+  domStrategy,
   renderElement,
 }) =>
   measureLane(
-    () => mount({ renderingStrategy, renderElement }),
+    () => mount({ domStrategy, renderElement }),
     async ({ editor }) => {
       await act(async () => {
         select(editor, {
@@ -1931,11 +1933,11 @@ const measureReplaceFullDocumentWithTextModelCommit = async () =>
   )
 
 const measureInsertFragmentFullDocument = async ({
-  renderingStrategy,
+  domStrategy,
   renderElement,
 }) =>
   measureLane(
-    () => mount({ renderingStrategy, renderElement }),
+    () => mount({ domStrategy, renderElement }),
     async ({ editor }) => {
       await act(async () => {
         select(editor, {
@@ -1961,8 +1963,8 @@ const measureInsertFragmentFullDocumentModelCommit = async () =>
     }
   )
 
-const runSurface = async ({ renderingStrategy, renderElement, trace }) => {
-  const readyMs = await measureReady({ renderingStrategy, renderElement })
+const runSurface = async ({ domStrategy, renderElement, trace }) => {
+  const readyMs = await measureReady({ domStrategy, renderElement })
 
   if (readyOnly) {
     return {
@@ -1976,101 +1978,101 @@ const runSurface = async ({ renderingStrategy, renderElement, trace }) => {
   }
 
   const nativeSurfaceCompleteMs = trace.stagedMountingEnabled
-    ? await measureNativeSurfaceComplete({ renderingStrategy, renderElement })
+    ? await measureNativeSurfaceComplete({ domStrategy, renderElement })
     : null
 
   return {
     trace: resolveReadyTrace({ nativeSurfaceCompleteMs, readyMs, trace }),
     nativeSurfaceCompleteMs,
     readyMs,
-    selectAllMs: await measureSelectAll({ renderingStrategy, renderElement }),
+    selectAllMs: await measureSelectAll({ domStrategy, renderElement }),
     startBlockTypeMs: await measureType({
       blockIndex: 0,
-      renderingStrategy,
+      domStrategy,
       renderElement,
     }),
     ...(splitSelectionLanes
       ? {
           startBlockSelectMs: await measureSelectBlock({
           blockIndex: 0,
-          renderingStrategy,
+          domStrategy,
           renderElement,
         }),
         startBlockTypeAfterSelectMs: await measureTypeAfterSelect({
           blockIndex: 0,
-          renderingStrategy,
+          domStrategy,
           renderElement,
         }),
         }
       : {}),
     startBlockSelectThenTypeMs: await measureType({
       blockIndex: 0,
-      renderingStrategy,
+      domStrategy,
       renderElement,
       selectBefore: true,
     }),
     middleBlockTypeMs: await measureType({
       blockIndex: Math.floor(blocks / 2),
-      renderingStrategy,
+      domStrategy,
       renderElement,
     }),
     ...(splitSelectionLanes
       ? {
           middleBlockSelectMs: await measureSelectBlock({
           blockIndex: Math.floor(blocks / 2),
-          renderingStrategy,
+          domStrategy,
           renderElement,
         }),
         middleBlockTypeAfterSelectMs: await measureTypeAfterSelect({
           blockIndex: Math.floor(blocks / 2),
-          renderingStrategy,
+          domStrategy,
           renderElement,
         }),
         }
       : {}),
     middleBlockSelectThenTypeMs: await measureType({
       blockIndex: Math.floor(blocks / 2),
-      renderingStrategy,
+      domStrategy,
       renderElement,
       selectBefore: true,
     }),
     middleBlockPromoteThenTypeMs: await measurePromoteThenType({
       blockIndex: Math.floor(blocks / 2),
-      renderingStrategy,
+      domStrategy,
       renderElement,
     }),
     startBlockModelBeforeInputTypeMs: await measureModelBeforeInputType({
       blockIndex: 0,
-      renderingStrategy,
+      domStrategy,
       renderElement,
     }),
     middleBlockModelBeforeInputTypeMs: await measureModelBeforeInputType({
       blockIndex: Math.floor(blocks / 2),
-      renderingStrategy,
+      domStrategy,
       renderElement,
     }),
     startBlockSelectThenModelBeforeInputTypeMs:
       await measureSelectThenModelBeforeInputType({
         blockIndex: 0,
-        renderingStrategy,
+        domStrategy,
         renderElement,
     }),
     middleBlockSelectThenModelBeforeInputTypeMs:
       await measureSelectThenModelBeforeInputType({
         blockIndex: Math.floor(blocks / 2),
-        renderingStrategy,
+        domStrategy,
         renderElement,
       }),
     replaceFullDocumentWithTextModelCommitMs:
       await measureReplaceFullDocumentWithTextModelCommit(),
     replaceFullDocumentWithTextMs: await measureReplaceFullDocumentWithText({
-      renderingStrategy,
+      domStrategy,
       renderElement,
     }),
     insertFragmentFullDocumentModelCommitMs:
       await measureInsertFragmentFullDocumentModelCommit(),
     insertFragmentFullDocumentMs: await measureInsertFragmentFullDocument({
-      renderingStrategy,
+      domStrategy,
       renderElement,
     }),
   }

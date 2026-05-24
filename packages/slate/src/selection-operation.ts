@@ -2,8 +2,8 @@ import type { SetSelectionOperation } from './interfaces/operation'
 import type { Range } from './interfaces/range'
 
 const clonePoint = (point: Range['anchor']) => ({
+  ...point,
   path: [...point.path],
-  offset: point.offset,
 })
 
 const cloneRange = (range: Range | null): Range | null =>

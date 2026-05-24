@@ -8,6 +8,7 @@ import {
   type SlateRangeDecorationSourceOptions,
   toSlateRangeDecorations,
 } from '../decoration-source'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import type { SlateSourceDirtiness } from '../projection-store'
 
 export type UseSlateDecorationSourceOptions<T = unknown> =
@@ -41,6 +42,9 @@ const useStableDirtiness = (dirtiness: SlateSourceDirtiness | undefined) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => dirtiness, [dirtinessIdentity])
 }
+
+const isReactEditorFocused = (editor: SlateEditor) =>
+  ReactEditor.isFocused(editor as unknown as ReactRuntimeEditor)
 
 export const useSlateDecorationSource = <T = unknown>(
   editor: SlateEditor,
@@ -76,7 +80,11 @@ export const useSlateDecorationSource = <T = unknown>(
 
   useEffect(() => () => source.destroy(), [source])
   useEffect(() => {
-    source.refresh({ forceInvalidate: true, reason: 'external' })
+    source.refresh({
+      forceInvalidate: true,
+      reason: 'external',
+      requiresDOMSelectionExport: isReactEditorFocused(editor),
+    })
     // `deps` intentionally owns inline option closure freshness.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, refreshDeps)
@@ -122,7 +130,11 @@ export const useSlateRangeDecorationSource = <T = unknown>(
 
   useEffect(() => () => source.destroy(), [source])
   useEffect(() => {
-    source.refresh({ forceInvalidate: true, reason: 'external' })
+    source.refresh({
+      forceInvalidate: true,
+      reason: 'external',
+      requiresDOMSelectionExport: isReactEditorFocused(editor),
+    })
     // `deps` intentionally owns inline option closure freshness.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, refreshDeps)

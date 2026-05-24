@@ -20,14 +20,6 @@ type ParagraphElement = {
 type CustomValue = ParagraphElement[]
 
 declare module 'slate' {
-  interface EditorExtensionGroups<V extends Value = Value> {
-    blockSelection: {
-      clear: () => void
-      select: (path: Path) => void
-      selectedPath: () => Path | null
-    }
-  }
-
   interface EditorStateExtensionGroups<V extends Value = Value> {
     blockSelection: {
       hasSelection: () => boolean
@@ -52,22 +44,24 @@ const paragraph = (text: string): ParagraphElement => ({
 
 const createBlockSelectionExtension = <TEditor extends Editor<CustomValue>>() =>
   defineEditorExtension<TEditor>({
-    editor: {
-      blockSelection(editor) {
-        return {
-          clear() {
-            selectedBlockPaths.set(editor, null)
-          },
-          select(path) {
-            selectedBlockPaths.set(editor, [...path] as Path)
-          },
-          selectedPath() {
-            return selectedBlockPaths.get(editor) ?? null
-          },
-        }
-      },
-    },
     name: 'block-selection-contract',
+    setup({ editor }) {
+      return {
+        api: {
+          blockSelection: {
+            clear() {
+              selectedBlockPaths.set(editor, null)
+            },
+            select(path) {
+              selectedBlockPaths.set(editor, [...path] as Path)
+            },
+            selectedPath() {
+              return selectedBlockPaths.get(editor) ?? null
+            },
+          },
+        },
+      }
+    },
     state: {
       blockSelection(_state, editor) {
         return {
@@ -95,21 +89,24 @@ const createBlockSelectionExtension = <TEditor extends Editor<CustomValue>>() =>
     },
   })
 
-const createBlockSelectionEditor = () => {
-  const editor = createEditor<CustomValue>()
-
-  editor.update((tx) => {
-    tx.value.replace({
-      children: [paragraph('one'), paragraph('two')],
-      selection: null,
-    })
+const createBlockSelectionEditor = () =>
+  createEditor<CustomValue>({
+    initialValue: [paragraph('one'), paragraph('two')],
   })
 
-  return editor
+const createInstalledBlockSelectionEditor = () => {
+  const extension = createBlockSelectionExtension()
+
+  return createEditor<CustomValue, readonly [typeof extension]>({
+    extensions: [extension] as const,
+    initialValue: [paragraph('one'), paragraph('two')],
+  })
 }
 
-const assertTypes = (editor: ReturnType<typeof createBlockSelectionEditor>) => {
-  editor.blockSelection.select([0])
+const assertTypes = (
+  editor: ReturnType<typeof createInstalledBlockSelectionEditor>
+) => {
+  editor.api.blockSelection.select([0])
 
   editor.read((state) => {
     const hasSelection: boolean = state.blockSelection.hasSelection()
@@ -129,21 +126,24 @@ const assertTypes = (editor: ReturnType<typeof createBlockSelectionEditor>) => {
 }
 
 describe('extension namespace contract', () => {
-  it('installs local editor actions, state reads, and tx writes as one extension namespace', () => {
+  it('installs API handles, state reads, and tx writes as one extension namespace', () => {
     const headlessEditor = createEditor<CustomValue>()
-    const editor = createBlockSelectionEditor()
-    const cleanup = editor.extend(createBlockSelectionExtension())
+    const editor = createInstalledBlockSelectionEditor()
 
     assert.equal('blockSelection' in headlessEditor, false)
-    assert.equal(editor.blockSelection.selectedPath(), null)
+    assert.equal(
+      (headlessEditor.api as { blockSelection?: unknown }).blockSelection,
+      undefined
+    )
+    assert.equal(editor.api.blockSelection.selectedPath(), null)
     assert.equal(
       editor.read((state) => state.blockSelection.hasSelection()),
       false
     )
 
-    editor.blockSelection.select([1])
+    editor.api.blockSelection.select([1])
 
-    assert.deepEqual(editor.blockSelection.selectedPath(), [1])
+    assert.deepEqual(editor.api.blockSelection.selectedPath(), [1])
     assert.deepEqual(
       editor.read((state) => state.blockSelection.selectedPath()),
       [1]
@@ -155,41 +155,35 @@ describe('extension namespace contract', () => {
     })
 
     assert.deepEqual(
-      editor.read((state) => state.value.get()),
+      editor.read((state) => state.value.get().roots.main),
       [paragraph('one')]
     )
-    assert.equal(editor.blockSelection.selectedPath(), null)
+    assert.equal(editor.api.blockSelection.selectedPath(), null)
 
     const editorSurface = editor as unknown as Record<string, unknown>
-    assert.equal('api' in editorSurface, false)
     assert.equal('tf' in editorSurface, false)
     assert.equal('commands' in editorSurface, false)
+  })
+
+  it('cleans up dynamically installed API, state, and tx extension namespaces', () => {
+    const editor = createBlockSelectionEditor()
+    const cleanup = editor.extend(createBlockSelectionExtension())
+    const api = editor.api as {
+      blockSelection?: { selectedPath: () => Path | null }
+    }
+
+    assert.equal(api.blockSelection?.selectedPath(), null)
+    assert.equal(
+      editor.read((state) => state.blockSelection.hasSelection()),
+      false
+    )
 
     cleanup()
 
-    assert.equal('blockSelection' in editor, false)
+    assert.equal(api.blockSelection, undefined)
     assert.equal(
       editor.read((state) => 'blockSelection' in state),
       false
-    )
-  })
-
-  it('rejects editor extension groups that collide with the editor surface', () => {
-    const editor = createBlockSelectionEditor()
-
-    assert.throws(
-      () =>
-        editor.extend(
-          defineEditorExtension({
-            editor: {
-              read() {
-                return {}
-              },
-            },
-            name: 'bad-editor-group',
-          })
-        ),
-      /editor group "read" conflicts with an existing editor property/
     )
   })
 })

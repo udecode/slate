@@ -6,6 +6,7 @@ import * as SlateReact from '../src'
 import {
   createReactEditor,
   Editable,
+  type EditableProps,
   type RenderElementProps,
   type RenderVoidProps,
   Slate,
@@ -21,6 +22,7 @@ const repoRoot = resolve(packageRoot, '../..')
 const sourceFilePattern = /\.(md|ts|tsx)$/
 
 type ExpectFalse<T extends false> = T
+type ExpectTrue<T extends true> = T
 type RenderElementHasPath = 'path' extends keyof RenderElementProps
   ? true
   : false
@@ -35,17 +37,37 @@ type RenderVoidDoesNotExposePath = ExpectFalse<RenderVoidHasPath>
 type EditableDOMBeforeInputProps = ComponentProps<
   typeof Editable
 >['onDOMBeforeInput']
+type EditableHasDOMStrategy = 'domStrategy' extends keyof EditableProps
+  ? true
+  : false
+type EditableHasRenderingStrategy =
+  'renderingStrategy' extends keyof EditableProps ? true : false
+type EditableHasOnDOMStrategyMetrics =
+  'onDOMStrategyMetrics' extends keyof EditableProps ? true : false
+type EditableHasOnRenderingStrategyMetrics =
+  'onRenderingStrategyMetrics' extends keyof EditableProps ? true : false
 type EditableHasOnCommand = 'onCommand' extends keyof ComponentProps<
   typeof Editable
 >
   ? true
   : false
+type EditableExposesDOMStrategy = ExpectTrue<EditableHasDOMStrategy>
+type EditableDoesNotExposeRenderingStrategy =
+  ExpectFalse<EditableHasRenderingStrategy>
+type EditableExposesOnDOMStrategyMetrics =
+  ExpectTrue<EditableHasOnDOMStrategyMetrics>
+type EditableDoesNotExposeOnRenderingStrategyMetrics =
+  ExpectFalse<EditableHasOnRenderingStrategyMetrics>
 type EditableDoesNotExposeOnCommand = ExpectFalse<EditableHasOnCommand>
 
 void (null as unknown as RenderElementDoesNotExposePath)
 void (null as unknown as RenderElementDoesNotExposeIndex)
 void (null as unknown as RenderVoidDoesNotExposePath)
 void (null as unknown as EditableDOMBeforeInputProps)
+void (null as unknown as EditableExposesDOMStrategy)
+void (null as unknown as EditableDoesNotExposeRenderingStrategy)
+void (null as unknown as EditableExposesOnDOMStrategyMetrics)
+void (null as unknown as EditableDoesNotExposeOnRenderingStrategyMetrics)
 void (null as unknown as EditableDoesNotExposeOnCommand)
 
 const listSourceFiles = (roots: readonly string[]) => {
@@ -215,12 +237,14 @@ describe('slate-react surface contract', () => {
     const runtimeSources = [
       'packages/slate-react/src/editable/runtime-editor-api.ts',
       'packages/slate-react/src/editable/runtime-repair-engine.ts',
+      'packages/slate-react/src/hooks/use-slate-runtime.tsx',
     ]
       .map((file) => readFileSync(resolve(repoRoot, file), 'utf8'))
       .join('\n')
 
     expect(runtimeSources).toContain("from 'slate/internal'")
     expect(runtimeSources).toContain("from 'slate-dom'")
+    expect(runtimeSources).toContain("from 'slate'")
     expect(slateReactPackage.peerDependencies?.slate).toBe(
       `>=${slatePackage.version}`
     )
@@ -282,12 +306,12 @@ describe('slate-react surface contract', () => {
           rationale:
             'The hook exposes editor selection through the public selector contract.',
         },
-        'packages/slate-react/src/rendering-strategy/segment-shell.tsx': {
+        'packages/slate-react/src/dom-strategy/segment-placeholder.tsx': {
           count: 1,
-          next: 'rendering-strategy-preview',
-          owner: 'Rendering strategy shell preview',
+          next: 'dom-strategy-preview',
+          owner: 'DOM strategy partial-DOM placeholder',
           rationale:
-            'Shelled segment previews subscribe through the public selector contract so hidden preview text refreshes without remounting the whole shell.',
+            'Partial-DOM segment placeholders subscribe through the public selector contract so hidden preview text refreshes without remounting the whole placeholder.',
         },
       }
     )
@@ -445,9 +469,9 @@ describe('slate-react surface contract', () => {
     expect(typeof SlateReact.createReactEditor).toBe('function')
   })
 
-  test('virtualized rendering stays object-only and experimental', () => {
+  test('virtualized DOM strategy stays object-only and experimental', () => {
     const segmentPlanSource = readFileSync(
-      resolve(packageRoot, 'src/rendering-strategy/create-segment-plan.ts'),
+      resolve(packageRoot, 'src/dom-strategy/create-segment-plan.ts'),
       'utf8'
     )
     const editableSource = readFileSync(
@@ -455,29 +479,68 @@ describe('slate-react surface contract', () => {
       'utf8'
     )
 
-    const renderingStrategyType = segmentPlanSource.match(
-      /export type RenderingStrategyType =([\s\S]*?)export type RenderingStrategyOptions =/
+    const domStrategyType = segmentPlanSource.match(
+      /export type DOMStrategyType =([\s\S]*?)export type DOMStrategyOptions =/
     )?.[1]
 
-    expect(renderingStrategyType).not.toContain("'virtualized'")
+    expect(domStrategyType).not.toContain("'virtualized'")
+    expect(domStrategyType).not.toContain("'shell'")
+    expect(segmentPlanSource).not.toContain("type: 'shell'")
     expect(segmentPlanSource).toContain("type: 'virtualized'")
     expect(segmentPlanSource).toContain('Intentionally object-only')
     expect(editableSource).toContain('`virtualized` is experimental')
   })
 
-  test('Editable renderingStrategy option objects normalize through primitive fields', () => {
+  test('Editable public DOM strategy naming does not expose DOM strategy props', () => {
+    const editableSource = readFileSync(
+      resolve(packageRoot, 'src/components/editable-text-blocks.tsx'),
+      'utf8'
+    )
+    const editableRootSource = readFileSync(
+      resolve(packageRoot, 'src/components/editable.tsx'),
+      'utf8'
+    )
+    const packageIndex = readFileSync(
+      resolve(packageRoot, 'src/index.ts'),
+      'utf8'
+    )
+    const effectiveStrategyType = editableRootSource.match(
+      /export type EditableDOMStrategyEffectiveType =([\s\S]*?)export type EditableDOMStrategyDegradationMode =/
+    )?.[1]
+    const degradationModeType = editableRootSource.match(
+      /export type EditableDOMStrategyDegradationMode =([\s\S]*?)export type EditableDOMStrategyMetricsBase =/
+    )?.[1]
+    const metricsBase = editableRootSource.match(
+      /export type EditableDOMStrategyMetricsBase = \{([\s\S]*?)\n\}/
+    )?.[1]
+
+    expect(editableSource).toContain('domStrategy?: DOMStrategyOptions | null')
+    expect(editableSource).toContain('onDOMStrategyMetrics?:')
+    expect(editableSource).not.toContain(
+      'renderingStrategy?: RenderingStrategyOptions | null'
+    )
+    expect(editableSource).not.toContain('onRenderingStrategyMetrics?:')
+    expect(effectiveStrategyType).not.toContain("'shell'")
+    expect(degradationModeType).not.toContain("'shell'")
+    expect(metricsBase).not.toContain('partialDOMCount')
+    expect(editableRootSource).not.toContain('shellAggressiveBoundaryCount')
+    expect(editableRootSource).toContain('aggressiveDomCoverageBoundaryCount')
+    expect(packageIndex).toContain('EditableDOMStrategyMetrics')
+    expect(packageIndex).not.toContain('EditableRenderingStrategy')
+  })
+
+  test('Editable DOM strategy option objects normalize through primitive fields', () => {
     const editableSource = readFileSync(
       resolve(packageRoot, 'src/components/editable-text-blocks.tsx'),
       'utf8'
     )
 
-    expect(editableSource).toMatch(/\brenderingStrategyShellOverscan\b/)
-    expect(editableSource).toMatch(/\brenderingStrategyVirtualizedOverscan\b/)
+    expect(editableSource).toMatch(/\bdomStrategyVirtualizedOverscan\b/)
     expect(editableSource).not.toContain(
-      '[renderingStrategyType, renderingStrategyShellOptions]'
+      '[domStrategyType, internalShellDOMStrategyOptions]'
     )
     expect(editableSource).not.toContain(
-      '[renderingStrategyType, renderingStrategyVirtualizedOptions]'
+      '[domStrategyType, virtualizedDOMStrategyOptions]'
     )
   })
 

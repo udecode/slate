@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import React, { type ErrorInfo, useState } from 'react'
-import { NON_HIDDEN_EXAMPLES } from '../constants/examples'
+import { type ExampleBadge, NON_HIDDEN_EXAMPLES } from '../constants/examples'
 import { Icon } from '../examples/ts/components/index'
 
 const Header = (props: React.ComponentProps<'div'>) => (
@@ -21,6 +21,12 @@ const A = (props: React.ComponentProps<'a'>) => (
 
 const Pill = (props: React.ComponentProps<'span'>) => (
   <span {...props} className="example-pill" />
+)
+
+const ExampleBadgeLabel = ({ badge }: { badge: ExampleBadge }) => (
+  <span className={`example-badge example-badge-${badge}`}>
+    {badge === 'alpha' ? 'Alpha' : 'New'}
+  </span>
 )
 
 const TabList = ({
@@ -141,7 +147,7 @@ export function ExampleLayout({
       )}
 
       <TabList isVisible={showTabs}>
-        {NON_HIDDEN_EXAMPLES.map(([n, p]) => (
+        {NON_HIDDEN_EXAMPLES.map(([n, p, metadata]) => (
           <Tab
             active={p === examplePath}
             as={`/examples/${p}`}
@@ -154,7 +160,10 @@ export function ExampleLayout({
               }
             }}
           >
-            {n}
+            <span>{n}</span>
+            {metadata?.badge ? (
+              <ExampleBadgeLabel badge={metadata.badge} />
+            ) : null}
           </Tab>
         ))}
       </TabList>

@@ -5,10 +5,10 @@ import {
   type Element,
   NodeApi,
   type Path,
-  ScrubberApi,
   type Text,
 } from '../interfaces'
 import { Editor } from '../interfaces/editor'
+import { formatDebugValue } from './format-debug-value'
 import { inheritRuntimeId } from './runtime-ids'
 
 const setChildren = (root: Ancestor, children: Descendant[]) => {
@@ -94,7 +94,7 @@ export const modifyChildren = (
     modifyDescendant<Element>(root, path, (node) => {
       if (NodeApi.isText(node)) {
         throw new Error(
-          `Cannot get the element at path [${path}] because it refers to a leaf node: ${ScrubberApi.stringify(
+          `Cannot get the element at path [${path}] because it refers to a leaf node: ${formatDebugValue(
             node
           )}`
         )
@@ -116,7 +116,7 @@ export const modifyLeaf = (
   modifyDescendant(root, path, (node) => {
     if (!NodeApi.isText(node)) {
       throw new Error(
-        `Cannot get the leaf node at path [${path}] because it refers to a non-leaf node: ${ScrubberApi.stringify(
+        `Cannot get the leaf node at path [${path}] because it refers to a non-leaf node: ${formatDebugValue(
           node
         )}`
       )

@@ -9,6 +9,8 @@ import { RangeApi } from 'slate'
 import {
   createSlateProjectionStore,
   type SlateProjection,
+  type SlateProjectionRefreshListener,
+  type SlateProjectionRefreshResult,
   type SlateProjectionSlice,
   type SlateProjectionStoreMetrics,
   type SlateProjectionStoreOptions,
@@ -63,8 +65,13 @@ export type SlateDecorationSource<T = unknown> = {
     Record<RuntimeId, readonly SlateProjectionSlice<T>[]>
   >
   id: string
-  refresh: (options?: SlateProjectionStoreRefreshOptions) => void
+  refresh: (
+    options?: SlateProjectionStoreRefreshOptions
+  ) => SlateProjectionRefreshResult
   subscribe: (listener: () => void) => () => void
+  subscribeProjectionRefresh: (
+    listener: SlateProjectionRefreshListener
+  ) => () => void
   subscribeRuntimeId: (runtimeId: RuntimeId, listener: () => void) => () => void
   subscribeSourceId: (sourceId: string, listener: () => void) => () => void
 }
@@ -76,7 +83,13 @@ export type SlateOverlayProjectionStore<T = unknown> = {
   getSnapshot: () => Readonly<
     Record<RuntimeId, readonly SlateProjectionSlice<T>[]>
   >
+  refresh?: (
+    options?: SlateProjectionStoreRefreshOptions
+  ) => SlateProjectionRefreshResult
   subscribe: (listener: () => void) => () => void
+  subscribeProjectionRefresh?: (
+    listener: SlateProjectionRefreshListener
+  ) => () => void
   subscribeRuntimeId?: (
     runtimeId: RuntimeId,
     listener: () => void
@@ -253,6 +266,13 @@ export const composeProjectionSources = <T = unknown>(
     subscribe(listener: () => void) {
       return subscribeAll(sources, (source) =>
         source.subscribe(invalidate(listener))
+      )
+    },
+    subscribeProjectionRefresh(listener: SlateProjectionRefreshListener) {
+      return subscribeAll(sources, (source) =>
+        source.subscribeProjectionRefresh
+          ? source.subscribeProjectionRefresh(listener)
+          : () => {}
       )
     },
     subscribeRuntimeId(runtimeId: RuntimeId, listener: () => void) {

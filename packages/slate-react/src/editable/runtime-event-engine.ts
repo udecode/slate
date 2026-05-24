@@ -10,13 +10,14 @@ import type {
   EditableDOMBeforeInputHandler,
   EditableKeyDownHandler,
 } from '../components/editable'
+import type { MountedTopLevelRange } from '../dom-strategy/dom-strategy-commands'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
-import type { MountedTopLevelRange } from '../rendering-strategy/rendering-strategy-commands'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import type {
   EditableInputController,
   EditableInputControllerState,
 } from './input-state'
+import type { DeferredOperation } from './model-input-strategy'
 import type { EditableRepairRequest } from './mutation-controller'
 import type { RuntimeAndroidInputManager } from './runtime-android-engine'
 import { useRuntimeBeforeInputEvents } from './runtime-before-input-events'
@@ -31,8 +32,6 @@ import type { useRuntimeKernelTraceEngine } from './runtime-kernel-trace'
 import { useRuntimeKeyboardEvents } from './runtime-keyboard-events'
 import type { RuntimeSelectionImportController } from './runtime-selection-engine'
 import { useRuntimeTargetBridge } from './runtime-target-bridge'
-
-type DeferredOperation = () => void
 
 type ApplyInputRules = ({
   data,
@@ -111,8 +110,8 @@ export const useEditableEventRuntime = ({
   editor,
   handledDOMBeforeInputRef,
   inputController,
-  isShellBackedSelection,
-  renderingStrategy,
+  isPartialDOMBackedSelection,
+  domStrategyRuntime,
   onDOMBeforeInput,
   onKeyDown,
   onUserInput,
@@ -122,8 +121,8 @@ export const useEditableEventRuntime = ({
   rootRef,
   selection,
   setComposing,
-  setExplicitShellBackedSelection,
-  shellBackedSelection,
+  setExplicitPartialDOMBackedSelection,
+  partialDOMBackedSelection,
   state,
   syncDOMSelectionToEditor,
   trace,
@@ -141,9 +140,9 @@ export const useEditableEventRuntime = ({
   editor: ReactRuntimeEditor
   handledDOMBeforeInputRef: RefObject<boolean>
   inputController: EditableInputController
-  isShellBackedSelection: (selection: Range | null) => boolean
-  renderingStrategy: {
-    type: 'staged' | 'shell' | 'virtualized'
+  isPartialDOMBackedSelection: (selection: Range | null) => boolean
+  domStrategyRuntime: {
+    type: 'staged' | 'partial-dom' | 'virtualized'
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
   } | null
@@ -156,8 +155,8 @@ export const useEditableEventRuntime = ({
   rootRef: RefObject<HTMLDivElement | null>
   selection: RuntimeSelectionImportController
   setComposing: (nextValue: boolean) => void
-  setExplicitShellBackedSelection: (nextValue: boolean) => void
-  shellBackedSelection: boolean
+  setExplicitPartialDOMBackedSelection: (nextValue: boolean) => void
+  partialDOMBackedSelection: boolean
   state: EditableInputControllerState
   syncDOMSelectionToEditor: () => void
   trace: EditableKernelTraceRuntime
@@ -190,9 +189,9 @@ export const useEditableEventRuntime = ({
     editor,
     forceRender: runtime.repair.forceRender,
     inputController,
-    isShellBackedSelection,
+    isPartialDOMBackedSelection,
     rootRef,
-    setExplicitShellBackedSelection,
+    setExplicitPartialDOMBackedSelection,
   })
 
   const beforeInputHandlers = useRuntimeBeforeInputEvents({
@@ -238,8 +237,8 @@ export const useEditableEventRuntime = ({
     onPaste: callbacks.onPaste,
     readOnly,
     repair: runtime.repair,
-    setExplicitShellBackedSelection,
-    shellBackedSelection,
+    setExplicitPartialDOMBackedSelection,
+    partialDOMBackedSelection,
     trace: runtime.trace,
   })
   const dragHandlers = useRuntimeDragEvents({
@@ -281,12 +280,12 @@ export const useEditableEventRuntime = ({
   const keyboardHandlers = useRuntimeKeyboardEvents({
     editor,
     inputController,
-    renderingStrategy,
+    domStrategyRuntime,
     onKeyDown,
     readOnly,
     runtime,
-    setExplicitShellBackedSelection,
-    shellBackedSelection,
+    setExplicitPartialDOMBackedSelection,
+    partialDOMBackedSelection,
   })
   const handlers = useMemo(
     () => ({

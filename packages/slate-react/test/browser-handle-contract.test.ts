@@ -30,8 +30,8 @@ test('browser handle undo and redo no-op when history is disabled', () => {
     element,
     forceRender,
     inputController: createInputController(),
-    isShellBackedSelection: () => false,
-    setExplicitShellBackedSelection: vi.fn(),
+    isPartialDOMBackedSelection: () => false,
+    setExplicitPartialDOMBackedSelection: vi.fn(),
   })
 
   expect(() => element.__slateBrowserHandle?.undo()).not.toThrow()

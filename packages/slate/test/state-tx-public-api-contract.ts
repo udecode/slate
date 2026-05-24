@@ -30,7 +30,7 @@ describe('state/tx public API contract', () => {
       value: state.value.get(),
     }))
 
-    assert.deepEqual(state.value, [paragraph('one')])
+    assert.deepEqual(state.value, { roots: { main: [paragraph('one')] } })
     assert.deepEqual(state.selection, selection)
     assert.deepEqual(state.operations, [])
     assert.equal(state.lastCommit, null)
@@ -74,10 +74,10 @@ describe('state/tx public API contract', () => {
     })
 
     assert.deepEqual(parsed, value)
-    assert.deepEqual(exported, value)
+    assert.deepEqual(exported, { roots: { main: value } })
     assert.deepEqual(
       rehydrated.read((state) => state.value.get()),
-      value
+      { roots: { main: value } }
     )
     assert.equal(reserialized.includes('pathToId'), false)
     assert.equal(reserialized.includes('idToPath'), false)
@@ -113,7 +113,7 @@ describe('state/tx public API contract', () => {
       value: state.value.get(),
     }))
 
-    assert.deepEqual(state.value, [paragraph('two')])
+    assert.deepEqual(state.value, { roots: { main: [paragraph('two')] } })
     assert.deepEqual(state.selection, null)
     assert.equal(state.operations.length, 0)
     assert.equal(state.lastCommit?.childrenChanged, true)
@@ -155,7 +155,9 @@ describe('state/tx public API contract', () => {
       anchor: { path: [0, 0], offset: 3 },
       focus: { path: [0, 0], offset: 3 },
     })
-    assert.deepEqual(state.value, [paragraph('one'), paragraph('two')])
+    assert.deepEqual(state.value, {
+      roots: { main: [paragraph('one'), paragraph('two')] },
+    })
   })
 
   it('reads fragments through grouped read state', () => {
@@ -239,6 +241,58 @@ describe('state/tx public API contract', () => {
       editor.read((state) => state.runtime.pathOf(insertedRuntimeId!)),
       null
     )
+  })
+
+  it('invalidates runtime index caches when replacing the document snapshot', () => {
+    const editor = createSeededEditor()
+    const oldSecondTextRuntimeId = editor.read((state) =>
+      state.runtime.idAt([1, 0])
+    )
+
+    assert.equal(typeof oldSecondTextRuntimeId, 'string')
+    assert.deepEqual(
+      editor.read((state) => state.runtime.pathOf(oldSecondTextRuntimeId!)),
+      [1, 0]
+    )
+
+    editor.update((tx) => {
+      tx.value.replace({
+        children: [paragraph('fresh')],
+        selection: null,
+        marks: null,
+      })
+    })
+
+    const state = editor.read((state) => ({
+      oldSecondTextPath: state.runtime.pathOf(oldSecondTextRuntimeId!),
+      nextTextRuntimeId: state.runtime.idAt([0, 0]),
+      value: state.value.get(),
+    }))
+
+    assert.deepEqual(state.value, { roots: { main: [paragraph('fresh')] } })
+    assert.equal(state.oldSecondTextPath, null)
+    assert.equal(typeof state.nextTextRuntimeId, 'string')
+  })
+
+  it('keeps cached runtime ids path-stable across text-only transactions', () => {
+    const editor = createSeededEditor()
+    const textRuntimeId = editor.read((state) => state.runtime.idAt([1, 0]))
+
+    assert.equal(typeof textRuntimeId, 'string')
+
+    editor.update((tx) => {
+      tx.text.insert('!', { at: { path: [1, 0], offset: 3 } })
+    })
+
+    const state = editor.read((state) => ({
+      path: state.runtime.pathOf(textRuntimeId!),
+      value: state.value.get(),
+    }))
+
+    assert.deepEqual(state.path, [1, 0])
+    assert.deepEqual(state.value, {
+      roots: { main: [paragraph('one'), paragraph('two!')] },
+    })
   })
 
   it('exposes complete query groups through state instead of direct editor aliases', () => {

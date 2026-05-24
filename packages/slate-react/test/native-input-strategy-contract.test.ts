@@ -28,6 +28,7 @@ test('native anchor checks use the editor window NodeFilter realm', () => {
     read: vi.fn((callback) =>
       callback({
         marks: { get: () => null },
+        view: { root: () => 'main' },
       })
     ),
   } as any

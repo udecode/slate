@@ -1,12 +1,17 @@
 import { executeCommand } from '../core/command-registry'
 import {
   getCurrentMarks,
+  getCurrentSelection,
+  getCurrentSelectionRoot,
   runEditorTransaction,
   setCurrentMarks,
+  withEditorOperationRoot,
+  withEditorOperationRootChildren,
 } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import {
   LocationApi,
+  type Range,
   RangeApi,
   type Location as SlateLocation,
 } from '../interfaces'
@@ -43,6 +48,35 @@ const shouldIgnoreTarget = (
   )
 }
 
+const getExplicitRangeRoot = (range: Range) => {
+  const anchorRoot = range.anchor.root
+  const focusRoot = range.focus.root
+
+  if (anchorRoot && focusRoot && anchorRoot !== focusRoot) {
+    return undefined
+  }
+
+  return anchorRoot ?? focusRoot
+}
+
+const getExplicitLocationRoot = (
+  at: TextInsertTextOptions['at']
+): string | undefined => {
+  if (!at || LocationApi.isPath(at)) {
+    return undefined
+  }
+
+  if (LocationApi.isPoint(at)) {
+    return at.root
+  }
+
+  return getExplicitRangeRoot(at)
+}
+
+const getImplicitSelectionRoot = (
+  editor: Parameters<EditorStaticApi['insertText']>[0]
+) => (getCurrentSelection(editor) ? getCurrentSelectionRoot(editor) : undefined)
+
 export const insertText: EditorStaticApi['insertText'] = (
   editor,
   text,
@@ -52,54 +86,70 @@ export const insertText: EditorStaticApi['insertText'] = (
     editor,
     { options, text, type: 'insert_text' },
     (command) => {
+      const explicitRoot = getExplicitLocationRoot(command.options?.at)
+      const transactionRoot =
+        explicitRoot ??
+        (command.options?.at === undefined
+          ? getImplicitSelectionRoot(editor)
+          : undefined)
       let handled = false
 
-      runEditorTransaction(editor, (tx) => {
-        const hasExplicitAt = command.options?.at !== undefined
-        let target = tx.resolveTarget({ at: command.options?.at })
-        const marks = getCurrentMarks(editor)
+      const run = () => {
+        runEditorTransaction(editor, (tx) => {
+          const hasExplicitAt = command.options?.at !== undefined
+          let target = tx.resolveTarget({ at: command.options?.at })
+          const marks = getCurrentMarks(editor)
 
-        if (!target && !hasExplicitAt && tx.getModelSelection() == null) {
-          target = getDefaultInsertLocation(editor)
-        }
-
-        if (!target) {
-          return
-        }
-
-        if (shouldIgnoreTarget(editor, target, command.options)) {
-          handled = true
-          return
-        }
-
-        if (marks && !hasExplicitAt) {
-          const node = { text: command.text, ...marks }
-          getEditorTransformRegistry(editor).insertNodes(node, {
-            at: target,
-            select: !hasExplicitAt,
-            voids: command.options?.voids,
-          })
-        } else {
-          if (
-            command.text.length > 0 &&
-            !hasExplicitAt &&
-            tx.getModelSelection() == null &&
-            LocationApi.isPoint(target)
-          ) {
-            getEditorTransformRegistry(editor).select(target)
+          if (!target && !hasExplicitAt && tx.getModelSelection() == null) {
+            target = getDefaultInsertLocation(editor)
           }
 
-          applyInsertText(editor, command.text, {
-            ...command.options,
-            at: target,
-          })
-        }
+          if (!target) {
+            return
+          }
 
-        if (!hasExplicitAt) {
-          setCurrentMarks(editor, null)
-        }
-        handled = true
-      })
+          if (shouldIgnoreTarget(editor, target, command.options)) {
+            handled = true
+            return
+          }
+
+          if (marks && !hasExplicitAt) {
+            const node = { text: command.text, ...marks }
+            getEditorTransformRegistry(editor).insertNodes(node, {
+              at: target,
+              select: !hasExplicitAt,
+              voids: command.options?.voids,
+            })
+          } else {
+            if (
+              command.text.length > 0 &&
+              !hasExplicitAt &&
+              tx.getModelSelection() == null &&
+              LocationApi.isPoint(target)
+            ) {
+              getEditorTransformRegistry(editor).select(target)
+            }
+
+            applyInsertText(editor, command.text, {
+              ...command.options,
+              at: target,
+            })
+          }
+
+          if (!hasExplicitAt) {
+            setCurrentMarks(editor, null)
+          }
+          handled = true
+        })
+      }
+
+      if (transactionRoot) {
+        withEditorOperationRoot(editor, transactionRoot, () =>
+          withEditorOperationRootChildren(editor, transactionRoot, run)
+        )
+      } else {
+        run()
+      }
 
       return { handled }
     }

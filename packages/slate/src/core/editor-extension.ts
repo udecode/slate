@@ -21,7 +21,6 @@ import {
   getExtensionRegistry,
   registerCapability,
   registerCommitListener,
-  registerEditorGroup,
   registerElementSpec,
   registerNormalizer,
   registerOperationMiddleware,
@@ -488,7 +487,9 @@ const registerExtensionSlots = <TEditor extends Editor>(
               ...(commandArgs as TransformMiddlewareArgs<TEditor, typeof key>),
               editor,
               next: runNext,
-              tx: getActiveUpdateView(editor),
+              tx: getActiveUpdateView<ValueOf<TEditor>>(
+                editor as Editor<ValueOf<TEditor>>
+              ),
             })
 
             return resolveTransformResult(result, delegated, nextResult)
@@ -518,16 +519,6 @@ const registerExtensionSlots = <TEditor extends Editor>(
             }) === true) as (editor: TEditor, data: DataTransfer) => boolean
         )
       )
-    }
-
-    for (const groupName of Object.keys(slots.editor ?? {})) {
-      const factory = slots.editor?.[groupName]
-
-      if (factory) {
-        cleanups.push(
-          registerEditorGroup(editor, extension.name, groupName, factory)
-        )
-      }
     }
 
     for (const spec of slots.elements ?? []) {

@@ -7,6 +7,7 @@ import { PathRefApi } from '../interfaces/path-ref'
 import { PointRefApi } from '../interfaces/point-ref'
 import { RangeRefApi } from '../interfaces/range-ref'
 import { transform } from '../interfaces/transforms/general'
+import { getOperationRoot } from '../internal/root-location'
 import { isBatchingDirtyPaths } from './batch-dirty-paths'
 import {
   appendOperation,
@@ -27,6 +28,7 @@ import {
   runEditorTransaction,
   setCurrentMarks,
   transformImplicitTarget,
+  withOperationRootChildren,
 } from './public-state'
 import { updateDirtyPaths } from './update-dirty-paths'
 
@@ -57,7 +59,7 @@ export const apply = (editor: Editor, op: Operation) => {
     transformBookmarks(editor, op)
     transformImplicitTarget(editor, op)
 
-    transform(editor, op)
+    withOperationRootChildren(editor, op, () => transform(editor, op))
     appendOperation(editor, op)
     publishRangeRefDrafts(editor)
     incrementVersion(editor)
@@ -133,10 +135,12 @@ export const apply = (editor: Editor, op: Operation) => {
     const transform = PathApi.operationCanTransformPath(op)
       ? (p: Path) => PathApi.transform(p, op)
       : undefined
-    updateDirtyPaths(editor, Editor.getDirtyPaths(editor, op), transform)
+    updateDirtyPaths(editor, Editor.getDirtyPaths(editor, op), transform, {
+      root: getOperationRoot(op),
+    })
   }
 
-  transform(editor, op)
+  withOperationRootChildren(editor, op, () => transform(editor, op))
   appendOperation(editor, op)
 
   // Clear any formats applied to the cursor if the selection changes.

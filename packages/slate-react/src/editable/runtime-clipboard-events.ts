@@ -25,8 +25,8 @@ export const useRuntimeClipboardEvents = ({
   onPaste,
   readOnly,
   repair,
-  setExplicitShellBackedSelection,
-  shellBackedSelection,
+  setExplicitPartialDOMBackedSelection,
+  partialDOMBackedSelection,
   trace,
 }: {
   editor: ReactRuntimeEditor
@@ -36,8 +36,8 @@ export const useRuntimeClipboardEvents = ({
   onPaste?: ClipboardHandler
   readOnly: boolean
   repair: EditableEventRuntime['repair']
-  setExplicitShellBackedSelection: (nextValue: boolean) => void
-  shellBackedSelection: boolean
+  setExplicitPartialDOMBackedSelection: (nextValue: boolean) => void
+  partialDOMBackedSelection: boolean
   trace: EditableEventRuntime['trace']
 }) => {
   const handlePaste = useCallback(
@@ -58,14 +58,14 @@ export const useRuntimeClipboardEvents = ({
         event,
         onPaste,
         readOnly,
-        shellBackedSelection,
+        partialDOMBackedSelection,
       })
       if (pasteResult.repair) {
         repair.requestEditableRepair(pasteResult.repair)
       }
-      if (pasteResult.explicitShellBackedSelection !== undefined) {
-        setExplicitShellBackedSelection(
-          pasteResult.explicitShellBackedSelection
+      if (pasteResult.explicitPartialDOMBackedSelection !== undefined) {
+        setExplicitPartialDOMBackedSelection(
+          pasteResult.explicitPartialDOMBackedSelection
         )
       }
       trace.recordKernelEventTrace({
@@ -82,8 +82,8 @@ export const useRuntimeClipboardEvents = ({
       onPaste,
       readOnly,
       repair,
-      setExplicitShellBackedSelection,
-      shellBackedSelection,
+      setExplicitPartialDOMBackedSelection,
+      partialDOMBackedSelection,
       trace,
     ]
   )

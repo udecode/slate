@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer'
+
 import { expect, type Locator, test } from '@playwright/test'
 import {
   installSlateReactRenderProfiler,
@@ -21,6 +23,26 @@ const getBrowserUndoHotkey = async (root: Locator) =>
     .evaluate(() =>
       /Mac OS X/.test(navigator.userAgent) ? 'Meta+Z' : 'Control+Z'
     )
+
+const parseSlateFragmentFromHtml = (html: string | null) => {
+  if (!html) {
+    throw new Error('Missing text/html clipboard payload')
+  }
+
+  const match = html.match(/data-slate-fragment=(["'])(.*?)\1/)
+
+  if (!match) {
+    throw new Error('Missing Slate fragment in text/html clipboard payload')
+  }
+
+  const decoded = Buffer.from(match[2], 'base64').toString('utf8')
+
+  try {
+    return JSON.parse(decodeURIComponent(decoded))
+  } catch {
+    return JSON.parse(decoded)
+  }
+}
 
 const selectMentionInsertionPoint = async (
   page: import('@playwright/test').Page
@@ -224,6 +246,85 @@ test.describe('mentions example', () => {
     }
   })
 
+  test('copies selected mention to deterministic browser clipboard payload', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium privileged clipboard payload proof'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'mentions', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+
+      await page.locator('[data-cy="mention-R2-D2"]').click()
+      await editor.assert.selection({
+        anchor: { path: [1, 1, 0], offset: 0 },
+        focus: { path: [1, 1, 0], offset: 0 },
+      })
+
+      const payload = await editor.clipboard.copyPayload()
+
+      expect(payload.types).toEqual(
+        expect.arrayContaining(['text/html', 'text/plain'])
+      )
+      expect(payload.html).toContain('data-slate-fragment=')
+      expect(payload.html).toContain('@R2-D2')
+      expect(payload.html).not.toContain('\uFEFF')
+      expect(payload.html).not.toContain('Try mentioning characters')
+      expect(payload.html).not.toContain('Mace Windu')
+      expect(payload.text).toBe('@R2-D2')
+      expect(payload.text).not.toContain('\uFEFF')
+
+      const fragment = parseSlateFragmentFromHtml(payload.html)
+
+      expect(fragment).toEqual([
+        {
+          type: 'paragraph',
+          children: [
+            {
+              type: 'mention',
+              character: 'R2-D2',
+              children: [{ text: '', bold: true }],
+            },
+          ],
+        },
+      ])
+
+      const externalTarget = page.locator('[data-cy="external-paste-target"]')
+
+      await page.evaluate(() => {
+        const target = document.createElement('div')
+
+        target.contentEditable = 'true'
+        target.setAttribute('data-cy', 'external-paste-target')
+        target.style.position = 'fixed'
+        target.style.left = '8px'
+        target.style.bottom = '8px'
+        document.body.appendChild(target)
+      })
+      await externalTarget.focus()
+      await page.keyboard.press('ControlOrMeta+V')
+
+      await expect(externalTarget).toContainText('@R2-D2')
+      await expect(
+        editor.root.locator('[data-cy="mention-R2-D2"]')
+      ).toHaveCount(1)
+      await expect(
+        editor.root.locator('[data-cy="mention-Mace-Windu"]')
+      ).toHaveCount(1)
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
   test('cuts a selected mention without crashing', async ({
     page,
   }, testInfo) => {
@@ -237,6 +338,7 @@ test.describe('mentions example', () => {
           editor: 'visible',
         },
       })
+      const beforeFirstMentionText = 'Try mentioning characters, like '
 
       await page.locator('[data-cy="mention-R2-D2"]').click()
       await expect
@@ -252,6 +354,45 @@ test.describe('mentions example', () => {
       await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(
         1
       )
+      await editor.assert.selection({
+        anchor: { path: [1, 0], offset: beforeFirstMentionText.length },
+        focus: { path: [1, 0], offset: beforeFirstMentionText.length },
+      })
+      await editor.assert.kernelTrace({
+        commandKind: 'delete-fragment',
+        eventFamily: 'cut',
+        ownership: 'model-owned',
+        transition: { allowed: true },
+      })
+      const lastCommit = (await editor.get.lastCommit()) as {
+        command?: { kind?: string } | null
+        operations?: Array<{
+          newProperties?: unknown
+          node?: unknown
+          path?: number[]
+          properties?: unknown
+          root?: string
+          type?: string
+        }>
+      } | null
+
+      expect(
+        lastCommit?.operations?.filter((op) => op.type === 'remove_node')
+      ).toEqual([
+        {
+          type: 'remove_node',
+          path: [1, 1],
+          node: {
+            type: 'mention',
+            character: 'R2-D2',
+            children: [{ text: '', bold: true }],
+          },
+          root: 'main',
+        },
+      ])
+      expect(
+        lastCommit?.operations?.some((op) => op.type === 'set_selection')
+      ).toBe(true)
       runtimeErrors.assertNone()
     } finally {
       runtimeErrors.stop()

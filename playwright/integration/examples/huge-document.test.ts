@@ -210,27 +210,27 @@ test.describe('huge document example', () => {
     await expect(page.locator('[data-slate-chunk]')).toHaveCount(0)
   })
 
-  test('exposes shell rendering strategy controls and metrics', async ({
-    page,
-  }) => {
+  test('exposes staged DOM strategy controls and metrics', async ({ page }) => {
     await openSmallHugeDocument(page, {
       blocks: 1200,
       overscan: 0,
       segment_size: 100,
-      strategy: 'shell',
+      strategy: 'staged',
       threshold: 1,
     })
 
-    await expect(page.getByLabel('Rendering strategy')).toHaveValue('shell')
+    await expect(page.getByLabel('DOM strategy')).toHaveValue('staged')
     await expect
       .poll(() =>
         page.getByTestId('huge-document-effective-strategy').textContent()
       )
-      .toBe('shell')
+      .toBe('staged')
     await expect
       .poll(async () =>
         Number(
-          await page.getByTestId('huge-document-shell-count').textContent()
+          await page
+            .getByTestId('huge-document-dom-coverage-boundary-count')
+            .textContent()
         )
       )
       .toBeGreaterThan(0)
@@ -245,7 +245,7 @@ test.describe('huge document example', () => {
       .toBeGreaterThan(0)
   })
 
-  test('exposes virtualized rendering strategy controls and metrics', async ({
+  test('exposes virtualized DOM strategy controls and metrics', async ({
     page,
   }) => {
     await openSmallHugeDocument(page, {
@@ -257,9 +257,7 @@ test.describe('huge document example', () => {
       threshold: 1,
     })
 
-    await expect(page.getByLabel('Rendering strategy')).toHaveValue(
-      'virtualized'
-    )
+    await expect(page.getByLabel('DOM strategy')).toHaveValue('virtualized')
     await expect(page.getByLabel('Editor height')).toHaveValue('360')
     await expect
       .poll(() =>
@@ -276,8 +274,77 @@ test.describe('huge document example', () => {
       )
       .toBeGreaterThan(0)
     await expect(
-      page.locator('[data-slate-rendering-strategy-virtualizer="true"]')
+      page.locator('[data-slate-dom-strategy-virtualizer="true"]')
     ).toBeVisible()
+  })
+
+  test('keeps virtualized backward scroll stable over dynamic block heights', async ({
+    page,
+  }) => {
+    const editor = await openSmallHugeDocument(page, {
+      blocks: 1200,
+      editor_height: 260,
+      estimated_block_size: 24,
+      overscan: 0,
+      strategy: 'virtualized',
+      threshold: 1,
+    })
+
+    await expect
+      .poll(() =>
+        page.getByTestId('huge-document-effective-strategy').textContent()
+      )
+      .toBe('virtualized')
+
+    const proof = await editor.root.evaluate(async (element: HTMLElement) => {
+      const nextFrame = () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      const getRowHeights = () =>
+        Array.from(
+          element.querySelectorAll<HTMLElement>(
+            '[data-slate-dom-strategy-virtual-row="true"]'
+          )
+        )
+          .map((row) => Math.round(row.getBoundingClientRect().height))
+          .filter((height) => height > 0)
+
+      await nextFrame()
+      await nextFrame()
+
+      element.scrollTop = 4800
+      element.dispatchEvent(new Event('scroll', { bubbles: true }))
+
+      await nextFrame()
+      await nextFrame()
+
+      const before = element.scrollTop
+      const target = Math.max(0, before - 360)
+      const heightsBefore = getRowHeights()
+
+      element.scrollTop = target
+      element.dispatchEvent(new Event('scroll', { bubbles: true }))
+
+      await nextFrame()
+      await nextFrame()
+
+      const after = element.scrollTop
+      const heightsAfter = getRowHeights()
+      const heightSpread =
+        Math.max(...heightsBefore, ...heightsAfter) -
+        Math.min(...heightsBefore, ...heightsAfter)
+
+      return {
+        after,
+        before,
+        heightSpread,
+        target,
+      }
+    })
+
+    expect(proof.before).toBeGreaterThan(0)
+    expect(proof.heightSpread).toBeGreaterThan(1)
+    expect(proof.after).toBeGreaterThanOrEqual(proof.target - 16)
+    expect(proof.after).toBeLessThanOrEqual(proof.target + 80)
   })
 
   test('keeps repeated typing visible after manual scroll-away', async ({
@@ -320,6 +387,75 @@ test.describe('huge document example', () => {
     expect(nextBlockTexts.slice(0, lastBlockIndex).join('\n')).not.toContain(
       'second-scroll'
     )
+  })
+
+  test('keeps clicked refocus position visible in a long editor', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop refocus scroll proof'
+    )
+
+    const editor = await openSmallHugeDocument(page, {
+      strategy: 'full',
+    })
+    const blockTexts = await editor.get.blockTexts()
+    const lastBlockIndex = blockTexts.length - 1
+
+    await scrollBlockIntoView(editor, 0)
+    await clickTextBlock(editor, 0)
+    await expect
+      .poll(async () => {
+        const selection = await editor.selection.get()
+
+        return {
+          anchorPath: selection?.anchor.path,
+          focusPath: selection?.focus.path,
+        }
+      })
+      .toEqual({
+        anchorPath: [0, 0],
+        focusPath: [0, 0],
+      })
+
+    await page.getByLabel('Blocks').focus()
+    await expect(page.getByLabel('Blocks')).toBeFocused()
+
+    await scrollBlockIntoView(editor, lastBlockIndex)
+    const beforeClickScrollTop = Math.max(
+      ...(await getScrollableParentState(editor)).map(
+        (state) => state.scrollTop
+      )
+    )
+
+    expect(beforeClickScrollTop).toBeGreaterThan(0)
+
+    await clickTextBlock(editor, lastBlockIndex)
+
+    await expect
+      .poll(async () => {
+        const selection = await editor.selection.get()
+
+        return {
+          anchorPath: selection?.anchor.path,
+          focusPath: selection?.focus.path,
+        }
+      })
+      .toEqual({
+        anchorPath: [lastBlockIndex, 0],
+        focusPath: [lastBlockIndex, 0],
+      })
+    await expect
+      .poll(async () =>
+        Math.max(
+          ...(await getScrollableParentState(editor)).map(
+            (state) => state.scrollTop
+          )
+        )
+      )
+      .toBeGreaterThan(beforeClickScrollTop - 120)
+    await expectCaretVisibleInScrollableParent(editor)
   })
 
   test('keeps caret at the edited block end across repeated manual scroll-away typing', async ({

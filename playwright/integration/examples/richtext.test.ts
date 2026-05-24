@@ -186,6 +186,44 @@ const expectCollapsedDOMSelectionInsideEditable = async (root: Locator) => {
     .toBe(true)
 }
 
+type InputBoundaryProbeEvent = {
+  data: string | null
+  inputType: string
+  phase: 'beforeinput' | 'input'
+}
+
+const installInputBoundaryProbe = async (root: Locator) => {
+  await root.evaluate((element: HTMLElement) => {
+    const target = element as HTMLElement & {
+      __slateInputBoundaryProbeEvents?: InputBoundaryProbeEvent[]
+    }
+    target.__slateInputBoundaryProbeEvents = []
+
+    const record =
+      (phase: InputBoundaryProbeEvent['phase']) => (event: Event) => {
+        const inputEvent = event as InputEvent
+
+        target.__slateInputBoundaryProbeEvents!.push({
+          data: inputEvent.data ?? null,
+          inputType: inputEvent.inputType,
+          phase,
+        })
+      }
+
+    element.addEventListener('beforeinput', record('beforeinput'), true)
+    element.addEventListener('input', record('input'), true)
+  })
+}
+
+const getInputBoundaryProbeEvents = async (root: Locator) =>
+  root.evaluate((element: HTMLElement) => {
+    const target = element as HTMLElement & {
+      __slateInputBoundaryProbeEvents?: InputBoundaryProbeEvent[]
+    }
+
+    return target.__slateInputBoundaryProbeEvents ?? []
+  })
+
 const getBrowserUndoHotkey = async (root: Locator) => {
   return await root
     .page()
@@ -557,6 +595,62 @@ test.describe('On richtext example', () => {
     await editor.assert.selection({
       anchor: pointInsideBold,
       focus: pointInsideBold,
+    })
+  })
+
+  test('exposes input intent for start insert, number insert, and delete', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop input boundary proof'
+    )
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const initialText =
+      'This is editable rich text, much better than a <textarea>!'
+    const startPoint = { path: [0, 0], offset: 0 }
+
+    await installInputBoundaryProbe(editor.root)
+    await editor.selection.selectDOM({
+      anchor: startPoint,
+      focus: startPoint,
+    })
+
+    await page.keyboard.insertText('A')
+    await page.keyboard.insertText('7')
+    await page.keyboard.press('Backspace')
+
+    await expect
+      .poll(async () => (await editor.get.blockTexts())[0])
+      .toBe(`A${initialText}`)
+
+    const events = await getInputBoundaryProbeEvents(editor.root)
+    const beforeInputEvents = events.filter(
+      (event) => event.phase === 'beforeinput'
+    )
+
+    expect(beforeInputEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          data: 'A',
+          inputType: 'insertText',
+        }),
+        expect.objectContaining({
+          data: '7',
+          inputType: 'insertText',
+        }),
+      ])
+    )
+    await editor.assert.kernelTrace({
+      commandKind: 'delete',
+      eventFamily: 'keydown',
+      ownership: 'model-owned',
+      transition: { allowed: true },
     })
   })
 

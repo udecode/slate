@@ -1,4 +1,5 @@
 import { isObject, type Operation, type Path, PathApi } from '..'
+import { getOperationRoot, getPointRoot } from '../internal/root-location'
 import type { TextDirection } from '../types/types'
 
 /**
@@ -11,6 +12,7 @@ import type { TextDirection } from '../types/types'
 export interface BasePoint {
   path: Path
   offset: number
+  root?: string
 }
 
 export type Point = BasePoint
@@ -59,6 +61,13 @@ export interface PointInterface {
 // eslint-disable-next-line no-redeclare
 export const PointApi: PointInterface = {
   compare(point: Point, another: Point): -1 | 0 | 1 {
+    const pointRoot = getPointRoot(point).root
+    const anotherRoot = getPointRoot(another).root
+
+    if (pointRoot !== anotherRoot) {
+      return pointRoot < anotherRoot ? -1 : 1
+    }
+
     const result = PathApi.compare(point.path, another.path)
 
     if (result === 0) {
@@ -82,6 +91,7 @@ export const PointApi: PointInterface = {
     // PERF: ensure the offsets are equal first since they are cheaper to check.
     return (
       point.offset === another.offset &&
+      getPointRoot(point).root === getPointRoot(another).root &&
       PathApi.equals(point.path, another.path)
     )
   },
@@ -90,6 +100,7 @@ export const PointApi: PointInterface = {
     return (
       isObject(value) &&
       typeof value.offset === 'number' &&
+      (value.root === undefined || typeof value.root === 'string') &&
       PathApi.isPath(value.path)
     )
   },
@@ -105,6 +116,10 @@ export const PointApi: PointInterface = {
 
     const { affinity = 'forward' } = options
     let { path, offset } = point
+
+    if (getPointRoot(point).root !== getOperationRoot(op)) {
+      return point
+    }
 
     switch (op.type) {
       case 'insert_node':
@@ -204,7 +219,7 @@ export const PointApi: PointInterface = {
         return point
     }
 
-    return { path, offset }
+    return { ...point, path, offset }
   },
 }
 

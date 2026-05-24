@@ -398,7 +398,7 @@ const updateSelectedCodeLines = (
   action: CodeIndentAction
 ) => {
   const snapshot = editor.read((state) => ({
-    children: state.value.get(),
+    children: state.runtime.snapshot().children,
     selection: state.selection.get(),
   }))
   const selection = snapshot.selection

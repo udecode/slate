@@ -5,14 +5,21 @@ import {
   getChildren,
   getCurrentMarks,
   getCurrentSelection,
+  getEditorOperationRoot,
   getMutationVersion,
   isInTransaction,
   runEditorTransaction,
+  withEditorOperationRoot,
+  withEditorOperationRootChildren,
 } from '../core/public-state'
+import {
+  clearDirtyPathsForRoot,
+  getDirtyPathsForRoot,
+  setDirtyPathsForRoot,
+} from '../core/update-dirty-paths'
 import type { Editor, EditorStaticApi } from '../interfaces/editor'
 import { NodeApi, type NodeEntry } from '../interfaces/node'
 import type { Operation } from '../interfaces/operation'
-import { DIRTY_PATH_KEYS, DIRTY_PATHS } from '../utils/weak-maps'
 import { isNormalizing } from './is-normalizing'
 import { node } from './node'
 import { setNormalizing } from './set-normalizing'
@@ -30,13 +37,13 @@ export const normalize: EditorStaticApi['normalize'] = (
     force?: boolean
     operation?: Operation
   }
+  const root = operation?.root ?? getEditorOperationRoot(editor)
   const getDirtyPaths = (editor: Editor) => {
-    return DIRTY_PATHS.get(editor) || []
+    return getDirtyPathsForRoot(editor, root)
   }
 
   const clearDirtyPaths = (editor: Editor) => {
-    DIRTY_PATHS.set(editor, [])
-    DIRTY_PATH_KEYS.set(editor, new Set())
+    clearDirtyPathsForRoot(editor, root)
   }
 
   const canSkipDefaultTextNormalization = () => {
@@ -92,8 +99,7 @@ export const normalize: EditorStaticApi['normalize'] = (
     if (force) {
       const allPaths = Array.from(NodeApi.nodes(editor), ([, p]) => p)
       const allPathKeys = new Set(allPaths.map((p) => p.join(',')))
-      DIRTY_PATHS.set(editor, allPaths)
-      DIRTY_PATH_KEYS.set(editor, allPathKeys)
+      setDirtyPathsForRoot(editor, root, allPaths, allPathKeys)
     }
 
     if (getDirtyPaths(editor).length === 0) {
@@ -176,6 +182,10 @@ export const normalize: EditorStaticApi['normalize'] = (
       setNormalizing(editor, wasNormalizing)
     }
   }
+  const runInOperationRoot = (fn: () => void) =>
+    withEditorOperationRoot(editor, root, () =>
+      withEditorOperationRootChildren(editor, root, fn)
+    )
 
   if (explicit && !isInTransaction(editor)) {
     runEditorTransaction(
@@ -189,9 +199,13 @@ export const normalize: EditorStaticApi['normalize'] = (
   }
 
   if (force) {
-    batchDirtyPaths(editor, runNormalizePasses, () => {})
+    batchDirtyPaths(
+      editor,
+      () => runInOperationRoot(runNormalizePasses),
+      () => {}
+    )
     return
   }
 
-  runNormalizePasses()
+  runInOperationRoot(runNormalizePasses)
 }

@@ -1,14 +1,25 @@
+export type ExampleBadge = 'alpha' | 'new'
+
+export type ExampleDefinition = readonly [
+  name: string,
+  path: string,
+  metadata?: {
+    badge?: ExampleBadge
+  },
+]
+
 export const EXAMPLE_NAMES_AND_PATHS = [
   ['Android Tests', 'android-tests'],
   ['Checklists', 'check-lists'],
   ['Code Highlighting', 'code-highlighting'],
   ['Custom Placeholder', 'custom-placeholder'],
+  ['Async Decorations', 'decorations-async', { badge: 'new' }],
+  ['Document State', 'document-state', { badge: 'new' }],
   ['DOM Coverage Boundaries', 'dom-coverage-boundaries'],
   ['Editable Voids', 'editable-voids'],
   ['Embeds', 'embeds'],
-  ['Linting', 'linting'],
+  ['Linting', 'linting', { badge: 'new' }],
   ['Forced Layout', 'forced-layout'],
-  ['Highlighted Text', 'highlighted-text'],
   ['Hovering Toolbar', 'hovering-toolbar'],
   ['Huge Document', 'huge-document'],
   ['Images', 'images'],
@@ -16,18 +27,20 @@ export const EXAMPLE_NAMES_AND_PATHS = [
   ['Markdown Preview', 'markdown-preview'],
   ['Markdown Shortcuts', 'markdown-shortcuts'],
   ['Mentions', 'mentions'],
+  ['Multi-root Document', 'multi-root-document', { badge: 'new' }],
   ['Paste HTML', 'paste-html'],
   ['Persistent Annotation Anchors', 'persistent-annotation-anchors'],
+  ['Pagination', 'pagination', { badge: 'alpha' }],
   ['Plain Text', 'plaintext'],
   ['Read-only', 'read-only'],
-  ['Comment Mode', 'comment-mode'],
+  ['Comment Mode', 'comment-mode', { badge: 'new' }],
   ['Rendering in iframes', 'iframe'],
   ['Rich Text', 'richtext'],
   ['Search Highlighting', 'search-highlighting'],
   ['Shadow DOM', 'shadow-dom'],
   ['Styling', 'styling'],
   ['Tables', 'tables'],
-] as const
+] as const satisfies readonly ExampleDefinition[]
 
 export const HIDDEN_EXAMPLES = [
   'android-tests',

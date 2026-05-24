@@ -150,7 +150,7 @@ describe('slate normalization contract', () => {
         editor({ next, tx }) {
           rootCalls += 1
 
-          if (tx.value.get().length < 2) {
+          if (tx.nodes.children().length < 2) {
             tx.nodes.insert(
               {
                 type: 'paragraph',

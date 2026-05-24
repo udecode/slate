@@ -54,6 +54,18 @@ test.describe('comment mode example', () => {
       },
     })
 
+    await expect(page.locator('#comment-mode')).toHaveCSS('z-index', '0')
+    await expect(page.locator('#comment-mode-document')).toHaveCSS(
+      'z-index',
+      '0'
+    )
+    await expect(page.locator('#comment-mode')).toContainText(
+      'Comment mode in Slate v2'
+    )
+    await expect(page.locator('#comment-mode-document')).toContainText(
+      'Comment mode in Slate v2'
+    )
+
     await selectCommentModeIntro(page)
     await expect(
       page.getByRole('button', { name: 'Add comment on selection' })

@@ -10,12 +10,15 @@ import type {
   EditorCommitSource,
   EditorCoreStateView,
   EditorCoreUpdateTransaction,
+  EditorDocumentValue,
   EditorFragmentReadOptions,
   EditorMarks,
   EditorNodesOptions,
   EditorNormalizerTransaction,
   EditorSnapshot,
+  EditorStateField,
   EditorStateNodesApi,
+  EditorStatePatch,
   EditorStateView,
   EditorTargetRuntime,
   EditorTransaction,
@@ -30,10 +33,11 @@ import type {
   SnapshotIndex,
   SnapshotInput,
   SnapshotListener,
+  StateFieldValueInput,
   TopLevelRuntimeRange,
   Value,
 } from '../interfaces/editor'
-import type { Location } from '../interfaces/location'
+import type { Location, Span } from '../interfaces/location'
 import {
   type Ancestor,
   type Descendant,
@@ -47,6 +51,7 @@ import { type Path, PathApi } from '../interfaces/path'
 import { PointApi } from '../interfaces/point'
 import { RangeApi } from '../interfaces/range'
 import type { Text } from '../interfaces/text'
+import { getCommonLocationRoot } from '../internal/root-location'
 import { createSetSelectionOperation } from '../selection-operation'
 import {
   getOrCreateRuntimeId,
@@ -64,9 +69,14 @@ import { getEditorTransformRegistry } from './transform-registry'
 
 type TransactionSnapshot = {
   children: readonly Descendant[]
+  childrenRoot: string
   marks: EditorMarks | null
   metadata: EditorUpdateMetadata
   operations: Operation[]
+  documentState: Record<string, unknown> | undefined
+  rootIndexes: Record<string, RuntimeIndexLike>
+  roots: Record<string, Descendant[]>
+  statePatches: EditorStatePatch[]
   tags: Set<EditorUpdateTag>
   implicitTarget: Selection
   implicitTargetResolved: boolean
@@ -76,6 +86,7 @@ type TransactionSnapshot = {
   command: EditorCommitCommand | null
   reason: 'replace' | null
   selection: Selection
+  selectionRoot: string
 }
 
 type TransactionAuthority = 'explicit' | 'replace' | 'update'
@@ -120,9 +131,14 @@ const KNOWN_OPERATION_TYPES = new Set([
 ])
 
 const assertKnownReplayOperation = (operation: unknown) => {
-  const type = (operation as { type?: unknown } | null)?.type
+  const value = operation as { root?: unknown; type?: unknown } | null
+  const type = value?.type
 
   if (typeof type === 'string' && KNOWN_OPERATION_TYPES.has(type)) {
+    if (value?.root !== undefined && typeof value.root !== 'string') {
+      throw new Error(`Cannot replay an invalid Slate operation: "${type}".`)
+    }
+
     return
   }
 
@@ -132,8 +148,15 @@ const assertKnownReplayOperation = (operation: unknown) => {
 }
 
 const CHILDREN = new WeakMap<Editor, Descendant[]>()
+const ROOTS = new WeakMap<Editor, Record<string, Descendant[]>>()
+const DOCUMENT_STATE = new WeakMap<
+  Editor,
+  Record<string, unknown> | undefined
+>()
+const STATE_FIELDS = new WeakMap<Editor, Map<string, EditorStateField<any>>>()
 const CURRENT_MARKS = new WeakMap<Editor, EditorMarks | null>()
 const CURRENT_SELECTION = new WeakMap<Editor, Selection>()
+const CURRENT_SELECTION_ROOT = new WeakMap<Editor, string>()
 const LISTENERS = new WeakMap<Editor, Set<SnapshotListener>>()
 const SOURCE_LISTENERS = new WeakMap<
   Editor,
@@ -164,11 +187,580 @@ const TRANSACTION_DEPTH = new WeakMap<Editor, number>()
 const TRANSACTION_SNAPSHOT = new WeakMap<Editor, TransactionSnapshot>()
 const TRANSACTION_VIEW = new WeakMap<Editor, EditorTransaction>()
 const UPDATE_TAG_CONTEXT = new WeakMap<Editor, EditorUpdateTag[][]>()
+const ACTIVE_OPERATION_ROOT = new WeakMap<Editor, string>()
+const ACTIVE_CHILDREN_ROOT = new WeakMap<Editor, string>()
 
 const cloneValue = <T>(value: T): T => structuredClone(value)
 const cloneFrozen = <T>(value: T): T => deepFreeze(cloneValue(value))
+const MAIN_ROOT_KEY = 'main'
+
+const getReadLocationRoot = (
+  ...locations: Array<Location | Span | undefined>
+) => {
+  const root = getCommonLocationRoot(...locations)
+
+  if (root === null) {
+    throw new Error('Cannot read a Slate location across multiple roots.')
+  }
+
+  return root
+}
+
+const usesImplicitSelectionLocation = (
+  options: { at?: Location | Span } | undefined
+) => options?.at === undefined
+
+export const getEditorChildrenRoot = (editor: Editor): string | undefined =>
+  ACTIVE_CHILDREN_ROOT.get(editor)
+
+const withLocationRootRead = <T>(
+  editor: Editor,
+  location: Location | Span | undefined,
+  fn: () => T,
+  options?: { selectionFallback?: boolean }
+): T => {
+  const root =
+    getReadLocationRoot(location) ??
+    getEditorChildrenRoot(editor) ??
+    (options?.selectionFallback && getCurrentSelection(editor)
+      ? getCurrentSelectionRoot(editor)
+      : undefined)
+
+  return root ? withEditorRootChildren(editor, root, fn) : fn()
+}
+
+const withOptionsRootRead = <T>(
+  editor: Editor,
+  options: { at?: Location | Span } | undefined,
+  fn: () => T,
+  queryOptions?: { selectionFallback?: boolean }
+): T => withLocationRootRead(editor, options?.at, fn, queryOptions)
+
+const withOptionsRootGenerator = <T>(
+  editor: Editor,
+  options: { at?: Location | Span } | undefined,
+  create: () => Iterable<T>,
+  queryOptions?: { selectionFallback?: boolean }
+): Generator<T, void, undefined> =>
+  (function* rootedReadGenerator() {
+    const root =
+      getReadLocationRoot(options?.at) ??
+      getEditorChildrenRoot(editor) ??
+      (queryOptions?.selectionFallback && getCurrentSelection(editor)
+        ? getCurrentSelectionRoot(editor)
+        : undefined)
+
+    if (root) {
+      yield* withEditorRootChildrenGenerator(editor, root, create)
+      return
+    }
+
+    yield* create()
+  })()
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+
+const areSerializableValuesEqual = (left: unknown, right: unknown): boolean => {
+  if (Object.is(left, right)) {
+    return true
+  }
+
+  try {
+    return JSON.stringify(left) === JSON.stringify(right)
+  } catch {
+    return false
+  }
+}
+
+const cloneDocumentState = (
+  state: unknown
+): Record<string, unknown> | undefined => {
+  if (state === undefined) {
+    return undefined
+  }
+
+  if (!isRecord(state)) {
+    throw new Error(
+      '[Slate] initialValue.state is invalid! Expected an object.'
+    )
+  }
+
+  return cloneValue(state)
+}
+
+const resolveStateFieldInitial = <TValue>(
+  field: EditorStateField<TValue>
+): TValue | undefined =>
+  field.initial === undefined
+    ? undefined
+    : typeof field.initial === 'function'
+      ? (field.initial as () => TValue)()
+      : field.initial
+
+const getStateFieldMap = (editor: Editor) => {
+  let fields = STATE_FIELDS.get(editor)
+
+  if (!fields) {
+    fields = new Map()
+    STATE_FIELDS.set(editor, fields)
+  }
+
+  return fields
+}
+
+export const registerStateField = <TValue>(
+  editor: Editor,
+  field: EditorStateField<TValue>
+) => {
+  getStateFieldMap(editor).set(field.key, field)
+
+  const existingState = DOCUMENT_STATE.get(editor)
+
+  if (existingState && Object.hasOwn(existingState, field.key)) {
+    return
+  }
+
+  const initial = resolveStateFieldInitial(field)
+
+  if (initial === undefined) {
+    return
+  }
+
+  DOCUMENT_STATE.set(editor, {
+    ...(existingState ?? {}),
+    [field.key]: cloneValue(initial),
+  })
+}
+
+const getStateFieldValue = <TValue>(
+  editor: Editor,
+  field: EditorStateField<TValue>
+): TValue => {
+  if (!getStateFieldMap(editor).has(field.key)) {
+    registerStateField(editor, field)
+  }
+
+  const state = DOCUMENT_STATE.get(editor)
+
+  if (state && Object.hasOwn(state, field.key)) {
+    return cloneFrozen(state[field.key]) as TValue
+  }
+
+  return cloneFrozen(resolveStateFieldInitial(field)) as TValue
+}
+
+const resolveStateFieldValue = <TValue>(
+  previous: TValue,
+  value: StateFieldValueInput<TValue>
+): TValue =>
+  typeof value === 'function'
+    ? (value as (previous: TValue) => TValue)(previous)
+    : value
+
+const hasStateFieldPatchHooks = <TValue>(field: EditorStateField<TValue>) =>
+  typeof field.diff === 'function' &&
+  typeof field.applyPatch === 'function' &&
+  typeof field.invertPatch === 'function'
+
+const isCompactStatePatch = (
+  patch: EditorStatePatch
+): patch is EditorStatePatch & { inversePatch: unknown; patch: unknown } =>
+  Object.hasOwn(patch, 'patch') && Object.hasOwn(patch, 'inversePatch')
+
+const createStatePatch = (
+  editor: Editor,
+  key: string,
+  previousValue: unknown,
+  nextValue: unknown
+): EditorStatePatch => {
+  const field = getStateFieldMap(editor).get(key)
+
+  if (field && hasStateFieldPatchHooks(field)) {
+    const patch = field.diff!(previousValue, nextValue)
+
+    return {
+      inversePatch: field.invertPatch!(patch, previousValue, nextValue),
+      key,
+      patch,
+    }
+  }
+
+  return {
+    key,
+    previousValue: cloneValue(previousValue),
+    value: cloneValue(nextValue),
+  }
+}
+
+const assertStateFieldPatchPolicy = <TValue>(
+  field: EditorStateField<TValue>,
+  previousValue: TValue,
+  nextValue: TValue
+) => {
+  const needsReplayablePatch =
+    field.history !== 'skip' || field.collab === 'shared'
+
+  if (!needsReplayablePatch || hasStateFieldPatchHooks(field)) {
+    return
+  }
+
+  const serializedSize =
+    JSON.stringify({
+      key: field.key,
+      previousValue,
+      value: nextValue,
+    })?.length ?? 0
+
+  if (serializedSize <= 32_768) {
+    return
+  }
+
+  throw new Error(
+    `State field "${field.key}" stores a large shared/history value without patch hooks. Add diff/applyPatch/invertPatch or mark the field non-shared/history-skip.`
+  )
+}
+
+const setStateFieldValue = <TValue>(
+  editor: Editor,
+  field: EditorStateField<TValue>,
+  value: StateFieldValueInput<TValue>
+) => {
+  registerStateField(editor, field)
+
+  const previousValue = getStateFieldValue(editor, field)
+  const nextValue = resolveStateFieldValue(previousValue, value)
+
+  if (Object.is(previousValue, nextValue)) {
+    return
+  }
+
+  assertStateFieldPatchPolicy(field, previousValue, nextValue)
+
+  setStateValueByKey(editor, field.key, nextValue, previousValue)
+}
+
+const setStateValueByKey = (
+  editor: Editor,
+  key: string,
+  nextValue: unknown,
+  previousValue = DOCUMENT_STATE.get(editor)?.[key]
+) => {
+  const existingState = DOCUMENT_STATE.get(editor)
+  const hadKey = existingState ? Object.hasOwn(existingState, key) : false
+
+  if (
+    Object.is(previousValue, nextValue) &&
+    (nextValue !== undefined || !hadKey)
+  ) {
+    return
+  }
+
+  const nextState = { ...(existingState ?? {}) }
+
+  if (nextValue === undefined) {
+    delete nextState[key]
+  } else {
+    nextState[key] = cloneValue(nextValue)
+  }
+
+  if (Object.keys(nextState).length === 0) {
+    DOCUMENT_STATE.delete(editor)
+  } else {
+    DOCUMENT_STATE.set(editor, nextState)
+  }
+
+  const snapshot = TRANSACTION_SNAPSHOT.get(editor)
+  if (snapshot) {
+    const patchIndex = snapshot.statePatches.findIndex(
+      (statePatch) => statePatch.key === key
+    )
+    const baseline =
+      snapshot.documentState && Object.hasOwn(snapshot.documentState, key)
+        ? snapshot.documentState[key]
+        : undefined
+
+    if (areSerializableValuesEqual(baseline, nextValue)) {
+      if (patchIndex >= 0) {
+        snapshot.statePatches.splice(patchIndex, 1)
+      }
+    } else {
+      const nextPatch = createStatePatch(editor, key, baseline, nextValue)
+
+      if (patchIndex >= 0) {
+        snapshot.statePatches[patchIndex] = nextPatch
+      } else {
+        snapshot.statePatches.push(nextPatch)
+      }
+    }
+  }
+
+  markTransactionChanged(editor)
+}
+
+export const applyStatePatches = (
+  editor: Editor,
+  patches: readonly EditorStatePatch[],
+  direction: 'redo' | 'undo'
+) => {
+  const orderedPatches = direction === 'undo' ? [...patches].reverse() : patches
+
+  for (const patch of orderedPatches) {
+    const field = getStateFieldMap(editor).get(patch.key)
+
+    if (isCompactStatePatch(patch)) {
+      if (!field?.applyPatch) {
+        throw new Error(
+          `State field "${patch.key}" cannot replay a compact patch without applyPatch.`
+        )
+      }
+
+      const patchValue = direction === 'undo' ? patch.inversePatch : patch.patch
+      const previousValue = getStateFieldValue(editor, field)
+      const nextValue = field.applyPatch(previousValue, patchValue)
+
+      setStateValueByKey(editor, patch.key, nextValue, previousValue)
+      continue
+    }
+
+    setStateValueByKey(
+      editor,
+      patch.key,
+      direction === 'undo' ? patch.previousValue : patch.value
+    )
+  }
+}
+
+export const shouldSaveStatePatch = (
+  editor: Editor,
+  patch: EditorStatePatch
+): boolean => getStateFieldMap(editor).get(patch.key)?.history !== 'skip'
+
+export const getCollabStatePatches = (
+  editor: Editor,
+  commit: EditorCommit
+): readonly EditorStatePatch[] =>
+  cloneFrozen(
+    commit.statePatches.filter(
+      (patch) => getStateFieldMap(editor).get(patch.key)?.collab === 'shared'
+    )
+  )
+
+const normalizeInitialValue = (input: unknown) => {
+  if (input === undefined) {
+    return {
+      children: [] as Descendant[],
+      explicit: false,
+      roots: { [MAIN_ROOT_KEY]: [] as Descendant[] },
+      state: undefined,
+    }
+  }
+
+  if (Array.isArray(input)) {
+    const children = cloneValue([...input]) as Descendant[]
+
+    return {
+      children,
+      explicit: true,
+      roots: { [MAIN_ROOT_KEY]: children },
+      state: undefined,
+    }
+  }
+
+  if (!isRecord(input)) {
+    throw new Error(
+      '[Slate] initialValue is invalid! Expected a list of elements or a document value.'
+    )
+  }
+
+  if (Array.isArray(input.children)) {
+    const children = cloneValue([...input.children]) as Descendant[]
+
+    return {
+      children,
+      explicit: true,
+      roots: { [MAIN_ROOT_KEY]: children },
+      state: cloneDocumentState(input.state),
+    }
+  }
+
+  if (isRecord(input.roots)) {
+    const roots: Record<string, Descendant[]> = {}
+
+    for (const [key, value] of Object.entries(input.roots)) {
+      if (!Array.isArray(value)) {
+        throw new Error(
+          `[Slate] initialValue.roots.${key} is invalid! Expected a list of elements.`
+        )
+      }
+
+      roots[key] = cloneValue([...value]) as Descendant[]
+    }
+
+    const children = roots[MAIN_ROOT_KEY]
+
+    if (!children) {
+      throw new Error(
+        '[Slate] initialValue.roots is invalid! Expected a "main" root.'
+      )
+    }
+
+    return {
+      children,
+      explicit: true,
+      roots,
+      state: cloneDocumentState(input.state),
+    }
+  }
+
+  throw new Error(
+    '[Slate] initialValue is invalid! Expected a list of elements or a document value.'
+  )
+}
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
+
+const getExplicitRangeRoot = (value: unknown): string | undefined => {
+  if (!RangeApi.isRange(value)) {
+    return undefined
+  }
+
+  const anchorRoot = value.anchor.root
+  const focusRoot = value.focus.root
+
+  if (anchorRoot && focusRoot && anchorRoot !== focusRoot) {
+    return undefined
+  }
+
+  return anchorRoot ?? focusRoot
+}
+
+const getExplicitLocationRoot = (
+  location: Location | undefined
+): string | undefined => {
+  if (!location || Array.isArray(location)) {
+    return undefined
+  }
+
+  if ('path' in location && 'offset' in location) {
+    return typeof location.root === 'string' ? location.root : undefined
+  }
+
+  return getExplicitRangeRoot(location)
+}
+
+const getImplicitSelectionRoot = (editor: Editor): string | undefined =>
+  getCurrentSelection(editor) ? getCurrentSelectionRoot(editor) : undefined
+
+const getActiveMutationRoot = (editor: Editor): string | undefined =>
+  ACTIVE_CHILDREN_ROOT.get(editor) ?? ACTIVE_OPERATION_ROOT.get(editor)
+
+const getMutationRoot = (
+  editor: Editor,
+  options?: { at?: Location }
+): string | undefined => {
+  if (options?.at !== undefined) {
+    return getExplicitLocationRoot(options.at)
+  }
+
+  const activeRoot = getActiveMutationRoot(editor)
+  const selectionRoot = getImplicitSelectionRoot(editor)
+
+  if (!selectionRoot) {
+    return activeRoot
+  }
+
+  if (!activeRoot || activeRoot === selectionRoot) {
+    return selectionRoot
+  }
+
+  const transactionSnapshot = TRANSACTION_SNAPSHOT.get(editor)
+
+  return transactionSnapshot &&
+    transactionSnapshot.selectionRoot !== selectionRoot
+    ? selectionRoot
+    : activeRoot
+}
+
+const getLocationMutationRoot = (
+  editor: Editor,
+  location: Location
+): string | undefined =>
+  getExplicitLocationRoot(location) ??
+  getActiveMutationRoot(editor) ??
+  MAIN_ROOT_KEY
+
+const runWithMutationRoot = <T>(
+  editor: Editor,
+  root: string | undefined,
+  fn: () => T
+): T =>
+  root
+    ? withEditorOperationRoot(editor, root, () =>
+        withEditorOperationRootChildren(editor, root, fn)
+      )
+    : fn()
+
+const getExplicitSelectionOperationRoot = (
+  operation: Operation
+): string | undefined => {
+  if (operation.type !== 'set_selection') {
+    return undefined
+  }
+
+  return operation.newProperties === null
+    ? getExplicitRangeRoot(operation.properties)
+    : getExplicitRangeRoot(operation.newProperties)
+}
+
+const withDefaultOperationRoot = (
+  editor: Editor,
+  operation: Operation
+): Operation => {
+  switch (operation.type) {
+    case 'insert_node':
+    case 'insert_text':
+    case 'merge_node':
+    case 'move_node':
+    case 'remove_node':
+    case 'remove_text':
+    case 'replace_children':
+    case 'replace_fragment':
+    case 'set_node':
+    case 'set_selection':
+    case 'split_node':
+      return operation.root === undefined
+        ? {
+            ...operation,
+            root:
+              getExplicitSelectionOperationRoot(operation) ??
+              ACTIVE_OPERATION_ROOT.get(editor) ??
+              MAIN_ROOT_KEY,
+          }
+        : operation
+    default:
+      return operation
+  }
+}
+
+const getOperationRoot = (operation: Operation): string | null => {
+  switch (operation.type) {
+    case 'insert_node':
+    case 'insert_text':
+    case 'merge_node':
+    case 'move_node':
+    case 'remove_node':
+    case 'remove_text':
+    case 'replace_children':
+    case 'replace_fragment':
+    case 'set_node':
+    case 'set_selection':
+    case 'split_node':
+      return operation.root ?? MAIN_ROOT_KEY
+    default:
+      return null
+  }
+}
 
 const profileCoreDuration = <T>(id: string, callback: () => T): T => {
   const profiler = (
@@ -426,6 +1018,7 @@ const completeCommit = (
     dirtyTextRuntimeIds: freezeRuntimeIds(change.dirtyTextRuntimeIds),
     dirtyTopLevelRanges: freezeTopLevelRanges(change.dirtyTopLevelRanges),
     dirtyTopLevelRuntimeIds: freezeRuntimeIds(change.dirtyTopLevelRuntimeIds),
+    dirtyStateKeys: Object.freeze([...change.dirtyStateKeys]),
     markDirtyRuntimeIds: freezeRuntimeIds(change.markDirtyRuntimeIds),
     metadata: cloneUpdateMetadata(change.metadata),
     nodeImpactRuntimeIds:
@@ -434,7 +1027,11 @@ const completeCommit = (
         : Object.freeze([...change.nodeImpactRuntimeIds]),
     previousVersion,
     snapshotChanged:
-      change.childrenChanged || change.selectionChanged || change.marksChanged,
+      change.childrenChanged ||
+      change.selectionChanged ||
+      change.marksChanged ||
+      change.statePatches.length > 0,
+    statePatches: Object.freeze(cloneValue([...change.statePatches])),
     structureChanged,
     selectionImpactRuntimeIds:
       change.selectionImpactRuntimeIds == null
@@ -593,8 +1190,86 @@ export const markTransactionChanged = (editor: Editor) => {
   }
 }
 
+const hasTransactionNetChanges = (
+  editor: Editor,
+  snapshot: TransactionSnapshot | undefined
+): boolean => {
+  if (!snapshot) {
+    return true
+  }
+
+  if (getLiveOperations(editor).length !== snapshot.operations.length) {
+    return true
+  }
+
+  if (snapshot.statePatches.length > 0) {
+    return true
+  }
+
+  return (
+    !areSerializableValuesEqual(
+      getEditorDocumentRoots(editor),
+      snapshot.roots
+    ) ||
+    !areSerializableValuesEqual(
+      DOCUMENT_STATE.get(editor),
+      snapshot.documentState
+    ) ||
+    !areSerializableValuesEqual(getCurrentMarks(editor), snapshot.marks) ||
+    !areSerializableValuesEqual(
+      getCurrentSelection(editor),
+      snapshot.selection
+    ) ||
+    getCurrentSelectionRoot(editor) !== snapshot.selectionRoot
+  )
+}
+
 export const getChildren = <V extends Value>(editor: Editor<V>): V =>
   (CHILDREN.get(editor) ?? []) as V
+
+const getEditorDocumentRoots = (
+  editor: Editor
+): Record<string, Descendant[]> => {
+  const children = getChildren(editor) as Descendant[]
+  const storedRoots = ROOTS.get(editor) ?? {
+    [MAIN_ROOT_KEY]: children,
+  }
+  const activeRoot = ACTIVE_CHILDREN_ROOT.get(editor) ?? MAIN_ROOT_KEY
+
+  if (!Object.hasOwn(storedRoots, activeRoot)) {
+    return storedRoots
+  }
+
+  return {
+    ...storedRoots,
+    [activeRoot]: children,
+  }
+}
+
+const getEditorDocumentValue = <V extends Value>(
+  editor: Editor<V>
+): EditorDocumentValue<V> => {
+  const roots = getEditorDocumentRoots(editor) as Record<string, V>
+  const state = DOCUMENT_STATE.get(editor)
+  const fields = getStateFieldMap(editor)
+  const persistentState =
+    state === undefined
+      ? undefined
+      : Object.fromEntries(
+          Object.entries(state).filter(
+            ([key]) => fields.get(key)?.persist !== false
+          )
+        )
+  const value =
+    persistentState === undefined || Object.keys(persistentState).length === 0
+      ? { roots: cloneFrozen(roots) }
+      : {
+          roots: cloneFrozen(roots),
+          state: cloneFrozen(persistentState),
+        }
+
+  return Object.freeze(value) as EditorDocumentValue<V>
+}
 
 export const getLiveNode = (
   editor: Editor,
@@ -674,16 +1349,20 @@ export const getOperationDirtiness = (
     previousVersion = getVersion(editor),
     reason = null,
     selectionBefore = getCurrentSelection(editor),
+    nextIndex,
     metadata = {},
+    statePatches = [],
     tags = getCurrentUpdateTags(editor),
   }: {
     command?: EditorCommitCommand | null
     marksBefore?: EditorMarks | null
     metadata?: EditorUpdateMetadata
+    nextIndex?: RuntimeIndexLike
     previousIndex?: RuntimeIndexLike
     previousVersion?: number
     reason?: 'replace' | null
     selectionBefore?: Selection
+    statePatches?: readonly EditorStatePatch[]
     tags?: readonly EditorUpdateTag[]
   } = {}
 ): SnapshotChange => {
@@ -709,7 +1388,9 @@ export const getOperationDirtiness = (
           ? (['text'] as const)
           : operations.length > 0
             ? (['structural'] as const)
-            : (['mark'] as const)
+            : statePatches.length > 0
+              ? (['state'] as const)
+              : (['mark'] as const)
   const dirtyPaths =
     classes[0] === 'text'
       ? uniqPaths(
@@ -755,9 +1436,10 @@ export const getOperationDirtiness = (
     classes[0] === 'structural' &&
     operations.some(operationChangesTopLevelOrder)
   const nextRuntimeIndex =
-    topLevelOrderChanged && classes[0] === 'structural'
+    nextIndex ??
+    (topLevelOrderChanged && classes[0] === 'structural'
       ? previousRuntimeIndex
-      : getLiveRuntimeIndex(editor)
+      : getLiveRuntimeIndex(editor))
   const selectionImpactRuntimeIds =
     classes[0] === 'replace' || topLevelOrderChanged
       ? null
@@ -787,7 +1469,9 @@ export const getOperationDirtiness = (
   const dirtyScope =
     classes[0] === 'replace'
       ? 'all'
-      : classes[0] === 'selection' || classes[0] === 'mark'
+      : classes[0] === 'selection' ||
+          classes[0] === 'mark' ||
+          classes[0] === 'state'
         ? 'none'
         : 'paths'
 
@@ -813,6 +1497,7 @@ export const getOperationDirtiness = (
       decorationImpactRuntimeIds,
       dirtyPaths,
       dirtyScope,
+      dirtyStateKeys: Object.freeze(statePatches.map((patch) => patch.key)),
       marksAfter: cloneValue(marksAfter),
       marksBefore: cloneValue(marksBefore),
       marksChanged,
@@ -824,6 +1509,7 @@ export const getOperationDirtiness = (
       selectionBefore: cloneValue(selectionBefore),
       selectionChanged,
       selectionImpactRuntimeIds,
+      statePatches: Object.freeze(cloneValue([...statePatches])),
       tags: Object.freeze([...tags]),
       touchedRuntimeIds:
         touchedRuntimeIds == null
@@ -944,23 +1630,30 @@ const createNodesToArray = (editor: Editor): EditorStateNodesApi['toArray'] => {
         options: options as EditorNodesOptions<SlateNode>,
       },
       ({ map, options = {} }) => {
-        if (map) {
-          const mapped: unknown[] = []
+        return withOptionsRootRead(
+          editor,
+          options,
+          () => {
+            if (map) {
+              const mapped: unknown[] = []
 
-          for (const entry of getNodes(editor, options)) {
-            mapped.push(map(entry))
-          }
+              for (const entry of getNodes(editor, options)) {
+                mapped.push(map(entry))
+              }
 
-          return mapped
-        }
+              return mapped
+            }
 
-        const entries: NodeEntry<SlateNode>[] = []
+            const entries: NodeEntry<SlateNode>[] = []
 
-        for (const entry of getNodes(editor, options)) {
-          entries.push(entry)
-        }
+            for (const entry of getNodes(editor, options)) {
+              entries.push(entry)
+            }
 
-        return entries
+            return entries
+          },
+          { selectionFallback: usesImplicitSelectionLocation(options) }
+        )
       }
     ) as NodeEntry<T>[] | R[]
   }
@@ -982,9 +1675,17 @@ const getStateView = <
           'fragment',
           'get',
           { options },
-          ({ options }) => getFragment(editor, options) as DescendantIn<V>[]
+          ({ options }) =>
+            withOptionsRootRead(
+              editor,
+              options,
+              () => getFragment(editor, options) as DescendantIn<V>[],
+              { selectionFallback: usesImplicitSelectionLocation(options) }
+            )
         ),
     }),
+    getField: <TValue>(field: EditorStateField<TValue>) =>
+      getStateFieldValue(editor, field),
     marks: Object.freeze({
       get: () =>
         executeQueryMiddleware(editor, 'marks', 'get', {}, () =>
@@ -1009,13 +1710,18 @@ const getStateView = <
           'nodes',
           'children',
           { at },
-          ({ at = [] }) => {
-            const [node] = getNode(editor, at)
+          ({ at = [] }) =>
+            withLocationRootRead(editor, at, () => {
+              if (Array.isArray(at) && at.length === 0) {
+                return getChildren(editor) as readonly SlateNode[]
+              }
 
-            return 'children' in node && Array.isArray(node.children)
-              ? node.children
-              : []
-          }
+              const [node] = getNode(editor, at)
+
+              return 'children' in node && Array.isArray(node.children)
+                ? node.children
+                : []
+            })
         )
       },
       elementReadOnly: (options = {}) =>
@@ -1032,7 +1738,7 @@ const getStateView = <
         ),
       get: <T extends SlateNode>(at: Location) =>
         executeQueryMiddleware(editor, 'nodes', 'get', { at }, ({ at }) =>
-          getNode(editor, at)
+          withLocationRootRead(editor, at, () => getNode(editor, at))
         ) as [T, Path],
       hasBlocks: (element: import('../interfaces/element').Element) =>
         executeQueryMiddleware(
@@ -1122,11 +1828,17 @@ const getStateView = <
           'entries',
           { options },
           ({ options }) =>
-            getNodes(editor, options) as Generator<
-              NodeEntry<SlateNode>,
-              void,
-              undefined
-            >
+            withOptionsRootGenerator(
+              editor,
+              options,
+              () =>
+                getNodes(editor, options) as Generator<
+                  NodeEntry<SlateNode>,
+                  void,
+                  undefined
+                >,
+              { selectionFallback: usesImplicitSelectionLocation(options) }
+            )
         ) as Generator<[T, Path], void, undefined>,
       find: <T extends SlateNode>(options = {}) => {
         return executeQueryMiddleware(
@@ -1135,9 +1847,16 @@ const getStateView = <
           'find',
           { options },
           ({ options }) => {
-            for (const entry of getNodes(editor, options)) {
-              return entry
-            }
+            return withOptionsRootRead(
+              editor,
+              options,
+              () => {
+                for (const entry of getNodes(editor, options)) {
+                  return entry
+                }
+              },
+              { selectionFallback: usesImplicitSelectionLocation(options) }
+            )
           }
         ) as [T, Path] | undefined
       },
@@ -1148,11 +1867,18 @@ const getStateView = <
           'some',
           { options },
           ({ options }) => {
-            for (const _entry of getNodes(editor, options)) {
-              return true
-            }
+            return withOptionsRootRead(
+              editor,
+              options,
+              () => {
+                for (const _entry of getNodes(editor, options)) {
+                  return true
+                }
 
-            return false
+                return false
+              },
+              { selectionFallback: usesImplicitSelectionLocation(options) }
+            )
           }
         )
       },
@@ -1358,13 +2084,20 @@ const getStateView = <
     }),
     text: Object.freeze({
       string: (at: Location, options = {}) =>
-        getEditorRuntime(editor).string(at, options),
+        withLocationRootRead(editor, at, () =>
+          getEditorRuntime(editor).string(at, options)
+        ),
     }),
     value: Object.freeze({
-      get: () => getSnapshot(editor).children as V,
+      get: () => getEditorDocumentValue(editor),
       lastCommit: () => getLastCommit(editor) as EditorCommit<V> | null,
       operations: (startIndex?: number) =>
         getOperations(editor, startIndex) as readonly Operation<V>[],
+    }),
+    view: Object.freeze({
+      isFocused: () => false,
+      isReadOnly: () => false,
+      root: () => MAIN_ROOT_KEY,
     }),
   } satisfies EditorCoreStateView<V>
 
@@ -1396,50 +2129,64 @@ const getUpdateView = <
 ): EditorUpdateTransaction<V, TExtensions> => {
   const state = getStateView(editor)
   const transforms = getEditorTransformRegistry(editor)
+  const runMutation = <T>(
+    options: { at?: Location } | undefined,
+    fn: () => T
+  ) => runWithMutationRoot(editor, getMutationRoot(editor, options), fn)
+  const runSelectionMutation = <T>(fn: () => T) =>
+    runWithMutationRoot(editor, getMutationRoot(editor), fn)
+  const runLocationMutation = <T>(location: Location, fn: () => T) =>
+    runWithMutationRoot(editor, getLocationMutationRoot(editor, location), fn)
   const tx = {
     ...state,
     break: Object.freeze({
-      insert: () => transforms.insertBreak(),
-      insertSoft: () => transforms.insertSoftBreak(),
+      insert: () => runSelectionMutation(() => transforms.insertBreak()),
+      insertSoft: () =>
+        runSelectionMutation(() => transforms.insertSoftBreak()),
     }),
     fragment: Object.freeze({
       get: (...args: Parameters<typeof state.fragment.get>) =>
         state.fragment.get(...args),
       delete: (...args: Parameters<typeof transforms.deleteFragment>) =>
-        transforms.deleteFragment(...args),
-      insert: (...args: Parameters<typeof transforms.insertFragment>) =>
-        transforms.insertFragment(...args),
+        runSelectionMutation(() => transforms.deleteFragment(...args)),
+      insert: (fragment, options) =>
+        runMutation(options, () =>
+          transforms.insertFragment(fragment, options)
+        ),
     }),
     marks: Object.freeze({
       ...state.marks,
-      add: (key: string, value: unknown) => transforms.addMark(key, value),
-      remove: (key: string) => transforms.removeMark(key),
-      toggle: (key: string, value = true) => transforms.toggleMark(key, value),
+      add: (key: string, value: unknown) =>
+        runSelectionMutation(() => transforms.addMark(key, value)),
+      remove: (key: string) =>
+        runSelectionMutation(() => transforms.removeMark(key)),
+      toggle: (key: string, value = true) =>
+        runSelectionMutation(() => transforms.toggleMark(key, value)),
     }),
     nodes: Object.freeze({
       ...state.nodes,
-      insert: (...args: Parameters<typeof transforms.insertNodes>) =>
-        transforms.insertNodes(...args),
-      insertMany: (...args: Parameters<typeof transforms.insertNodes>) =>
-        transforms.insertNodes(...args),
-      lift: (...args: Parameters<typeof transforms.liftNodes>) =>
-        transforms.liftNodes(...args),
-      merge: (...args: Parameters<typeof transforms.mergeNodes>) =>
-        transforms.mergeNodes(...args),
-      move: (...args: Parameters<typeof transforms.moveNodes>) =>
-        transforms.moveNodes(...args),
-      remove: (...args: Parameters<typeof transforms.removeNodes>) =>
-        transforms.removeNodes(...args),
-      set: (...args: Parameters<typeof transforms.setNodes>) =>
-        transforms.setNodes(...args),
-      split: (...args: Parameters<typeof transforms.splitNodes>) =>
-        transforms.splitNodes(...args),
-      unset: (...args: Parameters<typeof transforms.unsetNodes>) =>
-        transforms.unsetNodes(...args),
-      unwrap: (...args: Parameters<typeof transforms.unwrapNodes>) =>
-        transforms.unwrapNodes(...args),
-      wrap: (...args: Parameters<typeof transforms.wrapNodes>) =>
-        transforms.wrapNodes(...args),
+      insert: (nodes, options) =>
+        runMutation(options, () => transforms.insertNodes(nodes, options)),
+      insertMany: (nodes, options) =>
+        runMutation(options, () => transforms.insertNodes(nodes, options)),
+      lift: (options) =>
+        runMutation(options, () => transforms.liftNodes(options)),
+      merge: (options) =>
+        runMutation(options, () => transforms.mergeNodes(options)),
+      move: (options) =>
+        runMutation(options, () => transforms.moveNodes(options)),
+      remove: (options) =>
+        runMutation(options, () => transforms.removeNodes(options)),
+      set: (props, options) =>
+        runMutation(options, () => transforms.setNodes(props, options)),
+      split: (options) =>
+        runMutation(options, () => transforms.splitNodes(options)),
+      unset: (props, options) =>
+        runMutation(options, () => transforms.unsetNodes(props, options)),
+      unwrap: (options) =>
+        runMutation(options, () => transforms.unwrapNodes(options)),
+      wrap: (element, options) =>
+        runMutation(options, () => transforms.wrapNodes(element, options)),
     }),
     normalize: (options = {}) => transforms.normalize(options),
     operations: Object.freeze({
@@ -1456,33 +2203,47 @@ const getUpdateView = <
         })
       },
     }),
+    statePatches: Object.freeze({
+      replay: (statePatches) => applyStatePatches(editor, statePatches, 'redo'),
+    }),
     selection: Object.freeze({
       ...state.selection,
-      clear: () => transforms.deselect(),
-      collapse: (options = {}) => transforms.collapse(options),
-      move: (options = {}) => transforms.move(options),
+      clear: () => runSelectionMutation(() => transforms.deselect()),
+      collapse: (options = {}) =>
+        runSelectionMutation(() => transforms.collapse(options)),
+      move: (options = {}) =>
+        runSelectionMutation(() => transforms.move(options)),
       set: (target: Location | null) => {
         if (target == null) {
-          transforms.deselect()
+          runSelectionMutation(() => transforms.deselect())
           return
         }
 
-        transforms.select(target)
+        runLocationMutation(target, () => transforms.select(target))
       },
       setPoint: (...args: Parameters<typeof transforms.setPoint>) =>
-        transforms.setPoint(...args),
+        runSelectionMutation(() => transforms.setPoint(...args)),
       setRange: (...args: Parameters<typeof transforms.setSelection>) =>
-        transforms.setSelection(...args),
+        runSelectionMutation(() => transforms.setSelection(...args)),
     }),
+    setField: <TValue>(
+      field: EditorStateField<TValue>,
+      value: StateFieldValueInput<TValue>
+    ) => setStateFieldValue(editor, field, value),
     text: Object.freeze({
       ...state.text,
-      delete: (options = {}) => transforms.delete(options),
+      delete: (options = {}) =>
+        runMutation(options, () => transforms.delete(options)),
       deleteBackward: (options = {}) =>
-        transforms.deleteBackward(options.unit ?? 'character'),
+        runSelectionMutation(() =>
+          transforms.deleteBackward(options.unit ?? 'character')
+        ),
       deleteForward: (options = {}) =>
-        transforms.deleteForward(options.unit ?? 'character'),
+        runSelectionMutation(() =>
+          transforms.deleteForward(options.unit ?? 'character')
+        ),
       insert: (text: string, options = {}) =>
-        transforms.insertText(text, options),
+        runMutation(options, () => transforms.insertText(text, options)),
     }),
     value: Object.freeze({
       ...state.value,
@@ -1592,20 +2353,203 @@ export const updateEditor = <
 
   const tags = normalizeUpdateTags(options.tag)
   const metadata = cloneUpdateMetadata(options.metadata)
-
-  return withUpdateTagContext(editor, tags, () =>
+  const root = ACTIVE_OPERATION_ROOT.get(editor)
+  const run = () =>
     runEditorTransaction(editor, () => fn(getUpdateView(editor)), {
       authority: 'update',
       metadata,
       skipNormalize: options.skipNormalize,
     })
+
+  return withUpdateTagContext(editor, tags, () =>
+    root
+      ? withEditorOperationRoot(editor, root, () =>
+          withEditorOperationRootChildren(editor, root, run)
+        )
+      : run()
   )
 }
 
-export const setChildren = (editor: Editor, children: Descendant[]) => {
+export const withEditorOperationRoot = <T>(
+  editor: Editor,
+  root: string,
+  fn: () => T
+): T => {
+  const previousRoot = ACTIVE_OPERATION_ROOT.get(editor)
+  ACTIVE_OPERATION_ROOT.set(editor, root)
+
+  try {
+    return fn()
+  } finally {
+    if (previousRoot === undefined) {
+      ACTIVE_OPERATION_ROOT.delete(editor)
+    } else {
+      ACTIVE_OPERATION_ROOT.set(editor, previousRoot)
+    }
+  }
+}
+
+export const getEditorOperationRoot = (editor: Editor): string =>
+  ACTIVE_OPERATION_ROOT.get(editor) ?? MAIN_ROOT_KEY
+
+export const withEditorRootChildren = <T>(
+  editor: Editor,
+  root: string,
+  fn: () => T
+): T => {
+  const restoreRootChildren = enterEditorRootChildren(editor, root)
+
+  if (!restoreRootChildren) {
+    return fn()
+  }
+
+  try {
+    return fn()
+  } finally {
+    restoreRootChildren()
+  }
+}
+
+export const withEditorRootChildrenGenerator = <T>(
+  editor: Editor,
+  root: string | null | undefined,
+  create: () => Iterable<T>
+): Generator<T, void, undefined> =>
+  (function* editorRootChildrenGenerator() {
+    const createIterator = () => {
+      const restoreRootChildren = enterEditorRootChildren(editor, root)
+
+      try {
+        return create()[Symbol.iterator]()
+      } finally {
+        restoreRootChildren?.()
+      }
+    }
+    const iterator = createIterator()
+    let done = false
+
+    try {
+      while (true) {
+        const restoreRootChildren = enterEditorRootChildren(editor, root)
+        let result: IteratorResult<T>
+
+        try {
+          result = iterator.next()
+        } finally {
+          restoreRootChildren?.()
+        }
+
+        if (result.done) {
+          done = true
+          return
+        }
+
+        yield result.value
+      }
+    } finally {
+      if (!done) {
+        const restoreRootChildren = enterEditorRootChildren(editor, root)
+
+        try {
+          iterator.return?.()
+        } finally {
+          restoreRootChildren?.()
+        }
+      }
+    }
+  })()
+
+const enterEditorRootChildren = (
+  editor: Editor,
+  root: string | null | undefined
+): (() => void) | undefined => {
+  const targetRoot = root ?? MAIN_ROOT_KEY
+  const previousActiveChildrenRoot = ACTIVE_CHILDREN_ROOT.get(editor)
+  const previousRoot = previousActiveChildrenRoot ?? MAIN_ROOT_KEY
+
+  if (previousRoot === targetRoot) {
+    return undefined
+  }
+
+  const previousRoots = getEditorDocumentRoots(editor)
+  const hadTargetRoot = Object.hasOwn(previousRoots, targetRoot)
+  const rootChildren = previousRoots[targetRoot] ?? []
+
+  ROOTS.set(editor, previousRoots)
+  CHILDREN.set(editor, rootChildren)
+  ACTIVE_CHILDREN_ROOT.set(editor, targetRoot)
+  RUNTIME_INDEX_CACHE.delete(editor)
+  SNAPSHOT_CACHE.delete(editor)
+
+  return () => {
+    const currentRoots = ROOTS.get(editor) ?? previousRoots
+    const nextRoots =
+      hadTargetRoot || Object.hasOwn(currentRoots, targetRoot)
+        ? getEditorDocumentRoots(editor)
+        : previousRoots
+    const restoreRoot = previousActiveChildrenRoot ?? MAIN_ROOT_KEY
+    const restoredChildren = nextRoots[restoreRoot] ?? []
+
+    CHILDREN.set(editor, restoredChildren)
+    ROOTS.set(editor, nextRoots)
+    if (previousActiveChildrenRoot === undefined) {
+      ACTIVE_CHILDREN_ROOT.delete(editor)
+    } else {
+      ACTIVE_CHILDREN_ROOT.set(editor, previousActiveChildrenRoot)
+    }
+    RUNTIME_INDEX_CACHE.delete(editor)
+    SNAPSHOT_CACHE.delete(editor)
+  }
+}
+
+export const withEditorOperationRootChildren = <T>(
+  editor: Editor,
+  root: string | null | undefined,
+  fn: () => T
+): T => {
+  const restoreRootChildren = enterEditorRootChildren(editor, root)
+
+  if (!restoreRootChildren) {
+    return fn()
+  }
+
+  try {
+    return fn()
+  } finally {
+    restoreRootChildren()
+  }
+}
+
+export const withOperationRootChildren = <T>(
+  editor: Editor,
+  operation: Operation,
+  fn: () => T
+): T => {
+  const root = getOperationRoot(operation)
+
+  return root
+    ? withEditorOperationRoot(editor, root, () =>
+        withEditorOperationRootChildren(editor, root, fn)
+      )
+    : fn()
+}
+
+export const setChildren = (
+  editor: Editor,
+  children: Descendant[],
+  options: { invalidateRuntimeIndex?: boolean } = {}
+) => {
+  const root = ACTIVE_CHILDREN_ROOT.get(editor) ?? MAIN_ROOT_KEY
+
   CHILDREN.set(editor, children)
+  ROOTS.set(editor, {
+    ...(ROOTS.get(editor) ?? {}),
+    [root]: children,
+  })
   bumpMutationVersion(editor)
-  bumpRuntimeIndexVersion(editor)
+  if (options.invalidateRuntimeIndex) {
+    bumpRuntimeIndexVersion(editor)
+  }
   SNAPSHOT_CACHE.delete(editor)
   markTransactionChanged(editor)
 }
@@ -1632,12 +2576,46 @@ export const getCurrentSelection = (editor: Editor): Selection =>
       : null
   )
 
+export const getCurrentSelectionRoot = (editor: Editor): string =>
+  CURRENT_SELECTION_ROOT.get(editor) ?? MAIN_ROOT_KEY
+
 export const getPublicSelection = (editor: Editor): Selection =>
   getCurrentSelection(editor)
 
-export const setCurrentSelection = (editor: Editor, selection: Selection) => {
+const normalizeSelectionRoot = (
+  selection: Selection,
+  root: string
+): Selection => {
   const cloned = cloneValue(selection ?? null)
+
+  if (!cloned) {
+    return cloned
+  }
+
+  const normalizePointRoot = <TPoint extends { root?: string }>(
+    point: TPoint
+  ) => {
+    const { root: _root, ...pointWithoutRoot } = point
+
+    return root === MAIN_ROOT_KEY
+      ? pointWithoutRoot
+      : { ...pointWithoutRoot, root }
+  }
+
+  return {
+    anchor: normalizePointRoot(cloned.anchor),
+    focus: normalizePointRoot(cloned.focus),
+  }
+}
+
+export const setCurrentSelection = (
+  editor: Editor,
+  selection: Selection,
+  root = ACTIVE_OPERATION_ROOT.get(editor) ?? getCurrentSelectionRoot(editor)
+) => {
+  const cloned = normalizeSelectionRoot(selection, root)
   CURRENT_SELECTION.set(editor, cloned)
+  CURRENT_SELECTION_ROOT.set(editor, root)
   bumpMutationVersion(editor)
   SNAPSHOT_CACHE.delete(editor)
   markTransactionChanged(editor)
@@ -1713,6 +2691,30 @@ export const setTargetRuntime = (
   }
 }
 
+export const getTargetRuntime = (editor: Editor) =>
+  TARGET_RUNTIME.get(editor) ?? null
+
+export const withEditorTargetRuntime = <T>(
+  editor: Editor,
+  runtime: EditorTargetRuntime,
+  fn: () => T
+): T => {
+  const previousRuntime = TARGET_RUNTIME.get(editor)
+  const hadPreviousRuntime = TARGET_RUNTIME.has(editor)
+
+  TARGET_RUNTIME.set(editor, runtime)
+
+  try {
+    return fn()
+  } finally {
+    if (hadPreviousRuntime) {
+      TARGET_RUNTIME.set(editor, previousRuntime!)
+    } else {
+      TARGET_RUNTIME.delete(editor)
+    }
+  }
+}
+
 const getLiveOperations = (editor: Editor): Operation[] => {
   const existing = OPERATIONS.get(editor)
 
@@ -1780,6 +2782,7 @@ const applyWithOperationMiddlewares = (
   editor: Editor,
   operation: Operation
 ) => {
+  const initialOperation = withDefaultOperationRoot(editor, operation)
   const baseApply = BASE_APPLY.get(editor)
 
   if (!baseApply) {
@@ -1789,19 +2792,20 @@ const applyWithOperationMiddlewares = (
   const middlewares = [...getExtensionRegistry(editor).operationMiddlewares]
   let index = -1
 
-  const dispatch = (nextOperation: Operation = operation) => {
+  const dispatch = (nextOperation: Operation = initialOperation) => {
     index += 1
+    const rootedOperation = withDefaultOperationRoot(editor, nextOperation)
     const middleware = middlewares[index]
 
     if (!middleware) {
-      baseApply(nextOperation)
+      baseApply(rootedOperation)
       return
     }
 
-    middleware({ editor, operation: nextOperation }, dispatch)
+    middleware({ editor, operation: rootedOperation }, dispatch)
   }
 
-  dispatch(operation)
+  dispatch(initialOperation)
 }
 
 export const applyOperation = (editor: Editor, operation: Operation) => {
@@ -1929,14 +2933,182 @@ export const getSnapshot = (editor: Editor): EditorSnapshot => {
   return snapshot
 }
 
-const canBuildPathStableSnapshot = (operations: readonly Operation[]) =>
+const canBuildPathStableSnapshot = (
+  operations: readonly Operation[],
+  root: string
+) =>
   operations.length > 0 &&
   operations.every(
     (operation) =>
-      operation.type === 'insert_text' ||
-      operation.type === 'remove_text' ||
-      operation.type === 'set_selection'
+      (operation.type === 'insert_text' ||
+        operation.type === 'remove_text' ||
+        operation.type === 'set_selection') &&
+      getOperationRoot(operation) === root
   )
+
+const getHomogeneousOperationRoot = (
+  operations: readonly Operation[]
+): string | null | undefined => {
+  if (operations.length === 0) {
+    return undefined
+  }
+
+  const roots = new Set(operations.map(getOperationRoot))
+
+  return roots.size === 1 ? roots.values().next().value : null
+}
+
+const getRootScopedSelection = (
+  selection: Selection,
+  selectionRoot: string,
+  root: string
+): Selection => (selectionRoot === root ? cloneFrozen(selection) : null)
+
+const getRootScopedMarks = (
+  marks: EditorMarks | null,
+  selectionRoot: string,
+  root: string
+): EditorMarks | null => (selectionRoot === root ? cloneFrozen(marks) : null)
+
+const getCurrentRootIndex = (editor: Editor, root: string): SnapshotIndex =>
+  buildSnapshotIndex(editor, getEditorDocumentRoots(editor)[root] ?? [])
+
+const getTransactionSnapshotIndex = (
+  editor: Editor,
+  transactionSnapshot: TransactionSnapshot,
+  root: string
+): RuntimeIndexLike =>
+  transactionSnapshot.rootIndexes[root] ??
+  (root === transactionSnapshot.childrenRoot
+    ? transactionSnapshot.previousIndex
+    : null) ??
+  buildSnapshotIndex(editor, transactionSnapshot.roots[root] ?? [])
+
+const getTransactionRootSnapshot = (
+  editor: Editor,
+  transactionSnapshot: TransactionSnapshot,
+  root: string
+): EditorSnapshot => {
+  const children = transactionSnapshot.roots[root] ?? []
+  const runtimeIndex = getTransactionSnapshotIndex(
+    editor,
+    transactionSnapshot,
+    root
+  )
+  const index =
+    runtimeIndex.pathToId instanceof Map
+      ? buildSnapshotIndex(editor, children)
+      : runtimeIndex
+
+  return Object.freeze({
+    children: cloneFrozen(children),
+    index,
+    marks: getRootScopedMarks(
+      transactionSnapshot.marks,
+      transactionSnapshot.selectionRoot,
+      root
+    ),
+    selection: getRootScopedSelection(
+      transactionSnapshot.selection,
+      transactionSnapshot.selectionRoot,
+      root
+    ),
+    version: transactionSnapshot.previousVersion,
+  }) as unknown as EditorSnapshot
+}
+
+const getCurrentRootSnapshot = (
+  editor: Editor,
+  root: string
+): EditorSnapshot => {
+  const children = getEditorDocumentRoots(editor)[root] ?? []
+  const selectionRoot = getCurrentSelectionRoot(editor)
+
+  return Object.freeze({
+    children: cloneFrozen(children),
+    index: buildSnapshotIndex(editor, children),
+    marks: getRootScopedMarks(getCurrentMarks(editor), selectionRoot, root),
+    selection: getRootScopedSelection(
+      getCurrentSelection(editor),
+      selectionRoot,
+      root
+    ),
+    version: getVersion(editor),
+  }) as unknown as EditorSnapshot
+}
+
+const getListenerSnapshot = (
+  editor: Editor,
+  _change?: SnapshotChange
+): EditorSnapshot =>
+  withEditorRootChildren(editor, MAIN_ROOT_KEY, () => getSnapshot(editor))
+
+const withUnknownRuntimeImpact = (change: SnapshotChange): SnapshotChange =>
+  Object.freeze({
+    ...change,
+    affectedNodeRuntimeIds: null,
+    affectedProjectionRuntimeIds: null,
+    affectedSelectionRuntimeIds: null,
+    affectedTextRuntimeIds: null,
+    dirty: buildDirtyRegion({
+      dirtyPaths: [],
+      dirtyScope: 'all',
+      touchedRuntimeIds: null,
+    }),
+    dirtyElementRuntimeIds: null,
+    dirtyPaths: [],
+    dirtyScope: 'all',
+    dirtyTextRuntimeIds: null,
+    dirtyTopLevelRanges: null,
+    dirtyTopLevelRuntimeIds: null,
+    fullDocumentChanged: true,
+    nodeImpactRuntimeIds: null,
+    rootRuntimeIdsChanged: true,
+    structuralDirtyRuntimeIds: null,
+    textDirtyRuntimeIds: null,
+    topLevelOrderChanged: true,
+    touchedRuntimeIds: null,
+  })
+
+const withTransactionViewState = (
+  editor: Editor,
+  transactionSnapshot: TransactionSnapshot,
+  change: SnapshotChange
+): SnapshotChange => {
+  const marksBefore = cloneValue(transactionSnapshot.marks)
+  const marksAfter = cloneValue(getCurrentMarks(editor))
+  const selectionBefore = cloneValue(transactionSnapshot.selection)
+  const selectionAfter = cloneValue(getCurrentSelection(editor))
+  const marksChanged =
+    change.classes[0] === 'mark' ||
+    !areSerializableValuesEqual(marksBefore ?? null, marksAfter ?? null)
+  const selectionChanged =
+    change.operations.some((operation) => operation.type === 'set_selection') ||
+    !areSerializableValuesEqual(selectionBefore ?? null, selectionAfter ?? null)
+  const selectionRootChanged =
+    transactionSnapshot.selectionRoot !== getCurrentSelectionRoot(editor)
+  const selectionImpactRuntimeIds =
+    selectionChanged && selectionRootChanged
+      ? null
+      : change.selectionImpactRuntimeIds
+
+  return Object.freeze({
+    ...change,
+    affectedSelectionRuntimeIds: selectionImpactRuntimeIds,
+    marksAfter,
+    marksBefore,
+    marksChanged,
+    selectionAfter,
+    selectionBefore,
+    selectionChanged,
+    selectionImpactRuntimeIds,
+    snapshotChanged:
+      change.childrenChanged ||
+      marksChanged ||
+      selectionChanged ||
+      change.statePatches.length > 0,
+  })
+}
 
 type TextSnapshotOperation = Extract<
   Operation,
@@ -2076,9 +3248,10 @@ const updateTextPatchesInSnapshotChildren = (
 const getPathStableSnapshot = (
   editor: Editor,
   previousSnapshot: EditorSnapshot,
-  operations: readonly Operation[]
+  operations: readonly Operation[],
+  root: string
 ): EditorSnapshot | null => {
-  if (!canBuildPathStableSnapshot(operations)) {
+  if (!canBuildPathStableSnapshot(operations, root)) {
     return null
   }
 
@@ -2094,12 +3267,18 @@ const getPathStableSnapshot = (
   const snapshot = Object.freeze({
     children,
     index: previousSnapshot.index,
-    marks: cloneFrozen(getCurrentMarks(editor)),
-    selection: cloneFrozen(getCurrentSelection(editor)),
+    marks: getRootScopedMarks(
+      getCurrentMarks(editor),
+      getCurrentSelectionRoot(editor),
+      root
+    ),
+    selection: getRootScopedSelection(
+      getCurrentSelection(editor),
+      getCurrentSelectionRoot(editor),
+      root
+    ),
     version: getVersion(editor),
   }) as unknown as EditorSnapshot
-
-  SNAPSHOT_CACHE.set(editor, snapshot)
 
   return snapshot
 }
@@ -2473,6 +3652,7 @@ export const buildSnapshotChange = ({
   operations,
   previousSnapshot,
   reason,
+  statePatches = [],
   tags = [],
 }: {
   command?: EditorCommitCommand | null
@@ -2481,6 +3661,7 @@ export const buildSnapshotChange = ({
   operations: Operation[]
   previousSnapshot: EditorSnapshot
   reason: 'replace' | null
+  statePatches?: readonly EditorStatePatch[]
   tags?: readonly EditorUpdateTag[]
 }): SnapshotChange => {
   const hasTextOperation = operations.some(
@@ -2505,7 +3686,9 @@ export const buildSnapshotChange = ({
           ? (['text'] as const)
           : operations.length > 0
             ? (['structural'] as const)
-            : (['mark'] as const)
+            : statePatches.length > 0
+              ? (['state'] as const)
+              : (['mark'] as const)
 
   const marksChanged =
     JSON.stringify(previousSnapshot.marks) !==
@@ -2571,7 +3754,9 @@ export const buildSnapshotChange = ({
   const dirtyScope =
     classes[0] === 'replace'
       ? 'all'
-      : classes[0] === 'selection' || classes[0] === 'mark'
+      : classes[0] === 'selection' ||
+          classes[0] === 'mark' ||
+          classes[0] === 'state'
         ? 'none'
         : 'paths'
 
@@ -2594,6 +3779,7 @@ export const buildSnapshotChange = ({
       decorationImpactRuntimeIds,
       dirtyPaths,
       dirtyScope,
+      dirtyStateKeys: Object.freeze(statePatches.map((patch) => patch.key)),
       marksAfter: cloneValue(nextSnapshot.marks),
       marksBefore: cloneValue(previousSnapshot.marks),
       marksChanged,
@@ -2605,6 +3791,7 @@ export const buildSnapshotChange = ({
       selectionBefore: cloneValue(previousSnapshot.selection),
       selectionChanged,
       selectionImpactRuntimeIds,
+      statePatches: Object.freeze(cloneValue([...statePatches])),
       tags: Object.freeze([...tags]),
       touchedRuntimeIds:
         touchedRuntimeIds == null
@@ -2637,7 +3824,7 @@ export const notifyListeners = (editor: Editor, change?: SnapshotChange) => {
   if (hasSnapshotListeners || (commitListeners && commitListeners.size > 0)) {
     let snapshot: EditorSnapshot | null = null
     const getSnapshotForListeners = () => {
-      snapshot ??= getSnapshot(editor)
+      snapshot ??= getListenerSnapshot(editor, change)
 
       return snapshot
     }
@@ -2739,6 +3926,10 @@ const getSourcesForChange = (
     sources.push('root')
   }
 
+  if (change.dirtyStateKeys.length > 0) {
+    sources.push('state')
+  }
+
   return sources
 }
 
@@ -2746,18 +3937,28 @@ const restoreTransactionSnapshot = (
   editor: Editor,
   transactionSnapshot: TransactionSnapshot
 ) => {
-  const restoredChildren = cloneValue([...transactionSnapshot.children])
+  const restoredRoots = cloneValue(transactionSnapshot.roots)
+  const activeRoot = ACTIVE_CHILDREN_ROOT.get(editor) ?? MAIN_ROOT_KEY
+  const restoredChildren: Descendant[] = Object.hasOwn(
+    restoredRoots,
+    activeRoot
+  )
+    ? (restoredRoots[activeRoot] ?? [])
+    : activeRoot === transactionSnapshot.childrenRoot
+      ? (cloneValue(transactionSnapshot.children) as Descendant[])
+      : (restoredRoots[MAIN_ROOT_KEY] ?? [])
 
-  const seedFromPreviousIndex = (
+  const seedFromIndex = (
     children: readonly Descendant[],
+    sourceIndex: RuntimeIndexLike,
     parentPath: Path = []
   ) => {
-    children.forEach((child, index) => {
-      const path = [...parentPath, index] as Path
+    children.forEach((child, childIndex) => {
+      const path = [...parentPath, childIndex] as Path
       const runtimeId =
-        transactionSnapshot.previousIndex.pathToId instanceof Map
-          ? transactionSnapshot.previousIndex.pathToId.get(pathKey(path))
-          : transactionSnapshot.previousIndex.pathToId[pathKey(path)]
+        sourceIndex.pathToId instanceof Map
+          ? sourceIndex.pathToId.get(pathKey(path))
+          : sourceIndex.pathToId[pathKey(path)]
 
       if (runtimeId) {
         setRuntimeId(child, editor, runtimeId)
@@ -2766,18 +3967,41 @@ const restoreTransactionSnapshot = (
       }
 
       if ('children' in child && Array.isArray(child.children)) {
-        seedFromPreviousIndex(child.children, path)
+        seedFromIndex(child.children, sourceIndex, path)
       }
     })
   }
 
-  seedFromPreviousIndex(restoredChildren)
+  for (const [root, children] of Object.entries(restoredRoots)) {
+    const index =
+      transactionSnapshot.rootIndexes[root] ??
+      (root === transactionSnapshot.childrenRoot
+        ? transactionSnapshot.previousIndex
+        : null)
+
+    if (index) {
+      seedFromIndex(children, index)
+    } else {
+      seedRuntimeIds(children, editor)
+    }
+  }
   CHILDREN.set(editor, restoredChildren)
+  ROOTS.set(editor, restoredRoots)
   bumpMutationVersion(editor)
   bumpRuntimeIndexVersion(editor)
   SNAPSHOT_CACHE.delete(editor)
-  setCurrentSelection(editor, transactionSnapshot.selection)
+  setCurrentSelection(
+    editor,
+    transactionSnapshot.selection,
+    transactionSnapshot.selectionRoot
+  )
   setCurrentMarks(editor, transactionSnapshot.marks)
+  DOCUMENT_STATE.set(
+    editor,
+    transactionSnapshot.documentState
+      ? cloneValue(transactionSnapshot.documentState)
+      : undefined
+  )
   setOperations(editor, transactionSnapshot.operations)
 }
 
@@ -2806,12 +4030,39 @@ export const runEditorTransaction = (
       : null
     const previousVersion = previousSnapshot?.version ?? getVersion(editor)
     const previousIndex = previousSnapshot?.index ?? getLiveRuntimeIndex(editor)
+    const childrenRoot = ACTIVE_CHILDREN_ROOT.get(editor) ?? MAIN_ROOT_KEY
+    const roots = getEditorDocumentRoots(editor)
+    const rootEntries = Object.entries(roots)
+    const rootIndexes =
+      previousSnapshot || rootEntries.length > 1
+        ? profileCoreDuration('transaction-root-indexes', () =>
+            Object.fromEntries(
+              rootEntries.map(([root, children]) => [
+                root,
+                buildSnapshotIndex(editor, children),
+              ])
+            )
+          )
+        : {}
+    const transactionRoots = profileCoreDuration(
+      'transaction-roots-snapshot',
+      () => ({ ...roots })
+    )
+    const transactionChildren = profileCoreDuration(
+      'transaction-children-clone',
+      () =>
+        previousSnapshot?.children ??
+        transactionRoots[childrenRoot] ??
+        getChildren(editor)
+    )
 
     TRANSACTION_SNAPSHOT.set(editor, {
-      children: previousSnapshot?.children ?? cloneValue(getChildren(editor)),
+      children: transactionChildren,
+      childrenRoot,
       command: profileCoreDuration('transaction-command', () =>
         cloneValue(getCommandContext(editor))
       ),
+      documentState: cloneDocumentState(DOCUMENT_STATE.get(editor)),
       implicitTarget: null,
       implicitTargetResolved: false,
       marks: previousSnapshot?.marks ?? getCurrentMarks(editor),
@@ -2821,7 +4072,11 @@ export const runEditorTransaction = (
       previousSnapshot,
       previousVersion,
       reason: null,
+      rootIndexes,
+      roots: transactionRoots,
       selection: previousSnapshot?.selection ?? getCurrentSelection(editor),
+      selectionRoot: getCurrentSelectionRoot(editor),
+      statePatches: [],
       tags: new Set(getCurrentUpdateTags(editor)),
     })
     TRANSACTION_CHANGED.set(editor, false)
@@ -2841,15 +4096,18 @@ export const runEditorTransaction = (
   try {
     const transaction = getTransactionView(editor)
     TRANSACTION_APPLY.set(editor, transaction.apply)
-    fn(transaction)
+    profileCoreDuration('transaction-callback', () => fn(transaction))
 
     const operations = getLiveOperations(editor)
     const snapshot = TRANSACTION_SNAPSHOT.get(editor)
+    const operationsSinceSnapshot = operations.slice(
+      snapshot?.operations.length ?? 0
+    )
     const selectionOnlyTransaction =
-      operations.length > 0 &&
-      operations
-        .slice(snapshot?.operations.length ?? 0)
-        .every((operation) => operation.type === 'set_selection')
+      operationsSinceSnapshot.length > 0 &&
+      operationsSinceSnapshot.every(
+        (operation) => operation.type === 'set_selection'
+      )
 
     if (
       isOuter &&
@@ -2858,13 +4116,34 @@ export const runEditorTransaction = (
       !options.skipNormalize &&
       !selectionOnlyTransaction
     ) {
-      getEditorTransformRegistry(editor).normalize({
-        explicit: false,
-        force: getOperationCount(editor) === 0,
-        operation:
-          getLatestContentOperation(editor, snapshot?.operations.length ?? 0) ??
-          getLatestOperation(editor),
-      })
+      const latestContentOperationByRoot = new Map<string, Operation>()
+
+      for (const operation of operationsSinceSnapshot) {
+        if (operation.type === 'set_selection') {
+          continue
+        }
+
+        latestContentOperationByRoot.set(
+          getOperationRoot(operation) ?? MAIN_ROOT_KEY,
+          operation
+        )
+      }
+
+      for (const root of latestContentOperationByRoot.keys()) {
+        const operation = latestContentOperationByRoot.get(root)
+        const normalize = () =>
+          profileCoreDuration('transaction-normalize', () =>
+            getEditorTransformRegistry(editor).normalize({
+              explicit: false,
+              force: getOperationCount(editor) === 0,
+              operation,
+            })
+          )
+
+        withEditorOperationRoot(editor, root, () =>
+          withEditorOperationRootChildren(editor, root, normalize)
+        )
+      }
     }
   } catch (error) {
     if (isOuter) {
@@ -2884,9 +4163,11 @@ export const runEditorTransaction = (
     TRANSACTION_DEPTH.set(editor, nextDepth)
 
     if (isOuter) {
-      const changed = TRANSACTION_CHANGED.get(editor) ?? false
-
       const snapshot = TRANSACTION_SNAPSHOT.get(editor)
+      const changed =
+        (TRANSACTION_CHANGED.get(editor) ?? false) &&
+        hasTransactionNetChanges(editor, snapshot)
+
       TRANSACTION_APPLY.delete(editor)
       TRANSACTION_SNAPSHOT.delete(editor)
       TRANSACTION_CHANGED.delete(editor)
@@ -2905,38 +4186,120 @@ export const runEditorTransaction = (
         const operations = snapshot
           ? allOperations.slice(snapshot.operations.length)
           : allOperations
+        const operationRoot = getHomogeneousOperationRoot(operations)
+        const changeRoot =
+          operationRoot === null
+            ? null
+            : (operationRoot ?? snapshot?.childrenRoot ?? MAIN_ROOT_KEY)
         const previousVersion = snapshot?.previousVersion ?? getVersion(editor)
-        const previousSnapshotForChange = snapshot?.previousSnapshot ?? null
-        const change = profileCoreDuration('build-change', () =>
-          snapshot && previousSnapshotForChange && hasListeners(editor)
-            ? buildSnapshotChange({
-                command: snapshot.command,
-                metadata: snapshot.metadata,
-                nextSnapshot: profileCoreDuration(
-                  'next-snapshot',
-                  () =>
-                    getPathStableSnapshot(
-                      editor,
-                      previousSnapshotForChange,
-                      operations
-                    ) ?? getSnapshot(editor)
-                ),
-                operations,
-                previousSnapshot: previousSnapshotForChange,
-                reason: snapshot.reason,
-                tags: [...snapshot.tags],
-              })
-            : getOperationDirtiness(editor, operations, {
-                command: snapshot?.command,
-                marksBefore: snapshot?.marks,
-                previousIndex: snapshot?.previousIndex,
-                previousVersion,
-                reason: snapshot?.reason ?? null,
-                selectionBefore: snapshot?.selection,
-                metadata: snapshot?.metadata,
-                tags: snapshot ? [...snapshot.tags] : [],
-              })
-        )
+        const needsSnapshotChange =
+          snapshot !== undefined &&
+          snapshot !== null &&
+          changeRoot !== null &&
+          hasListeners(editor)
+        const change = profileCoreDuration('build-change', () => {
+          const nextChange =
+            operationRoot === null
+              ? withUnknownRuntimeImpact(
+                  getOperationDirtiness(editor, operations, {
+                    command: snapshot?.command,
+                    marksBefore: snapshot?.marks,
+                    previousIndex: snapshot?.previousIndex,
+                    previousVersion,
+                    reason: snapshot?.reason ?? null,
+                    selectionBefore: snapshot?.selection,
+                    statePatches: snapshot?.statePatches,
+                    metadata: snapshot?.metadata,
+                    tags: snapshot ? [...snapshot.tags] : [],
+                  })
+                )
+              : needsSnapshotChange
+                ? (() => {
+                    const previousSnapshotForChange =
+                      snapshot.previousSnapshot &&
+                      changeRoot === snapshot.childrenRoot
+                        ? snapshot.previousSnapshot
+                        : getTransactionRootSnapshot(
+                            editor,
+                            snapshot,
+                            changeRoot!
+                          )
+                    const nextSnapshot = profileCoreDuration(
+                      'next-snapshot',
+                      () =>
+                        getPathStableSnapshot(
+                          editor,
+                          previousSnapshotForChange,
+                          operations,
+                          changeRoot!
+                        ) ?? getCurrentRootSnapshot(editor, changeRoot!)
+                    )
+
+                    if (changeRoot === snapshot.childrenRoot) {
+                      SNAPSHOT_CACHE.set(editor, nextSnapshot)
+                    }
+
+                    return buildSnapshotChange({
+                      command: snapshot.command,
+                      metadata: snapshot.metadata,
+                      nextSnapshot,
+                      operations,
+                      previousSnapshot: previousSnapshotForChange,
+                      reason: snapshot.reason,
+                      statePatches: snapshot.statePatches,
+                      tags: [...snapshot.tags],
+                    })
+                  })()
+                : (() => {
+                    const previousIndexForChange =
+                      snapshot && changeRoot
+                        ? getTransactionSnapshotIndex(
+                            editor,
+                            snapshot,
+                            changeRoot
+                          )
+                        : snapshot?.previousIndex
+                    const operationIndexesArePathStable =
+                      snapshot &&
+                      changeRoot &&
+                      canBuildPathStableSnapshot(operations, changeRoot)
+
+                    return getOperationDirtiness(editor, operations, {
+                      command: snapshot?.command,
+                      marksBefore:
+                        snapshot && changeRoot
+                          ? getRootScopedMarks(
+                              snapshot.marks,
+                              snapshot.selectionRoot,
+                              changeRoot
+                            )
+                          : snapshot?.marks,
+                      nextIndex: operationIndexesArePathStable
+                        ? previousIndexForChange
+                        : changeRoot
+                          ? getCurrentRootIndex(editor, changeRoot)
+                          : undefined,
+                      previousIndex: previousIndexForChange,
+                      previousVersion,
+                      reason: snapshot?.reason ?? null,
+                      selectionBefore:
+                        snapshot && changeRoot
+                          ? getRootScopedSelection(
+                              snapshot.selection,
+                              snapshot.selectionRoot,
+                              changeRoot
+                            )
+                          : snapshot?.selection,
+                      statePatches: snapshot?.statePatches,
+                      metadata: snapshot?.metadata,
+                      tags: snapshot ? [...snapshot.tags] : [],
+                    })
+                  })()
+
+          return snapshot
+            ? withTransactionViewState(editor, snapshot, nextChange)
+            : nextChange
+        })
 
         profileCoreDuration('notify-listeners', () =>
           notifyListeners(editor, change)
@@ -2959,7 +4322,7 @@ export const replaceSnapshot = (editor: Editor, input: SnapshotInput) => {
       }
 
       seedRuntimeIdsFromIndex(nextChildren, editor, existingIndex)
-      setChildren(editor, nextChildren)
+      setChildren(editor, nextChildren, { invalidateRuntimeIndex: true })
       setCurrentSelection(editor, input.selection ?? null)
       setCurrentMarks(editor, input.marks ?? null)
     },
@@ -3014,7 +4377,8 @@ export const initializePublicState = <
   editor: Editor<V, TExtensions>,
   options: CreateEditorOptions<V, TExtensions> = {}
 ) => {
-  const initialChildren = cloneValue([...(options.initialValue ?? [])])
+  const initialValue = normalizeInitialValue(options.initialValue)
+  const initialChildren = initialValue.children
 
   if (!NodeApi.isNodeList(initialChildren)) {
     throw new Error(
@@ -3022,15 +4386,34 @@ export const initializePublicState = <
     )
   }
 
-  if (options.initialValue && initialChildren.length === 0) {
+  for (const [key, children] of Object.entries(initialValue.roots)) {
+    if (!NodeApi.isNodeList(children)) {
+      throw new Error(
+        `[Slate] initialValue.roots.${key} is invalid! Expected a list of elements.`
+      )
+    }
+  }
+
+  if (initialValue.explicit && initialChildren.length === 0) {
     throw new Error(
       '[Slate] initialValue is invalid! Expected at least one element.'
     )
   }
 
   CHILDREN.set(editor, initialChildren)
+  ROOTS.set(editor, initialValue.roots)
+  DOCUMENT_STATE.set(editor, initialValue.state)
   seedRuntimeIds(initialChildren, editor)
-  CURRENT_SELECTION.set(editor, cloneValue(options.initialSelection ?? null))
+  const initialSelectionRoot =
+    getExplicitRangeRoot(options.initialSelection) ?? MAIN_ROOT_KEY
+  CURRENT_SELECTION.set(
+    editor,
+    normalizeSelectionRoot(
+      options.initialSelection ?? null,
+      initialSelectionRoot
+    )
+  )
+  CURRENT_SELECTION_ROOT.set(editor, initialSelectionRoot)
   CURRENT_MARKS.set(editor, null)
   DEFAULT_IS_NORMALIZING.set(editor, getEditorRuntime(editor).isNormalizing)
   DEFAULT_NORMALIZE_NODE.set(editor, getEditorRuntime(editor).normalizeNode)
@@ -3038,6 +4421,7 @@ export const initializePublicState = <
   LISTENERS.set(editor, new Set())
   SOURCE_LISTENERS.set(editor, new Map())
   LAST_COMMIT.set(editor, null)
+  STATE_FIELDS.set(editor, new Map())
   setOperations(editor, [])
   MUTATION_VERSION.set(editor, 0)
   RUNTIME_INDEX_VERSION.set(editor, 0)

@@ -32,7 +32,7 @@ type RefBox<T> = {
   current: T
 }
 
-type DeferredOperation = () => void
+export type DeferredOperation = () => void
 
 type EditableInputHandler = (
   event: ReactInputEvent<HTMLDivElement>
@@ -103,8 +103,8 @@ export const applyEditableInput = ({
   // to stop rendering, so that browser functions like autocorrect
   // and spellcheck work as expected.
   const hadDeferredOperations = deferredOperations.current.length > 0
-  for (const op of deferredOperations.current) {
-    op()
+  for (const operation of deferredOperations.current) {
+    operation()
   }
   deferredOperations.current = []
   if (hadDeferredOperations) {

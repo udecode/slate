@@ -1,7 +1,7 @@
 import type { RuntimeId } from 'slate'
 import { describe, expect, it } from 'vitest'
 
-import { createSegmentPlan } from '../src/rendering-strategy/create-segment-plan'
+import { createSegmentPlan } from '../src/dom-strategy/create-segment-plan'
 
 const runtimeIds = ['a' as RuntimeId]
 

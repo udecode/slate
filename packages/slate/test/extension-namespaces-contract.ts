@@ -79,7 +79,7 @@ describe('editor extension namespaces', () => {
           table(state) {
             return {
               rowCount() {
-                return state.value.get().length
+                return state.nodes.children().length
               },
             }
           },
@@ -89,11 +89,11 @@ describe('editor extension namespaces', () => {
             return {
               insertRow(text = 'row') {
                 tx.nodes.insert(paragraph(text), {
-                  at: [tx.value.get().length],
+                  at: [tx.nodes.children().length],
                 })
               },
               rowCount() {
-                return tx.value.get().length
+                return tx.nodes.children().length
               },
             }
           },

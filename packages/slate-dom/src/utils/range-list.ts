@@ -117,7 +117,7 @@ export const splitDecorationsByChild = (
   decorations: DecoratedRange[]
 ): DecoratedRange[][] => {
   const children = Editor.isEditor(node)
-    ? editor.read((state) => state.value.get())
+    ? editor.read((state) => state.nodes.children())
     : node.children
   const decorationsByChild = Array.from(children, (): DecoratedRange[] => [])
 

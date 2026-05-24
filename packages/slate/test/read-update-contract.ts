@@ -22,7 +22,7 @@ describe('read/update contract', () => {
     })
 
     const state = editor.read((state) => ({
-      children: state.value.get(),
+      children: state.runtime.snapshot().children,
       selection: state.selection.get(),
     }))
 

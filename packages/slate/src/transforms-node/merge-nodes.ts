@@ -10,9 +10,9 @@ import type { Element } from '../interfaces/element'
 import { type Ancestor, type Node, NodeApi } from '../interfaces/node'
 import { type Path, PathApi } from '../interfaces/path'
 import { RangeApi } from '../interfaces/range'
-import { ScrubberApi } from '../interfaces/scrubber'
 import type { Text } from '../interfaces/text'
 import type { NodeMutationMethods } from '../interfaces/transforms/node'
+import { formatDebugValue } from '../utils/format-debug-value'
 
 const getChildren = (editor: Editor, node: Ancestor) =>
   NodeApi.isEditor(node) ? Editor.getChildren(editor) : node.children
@@ -165,9 +165,9 @@ export const mergeNodes: NodeMutationMethods['mergeNodes'] = (
         properties = rest as Partial<Element>
       } else {
         throw new Error(
-          `Cannot merge the node at path [${path}] with the previous sibling because it is not the same kind: ${ScrubberApi.stringify(
+          `Cannot merge the node at path [${path}] with the previous sibling because it is not the same kind: ${formatDebugValue(
             node
-          )} ${ScrubberApi.stringify(prevNode)}`
+          )} ${formatDebugValue(prevNode)}`
         )
       }
 

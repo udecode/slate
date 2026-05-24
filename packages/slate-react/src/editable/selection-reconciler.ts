@@ -44,6 +44,7 @@ import { readRuntimeNode, readRuntimeText } from './runtime-live-state'
 import { writeRuntimeSelection } from './runtime-mutation-state'
 import { readRuntimeSelection } from './runtime-selection-state'
 import {
+  shouldSkipDOMSelection,
   shouldSkipSelectionFocus,
   shouldSkipSelectionScroll,
 } from './selection-side-effect-policy'
@@ -813,7 +814,7 @@ export const useEditableSelectionReconciler = ({
   inputController,
   rootRef,
   scrollSelectionIntoView,
-  shellBackedSelection,
+  partialDOMBackedSelection,
   state,
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
@@ -824,7 +825,7 @@ export const useEditableSelectionReconciler = ({
     editor: ReactRuntimeEditor,
     domRange: DOMRange
   ) => void
-  shellBackedSelection: boolean
+  partialDOMBackedSelection: boolean
   state: EditableSelectionReconcilerState
 }) => {
   useIsomorphicLayoutEffect(() => {
@@ -842,7 +843,7 @@ export const useEditableSelectionReconciler = ({
     }
 
     // Make sure the DOM selection state is in sync.
-    const selection = editor.read((state) => state.selection.get())
+    const selection = readRuntimeSelection(editor)
     const root = ReactEditor.findDocumentOrShadowRoot(editor)
     const domSelection = getSelection(root)
 
@@ -854,7 +855,24 @@ export const useEditableSelectionReconciler = ({
       return
     }
 
-    if (shellBackedSelection) {
+    const editorElementForActiveTarget = EDITOR_TO_ELEMENT.get(editor)
+    if (
+      !editorElementForActiveTarget ||
+      (root.activeElement &&
+        root.activeElement !==
+          editorElementForActiveTarget.ownerDocument.body &&
+        root.activeElement !==
+          editorElementForActiveTarget.ownerDocument.documentElement &&
+        !containsShadowAware(editorElementForActiveTarget, root.activeElement))
+    ) {
+      return
+    }
+
+    if (shouldSkipDOMSelection(editor)) {
+      return
+    }
+
+    if (partialDOMBackedSelection) {
       domSelection.removeAllRanges()
       return
     }
@@ -1055,13 +1073,13 @@ export const useEditableSelectionReconciler = ({
         syncEditableDOMSelectionToEditor({
           editor,
           scrollSelectionIntoView,
-          shellBackedSelection,
+          partialDOMBackedSelection,
           state,
         })
       },
       selectionPolicy: { kind: 'export-model', reason: 'model-owned' },
     })
-  }, [editor, scrollSelectionIntoView, shellBackedSelection, state])
+  }, [editor, scrollSelectionIntoView, partialDOMBackedSelection, state])
 
   return { syncDOMSelectionToEditor }
 }

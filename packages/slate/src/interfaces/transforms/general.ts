@@ -1,5 +1,6 @@
 import {
   getCurrentSelection,
+  getCurrentSelectionRoot,
   runEditorTransaction,
   setCurrentSelection,
   syncImplicitTargetToCurrentSelection,
@@ -15,10 +16,11 @@ import {
   PointApi,
   type Range,
   RangeApi,
-  ScrubberApi,
   type Selection,
   type Text,
 } from '../../index'
+import { getOperationRoot, getRangeRoot } from '../../internal/root-location'
+import { formatDebugValue } from '../../utils/format-debug-value'
 import {
   insertChildren,
   modifyChildren,
@@ -46,6 +48,20 @@ export const NON_SETTABLE_NODE_PROPERTIES = [
 export const NON_SETTABLE_SELECTION_PROPERTIES = Object.getOwnPropertyNames(
   Object.prototype
 )
+
+const getSelectionRootAfterOperation = (
+  editor: Editor,
+  selection: Selection,
+  root: string
+): string => {
+  if (!selection) {
+    return root
+  }
+
+  return getRangeRoot(selection).root === root
+    ? root
+    : getCurrentSelectionRoot(editor)
+}
 
 const assertChildIndex = (
   op: Operation,
@@ -204,9 +220,9 @@ export const transform: OperationTransformMethods['transform'] = (
           newNode = { ...prev, children: prev.children.concat(node.children) }
         } else {
           throw new Error(
-            `Cannot apply a "merge_node" operation at path [${path}] to nodes of different interfaces: ${ScrubberApi.stringify(
+            `Cannot apply a "merge_node" operation at path [${path}] to nodes of different interfaces: ${formatDebugValue(
               node
-            )} ${ScrubberApi.stringify(prev)}`
+            )} ${formatDebugValue(prev)}`
           )
         }
 
@@ -221,7 +237,15 @@ export const transform: OperationTransformMethods['transform'] = (
         if (selection) {
           const nextSelection = RangeApi.transform(selection, op)
 
-          setCurrentSelection(editor, nextSelection)
+          setCurrentSelection(
+            editor,
+            nextSelection,
+            getSelectionRootAfterOperation(
+              editor,
+              nextSelection,
+              getOperationRoot(op)
+            )
+          )
         }
       }
       break
@@ -383,7 +407,7 @@ export const transform: OperationTransformMethods['transform'] = (
         }
 
         if (!selection || !RangeApi.equals(selection, currentSelection)) {
-          setCurrentSelection(editor, selection)
+          setCurrentSelection(editor, selection, op.root)
         }
       }
 
@@ -419,7 +443,7 @@ export const transform: OperationTransformMethods['transform'] = (
 
     case 'replace_fragment': {
       modifyChildren(editor, op.path, () => op.newChildren as Descendant[])
-      setCurrentSelection(editor, op.newSelection)
+      setCurrentSelection(editor, op.newSelection, op.root)
       syncImplicitTargetToCurrentSelection(editor)
       break
     }
@@ -435,7 +459,7 @@ export const transform: OperationTransformMethods['transform'] = (
           ...(op.newChildren as Descendant[])
         )
       })
-      setCurrentSelection(editor, op.newSelection)
+      setCurrentSelection(editor, op.newSelection, op.root)
       syncImplicitTargetToCurrentSelection(editor)
       break
     }
@@ -501,9 +525,10 @@ export const transform: OperationTransformMethods['transform'] = (
 
     case 'set_selection': {
       const { newProperties } = op
+      const root = op.root
 
       if (newProperties == null) {
-        setCurrentSelection(editor, null)
+        setCurrentSelection(editor, null, root)
         syncImplicitTargetToCurrentSelection(editor)
         break
       }
@@ -513,13 +538,13 @@ export const transform: OperationTransformMethods['transform'] = (
       if (currentSelection == null) {
         if (!(newProperties.anchor && newProperties.focus)) {
           throw new Error(
-            `set_selection patch requires an existing selection or a full range. Received: ${ScrubberApi.stringify(
+            `set_selection patch requires an existing selection or a full range. Received: ${formatDebugValue(
               newProperties
             )}`
           )
         }
 
-        setCurrentSelection(editor, newProperties as Range)
+        setCurrentSelection(editor, newProperties as Range, root)
         syncImplicitTargetToCurrentSelection(editor)
         break
       }
@@ -549,7 +574,7 @@ export const transform: OperationTransformMethods['transform'] = (
         }
       }
 
-      setCurrentSelection(editor, selection)
+      setCurrentSelection(editor, selection, root)
       syncImplicitTargetToCurrentSelection(editor)
 
       break
@@ -645,7 +670,15 @@ export const transform: OperationTransformMethods['transform'] = (
             affinity: 'inward',
           })
 
-          setCurrentSelection(editor, nextSelection)
+          setCurrentSelection(
+            editor,
+            nextSelection,
+            getSelectionRootAfterOperation(
+              editor,
+              nextSelection,
+              getOperationRoot(op)
+            )
+          )
         }
       }
       break
@@ -662,7 +695,7 @@ export const transform: OperationTransformMethods['transform'] = (
     }
 
     if (!RangeApi.equals(selection, currentSelection)) {
-      setCurrentSelection(editor, selection)
+      setCurrentSelection(editor, selection, selectionTransformOp.root)
     }
   }
 }

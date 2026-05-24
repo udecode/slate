@@ -93,7 +93,7 @@ const createClipboardEditor = (
 
   seedNodeMaps(
     editor,
-    editor.read((state) => state.value.get())
+    editor.read((state) => state.runtime.snapshot().children)
   )
 
   return editor
@@ -171,7 +171,7 @@ const mountSimpleEditorDOM = (editor: Editor, document: Document) => {
   const root = mountEditorRoot(editor, document)
 
   for (const [blockIndex, block] of editor
-    .read((state) => state.value.get())
+    .read((state) => state.runtime.snapshot().children)
     .entries()) {
     const blockEl = document.createElement('div')
     blockEl.style.display = 'block'

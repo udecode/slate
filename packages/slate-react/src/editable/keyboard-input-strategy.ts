@@ -1,3 +1,4 @@
+// @ts-expect-error -- direction does not publish TypeScript declarations.
 import getDirection from 'direction'
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react'
 import { NodeApi, RangeApi } from 'slate'
@@ -9,9 +10,9 @@ import {
   IS_WEBKIT,
 } from 'slate-dom'
 import type { EditableKeyDownHandler } from '../components/editable'
+import { isSelectAllHotkey } from '../dom-strategy/dom-strategy-commands'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
-import { isSelectAllHotkey } from '../rendering-strategy/rendering-strategy-commands'
 import { applyEditableCaretMovement } from './caret-engine'
 import {
   isDestructiveEditableCommand,
@@ -66,11 +67,11 @@ const getModelOwnedHistoryRepair = (
   },
 })
 
-const isShellRenderingStrategy = (renderingStrategy: unknown) =>
-  typeof renderingStrategy === 'object' &&
-  renderingStrategy !== null &&
-  ((renderingStrategy as { type?: unknown }).type === 'shell' ||
-    (renderingStrategy as { type?: unknown }).type === 'virtualized')
+const isPartialDOMStrategyRuntime = (domStrategyRuntime: unknown) =>
+  typeof domStrategyRuntime === 'object' &&
+  domStrategyRuntime !== null &&
+  ((domStrategyRuntime as { type?: unknown }).type === 'partial-dom' ||
+    (domStrategyRuntime as { type?: unknown }).type === 'virtualized')
 
 export const shouldDeferBackspaceToNativeInput = ({
   isIOS = IS_IOS,
@@ -124,24 +125,24 @@ export const applyEditableKeyDown = ({
   event,
   forceRender,
   inputController,
-  renderingStrategy,
+  domStrategyRuntime,
   onKeyDown,
   readOnly,
-  setExplicitShellBackedSelection,
+  setExplicitPartialDOMBackedSelection,
   setComposing,
-  shellBackedSelection,
+  partialDOMBackedSelection,
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
   editor: ReactRuntimeEditor
   event: ReactKeyboardEvent<HTMLDivElement>
   forceRender: () => void
   inputController: EditableInputController
-  renderingStrategy: unknown
+  domStrategyRuntime: unknown
   onKeyDown?: EditableKeyDownHandler
   readOnly: boolean
-  setExplicitShellBackedSelection: (nextValue: boolean) => void
+  setExplicitPartialDOMBackedSelection: (nextValue: boolean) => void
   setComposing: EditableCompositionStateSetter
-  shellBackedSelection: boolean
+  partialDOMBackedSelection: boolean
 }): EditableKeyDownResult => {
   if (isInteractiveInternalTarget(editor, event.target)) {
     const { nativeEvent } = event
@@ -211,20 +212,21 @@ export const applyEditableKeyDown = ({
     if (isSelectAllHotkey(nativeEvent)) {
       event.preventDefault()
       applyEditableCommand({ command: { kind: 'select-all' }, editor })
-      const shellRenderingStrategy = isShellRenderingStrategy(renderingStrategy)
-      if (shellRenderingStrategy) {
+      const partialDOMStrategyRuntime =
+        isPartialDOMStrategyRuntime(domStrategyRuntime)
+      if (partialDOMStrategyRuntime) {
         setEditableModelSelectionPreference({
           inputController,
           preferModelSelection: true,
-          selectionSource: 'shell-backed',
+          selectionSource: 'partial-dom-backed',
         })
       }
-      setExplicitShellBackedSelection(shellRenderingStrategy)
+      setExplicitPartialDOMBackedSelection(partialDOMStrategyRuntime)
       forceRender()
       return keyDownHandled()
     }
 
-    const children = editor.read((state) => state.value.get())
+    const children = editor.read((state) => state.nodes.children())
     const element = children[selection === null ? 0 : selection.focus.path[0]]
     const isRTL = getDirection(NodeApi.string(element)) === 'rtl'
 
@@ -263,8 +265,8 @@ export const applyEditableKeyDown = ({
     }
 
     if (
-      isShellRenderingStrategy(renderingStrategy) &&
-      shellBackedSelection &&
+      isPartialDOMStrategyRuntime(domStrategyRuntime) &&
+      partialDOMBackedSelection &&
       selection &&
       nativeEvent.key.length === 1 &&
       !nativeEvent.altKey &&

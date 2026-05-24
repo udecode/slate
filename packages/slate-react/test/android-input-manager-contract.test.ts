@@ -166,6 +166,49 @@ describe('Android input manager stored text diffs', () => {
 })
 
 describe('Android input manager SwiftKey insert-position hint', () => {
+  it('keeps selection on the marked inserted leaf after collapsed mark typing', () => {
+    vi.useFakeTimers()
+
+    const editor = createEditor({
+      initialValue: [{ children: [{ text: 'a' }] }],
+    })
+    const scheduleOnDOMSelectionChange = createDebouncedSpy()
+    const onDOMSelectionChange = createDebouncedSpy()
+    const textHost = document.createElement('span')
+    const textNode = document.createTextNode('a')
+
+    textHost.setAttribute('data-slate-dom-sync', 'true')
+    textHost.setAttribute('data-slate-node', 'text')
+    textHost.append(textNode)
+
+    vi.spyOn(ReactEditor, 'getWindow').mockReturnValue(window)
+    vi.spyOn(ReactEditor, 'resolveDOMPoint').mockReturnValue([textNode, 1])
+    vi.spyOn(ReactEditor, 'resolveSlateRange').mockReturnValue(null)
+
+    const manager = createAndroidInputManager({
+      editor: editor as never,
+      onDOMSelectionChange,
+      receivedUserInput: { current: true },
+      scheduleOnDOMSelectionChange,
+    })
+
+    Editor.select(editor, range(1))
+    Editor.addMark(editor, 'bold', true)
+    EDITOR_TO_PENDING_INSERTION_MARKS.set(editor, { bold: true })
+
+    manager.handleDOMBeforeInput(beforeInputEvent('insertText', 'w'))
+    manager.flush()
+
+    const snapshot = Editor.getSnapshot(editor)
+    expect(snapshot.children).toEqual([
+      { children: [{ text: 'a' }, { bold: true, text: 'w' }] },
+    ])
+    expect(snapshot.selection).toEqual({
+      anchor: { path: [0, 1], offset: 1 },
+      focus: { path: [0, 1], offset: 1 },
+    })
+  })
+
   it('keeps the mark-placeholder hint through scheduled selection restoration', () => {
     vi.useFakeTimers()
 

@@ -1,6 +1,10 @@
 import { batchDirtyPaths } from '../core/batch-dirty-paths'
 import { getEditorSchema } from '../core/editor-runtime'
-import { applyOperation, runEditorTransaction } from '../core/public-state'
+import {
+  applyOperation,
+  getEditorOperationRoot,
+  runEditorTransaction,
+} from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { updateDirtyPaths } from '../core/update-dirty-paths'
 import { nodes as getNodes } from '../editor/nodes'
@@ -128,6 +132,7 @@ export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
       if (batchDirty) {
         const batchedOps: BaseInsertNodeOperation[] = []
         const newDirtyPaths: Path[] = PathApi.levels(parentPath)
+        const root = getEditorOperationRoot(editor)
 
         batchDirtyPaths(
           editor,
@@ -158,19 +163,24 @@ export const insertNodes: NodeMutationMethods<any>['insertNodes'] = (
             }
           },
           () => {
-            updateDirtyPaths(editor, newDirtyPaths, (path) => {
-              let nextPath: Path | null = path
+            updateDirtyPaths(
+              editor,
+              newDirtyPaths,
+              (path) => {
+                let nextPath: Path | null = path
 
-              for (const op of batchedOps) {
-                nextPath = PathApi.transform(nextPath, op)
+                for (const op of batchedOps) {
+                  nextPath = PathApi.transform(nextPath, op)
 
-                if (!nextPath) {
-                  return null
+                  if (!nextPath) {
+                    return null
+                  }
                 }
-              }
 
-              return nextPath
-            })
+                return nextPath
+              },
+              { root }
+            )
           }
         )
       } else {

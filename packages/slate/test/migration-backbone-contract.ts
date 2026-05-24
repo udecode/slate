@@ -31,7 +31,7 @@ const createBackboneEditor = () => {
 }
 
 describe('migration backbone contract', () => {
-  it('combines extension namespaces and schema specs without adapter-shaped editor namespaces', () => {
+  it('combines extension namespaces and schema specs without extension namespaces on the editor surface', () => {
     const editor = createBackboneEditor()
 
     extendTestSchema(editor, [
@@ -65,7 +65,7 @@ describe('migration backbone contract', () => {
                 })
               },
               rowCount() {
-                return state.value.get().length
+                return state.nodes.children().length
               },
             }
           },
@@ -86,7 +86,7 @@ describe('migration backbone contract', () => {
               },
               insertRow(text: string) {
                 tx.nodes.insert(paragraph(text), {
-                  at: [tx.value.get().length],
+                  at: [tx.nodes.children().length],
                 })
               },
               mentionIsMarkableVoid() {
@@ -96,7 +96,7 @@ describe('migration backbone contract', () => {
                 })
               },
               rowCount() {
-                return tx.value.get().length
+                return tx.nodes.children().length
               },
             }
           },
@@ -161,7 +161,8 @@ describe('migration backbone contract', () => {
 
     const editorSurface = editor as unknown as Record<string, unknown>
 
-    assert.equal('api' in editorSurface, false)
+    assert.equal(typeof editorSurface.api, 'object')
+    assert.equal(typeof editorSurface.getApi, 'function')
     assert.equal('tf' in editorSurface, false)
     assert.equal('plate' in editorSurface, false)
     assert.equal('yjs' in editorSurface, false)

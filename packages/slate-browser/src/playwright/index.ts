@@ -3622,6 +3622,7 @@ export type SlateBrowserEditorHarness = {
   name: string
   page: Page
   root: Locator
+  rootAt: (selector: string) => SlateBrowserEditorHarness
   get: {
     modelText: () => Promise<string>
     text: () => Promise<string>
@@ -4619,6 +4620,14 @@ const createEditorHarness = (
     name,
     page,
     root,
+    rootAt: (selector: string) =>
+      createEditorHarness(
+        page,
+        name,
+        surface,
+        surfaceOptions,
+        surface.locator(selector).first()
+      ),
     get: {
       modelText: async () =>
         root.evaluate(

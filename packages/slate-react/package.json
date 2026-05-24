@@ -17,7 +17,7 @@
   ],
   "dependencies": {
     "@juggle/resize-observer": "^3.4.0",
-    "@tanstack/react-virtual": "^3.13.24",
+    "@tanstack/react-virtual": "^3.13.25",
     "direction": "^1.0.4",
     "lodash": "^4.17.21",
     "slate-history": "workspace:*"

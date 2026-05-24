@@ -13,11 +13,11 @@ import type {
   EditableDOMBeforeInputHandler,
   EditableKeyDownHandler,
 } from '../components/editable'
+import type { MountedTopLevelRange } from '../dom-strategy/dom-strategy-commands'
+import { isSelectionPartialDOMBacked } from '../dom-strategy/dom-strategy-commands'
 import { useFlushDeferredSelectorsOnRender } from '../hooks/use-editor-selector'
 import { useTrackUserInput } from '../hooks/use-track-user-input'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
-import type { MountedTopLevelRange } from '../rendering-strategy/rendering-strategy-commands'
-import { isSelectionShellBacked } from '../rendering-strategy/rendering-strategy-commands'
 import { usePendingInsertionMarksEffect } from './composition-state'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import {
@@ -25,6 +25,8 @@ import {
   createEditableInputControllerState,
 } from './input-controller'
 import { useEditableRootRef } from './input-router'
+import type { DeferredOperation } from './model-input-strategy'
+import { useProjectionDOMRepairBridge } from './projection-repair-bridge'
 import { useEditableRootCommitWakeup } from './root-selector-sources'
 import {
   type RuntimeAndroidInputManager,
@@ -40,8 +42,6 @@ import { useEditableRootSelectionExport } from './runtime-root-selection-export'
 import { useEditableRootSelectionImport } from './runtime-root-selection-import'
 import { readRuntimeSelection } from './runtime-selection-state'
 import { useEditableSelectionReconciler } from './selection-reconciler'
-
-type DeferredOperation = () => void
 
 type EditableRootCallbackProps = Pick<
   ComponentPropsWithRef<'div'>,
@@ -94,7 +94,7 @@ export const useEditableRootRuntime = ({
   callbacks,
   editor,
   forwardedRef,
-  renderingStrategy,
+  domStrategyRuntime,
   onDOMBeforeInput,
   onKeyDown,
   readOnly,
@@ -104,8 +104,8 @@ export const useEditableRootRuntime = ({
   callbacks: EditableRootCallbackProps
   editor: ReactRuntimeEditor
   forwardedRef?: ForwardedRef<HTMLDivElement>
-  renderingStrategy: {
-    type: 'staged' | 'shell' | 'virtualized'
+  domStrategyRuntime: {
+    type: 'staged' | 'partial-dom' | 'virtualized'
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
   } | null
@@ -152,32 +152,35 @@ export const useEditableRootRuntime = ({
 
   IS_READ_ONLY.set(editor, readOnly)
 
-  const [renderingStrategyCell] = useState(() => ({
-    current: renderingStrategy,
+  const [domStrategyRuntimeCell] = useState(() => ({
+    current: domStrategyRuntime,
   }))
-  renderingStrategyCell.current = renderingStrategy
+  domStrategyRuntimeCell.current = domStrategyRuntime
 
-  const [explicitShellBackedSelection, setExplicitShellBackedSelection] =
-    useState(false)
-  const isShellBackedSelection = useCallback(
+  const [
+    explicitPartialDOMBackedSelection,
+    setExplicitPartialDOMBackedSelection,
+  ] = useState(false)
+  const isPartialDOMBackedSelection = useCallback(
     (selection: Range | null) => {
-      const currentRenderingStrategy = renderingStrategyCell.current
+      const currentDOMStrategyRuntime = domStrategyRuntimeCell.current
 
-      return currentRenderingStrategy?.type === 'shell' ||
-        currentRenderingStrategy?.type === 'virtualized'
-        ? isSelectionShellBacked(
+      return currentDOMStrategyRuntime?.type === 'partial-dom' ||
+        currentDOMStrategyRuntime?.type === 'virtualized'
+        ? isSelectionPartialDOMBacked(
             selection,
-            currentRenderingStrategy.mountedTopLevelRuntimeIds,
-            currentRenderingStrategy.mountedTopLevelRanges ?? null
+            currentDOMStrategyRuntime.mountedTopLevelRuntimeIds,
+            currentDOMStrategyRuntime.mountedTopLevelRanges ?? null
           )
         : false
     },
-    [renderingStrategyCell]
+    [domStrategyRuntimeCell]
   )
   const modelSelection = readRuntimeSelection(editor)
-  const modelShellBackedSelection = isShellBackedSelection(modelSelection)
-  const shellBackedSelection =
-    explicitShellBackedSelection || modelShellBackedSelection
+  const modelPartialDOMBackedSelection =
+    isPartialDOMBackedSelection(modelSelection)
+  const partialDOMBackedSelection =
+    explicitPartialDOMBackedSelection || modelPartialDOMBackedSelection
 
   const [controllerState] = useState(createEditableInputControllerState)
   const inputController = useMemo(
@@ -231,13 +234,13 @@ export const useEditableRootRuntime = ({
     inputController,
     rootRef,
     scrollSelectionIntoView,
-    shellBackedSelection,
+    partialDOMBackedSelection,
     state,
   })
   useEditableRootSelectionExport({
     editor,
     inputController,
-    isShellBackedSelection,
+    isPartialDOMBackedSelection,
     syncDOMSelectionToEditor,
   })
 
@@ -246,6 +249,10 @@ export const useEditableRootRuntime = ({
     inputController,
     scrollSelectionIntoView,
     syncDOMSelectionToEditor,
+  })
+  useProjectionDOMRepairBridge({
+    inputController,
+    requestEditableRepair: repairRuntime.requestEditableRepair,
   })
   domRepairQueueRef.current = repairRuntime.domRepairQueue
   const traceRuntime = useRuntimeKernelTraceEngine({
@@ -265,8 +272,8 @@ export const useEditableRootRuntime = ({
     editor,
     handledDOMBeforeInputRef,
     inputController,
-    isShellBackedSelection,
-    renderingStrategy,
+    isPartialDOMBackedSelection,
+    domStrategyRuntime,
     onDOMBeforeInput,
     onKeyDown,
     onUserInput,
@@ -276,8 +283,8 @@ export const useEditableRootRuntime = ({
     rootRef,
     selection: selectionImportController,
     setComposing: runtimeSetComposing,
-    setExplicitShellBackedSelection,
-    shellBackedSelection,
+    setExplicitPartialDOMBackedSelection,
+    partialDOMBackedSelection,
     state,
     syncDOMSelectionToEditor,
     trace: traceRuntime,
@@ -335,6 +342,6 @@ export const useEditableRootRuntime = ({
     isComposing,
     receivedUserInput,
     rootRef,
-    shellBackedSelection,
+    partialDOMBackedSelection,
   }
 }

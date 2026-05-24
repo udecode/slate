@@ -10,6 +10,7 @@ editor.update(tx => {
 
 - [Node options](transforms.md#node-options)
 - [Node methods](transforms.md#node-methods)
+- [Fragment methods](transforms.md#fragment-methods)
 - [Text methods](transforms.md#text-methods)
 - [Selection methods](transforms.md#selection-methods)
 - [Mark methods](transforms.md#mark-methods)
@@ -87,6 +88,22 @@ Lift matching nodes upward in the document tree.
 
 Move nodes from `options.at` to `options.to`.
 
+## Fragment methods
+
+Use fragment methods from `tx.fragment`.
+
+#### `tx.fragment.get(options?)`
+
+Read the fragment at `options.at` or the current selection.
+
+#### `tx.fragment.insert(fragment: Node[], options?)`
+
+Insert a fragment at `options.at` or the transaction target.
+
+#### `tx.fragment.delete(options?)`
+
+Delete the fragment at `options.at` or the transaction target.
+
 ## Text methods
 
 #### `tx.text.insert(text: string, options?)`
@@ -96,10 +113,6 @@ Insert text at `options.at` or the transaction target.
 #### `tx.text.delete(options?)`
 
 Delete text at `options.at` or the transaction target.
-
-#### `tx.text.insertFragment(fragment: Node[], options?)`
-
-Insert a fragment at `options.at` or the transaction target.
 
 ## Selection methods
 
@@ -118,7 +131,7 @@ editor.update(tx => {
 
 #### `tx.selection.clear()`
 
-Unset the selection.
+Clear the selection.
 
 #### `tx.selection.collapse(options?)`
 
@@ -132,7 +145,7 @@ Move the selection by offset, character, word, line, or block.
 
 Set properties on one selection point.
 
-#### `tx.selection.setSelection(props: Partial<Range>)`
+#### `tx.selection.setRange(props: Partial<Range>)`
 
 Set properties on an active selection.
 

@@ -1,8 +1,8 @@
 import { type KeyboardEvent, useCallback } from 'react'
 import type { RuntimeId } from 'slate'
 import type { EditableKeyDownHandler } from '../components/editable'
+import type { MountedTopLevelRange } from '../dom-strategy/dom-strategy-commands'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
-import type { MountedTopLevelRange } from '../rendering-strategy/rendering-strategy-commands'
 import { prepareEditableKeyDownKernel } from './editing-kernel'
 import { useEditableKeyboardHandler } from './input-router'
 import type { EditableInputController } from './input-state'
@@ -12,25 +12,25 @@ import type { EditableEventRuntimeCore } from './runtime-event-engine'
 export const useRuntimeKeyboardEvents = ({
   editor,
   inputController,
-  renderingStrategy,
+  domStrategyRuntime,
   onKeyDown,
   readOnly,
   runtime,
-  setExplicitShellBackedSelection,
-  shellBackedSelection,
+  setExplicitPartialDOMBackedSelection,
+  partialDOMBackedSelection,
 }: {
   editor: ReactRuntimeEditor
   inputController: EditableInputController
-  renderingStrategy: {
-    type: 'staged' | 'shell' | 'virtualized'
+  domStrategyRuntime: {
+    type: 'staged' | 'partial-dom' | 'virtualized'
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
   } | null
   onKeyDown?: EditableKeyDownHandler
   readOnly: boolean
   runtime: EditableEventRuntimeCore
-  setExplicitShellBackedSelection: (nextValue: boolean) => void
-  shellBackedSelection: boolean
+  setExplicitPartialDOMBackedSelection: (nextValue: boolean) => void
+  partialDOMBackedSelection: boolean
 }) => {
   const runKeyDownEvent = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
@@ -38,7 +38,7 @@ export const useRuntimeKeyboardEvents = ({
         editor,
         event,
         inputController,
-        renderingStrategy,
+        domStrategyRuntime,
       })
       inputController.state.activeIntent = decision.intent
       runtime.selection.applyKeyDownSelectionPolicy(decision)
@@ -49,12 +49,12 @@ export const useRuntimeKeyboardEvents = ({
         event,
         forceRender: runtime.repair.forceRender,
         inputController,
-        renderingStrategy,
+        domStrategyRuntime,
         onKeyDown,
         readOnly,
-        setExplicitShellBackedSelection,
+        setExplicitPartialDOMBackedSelection,
         setComposing: runtime.composition.setComposing,
-        shellBackedSelection,
+        partialDOMBackedSelection,
       })
       if (keyDownWorkerResult.repair) {
         runtime.repair.requestEditableRepair(keyDownWorkerResult.repair)
@@ -77,12 +77,12 @@ export const useRuntimeKeyboardEvents = ({
     [
       editor,
       inputController,
-      renderingStrategy,
+      domStrategyRuntime,
       onKeyDown,
       readOnly,
       runtime,
-      setExplicitShellBackedSelection,
-      shellBackedSelection,
+      setExplicitPartialDOMBackedSelection,
+      partialDOMBackedSelection,
     ]
   )
 
@@ -99,7 +99,7 @@ export const useRuntimeKeyboardEvents = ({
         editor,
         event,
         inputController,
-        renderingStrategy,
+        domStrategyRuntime,
       })
 
       if (
@@ -117,12 +117,12 @@ export const useRuntimeKeyboardEvents = ({
         event,
         forceRender: runtime.repair.forceRender,
         inputController,
-        renderingStrategy,
+        domStrategyRuntime,
         onKeyDown,
         readOnly,
-        setExplicitShellBackedSelection,
+        setExplicitPartialDOMBackedSelection,
         setComposing: runtime.composition.setComposing,
-        shellBackedSelection,
+        partialDOMBackedSelection,
       })
       if (keyDownWorkerResult.repair) {
         runtime.repair.requestEditableRepair(keyDownWorkerResult.repair)
@@ -136,12 +136,12 @@ export const useRuntimeKeyboardEvents = ({
     [
       editor,
       inputController,
-      renderingStrategy,
+      domStrategyRuntime,
       onKeyDown,
       readOnly,
       runtime,
-      setExplicitShellBackedSelection,
-      shellBackedSelection,
+      setExplicitPartialDOMBackedSelection,
+      partialDOMBackedSelection,
     ]
   )
 

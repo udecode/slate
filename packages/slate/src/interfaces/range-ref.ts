@@ -1,4 +1,15 @@
 import { type Operation, type Range, RangeApi } from '..'
+import {
+  getOperationRoot,
+  getRangeRefDraftCurrent,
+  getRangeRefRootMeta,
+  getRangeRefVisibility,
+  getRangeRoot,
+  hasRangeRefDraftCurrent,
+  setRangeRefDraftCurrent,
+  stripImplicitRangeRoots,
+  withImplicitRangeRoot,
+} from '../internal/root-location'
 
 /**
  * `RangeRef` objects keep a specific range in a document synced over time as new
@@ -22,26 +33,33 @@ export interface RangeRefInterface {
 // eslint-disable-next-line no-redeclare
 export const RangeRefApi: RangeRefInterface = {
   transform(ref: RangeRef, op: Operation): void {
-    const internalRef = ref as RangeRef & {
-      __draftCurrent?: Range | null
-      __visibility?: 'public' | 'internal'
-    }
-    const current = internalRef.__draftCurrent ?? ref.current
+    const current = hasRangeRefDraftCurrent(ref)
+      ? getRangeRefDraftCurrent(ref)
+      : ref.current
     const { affinity } = ref
 
     if (current == null) {
       return
     }
 
-    const next = RangeApi.transform(current, op, { affinity })
+    const rootMeta = getRangeRefRootMeta(ref) ?? getRangeRoot(current)
+    const { root } = rootMeta
 
-    if (internalRef.__visibility === 'public') {
-      internalRef.__draftCurrent = next
-    } else {
-      ref.current = next
+    if (!root || root !== getOperationRoot(op)) {
+      return
     }
 
-    if (next == null && internalRef.__visibility !== 'public') {
+    const transformRange = withImplicitRangeRoot(current, root)
+    const next = RangeApi.transform(transformRange, op, { affinity })
+    const nextPublic = next ? stripImplicitRangeRoots(next, rootMeta) : null
+
+    if (getRangeRefVisibility(ref) === 'public') {
+      setRangeRefDraftCurrent(ref, nextPublic)
+    } else {
+      ref.current = nextPublic
+    }
+
+    if (nextPublic == null && getRangeRefVisibility(ref) !== 'public') {
       ref.unref()
     }
   },

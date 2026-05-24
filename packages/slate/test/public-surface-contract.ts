@@ -132,13 +132,12 @@ const renamedDataHelperValues = [
   'PointRef',
   'Range',
   'RangeRef',
-  'Scrubber',
   'Span',
   'Text',
 ]
 
 const renamedDataHelperMemberPattern =
-  /\b(Element|Location|Node|Operation|Path|PathRef|Point|PointRef|Range|RangeRef|Scrubber|Span|Text)\.(?!TEXT_NODE\b|ELEMENT_NODE\b)/g
+  /\b(Element|Location|Node|Operation|Path|PathRef|Point|PointRef|Range|RangeRef|Span|Text)\.(?!TEXT_NODE\b|ELEMENT_NODE\b)/g
 
 const collectBareDataHelperValueImports = (source: string): string[] => {
   const failures: string[] = []
@@ -235,7 +234,6 @@ describe('primary slate package surface', () => {
     'PointRefApi',
     'RangeApi',
     'RangeRefApi',
-    'ScrubberApi',
     'SpanApi',
     'TextApi',
     'isObject',
@@ -297,6 +295,7 @@ describe('primary slate package surface', () => {
     'pointRefs',
     'rangeRef',
     'rangeRefs',
+    'ScrubberApi',
     'registerCommand',
     'removeMark',
     'removeNodes',

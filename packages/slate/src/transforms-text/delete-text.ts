@@ -1,6 +1,12 @@
 import { getEditorSchema } from '../core/editor-runtime'
 import { cleanupTextLeafLifecycle } from '../core/leaf-lifecycle'
-import { getCurrentSelection, runEditorTransaction } from '../core/public-state'
+import {
+  getCurrentSelection,
+  getCurrentSelectionRoot,
+  runEditorTransaction,
+  withEditorOperationRoot,
+  withEditorOperationRootChildren,
+} from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { node as getNode } from '../editor/node'
 import { nodes as getNodes } from '../editor/nodes'
@@ -18,6 +24,7 @@ import {
 } from '../interfaces'
 import { type Editor, Editor as EditorApi } from '../interfaces/editor'
 import type { TextMutationMethods } from '../interfaces/transforms/text'
+import { getLocationRoot, stripLocationRoots } from '../internal/root-location'
 import { mergeNodes } from '../transforms-node'
 
 const getCurrentNode = (editor: Editor, path: Path) => getNode(editor, path)[0]
@@ -25,6 +32,20 @@ const getCurrentNode = (editor: Editor, path: Path) => getNode(editor, path)[0]
 const isTextNode = (
   node: ReturnType<typeof getCurrentNode>
 ): node is import('../interfaces').Text => 'text' in node
+
+const getImplicitSelectionRoot = (editor: Editor) =>
+  getCurrentSelection(editor) ? getCurrentSelectionRoot(editor) : undefined
+
+const getTransactionRoot = (
+  editor: Editor,
+  at: Location | undefined
+): string | undefined => {
+  if (at === undefined) {
+    return getImplicitSelectionRoot(editor)
+  }
+
+  return LocationApi.isPath(at) ? undefined : getLocationRoot(at)
+}
 
 const getHighestNonEditable = (
   editor: Editor,
@@ -184,7 +205,8 @@ const mergeAdjacentTextRuns = (editor: Editor) => {
 const removeEmptyStructuralArtifacts = (
   editor: Editor,
   preservePath?: Path | null,
-  pruneNestedUnderPath?: Path | null
+  pruneNestedUnderPath?: Path | null,
+  pruneTopLevelRange?: { end: number; start: number } | null
 ) => {
   const elementPaths = Array.from(
     getNodes(editor, {
@@ -231,6 +253,11 @@ const removeEmptyStructuralArtifacts = (
       NodeApi.isElement(node) &&
       path.length > 1 &&
       EditorApi.isBlock(editor, node)
+    const isInteriorTopLevelBlock =
+      isTopLevelBlock &&
+      !!pruneTopLevelRange &&
+      path[0] > pruneTopLevelRange.start &&
+      path[0] <= pruneTopLevelRange.end
 
     if (
       isNestedBlock &&
@@ -243,7 +270,7 @@ const removeEmptyStructuralArtifacts = (
       NodeApi.isElement(node) &&
       NodeApi.string(node) === '' &&
       hasSingleChildNest(editor, node) &&
-      (!isTopLevelBlock || EditorApi.getChildren(editor).length > 1)
+      (!isTopLevelBlock || isInteriorTopLevelBlock)
     ) {
       const parentPath = path.slice(0, -1) as Path
       const parent =
@@ -257,6 +284,24 @@ const removeEmptyStructuralArtifacts = (
     }
   })
 }
+
+const getTopLevelCleanupRange = (
+  plan: DeleteRangePlan
+): { end: number; start: number } | null =>
+  plan.isAcrossBlocks &&
+  plan.effectiveStartBlockPath?.length === 1 &&
+  plan.effectiveEndBlockPath?.length === 1
+    ? {
+        end: Math.max(
+          plan.effectiveStartBlockPath[0]!,
+          plan.effectiveEndBlockPath[0]!
+        ),
+        start: Math.min(
+          plan.effectiveStartBlockPath[0]!,
+          plan.effectiveEndBlockPath[0]!
+        ),
+      }
+    : null
 
 const restorePreservedEmptyStartBlock = (
   editor: Editor,
@@ -672,6 +717,52 @@ const getEmptyEditableInlinePathAtPoint = (
   return null
 }
 
+const getPreviousEmptyBlockPathAtBlockStart = (
+  editor: Editor,
+  at: DeletePoint,
+  voids: boolean
+): Path | null => {
+  const currentBlock = EditorApi.above(editor, {
+    at,
+    match: (node) => NodeApi.isElement(node) && EditorApi.isBlock(editor, node),
+    mode: 'lowest',
+    voids,
+  })
+
+  if (!currentBlock) {
+    return null
+  }
+
+  const [, currentBlockPath] = currentBlock
+
+  if (
+    !PointApi.equals(
+      at,
+      EditorApi.point(editor, currentBlockPath, { edge: 'start' })
+    ) ||
+    currentBlockPath.length !== 1 ||
+    !PathApi.hasPrevious(currentBlockPath)
+  ) {
+    return null
+  }
+
+  const previousBlockPath = PathApi.previous(currentBlockPath)
+
+  if (!EditorApi.hasPath(editor, previousBlockPath)) {
+    return null
+  }
+
+  const previousBlock = getCurrentNode(editor, previousBlockPath)
+
+  return NodeApi.isElement(previousBlock) &&
+    EditorApi.isBlock(editor, previousBlock) &&
+    !getEditorSchema(editor).isVoid(previousBlock) &&
+    !getEditorSchema(editor).isReadOnly(previousBlock) &&
+    EditorApi.isEmpty(editor, previousBlock)
+    ? previousBlockPath
+    : null
+}
+
 const resolveDeleteTarget = (
   editor: Editor,
   options: DeleteOptions = {},
@@ -717,6 +808,20 @@ const resolveDeleteTarget = (
           fallbackPoint:
             EditorApi.before(editor, emptyInlinePath, { voids: true }) ??
             EditorApi.after(editor, emptyInlinePath, { voids: true }),
+          initialAt,
+        }
+      }
+
+      const previousEmptyBlockPath =
+        reverse && unit === 'character' && distance === 1
+          ? getPreviousEmptyBlockPathAtBlockStart(editor, at, voids)
+          : null
+
+      if (previousEmptyBlockPath) {
+        return {
+          kind: 'path',
+          path: previousEmptyBlockPath,
+          fallbackPoint: at,
           initialAt,
         }
       }
@@ -1131,6 +1236,8 @@ const reconcileDeleteStructure = (
   plan: DeleteRangePlan,
   removal: ReturnType<typeof removeDeleteContents>
 ) => {
+  const topLevelCleanupRange = getTopLevelCleanupRange(plan)
+
   if (!plan.isSingleText && plan.isAcrossBlocks) {
     const mergePoint = shouldMergeAcrossBlocks(plan)
       ? resolveMergePoint(
@@ -1142,24 +1249,49 @@ const reconcileDeleteStructure = (
       : null
 
     if (plan.preserveEmptyStartBlockPath) {
-      removeEmptyStructuralArtifacts(editor, plan.preserveEmptyStartBlockPath)
+      removeEmptyStructuralArtifacts(
+        editor,
+        plan.preserveEmptyStartBlockPath,
+        null,
+        topLevelCleanupRange
+      )
       mergeAdjacentTextRuns(editor)
     } else if (plan.preserveEndBlock && mergePoint) {
       mergeBlocksAtPoint(editor, mergePoint, plan.voids)
-      removeEmptyStructuralArtifacts(editor, plan.preserveEmptyStartBlockPath)
+      removeEmptyStructuralArtifacts(
+        editor,
+        plan.preserveEmptyStartBlockPath,
+        null,
+        topLevelCleanupRange
+      )
       mergeAdjacentTextRuns(editor)
     } else if (plan.voids && mergePoint && plan.effectiveEndBlockPath) {
       mergeNodes(editor, {
         at: plan.effectiveEndBlockPath,
       })
-      removeEmptyStructuralArtifacts(editor, plan.preserveEmptyStartBlockPath)
+      removeEmptyStructuralArtifacts(
+        editor,
+        plan.preserveEmptyStartBlockPath,
+        null,
+        topLevelCleanupRange
+      )
       mergeAdjacentTextRuns(editor)
     } else if (mergePoint) {
       mergeBlocksAtPoint(editor, mergePoint, plan.voids)
-      removeEmptyStructuralArtifacts(editor, plan.preserveEmptyStartBlockPath)
+      removeEmptyStructuralArtifacts(
+        editor,
+        plan.preserveEmptyStartBlockPath,
+        null,
+        topLevelCleanupRange
+      )
       mergeAdjacentTextRuns(editor)
     } else {
-      removeEmptyStructuralArtifacts(editor, plan.preserveEmptyStartBlockPath)
+      removeEmptyStructuralArtifacts(
+        editor,
+        plan.preserveEmptyStartBlockPath,
+        null,
+        topLevelCleanupRange
+      )
 
       if (!plan.startNonEditable && !plan.endNonEditable) {
         mergeAdjacentTextRuns(editor)
@@ -1169,7 +1301,8 @@ const reconcileDeleteStructure = (
     removeEmptyStructuralArtifacts(
       editor,
       plan.startMergeBlockPath,
-      plan.effectiveStartBlockPath
+      plan.effectiveStartBlockPath,
+      topLevelCleanupRange
     )
 
     if (!plan.removedInteriorElementSiblingStructure) {
@@ -1855,35 +1988,63 @@ export const deleteText: TextMutationMethods['delete'] = (
   editor,
   options = {}
 ) => {
-  runEditorTransaction(editor, (tx) => {
-    const at = tx.resolveTarget({ at: options.at })
+  const transactionRoot = getTransactionRoot(editor, options.at)
+  const run = () => {
+    runEditorTransaction(editor, (tx) => {
+      const at = tx.resolveTarget({ at: options.at })
 
-    if (!at) {
-      return
-    }
+      if (!at) {
+        return
+      }
 
-    const target = resolveDeleteTarget(editor, options, at)
+      const deleteAt = (targetAt: Location) => {
+        const target = resolveDeleteTarget(editor, options, targetAt)
 
-    if (!target) {
-      return
-    }
+        if (!target) {
+          return
+        }
 
-    if (target.kind === 'path') {
-      deletePathTarget(editor, target, tx)
-      return
-    }
+        if (target.kind === 'path') {
+          deletePathTarget(editor, target, tx)
+          return
+        }
 
-    const wholeTopLevelBlockRange = getWholeTopLevelBlockRange(editor, target)
+        const wholeTopLevelBlockRange = getWholeTopLevelBlockRange(
+          editor,
+          target
+        )
 
-    if (wholeTopLevelBlockRange) {
-      deleteWholeTopLevelBlockRange(editor, wholeTopLevelBlockRange, tx)
-      return
-    }
+        if (wholeTopLevelBlockRange) {
+          deleteWholeTopLevelBlockRange(editor, wholeTopLevelBlockRange, tx)
+          return
+        }
 
-    const removal = removeDeleteContents(editor, target, tx)
+        const removal = removeDeleteContents(editor, target, tx)
 
-    reconcileDeleteStructure(editor, target, removal)
-    cleanupDeleteLeafLifecycle(editor, target)
-    resolveDeleteSelection(editor, target, removal, tx)
-  })
+        reconcileDeleteStructure(editor, target, removal)
+        cleanupDeleteLeafLifecycle(editor, target)
+        resolveDeleteSelection(editor, target, removal, tx)
+      }
+
+      const root = getLocationRoot(at)
+
+      if (root) {
+        withEditorOperationRoot(editor, root, () =>
+          withEditorOperationRootChildren(editor, root, () =>
+            deleteAt(stripLocationRoots(at))
+          )
+        )
+      } else {
+        deleteAt(at)
+      }
+    })
+  }
+
+  if (transactionRoot) {
+    withEditorOperationRoot(editor, transactionRoot, () =>
+      withEditorOperationRootChildren(editor, transactionRoot, run)
+    )
+  } else {
+    run()
+  }
 }

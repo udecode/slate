@@ -8,7 +8,7 @@ import {
   type Range,
   RangeApi,
 } from 'slate'
-import { Editor } from 'slate/internal'
+import { Editor, getOperationRoot, MAIN_ROOT_KEY } from 'slate/internal'
 import { EDITOR_TO_PENDING_DIFFS } from './weak-maps'
 
 export type StringDiff = {
@@ -22,6 +22,9 @@ export type TextDiff = {
   path: Path
   diff: StringDiff
 }
+
+const getPendingDiffRoot = (editor?: Editor<any>) =>
+  editor?.read((state) => state.view.root()) ?? MAIN_ROOT_KEY
 
 /**
  * Check whether a text diff was applied in a way we can perform the pending action on /
@@ -226,25 +229,56 @@ export function normalizeRange(
   return { anchor, focus }
 }
 
+const getPendingPointRoot = (editor: Editor<any>, point: Point) =>
+  point.root ?? editor.read((state) => state.view.root())
+
+const withPendingPointRoot = (editor: Editor<any>, point: Point): Point => {
+  const root = getPendingPointRoot(editor, point)
+
+  return point.root === undefined && root !== MAIN_ROOT_KEY
+    ? { ...point, root }
+    : point
+}
+
+const stripImplicitPendingPointRoot = (
+  point: Point | null,
+  original: Point
+): Point | null => {
+  if (!point || original.root !== undefined || point.root === undefined) {
+    return point
+  }
+
+  const { root: _root, ...pointWithoutRoot } = point
+
+  return pointWithoutRoot
+}
+
 export function transformPendingPoint(
   editor: Editor<any>,
   point: Point,
   op: Operation
 ): Point | null {
+  const rootedPoint = withPendingPointRoot(editor, point)
   const pendingDiffs = EDITOR_TO_PENDING_DIFFS.get(editor)
   const textDiff = pendingDiffs?.find(({ path }) =>
     PathApi.equals(path, point.path)
   )
 
   if (!textDiff || point.offset <= textDiff.diff.start) {
-    return PointApi.transform(point, op, { affinity: 'backward' })
+    return stripImplicitPendingPointRoot(
+      PointApi.transform(rootedPoint, op, { affinity: 'backward' }),
+      point
+    )
   }
 
   const { diff } = textDiff
   // Point references location inside the diff => transform the point based on the location
   // the diff will be applied to and add the offset inside the diff.
   if (point.offset <= diff.start + diff.text.length) {
-    const anchor = { path: point.path, offset: diff.start }
+    const anchor = withPendingPointRoot(editor, {
+      path: point.path,
+      offset: diff.start,
+    })
     const transformed = PointApi.transform(anchor, op, {
       affinity: 'backward',
     })
@@ -253,17 +287,20 @@ export function transformPendingPoint(
       return null
     }
 
-    return {
-      path: transformed.path,
-      offset: transformed.offset + point.offset - diff.start,
-    }
+    return stripImplicitPendingPointRoot(
+      {
+        ...transformed,
+        offset: transformed.offset + point.offset - diff.start,
+      },
+      point
+    )
   }
 
   // Point references location after the diff
-  const anchor = {
+  const anchor = withPendingPointRoot(editor, {
     path: point.path,
     offset: point.offset - diff.text.length + diff.end - diff.start,
-  }
+  })
   const transformed = PointApi.transform(anchor, op, {
     affinity: 'backward',
   })
@@ -277,13 +314,16 @@ export function transformPendingPoint(
     anchor.offset < op.position &&
     diff.start < op.position
   ) {
-    return transformed
+    return stripImplicitPendingPointRoot(transformed, point)
   }
 
-  return {
-    path: transformed.path,
-    offset: transformed.offset + diff.text.length - diff.end + diff.start,
-  }
+  return stripImplicitPendingPointRoot(
+    {
+      ...transformed,
+      offset: transformed.offset + diff.text.length - diff.end + diff.start,
+    },
+    point
+  )
 }
 
 export function transformPendingRange(
@@ -310,9 +350,15 @@ export function transformPendingRange(
 
 export function transformTextDiff(
   textDiff: TextDiff,
-  op: Operation
+  op: Operation,
+  editor?: Editor<any>
 ): TextDiff | null {
   const { path, diff, id } = textDiff
+  const root = getPendingDiffRoot(editor)
+
+  if (root !== getOperationRoot(op)) {
+    return textDiff
+  }
 
   switch (op.type) {
     case 'insert_text': {

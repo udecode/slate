@@ -9,12 +9,12 @@ import { subscribeSelectionOnlyDOMExport } from './selection-runtime'
 export const useEditableRootSelectionExport = ({
   editor,
   inputController,
-  isShellBackedSelection,
+  isPartialDOMBackedSelection,
   syncDOMSelectionToEditor,
 }: {
   editor: ReactRuntimeEditor
   inputController: EditableInputController
-  isShellBackedSelection: (selection: Range | null) => boolean
+  isPartialDOMBackedSelection: (selection: Range | null) => boolean
   syncDOMSelectionToEditor: () => void
 }) => {
   const { addEventListener: addSelectorEventListener } =
@@ -26,14 +26,14 @@ export const useEditableRootSelectionExport = ({
       getModelSelection: () => readRuntimeSelection(editor),
       inputController,
       shouldSkipDOMExport: (modelSelection) =>
-        isShellBackedSelection(modelSelection),
+        isPartialDOMBackedSelection(modelSelection),
       syncDOMSelectionToEditor,
     })
   }, [
     addSelectorEventListener,
     editor,
     inputController,
-    isShellBackedSelection,
+    isPartialDOMBackedSelection,
     syncDOMSelectionToEditor,
   ])
 }

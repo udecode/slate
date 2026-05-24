@@ -49,7 +49,6 @@
   - [Span](api/locations/span.md)
 - [Operation Types](api/operations/README.md)
   - [Operation](api/operations/operation.md)
-- [Scrubber](api/scrubber.md)
 
 ## Libraries
 

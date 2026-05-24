@@ -17,7 +17,7 @@ source should be code, tests, or a browser contract row.
 | Decorations and annotations use projection stores and source-scoped subscriptions. | `libraries/slate-react/slate.md`, `libraries/slate-react/annotations.md`, `libraries/slate-react/editable.md`, `concepts/09-rendering.md` | `packages/slate-react/src/decoration-source.ts`, `packages/slate-react/src/annotation-store.ts`, `packages/slate-react/test/annotation-store-contract.test.tsx` |
 | Collaboration adapters export commit operations and import remote operations through explicit replay. | `walkthroughs/07-enabling-collaborative-editing.md` | `packages/slate/test/collab-history-runtime-contract.ts`, `packages/slate/test/commit-metadata-contract.ts`, `packages/slate/test/migration-backbone-contract.ts` |
 | Runtime ids are local projection handles, not persistence ids. | `walkthroughs/07-enabling-collaborative-editing.md`, `libraries/slate-react/editable.md` | `packages/slate/test/collab-history-runtime-contract.ts`, `packages/slate/test/migration-backbone-contract.ts`, `packages/slate-react/test/runtime-live-state-contract.ts` |
-| Rendering strategy mounts stable projection segments and keeps React off hot editor paths. | `walkthroughs/09-performance.md`, `libraries/slate-react/editable.md`, `concepts/09-rendering.md` | `packages/slate-react/src/rendering-strategy`, `packages/slate-react/test/render-profiler-contract.test.tsx`, `playwright/integration/examples/huge-document.test.ts` |
+| DOM strategy mounts stable projection segments and keeps React off hot editor paths. | `walkthroughs/09-performance.md`, `libraries/slate-react/editable.md`, `concepts/09-rendering.md` | `packages/slate-react/src/dom-strategy`, `packages/slate-react/test/render-profiler-contract.test.tsx`, `playwright/integration/examples/huge-document.test.ts` |
 
 ## Browser Contract Map
 
@@ -32,7 +32,7 @@ or one-off manual checks.
 | Block void navigation | `images`, `embeds` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
 | Paste HTML image void | `paste-html` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
 | Editable island native focus | `editable-voids` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
-| Huge document rendering strategy | `huge-document` | `playwright/integration/examples/huge-document.test.ts` |
+| Huge document DOM strategy | `huge-document` | `playwright/integration/examples/huge-document.test.ts` |
 | Table cell boundary navigation | `tables` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
 | External decoration refresh | `search-highlighting` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
 | Annotation anchor rebase | `comment-mode`, `persistent-annotation-anchors` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |

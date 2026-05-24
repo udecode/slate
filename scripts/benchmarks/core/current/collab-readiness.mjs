@@ -6,7 +6,7 @@ import {
   defineEditorExtension,
 } from '../../../../packages/slate/src/index.ts'
 import { Editor } from '../../../../packages/slate/src/internal/index.ts'
-import { withHistory } from '../../../../packages/slate-history/src/index.ts'
+import { history as historyExtension } from '../../../../packages/slate-history/src/index.ts'
 import { summarize, writeBenchmarkArtifact } from '../../shared/stats.mjs'
 
 const iterations = Number.parseInt(
@@ -64,7 +64,9 @@ const forceGc = () => {
 }
 
 const createEditorWithDocument = (blockCount, history = false) => {
-  const editor = history ? withHistory(createEditor()) : createEditor()
+  const editor = history
+    ? createEditor({ extensions: [historyExtension()] })
+    : createEditor()
 
   Editor.replace(editor, {
     children: createDocument(blockCount),
@@ -113,7 +115,7 @@ const createFakeCollabAdapter = () => {
   return {
     extension: defineEditorExtension({
       name: 'benchmark-fake-collab-adapter',
-      register(context) {
+      setup(context) {
         const state = context.runtimeState({
           connected: true,
           exports: [],
@@ -128,27 +130,25 @@ const createFakeCollabAdapter = () => {
               paused: true,
             }))
           },
-          commitListeners: [
-            (commit) => {
-              listenerCalls += 1
-              const current = state.get()
+          onCommit({ commit }) {
+            listenerCalls += 1
+            const current = state.get()
 
-              if (
-                !current.connected ||
-                current.paused ||
-                commit.tags.includes('skip-collab') ||
-                commit.tags.includes('collaboration') ||
-                commit.metadata.collab?.origin === 'remote'
-              ) {
-                return
-              }
+            if (
+              !current.connected ||
+              current.paused ||
+              commit.tags.includes('skip-collab') ||
+              commit.tags.includes('collaboration') ||
+              commit.metadata.collab?.origin === 'remote'
+            ) {
+              return
+            }
 
-              state.set({
-                ...current,
-                exports: [...current.exports, clone(commit.operations)],
-              })
-            },
-          ],
+            state.set({
+              ...current,
+              exports: [...current.exports, clone(commit.operations)],
+            })
+          },
         }
       },
     }),
@@ -278,8 +278,9 @@ const measureHistorySkip = (cohort, operations) =>
     }, remoteOptions)
 
     assertRemoteCommit(editor)
-    assert.equal(editor.history.undos.length, 0)
-    assert.equal(editor.history.redos.length, 0)
+    const historyState = editor.read((state) => state.history.get())
+    assert.equal(historyState.undos.length, 0)
+    assert.equal(historyState.redos.length, 0)
   })
 
 const measureConnectDisconnectHeap = (cohort) => {

@@ -17,15 +17,15 @@ export {
 export type {
   EditableDOMBeforeInputContext,
   EditableDOMBeforeInputHandler,
+  EditableDOMStrategyCohort,
+  EditableDOMStrategyDegradationMode,
+  EditableDOMStrategyEffectiveType,
+  EditableDOMStrategyMetrics,
+  EditableDOMStrategyMetricsBase,
   EditableHandlerResult,
   EditableInputEventContext,
   EditableKeyDownContext,
   EditableKeyDownHandler,
-  EditableRenderingStrategyCohort,
-  EditableRenderingStrategyDegradationMode,
-  EditableRenderingStrategyEffectiveType,
-  EditableRenderingStrategyMetrics,
-  EditableRenderingStrategyMetricsBase,
 } from './components/editable'
 export {
   DefaultPlaceholder,
@@ -45,6 +45,7 @@ export type {
   EditableDOMCoverageBoundaryProps,
   EditableDOMCoverageBoundaryScope,
   EditableElementSlots,
+  EditableLayout,
   EditableRenderElementProps as RenderElementProps,
   EditableRenderVoidProps as RenderVoidProps,
   EditableTextBlocksProps as EditableProps,
@@ -72,6 +73,10 @@ export {
   type SlateRangeDecoration,
   type SlateRangeDecorationSourceOptions,
 } from './decoration-source'
+export type {
+  DOMStrategyOptions,
+  DOMStrategyType,
+} from './dom-strategy/create-segment-plan'
 export {
   type EditorDecorationSelectorContext,
   type EditorDecorationSelectorOptions,
@@ -121,6 +126,12 @@ export {
   type UseSlateEditorOptions,
   useSlateEditor,
 } from './hooks/use-slate-editor'
+export {
+  type SlateHistoryController,
+  type SlateHistoryFocusPolicy,
+  type UseSlateHistoryOptions,
+  useSlateHistory,
+} from './hooks/use-slate-history'
 export { useSlateNodeRef } from './hooks/use-slate-node-ref'
 export {
   type SlateProjectionEntry,
@@ -128,10 +139,42 @@ export {
   useSlateProjections,
 } from './hooks/use-slate-projections'
 export {
+  type SlateRootChromeController,
+  type UseSlateRootChromeOptions,
+  useSlateRootChrome,
+} from './hooks/use-slate-root-chrome'
+export {
+  type SlateCommandFocusPolicy,
+  type SlateRootEditor,
+  SlateRuntime,
+  type SlateRuntimeProps,
+  type SlateRuntimeStateSelectorOptions,
+  type SlateRuntimeValue,
+  type UseSlateCommandCallbackOptions,
+  type UseSlateRootEditorOptions,
+  type UseSlateRuntimeOptions,
+  type UseSlateViewEffectOptions,
+  useSlateActiveEditor,
+  useSlateActiveRoot,
+  useSlateCommandCallback,
+  useSlateRootEditor,
+  useSlateRootState,
+  useSlateRuntime,
+  useSlateRuntimeState,
+  useSlateViewEffect,
+  useSlateViewState,
+} from './hooks/use-slate-runtime'
+export {
   type SlateWidgetStoreProjector,
   useSlateWidgetStore,
 } from './hooks/use-slate-widget-store'
 export { useSlateWidget, useSlateWidgets } from './hooks/use-slate-widgets'
+export {
+  type StateFieldSetter,
+  type UseStateFieldValueOptions,
+  useSetStateField,
+  useStateFieldValue,
+} from './hooks/use-state-field'
 // Plugin
 export {
   type CreateReactEditorOptions,
@@ -146,6 +189,8 @@ export {
   isSlateSourceDirty,
   type SlateCustomSourceDirtiness,
   type SlateProjection,
+  type SlateProjectionRefreshListener,
+  type SlateProjectionRefreshResult,
   type SlateProjectionRuntimeScope,
   type SlateProjectionSlice,
   type SlateProjectionSource,

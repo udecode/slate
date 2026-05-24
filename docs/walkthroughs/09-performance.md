@@ -18,7 +18,7 @@ There are three main areas that can be optimized:
   - [Optimizing Slate Core](#optimizing-slate-core)
   - [Optimizing React](#optimizing-react)
     - [Reduce Renders](#reduce-renders)
-    - [Shell Rendering Strategy](#shell-rendering-strategy)
+    - [DOM Strategy](#dom-strategy)
   - [Optimizing DOM Painting](#optimizing-dom-painting)
 
 Before you start optimizing, make sure you know which of these areas is most responsible for any slowness you're seeing. The best way of doing this is to use your browser's profiler (see the example for Firefox above), but you can also use these heuristics to guess which area is most at fault:
@@ -49,7 +49,7 @@ If unmodified elements are being re-rendered, check to see if they are subscribi
 
 Hot editor UI should subscribe to the narrowest source it needs. Use
 `useEditor()` to access the editor object, `useEditorSelection()` for
-selection-aware shell UI, and `useEditorSelector()` for derived editor-level
+selection-aware toolbar UI, and `useEditorSelector()` for derived editor-level
 toolbar state. Inside rendered editor content, prefer target-scoped hooks such
 as `useElementSelected()`, `useNodeSelector()`, `useTextSelector()`, and
 `useDecorationSelector()` so selection or decoration changes dirty only the
@@ -72,23 +72,9 @@ const onClick = () => {
 }
 ```
 
-### Shell Rendering Strategy
+### DOM Strategy
 
-`Editable` uses staged rendering automatically for large documents. Use `renderingStrategy="staged"` to lock that safe behavior explicitly, or `renderingStrategy="full"` to render the full document surface while debugging.
-
-For very large documents that need aggressive mounting control, set `renderingStrategy` to shell. The runtime keeps the active editing corridor mounted and replaces far-away regions with semantic shells. This keeps React work focused on the user-visible editing lane.
-
-```tsx
-<Editable
-  renderingStrategy={{
-    overscan: 0,
-    type: 'shell',
-    segmentSize: 100,
-    previewChars: 96,
-    threshold: 2000,
-  }}
-/>
-```
+`Editable` uses staged rendering automatically for large documents. Use `domStrategy="staged"` to lock that safe behavior explicitly, or `domStrategy="full"` to render the full document surface while debugging.
 
 Experimental virtualized rendering is a separate stress path for pathological
 documents. Read
@@ -103,7 +89,8 @@ In Chrome and Safari, painting large numbers of DOM nodes can be extremely slow,
 
 The best way of speeding up painting large documents is to use the [`content-visibility`](https://developer.mozilla.org/en-US/docs/Web/CSS/content-visibility) CSS property. When set to `auto`, this property instructs browsers not to paint content that is off-screen. However, it also comes with a performance overhead proportional to the number of DOM nodes it is applied to, which is especially bad in Safari. When rendering large documents in Safari, applying `content-visibility: auto` to each Slate element individually is often slower than not using it at all.
 
-For aggressive mounting control, use [shell rendering strategy](#shell-rendering-strategy). The runtime occludes inactive regions and keeps the mounted editor corridor small.
+For aggressive mounting control, use explicit virtualized rendering only when a
+pathological document needs a degraded viewport-mounted surface.
 
 Use a CSS rule like this to apply spacing between top-level blocks:
 

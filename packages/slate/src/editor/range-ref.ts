@@ -1,12 +1,18 @@
+import { getEditorOperationRoot } from '../core/public-state'
 import type { EditorStaticApi } from '../interfaces/editor'
 import type { Range } from '../interfaces/range'
 import type { RangeRef } from '../interfaces/range-ref'
+import {
+  clearRangeRefDraftCurrent,
+  getRangeRefDraftCurrent,
+  getRangeRefVisibility,
+  getRangeRoot,
+  hasRangeRefDraftCurrent,
+  setRangeRefDraftCurrent,
+  setRangeRefRootMeta,
+  setRangeRefVisibility,
+} from '../internal/root-location'
 import { ALL_RANGE_REFS, RANGE_REFS } from '../utils/weak-maps'
-
-type InternalRangeRef = RangeRef & {
-  __draftCurrent?: Range | null
-  __visibility?: 'public' | 'internal'
-}
 
 const cloneRange = (range: Range | null) =>
   range
@@ -14,10 +20,16 @@ const cloneRange = (range: Range | null) =>
         anchor: {
           path: [...range.anchor.path],
           offset: range.anchor.offset,
+          ...(range.anchor.root === undefined
+            ? null
+            : { root: range.anchor.root }),
         },
         focus: {
           path: [...range.focus.path],
           offset: range.focus.offset,
+          ...(range.focus.root === undefined
+            ? null
+            : { root: range.focus.root }),
         },
       }
     : null
@@ -57,26 +69,32 @@ const createRangeRef = (
   } = {}
 ) => {
   const { affinity = 'inward', visibility = 'public' } = options
-  const ref: InternalRangeRef = {
+  const rootMeta = getRangeRoot(range, getEditorOperationRoot(editor))
+  const ref: RangeRef = {
     current: cloneRange(range),
     affinity,
     unref() {
-      const current = cloneRange(ref.__draftCurrent ?? ref.current)
+      const current = cloneRange(
+        hasRangeRefDraftCurrent(ref)
+          ? (getRangeRefDraftCurrent(ref) ?? null)
+          : ref.current
+      )
 
       getAllRangeRefs(editor).delete(ref)
 
-      if (ref.__visibility === 'public') {
+      if (getRangeRefVisibility(ref) === 'public') {
         getPublicRangeRefs(editor).delete(ref)
       }
 
-      ref.__draftCurrent = null
+      setRangeRefDraftCurrent(ref, null)
       ref.current = null
 
       return current
     },
   }
 
-  ref.__visibility = visibility
+  setRangeRefRootMeta(ref, rootMeta)
+  setRangeRefVisibility(ref, visibility)
 
   getAllRangeRefs(editor).add(ref)
 
@@ -107,20 +125,18 @@ export const publishRangeRefDrafts = (
   editor: Parameters<EditorStaticApi['rangeRef']>[0]
 ) => {
   for (const ref of getAllRangeRefs(editor)) {
-    const internalRef = ref as InternalRangeRef
-
-    if (internalRef.__visibility !== 'public') {
+    if (getRangeRefVisibility(ref) !== 'public') {
       continue
     }
 
-    if (internalRef.__draftCurrent !== undefined) {
-      internalRef.current = cloneRange(internalRef.__draftCurrent)
-      internalRef.__draftCurrent = undefined
+    if (hasRangeRefDraftCurrent(ref)) {
+      ref.current = cloneRange(getRangeRefDraftCurrent(ref) ?? null)
+      clearRangeRefDraftCurrent(ref)
     }
 
-    if (internalRef.current == null) {
-      getAllRangeRefs(editor).delete(internalRef)
-      getPublicRangeRefs(editor).delete(internalRef)
+    if (ref.current == null) {
+      getAllRangeRefs(editor).delete(ref)
+      getPublicRangeRefs(editor).delete(ref)
     }
   }
 }
@@ -129,12 +145,10 @@ export const resetRangeRefDrafts = (
   editor: Parameters<EditorStaticApi['rangeRef']>[0]
 ) => {
   for (const ref of getAllRangeRefs(editor)) {
-    const internalRef = ref as InternalRangeRef
-
-    if (internalRef.__visibility !== 'public') {
+    if (getRangeRefVisibility(ref) !== 'public') {
       continue
     }
 
-    internalRef.__draftCurrent = undefined
+    clearRangeRefDraftCurrent(ref)
   }
 }

@@ -16,6 +16,7 @@ const legacyRepo = resolve(
 const iterations = Number(process.env.CORE_HUGE_BENCH_ITERATIONS || 3)
 const blocks = Number(process.env.CORE_HUGE_BENCH_BLOCKS || 1000)
 const typeOps = Number(process.env.CORE_HUGE_BENCH_TYPE_OPS || 20)
+const profile = process.env.CORE_HUGE_BENCH_PROFILE === '1'
 const replacementText = 'replacement marker'
 
 const benchmarkSource = `
@@ -42,7 +43,20 @@ const legacyTransforms = Slate.Transforms;
 const iterations = Number(process.env.CORE_HUGE_BENCH_ITERATIONS || 3);
 const blocks = Number(process.env.CORE_HUGE_BENCH_BLOCKS || 1000);
 const typeOps = Number(process.env.CORE_HUGE_BENCH_TYPE_OPS || 20);
+const profile = process.env.CORE_HUGE_BENCH_PROFILE === '1';
 const replacementText = ${JSON.stringify(replacementText)};
+
+let profileEvents = [];
+
+if (profile) {
+  globalThis.__SLATE_REACT_RENDER_PROFILER__ = {
+    record(event) {
+      if (event?.kind === 'core-time') {
+        profileEvents.push(event);
+      }
+    },
+  };
+}
 
 const now = () => performance.now();
 const round = (value) => Number(value.toFixed(2));
@@ -94,6 +108,22 @@ const summarize = (samples) => {
   };
 };
 
+const summarizeProfile = (events) => {
+  const buckets = new Map();
+
+  for (const event of events) {
+    const samples = buckets.get(event.id) ?? [];
+    samples.push(event.duration);
+    buckets.set(event.id, samples);
+  }
+
+  return Object.fromEntries(
+    [...buckets.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([id, samples]) => [id, summarize(samples)])
+  );
+};
+
 const createChildren = (count) =>
   Array.from({ length: count }, (_, index) => ({
     type: 'paragraph',
@@ -119,18 +149,20 @@ const replaceEditor = (editor, input) => {
 };
 
 const getChildren = (editor) =>
-  typeof Editor.getSnapshot === 'function'
-    ? Editor.getSnapshot(editor).children
-    : typeof Editor.getChildren === 'function'
+  typeof Editor.getChildren === 'function'
       ? Editor.getChildren(editor)
-      : editor.children;
+      : typeof Editor.getSnapshot === 'function'
+        ? Editor.getSnapshot(editor).children
+        : editor.children;
 
 const getSelection = (editor) =>
-  typeof Editor.getSnapshot === 'function'
-    ? Editor.getSnapshot(editor).selection
+  typeof Editor.getSelection === 'function'
+    ? Editor.getSelection(editor)
     : typeof editor.getSelection === 'function'
       ? editor.getSelection()
-      : editor.selection;
+      : typeof Editor.getSnapshot === 'function'
+        ? Editor.getSnapshot(editor).selection
+        : editor.selection;
 
 const select = (editor, target) => {
   if (typeof editor.update === 'function') {
@@ -167,19 +199,29 @@ const insertFragment = (editor, fragment) => {
 
 const measureLane = (setup, run) => {
   const samples = [];
+  const profileSamples = [];
 
   for (let iteration = 0; iteration < iterations + 1; iteration += 1) {
     const editor = setup();
+    profileEvents = [];
     const start = now();
     run(editor);
     const duration = now() - start;
 
     if (iteration > 0) {
       samples.push(duration);
+      if (profile) {
+        profileSamples.push(...profileEvents);
+      }
     }
   }
 
-  return summarize(samples);
+  return profile
+    ? {
+        ...summarize(samples),
+        profile: summarizeProfile(profileSamples),
+      }
+    : summarize(samples);
 };
 
 const typeAtBlock = (blockIndex) =>
@@ -316,6 +358,7 @@ const env = {
   CORE_HUGE_BENCH_ITERATIONS: String(iterations),
   CORE_HUGE_BENCH_BLOCKS: String(blocks),
   CORE_HUGE_BENCH_TYPE_OPS: String(typeOps),
+  CORE_HUGE_BENCH_PROFILE: profile ? '1' : '0',
 }
 
 const current = await benchmarkRepo({
@@ -338,6 +381,7 @@ const summary = {
   iterations,
   config: {
     blocks,
+    profile,
     typeOps,
   },
   current: current.lanes,

@@ -1,6 +1,8 @@
 import { act, type RenderResult, render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import {
+  createEditorRuntime,
+  createEditorView,
   createEditor as createSlateEditor,
   type Descendant,
   NodeApi,
@@ -1072,6 +1074,81 @@ describe('slate-react projections and selection contract', () => {
     }
   })
 
+  test('projection stores created from root views receive runtime source changes', async () => {
+    const runtime = createEditorRuntime({
+      initialValue: {
+        roots: {
+          header: [{ children: [{ text: 'Header' }] }],
+          main: [{ children: [{ text: 'Body' }] }],
+        },
+      },
+    })
+    const headerEditor = createEditorView(runtime, { root: 'header' })
+    const runtimeId = Editor.getRuntimeId(headerEditor as never, [0, 0])
+
+    if (!runtimeId) {
+      throw new Error('Expected runtime id for header root projection proof')
+    }
+
+    let sourceCalls = 0
+    let runtimeNotifications = 0
+    const store = createDecorationSource(headerEditor as never, {
+      dirtiness: 'text',
+      id: 'header-view-source',
+      read: ({ snapshot }) => {
+        sourceCalls += 1
+        const text = NodeApi.get(
+          { children: snapshot.children } as never,
+          [0, 0]
+        ) as { text: string }
+
+        return text.text.includes('!')
+          ? [
+              {
+                data: { header: true },
+                key: 'header-view-source',
+                range: {
+                  anchor: { path: [0, 0], offset: 0 },
+                  focus: { path: [0, 0], offset: text.text.length },
+                },
+              },
+            ]
+          : []
+      },
+    })
+
+    store.subscribeRuntimeId(runtimeId, () => {
+      runtimeNotifications += 1
+    })
+
+    expect(sourceCalls).toBe(1)
+    expect(store.getRuntimeSnapshot(runtimeId)).toEqual([])
+
+    await act(async () => {
+      headerEditor.update((tx) => {
+        tx.text.insert('!', {
+          at: {
+            anchor: { path: [0, 0], offset: 6 },
+            focus: { path: [0, 0], offset: 6 },
+          },
+        })
+      })
+    })
+
+    expect(sourceCalls).toBe(2)
+    expect(runtimeNotifications).toBe(1)
+    expect(store.getRuntimeSnapshot(runtimeId)).toEqual([
+      {
+        data: { header: true },
+        end: 7,
+        key: 'header-view-source',
+        start: 0,
+      },
+    ])
+
+    store.destroy()
+  })
+
   test('targeted source refresh only recomputes and notifies the matching source id', () => {
     const editor = createEditor()
 
@@ -1090,6 +1167,7 @@ describe('slate-react projections and selection contract', () => {
     let sourceCalls = 0
     let globalNotifications = 0
     let runtimeNotifications = 0
+    let refreshNotifications = 0
     let sourceNotifications = 0
     const store = createSlateProjectionStore(
       editor,
@@ -1121,6 +1199,16 @@ describe('slate-react projections and selection contract', () => {
     store.subscribeRuntimeId(runtimeId, () => {
       runtimeNotifications += 1
     })
+    store.subscribeProjectionRefresh((result) => {
+      refreshNotifications += 1
+      expect(result).toMatchObject({
+        changedRuntimeIds: [runtimeId],
+        changedSourceId: 'targeted-source',
+        didChange: true,
+        reason: 'external',
+        requiresDOMSelectionExport: false,
+      })
+    })
     store.subscribeSourceId('targeted-source', () => {
       sourceNotifications += 1
     })
@@ -1137,14 +1225,26 @@ describe('slate-react projections and selection contract', () => {
     expect(sourceCalls).toBe(1)
     expect(globalNotifications).toBe(0)
     expect(runtimeNotifications).toBe(0)
+    expect(refreshNotifications).toBe(0)
     expect(sourceNotifications).toBe(0)
     expect(store.getRuntimeSnapshot(runtimeId)).toEqual([])
 
-    store.refresh({ reason: 'external', sourceId: 'targeted-source' })
+    const refreshResult = store.refresh({
+      reason: 'external',
+      sourceId: 'targeted-source',
+    })
 
+    expect(refreshResult).toMatchObject({
+      changedRuntimeIds: [runtimeId],
+      changedSourceId: 'targeted-source',
+      didChange: true,
+      reason: 'external',
+      requiresDOMSelectionExport: false,
+    })
     expect(sourceCalls).toBe(2)
     expect(globalNotifications).toBe(1)
     expect(runtimeNotifications).toBe(1)
+    expect(refreshNotifications).toBe(1)
     expect(sourceNotifications).toBe(1)
     expect(store.getMetrics()).toMatchObject({
       changedRuntimeBucketCount: 1,
@@ -1163,6 +1263,80 @@ describe('slate-react projections and selection contract', () => {
         start: 0,
       },
     ])
+
+    const unchangedRefreshResult = store.refresh({
+      reason: 'external',
+      sourceId: 'targeted-source',
+    })
+
+    expect(unchangedRefreshResult).toMatchObject({
+      changedRuntimeIds: [],
+      changedSourceId: 'targeted-source',
+      didChange: false,
+      reason: 'external',
+      requiresDOMSelectionExport: false,
+    })
+    expect(refreshNotifications).toBe(1)
+
+    store.destroy()
+  })
+
+  test('external projection refresh requests DOM selection export only when explicit', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ children: [{ text: 'A' }] }],
+      selection: null,
+    })
+
+    const runtimeId = Editor.getRuntimeId(editor, [0, 0])
+
+    if (!runtimeId) {
+      throw new Error('Expected runtime id for selection export proof')
+    }
+
+    let active = false
+    const store = createSlateProjectionStore(
+      editor,
+      () =>
+        active
+          ? [
+              {
+                key: 'selection-sensitive',
+                range: {
+                  anchor: { path: [0, 0], offset: 0 },
+                  focus: { path: [0, 0], offset: 1 },
+                },
+              },
+            ]
+          : [],
+      { dirtiness: 'external' }
+    )
+
+    active = true
+    const refreshResult = store.refresh({
+      reason: 'external',
+      requiresDOMSelectionExport: true,
+    })
+
+    expect(refreshResult).toMatchObject({
+      changedRuntimeIds: [runtimeId],
+      didChange: true,
+      reason: 'external',
+      requiresDOMSelectionExport: true,
+    })
+
+    const unchangedRefreshResult = store.refresh({
+      reason: 'external',
+      requiresDOMSelectionExport: true,
+    })
+
+    expect(unchangedRefreshResult).toMatchObject({
+      changedRuntimeIds: [],
+      didChange: false,
+      reason: 'external',
+      requiresDOMSelectionExport: false,
+    })
 
     store.destroy()
   })

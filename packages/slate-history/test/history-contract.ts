@@ -7,7 +7,7 @@ import type {
   Selection,
   Editor as SlateEditor,
 } from 'slate'
-import { createEditor } from 'slate'
+import { createEditor, createEditorRuntime, createEditorView } from 'slate'
 import { Editor } from 'slate/internal'
 
 import { History, history } from '../src'
@@ -109,6 +109,101 @@ describe('slate-history contract', () => {
     assert.deepEqual(getVisibleState(editor), before)
   })
 
+  it('does not merge adjacent text history batches across roots', () => {
+    const editor = createEditor({
+      extensions: [history()],
+      initialValue: {
+        roots: {
+          header: [paragraph('')],
+          main: [paragraph('x')],
+        },
+      },
+    })
+
+    write(editor, (tx) => {
+      tx.text.insert('a', {
+        at: { offset: 0, path: [0, 0], root: 'header' },
+      })
+    })
+    write(editor, (tx) => {
+      tx.text.insert('b', {
+        at: { offset: 1, path: [0, 0], root: 'main' },
+      })
+    })
+
+    assert.equal(getHistory(editor).undos.length, 2)
+
+    undo(editor)
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          header: [paragraph('a')],
+          main: [paragraph('x')],
+        },
+      }
+    )
+
+    undo(editor)
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          header: [paragraph('')],
+          main: [paragraph('x')],
+        },
+      }
+    )
+  })
+
+  it('does not restore a main selection into a non-main root undo batch', () => {
+    const runtime = createEditorRuntime({
+      extensions: [history()],
+      initialValue: {
+        roots: {
+          header: [paragraph('header')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const headerEditor = createEditorView(runtime, { root: 'header' })
+
+    write(mainEditor, (tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 2 },
+        focus: { path: [0, 0], offset: 2 },
+      })
+    })
+
+    write(headerEditor, (tx) => {
+      tx.text.insert('!', { at: { path: [0, 0], offset: 6 } })
+    })
+
+    undo(headerEditor)
+
+    assert.deepEqual(
+      runtime.read((state) => state.value.get()),
+      {
+        roots: {
+          header: [paragraph('header')],
+          main: [paragraph('body')],
+        },
+      }
+    )
+    assert.deepEqual(
+      mainEditor.read((state) => state.selection.get()),
+      {
+        anchor: { path: [0, 0], offset: 2 },
+        focus: { path: [0, 0], offset: 2 },
+      }
+    )
+    assert.equal(
+      headerEditor.read((state) => state.selection.get()),
+      null
+    )
+  })
+
   it('undoes a full-document selected text replacement as one structural batch', () => {
     const editor = historyTestEditor()
     const selection = {
@@ -205,6 +300,90 @@ describe('slate-history contract', () => {
     assert.equal(operation.index, 0)
   })
 
+  it('rebases rootless replacement selections through non-main root edits', () => {
+    const oldChild = paragraph('old')
+    const newChild = paragraph('new')
+    const runtime = createEditorRuntime({
+      extensions: [history()],
+      initialValue: {
+        roots: {
+          header: [oldChild, paragraph('tail')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+    const headerEditor = createEditorView(runtime, { root: 'header' })
+
+    write(headerEditor, (tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 3 },
+      })
+    })
+
+    write(headerEditor, (tx) => {
+      tx.operations.replay([
+        {
+          children: [oldChild],
+          index: 0,
+          newChildren: [newChild],
+          newSelection: {
+            anchor: { path: [0, 0], offset: 3 },
+            focus: { path: [0, 0], offset: 3 },
+          },
+          path: [],
+          root: 'header',
+          selection: {
+            anchor: { path: [0, 0], offset: 3 },
+            focus: { path: [0, 0], offset: 3 },
+          },
+          type: 'replace_children',
+        },
+      ])
+    })
+
+    headerEditor.api.history.withoutSaving(() => {
+      write(headerEditor, (tx) => {
+        tx.operations.replay([
+          {
+            node: paragraph('remote'),
+            path: [0],
+            root: 'header',
+            type: 'insert_node',
+          },
+        ])
+      })
+    })
+
+    const operation = getHistory(headerEditor).undos[0]?.operations[0]
+
+    if (operation?.type !== 'replace_children') {
+      assert.fail('Expected replace_children to remain in undo history')
+    }
+
+    assert.deepEqual(operation.selection?.anchor.path, [1, 0])
+    assert.deepEqual(operation.newSelection?.anchor.path, [1, 0])
+
+    undo(headerEditor)
+
+    assert.deepEqual(
+      runtime.read((state) => state.value.get()),
+      {
+        roots: {
+          header: [paragraph('remote'), oldChild, paragraph('tail')],
+          main: [paragraph('body')],
+        },
+      }
+    )
+    assert.deepEqual(
+      runtime.read((state) => state.selection.get()),
+      {
+        anchor: { path: [1, 0], offset: 3, root: 'header' },
+        focus: { path: [1, 0], offset: 3, root: 'header' },
+      }
+    )
+  })
+
   it('rebases saved undo batches across local withoutSaving document edits', () => {
     const editor = historyTestEditor()
 
@@ -234,6 +413,56 @@ describe('slate-history contract', () => {
     undo(editor)
 
     assert.equal(Editor.string(editor, [0]), 'Yabcdef')
+  })
+
+  it('rebases saved non-main split positions across withoutSaving text edits', () => {
+    const editor = createEditor({
+      extensions: [history()],
+      initialValue: {
+        roots: {
+          header: [paragraph('abcdef')],
+          main: [paragraph('main')],
+        },
+      },
+    })
+
+    write(editor, (tx) => {
+      tx.operations.replay([
+        {
+          path: [0, 0],
+          position: 3,
+          properties: {},
+          root: 'header',
+          type: 'split_node',
+        },
+      ])
+    })
+
+    editor.api.history.withoutSaving(() => {
+      write(editor, (tx) => {
+        tx.text.insert('Y', {
+          at: { offset: 0, path: [0, 0], root: 'header' },
+        })
+      })
+    })
+
+    undo(editor)
+    redo(editor)
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          header: [
+            {
+              type: 'paragraph',
+              children: [{ text: 'Yabc' }, { text: 'def' }],
+            },
+          ],
+          main: [paragraph('main')],
+        },
+      }
+    )
   })
 
   it('routes compatibility undo and redo through history commands', () => {

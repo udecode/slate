@@ -18,5 +18,6 @@ export type {
 } from '../plugin/dom-coverage'
 export { DOMCoverage } from '../plugin/dom-coverage'
 export type { DOMEditorInterface } from '../plugin/dom-editor'
-export { DOMEditor } from '../plugin/dom-editor'
+export { createDOMEditorCapability, DOMEditor } from '../plugin/dom-editor'
 export { installDOM } from '../plugin/with-dom'
+export { EDITOR_TO_ROOT_VIEW_EDITORS } from '../utils/weak-maps'

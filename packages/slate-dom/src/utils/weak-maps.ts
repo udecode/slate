@@ -72,6 +72,11 @@ export const EDITOR_TO_USER_MARKS: WeakMap<Editor, Partial<Text> | null> =
 export const EDITOR_TO_PENDING_DIFFS: WeakMap<Editor, TextDiff[]> =
   new WeakMap()
 
+export const EDITOR_TO_ROOT_VIEW_EDITORS: WeakMap<
+  Editor,
+  Set<Editor>
+> = new WeakMap()
+
 export const EDITOR_TO_PENDING_ACTION: WeakMap<Editor, Action | null> =
   new WeakMap()
 

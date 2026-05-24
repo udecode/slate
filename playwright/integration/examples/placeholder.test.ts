@@ -195,4 +195,34 @@ test.describe('placeholder example', () => {
     expect(await editor.get.modelText()).toBe('')
     await editor.assert.placeholderVisible(true)
   })
+
+  test('splits after native typing from the custom placeholder empty state', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium native input proof'
+    )
+
+    const editor = await openExample(page, 'custom-placeholder', {
+      ready: {
+        editor: 'visible',
+        placeholder: 'visible',
+      },
+    })
+
+    await editor.type('a')
+    await page.waitForTimeout(80)
+    await editor.type('b')
+    await page.waitForTimeout(80)
+    await editor.press('Enter')
+
+    expect(await editor.get.blockTexts()).toEqual(['ab', ''])
+    expect(await editor.get.modelText()).toBe('ab')
+    await editor.assert.selection({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    })
+    await editor.assert.placeholderVisible(false)
+  })
 })

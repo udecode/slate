@@ -1,6 +1,25 @@
-import type { Operation } from 'slate'
-import { mergeStringDiffs, normalizeStringDiff, type StringDiff } from '../src'
-import { transformTextDiff } from '../src/utils/diff-text'
+import {
+  createEditorRuntime,
+  createEditorView,
+  type Descendant,
+  type Operation,
+} from 'slate'
+import {
+  EDITOR_TO_PENDING_DIFFS,
+  mergeStringDiffs,
+  normalizeStringDiff,
+  type StringDiff,
+} from '../src'
+import {
+  transformPendingPoint,
+  transformTextDiff,
+} from '../src/utils/diff-text'
+
+const paragraph = (text: string) =>
+  ({
+    type: 'paragraph',
+    children: [{ text }],
+  }) satisfies Descendant
 
 const transformRemoveText = (diff: StringDiff, offset: number, text: string) =>
   transformTextDiff(
@@ -61,6 +80,108 @@ describe('slate-dom diff text', () => {
       start: 3,
       end: 3,
       text: 'X',
+    })
+  })
+
+  test('transforms implicit pending points against the view root', () => {
+    const runtime = createEditorRuntime({
+      initialValue: {
+        roots: {
+          header: [paragraph('header')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+    const headerEditor = createEditorView(runtime, { root: 'header' })
+    const pendingPoint = { path: [0, 0], offset: 6 }
+
+    expect(
+      transformPendingPoint(headerEditor, pendingPoint, {
+        offset: 0,
+        path: [0, 0],
+        root: 'header',
+        text: '!',
+        type: 'insert_text',
+      })
+    ).toEqual({ path: [0, 0], offset: 7 })
+
+    expect(
+      transformPendingPoint(headerEditor, pendingPoint, {
+        offset: 0,
+        path: [0, 0],
+        root: 'main',
+        text: '!',
+        type: 'insert_text',
+      })
+    ).toEqual(pendingPoint)
+
+    EDITOR_TO_PENDING_DIFFS.set(headerEditor, [
+      {
+        diff: { end: 6, start: 3, text: 'abc' },
+        id: 1,
+        path: [0, 0],
+      },
+    ])
+
+    expect(
+      transformPendingPoint(
+        headerEditor,
+        { path: [0, 0], offset: 4 },
+        {
+          offset: 0,
+          path: [0, 0],
+          root: 'header',
+          text: '!',
+          type: 'insert_text',
+        }
+      )
+    ).toEqual({ path: [0, 0], offset: 5 })
+  })
+
+  test('transforms pending text diffs against the view root only', () => {
+    const runtime = createEditorRuntime({
+      initialValue: {
+        roots: {
+          header: [paragraph('header'), paragraph('pending')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+    const headerEditor = createEditorView(runtime, { root: 'header' })
+    const textDiff = {
+      diff: { end: 2, start: 1, text: 'x' },
+      id: 1,
+      path: [1, 0],
+    }
+
+    expect(
+      transformTextDiff(
+        textDiff,
+        {
+          node: paragraph('new main'),
+          path: [0],
+          root: 'main',
+          type: 'insert_node',
+        } satisfies Operation,
+        headerEditor
+      )
+    ).toEqual(textDiff)
+
+    expect(
+      transformTextDiff(
+        textDiff,
+        {
+          node: paragraph('new header'),
+          path: [0],
+          root: 'header',
+          type: 'insert_node',
+        } satisfies Operation,
+        headerEditor
+      )
+    ).toEqual({
+      diff: { end: 2, start: 1, text: 'x' },
+      id: 1,
+      path: [2, 0],
     })
   })
 })

@@ -191,8 +191,8 @@ const selectorOptions: EditorSelectorOptions<typeof historyReactEditor> = {
 const SelectorProbe = () => {
   const selected = useEditorSelector(
     (selectedEditor: typeof historyReactEditor, operations) => {
-      const valueFromSelector: CustomValue = selectedEditor.read((state) =>
-        state.value.get()
+      const valueFromSelector: CustomValue = selectedEditor.read(
+        (state) => state.value.get().roots.main
       )
       const typedOperations: readonly Operation<CustomValue>[] | undefined =
         operations
@@ -217,8 +217,8 @@ const HookProbe = () => {
   const hookEditor = useSlateEditor({
     initialValue,
   })
-  const valueFromHook: CustomValue = hookEditor.read((state) =>
-    state.value.get()
+  const valueFromHook: CustomValue = hookEditor.read(
+    (state) => state.value.get().roots.main
   )
 
   hookEditor.read((state) => {

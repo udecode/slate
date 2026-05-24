@@ -12,6 +12,15 @@ export const shouldSkipSelectionScroll = (editor: ReactRuntimeEditor) => {
   )
 }
 
+export const shouldSkipDOMSelection = (editor: ReactRuntimeEditor) => {
+  const commit = getLastCommit(editor)
+
+  return Boolean(
+    commit?.tags.includes('skip-dom-selection') ||
+      commit?.metadata.selection?.dom === 'preserve'
+  )
+}
+
 export const shouldSkipSelectionFocus = (editor: ReactRuntimeEditor) => {
   const commit = getLastCommit(editor)
 

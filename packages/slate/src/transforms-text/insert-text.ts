@@ -2,6 +2,8 @@ import {
   applyOperation,
   getPublicSelection,
   syncImplicitTargetToCurrentSelection,
+  withEditorOperationRoot,
+  withEditorOperationRootChildren,
 } from '../core/public-state'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { elementReadOnly } from '../editor/element-read-only'
@@ -17,6 +19,7 @@ import type {
   TextInsertTextOptions,
   TextMutationMethods,
 } from '../interfaces/transforms/text'
+import { getLocationRoot } from '../internal/root-location'
 import { getDefaultInsertLocation } from '../utils'
 
 const samePoint = (
@@ -64,116 +67,136 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
   text,
   options: TextInsertTextOptions = {}
 ) => {
-  const { voids = false } = options
-  const explicitAtPreservesNullSelection =
-    options.at != null && getPublicSelection(editor) == null
-  const defaultAt = options.at ?? getDefaultInsertLocation(editor)
-  const preflightAt = (() => {
-    if (LocationApi.isPath(defaultAt)) {
-      return Editor.range(editor, defaultAt)
-    }
-
-    if (LocationApi.isRange(defaultAt) && RangeApi.isCollapsed(defaultAt)) {
-      return defaultAt.anchor
-    }
-
-    return defaultAt
-  })()
-
-  if (
-    LocationApi.isPoint(preflightAt) &&
-    ((!voids && Editor.void(editor, { at: preflightAt })) ||
-      elementReadOnly(editor, { at: preflightAt }))
-  ) {
-    return
-  }
-
-  if (
-    text.length > 0 &&
-    LocationApi.isRange(defaultAt) &&
-    !RangeApi.isCollapsed(defaultAt) &&
-    isFullDocumentRange(editor, defaultAt)
-  ) {
-    applyOperation(editor, {
-      children: [...Editor.getChildren(editor)] as Value,
-      index: 0,
-      newChildren: createFullDocumentTextReplacement(editor, text) as Value,
-      newSelection: explicitAtPreservesNullSelection
-        ? null
-        : {
-            anchor: { path: [0, 0], offset: text.length },
-            focus: { path: [0, 0], offset: text.length },
-          },
-      path: [],
-      selection: getPublicSelection(editor),
-      type: 'replace_children',
-    })
-    if (options.at == null) {
-      syncImplicitTargetToCurrentSelection(editor)
-    }
-    return
-  }
-
-  Editor.withoutNormalizing(editor, () => {
-    const transforms = getEditorTransformRegistry(editor)
-    let { at = getDefaultInsertLocation(editor) } = options
-
-    if (LocationApi.isPath(at)) {
-      at = Editor.range(editor, at)
-    }
-
-    if (LocationApi.isRange(at)) {
-      if (RangeApi.isCollapsed(at)) {
-        at = at.anchor
-      } else {
-        const end = RangeApi.end(at)
-        if (!voids && Editor.void(editor, { at: end })) {
-          return
-        }
-        const start = RangeApi.start(at)
-        const startRef = Editor.pointRef(editor, start)
-        const endRef = Editor.pointRef(editor, end)
-        transforms.delete({ at, voids })
-        const selectionAfterDelete = getPublicSelection(editor)
-        const selectionPointAfterDelete =
-          selectionAfterDelete && RangeApi.isCollapsed(selectionAfterDelete)
-            ? {
-                offset: selectionAfterDelete.anchor.offset,
-                path: [...selectionAfterDelete.anchor.path],
-              }
-            : null
-        const startPoint = startRef.unref()
-        const endPoint = endRef.unref()
-        const nextAt = selectionPointAfterDelete ?? startPoint ?? endPoint
-
-        if (!nextAt) {
-          return
-        }
-
-        at = nextAt
-
-        if (options.at == null) {
-          transforms.setSelection({ anchor: nextAt, focus: nextAt })
-        } else if (explicitAtPreservesNullSelection) {
-          transforms.deselect()
-        }
+  const explicitRoot = getLocationRoot(options.at)
+  const insertText = () => {
+    const { voids = false } = options
+    const explicitAtPreservesNullSelection =
+      options.at != null && getPublicSelection(editor) == null
+    const defaultAt = options.at ?? getDefaultInsertLocation(editor)
+    const preflightAt = (() => {
+      if (LocationApi.isPath(defaultAt)) {
+        return Editor.range(editor, defaultAt)
       }
-    }
 
-    if (!LocationApi.isPoint(at)) {
-      return
-    }
+      if (LocationApi.isRange(defaultAt) && RangeApi.isCollapsed(defaultAt)) {
+        return defaultAt.anchor
+      }
+
+      return defaultAt
+    })()
 
     if (
-      (!voids && Editor.void(editor, { at })) ||
-      elementReadOnly(editor, { at })
+      LocationApi.isPoint(preflightAt) &&
+      ((!voids && Editor.void(editor, { at: preflightAt })) ||
+        elementReadOnly(editor, { at: preflightAt }))
     ) {
       return
     }
 
-    const { path, offset } = at
-    if (text.length > 0) {
-      applyOperation(editor, { type: 'insert_text', path, offset, text })
+    if (
+      text.length > 0 &&
+      LocationApi.isRange(defaultAt) &&
+      !RangeApi.isCollapsed(defaultAt) &&
+      isFullDocumentRange(editor, defaultAt)
+    ) {
+      applyOperation(editor, {
+        children: [...Editor.getChildren(editor)] as Value,
+        index: 0,
+        newChildren: createFullDocumentTextReplacement(editor, text) as Value,
+        newSelection: explicitAtPreservesNullSelection
+          ? null
+          : {
+              anchor: { path: [0, 0], offset: text.length },
+              focus: { path: [0, 0], offset: text.length },
+            },
+        path: [],
+        selection: getPublicSelection(editor),
+        type: 'replace_children',
+      })
+      if (options.at == null) {
+        syncImplicitTargetToCurrentSelection(editor)
+      }
+      return
     }
-  })
+
+    Editor.withoutNormalizing(editor, () => {
+      const transforms = getEditorTransformRegistry(editor)
+      let { at = getDefaultInsertLocation(editor) } = options
+      const insertAt = () => {
+        if (LocationApi.isPath(at)) {
+          at = Editor.range(editor, at)
+        }
+
+        if (LocationApi.isRange(at)) {
+          if (RangeApi.isCollapsed(at)) {
+            at = at.anchor
+          } else {
+            const end = RangeApi.end(at)
+            if (!voids && Editor.void(editor, { at: end })) {
+              return
+            }
+            const start = RangeApi.start(at)
+            const startRef = Editor.pointRef(editor, start)
+            const endRef = Editor.pointRef(editor, end)
+            transforms.delete({ at, voids })
+            const selectionAfterDelete = getPublicSelection(editor)
+            const selectionPointAfterDelete =
+              selectionAfterDelete && RangeApi.isCollapsed(selectionAfterDelete)
+                ? {
+                    ...selectionAfterDelete.anchor,
+                    path: [...selectionAfterDelete.anchor.path],
+                  }
+                : null
+            const startPoint = startRef.unref()
+            const endPoint = endRef.unref()
+            const nextAt = selectionPointAfterDelete ?? startPoint ?? endPoint
+
+            if (!nextAt) {
+              return
+            }
+
+            at = nextAt
+
+            if (options.at == null) {
+              transforms.setSelection({ anchor: nextAt, focus: nextAt })
+            } else if (explicitAtPreservesNullSelection) {
+              transforms.deselect()
+            }
+          }
+        }
+
+        if (!LocationApi.isPoint(at)) {
+          return
+        }
+
+        if (
+          (!voids && Editor.void(editor, { at })) ||
+          elementReadOnly(editor, { at })
+        ) {
+          return
+        }
+
+        const { path, offset, root } = at
+        if (text.length > 0) {
+          applyOperation(editor, {
+            type: 'insert_text',
+            path,
+            offset,
+            root,
+            text,
+          })
+        }
+      }
+      insertAt()
+    })
+  }
+
+  if (explicitRoot) {
+    withEditorOperationRoot(editor, explicitRoot, () =>
+      withEditorOperationRootChildren(editor, explicitRoot, insertText)
+    )
+    return
+  }
+
+  insertText()
 }

@@ -35,7 +35,7 @@ const forcedLayout = () =>
     name: 'forced-layout',
     normalizers: {
       editor({ next, tx }) {
-        const children = tx.value.get()
+        const children = tx.nodes.children()
         const first = children[0]
         const second = children[1]
         const firstText = first ? NodeApi.string(first) : ''

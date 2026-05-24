@@ -11,7 +11,7 @@ export type InputIntent =
   | 'internal-control'
   | 'model-selection-move'
   | 'native-selection-move'
-  | 'shell-selection'
+  | 'partial-dom-selection'
   | 'text-insert'
 
 export type SelectionSource =
@@ -20,7 +20,7 @@ export type SelectionSource =
   | 'dom-current'
   | 'internal-control'
   | 'model-owned'
-  | 'shell-backed'
+  | 'partial-dom-backed'
   | 'unknown'
 
 export type SelectionChangeOrigin =
@@ -36,9 +36,10 @@ export type ModelSelectionPreferenceReason =
   | 'internal-control'
   | 'model-command'
   | 'native-selection'
+  | 'projection-refresh'
   | 'programmatic-export'
   | 'repair-induced'
-  | 'shell-backed'
+  | 'partial-dom-backed'
   | 'unknown'
 
 export type ModelSelectionPreference = {
@@ -53,6 +54,7 @@ export type EditableSelectionSourceTransition = {
     | 'internal-control'
     | 'model-command'
     | 'native-selection-move'
+    | 'projection-refresh'
     | 'unknown-selection'
   selectionSource: SelectionSource
 }

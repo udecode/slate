@@ -52,6 +52,11 @@ const createRange = (
   focus,
 })
 
+const paragraph = (text: string): Descendant => ({
+  type: 'paragraph',
+  children: [{ text }],
+})
+
 describe('slate bookmark contract', () => {
   it('round-trips a bookmark on an unchanged snapshot and hides its backing range ref', () => {
     const editor = createEditor()
@@ -291,6 +296,55 @@ describe('slate bookmark contract', () => {
       focus: { path: [1, 0], offset: 11 },
     })
     assert.equal(Editor.string(editor, resolved), 'lph')
+  })
+
+  it('preserves an explicit bookmark root through replace_children', () => {
+    const editor = createEditor({
+      initialValue: {
+        roots: {
+          header: [paragraph('head')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+    const bookmark = Editor.bookmark(editor, {
+      anchor: { path: [0, 0], offset: 2, root: 'header' },
+      focus: { path: [0, 0], offset: 2, root: 'header' },
+    })
+
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          children: [paragraph('head')],
+          index: 0,
+          newChildren: [paragraph('head!')],
+          newSelection: null,
+          path: [],
+          root: 'header',
+          selection: null,
+          type: 'replace_children',
+        },
+      ])
+    })
+    editor.update((tx) => {
+      tx.text.insert('X', {
+        at: { path: [0, 0], offset: 0, root: 'header' },
+      })
+    })
+
+    assert.deepEqual(bookmark.unref(), {
+      anchor: { path: [0, 0], offset: 3, root: 'header' },
+      focus: { path: [0, 0], offset: 3, root: 'header' },
+    })
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          header: [paragraph('Xhead!')],
+          main: [paragraph('body')],
+        },
+      }
+    )
   })
 
   it('rebases across normalization-driven spacer insertion', () => {

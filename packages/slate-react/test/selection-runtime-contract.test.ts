@@ -401,7 +401,7 @@ describe('selection runtime', () => {
     ).toBe(true)
   })
 
-  test('skips DOM export for selections owned by a synthetic shell lane', () => {
+  test('skips DOM export for selections owned by a synthetic partial-DOM lane', () => {
     const inputController = createInputController()
     inputController.state.selectionSource = 'model-owned'
     let listener:

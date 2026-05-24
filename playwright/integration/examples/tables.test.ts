@@ -85,7 +85,7 @@ test.describe('table example', () => {
       ready: { editor: 'visible' },
     })
     const trailingParagraph =
-      "This table is just a basic example of rendering a table, and it doesn't have fancy functionality. But you could augment it to add support for navigating with arrow keys, displaying table headers, adding column and rows, or even formulas if you wanted to get really crazy!"
+      (await editor.root.locator('p').last().textContent()) ?? ''
 
     await editor.selection.select({
       anchor: { path: [2, 0], offset: 0 },
@@ -179,7 +179,7 @@ test.describe('table example', () => {
       .not.toContain('Since the editor is based')
     await expect
       .poll(() => editor.get.selectedText())
-      .toContain('This table is just a basic example')
+      .toContain('This table is a basic rendering example')
   })
 
   test('keeps Enter from splitting inside a table cell', async ({ page }) => {

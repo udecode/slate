@@ -876,7 +876,7 @@ test('transform registry access is fenced to tx and extension override bridges',
       collectSourceFiles(slateReactRoot)
     )
   ).toEqual({
-    'packages/slate-react/src/editable/runtime-editor-api.ts': 2,
+    'packages/slate-react/src/editable/runtime-editor-api.ts': 4,
     'packages/slate-react/src/plugin/with-react.ts': 4,
   })
 })
@@ -895,7 +895,7 @@ test('direct force render calls have explicit runtime owners', () => {
       next: 'worker',
       owner: 'Keyboard input worker',
       rationale:
-        'Keyboard worker still directly forces render for select-all shell-backed selection before repair/view runtime owns that request.',
+        'Keyboard worker still directly forces render for select-all partial-dom-backed selection before repair/view runtime owns that request.',
     },
     'packages/slate-react/src/editable/mutation-controller.ts': {
       count: 1,

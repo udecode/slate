@@ -124,12 +124,12 @@ export const classifyKeyboardIntent = ({
   editor,
   event,
   isComposing = false,
-  renderingStrategy,
+  domStrategyRuntime,
 }: {
   editor: ReactRuntimeEditor
   event: ReactKeyboardEvent<HTMLDivElement>
   isComposing?: boolean
-  renderingStrategy: unknown
+  domStrategyRuntime: unknown
 }): InputIntent | null => {
   const { nativeEvent } = event
 

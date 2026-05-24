@@ -18,11 +18,34 @@ export type RuntimeNodeBinding = {
   runtimeId: RuntimeId | null
 }
 
-export const readRuntimeNode = (editor: Editor, path: Path): Node | null =>
-  getEditorLiveNode(editor, path) ?? null
+const readRuntimeNodeFromView = (editor: Editor, path: Path): Node | null =>
+  editor.read((state) => {
+    if (!state.nodes.hasPath(path)) {
+      return null
+    }
 
-export const readRuntimeText = (editor: Editor, path: Path): SlateText | null =>
-  getEditorLiveText(editor, path) ?? null
+    const [node] = state.nodes.get(path)
+
+    return node
+  })
+
+export const readRuntimeNode = (editor: Editor, path: Path): Node | null =>
+  getEditorLiveNode(editor, path) ?? readRuntimeNodeFromView(editor, path)
+
+export const readRuntimeText = (
+  editor: Editor,
+  path: Path
+): SlateText | null => {
+  const text = getEditorLiveText(editor, path)
+
+  if (text) {
+    return text
+  }
+
+  const node = readRuntimeNodeFromView(editor, path)
+
+  return TextApi.isText(node) ? node : null
+}
 
 export const readRuntimeNodeById = (
   editor: Editor,

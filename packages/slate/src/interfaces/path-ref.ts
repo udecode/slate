@@ -1,4 +1,5 @@
 import { type Operation, type Path, PathApi } from '..'
+import { getOperationRoot, getPathRefRoot } from '../internal/root-location'
 
 /**
  * `PathRef` objects keep a specific path in a document synced over time as new
@@ -25,6 +26,10 @@ export const PathRefApi: PathRefInterface = {
     const { current, affinity } = ref
 
     if (current == null) {
+      return
+    }
+
+    if (getPathRefRoot(ref) !== getOperationRoot(op)) {
       return
     }
 

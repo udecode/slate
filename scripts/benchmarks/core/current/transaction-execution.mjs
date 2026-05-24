@@ -49,7 +49,7 @@ const createBatchOps = (count) => [
   },
   {
     type: 'remove_text',
-    path: [3, 0],
+    path: [4, 0],
     offset: 1,
     text: 'ode-03',
   },

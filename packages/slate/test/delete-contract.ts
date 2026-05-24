@@ -554,6 +554,93 @@ describe('slate delete contract', () => {
     })
   })
 
+  it('removes one preceding empty paragraph at a time on Backspace', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [paragraph('text')],
+      marks: null,
+      selection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+    })
+
+    editor.update(() => {
+      Editor.insertBreak(editor)
+      Editor.insertBreak(editor)
+      Editor.insertBreak(editor)
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      paragraph(''),
+      paragraph(''),
+      paragraph(''),
+      paragraph('text'),
+    ])
+
+    editor.update((tx) => {
+      tx.text.deleteBackward()
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      paragraph(''),
+      paragraph(''),
+      paragraph('text'),
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [2, 0], offset: 0 },
+      focus: { path: [2, 0], offset: 0 },
+    })
+  })
+
+  it('keeps earlier empty paragraphs when Backspace merges after a space block', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [paragraph('text')],
+      marks: null,
+      selection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+    })
+
+    editor.update(() => {
+      Editor.insertBreak(editor)
+      Editor.insertBreak(editor)
+      Editor.insertBreak(editor)
+      Editor.insertBreak(editor)
+      Editor.insertText(editor, ' ')
+      Editor.insertBreak(editor)
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      paragraph(''),
+      paragraph(''),
+      paragraph(''),
+      paragraph(''),
+      paragraph(' '),
+      paragraph('text'),
+    ])
+
+    editor.update((tx) => {
+      tx.text.deleteBackward()
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      paragraph(''),
+      paragraph(''),
+      paragraph(''),
+      paragraph(''),
+      paragraph(' text'),
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [4, 0], offset: 1 },
+      focus: { path: [4, 0], offset: 1 },
+    })
+  })
+
   it('removes an empty editable inline on Backspace without deleting preceding text', () => {
     const editor = createEditor()
     editor.extend(

@@ -845,17 +845,10 @@ export function createAndroidInputManager({
                 offset: start.offset + text.length,
               }
 
-              scheduleAction(
-                () => {
-                  editor.update((tx) => {
-                    tx.selection.set({
-                      anchor: newPoint,
-                      focus: newPoint,
-                    })
-                  })
-                },
-                { at: newPoint, preserveInsertPositionHint: true }
-              )
+              scheduleAction(() => {}, {
+                at: newPoint,
+                preserveInsertPositionHint: true,
+              })
             }
             if (shouldFlushStoredTextDiffForTransformMiddleware(editor, diff)) {
               scheduleFlush()

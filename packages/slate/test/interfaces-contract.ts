@@ -7,6 +7,7 @@ import {
   ElementApi,
   NodeApi,
   OperationApi,
+  PointApi,
   RangeApi,
   TextApi,
 } from '../src'
@@ -133,6 +134,35 @@ describe('slate interfaces contract', () => {
     )
   })
 
+  it('keeps point and range comparisons root-aware', () => {
+    const mainPoint = { path: [0, 0], offset: 1 }
+    const explicitMainPoint = { path: [0, 0], offset: 1, root: 'main' }
+    const headerPoint = { path: [0, 0], offset: 1, root: 'header' }
+
+    assert.equal(PointApi.equals(mainPoint, explicitMainPoint), true)
+    assert.equal(PointApi.equals(mainPoint, headerPoint), false)
+    assert.equal(
+      RangeApi.equals(
+        { anchor: mainPoint, focus: mainPoint },
+        { anchor: headerPoint, focus: headerPoint }
+      ),
+      false
+    )
+    assert.equal(
+      RangeApi.intersection(
+        {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 2 },
+        },
+        {
+          anchor: { path: [0, 0], offset: 1, root: 'header' },
+          focus: { path: [0, 0], offset: 2, root: 'header' },
+        }
+      ),
+      null
+    )
+  })
+
   it('rejects insert_fragment operations whose at target is only a Path', () => {
     assert.equal(
       OperationApi.isOperation({
@@ -152,7 +182,10 @@ describe('slate interfaces contract', () => {
     editor.exec = () => {}
 
     assert.equal('apply' in editor, false)
-    assert.equal(Array.isArray(editor.read((state) => state.value.get())), true)
+    assert.equal(
+      Array.isArray(editor.read((state) => state.runtime.snapshot().children)),
+      true
+    )
     assert.equal(Editor.getSelection(editor), null)
     assert.equal('children' in editor, false)
     assert.equal('selection' in editor, false)

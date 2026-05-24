@@ -15,6 +15,30 @@ const getFirstElement = (container: HTMLElement) => {
   return element
 }
 
+const getElementByPath = (container: HTMLElement, path: string) => {
+  const element = container.querySelector(
+    `[data-slate-node="element"][data-slate-path="${path}"]`
+  )
+
+  if (!(element instanceof HTMLElement)) {
+    throw new Error(`Expected Slate element at path ${path}.`)
+  }
+
+  return element
+}
+
+const getTextByPath = (container: HTMLElement, path: string) => {
+  const element = container.querySelector(
+    `[data-slate-node="text"][data-slate-path="${path}"]`
+  )
+
+  if (!(element instanceof HTMLElement)) {
+    throw new Error(`Expected Slate text at path ${path}.`)
+  }
+
+  return element
+}
+
 const getZeroWidthLineBreaks = (element: HTMLElement) =>
   Array.from(element.querySelectorAll('[data-slate-zero-width="n"]')).filter(
     (zeroWidth) => zeroWidth.querySelector('br')
@@ -52,6 +76,41 @@ describe('rendered DOM shape contract', () => {
 
     expect(block.getAttribute('data-slate-path')).toBe('0')
     expect(text?.getAttribute('data-slate-path')).toBe('0,0')
+  })
+
+  test('editing one block preserves unaffected sibling DOM identity', async () => {
+    const editor = createReactEditor({
+      initialValue: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'alpha' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: 'bravo' }],
+        },
+      ],
+    })
+
+    const rendered = render(
+      <Slate editor={editor}>
+        <Editable id="rendered-dom-shape-unaffected-sibling-identity" />
+      </Slate>
+    )
+    const untouchedBlock = getElementByPath(rendered.container, '1')
+    const untouchedText = getTextByPath(rendered.container, '1,0')
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.text.insert('!', { at: { path: [0, 0], offset: 5 } })
+      })
+    })
+
+    expect(getTextByPath(rendered.container, '0,0').textContent).toContain(
+      'alpha!'
+    )
+    expect(getElementByPath(rendered.container, '1')).toBe(untouchedBlock)
+    expect(getTextByPath(rendered.container, '1,0')).toBe(untouchedText)
   })
 
   test('non-empty blocks do not render empty marked leaves as visual line breaks', () => {

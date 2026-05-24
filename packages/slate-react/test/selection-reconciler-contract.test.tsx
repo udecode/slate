@@ -39,7 +39,7 @@ test('selection reconciler clears the updating guard when DOM export throws', ()
       inputController,
       rootRef,
       scrollSelectionIntoView: vi.fn(),
-      shellBackedSelection: false,
+      partialDOMBackedSelection: false,
       state,
     })
 

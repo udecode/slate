@@ -58,9 +58,9 @@ describe('slate-react provider hooks contract', () => {
       })
     )
 
-    expect(result.current.read((state) => state.value.get())).toEqual(
-      initialValue
-    )
+    expect(result.current.read((state) => state.value.get())).toEqual({
+      roots: { main: initialValue },
+    })
     expect(result.current.read((state) => state.value.operations())).toEqual([])
     expect(result.current.read((state) => state.value.lastCommit())).toBe(null)
   })
@@ -108,7 +108,7 @@ describe('slate-react provider hooks contract', () => {
     const shouldUpdate = jest.fn(() => true)
     const selector = jest.fn((nextEditor: typeof editor) =>
       nextEditor.read((state) => {
-        const [firstBlock] = state.value.get() as {
+        const [firstBlock] = state.nodes.children() as {
           children: { text: string }[]
         }[]
 
@@ -762,7 +762,7 @@ describe('slate-react provider hooks contract', () => {
     }
   })
 
-  test('Editable can explicitly use DOM-present rendering-strategy grouping', () => {
+  test('Editable can explicitly use DOM-present dom-strategy grouping', () => {
     const value = Array.from({ length: 1001 }, (_value, index) => ({
       type: 'block',
       children: [{ text: `line ${index}` }],
@@ -776,7 +776,7 @@ describe('slate-react provider hooks contract', () => {
     try {
       rendered = render(
         <Slate editor={editor}>
-          <Editable data-testid="staged-root" renderingStrategy="staged" />
+          <Editable data-testid="staged-root" domStrategy="staged" />
         </Slate>
       )
 
@@ -792,7 +792,7 @@ describe('slate-react provider hooks contract', () => {
     }
   })
 
-  test('Editable can disable automatic rendering-strategy root grouping', () => {
+  test('Editable can disable automatic dom-strategy root grouping', () => {
     const value = Array.from({ length: 1001 }, (_value, index) => ({
       type: 'block',
       children: [{ text: `line ${index}` }],
@@ -806,7 +806,7 @@ describe('slate-react provider hooks contract', () => {
     try {
       rendered = render(
         <Slate editor={editor}>
-          <Editable data-testid="ungrouped-root" renderingStrategy="full" />
+          <Editable data-testid="ungrouped-root" domStrategy="full" />
         </Slate>
       )
 

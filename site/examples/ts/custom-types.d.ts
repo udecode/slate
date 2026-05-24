@@ -92,6 +92,11 @@ export type ParagraphElement = {
   children: Descendant[]
 }
 
+export type ThematicBreakElement = {
+  type: 'thematic-break'
+  children: EmptyText[]
+}
+
 export type TableElement = { type: 'table'; children: TableRowElement[] }
 
 export type TableCellElement = { type: 'table-cell'; children: Descendant[] }
@@ -146,6 +151,7 @@ export type CustomElement =
   | NumberedListItemElement
   | MentionElement
   | ParagraphElement
+  | ThematicBreakElement
   | TableElement
   | TableRowElement
   | TableCellElement

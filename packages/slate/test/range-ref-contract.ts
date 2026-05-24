@@ -2,7 +2,12 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { Editor } from 'slate/internal'
 
-import { createEditor, type Descendant } from '../src'
+import {
+  createEditor,
+  createEditorRuntime,
+  createEditorView,
+  type Descendant,
+} from '../src'
 
 const createChildren = (): Descendant[] => [
   {
@@ -274,5 +279,104 @@ describe('slate range ref contract', () => {
       anchor: { path: [0, 0], offset: 1 },
       focus: { path: [0, 0], offset: 4 },
     })
+  })
+
+  it('keeps rootless non-main range refs public while rebasing in their view root', () => {
+    const runtime = createEditorRuntime({
+      initialValue: {
+        roots: {
+          header: createChildren(),
+          main: createChildren(),
+        },
+      },
+    })
+    const headerEditor = createEditorView(runtime, { root: 'header' })
+    let ref: ReturnType<typeof Editor.rangeRef>
+
+    headerEditor.update((tx) => {
+      ref = Editor.rangeRef(runtime.editor, {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 4 },
+      })
+      tx.text.insert('>', {
+        at: { path: [0, 0], offset: 0 },
+      })
+    })
+
+    assert.deepEqual(ref!.current, {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 5 },
+    })
+    assert.deepEqual(ref!.unref(), {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 5 },
+    })
+  })
+
+  it('keeps explicit non-main range ref roots visible after rebasing', () => {
+    const editor = createEditor({
+      initialValue: {
+        roots: {
+          header: createChildren(),
+          main: createChildren(),
+        },
+      },
+    })
+    const ref = Editor.rangeRef(editor, {
+      anchor: { path: [0, 0], offset: 1, root: 'header' },
+      focus: { path: [0, 0], offset: 4, root: 'header' },
+    })
+
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          offset: 0,
+          path: [0, 0],
+          root: 'header',
+          text: '>',
+          type: 'insert_text',
+        },
+      ])
+    })
+
+    assert.deepEqual(ref.current, {
+      anchor: { path: [0, 0], offset: 2, root: 'header' },
+      focus: { path: [0, 0], offset: 5, root: 'header' },
+    })
+  })
+
+  it('removes range refs only when a matching-root operation deletes them', () => {
+    const runtime = createEditorRuntime({
+      initialValue: {
+        roots: {
+          header: createChildren(),
+          main: createChildren(),
+        },
+      },
+    })
+    const headerEditor = createEditorView(runtime, { root: 'header' })
+    const mainEditor = createEditorView(runtime, { root: 'main' })
+    let ref: ReturnType<typeof Editor.rangeRef>
+
+    headerEditor.update(() => {
+      ref = Editor.rangeRef(runtime.editor, {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 4 },
+      })
+    })
+    mainEditor.update((tx) => {
+      tx.nodes.remove({ at: [0] })
+    })
+
+    assert.deepEqual(ref!.current, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 4 },
+    })
+
+    headerEditor.update((tx) => {
+      tx.nodes.remove({ at: [0] })
+    })
+
+    assert.equal(ref!.current, null)
   })
 })

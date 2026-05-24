@@ -7,6 +7,7 @@ import {
   isEditableModelSelectionPreferredForInput,
   prepareEditableSelectionChangeImport,
   setEditableModelSelectionPreference,
+  shouldApplyDOMSelectionChange,
   shouldImportChangedExpandedDOMSelection,
   syncEditableDOMSelectionToEditor,
 } from '../src/editable/selection-controller'
@@ -102,7 +103,7 @@ test('failed DOM selection export clears the updating guard', () => {
     syncEditableDOMSelectionToEditor({
       editor,
       scrollSelectionIntoView: vi.fn(),
-      shellBackedSelection: false,
+      partialDOMBackedSelection: false,
       state,
     })
 
@@ -275,6 +276,33 @@ test('changed expanded DOM import ignores same, collapsed, and repair ranges', (
   ).toBe(false)
 })
 
+test('DOM selectionchange import only accepts native collapsed changes', () => {
+  expect(
+    shouldApplyDOMSelectionChange({
+      changedExpandedDOMSelection: false,
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe(true)
+  expect(
+    shouldApplyDOMSelectionChange({
+      changedExpandedDOMSelection: false,
+      selectionChangeOrigin: 'programmatic-export',
+    })
+  ).toBe(false)
+  expect(
+    shouldApplyDOMSelectionChange({
+      changedExpandedDOMSelection: false,
+      selectionChangeOrigin: 'repair-induced',
+    })
+  ).toBe(false)
+  expect(
+    shouldApplyDOMSelectionChange({
+      changedExpandedDOMSelection: true,
+      selectionChangeOrigin: 'programmatic-export',
+    })
+  ).toBe(true)
+})
+
 test('model-owned programmatic selectionchange keeps its ownership guard', () => {
   const inputController = createEditableInputController({
     preferModelSelectionForInputRef: { current: true },
@@ -417,7 +445,7 @@ test('native insertText preserves explicit model-owned input guards', () => {
     'composition',
     'internal-control',
     'model-command',
-    'shell-backed',
+    'partial-dom-backed',
   ] as const) {
     const inputController = createEditableInputController({
       preferModelSelectionForInputRef: { current: true },

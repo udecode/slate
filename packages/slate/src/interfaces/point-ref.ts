@@ -1,4 +1,11 @@
 import { type Operation, type Point, PointApi } from '..'
+import {
+  getOperationRoot,
+  getPointRefRootMeta,
+  getPointRoot,
+  stripImplicitPointRoot,
+  withImplicitPointRoot,
+} from '../internal/root-location'
 import type { TextDirection } from '../types/types'
 
 /**
@@ -29,8 +36,17 @@ export const PointRefApi: PointRefInterface = {
       return
     }
 
-    const point = PointApi.transform(current, op, { affinity })
-    ref.current = point
+    const rootMeta = getPointRefRootMeta(ref) ?? getPointRoot(current)
+    const { root } = rootMeta
+
+    if (root !== getOperationRoot(op)) {
+      return
+    }
+
+    const transformPoint = withImplicitPointRoot(current, root)
+    const point = PointApi.transform(transformPoint, op, { affinity })
+
+    ref.current = point ? stripImplicitPointRoot(point, rootMeta) : null
 
     if (point == null) {
       ref.unref()

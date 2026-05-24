@@ -30,7 +30,7 @@ const extension = defineEditorExtension<CustomEditor>()({
     apply(context) {
       const operation: Operation<CustomValue> = context.operation
       const value: ValueOf<typeof context.editor> = context.editor.read(
-        (state) => state.value.get()
+        (state) => state.value.get().roots.main
       )
 
       context.next(operation)
@@ -65,6 +65,6 @@ defineEditorExtension<CustomEditor>()({
 })
 
 const editor = createEditor({ extensions: [extension], initialValue })
-const value: CustomValue = editor.read((state) => state.value.get())
+const value: CustomValue = editor.read((state) => state.value.get().roots.main)
 
 void value

@@ -90,7 +90,7 @@ const initialValue: CustomValue = [
     type: 'paragraph',
     children: [
       {
-        text: "This table is just a basic example of rendering a table, and it doesn't have fancy functionality. But you could augment it to add support for navigating with arrow keys, displaying table headers, adding column and rows, or even formulas if you wanted to get really crazy!",
+        text: 'This table is a basic rendering example with conservative cell-boundary editing. Backspace, Delete, Enter, and arrow movement stay inside valid table or text positions; richer table features such as headers, row and column controls, formulas, and multi-cell selection belong in table extensions.',
       },
     ],
   },

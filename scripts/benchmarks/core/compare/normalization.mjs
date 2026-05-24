@@ -145,11 +145,13 @@ const replaceEditor = (editor, input) => {
 };
 
 const getChildren = (editor) =>
-  typeof Editor.getSnapshot === 'function'
-    ? Editor.getSnapshot(editor).children
-    : typeof Editor.getChildren === 'function'
-      ? Editor.getChildren(editor)
-      : editor.children;
+  typeof Editor.getChildren === 'function'
+    ? Editor.getChildren(editor)
+    : typeof Editor.getSnapshot === 'function'
+      ? Editor.getSnapshot(editor).children
+      : typeof editor.getChildren === 'function'
+        ? editor.getChildren()
+        : editor.children;
 
 const normalizeEditor = (editor, options) => {
   if (typeof editor.update === 'function') {
@@ -212,7 +214,7 @@ const installForcedLayoutNormalizer = (editor) => {
       name: 'benchmark-forced-layout-normalizer',
       normalizers: {
         editor({ next, tx }) {
-          const children = tx.value.get();
+          const children = tx.nodes.children();
           const first = children[0];
           const second = children[1];
           const firstText = nodeString(first);

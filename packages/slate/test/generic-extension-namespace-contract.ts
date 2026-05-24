@@ -113,7 +113,7 @@ const extension = defineEditorExtension<CustomEditor>()({
   name: 'generic-namespace',
   state: {
     link(state) {
-      const value: CustomValue = state.value.get()
+      const value: CustomValue = state.value.get().roots.main
 
       return {
         nested: {
@@ -126,7 +126,7 @@ const extension = defineEditorExtension<CustomEditor>()({
     table(state) {
       return {
         isInTable: () => state.nodes.hasPath([0]),
-        rowCount: () => state.value.get().length,
+        rowCount: () => state.value.get().roots.main.length,
       }
     },
   },
@@ -162,10 +162,10 @@ const extension = defineEditorExtension<CustomEditor>()({
               type: 'paragraph',
               children: [{ text: 'row' }],
             } satisfies ParagraphElement,
-            { at: [tx.value.get().length] }
+            { at: [tx.value.get().roots.main.length] }
           )
         },
-        rowCount: () => tx.value.get().length,
+        rowCount: () => tx.value.get().roots.main.length,
       }
     },
   },
@@ -191,7 +191,7 @@ const runtimeExtension = defineEditorExtension({
         table(state) {
           return {
             isInTable: () => mode.get() === 'cell' && state.nodes.hasPath([0]),
-            rowCount: () => state.value.get().length,
+            rowCount: () => state.value.get().roots.main.length,
           }
         },
       },
@@ -205,7 +205,7 @@ const runtimeExtension = defineEditorExtension({
                 children: [{ text: 'row' }],
               } satisfies ParagraphElement)
             },
-            rowCount: () => tx.value.get().length,
+            rowCount: () => tx.value.get().roots.main.length,
           }
         },
       },
@@ -307,7 +307,7 @@ defineEditorExtension<CustomEditor>()({
   name: 'normalizer-node-typing',
   normalizers: {
     editor(context) {
-      const value: CustomValue = context.tx.value.get()
+      const value: CustomValue = context.tx.value.get().roots.main
 
       // @ts-expect-error editor normalizers do not expose node entries
       context.entry
@@ -321,7 +321,7 @@ defineEditorExtension<CustomEditor>()({
       context.next()
     },
     node({ entry, next, tx }) {
-      const value: CustomValue = tx.value.get()
+      const value: CustomValue = tx.value.get().roots.main
 
       tx.nodes.insert({
         type: 'paragraph',

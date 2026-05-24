@@ -424,4 +424,64 @@ describe('core benchmark scripts contract', () => {
       assert.match(branchSource, /\.\.\.typingMetrics/)
     }
   })
+
+  it('keeps the core huge-document compare assertions out of snapshot materialization', () => {
+    const source = readFileSync(hugeDocumentComparePath, 'utf8')
+    const getChildrenStart = source.indexOf('const getChildren =')
+    const getSelectionStart = source.indexOf('const getSelection =')
+    const selectStart = source.indexOf('const select =')
+    const getChildrenSource = source.slice(getChildrenStart, getSelectionStart)
+    const getSelectionSource = source.slice(getSelectionStart, selectStart)
+
+    assert.ok(getChildrenStart >= 0)
+    assert.ok(getSelectionStart > getChildrenStart)
+    assert.ok(selectStart > getSelectionStart)
+    assert.ok(
+      getChildrenSource.indexOf('Editor.getChildren') <
+        getChildrenSource.indexOf('Editor.getSnapshot')
+    )
+    assert.ok(
+      getSelectionSource.indexOf('Editor.getSelection') <
+        getSelectionSource.indexOf('Editor.getSnapshot')
+    )
+  })
+
+  it('runs the observation compare node traversal through legacy and v2 node APIs', () => {
+    const source = readFileSync(observationComparePath, 'utf8')
+
+    assert.match(
+      source,
+      /Slate\.NodeApi\s*\?\?\s*Slate\.Node\s*\?\?\s*SlateInternal\.NodeApi\s*\?\?\s*SlateInternal\.Node/
+    )
+    assert.match(source, /NodeApi\.nodes\(editor, \{ at: \[\] \}\)/)
+    assert.doesNotMatch(source, /const \{\s*createEditor,\s*Node\s*\} = Slate/)
+  })
+
+  it('keeps observation compare children reads out of snapshot materialization', () => {
+    const source = readFileSync(observationComparePath, 'utf8')
+    const getChildrenStart = source.indexOf('const getChildren =')
+    const insertTextStart = source.indexOf('const insertText =')
+    const getChildrenSource = source.slice(getChildrenStart, insertTextStart)
+
+    assert.ok(getChildrenStart >= 0)
+    assert.ok(insertTextStart > getChildrenStart)
+    assert.ok(
+      getChildrenSource.indexOf('Editor.getChildren') <
+        getChildrenSource.indexOf('Editor.getSnapshot')
+    )
+  })
+
+  it('keeps normalization compare children reads out of snapshot materialization', () => {
+    const source = readFileSync(normalizationComparePath, 'utf8')
+    const getChildrenStart = source.indexOf('const getChildren =')
+    const normalizeStart = source.indexOf('const normalizeEditor =')
+    const getChildrenSource = source.slice(getChildrenStart, normalizeStart)
+
+    assert.ok(getChildrenStart >= 0)
+    assert.ok(normalizeStart > getChildrenStart)
+    assert.ok(
+      getChildrenSource.indexOf('Editor.getChildren') <
+        getChildrenSource.indexOf('Editor.getSnapshot')
+    )
+  })
 })

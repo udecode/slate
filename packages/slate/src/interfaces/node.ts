@@ -3,10 +3,10 @@ import {
   PathApi,
   type Range,
   RangeApi,
-  ScrubberApi,
   type Text,
   TextApi,
 } from '..'
+import { formatDebugValue } from '../utils/format-debug-value'
 import { modifyChildren, modifyLeaf, removeChildren } from '../utils/modify'
 import type { Editor as EditorType, Value } from './editor'
 import { Editor } from './editor'
@@ -56,7 +56,7 @@ export type AncestorIn<V extends Value> = AncestorOf<EditorType<V> | V[number]>
 
 export type NodeIn<V extends Value> = Element[] extends V
   ? Node
-  : NodeOf<EditorType<V> | V[number]>
+  : NodeOf<V[number]>
 
 export type ChildOf<N, I extends number = number> = N extends {
   children: readonly unknown[]
@@ -525,7 +525,7 @@ export const NodeApi: NodeInterface = {
 
     if (NodeApi.isText(node)) {
       throw new Error(
-        `Cannot get the ancestor node at path [${path}] because it refers to a text node instead: ${ScrubberApi.stringify(
+        `Cannot get the ancestor node at path [${path}] because it refers to a text node instead: ${formatDebugValue(
           node
         )}`
       )
@@ -549,7 +549,7 @@ export const NodeApi: NodeInterface = {
   child(root: Node, index: number): Descendant {
     if (NodeApi.isText(root)) {
       throw new Error(
-        `Cannot get the child of a text node: ${ScrubberApi.stringify(root)}`
+        `Cannot get the child of a text node: ${formatDebugValue(root)}`
       )
     }
 
@@ -561,7 +561,7 @@ export const NodeApi: NodeInterface = {
 
     if (c == null) {
       throw new Error(
-        `Cannot get child at index \`${index}\` in node: ${ScrubberApi.stringify(
+        `Cannot get child at index \`${index}\` in node: ${formatDebugValue(
           root
         )}`
       )
@@ -599,7 +599,7 @@ export const NodeApi: NodeInterface = {
 
     if (NodeApi.isEditor(node)) {
       throw new Error(
-        `Cannot get the descendant node at path [${path}] because it refers to the root editor node instead: ${ScrubberApi.stringify(
+        `Cannot get the descendant node at path [${path}] because it refers to the root editor node instead: ${formatDebugValue(
           node
         )}`
       )
@@ -757,7 +757,7 @@ export const NodeApi: NodeInterface = {
     const node = NodeApi.getIf(root, path)
     if (node === undefined) {
       throw new Error(
-        `Cannot find a descendant at path [${path}] in node: ${ScrubberApi.stringify(
+        `Cannot find a descendant at path [${path}] in node: ${formatDebugValue(
           root
         )}`
       )
@@ -873,7 +873,7 @@ export const NodeApi: NodeInterface = {
 
     if (!NodeApi.isText(node)) {
       throw new Error(
-        `Cannot get the leaf node at path [${path}] because it refers to a non-leaf node: ${ScrubberApi.stringify(
+        `Cannot get the leaf node at path [${path}] because it refers to a non-leaf node: ${formatDebugValue(
           node
         )}`
       )

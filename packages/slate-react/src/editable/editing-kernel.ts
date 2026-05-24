@@ -6,7 +6,13 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
 } from 'react'
-import { type Editor, type Operation, type Range, RangeApi } from 'slate'
+import {
+  type Editor,
+  type Operation,
+  type Range,
+  RangeApi,
+  type RootKey,
+} from 'slate'
 import { Hotkeys } from 'slate-dom'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { getInputEventData, isDataTransferInput } from './dom-input-event'
@@ -15,6 +21,7 @@ import {
   closeEditableEditingEpochAfterTrace,
   getEditableEditingEpochForTrace,
 } from './editing-epoch-kernel'
+import { getHistoryDirectionFromNativeEvent } from './history-keyboard'
 import {
   classifyBeforeInputIntent,
   classifyClipboardIntent,
@@ -66,14 +73,14 @@ export type EditableKernelState =
   | 'internal-control'
   | 'model-owned'
   | 'repairing'
-  | 'shell-backed'
+  | 'partial-dom-backed'
 
 export type EditableEventTargetOwner =
   | 'app-owned'
   | 'editor'
   | 'internal-control'
   | 'outside-editor'
-  | 'shell'
+  | 'partial-dom'
   | 'unknown'
 
 export type EditableOwnership =
@@ -215,26 +222,40 @@ export type EditableBrowserEvent = {
   target: EventTarget | null
 }
 
+export type EditableReactLifecyclePhase =
+  | 'commit'
+  | 'event'
+  | 'external'
+  | 'layout-effect'
+
 export type EditableEventFrame = {
   active: boolean
+  commitEpoch: number | null
   eventFamily: EditableBrowserEventFamily
   focusOwner: EditableEventTargetOwner
   id: number
   inputIntent: InputIntent | null
+  lifecyclePhase: EditableReactLifecyclePhase
   modelSelectionBefore: Range | null
+  root: RootKey
   selectionSource: SelectionSource
   startedAt: number
   targetOwner: EditableEventTargetOwner
+  viewEpoch: number | null
 }
 
 export type EditableEventFrameInput = {
+  commitEpoch?: number | null
   eventFamily: EditableBrowserEventFamily
   focusOwner?: EditableEventTargetOwner
   inputIntent?: InputIntent | null
+  lifecyclePhase?: EditableReactLifecyclePhase
   modelSelectionBefore?: Range | null
+  root?: RootKey
   selectionSource?: SelectionSource
   startedAt?: number
   targetOwner?: EditableEventTargetOwner
+  viewEpoch?: number | null
 }
 
 export type EditableKernelTraceEntry = {
@@ -269,14 +290,14 @@ export type EditableSelectionPolicy = {
     | 'import-dom'
     | 'none'
     | 'preserve-model'
-    | 'shell'
+    | 'partial-dom'
   reason:
     | 'internal-control'
     | 'model-owned'
     | 'native-selection'
     | 'not-requested'
     | 'selection-clear'
-    | 'shell-backed'
+    | 'partial-dom-backed'
     | 'unknown-selection'
 }
 
@@ -437,8 +458,8 @@ export const mapSelectionSourceToKernelState = (
       return 'internal-control'
     case 'model-owned':
       return 'model-owned'
-    case 'shell-backed':
-      return 'shell-backed'
+    case 'partial-dom-backed':
+      return 'partial-dom-backed'
     case 'unknown':
       return 'idle'
   }
@@ -490,15 +511,19 @@ export const beginEditableEventFrame = (
   const id = EDITOR_TO_NEXT_EVENT_FRAME_ID.get(editor) ?? 1
   const frame: EditableEventFrame = {
     active: true,
+    commitEpoch: input.commitEpoch ?? null,
     eventFamily: input.eventFamily,
     focusOwner: input.focusOwner ?? 'unknown',
     id,
     inputIntent: input.inputIntent ?? null,
+    lifecyclePhase: input.lifecyclePhase ?? 'event',
     modelSelectionBefore:
       input.modelSelectionBefore ?? readLiveSelection(editor),
+    root: input.root ?? editor.read((state) => state.view.root()),
     selectionSource: input.selectionSource ?? 'unknown',
     startedAt: input.startedAt ?? Date.now(),
     targetOwner: input.targetOwner ?? 'unknown',
+    viewEpoch: input.viewEpoch ?? null,
   }
 
   EDITOR_TO_CURRENT_EVENT_FRAME.set(editor, frame)
@@ -551,6 +576,7 @@ export const recordEditableKernelTrace = ({
 export const getEditableKernelTransition = ({
   command,
   eventFamily,
+  frame,
   nativeAllowed,
   ownership,
   repairPolicy,
@@ -562,6 +588,7 @@ export const getEditableKernelTransition = ({
   EditableKernelTraceEntry,
   | 'command'
   | 'eventFamily'
+  | 'frame'
   | 'nativeAllowed'
   | 'ownership'
   | 'repairPolicy'
@@ -618,6 +645,16 @@ export const getEditableKernelTransition = ({
   }
 
   if (
+    selectionPolicy?.kind === 'import-dom' &&
+    (!frame || frame.lifecyclePhase !== 'event')
+  ) {
+    return {
+      allowed: false,
+      reason: 'selection import requires event lifecycle frame',
+    }
+  }
+
+  if (
     eventFamily === 'selectionchange' &&
     nativeAllowed &&
     (selectionChangeOrigin === 'programmatic-export' ||
@@ -649,6 +686,22 @@ const assertEditableKernelTransition = (entry: EditableKernelTraceEntry) => {
   )
 }
 
+const hasProgrammaticSelectionOrigin = (
+  selectionChangeOrigin: SelectionChangeOrigin | null
+) =>
+  selectionChangeOrigin === 'browser-handle' ||
+  selectionChangeOrigin === 'programmatic-export' ||
+  selectionChangeOrigin === 'repair-induced'
+
+const hasAuthoritativeModelSelection = ({
+  inputController,
+}: {
+  inputController: EditableInputController
+}) =>
+  inputController.state.selectionSource === 'model-owned' &&
+  (inputController.preferModelSelectionForInputRef.current ||
+    hasProgrammaticSelectionOrigin(inputController.state.selectionChangeOrigin))
+
 export const getEditableSelectionPolicy = ({
   eventFamily,
   ownership,
@@ -662,8 +715,8 @@ export const getEditableSelectionPolicy = ({
     return { kind: 'none', reason: 'internal-control' }
   }
 
-  if (selectionSource === 'shell-backed') {
-    return { kind: 'shell', reason: 'shell-backed' }
+  if (selectionSource === 'partial-dom-backed') {
+    return { kind: 'partial-dom', reason: 'partial-dom-backed' }
   }
 
   if (eventFamily === 'selectionchange' && ownership === 'native-allowed') {
@@ -748,6 +801,7 @@ export const createEditableKernelTraceEntry = ({
       getEditableKernelTransition({
         command: entry.command,
         eventFamily: entry.eventFamily,
+        frame: entry.frame,
         nativeAllowed: entry.nativeAllowed,
         ownership: entry.ownership,
         repairPolicy: entry.repairPolicy,
@@ -942,12 +996,10 @@ export const getEditableCommandFromKeyDown = ({
   selection: Range | null
 }): EditableCommand | null => {
   const { nativeEvent } = event
+  const historyDirection = getHistoryDirectionFromNativeEvent(nativeEvent)
 
-  if (Hotkeys.isRedo(nativeEvent)) {
-    return { direction: 'redo', kind: 'history' }
-  }
-  if (Hotkeys.isUndo(nativeEvent)) {
-    return { direction: 'undo', kind: 'history' }
+  if (historyDirection) {
+    return { direction: historyDirection, kind: 'history' }
   }
   if (Hotkeys.isBold(nativeEvent)) {
     return { format: 'bold', kind: 'format' }
@@ -1091,18 +1143,18 @@ export const prepareEditableKeyDownKernel = ({
   editor,
   event,
   inputController,
-  renderingStrategy,
+  domStrategyRuntime,
 }: {
   editor: ReactRuntimeEditor
   event: ReactKeyboardEvent<HTMLDivElement>
   inputController: EditableInputController
-  renderingStrategy: unknown
+  domStrategyRuntime: unknown
 }): EditableKeyDownKernelDecision => {
   const intent = classifyKeyboardIntent({
     editor,
     event,
     isComposing: inputController.state.isComposing,
-    renderingStrategy,
+    domStrategyRuntime,
   })
   const selectionBefore = readRuntimeSelection(editor)
   const internalTarget = isInteractiveInternalTarget(editor, event.target)
@@ -1134,6 +1186,12 @@ export const prepareEditableKeyDownKernel = ({
     intent === 'format' ||
     intent === 'insert-break' ||
     intent === 'model-selection-move'
+  const shouldPreserveModelSelection =
+    shouldForceDOMImport &&
+    intent !== 'model-selection-move' &&
+    hasAuthoritativeModelSelection({ inputController })
+  const shouldApplyForcedDOMImport =
+    shouldForceDOMImport && !shouldPreserveModelSelection
 
   return {
     command,
@@ -1146,12 +1204,14 @@ export const prepareEditableKeyDownKernel = ({
       ? { kind: 'none', reason: 'internal-control' }
       : intent === 'composition'
         ? { kind: 'none', reason: 'not-requested' }
-        : {
-            kind: 'import-dom',
-            reason: shouldForceDOMImport
-              ? 'unknown-selection'
-              : 'native-selection',
-          },
+        : shouldPreserveModelSelection
+          ? { kind: 'preserve-model', reason: 'model-owned' }
+          : {
+              kind: 'import-dom',
+              reason: shouldApplyForcedDOMImport
+                ? 'unknown-selection'
+                : 'native-selection',
+            },
     selectionSourceTransition:
       intent === 'native-selection-move'
         ? {
@@ -1160,7 +1220,7 @@ export const prepareEditableKeyDownKernel = ({
             selectionSource: 'dom-current',
           }
         : null,
-    shouldForceDOMImport,
+    shouldForceDOMImport: shouldApplyForcedDOMImport,
     stateBefore: mapSelectionSourceToKernelState(
       inputController.state.selectionSource
     ),

@@ -106,14 +106,14 @@ const createMountedEditor = async () => {
       }}
     >
       <Editable
-        editor={editor}
-        id="active-typing-breakdown"
-        renderingStrategy={{
+        domStrategy={{
           overscan,
-          type: 'shell',
+          type: 'partial-dom',
           segmentSize,
           threshold: 1,
         }}
+        editor={editor}
+        id="active-typing-breakdown"
         {...renderers}
       />
     </Profiler>
@@ -145,11 +145,11 @@ const promoteSegment = async ({
   editor: ReturnType<typeof createEditor>
 }) => {
   const segmentIndex = Math.floor(blockIndex / segmentSize)
-  const shell = container.querySelector(
-    `[data-slate-rendering-strategy-shell="true"][data-slate-rendering-strategy-segment="${segmentIndex}"]`
+  const partialDOMPlaceholder = container.querySelector(
+    `[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="${segmentIndex}"]`
   )
 
-  if (!shell) {
+  if (!partialDOMPlaceholder) {
     editor.update(() => {
       editor.select({
         anchor: { path: [blockIndex, 0], offset: 0 },
@@ -159,7 +159,7 @@ const promoteSegment = async ({
     return
   }
 
-  shell.dispatchEvent(
+  partialDOMPlaceholder.dispatchEvent(
     new container.ownerDocument.defaultView!.MouseEvent('mousedown', {
       bubbles: true,
     })

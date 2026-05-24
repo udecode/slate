@@ -1,5 +1,6 @@
 import { useCallback, useContext, useSyncExternalStore } from 'react'
 import { ProjectionContext } from '../projection-context'
+import type { SlateProjectionRefreshResult } from '../projection-store'
 
 export interface SlateProjectionEntry<T = unknown> {
   data?: T
@@ -13,6 +14,9 @@ export interface SlateProjectionStore<T = unknown> {
     Record<string, readonly SlateProjectionEntry<T>[]>
   >
   getRuntimeSnapshot?: (runtimeId: string) => readonly SlateProjectionEntry<T>[]
+  subscribeProjectionRefresh?: (
+    listener: (result: SlateProjectionRefreshResult) => void
+  ) => () => void
   subscribe: (listener: () => void) => () => void
   subscribeRuntimeId?: (runtimeId: string, listener: () => void) => () => void
   subscribeSourceId?: (sourceId: string, listener: () => void) => () => void

@@ -15,6 +15,7 @@ import {
   isDOMNode,
 } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
+import type { MountedTopLevelRange } from '../dom-strategy/dom-strategy-commands'
 import type {
   EditableRepairRequest,
   InputIntent,
@@ -27,7 +28,6 @@ import { ReadOnlyContext } from '../hooks/use-editor-read-only'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
-import type { MountedTopLevelRange } from '../rendering-strategy/rendering-strategy-commands'
 import { RestoreDOM } from './restore-dom/restore-dom'
 
 /**
@@ -85,17 +85,15 @@ export interface RenderTextProps {
 
 export type EditableDOMRootProps = {
   children?: React.ReactNode
-  renderingStrategy?: {
+  domStrategyRuntime?: {
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
-    type: 'staged' | 'shell' | 'virtualized'
+    type: 'staged' | 'partial-dom' | 'virtualized'
   } | null
-  renderingStrategyMetrics?: EditableRenderingStrategyMetricsBase | null
+  domStrategyMetrics?: EditableDOMStrategyMetricsBase | null
   onDOMBeforeInput?: EditableDOMBeforeInputHandler
   onKeyDown?: EditableKeyDownHandler
-  onRenderingStrategyMetrics?: (
-    metrics: EditableRenderingStrategyMetrics
-  ) => void
+  onDOMStrategyMetrics?: (metrics: EditableDOMStrategyMetrics) => void
   readOnly?: boolean
   scrollSelectionIntoView?: (
     editor: ReactRuntimeEditor,
@@ -105,33 +103,33 @@ export type EditableDOMRootProps = {
   disableDefaultStyles?: boolean
 } & Omit<React.ComponentPropsWithRef<'div'>, 'children' | 'onKeyDown'>
 
-export type EditableRenderingStrategyCohort =
+export type EditableDOMStrategyCohort =
   | 'normal'
   | 'medium'
   | 'large'
   | 'stress'
   | 'pathological'
 
-export type EditableRenderingStrategyEffectiveType =
+export type EditableDOMStrategyEffectiveType =
   | 'full'
+  | 'partial-dom'
   | 'plain'
   | 'staged'
   | 'virtualized'
-  | 'shell'
 
-export type EditableRenderingStrategyDegradationMode =
+export type EditableDOMStrategyDegradationMode =
   | 'none'
+  | 'partial-dom'
   | 'staged-warmup'
-  | 'shell'
   | 'virtualized'
 
-export type EditableRenderingStrategyMetricsBase = {
+export type EditableDOMStrategyMetricsBase = {
   activeSegmentIndex: number | null
   overscan: number | null
-  cohort: EditableRenderingStrategyCohort
-  degradationMode: EditableRenderingStrategyDegradationMode
+  cohort: EditableDOMStrategyCohort
+  degradationMode: EditableDOMStrategyDegradationMode
   documentSize: number
-  effectiveStrategy: EditableRenderingStrategyEffectiveType
+  effectiveStrategy: EditableDOMStrategyEffectiveType
   estimatedBlockSize: number | null
   segmentSize: number | null
   mountedGroupCount: number
@@ -140,31 +138,29 @@ export type EditableRenderingStrategyMetricsBase = {
   pendingGroupCount: number
   pendingTopLevelCount: number
   requestedStrategy: string
-  shellCount: number
   threshold: number | null
   virtualizerMeasuredCount: number | null
 }
 
-export type EditableRenderingStrategyMetrics =
-  EditableRenderingStrategyMetricsBase & {
-    domCoverageBoundaryCount: number
-    domCoverageBoundaryElementCount: number
-    domNodeCount: number
-    editableDescendantCount: number
-    renderingStrategyStagedBoundaryCount: number
-    shellAggressiveBoundaryCount: number
-    viewportVirtualizationBoundaryCount: number
-  }
+export type EditableDOMStrategyMetrics = EditableDOMStrategyMetricsBase & {
+  domCoverageBoundaryCount: number
+  domCoverageBoundaryElementCount: number
+  domNodeCount: number
+  editableDescendantCount: number
+  domStrategyStagedBoundaryCount: number
+  aggressiveDomCoverageBoundaryCount: number
+  viewportVirtualizationBoundaryCount: number
+}
 
-const getEditableRenderingStrategyDOMMetrics = ({
+const getEditableDOMStrategyMetrics = ({
   editor,
   metrics,
   rootElement,
 }: {
   editor: ReactRuntimeEditor
-  metrics: EditableRenderingStrategyMetricsBase
+  metrics: EditableDOMStrategyMetricsBase
   rootElement: HTMLElement
-}): EditableRenderingStrategyMetrics => {
+}): EditableDOMStrategyMetrics => {
   const boundaries = DOMCoverage.getBoundaries(editor)
 
   return {
@@ -177,11 +173,11 @@ const getEditableRenderingStrategyDOMMetrics = ({
     editableDescendantCount: rootElement.querySelectorAll(
       '[data-slate-node="element"], [data-slate-node="text"], [data-slate-leaf]'
     ).length,
-    renderingStrategyStagedBoundaryCount: boundaries.filter(
+    domStrategyStagedBoundaryCount: boundaries.filter(
       (boundary) => boundary.reason === 'rendering-staged'
     ).length,
-    shellAggressiveBoundaryCount: boundaries.filter(
-      (boundary) => boundary.reason === 'shell-aggressive'
+    aggressiveDomCoverageBoundaryCount: boundaries.filter(
+      (boundary) => boundary.reason === 'partial-dom-aggressive'
     ).length,
     viewportVirtualizationBoundaryCount: boundaries.filter(
       (boundary) => boundary.reason === 'viewport-virtualization'
@@ -231,11 +227,11 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
   const {
     autoFocus,
     children: customChildren,
-    renderingStrategy = null,
-    renderingStrategyMetrics = null,
+    domStrategyRuntime = null,
+    domStrategyMetrics = null,
     onKeyDown: propsOnKeyDown,
     onDOMBeforeInput: propsOnDOMBeforeInput,
-    onRenderingStrategyMetrics,
+    onDOMStrategyMetrics,
     readOnly = false,
     scrollSelectionIntoView = defaultScrollSelectionIntoView,
     style: userStyle = {},
@@ -249,7 +245,7 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     callbacks: attributes,
     editor,
     forwardedRef,
-    renderingStrategy,
+    domStrategyRuntime,
     onDOMBeforeInput: propsOnDOMBeforeInput,
     onKeyDown: propsOnKeyDown,
     readOnly,
@@ -260,17 +256,13 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     isComposing,
     receivedUserInput,
     rootRef: ref,
-    shellBackedSelection,
+    partialDOMBackedSelection,
   } = rootRuntime
 
   useIsomorphicLayoutEffect(() => {
     const rootElement = ref.current
 
-    if (
-      !rootElement ||
-      !renderingStrategyMetrics ||
-      !onRenderingStrategyMetrics
-    ) {
+    if (!rootElement || !domStrategyMetrics || !onDOMStrategyMetrics) {
       return
     }
 
@@ -281,10 +273,10 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
         return
       }
 
-      onRenderingStrategyMetrics(
-        getEditableRenderingStrategyDOMMetrics({
+      onDOMStrategyMetrics(
+        getEditableDOMStrategyMetrics({
           editor,
-          metrics: renderingStrategyMetrics,
+          metrics: domStrategyMetrics,
           rootElement,
         })
       )
@@ -293,7 +285,7 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     return () => {
       cancelled = true
     }
-  }, [editor, renderingStrategyMetrics, onRenderingStrategyMetrics, ref])
+  }, [editor, domStrategyMetrics, onDOMStrategyMetrics, ref])
 
   return (
     <ReadOnlyContext.Provider value={readOnly}>
@@ -316,11 +308,11 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
             }
             // explicitly set this
             contentEditable={!readOnly}
+            data-slate-dom-strategy-selection={
+              partialDOMBackedSelection ? 'partial-dom-backed' : undefined
+            }
             data-slate-editor
             data-slate-node="value"
-            data-slate-rendering-strategy-selection={
-              shellBackedSelection ? 'shell-backed' : undefined
-            }
             {...editableEventBindings}
             // COMPAT: Certain browsers don't support the `beforeinput` event, so we'd
             // have to use hacks to make these replacement-based features work.
@@ -342,9 +334,9 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
                     whiteSpace: 'pre-wrap',
                     // Allow words to break if they are too long.
                     wordWrap: 'break-word',
+                    // Keep the public editable root visible and hittable.
+                    zIndex: 0,
                   }),
-              // Work around selection expansion for decorations that depend on the current range.
-              zIndex: -1,
               // Allow for passed-in styles to override anything.
               ...userStyle,
             }}

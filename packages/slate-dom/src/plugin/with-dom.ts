@@ -13,6 +13,7 @@ import {
   Editor,
   getEditorTransformRegistry,
   setEditorTransformRegistry,
+  withOperationRootChildren,
 } from 'slate/internal'
 import {
   type TextDiff,
@@ -28,6 +29,7 @@ import {
   EDITOR_TO_PENDING_DIFFS,
   EDITOR_TO_PENDING_INSERTION_MARKS,
   EDITOR_TO_PENDING_SELECTION,
+  EDITOR_TO_ROOT_VIEW_EDITORS,
   EDITOR_TO_SCHEDULE_FLUSH,
   EDITOR_TO_USER_MARKS,
   EDITOR_TO_USER_SELECTION,
@@ -38,6 +40,11 @@ import { setDOMClipboardFormatKey } from './dom-clipboard-runtime'
 import { createDOMEditorCapability, type DOMApi, DOMEditor } from './dom-editor'
 
 const DEFAULT_CLIPBOARD_FORMAT_KEY = 'x-slate-fragment'
+
+const clearUserSelectionRef = (editor: SlateEditor) => {
+  EDITOR_TO_USER_SELECTION.get(editor)?.unref()
+  EDITOR_TO_USER_SELECTION.delete(editor)
+}
 
 export interface DOMEditorOptions {
   /**
@@ -144,122 +151,138 @@ export const installDOM = <
     name: 'slate-dom-operation-middleware',
     operations: {
       apply({ operation: op, next }) {
-        const matches: [Path, Key][] = []
-        const pathRefMatches: [PathRef, Key][] = []
+        withOperationRootChildren(e, op, () => {
+          const matches: [Path, Key][] = []
+          const pathRefMatches: [PathRef, Key][] = []
+          const transformPendingState = (editor: SlateEditor) => {
+            const pendingDiffs = EDITOR_TO_PENDING_DIFFS.get(editor)
 
-        const pendingDiffs = EDITOR_TO_PENDING_DIFFS.get(e)
-        if (pendingDiffs?.length) {
-          const transformed = pendingDiffs
-            .map((textDiff) => transformTextDiff(textDiff, op))
-            .filter(Boolean) as TextDiff[]
+            if (pendingDiffs?.length) {
+              const transformed = pendingDiffs
+                .map((textDiff) => transformTextDiff(textDiff, op, editor))
+                .filter(Boolean) as TextDiff[]
 
-          EDITOR_TO_PENDING_DIFFS.set(e, transformed)
-        }
-
-        const pendingSelection = EDITOR_TO_PENDING_SELECTION.get(e)
-        if (pendingSelection) {
-          EDITOR_TO_PENDING_SELECTION.set(
-            e,
-            transformPendingRange(e, pendingSelection, op)
-          )
-        }
-
-        const pendingAction = EDITOR_TO_PENDING_ACTION.get(e)
-        if (pendingAction?.at) {
-          const at = LocationApi.isPoint(pendingAction?.at)
-            ? transformPendingPoint(e, pendingAction.at, op)
-            : transformPendingRange(e, pendingAction.at, op)
-
-          EDITOR_TO_PENDING_ACTION.set(e, at ? { ...pendingAction, at } : null)
-        }
-
-        switch (op.type) {
-          case 'insert_text':
-          case 'remove_text':
-          case 'set_node':
-          case 'split_node': {
-            matches.push(...getMatches(e, op.path))
-            break
-          }
-
-          case 'set_selection': {
-            // Selection was manually set, don't restore the user selection after the change.
-            EDITOR_TO_USER_SELECTION.get(e)?.unref()
-            EDITOR_TO_USER_SELECTION.delete(e)
-            break
-          }
-
-          case 'insert_node':
-          case 'remove_node': {
-            pathRefMatches.push(
-              ...getPathRefMatches(e, PathApi.parent(op.path))
-            )
-            break
-          }
-
-          case 'merge_node': {
-            const prevPath = PathApi.previous(op.path)
-            matches.push(...getMatches(e, prevPath))
-            break
-          }
-
-          case 'move_node': {
-            const commonPath = PathApi.common(
-              PathApi.parent(op.path),
-              PathApi.parent(op.newPath)
-            )
-            matches.push(...getMatches(e, commonPath))
-
-            let changedPath: Path
-            if (PathApi.isBefore(op.path, op.newPath)) {
-              matches.push(...getMatches(e, PathApi.parent(op.path)))
-              changedPath = op.newPath
-            } else {
-              matches.push(...getMatches(e, PathApi.parent(op.newPath)))
-              changedPath = op.path
+              EDITOR_TO_PENDING_DIFFS.set(editor, transformed)
             }
 
-            const changedNode = NodeApi.get(e, PathApi.parent(changedPath))
-            const changedNodeKey = DOMEditor.findKey(e, changedNode)
-            const changedPathRef = Editor.pathRef(
-              e,
-              PathApi.parent(changedPath)
-            )
-            pathRefMatches.push([changedPathRef, changedNodeKey])
+            const pendingSelection = EDITOR_TO_PENDING_SELECTION.get(editor)
+            if (pendingSelection) {
+              EDITOR_TO_PENDING_SELECTION.set(
+                editor,
+                transformPendingRange(editor, pendingSelection, op)
+              )
+            }
 
-            break
+            const pendingAction = EDITOR_TO_PENDING_ACTION.get(editor)
+            if (pendingAction?.at) {
+              const at = LocationApi.isPoint(pendingAction.at)
+                ? transformPendingPoint(editor, pendingAction.at, op)
+                : transformPendingRange(editor, pendingAction.at, op)
+
+              EDITOR_TO_PENDING_ACTION.set(
+                editor,
+                at ? { ...pendingAction, at } : null
+              )
+            }
           }
-        }
 
-        next(op)
+          transformPendingState(e)
+          EDITOR_TO_ROOT_VIEW_EDITORS.get(e)?.forEach((viewEditor) => {
+            transformPendingState(viewEditor)
+          })
 
-        switch (op.type) {
-          case 'insert_node':
-          case 'remove_node':
-          case 'merge_node':
-          case 'move_node':
-          case 'split_node':
-          case 'insert_text':
-          case 'remove_text': {
-            // FIXME: Rename to something like IS_DOM_EDITOR_DESYNCED
-            // to better reflect reality, see #5792
-            IS_NODE_MAP_DIRTY.set(e, true)
+          switch (op.type) {
+            case 'insert_text':
+            case 'remove_text':
+            case 'set_node':
+            case 'split_node': {
+              matches.push(...getMatches(e, op.path))
+              break
+            }
+
+            case 'set_selection': {
+              // Selection was manually set, don't restore the user selection after the change.
+              clearUserSelectionRef(e)
+              EDITOR_TO_ROOT_VIEW_EDITORS.get(e)?.forEach((viewEditor) => {
+                clearUserSelectionRef(viewEditor)
+              })
+              break
+            }
+
+            case 'insert_node':
+            case 'remove_node': {
+              pathRefMatches.push(
+                ...getPathRefMatches(e, PathApi.parent(op.path))
+              )
+              break
+            }
+
+            case 'merge_node': {
+              const prevPath = PathApi.previous(op.path)
+              matches.push(...getMatches(e, prevPath))
+              break
+            }
+
+            case 'move_node': {
+              const commonPath = PathApi.common(
+                PathApi.parent(op.path),
+                PathApi.parent(op.newPath)
+              )
+              matches.push(...getMatches(e, commonPath))
+
+              let changedPath: Path
+              if (PathApi.isBefore(op.path, op.newPath)) {
+                matches.push(...getMatches(e, PathApi.parent(op.path)))
+                changedPath = op.newPath
+              } else {
+                matches.push(...getMatches(e, PathApi.parent(op.newPath)))
+                changedPath = op.path
+              }
+
+              const changedNode = NodeApi.get(e, PathApi.parent(changedPath))
+              const changedNodeKey = DOMEditor.findKey(e, changedNode)
+              const changedPathRef = Editor.pathRef(
+                e,
+                PathApi.parent(changedPath)
+              )
+              pathRefMatches.push([changedPathRef, changedNodeKey])
+
+              break
+            }
           }
-        }
 
-        for (const [path, key] of matches) {
-          const [node] = e.read((state) => state.nodes.get(path))
-          NODE_TO_KEY.set(node, key)
-        }
+          next(op)
 
-        for (const [pathRef, key] of pathRefMatches) {
-          if (pathRef.current) {
-            const [node] = e.read((state) => state.nodes.get(pathRef.current!))
+          switch (op.type) {
+            case 'insert_node':
+            case 'remove_node':
+            case 'merge_node':
+            case 'move_node':
+            case 'split_node':
+            case 'insert_text':
+            case 'remove_text': {
+              // FIXME: Rename to something like IS_DOM_EDITOR_DESYNCED
+              // to better reflect reality, see #5792
+              IS_NODE_MAP_DIRTY.set(e, true)
+            }
+          }
+
+          for (const [path, key] of matches) {
+            const [node] = e.read((state) => state.nodes.get(path))
             NODE_TO_KEY.set(node, key)
           }
 
-          pathRef.unref()
-        }
+          for (const [pathRef, key] of pathRefMatches) {
+            if (pathRef.current) {
+              const [node] = e.read((state) =>
+                state.nodes.get(pathRef.current!)
+              )
+              NODE_TO_KEY.set(node, key)
+            }
+
+            pathRef.unref()
+          }
+        })
       },
     },
   })

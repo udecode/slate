@@ -6,11 +6,10 @@ import {
   type Range,
   RangeApi,
   type RuntimeId,
-  ScrubberApi,
   TextApi,
   type Value,
 } from 'slate'
-import { Editor, getEditorLiveSelection } from 'slate/internal'
+import { Editor, formatDebugValue } from 'slate/internal'
 import type { TextDiff } from '../utils/diff-text'
 import {
   closestShadowAware,
@@ -663,7 +662,7 @@ export const DOMEditor: DOMEditorInterface = {
 
   findDocumentOrShadowRoot: (editor) => {
     const el = DOMEditor.assertDOMNode(editor, editor)
-    const root = el.getRootNode()
+    const root = el.getRootNode() as Document | ShadowRoot
     const view = el.ownerDocument.defaultView
 
     if (
@@ -797,7 +796,7 @@ export const DOMEditor: DOMEditorInterface = {
     }
 
     throw new SlateDOMResolutionError(
-      `Unable to find the path for Slate node: ${ScrubberApi.stringify(node)}`,
+      `Unable to find the path for Slate node: ${formatDebugValue(node)}`,
       { code: 'slate-dom/path', details: { node } }
     )
   },
@@ -805,11 +804,6 @@ export const DOMEditor: DOMEditorInterface = {
   resolvePath: (editor, node) => resolveSlateNodePath(editor, node),
 
   focus: (editor, options = { retries: 50 }) => {
-    // Return if already focused
-    if (IS_FOCUSED.get(editor)) {
-      return
-    }
-
     // Return if no dom node is associated with the editor, which means the editor is not yet mounted
     // or has been unmounted. This can happen especially, while retrying to focus the editor.
     if (!EDITOR_TO_ELEMENT.get(editor)) {
@@ -820,9 +814,7 @@ export const DOMEditor: DOMEditorInterface = {
     // The DOM (selection) is unstable while changes are applied.
     // Retry until retries are exhausted or editor is focused.
     if (options.retries <= 0) {
-      throw new Error(
-        'Could not set focus, editor seems stuck with pending operations'
-      )
+      return
     }
     if (IS_NODE_MAP_DIRTY.get(editor)) {
       setTimeout(() => {
@@ -833,21 +825,30 @@ export const DOMEditor: DOMEditorInterface = {
 
     const el = DOMEditor.assertDOMNode(editor, editor)
     const root = DOMEditor.findDocumentOrShadowRoot(editor)
-    const selectionAtFocus = getEditorLiveSelection(editor)
+
+    // Return if already focused. The flag can be stale after focus moves through
+    // external controls, so the DOM active element is the decisive check.
+    if (IS_FOCUSED.get(editor) && root.activeElement === el) {
+      return
+    }
+
+    const getLiveSelection = () => Editor.getSelection(editor)
+    const selection = getLiveSelection()
+    const selectionAtFocus = selection
       ? {
-          anchor: { ...getEditorLiveSelection(editor)!.anchor },
-          focus: { ...getEditorLiveSelection(editor)!.focus },
+          anchor: { ...selection.anchor },
+          focus: { ...selection.focus },
         }
       : null
     // Create a new selection in the top of the document if missing
-    if (!getEditorLiveSelection(editor)) {
+    if (!selection) {
       editor.update((tx) => {
         tx.selection.set(Editor.point(editor, [], { edge: 'start' }))
       })
     }
 
     const syncDomSelection = () => {
-      const selection = getEditorLiveSelection(editor)
+      const selection = getLiveSelection()
 
       if (selection) {
         const domSelection = getSelection(root)
@@ -893,9 +894,11 @@ export const DOMEditor: DOMEditorInterface = {
             return
           }
 
+          const currentSelection = getLiveSelection()
+
           if (
-            !getEditorLiveSelection(editor) ||
-            !RangeApi.equals(getEditorLiveSelection(editor)!, selectionAtFocus)
+            !currentSelection ||
+            !RangeApi.equals(currentSelection, selectionAtFocus)
           ) {
             return
           }
@@ -1038,9 +1041,7 @@ export const DOMEditor: DOMEditorInterface = {
     }
 
     throw new SlateDOMResolutionError(
-      `Cannot resolve a DOM node from Slate node: ${ScrubberApi.stringify(
-        node
-      )}`,
+      `Cannot resolve a DOM node from Slate node: ${formatDebugValue(node)}`,
       { code: 'slate-dom/dom-node', details: { node } }
     )
   },
@@ -1147,7 +1148,7 @@ export const DOMEditor: DOMEditorInterface = {
 
       if (!domNode) {
         throw new SlateDOMResolutionError(
-          `Cannot resolve a DOM node from Slate node: ${ScrubberApi.stringify(
+          `Cannot resolve a DOM node from Slate node: ${formatDebugValue(
             node
           )}`,
           {
@@ -1159,7 +1160,7 @@ export const DOMEditor: DOMEditorInterface = {
     }
 
     throw new SlateDOMResolutionError(
-      `Cannot resolve a DOM point from Slate point: ${ScrubberApi.stringify(
+      `Cannot resolve a DOM point from Slate point: ${formatDebugValue(
         resolvedPoint
       )}`,
       { code: 'slate-dom/dom-point', details: { point: resolvedPoint } }
@@ -1226,9 +1227,7 @@ export const DOMEditor: DOMEditorInterface = {
     }
 
     throw new SlateDOMResolutionError(
-      `Cannot resolve a DOM range from Slate range: ${ScrubberApi.stringify(
-        range
-      )}`,
+      `Cannot resolve a DOM range from Slate range: ${formatDebugValue(range)}`,
       { code: 'slate-dom/dom-range', details: { range } }
     )
   },

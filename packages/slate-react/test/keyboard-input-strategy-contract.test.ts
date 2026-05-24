@@ -75,10 +75,10 @@ describe('keyboard input strategy', () => {
       forceRender,
       inputController: {} as any,
       readOnly: true,
-      renderingStrategy: null,
+      domStrategyRuntime: null,
       setComposing: vi.fn(),
-      setExplicitShellBackedSelection: vi.fn(),
-      shellBackedSelection: false,
+      setExplicitPartialDOMBackedSelection: vi.fn(),
+      partialDOMBackedSelection: false,
     })
 
     expect(result.handled).toBe(false)
@@ -106,10 +106,10 @@ describe('keyboard input strategy', () => {
       forceRender: vi.fn(),
       inputController: {} as any,
       readOnly: false,
-      renderingStrategy: null,
+      domStrategyRuntime: null,
       setComposing: vi.fn(),
-      setExplicitShellBackedSelection: vi.fn(),
-      shellBackedSelection: false,
+      setExplicitPartialDOMBackedSelection: vi.fn(),
+      partialDOMBackedSelection: false,
     })
 
     expect(result.handled).toBe(true)
@@ -140,10 +140,10 @@ describe('keyboard input strategy', () => {
       inputController: {} as any,
       onKeyDown,
       readOnly: false,
-      renderingStrategy: null,
+      domStrategyRuntime: null,
       setComposing: vi.fn(),
-      setExplicitShellBackedSelection: vi.fn(),
-      shellBackedSelection: false,
+      setExplicitPartialDOMBackedSelection: vi.fn(),
+      partialDOMBackedSelection: false,
     })
 
     expect(result.handled).toBe(true)
@@ -228,10 +228,10 @@ describe('keyboard input strategy', () => {
         forceRender: vi.fn(),
         inputController: {} as any,
         readOnly: false,
-        renderingStrategy: null,
+        domStrategyRuntime: null,
         setComposing: vi.fn(),
-        setExplicitShellBackedSelection: vi.fn(),
-        shellBackedSelection: false,
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
       })
 
       expect(result.handled).toBe(true)

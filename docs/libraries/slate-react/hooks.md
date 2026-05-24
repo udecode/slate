@@ -10,7 +10,7 @@ Get whether the editor is currently handling a composition session.
 
 #### `useEditorFocused(): boolean`
 
-Get whether the editor is focused. Use this for toolbar or shell UI, not for
+Get whether the editor is focused. Use this for toolbar UI, not for
 every rendered node in a large document.
 
 #### `useEditorReadOnly(): boolean`
@@ -25,7 +25,7 @@ changes, so keep it out of large rendered node trees.
 #### `useEditorState<T>(selector, options?): T`
 
 Subscribe to a derived editor-state value. The selector runs inside
-`editor.read`, so toolbar and shell UI do not need to open a read boundary by
+`editor.read`, so toolbar UI does not need to open a read boundary by
 hand.
 
 ```typescript

@@ -9,12 +9,17 @@ import {
   RangeApi,
   type Value,
 } from '..'
+import { getSelectionPatchInverseRoot } from '../internal/root-location'
+
+export type RootedOperationFields = {
+  root?: string
+}
 
 export type BaseInsertNodeOperation<V extends Value = Value> = {
   type: 'insert_node'
   path: Path
   node: DescendantIn<V>
-}
+} & RootedOperationFields
 
 export type InsertNodeOperation<V extends Value = Value> =
   BaseInsertNodeOperation<V>
@@ -24,7 +29,7 @@ export type BaseInsertTextOperation = {
   path: Path
   offset: number
   text: string
-}
+} & RootedOperationFields
 
 export type InsertTextOperation = BaseInsertTextOperation
 
@@ -33,7 +38,7 @@ export type BaseMergeNodeOperation<V extends Value = Value> = {
   path: Path
   position: number
   properties: Partial<NodeProps<DescendantIn<V>>>
-}
+} & RootedOperationFields
 
 export type MergeNodeOperation<V extends Value = Value> =
   BaseMergeNodeOperation<V>
@@ -42,7 +47,7 @@ export type BaseMoveNodeOperation = {
   type: 'move_node'
   path: Path
   newPath: Path
-}
+} & RootedOperationFields
 
 export type MoveNodeOperation = BaseMoveNodeOperation
 
@@ -50,7 +55,7 @@ export type BaseRemoveNodeOperation<V extends Value = Value> = {
   type: 'remove_node'
   path: Path
   node: DescendantIn<V>
-}
+} & RootedOperationFields
 
 export type RemoveNodeOperation<V extends Value = Value> =
   BaseRemoveNodeOperation<V>
@@ -60,7 +65,7 @@ export type BaseRemoveTextOperation = {
   path: Path
   offset: number
   text: string
-}
+} & RootedOperationFields
 
 export type RemoveTextOperation = BaseRemoveTextOperation
 
@@ -69,11 +74,11 @@ export type BaseSetNodeOperation<V extends Value = Value> = {
   path: Path
   properties: Partial<NodeProps<DescendantIn<V>>>
   newProperties: Partial<NodeProps<DescendantIn<V>>>
-}
+} & RootedOperationFields
 
 export type SetNodeOperation<V extends Value = Value> = BaseSetNodeOperation<V>
 
-export type BaseSetSelectionOperation =
+export type BaseSetSelectionOperation = (
   | {
       type: 'set_selection'
       properties: null
@@ -89,6 +94,8 @@ export type BaseSetSelectionOperation =
       properties: Range
       newProperties: null
     }
+) &
+  RootedOperationFields
 
 export type SetSelectionOperation = BaseSetSelectionOperation
 
@@ -97,7 +104,7 @@ export type BaseSplitNodeOperation<V extends Value = Value> = {
   path: Path
   position: number
   properties: Partial<NodeProps<DescendantIn<V>>>
-}
+} & RootedOperationFields
 
 export type SplitNodeOperation<V extends Value = Value> =
   BaseSplitNodeOperation<V>
@@ -109,7 +116,7 @@ export type BaseReplaceFragmentOperation<V extends Value = Value> = {
   newChildren: DescendantIn<V>[]
   selection: Range | null
   newSelection: Range | null
-}
+} & RootedOperationFields
 
 export type ReplaceFragmentOperation<V extends Value = Value> =
   BaseReplaceFragmentOperation<V>
@@ -122,7 +129,7 @@ export type BaseReplaceChildrenOperation<V extends Value = Value> = {
   newChildren: DescendantIn<V>[]
   selection: Range | null
   newSelection: Range | null
-}
+} & RootedOperationFields
 
 export type ReplaceChildrenOperation<V extends Value = Value> =
   BaseReplaceChildrenOperation<V>
@@ -266,6 +273,9 @@ const isOperationType = <V extends Value, TType extends Operation<V>['type']>(
 ): value is Extract<Operation<V>, { type: TType }> =>
   OperationApi.isOperation<V>(value) && value.type === type
 
+const hasValidOperationRoot = (value: { root?: unknown }) =>
+  value.root === undefined || typeof value.root === 'string'
+
 // eslint-disable-next-line no-redeclare
 export const OperationApi: OperationInterface = {
   isInsertNodeOperation<V extends Value = Value>(
@@ -296,6 +306,10 @@ export const OperationApi: OperationInterface = {
 
   isOperation<V extends Value = Value>(value: any): value is Operation<V> {
     if (!isObject(value)) {
+      return false
+    }
+
+    if (!hasValidOperationRoot(value)) {
       return false
     }
 
@@ -513,9 +527,19 @@ export const OperationApi: OperationInterface = {
             ...op,
             properties: null,
             newProperties: properties as Range,
+            root:
+              getSelectionPatchInverseRoot(properties, null, op.root) ??
+              op.root,
           }
         }
-        return { ...op, properties: newProperties, newProperties: properties }
+        return {
+          ...op,
+          properties: newProperties,
+          newProperties: properties,
+          root:
+            getSelectionPatchInverseRoot(properties, newProperties, op.root) ??
+            op.root,
+        }
       }
 
       case 'split_node': {

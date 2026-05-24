@@ -11,10 +11,12 @@ import {
   useEditableInputHandler,
 } from './input-router'
 import type { EditableInputController } from './input-state'
-import { applyEditableInput } from './model-input-strategy'
+import {
+  applyEditableInput,
+  type DeferredOperation,
+} from './model-input-strategy'
 import type { EditableEventRuntime } from './runtime-event-engine'
 
-type DeferredOperation = () => void
 type InputHandler = (event: ReactInputEvent<HTMLDivElement>) => boolean | void
 
 export const useRuntimeInputEvents = ({

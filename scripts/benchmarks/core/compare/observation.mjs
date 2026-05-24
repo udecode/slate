@@ -34,9 +34,12 @@ try {
   } catch {}
 }
 
-const { createEditor, Node } = Slate;
+const { createEditor } = Slate;
 const Editor = Slate.Editor ?? SlateInternal.Editor;
+const NodeApi = Slate.NodeApi ?? Slate.Node ?? SlateInternal.NodeApi ?? SlateInternal.Node;
 const legacyTransforms = Slate.Transforms;
+
+assert.ok(NodeApi?.nodes, 'Slate Node API with nodes() is required');
 
 const iterations = Number(process.env.CORE_OBSERVATION_BENCH_ITERATIONS || 3);
 const blocks = Number(process.env.CORE_OBSERVATION_BENCH_BLOCKS || 500);
@@ -110,11 +113,13 @@ const replaceEditor = (editor, input) => {
 };
 
 const getChildren = (editor) =>
-  typeof Editor.getSnapshot === 'function'
-    ? Editor.getSnapshot(editor).children
-    : typeof editor.getChildren === 'function'
-      ? editor.getChildren()
-      : editor.children;
+  typeof Editor.getChildren === 'function'
+    ? Editor.getChildren(editor)
+    : typeof Editor.getSnapshot === 'function'
+      ? Editor.getSnapshot(editor).children
+      : typeof editor.getChildren === 'function'
+        ? editor.getChildren()
+        : editor.children;
 
 const insertText = (editor, text, options) => {
   if (typeof editor.update === 'function') {
@@ -180,7 +185,7 @@ const nodesAtRootAfterEachMs = measureLane(
         at: { path: [index % blocks, 0], offset: 0 },
       });
 
-      for (const _ of Node.nodes(editor, { at: [] })) {
+      for (const _ of NodeApi.nodes(editor, { at: [] })) {
         seen += 1;
       }
     }

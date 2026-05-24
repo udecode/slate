@@ -1,3 +1,4 @@
+import { getEditorOperationRoot } from '../core/public-state'
 import type {
   Bookmark,
   BookmarkAffinity,
@@ -11,10 +12,18 @@ import type { Path } from '../interfaces/path'
 import { PathApi } from '../interfaces/path'
 import { type Point, PointApi } from '../interfaces/point'
 import { type Range, RangeApi } from '../interfaces/range'
+import {
+  getOperationRoot,
+  getRangeRoot,
+  type RangeRootMeta,
+  stripImplicitRangeRoots,
+  withImplicitRangeRoot,
+} from '../internal/root-location'
 
 type InternalBookmark = {
   affinity: BookmarkAffinity
   current: Range | null
+  rootMeta: RangeRootMeta
 }
 
 const BOOKMARKS = new WeakMap<Editor, Set<InternalBookmark>>()
@@ -30,17 +39,20 @@ const getBookmarks = (editor: Editor) => {
   return bookmarks
 }
 
+const clonePoint = (point: Point): Point => {
+  const clone = {
+    path: [...point.path],
+    offset: point.offset,
+  }
+
+  return point.root === undefined ? clone : { ...clone, root: point.root }
+}
+
 const cloneRange = (range: Range | null) =>
   range
     ? {
-        anchor: {
-          path: [...range.anchor.path],
-          offset: range.anchor.offset,
-        },
-        focus: {
-          path: [...range.focus.path],
-          offset: range.focus.offset,
-        },
+        anchor: clonePoint(range.anchor),
+        focus: clonePoint(range.focus),
       }
     : null
 
@@ -141,6 +153,14 @@ const mapPointBySameRelativePosition = (
   }
 }
 
+const preserveMappedPointRoot = (
+  source: Point,
+  mapped: Point | null
+): Point | null =>
+  mapped && source.root !== undefined
+    ? { ...mapped, root: source.root }
+    : mapped
+
 const transformPointThroughReplaceChildren = (
   point: Point,
   op: Extract<Operation, { type: 'replace_children' }>,
@@ -152,28 +172,40 @@ const transformPointThroughReplaceChildren = (
     return PointApi.transform(point, op, { affinity })
   }
 
-  return (
+  return preserveMappedPointRoot(
+    point,
     mapPointBySurvivingText(op, relativePath, point.offset) ??
-    mapPointBySameRelativePosition(op, relativePath, point.offset)
+      mapPointBySameRelativePosition(op, relativePath, point.offset)
   )
 }
 
 const transformBookmarkRange = (
   range: Range,
   op: Operation,
-  affinity: BookmarkAffinity
+  affinity: BookmarkAffinity,
+  rootMeta: RangeRootMeta
 ): Range | null => {
+  const { root } = rootMeta
+
+  if (root && root !== getOperationRoot(op)) {
+    return range
+  }
+
+  const transformRange = root ? withImplicitRangeRoot(range, root) : range
+
   if (op.type !== 'replace_children') {
-    return RangeApi.transform(range, op, { affinity })
+    const next = RangeApi.transform(transformRange, op, { affinity })
+
+    return next ? stripImplicitRangeRoots(next, rootMeta) : null
   }
 
   let affinityAnchor: 'forward' | 'backward' | null
   let affinityFocus: 'forward' | 'backward' | null
 
   if (affinity === 'inward') {
-    const isCollapsed = RangeApi.isCollapsed(range)
+    const isCollapsed = RangeApi.isCollapsed(transformRange)
 
-    if (RangeApi.isForward(range)) {
+    if (RangeApi.isForward(transformRange)) {
       affinityAnchor = 'forward'
       affinityFocus = isCollapsed ? affinityAnchor : 'backward'
     } else {
@@ -186,17 +218,19 @@ const transformBookmarkRange = (
   }
 
   const anchor = transformPointThroughReplaceChildren(
-    range.anchor,
+    transformRange.anchor,
     op,
     affinityAnchor
   )
   const focus = transformPointThroughReplaceChildren(
-    range.focus,
+    transformRange.focus,
     op,
     affinityFocus
   )
 
-  return anchor && focus ? { anchor, focus } : null
+  const next = anchor && focus ? { anchor, focus } : null
+
+  return next ? stripImplicitRangeRoots(next, rootMeta) : null
 }
 
 export const bookmark = (
@@ -205,9 +239,16 @@ export const bookmark = (
   options: BookmarkOptions = {}
 ): Bookmark => {
   const affinity = options.affinity ?? 'inward'
+  const rootMeta = getRangeRoot(range, getEditorOperationRoot(editor))
+
+  if (!rootMeta.root) {
+    throw new Error('Cannot create a Slate bookmark across multiple roots.')
+  }
+
   const state: InternalBookmark = {
     affinity,
     current: cloneRange(range),
+    rootMeta,
   }
 
   const bookmarkValue: Bookmark = {
@@ -250,7 +291,8 @@ export const transformBookmarks = (editor: Editor, op: Operation) => {
     const next = transformBookmarkRange(
       bookmarkState.current,
       op,
-      bookmarkState.affinity
+      bookmarkState.affinity,
+      bookmarkState.rootMeta
     )
 
     bookmarkState.current = next

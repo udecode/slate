@@ -295,6 +295,12 @@ const RenderingStrategyOverlayInner = ({
         slot="farText"
       />
       <Editable
+        domStrategy={{
+          overscan,
+          type: 'partial-dom',
+          segmentSize,
+          threshold: 1,
+        }}
         id="huge-document-overlays"
         renderElement={({ attributes, children, isInline }) => (
           <TrackedElement
@@ -305,12 +311,6 @@ const RenderingStrategyOverlayInner = ({
             {children}
           </TrackedElement>
         )}
-        renderingStrategy={{
-          overscan,
-          type: 'shell',
-          segmentSize,
-          threshold: 1,
-        }}
       />
     </>
   )
@@ -320,7 +320,7 @@ const countMountedTextNodes = (container: HTMLElement) =>
   container.querySelectorAll('[data-slate-node="text"]').length
 
 const countShells = (container: HTMLElement) =>
-  container.querySelectorAll('[data-slate-rendering-strategy-shell="true"]')
+  container.querySelectorAll('[data-slate-dom-strategy-placeholder="true"]')
     .length
 
 const setupScenario = async () => {
@@ -384,7 +384,7 @@ const measureOverlayToggle = async () =>
   measureLane(async () => {
     const { counts, mounted, projectionStore, toggle, view } =
       await setupScenario()
-    const shellCountBefore = countShells(mounted.container)
+    const partialDOMCountBefore = countShells(mounted.container)
     const mountedTextBefore = countMountedTextNodes(mounted.container)
     const baseline = cloneCounts(counts)
     const recomputeBaseline =
@@ -401,7 +401,7 @@ const measureOverlayToggle = async () =>
 
     const overlayToggleMs = now() - start
     const delta = deltaCounts(counts, baseline)
-    const shellCountAfter = countShells(mounted.container)
+    const partialDOMCountAfter = countShells(mounted.container)
     const mountedTextAfter = countMountedTextNodes(mounted.container)
     const activeProjectionValue = Number(
       mounted.container.querySelector('#active-projection-count')
@@ -424,8 +424,8 @@ const measureOverlayToggle = async () =>
       projectionRecomputeCount:
         getProjectionMetricCounts(projectionStore).recomputeCount -
         recomputeBaseline,
-      shellCountAfter,
-      shellCountBefore,
+      partialDOMCountAfter,
+      partialDOMCountBefore,
     }
   })
 
@@ -442,7 +442,7 @@ const measureActiveEditAfterOverlay = async () =>
       )
     })
 
-    const shellCountBefore = countShells(mounted.container)
+    const partialDOMCountBefore = countShells(mounted.container)
     const mountedTextBefore = countMountedTextNodes(mounted.container)
     const baseline = cloneCounts(counts)
     const recomputeBaseline =
@@ -459,7 +459,7 @@ const measureActiveEditAfterOverlay = async () =>
 
     const editMs = now() - start
     const delta = deltaCounts(counts, baseline)
-    const shellCountAfter = countShells(mounted.container)
+    const partialDOMCountAfter = countShells(mounted.container)
     const mountedTextAfter = countMountedTextNodes(mounted.container)
 
     await mounted.dispose()
@@ -477,12 +477,12 @@ const measureActiveEditAfterOverlay = async () =>
       projectionRecomputeCount:
         getProjectionMetricCounts(projectionStore).recomputeCount -
         recomputeBaseline,
-      shellCountAfter,
-      shellCountBefore,
+      partialDOMCountAfter,
+      partialDOMCountBefore,
     }
   })
 
-const measureShellPromotion = async () =>
+const measurePartialDOMPromotion = async () =>
   measureLane(async () => {
     const { editor, mounted, projectionStore, toggle, view } =
       await setupScenario()
@@ -495,14 +495,14 @@ const measureShellPromotion = async () =>
       )
     })
 
-    const shellCountBefore = countShells(mounted.container)
+    const partialDOMCountBefore = countShells(mounted.container)
     const mountedTextBefore = countMountedTextNodes(mounted.container)
     const targetShell = mounted.container.querySelector<HTMLElement>(
-      `[data-slate-rendering-strategy-shell="true"][data-slate-rendering-strategy-segment="${getFarSegmentIndex()}"]`
+      `[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="${getFarSegmentIndex()}"]`
     )
 
     if (!targetShell) {
-      throw new Error('Missing target shell for promotion')
+      throw new Error('Missing target partial DOM placeholder for promotion')
     }
 
     const recomputeBaseline =
@@ -518,7 +518,7 @@ const measureShellPromotion = async () =>
     })
 
     const promotionMs = now() - start
-    const shellCountAfter = countShells(mounted.container)
+    const partialDOMCountAfter = countShells(mounted.container)
     const mountedTextAfter = countMountedTextNodes(mounted.container)
     const selection = Editor.getSnapshot(editor).selection
 
@@ -533,8 +533,8 @@ const measureShellPromotion = async () =>
       promotionMs,
       selectionAnchorPathLength: selection?.anchor.path.length ?? 0,
       selectionAnchorTopLevel: Number(selection?.anchor.path[0] ?? -1),
-      shellCountAfter,
-      shellCountBefore,
+      partialDOMCountAfter,
+      partialDOMCountBefore,
     }
   })
 
@@ -551,7 +551,7 @@ const main = async () => {
     lane: 'slate-react-huge-document-overlays',
     activeEditAfterOverlay: await measureActiveEditAfterOverlay(),
     overlayToggle: await measureOverlayToggle(),
-    shellPromotion: await measureShellPromotion(),
+    partialDOMPromotion: await measurePartialDOMPromotion(),
   }
 
   await mkdir('tmp', { recursive: true })

@@ -310,9 +310,13 @@ export const getClipboardData = (
  * Get the dom selection from Shadow Root if possible, otherwise from the document
  */
 export const getSelection = (root: Document | ShadowRoot): Selection | null => {
-  if (root.getSelection != null) {
-    return root.getSelection()
+  const getRootSelection = (root as { getSelection?: () => Selection | null })
+    .getSelection
+
+  if (getRootSelection) {
+    return getRootSelection.call(root)
   }
+
   return document.getSelection()
 }
 

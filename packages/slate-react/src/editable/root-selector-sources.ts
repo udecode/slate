@@ -1,12 +1,12 @@
 import { type ReactNode, useCallback, useMemo, useRef } from 'react'
 import type { Operation, Path, RuntimeId, SnapshotChange } from 'slate'
 import { NodeApi } from 'slate'
+import { createSegmentPlan } from '../dom-strategy/create-segment-plan'
 import { useEditorSelector } from '../hooks/use-editor-selector'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
-import { createSegmentPlan } from '../rendering-strategy/create-segment-plan'
 
-export type RenderingStrategyRootConfig = {
+export type DOMStrategyRootConfig = {
   overscan: number
   segmentSize: number
   previewChars: number
@@ -96,8 +96,8 @@ const sameRuntimeIds = (
 
 const selectRootRuntimeIds = (editor: ReactRuntimeEditor) => {
   return editor.read((state) => {
-    return state.value
-      .get()
+    return state.nodes
+      .children()
       .map((_node: unknown, index: number) => {
         const path = [index] as Path
 
@@ -178,7 +178,7 @@ export const usePlaceholderValue = (placeholder?: ReactNode) => {
       editor.read(
         (state) =>
           placeholder &&
-          state.value.get().length === 1 &&
+          state.nodes.children().length === 1 &&
           Array.from(NodeApi.texts(editor)).length === 1 &&
           NodeApi.string(editor) === ''
       )
@@ -205,37 +205,39 @@ export const useEditableRootCommitWakeup = () => {
   )
 }
 
-export const useRenderingStrategyRootSources = ({
-  renderingStrategyConfig,
+export const useInternalSegmentDOMStrategyRootSources = ({
+  internalSegmentDOMStrategyConfig,
   promotedSegmentIndex,
 }: {
-  renderingStrategyConfig: RenderingStrategyRootConfig | null
+  internalSegmentDOMStrategyConfig: DOMStrategyRootConfig | null
   promotedSegmentIndex: number | null
 }) => {
   const topLevelRuntimeIds = useRootRuntimeIds()
   const selectedTopLevelIndex = useTopLevelSelectionIndex(
-    renderingStrategyConfig != null
+    internalSegmentDOMStrategyConfig != null
   )
   const selectedSegmentIndex =
-    renderingStrategyConfig && selectedTopLevelIndex != null
-      ? Math.floor(selectedTopLevelIndex / renderingStrategyConfig.segmentSize)
+    internalSegmentDOMStrategyConfig && selectedTopLevelIndex != null
+      ? Math.floor(
+          selectedTopLevelIndex / internalSegmentDOMStrategyConfig.segmentSize
+        )
       : 0
 
   return useMemo(() => {
     recordSlateReactRender({
-      id: renderingStrategyConfig
-        ? 'rendering-strategy-root-sources'
+      id: internalSegmentDOMStrategyConfig
+        ? 'dom-strategy-root-sources'
         : 'root-sources',
       kind: 'root-plan',
     })
 
     const segmentPlan =
-      renderingStrategyConfig &&
-      topLevelRuntimeIds.length >= renderingStrategyConfig.threshold
+      internalSegmentDOMStrategyConfig &&
+      topLevelRuntimeIds.length >= internalSegmentDOMStrategyConfig.threshold
         ? createSegmentPlan({
-            overscan: renderingStrategyConfig.overscan,
+            overscan: internalSegmentDOMStrategyConfig.overscan,
             defaultActiveSegmentIndex: selectedSegmentIndex,
-            segmentSize: renderingStrategyConfig.segmentSize,
+            segmentSize: internalSegmentDOMStrategyConfig.segmentSize,
             promotedSegmentIndex,
             topLevelRuntimeIds,
           })
@@ -263,7 +265,7 @@ export const useRenderingStrategyRootSources = ({
       topLevelRuntimeIds,
     }
   }, [
-    renderingStrategyConfig,
+    internalSegmentDOMStrategyConfig,
     promotedSegmentIndex,
     selectedSegmentIndex,
     topLevelRuntimeIds,

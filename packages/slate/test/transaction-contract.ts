@@ -2,7 +2,13 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { Editor } from 'slate/internal'
 
-import { createEditor, type Descendant, type Operation } from '../src'
+import {
+  createEditor,
+  createEditorRuntime,
+  createEditorView,
+  type Descendant,
+  type Operation,
+} from '../src'
 import { runEditorTransaction as runInternalEditorTransaction } from '../src/core/public-state'
 
 const runEditorTransaction = (
@@ -285,7 +291,10 @@ describe('slate transaction contract', () => {
     replaceChildren(editor, [paragraph('one'), paragraph('two')])
 
     editor.update((tx) => {
-      assert.deepEqual(tx.value.get(), [paragraph('one'), paragraph('two')])
+      assert.deepEqual(tx.value.get().roots.main, [
+        paragraph('one'),
+        paragraph('two'),
+      ])
       assert.equal(tx.selection.get(), null)
       assert.deepEqual(tx.value.operations(), [])
 
@@ -298,7 +307,7 @@ describe('slate transaction contract', () => {
         },
       ])
 
-      assert.equal(tx.value.get()[0]?.children[0]?.text, 'one!')
+      assert.equal(tx.value.get().roots.main[0]?.children[0]?.text, 'one!')
       assert.equal(tx.value.operations().length, 1)
 
       tx.selection.set({
@@ -619,6 +628,7 @@ describe('slate transaction contract', () => {
       {
         offset: 3,
         path: [0, 0],
+        root: 'main',
         text: '!',
         type: 'insert_text',
       },
@@ -662,6 +672,7 @@ describe('slate transaction contract', () => {
       {
         offset: 3,
         path: [0, 0],
+        root: 'main',
         text: '!',
         type: 'insert_text',
       },
@@ -818,6 +829,7 @@ describe('slate transaction contract', () => {
     assert.deepEqual(backwardCommit.operations[0], {
       offset: 2,
       path: [0, 0],
+      root: 'main',
       text: 'e',
       type: 'remove_text',
     })
@@ -963,11 +975,61 @@ describe('slate transaction contract', () => {
           focus: { path: [0, 0], offset: 2 },
         },
         properties: null,
+        root: 'main',
         type: 'set_selection',
       },
     ])
     assert.deepEqual(commit.dirty.paths, [])
     assert.deepEqual(commit.touchedRuntimeIds, [])
+  })
+
+  it('keeps rootless selection commands caller-shaped while committing the view root', () => {
+    const runtime = createEditorRuntime({
+      initialValue: {
+        roots: {
+          header: [paragraph('header')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+    const headerEditor = createEditorView(runtime, { root: 'header' })
+    const seenCommands: unknown[] = []
+    const selection = {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 2 },
+    }
+
+    const unsubscribe = Editor.registerCommand(
+      runtime.editor,
+      'set_selection',
+      (context, next) => {
+        seenCommands.push(context.command)
+        return next(context.command)
+      }
+    )
+
+    headerEditor.update((tx) => {
+      tx.selection.set(selection)
+    })
+    unsubscribe()
+
+    const commit = Editor.getLastCommit(runtime.editor)
+
+    assert.deepEqual(seenCommands, [
+      {
+        newProperties: selection,
+        properties: null,
+        type: 'set_selection',
+      },
+    ])
+    assert.deepEqual(commit?.operations, [
+      {
+        newProperties: selection,
+        properties: null,
+        root: 'header',
+        type: 'set_selection',
+      },
+    ])
   })
 
   it('routes movement through command middleware and preserves selection-only commit metadata', () => {
@@ -1311,23 +1373,12 @@ describe('slate transaction contract', () => {
     assert.equal(commits.length, 1)
   })
 
-  it('exposes extension state, editor, and transaction groups with cleanup', () => {
+  it('exposes extension state and transaction groups with cleanup', () => {
     const editor = createEditor()
 
     replaceChildren(editor, [paragraph('one')])
 
     const unextend = editor.extend({
-      editor: {
-        mirror: (currentEditor) =>
-          Object.freeze({
-            text: () =>
-              currentEditor.read((state) =>
-                (
-                  state as typeof state & { mirror: { text: () => string } }
-                ).mirror.text()
-              ),
-          }),
-      },
       name: 'group-extension',
       state: {
         mirror: (state) =>
@@ -1345,9 +1396,7 @@ describe('slate transaction contract', () => {
     })
 
     assert.equal(
-      (
-        editor as typeof editor & { mirror: { text: () => string } }
-      ).mirror.text(),
+      editor.read((state) => state.text.string([0])),
       'one'
     )
 
@@ -1358,25 +1407,17 @@ describe('slate transaction contract', () => {
     })
 
     assert.equal(
-      (
-        editor as typeof editor & { mirror: { text: () => string } }
-      ).mirror.text(),
+      editor.read((state) => state.text.string([0])),
       'one!'
     )
 
     const registry = Editor.getExtensionRegistry(editor)
     assert.equal(registry.stateGroups.has('mirror'), true)
-    assert.equal(registry.editorGroups.has('mirror'), true)
     assert.equal(registry.txGroups.has('mirror'), true)
 
     unextend()
 
-    assert.equal(
-      'mirror' in (editor as unknown as Record<string, unknown>),
-      false
-    )
     assert.equal(registry.stateGroups.has('mirror'), false)
-    assert.equal(registry.editorGroups.has('mirror'), false)
     assert.equal(registry.txGroups.has('mirror'), false)
   })
 

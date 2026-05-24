@@ -77,8 +77,8 @@ export const attachSlateBrowserHandle = ({
   inputController,
   applyInputRules,
   forceRender,
-  isShellBackedSelection,
-  setExplicitShellBackedSelection,
+  isPartialDOMBackedSelection,
+  setExplicitPartialDOMBackedSelection,
 }: {
   applyInputRules?: (input: {
     data: unknown
@@ -93,8 +93,8 @@ export const attachSlateBrowserHandle = ({
   element: SlateBrowserHandleElement
   inputController: EditableInputController
   forceRender: () => void
-  isShellBackedSelection: (selection: Range | null) => boolean
-  setExplicitShellBackedSelection: (nextValue: boolean) => void
+  isPartialDOMBackedSelection: (selection: Range | null) => boolean
+  setExplicitPartialDOMBackedSelection: (nextValue: boolean) => void
 }) => {
   const runCommand = (
     command: EditableCommand,
@@ -126,7 +126,7 @@ export const attachSlateBrowserHandle = ({
     syncEditableDOMSelectionToEditor({
       editor,
       scrollSelectionIntoView: () => {},
-      shellBackedSelection: isShellBackedSelection(
+      partialDOMBackedSelection: isPartialDOMBackedSelection(
         readRuntimeSelection(editor)
       ),
       state: inputController.state,
@@ -327,7 +327,9 @@ export const attachSlateBrowserHandle = ({
       editor.update((tx) => {
         tx.selection.set(selection)
       })
-      setExplicitShellBackedSelection(isShellBackedSelection(selection))
+      setExplicitPartialDOMBackedSelection(
+        isPartialDOMBackedSelection(selection)
+      )
     },
     undo: () => {
       if (!applyModelOwnedHistoryIntent({ direction: 'undo', editor })) {

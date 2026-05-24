@@ -313,12 +313,14 @@ describe('slate-history integrity contract', () => {
     assert.deepEqual(getHistory(editor).undos[0]?.operations, [
       {
         type: 'insert_text',
+        root: 'main',
         path: [0, 0],
         offset: 3,
         text: 'a',
       },
       {
         type: 'insert_text',
+        root: 'main',
         path: [0, 0],
         offset: 4,
         text: '!',
@@ -364,6 +366,7 @@ describe('slate-history integrity contract', () => {
     assert.deepEqual(commit.operations, [
       {
         type: 'insert_text',
+        root: 'main',
         path: [0, 0],
         offset: 3,
         text: '!',

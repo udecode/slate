@@ -23,6 +23,8 @@
       "slate-dom/internal": ["packages/slate-dom/src/internal/index.ts"],
       "slate-history": ["packages/slate-history/src/index.ts"],
       "slate-hyperscript": ["packages/slate-hyperscript/src/index.ts"],
+      "slate-layout": ["packages/slate-layout/src/index.ts"],
+      "slate-layout/react": ["packages/slate-layout/src/react.tsx"],
       "slate-react": ["packages/slate-react/src/index.ts"]
     },
     "resolveJsonModule": true,

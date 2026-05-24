@@ -12,8 +12,11 @@ type FixtureModule = {
 
 const readFixtureField = (value: Record<string, unknown>, key: string) => {
   if (key === 'children' && typeof value.read === 'function') {
-    return value.read((state: { value: { get: () => unknown } }) =>
-      state.value.get()
+    return value.read(
+      (state: {
+        runtime?: { snapshot: () => { children: unknown } }
+        value: { get: () => { roots?: { main?: unknown } } | unknown }
+      }) => state.runtime?.snapshot().children ?? state.value.get()
     )
   }
 

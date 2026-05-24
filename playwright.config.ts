@@ -26,6 +26,7 @@ const projects = [
     name: 'mobile',
     use: {
       ...devices['Pixel 5'],
+      permissions: ['clipboard-read', 'clipboard-write'],
     },
   },
 ]

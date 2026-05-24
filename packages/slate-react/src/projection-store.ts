@@ -41,6 +41,7 @@ export type SlateSourceDirtinessContext = {
   change?: SnapshotChange
   forceInvalidate?: boolean
   reason: 'annotation' | 'editor' | 'external' | 'refresh'
+  requiresDOMSelectionExport?: boolean
   snapshot: EditorSnapshot
   sourceId?: string
 }
@@ -68,8 +69,28 @@ export type SlateProjectionStoreRefreshOptions = {
   change?: SnapshotChange
   forceInvalidate?: boolean
   reason?: SlateSourceDirtinessContext['reason']
+  /**
+   * Request an Editable repair after a projection refresh that changes DOM
+   * materialization around the model selection.
+   *
+   * Decoration-only refreshes should leave this unset so overlay updates stay
+   * local to subscribed text runtimes.
+   */
+  requiresDOMSelectionExport?: boolean
   sourceId?: string
 }
+
+export type SlateProjectionRefreshResult = Readonly<{
+  changedRuntimeIds: readonly RuntimeId[]
+  changedSourceId?: string
+  didChange: boolean
+  reason: SlateSourceDirtinessContext['reason']
+  requiresDOMSelectionExport: boolean
+}>
+
+export type SlateProjectionRefreshListener = (
+  result: SlateProjectionRefreshResult
+) => void
 
 export type SlateProjectionStoreSnapshot<T = unknown> = Readonly<
   Record<RuntimeId, readonly SlateProjectionSlice<T>[]>
@@ -94,8 +115,13 @@ export type SlateProjectionStore<T = unknown> = {
     runtimeId: RuntimeId
   ) => readonly SlateProjectionSlice<T>[]
   getSnapshot: () => SlateProjectionStoreSnapshot<T>
-  refresh: (options?: SlateProjectionStoreRefreshOptions) => void
+  refresh: (
+    options?: SlateProjectionStoreRefreshOptions
+  ) => SlateProjectionRefreshResult
   subscribe: (listener: () => void) => () => void
+  subscribeProjectionRefresh: (
+    listener: SlateProjectionRefreshListener
+  ) => () => void
   subscribeRuntimeId: (runtimeId: RuntimeId, listener: () => void) => () => void
   subscribeSourceId: (sourceId: string, listener: () => void) => () => void
 }
@@ -119,6 +145,22 @@ const EMPTY_METRICS = Object.freeze({
 const EMPTY_RUNTIME_SNAPSHOT = Object.freeze(
   []
 ) as readonly SlateProjectionSlice<unknown>[]
+const EMPTY_RUNTIME_IDS = Object.freeze([]) as readonly RuntimeId[]
+
+const createProjectionRefreshResult = ({
+  changedRuntimeIds,
+  context,
+}: {
+  changedRuntimeIds: readonly RuntimeId[]
+  context: SlateSourceDirtinessContext
+}): SlateProjectionRefreshResult => ({
+  changedRuntimeIds,
+  ...(context.sourceId ? { changedSourceId: context.sourceId } : {}),
+  didChange: changedRuntimeIds.length > 0,
+  reason: context.reason,
+  requiresDOMSelectionExport:
+    context.requiresDOMSelectionExport === true && changedRuntimeIds.length > 0,
+})
 
 const INVALID_PROJECTION_RANGE_ERROR =
   /Cannot project a range outside the committed snapshot|Point offset .* is outside text bounds/
@@ -390,6 +432,7 @@ export const createSlateProjectionStore = <T>(
   const listeners = new Set<() => void>()
   const runtimeListeners = new Map<RuntimeId, Set<() => void>>()
   const sourceListeners = new Map<string, Set<() => void>>()
+  const refreshListeners = new Set<SlateProjectionRefreshListener>()
   let destroyed = false
   const initialBuild = buildProjectionSnapshot(
     editor,
@@ -403,16 +446,34 @@ export const createSlateProjectionStore = <T>(
   }) as SlateProjectionStoreMetrics
   let snapshot = initialBuild.snapshot
 
-  const recompute = (context: SlateSourceDirtinessContext) => {
-    if (!isSlateSourceDirty(options.dirtiness, context)) {
+  const emitProjectionRefresh = (result: SlateProjectionRefreshResult) => {
+    if (!result.didChange) {
       return
+    }
+
+    refreshListeners.forEach((listener) => {
+      listener(result)
+    })
+  }
+
+  const recompute = (
+    context: SlateSourceDirtinessContext
+  ): SlateProjectionRefreshResult => {
+    if (!isSlateSourceDirty(options.dirtiness, context)) {
+      return createProjectionRefreshResult({
+        changedRuntimeIds: EMPTY_RUNTIME_IDS,
+        context,
+      })
     }
 
     if (
       !context.forceInvalidate &&
       !isRuntimeScopeDirty(options.runtimeScope, context)
     ) {
-      return
+      return createProjectionRefreshResult({
+        changedRuntimeIds: EMPTY_RUNTIME_IDS,
+        context,
+      })
     }
 
     const nextBuild = buildProjectionSnapshot(editor, source(context.snapshot))
@@ -443,7 +504,10 @@ export const createSlateProjectionStore = <T>(
       : getChangedRuntimeIds(snapshot, nextSnapshot)
 
     if (changedRuntimeIds.length === 0) {
-      return
+      return createProjectionRefreshResult({
+        changedRuntimeIds,
+        context,
+      })
     }
 
     const runtimeSubscriberWakeCount = changedRuntimeIds.reduce(
@@ -481,6 +545,15 @@ export const createSlateProjectionStore = <T>(
         listener()
       })
     }
+
+    const result = createProjectionRefreshResult({
+      changedRuntimeIds,
+      context,
+    })
+
+    emitProjectionRefresh(result)
+
+    return result
   }
 
   const unsubscribeEditorSources = getEditorSourcesForDirtiness(
@@ -512,6 +585,7 @@ export const createSlateProjectionStore = <T>(
       listeners.clear()
       runtimeListeners.clear()
       sourceListeners.clear()
+      refreshListeners.clear()
       unsubscribe()
     },
     getMetrics() {
@@ -533,13 +607,24 @@ export const createSlateProjectionStore = <T>(
         refreshOptions.sourceId &&
         refreshOptions.sourceId !== options.sourceId
       ) {
-        return
+        return createProjectionRefreshResult({
+          changedRuntimeIds: EMPTY_RUNTIME_IDS,
+          context: {
+            change: refreshOptions.change,
+            forceInvalidate: refreshOptions.forceInvalidate,
+            reason: refreshOptions.reason ?? 'refresh',
+            requiresDOMSelectionExport:
+              refreshOptions.requiresDOMSelectionExport,
+            snapshot: Editor.getSnapshot(editor),
+          },
+        })
       }
 
-      recompute({
+      return recompute({
         change: refreshOptions.change,
         forceInvalidate: refreshOptions.forceInvalidate,
         reason: refreshOptions.reason ?? 'refresh',
+        requiresDOMSelectionExport: refreshOptions.requiresDOMSelectionExport,
         snapshot: Editor.getSnapshot(editor),
         sourceId: options.sourceId,
       })
@@ -548,6 +633,12 @@ export const createSlateProjectionStore = <T>(
       listeners.add(listener)
       return () => {
         listeners.delete(listener)
+      }
+    },
+    subscribeProjectionRefresh(listener) {
+      refreshListeners.add(listener)
+      return () => {
+        refreshListeners.delete(listener)
       }
     },
     subscribeRuntimeId(runtimeId, listener) {

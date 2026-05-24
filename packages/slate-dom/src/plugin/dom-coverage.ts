@@ -35,7 +35,7 @@ export type DOMCoverageReason =
   | 'app-hidden'
   | 'rendering-staged'
   | 'viewport-virtualization'
-  | 'shell-aggressive'
+  | 'partial-dom-aggressive'
   | 'runtime-atom'
 
 export type DOMCoverageSelectionPolicy =

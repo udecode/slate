@@ -7,8 +7,8 @@ import {
   getEditorTransformRegistry,
 } from '../../../../packages/slate/src/internal/index.ts'
 import {
+  dom,
   EDITOR_TO_WINDOW,
-  withDOM,
 } from '../../../../packages/slate-dom/src/index.ts'
 import {
   insertDOMFragmentData,
@@ -92,10 +92,9 @@ const encodeFragment = (fragment) =>
   benchmarkWindow.btoa(encodeURIComponent(JSON.stringify(fragment)))
 
 const createBenchmarkEditor = (children, selection) => {
-  const editor = withDOM(
-    createEditor({ initialSelection: selection, initialValue: children })
-  )
+  const editor = createEditor({ extensions: [dom()] })
 
+  Editor.replace(editor, { children, selection })
   EDITOR_TO_WINDOW.set(editor, benchmarkWindow)
 
   return editor

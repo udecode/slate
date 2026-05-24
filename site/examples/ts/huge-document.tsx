@@ -12,8 +12,8 @@ import type { Editor, Value } from 'slate'
 import {
   createReactEditor,
   Editable,
+  type EditableDOMStrategyMetrics,
   type EditableProps,
-  type EditableRenderingStrategyMetrics,
   type RenderElementProps,
   Slate,
   useElementSelected,
@@ -30,11 +30,9 @@ interface Config {
   blocks: number
   contentVisibilityMode: 'none' | 'element'
   editorHeight: number
-  renderingStrategyMode: 'auto' | 'full' | 'staged' | 'shell' | 'virtualized'
-  renderingStrategyOverscan: number
-  renderingStrategyPreviewChars: number
-  renderingStrategySegmentSize: number
-  renderingStrategyThreshold: number
+  domStrategyMode: 'auto' | 'full' | 'staged' | 'virtualized'
+  domStrategyOverscan: number
+  domStrategyThreshold: number
   showSelectedHeadings: boolean
   strictMode: boolean
   virtualizedEstimatedBlockSize: number
@@ -93,15 +91,13 @@ const initialConfig: Config = {
     'element'
   ),
   editorHeight: parseNumber('editor_height', 420),
-  renderingStrategyMode: parseEnum(
+  domStrategyMode: parseEnum(
     'strategy',
-    ['auto', 'full', 'staged', 'shell', 'virtualized'],
+    ['auto', 'full', 'staged', 'virtualized'],
     'auto'
   ),
-  renderingStrategyOverscan: parseNumber('overscan', 0),
-  renderingStrategyPreviewChars: parseNumber('preview_chars', 96),
-  renderingStrategySegmentSize: parseNumber('segment_size', 100),
-  renderingStrategyThreshold: parseNumber('threshold', 2000),
+  domStrategyOverscan: parseNumber('overscan', 0),
+  domStrategyThreshold: parseNumber('threshold', 2000),
   showSelectedHeadings: parseBoolean('selected_headings', false),
   strictMode: parseBoolean('strict', false),
   virtualizedEstimatedBlockSize: parseNumber('estimated_block_size', 48),
@@ -112,17 +108,9 @@ const setSearchParams = (config: Config) => {
     searchParams.set('blocks', config.blocks.toString())
     searchParams.set('content_visibility', config.contentVisibilityMode)
     searchParams.set('editor_height', config.editorHeight.toString())
-    searchParams.set('strategy', config.renderingStrategyMode)
-    searchParams.set('overscan', config.renderingStrategyOverscan.toString())
-    searchParams.set(
-      'preview_chars',
-      config.renderingStrategyPreviewChars.toString()
-    )
-    searchParams.set(
-      'segment_size',
-      config.renderingStrategySegmentSize.toString()
-    )
-    searchParams.set('threshold', config.renderingStrategyThreshold.toString())
+    searchParams.set('strategy', config.domStrategyMode)
+    searchParams.set('overscan', config.domStrategyOverscan.toString())
+    searchParams.set('threshold', config.domStrategyThreshold.toString())
     searchParams.set(
       'selected_headings',
       config.showSelectedHeadings ? 'true' : 'false'
@@ -177,27 +165,17 @@ const initialInitialValue: Value =
 const createEditor = (_config: Config, initialValue: Value) =>
   createReactEditor({ initialValue })
 
-const toRenderingStrategy = (
-  config: Config
-): EditableProps['renderingStrategy'] => {
-  switch (config.renderingStrategyMode) {
+const toDOMStrategy = (config: Config): EditableProps['domStrategy'] => {
+  switch (config.domStrategyMode) {
     case 'full':
     case 'staged':
     case 'auto':
-      return config.renderingStrategyMode
-    case 'shell':
-      return {
-        overscan: config.renderingStrategyOverscan,
-        previewChars: config.renderingStrategyPreviewChars,
-        segmentSize: config.renderingStrategySegmentSize,
-        threshold: config.renderingStrategyThreshold,
-        type: 'shell',
-      }
+      return config.domStrategyMode
     case 'virtualized':
       return {
         estimatedBlockSize: config.virtualizedEstimatedBlockSize,
-        overscan: config.renderingStrategyOverscan,
-        threshold: config.renderingStrategyThreshold,
+        overscan: config.domStrategyOverscan,
+        threshold: config.domStrategyThreshold,
         type: 'virtualized',
       }
   }
@@ -206,7 +184,7 @@ const toRenderingStrategy = (
 const toVirtualizedEditableStyle = (
   config: Config
 ): CSSProperties | undefined =>
-  config.renderingStrategyMode === 'virtualized'
+  config.domStrategyMode === 'virtualized'
     ? {
         border: '1px solid #ddd',
         height: config.editorHeight,
@@ -219,28 +197,28 @@ const formatMetric = (value: boolean | number | string | null | undefined) =>
   value ?? '-'
 
 const HugeDocumentExample = () => {
-  const [rendering, setRendering] = useState(false)
+  const [isRendering, setIsRendering] = useState(false)
   const [config, baseSetConfig] = useState<Config>(initialConfig)
   const [editor, setEditor] = useState(() =>
     createEditor(config, initialInitialValue)
   )
   const [editorVersion, setEditorVersion] = useState(0)
-  const [renderingStrategyMetrics, setRenderingStrategyMetrics] =
-    useState<EditableRenderingStrategyMetrics | null>(null)
+  const [domStrategyMetrics, setDOMStrategyMetrics] =
+    useState<EditableDOMStrategyMetrics | null>(null)
 
   const setConfig = useCallback(
     (partialConfig: Partial<Config>) => {
       const newConfig = { ...config, ...partialConfig }
 
-      setRendering(true)
-      setRenderingStrategyMetrics(null)
+      setIsRendering(true)
+      setDOMStrategyMetrics(null)
       baseSetConfig(newConfig)
       setSearchParams(newConfig)
 
       setTimeout(() => {
         const nextInitialValue = getInitialValue(newConfig.blocks)
 
-        setRendering(false)
+        setIsRendering(false)
         setEditor(createEditor(newConfig, nextInitialValue))
         setEditorVersion((n) => n + 1)
       })
@@ -248,7 +226,7 @@ const HugeDocumentExample = () => {
     [config]
   )
 
-  const renderingStrategy = useMemo(() => toRenderingStrategy(config), [config])
+  const domStrategy = useMemo(() => toDOMStrategy(config), [config])
 
   const editableStyle = useMemo(
     () => toVirtualizedEditableStyle(config),
@@ -263,18 +241,18 @@ const HugeDocumentExample = () => {
     [config.contentVisibilityMode, config.showSelectedHeadings]
   )
 
-  const editable = rendering ? (
+  const editable = isRendering ? (
     <div>Rendering&hellip;</div>
   ) : (
     <RenderConfigContext.Provider value={renderConfig}>
       <Slate editor={editor} key={editorVersion}>
         <Editable
           autoFocus
+          domStrategy={domStrategy}
           id="huge-document-editor"
-          onRenderingStrategyMetrics={setRenderingStrategyMetrics}
+          onDOMStrategyMetrics={setDOMStrategyMetrics}
           placeholder="Enter some text…"
           renderElement={Element}
-          renderingStrategy={renderingStrategy}
           spellCheck
           style={editableStyle}
         />
@@ -292,8 +270,8 @@ const HugeDocumentExample = () => {
     <>
       <PerformanceControls
         config={config}
+        domStrategyMetrics={domStrategyMetrics}
         editor={editor}
-        renderingStrategyMetrics={renderingStrategyMetrics}
         setConfig={setConfig}
       />
 
@@ -350,12 +328,12 @@ const Element = ({ attributes, children, element }: RenderElementProps) => {
 const PerformanceControls = ({
   editor,
   config,
-  renderingStrategyMetrics,
+  domStrategyMetrics,
   setConfig,
 }: {
   editor: Editor
   config: Config
-  renderingStrategyMetrics: EditableRenderingStrategyMetrics | null
+  domStrategyMetrics: EditableDOMStrategyMetrics | null
   setConfig: Dispatch<Partial<Config>>
 }) => {
   const [configurationOpen, setConfigurationOpen] = useState(true)
@@ -471,69 +449,25 @@ const PerformanceControls = ({
 
         <p>
           <label>
-            Rendering strategy:{' '}
+            DOM strategy:{' '}
             <select
               onChange={(event) =>
                 setConfig({
-                  renderingStrategyMode: event.target
-                    .value as Config['renderingStrategyMode'],
+                  domStrategyMode: event.target
+                    .value as Config['domStrategyMode'],
                 })
               }
-              value={config.renderingStrategyMode}
+              value={config.domStrategyMode}
             >
               <option value="auto">Auto</option>
               <option value="full">Full</option>
               <option value="staged">Staged</option>
-              <option value="shell">Shell</option>
               <option value="virtualized">Virtualized</option>
             </select>
           </label>
         </p>
 
-        {config.renderingStrategyMode === 'shell' && (
-          <>
-            <p>
-              <label>
-                Segment size:{' '}
-                <input
-                  min={1}
-                  onChange={(event) =>
-                    setConfig({
-                      renderingStrategySegmentSize: Number.parseInt(
-                        event.target.value,
-                        10
-                      ),
-                    })
-                  }
-                  type="number"
-                  value={config.renderingStrategySegmentSize}
-                />
-              </label>
-            </p>
-
-            <p>
-              <label>
-                Preview characters:{' '}
-                <input
-                  min={16}
-                  onChange={(event) =>
-                    setConfig({
-                      renderingStrategyPreviewChars: Number.parseInt(
-                        event.target.value,
-                        10
-                      ),
-                    })
-                  }
-                  type="number"
-                  value={config.renderingStrategyPreviewChars}
-                />
-              </label>
-            </p>
-          </>
-        )}
-
-        {(config.renderingStrategyMode === 'shell' ||
-          config.renderingStrategyMode === 'virtualized') && (
+        {config.domStrategyMode === 'virtualized' && (
           <>
             <p>
               <label>
@@ -542,14 +476,14 @@ const PerformanceControls = ({
                   min={0}
                   onChange={(event) =>
                     setConfig({
-                      renderingStrategyOverscan: Number.parseInt(
+                      domStrategyOverscan: Number.parseInt(
                         event.target.value,
                         10
                       ),
                     })
                   }
                   type="number"
-                  value={config.renderingStrategyOverscan}
+                  value={config.domStrategyOverscan}
                 />
               </label>
             </p>
@@ -561,21 +495,21 @@ const PerformanceControls = ({
                   min={1}
                   onChange={(event) =>
                     setConfig({
-                      renderingStrategyThreshold: Number.parseInt(
+                      domStrategyThreshold: Number.parseInt(
                         event.target.value,
                         10
                       ),
                     })
                   }
                   type="number"
-                  value={config.renderingStrategyThreshold}
+                  value={config.domStrategyThreshold}
                 />
               </label>
             </p>
           </>
         )}
 
-        {config.renderingStrategyMode === 'virtualized' && (
+        {config.domStrategyMode === 'virtualized' && (
           <>
             <p>
               <label>
@@ -670,51 +604,44 @@ const PerformanceControls = ({
         </p>
 
         <p>
-          Requested rendering strategy:{' '}
+          Requested DOM strategy:{' '}
           <output data-test-id="huge-document-requested-strategy">
-            {formatMetric(renderingStrategyMetrics?.requestedStrategy)}
+            {formatMetric(domStrategyMetrics?.requestedStrategy)}
           </output>
         </p>
 
         <p>
-          Effective rendering strategy:{' '}
+          Effective DOM strategy:{' '}
           <output data-test-id="huge-document-effective-strategy">
-            {formatMetric(renderingStrategyMetrics?.effectiveStrategy)}
+            {formatMetric(domStrategyMetrics?.effectiveStrategy)}
           </output>
         </p>
 
         <p>
           Mounted top-level blocks:{' '}
           <output data-test-id="huge-document-mounted-top-level-count">
-            {formatMetric(renderingStrategyMetrics?.mountedTopLevelCount)}
+            {formatMetric(domStrategyMetrics?.mountedTopLevelCount)}
           </output>
         </p>
 
         <p>
           Pending top-level blocks:{' '}
           <output data-test-id="huge-document-pending-top-level-count">
-            {formatMetric(renderingStrategyMetrics?.pendingTopLevelCount)}
-          </output>
-        </p>
-
-        <p>
-          Shell placeholders:{' '}
-          <output data-test-id="huge-document-shell-count">
-            {formatMetric(renderingStrategyMetrics?.shellCount)}
+            {formatMetric(domStrategyMetrics?.pendingTopLevelCount)}
           </output>
         </p>
 
         <p>
           DOM coverage boundaries:{' '}
           <output data-test-id="huge-document-dom-coverage-boundary-count">
-            {formatMetric(renderingStrategyMetrics?.domCoverageBoundaryCount)}
+            {formatMetric(domStrategyMetrics?.domCoverageBoundaryCount)}
           </output>
         </p>
 
         <p>
           DOM nodes:{' '}
           <output data-test-id="huge-document-dom-node-count">
-            {formatMetric(renderingStrategyMetrics?.domNodeCount)}
+            {formatMetric(domStrategyMetrics?.domNodeCount)}
           </output>
         </p>
 
@@ -722,7 +649,7 @@ const PerformanceControls = ({
           Virtualized viewport boundaries:{' '}
           <output data-test-id="huge-document-viewport-boundary-count">
             {formatMetric(
-              renderingStrategyMetrics?.viewportVirtualizationBoundaryCount
+              domStrategyMetrics?.viewportVirtualizationBoundaryCount
             )}
           </output>
         </p>

@@ -514,7 +514,7 @@ const insertHtmlData = (editor: CustomEditor, data: DataTransfer) => {
   const dropEmptyPasteTarget = hasTopLevelBlockFragment(fragment)
   editor.update((tx) => {
     tx.nodes.insert(fragment)
-    const firstNode = tx.value.get()[0]
+    const firstNode = tx.runtime.snapshot().children[0]
     if (dropEmptyPasteTarget && firstNode && isEmptyTextBlock(firstNode)) {
       tx.nodes.remove({ at: [0] })
     }

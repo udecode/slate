@@ -1,6 +1,6 @@
 # Experimental Virtualized Rendering
 
-`virtualized` is an opt-in rendering strategy for pathological documents. It is
+`virtualized` is an opt-in DOM strategy for pathological documents. It is
 experimental and not production-ready. Use it to measure and harden
 huge-document behavior without making ordinary editors give up native DOM
 coverage.
@@ -8,14 +8,13 @@ coverage.
 ## When To Use It
 
 Use this mode only when a document is large enough that staged rendering and
-shell rendering still leave too much DOM or heap pressure.
+partial-DOM preview rendering still leave too much DOM or heap pressure.
 
 | Strategy | Use it for | Production posture |
 | --- | --- | --- |
 | `auto` | default editor rendering | production default |
 | `staged` | safe large-document rendering with eventual DOM coverage | production-ready path |
 | `full` | debugging full DOM behavior | debug path |
-| `shell` | aggressive explicit shelling for huge documents | opt-in advanced path |
 | `virtualized` | viewport-only mounting for pathological documents | experimental, not production-ready |
 
 This mode uses TanStack Virtual internally as the viewport range and measurement
@@ -30,7 +29,7 @@ rendering and reports the actual strategy through metrics.
 
 ```tsx
 <Editable
-  renderingStrategy={{
+  domStrategy={{
     estimatedBlockSize: 32,
     overscan: 4,
     type: 'virtualized',
@@ -63,16 +62,16 @@ traversal, or production-grade mobile selection over the full document.
 
 ## Metrics
 
-Use `onRenderingStrategyMetrics` whenever you test this mode. The callback tells
+Use `onDOMStrategyMetrics` whenever you test this mode. The callback tells
 you whether Slate actually used the requested strategy and how much DOM remains
 mounted.
 
 ```tsx
 <Editable
-  renderingStrategy={{ type: 'virtualized' }}
-  onRenderingStrategyMetrics={(metrics) => {
+  domStrategy={{ type: 'virtualized' }}
+  onDOMStrategyMetrics={(metrics) => {
     navigator.sendBeacon(
-      '/rum/slate-rendering-strategy',
+      '/rum/slate-dom-strategy',
       JSON.stringify({
         degradationMode: metrics.degradationMode,
         documentSize: metrics.documentSize,

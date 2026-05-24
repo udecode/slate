@@ -440,9 +440,7 @@ test.describe('editable voids', () => {
       })
 
       const textAfterDrop =
-        testInfo.project.name === 'firefox'
-          ? "TDropped Worldhis is editable rich text, much better than a <textarea>!Since it's rich text, you can do things like turn a selection of text bold, or add a semantically rendered block quote in the middle of the page, like this:A wise quote.Try it out for yourself!"
-          : "Dropped WorldThis is editable rich text, much better than a <textarea>!Since it's rich text, you can do things like turn a selection of text bold, or add a semantically rendered block quote in the middle of the page, like this:A wise quote.Try it out for yourself!"
+        "TDropped Worldhis is editable rich text, much better than a <textarea>!Since it's rich text, you can do things like turn a selection of text bold, or add a semantically rendered block quote in the middle of the page, like this:A wise quote.Try it out for yourself!"
 
       const result = await nested.scenario.run(
         'editable-voids-nested-drop-data-gauntlet',

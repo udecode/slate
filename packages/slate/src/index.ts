@@ -1,7 +1,9 @@
 export { defineEditorExtension } from './core/editor-extension'
 export { elementProperty } from './core/element-property'
+export { defineStateField } from './core/state-field'
 export { createEditor } from './create-editor'
 export { isEditor } from './editor/is-editor'
+export { createEditorRuntime, createEditorView } from './editor-runtime-view'
 export * from './interfaces/bookmark'
 export type {
   BaseEditor,
@@ -19,15 +21,13 @@ export type {
   EditorCommitSource,
   EditorCoreStateView,
   EditorCoreUpdateTransaction,
+  EditorDocumentValue,
   EditorElementBehavior,
   EditorElementPropertyDescriptor,
   EditorElementPropertyKind,
   EditorElementSpec,
   EditorElementVoidKind,
   EditorExtension,
-  EditorExtensionEditorGroup,
-  EditorExtensionEditorGroups,
-  EditorExtensionGroups,
   EditorExtensionInput,
   EditorExtensionOperations,
   EditorExtensionRuntimeState,
@@ -52,13 +52,17 @@ export type {
   EditorQueryMiddlewareContext,
   EditorQueryMiddlewareMap,
   EditorQueryMiddlewareResult,
+  EditorRuntime,
+  EditorRuntimeOptions,
   EditorSchemaApi,
   EditorSelectionUpdateMetadata,
   EditorSnapshot,
   EditorStateExtensionGroups,
+  EditorStateField,
   EditorStateFragmentApi,
   EditorStateMarksApi,
   EditorStateNodesApi,
+  EditorStatePatch,
   EditorStatePointsApi,
   EditorStateRangesApi,
   EditorStateRuntimeApi,
@@ -67,6 +71,7 @@ export type {
   EditorStateTextApi,
   EditorStateValueApi,
   EditorStateView,
+  EditorStateViewApi,
   EditorTargetRuntime,
   EditorTransactionBreakApi,
   EditorTransactionFragmentApi,
@@ -74,6 +79,7 @@ export type {
   EditorTransactionNodesApi,
   EditorTransactionOperationsApi,
   EditorTransactionSelectionApi,
+  EditorTransactionStatePatchesApi,
   EditorTransactionTextApi,
   EditorTransactionValueApi,
   EditorTransformApi,
@@ -87,8 +93,12 @@ export type {
   EditorUpdateTag,
   EditorUpdateTagInput,
   EditorUpdateTransaction,
+  EditorView,
+  EditorViewOptions,
+  InitialValue,
   OperationClass,
   ProjectedRangeSegment,
+  RootKey,
   RuntimeId,
   Selection,
   SnapshotChange,
@@ -97,6 +107,11 @@ export type {
   SnapshotIndex,
   SnapshotInput,
   SnapshotListener,
+  StateFieldCollabPolicy,
+  StateFieldDescriptor,
+  StateFieldHistoryPolicy,
+  StateFieldInitial,
+  StateFieldValueInput,
   TargetFreshnessRequest,
   TopLevelRuntimeRange,
   Value,
@@ -112,7 +127,6 @@ export * from './interfaces/point'
 export * from './interfaces/point-ref'
 export * from './interfaces/range'
 export * from './interfaces/range-ref'
-export * from './interfaces/scrubber'
 export * from './interfaces/text'
 export type * from './interfaces/transforms/general'
 export type * from './interfaces/transforms/node'
@@ -120,4 +134,8 @@ export type * from './interfaces/transforms/selection'
 export type * from './interfaces/transforms/text'
 export * from './text-units'
 export * from './types'
+export {
+  type DebugValueScrubber,
+  setDebugValueScrubber,
+} from './utils/format-debug-value'
 export * from './utils/is-object'

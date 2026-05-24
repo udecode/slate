@@ -36,9 +36,9 @@ const createParagraphEditor = (text = 'alpha beta') => {
   seedNodeMaps(
     editor,
     editor.read((state) =>
-      state.value
-        .get()
-        .map((_, index) => state.nodes.get([index])[0] as Descendant)
+      state.runtime
+        .snapshot()
+        .children.map((_, index) => state.nodes.get([index])[0] as Descendant)
     )
   )
 
@@ -215,9 +215,9 @@ describe('slate-dom bridge', () => {
     seedNodeMaps(
       editor,
       editor.read((state) =>
-        state.value
-          .get()
-          .map((_, index) => state.nodes.get([index])[0] as Descendant)
+        state.runtime
+          .snapshot()
+          .children.map((_, index) => state.nodes.get([index])[0] as Descendant)
       )
     )
 
