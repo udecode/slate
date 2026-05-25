@@ -31,6 +31,7 @@ import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { getInputEventTargetRanges } from './dom-input-event'
+import { isDOMSelectionInsideAnotherSlateEditor } from './dom-selection-owner'
 import {
   type EditableInputController,
   executeEditableSelectionExport,
@@ -864,6 +865,15 @@ export const useEditableSelectionReconciler = ({
         root.activeElement !==
           editorElementForActiveTarget.ownerDocument.documentElement &&
         !containsShadowAware(editorElementForActiveTarget, root.activeElement))
+    ) {
+      return
+    }
+
+    if (
+      isDOMSelectionInsideAnotherSlateEditor({
+        domSelection,
+        editorElement: editorElementForActiveTarget,
+      })
     ) {
       return
     }

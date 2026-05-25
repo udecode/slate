@@ -24,17 +24,65 @@ const getIndexEntry = (dir) => {
   return null
 }
 
+const getPackageName = (dir) => {
+  const packageJsonPath = path.join(dir, 'package.json')
+
+  if (!fs.existsSync(packageJsonPath)) return null
+
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'))
+
+  return typeof packageJson.name === 'string' ? packageJson.name : null
+}
+
+const getSourceEntryAliases = (packageName, srcDir, mapper) => {
+  const aliases = {}
+
+  if (!fs.existsSync(srcDir)) return aliases
+
+  const rootEntry = getIndexEntry(srcDir)
+
+  if (rootEntry) {
+    aliases[packageName] = mapper(rootEntry)
+  }
+
+  for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
+    if (entry.name === 'index.ts' || entry.name === 'index.tsx') continue
+
+    if (entry.isDirectory()) {
+      const childEntry = getIndexEntry(path.join(srcDir, entry.name))
+
+      if (childEntry) {
+        aliases[`${packageName}/${entry.name}`] = mapper(childEntry)
+      }
+
+      continue
+    }
+
+    if (entry.isFile() && /\.(ts|tsx)$/.test(entry.name)) {
+      aliases[`${packageName}/${path.parse(entry.name).name}`] = mapper(
+        path.join(srcDir, entry.name)
+      )
+    }
+  }
+
+  return aliases
+}
+
 const buildWorkspaceSourceAliases = (mapper) => {
   const aliases = {}
 
   for (const entry of fs.readdirSync(PACKAGES_ROOT, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
 
-    const rootEntry = getIndexEntry(path.join(PACKAGES_ROOT, entry.name, 'src'))
+    const packageDir = path.join(PACKAGES_ROOT, entry.name)
+    const packageName = getPackageName(packageDir)
 
-    if (!rootEntry) continue
+    if (!packageName) continue
 
-    aliases[entry.name] = mapper(rootEntry)
+    Object.assign(
+      aliases,
+      getSourceEntryAliases(packageName, path.join(packageDir, 'src'), mapper)
+    )
   }
 
   return aliases

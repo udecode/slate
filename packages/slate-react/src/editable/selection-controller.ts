@@ -22,6 +22,7 @@ import { DOMCoverage } from 'slate-dom/internal'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { getSlateNodeElementByPath } from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
+import { isDOMSelectionInsideAnotherSlateEditor } from './dom-selection-owner'
 import type { EditableSelectionPolicy } from './editing-kernel'
 import type {
   EditableInputController,
@@ -764,6 +765,15 @@ export const syncEditableDOMSelectionToEditor = ({
       activeElement !== editorElement.ownerDocument.body &&
       activeElement !== editorElement.ownerDocument.documentElement &&
       !containsShadowAware(editorElement, activeElement)
+    ) {
+      return
+    }
+
+    if (
+      isDOMSelectionInsideAnotherSlateEditor({
+        domSelection,
+        editorElement,
+      })
     ) {
       return
     }

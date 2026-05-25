@@ -993,7 +993,7 @@ const applyReplaceChildrenToYjs = (
   }
 
   for (const child of replacedChildren) {
-    child.setAttribute(DELETED_ATTRIBUTE, true)
+    child.setAttribute(DELETED_ATTRIBUTE, 'true')
   }
 
   if (operation.newChildren.length > 0) {
@@ -1006,12 +1006,506 @@ const applyReplaceChildrenToYjs = (
   return true
 }
 
+const applyReplaceFragmentToYjs = (
+  sharedRoot: Y.XmlElement,
+  operation: Extract<Operation, { type: 'replace_fragment' }>
+) =>
+  applyReplaceChildrenToYjs(sharedRoot, {
+    ...operation,
+    index: 0,
+    type: 'replace_children',
+  })
+
+const setYjsTextLeaves = (
+  sharedText: Y.XmlText,
+  leaves: Record<string, unknown>[]
+) => {
+  const nextText = leaves
+    .map((leaf) => (typeof leaf.text === 'string' ? leaf.text : ''))
+    .join('')
+  const currentText = getPlainTextFromDelta(
+    sharedText.toDelta() as YjsTextDeltaEntry[]
+  )
+
+  if (currentText !== nextText) {
+    if (sharedText.length > 0) {
+      sharedText.delete(0, sharedText.length)
+    }
+    if (nextText.length > 0) {
+      sharedText.applyDelta(
+        leaves
+          .filter(
+            (leaf) => typeof leaf.text === 'string' && leaf.text.length > 0
+          )
+          .map((leaf) => {
+            const attributes = getNodeAttributes(leaf)
+
+            return Object.keys(attributes).length > 0
+              ? { insert: leaf.text as string, attributes }
+              : { insert: leaf.text as string }
+          }),
+        { sanitize: false }
+      )
+    }
+  }
+
+  if (nextText.length === 0) {
+    sharedText.setAttribute(
+      EMPTY_TEXT_ATTRIBUTES,
+      getNodeAttributes(leaves[0] ?? { text: '' })
+    )
+  } else {
+    sharedText.removeAttribute(EMPTY_TEXT_ATTRIBUTES)
+  }
+  sharedText.setAttribute(TEXT_LEAVES_ATTRIBUTE, createTextLeafMetadata(leaves))
+}
+
+const getYjsTextLeafIndex = (
+  sharedRoot: Y.XmlElement,
+  sharedText: Y.XmlText,
+  path: number[]
+) => {
+  const leaves = getYjsTextLeaves(sharedRoot).filter(
+    (leaf) => leaf.sharedText === sharedText
+  )
+
+  return leaves.findIndex((leaf) => PathApi.equals(leaf.path, path))
+}
+
+const applyTextSplitNodeToYjs = (
+  sharedRoot: Y.XmlElement,
+  operation: Extract<Operation, { type: 'split_node' }>
+) => {
+  const leaf = getYjsTextLeaves(sharedRoot).find((entry) =>
+    PathApi.equals(entry.path, operation.path)
+  )
+
+  if (
+    !leaf ||
+    operation.position < 0 ||
+    operation.position > leaf.text.length
+  ) {
+    return false
+  }
+
+  const leaves = readYjsText(leaf.sharedText)
+  const leafIndex = getYjsTextLeafIndex(
+    sharedRoot,
+    leaf.sharedText,
+    operation.path
+  )
+
+  if (leafIndex === -1) {
+    return false
+  }
+
+  const textLeaf = leaves[leafIndex]
+
+  if (!textLeaf || typeof textLeaf.text !== 'string') {
+    return false
+  }
+
+  leaves.splice(
+    leafIndex,
+    1,
+    {
+      ...textLeaf,
+      text: textLeaf.text.slice(0, operation.position),
+    },
+    {
+      ...(operation.properties as Record<string, unknown>),
+      text: textLeaf.text.slice(operation.position),
+    }
+  )
+  setYjsTextLeaves(leaf.sharedText, leaves)
+
+  return true
+}
+
+const cloneYjsChild = (child: Y.XmlElement | Y.XmlText) => {
+  if (isYjsXmlText(child)) {
+    return createYjsText(readYjsText(child))
+  }
+
+  const node = readYjsNode(child)[0]
+
+  return node && isRecord(node)
+    ? createYjsElement(node)
+    : createYjsText([{ text: '' }])
+}
+
+const getVisibleYjsChildren = (parent: Y.XmlElement) =>
+  parent
+    .toArray()
+    .filter(
+      (child): child is Y.XmlElement | Y.XmlText =>
+        (isYjsXmlElement(child) || isYjsXmlText(child)) && !isYjsDeleted(child)
+    )
+
+const appendYjsChildren = (
+  parent: Y.XmlElement,
+  children: Array<Y.XmlElement | Y.XmlText>
+) => {
+  for (const child of children) {
+    parent.insert(parent.length, [cloneYjsChild(child)])
+  }
+}
+
+const applyTextMergeNodeToYjs = (
+  sharedRoot: Y.XmlElement,
+  operation: Extract<Operation, { type: 'merge_node' }>
+) => {
+  const leaf = getYjsTextLeaves(sharedRoot).find((entry) =>
+    PathApi.equals(entry.path, operation.path)
+  )
+
+  if (!leaf) {
+    return false
+  }
+
+  const slateIndex = operation.path.at(-1)
+  const previousPath =
+    slateIndex === undefined || slateIndex <= 0
+      ? null
+      : [...operation.path.slice(0, -1), slateIndex - 1]
+  const previousSharedLeaf = previousPath
+    ? getYjsTextLeaves(sharedRoot).find((entry) =>
+        PathApi.equals(entry.path, previousPath)
+      )
+    : null
+
+  if (previousSharedLeaf && previousSharedLeaf.sharedText !== leaf.sharedText) {
+    return (
+      PathApi.equals(previousPath!.slice(0, -1), operation.path.slice(0, -1)) &&
+      operation.position === previousSharedLeaf.text.length
+    )
+  }
+
+  const leaves = readYjsText(leaf.sharedText)
+  const leafIndex = getYjsTextLeafIndex(
+    sharedRoot,
+    leaf.sharedText,
+    operation.path
+  )
+
+  if (leafIndex <= 0) {
+    return false
+  }
+
+  const previousLeaf = leaves[leafIndex - 1]
+  const currentLeaf = leaves[leafIndex]
+
+  if (!previousLeaf || !currentLeaf) {
+    return false
+  }
+
+  leaves.splice(leafIndex - 1, 2, {
+    ...previousLeaf,
+    text: `${previousLeaf.text}${currentLeaf.text}`,
+  })
+  leaf.sharedText.setAttribute(
+    TEXT_LEAVES_ATTRIBUTE,
+    createTextLeafMetadata(leaves)
+  )
+
+  return true
+}
+
+const applyElementMergeNodeToYjs = (
+  sharedRoot: Y.XmlElement,
+  operation: Extract<Operation, { type: 'merge_node' }>
+) => {
+  const parentPath = operation.path.slice(0, -1)
+  const slateIndex = operation.path.at(-1)
+  const parent = getYjsParentAtPath(sharedRoot, parentPath)
+
+  if (!parent || slateIndex === undefined || slateIndex <= 0) {
+    return false
+  }
+
+  const current = getYjsChildForSlateIndex(parent, slateIndex)
+  const previous = getYjsChildForSlateIndex(parent, slateIndex - 1)
+
+  if (!isYjsXmlElement(current) || !isYjsXmlElement(previous)) {
+    return false
+  }
+
+  appendYjsChildren(previous, getVisibleYjsChildren(current))
+  current.setAttribute(DELETED_ATTRIBUTE, 'true')
+
+  return true
+}
+
+const applyTextRemoveNodeToYjs = (
+  sharedRoot: Y.XmlElement,
+  operation: Extract<Operation, { type: 'remove_node' }>
+) => {
+  const leaf = getYjsTextLeaves(sharedRoot).find((entry) =>
+    PathApi.equals(entry.path, operation.path)
+  )
+
+  if (!leaf) {
+    return false
+  }
+
+  const leaves = readYjsText(leaf.sharedText)
+  const leafIndex = getYjsTextLeafIndex(
+    sharedRoot,
+    leaf.sharedText,
+    operation.path
+  )
+  const textLeaf = leaves[leafIndex]
+
+  if (leafIndex === -1 || !textLeaf) {
+    return false
+  }
+
+  if (leaf.text.length > 0) {
+    leaf.sharedText.delete(leaf.start, leaf.text.length)
+  }
+  leaves.splice(leafIndex, 1)
+
+  if (leaves.length > 0) {
+    leaf.sharedText.setAttribute(
+      TEXT_LEAVES_ATTRIBUTE,
+      createTextLeafMetadata(leaves)
+    )
+  } else {
+    leaf.sharedText.setAttribute(DELETED_ATTRIBUTE, 'true')
+  }
+
+  return true
+}
+
+const applyRemoveNodeToYjs = (
+  sharedRoot: Y.XmlElement,
+  operation: Extract<Operation, { type: 'remove_node' }>
+) => {
+  const node = getYjsNodeAtPath(sharedRoot, operation.path)
+
+  if (isYjsXmlText(node)) {
+    return applyTextRemoveNodeToYjs(sharedRoot, operation)
+  }
+  if (isYjsXmlElement(node)) {
+    node.setAttribute(DELETED_ATTRIBUTE, 'true')
+    return true
+  }
+
+  return false
+}
+
+const applyMoveNodeToYjs = (
+  sharedRoot: Y.XmlElement,
+  operation: Extract<Operation, { type: 'move_node' }>
+) => {
+  if (PathApi.equals(operation.path, operation.newPath)) {
+    return true
+  }
+  if (operation.path.length === 0 || operation.newPath.length === 0) {
+    return false
+  }
+  if (PathApi.isAncestor(operation.path, operation.newPath)) {
+    return false
+  }
+
+  const current = getYjsNodeAtPath(sharedRoot, operation.path)
+
+  if (!current) {
+    return false
+  }
+
+  const node = readYjsNode(current)[0]
+  const sameParentForwardMove =
+    operation.path.length === operation.newPath.length &&
+    operation.path.at(-1) != null &&
+    operation.newPath.at(-1) != null &&
+    PathApi.equals(
+      operation.path.slice(0, -1),
+      operation.newPath.slice(0, -1)
+    ) &&
+    operation.path.at(-1)! < operation.newPath.at(-1)!
+  const truePath = sameParentForwardMove
+    ? operation.newPath
+    : PathApi.transform(operation.newPath, {
+        node: node ?? { text: '' },
+        path: operation.path,
+        type: 'remove_node',
+      })
+
+  if (!truePath) {
+    return false
+  }
+
+  const destinationParentPath = truePath.slice(0, -1)
+  const destinationIndex = truePath.at(-1)
+  const destinationParent = getYjsParentAtPath(
+    sharedRoot,
+    destinationParentPath
+  )
+
+  if (!destinationParent || destinationIndex === undefined) {
+    return false
+  }
+
+  destinationParent.insert(
+    getYjsInsertIndexForSlateIndex(destinationParent, destinationIndex),
+    [cloneYjsChild(current)]
+  )
+  current.setAttribute(DELETED_ATTRIBUTE, 'true')
+
+  return true
+}
+
+const applyMergeNodeToYjs = (
+  sharedRoot: Y.XmlElement,
+  operation: Extract<Operation, { type: 'merge_node' }>
+) => {
+  const node = getYjsNodeAtPath(sharedRoot, operation.path)
+
+  if (isYjsXmlText(node)) {
+    return applyTextMergeNodeToYjs(sharedRoot, operation)
+  }
+
+  return applyElementMergeNodeToYjs(sharedRoot, operation)
+}
+
+const splitYjsTextAtLeafIndex = (sharedText: Y.XmlText, leafIndex: number) => {
+  const leaves = readYjsText(sharedText)
+  const before = leaves.slice(0, leafIndex)
+  const after = leaves.slice(leafIndex)
+
+  setYjsTextLeaves(sharedText, before.length > 0 ? before : [{ text: '' }])
+
+  return createYjsText(after.length > 0 ? after : [{ text: '' }])
+}
+
+const splitYjsElementChildren = (
+  element: Y.XmlElement,
+  slatePosition: number
+) => {
+  const rightChildren: Array<Y.XmlElement | Y.XmlText> = []
+  const rawChildren = element.toArray()
+  let slateIndex = 0
+  const rawIndexesToDelete: number[] = []
+
+  for (let rawIndex = 0; rawIndex < rawChildren.length; rawIndex++) {
+    const child = rawChildren[rawIndex]
+
+    if (!isYjsXmlElement(child) && !isYjsXmlText(child)) {
+      continue
+    }
+    if (isYjsDeleted(child)) {
+      continue
+    }
+
+    if (isYjsXmlText(child)) {
+      const leafCount = readYjsText(child).length
+
+      if (slatePosition <= slateIndex) {
+        rightChildren.push(cloneYjsChild(child))
+        rawIndexesToDelete.push(rawIndex)
+      } else if (slatePosition < slateIndex + leafCount) {
+        rightChildren.push(
+          splitYjsTextAtLeafIndex(child, slatePosition - slateIndex)
+        )
+      }
+
+      slateIndex += leafCount
+      continue
+    }
+
+    if (slateIndex >= slatePosition) {
+      rightChildren.push(cloneYjsChild(child))
+      rawIndexesToDelete.push(rawIndex)
+    }
+
+    slateIndex++
+  }
+
+  for (let index = rawIndexesToDelete.length - 1; index >= 0; index--) {
+    element.delete(rawIndexesToDelete[index]!, 1)
+  }
+
+  return rightChildren.length > 0
+    ? rightChildren
+    : [createYjsText([{ text: '' }])]
+}
+
+const applyElementSplitNodeToYjs = (
+  sharedRoot: Y.XmlElement,
+  operation: Extract<Operation, { type: 'split_node' }>
+) => {
+  const node = getYjsNodeAtPath(sharedRoot, operation.path)
+  const parentPath = operation.path.slice(0, -1)
+  const parent = getYjsParentAtPath(sharedRoot, parentPath)
+  const slateIndex = operation.path.at(-1)
+
+  if (!isYjsXmlElement(node) || !parent || slateIndex === undefined) {
+    return false
+  }
+
+  const rightChildren = splitYjsElementChildren(node, operation.position)
+  const nextNode = new Y.XmlElement(ELEMENT_NODE_NAME)
+  const attributes = getYjsAttributes(node)
+  const nextAttributes = {
+    ...attributes,
+    ...(operation.properties as Record<string, unknown>),
+  }
+
+  if (typeof nextAttributes.type !== 'string') {
+    nextAttributes.type =
+      typeof attributes.type === 'string' ? attributes.type : 'paragraph'
+  }
+
+  for (const [key, value] of Object.entries(nextAttributes)) {
+    nextNode.setAttribute(key, clone(value) as string)
+  }
+
+  nextNode.insert(0, rightChildren)
+  parent.insert(getYjsInsertIndexForSlateIndex(parent, slateIndex + 1), [
+    nextNode,
+  ])
+
+  return true
+}
+
+const applySplitNodeToYjs = (
+  sharedRoot: Y.XmlElement,
+  operation: Extract<Operation, { type: 'split_node' }>
+) => {
+  const node = getYjsNodeAtPath(sharedRoot, operation.path)
+
+  if (isYjsXmlText(node)) {
+    return applyTextSplitNodeToYjs(sharedRoot, operation)
+  }
+
+  return applyElementSplitNodeToYjs(sharedRoot, operation)
+}
+
+const SLATE_YJS_OPERATION_TYPES = {
+  insert_node: true,
+  insert_text: true,
+  merge_node: true,
+  move_node: true,
+  remove_node: true,
+  remove_text: true,
+  replace_children: true,
+  replace_fragment: true,
+  set_node: true,
+  set_selection: true,
+  split_node: true,
+} satisfies Record<Operation['type'], true>
+
 const applySlateOperationsToYjs = (
   sharedRoot: Y.XmlElement,
   operations: readonly Operation[],
   nextValue: Value
 ) => {
   for (const operation of operations) {
+    if (SLATE_YJS_OPERATION_TYPES[operation.type] !== true) {
+      return false
+    }
+
     switch (operation.type) {
       case 'insert_text': {
         const position = pointToYjsTextPosition(sharedRoot, {
@@ -1077,14 +1571,47 @@ const applySlateOperationsToYjs = (
         )
         break
       }
+      case 'merge_node': {
+        if (!applyMergeNodeToYjs(sharedRoot, operation)) {
+          return false
+        }
+        break
+      }
+      case 'move_node': {
+        if (!applyMoveNodeToYjs(sharedRoot, operation)) {
+          return false
+        }
+        break
+      }
+      case 'remove_node': {
+        if (!applyRemoveNodeToYjs(sharedRoot, operation)) {
+          return false
+        }
+        break
+      }
       case 'replace_children': {
         if (!applyReplaceChildrenToYjs(sharedRoot, operation)) {
           return false
         }
         break
       }
-      default:
-        return false
+      case 'replace_fragment': {
+        if (!applyReplaceFragmentToYjs(sharedRoot, operation)) {
+          return false
+        }
+        break
+      }
+      case 'split_node': {
+        if (!applySplitNodeToYjs(sharedRoot, operation)) {
+          return false
+        }
+        break
+      }
+      default: {
+        const exhaustive: never = operation
+
+        return exhaustive
+      }
     }
   }
 

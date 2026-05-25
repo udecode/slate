@@ -36,6 +36,11 @@ const value = (editor: ReturnType<typeof createEditor>): Value =>
     (state) => JSON.parse(JSON.stringify(state.value.get().roots.main)) as Value
   )
 
+const valueText = (children: Value) =>
+  children
+    .map((node) => node.children.map((child) => child.text).join(''))
+    .join('\n')
+
 const selection = (editor: ReturnType<typeof createEditor>) =>
   editor.read((state) => state.selection.get())
 
@@ -445,5 +450,268 @@ describe('slate-yjs core', () => {
       paragraph('Use either editor; the other peer follows. Ada'),
     ])
     assert.deepEqual(value(editorB), value(editorA))
+  })
+
+  it('merges disconnected merge_node with a concurrent text edit in the surviving branch', async () => {
+    const initialValue: Value = [paragraph('alpha'), paragraph('beta')]
+    const seedDoc = new Y.Doc()
+    const docA = new Y.Doc()
+    const docB = new Y.Doc()
+    const docC = new Y.Doc()
+    const rootA = docA.getXmlElement('slate')
+    const rootB = docB.getXmlElement('slate')
+    const rootC = docC.getXmlElement('slate')
+    const editorA = seedEditor(initialValue)
+    const editorB = seedEditor(initialValue)
+    const editorC = seedEditor(initialValue)
+
+    writeSlateValueToYjs(seedDoc.getXmlElement('slate'), initialValue)
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(seedDoc))
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(seedDoc))
+    Y.applyUpdate(docC, Y.encodeStateAsUpdate(seedDoc))
+    connectEditors(
+      { editor: editorA, root: rootA },
+      { editor: editorB, root: rootB },
+      { editor: editorC, root: rootC }
+    )
+
+    editorB.update((tx) => {
+      tx.operations.replay([
+        {
+          path: [1],
+          position: 1,
+          properties: { type: 'paragraph' },
+          root: 'main',
+          type: 'merge_node',
+        },
+      ])
+    })
+
+    editorC.update((tx) => {
+      tx.text.insert('!', { at: { path: [0, 0], offset: 5 } })
+    })
+
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB), 'network')
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docC), 'network')
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA), 'network')
+    Y.applyUpdate(docC, Y.encodeStateAsUpdate(docA), 'network')
+    await Promise.resolve()
+
+    assert.equal(valueText(value(editorA)), 'alpha!beta')
+    assert.deepEqual(value(editorB), value(editorA))
+    assert.deepEqual(value(editorC), value(editorA))
+  })
+
+  it('preserves a concurrent left-branch edit when Backspace merge normalization reconnects', async () => {
+    const initialValue: Value = [paragraph('alpha'), paragraph('beta')]
+    const seedDoc = new Y.Doc()
+    const docA = new Y.Doc()
+    const docB = new Y.Doc()
+    const rootA = docA.getXmlElement('slate')
+    const rootB = docB.getXmlElement('slate')
+    const editorA = seedEditor(initialValue)
+    const editorB = seedEditor(initialValue)
+
+    writeSlateValueToYjs(seedDoc.getXmlElement('slate'), initialValue)
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(seedDoc))
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(seedDoc))
+    connectEditors(
+      { editor: editorA, root: rootA },
+      { editor: editorB, root: rootB }
+    )
+
+    editorB.update((tx) => {
+      tx.operations.replay([
+        {
+          path: [1],
+          position: 1,
+          properties: { type: 'paragraph' },
+          root: 'main',
+          type: 'merge_node',
+        },
+        {
+          path: [0, 1],
+          position: 5,
+          properties: {},
+          root: 'main',
+          type: 'merge_node',
+        },
+      ])
+    })
+
+    editorA.update((tx) => {
+      tx.text.insert('!', { at: { path: [0, 0], offset: 5 } })
+    })
+
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA), 'network')
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB), 'network')
+    await Promise.resolve()
+
+    assert.equal(valueText(value(editorA)), 'alpha!beta')
+    assert.deepEqual(value(editorB), value(editorA))
+  })
+
+  it('merges disconnected remove_node with a concurrent edit outside the removed node', async () => {
+    const initialValue: Value = [paragraph('alpha'), paragraph('beta')]
+    const seedDoc = new Y.Doc()
+    const docA = new Y.Doc()
+    const docB = new Y.Doc()
+    const docC = new Y.Doc()
+    const rootA = docA.getXmlElement('slate')
+    const rootB = docB.getXmlElement('slate')
+    const rootC = docC.getXmlElement('slate')
+    const editorA = seedEditor(initialValue)
+    const editorB = seedEditor(initialValue)
+    const editorC = seedEditor(initialValue)
+
+    writeSlateValueToYjs(seedDoc.getXmlElement('slate'), initialValue)
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(seedDoc))
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(seedDoc))
+    Y.applyUpdate(docC, Y.encodeStateAsUpdate(seedDoc))
+    connectEditors(
+      { editor: editorA, root: rootA },
+      { editor: editorB, root: rootB },
+      { editor: editorC, root: rootC }
+    )
+
+    editorB.update((tx) => {
+      tx.operations.replay([
+        {
+          node: paragraph('beta'),
+          path: [1],
+          root: 'main',
+          type: 'remove_node',
+        },
+      ])
+    })
+
+    editorC.update((tx) => {
+      tx.text.insert('!', { at: { path: [0, 0], offset: 5 } })
+    })
+
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB), 'network')
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docC), 'network')
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA), 'network')
+    Y.applyUpdate(docC, Y.encodeStateAsUpdate(docA), 'network')
+    await Promise.resolve()
+
+    assert.deepEqual(value(editorA), [paragraph('alpha!')])
+    assert.deepEqual(value(editorB), value(editorA))
+    assert.deepEqual(value(editorC), value(editorA))
+  })
+
+  it('merges disconnected replace_fragment with a concurrent sibling edit', async () => {
+    const initialValue: Value = [paragraph('alpha'), paragraph('beta')]
+    const seedDoc = new Y.Doc()
+    const docA = new Y.Doc()
+    const docB = new Y.Doc()
+    const docC = new Y.Doc()
+    const rootA = docA.getXmlElement('slate')
+    const rootB = docB.getXmlElement('slate')
+    const rootC = docC.getXmlElement('slate')
+    const editorA = seedEditor(initialValue)
+    const editorB = seedEditor(initialValue)
+    const editorC = seedEditor(initialValue)
+
+    writeSlateValueToYjs(seedDoc.getXmlElement('slate'), initialValue)
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(seedDoc))
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(seedDoc))
+    Y.applyUpdate(docC, Y.encodeStateAsUpdate(seedDoc))
+    connectEditors(
+      { editor: editorA, root: rootA },
+      { editor: editorB, root: rootB },
+      { editor: editorC, root: rootC }
+    )
+
+    editorB.update((tx) => {
+      tx.operations.replay([
+        {
+          children: [{ text: 'alpha' }],
+          newChildren: [{ text: 'omega' }],
+          newSelection: {
+            anchor: { path: [0, 0], offset: 5 },
+            focus: { path: [0, 0], offset: 5 },
+          },
+          path: [0],
+          root: 'main',
+          selection: {
+            anchor: { path: [0, 0], offset: 0 },
+            focus: { path: [0, 0], offset: 5 },
+          },
+          type: 'replace_fragment',
+        },
+      ])
+    })
+
+    editorC.update((tx) => {
+      tx.text.insert('!', { at: { path: [1, 0], offset: 4 } })
+    })
+
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB), 'network')
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docC), 'network')
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA), 'network')
+    Y.applyUpdate(docC, Y.encodeStateAsUpdate(docA), 'network')
+    await Promise.resolve()
+
+    assert.deepEqual(value(editorA), [paragraph('omega'), paragraph('beta!')])
+    assert.deepEqual(value(editorB), value(editorA))
+    assert.deepEqual(value(editorC), value(editorA))
+  })
+
+  it('merges disconnected move_node with a concurrent edit in an unmoved sibling', async () => {
+    const initialValue: Value = [
+      paragraph('alpha'),
+      paragraph('beta'),
+      paragraph('gamma'),
+    ]
+    const seedDoc = new Y.Doc()
+    const docA = new Y.Doc()
+    const docB = new Y.Doc()
+    const docC = new Y.Doc()
+    const rootA = docA.getXmlElement('slate')
+    const rootB = docB.getXmlElement('slate')
+    const rootC = docC.getXmlElement('slate')
+    const editorA = seedEditor(initialValue)
+    const editorB = seedEditor(initialValue)
+    const editorC = seedEditor(initialValue)
+
+    writeSlateValueToYjs(seedDoc.getXmlElement('slate'), initialValue)
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(seedDoc))
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(seedDoc))
+    Y.applyUpdate(docC, Y.encodeStateAsUpdate(seedDoc))
+    connectEditors(
+      { editor: editorA, root: rootA },
+      { editor: editorB, root: rootB },
+      { editor: editorC, root: rootC }
+    )
+
+    editorB.update((tx) => {
+      tx.operations.replay([
+        {
+          newPath: [0],
+          path: [1],
+          root: 'main',
+          type: 'move_node',
+        },
+      ])
+    })
+
+    editorC.update((tx) => {
+      tx.text.insert('!', { at: { path: [2, 0], offset: 5 } })
+    })
+
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB), 'network')
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docC), 'network')
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA), 'network')
+    Y.applyUpdate(docC, Y.encodeStateAsUpdate(docA), 'network')
+    await Promise.resolve()
+
+    assert.deepEqual(value(editorA), [
+      paragraph('beta'),
+      paragraph('alpha'),
+      paragraph('gamma!'),
+    ])
+    assert.deepEqual(value(editorB), value(editorA))
+    assert.deepEqual(value(editorC), value(editorA))
   })
 })
