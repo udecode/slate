@@ -193,6 +193,76 @@ export const syncTextOperationsToDOM = (
   return result()
 }
 
+export const syncTextRuntimeIdsToDOM = (
+  editor: Editor,
+  runtimeIds: readonly RuntimeId[] | null | undefined
+) => {
+  if (!runtimeIds || runtimeIds.length === 0) {
+    return
+  }
+
+  const pathToElement = EDITOR_TO_PATH_TO_ELEMENT.get(editor)
+
+  if (IS_COMPOSING.get(editor)) {
+    recordDOMTextSyncProfile('skip-composition')
+    return
+  }
+
+  if (!pathToElement) {
+    recordDOMTextSyncProfile('skip-no-path-map')
+    return
+  }
+
+  recordDOMTextSyncProfile('full-document-attempt')
+
+  for (const runtimeId of runtimeIds) {
+    const path = Editor.getPathByRuntimeId(editor, runtimeId)
+
+    if (!path) {
+      continue
+    }
+
+    const element = pathToElement.get(pathKey(path))
+    if (!element?.isConnected) {
+      continue
+    }
+
+    if (
+      element.getAttribute('data-slate-dom-sync') !== 'true' ||
+      !Editor.hasPath(editor, path)
+    ) {
+      continue
+    }
+
+    const strings = element.querySelectorAll('[data-slate-string="true"]')
+
+    if (strings.length !== 1) {
+      continue
+    }
+
+    const [node] = editor.read((state) => state.nodes.get(path))
+    const text =
+      'text' in node && typeof node.text === 'string' ? node.text : null
+
+    if (text === null) {
+      continue
+    }
+
+    const stringElement = strings[0]!
+    const textNode = Array.from(stringElement.childNodes).find(
+      (child) => child.nodeType === Node.TEXT_NODE
+    )
+
+    if (textNode) {
+      markDOMTextSyncMutationTarget(textNode)
+      textNode.nodeValue = text
+    } else {
+      markDOMTextSyncMutationTarget(stringElement)
+      stringElement.textContent = text
+    }
+  }
+}
+
 export const useSlateNodeRef = (
   runtimeId: RuntimeId | null,
   options: {

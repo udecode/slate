@@ -33,7 +33,10 @@ import {
 } from '../hooks/use-editor-selector'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { SlateAnnotationStoreContext } from '../hooks/use-slate-annotations'
-import { syncTextOperationsToDOM } from '../hooks/use-slate-node-ref'
+import {
+  syncTextOperationsToDOM,
+  syncTextRuntimeIdsToDOM,
+} from '../hooks/use-slate-node-ref'
 import {
   createReactRuntimeViewEditor,
   createSlateViewEffectQueue,
@@ -560,6 +563,11 @@ const SlateSingleEditor = <
         const rootTextSync = profileRuntimeDuration('dom-root-text-sync', () =>
           syncMountedRootTextOperationsToDOM(nextOperations)
         )
+        if (commit?.fullDocumentChanged && commit.operations.length === 0) {
+          profileRuntimeDuration('dom-full-document-text-sync', () =>
+            syncTextRuntimeIdsToDOM(reactEditor, commit.affectedTextRuntimeIds)
+          )
+        }
         const hasUnsyncedTextOperation =
           textSync.textOperationCount > textSync.syncedTextOperationCount ||
           rootTextSync.textOperationCount >

@@ -55,7 +55,7 @@
     "serve": "cd ./site && next dev -p 3100",
     "serve:playwright": "node ./scripts/serve-playwright.mjs",
     "test": "bun test:bun && bun test:vitest",
-    "test:bun": "bun test ./packages/slate/test ./packages/slate-history/test ./packages/slate-dom/test ./packages/slate-hyperscript/test ./packages/slate-browser/test/core && bun --filter ./packages/slate-layout test",
+    "test:bun": "bun test ./packages/slate/test ./packages/slate-history/test ./packages/slate-dom/test ./packages/slate-hyperscript/test ./packages/slate-browser/test/core ./packages/slate-yjs/test && bun --filter ./packages/slate-layout test",
     "test:inspect": "bun test --inspect-brk",
     "test:integration": "playwright install --with-deps && playwright test playwright/integration",
     "test:integration-docker": "./playwright/docker/run-tests.sh",

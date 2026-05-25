@@ -1170,6 +1170,60 @@ test('Editable falls back to React updates while composing', async () => {
   IS_COMPOSING.set(editor, false)
 })
 
+test('Editable full-document replacement refreshes text previously written by DOM sync', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 5 },
+      focus: { path: [0, 0], offset: 5 },
+    },
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      editor={editor}
+      id="dom-strategy-full-replace-after-dom-sync"
+    />
+  )
+
+  await act(async () => {
+    editor.update((tx) => {
+      tx.text.insert('!')
+    })
+  })
+
+  expect(didSyncTextPathToDOM(editor, [0, 0])).toBe(true)
+  expect(rendered.container.textContent).toContain('alpha!')
+
+  await act(async () => {
+    editor.update((tx) => {
+      tx.value.replace({
+        children: [
+          {
+            type: 'paragraph',
+            children: [{ text: 'alpha' }],
+          },
+        ],
+        selection: {
+          anchor: { path: [0, 0], offset: 5 },
+          focus: { path: [0, 0], offset: 5 },
+        },
+      })
+    })
+  })
+
+  expect(Editor.string(editor, [])).toBe('alpha')
+  expect(rendered.container.textContent).toContain('alpha')
+  expect(rendered.container.textContent).not.toContain('alpha!')
+})
+
 test('Editable staged full-document replacement removes stale far DOM immediately', async () => {
   const editor = createReactEditor()
 
