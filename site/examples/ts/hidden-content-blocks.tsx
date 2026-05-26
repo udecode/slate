@@ -1,5 +1,10 @@
 import React, { useCallback, useMemo, useState } from 'react'
 import { NodeApi, type Element as SlateElement } from 'slate'
+import type {
+  DOMCoverageCopyPolicy,
+  DOMCoverageFindPolicy,
+  DOMCoverageSelectionPolicy,
+} from 'slate-dom/internal'
 import {
   Editable,
   type EditableDOMStrategyMetrics,
@@ -8,20 +13,102 @@ import {
   Slate,
   useSlateEditor,
 } from 'slate-react'
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
+import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 type HiddenBlocksState = {
   accordionOpen: boolean
   activeTab: 'details' | 'overview'
+  collapsibleOpen: boolean
+  copyPolicy: DOMCoverageCopyPolicy
+  findPolicy: DOMCoverageFindPolicy
+  selectionPolicy: DOMCoverageSelectionPolicy
   setAccordionOpen: (value: boolean) => void
   setActiveTab: (value: 'details' | 'overview') => void
+  setCollapsibleOpen: (value: boolean) => void
 }
+
+const selectionPolicyOptions: DOMCoverageSelectionPolicy[] = [
+  'boundary',
+  'model-backed',
+  'materialize',
+]
+const copyPolicyOptions: DOMCoverageCopyPolicy[] = [
+  'include-model',
+  'summary-only',
+  'exclude',
+  'materialize',
+]
+const findPolicyOptions: DOMCoverageFindPolicy[] = [
+  'not-native-until-mounted',
+  'native',
+  'custom',
+]
 
 const HiddenBlocksContext = React.createContext<HiddenBlocksState>({
   accordionOpen: false,
   activeTab: 'overview',
+  collapsibleOpen: false,
+  copyPolicy: 'include-model',
+  findPolicy: 'not-native-until-mounted',
+  selectionPolicy: 'boundary',
   setAccordionOpen: () => {},
   setActiveTab: () => {},
+  setCollapsibleOpen: () => {},
 })
+
+const PolicyControls = <T extends string>({
+  label,
+  onChange,
+  options,
+  testId,
+  value,
+}: {
+  label: string
+  onChange: (value: T) => void
+  options: readonly T[]
+  testId: string
+  value: T
+}) => (
+  <div className="flex flex-wrap items-center gap-1">
+    <span className="mr-1 text-sm font-medium text-muted-foreground">
+      {label}
+    </span>
+    {options.map((option) => (
+      <Button
+        aria-pressed={value === option}
+        data-test-id={`${testId}-${option}`}
+        key={option}
+        onClick={() => onChange(option)}
+        size="sm"
+        type="button"
+        variant={value === option ? 'default' : 'outline'}
+      >
+        {option}
+      </Button>
+    ))}
+  </div>
+)
 
 const HiddenContentBlocksExample = () => {
   const editor = useSlateEditor({
@@ -59,14 +146,31 @@ const HiddenContentBlocksExample = () => {
         ],
       },
       {
+        type: 'collapsible-block',
+        children: [
+          {
+            type: 'paragraph',
+            children: [{ text: 'Collapsible hidden note' }],
+          },
+        ],
+      },
+      {
         type: 'paragraph',
         children: [{ text: 'Outro visible after hidden blocks.' }],
       },
     ] as SlateElement[],
   })
   const [accordionOpen, setAccordionOpen] = useState(false)
+  const [collapsibleOpen, setCollapsibleOpen] = useState(false)
   const [activeTab, setActiveTab] =
     useState<HiddenBlocksState['activeTab']>('overview')
+  const [selectionPolicy, setSelectionPolicy] =
+    useState<DOMCoverageSelectionPolicy>('boundary')
+  const [copyPolicy, setCopyPolicy] =
+    useState<DOMCoverageCopyPolicy>('include-model')
+  const [findPolicy, setFindPolicy] = useState<DOMCoverageFindPolicy>(
+    'not-native-until-mounted'
+  )
   const [copyPreview, setCopyPreview] = useState('')
   const [metrics, setMetrics] = useState<EditableDOMStrategyMetrics | null>(
     null
@@ -75,10 +179,22 @@ const HiddenContentBlocksExample = () => {
     () => ({
       accordionOpen,
       activeTab,
+      collapsibleOpen,
+      copyPolicy,
+      findPolicy,
+      selectionPolicy,
       setAccordionOpen,
       setActiveTab,
+      setCollapsibleOpen,
     }),
-    [accordionOpen, activeTab]
+    [
+      accordionOpen,
+      activeTab,
+      collapsibleOpen,
+      copyPolicy,
+      findPolicy,
+      selectionPolicy,
+    ]
   )
 
   const selectAndCopy = useCallback(
@@ -103,52 +219,135 @@ const HiddenContentBlocksExample = () => {
 
   return (
     <HiddenBlocksContext.Provider value={state}>
-      <div style={styles.page}>
-        <div contentEditable={false} style={styles.toolbar}>
-          <button
-            data-test-id="toggle-accordion"
-            onClick={() => setAccordionOpen(!accordionOpen)}
-          >
-            Accordion
-          </button>
-          <button
-            data-test-id="select-copy-accordion"
-            onClick={() => selectAndCopy([1, 0, 0])}
-          >
-            Copy accordion body
-          </button>
-          <button
-            data-test-id="select-copy-details"
-            onClick={() => selectAndCopy([2, 1, 0])}
-          >
-            Copy details tab
-          </button>
-        </div>
+      <div className="flex flex-col gap-4">
+        <Card contentEditable={false}>
+          <CardHeader>
+            <CardTitle>Hidden editor content</CardTitle>
+            <CardDescription>
+              Shadcn Accordion, Collapsible, and Tabs shells keep their UI
+              mounted while Slate owns hidden editable descendants.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-2">
+            <Button
+              data-test-id="toggle-accordion"
+              onClick={() => setAccordionOpen(!accordionOpen)}
+              size="sm"
+              variant="outline"
+            >
+              Accordion
+            </Button>
+            <Button
+              data-test-id="toggle-collapsible"
+              onClick={() => setCollapsibleOpen(!collapsibleOpen)}
+              size="sm"
+              variant="outline"
+            >
+              Collapsible
+            </Button>
+            <Separator className="h-6" orientation="vertical" />
+            <Button
+              data-test-id="select-copy-accordion"
+              onClick={() => selectAndCopy([1, 0, 0])}
+              size="sm"
+              variant="secondary"
+            >
+              Copy accordion
+            </Button>
+            <Button
+              data-test-id="select-copy-collapsible"
+              onClick={() => selectAndCopy([3, 0, 0])}
+              size="sm"
+              variant="secondary"
+            >
+              Copy collapsible
+            </Button>
+            <Button
+              data-test-id="select-copy-details"
+              onClick={() => selectAndCopy([2, 1, 0])}
+              size="sm"
+              variant="secondary"
+            >
+              Copy details tab
+            </Button>
+            <Separator className="h-6" orientation="vertical" />
+            <PolicyControls
+              label="Selection"
+              onChange={setSelectionPolicy}
+              options={selectionPolicyOptions}
+              testId="policy-selection"
+              value={selectionPolicy}
+            />
+            <PolicyControls
+              label="Copy"
+              onChange={setCopyPolicy}
+              options={copyPolicyOptions}
+              testId="policy-copy"
+              value={copyPolicy}
+            />
+            <PolicyControls
+              label="Find"
+              onChange={setFindPolicy}
+              options={findPolicyOptions}
+              testId="policy-find"
+              value={findPolicy}
+            />
+          </CardContent>
+        </Card>
 
         <Slate editor={editor}>
           <Editable
             aria-label="Hidden content blocks editor"
+            className="min-h-[220px] rounded-lg border border-border bg-background p-3"
             id="hidden-content-blocks-editor"
             onDOMStrategyMetrics={setMetrics}
             placeholder="Write around hidden blocks..."
             renderElement={Element}
             spellCheck
-            style={styles.editor}
           />
         </Slate>
 
-        <div contentEditable={false} style={styles.status}>
-          <output data-test-id="hidden-content-copy-preview">
-            {copyPreview || 'copy payload appears here'}
-          </output>
-          <output data-test-id="hidden-content-boundary-count">
-            {metrics?.domCoverageBoundaryElementCount ?? 0}
-          </output>
-          <output data-test-id="hidden-content-native-surface">
-            {(metrics?.domCoverageBoundaryElementCount ?? 0) > 0
-              ? 'degraded'
-              : 'complete'}
-          </output>
+        <div
+          className="flex flex-wrap items-center gap-2"
+          contentEditable={false}
+        >
+          <Badge variant="outline">
+            <output data-test-id="hidden-content-copy-preview">
+              {copyPreview || 'copy payload appears here'}
+            </output>
+          </Badge>
+          <Badge variant="secondary">
+            boundaries:{' '}
+            <output data-test-id="hidden-content-boundary-count">
+              {metrics?.domCoverageBoundaryElementCount ?? 0}
+            </output>
+          </Badge>
+          <Badge variant="secondary">
+            native:{' '}
+            <output data-test-id="hidden-content-native-surface">
+              {(metrics?.domCoverageBoundaryElementCount ?? 0) > 0
+                ? 'degraded'
+                : 'complete'}
+            </output>
+          </Badge>
+          <Badge variant="outline">
+            selection:{' '}
+            <output data-test-id="hidden-content-selection-policy">
+              {selectionPolicy}
+            </output>
+          </Badge>
+          <Badge variant="outline">
+            copy:{' '}
+            <output data-test-id="hidden-content-copy-policy">
+              {copyPolicy}
+            </output>
+          </Badge>
+          <Badge variant="outline">
+            find:{' '}
+            <output data-test-id="hidden-content-find-policy">
+              {findPolicy}
+            </output>
+          </Badge>
         </div>
       </div>
     </HiddenBlocksContext.Provider>
@@ -156,91 +355,121 @@ const HiddenContentBlocksExample = () => {
 }
 
 const Element = ({ children, element, slots }: RenderElementProps) => {
-  const { accordionOpen, activeTab, setAccordionOpen, setActiveTab } =
-    React.useContext(HiddenBlocksContext)
+  const {
+    accordionOpen,
+    activeTab,
+    collapsibleOpen,
+    setAccordionOpen,
+    setActiveTab,
+    setCollapsibleOpen,
+    copyPolicy,
+    findPolicy,
+    selectionPolicy,
+  } = React.useContext(HiddenBlocksContext)
   const childNodes = React.Children.toArray(children)
 
   switch (element.type) {
     case 'accordion-block':
       return (
         <EditableElement>
-          <div contentEditable={false} style={styles.blockChrome}>
-            <button
-              aria-expanded={accordionOpen}
-              data-test-id="accordion-trigger"
-              onClick={() => setAccordionOpen(!accordionOpen)}
-            >
-              Accordion body
-            </button>
-          </div>
-          <slots.contentBoundary
-            copyPolicy="include-model"
-            mounted={accordionOpen}
-            onMaterialize={() => setAccordionOpen(true)}
-            renderPlaceholder={({ materialize }) => (
-              <button
-                contentEditable={false}
-                data-test-id="accordion-materialize"
-                onClick={materialize}
-                style={styles.placeholderButton}
-              >
-                Open hidden accordion body
-              </button>
-            )}
-            scope={{ from: 0, to: childNodes.length - 1, type: 'children' }}
-            selectionPolicy="materialize"
-          />
+          <Accordion
+            collapsible
+            onValueChange={(value) => setAccordionOpen(value === 'body')}
+            type="single"
+            value={accordionOpen ? 'body' : ''}
+          >
+            <AccordionItem value="body">
+              <div contentEditable={false}>
+                <AccordionTrigger data-test-id="accordion-trigger">
+                  Accordion body
+                </AccordionTrigger>
+              </div>
+              <AccordionContent forceMount>
+                <slots.contentBoundary
+                  copyPolicy={copyPolicy}
+                  findPolicy={findPolicy}
+                  mounted={accordionOpen}
+                  onMaterialize={() => setAccordionOpen(true)}
+                  scope={{
+                    from: 0,
+                    to: childNodes.length - 1,
+                    type: 'children',
+                  }}
+                  selectionPolicy={selectionPolicy}
+                />
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </EditableElement>
+      )
+    case 'collapsible-block':
+      return (
+        <EditableElement>
+          <Collapsible onOpenChange={setCollapsibleOpen} open={collapsibleOpen}>
+            <div contentEditable={false}>
+              <CollapsibleTrigger asChild>
+                <Button
+                  className="my-2"
+                  data-test-id="collapsible-trigger"
+                  variant="outline"
+                >
+                  Collapsible note
+                </Button>
+              </CollapsibleTrigger>
+            </div>
+            <CollapsibleContent forceMount>
+              <slots.contentBoundary
+                copyPolicy={copyPolicy}
+                findPolicy={findPolicy}
+                mounted={collapsibleOpen}
+                onMaterialize={() => setCollapsibleOpen(true)}
+                scope={{ from: 0, to: childNodes.length - 1, type: 'children' }}
+                selectionPolicy={selectionPolicy}
+              />
+            </CollapsibleContent>
+          </Collapsible>
         </EditableElement>
       )
     case 'tabs-block':
       return (
         <EditableElement>
-          <div contentEditable={false} role="tablist" style={styles.tabsList}>
-            <button
-              aria-selected={activeTab === 'overview'}
-              data-test-id="tab-overview"
-              onClick={() => setActiveTab('overview')}
-              role="tab"
-            >
-              Overview
-            </button>
-            <button
-              aria-selected={activeTab === 'details'}
-              data-test-id="tab-details"
-              onClick={() => setActiveTab('details')}
-              role="tab"
-            >
-              Details
-            </button>
-          </div>
-          {childNodes.map((child, index) => {
-            const tab = index === 0 ? 'overview' : 'details'
-
-            if (activeTab === tab) {
-              return <React.Fragment key={tab}>{child}</React.Fragment>
+          <Tabs
+            onValueChange={(value) =>
+              setActiveTab(value as HiddenBlocksState['activeTab'])
             }
+            value={activeTab}
+          >
+            <div contentEditable={false}>
+              <TabsList>
+                <TabsTrigger data-test-id="tab-overview" value="overview">
+                  Overview
+                </TabsTrigger>
+                <TabsTrigger data-test-id="tab-details" value="details">
+                  Details
+                </TabsTrigger>
+              </TabsList>
+            </div>
+            {childNodes.map((child, index) => {
+              const tab = index === 0 ? 'overview' : 'details'
 
-            return (
-              <slots.contentBoundary
-                copyPolicy="include-model"
-                key={tab}
-                mounted={false}
-                onMaterialize={() => setActiveTab(tab)}
-                renderPlaceholder={({ materialize }) => (
-                  <button
-                    contentEditable={false}
-                    data-test-id={`tab-${tab}-materialize`}
-                    onClick={materialize}
-                    style={styles.placeholderButton}
-                  >
-                    Open {tab} tab
-                  </button>
-                )}
-                scope={{ from: index, type: 'children' }}
-                selectionPolicy="materialize"
-              />
-            )
-          })}
+              return (
+                <TabsContent forceMount key={tab} value={tab}>
+                  {activeTab === tab ? (
+                    child
+                  ) : (
+                    <slots.contentBoundary
+                      copyPolicy={copyPolicy}
+                      findPolicy={findPolicy}
+                      mounted={false}
+                      onMaterialize={() => setActiveTab(tab)}
+                      scope={{ from: index, type: 'children' }}
+                      selectionPolicy={selectionPolicy}
+                    />
+                  )}
+                </TabsContent>
+              )
+            })}
+          </Tabs>
         </EditableElement>
       )
     case 'tab-panel':
@@ -249,45 +478,5 @@ const Element = ({ children, element, slots }: RenderElementProps) => {
       return <EditableElement>{children}</EditableElement>
   }
 }
-
-const styles = {
-  blockChrome: {
-    display: 'flex',
-    gap: 8,
-    margin: '8px 0',
-  },
-  editor: {
-    border: '1px solid #cbd5e1',
-    borderRadius: 6,
-    minHeight: 220,
-    padding: 14,
-  },
-  page: {
-    display: 'grid',
-    gap: 14,
-  },
-  placeholderButton: {
-    background: '#f8fafc',
-    border: '1px dashed #64748b',
-    borderRadius: 6,
-    color: '#334155',
-    margin: '6px 0',
-    padding: '4px 8px',
-  },
-  status: {
-    display: 'grid',
-    gap: 8,
-  },
-  tabsList: {
-    display: 'flex',
-    gap: 8,
-    margin: '10px 0',
-  },
-  toolbar: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-} satisfies Record<string, React.CSSProperties>
 
 export default HiddenContentBlocksExample

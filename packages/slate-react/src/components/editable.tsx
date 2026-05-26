@@ -388,8 +388,9 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
       <ComposingContext.Provider value={isComposing}>
         <RestoreDOM node={ref} receivedUserInput={receivedUserInput}>
           <Component
-            aria-multiline={readOnly ? undefined : true}
-            role={readOnly ? undefined : 'textbox'}
+            aria-multiline
+            aria-readonly={readOnly ? true : undefined}
+            role="textbox"
             translate="no"
             {...attributes}
             autoCapitalize={
@@ -403,7 +404,7 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
                 : 'false'
             }
             // explicitly set this
-            contentEditable={!readOnly}
+            contentEditable
             data-slate-dom-strategy-selection={
               partialDOMBackedSelection ? 'partial-dom-backed' : undefined
             }
@@ -426,6 +427,9 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
               ...(disableDefaultStyles
                 ? {}
                 : {
+                    // Keep read-only editors selectable without showing an
+                    // insertion caret.
+                    caretColor: readOnly ? 'transparent' : undefined,
                     // Allow positioning relative to the editable element.
                     position: 'relative',
                     // Preserve adjacent whitespace and new lines.

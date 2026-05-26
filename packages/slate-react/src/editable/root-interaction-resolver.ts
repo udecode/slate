@@ -19,7 +19,7 @@ export type RootInteractionTarget =
 
 export type RootInteractionMouseDownAction =
   | { type: 'ignore' }
-  | { preventDefault?: true; type: 'recover-native-click' }
+  | { type: 'focus-native-editable' }
   | { preventDefault: true; type: 'activate-root' }
   | { preventDefault: true; type: 'place-editable-root' }
 
@@ -131,7 +131,7 @@ export const resolveRootInteractionMouseDown = ({
 
   if (target.kind === 'native-editable') {
     if (target.editableRoot && editableRootFocused === false) {
-      return { preventDefault: true, type: 'recover-native-click' }
+      return { type: 'focus-native-editable' }
     }
 
     return { type: 'ignore' }
@@ -174,11 +174,8 @@ export const resolveRootInteractionMouseUp = ({
     }
   }
 
-  if (pendingAction.type === 'recover-native-click') {
-    return {
-      selection: 'preserve',
-      type: 'focus-root',
-    }
+  if (pendingAction.type === 'focus-native-editable') {
+    return { type: 'ignore' }
   }
 
   if (pendingAction.type === 'place-editable-root') {

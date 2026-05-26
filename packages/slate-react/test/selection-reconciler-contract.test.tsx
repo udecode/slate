@@ -6,7 +6,10 @@ import {
   createEditableInputController,
   createEditableInputControllerState,
 } from '../src/editable/input-controller'
-import { useEditableSelectionReconciler } from '../src/editable/selection-reconciler'
+import {
+  applyEditableClick,
+  useEditableSelectionReconciler,
+} from '../src/editable/selection-reconciler'
 import { ReactEditor } from '../src/plugin/react-editor'
 import { createReactEditor } from '../src/plugin/with-react'
 
@@ -91,5 +94,52 @@ test('selection reconciler clears the updating guard when DOM export throws', ()
   } finally {
     vi.useRealTimers()
     vi.restoreAllMocks()
+  }
+})
+
+test('read-only triple-click stays native and does not update model selection', () => {
+  const editor = createReactEditor()
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: createEditableInputControllerState(),
+  })
+
+  Editor.replace(editor, {
+    children: [{ type: 'paragraph', children: [{ text: 'abc' }] }],
+    selection: {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    },
+  })
+
+  const target = document.createElement('span')
+  target.setAttribute('data-slate-node', 'element')
+  target.setAttribute('data-slate-path', '0')
+  document.body.append(target)
+
+  const update = vi.spyOn(editor, 'update')
+
+  try {
+    applyEditableClick({
+      editor,
+      event: {
+        defaultPrevented: false,
+        detail: 3,
+        isDefaultPrevented: () => false,
+        isPropagationStopped: () => false,
+        target,
+      } as any,
+      inputController,
+      readOnly: true,
+    })
+
+    expect(update).not.toHaveBeenCalled()
+    expect(Editor.getSelection(editor)).toEqual({
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
+  } finally {
+    target.remove()
+    update.mockRestore()
   }
 })

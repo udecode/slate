@@ -1,7 +1,9 @@
 import type { KeyboardEvent } from 'react'
 import { type Range, RangeApi } from 'slate'
 import { Hotkeys } from 'slate-dom'
+import { DOMCoverage } from 'slate-dom/internal'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
+import { writeSlateViewSelection } from '../view-selection'
 import type { EditableRepairRequest } from './mutation-controller'
 
 export type EditableCaretMovementResult = {
@@ -26,6 +28,97 @@ const caretMovementUnhandled = (): EditableCaretMovementResult => ({
   handled: false,
 })
 
+const getBoundarySelectionIds = (
+  editor: ReactRuntimeEditor,
+  selection: Range | null
+) =>
+  new Set(
+    selection
+      ? DOMCoverage.getBoundariesForRange(editor, selection)
+          .filter((boundary) => boundary.selectionPolicy === 'boundary')
+          .map((boundary) => boundary.boundaryId)
+      : []
+  )
+
+const restoreSelectionIfMovementEnteredBoundary = ({
+  editor,
+  preserveAnchorOnBoundarySkip,
+  previousSelection,
+  reverse,
+}: {
+  editor: ReactRuntimeEditor
+  preserveAnchorOnBoundarySkip: boolean
+  previousSelection: Range | null
+  reverse: boolean
+}) => {
+  const nextSelection = editor.read((state) => state.selection.get())
+
+  if (
+    !previousSelection ||
+    !nextSelection ||
+    RangeApi.equals(previousSelection, nextSelection)
+  ) {
+    return
+  }
+
+  const previousBoundaryIds = getBoundarySelectionIds(editor, previousSelection)
+  const enteredBoundary = DOMCoverage.getBoundariesForRange(
+    editor,
+    nextSelection
+  ).find(
+    (boundary) =>
+      boundary.selectionPolicy === 'boundary' &&
+      !previousBoundaryIds.has(boundary.boundaryId)
+  )
+
+  if (!enteredBoundary) {
+    return
+  }
+
+  const skipPoint = DOMCoverage.getPointOutsideBoundary(
+    editor,
+    enteredBoundary,
+    nextSelection.focus,
+    { reverse }
+  )
+
+  editor.update((tx) => {
+    tx.selection.set(
+      skipPoint
+        ? {
+            anchor: preserveAnchorOnBoundarySkip
+              ? previousSelection.anchor
+              : skipPoint,
+            focus: skipPoint,
+          }
+        : previousSelection
+    )
+  })
+}
+
+const moveSelectionAndRespectBoundaries = ({
+  editor,
+  move,
+  preserveAnchorOnBoundarySkip = false,
+  reverse,
+  selection,
+}: {
+  editor: ReactRuntimeEditor
+  move: Parameters<ReactRuntimeEditor['update']>[0]
+  preserveAnchorOnBoundarySkip?: boolean
+  reverse: boolean
+  selection: Range | null
+}) => {
+  writeSlateViewSelection(editor, null)
+  editor.update(move)
+  restoreSelectionIfMovementEnteredBoundary({
+    editor,
+    preserveAnchorOnBoundarySkip,
+    previousSelection: selection,
+    reverse,
+  })
+}
+
 export const applyEditableCaretMovement = ({
   editor,
   event,
@@ -44,58 +137,92 @@ export const applyEditableCaretMovement = ({
   // selection isn't properly collapsed. (2017/10/17)
   if (Hotkeys.isMoveLineBackward(nativeEvent)) {
     event.preventDefault()
-    editor.update((tx) => {
-      tx.selection.move({ unit: 'line', reverse: true })
+    moveSelectionAndRespectBoundaries({
+      editor,
+      move: (tx) => {
+        tx.selection.move({ unit: 'line', reverse: true })
+      },
+      reverse: true,
+      selection,
     })
     return caretMovementHandled()
   }
 
   if (Hotkeys.isMoveLineForward(nativeEvent)) {
     event.preventDefault()
-    editor.update((tx) => {
-      tx.selection.move({ unit: 'line' })
+    moveSelectionAndRespectBoundaries({
+      editor,
+      move: (tx) => {
+        tx.selection.move({ unit: 'line' })
+      },
+      reverse: false,
+      selection,
     })
     return caretMovementHandled()
   }
 
   if (Hotkeys.isExtendLineBackward(nativeEvent)) {
     event.preventDefault()
-    editor.update((tx) => {
-      tx.selection.move({
-        unit: 'line',
-        edge: 'focus',
-        reverse: true,
-      })
+    moveSelectionAndRespectBoundaries({
+      editor,
+      move: (tx) => {
+        tx.selection.move({
+          edge: 'focus',
+          reverse: true,
+          unit: 'line',
+        })
+      },
+      preserveAnchorOnBoundarySkip: true,
+      reverse: true,
+      selection,
     })
     return caretMovementHandled()
   }
 
   if (Hotkeys.isExtendLineForward(nativeEvent)) {
     event.preventDefault()
-    editor.update((tx) => {
-      tx.selection.move({ unit: 'line', edge: 'focus' })
+    moveSelectionAndRespectBoundaries({
+      editor,
+      move: (tx) => {
+        tx.selection.move({ edge: 'focus', unit: 'line' })
+      },
+      preserveAnchorOnBoundarySkip: true,
+      reverse: false,
+      selection,
     })
     return caretMovementHandled()
   }
 
   if (Hotkeys.isExtendBackward(nativeEvent)) {
     event.preventDefault()
-    editor.update((tx) => {
-      tx.selection.move({
-        edge: 'focus',
-        reverse: !isRTL,
-      })
+    moveSelectionAndRespectBoundaries({
+      editor,
+      move: (tx) => {
+        tx.selection.move({
+          edge: 'focus',
+          reverse: !isRTL,
+        })
+      },
+      preserveAnchorOnBoundarySkip: true,
+      reverse: !isRTL,
+      selection,
     })
     return caretMovementHandled()
   }
 
   if (Hotkeys.isExtendForward(nativeEvent)) {
     event.preventDefault()
-    editor.update((tx) => {
-      tx.selection.move({
-        edge: 'focus',
-        reverse: isRTL,
-      })
+    moveSelectionAndRespectBoundaries({
+      editor,
+      move: (tx) => {
+        tx.selection.move({
+          edge: 'focus',
+          reverse: isRTL,
+        })
+      },
+      preserveAnchorOnBoundarySkip: true,
+      reverse: isRTL,
+      selection,
     })
     return caretMovementHandled()
   }
@@ -106,14 +233,19 @@ export const applyEditableCaretMovement = ({
   if (Hotkeys.isMoveBackward(nativeEvent)) {
     event.preventDefault()
 
-    editor.update((tx) => {
-      if (selection && RangeApi.isCollapsed(selection)) {
-        tx.selection.move({ reverse: !isRTL })
-      } else {
-        tx.selection.collapse({
-          edge: isRTL ? 'end' : 'start',
-        })
-      }
+    moveSelectionAndRespectBoundaries({
+      editor,
+      move: (tx) => {
+        if (selection && RangeApi.isCollapsed(selection)) {
+          tx.selection.move({ reverse: !isRTL })
+        } else {
+          tx.selection.collapse({
+            edge: isRTL ? 'end' : 'start',
+          })
+        }
+      },
+      reverse: !isRTL,
+      selection,
     })
 
     return caretMovementHandled()
@@ -122,14 +254,19 @@ export const applyEditableCaretMovement = ({
   if (Hotkeys.isMoveForward(nativeEvent)) {
     event.preventDefault()
 
-    editor.update((tx) => {
-      if (selection && RangeApi.isCollapsed(selection)) {
-        tx.selection.move({ reverse: isRTL })
-      } else {
-        tx.selection.collapse({
-          edge: isRTL ? 'start' : 'end',
-        })
-      }
+    moveSelectionAndRespectBoundaries({
+      editor,
+      move: (tx) => {
+        if (selection && RangeApi.isCollapsed(selection)) {
+          tx.selection.move({ reverse: isRTL })
+        } else {
+          tx.selection.collapse({
+            edge: isRTL ? 'start' : 'end',
+          })
+        }
+      },
+      reverse: isRTL,
+      selection,
     })
 
     return caretMovementHandled()
@@ -138,15 +275,20 @@ export const applyEditableCaretMovement = ({
   if (Hotkeys.isMoveWordBackward(nativeEvent)) {
     event.preventDefault()
 
-    editor.update((tx) => {
-      if (selection && RangeApi.isExpanded(selection)) {
-        tx.selection.collapse({ edge: 'focus' })
-      }
+    moveSelectionAndRespectBoundaries({
+      editor,
+      move: (tx) => {
+        if (selection && RangeApi.isExpanded(selection)) {
+          tx.selection.collapse({ edge: 'focus' })
+        }
 
-      tx.selection.move({
-        unit: 'word',
-        reverse: !isRTL,
-      })
+        tx.selection.move({
+          reverse: !isRTL,
+          unit: 'word',
+        })
+      },
+      reverse: !isRTL,
+      selection,
     })
     return caretMovementHandled()
   }
@@ -154,15 +296,20 @@ export const applyEditableCaretMovement = ({
   if (Hotkeys.isMoveWordForward(nativeEvent)) {
     event.preventDefault()
 
-    editor.update((tx) => {
-      if (selection && RangeApi.isExpanded(selection)) {
-        tx.selection.collapse({ edge: 'focus' })
-      }
+    moveSelectionAndRespectBoundaries({
+      editor,
+      move: (tx) => {
+        if (selection && RangeApi.isExpanded(selection)) {
+          tx.selection.collapse({ edge: 'focus' })
+        }
 
-      tx.selection.move({
-        unit: 'word',
-        reverse: isRTL,
-      })
+        tx.selection.move({
+          reverse: isRTL,
+          unit: 'word',
+        })
+      },
+      reverse: isRTL,
+      selection,
     })
     return caretMovementHandled()
   }

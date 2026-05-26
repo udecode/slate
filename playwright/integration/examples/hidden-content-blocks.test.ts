@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 import { openExample } from 'slate-browser/playwright'
 
 test.describe('hidden content blocks example', () => {
-  test('keeps accordion and inactive tab content out of the DOM until materialized', async ({
+  test('keeps shadcn hidden content out of the DOM until opened', async ({
     page,
   }) => {
     const pageErrors: string[] = []
@@ -12,36 +12,43 @@ test.describe('hidden content blocks example', () => {
     const editor = await openExample(page, 'hidden-content-blocks', {
       ready: {
         editor: 'visible',
-        text: /Open hidden accordion body/,
+        text: /Accordion body/,
       },
     })
 
     await expect(editor.root).not.toContainText('Accordion secret alpha')
+    await expect(editor.root).not.toContainText('Collapsible hidden note')
     await expect(editor.root).not.toContainText('Details tab hidden text')
     await expect(
       editor.root.locator('[data-slate-dom-coverage-boundary]')
-    ).toHaveCount(2)
+    ).toHaveCount(3)
     await expect(
       page.getByTestId('hidden-content-native-surface')
     ).toContainText('degraded')
 
-    await page.getByTestId('accordion-materialize').click()
+    await page.getByTestId('accordion-trigger').click()
     await expect(editor.root).toContainText('Accordion secret alpha')
     await expect(editor.root).toContainText('Accordion secret beta')
 
-    await page.getByTestId('tab-details-materialize').click()
+    await page.getByTestId('collapsible-trigger').click()
+    await expect(editor.root).toContainText('Collapsible hidden note')
+
+    await page.getByTestId('tab-details').click()
     await expect(editor.root).toContainText('Details tab hidden text')
     await expect(editor.root).not.toContainText('Overview tab visible text')
+    await expect(
+      editor.root.locator('[data-slate-dom-coverage-boundary]')
+    ).toHaveCount(1)
     await expect.poll(() => pageErrors).toEqual([])
   })
 
-  test('copies model-backed hidden accordion and tab content while DOM is absent', async ({
+  test('copies model-backed shadcn hidden content while DOM is absent', async ({
     page,
   }) => {
     const editor = await openExample(page, 'hidden-content-blocks', {
       ready: {
         editor: 'visible',
-        text: /Open hidden accordion body/,
+        text: /Accordion body/,
       },
     })
 
@@ -51,10 +58,131 @@ test.describe('hidden content blocks example', () => {
       'Accordion secret alpha'
     )
 
+    await expect(editor.root).not.toContainText('Collapsible hidden note')
+    await page.getByTestId('select-copy-collapsible').click()
+    await expect(page.getByTestId('hidden-content-copy-preview')).toContainText(
+      'Collapsible hidden note'
+    )
+
     await expect(editor.root).not.toContainText('Details tab hidden text')
     await page.getByTestId('select-copy-details').click()
     await expect(page.getByTestId('hidden-content-copy-preview')).toContainText(
       'Details tab hidden text'
     )
+
+    await page.getByTestId('policy-copy-exclude').click()
+    await expect(page.getByTestId('hidden-content-copy-policy')).toContainText(
+      'exclude'
+    )
+    await page.getByTestId('select-copy-details').click()
+    await expect(page.getByTestId('hidden-content-copy-preview')).toContainText(
+      'copy payload appears here'
+    )
+
+    await page.getByTestId('policy-copy-materialize').click()
+    await expect(page.getByTestId('hidden-content-copy-policy')).toContainText(
+      'materialize'
+    )
+    await page.getByTestId('select-copy-details').click()
+    await expect(page.getByTestId('hidden-content-copy-preview')).toContainText(
+      'Details tab hidden text'
+    )
+    await expect(page.getByTestId('tab-details')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+  })
+
+  test('controls selection policy for inactive tab navigation', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'hidden-content-blocks', {
+      ready: {
+        editor: 'visible',
+        text: /Overview tab visible text/,
+      },
+    })
+
+    await expect(
+      page.getByTestId('hidden-content-selection-policy')
+    ).toContainText('boundary')
+    await expect(page.getByTestId('hidden-content-find-policy')).toContainText(
+      'not-native-until-mounted'
+    )
+
+    const intro = 'Intro visible before hidden blocks.'
+    await editor.selection.collapse({ offset: intro.length, path: [0, 0] })
+    await page.keyboard.press('ArrowRight')
+    await editor.assert.selection({
+      anchor: { offset: 0, path: [2, 0, 0] },
+      focus: { offset: 0, path: [2, 0, 0] },
+    })
+    await expect(editor.root).not.toContainText('Accordion secret alpha')
+    await expect(page.getByTestId('tab-overview')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+    await expect(page.getByTestId('tab-details')).toHaveAttribute(
+      'data-state',
+      'inactive'
+    )
+
+    await editor.root.getByText('Overview tab visible text').click()
+    for (let i = 0; i < 40; i++) {
+      await page.keyboard.press('ArrowRight')
+    }
+
+    await expect(page.getByTestId('tab-overview')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+    await expect(page.getByTestId('tab-details')).toHaveAttribute(
+      'data-state',
+      'inactive'
+    )
+    await expect(editor.root).toContainText('Overview tab visible text')
+    await expect(editor.root).not.toContainText('Details tab hidden text')
+
+    await page.getByTestId('policy-selection-model-backed').click()
+    await expect(
+      page.getByTestId('hidden-content-selection-policy')
+    ).toContainText('model-backed')
+    await editor.root.getByText('Overview tab visible text').click()
+    for (let i = 0; i < 40; i++) {
+      await page.keyboard.press('ArrowRight')
+    }
+
+    await expect(page.getByTestId('tab-overview')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+    await expect(page.getByTestId('tab-details')).toHaveAttribute(
+      'data-state',
+      'inactive'
+    )
+
+    await page.getByTestId('policy-find-native').click()
+    await expect(page.getByTestId('hidden-content-find-policy')).toContainText(
+      'native'
+    )
+    await page.getByTestId('policy-selection-materialize').click()
+    await expect(
+      page.getByTestId('hidden-content-selection-policy')
+    ).toContainText('materialize')
+    await editor.root.getByText('Overview tab visible text').click()
+    for (let i = 0; i < 40; i++) {
+      await page.keyboard.press('ArrowRight')
+    }
+
+    await expect(page.getByTestId('tab-overview')).toHaveAttribute(
+      'data-state',
+      'inactive'
+    )
+    await expect(page.getByTestId('tab-details')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+    await expect(editor.root).not.toContainText('Overview tab visible text')
+    await expect(editor.root).toContainText('Details tab hidden text')
   })
 })

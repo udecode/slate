@@ -66,6 +66,7 @@ export type EditableInputControllerState = {
   isUpdatingSelection: boolean
   latestElement: DOMElement | null
   modelSelectionPreference?: ModelSelectionPreference | null
+  outsideFocusBoundarySettleUntil: number
   pendingDOMSelectionImport: boolean
   selectionChangeOrigin: SelectionChangeOrigin | null
   selectionSource: SelectionSource
@@ -84,10 +85,18 @@ export const createEditableInputControllerState =
     isUpdatingSelection: false,
     latestElement: null,
     modelSelectionPreference: null,
+    outsideFocusBoundarySettleUntil: 0,
     pendingDOMSelectionImport: false,
     selectionChangeOrigin: null,
     selectionSource: 'unknown',
   })
+
+export const getEditableInputTimestamp = () =>
+  globalThis.performance?.now?.() ?? Date.now()
+
+export const isEditableOutsideFocusBoundarySettling = (
+  state: Pick<EditableInputControllerState, 'outsideFocusBoundarySettleUntil'>
+) => state.outsideFocusBoundarySettleUntil > getEditableInputTimestamp()
 
 export const createEditableInputController = ({
   preferModelSelectionForInputRef,

@@ -330,6 +330,8 @@ export const useEditableRootRuntime = ({
 
   useEditableRootGlobalLifecycle({
     editor,
+    readOnly,
+    rootRef,
     scheduleOnDOMSelectionChange,
     state,
   })

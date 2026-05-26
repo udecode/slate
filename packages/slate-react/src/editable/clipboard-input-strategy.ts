@@ -17,6 +17,7 @@ import {
   isInteractiveInternalTarget,
 } from './input-controller'
 import { applyEditableCommand } from './mutation-controller'
+import { writeProjectedViewSelectionClipboardData } from './projected-clipboard'
 import { Editor } from './runtime-editor-api'
 import { readRuntimeNode } from './runtime-live-state'
 import { readRuntimeSelection } from './runtime-selection-state'
@@ -154,6 +155,28 @@ const isClipboardEventTargetInput = ({
   )
 }
 
+const preventReadOnlyClipboardDefault = ({
+  editor,
+  event,
+  handler,
+}: {
+  editor: ReactRuntimeEditor
+  event: ClipboardEvent<HTMLDivElement>
+  handler?: EditablePasteHandler
+}) => {
+  if (
+    ReactEditor.hasEditableTarget(editor, event.target) &&
+    !isClipboardEventTargetInput({ event })
+  ) {
+    isClipboardEventHandled({ event, handler })
+    event.preventDefault()
+    event.stopPropagation()
+    return true
+  }
+
+  return false
+}
+
 const materializePasteTargetBoundaries = (editor: ReactRuntimeEditor) => {
   const selection = editor.read((state) => state.selection.get())
 
@@ -190,6 +213,10 @@ export const applyEditableCopy = ({
     !isClipboardEventTargetInput({ event })
   ) {
     event.preventDefault()
+    if (writeProjectedViewSelectionClipboardData(editor, clipboardData)) {
+      return
+    }
+
     editor.api.clipboard.writeSelection(clipboardData)
   }
 }
@@ -209,6 +236,11 @@ export const applyEditableCut = ({
     event.clipboardData ??
     (event.nativeEvent as globalThis.ClipboardEvent).clipboardData
 
+  if (clipboardData && readOnly) {
+    preventReadOnlyClipboardDefault({ editor, event, handler: onCut })
+    return clipboardResult({ command: null })
+  }
+
   if (
     clipboardData &&
     !readOnly &&
@@ -217,6 +249,24 @@ export const applyEditableCut = ({
     !isClipboardEventTargetInput({ event })
   ) {
     event.preventDefault()
+    if (writeProjectedViewSelectionClipboardData(editor, clipboardData)) {
+      const command: EditableCommand = { kind: 'delete-fragment' }
+
+      applyEditableCommand({ command, editor })
+      return clipboardResult({
+        command,
+        repair: {
+          focus: true,
+          kind: 'repair-caret',
+          selectionSourceTransition: {
+            preferModelSelection: true,
+            reason: 'model-command',
+            selectionSource: 'model-owned',
+          },
+        },
+      })
+    }
+
     editor.api.clipboard.writeSelection(clipboardData)
     const selection = editor.read((state) => state.selection.get())
 
@@ -448,6 +498,13 @@ export const applyEditableDrop = ({
   readOnly: boolean
   state: EditableDragState
 }): EditableClipboardResult => {
+  if (readOnly && ReactEditor.hasEditableTarget(editor, event.target)) {
+    isDragEventHandled({ event, handler: onDrop })
+    event.preventDefault()
+    event.stopPropagation()
+    return clipboardResult({ command: null })
+  }
+
   if (
     !readOnly &&
     shouldHandleEditorDragEvent({
@@ -527,8 +584,12 @@ export const applyEditablePaste = ({
   readOnly: boolean
   partialDOMBackedSelection: boolean
 }): EditableClipboardResult => {
+  if (readOnly) {
+    preventReadOnlyClipboardDefault({ editor, event, handler: onPaste })
+    return clipboardResult({ command: null })
+  }
+
   const canHandlePaste =
-    !readOnly &&
     ReactEditor.hasEditableTarget(editor, event.target) &&
     !isClipboardEventHandled({ event, handler: onPaste })
 

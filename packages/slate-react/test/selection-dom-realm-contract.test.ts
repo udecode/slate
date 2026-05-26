@@ -68,11 +68,13 @@ test('selectionchange listener ignores input targets from the target document re
   const { frame, frameDocument, frameWindow } = createFrameDocument()
   const input = frameDocument.createElement('input')
   const scheduleOnDOMSelectionChange = vi.fn()
+  const state = { pendingDOMSelectionImport: false }
 
   frameDocument.body.append(input)
 
   const detach = attachEditableSelectionChangeListener({
     scheduleOnDOMSelectionChange,
+    state,
     targetDocument: frameDocument,
   })
 
@@ -86,6 +88,7 @@ test('selectionchange listener ignores input targets from the target document re
     frameDocument.dispatchEvent(new frameWindow.Event('selectionchange'))
 
     expect(scheduleOnDOMSelectionChange).toHaveBeenCalledTimes(1)
+    expect(state.pendingDOMSelectionImport).toBe(true)
   } finally {
     detach()
     frame.remove()

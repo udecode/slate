@@ -6,8 +6,12 @@ import {
 } from 'slate'
 import { describe, expect, it, vi } from 'vitest'
 
-import { applyContentRootNavigation } from '../src/editable/content-root-navigation'
+import {
+  applyContentRootNavigation,
+  createContentRootProjectionGraph,
+} from '../src/editable/content-root-navigation'
 import type { ReactRuntimeEditor } from '../src/plugin/react-editor'
+import { createSlateViewSelection } from '../src/view-selection'
 
 const contentRootExtension = defineEditorExtension({
   elements: [
@@ -29,6 +33,11 @@ const contentCard = (bodyRoot = 'card:body') => ({
   type: 'content-card',
   childRoots: { body: bodyRoot },
   children: [{ text: '' }],
+})
+
+const section = (children: any[]) => ({
+  type: 'section',
+  children,
 })
 
 const createFixture = () => {
@@ -348,6 +357,46 @@ describe('content root navigation', () => {
       anchor: { path: [0, 0], offset: 0, root: 'card:body' },
       focus: { path: [0, 0], offset: 0, root: 'card:body' },
     })
+  })
+
+  it('builds projected selection graph nodes for nested content roots', () => {
+    const runtime = createEditorRuntime({
+      extensions: [contentRootExtension],
+      initialValue: {
+        roots: {
+          'card:body': [paragraph('Inside')],
+          main: [
+            section([paragraph('Before'), contentCard(), paragraph('After')]),
+          ],
+        },
+      },
+    })
+    const mainEditor = createEditorView(runtime, {
+      root: 'main',
+    }) as unknown as ReactRuntimeEditor
+    const owner = {
+      childRoot: 'card:body',
+      ownerPath: [0, 1],
+      ownerRoot: 'main',
+    } as const
+    const graph = createContentRootProjectionGraph(mainEditor, [owner])
+    const selection = createSlateViewSelection(graph, {
+      anchor: { point: { path: [0, 0, 0], offset: 'Before'.length } },
+      focus: {
+        owner,
+        point: { path: [0, 0], offset: 'In'.length, root: 'card:body' },
+      },
+    })
+
+    expect(
+      selection.segments.parts.map((part) => ({
+        ownerPath: part.owner?.ownerPath ?? null,
+        root: part.root,
+      }))
+    ).toEqual([
+      { ownerPath: null, root: 'main' },
+      { ownerPath: [0, 1], root: 'card:body' },
+    ])
   })
 })
 

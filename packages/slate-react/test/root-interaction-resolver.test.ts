@@ -92,7 +92,7 @@ describe('root interaction resolver', () => {
     })
   })
 
-  test('prevents outer editor focus steals for first native text clicks', () => {
+  test('prefocuses blurred native text targets without blocking native selection', () => {
     const root = createRootChrome()
     const editable = document.createElement('div')
     const text = document.createElement('span')
@@ -113,8 +113,16 @@ describe('root interaction resolver', () => {
 
     expect(target.kind).toBe('native-editable')
     expect(mouseDown).toEqual({
-      preventDefault: true,
-      type: 'recover-native-click',
+      type: 'focus-native-editable',
+    })
+    expect(
+      resolveRootInteractionMouseUp({
+        eventRange: null,
+        pendingAction: mouseDown,
+        selection: 'restore',
+      })
+    ).toEqual({
+      type: 'ignore',
     })
   })
 

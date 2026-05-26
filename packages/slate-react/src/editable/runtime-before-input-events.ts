@@ -177,6 +177,13 @@ export const useRuntimeBeforeInputEvents = ({
         return
       }
 
+      if (readOnly && ReactEditor.hasEditableTarget(editor, event.target)) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        handledDOMBeforeInputRef.current = true
+        return
+      }
+
       const root = profileBeforeInputDuration(
         'beforeinput-root-owner',
         () => el.getRootNode() as Document | ShadowRoot

@@ -770,7 +770,11 @@ describe('SlateRuntime provider contract', () => {
 
     expect(screen.getByLabelText('Header editor')).toHaveAttribute(
       'contenteditable',
-      'false'
+      'true'
+    )
+    expect(screen.getByLabelText('Header editor')).toHaveAttribute(
+      'aria-readonly',
+      'true'
     )
   })
 
@@ -791,7 +795,11 @@ describe('SlateRuntime provider contract', () => {
 
     expect(screen.getByLabelText('Header editor')).toHaveAttribute(
       'contenteditable',
-      'false'
+      'true'
+    )
+    expect(screen.getByLabelText('Header editor')).toHaveAttribute(
+      'aria-readonly',
+      'true'
     )
   })
 
@@ -806,8 +814,50 @@ describe('SlateRuntime provider contract', () => {
 
     expect(screen.getByLabelText('Body editor')).toHaveAttribute(
       'contenteditable',
-      'false'
+      'true'
     )
+    expect(screen.getByLabelText('Body editor')).toHaveAttribute(
+      'aria-readonly',
+      'true'
+    )
+  })
+
+  test('read-only outside pointer does not clear model selection without root-owned DOM state', () => {
+    const editor = createReactEditor({ initialValue: [paragraph('body')] })
+
+    editor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      })
+    })
+
+    render(
+      <Slate editor={editor} readOnly>
+        <Editable aria-label="Body editor" />
+      </Slate>
+    )
+
+    screen.getByLabelText('Body editor').blur()
+    window.getSelection()?.removeAllRanges()
+
+    const update = vi.spyOn(editor, 'update')
+
+    try {
+      if (window.PointerEvent) {
+        fireEvent.pointerDown(document.body)
+      } else {
+        fireEvent.mouseDown(document.body)
+      }
+
+      expect(update).not.toHaveBeenCalled()
+      expect(editor.read((state) => state.selection.get())).toEqual({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      })
+    } finally {
+      update.mockRestore()
+    }
   })
 
   test('runtime root text sync uses mounted root view editors', async () => {

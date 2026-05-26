@@ -23,7 +23,10 @@ import { scheduleSlateReactFocus } from '../hooks/focus-scheduler'
 import { focusSlateEditable } from '../hooks/focus-slate-editable'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { applyEditableCaretMovement } from './caret-engine'
-import { applyContentRootNavigation } from './content-root-navigation'
+import {
+  applyContentRootNavigation,
+  applyContentRootViewSelection,
+} from './content-root-navigation'
 import {
   isDestructiveEditableCommand,
   markEditableEditingEpochCommandHandled,
@@ -69,6 +72,32 @@ const MAIN_ROOT_KEY: RootKey = 'main'
 
 const getSelectionRootKey = (selection: Range | null): RootKey =>
   (selection?.anchor.root ?? selection?.focus.root ?? MAIN_ROOT_KEY) as RootKey
+
+const isReadOnlyNativeEditingKey = (nativeEvent: KeyboardEvent) => {
+  if (Hotkeys.isUndo(nativeEvent) || Hotkeys.isRedo(nativeEvent)) {
+    return true
+  }
+
+  const key = nativeEvent.key.toLowerCase()
+
+  if (
+    (nativeEvent.metaKey || nativeEvent.ctrlKey) &&
+    (key === 'x' || key === 'v' || key === 'y' || key === 'z')
+  ) {
+    return true
+  }
+
+  if (nativeEvent.metaKey || nativeEvent.ctrlKey || nativeEvent.altKey) {
+    return false
+  }
+
+  return (
+    nativeEvent.key.length === 1 ||
+    nativeEvent.key === 'Backspace' ||
+    nativeEvent.key === 'Delete' ||
+    nativeEvent.key === 'Enter'
+  )
+}
 
 const getOperationRoot = (operation: Operation): RootKey =>
   ((operation as { root?: RootKey }).root ?? MAIN_ROOT_KEY) as RootKey
@@ -271,6 +300,16 @@ export const applyEditableKeyDown = ({
     // Unit tests and unmounted editables can exercise the strategy without DOM.
   }
 
+  if (readOnly && ReactEditor.hasEditableTarget(editor, event.target)) {
+    if (isReadOnlyNativeEditingKey(event.nativeEvent)) {
+      event.preventDefault()
+      event.stopPropagation()
+      return keyDownHandled({ forceRender: true, kind: 'force-render' })
+    }
+
+    return keyDownUnhandled()
+  }
+
   if (!readOnly && ReactEditor.hasEditableTarget(editor, event.target)) {
     androidInputManagerRef.current?.handleKeyDown(event)
 
@@ -407,6 +446,26 @@ export const applyEditableKeyDown = ({
         editor,
       })
       return keyDownHandled()
+    }
+
+    const contentRootViewSelectionResult = applyContentRootViewSelection({
+      editor,
+      event,
+      getActiveContentRootOwner,
+      getContentRootOwnerViewEditor,
+      getMountedViewEditor,
+      selection,
+    })
+
+    if (contentRootViewSelectionResult.handled) {
+      return keyDownHandled({
+        kind: 'sync-selection',
+        selectionSourceTransition: {
+          preferModelSelection: true,
+          reason: 'model-command',
+          selectionSource: 'model-owned',
+        },
+      })
     }
 
     const contentRootNavigationResult = applyContentRootNavigation({

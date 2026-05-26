@@ -15,6 +15,7 @@
     "jsx": "react-jsx",
     "incremental": true,
     "paths": {
+      "@/*": ["./*"],
       "slate": ["../packages/slate/src/index.ts"],
       "slate-browser": ["../packages/slate-browser/src/index.ts"],
       "slate-browser/*": ["../packages/slate-browser/src/*"],

@@ -157,25 +157,16 @@ export const useRootInteractionController = ({
         return
       }
 
-      if (action.preventDefault) {
-        event.preventDefault()
+      if (action.type === 'focus-native-editable') {
+        if (target.kind === 'native-editable') {
+          target.editableRoot?.focus({ preventScroll: true })
+        }
+        pendingActionRef.current = { type: 'ignore' }
+        return
       }
 
-      if (action.type === 'recover-native-click') {
-        const focusEditor = getMountedViewEditor(root) ?? editor
-        const eventRange = focusEditor.api.dom.resolveEventRange(
-          event.nativeEvent
-        )
-
-        pendingActionRef.current = { type: 'ignore' }
-        applyInteractionAction(
-          resolveRootInteractionMouseUp({
-            eventRange,
-            pendingAction: action,
-            selection,
-          })
-        )
-        return
+      if (action.preventDefault) {
+        event.preventDefault()
       }
 
       if (action.type === 'place-editable-root') {
@@ -192,14 +183,7 @@ export const useRootInteractionController = ({
         )
       })
     },
-    [
-      applyInteractionAction,
-      disabled,
-      editor,
-      getMountedViewEditor,
-      root,
-      selection,
-    ]
+    [applyInteractionAction, disabled, selection]
   )
 
   const onMouseUpCapture = useCallback<MouseEventHandler<HTMLElement>>(

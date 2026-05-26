@@ -5,6 +5,10 @@ import {
   getHistoryDirectionFromNativeEvent,
   type HistoryDirection,
 } from '../editable/history-keyboard'
+import {
+  readSlateViewSelectionHistoryEntry,
+  writeSlateViewSelection,
+} from '../view-selection'
 import { scheduleSlateReactFocus } from './focus-scheduler'
 import { focusSlateEditable } from './focus-slate-editable'
 import {
@@ -184,6 +188,11 @@ export function useSlateHistory({
         return
       }
 
+      const viewSelectionAfterHistory = readSlateViewSelectionHistoryEntry(
+        editor,
+        direction
+      )
+
       editor.update((tx) => {
         if (!hasHistoryCommands(tx)) {
           return
@@ -191,6 +200,7 @@ export function useSlateHistory({
 
         tx.history[direction]()
       }, getHistoryUpdateOptions(focusPolicy))
+      writeSlateViewSelection(editor, viewSelectionAfterHistory ?? null)
 
       if (focusPolicy === 'restore-root') {
         scheduleSlateReactFocus(() => {

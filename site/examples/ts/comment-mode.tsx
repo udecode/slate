@@ -1,6 +1,7 @@
 import { css } from '@emotion/css'
 import {
   type Dispatch,
+  type PointerEvent,
   type SetStateAction,
   useEffect,
   useRef,
@@ -576,6 +577,9 @@ const CommentModePane = ({
           className={buttonCss}
           disabled={isCollapsed(selection)}
           onClick={addComment}
+          onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
+            event.preventDefault()
+          }}
           type="button"
         >
           Add comment on selection

@@ -7,6 +7,7 @@ import {
 
 const SHARED_ROOT = 'synced-block:shared:body'
 const SEPARATE_ROOT = 'synced-block:separate:body'
+const SHARED_BODY_FIRST = 'Shared mission statement'
 const SHARED_BODY_SECOND = 'Editing any copy updates every synced copy.'
 
 const getBrowserUndoHotkey = async (root: Locator) =>
@@ -46,6 +47,17 @@ const getSyncedEditorByRoot = (
 ) =>
   getSyncedBlockByRoot(page, root, index).locator('[data-slate-editor="true"]')
 
+const firstSharedOwner = {
+  childRoot: SHARED_ROOT,
+  ownerPath: [1],
+  ownerRoot: 'main',
+}
+
+const firstSharedProjectionGraph = [
+  { path: [0], root: 'main' },
+  { owner: firstSharedOwner, path: [0], root: SHARED_ROOT },
+]
+
 const focusRoot = async (
   root:
     | ReturnType<typeof getSyncedEditor>
@@ -55,6 +67,65 @@ const focusRoot = async (
     element.focus()
   })
 }
+
+const getNativeSelectionText = (page: Parameters<typeof openExample>[0]) =>
+  page.evaluate(() => window.getSelection()?.toString() ?? '')
+
+const getViewSelection = (
+  root:
+    | ReturnType<typeof getSyncedEditor>
+    | ReturnType<typeof getSyncedEditorByRoot>
+) =>
+  root.evaluate((element: HTMLElement) => {
+    const handle = (
+      element as HTMLElement & {
+        __slateBrowserHandle?: {
+          getViewSelection?: () => unknown
+        }
+      }
+    ).__slateBrowserHandle
+
+    return handle?.getViewSelection?.() ?? null
+  })
+
+const setViewSelection = (
+  root:
+    | ReturnType<typeof getSyncedEditor>
+    | ReturnType<typeof getSyncedEditorByRoot>,
+  selection: unknown
+) =>
+  root.evaluate((element: HTMLElement, nextSelection) => {
+    const handle = (
+      element as HTMLElement & {
+        __slateBrowserHandle?: {
+          setViewSelection?: (selection: unknown) => void
+        }
+      }
+    ).__slateBrowserHandle
+
+    if (!handle?.setViewSelection) {
+      throw new Error('This editor surface does not expose setViewSelection')
+    }
+
+    handle.setViewSelection(nextSelection)
+  }, selection)
+
+const getProjectedNativeAffordanceMatrix = (
+  root:
+    | ReturnType<typeof getSyncedEditor>
+    | ReturnType<typeof getSyncedEditorByRoot>
+) =>
+  root.evaluate((element: HTMLElement) => {
+    const handle = (
+      element as HTMLElement & {
+        __slateBrowserHandle?: {
+          getProjectedNativeAffordanceMatrix?: () => unknown
+        }
+      }
+    ).__slateBrowserHandle
+
+    return handle?.getProjectedNativeAffordanceMatrix?.() ?? null
+  })
 
 test.describe('synced blocks example', () => {
   test('smoke renders synced copies around normal paragraphs', async ({
@@ -418,6 +489,315 @@ test.describe('synced blocks example', () => {
 
     await expect(firstEditor).toBeFocused()
     await expect.poll(() => first.selection.get()).not.toBe(null)
+  })
+
+  test('projects Shift+Arrow across synced roots without expanding the root-local Slate selection', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected selection proof uses Chromium caret geometry'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+    const secondEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 1)
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-outer',
+      outerEditor
+    )
+    const first = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-first-copy',
+      firstEditor
+    )
+
+    await outer.selection.collapse({ path: [0, 0], offset: 1 })
+    await focusRoot(outerEditor)
+    await outer.press('Shift+ArrowDown')
+
+    await expect
+      .poll(() => outer.selection.get())
+      .toEqual({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      })
+    expect(await getNativeSelectionText(page)).not.toBe('\n')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          point: { path: [0, 0], offset: 1 },
+        },
+        focus: {
+          owner: {
+            childRoot: SHARED_ROOT,
+            ownerPath: [1],
+            ownerRoot: 'main',
+          },
+          point: {
+            path: [0, 0],
+            root: SHARED_ROOT,
+          },
+        },
+        segments: {
+          backward: false,
+        },
+      })
+
+    await outer.press('ArrowDown')
+
+    await expect(firstEditor).toBeFocused()
+    await expect.poll(() => getViewSelection(outerEditor)).toBe(null)
+
+    await first.insertText('Projected ')
+    await expect(firstEditor).toContainText('Projected ')
+    await expect(secondEditor).toContainText('Projected ')
+
+    await outer.selection.collapse({ path: [6, 0], offset: 0 })
+    await focusRoot(outerEditor)
+    await outer.press('Shift+ArrowUp')
+
+    await expect
+      .poll(() => outer.selection.get())
+      .toEqual({
+        anchor: { path: [6, 0], offset: 0 },
+        focus: { path: [6, 0], offset: 0 },
+      })
+    expect(await getNativeSelectionText(page)).not.toBe('\n')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          point: { path: [6, 0], offset: 0 },
+        },
+        focus: {
+          owner: {
+            childRoot: SHARED_ROOT,
+            ownerPath: [5],
+            ownerRoot: 'main',
+          },
+          point: {
+            root: SHARED_ROOT,
+          },
+        },
+        segments: {
+          backward: true,
+        },
+      })
+  })
+
+  test('typing over a projected Shift+Arrow selection replaces text across the outer and synced roots', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected command proof uses Chromium caret geometry'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+    const secondEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 1)
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-outer',
+      outerEditor
+    )
+
+    await outer.selection.collapse({ path: [0, 0], offset: 1 })
+    await focusRoot(outerEditor)
+    await setViewSelection(outerEditor, {
+      anchor: { point: { path: [0, 0], offset: 1 } },
+      focus: {
+        owner: firstSharedOwner,
+        point: { path: [0, 0], root: SHARED_ROOT, offset: 2 },
+      },
+      graph: firstSharedProjectionGraph,
+    })
+    await expect.poll(() => getViewSelection(outerEditor)).not.toBe(null)
+
+    await outer.insertText('X')
+
+    const syncedRemainder = SHARED_BODY_FIRST.slice(2)
+
+    await expect(page.getByText('pX')).toBeVisible()
+    await expect(firstEditor).toContainText(syncedRemainder)
+    await expect(firstEditor).not.toContainText(SHARED_BODY_FIRST)
+    await expect(secondEditor).toContainText(syncedRemainder)
+    await expect.poll(() => getViewSelection(outerEditor)).toBe(null)
+    await expect
+      .poll(() => outer.selection.get())
+      .toEqual({
+        anchor: { path: [0, 0], offset: 2 },
+        focus: { path: [0, 0], offset: 2 },
+      })
+
+    await outer.undo()
+
+    await expect(page.getByText('p1')).toBeVisible()
+    await expect(firstEditor).toContainText(SHARED_BODY_FIRST)
+    await expect(secondEditor).toContainText(SHARED_BODY_FIRST)
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        focus: {
+          owner: firstSharedOwner,
+          point: { path: [0, 0], root: SHARED_ROOT, offset: 2 },
+        },
+      })
+
+    await outer.redo()
+
+    await expect(page.getByText('pX')).toBeVisible()
+    await expect(firstEditor).toContainText(syncedRemainder)
+    await expect(secondEditor).toContainText(syncedRemainder)
+    await expect.poll(() => getViewSelection(outerEditor)).toBe(null)
+  })
+
+  test('delete-fragment over a projected Shift+Arrow selection removes text across the outer and synced roots', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected command proof uses Chromium caret geometry'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+    const secondEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 1)
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-outer',
+      outerEditor
+    )
+
+    await outer.selection.collapse({ path: [0, 0], offset: 1 })
+    await focusRoot(outerEditor)
+    await setViewSelection(outerEditor, {
+      anchor: { point: { path: [0, 0], offset: 1 } },
+      focus: {
+        owner: firstSharedOwner,
+        point: { path: [0, 0], root: SHARED_ROOT, offset: 2 },
+      },
+      graph: firstSharedProjectionGraph,
+    })
+    await expect.poll(() => getViewSelection(outerEditor)).not.toBe(null)
+
+    await outer.deleteFragment()
+
+    const syncedRemainder = SHARED_BODY_FIRST.slice(2)
+
+    await expect(outerEditor.getByText('p', { exact: true })).toBeVisible()
+    await expect(firstEditor).toContainText(syncedRemainder)
+    await expect(firstEditor).not.toContainText(SHARED_BODY_FIRST)
+    await expect(secondEditor).toContainText(syncedRemainder)
+    await expect.poll(() => getViewSelection(outerEditor)).toBe(null)
+    await expect
+      .poll(() => outer.selection.get())
+      .toEqual({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      })
+  })
+
+  test('copies a projected selection from visible order instead of root-local DOM selection', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium synthetic clipboard payload proof'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-outer',
+      outerEditor
+    )
+
+    await outer.selection.collapse({ path: [0, 0], offset: 1 })
+    await focusRoot(outerEditor)
+    await setViewSelection(outerEditor, {
+      anchor: { point: { path: [0, 0], offset: 1 } },
+      focus: {
+        owner: firstSharedOwner,
+        point: { path: [0, 0], root: SHARED_ROOT, offset: 2 },
+      },
+      graph: firstSharedProjectionGraph,
+    })
+
+    const payload = await outer.clipboard.copyEventPayload()
+
+    expect(payload.types).toEqual(
+      expect.arrayContaining([
+        'application/x-slate-fragment',
+        'text/html',
+        'text/plain',
+      ])
+    )
+    expect(payload.text).toBe('1\nSh')
+    expect(payload.html).toContain('data-slate-fragment=')
+  })
+
+  test('classifies projected selection native affordances without claiming native parity', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium matrix smoke keeps the browser handle honest'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-outer',
+      outerEditor
+    )
+
+    await outer.selection.collapse({ path: [0, 0], offset: 1 })
+    await focusRoot(outerEditor)
+    await setViewSelection(outerEditor, {
+      anchor: { point: { path: [0, 0], offset: 1 } },
+      focus: {
+        owner: firstSharedOwner,
+        point: { path: [0, 0], root: SHARED_ROOT, offset: 2 },
+      },
+      graph: firstSharedProjectionGraph,
+    })
+
+    const nativeSelectionText = await getNativeSelectionText(page)
+    const matrix = await getProjectedNativeAffordanceMatrix(outerEditor)
+
+    expect(nativeSelectionText).not.toBe('1\nSh')
+    expect(matrix).toMatchObject({
+      clipboard: { status: 'supported' },
+      find: { status: 'degraded' },
+      ime: { status: 'degraded' },
+      mobileSelection: { status: 'unsupported' },
+      screenReader: { status: 'degraded' },
+      spellcheck: { status: 'degraded' },
+    })
   })
 
   test('moves ArrowLeft and ArrowRight through the active repeated synced copy', async ({

@@ -51,7 +51,9 @@ export const useRuntimeInputEvents = ({
   const onRuntimeDOMInput = useEditableDOMInputHandler({
     editor,
     onHandledDOMInput: markHandledDOMInput,
+    onReadOnlyDOMInput: repair.forceRender,
     repairDOMInput: trace.repairDOMInputWithTrace,
+    readOnly,
     rootRef,
   })
 
@@ -146,9 +148,13 @@ export const useRuntimeInputEvents = ({
       const { data, inputType } = event.nativeEvent as InputEvent
       const frameId = trace.getCurrentKernelFrameId()
 
+      if (readOnly) {
+        return
+      }
+
       trace.repairDOMInputAfterFrame({ data, inputType }, rootElement, frameId)
     },
-    [editor, inputController, trace]
+    [editor, inputController, readOnly, trace]
   )
   const onRuntimeInputCapture = useEditableInputHandler({
     handleInput: handleInputCapture,

@@ -12,6 +12,16 @@ import {
 } from '../hooks/use-slate-node-ref'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import {
+  createSlateProjectionGraph,
+  type SlateProjectedPoint,
+  type SlateProjectionGraphNodeInput,
+} from '../projection-graph'
+import {
+  createSlateViewSelection,
+  readSlateViewSelection,
+  writeSlateViewSelection,
+} from '../view-selection'
+import {
   beginEditableEventFrame,
   type EditableCommand,
   getEditableKernelTrace,
@@ -22,6 +32,7 @@ import {
   applyEditableCommand,
   applyModelOwnedHistoryIntent,
 } from './mutation-controller'
+import { getProjectedNativeAffordanceMatrix } from './projected-native-affordance'
 import { Editor } from './runtime-editor-api'
 import { readRuntimeSelection } from './runtime-selection-state'
 import {
@@ -47,9 +58,11 @@ export type SlateBrowserHandle = {
   getLastCommit: () => unknown
   getElementByPath: (path: Path) => HTMLElement | null
   getPathByRuntimeId: (runtimeId: RuntimeId) => Path | null
+  getProjectedNativeAffordanceMatrix: () => unknown
   getRuntimeId: (path: Path) => RuntimeId | null
   getSelection: () => Range | null
   getText: () => string
+  getViewSelection: () => unknown
   importDOMSelection: () => Range | null
   insertBreak: () => void
   insertData: (payload: { html?: string | null; text?: string }) => void
@@ -57,6 +70,13 @@ export type SlateBrowserHandle = {
   redo: () => void
   resolveRangeRef: (id: string) => Range | null
   selectRange: (selection: Range) => void
+  setViewSelection: (
+    selection: {
+      anchor: SlateProjectedPoint
+      focus: SlateProjectedPoint
+      graph: readonly SlateProjectionGraphNodeInput[]
+    } | null
+  ) => void
   undo: () => void
   unrefRangeRef: (id: string) => Range | null
 }
@@ -192,6 +212,7 @@ export const attachSlateBrowserHandle = ({
     getElementByPath: (path) => getSlateNodeElementByPath(editor, path),
     getPathByRuntimeId: (runtimeId) =>
       Editor.getPathByRuntimeId(editor, runtimeId),
+    getProjectedNativeAffordanceMatrix,
     getRuntimeId: (path) => Editor.getRuntimeId(editor, path),
     getSelection: () => {
       const selection = readRuntimeSelection(editor)
@@ -210,6 +231,7 @@ export const attachSlateBrowserHandle = ({
         : null
     },
     getText: () => Editor.string(editor, []),
+    getViewSelection: () => readSlateViewSelection(editor),
     importDOMSelection: () => {
       const selectionBefore = readRuntimeSelection(editor)
 
@@ -329,6 +351,20 @@ export const attachSlateBrowserHandle = ({
       })
       setExplicitPartialDOMBackedSelection(
         isPartialDOMBackedSelection(selection)
+      )
+    },
+    setViewSelection: (selection) => {
+      writeSlateViewSelection(
+        editor,
+        selection
+          ? createSlateViewSelection(
+              createSlateProjectionGraph(selection.graph),
+              {
+                anchor: selection.anchor,
+                focus: selection.focus,
+              }
+            )
+          : null
       )
     },
     undo: () => {

@@ -20,6 +20,8 @@ export type {
 export {
   createEditableInputController,
   createEditableInputControllerState,
+  getEditableInputTimestamp,
+  isEditableOutsideFocusBoundarySettling,
 } from './input-state'
 export {
   applyEditableRepairRequest,

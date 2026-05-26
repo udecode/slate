@@ -22,7 +22,7 @@ const NEWLINE_SPLIT_RE = /\r\n|\r|\n/
 const DEFAULT_CLIPBOARD_FORMAT_KEY = 'x-slate-fragment'
 const SLATE_FRAGMENT_FORMAT_ATTRIBUTE = 'data-slate-fragment-format'
 
-const EDITOR_TO_CLIPBOARD_FORMAT_KEY = new WeakMap<DOMEditor<any>, string>()
+const EDITOR_TO_CLIPBOARD_FORMAT_KEY = new WeakMap<object, string>()
 
 const stripRenderOnlyLeafWrappers = (root: ParentNode) => {
   const candidates = Array.from(
@@ -39,13 +39,13 @@ const stripRenderOnlyLeafWrappers = (root: ParentNode) => {
 }
 
 export const setDOMClipboardFormatKey = (
-  editor: DOMEditor<any>,
+  editor: object,
   clipboardFormatKey: string
 ) => {
   EDITOR_TO_CLIPBOARD_FORMAT_KEY.set(editor, clipboardFormatKey)
 }
 
-const getDOMClipboardFormatKey = (editor: DOMEditor<any>) =>
+export const getDOMClipboardFormatKey = (editor: object) =>
   EDITOR_TO_CLIPBOARD_FORMAT_KEY.get(editor) ?? DEFAULT_CLIPBOARD_FORMAT_KEY
 
 const escapeHtmlText = (text: string) =>

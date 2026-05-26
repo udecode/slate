@@ -23,6 +23,7 @@ import { DOMCoverage } from 'slate-dom/internal'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { getSlateNodeElementByPath } from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
+import { writeSlateViewSelection } from '../view-selection'
 import type { EditableSelectionPolicy } from './editing-kernel'
 import type {
   EditableInputController,
@@ -30,6 +31,7 @@ import type {
   SelectionChangeOrigin,
   SelectionSource,
 } from './input-state'
+import { isEditableOutsideFocusBoundarySettling } from './input-state'
 import {
   readLiveSelection,
   readRuntimeSelection,
@@ -347,6 +349,7 @@ export const syncEditorSelectionFromDOM = ({
   const selection = readRuntimeSelection(editor)
 
   if (range && (!selection || !RangeApi.equals(selection, range))) {
+    writeSlateViewSelection(editor, null)
     editor.update((tx) => {
       tx.selection.set(range)
     })
@@ -620,6 +623,7 @@ export const applyEditableDOMSelectionChange = ({
     if (active) {
       editorDocument.execCommand('indent')
     } else {
+      writeSlateViewSelection(editor, null)
       editor.update((tx) => {
         tx.selection.clear()
       })
@@ -663,6 +667,7 @@ export const applyEditableDOMSelectionChange = ({
       preferModelSelection: false,
       selectionSource: 'unknown',
     })
+    writeSlateViewSelection(editor, null)
     editor.update((tx) => {
       tx.selection.clear()
     })
@@ -747,6 +752,7 @@ export const applyEditableDOMSelectionChange = ({
   }
 
   if (domSelectionBelongsToEditor && range) {
+    writeSlateViewSelection(editor, null)
     if (
       !ReactEditor.isComposing(editor) &&
       !androidInputManager?.hasPendingChanges() &&
@@ -767,6 +773,7 @@ export const applyEditableDOMSelectionChange = ({
       preferModelSelection: false,
       selectionSource: 'unknown',
     })
+    writeSlateViewSelection(editor, null)
     editor.update((tx) => {
       tx.selection.clear()
     })
@@ -787,6 +794,7 @@ export const syncEditableDOMSelectionToEditor = ({
   partialDOMBackedSelection: boolean
   state: {
     isUpdatingSelection: boolean
+    outsideFocusBoundarySettleUntil: number
     selectionChangeOrigin?: SelectionChangeOrigin | null
   }
 }) => {
@@ -801,6 +809,10 @@ export const syncEditableDOMSelectionToEditor = ({
     return
   }
 
+  if (isEditableOutsideFocusBoundarySettling(state)) {
+    return
+  }
+
   try {
     const root = ReactEditor.findDocumentOrShadowRoot(editor)
     const domSelection = getSelection(root)
@@ -811,12 +823,14 @@ export const syncEditableDOMSelectionToEditor = ({
 
     const editorElement = ReactEditor.assertDOMNode(editor, editor)
     const activeElement = root.activeElement
+    const editorHasDOMFocus =
+      activeElement != null && containsShadowAware(editorElement, activeElement)
 
     if (
       activeElement &&
       activeElement !== editorElement.ownerDocument.body &&
       activeElement !== editorElement.ownerDocument.documentElement &&
-      !containsShadowAware(editorElement, activeElement)
+      !editorHasDOMFocus
     ) {
       return
     }

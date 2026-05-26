@@ -14,6 +14,15 @@ import { Hotkeys } from 'slate-dom'
 import { EDITOR_TO_ROOT_VIEW_EDITORS } from 'slate-dom/internal'
 import { scheduleSlateReactFocus } from '../hooks/focus-scheduler'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
+import {
+  createSlateProjectionGraph,
+  type SlateProjectedPoint,
+  type SlateProjectionGraphNodeInput,
+} from '../projection-graph'
+import {
+  createSlateViewSelection,
+  writeSlateViewSelection,
+} from '../view-selection'
 import { getEditorExtensionRegistry } from './runtime-editor-api'
 
 type ContentRootNavigationDirection = 'backward' | 'forward'
@@ -226,6 +235,117 @@ const isKnownContentRootOwner = (
       candidate.ownerRoot === owner.ownerRoot &&
       PathApi.equals(candidate.ownerPath, owner.ownerPath)
   )
+
+const getContentRootOwnerKey = (owner: ContentRootOwner) =>
+  `${owner.ownerRoot}\u0000${owner.ownerPath.join('.')}\u0000${owner.childRoot}`
+
+const getOwnerForRoot = ({
+  currentRoot,
+  getActiveContentRootOwner,
+  owners,
+}: {
+  currentRoot: RootKey
+  getActiveContentRootOwner?: (root: RootKey) => ContentRootOwner | null
+  owners: readonly ContentRootOwner[]
+}): ContentRootOwner | null => {
+  const activeOwner = getActiveContentRootOwner?.(currentRoot)
+
+  return isKnownContentRootOwner(owners, activeOwner)
+    ? activeOwner
+    : (owners.find((owner) => owner.childRoot === currentRoot) ?? null)
+}
+
+const getTopLevelOwner = (
+  owners: readonly ContentRootOwner[],
+  root: RootKey,
+  path: Path
+) =>
+  owners.find(
+    (owner) =>
+      owner.ownerRoot === root &&
+      owner.ownerPath.length === path.length &&
+      PathApi.equals(owner.ownerPath, path)
+  ) ?? null
+
+const hasNestedOwner = (
+  owners: readonly ContentRootOwner[],
+  root: RootKey,
+  path: Path
+) =>
+  owners.some(
+    (owner) =>
+      owner.ownerRoot === root &&
+      owner.ownerPath.length > path.length &&
+      PathApi.isAncestor(path, owner.ownerPath)
+  )
+
+export const createContentRootProjectionGraph = (
+  editor: ContentRootNavigationEditor,
+  owners: readonly ContentRootOwner[]
+) =>
+  editor.read((state) => {
+    const nodes: SlateProjectionGraphNodeInput[] = []
+    const { roots } = state.value.get()
+
+    const appendRoot = (
+      root: RootKey,
+      owner: ContentRootOwner | null,
+      ownerStack: ReadonlySet<string>
+    ) => {
+      const children = roots[root] ?? []
+
+      const appendNode = (node: Descendant, path: Path) => {
+        const childOwner = getTopLevelOwner(owners, root, path)
+
+        if (childOwner) {
+          const ownerKey = getContentRootOwnerKey(childOwner)
+
+          if (!ownerStack.has(ownerKey)) {
+            appendRoot(
+              childOwner.childRoot,
+              childOwner,
+              new Set([...ownerStack, ownerKey])
+            )
+            return
+          }
+        }
+
+        if (NodeApi.isElement(node) && hasNestedOwner(owners, root, path)) {
+          node.children.forEach((child, index) => {
+            appendNode(child, path.concat(index))
+          })
+          return
+        }
+
+        nodes.push({
+          ...(owner ? { owner } : {}),
+          path,
+          root,
+        })
+      }
+
+      children.forEach((child, index) => {
+        appendNode(child, [index])
+      })
+    }
+
+    appendRoot('main', null, new Set())
+
+    return createSlateProjectionGraph(nodes)
+  })
+
+const toProjectedPoint = ({
+  owner,
+  point,
+  root,
+}: {
+  owner: ContentRootOwner | null | undefined
+  point: Point
+  root: RootKey
+}): SlateProjectedPoint => ({
+  ...(owner ? { owner } : {}),
+  point: rootedPoint(point, root),
+})
 
 const getNodeAtPath = (
   children: readonly Descendant[],
@@ -1169,6 +1289,100 @@ export const getContentRootNavigationTarget = ({
   return null
 }
 
+const getProjectedSelectionDirection = (
+  event: ReactKeyboardEvent<HTMLDivElement>
+): ContentRootNavigationDirection | null => {
+  if (!event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) {
+    return null
+  }
+
+  if (event.key === 'ArrowUp') {
+    return 'backward'
+  }
+
+  if (event.key === 'ArrowDown') {
+    return 'forward'
+  }
+
+  return null
+}
+
+export const applyContentRootViewSelection = ({
+  editor,
+  event,
+  getActiveContentRootOwner,
+  getContentRootOwnerViewEditor,
+  getMountedViewEditor,
+  selection,
+}: {
+  editor: ReactRuntimeEditor
+  event: ReactKeyboardEvent<HTMLDivElement>
+  getActiveContentRootOwner?: (root: RootKey) => ContentRootOwner | null
+  getContentRootOwnerViewEditor?: (
+    owner: ContentRootOwner
+  ) => ReactRuntimeEditor | null
+  getMountedViewEditor?: (root: RootKey) => ReactRuntimeEditor | null
+  selection: Range | null
+}): ContentRootNavigationResult => {
+  const direction = getProjectedSelectionDirection(event)
+
+  if (!direction || !hasContentRootElementSpec(editor)) {
+    return { handled: false }
+  }
+
+  if (!selection || !RangeApi.isCollapsed(selection)) {
+    return { handled: false }
+  }
+
+  const point = selection.anchor
+  const currentRoot = point.root ?? editor.read((state) => state.view.root())
+  const owners = findContentRootOwners(editor)
+  const target = getVerticalNavigationTarget({
+    currentRoot,
+    direction,
+    editor,
+    getActiveContentRootOwner,
+    getContentRootOwnerViewEditor,
+    getMountedViewEditor,
+    owners,
+    point,
+  })
+
+  if (!target) {
+    return { handled: false }
+  }
+
+  const graph = createContentRootProjectionGraph(editor, owners)
+  const currentOwner = getOwnerForRoot({
+    currentRoot,
+    getActiveContentRootOwner,
+    owners,
+  })
+
+  writeSlateViewSelection(
+    editor,
+    createSlateViewSelection(graph, {
+      anchor: toProjectedPoint({
+        owner: currentOwner,
+        point: selection.anchor,
+        root: currentRoot,
+      }),
+      focus: toProjectedPoint({
+        owner: target.owner,
+        point: target.point,
+        root: target.root,
+      }),
+    })
+  )
+
+  event.preventDefault()
+
+  return {
+    handled: true,
+    target,
+  }
+}
+
 export const applyContentRootNavigation = ({
   editor,
   event,
@@ -1211,6 +1425,7 @@ export const applyContentRootNavigation = ({
     editor
 
   event.preventDefault()
+  writeSlateViewSelection(editor, null)
   targetEditor.update((tx) => {
     tx.selection.set(rootedRange(target.point, target.root))
   })

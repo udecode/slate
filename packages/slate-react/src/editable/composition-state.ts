@@ -64,6 +64,31 @@ const isCompositionEventHandled = ({
   return event.isDefaultPrevented() || event.isPropagationStopped()
 }
 
+const preventReadOnlyEditableComposition = ({
+  editor,
+  event,
+  setComposing,
+}: {
+  editor: ReactRuntimeEditor
+  event: CompositionEvent<HTMLDivElement>
+  setComposing?: EditableCompositionStateSetter
+}) => {
+  if (!ReactEditor.hasEditableTarget(editor, event.target)) {
+    return false
+  }
+
+  event.preventDefault()
+  event.stopPropagation()
+  EDITOR_TO_PENDING_COMPOSITION_TEXT.delete(editor)
+  EDITOR_TO_COMPOSITION_PREDELETE.delete(editor)
+
+  if (setComposing && ReactEditor.isComposing(editor)) {
+    setComposing(false)
+  }
+
+  return true
+}
+
 export const commitInsertFromComposition = ({
   setComposing,
 }: {
@@ -226,6 +251,7 @@ export const applyEditableCompositionEnd = ({
   event,
   inputController,
   onCompositionEnd,
+  readOnly = false,
   setComposing,
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
@@ -233,9 +259,16 @@ export const applyEditableCompositionEnd = ({
   event: CompositionEvent<HTMLDivElement>
   inputController: EditableInputController
   onCompositionEnd?: EditableCompositionHandler
+  readOnly?: boolean
   setComposing: EditableCompositionStateSetter
 }) => {
   if (isCompositionEventTargetInput({ event })) {
+    return
+  }
+  if (
+    readOnly &&
+    preventReadOnlyEditableComposition({ editor, event, setComposing })
+  ) {
     return
   }
   if (ReactEditor.hasSelectableTarget(editor, event.target)) {
@@ -280,15 +313,20 @@ export const applyEditableCompositionStart = ({
   editor,
   event,
   onCompositionStart,
+  readOnly = false,
   setComposing,
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
   editor: ReactRuntimeEditor
   event: CompositionEvent<HTMLDivElement>
   onCompositionStart?: EditableCompositionHandler
+  readOnly?: boolean
   setComposing: EditableCompositionStateSetter
 }) => {
   if (isCompositionEventTargetInput({ event })) {
+    return
+  }
+  if (readOnly && preventReadOnlyEditableComposition({ editor, event })) {
     return
   }
   if (ReactEditor.hasSelectableTarget(editor, event.target)) {
@@ -330,17 +368,25 @@ export const applyEditableCompositionUpdate = ({
   editor,
   event,
   onCompositionUpdate,
+  readOnly = false,
   setComposing,
 }: {
   editor: ReactRuntimeEditor
   event: CompositionEvent<HTMLDivElement>
   onCompositionUpdate?: EditableCompositionHandler
+  readOnly?: boolean
   setComposing: EditableCompositionStateSetter
 }) => {
+  if (isCompositionEventTargetInput({ event })) {
+    return
+  }
+  if (readOnly && preventReadOnlyEditableComposition({ editor, event })) {
+    return
+  }
+
   if (
     ReactEditor.hasSelectableTarget(editor, event.target) &&
     !isCompositionEventHandled({ event, handler: onCompositionUpdate }) &&
-    !isCompositionEventTargetInput({ event }) &&
     !ReactEditor.isComposing(editor)
   ) {
     setComposing(true)

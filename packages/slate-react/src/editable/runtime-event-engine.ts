@@ -260,6 +260,7 @@ export const useEditableEventRuntime = ({
     onCompositionEnd: callbacks.onCompositionEnd,
     onCompositionStart: callbacks.onCompositionStart,
     onCompositionUpdate: callbacks.onCompositionUpdate,
+    readOnly,
     setComposing: runtime.composition.setComposing,
     trace: runtime.trace,
   })
