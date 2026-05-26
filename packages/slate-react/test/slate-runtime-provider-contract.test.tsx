@@ -7,7 +7,12 @@ import {
   waitFor,
 } from '@testing-library/react'
 import { type ReactNode, useLayoutEffect } from 'react'
-import { createEditorView, type Descendant, defineEditorExtension } from 'slate'
+import {
+  createEditorView,
+  type Descendant,
+  defineEditorExtension,
+  type Element,
+} from 'slate'
 import {
   EDITOR_TO_PENDING_ACTION,
   EDITOR_TO_PENDING_DIFFS,
@@ -23,6 +28,8 @@ import {
   useEditorFocused,
   useEditorState,
   useSlateActiveRoot,
+  useSlateChildRoot,
+  useSlateContentRoot,
   useSlateRootEditor,
   useSlateRootState,
   useSlateRuntime,
@@ -72,6 +79,16 @@ const initialValue = () => ({
   },
 })
 
+const editableIsland = defineEditorExtension({
+  name: 'test-editable-island',
+  elements: [{ type: 'editable-void', void: 'editable-island' }],
+})
+
+const contentRootExtension = defineEditorExtension({
+  name: 'test-content-root',
+  elements: [{ type: 'details-content', contentRoot: { slot: 'body' } }],
+})
+
 const createRuntimeWrapper =
   (value = initialValue()) =>
   ({ children }: { children: ReactNode }) => {
@@ -93,6 +110,161 @@ const createRootWrapper =
   }
 
 describe('SlateRuntime provider contract', () => {
+  test('useSlateChildRoot renders same-runtime rich island content', async () => {
+    const childRoot = 'island-a:body'
+    const editor = createReactEditor({
+      extensions: [editableIsland],
+      initialValue: {
+        roots: {
+          [childRoot]: [paragraph('about')],
+          main: [
+            {
+              type: 'editable-void',
+              childRoots: { body: childRoot },
+              children: [{ text: '' }],
+            },
+          ],
+        },
+      },
+    })
+    let childEditor!: ReturnType<typeof useSlateRootEditor>
+
+    const IslandBody = ({ element }: { element: Element }) => {
+      const root = useSlateChildRoot(element, 'body')
+      const text = useSlateRootState(root, rootText)
+
+      childEditor = useSlateRootEditor(root)
+
+      return (
+        <div>
+          <span data-testid="island-body-status">
+            {root}:{text}
+          </span>
+          <Editable aria-label="Island body" root={root} />
+        </div>
+      )
+    }
+
+    render(
+      <Slate editor={editor}>
+        <Editable
+          aria-label="Outer editor"
+          renderVoid={({ element }) => <IslandBody element={element} />}
+        />
+      </Slate>
+    )
+
+    expect(screen.getByTestId('island-body-status')).toHaveTextContent(
+      `${childRoot}:about`
+    )
+    expect(screen.getByLabelText('Island body')).toHaveTextContent('about')
+
+    await act(async () => {
+      childEditor.update((tx) => {
+        tx.text.insert('!', { at: { path: [0, 0], offset: 5 } })
+      })
+    })
+
+    expect(screen.getByTestId('island-body-status')).toHaveTextContent(
+      `${childRoot}:about!`
+    )
+    expect(editor.read((state) => state.value.get().roots.main)).toMatchObject([
+      {
+        childRoots: { body: childRoot },
+        type: 'editable-void',
+      },
+    ])
+  })
+
+  test('useSlateContentRoot resolves the schema slot and root chrome', async () => {
+    const childRoot = 'details-a:body'
+    const element = {
+      type: 'details-content',
+      childRoots: { body: childRoot },
+      children: [{ text: '' }],
+    } satisfies Element & { childRoots: Record<string, string> }
+    const editor = createReactEditor({
+      extensions: [contentRootExtension],
+      initialValue: {
+        roots: {
+          [childRoot]: [paragraph('about')],
+          main: [element],
+        },
+      },
+    })
+    let contentRootEditor!: ReturnType<typeof useSlateRootEditor>
+
+    const ContentRoot = ({ element }: { element: Element }) => {
+      const { chrome, root } = useSlateContentRoot(element)
+      const text = useSlateRootState(root, rootText)
+
+      contentRootEditor = useSlateRootEditor(root)
+
+      return (
+        <div data-testid="content-root" {...chrome.props}>
+          {root}:{text}
+        </div>
+      )
+    }
+
+    render(
+      <Slate editor={editor}>
+        <ContentRoot element={element} />
+      </Slate>
+    )
+
+    await screen.findByText(`${childRoot}:about`)
+    expect(screen.getByTestId('content-root')).toHaveAttribute(
+      'data-slate-root-chrome',
+      childRoot
+    )
+    expect(contentRootEditor.root).toBe(childRoot)
+  })
+
+  test('renderElement contentRoot slot mounts same-runtime root content', async () => {
+    const childRoot = 'details-slot:body'
+    const element = {
+      type: 'details-content',
+      childRoots: { body: childRoot },
+      children: [{ text: '' }],
+    } satisfies Element & { childRoots: Record<string, string> }
+    const editor = createReactEditor({
+      extensions: [contentRootExtension],
+      initialValue: {
+        roots: {
+          [childRoot]: [paragraph('slot body')],
+          main: [element],
+        },
+      },
+    })
+
+    render(
+      <Slate editor={editor}>
+        <Editable
+          aria-label="Outer editor"
+          renderElement={(props) =>
+            props.element.type === 'details-content' ? (
+              <section {...props.attributes} data-testid="details-slot">
+                {props.slots.contentRoot('body', {
+                  ariaLabel: 'Details body',
+                })}
+              </section>
+            ) : (
+              <p {...props.attributes}>{props.children}</p>
+            )
+          }
+        />
+      </Slate>
+    )
+
+    await screen.findByLabelText('Details body')
+    expect(screen.getByLabelText('Details body')).toHaveTextContent('slot body')
+    expect(screen.getByTestId('details-slot')).toHaveAttribute(
+      'data-slate-node',
+      'element'
+    )
+  })
+
   test('Slate editor hosts multiple root-bound Editable surfaces', async () => {
     const editor = createReactEditor({ initialValue: initialValue() })
     let headerEditor!: ReturnType<typeof useSlateRootEditor>

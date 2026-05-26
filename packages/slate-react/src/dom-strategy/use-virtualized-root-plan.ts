@@ -29,6 +29,15 @@ export type VirtualizedTopLevelLayoutItem = {
   start: number
 }
 
+export type VirtualizedPageLayoutItem = {
+  index: number
+  key: string
+  pageIndexes: readonly number[]
+  size: number
+  start: number
+  topLevelIndexes: readonly number[]
+}
+
 export type VirtualizedMissingTopLevelRange = {
   boundaryId: string
   endIndex: number
@@ -92,20 +101,34 @@ export const canUseElementAsVirtualizerScrollRoot = (
   return hasScrollableOverflow && hasBoundedHeight
 }
 
+export const getVirtualizerScrollElement = (
+  element: HTMLElement | null
+): HTMLElement | null => {
+  let current = element
+
+  while (current) {
+    if (canUseElementAsVirtualizerScrollRoot(current)) {
+      return current
+    }
+
+    current = current.parentElement
+  }
+
+  return null
+}
+
 const createRetainedRangeExtractor =
   ({
     count,
-    promotedTopLevelIndex,
-    selectedTopLevelIndex,
+    retainedIndexes,
   }: {
     count: number
-    promotedTopLevelIndex: number | null
-    selectedTopLevelIndex: number | null
+    retainedIndexes: readonly (number | null)[]
   }) =>
   (range: VirtualRange) => {
     const indexes = new Set(defaultRangeExtractor(range))
 
-    for (const index of [selectedTopLevelIndex, promotedTopLevelIndex]) {
+    for (const index of retainedIndexes) {
       if (typeof index === 'number' && index >= 0 && index < count) {
         indexes.add(index)
       }
@@ -170,6 +193,45 @@ export const createLayoutVirtualizerSizeMap = (
   return sizes
 }
 
+const createPageVirtualizerSizeMap = (
+  pageLayoutItems: readonly VirtualizedPageLayoutItem[] | null | undefined
+) => {
+  const sizes = new Map<number, number>()
+  const sortedItems = [...(pageLayoutItems ?? [])].sort(
+    (left, right) => left.index - right.index
+  )
+
+  for (let index = 0; index < sortedItems.length; index++) {
+    const item = sortedItems[index]!
+    const nextItem = sortedItems[index + 1]
+    const extent =
+      nextItem && nextItem.start > item.start
+        ? nextItem.start - item.start
+        : item.size
+
+    sizes.set(item.index, Math.max(item.size, extent))
+  }
+
+  return sizes
+}
+
+const createPageItemIndexesByTopLevelIndex = (
+  pageLayoutItems: readonly VirtualizedPageLayoutItem[] | null | undefined
+) => {
+  const pageIndexesByTopLevelIndex = new Map<number, number[]>()
+
+  for (const pageItem of pageLayoutItems ?? []) {
+    for (const topLevelIndex of pageItem.topLevelIndexes) {
+      const current = pageIndexesByTopLevelIndex.get(topLevelIndex) ?? []
+
+      current.push(pageItem.index)
+      pageIndexesByTopLevelIndex.set(topLevelIndex, current)
+    }
+  }
+
+  return pageIndexesByTopLevelIndex
+}
+
 const getMissingRanges = ({
   count,
   mountedRanges,
@@ -213,7 +275,9 @@ export const useVirtualizedRootPlan = ({
   config,
   enabled,
   promotedTopLevelIndex,
+  pageLayoutItems,
   rootElement,
+  scrollElement,
   selectedTopLevelIndex,
   topLevelLayoutItems,
   topLevelRuntimeIds,
@@ -222,11 +286,18 @@ export const useVirtualizedRootPlan = ({
   enabled: boolean
   promotedTopLevelIndex: number | null
   rootElement: HTMLElement | null
+  scrollElement: HTMLElement | null
   selectedTopLevelIndex: number | null
+  pageLayoutItems?: readonly VirtualizedPageLayoutItem[] | null
   topLevelLayoutItems?: readonly VirtualizedTopLevelLayoutItem[] | null
   topLevelRuntimeIds: readonly RuntimeId[]
 }) => {
-  const count = config ? topLevelRuntimeIds.length : 0
+  const hasPageLayoutItems = Boolean(pageLayoutItems?.length)
+  const count = config
+    ? hasPageLayoutItems
+      ? (pageLayoutItems?.length ?? 0)
+      : topLevelRuntimeIds.length
+    : 0
   const estimatedBlockSize = config?.estimatedBlockSize ?? 32
   const layoutItemByIndex = React.useMemo(
     () =>
@@ -235,54 +306,115 @@ export const useVirtualizedRootPlan = ({
       ),
     [topLevelLayoutItems]
   )
+  const pageItemByIndex = React.useMemo(
+    () =>
+      new Map(
+        (pageLayoutItems ?? []).map((item) => [item.index, item] as const)
+      ),
+    [pageLayoutItems]
+  )
+  const pageItemIndexesByTopLevelIndex = React.useMemo(
+    () => createPageItemIndexesByTopLevelIndex(pageLayoutItems),
+    [pageLayoutItems]
+  )
   const virtualizerSizeByIndex = React.useMemo(
-    () => createLayoutVirtualizerSizeMap(topLevelLayoutItems),
-    [topLevelLayoutItems]
+    () =>
+      hasPageLayoutItems
+        ? createPageVirtualizerSizeMap(pageLayoutItems)
+        : createLayoutVirtualizerSizeMap(topLevelLayoutItems),
+    [hasPageLayoutItems, pageLayoutItems, topLevelLayoutItems]
   )
   const estimateSize = React.useCallback(
     (index: number) => virtualizerSizeByIndex.get(index) ?? estimatedBlockSize,
     [estimatedBlockSize, virtualizerSizeByIndex]
   )
+  const retainedVirtualIndexes = React.useMemo(() => {
+    if (!hasPageLayoutItems) {
+      return [selectedTopLevelIndex, promotedTopLevelIndex]
+    }
+
+    return [selectedTopLevelIndex, promotedTopLevelIndex].flatMap((index) =>
+      typeof index === 'number'
+        ? (pageItemIndexesByTopLevelIndex.get(index) ?? [])
+        : []
+    )
+  }, [
+    hasPageLayoutItems,
+    pageItemIndexesByTopLevelIndex,
+    promotedTopLevelIndex,
+    selectedTopLevelIndex,
+  ])
   const rangeExtractor = React.useMemo(
     () =>
       createRetainedRangeExtractor({
         count,
-        promotedTopLevelIndex,
-        selectedTopLevelIndex,
+        retainedIndexes: retainedVirtualIndexes,
       }),
-    [count, promotedTopLevelIndex, selectedTopLevelIndex]
+    [count, retainedVirtualIndexes]
   )
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual returns imperative helpers; this hook owns them locally.
   const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
     count,
     enabled: Boolean(config && enabled),
     estimateSize,
-    getItemKey: (index) => topLevelRuntimeIds[index] ?? index,
-    getScrollElement: () => rootElement,
+    getItemKey: (index) =>
+      hasPageLayoutItems
+        ? (pageItemByIndex.get(index)?.key ?? index)
+        : (topLevelRuntimeIds[index] ?? index),
+    getScrollElement: () => scrollElement,
     initialRect: {
-      height: getElementViewportHeight(rootElement, estimatedBlockSize * 8),
-      width: rootElement?.clientWidth || 1024,
+      height: getElementViewportHeight(scrollElement, estimatedBlockSize * 8),
+      width: scrollElement?.clientWidth || rootElement?.clientWidth || 1024,
     },
     overscan: config?.overscan ?? 0,
     rangeExtractor,
   })
 
-  if (!config || !enabled || count < config.threshold) {
+  if (!config || !enabled || !scrollElement || count < config.threshold) {
     return null
   }
 
+  const virtualizerItems = virtualizer.getVirtualItems()
+  const virtualTopLevelIndexes = hasPageLayoutItems
+    ? [
+        ...new Set(
+          virtualizerItems.flatMap(
+            (item) => pageItemByIndex.get(item.index)?.topLevelIndexes ?? []
+          )
+        ),
+      ].sort((left, right) => left - right)
+    : virtualizerItems.map((item) => item.index)
+  const virtualizerItemByIndex = new Map(
+    virtualizerItems.map((item) => [item.index, item] as const)
+  )
+  const getVirtualizerItemForTopLevelIndex = (index: number) => {
+    if (!hasPageLayoutItems) {
+      return virtualizerItemByIndex.get(index)
+    }
+
+    const pageIndex = pageItemIndexesByTopLevelIndex
+      .get(index)
+      ?.find((candidate) => virtualizerItemByIndex.has(candidate))
+
+    return typeof pageIndex === 'number'
+      ? virtualizerItemByIndex.get(pageIndex)
+      : undefined
+  }
   const virtualItemsByIndex = new Map(
-    virtualizer
-      .getVirtualItems()
-      .map<VirtualizedTopLevelItem>((item) => {
-        const layoutItem = layoutItemByIndex.get(item.index)
+    virtualTopLevelIndexes
+      .map<VirtualizedTopLevelItem>((index) => {
+        const layoutItem = layoutItemByIndex.get(index)
+        const virtualizerItem = getVirtualizerItemForTopLevelIndex(index)
 
         return {
-          index: item.index,
-          key: item.key,
-          runtimeId: topLevelRuntimeIds[item.index]!,
-          size: layoutItem?.size ?? item.size,
-          start: layoutItem?.start ?? item.start,
+          index,
+          key: topLevelRuntimeIds[index] ?? index,
+          runtimeId: topLevelRuntimeIds[index]!,
+          size: layoutItem?.size ?? virtualizerItem?.size ?? estimatedBlockSize,
+          start:
+            layoutItem?.start ??
+            virtualizerItem?.start ??
+            index * estimatedBlockSize,
         }
       })
       .filter((item) => item.runtimeId)
@@ -293,7 +425,7 @@ export const useVirtualizedRootPlan = ({
     if (
       typeof index !== 'number' ||
       index < 0 ||
-      index >= count ||
+      index >= topLevelRuntimeIds.length ||
       virtualItemsByIndex.has(index)
     ) {
       continue
@@ -325,10 +457,17 @@ export const useVirtualizedRootPlan = ({
     virtualItems.map((item) => item.runtimeId)
   )
   const missingRanges = getMissingRanges({
-    count,
+    count: topLevelRuntimeIds.length,
     mountedRanges: mountedTopLevelRanges,
     topLevelRuntimeIds,
   })
+  const pageLayoutTotalSize =
+    pageLayoutItems && pageLayoutItems.length > 0
+      ? pageLayoutItems.reduce(
+          (size, item) => Math.max(size, item.start + item.size),
+          0
+        )
+      : null
   const layoutTotalSize =
     topLevelLayoutItems && topLevelLayoutItems.length > 0
       ? topLevelLayoutItems.reduce(
@@ -348,9 +487,9 @@ export const useVirtualizedRootPlan = ({
     ) => {
       const layoutItem = layoutItemByIndex.get(index)
 
-      if (layoutItem && rootElement) {
+      if (layoutItem && scrollElement) {
         const viewportHeight = getElementViewportHeight(
-          rootElement,
+          scrollElement,
           estimatedBlockSize * 8
         )
         const top =
@@ -366,9 +505,10 @@ export const useVirtualizedRootPlan = ({
 
       virtualizer.scrollToIndex(index, { align })
     },
-    totalSize: layoutTotalSize ?? virtualizer.getTotalSize(),
+    totalSize:
+      pageLayoutTotalSize ?? layoutTotalSize ?? virtualizer.getTotalSize(),
     virtualItems,
     virtualizerMeasuredCount: virtualItems.length,
-    measureElement: virtualizer.measureElement,
+    measureElement: hasPageLayoutItems ? undefined : virtualizer.measureElement,
   }
 }

@@ -119,6 +119,49 @@ export type SlatePageLayoutBox = {
   split?: SlatePageLayoutBoxSplit
 }
 
+export type SlatePageLayoutUnitSplit = 'avoid' | 'page'
+
+export type SlatePageLayoutUnit = {
+  key: string
+  kind?: string
+  path: Path
+  rect: SlatePageRect
+  split?: SlatePageLayoutUnitSplit
+}
+
+export type SlateNodeLayoutDefaults = {
+  block: SlatePageLayoutBlockStyle
+  boxes: readonly SlatePageLayoutBox[]
+  text: SlatePageLayoutTextStyle
+}
+
+export type SlateNodeLayoutContext = {
+  defaults: SlateNodeLayoutDefaults
+  element: Element
+  measurementProfile: SlatePageLayoutMeasurementProfile
+  pageSettings: SlatePageSettings
+  path: Path
+}
+
+export type SlateNodeLayoutPlan =
+  | {
+      boxes?: readonly SlatePageLayoutBox[]
+      type: 'text'
+    }
+  | {
+      box: SlatePageLayoutBox
+      type: 'box'
+    }
+  | {
+      boxes?: readonly SlatePageLayoutBox[]
+      type: 'units'
+      units: readonly SlatePageLayoutUnit[]
+    }
+
+export type SlateNodeLayoutProvider = (
+  context: SlateNodeLayoutContext
+) => SlateNodeLayoutPlan | null | undefined
+
 export type SlatePageLayoutTypography = {
   block?: (context: {
     element: Element
@@ -131,6 +174,13 @@ export type SlatePageLayoutTypography = {
   }) => SlatePageLayoutTextStyle
 }
 
+export type SlatePageLayoutBoxProvider = (context: {
+  defaultBoxes: readonly SlatePageLayoutBox[]
+  element: Element
+  lineHeight: number
+  path: Path
+}) => readonly SlatePageLayoutBox[] | null | undefined
+
 export type SlatePageLayoutBlock = {
   element: Element
   boxes?: readonly SlatePageLayoutBox[]
@@ -140,6 +190,7 @@ export type SlatePageLayoutBlock = {
   spacingAfter: number
   text: string
   textStyle: SlatePageLayoutTextStyle
+  units?: readonly SlatePageLayoutUnit[]
 }
 
 export type SlatePageLayoutMeasuredLine = {
@@ -165,6 +216,7 @@ export type SlatePageLayoutFragment = {
   path: Path
   text: string
   top: number
+  units?: readonly SlatePageLayoutUnit[]
 }
 
 export type SlatePageLayoutProjectedBlock = SlatePageRect & {
@@ -184,11 +236,18 @@ export type SlatePageLayoutProjectedLine = SlatePageLayoutMeasuredLine & {
   top: number
 }
 
+export type SlatePageLayoutProjectedUnit = SlatePageLayoutUnit & {
+  blockIndex: number
+  fragmentId: string
+  pageIndex: number
+}
+
 export type SlatePageLayoutProjection = {
   blocks: readonly SlatePageLayoutProjectedBlock[]
   geometry: SlatePageLayoutGeometry
   lines: readonly SlatePageLayoutProjectedLine[]
   root: RootKey
+  units: readonly SlatePageLayoutProjectedUnit[]
 }
 
 export type SlatePageLayoutHitTestingOptions = {
@@ -236,7 +295,10 @@ export type SlatePageLayoutDecorationOptions<TData> = {
 export type SlatePageLayoutSnapshot = {
   blocks: readonly SlatePageLayoutBlock[]
   fragments: readonly SlatePageLayoutFragment[]
+  measurementProfile: SlatePageLayoutMeasurementProfile
   page: SlatePageLayoutPage
+  pageBreaks: SlatePageBreakSnapshot | null
+  pageBreaksStatus: SlatePageBreakSnapshotStatus
   pages: readonly SlatePageLayoutPage[]
   root: RootKey
   settings: SlatePageSettings
@@ -277,7 +339,60 @@ export type SlatePageLayoutMeasuredBlock = SlatePageLayoutBlock & {
 export type SlatePageLayoutEngine = {
   compose: (input: SlatePageLayoutEngineInput) => SlatePageLayoutEngineOutput
   id?: string
+  measurementProfile?: unknown
 }
+
+export type SlatePageLayoutMeasurementProfile = {
+  engine: {
+    id: string
+    profile?: unknown
+  }
+  page: SlatePageSettings
+  root: RootKey
+  schemaVersion: 1
+  typography: 'custom' | 'default'
+}
+
+export type SlatePageBreak = {
+  blockIndex: number
+  fragmentId: string
+  pageIndex: number
+  path: Path
+}
+
+export type SlatePageBreakSnapshot = {
+  breaks: readonly SlatePageBreak[]
+  documentKey: string
+  documentVersion: number
+  measurementProfile: SlatePageLayoutMeasurementProfile
+  root: RootKey
+  schemaVersion: 1
+  writerId?: string
+}
+
+export type SlatePageBreakSnapshotStatus =
+  | 'accepted'
+  | 'none'
+  | 'stale-document'
+  | 'stale-profile'
+  | 'stale-root'
+  | 'written'
+
+export type SlatePageBreakSnapshotSource =
+  | EditorStateField<SlatePageBreakSnapshot | null>
+  | SlatePageBreakSnapshot
+  | null
+
+export type SlatePageBreaksOptions =
+  | {
+      mode: 'read'
+      source: SlatePageBreakSnapshotSource
+    }
+  | {
+      mode: 'write'
+      source: EditorStateField<SlatePageBreakSnapshot | null>
+      writerId: string
+    }
 
 export type PretextPageLayoutEngineOptions = {
   maxPreparedEntries?: number
@@ -292,7 +407,9 @@ export type SlatePageSettingsSource<
 export type SlateLayoutOptions<
   TSettings extends SlatePageSettings = SlatePageSettings,
 > = {
+  nodeLayout?: SlateNodeLayoutProvider
   page: SlatePageSettingsSource<TSettings>
+  pageBreaks?: SlatePageBreaksOptions | null
   root?: RootKey
   typography?: SlatePageLayoutTypography
 }
@@ -301,7 +418,9 @@ export type SlatePageLayoutOptions<
   TSettings extends SlatePageSettings = SlatePageSettings,
 > = {
   engine: SlatePageLayoutEngine
+  nodeLayout?: SlateNodeLayoutProvider
   page: SlatePageSettingsSource<TSettings>
+  pageBreaks?: SlatePageBreaksOptions | null
   root?: RootKey
   typography?: SlatePageLayoutTypography
 }
@@ -313,6 +432,7 @@ export type SlatePageLayoutProjectRangeOptions =
 
 export type SlatePageLayout = {
   destroy: () => void
+  getFragments: (path: Path) => readonly SlatePageLayoutFragment[]
   getMetrics: () => SlatePageLayoutMetrics
   getSnapshot: () => SlatePageLayoutSnapshot
   projectRange: (
@@ -348,10 +468,185 @@ const DEFAULT_BLOCK_STYLE: SlatePageLayoutBlockStyle = {
   lineHeight: 24,
 }
 
+const DEFAULT_MEASUREMENT_PROFILE: SlatePageLayoutMeasurementProfile = {
+  engine: { id: 'none' },
+  page: DEFAULT_SETTINGS,
+  root: MAIN_ROOT_KEY,
+  schemaVersion: 1,
+  typography: 'default',
+}
+
 const getNow = () =>
   typeof performance === 'undefined' ? Date.now() : performance.now()
 
 const isElement = (node: Descendant): node is Element => !NodeApi.isText(node)
+
+const getStableProfileKey = (value: unknown) => JSON.stringify(value)
+
+const createSlatePageLayoutMeasurementProfile = ({
+  engine,
+  root,
+  settings,
+  typography,
+}: {
+  engine: SlatePageLayoutEngine
+  root: RootKey
+  settings: SlatePageSettings
+  typography?: SlatePageLayoutTypography
+}): SlatePageLayoutMeasurementProfile => ({
+  engine: {
+    id: engine.id ?? 'anonymous',
+    profile: engine.measurementProfile,
+  },
+  page: normalizeSlatePageSettings(settings),
+  root,
+  schemaVersion: 1,
+  typography: typography ? 'custom' : 'default',
+})
+
+export const createSlatePageBreakSnapshot = ({
+  documentKey,
+  fragments,
+  measurementProfile,
+  root,
+  version,
+  writerId,
+}: {
+  documentKey: string
+  fragments: readonly SlatePageLayoutFragment[]
+  measurementProfile: SlatePageLayoutMeasurementProfile
+  root: RootKey
+  version: number
+  writerId?: string
+}): SlatePageBreakSnapshot => {
+  const breaksByPageIndex = new Map<number, SlatePageBreak>()
+
+  for (const fragment of fragments) {
+    if (fragment.pageIndex === 0 || breaksByPageIndex.has(fragment.pageIndex)) {
+      continue
+    }
+
+    breaksByPageIndex.set(fragment.pageIndex, {
+      blockIndex: fragment.blockIndex,
+      fragmentId: fragment.id,
+      pageIndex: fragment.pageIndex,
+      path: fragment.path,
+    })
+  }
+
+  return {
+    breaks: [...breaksByPageIndex.values()].sort(
+      (left, right) => left.pageIndex - right.pageIndex
+    ),
+    documentKey,
+    documentVersion: version,
+    measurementProfile,
+    root,
+    schemaVersion: 1,
+    writerId,
+  }
+}
+
+const readSlatePageBreakSnapshot = (
+  editor: SlateEditor<Value>,
+  source: SlatePageBreakSnapshotSource
+) => {
+  if (!source) {
+    return null
+  }
+
+  if ('key' in source) {
+    return editor.read((state) => state.getField(source))
+  }
+
+  return source
+}
+
+const getSlatePageBreakSnapshotStatus = ({
+  documentKey,
+  measurementProfile,
+  root,
+  snapshot,
+  version,
+}: {
+  documentKey: string
+  measurementProfile: SlatePageLayoutMeasurementProfile
+  root: RootKey
+  snapshot: SlatePageBreakSnapshot | null
+  version: number
+}): SlatePageBreakSnapshotStatus => {
+  if (!snapshot) {
+    return 'none'
+  }
+
+  if (snapshot.root !== root) {
+    return 'stale-root'
+  }
+
+  if (
+    snapshot.documentKey !== documentKey ||
+    snapshot.documentVersion > version
+  ) {
+    return 'stale-document'
+  }
+
+  if (
+    getStableProfileKey(snapshot.measurementProfile) !==
+    getStableProfileKey(measurementProfile)
+  ) {
+    return 'stale-profile'
+  }
+
+  return 'accepted'
+}
+
+const sameSlatePageBreakSnapshot = (
+  left: SlatePageBreakSnapshot | null,
+  right: SlatePageBreakSnapshot
+) => Boolean(left && getStableProfileKey(left) === getStableProfileKey(right))
+
+const getStableHashKey = (value: unknown): string => {
+  const source = getStableProfileKey(value)
+  let hash = 2_166_136_261
+
+  for (let index = 0; index < source.length; index++) {
+    hash ^= source.charCodeAt(index)
+    hash = Math.imul(hash, 16_777_619)
+  }
+
+  return `${source.length}:${(hash >>> 0).toString(36)}`
+}
+
+const getSlateLayoutDocumentKey = (
+  blocks: readonly SlatePageLayoutBlock[]
+): string =>
+  getStableHashKey(
+    blocks.map((block) => ({
+      boxes: block.boxes?.map((box) => ({
+        kind: box.kind,
+        path: box.path,
+        rect: box.rect,
+        split: box.split,
+      })),
+      path: block.path,
+      runs: block.runs?.map((run) => ({
+        path: run.path,
+        range: run.range,
+        text: run.text,
+        textStyle: run.textStyle,
+      })),
+      spacingAfter: block.spacingAfter,
+      text: block.text,
+      textStyle: block.textStyle,
+      units: block.units?.map((unit) => ({
+        key: unit.key,
+        kind: unit.kind,
+        path: unit.path,
+        rect: unit.rect,
+        split: unit.split,
+      })),
+    }))
+  )
 
 const canUseCanvasTextMeasurement = () => {
   if (typeof OffscreenCanvas !== 'undefined') {
@@ -489,6 +784,9 @@ const compareLayoutPaths = (left: Path, right: Path): number => {
   return left.length < right.length ? -1 : 1
 }
 
+const isSameLayoutPath = (left: Path, right: Path) =>
+  compareLayoutPaths(left, right) === 0
+
 const compareLayoutPoints = (left: Point, right: Point): number => {
   const pathComparison = compareLayoutPaths(left.path, right.path)
 
@@ -525,6 +823,7 @@ export const getSlatePageLayoutProjection = (
     getSlatePageLayoutGeometry(snapshot.pages, geometryOptions)
   const blockBoxes = new Map<string, SlatePageLayoutProjectedBlock>()
   const lines: SlatePageLayoutProjectedLine[] = []
+  const units: SlatePageLayoutProjectedUnit[] = []
   const inlineInset = hitTesting === false ? 0 : (hitTesting.inlineInset ?? 0)
 
   snapshot.fragments.forEach((fragment) => {
@@ -570,6 +869,54 @@ export const getSlatePageLayoutProjection = (
           path: [...fragment.path],
           top,
           width: page.content.width,
+        })
+        return
+      }
+
+      const nextLeft = Math.min(existing.left, left)
+      const nextTop = Math.min(existing.top, top)
+      const nextRight = Math.max(existing.left + existing.width, right)
+      const nextBottom = Math.max(existing.top + existing.height, bottom)
+
+      blockBoxes.set(pathKey, {
+        ...existing,
+        height: nextBottom - nextTop,
+        left: nextLeft,
+        top: nextTop,
+        width: nextRight - nextLeft,
+      })
+    })
+
+    fragment.units?.forEach((unit) => {
+      const left = placement.left + page.content.left + unit.rect.left
+      const top = placement.top + unit.rect.top
+      const right = left + unit.rect.width
+      const bottom = top + unit.rect.height
+
+      units.push({
+        ...unit,
+        blockIndex: fragment.blockIndex,
+        fragmentId: fragment.id,
+        pageIndex: fragment.pageIndex,
+        path: [...unit.path],
+        rect: {
+          ...unit.rect,
+          left,
+          top,
+        },
+      })
+
+      const pathKey = getSlatePageLayoutPathKey(fragment.path)
+      const existing = blockBoxes.get(pathKey)
+
+      if (!existing) {
+        blockBoxes.set(pathKey, {
+          blockIndex: fragment.blockIndex,
+          height: unit.rect.height,
+          left,
+          path: [...fragment.path],
+          top,
+          width: Math.max(page.content.width, unit.rect.width),
         })
         return
       }
@@ -634,6 +981,7 @@ export const getSlatePageLayoutProjection = (
     geometry,
     lines: linesWithHitRects,
     root: snapshot.root,
+    units,
   }
 }
 
@@ -1133,10 +1481,47 @@ const createTableLayoutBoxes = (
   return boxes
 }
 
+const resolveNodeLayoutPlan = (
+  plan: SlateNodeLayoutPlan | null | undefined,
+  defaultBoxes: readonly SlatePageLayoutBox[]
+): {
+  boxes: readonly SlatePageLayoutBox[]
+  units?: readonly SlatePageLayoutUnit[]
+} => {
+  if (!plan || plan.type === 'text') {
+    return {
+      boxes: plan?.boxes ?? defaultBoxes,
+    }
+  }
+
+  if (plan.type === 'box') {
+    return {
+      boxes: [plan.box],
+      units: [
+        {
+          key: `${getSlatePageLayoutPathKey(plan.box.path)}:${plan.box.kind}`,
+          kind: plan.box.kind,
+          path: [...plan.box.path],
+          rect: plan.box.rect,
+          split: plan.box.split === 'avoid' ? 'avoid' : 'page',
+        },
+      ],
+    }
+  }
+
+  return {
+    boxes: plan.boxes ?? defaultBoxes,
+    units: plan.units,
+  }
+}
+
 const extractLayoutBlocks = (
   editor: SlateEditor<Value>,
   root: RootKey,
-  typography: SlatePageLayoutTypography | undefined
+  settings: SlatePageSettings,
+  measurementProfile: SlatePageLayoutMeasurementProfile,
+  typography: SlatePageLayoutTypography | undefined,
+  nodeLayout: SlateNodeLayoutProvider | undefined
 ): SlatePageLayoutBlock[] => {
   const children = editor.read((state) => state.value.get().roots[root] ?? [])
 
@@ -1148,16 +1533,33 @@ const extractLayoutBlocks = (
     const path = [index]
     const blockStyle = getBlockStyle(typography, node, path)
     const runs = extractLayoutRuns(node, path, typography)
+    const defaultBoxes = createLayoutBoxes(node, path, blockStyle.lineHeight)
+    const textStyle = runs[0]?.textStyle ?? getTextStyle(typography, node, path)
+    const resolvedLayout = resolveNodeLayoutPlan(
+      nodeLayout?.({
+        defaults: {
+          block: blockStyle,
+          boxes: defaultBoxes,
+          text: textStyle,
+        },
+        element: node,
+        measurementProfile,
+        pageSettings: settings,
+        path,
+      }),
+      defaultBoxes
+    )
 
     return {
-      boxes: createLayoutBoxes(node, path, blockStyle.lineHeight),
+      boxes: resolvedLayout.boxes,
       element: node,
       lineHeight: blockStyle.lineHeight,
       path,
       runs,
       spacingAfter: blockStyle.blockSpacing ?? 0,
       text: NodeApi.string(node),
-      textStyle: runs[0]?.textStyle ?? getTextStyle(typography, node, path),
+      textStyle,
+      units: resolvedLayout.units,
     }
   })
 }
@@ -1193,13 +1595,52 @@ const createEmptyLayoutSnapshot = (
   return {
     blocks: [],
     fragments: [],
+    measurementProfile: {
+      ...DEFAULT_MEASUREMENT_PROFILE,
+      page: settings,
+      root,
+    },
     page,
+    pageBreaks: null,
+    pageBreaksStatus: 'none',
     pages: [page],
     root,
     settings,
     version,
   }
 }
+
+const isLayoutPathWithin = (path: Path, ancestor: Path) =>
+  ancestor.length <= path.length &&
+  ancestor.every((segment, index) => path[index] === segment)
+
+export const getSlatePageLayoutFragments = (
+  snapshot: SlatePageLayoutSnapshot,
+  path: Path
+): readonly SlatePageLayoutFragment[] =>
+  snapshot.fragments.flatMap((fragment) => {
+    if (isSameLayoutPath(fragment.path, path)) {
+      return [fragment]
+    }
+
+    const units = fragment.units?.filter(
+      (unit) =>
+        isSameLayoutPath(unit.path, path) ||
+        isLayoutPathWithin(path, unit.path) ||
+        isLayoutPathWithin(unit.path, path)
+    )
+
+    if (!units?.length) {
+      return []
+    }
+
+    return [
+      {
+        ...fragment,
+        units,
+      },
+    ]
+  })
 
 const readLayoutRoot = <TSettings extends SlatePageSettings>(
   editor: SlateEditor<Value>,
@@ -1301,6 +1742,7 @@ const estimateTextWidth = (text: string) => text.length * 8
 
 export const createEstimatedPageLayoutEngine = (): SlatePageLayoutEngine => ({
   id: 'estimated',
+  measurementProfile: { strategy: 'estimated' },
   compose(input) {
     const measuredBlocks = input.blocks.map((block, blockIndex) => {
       const charactersPerLine = Math.max(
@@ -1613,6 +2055,10 @@ export const pretextPageLayoutEngine = ({
 
   return {
     id: 'pretext',
+    measurementProfile: {
+      whiteSpace,
+      wordBreak,
+    },
     compose(input) {
       const measuredBlocks = input.blocks.map((block, blockIndex) => {
         const richInlineLines = createRichInlineLines(
@@ -1712,6 +2158,80 @@ export const paginateSlatePageLayoutBlocks = ({
   let cursorTop = page.content.top
 
   measuredBlocks.forEach((block) => {
+    if (block.units?.length) {
+      let consumedUnits = 0
+      let fragmentIndex = 0
+
+      while (consumedUnits < block.units.length) {
+        const page = pages[pageIndex]!
+        const pageBottom = page.content.top + page.content.height
+        const fragmentTop = cursorTop
+        const fragmentUnits: SlatePageLayoutUnit[] = []
+        let fragmentHeight = 0
+
+        while (consumedUnits < block.units.length) {
+          const unit = block.units[consumedUnits]!
+          const unitHeight = Math.max(0, unit.rect.height)
+          const remainingPageHeight = Math.max(0, pageBottom - cursorTop)
+          const pageIsEmpty = cursorTop === page.content.top
+
+          if (unitHeight > remainingPageHeight && !pageIsEmpty) {
+            break
+          }
+
+          fragmentUnits.push({
+            ...unit,
+            path: [...unit.path],
+            rect: {
+              ...unit.rect,
+              top: fragmentTop + fragmentHeight,
+            },
+          })
+          fragmentHeight += unitHeight
+          cursorTop += unitHeight
+          consumedUnits++
+
+          if (unitHeight > remainingPageHeight && pageIsEmpty) {
+            break
+          }
+        }
+
+        if (fragmentUnits.length === 0) {
+          pageIndex++
+          pages[pageIndex] = createSlatePage(settings, pageIndex)
+          cursorTop = pages[pageIndex]!.content.top
+          continue
+        }
+
+        const isLastFragment = consumedUnits === block.units.length
+        const height =
+          fragmentHeight + (isLastFragment ? block.spacingAfter : 0)
+
+        fragments.push({
+          blockIndex: block.blockIndex,
+          height,
+          id: `${block.path.join('.')}:${version}:${fragmentIndex}`,
+          lineCount: 0,
+          lines: [],
+          pageIndex,
+          path: block.path,
+          text: block.text,
+          top: fragmentTop,
+          units: fragmentUnits,
+        })
+        cursorTop += isLastFragment ? block.spacingAfter : 0
+        fragmentIndex++
+
+        if (consumedUnits < block.units.length) {
+          pageIndex++
+          pages[pageIndex] = createSlatePage(settings, pageIndex)
+          cursorTop = pages[pageIndex]!.content.top
+        }
+      }
+
+      return
+    }
+
     const measuredLines = createEstimatedLines(block)
     const lineTotal = Math.max(block.lineCount, measuredLines.length)
     const page = pages[pageIndex]!
@@ -1823,20 +2343,82 @@ export const createSlatePageLayout = <
     const options = getOptions()
     const root = readLayoutRoot(editor, options)
     const settings = readLayoutSettings(editor, options.page)
-    const blocks = extractLayoutBlocks(editor, root, options.typography)
     const page = createSlatePage(settings)
     const version = editor.read((state) => state.runtime.snapshot().version)
+    const measurementProfile = createSlatePageLayoutMeasurementProfile({
+      engine: options.engine,
+      root,
+      settings,
+      typography: options.typography,
+    })
+    const blocks = extractLayoutBlocks(
+      editor,
+      root,
+      settings,
+      measurementProfile,
+      options.typography,
+      options.nodeLayout
+    )
+    const documentKey = getSlateLayoutDocumentKey(blocks)
     const output = options.engine.compose({
       blocks,
       page,
       settings,
       version,
     })
+    const computedPageBreakSnapshot = createSlatePageBreakSnapshot({
+      documentKey,
+      fragments: output.fragments,
+      measurementProfile,
+      root,
+      version,
+      writerId:
+        options.pageBreaks?.mode === 'write'
+          ? options.pageBreaks.writerId
+          : undefined,
+    })
+    let pageBreaks: SlatePageBreakSnapshot | null = null
+    let pageBreaksStatus: SlatePageBreakSnapshotStatus = 'none'
+    let pageBreakSnapshotToWrite: SlatePageBreakSnapshot | null = null
+    let pageBreakSnapshotWriteSource: EditorStateField<SlatePageBreakSnapshot | null> | null =
+      null
+
+    if (options.pageBreaks?.mode === 'read') {
+      const readSnapshot = readSlatePageBreakSnapshot(
+        editor,
+        options.pageBreaks.source
+      )
+      pageBreaksStatus = getSlatePageBreakSnapshotStatus({
+        documentKey,
+        measurementProfile,
+        root,
+        snapshot: readSnapshot,
+        version,
+      })
+      pageBreaks = pageBreaksStatus === 'accepted' ? readSnapshot : null
+    } else if (options.pageBreaks?.mode === 'write') {
+      const writeSource = options.pageBreaks.source
+      const currentSnapshot = editor.read((state) =>
+        state.getField(writeSource)
+      )
+      const shouldWrite = !sameSlatePageBreakSnapshot(
+        currentSnapshot,
+        computedPageBreakSnapshot
+      )
+
+      pageBreaks = computedPageBreakSnapshot
+      pageBreaksStatus = shouldWrite ? 'written' : 'accepted'
+      pageBreakSnapshotToWrite = shouldWrite ? computedPageBreakSnapshot : null
+      pageBreakSnapshotWriteSource = shouldWrite ? writeSource : null
+    }
 
     snapshot = {
       blocks,
       fragments: output.fragments,
+      measurementProfile,
       page,
+      pageBreaks,
+      pageBreaksStatus,
       pages: output.pages.length === 0 ? [page] : output.pages,
       root,
       settings,
@@ -1849,9 +2431,29 @@ export const createSlatePageLayout = <
       pageCount: snapshot.pages.length,
     }
     notify()
+
+    if (pageBreakSnapshotWriteSource && pageBreakSnapshotToWrite) {
+      editor.update((tx) => {
+        tx.setField(pageBreakSnapshotWriteSource, pageBreakSnapshotToWrite)
+      })
+    }
   }
 
   const unsubscribeEditor = editor.subscribe((_snapshot, change) => {
+    const options = getOptions()
+    const writePageBreaks =
+      options.pageBreaks?.mode === 'write' ? options.pageBreaks : null
+
+    if (
+      change &&
+      writePageBreaks &&
+      change.operations.length === 0 &&
+      change.dirtyStateKeys.length > 0 &&
+      change.dirtyStateKeys.every((key) => key === writePageBreaks.source.key)
+    ) {
+      return
+    }
+
     if (
       !change ||
       change.childrenChanged ||
@@ -1869,6 +2471,9 @@ export const createSlatePageLayout = <
     destroy() {
       unsubscribeEditor()
       listeners.clear()
+    },
+    getFragments(path) {
+      return getSlatePageLayoutFragments(snapshot, path)
     },
     getMetrics() {
       return metrics
@@ -1917,7 +2522,9 @@ export const createSlateLayout = <
 
     return {
       engine,
+      nodeLayout: options.nodeLayout,
       page: options.page,
+      pageBreaks: options.pageBreaks,
       root: options.root,
       typography: options.typography,
     }

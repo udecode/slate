@@ -19,7 +19,7 @@ export type RootInteractionTarget =
 
 export type RootInteractionMouseDownAction =
   | { type: 'ignore' }
-  | { type: 'recover-native-click' }
+  | { preventDefault?: true; type: 'recover-native-click' }
   | { preventDefault: true; type: 'activate-root' }
   | { preventDefault: true; type: 'place-editable-root' }
 
@@ -66,6 +66,9 @@ const findEditableRootTarget = (
   return null
 }
 
+const isCurrentTargetEditableRoot = (currentTarget: HTMLElement) =>
+  currentTarget.matches(EDITABLE_ROOT_TARGET)
+
 export const isRootInteractionEditableFocused = (target: HTMLElement) =>
   target.ownerDocument.activeElement === target
 
@@ -82,13 +85,23 @@ export const resolveRootInteractionTarget = ({
     return { kind: 'external' }
   }
 
+  const editableRoot = findEditableRootTarget(currentTarget, element)
+
+  if (
+    isCurrentTargetEditableRoot(currentTarget) &&
+    editableRoot &&
+    editableRoot !== currentTarget
+  ) {
+    return { kind: 'interactive-descendant', target: element }
+  }
+
   if (hasClosestWithin(currentTarget, element, INTERACTIVE_CHROME_TARGET)) {
     return { kind: 'interactive-descendant', target: element }
   }
 
   if (hasClosestWithin(currentTarget, element, NATIVE_EDITABLE_TARGET)) {
     return {
-      editableRoot: findEditableRootTarget(currentTarget, element),
+      editableRoot,
       kind: 'native-editable',
       target: element,
     }
@@ -118,7 +131,7 @@ export const resolveRootInteractionMouseDown = ({
 
   if (target.kind === 'native-editable') {
     if (target.editableRoot && editableRootFocused === false) {
-      return { type: 'recover-native-click' }
+      return { preventDefault: true, type: 'recover-native-click' }
     }
 
     return { type: 'ignore' }

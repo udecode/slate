@@ -1,0 +1,355 @@
+import {
+  createEditorRuntime,
+  createEditorView,
+  defineEditorExtension,
+  type Point,
+} from 'slate'
+import { describe, expect, it, vi } from 'vitest'
+
+import { applyContentRootNavigation } from '../src/editable/content-root-navigation'
+import type { ReactRuntimeEditor } from '../src/plugin/react-editor'
+
+const contentRootExtension = defineEditorExtension({
+  elements: [
+    {
+      type: 'content-card',
+      contentRoot: { slot: 'body' },
+      void: 'editable-island',
+    },
+  ],
+  name: 'content-root-navigation-test',
+})
+
+const paragraph = (text: string) => ({
+  type: 'paragraph',
+  children: [{ text }],
+})
+
+const contentCard = (bodyRoot = 'card:body') => ({
+  type: 'content-card',
+  childRoots: { body: bodyRoot },
+  children: [{ text: '' }],
+})
+
+const createFixture = () => {
+  const runtime = createEditorRuntime({
+    extensions: [contentRootExtension],
+    initialValue: {
+      roots: {
+        'card:body': [paragraph('Inside')],
+        main: [paragraph('Before'), contentCard(), paragraph('After')],
+      },
+    },
+  })
+  const mainEditor = createEditorView(runtime, {
+    root: 'main',
+  }) as unknown as ReactRuntimeEditor
+  const bodyEditor = createEditorView(runtime, {
+    root: 'card:body',
+  }) as unknown as ReactRuntimeEditor
+
+  return { bodyEditor, mainEditor, runtime }
+}
+
+const createRepeatedProjectionFixture = () => {
+  const runtime = createEditorRuntime({
+    extensions: [contentRootExtension],
+    initialValue: {
+      roots: {
+        'card:body': [paragraph('Inside')],
+        main: [
+          paragraph('Before'),
+          contentCard(),
+          paragraph('Between'),
+          contentCard(),
+          paragraph('After'),
+        ],
+      },
+    },
+  })
+  const mainEditor = createEditorView(runtime, {
+    root: 'main',
+  }) as unknown as ReactRuntimeEditor
+  const bodyEditor = createEditorView(runtime, {
+    root: 'card:body',
+  }) as unknown as ReactRuntimeEditor
+
+  return { bodyEditor, mainEditor, runtime }
+}
+
+const selectPoint = (editor: ReactRuntimeEditor, point: Point) => {
+  editor.update((tx) => {
+    tx.selection.set({ anchor: point, focus: point })
+  })
+}
+
+const keyEvent = (key: string) =>
+  ({
+    altKey: false,
+    ctrlKey: false,
+    key,
+    metaKey: false,
+    nativeEvent: {
+      altKey: false,
+      ctrlKey: false,
+      key,
+      metaKey: false,
+      shiftKey: false,
+    },
+    preventDefault: vi.fn(),
+    shiftKey: false,
+  }) as any
+
+describe('content root navigation', () => {
+  it('does not read editor state for unrelated keys', () => {
+    const event = keyEvent('a')
+    const read = vi.fn(() => {
+      throw new Error('state read should be gated by key classification')
+    })
+    const editor = {
+      read,
+      update: vi.fn(),
+    } as unknown as ReactRuntimeEditor
+
+    const result = applyContentRootNavigation({
+      editor,
+      event,
+      isRTL: false,
+      selection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+    })
+
+    expect(result.handled).toBe(false)
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it('does not resolve mounted roots for vertical keys when schema has no content roots', () => {
+    const runtime = createEditorRuntime({
+      initialValue: {
+        roots: {
+          main: [paragraph('Plain')],
+        },
+      },
+    })
+    const mainEditor = createEditorView(runtime, {
+      root: 'main',
+    }) as unknown as ReactRuntimeEditor
+    const getMountedViewEditor = vi.fn()
+    const event = keyEvent('ArrowDown')
+
+    selectPoint(mainEditor, { path: [0, 0], offset: 'Plain'.length })
+    const selection = mainEditor.read((state) => state.selection.get())
+
+    const result = applyContentRootNavigation({
+      editor: mainEditor,
+      event,
+      getMountedViewEditor,
+      isRTL: false,
+      selection,
+    })
+
+    expect(result.handled).toBe(false)
+    expect(getMountedViewEditor).not.toHaveBeenCalled()
+  })
+
+  it('moves forward from the previous sibling into the content root start', () => {
+    const { bodyEditor, mainEditor } = createFixture()
+    const event = keyEvent('ArrowRight')
+    const focusEditor = vi.fn()
+
+    selectPoint(mainEditor, { path: [0, 0], offset: 'Before'.length })
+
+    const result = applyContentRootNavigation({
+      editor: mainEditor,
+      event,
+      focusEditor,
+      getMountedViewEditor: (root) =>
+        root === 'card:body' ? bodyEditor : mainEditor,
+      isRTL: false,
+      selection: mainEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(true)
+    expect(event.preventDefault).toHaveBeenCalled()
+    expect(bodyEditor.read((state) => state.selection.get())).toEqual({
+      anchor: { path: [0, 0], offset: 0, root: 'card:body' },
+      focus: { path: [0, 0], offset: 0, root: 'card:body' },
+    })
+    expect(mainEditor.read((state) => state.selection.get())).toBe(null)
+    expect(focusEditor).toHaveBeenCalledWith(bodyEditor)
+  })
+
+  it('moves backward from the next sibling into the content root end', () => {
+    const { bodyEditor, mainEditor } = createFixture()
+    const event = keyEvent('ArrowLeft')
+
+    selectPoint(mainEditor, { path: [2, 0], offset: 0 })
+
+    const result = applyContentRootNavigation({
+      editor: mainEditor,
+      event,
+      getMountedViewEditor: (root) =>
+        root === 'card:body' ? bodyEditor : mainEditor,
+      isRTL: false,
+      selection: mainEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(true)
+    expect(bodyEditor.read((state) => state.selection.get())).toEqual({
+      anchor: { path: [0, 0], offset: 'Inside'.length, root: 'card:body' },
+      focus: { path: [0, 0], offset: 'Inside'.length, root: 'card:body' },
+    })
+  })
+
+  it('moves forward from the active repeated content root copy to its next sibling', () => {
+    const { bodyEditor, mainEditor } = createRepeatedProjectionFixture()
+    const event = keyEvent('ArrowRight')
+
+    selectPoint(bodyEditor, { path: [0, 0], offset: 'Inside'.length })
+
+    const result = applyContentRootNavigation({
+      editor: bodyEditor,
+      event,
+      getActiveContentRootOwner: (root) =>
+        root === 'card:body'
+          ? { childRoot: 'card:body', ownerPath: [3], ownerRoot: 'main' }
+          : null,
+      getMountedViewEditor: (root) =>
+        root === 'main' ? mainEditor : bodyEditor,
+      isRTL: false,
+      selection: bodyEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(true)
+    expect(mainEditor.read((state) => state.selection.get())).toEqual({
+      anchor: { path: [4, 0], offset: 0 },
+      focus: { path: [4, 0], offset: 0 },
+    })
+  })
+
+  it('moves backward from the active repeated content root copy to its previous sibling', () => {
+    const { bodyEditor, mainEditor } = createRepeatedProjectionFixture()
+    const event = keyEvent('ArrowLeft')
+
+    selectPoint(bodyEditor, { path: [0, 0], offset: 0 })
+
+    const result = applyContentRootNavigation({
+      editor: bodyEditor,
+      event,
+      getActiveContentRootOwner: (root) =>
+        root === 'card:body'
+          ? { childRoot: 'card:body', ownerPath: [3], ownerRoot: 'main' }
+          : null,
+      getMountedViewEditor: (root) =>
+        root === 'main' ? mainEditor : bodyEditor,
+      isRTL: false,
+      selection: bodyEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(true)
+    expect(mainEditor.read((state) => state.selection.get())).toEqual({
+      anchor: { path: [2, 0], offset: 'Between'.length },
+      focus: { path: [2, 0], offset: 'Between'.length },
+    })
+  })
+
+  it('moves backward from the content root start back to the owner position', () => {
+    const { bodyEditor, mainEditor } = createFixture()
+    const event = keyEvent('ArrowLeft')
+    const focusEditor = vi.fn()
+
+    selectPoint(bodyEditor, { path: [0, 0], offset: 0 })
+
+    const result = applyContentRootNavigation({
+      editor: bodyEditor,
+      event,
+      focusEditor,
+      getMountedViewEditor: (root) =>
+        root === 'main' ? mainEditor : bodyEditor,
+      isRTL: false,
+      selection: bodyEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(true)
+    expect(mainEditor.read((state) => state.selection.get())).toEqual({
+      anchor: { path: [0, 0], offset: 'Before'.length },
+      focus: { path: [0, 0], offset: 'Before'.length },
+    })
+    expect(bodyEditor.read((state) => state.selection.get())).toBe(null)
+    expect(focusEditor).toHaveBeenCalledWith(mainEditor)
+  })
+
+  it('uses the selection root when nested contenteditable events reach the containing editor', () => {
+    const { bodyEditor, mainEditor } = createFixture()
+    const event = keyEvent('ArrowLeft')
+
+    selectPoint(bodyEditor, { path: [0, 0], offset: 0 })
+
+    const result = applyContentRootNavigation({
+      editor: mainEditor,
+      event,
+      getMountedViewEditor: (root) =>
+        root === 'main' ? mainEditor : bodyEditor,
+      isRTL: false,
+      selection: bodyEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(true)
+    expect(mainEditor.read((state) => state.selection.get())).toEqual({
+      anchor: { path: [0, 0], offset: 'Before'.length },
+      focus: { path: [0, 0], offset: 'Before'.length },
+    })
+  })
+
+  it('keeps Backspace at the content root start as boundary navigation', () => {
+    const { bodyEditor, mainEditor } = createFixture()
+    const event = keyEvent('Backspace')
+
+    selectPoint(bodyEditor, { path: [0, 0], offset: 0 })
+
+    const result = applyContentRootNavigation({
+      editor: bodyEditor,
+      event,
+      getMountedViewEditor: (root) =>
+        root === 'main' ? mainEditor : bodyEditor,
+      isRTL: false,
+      selection: bodyEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(true)
+    expect(mainEditor.read((state) => state.selection.get())).toEqual({
+      anchor: { path: [0, 0], offset: 'Before'.length },
+      focus: { path: [0, 0], offset: 'Before'.length },
+    })
+    expect(runtimeValue(mainEditor).roots['card:body']).toEqual([
+      paragraph('Inside'),
+    ])
+  })
+
+  it('enters the content root from a selected owner placeholder', () => {
+    const { bodyEditor, mainEditor } = createFixture()
+    const event = keyEvent('Enter')
+
+    selectPoint(mainEditor, { path: [1, 0], offset: 0 })
+
+    const result = applyContentRootNavigation({
+      editor: mainEditor,
+      event,
+      getMountedViewEditor: (root) =>
+        root === 'card:body' ? bodyEditor : mainEditor,
+      isRTL: false,
+      selection: mainEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(true)
+    expect(bodyEditor.read((state) => state.selection.get())).toEqual({
+      anchor: { path: [0, 0], offset: 0, root: 'card:body' },
+      focus: { path: [0, 0], offset: 0, root: 'card:body' },
+    })
+  })
+})
+
+const runtimeValue = (editor: ReactRuntimeEditor) =>
+  editor.read((state) => state.value.get())

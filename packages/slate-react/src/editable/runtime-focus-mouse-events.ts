@@ -2,6 +2,7 @@ import { type FocusEvent, type MouseEvent, useCallback, useRef } from 'react'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { prepareEditableFocusMouseKernel } from './editing-kernel'
 import {
+  getNestedEditableDOMSelectionRoot,
   isInteractiveInternalTarget,
   isNativeInternalControlTarget,
   setEditableModelSelectionPreference,
@@ -127,6 +128,15 @@ export const useRuntimeFocusMouseEvents = ({
         return
       }
 
+      const editorElement = ReactEditor.assertDOMNode(editor, editor)
+      if (
+        event.target === editorElement &&
+        getNestedEditableDOMSelectionRoot(editorElement)
+      ) {
+        nativeInternalFocusRef.current = false
+        return
+      }
+
       const handled = applyEditableFocus({
         editor,
         event,
@@ -137,7 +147,7 @@ export const useRuntimeFocusMouseEvents = ({
 
       if (
         handled &&
-        event.target === ReactEditor.assertDOMNode(editor, editor) &&
+        event.target === editorElement &&
         !nativePointerFocusRef.current
       ) {
         nativeInternalFocusRef.current = false

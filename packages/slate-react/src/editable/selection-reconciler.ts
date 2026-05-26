@@ -35,6 +35,7 @@ import {
   type EditableInputController,
   executeEditableSelectionExport,
   isInteractiveInternalTarget,
+  isSelectionInEditorView,
   type SelectionChangeOrigin,
   setEditableModelSelectionPreference,
   syncEditableDOMSelectionToEditor,
@@ -846,6 +847,10 @@ export const useEditableSelectionReconciler = ({
     const selection = readRuntimeSelection(editor)
     const root = ReactEditor.findDocumentOrShadowRoot(editor)
     const domSelection = getSelection(root)
+
+    if (!isSelectionInEditorView(editor, selection)) {
+      return
+    }
 
     if (!domSelection || androidInputManagerRef.current?.hasPendingAction()) {
       return

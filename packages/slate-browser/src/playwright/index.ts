@@ -3204,6 +3204,11 @@ const clickTextOffset = async (
           '[data-slate-string], [data-slate-zero-width]'
         ) ?? []
       )
+      ;(stringElement ?? textElement)?.scrollIntoView({
+        block: 'center',
+        inline: 'nearest',
+      })
+
       let currentOffset = 0
       let targetNode: Node | null = null
       let targetOffset = 0
@@ -3287,7 +3292,8 @@ const clickTextOffset = async (
       const x =
         probeRect && targetNode.nodeType === Node.TEXT_NODE
           ? targetOffset >= (targetNode.textContent?.length ?? 0)
-            ? probeRect.right
+            ? probeRect.right -
+              Math.min(Math.max(probeRect.width * 0.25, 1), probeRect.width / 2)
             : probeRect.left
           : rect.left + Math.min(Math.max(rect.width / 2, 1), 4)
 

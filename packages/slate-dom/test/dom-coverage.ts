@@ -438,6 +438,49 @@ describe('DOM coverage boundaries', () => {
     expect(materialized).toEqual(['section-body:selection'])
   })
 
+  test('composes materialization handlers without clobbering staged and app boundaries', () => {
+    const editor = createNestedEditor()
+    const materialized: string[] = []
+
+    registerSectionBodyBoundary(editor)
+    registerNestedParagraphBoundary(editor)
+
+    const cleanupNested = DOMCoverage.registerMaterializeHandler(
+      editor,
+      (boundary, reason) => {
+        materialized.push(`nested-saw:${boundary.boundaryId}:${reason}`)
+
+        return boundary.boundaryId === 'nested-paragraph'
+      }
+    )
+    const cleanupSection = DOMCoverage.registerMaterializeHandler(
+      editor,
+      (boundary, reason) => {
+        materialized.push(`section-saw:${boundary.boundaryId}:${reason}`)
+
+        return boundary.boundaryId === 'section-body'
+      }
+    )
+
+    expect(
+      DOMCoverage.materializeBoundary(editor, 'section-body', 'selection')
+    ).toMatchObject({ status: 'handled' })
+    expect(materialized).toEqual([
+      'nested-saw:section-body:selection',
+      'section-saw:section-body:selection',
+    ])
+
+    cleanupSection()
+    materialized.length = 0
+
+    expect(
+      DOMCoverage.materializeBoundary(editor, 'section-body', 'selection')
+    ).toMatchObject({ status: 'unhandled' })
+    expect(materialized).toEqual(['nested-saw:section-body:selection'])
+
+    cleanupNested()
+  })
+
   test('does not materialize boundaries while composition is active', () => {
     const editor = createNestedEditor()
     const materialized: string[] = []

@@ -2,8 +2,10 @@ import { css } from '@emotion/css'
 import {
   type ChangeEvent,
   type CSSProperties,
+  createContext,
   type RefObject,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -11,19 +13,25 @@ import {
 } from 'react'
 import { defineStateField, NodeApi, type Value } from 'slate'
 import {
+  createSlatePage,
   getSlatePageLayoutDecorations,
   getSlatePageLayoutGeometry,
   getSlatePageLayoutPathKey,
   getSlatePageLayoutProjection,
+  type SlateNodeLayoutProvider,
   type SlatePageLayoutDecorationRects,
+  type SlatePageLayoutProjectedBlock,
   type SlatePageLayoutTypography,
   type SlatePagePreset,
+  type SlatePageRect,
   type SlatePageSettings,
 } from 'slate-layout'
 import {
   PagedEditable,
   type PagedEditablePageLayoutMode,
+  type SlateLayoutRenderedFragment,
   useSlateLayout,
+  useSlateLayoutFragments,
   useSlateLayoutSnapshot,
 } from 'slate-layout/react'
 import {
@@ -34,6 +42,7 @@ import {
   type RenderLeafProps,
   Slate,
   useEditor,
+  useElementPath,
   useSetStateField,
   useSlateEditor,
 } from 'slate-react'
@@ -52,6 +61,11 @@ const PAGE_GAP = 24
 const PAGE_CONTENT_INLINE_INSET = 2
 const PAGE_STACK_SAFE_INLINE = 72
 const PAGE_TEXT_FONT = '"Helvetica Neue", Helvetica, Arial, sans-serif'
+const DEFAULT_MEDIA_HEIGHT = 240
+const DEFAULT_TABLE_ROW_HEIGHT = 36
+const DEFAULT_TABLE_ROWS = 40
+const MAX_MEDIA_HEIGHT = 1200
+const MAX_TABLE_ROWS = 1000
 
 const shellCss = css`
   position: fixed;
@@ -245,6 +259,43 @@ const flowProjectedTypes = new Set(['image', 'table', 'thematic-break'])
 const isFlowProjectedType = (type: unknown) =>
   typeof type === 'string' && flowProjectedTypes.has(type)
 
+type PaginationTableLayout = {
+  left: number
+  top: number
+}
+
+const PaginationTableLayoutContext =
+  createContext<PaginationTableLayout | null>(null)
+
+const getFragmentUnitBounds = (
+  fragments: readonly SlateLayoutRenderedFragment[]
+): SlatePageRect | null => {
+  const units = fragments.flatMap((fragment) => fragment.units ?? [])
+
+  if (units.length === 0) {
+    return null
+  }
+
+  const left = Math.min(...units.map((unit) => unit.rect.left))
+  const top = Math.min(...units.map((unit) => unit.rect.top))
+  const right = Math.max(
+    ...units.map((unit) => unit.rect.left + unit.rect.width)
+  )
+  const bottom = Math.max(
+    ...units.map((unit) => unit.rect.top + unit.rect.height)
+  )
+
+  return {
+    height: bottom - top,
+    left,
+    top,
+    width: right - left,
+  }
+}
+
+const clampNumber = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, value))
+
 const useElementSize = <T extends HTMLElement>(): [
   RefObject<T | null>,
   ElementSize,
@@ -291,6 +342,31 @@ const premirrorValue: Value = Array.from({ length: 7 }, (_, index) =>
   }))
 ).flat()
 
+const createPaginationTableRows = (count: number) =>
+  Array.from({ length: count }, (_, index) => ({
+    type: 'table-row',
+    children: [
+      {
+        type: 'table-cell',
+        children: [{ text: index === 0 ? 'Markdown' : `Row ${index + 1}` }],
+      },
+      {
+        type: 'table-cell',
+        children: [
+          { text: index === 0 ? 'Slate node' : `Path-aware cell ${index + 1}` },
+        ],
+      },
+      {
+        type: 'table-cell',
+        children: [
+          {
+            text: index === 0 ? 'Paged' : `Fragment ${index + 1}`,
+          },
+        ],
+      },
+    ],
+  }))
+
 const richMarkdownValue: Value = [
   {
     type: 'heading-one',
@@ -332,24 +408,7 @@ const richMarkdownValue: Value = [
   },
   {
     type: 'table',
-    children: [
-      {
-        type: 'table-row',
-        children: [
-          { type: 'table-cell', children: [{ text: 'Markdown' }] },
-          { type: 'table-cell', children: [{ text: 'Slate node' }] },
-          { type: 'table-cell', children: [{ text: 'Paged' }] },
-        ],
-      },
-      {
-        type: 'table-row',
-        children: [
-          { type: 'table-cell', children: [{ text: 'GFM table' }] },
-          { type: 'table-cell', children: [{ text: 'table' }] },
-          { type: 'table-cell', children: [{ text: 'inside frame' }] },
-        ],
-      },
-    ],
+    children: createPaginationTableRows(MAX_TABLE_ROWS),
   },
   {
     type: 'image',
@@ -372,6 +431,218 @@ const richMarkdownValue: Value = [
 
 const initialValue: Value = [...premirrorValue, ...richMarkdownValue]
 
+type PaginationElementProps = RenderElementProps & {
+  blockBoxes: ReadonlyMap<string, SlatePageLayoutProjectedBlock>
+  debugFrames: boolean
+  usesVirtualizedLayout: boolean
+}
+
+const getProjectedStyle = ({
+  box,
+  debugFrames,
+  flowElement,
+  usesVirtualizedLayout,
+}: {
+  box: SlatePageRect
+  debugFrames: boolean
+  flowElement: boolean
+  usesVirtualizedLayout: boolean
+}): CSSProperties => ({
+  boxSizing: 'border-box',
+  caretColor: '#111827',
+  color: flowElement ? '#111827' : 'transparent',
+  height: Math.max(1, box.height),
+  left: box.left,
+  margin: 0,
+  outline: debugFrames ? '1px dotted rgba(239, 68, 68, 0.55)' : undefined,
+  overflow: 'visible',
+  position: 'absolute',
+  top: usesVirtualizedLayout ? 0 : box.top,
+  width: Math.max(1, box.width),
+})
+
+const PaginationElement = ({
+  attributes,
+  blockBoxes,
+  children,
+  debugFrames,
+  element,
+  usesVirtualizedLayout,
+}: PaginationElementProps) => {
+  const path = useElementPath()
+  const fragments = useSlateLayoutFragments()
+  const tableLayout = useContext(PaginationTableLayoutContext)
+  const elementType = element.type
+  const blockBox = path
+    ? blockBoxes.get(getSlatePageLayoutPathKey(path))
+    : undefined
+  const unitBounds = getFragmentUnitBounds(fragments)
+  const box = unitBounds ?? blockBox
+
+  if (elementType === 'table-row') {
+    const rowUnit = fragments[0]?.units?.[0]
+    const rowIndex = path?.at(-1)
+
+    if (!rowUnit || !tableLayout) {
+      return (
+        <div
+          {...attributes}
+          data-pagination-row-index={rowIndex}
+          data-testid="pagination-rich-table-row"
+          style={{ display: 'none' }}
+        >
+          {children}
+        </div>
+      )
+    }
+
+    return (
+      <div
+        {...attributes}
+        data-pagination-row-index={rowIndex}
+        data-testid="pagination-rich-table-row"
+        style={{
+          display: 'flex',
+          height: rowUnit.rect.height,
+          left: rowUnit.rect.left - tableLayout.left,
+          position: 'absolute',
+          top: rowUnit.rect.top - tableLayout.top,
+          width: rowUnit.rect.width,
+        }}
+      >
+        {children}
+      </div>
+    )
+  }
+
+  if (elementType === 'table-cell') {
+    return (
+      <div
+        {...attributes}
+        data-pagination-column-index={path?.at(-1)}
+        data-pagination-row-index={path?.at(-2)}
+        data-testid="pagination-rich-table-cell"
+        style={{
+          border: '1px solid #cbd5e1',
+          display: 'flex',
+          flex: '1 1 0',
+          flexDirection: 'column',
+          fontSize: 13,
+          justifyContent: 'center',
+          lineHeight: '18px',
+          minWidth: 0,
+          overflow: 'hidden',
+          padding: '5px 8px',
+        }}
+      >
+        {children}
+      </div>
+    )
+  }
+
+  if (!box) {
+    return <div {...attributes}>{children}</div>
+  }
+
+  const flowElement = isFlowProjectedType(elementType)
+  const projectedStyle = getProjectedStyle({
+    box,
+    debugFrames,
+    flowElement,
+    usesVirtualizedLayout,
+  })
+
+  if (elementType === 'table') {
+    return (
+      <PaginationTableLayoutContext.Provider
+        value={{ left: box.left, top: box.top }}
+      >
+        <div
+          {...attributes}
+          data-testid="pagination-rich-table"
+          style={{
+            ...projectedStyle,
+            display: 'block',
+          }}
+        >
+          {children}
+        </div>
+      </PaginationTableLayoutContext.Provider>
+    )
+  }
+
+  if (elementType === 'image') {
+    return (
+      <div
+        {...attributes}
+        data-testid="pagination-rich-image"
+        style={projectedStyle}
+      >
+        <img
+          alt=""
+          src={element.url}
+          style={{
+            border: '1px solid #cbd5e1',
+            display: 'block',
+            height: '100%',
+            objectFit: 'cover',
+            width: '100%',
+          }}
+        />
+        {children}
+      </div>
+    )
+  }
+
+  if (elementType === 'thematic-break') {
+    return (
+      <div
+        {...attributes}
+        data-testid="pagination-rich-thematic-break"
+        style={projectedStyle}
+      >
+        <hr
+          style={{
+            border: 0,
+            borderTop: '2px solid #cbd5e1',
+            margin: '11px 0 0',
+          }}
+        />
+        {children}
+      </div>
+    )
+  }
+
+  return (
+    <div
+      {...attributes}
+      data-testid={
+        elementType === 'code-block'
+          ? 'pagination-rich-code-block'
+          : debugFrames
+            ? 'pagination-projected-block'
+            : undefined
+      }
+      style={{
+        ...projectedStyle,
+        background:
+          elementType === 'code-block'
+            ? 'rgba(15, 23, 42, 0.04)'
+            : elementType === 'block-quote'
+              ? 'rgba(37, 99, 235, 0.04)'
+              : undefined,
+        borderLeft:
+          elementType === 'block-quote'
+            ? '3px solid rgba(37, 99, 235, 0.35)'
+            : undefined,
+        paddingLeft: elementType === 'block-quote' ? 12 : undefined,
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
 const PaginationSurface = () => {
   const editor = useEditor()
   const setSettings = useSetStateField(pageSettings)
@@ -382,6 +653,10 @@ const PaginationSurface = () => {
   const [pageLayoutMode, setPageLayoutMode] =
     useState<PagedEditablePageLayoutMode>('spread')
   const [debugFrames, setDebugFrames] = useState(false)
+  const [tableRows, setTableRows] = useState(DEFAULT_TABLE_ROWS)
+  const [tableRowHeight, setTableRowHeight] = useState(DEFAULT_TABLE_ROW_HEIGHT)
+  const [mediaHeight, setMediaHeight] = useState(DEFAULT_MEDIA_HEIGHT)
+  const [mediaSplit, setMediaSplit] = useState<'avoid' | 'page'>('avoid')
   const [viewportRef, viewportSize] = useElementSize<HTMLDivElement>()
   const typography = useMemo(
     () =>
@@ -407,7 +682,57 @@ const PaginationSurface = () => {
       }) satisfies SlatePageLayoutTypography,
     []
   )
+  const nodeLayout = useCallback<SlateNodeLayoutProvider>(
+    ({ defaults, element, pageSettings, path }) => {
+      const page = createSlatePage(pageSettings)
+
+      if (element.type === 'table') {
+        const rows = element.children.filter(
+          (child) => NodeApi.isElement(child) && child.type === 'table-row'
+        )
+        const visibleRows = rows.slice(0, tableRows)
+
+        return {
+          boxes: defaults.boxes,
+          type: 'units',
+          units: visibleRows.map((_, rowIndex) => ({
+            key: `row-${rowIndex}`,
+            kind: 'table-row',
+            path: [...path, rowIndex],
+            rect: {
+              height: tableRowHeight,
+              left: 0,
+              top: rowIndex * tableRowHeight,
+              width: page.content.width,
+            },
+            split: 'avoid',
+          })),
+        }
+      }
+
+      if (element.type === 'image') {
+        return {
+          box: {
+            kind: 'image',
+            path: [...path],
+            rect: {
+              height: mediaHeight,
+              left: 0,
+              top: 0,
+              width: page.content.width,
+            },
+            split: mediaSplit,
+          },
+          type: 'box',
+        }
+      }
+
+      return { boxes: defaults.boxes, type: 'text' }
+    },
+    [mediaHeight, mediaSplit, tableRowHeight, tableRows]
+  )
   const layout = useSlateLayout(editor, {
+    nodeLayout,
     page: pageSettings,
     root: 'main',
     typography,
@@ -431,7 +756,7 @@ const PaginationSurface = () => {
       }),
     [pageGeometry, snapshot]
   )
-  const elementBoxes = useMemo(
+  const blockBoxes = useMemo(
     () =>
       new Map(
         layoutProjection.blocks.map((block) => [
@@ -469,7 +794,7 @@ const PaginationSurface = () => {
         ? {
             estimatedBlockSize: 48,
             overscan: 1,
-            threshold: 200,
+            threshold: 1,
             type: 'virtualized',
           }
         : domStrategyMode,
@@ -494,6 +819,34 @@ const PaginationSurface = () => {
     setDOMStrategyMode(event.currentTarget.value as DOMStrategyMode)
   }
 
+  const updateTableRows = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = Number.parseInt(event.currentTarget.value, 10)
+
+    if (Number.isFinite(value)) {
+      setTableRows(clampNumber(value, 8, MAX_TABLE_ROWS))
+    }
+  }
+
+  const updateTableRowHeight = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = Number.parseInt(event.currentTarget.value, 10)
+
+    if (Number.isFinite(value)) {
+      setTableRowHeight(clampNumber(value, 28, 120))
+    }
+  }
+
+  const updateMediaHeight = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = Number.parseInt(event.currentTarget.value, 10)
+
+    if (Number.isFinite(value)) {
+      setMediaHeight(clampNumber(value, 120, MAX_MEDIA_HEIGHT))
+    }
+  }
+
+  const updateMediaSplit = (event: ChangeEvent<HTMLSelectElement>) => {
+    setMediaSplit(event.currentTarget.value as 'avoid' | 'page')
+  }
+
   const togglePageLayoutMode = () => {
     setPageLayoutMode((mode) => (mode === 'spread' ? 'single' : 'spread'))
   }
@@ -508,145 +861,15 @@ const PaginationSurface = () => {
     [paginationDecorations]
   )
   const renderElement = useCallback(
-    ({ attributes, children, element }: RenderElementProps) => {
-      const box = elementBoxes.get(attributes['data-slate-path'])
-      const elementType = element.type
-
-      if (!box) {
-        if (elementType === 'table-row') {
-          return (
-            <div {...attributes} style={{ display: 'table-row' }}>
-              {children}
-            </div>
-          )
-        }
-
-        if (elementType === 'table-cell') {
-          return (
-            <div
-              {...attributes}
-              data-testid="pagination-rich-table-cell"
-              style={{
-                border: '1px solid #cbd5e1',
-                display: 'table-cell',
-                fontSize: 13,
-                lineHeight: '18px',
-                padding: '5px 8px',
-                verticalAlign: 'top',
-              }}
-            >
-              {children}
-            </div>
-          )
-        }
-
-        return <div {...attributes}>{children}</div>
-      }
-
-      const flowElement = isFlowProjectedType(elementType)
-      const projectedStyle: CSSProperties = {
-        boxSizing: 'border-box',
-        caretColor: '#111827',
-        color: flowElement ? '#111827' : 'transparent',
-        height: Math.max(1, box.height),
-        left: box.left,
-        margin: 0,
-        outline: debugFrames ? '1px dotted rgba(239, 68, 68, 0.55)' : undefined,
-        overflow: 'visible',
-        position: 'absolute',
-        top: usesVirtualizedLayout ? 0 : box.top,
-        width: Math.max(1, box.width),
-      }
-
-      if (elementType === 'table') {
-        return (
-          <div
-            {...attributes}
-            data-testid="pagination-rich-table"
-            style={{
-              ...projectedStyle,
-              borderCollapse: 'collapse',
-              display: 'table',
-              tableLayout: 'fixed',
-            }}
-          >
-            {children}
-          </div>
-        )
-      }
-
-      if (elementType === 'image') {
-        return (
-          <div
-            {...attributes}
-            data-testid="pagination-rich-image"
-            style={projectedStyle}
-          >
-            <img
-              alt=""
-              src={element.url}
-              style={{
-                border: '1px solid #cbd5e1',
-                display: 'block',
-                height: '100%',
-                objectFit: 'cover',
-                width: '100%',
-              }}
-            />
-            {children}
-          </div>
-        )
-      }
-
-      if (elementType === 'thematic-break') {
-        return (
-          <div
-            {...attributes}
-            data-testid="pagination-rich-thematic-break"
-            style={projectedStyle}
-          >
-            <hr
-              style={{
-                border: 0,
-                borderTop: '2px solid #cbd5e1',
-                margin: '11px 0 0',
-              }}
-            />
-            {children}
-          </div>
-        )
-      }
-
-      return (
-        <div
-          {...attributes}
-          data-testid={
-            elementType === 'code-block'
-              ? 'pagination-rich-code-block'
-              : debugFrames
-                ? 'pagination-projected-block'
-                : undefined
-          }
-          style={{
-            ...projectedStyle,
-            background:
-              elementType === 'code-block'
-                ? 'rgba(15, 23, 42, 0.04)'
-                : elementType === 'block-quote'
-                  ? 'rgba(37, 99, 235, 0.04)'
-                  : undefined,
-            borderLeft:
-              elementType === 'block-quote'
-                ? '3px solid rgba(37, 99, 235, 0.35)'
-                : undefined,
-            paddingLeft: elementType === 'block-quote' ? 12 : undefined,
-          }}
-        >
-          {children}
-        </div>
-      )
-    },
-    [debugFrames, elementBoxes, usesVirtualizedLayout]
+    (props: RenderElementProps) => (
+      <PaginationElement
+        {...props}
+        blockBoxes={blockBoxes}
+        debugFrames={debugFrames}
+        usesVirtualizedLayout={usesVirtualizedLayout}
+      />
+    ),
+    [blockBoxes, debugFrames, usesVirtualizedLayout]
   )
   const renderLeaf = useCallback(
     ({ attributes, children, segment }: RenderLeafProps) => {
@@ -735,6 +958,52 @@ const PaginationSurface = () => {
               <option value="virtualized">Virtualized</option>
             </select>
           </label>
+          <label className={labelCss}>
+            Rows
+            <input
+              className={inputCss}
+              max={MAX_TABLE_ROWS}
+              min={8}
+              onChange={updateTableRows}
+              type="number"
+              value={tableRows}
+            />
+          </label>
+          <label className={labelCss}>
+            Row px
+            <input
+              className={inputCss}
+              max={120}
+              min={28}
+              onChange={updateTableRowHeight}
+              step={4}
+              type="number"
+              value={tableRowHeight}
+            />
+          </label>
+          <label className={labelCss}>
+            Media px
+            <input
+              className={inputCss}
+              max={MAX_MEDIA_HEIGHT}
+              min={120}
+              onChange={updateMediaHeight}
+              step={40}
+              type="number"
+              value={mediaHeight}
+            />
+          </label>
+          <label className={labelCss}>
+            Media split
+            <select
+              className={inputCss}
+              onChange={updateMediaSplit}
+              value={mediaSplit}
+            >
+              <option value="avoid">Avoid</option>
+              <option value="page">Page</option>
+            </select>
+          </label>
         </div>
         <div className={toolbarGroupCss}>
           <span className={toolbarSeparatorCss} />
@@ -770,7 +1039,8 @@ const PaginationSurface = () => {
       <div className={titleRowCss}>
         <div className={titleCss}>Untitled document</div>
         <div className={metaCss}>
-          pages {snapshot.pages.length} | blocks {metrics.blockCount} | compose{' '}
+          pages {snapshot.pages.length} | rows {tableRows} x {tableRowHeight}px
+          | media {mediaHeight}px | blocks {metrics.blockCount} | compose{' '}
           {metrics.lastDurationMs.toFixed(1)}ms
         </div>
       </div>
@@ -799,8 +1069,7 @@ const PaginationSurface = () => {
                 domStrategy={domStrategy}
                 layout={layout}
                 onDOMStrategyMetrics={setDOMStrategyMetrics}
-                pageGap={PAGE_GAP}
-                pageLayoutMode={pageLayoutMode}
+                pageView={{ gap: PAGE_GAP, mode: pageLayoutMode }}
                 renderElement={renderElement}
                 renderLeaf={renderLeaf}
                 renderPage={({ attributes, page }) => (

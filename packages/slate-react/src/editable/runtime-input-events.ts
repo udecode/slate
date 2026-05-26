@@ -6,6 +6,7 @@ import {
 } from 'react'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { prepareEditableInputKernel } from './editing-kernel'
+import { isSelectionInEditorView } from './input-controller'
 import {
   useEditableDOMInputHandler,
   useEditableInputHandler,
@@ -16,6 +17,7 @@ import {
   type DeferredOperation,
 } from './model-input-strategy'
 import type { EditableEventRuntime } from './runtime-event-engine'
+import { readRuntimeSelection } from './runtime-selection-state'
 
 type InputHandler = (event: ReactInputEvent<HTMLDivElement>) => boolean | void
 
@@ -68,6 +70,9 @@ export const useRuntimeInputEvents = ({
           target: event.target,
         })
         event.stopPropagation()
+        return
+      }
+      if (!isSelectionInEditorView(editor, readRuntimeSelection(editor))) {
         return
       }
 
@@ -124,6 +129,9 @@ export const useRuntimeInputEvents = ({
           target: event.target,
         })
         event.stopPropagation()
+        return
+      }
+      if (!isSelectionInEditorView(editor, readRuntimeSelection(editor))) {
         return
       }
 

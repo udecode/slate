@@ -40,6 +40,7 @@ export {
   executeEditableSelectionImport,
   isEditableModelSelectionPreferred,
   isEditableModelSelectionPreferredForInput,
+  isSelectionInEditorView,
   prepareEditableSelectionChangeImport,
   resolveEditableImplicitTarget,
   setEditableModelSelectionPreference,
@@ -47,10 +48,81 @@ export {
   syncEditorSelectionFromDOM,
 } from './selection-controller'
 
+export const isNestedEditableDOMTarget = (
+  editorElement: HTMLElement,
+  target: EventTarget | null
+) => {
+  const targetElement = isDOMElement(target)
+    ? target
+    : isDOMText(target)
+      ? target.parentElement
+      : null
+  const targetEditor = targetElement?.closest('[data-slate-editor="true"]')
+
+  return Boolean(
+    targetEditor &&
+      targetEditor !== editorElement &&
+      editorElement.contains(targetEditor)
+  )
+}
+
+export const getNestedEditableDOMSelectionRoot = (
+  editorElement: HTMLElement
+) => {
+  const rootNode = editorElement.getRootNode() as Document | ShadowRoot
+  const selection =
+    'getSelection' in rootNode
+      ? rootNode.getSelection()
+      : editorElement.ownerDocument.getSelection()
+  const anchorElement = isDOMElement(selection?.anchorNode)
+    ? selection.anchorNode
+    : isDOMText(selection?.anchorNode)
+      ? selection.anchorNode.parentElement
+      : null
+  const focusElement = isDOMElement(selection?.focusNode)
+    ? selection.focusNode
+    : isDOMText(selection?.focusNode)
+      ? selection.focusNode.parentElement
+      : null
+  const anchorEditor = anchorElement?.closest('[data-slate-editor="true"]')
+  const focusEditor = focusElement?.closest('[data-slate-editor="true"]')
+
+  if (
+    anchorEditor &&
+    anchorEditor === focusEditor &&
+    anchorEditor !== editorElement &&
+    editorElement.contains(anchorEditor)
+  ) {
+    return anchorEditor.getAttribute('data-slate-root')
+  }
+
+  return null
+}
+
+const getEditorDOMElement = (editor: ReactRuntimeEditor) => {
+  try {
+    const node = ReactEditor.assertDOMNode(editor, editor)
+
+    return node instanceof HTMLElement ? node : null
+  } catch {
+    return null
+  }
+}
+
 export const isInteractiveInternalTarget = (
   editor: ReactRuntimeEditor,
   target: EventTarget | null
 ) => {
+  const editorElement = getEditorDOMElement(editor)
+
+  if (!editorElement) {
+    return false
+  }
+
+  if (isNestedEditableDOMTarget(editorElement, target)) {
+    return true
+  }
+
   const element = isDOMElement(target)
     ? target
     : isDOMText(target)
@@ -67,7 +139,7 @@ export const isInteractiveInternalTarget = (
 
   return (
     control instanceof HTMLElement &&
-    control !== ReactEditor.assertDOMNode(editor, editor) &&
+    control !== editorElement &&
     ReactEditor.hasDOMNode(editor, control) &&
     !ReactEditor.hasEditableTarget(editor, control)
   )
@@ -77,13 +149,14 @@ export const isNativeInternalControlTarget = (
   editor: ReactRuntimeEditor,
   target: EventTarget | null
 ) => {
+  const editorElement = getEditorDOMElement(editor)
   const element = isDOMElement(target)
     ? target
     : isDOMText(target)
       ? target.parentElement
       : null
 
-  if (!element) {
+  if (!editorElement || !element) {
     return false
   }
 
@@ -93,7 +166,7 @@ export const isNativeInternalControlTarget = (
 
   return (
     control instanceof HTMLElement &&
-    control !== ReactEditor.assertDOMNode(editor, editor) &&
+    control !== editorElement &&
     ReactEditor.hasDOMNode(editor, control) &&
     !ReactEditor.hasEditableTarget(editor, control)
   )

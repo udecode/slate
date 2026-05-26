@@ -14,8 +14,13 @@ import {
   paginateSlatePageLayoutBlocks,
   pretextPageLayoutEngine,
   type SlateLayoutSnapshot,
+  type SlatePageBreakSnapshot,
   type SlatePageSettings,
 } from '../src'
+import {
+  createPagedEditablePageMountPlan,
+  getPagedEditableMountedPageIndexes,
+} from '../src/page-mount-plan'
 import { useSlateLayout } from '../src/react'
 
 const registeredDom = typeof document === 'undefined'
@@ -351,6 +356,84 @@ describe('createSlatePageLayout', () => {
     })
 
     layout.destroy()
+  })
+
+  it('keeps authoritative page break snapshots opt-in and profile checked', () => {
+    const pageBreaks = defineStateField<SlatePageBreakSnapshot | null>({
+      key: 'layout.pageBreaks',
+      applyPatch: (_value, patch) => patch as SlatePageBreakSnapshot | null,
+      collab: 'shared',
+      diff: (_previous, value) => value,
+      history: 'skip',
+      initial: () => null,
+      invertPatch: (_patch, previous) => previous,
+      persist: true,
+    })
+    const editor = createEditor({
+      extensions: [pageBreaks],
+      initialValue: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Long '.repeat(6000) }],
+        },
+      ],
+    })
+    const layout = createSlatePageLayout(editor, () => ({
+      engine: createEstimatedPageLayoutEngine(),
+      page: { margins: 96, preset: 'a4' },
+      pageBreaks: {
+        mode: 'write',
+        source: pageBreaks,
+        writerId: 'writer-a',
+      },
+    }))
+    const storedSnapshot = editor.read((state) => state.getField(pageBreaks))
+
+    expect(storedSnapshot?.writerId).toBe('writer-a')
+    expect(storedSnapshot?.breaks.length).toBeGreaterThan(0)
+    expect(storedSnapshot?.measurementProfile.engine.id).toBe('estimated')
+    expect(layout.getSnapshot().pageBreaks).toEqual(storedSnapshot)
+    expect(layout.getSnapshot().pageBreaksStatus).toBe('written')
+
+    layout.destroy()
+
+    const reader = createSlatePageLayout(editor, () => ({
+      engine: createEstimatedPageLayoutEngine(),
+      page: { margins: 96, preset: 'a4' },
+      pageBreaks: {
+        mode: 'read',
+        source: pageBreaks,
+      },
+    }))
+
+    expect(reader.getSnapshot().pageBreaks).toEqual(storedSnapshot)
+    expect(reader.getSnapshot().pageBreaksStatus).toBe('accepted')
+
+    reader.destroy()
+
+    editor.update((tx) => {
+      tx.setField(pageBreaks, {
+        ...storedSnapshot!,
+        measurementProfile: {
+          ...storedSnapshot!.measurementProfile,
+          engine: { id: 'other-engine' },
+        },
+      })
+    })
+
+    const staleReader = createSlatePageLayout(editor, () => ({
+      engine: createEstimatedPageLayoutEngine(),
+      page: { margins: 96, preset: 'a4' },
+      pageBreaks: {
+        mode: 'read',
+        source: pageBreaks,
+      },
+    }))
+
+    expect(staleReader.getSnapshot().pageBreaks).toBe(null)
+    expect(staleReader.getSnapshot().pageBreaksStatus).toBe('stale-profile')
+
+    staleReader.destroy()
   })
 
   it('refreshes subscribers after editor text changes', () => {
@@ -765,6 +848,324 @@ describe('createSlatePageLayout', () => {
 
     layout.destroy()
   })
+
+  it('lets providers own media and BFC-like box sizing without a product TableKit', () => {
+    const editor = createEditor({
+      initialValue: [
+        {
+          type: 'image',
+          url: 'https://example.com/hero.png',
+          children: [{ text: '' }],
+        },
+        {
+          type: 'callout',
+          children: [{ text: 'Do not split this callout.' }],
+        },
+      ],
+    })
+    const layout = createSlatePageLayout(editor, () => ({
+      nodeLayout({ defaults, element, path }) {
+        if (element.type === 'image') {
+          return {
+            box: {
+              kind: 'image',
+              path,
+              rect: { height: 320, left: 0, top: 0, width: 480 },
+              split: 'avoid',
+            },
+            type: 'box',
+          }
+        }
+
+        if (element.type === 'callout') {
+          return {
+            box: {
+              kind: 'block',
+              path,
+              rect: {
+                height: defaults.block.lineHeight * 3,
+                left: 0,
+                top: 0,
+                width: 0,
+              },
+              split: 'avoid',
+            },
+            type: 'box',
+          }
+        }
+
+        return {
+          boxes: defaults.boxes,
+          type: 'text',
+        }
+      },
+      engine: createEstimatedPageLayoutEngine(),
+      page: pageSettings,
+    }))
+    const boxes = layout
+      .getSnapshot()
+      .blocks.flatMap((block) => block.boxes ?? [])
+      .map((box) => ({
+        kind: box.kind,
+        path: box.path,
+        rect: box.rect,
+        split: box.split,
+      }))
+
+    expect(boxes).toEqual([
+      {
+        kind: 'image',
+        path: [0],
+        rect: { height: 320, left: 0, top: 0, width: 480 },
+        split: 'avoid',
+      },
+      {
+        kind: 'block',
+        path: [1],
+        rect: { height: 72, left: 0, top: 0, width: 0 },
+        split: 'avoid',
+      },
+    ])
+
+    layout.destroy()
+  })
+
+  it('paginates provider-owned table row units without splitting the table node', () => {
+    const rows = Array.from({ length: 4 }, (_, rowIndex) => ({
+      type: 'table-row',
+      children: [
+        {
+          type: 'table-cell',
+          children: [{ text: `Row ${rowIndex + 1} cell A` }],
+        },
+        {
+          type: 'table-cell',
+          children: [{ text: `Row ${rowIndex + 1} cell B` }],
+        },
+      ],
+    }))
+    const editor = createEditor({
+      initialValue: [
+        {
+          type: 'table',
+          children: rows,
+        },
+      ],
+    })
+    const layout = createSlatePageLayout(editor, () => ({
+      engine: createEstimatedPageLayoutEngine(),
+      nodeLayout({ defaults, element, path }) {
+        if (element.type !== 'table') {
+          return { boxes: defaults.boxes, type: 'text' }
+        }
+
+        return {
+          boxes: defaults.boxes,
+          type: 'units',
+          units: rows.map((_, rowIndex) => ({
+            key: `row-${rowIndex}`,
+            kind: 'table-row',
+            path: [...path, rowIndex],
+            rect: {
+              height: 340,
+              left: 0,
+              top: rowIndex * 340,
+              width: 560,
+            },
+            split: 'avoid',
+          })),
+        }
+      },
+      page: { margins: 96, preset: 'a4' },
+    }))
+    const snapshot = layout.getSnapshot()
+
+    expect(snapshot.pages).toHaveLength(2)
+    expect(snapshot.blocks).toHaveLength(1)
+    expect(editor.read((state) => state.value.get().roots.main)).toHaveLength(1)
+    expect(
+      editor.read((state) => state.value.get().roots.main[0]?.children)
+    ).toHaveLength(4)
+    expect(snapshot.fragments.map((fragment) => fragment.path)).toEqual([
+      [0],
+      [0],
+    ])
+    expect(
+      snapshot.fragments.map((fragment) =>
+        fragment.units?.map((unit) => unit.path)
+      )
+    ).toEqual([
+      [
+        [0, 0],
+        [0, 1],
+      ],
+      [
+        [0, 2],
+        [0, 3],
+      ],
+    ])
+    expect(layout.getFragments([0, 2])).toEqual([
+      expect.objectContaining({
+        pageIndex: 1,
+        units: [
+          expect.objectContaining({
+            path: [0, 2],
+            rect: expect.objectContaining({
+              top: snapshot.pages[1]!.content.top,
+            }),
+          }),
+        ],
+      }),
+    ])
+
+    layout.destroy()
+  })
+
+  it('writes authoritative page breaks for provider-owned unit fragments', () => {
+    const pageBreaks = defineStateField<SlatePageBreakSnapshot | null>({
+      key: 'layout.unitPageBreaks',
+      applyPatch: (_value, patch) => patch as SlatePageBreakSnapshot | null,
+      collab: 'shared',
+      diff: (_previous, value) => value,
+      history: 'skip',
+      initial: () => null,
+      invertPatch: (_patch, previous) => previous,
+      persist: true,
+    })
+    const rows = Array.from({ length: 4 }, (_, rowIndex) => ({
+      type: 'table-row',
+      children: [
+        {
+          type: 'table-cell',
+          children: [{ text: `Row ${rowIndex + 1}` }],
+        },
+      ],
+    }))
+    const editor = createEditor({
+      extensions: [pageBreaks],
+      initialValue: [
+        {
+          type: 'table',
+          children: rows,
+        },
+      ],
+    })
+    const createLayout = (mode: 'read' | 'write') =>
+      createSlatePageLayout(editor, () => ({
+        engine: createEstimatedPageLayoutEngine(),
+        nodeLayout({ defaults, element, path, pageSettings }) {
+          if (element.type !== 'table') {
+            return { boxes: defaults.boxes, type: 'text' }
+          }
+
+          const page = createSlatePage(pageSettings)
+
+          return {
+            boxes: defaults.boxes,
+            type: 'units',
+            units: rows.map((_, rowIndex) => ({
+              key: `row-${rowIndex}`,
+              kind: 'table-row',
+              path: [...path, rowIndex],
+              rect: {
+                height: 340,
+                left: 0,
+                top: rowIndex * 340,
+                width: page.content.width,
+              },
+              split: 'avoid',
+            })),
+          }
+        },
+        page: { margins: 96, preset: 'a4' },
+        pageBreaks:
+          mode === 'write'
+            ? { mode, source: pageBreaks, writerId: 'writer-units' }
+            : { mode, source: pageBreaks },
+      }))
+    const writer = createLayout('write')
+    const storedSnapshot = editor.read((state) => state.getField(pageBreaks))
+
+    expect(storedSnapshot?.writerId).toBe('writer-units')
+    expect(storedSnapshot?.breaks).toEqual([
+      expect.objectContaining({
+        fragmentId: writer.getSnapshot().fragments[1]!.id,
+        pageIndex: 1,
+        path: [0],
+      }),
+    ])
+
+    writer.destroy()
+
+    const reader = createLayout('read')
+
+    expect(reader.getSnapshot().pageBreaks).toEqual(storedSnapshot)
+    expect(reader.getSnapshot().pageBreaksStatus).toBe('accepted')
+
+    reader.destroy()
+  })
+
+  it('places oversized provider-owned boxes once and continues on the next page', () => {
+    const editor = createEditor({
+      initialValue: [
+        {
+          type: 'image',
+          url: 'https://example.com/tall.png',
+          children: [{ text: '' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: 'After oversized media.' }],
+        },
+      ],
+    })
+    const layout = createSlatePageLayout(editor, () => ({
+      engine: createEstimatedPageLayoutEngine(),
+      nodeLayout({ defaults, element, path, pageSettings }) {
+        if (element.type !== 'image') {
+          return { boxes: defaults.boxes, type: 'text' }
+        }
+
+        const page = createSlatePage(pageSettings)
+
+        return {
+          box: {
+            kind: 'image',
+            path,
+            rect: {
+              height: page.content.height + 120,
+              left: 0,
+              top: 0,
+              width: page.content.width,
+            },
+            split: 'avoid',
+          },
+          type: 'box',
+        }
+      },
+      page: { margins: 96, preset: 'a4' },
+    }))
+    const snapshot = layout.getSnapshot()
+
+    expect(snapshot.pages).toHaveLength(2)
+    expect(snapshot.fragments.map((fragment) => fragment.path)).toEqual([
+      [0],
+      [1],
+    ])
+    expect(snapshot.fragments[0]!.units).toEqual([
+      expect.objectContaining({
+        kind: 'image',
+        path: [0],
+        rect: expect.objectContaining({
+          height: snapshot.page.content.height + 120,
+          top: snapshot.page.content.top,
+        }),
+      }),
+    ])
+    expect(snapshot.fragments[1]!.top).toBe(snapshot.pages[1]!.content.top)
+
+    layout.destroy()
+  })
 })
 
 describe('paginateSlatePageLayoutBlocks', () => {
@@ -1149,5 +1550,175 @@ describe('getSlatePageLayoutGeometry', () => {
       { left: pages[0]!.width + 24, top: 0 },
       { left: 0, top: pages[0]!.height + 24 },
     ])
+  })
+})
+
+describe('PagedEditable page mount plan', () => {
+  it('creates one mount item per page in single-page mode', () => {
+    const settings = { margins: 96, preset: 'a4' } as const
+    const pages = [
+      createSlatePage(settings, 0),
+      createSlatePage(settings, 1),
+      createSlatePage(settings, 2),
+    ]
+    const geometry = getSlatePageLayoutGeometry(pages, {
+      pageGap: 24,
+      pageLayoutMode: 'single',
+    })
+    const plan = createPagedEditablePageMountPlan({
+      fragments: [
+        { blockIndex: 0, pageIndex: 0 },
+        { blockIndex: 1, pageIndex: 1 },
+        { blockIndex: 2, pageIndex: 2 },
+      ],
+      geometry,
+      mode: 'single',
+      pages,
+    })
+
+    expect(plan.items).toEqual([
+      {
+        index: 0,
+        key: 'page-mount:0',
+        pageIndexes: [0],
+        size: pages[0]!.height,
+        start: 0,
+        topLevelIndexes: [0],
+      },
+      {
+        index: 1,
+        key: 'page-mount:1',
+        pageIndexes: [1],
+        size: pages[1]!.height,
+        start: pages[0]!.height + 24,
+        topLevelIndexes: [1],
+      },
+      {
+        index: 2,
+        key: 'page-mount:2',
+        pageIndexes: [2],
+        size: pages[2]!.height,
+        start: (pages[0]!.height + 24) * 2,
+        topLevelIndexes: [2],
+      },
+    ])
+    expect([...plan.itemIndexesByTopLevelIndex]).toEqual([
+      [0, [0]],
+      [1, [1]],
+      [2, [2]],
+    ])
+  })
+
+  it('groups facing pages into spread mount items', () => {
+    const settings = { margins: 96, preset: 'a4' } as const
+    const pages = [
+      createSlatePage(settings, 0),
+      createSlatePage(settings, 1),
+      createSlatePage(settings, 2),
+    ]
+    const geometry = getSlatePageLayoutGeometry(pages, {
+      pageGap: 24,
+      pageLayoutMode: 'spread',
+    })
+    const plan = createPagedEditablePageMountPlan({
+      fragments: [
+        { blockIndex: 0, pageIndex: 0 },
+        { blockIndex: 1, pageIndex: 1 },
+        { blockIndex: 2, pageIndex: 2 },
+        { blockIndex: 3, pageIndex: 2 },
+      ],
+      geometry,
+      mode: 'spread',
+      pages,
+    })
+
+    expect(plan.items).toEqual([
+      {
+        index: 0,
+        key: 'page-mount:0-1',
+        pageIndexes: [0, 1],
+        size: pages[0]!.height,
+        start: 0,
+        topLevelIndexes: [0, 1],
+      },
+      {
+        index: 1,
+        key: 'page-mount:2',
+        pageIndexes: [2],
+        size: pages[2]!.height,
+        start: pages[0]!.height + 24,
+        topLevelIndexes: [2, 3],
+      },
+    ])
+  })
+
+  it('retains split blocks on every page that owns one of their fragments', () => {
+    const settings = { margins: 96, preset: 'a4' } as const
+    const pages = [
+      createSlatePage(settings, 0),
+      createSlatePage(settings, 1),
+      createSlatePage(settings, 2),
+    ]
+    const geometry = getSlatePageLayoutGeometry(pages, {
+      pageGap: 24,
+      pageLayoutMode: 'single',
+    })
+    const plan = createPagedEditablePageMountPlan({
+      fragments: [
+        { blockIndex: 0, pageIndex: 0 },
+        { blockIndex: 0, pageIndex: 1 },
+        { blockIndex: 1, pageIndex: 1 },
+        { blockIndex: 2, pageIndex: 2 },
+      ],
+      geometry,
+      mode: 'single',
+      pages,
+    })
+
+    expect(plan.items.map((item) => item.topLevelIndexes)).toEqual([
+      [0],
+      [0, 1],
+      [2],
+    ])
+    expect([...plan.itemIndexesByTopLevelIndex]).toEqual([
+      [0, [0, 1]],
+      [1, [1]],
+      [2, [2]],
+    ])
+  })
+
+  it('retains visible, selected, promoted, and composing pages', () => {
+    const settings = { margins: 96, preset: 'a4' } as const
+    const pages = Array.from({ length: 6 }, (_, index) =>
+      createSlatePage(settings, index)
+    )
+    const geometry = getSlatePageLayoutGeometry(pages, {
+      pageGap: 24,
+      pageLayoutMode: 'spread',
+    })
+    const plan = createPagedEditablePageMountPlan({
+      fragments: pages.map((page) => ({
+        blockIndex: page.index,
+        pageIndex: page.index,
+      })),
+      geometry,
+      mode: 'spread',
+      pages,
+    })
+
+    const mountedPageIndexes = getPagedEditableMountedPageIndexes(plan, {
+      composingTopLevelIndex: 5,
+      promotedTopLevelIndex: 4,
+      selectedTopLevelIndex: 2,
+      visibleItemIndexes: [0],
+    })
+
+    expect(mountedPageIndexes).toEqual([0, 1, 2, 3, 4, 5])
+    expect(
+      getPagedEditableMountedPageIndexes(plan, {
+        selectedTopLevelIndex: 4,
+        visibleItemIndexes: [0],
+      })
+    ).toEqual([0, 1, 4, 5])
   })
 })

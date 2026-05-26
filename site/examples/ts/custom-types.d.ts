@@ -21,6 +21,26 @@ export type CheckListItemElement = {
 
 export type EditableVoidElement = {
   type: 'editable-void'
+  childRoots: {
+    body: string
+  }
+  children: EmptyText[]
+}
+
+export type EditableSectionElement = {
+  type: 'editable-section'
+  childRoots: {
+    body: string
+  }
+  children: EmptyText[]
+}
+
+export type SyncedBlockElement = {
+  type: 'synced-block'
+  childRoots: {
+    body: string
+  }
+  copyId: string
   children: EmptyText[]
 }
 
@@ -136,7 +156,9 @@ export type CustomElement =
   | BlockQuoteElement
   | BulletedListElement
   | CheckListItemElement
+  | EditableSectionElement
   | EditableVoidElement
+  | SyncedBlockElement
   | HeadingElement
   | HeadingTwoElement
   | HeadingThreeElement

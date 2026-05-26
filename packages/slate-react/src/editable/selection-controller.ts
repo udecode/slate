@@ -15,6 +15,7 @@ import {
   IS_FOCUSED,
   IS_NODE_MAP_DIRTY,
   IS_WEBKIT,
+  isDOMElement,
   isDOMNode,
   isDOMText,
 } from 'slate-dom'
@@ -43,6 +44,39 @@ export type EditableSelectionController = {
 }
 
 const MODEL_BACKED_FULL_DOCUMENT_CHILD_THRESHOLD = 1000
+const MAIN_ROOT_KEY = 'main'
+
+const isNestedEditableDOMTarget = (
+  editorElement: HTMLElement,
+  target: EventTarget | null
+) => {
+  const targetElement = isDOMElement(target)
+    ? target
+    : isDOMText(target)
+      ? target.parentElement
+      : null
+  const targetEditor = targetElement?.closest('[data-slate-editor="true"]')
+
+  return Boolean(
+    targetEditor &&
+      targetEditor !== editorElement &&
+      editorElement.contains(targetEditor)
+  )
+}
+
+export const isSelectionInEditorView = (
+  editor: ReactRuntimeEditor,
+  selection: Range | null
+) => {
+  if (!selection) {
+    return true
+  }
+
+  const selectionRoot = selection.anchor.root ?? MAIN_ROOT_KEY
+  const viewRoot = editor.read((state) => state.view.root())
+
+  return selectionRoot === viewRoot
+}
 
 const getActiveElementInDocument = (targetDocument: Document) => {
   let activeElement = targetDocument.activeElement
@@ -287,6 +321,16 @@ export const syncEditorSelectionFromDOM = ({
   }
 
   const { anchorNode, focusNode } = domSelection
+
+  const editorElement = ReactEditor.assertDOMNode(editor, editor)
+
+  if (
+    isNestedEditableDOMTarget(editorElement, anchorNode) ||
+    isNestedEditableDOMTarget(editorElement, focusNode)
+  ) {
+    return
+  }
+
   const anchorNodeSelectable = ReactEditor.hasSelectableTarget(
     editor,
     anchorNode
@@ -607,7 +651,8 @@ export const applyEditableDOMSelectionChange = ({
   if (
     activeElement !== editorElement &&
     isDOMNode(activeElement) &&
-    ReactEditor.hasDOMNode(editor, activeElement)
+    (ReactEditor.hasDOMNode(editor, activeElement) ||
+      isNestedEditableDOMTarget(editorElement, activeElement))
   ) {
     return
   }
@@ -625,6 +670,13 @@ export const applyEditableDOMSelectionChange = ({
   }
 
   const { anchorNode, focusNode } = domSelection
+
+  if (
+    isNestedEditableDOMTarget(editorElement, anchorNode) ||
+    isNestedEditableDOMTarget(editorElement, focusNode)
+  ) {
+    return
+  }
 
   const anchorNodeSelectable = ReactEditor.hasSelectableTarget(
     editor,
@@ -743,6 +795,7 @@ export const syncEditableDOMSelectionToEditor = ({
   if (
     partialDOMBackedSelection ||
     !selection ||
+    !isSelectionInEditorView(editor, selection) ||
     shouldSkipDOMSelection(editor)
   ) {
     return

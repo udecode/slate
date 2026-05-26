@@ -1,10 +1,16 @@
+import { createEditorRuntime, createEditorView } from 'slate'
 import { Editor } from 'slate/internal'
+import {
+  isInteractiveInternalTarget,
+  isNestedEditableDOMTarget,
+} from '../src/editable/input-controller'
 import { createEditableInputController } from '../src/editable/input-state'
 import {
   completeEditableSelectionChangeImport,
   executeEditableSelectionExport,
   executeEditableSelectionImport,
   isEditableModelSelectionPreferredForInput,
+  isSelectionInEditorView,
   prepareEditableSelectionChangeImport,
   setEditableModelSelectionPreference,
   shouldApplyDOMSelectionChange,
@@ -58,6 +64,39 @@ test('selection export executes only for export-model policy', () => {
     })
   ).toBe(true)
   expect(calls).toBe(1)
+})
+
+test('nested editable DOM targets are owned by their closest editor root', () => {
+  const outerEditor = document.createElement('div')
+  const childEditor = document.createElement('div')
+  const childText = document.createTextNode('child')
+
+  outerEditor.setAttribute('data-slate-editor', 'true')
+  childEditor.setAttribute('data-slate-editor', 'true')
+  childEditor.append(childText)
+  outerEditor.append(childEditor)
+
+  expect(isNestedEditableDOMTarget(outerEditor, childText)).toBe(true)
+  expect(isNestedEditableDOMTarget(childEditor, childText)).toBe(false)
+  expect(isNestedEditableDOMTarget(outerEditor, outerEditor)).toBe(false)
+})
+
+test('nested editable DOM targets are interactive boundaries for containing editors', () => {
+  const editor = createReactEditor()
+  const outerEditor = document.createElement('div')
+  const childEditor = document.createElement('div')
+  const childText = document.createTextNode('child')
+
+  outerEditor.setAttribute('data-slate-editor', 'true')
+  childEditor.setAttribute('data-slate-editor', 'true')
+  childEditor.append(childText)
+  outerEditor.append(childEditor)
+
+  vi.spyOn(ReactEditor, 'assertDOMNode').mockReturnValue(outerEditor)
+
+  expect(isInteractiveInternalTarget(editor, childText)).toBe(true)
+
+  vi.restoreAllMocks()
 })
 
 test('failed DOM selection export clears the updating guard', () => {
@@ -118,6 +157,46 @@ test('failed DOM selection export clears the updating guard', () => {
     vi.useRealTimers()
     vi.restoreAllMocks()
   }
+})
+
+test('model selection export is owned by the matching root view only', () => {
+  const runtime = createEditorRuntime({
+    initialValue: {
+      roots: {
+        child: [{ type: 'paragraph', children: [{ text: 'child' }] }],
+        main: [{ type: 'paragraph', children: [{ text: 'main' }] }],
+      },
+    },
+  })
+  const mainEditor = createEditorView(runtime, { root: 'main' }) as any
+  const childEditor = createEditorView(runtime, { root: 'child' }) as any
+
+  childEditor.update((tx: any) => {
+    tx.selection.set({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+  })
+
+  const childSelection = childEditor.read((state: any) => state.selection.get())
+
+  expect(isSelectionInEditorView(mainEditor, childSelection)).toBe(false)
+  expect(isSelectionInEditorView(childEditor, childSelection)).toBe(true)
+
+  const resolveDOMRange = vi.spyOn(ReactEditor, 'resolveDOMRange')
+
+  syncEditableDOMSelectionToEditor({
+    editor: mainEditor,
+    scrollSelectionIntoView: vi.fn(),
+    partialDOMBackedSelection: false,
+    state: {
+      isUpdatingSelection: false,
+      selectionChangeOrigin: null,
+    },
+  })
+
+  expect(resolveDOMRange).not.toHaveBeenCalled()
+  vi.restoreAllMocks()
 })
 
 test('native editor-owned selectionchange clears model preference before DOM import', () => {

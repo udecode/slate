@@ -17,6 +17,7 @@ import type { EditableCompositionStateSetter } from './input-controller'
 import { getNativeTextInputHistoryMetadata } from './input-history'
 import type { EditableInputController } from './input-state'
 import type { Editor } from './runtime-editor-api'
+import { readRuntimeText } from './runtime-live-state'
 import { writeRuntimeMarks } from './runtime-mutation-state'
 
 type EditableCompositionHandler = (
@@ -365,11 +366,15 @@ export const usePendingInsertionMarksEffect = ({
       const selection = editor.read((state) => state.selection.get())
       if (selection) {
         const { anchor } = selection
-        const text = NodeApi.leaf(editor, anchor.path)
+        const text = readRuntimeText(editor, anchor.path)
 
         // While marks isn't a 'complete' text, we can still use loose TextApi.equals
         // here which only compares marks anyway.
-        if (marks && !TextApi.equals(text, marks as Text, { loose: true })) {
+        if (
+          text &&
+          marks &&
+          !TextApi.equals(text, marks as Text, { loose: true })
+        ) {
           EDITOR_TO_PENDING_INSERTION_MARKS.set(editor, marks)
           return
         }

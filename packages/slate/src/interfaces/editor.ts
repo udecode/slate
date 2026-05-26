@@ -246,6 +246,12 @@ export type EditorTransactionOperationsApi<V extends Value = Value> = {
   ) => void
 }
 
+export type EditorTransactionRootsApi<V extends Value = Value> = {
+  create: (root: RootKey, children: V) => void
+  delete: (root: RootKey) => void
+  replace: (root: RootKey, children: V) => void
+}
+
 export type EditorTransactionStatePatchesApi = {
   replay: (statePatches: readonly EditorStatePatch[]) => void
 }
@@ -504,8 +510,19 @@ export type EditorElementBehavior = {
   void: boolean
 }
 
+export type EditorElementContentRootSpec = {
+  /**
+   * Slot key on `element.childRoots` that stores the projected content root.
+   *
+   * The slot is schema vocabulary. The actual root key is document data:
+   * `element.childRoots[slot]`.
+   */
+  slot: string
+}
+
 export type EditorElementSpec = {
   atom?: boolean
+  contentRoot?: EditorElementContentRootSpec
   inline?: boolean
   isolating?: boolean
   keyboardSelectable?: boolean
@@ -560,6 +577,7 @@ export type EditorCoreUpdateTransaction<V extends Value = Value> = Omit<
   nodes: EditorTransactionNodesApi<V>
   normalize: (options?: EditorNormalizeOptions) => void
   operations: EditorTransactionOperationsApi<V>
+  roots: EditorTransactionRootsApi<V>
   selection: EditorTransactionSelectionApi
   setField: <TValue>(
     field: EditorStateField<TValue>,

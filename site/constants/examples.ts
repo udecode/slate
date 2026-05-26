@@ -21,6 +21,7 @@ export const EXAMPLE_NAMES_AND_PATHS = [
   ['Linting', 'linting', { badge: 'new' }],
   ['Forced Layout', 'forced-layout'],
   ['Hovering Toolbar', 'hovering-toolbar'],
+  ['Hidden Content Blocks', 'hidden-content-blocks', { badge: 'new' }],
   ['Huge Document', 'huge-document'],
   ['Images', 'images'],
   ['Inlines', 'inlines'],
@@ -39,6 +40,7 @@ export const EXAMPLE_NAMES_AND_PATHS = [
   ['Search Highlighting', 'search-highlighting'],
   ['Shadow DOM', 'shadow-dom'],
   ['Styling', 'styling'],
+  ['Synced Blocks', 'synced-blocks', { badge: 'new' }],
   ['Tables', 'tables'],
 ] as const satisfies readonly ExampleDefinition[]
 

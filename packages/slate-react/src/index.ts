@@ -41,6 +41,7 @@ export { EditableText } from './components/editable-text'
 export type {
   EditableDecorate,
   EditableDecoration,
+  EditableDOMCoverageBoundaryMaterializePayload,
   EditableDOMCoverageBoundaryPlaceholderContext,
   EditableDOMCoverageBoundaryProps,
   EditableDOMCoverageBoundaryScope,
@@ -116,6 +117,12 @@ export {
   useSlateAnnotation,
   useSlateAnnotations,
 } from './hooks/use-slate-annotations'
+export { useSlateChildRoot } from './hooks/use-slate-child-root'
+export {
+  type SlateContentRootController,
+  type UseSlateContentRootOptions,
+  useSlateContentRoot,
+} from './hooks/use-slate-content-root'
 export {
   type UseSlateDecorationSourceOptions,
   type UseSlateRangeDecorationSourceOptions,

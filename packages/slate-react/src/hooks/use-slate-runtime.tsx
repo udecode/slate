@@ -15,6 +15,7 @@ import {
   type EditorView,
   type EditorViewOptions,
   type Operation,
+  type Path,
   type RootKey,
   type SnapshotChange,
   type Value,
@@ -72,6 +73,12 @@ type ExtensionLike = {
   name: string
 }
 
+export type SlateContentRootOwner = {
+  childRoot: RootKey
+  ownerPath: Path
+  ownerRoot: RootKey
+}
+
 const getExtensionCapabilityName = (extension: ExtensionLike) => {
   const apiNames = Object.keys(extension.api ?? {})
 
@@ -79,6 +86,9 @@ const getExtensionCapabilityName = (extension: ExtensionLike) => {
     ? extension.name
     : (apiNames[0] ?? extension.name)
 }
+
+const getContentRootOwnerKey = (owner: SlateContentRootOwner) =>
+  `${owner.ownerRoot}\u0000${owner.ownerPath.join('.')}\u0000${owner.childRoot}`
 
 const createReactApi = (domApi: ReactRuntimeEditor['api']['dom']) =>
   Object.freeze({
@@ -132,9 +142,17 @@ type SlateRuntimeContextValue<
 > = {
   focusVersion: number
   focused: boolean
+  getActiveContentRootOwner: (root: RootKey) => SlateContentRootOwner | null
+  getContentRootOwnerViewEditor: (
+    owner: SlateContentRootOwner
+  ) => ReactRuntimeEditor<V> | null
   getLastSelectionForRoot: (root: RootKey) => BaseSelection
   getMountedViewEditor: (root: RootKey) => ReactRuntimeEditor<V> | null
   getView: (options?: EditorViewOptions) => EditorView<V, TExtensions>
+  registerContentRootOwner: (
+    editor: ReactRuntimeEditor<V>,
+    owner: SlateContentRootOwner
+  ) => () => void
   registerViewEffect: (effect: () => void) => () => void
   registerViewEditor: (
     editor: ReactRuntimeEditor<V>,
@@ -142,6 +160,7 @@ type SlateRuntimeContextValue<
   ) => () => void
   runtime: SlateRuntimeValue<V, TExtensions>
   selectorContext: EditorSelectorContextValue
+  setActiveViewEditor: (editor: ReactRuntimeEditor<V>, root: RootKey) => void
 }
 
 export type SlateRuntimeProps<
@@ -348,6 +367,13 @@ export function SlateRuntime<
   const mountedViewEditorsRef = useRef(
     new Map<RootKey, Set<ReactRuntimeEditor<V>>>()
   )
+  const activeViewEditorsRef = useRef(new Map<RootKey, ReactRuntimeEditor<V>>())
+  const contentRootOwnersRef = useRef(
+    new Map<ReactRuntimeEditor<V>, SlateContentRootOwner>()
+  )
+  const contentRootOwnerViewEditorsRef = useRef(
+    new Map<string, ReactRuntimeEditor<V>>()
+  )
   const [viewEffectQueue] = useState(createSlateViewEffectQueue)
   const [viewEffectVersion, setViewEffectVersion] = useState(0)
   const lastSelectionCacheRef = useRef(createRootSelectionCache())
@@ -366,13 +392,33 @@ export function SlateRuntime<
 
       viewEditors.add(editor)
       mountedViewEditorsRef.current.set(root, viewEditors)
+      if (!activeViewEditorsRef.current.has(root)) {
+        activeViewEditorsRef.current.set(root, editor)
+      }
       rootViewEditors.add(editor)
       EDITOR_TO_ROOT_VIEW_EDITORS.set(runtime.editor, rootViewEditors)
 
       return () => {
         viewEditors.delete(editor)
         rootViewEditors.delete(editor)
+        const owner = contentRootOwnersRef.current.get(editor)
 
+        contentRootOwnersRef.current.delete(editor)
+        if (owner) {
+          contentRootOwnerViewEditorsRef.current.delete(
+            getContentRootOwnerKey(owner)
+          )
+        }
+
+        if (activeViewEditorsRef.current.get(root) === editor) {
+          const nextEditor = viewEditors.values().next().value
+
+          if (nextEditor) {
+            activeViewEditorsRef.current.set(root, nextEditor)
+          } else {
+            activeViewEditorsRef.current.delete(root)
+          }
+        }
         if (viewEditors.size === 0) {
           mountedViewEditorsRef.current.delete(root)
         }
@@ -383,12 +429,24 @@ export function SlateRuntime<
     },
     [runtime.editor]
   )
+  const setActiveViewEditor = useCallback(
+    (editor: ReactRuntimeEditor<V>, root: RootKey) => {
+      const viewEditors = mountedViewEditorsRef.current.get(root)
+
+      if (viewEditors?.has(editor) || root === MAIN_ROOT_KEY) {
+        activeViewEditorsRef.current.set(root, editor)
+      }
+    },
+    []
+  )
   const getMountedViewEditor = useCallback(
     (root: RootKey) => {
-      const viewEditor = mountedViewEditorsRef.current
-        .get(root)
-        ?.values()
-        .next().value
+      const viewEditors = mountedViewEditorsRef.current.get(root)
+      const activeViewEditor = activeViewEditorsRef.current.get(root)
+      const viewEditor =
+        activeViewEditor && viewEditors?.has(activeViewEditor)
+          ? activeViewEditor
+          : viewEditors?.values().next().value
 
       return (viewEditor ??
         (root === MAIN_ROOT_KEY
@@ -397,6 +455,39 @@ export function SlateRuntime<
     },
     [reactEditor]
   )
+  const registerContentRootOwner = useCallback(
+    (editor: ReactRuntimeEditor<V>, owner: SlateContentRootOwner) => {
+      contentRootOwnersRef.current.set(editor, owner)
+      contentRootOwnerViewEditorsRef.current.set(
+        getContentRootOwnerKey(owner),
+        editor
+      )
+
+      return () => {
+        if (contentRootOwnersRef.current.get(editor) === owner) {
+          contentRootOwnersRef.current.delete(editor)
+          contentRootOwnerViewEditorsRef.current.delete(
+            getContentRootOwnerKey(owner)
+          )
+        }
+      }
+    },
+    []
+  )
+  const getContentRootOwnerViewEditor = useCallback(
+    (owner: SlateContentRootOwner) =>
+      contentRootOwnerViewEditorsRef.current.get(
+        getContentRootOwnerKey(owner)
+      ) ?? null,
+    []
+  )
+  const getActiveContentRootOwner = useCallback((root: RootKey) => {
+    const activeViewEditor = activeViewEditorsRef.current.get(root)
+
+    return activeViewEditor
+      ? (contentRootOwnersRef.current.get(activeViewEditor) ?? null)
+      : null
+  }, [])
   const getLastSelectionForRoot = useCallback(
     (root: RootKey) => lastSelectionCacheRef.current.get(root),
     []
@@ -562,24 +653,32 @@ export function SlateRuntime<
     () => ({
       focusVersion,
       focused,
+      getActiveContentRootOwner,
+      getContentRootOwnerViewEditor,
       getLastSelectionForRoot,
       getMountedViewEditor,
       getView,
+      registerContentRootOwner,
       registerViewEffect,
       registerViewEditor,
       runtime,
       selectorContext,
+      setActiveViewEditor,
     }),
     [
       focusVersion,
       focused,
+      getActiveContentRootOwner,
+      getContentRootOwnerViewEditor,
       getLastSelectionForRoot,
       getMountedViewEditor,
       getView,
+      registerContentRootOwner,
       registerViewEffect,
       registerViewEditor,
       runtime,
       selectorContext,
+      setActiveViewEditor,
     ]
   )
 

@@ -16,6 +16,7 @@ import {
 } from './root-interaction-resolver'
 
 type SlateFocusableEditor = Parameters<typeof focusSlateEditable>[0]
+const MAIN_ROOT_KEY: RootKey = 'main'
 
 export type RootInteractionEditor = Pick<
   ReactRuntimeEditor,
@@ -41,6 +42,21 @@ export type RootInteractionControllerOptions = {
 export type RootInteractionController = {
   onMouseDownCapture: MouseEventHandler<HTMLElement>
   onMouseUpCapture: MouseEventHandler<HTMLElement>
+}
+
+const withInteractionRangeRoot = (range: Range, root: RootKey): Range => {
+  if (root === MAIN_ROOT_KEY) {
+    return range
+  }
+
+  return {
+    anchor:
+      range.anchor.root === undefined
+        ? { ...range.anchor, root }
+        : range.anchor,
+    focus:
+      range.focus.root === undefined ? { ...range.focus, root } : range.focus,
+  }
 }
 
 export const useRootInteractionController = ({
@@ -100,7 +116,7 @@ export const useRootInteractionController = ({
 
       if (action.type === 'set-selection') {
         focusEditor.update((tx) => {
-          tx.selection.set(action.range)
+          tx.selection.set(withInteractionRangeRoot(action.range, root))
         })
         focusSlateEditable(focusEditor)
         return
@@ -137,12 +153,29 @@ export const useRootInteractionController = ({
 
       pendingActionRef.current = action
 
-      if (action.type === 'ignore' || action.type === 'recover-native-click') {
+      if (action.type === 'ignore') {
         return
       }
 
       if (action.preventDefault) {
         event.preventDefault()
+      }
+
+      if (action.type === 'recover-native-click') {
+        const focusEditor = getMountedViewEditor(root) ?? editor
+        const eventRange = focusEditor.api.dom.resolveEventRange(
+          event.nativeEvent
+        )
+
+        pendingActionRef.current = { type: 'ignore' }
+        applyInteractionAction(
+          resolveRootInteractionMouseUp({
+            eventRange,
+            pendingAction: action,
+            selection,
+          })
+        )
+        return
       }
 
       if (action.type === 'place-editable-root') {
@@ -159,7 +192,14 @@ export const useRootInteractionController = ({
         )
       })
     },
-    [applyInteractionAction, disabled, selection]
+    [
+      applyInteractionAction,
+      disabled,
+      editor,
+      getMountedViewEditor,
+      root,
+      selection,
+    ]
   )
 
   const onMouseUpCapture = useCallback<MouseEventHandler<HTMLElement>>(

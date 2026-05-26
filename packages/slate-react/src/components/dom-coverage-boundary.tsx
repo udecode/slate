@@ -1,8 +1,11 @@
 import type { ReactNode } from 'react'
 import { useContext } from 'react'
+import type { Range as SlateRange } from 'slate'
 import type {
+  DOMCoverageBoundary,
   DOMCoverageCopyPolicy,
   DOMCoverageFindPolicy,
+  DOMCoverageMaterializeReason,
   DOMCoverageReason,
   DOMCoverageSelectionPolicy,
 } from 'slate-dom/internal'
@@ -20,8 +23,15 @@ type DOMCoverageBoundaryBaseProps = {
   copyPolicy?: DOMCoverageCopyPolicy
   findPolicy?: DOMCoverageFindPolicy
   hidden?: boolean
+  onMaterialize?: (payload: DOMCoverageBoundaryMaterializePayload) => void
   reason?: DOMCoverageReason
   selectionPolicy?: DOMCoverageSelectionPolicy
+}
+
+export type DOMCoverageBoundaryMaterializePayload = {
+  boundary: DOMCoverageBoundary
+  range?: SlateRange
+  reason: DOMCoverageMaterializeReason
 }
 
 export type DOMCoverageBoundaryRangeProps = DOMCoverageBoundaryBaseProps & {
@@ -37,6 +47,7 @@ export const DOMCoverageBoundaryRange = ({
   findPolicy = 'not-native-until-mounted',
   from,
   hidden = true,
+  onMaterialize,
   reason = 'app-collapse',
   selectionPolicy = 'boundary',
   to = from,
@@ -86,6 +97,29 @@ export const DOMCoverageBoundaryRange = ({
     return DOMCoverage.registerBoundary(editor, boundary)
   }, [boundary, editor, hidden])
 
+  useIsomorphicLayoutEffect(() => {
+    if (!hidden || !boundary || !onMaterialize) {
+      return
+    }
+
+    return DOMCoverage.registerMaterializeHandler(
+      editor,
+      (targetBoundary, materializeReason, options) => {
+        if (targetBoundary.boundaryId !== boundary.boundaryId) {
+          return false
+        }
+
+        onMaterialize({
+          boundary: targetBoundary,
+          range: options.range,
+          reason: materializeReason,
+        })
+
+        return true
+      }
+    )
+  }, [boundary, editor, hidden, onMaterialize])
+
   if (!hidden) {
     return <>{content}</>
   }
@@ -110,6 +144,7 @@ export const DOMCoverageSelfBoundary = ({
   copyPolicy = 'exclude',
   findPolicy = 'not-native-until-mounted',
   hidden = true,
+  onMaterialize,
   reason = 'app-hidden',
   selectionPolicy = 'boundary',
 }: DOMCoverageSelfBoundaryProps) => {
@@ -143,6 +178,29 @@ export const DOMCoverageSelfBoundary = ({
 
     return DOMCoverage.registerBoundary(editor, boundary)
   }, [boundary, editor, hidden])
+
+  useIsomorphicLayoutEffect(() => {
+    if (!hidden || !boundary || !onMaterialize) {
+      return
+    }
+
+    return DOMCoverage.registerMaterializeHandler(
+      editor,
+      (targetBoundary, materializeReason, options) => {
+        if (targetBoundary.boundaryId !== boundary.boundaryId) {
+          return false
+        }
+
+        onMaterialize({
+          boundary: targetBoundary,
+          range: options.range,
+          reason: materializeReason,
+        })
+
+        return true
+      }
+    )
+  }, [boundary, editor, hidden, onMaterialize])
 
   if (!hidden) {
     return <>{content}</>

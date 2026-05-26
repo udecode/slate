@@ -1,5 +1,5 @@
 import { type KeyboardEvent, useCallback, useMemo } from 'react'
-import type { RootKey } from 'slate'
+import type { Operation, RootKey } from 'slate'
 
 import {
   getHistoryDirectionFromNativeEvent,
@@ -14,6 +14,9 @@ import {
 } from './use-slate-runtime'
 
 const MAIN_ROOT_KEY: RootKey = 'main'
+
+const getOperationRoot = (operation: Operation): RootKey =>
+  ((operation as { root?: RootKey }).root ?? MAIN_ROOT_KEY) as RootKey
 
 export type SlateHistoryFocusPolicy = 'none' | 'preserve-dom' | 'restore-root'
 
@@ -63,6 +66,25 @@ const selectSelectionRoot = (state: unknown): RootKey | null => {
   return (selection.anchor.root ??
     selection.focus.root ??
     MAIN_ROOT_KEY) as RootKey
+}
+
+const selectLastCommitSingleOperationRoot = (
+  state: unknown
+): RootKey | null => {
+  const commit = (
+    state as {
+      value?: {
+        lastCommit?: () => { operations?: readonly Operation[] } | null
+      }
+    }
+  ).value?.lastCommit?.()
+  const roots = new Set(
+    (commit?.operations ?? [])
+      .filter((operation) => operation.type !== 'set_selection')
+      .map(getOperationRoot)
+  )
+
+  return roots.size === 1 ? (roots.values().next().value ?? null) : null
 }
 
 const createHistoryRootSelector = () => {
@@ -172,7 +194,13 @@ export function useSlateHistory({
 
       if (focusPolicy === 'restore-root') {
         scheduleSlateReactFocus(() => {
-          const focusEditor = getMountedViewEditor(root) ?? editor
+          const focusRoot =
+            editor.read(
+              (state) =>
+                selectLastCommitSingleOperationRoot(state) ??
+                selectSelectionRoot(state)
+            ) ?? root
+          const focusEditor = getMountedViewEditor(focusRoot) ?? editor
 
           if (!focusEditor.read((state) => state.selection.get())) {
             focusEditor.update((tx) => {

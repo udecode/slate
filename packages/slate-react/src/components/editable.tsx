@@ -1,4 +1,5 @@
 import type React from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import {
   type Element,
   type LeafPosition,
@@ -20,12 +21,14 @@ import type {
   EditableRepairRequest,
   InputIntent,
 } from '../editable/input-controller'
+import { useRootInteractionController } from '../editable/root-interaction-controller'
 import { useEditableRootRuntime } from '../editable/runtime-root-engine'
 import { readLiveSelection } from '../editable/runtime-selection-state'
 import { useEditor } from '../hooks/use-editor'
 import { ComposingContext } from '../hooks/use-editor-composing'
 import { ReadOnlyContext } from '../hooks/use-editor-read-only'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
+import { useRequiredSlateRuntimeContext } from '../hooks/use-slate-runtime'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
 import { RestoreDOM } from './restore-dom/restore-dom'
@@ -185,6 +188,39 @@ const getEditableDOMStrategyMetrics = ({
   }
 }
 
+const areEditableDOMStrategyMetricsEqual = (
+  left: EditableDOMStrategyMetrics | null,
+  right: EditableDOMStrategyMetrics
+) =>
+  left != null &&
+  left.activeSegmentIndex === right.activeSegmentIndex &&
+  left.aggressiveDomCoverageBoundaryCount ===
+    right.aggressiveDomCoverageBoundaryCount &&
+  left.cohort === right.cohort &&
+  left.degradationMode === right.degradationMode &&
+  left.documentSize === right.documentSize &&
+  left.domCoverageBoundaryCount === right.domCoverageBoundaryCount &&
+  left.domCoverageBoundaryElementCount ===
+    right.domCoverageBoundaryElementCount &&
+  left.domNodeCount === right.domNodeCount &&
+  left.domStrategyStagedBoundaryCount ===
+    right.domStrategyStagedBoundaryCount &&
+  left.editableDescendantCount === right.editableDescendantCount &&
+  left.effectiveStrategy === right.effectiveStrategy &&
+  left.estimatedBlockSize === right.estimatedBlockSize &&
+  left.mountedGroupCount === right.mountedGroupCount &&
+  left.mountedTopLevelCount === right.mountedTopLevelCount &&
+  left.nativeSurfaceComplete === right.nativeSurfaceComplete &&
+  left.overscan === right.overscan &&
+  left.pendingGroupCount === right.pendingGroupCount &&
+  left.pendingTopLevelCount === right.pendingTopLevelCount &&
+  left.requestedStrategy === right.requestedStrategy &&
+  left.segmentSize === right.segmentSize &&
+  left.threshold === right.threshold &&
+  left.virtualizerMeasuredCount === right.virtualizerMeasuredCount &&
+  left.viewportVirtualizationBoundaryCount ===
+    right.viewportVirtualizationBoundaryCount
+
 export type EditableHandlerResult = boolean | EditableRepairRequest | void
 
 export type EditableInputEventContext = {
@@ -237,9 +273,30 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     style: userStyle = {},
     as: Component = 'div',
     disableDefaultStyles = false,
+    onFocusCapture: propsOnFocusCapture,
+    onMouseDownCapture: propsOnMouseDownCapture,
+    onMouseUpCapture: propsOnMouseUpCapture,
     ...attributes
   } = editableProps
   const editor = useEditor<ReactRuntimeEditor>()
+  const editorRoot = editor.read((state) => state.view.root())
+  const { getLastSelectionForRoot, getMountedViewEditor, setActiveViewEditor } =
+    useRequiredSlateRuntimeContext()
+  const activateRootView = useCallback(() => {
+    setActiveViewEditor(editor, editorRoot)
+  }, [editor, editorRoot, setActiveViewEditor])
+  const rootInteraction = useRootInteractionController({
+    disabled: readOnly,
+    editor,
+    getLastSelectionForRoot,
+    getMountedViewEditor,
+    root: editorRoot,
+    selection: 'restore',
+  })
+  const {
+    onMouseDownCapture: onRootMouseDownCapture,
+    onMouseUpCapture: onRootMouseUpCapture,
+  } = rootInteraction
   const rootRuntime = useEditableRootRuntime({
     autoFocus,
     callbacks: attributes,
@@ -258,6 +315,35 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     rootRef: ref,
     partialDOMBackedSelection,
   } = rootRuntime
+  const lastDOMStrategyMetricsRef = useRef<EditableDOMStrategyMetrics | null>(
+    null
+  )
+  const rootInteractionEventBindings = useMemo(
+    () => ({
+      onFocusCapture: (event: React.FocusEvent<HTMLDivElement>) => {
+        activateRootView()
+        propsOnFocusCapture?.(event)
+      },
+      onMouseDownCapture: (event: React.MouseEvent<HTMLDivElement>) => {
+        activateRootView()
+        onRootMouseDownCapture(event)
+        propsOnMouseDownCapture?.(event)
+      },
+      onMouseUpCapture: (event: React.MouseEvent<HTMLDivElement>) => {
+        activateRootView()
+        onRootMouseUpCapture(event)
+        propsOnMouseUpCapture?.(event)
+      },
+    }),
+    [
+      activateRootView,
+      onRootMouseDownCapture,
+      onRootMouseUpCapture,
+      propsOnFocusCapture,
+      propsOnMouseDownCapture,
+      propsOnMouseUpCapture,
+    ]
+  )
 
   useIsomorphicLayoutEffect(() => {
     const rootElement = ref.current
@@ -273,13 +359,23 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
         return
       }
 
-      onDOMStrategyMetrics(
-        getEditableDOMStrategyMetrics({
-          editor,
-          metrics: domStrategyMetrics,
-          rootElement,
-        })
-      )
+      const nextMetrics = getEditableDOMStrategyMetrics({
+        editor,
+        metrics: domStrategyMetrics,
+        rootElement,
+      })
+
+      if (
+        areEditableDOMStrategyMetricsEqual(
+          lastDOMStrategyMetricsRef.current,
+          nextMetrics
+        )
+      ) {
+        return
+      }
+
+      lastDOMStrategyMetricsRef.current = nextMetrics
+      onDOMStrategyMetrics(nextMetrics)
     })
 
     return () => {
@@ -313,7 +409,9 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
             }
             data-slate-editor
             data-slate-node="value"
+            data-slate-root={editorRoot}
             {...editableEventBindings}
+            {...rootInteractionEventBindings}
             // COMPAT: Certain browsers don't support the `beforeinput` event, so we'd
             // have to use hacks to make these replacement-based features work.
             // For SSR situations HAS_BEFORE_INPUT_SUPPORT is false and results in prop

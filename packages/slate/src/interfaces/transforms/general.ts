@@ -1,4 +1,5 @@
 import {
+  deleteEditorRoot,
   getCurrentSelection,
   getCurrentSelectionRoot,
   runEditorTransaction,
@@ -460,6 +461,9 @@ export const transform: OperationTransformMethods['transform'] = (
         )
       })
       setCurrentSelection(editor, op.newSelection, op.root)
+      if (op.rootIsPresent === false) {
+        deleteEditorRoot(editor, op.root)
+      }
       syncImplicitTargetToCurrentSelection(editor)
       break
     }

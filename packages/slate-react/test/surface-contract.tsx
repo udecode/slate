@@ -966,6 +966,47 @@ describe('slate-react surface contract', () => {
     expect(spacer?.querySelector('[data-slate-zero-width]')).toBeTruthy()
   })
 
+  test('editable-island void content keeps classic void chrome while nested editors stay focusable', () => {
+    const editor = createReactEditor({
+      initialValue: [
+        {
+          type: 'editable-card',
+          children: [{ text: '' }],
+        },
+      ],
+    }) as ReactRuntimeEditor
+
+    editor.extend({
+      elements: [{ type: 'editable-card', void: 'editable-island' }],
+      name: 'test-editable-island-void',
+    })
+
+    const rendered = render(
+      <Slate editor={editor}>
+        <Editable
+          renderVoid={() => (
+            <div data-renderer="editable-card">
+              <div contentEditable={false}>Controls</div>
+              <div contentEditable>Nested editor target</div>
+            </div>
+          )}
+        />
+      </Slate>
+    )
+
+    const card = rendered.container.querySelector(
+      '[data-renderer="editable-card"]'
+    )
+    const spacer = rendered.container.querySelector('[data-slate-spacer]')
+
+    expect(card?.parentElement?.getAttribute('contenteditable')).toBe('false')
+    expect(card?.querySelector('[contenteditable="false"]')?.textContent).toBe(
+      'Controls'
+    )
+    expect(card?.querySelector('[contenteditable="true"]')).toBeTruthy()
+    expect(spacer?.querySelector('[data-slate-zero-width]')).toBeTruthy()
+  })
+
   test('renderVoid receives content-only props and runtime owns inline void anchor', () => {
     const editor = createReactEditor({
       initialValue: [

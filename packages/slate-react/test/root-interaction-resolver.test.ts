@@ -91,4 +91,50 @@ describe('root interaction resolver', () => {
       type: 'focus-root',
     })
   })
+
+  test('prevents outer editor focus steals for first native text clicks', () => {
+    const root = createRootChrome()
+    const editable = document.createElement('div')
+    const text = document.createElement('span')
+
+    editable.dataset.slateEditor = 'true'
+    text.dataset.slateString = 'true'
+    editable.append(text)
+    root.append(editable)
+
+    const target = resolveRootInteractionTarget({
+      currentTarget: root,
+      target: text,
+    })
+    const mouseDown = resolveRootInteractionMouseDown({
+      editableRootFocused: false,
+      target,
+    })
+
+    expect(target.kind).toBe('native-editable')
+    expect(mouseDown).toEqual({
+      preventDefault: true,
+      type: 'recover-native-click',
+    })
+  })
+
+  test('lets editable roots ignore nested editor clicks', () => {
+    const root = document.createElement('div')
+    const nested = document.createElement('div')
+    const text = document.createElement('span')
+
+    root.dataset.slateEditor = 'true'
+    nested.dataset.slateEditor = 'true'
+    text.dataset.slateString = 'true'
+    nested.append(text)
+    root.append(nested)
+
+    const target = resolveRootInteractionTarget({
+      currentTarget: root,
+      target: text,
+    })
+
+    expect(target.kind).toBe('interactive-descendant')
+    expect(resolveRootInteractionMouseDown({ target }).type).toBe('ignore')
+  })
 })

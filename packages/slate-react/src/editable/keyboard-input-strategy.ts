@@ -1,7 +1,14 @@
 // @ts-expect-error -- direction does not publish TypeScript declarations.
 import getDirection from 'direction'
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react'
-import { NodeApi, RangeApi } from 'slate'
+import {
+  NodeApi,
+  type Operation,
+  type Path,
+  type Range,
+  RangeApi,
+  type RootKey,
+} from 'slate'
 import {
   HAS_BEFORE_INPUT_SUPPORT,
   Hotkeys,
@@ -12,8 +19,11 @@ import {
 import type { EditableKeyDownHandler } from '../components/editable'
 import { isSelectAllHotkey } from '../dom-strategy/dom-strategy-commands'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
+import { scheduleSlateReactFocus } from '../hooks/focus-scheduler'
+import { focusSlateEditable } from '../hooks/focus-slate-editable'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { applyEditableCaretMovement } from './caret-engine'
+import { applyContentRootNavigation } from './content-root-navigation'
 import {
   isDestructiveEditableCommand,
   markEditableEditingEpochCommandHandled,
@@ -24,6 +34,7 @@ import {
   type EditableInputController,
   type EditableRepairRequest,
   isInteractiveInternalTarget,
+  isNestedEditableDOMTarget,
   setEditableModelSelectionPreference,
 } from './input-controller'
 import {
@@ -54,24 +65,70 @@ const DEFAULT_MODEL_COMMAND_REPAIR: EditableRepairRequest = {
   },
 }
 
-const getModelOwnedHistoryRepair = (
+const MAIN_ROOT_KEY: RootKey = 'main'
+
+const getSelectionRootKey = (selection: Range | null): RootKey =>
+  (selection?.anchor.root ?? selection?.focus.root ?? MAIN_ROOT_KEY) as RootKey
+
+const getOperationRoot = (operation: Operation): RootKey =>
+  ((operation as { root?: RootKey }).root ?? MAIN_ROOT_KEY) as RootKey
+
+const getLastCommitSingleOperationRoot = (
   editor: ReactRuntimeEditor
-): EditableRepairRequest => ({
-  focus: true,
-  forceRender: shouldForceRenderAfterModelOwnedHistory(editor),
-  kind: 'repair-caret',
-  selectionSourceTransition: {
-    preferModelSelection: true,
-    reason: 'model-command',
-    selectionSource: 'model-owned',
-  },
-})
+): RootKey | null => {
+  const commit = editor.read((state) => state.value.lastCommit())
+  const roots = new Set(
+    (commit?.operations ?? [])
+      .filter((operation) => operation.type !== 'set_selection')
+      .map(getOperationRoot)
+  )
+
+  return roots.size === 1 ? (roots.values().next().value ?? null) : null
+}
+
+const getModelOwnedHistoryRepair = ({
+  editor,
+  getMountedViewEditor,
+}: {
+  editor: ReactRuntimeEditor
+  getMountedViewEditor?: (root: RootKey) => ReactRuntimeEditor | null
+}): EditableRepairRequest => {
+  const forceRender = shouldForceRenderAfterModelOwnedHistory(editor)
+  const selectionRoot =
+    getLastCommitSingleOperationRoot(editor) ??
+    getSelectionRootKey(readRuntimeSelection(editor))
+  const focusEditor = getMountedViewEditor?.(selectionRoot)
+
+  if (focusEditor && focusEditor !== editor) {
+    focusSlateEditable(focusEditor)
+    scheduleSlateReactFocus(() => {
+      focusSlateEditable(focusEditor)
+    })
+
+    return forceRender
+      ? { forceRender, kind: 'force-render' }
+      : { kind: 'none' }
+  }
+
+  return {
+    focus: true,
+    forceRender,
+    kind: 'repair-caret',
+    selectionSourceTransition: {
+      preferModelSelection: true,
+      reason: 'model-command',
+      selectionSource: 'model-owned',
+    },
+  }
+}
 
 const isPartialDOMStrategyRuntime = (domStrategyRuntime: unknown) =>
   typeof domStrategyRuntime === 'object' &&
   domStrategyRuntime !== null &&
   ((domStrategyRuntime as { type?: unknown }).type === 'partial-dom' ||
     (domStrategyRuntime as { type?: unknown }).type === 'virtualized')
+
+const getSelectionRoot = (selection: Range | null) => selection?.anchor.root
 
 export const shouldDeferBackspaceToNativeInput = ({
   isIOS = IS_IOS,
@@ -128,6 +185,9 @@ export const applyEditableKeyDown = ({
   domStrategyRuntime,
   onKeyDown,
   readOnly,
+  getActiveContentRootOwner,
+  getContentRootOwnerViewEditor,
+  getMountedViewEditor,
   setExplicitPartialDOMBackedSelection,
   setComposing,
   partialDOMBackedSelection,
@@ -140,6 +200,17 @@ export const applyEditableKeyDown = ({
   domStrategyRuntime: unknown
   onKeyDown?: EditableKeyDownHandler
   readOnly: boolean
+  getActiveContentRootOwner?: (root: RootKey) => {
+    childRoot: RootKey
+    ownerPath: Path
+    ownerRoot: RootKey
+  } | null
+  getContentRootOwnerViewEditor?: (owner: {
+    childRoot: RootKey
+    ownerPath: Path
+    ownerRoot: RootKey
+  }) => ReactRuntimeEditor | null
+  getMountedViewEditor?: (root: RootKey) => ReactRuntimeEditor | null
   setExplicitPartialDOMBackedSelection: (nextValue: boolean) => void
   setComposing: EditableCompositionStateSetter
   partialDOMBackedSelection: boolean
@@ -157,7 +228,9 @@ export const applyEditableKeyDown = ({
           editor,
         })
       ) {
-        return keyDownHandled(getModelOwnedHistoryRepair(editor))
+        return keyDownHandled(
+          getModelOwnedHistoryRepair({ editor, getMountedViewEditor })
+        )
       }
 
       return keyDownHandled()
@@ -173,7 +246,9 @@ export const applyEditableKeyDown = ({
           editor,
         })
       ) {
-        return keyDownHandled(getModelOwnedHistoryRepair(editor))
+        return keyDownHandled(
+          getModelOwnedHistoryRepair({ editor, getMountedViewEditor })
+        )
       }
 
       return keyDownHandled()
@@ -181,6 +256,19 @@ export const applyEditableKeyDown = ({
 
     event.stopPropagation()
     return keyDownHandled()
+  }
+
+  try {
+    if (
+      isNestedEditableDOMTarget(
+        ReactEditor.assertDOMNode(editor, editor),
+        event.target
+      )
+    ) {
+      return keyDownUnhandled()
+    }
+  } catch {
+    // Unit tests and unmounted editables can exercise the strategy without DOM.
   }
 
   if (!readOnly && ReactEditor.hasEditableTarget(editor, event.target)) {
@@ -200,6 +288,38 @@ export const applyEditableKeyDown = ({
     }
 
     const selection = readRuntimeSelection(editor)
+    const selectionRoot = getSelectionRoot(selection)
+    const viewRoot = editor.read((state) => state.view.root())
+
+    if (
+      selectionRoot &&
+      selectionRoot !== viewRoot &&
+      nativeEvent.key.length === 1 &&
+      !nativeEvent.altKey &&
+      !nativeEvent.ctrlKey &&
+      !nativeEvent.metaKey
+    ) {
+      const targetEditor = getMountedViewEditor?.(selectionRoot)
+
+      if (targetEditor) {
+        event.preventDefault()
+        applyEditableCommand({
+          command: {
+            inputType: 'insertText',
+            kind: 'insert-text',
+            text: nativeEvent.key,
+          },
+          editor: targetEditor,
+        })
+        targetEditor.api.dom.focus()
+        scheduleSlateReactFocus(() => {
+          targetEditor.api.dom.focus()
+        })
+
+        return keyDownHandled()
+      }
+    }
+
     const userKeyDownResult = applyUserKeyDownHandler({
       editor,
       event,
@@ -243,7 +363,9 @@ export const applyEditableKeyDown = ({
           editor,
         })
       ) {
-        return keyDownHandled(getModelOwnedHistoryRepair(editor))
+        return keyDownHandled(
+          getModelOwnedHistoryRepair({ editor, getMountedViewEditor })
+        )
       }
 
       return keyDownHandled()
@@ -258,7 +380,9 @@ export const applyEditableKeyDown = ({
           editor,
         })
       ) {
-        return keyDownHandled(getModelOwnedHistoryRepair(editor))
+        return keyDownHandled(
+          getModelOwnedHistoryRepair({ editor, getMountedViewEditor })
+        )
       }
 
       return keyDownHandled()
@@ -282,6 +406,21 @@ export const applyEditableKeyDown = ({
         },
         editor,
       })
+      return keyDownHandled()
+    }
+
+    const contentRootNavigationResult = applyContentRootNavigation({
+      editor,
+      event,
+      focusEditor: focusSlateEditable,
+      getActiveContentRootOwner,
+      getContentRootOwnerViewEditor,
+      getMountedViewEditor,
+      isRTL,
+      selection,
+    })
+
+    if (contentRootNavigationResult.handled) {
       return keyDownHandled()
     }
 

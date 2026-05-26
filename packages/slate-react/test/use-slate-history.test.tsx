@@ -4,12 +4,14 @@ import {
   render,
   renderHook,
   screen,
+  waitFor,
 } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import type { Descendant } from 'slate'
 
 import {
   createReactEditor,
+  Editable,
   Slate,
   useSlateHistory,
   useSlateRootEditor,
@@ -135,6 +137,63 @@ describe('useSlateHistory', () => {
 
     expect(editorText(headerEditor)).toBe('header')
     expect(document.activeElement).toBe(input)
+  })
+
+  test('restore-root focuses the active mounted copy of a shared root', async () => {
+    const editor = createReactEditor({
+      initialValue: {
+        roots: {
+          main: [paragraph('body')],
+          shared: [paragraph('shared')],
+        },
+      },
+    })
+    let sharedEditor!: ReturnType<typeof useSlateRootEditor>
+
+    const Controls = () => {
+      const history = useSlateHistory({
+        focusPolicy: 'restore-root',
+        root: 'shared',
+      })
+      sharedEditor = useSlateRootEditor('shared')
+
+      return (
+        <button onClick={history.undo} type="button">
+          Undo shared root
+        </button>
+      )
+    }
+
+    render(
+      <Slate editor={editor}>
+        <Controls />
+        <Editable aria-label="Shared first" root="shared" />
+        <Editable aria-label="Shared second" root="shared" />
+      </Slate>
+    )
+
+    const secondCopy = screen.getByLabelText('Shared second')
+
+    await act(async () => {
+      secondCopy.focus()
+      fireEvent.focus(secondCopy)
+    })
+
+    await act(async () => {
+      sharedEditor.update((tx) => {
+        tx.selection.set({ path: [0, 0], offset: 'shared'.length })
+        tx.text.insert('!')
+      })
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Undo shared root' }))
+    })
+
+    expect(editorText(sharedEditor)).toBe('shared')
+    await waitFor(() => {
+      expect(document.activeElement).toBe(secondCopy)
+    })
   })
 
   test('fixed-root availability follows sibling root history changes', async () => {

@@ -147,7 +147,8 @@ interface DOMCoverageRegistry {
   boundaryRootKeys: Map<string, Set<string>>
   boundariesByRootKey: Map<string, Set<string>>
   indexedVersion: number
-  materializeHandler: DOMCoverageMaterializeHandler | null
+  materializeHandlers: Map<number, DOMCoverageMaterializeHandler>
+  nextMaterializeHandlerId: number
 }
 
 const EDITOR_TO_DOM_COVERAGE_REGISTRY = new WeakMap<
@@ -164,7 +165,8 @@ const getRegistry = (editor: SlateEditor): DOMCoverageRegistry => {
       boundaryRootKeys: new Map(),
       boundariesByRootKey: new Map(),
       indexedVersion: getSnapshotVersion(editor),
-      materializeHandler: null,
+      materializeHandlers: new Map(),
+      nextMaterializeHandlerId: 1,
     }
     EDITOR_TO_DOM_COVERAGE_REGISTRY.set(editor, registry)
   }
@@ -539,7 +541,7 @@ export const DOMCoverage = {
   },
 
   clearMaterializeHandler(editor: SlateEditor) {
-    getRegistry(editor).materializeHandler = null
+    getRegistry(editor).materializeHandlers.clear()
   },
 
   getBoundaries(editor: SlateEditor): readonly DOMCoverageBoundary[] {
@@ -611,11 +613,14 @@ export const DOMCoverage = {
       return { boundaryId, reason, status: 'unhandled' }
     }
 
-    const didHandle = getRegistry(editor).materializeHandler?.(
-      boundary,
-      reason,
-      options
-    )
+    let didHandle = false
+
+    for (const handler of getRegistry(editor).materializeHandlers.values()) {
+      if (handler(boundary, reason, options)) {
+        didHandle = true
+        break
+      }
+    }
 
     return {
       boundaryId,
@@ -639,7 +644,24 @@ export const DOMCoverage = {
     editor: SlateEditor,
     handler: DOMCoverageMaterializeHandler
   ) {
-    getRegistry(editor).materializeHandler = handler
+    const registry = getRegistry(editor)
+
+    registry.materializeHandlers.clear()
+    registry.materializeHandlers.set(0, handler)
+  },
+
+  registerMaterializeHandler(
+    editor: SlateEditor,
+    handler: DOMCoverageMaterializeHandler
+  ) {
+    const registry = getRegistry(editor)
+    const handlerId = registry.nextMaterializeHandlerId++
+
+    registry.materializeHandlers.set(handlerId, handler)
+
+    return () => {
+      registry.materializeHandlers.delete(handlerId)
+    }
   },
 
   resolveDOMPointOrBoundary(

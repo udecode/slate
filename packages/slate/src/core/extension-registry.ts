@@ -66,6 +66,7 @@ const reservedStateGroupNames = new Set([
 const reservedTxGroupNames = new Set([
   ...reservedStateGroupNames,
   'normalize',
+  'roots',
   'withoutNormalizing',
 ])
 

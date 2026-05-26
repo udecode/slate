@@ -154,6 +154,43 @@ describe('keyboard input strategy', () => {
     isComposing.mockRestore()
   })
 
+  it('does not swallow printable keys for an unmounted selected root', () => {
+    const editor = createEditor({
+      initialSelection: {
+        anchor: { path: [0, 0], offset: 0, root: 'caption' },
+        focus: { path: [0, 0], offset: 0, root: 'caption' },
+      },
+      initialValue: [{ children: [{ text: 'main' }] }],
+    }) as ReactEditorType
+    const event = reactKeyEvent(keyEvent('a'))
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(false)
+
+    const result = applyEditableKeyDown({
+      androidInputManagerRef: { current: null },
+      editor,
+      event,
+      forceRender: vi.fn(),
+      getMountedViewEditor: () => null,
+      inputController: {} as any,
+      readOnly: false,
+      domStrategyRuntime: null,
+      setComposing: vi.fn(),
+      setExplicitPartialDOMBackedSelection: vi.fn(),
+      partialDOMBackedSelection: false,
+    })
+
+    expect(result.handled).toBe(false)
+    expect(event.preventDefault).not.toHaveBeenCalled()
+
+    hasEditableTarget.mockRestore()
+    isComposing.mockRestore()
+  })
+
   it('keeps DeleteForward direction in the Chrome/WebKit void-node fallback', async () => {
     vi.resetModules()
 

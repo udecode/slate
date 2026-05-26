@@ -341,6 +341,71 @@ describe('DOM coverage private boundary harness', () => {
     ).toEqual({ offset: 0, path: [2, 0] })
   })
 
+  test('renderElement slots expose contentBoundary with optional ids and object materialization payload', async () => {
+    const editor = createReactEditor()
+    const materialized: string[] = []
+
+    Editor.replace(editor, {
+      children: createHeaderFooterChildren(),
+      selection: null,
+    })
+
+    render(
+      <Slate editor={editor}>
+        <Editable
+          id="dom-coverage-content-boundary-slot"
+          renderElement={({ children, element, slots }) => {
+            if (element.type === 'header') {
+              return (
+                <slots.contentBoundary
+                  mounted={false}
+                  onMaterialize={({ boundary, range, reason }) => {
+                    materialized.push(
+                      `${boundary.boundaryId}:${reason}:${range ? Editor.string(editor, range) : 'no-range'}`
+                    )
+                  }}
+                  scope={{ type: 'self' }}
+                >
+                  Header hidden by slot
+                </slots.contentBoundary>
+              )
+            }
+
+            return <EditableElement>{children}</EditableElement>
+          }}
+        />
+      </Slate>
+    )
+
+    let boundaryId = ''
+
+    await waitFor(() => {
+      const [boundary] = DOMCoverage.getBoundaries(editor).filter(
+        (candidate) =>
+          candidate.ownerPath.length === 1 && candidate.ownerPath[0] === 0
+      )
+
+      expect(boundary).toMatchObject({
+        coveredPathRanges: [{ anchor: [0], focus: [0] }],
+      })
+      boundaryId = boundary!.boundaryId
+    })
+
+    expect(boundaryId).toMatch(/^content-boundary:/)
+
+    const range = {
+      anchor: { offset: 0, path: [0, 0] },
+      focus: { offset: 'Hidden header'.length, path: [0, 0] },
+    }
+
+    expect(
+      DOMCoverage.materializeBoundary(editor, boundaryId, 'selection', {
+        range,
+      })
+    ).toMatchObject({ status: 'handled' })
+    expect(materialized).toEqual([`${boundaryId}:selection:Hidden header`])
+  })
+
   test('renderElement slots expose one unstable boundary adapter for child ranges and self coverage', async () => {
     const editor = createReactEditor()
 
