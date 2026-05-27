@@ -8,6 +8,7 @@ import {
   useEditor,
   useSlateEditor,
 } from 'slate-react'
+import { Input } from '@/components/ui/input'
 import type {
   CustomEditor,
   CustomElement,
@@ -140,8 +141,8 @@ interface UrlInputProps {
 const UrlInput = ({ url, onChange }: UrlInputProps) => {
   const [value, setValue] = React.useState(url)
   return (
-    <input
-      className="slate-embeds-url-input"
+    <Input
+      className="mt-[5px]"
       onChange={(e: ChangeEvent<HTMLInputElement>) => {
         const newUrl = e.target.value
         setValue(newUrl)

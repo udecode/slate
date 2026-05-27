@@ -4282,6 +4282,21 @@ const setSelectionWithHandle = async (
     }
   )
 
+const selectAllWithHandle = async (root: Locator) =>
+  root.evaluate(
+    (element: HTMLElement, { key }: { key: string }) => {
+      const handle = (element as Record<string, any>)[key]
+
+      if (!handle?.selectAll) {
+        return false
+      }
+
+      handle.selectAll()
+      return true
+    },
+    { key: SLATE_BROWSER_HANDLE_KEY }
+  )
+
 const setSelection = async (root: Locator, selection: SelectionSnapshot) => {
   await root.evaluate((element: HTMLElement, expected) => {
     const textNodes = Array.from(
@@ -4783,8 +4798,15 @@ const createEditorHarness = (
       unref: async (bookmark: SelectionBookmark) =>
         unrefSelectionBookmark(root, bookmark),
       selectAll: async () => {
-        await harness.focus()
-        await page.keyboard.press('ControlOrMeta+A')
+        const selectedWithHandle =
+          (await waitForSelectionHandle(root)) &&
+          (await selectAllWithHandle(root))
+
+        if (!selectedWithHandle) {
+          await harness.focus()
+          await page.keyboard.press('ControlOrMeta+A')
+        }
+
         await waitForSelectionSync(root)
       },
       get: async () => takeSelectionSnapshotForRoot(root),

@@ -21,6 +21,7 @@ import {
   useSlateWidgets,
 } from 'slate-react'
 
+import { Button } from '@/components/ui/button'
 import { cn } from '@/utils/cn'
 
 import { Instruction } from './components'
@@ -243,22 +244,22 @@ const WriterPane = ({ editor }: { editor: CommentEditor }) => {
       </div>
       <CommentedEditable id="comment-mode-document" />
       <div className="slate-comment-mode-controls">
-        <button
-          className="slate-comment-mode-button"
+        <Button
           disabled={!firstAnnotation?.range}
           onClick={insertPrefixBeforeFirstComment}
           type="button"
+          variant="outline"
         >
           Insert prefix before first comment
-        </button>
-        <button
-          className="slate-comment-mode-button"
+        </Button>
+        <Button
           disabled={!firstAnnotation?.range}
           onClick={insertParagraphBeforeFirstComment}
           type="button"
+          variant="outline"
         >
           Insert paragraph before first comment
-        </button>
+        </Button>
         <span className="slate-comment-mode-code">
           selection:{formatRange(selection)}
         </span>
@@ -446,56 +447,52 @@ const CommentModePane = ({
       </div>
       <CommentedEditable id="comment-mode" readOnly />
       <div className="slate-comment-mode-controls">
-        <button
-          className="slate-comment-mode-button"
+        <Button
           disabled={isCollapsed(selection)}
           onClick={addComment}
           onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
             event.preventDefault()
           }}
           type="button"
+          variant="outline"
         >
           Add comment on selection
-        </button>
-        <button
-          className="slate-comment-mode-button"
-          onClick={seedComment}
-          type="button"
-        >
+        </Button>
+        <Button onClick={seedComment} type="button" variant="outline">
           Seed example comment
-        </button>
-        <button
-          className="slate-comment-mode-button"
+        </Button>
+        <Button
           disabled={comments.length === 0}
           onClick={retoneFirstComment}
           type="button"
+          variant="outline"
         >
           Retone first comment
-        </button>
-        <button
-          className="slate-comment-mode-button"
+        </Button>
+        <Button
           disabled={comments.length === 0}
           onClick={updateFirstCommentBody}
           type="button"
+          variant="outline"
         >
           Update first comment
-        </button>
-        <button
-          className="slate-comment-mode-button"
+        </Button>
+        <Button
           disabled={comments.length === 0}
           onClick={toggleFirstCommentStatus}
           type="button"
+          variant="outline"
         >
           Toggle resolved
-        </button>
-        <button
-          className="slate-comment-mode-button"
+        </Button>
+        <Button
           disabled={comments.length === 0}
           onClick={clearComments}
           type="button"
+          variant="outline"
         >
           Clear comments
-        </button>
+        </Button>
         <span className="slate-comment-mode-code" id="comment-mode-selection">
           selection:{formatRange(selection)}
         </span>
@@ -532,13 +529,13 @@ const CommentModePane = ({
                 <span className="slate-comment-mode-code">
                   range:{formatRange(annotation.range)}
                 </span>
-                <button
-                  className="slate-comment-mode-button"
+                <Button
                   onClick={() => removeComment(annotation.id)}
                   type="button"
+                  variant="outline"
                 >
                   Remove comment
-                </button>
+                </Button>
               </div>
             )
           })

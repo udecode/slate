@@ -6,6 +6,8 @@ import {
   Slate,
   useSlateEditor,
 } from 'slate-react'
+import { Label } from '@/components/ui/label'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 
 interface AndroidTestCase {
   id: string
@@ -213,16 +215,20 @@ const AndroidTestsExample = () => {
 
   return (
     <>
-      <label>
-        Test case:{' '}
-        <select onChange={(e) => setTestId(e.target.value)} value={testId}>
+      <div className="flex items-center gap-2">
+        <Label htmlFor="android-test-case">Test case:</Label>
+        <NativeSelect
+          id="android-test-case"
+          onChange={(e) => setTestId(e.target.value)}
+          value={testId}
+        >
           {TEST_CASES.map(({ name, id }) => (
-            <option key={id} value={id}>
+            <NativeSelectOption key={id} value={id}>
               {name}
-            </option>
+            </NativeSelectOption>
           ))}
-        </select>
-      </label>
+        </NativeSelect>
+      </div>
 
       <p className="slate-android-tests-instructions">
         {testCase.instructions}

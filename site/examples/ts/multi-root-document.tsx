@@ -11,6 +11,10 @@ import {
   useSlateRootState,
   useStateFieldValue,
 } from 'slate-react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 const documentTitle = defineStateField({
   key: 'document.title',
@@ -62,9 +66,13 @@ const RootStatus = ({ id, root }: { id: string; root: string }) => {
   const text = useSlateRootState(root, rootText)
 
   return (
-    <span className="slate-multi-root-document-badge" id={id}>
+    <Badge
+      className="max-w-full justify-start truncate font-mono"
+      id={id}
+      variant="default"
+    >
       {root}:{text}
-    </span>
+    </Badge>
   )
 }
 
@@ -127,39 +135,38 @@ const MultiRootPanel = () => {
   return (
     <div className="slate-multi-root-document-page">
       <div className="slate-multi-root-document-top-bar">
-        <label className="slate-multi-root-document-title-label">
+        <Label className="slate-multi-root-document-title-label">
           Document title
-          <input
+          <Input
             aria-label="Document title"
-            className="slate-multi-root-document-title-input"
             onChange={onTitleChange}
             onKeyDown={titleHistory.onKeyDown}
             value={title}
           />
-        </label>
-        <button
-          className="slate-multi-root-document-button"
+        </Label>
+        <Button
           onClick={() => setTitle('Board Review Draft')}
           type="button"
+          variant="outline"
         >
           Set review title
-        </button>
-        <button
-          className="slate-multi-root-document-button"
+        </Button>
+        <Button
           disabled={!history.canUndo}
           onClick={history.undo}
           type="button"
+          variant="outline"
         >
           Undo document change
-        </button>
-        <button
-          className="slate-multi-root-document-button"
+        </Button>
+        <Button
           disabled={!history.canRedo}
           onClick={history.redo}
           type="button"
+          variant="outline"
         >
           Redo document change
-        </button>
+        </Button>
       </div>
       <div className="slate-multi-root-document-document">
         <RootEditor
@@ -182,15 +189,20 @@ const MultiRootPanel = () => {
         />
       </div>
       <div className="slate-multi-root-document-status">
-        <span className="slate-multi-root-document-badge" id="multi-root-title">
+        <Badge
+          className="max-w-full justify-start truncate font-mono"
+          id="multi-root-title"
+          variant="default"
+        >
           title:{title}
-        </span>
-        <span
-          className="slate-multi-root-document-badge"
+        </Badge>
+        <Badge
+          className="max-w-full justify-start truncate font-mono"
           id="multi-root-commit"
+          variant="default"
         >
           {commitSummary}
-        </span>
+        </Badge>
       </div>
     </div>
   )

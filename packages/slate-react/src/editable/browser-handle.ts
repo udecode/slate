@@ -69,6 +69,7 @@ export type SlateBrowserHandle = {
   insertText: (text: string) => void
   redo: () => void
   resolveRangeRef: (id: string) => Range | null
+  selectAll: () => void
   selectRange: (selection: Range) => void
   setViewSelection: (
     selection: {
@@ -348,6 +349,9 @@ export const attachSlateBrowserHandle = ({
             },
           }
         : null
+    },
+    selectAll: () => {
+      runCommand({ kind: 'select-all' })
     },
     selectRange: (selection) => {
       setEditableModelSelectionPreference({

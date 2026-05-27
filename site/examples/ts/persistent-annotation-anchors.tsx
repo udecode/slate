@@ -10,6 +10,8 @@ import {
   useSlateWidgets,
 } from 'slate-react'
 
+import { Button } from '@/components/ui/button'
+
 import { Instruction } from './components'
 
 const createChildren = (left = 'alpha', right = 'beta'): Value => [
@@ -329,8 +331,7 @@ const AnchoredProjectionContent = ({
       </Instruction>
 
       <div className="slate-persistent-annotation-anchors-controls">
-        <button
-          className="slate-persistent-annotation-anchors-button"
+        <Button
           disabled={!!annotation}
           id="add-anchor"
           onClick={() => {
@@ -350,11 +351,11 @@ const AnchoredProjectionContent = ({
             )
           }}
           type="button"
+          variant="outline"
         >
           Add anchor
-        </button>
-        <button
-          className="slate-persistent-annotation-anchors-button"
+        </Button>
+        <Button
           id="insert-fragment"
           onClick={() => {
             const path = getLeafPathByText(editor, (text) =>
@@ -380,11 +381,11 @@ const AnchoredProjectionContent = ({
             })
           }}
           type="button"
+          variant="outline"
         >
           Insert fragment before anchor
-        </button>
-        <button
-          className="slate-persistent-annotation-anchors-button"
+        </Button>
+        <Button
           id="insert-prefix"
           onClick={() => {
             const at = getPointBeforeText(editor, 'alpha')
@@ -396,11 +397,11 @@ const AnchoredProjectionContent = ({
             })
           }}
           type="button"
+          variant="outline"
         >
           Insert prefix
-        </button>
-        <button
-          className="slate-persistent-annotation-anchors-button"
+        </Button>
+        <Button
           disabled={!annotation}
           id="clear-anchor"
           onClick={() => {
@@ -410,9 +411,10 @@ const AnchoredProjectionContent = ({
             })
           }}
           type="button"
+          variant="outline"
         >
           Clear anchor
-        </button>
+        </Button>
       </div>
 
       <Outline />

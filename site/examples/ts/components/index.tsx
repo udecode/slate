@@ -2,6 +2,7 @@ import type React from 'react'
 import type { ReactNode } from 'react'
 import ReactDOM from 'react-dom'
 
+import { Button as ShadcnButton } from '@/components/ui/button'
 import { cn } from '@/utils/cn'
 
 type ButtonProps = React.ComponentPropsWithRef<'button'> & {
@@ -20,7 +21,7 @@ export const Button = ({
   ref,
   ...props
 }: ButtonProps) => (
-  <button
+  <ShadcnButton
     {...props}
     className={cn(
       'slate-example-button',
@@ -29,6 +30,8 @@ export const Button = ({
       className
     )}
     ref={ref}
+    size="icon"
+    variant={active ? 'secondary' : 'ghost'}
   />
 )
 

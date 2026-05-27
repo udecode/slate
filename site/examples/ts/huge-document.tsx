@@ -19,6 +19,17 @@ import {
   useElementSelected,
 } from 'slate-react'
 
+import { Button } from '@/components/ui/button'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Switch } from '@/components/ui/switch'
+
 const SUPPORTS_EVENT_TIMING =
   typeof window !== 'undefined' && 'PerformanceEventTiming' in window
 
@@ -402,36 +413,39 @@ const PerformanceControls = ({
 
   return (
     <div className="performance-controls">
-      <p>
-        <label>
-          Blocks:{' '}
-          <select
-            onChange={(event) =>
-              setConfig({
-                blocks: Number.parseInt(event.target.value, 10),
-              })
-            }
-            value={config.blocks}
-          >
-            {blocksOptions.map((blocks) => (
-              <option key={blocks} value={blocks}>
-                {blocks.toString().replace(/(\d{3})$/, ',$1')}
-              </option>
-            ))}
-          </select>
-        </label>
-      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Label htmlFor="huge-document-blocks">Blocks:</Label>
+        <NativeSelect
+          id="huge-document-blocks"
+          onChange={(event) =>
+            setConfig({
+              blocks: Number.parseInt(event.target.value, 10),
+            })
+          }
+          value={config.blocks}
+        >
+          {blocksOptions.map((blocks) => (
+            <NativeSelectOption key={blocks} value={blocks}>
+              {blocks.toString().replace(/(\d{3})$/, ',$1')}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      </div>
 
-      <details
-        onToggle={(event) => setConfigurationOpen(event.currentTarget.open)}
-        open={configurationOpen}
-      >
-        <summary>Configuration</summary>
+      <Collapsible onOpenChange={setConfigurationOpen} open={configurationOpen}>
+        <CollapsibleTrigger asChild>
+          <Button type="button" variant="ghost">
+            Configuration
+          </Button>
+        </CollapsibleTrigger>
 
-        <p>
-          <label>
-            Set <code>content-visibility: auto</code> on:{' '}
-            <select
+        <CollapsibleContent>
+          <div className="flex flex-wrap items-center gap-2">
+            <Label htmlFor="huge-document-content-visibility">
+              Set <code>content-visibility: auto</code> on:
+            </Label>
+            <NativeSelect
+              id="huge-document-content-visibility"
               onChange={(event) =>
                 setConfig({
                   contentVisibilityMode: toContentVisibilityMode(
@@ -441,16 +455,15 @@ const PerformanceControls = ({
               }
               value={config.contentVisibilityMode}
             >
-              <option value="none">None</option>
-              <option value="element">Elements</option>
-            </select>
-          </label>
-        </p>
+              <NativeSelectOption value="none">None</NativeSelectOption>
+              <NativeSelectOption value="element">Elements</NativeSelectOption>
+            </NativeSelect>
+          </div>
 
-        <p>
-          <label>
-            DOM strategy:{' '}
-            <select
+          <div className="flex flex-wrap items-center gap-2">
+            <Label htmlFor="huge-document-dom-strategy">DOM strategy:</Label>
+            <NativeSelect
+              id="huge-document-dom-strategy"
               onChange={(event) =>
                 setConfig({
                   domStrategyMode: event.target
@@ -459,20 +472,21 @@ const PerformanceControls = ({
               }
               value={config.domStrategyMode}
             >
-              <option value="auto">Auto</option>
-              <option value="full">Full</option>
-              <option value="staged">Staged</option>
-              <option value="virtualized">Virtualized</option>
-            </select>
-          </label>
-        </p>
+              <NativeSelectOption value="auto">Auto</NativeSelectOption>
+              <NativeSelectOption value="full">Full</NativeSelectOption>
+              <NativeSelectOption value="staged">Staged</NativeSelectOption>
+              <NativeSelectOption value="virtualized">
+                Virtualized
+              </NativeSelectOption>
+            </NativeSelect>
+          </div>
 
-        {config.domStrategyMode === 'virtualized' && (
-          <>
-            <p>
-              <label>
-                Overscan:{' '}
-                <input
+          {config.domStrategyMode === 'virtualized' && (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Label htmlFor="huge-document-overscan">Overscan:</Label>
+                <Input
+                  id="huge-document-overscan"
                   min={0}
                   onChange={(event) =>
                     setConfig({
@@ -485,13 +499,12 @@ const PerformanceControls = ({
                   type="number"
                   value={config.domStrategyOverscan}
                 />
-              </label>
-            </p>
+              </div>
 
-            <p>
-              <label>
-                Threshold:{' '}
-                <input
+              <div className="flex flex-wrap items-center gap-2">
+                <Label htmlFor="huge-document-threshold">Threshold:</Label>
+                <Input
+                  id="huge-document-threshold"
                   min={1}
                   onChange={(event) =>
                     setConfig({
@@ -504,17 +517,18 @@ const PerformanceControls = ({
                   type="number"
                   value={config.domStrategyThreshold}
                 />
-              </label>
-            </p>
-          </>
-        )}
+              </div>
+            </>
+          )}
 
-        {config.domStrategyMode === 'virtualized' && (
-          <>
-            <p>
-              <label>
-                Estimated block size:{' '}
-                <input
+          {config.domStrategyMode === 'virtualized' && (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Label htmlFor="huge-document-estimated-block-size">
+                  Estimated block size:
+                </Label>
+                <Input
+                  id="huge-document-estimated-block-size"
                   min={1}
                   onChange={(event) =>
                     setConfig({
@@ -527,13 +541,14 @@ const PerformanceControls = ({
                   type="number"
                   value={config.virtualizedEstimatedBlockSize}
                 />
-              </label>
-            </p>
+              </div>
 
-            <p>
-              <label>
-                Editor height:{' '}
-                <input
+              <div className="flex flex-wrap items-center gap-2">
+                <Label htmlFor="huge-document-editor-height">
+                  Editor height:
+                </Label>
+                <Input
+                  id="huge-document-editor-height"
                   min={120}
                   onChange={(event) =>
                     setConfig({
@@ -543,121 +558,127 @@ const PerformanceControls = ({
                   type="number"
                   value={config.editorHeight}
                 />
-              </label>
-            </p>
-          </>
-        )}
+              </div>
+            </>
+          )}
 
-        <p>
-          <label>
-            <input
+          <div className="flex flex-wrap items-center gap-2">
+            <Switch
               checked={config.showSelectedHeadings}
-              onChange={(event) =>
+              id="huge-document-show-selected-headings"
+              onCheckedChange={(checked) =>
                 setConfig({
-                  showSelectedHeadings: event.target.checked,
+                  showSelectedHeadings: checked,
                 })
               }
-              type="checkbox"
-            />{' '}
-            Call <code>useElementSelected</code> in each heading
-          </label>
-        </p>
+            />
+            <Label htmlFor="huge-document-show-selected-headings">
+              Call <code>useElementSelected</code> in each heading
+            </Label>
+          </div>
 
-        <p>
-          <label>
-            <input
+          <div className="flex flex-wrap items-center gap-2">
+            <Switch
               checked={config.strictMode}
-              onChange={(event) =>
+              id="huge-document-strict-mode"
+              onCheckedChange={(checked) =>
                 setConfig({
-                  strictMode: event.target.checked,
+                  strictMode: checked,
                 })
               }
-              type="checkbox"
-            />{' '}
-            React strict mode (only works in localhost)
-          </label>
-        </p>
-      </details>
+            />
+            <Label htmlFor="huge-document-strict-mode">
+              React strict mode (only works in localhost)
+            </Label>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
 
-      <details>
-        <summary>Statistics</summary>
+      <Collapsible>
+        <CollapsibleTrigger asChild>
+          <Button type="button" variant="ghost">
+            Statistics
+          </Button>
+        </CollapsibleTrigger>
 
-        <p>
-          Last keypress (ms):{' '}
-          {SUPPORTS_EVENT_TIMING
-            ? (lastKeyPressDuration ?? '-')
-            : 'Not supported'}
-        </p>
+        <CollapsibleContent>
+          <p>
+            Last keypress (ms):{' '}
+            {SUPPORTS_EVENT_TIMING
+              ? (lastKeyPressDuration ?? '-')
+              : 'Not supported'}
+          </p>
 
-        <p>
-          Average of last 10 keypresses (ms):{' '}
-          {SUPPORTS_EVENT_TIMING
-            ? (averageKeyPressDuration ?? '-')
-            : 'Not supported'}
-        </p>
+          <p>
+            Average of last 10 keypresses (ms):{' '}
+            {SUPPORTS_EVENT_TIMING
+              ? (averageKeyPressDuration ?? '-')
+              : 'Not supported'}
+          </p>
 
-        <p>
-          Last long animation frame (ms):{' '}
-          {SUPPORTS_LOAF_TIMING
-            ? (lastLongAnimationFrameDuration ?? '-')
-            : 'Not supported'}
-        </p>
+          <p>
+            Last long animation frame (ms):{' '}
+            {SUPPORTS_LOAF_TIMING
+              ? (lastLongAnimationFrameDuration ?? '-')
+              : 'Not supported'}
+          </p>
 
-        <p>
-          Requested DOM strategy:{' '}
-          <output data-test-id="huge-document-requested-strategy">
-            {formatMetric(domStrategyMetrics?.requestedStrategy)}
-          </output>
-        </p>
+          <p>
+            Requested DOM strategy:{' '}
+            <output data-test-id="huge-document-requested-strategy">
+              {formatMetric(domStrategyMetrics?.requestedStrategy)}
+            </output>
+          </p>
 
-        <p>
-          Effective DOM strategy:{' '}
-          <output data-test-id="huge-document-effective-strategy">
-            {formatMetric(domStrategyMetrics?.effectiveStrategy)}
-          </output>
-        </p>
+          <p>
+            Effective DOM strategy:{' '}
+            <output data-test-id="huge-document-effective-strategy">
+              {formatMetric(domStrategyMetrics?.effectiveStrategy)}
+            </output>
+          </p>
 
-        <p>
-          Mounted top-level blocks:{' '}
-          <output data-test-id="huge-document-mounted-top-level-count">
-            {formatMetric(domStrategyMetrics?.mountedTopLevelCount)}
-          </output>
-        </p>
+          <p>
+            Mounted top-level blocks:{' '}
+            <output data-test-id="huge-document-mounted-top-level-count">
+              {formatMetric(domStrategyMetrics?.mountedTopLevelCount)}
+            </output>
+          </p>
 
-        <p>
-          Pending top-level blocks:{' '}
-          <output data-test-id="huge-document-pending-top-level-count">
-            {formatMetric(domStrategyMetrics?.pendingTopLevelCount)}
-          </output>
-        </p>
+          <p>
+            Pending top-level blocks:{' '}
+            <output data-test-id="huge-document-pending-top-level-count">
+              {formatMetric(domStrategyMetrics?.pendingTopLevelCount)}
+            </output>
+          </p>
 
-        <p>
-          DOM coverage boundaries:{' '}
-          <output data-test-id="huge-document-dom-coverage-boundary-count">
-            {formatMetric(domStrategyMetrics?.domCoverageBoundaryCount)}
-          </output>
-        </p>
+          <p>
+            DOM coverage boundaries:{' '}
+            <output data-test-id="huge-document-dom-coverage-boundary-count">
+              {formatMetric(domStrategyMetrics?.domCoverageBoundaryCount)}
+            </output>
+          </p>
 
-        <p>
-          DOM nodes:{' '}
-          <output data-test-id="huge-document-dom-node-count">
-            {formatMetric(domStrategyMetrics?.domNodeCount)}
-          </output>
-        </p>
+          <p>
+            DOM nodes:{' '}
+            <output data-test-id="huge-document-dom-node-count">
+              {formatMetric(domStrategyMetrics?.domNodeCount)}
+            </output>
+          </p>
 
-        <p>
-          Virtualized viewport boundaries:{' '}
-          <output data-test-id="huge-document-viewport-boundary-count">
-            {formatMetric(
-              domStrategyMetrics?.viewportVirtualizationBoundaryCount
-            )}
-          </output>
-        </p>
+          <p>
+            Virtualized viewport boundaries:{' '}
+            <output data-test-id="huge-document-viewport-boundary-count">
+              {formatMetric(
+                domStrategyMetrics?.viewportVirtualizationBoundaryCount
+              )}
+            </output>
+          </p>
 
-        {SUPPORTS_EVENT_TIMING && lastKeyPressDuration === null && (
-          <p>Events shorter than 16ms may not be detected.</p>
-        )}
-      </details>
+          {SUPPORTS_EVENT_TIMING && lastKeyPressDuration === null && (
+            <p>Events shorter than 16ms may not be detected.</p>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   )
 }

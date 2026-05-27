@@ -10,6 +10,7 @@ import {
   useSlateRangeDecorationSource,
 } from 'slate-react'
 
+import { Input } from '@/components/ui/input'
 import { cn } from '@/utils/cn'
 
 import { Icon, Toolbar } from './components'
@@ -60,8 +61,8 @@ const SearchHighlightingExample = () => {
       <Toolbar>
         <div className="slate-search-highlighting-box">
           <Icon className="slate-search-highlighting-icon">search</Icon>
-          <input
-            className="slate-search-highlighting-input"
+          <Input
+            className="pl-10"
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search the text..."
             type="search"

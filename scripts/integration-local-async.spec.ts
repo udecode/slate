@@ -1,6 +1,9 @@
+import { createServer } from 'node:net'
+
 import {
   commandKeyFor,
   extractFailuresFromPlaywrightReport,
+  findAvailablePort,
   getRunReuseDecision,
   renderFailuresMarkdown,
   renderPickupMarkdown,
@@ -104,6 +107,35 @@ describe('integration-local async failure summaries', () => {
       passthrough: ['--project=chromium'],
       targets: ['playwright/integration'],
     })
+  })
+
+  test('skips ports that are already bound', async () => {
+    const server = createServer()
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve)
+    })
+
+    const address = server.address()
+    if (!address || typeof address === 'string') {
+      throw new Error('Expected server to listen on a TCP port')
+    }
+
+    try {
+      await expect(findAvailablePort(address.port)).resolves.not.toBe(
+        address.port
+      )
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error)
+          } else {
+            resolve()
+          }
+        })
+      })
+    }
   })
 
   test('renders pickup guidance for failed runs', () => {

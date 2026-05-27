@@ -10,6 +10,11 @@ import {
   useSlateEditor,
   useStateFieldValue,
 } from 'slate-react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 
 const documentTitle = defineStateField({
   key: 'document.title',
@@ -75,10 +80,6 @@ const DocumentStatePanel = () => {
 
   const updateTitle = (event: ChangeEvent<HTMLInputElement>) => {
     setTitle(event.currentTarget.value)
-  }
-
-  const updateSpellcheck = (event: ChangeEvent<HTMLInputElement>) => {
-    setSpellcheckEnabled(event.currentTarget.checked)
   }
 
   const restoreTitleFocus = () => {
@@ -163,74 +164,68 @@ const DocumentStatePanel = () => {
   return (
     <div className="slate-document-state-panel">
       <div className="slate-document-state-top-bar">
-        <label className="slate-document-state-title-label">
+        <Label className="slate-document-state-title-label">
           Document title
-          <input
+          <Input
             aria-label="Document title"
-            className="slate-document-state-title-input"
             onChange={updateTitle}
             onKeyDown={handleTitleKeyDown}
             ref={titleInputRef}
             value={title}
           />
-        </label>
-        <label className="slate-document-state-toggle-label">
-          <input
+        </Label>
+        <span className="slate-document-state-toggle-label">
+          <Switch
             aria-label="Enable spellcheck"
             checked={spellcheckEnabled}
-            onChange={updateSpellcheck}
-            type="checkbox"
+            id="document-state-spellcheck-toggle"
+            onCheckedChange={(checked) => {
+              setSpellcheckEnabled(Boolean(checked))
+            }}
           />
-          Spellcheck
-        </label>
+          <Label htmlFor="document-state-spellcheck-toggle">Spellcheck</Label>
+        </span>
       </div>
       <div className="slate-document-state-controls">
-        <button
-          className="slate-document-state-button"
+        <Button
           onClick={() => setTitle('Q3 Launch Brief')}
           type="button"
+          variant="outline"
         >
           Set Q3 title
-        </button>
-        <button
-          className="slate-document-state-button"
+        </Button>
+        <Button
           onClick={() => {
             editor.update((tx) => tx.history.undo())
           }}
           type="button"
+          variant="outline"
         >
           Undo document change
-        </button>
-        <button
-          className="slate-document-state-button"
+        </Button>
+        <Button
           onClick={() => {
             editor.update((tx) => tx.history.redo())
           }}
           type="button"
+          variant="outline"
         >
           Redo document change
-        </button>
-        <button
-          className="slate-document-state-button"
-          onClick={receiveRemoteTitle}
-          type="button"
-        >
+        </Button>
+        <Button onClick={receiveRemoteTitle} type="button" variant="outline">
           Receive remote title
-        </button>
+        </Button>
       </div>
       <div className="slate-document-state-status">
-        <span className="slate-document-state-code" id="document-state-title">
+        <Badge id="document-state-title" variant="default">
           title:{title}
-        </span>
-        <span
-          className="slate-document-state-code"
-          id="document-state-spellcheck"
-        >
+        </Badge>
+        <Badge id="document-state-spellcheck" variant="default">
           spellcheck:{spellcheckEnabled ? 'on' : 'off'}
-        </span>
-        <span className="slate-document-state-code" id="document-state-commit">
+        </Badge>
+        <Badge id="document-state-commit" variant="default">
           {commitSummary}
-        </span>
+        </Badge>
       </div>
       <div
         className="slate-document-state-editor-surface"

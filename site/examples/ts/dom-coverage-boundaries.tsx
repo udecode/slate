@@ -8,6 +8,7 @@ import {
   Slate,
   useSlateEditor,
 } from 'slate-react'
+import { Button } from '@/components/ui/button'
 
 const hiddenBodyPath = [2, 1, 0]
 
@@ -187,21 +188,53 @@ const DomCoverageBoundariesExample = () => {
   return (
     <div className="slate-dom-coverage-page">
       <div className="slate-dom-coverage-toolbar">
-        <button onClick={() => setHeaderHidden((value) => !value)}>
+        <Button
+          onClick={() => setHeaderHidden((value) => !value)}
+          type="button"
+          variant="outline"
+        >
           Header
-        </button>
-        <button onClick={() => setOuterHidden((value) => !value)}>Outer</button>
-        <button onClick={() => setInnerHidden((value) => !value)}>
+        </Button>
+        <Button
+          onClick={() => setOuterHidden((value) => !value)}
+          type="button"
+          variant="outline"
+        >
+          Outer
+        </Button>
+        <Button
+          onClick={() => setInnerHidden((value) => !value)}
+          type="button"
+          variant="outline"
+        >
           Nested
-        </button>
-        <button onClick={() => setDeepHidden((value) => !value)}>Deep</button>
-        <button onClick={() => setFooterHidden((value) => !value)}>
+        </Button>
+        <Button
+          onClick={() => setDeepHidden((value) => !value)}
+          type="button"
+          variant="outline"
+        >
+          Deep
+        </Button>
+        <Button
+          onClick={() => setFooterHidden((value) => !value)}
+          type="button"
+          variant="outline"
+        >
           Footer
-        </button>
-        <button onClick={updateHiddenBody}>Update hidden body</button>
-        <button onClick={selectHiddenBody}>Select hidden body</button>
-        <button onClick={selectAll}>Select all</button>
-        <button onClick={copySelection}>Copy</button>
+        </Button>
+        <Button onClick={updateHiddenBody} type="button" variant="outline">
+          Update hidden body
+        </Button>
+        <Button onClick={selectHiddenBody} type="button" variant="outline">
+          Select hidden body
+        </Button>
+        <Button onClick={selectAll} type="button" variant="outline">
+          Select all
+        </Button>
+        <Button onClick={copySelection} type="button" variant="outline">
+          Copy
+        </Button>
       </div>
 
       <div className="slate-dom-coverage-editor-wrap">

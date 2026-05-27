@@ -46,6 +46,11 @@ import {
   useSlateEditor,
 } from 'slate-react'
 
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Separator } from '@/components/ui/separator'
+import { Switch } from '@/components/ui/switch'
 import { cn } from '@/utils/cn'
 
 const pageSettings = defineStateField<SlatePageSettings>({
@@ -746,21 +751,23 @@ const PaginationSurface = () => {
     <div className="slate-pagination-shell">
       <div className="slate-pagination-toolbar">
         <div className="slate-pagination-toolbar-group">
-          <label className="slate-pagination-label">
-            Preset
-            <select
-              className="slate-pagination-input"
+          <span className="slate-pagination-label">
+            <Label htmlFor="pagination-preset">Preset</Label>
+            <NativeSelect
+              className="w-24"
+              id="pagination-preset"
               onChange={updatePreset}
               value={settings.preset}
             >
-              <option value="a4">A4</option>
-              <option value="letter">Letter</option>
-            </select>
-          </label>
-          <label className="slate-pagination-label">
-            Margins
-            <input
-              className="slate-pagination-input"
+              <NativeSelectOption value="a4">A4</NativeSelectOption>
+              <NativeSelectOption value="letter">Letter</NativeSelectOption>
+            </NativeSelect>
+          </span>
+          <span className="slate-pagination-label">
+            <Label htmlFor="pagination-margins">Margins</Label>
+            <Input
+              className="w-20"
+              id="pagination-margins"
               min={48}
               onChange={updateMargins}
               step={12}
@@ -771,34 +778,39 @@ const PaginationSurface = () => {
                   : settings.margins.top
               }
             />
-          </label>
-          <label className="slate-pagination-label">
-            DOM strategy
-            <select
-              className="slate-pagination-input"
+          </span>
+          <span className="slate-pagination-label">
+            <Label htmlFor="pagination-dom-strategy">DOM strategy</Label>
+            <NativeSelect
+              className="w-32"
+              id="pagination-dom-strategy"
               onChange={updateDOMStrategy}
               value={domStrategyMode}
             >
-              <option value="staged">Staged</option>
-              <option value="full">Full</option>
-              <option value="virtualized">Virtualized</option>
-            </select>
-          </label>
-          <label className="slate-pagination-label">
-            Rows
-            <input
-              className="slate-pagination-input"
+              <NativeSelectOption value="staged">Staged</NativeSelectOption>
+              <NativeSelectOption value="full">Full</NativeSelectOption>
+              <NativeSelectOption value="virtualized">
+                Virtualized
+              </NativeSelectOption>
+            </NativeSelect>
+          </span>
+          <span className="slate-pagination-label">
+            <Label htmlFor="pagination-rows">Rows</Label>
+            <Input
+              className="w-24"
+              id="pagination-rows"
               max={MAX_TABLE_ROWS}
               min={8}
               onChange={updateTableRows}
               type="number"
               value={tableRows}
             />
-          </label>
-          <label className="slate-pagination-label">
-            Row px
-            <input
-              className="slate-pagination-input"
+          </span>
+          <span className="slate-pagination-label">
+            <Label htmlFor="pagination-row-height">Row px</Label>
+            <Input
+              className="w-20"
+              id="pagination-row-height"
               max={120}
               min={28}
               onChange={updateTableRowHeight}
@@ -806,11 +818,12 @@ const PaginationSurface = () => {
               type="number"
               value={tableRowHeight}
             />
-          </label>
-          <label className="slate-pagination-label">
-            Media px
-            <input
-              className="slate-pagination-input"
+          </span>
+          <span className="slate-pagination-label">
+            <Label htmlFor="pagination-media-height">Media px</Label>
+            <Input
+              className="w-24"
+              id="pagination-media-height"
               max={MAX_MEDIA_HEIGHT}
               min={120}
               onChange={updateMediaHeight}
@@ -818,47 +831,38 @@ const PaginationSurface = () => {
               type="number"
               value={mediaHeight}
             />
-          </label>
-          <label className="slate-pagination-label">
-            Media split
-            <select
-              className="slate-pagination-input"
+          </span>
+          <span className="slate-pagination-label">
+            <Label htmlFor="pagination-media-split">Media split</Label>
+            <NativeSelect
+              className="w-24"
+              id="pagination-media-split"
               onChange={updateMediaSplit}
               value={mediaSplit}
             >
-              <option value="avoid">Avoid</option>
-              <option value="page">Page</option>
-            </select>
-          </label>
+              <NativeSelectOption value="avoid">Avoid</NativeSelectOption>
+              <NativeSelectOption value="page">Page</NativeSelectOption>
+            </NativeSelect>
+          </span>
         </div>
         <div className="slate-pagination-toolbar-group">
-          <span className="slate-pagination-toolbar-separator" />
+          <Separator className="h-6" orientation="vertical" />
           <span className="slate-pagination-switch-group">
             Facing
-            <button
-              aria-checked={pageLayoutMode === 'spread'}
+            <Switch
               aria-label="Facing"
-              className="slate-pagination-switch"
-              onClick={togglePageLayoutMode}
-              role="switch"
-              type="button"
-            >
-              <span className="slate-pagination-switch-thumb" />
-            </button>
+              checked={pageLayoutMode === 'spread'}
+              onCheckedChange={() => togglePageLayoutMode()}
+            />
           </span>
-          <span className="slate-pagination-toolbar-separator" />
+          <Separator className="h-6" orientation="vertical" />
           <span className="slate-pagination-switch-group">
             Debug
-            <button
-              aria-checked={debugFrames}
+            <Switch
               aria-label="Debug"
-              className="slate-pagination-switch"
-              onClick={() => setDebugFrames((value) => !value)}
-              role="switch"
-              type="button"
-            >
-              <span className="slate-pagination-switch-thumb" />
-            </button>
+              checked={debugFrames}
+              onCheckedChange={setDebugFrames}
+            />
           </span>
         </div>
       </div>

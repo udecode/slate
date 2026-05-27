@@ -265,7 +265,7 @@ const runCommand = async (runId, command, args, options = {}) => {
   return { exitCode, stderr, stdout }
 }
 
-const findAvailablePort = async (startPort = 3111) => {
+export const findAvailablePort = async (startPort = 3111) => {
   for (let port = startPort; port < startPort + 200; port += 1) {
     const available = await new Promise((resolve) => {
       const server = createServer()
@@ -273,7 +273,7 @@ const findAvailablePort = async (startPort = 3111) => {
       server.once('listening', () => {
         server.close(() => resolve(true))
       })
-      server.listen(port, '127.0.0.1')
+      server.listen(port)
     })
 
     if (available) return port
@@ -303,9 +303,12 @@ const waitForUrl = async (url, timeoutMs = 60_000) => {
 }
 
 const startServer = async (runId, port) => {
-  await appendLog(runId, `\n$ PORT=${port} bun serve:playwright\n`)
+  await appendLog(
+    runId,
+    `\n$ PORT=${port} node ./scripts/serve-playwright.mjs\n`
+  )
 
-  const child = spawn('bun', ['serve:playwright'], {
+  const child = spawn(process.execPath, ['./scripts/serve-playwright.mjs'], {
     cwd: repoRoot,
     env: {
       ...process.env,
@@ -314,17 +317,61 @@ const startServer = async (runId, port) => {
     stdio: ['ignore', 'pipe', 'pipe'],
   })
 
-  child.stdout.on('data', (chunk) => {
-    void appendLog(runId, chunk.toString())
-  })
-  child.stderr.on('data', (chunk) => {
-    void appendLog(runId, chunk.toString())
+  const ready = new Promise((resolve, reject) => {
+    let settled = false
+    let output = ''
+    const timeout = setTimeout(() => {
+      if (settled) return
+      settled = true
+      reject(
+        new Error(
+          `Timed out waiting for Playwright server on port ${port} to start`
+        )
+      )
+    }, 60_000)
+
+    const finish = (callback) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      callback()
+    }
+
+    child.stdout.on('data', (chunk) => {
+      const text = chunk.toString()
+      output += text
+      void appendLog(runId, text)
+
+      if (text.includes('Playwright server listening')) {
+        finish(resolve)
+      }
+    })
+
+    child.stderr.on('data', (chunk) => {
+      const text = chunk.toString()
+      output += text
+      void appendLog(runId, text)
+    })
+
+    child.once('error', (error) => {
+      finish(() => reject(error))
+    })
+
+    child.once('exit', (code) => {
+      void appendLog(runId, `\n[server exit ${code ?? 1}]\n`)
+      finish(() =>
+        reject(
+          new Error(
+            `Playwright server exited before listening on port ${port} with code ${code ?? 1}${
+              output.trim() ? `\n${output.trim()}` : ''
+            }`
+          )
+        )
+      )
+    })
   })
 
-  child.on('exit', (code) => {
-    void appendLog(runId, `\n[server exit ${code ?? 1}]\n`)
-  })
-
+  await ready
   await waitForUrl(`http://localhost:${port}`)
 
   return child
@@ -333,15 +380,23 @@ const startServer = async (runId, port) => {
 const stopServer = async (child) => {
   if (!child || child.killed) return
 
+  const exited = new Promise((resolve) =>
+    child.once('exit', () => resolve(true))
+  )
+
   child.kill('SIGTERM')
 
-  await Promise.race([
-    new Promise((resolve) => child.once('exit', resolve)),
+  const didExit = await Promise.race([
+    exited,
     new Promise((resolve) => setTimeout(resolve, 3000)),
   ])
 
-  if (!child.killed && isProcessRunning(child.pid)) {
+  if (!didExit && isProcessRunning(child.pid)) {
     child.kill('SIGKILL')
+    await Promise.race([
+      exited,
+      new Promise((resolve) => setTimeout(resolve, 1000)),
+    ])
   }
 }
 

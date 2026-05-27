@@ -10,6 +10,7 @@ import {
   useSlateEditor,
   useSlateRangeDecorationSource,
 } from 'slate-react'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/utils/cn'
 import { Instruction } from './components'
 
@@ -216,35 +217,27 @@ const LintingPanel = ({
         external source changes.
       </Instruction>
       <div className="slate-linting-controls">
-        <button
-          className="slate-linting-button"
-          onClick={runLocalLint}
-          type="button"
-        >
+        <Button onClick={runLocalLint} type="button" variant="outline">
           Run linter
-        </button>
-        <button
-          className="slate-linting-button"
+        </Button>
+        <Button
           disabled={!diagnostics.some((diagnostic) => diagnostic.data.fixText)}
           onClick={applyFirstFix}
           type="button"
+          variant="outline"
         >
           Apply first fix
-        </button>
-        <button
-          className="slate-linting-button"
+        </Button>
+        <Button
           onClick={receiveServerDiagnostics}
           type="button"
+          variant="outline"
         >
           Receive server diagnostics
-        </button>
-        <button
-          className="slate-linting-button"
-          onClick={clearDiagnostics}
-          type="button"
-        >
+        </Button>
+        <Button onClick={clearDiagnostics} type="button" variant="outline">
           Clear diagnostics
-        </button>
+        </Button>
       </div>
       <div className="slate-linting-status">
         <span className="slate-linting-code" id="linting-source">

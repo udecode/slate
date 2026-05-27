@@ -26,6 +26,7 @@ import {
   useSlateEditor,
   useSlateRangeDecorationSource,
 } from 'slate-react'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { cn } from '@/utils/cn'
 import { Button, Icon, Toolbar } from './components'
 import type {
@@ -599,31 +600,31 @@ const isSamePath = (path: readonly number[], another: readonly number[]) =>
   path.every((segment, index) => segment === another[index])
 
 interface LanguageSelectProps
-  extends React.SelectHTMLAttributes<HTMLSelectElement> {
+  extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'size'> {
   value?: string
   onChange: (event: ChangeEvent<HTMLSelectElement>) => void
 }
 
 const LanguageSelect = (props: LanguageSelectProps) => {
   return (
-    <select
-      className="slate-code-highlighting-language-select"
+    <NativeSelect
+      className="absolute top-[5px] right-[5px] z-10"
       contentEditable={false}
       data-test-id="language-select"
       {...props}
     >
-      <option value="css">CSS</option>
-      <option value="html">HTML</option>
-      <option value="java">Java</option>
-      <option value="javascript">JavaScript</option>
-      <option value="jsx">JSX</option>
-      <option value="markdown">Markdown</option>
-      <option value="php">PHP</option>
-      <option value="python">Python</option>
-      <option value="sql">SQL</option>
-      <option value="tsx">TSX</option>
-      <option value="typescript">TypeScript</option>
-    </select>
+      <NativeSelectOption value="css">CSS</NativeSelectOption>
+      <NativeSelectOption value="html">HTML</NativeSelectOption>
+      <NativeSelectOption value="java">Java</NativeSelectOption>
+      <NativeSelectOption value="javascript">JavaScript</NativeSelectOption>
+      <NativeSelectOption value="jsx">JSX</NativeSelectOption>
+      <NativeSelectOption value="markdown">Markdown</NativeSelectOption>
+      <NativeSelectOption value="php">PHP</NativeSelectOption>
+      <NativeSelectOption value="python">Python</NativeSelectOption>
+      <NativeSelectOption value="sql">SQL</NativeSelectOption>
+      <NativeSelectOption value="tsx">TSX</NativeSelectOption>
+      <NativeSelectOption value="typescript">TypeScript</NativeSelectOption>
+    </NativeSelect>
   )
 }
 
