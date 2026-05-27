@@ -65,6 +65,7 @@ const HISTORY = new WeakMap<Editor, History>()
 const SAVING = new WeakMap<Editor, boolean | undefined>()
 const MERGING = new WeakMap<Editor, boolean | undefined>()
 const SPLITTING_ONCE = new WeakMap<Editor, boolean | undefined>()
+const WORD_INSERTION_TEXT = /^[\p{L}\p{N}_]+$/u
 
 const getHistory = <V extends Value>(editor: Editor<V>): History<V> => {
   let history = HISTORY.get(editor) as History<V> | undefined
@@ -399,10 +400,123 @@ const shouldMergeBatch = (
         getOperationRoot(operation) === previousRoot
     )
 
-  return saveableOperations.length === 1
-    ? previousBatchIsTextOnly &&
-        shouldMerge(saveableOperations[0]!, previousOperation)
-    : false
+  if (saveableOperations.length !== 1) {
+    return false
+  }
+
+  const operation = saveableOperations[0]!
+
+  if (previousBatchIsTextOnly && shouldMerge(operation, previousOperation)) {
+    return true
+  }
+
+  if (
+    shouldMergeInsertIntoTextReplacementBatch(
+      operation,
+      previousOperation,
+      previousSaveableOperations
+    )
+  ) {
+    return true
+  }
+
+  if (
+    shouldMergeWordInsertIntoSplitStartedBatch(
+      operation,
+      previousOperation,
+      previousSaveableOperations
+    )
+  ) {
+    return true
+  }
+
+  return shouldMergeInsertIntoSplitBatch(operation, previousSaveableOperations)
+}
+
+const isWordInsertionText = (text: string) => WORD_INSERTION_TEXT.test(text)
+
+const shouldMergeInsertIntoTextReplacementBatch = (
+  operation: Operation,
+  previousOperation: Operation | undefined,
+  previousOperations: readonly Operation[]
+) => {
+  if (
+    operation.type !== 'insert_text' ||
+    previousOperation?.type !== 'insert_text' ||
+    !shouldMerge(operation, previousOperation)
+  ) {
+    return false
+  }
+
+  const firstReplacementInsert = previousOperations.find(
+    (previous) =>
+      previous.type === 'insert_text' &&
+      getOperationRoot(previous) === getOperationRoot(operation) &&
+      PathApi.equals(previous.path, operation.path)
+  )
+
+  if (
+    !firstReplacementInsert ||
+    firstReplacementInsert.type !== 'insert_text'
+  ) {
+    return false
+  }
+
+  return previousOperations.some(
+    (previous) =>
+      previous.type === 'remove_text' &&
+      getOperationRoot(previous) === getOperationRoot(operation) &&
+      previous.offset === firstReplacementInsert.offset &&
+      PathApi.equals(previous.path, firstReplacementInsert.path)
+  )
+}
+
+const hasSplitOperation = (operations: readonly Operation[]) =>
+  operations.some((operation) => operation.type === 'split_node')
+
+const shouldMergeWordInsertIntoSplitStartedBatch = (
+  operation: Operation,
+  previousOperation: Operation | undefined,
+  previousOperations: readonly Operation[]
+) =>
+  operation.type === 'insert_text' &&
+  previousOperation?.type === 'insert_text' &&
+  shouldMerge(operation, previousOperation) &&
+  isWordInsertionText(operation.text) &&
+  isWordInsertionText(previousOperation.text) &&
+  hasSplitOperation(previousOperations)
+
+const shouldMergeInsertIntoSplitBatch = (
+  operation: Operation,
+  previousOperations: readonly Operation[]
+): boolean => {
+  if (operation.type !== 'insert_text' || operation.offset !== 0) {
+    return false
+  }
+
+  const operationRoot = getOperationRoot(operation)
+
+  return previousOperations.some((previousOperation) => {
+    if (
+      previousOperation.type !== 'split_node' ||
+      getOperationRoot(previousOperation) !== operationRoot
+    ) {
+      return false
+    }
+
+    const splitIndex = previousOperation.path.at(-1)
+
+    if (splitIndex == null) {
+      return false
+    }
+
+    const insertedPath = [
+      ...previousOperation.path.slice(0, -1),
+      splitIndex + 1,
+    ]
+
+    return PathApi.isAncestor(insertedPath, operation.path)
+  })
 }
 
 const shouldSave = (op: Operation): boolean => {

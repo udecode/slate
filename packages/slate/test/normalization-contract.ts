@@ -4,6 +4,20 @@ import { Editor, getEditorRuntime } from 'slate/internal'
 import { createEditor, type Descendant } from '../src'
 
 describe('slate normalization contract', () => {
+  it('repairs an empty editor root with an empty block', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [],
+      selection: null,
+      marks: null,
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      { children: [{ text: '' }] },
+    ])
+  })
+
   it('repairs an empty block with an empty text child', () => {
     const editor = createEditor()
 

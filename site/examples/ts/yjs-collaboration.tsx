@@ -677,28 +677,46 @@ const toggleBlock = (editor: Editor, format: BlockFormat) => {
   })
 }
 
+const relativeElementStyle = { position: 'relative' } as const
+
 const Element = ({ attributes, children, element }: RenderElementProps) => {
   switch ((element as { type?: string }).type) {
     case 'heading-one':
-      return <h1 {...attributes}>{children}</h1>
+      return (
+        <h1 {...attributes} style={relativeElementStyle}>
+          {children}
+        </h1>
+      )
     case 'heading-two':
-      return <h2 {...attributes}>{children}</h2>
+      return (
+        <h2 {...attributes} style={relativeElementStyle}>
+          {children}
+        </h2>
+      )
     case 'block-quote':
-      return <blockquote {...attributes}>{children}</blockquote>
+      return (
+        <blockquote {...attributes} style={relativeElementStyle}>
+          {children}
+        </blockquote>
+      )
     case 'numbered-list':
       return (
-        <ol {...attributes}>
+        <ol {...attributes} style={relativeElementStyle}>
           <li>{children}</li>
         </ol>
       )
     case 'bulleted-list':
       return (
-        <ul {...attributes}>
+        <ul {...attributes} style={relativeElementStyle}>
           <li>{children}</li>
         </ul>
       )
     default:
-      return <p {...attributes}>{children}</p>
+      return (
+        <p {...attributes} style={relativeElementStyle}>
+          {children}
+        </p>
+      )
   }
 }
 
@@ -940,6 +958,7 @@ const PeerPanel = ({
           data-test-id={`${testPrefix}-undo`}
           disabled={!history.canUndo}
           onClick={undo}
+          onMouseDown={(event) => event.preventDefault()}
           type="button"
         >
           Undo
@@ -949,6 +968,7 @@ const PeerPanel = ({
           data-test-id={`${testPrefix}-redo`}
           disabled={!history.canRedo}
           onClick={redo}
+          onMouseDown={(event) => event.preventDefault()}
           type="button"
         >
           Redo

@@ -1,7 +1,7 @@
 ---
 title: Rebase Slate history offsets after Yjs reconnect merges
 date: 2026-05-25
-last_updated: 2026-05-25
+last_updated: 2026-05-26
 category: runtime-errors
 module: slate-yjs
 problem_type: runtime_error
@@ -11,10 +11,11 @@ symptoms:
   - The disconnected peer's Undo button stayed enabled
   - Clicking Undo threw a Slate remove_text offset mismatch error
   - Remote snapshot replacement left an enabled local Undo for deleted text
+  - Remote snapshot replacement left an enabled local Undo for deleted marks
 root_cause: async_timing
 resolution_type: code_fix
 severity: high
-tags: [slate-yjs, slate-history, yjs, reconnect, playwright]
+tags: [slate-yjs, slate-history, yjs, reconnect, playwright, marks]
 ---
 
 # Rebase Slate history offsets after Yjs reconnect merges
@@ -35,6 +36,9 @@ removed before UI subscribers read history availability.
 - Peer A appends `Ada`, Peer B replaces the document with
   `Lin canonical snapshot.`, and Peer A's Undo remains enabled even though the
   `Ada` insertion no longer exists.
+- Peer B disconnects, marks the first word bold, Peer A replaces the document,
+  and Peer B reconnects with Undo still enabled. Clicking Undo can throw
+  `Cannot read properties of undefined (reading 'text')`.
 
 ## What Didn't Work
 - Routing the Undo button through Slate history fixed the button/API mismatch,
@@ -91,6 +95,26 @@ if (text == null || nextOffset === null) {
 }
 ```
 
+The same repair pass must validate non-text operations that replay against text
+leaves. A partial mark creates `set_node` history, often surrounded by split
+operations. When a remote replace deletes that marked leaf, the path can still
+transform to some node, but the inverse `set_node` no longer has its expected
+precondition. Drop the batch when the replay operation's `properties` do not
+match the current node:
+
+```ts
+const replayOperation =
+  mode === 'undo' ? OperationApi.inverse(operation) : operation
+
+if (!node || !propertiesMatch(node, replayOperation.properties)) {
+  stack.splice(index, 1)
+}
+```
+
+Do not drop a whole batch just because a text-level `split_node` inverse merge
+target is missing. Paragraph splits can contain text splits whose undo remains
+valid through the element-level merge.
+
 ## Why This Works
 Yjs resolves concurrent disconnected appends by producing a converged document,
 but Slate history stores concrete path/offset operations. When remote text is
@@ -104,6 +128,13 @@ coordinate to repair. Keeping that batch enabled can only produce a no-op or a
 Slate operation error. Removing the stale batch is the correct user-history
 semantics.
 
+For mark history, Slate `set_node` operations do not validate old properties
+during apply. That makes path validity insufficient: replaying an inverse mark
+operation against a replacement leaf can either no-op or mutate the wrong text.
+Checking the replay operation's expected `properties` against the converged node
+turns stale mark history into a disabled Undo state before the user can trigger
+the bad replay.
+
 The repair must run in the `onCommit` window, after history has rebased the
 remote skipped commit and before runtime subscribers read history state. Running
 it after `editor.update(...)` is too late for `useSlateHistory`.
@@ -116,10 +147,15 @@ remote peer's append does not become undoable by the reconnecting peer.
   reconnect -> local Undo.
 - Add Playwright coverage for local append -> remote replace -> local Undo
   disabled with no `pageerror`.
+- Add Playwright coverage for offline mark -> remote replace -> reconnect ->
+  local Undo disabled with no `pageerror`.
 - Treat enabled-but-no-op Undo after reconnect as stale history state, not a
   button state bug.
 - Preserve operation-level replay before falling back to full snapshot
   replacement when text changes can be expressed as Slate ops.
+- Validate replay preconditions for non-text history operations before pruning
+  structural history broadly; text-level split operations can be part of a valid
+  paragraph undo batch.
 
 ## Related Issues
 - `docs/solutions/ui-bugs/yjs-user-history-button-routing-2026-05-25.md`

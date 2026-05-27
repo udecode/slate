@@ -19,6 +19,7 @@ import * as Y from 'yjs'
 const ELEMENT_NODE_NAME = 'slate-element'
 const EMPTY_TEXT_ATTRIBUTES = 'slate:empty-text-attributes'
 const DELETED_ATTRIBUTE = 'slate:deleted'
+const DELETED_IF_EMPTY_ATTRIBUTE = 'if-empty'
 const TEXT_LEAVES_ATTRIBUTE = 'slate:text-leaves'
 const VERSION_ATTRIBUTE = 'slate:version'
 const STACK_OPERATIONS = 'slate-yjs-operations'
@@ -135,6 +136,11 @@ type YjsTextDeltaEntry = {
   insert?: unknown
 }
 
+type YjsTextLeafDeltaEntry = {
+  attributes?: Record<string, unknown>
+  insert: string
+}
+
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 
 const hasOwn = (value: object, key: string) => Object.hasOwn(value, key)
@@ -161,7 +167,7 @@ const getEditorSnapshot = (editor: Editor) =>
     selection: clone(state.selection.get()) as Selection,
   }))
 
-const getTextNode = (
+const getNode = (
   value: Value,
   path: readonly number[]
 ): Record<string, unknown> | null => {
@@ -175,7 +181,16 @@ const getTextNode = (
     node = node.children[index]
   }
 
-  return TextApi.isText(node) ? (node as Record<string, unknown>) : null
+  return isRecord(node) ? node : null
+}
+
+const getTextNode = (
+  value: Value,
+  path: readonly number[]
+): Record<string, unknown> | null => {
+  const node = getNode(value, path)
+
+  return TextApi.isText(node) ? node : null
 }
 
 const getNodeAttributes = (node: Record<string, unknown>) => {
@@ -190,16 +205,56 @@ const getNodeAttributes = (node: Record<string, unknown>) => {
   return attributes
 }
 
+const hasSlateText = (node: unknown): boolean => {
+  if (!isRecord(node)) {
+    return false
+  }
+
+  if (typeof node.text === 'string') {
+    return node.text.length > 0
+  }
+
+  if (!Array.isArray(node.children)) {
+    return false
+  }
+
+  return node.children.some((child) => hasSlateText(child))
+}
+
 const isYjsXmlElement = (value: unknown): value is Y.XmlElement =>
   value instanceof Y.XmlElement
 
 const isYjsXmlText = (value: unknown): value is Y.XmlText =>
   value instanceof Y.XmlText
 
+const hasVisibleYjsText = (node: Y.XmlElement | Y.XmlText): boolean => {
+  if (isYjsXmlText(node)) {
+    return node.length > 0
+  }
+
+  return node.toArray().some((child) => {
+    if (!isYjsXmlElement(child) && !isYjsXmlText(child)) {
+      return false
+    }
+
+    const deleted = child.getAttribute(DELETED_ATTRIBUTE)
+
+    if (deleted === true || deleted === 'true') {
+      return false
+    }
+
+    return hasVisibleYjsText(child)
+  })
+}
+
 const isYjsDeleted = (node: Y.XmlElement | Y.XmlText) => {
   const value = node.getAttribute(DELETED_ATTRIBUTE)
 
-  return value === true || value === 'true'
+  return (
+    value === true ||
+    value === 'true' ||
+    (value === DELETED_IF_EMPTY_ATTRIBUTE && !hasVisibleYjsText(node))
+  )
 }
 
 const getYjsAttributes = (node: Y.XmlElement | Y.XmlText) => {
@@ -231,9 +286,10 @@ const createTextLeafMetadata = (
     }
   })
 
-const createYjsText = (leaves: Record<string, unknown>[]) => {
-  const sharedText = new Y.XmlText()
-  const delta = leaves
+const createYjsTextLeafDelta = (
+  leaves: Record<string, unknown>[]
+): YjsTextLeafDeltaEntry[] =>
+  leaves
     .filter((leaf) => typeof leaf.text === 'string' && leaf.text.length > 0)
     .map((leaf) => {
       const attributes = getNodeAttributes(leaf)
@@ -242,6 +298,10 @@ const createYjsText = (leaves: Record<string, unknown>[]) => {
         ? { insert: leaf.text as string, attributes }
         : { insert: leaf.text as string }
     })
+
+const createYjsText = (leaves: Record<string, unknown>[]) => {
+  const sharedText = new Y.XmlText()
+  const delta = createYjsTextLeafDelta(leaves)
 
   if (delta.length > 0) {
     sharedText.applyDelta(delta, { sanitize: false })
@@ -357,7 +417,435 @@ const isTextLeafMetadataList = (value: unknown): value is TextLeafMetadata[] =>
       (entry.attributes === undefined || isRecord(entry.attributes))
   )
 
-const readYjsText = (sharedText: Y.XmlText): SlateTextLeafRecord[] => {
+const recordsEqual = (
+  left: Record<string, unknown>,
+  right: Record<string, unknown>
+) => {
+  const leftKeys = Object.keys(left)
+
+  return (
+    leftKeys.length === Object.keys(right).length &&
+    leftKeys.every(
+      (key) => hasOwn(right, key) && Object.is(left[key], right[key])
+    )
+  )
+}
+
+const metadataCrossesDeltaAttributeChanges = (
+  deltaSpans: Array<{
+    attributes: Record<string, unknown>
+    end: number
+    start: number
+  }>,
+  metadata: TextLeafMetadata[]
+) => {
+  let metadataOffset = 0
+  let spanIndex = 0
+
+  for (const entry of metadata) {
+    const start = metadataOffset
+    const end = start + entry.length
+
+    metadataOffset = end
+
+    while (
+      spanIndex < deltaSpans.length &&
+      deltaSpans[spanIndex]!.end <= start
+    ) {
+      spanIndex++
+    }
+
+    let cursor = spanIndex
+    let attributes: Record<string, unknown> | null = null
+
+    while (cursor < deltaSpans.length && deltaSpans[cursor]!.start < end) {
+      const span = deltaSpans[cursor]!
+      const sliceStart = Math.max(start, span.start)
+      const sliceEnd = Math.min(end, span.end)
+
+      if (sliceStart < sliceEnd) {
+        if (attributes && !recordsEqual(attributes, span.attributes)) {
+          return true
+        }
+        attributes = span.attributes
+      }
+
+      cursor++
+    }
+  }
+
+  return false
+}
+
+const getMetadataControlledAttributeKeys = (
+  deltaSpans: Array<{
+    attributes: Record<string, unknown>
+    end: number
+    start: number
+  }>,
+  metadata: TextLeafMetadata[]
+) => {
+  const metadataKeys = new Set(
+    metadata.flatMap((entry) =>
+      entry.attributes ? Object.keys(entry.attributes) : []
+    )
+  )
+  const deltaKeyCounts = new Map<string, number>()
+  const metadataValueMismatches = new Set<string>()
+  let metadataOffset = 0
+  let nonEmptyEntries = 0
+  let spanIndex = 0
+
+  for (const entry of metadata) {
+    const start = metadataOffset
+    const end = start + entry.length
+
+    metadataOffset = end
+
+    if (entry.length === 0) {
+      continue
+    }
+
+    nonEmptyEntries++
+
+    while (
+      spanIndex < deltaSpans.length &&
+      deltaSpans[spanIndex]!.end <= start
+    ) {
+      spanIndex++
+    }
+
+    let cursor = spanIndex
+    const deltaKeyCoverage = new Map<string, number>()
+    const deltaKeyConflicts = new Set<string>()
+    const deltaKeyValues = new Map<string, unknown>()
+
+    while (cursor < deltaSpans.length && deltaSpans[cursor]!.start < end) {
+      const span = deltaSpans[cursor]!
+      const sliceStart = Math.max(start, span.start)
+      const sliceEnd = Math.min(end, span.end)
+
+      if (sliceStart < sliceEnd) {
+        const length = sliceEnd - sliceStart
+
+        for (const key of Object.keys(span.attributes)) {
+          deltaKeyCoverage.set(key, (deltaKeyCoverage.get(key) ?? 0) + length)
+          if (
+            deltaKeyValues.has(key) &&
+            !Object.is(deltaKeyValues.get(key), span.attributes[key])
+          ) {
+            deltaKeyConflicts.add(key)
+          } else {
+            deltaKeyValues.set(key, span.attributes[key])
+          }
+        }
+      }
+
+      cursor++
+    }
+
+    for (const [key, length] of deltaKeyCoverage) {
+      if (length === entry.length && !deltaKeyConflicts.has(key)) {
+        deltaKeyCounts.set(key, (deltaKeyCounts.get(key) ?? 0) + 1)
+
+        if (
+          entry.attributes &&
+          hasOwn(entry.attributes, key) &&
+          !Object.is(entry.attributes[key], deltaKeyValues.get(key))
+        ) {
+          metadataValueMismatches.add(key)
+        }
+      }
+    }
+  }
+
+  return new Set(
+    [...metadataKeys].filter(
+      (key) =>
+        deltaKeyCounts.get(key) === nonEmptyEntries &&
+        !metadataValueMismatches.has(key)
+    )
+  )
+}
+
+const getDeltaControlledAttributeKeys = (
+  deltaSpans: Array<{
+    attributes: Record<string, unknown>
+    end: number
+    start: number
+  }>,
+  metadata: TextLeafMetadata[]
+) => {
+  const metadataKeyCounts = new Map<string, number>()
+  const deltaKeyCounts = new Map<string, number>()
+  let metadataOffset = 0
+  let nonEmptyEntries = 0
+  let spanIndex = 0
+
+  for (const entry of metadata) {
+    const start = metadataOffset
+    const end = start + entry.length
+
+    metadataOffset = end
+
+    if (entry.length === 0) {
+      continue
+    }
+
+    nonEmptyEntries++
+
+    for (const key of Object.keys(entry.attributes ?? {})) {
+      metadataKeyCounts.set(key, (metadataKeyCounts.get(key) ?? 0) + 1)
+    }
+
+    while (
+      spanIndex < deltaSpans.length &&
+      deltaSpans[spanIndex]!.end <= start
+    ) {
+      spanIndex++
+    }
+
+    let cursor = spanIndex
+    const deltaKeys = new Set<string>()
+
+    while (cursor < deltaSpans.length && deltaSpans[cursor]!.start < end) {
+      const span = deltaSpans[cursor]!
+      const sliceStart = Math.max(start, span.start)
+      const sliceEnd = Math.min(end, span.end)
+
+      if (sliceStart < sliceEnd) {
+        for (const key of Object.keys(span.attributes)) {
+          deltaKeys.add(key)
+        }
+      }
+
+      cursor++
+    }
+
+    for (const key of deltaKeys) {
+      deltaKeyCounts.set(key, (deltaKeyCounts.get(key) ?? 0) + 1)
+    }
+  }
+
+  return new Set(
+    [...metadataKeyCounts.entries()]
+      .filter(([, count]) => count === nonEmptyEntries)
+      .flatMap(([key]) => {
+        const deltaCount = deltaKeyCounts.get(key) ?? 0
+
+        return deltaCount < nonEmptyEntries &&
+          (deltaCount > 0 || nonEmptyEntries > 1)
+          ? [key]
+          : []
+      })
+  )
+}
+
+const getNullMetadataFallbackAttributes = (
+  metadataAttributes: Record<string, unknown>,
+  deltaAttributes: Record<string, unknown>
+) =>
+  Object.fromEntries(
+    Object.entries(metadataAttributes).filter(
+      ([key, value]) => value === null && !hasOwn(deltaAttributes, key)
+    )
+  )
+
+const getMetadataFallbackAttributes = (
+  metadataAttributes: Record<string, unknown>,
+  deltaAttributes: Record<string, unknown>,
+  metadataControlledAttributeKeys: Set<string>
+) =>
+  Object.fromEntries(
+    Object.entries(metadataAttributes).filter(
+      ([key, value]) =>
+        metadataControlledAttributeKeys.has(key) ||
+        (value === null && !hasOwn(deltaAttributes, key))
+    )
+  )
+
+const readYjsTextWithMetadata = (
+  delta: YjsTextDeltaEntry[],
+  metadata: TextLeafMetadata[],
+  plainText: string,
+  preferDeltaMetadata: boolean
+): SlateTextLeafRecord[] => {
+  const deltaSpans: Array<{
+    attributes: Record<string, unknown>
+    end: number
+    start: number
+    text: string
+  }> = []
+  let deltaOffset = 0
+
+  for (const entry of delta) {
+    if (typeof entry.insert !== 'string') {
+      continue
+    }
+
+    const text = entry.insert
+    const start = deltaOffset
+
+    deltaOffset += text.length
+    deltaSpans.push({
+      attributes: isRecord(entry.attributes) ? clone(entry.attributes) : {},
+      end: deltaOffset,
+      start,
+      text,
+    })
+  }
+
+  const preferDeltaAttributes = metadataCrossesDeltaAttributeChanges(
+    deltaSpans,
+    metadata
+  )
+  const metadataControlledAttributeKeys = getMetadataControlledAttributeKeys(
+    deltaSpans,
+    metadata
+  )
+  const deltaControlledAttributeKeys = preferDeltaMetadata
+    ? getDeltaControlledAttributeKeys(deltaSpans, metadata)
+    : new Set<string>()
+  const leaves: SlateTextLeafRecord[] = []
+  let metadataOffset = 0
+  let spanIndex = 0
+
+  for (const entry of metadata) {
+    const metadataAttributes = entry.attributes ? clone(entry.attributes) : {}
+    const start = metadataOffset
+    const end = start + entry.length
+
+    metadataOffset = end
+
+    if (entry.length === 0) {
+      leaves.push({
+        ...metadataAttributes,
+        text: '',
+      })
+      continue
+    }
+
+    while (
+      spanIndex < deltaSpans.length &&
+      deltaSpans[spanIndex]!.end <= start
+    ) {
+      spanIndex++
+    }
+
+    let cursor = spanIndex
+    const overlapSlices: Array<{
+      attributes: Record<string, unknown>
+      isPartialSpan: boolean
+      text: string
+    }> = []
+
+    while (cursor < deltaSpans.length && deltaSpans[cursor]!.start < end) {
+      const span = deltaSpans[cursor]!
+      const sliceStart = Math.max(start, span.start)
+      const sliceEnd = Math.min(end, span.end)
+
+      if (sliceStart < sliceEnd) {
+        overlapSlices.push({
+          attributes: span.attributes,
+          isPartialSpan: sliceStart !== span.start || sliceEnd !== span.end,
+          text: span.text.slice(sliceStart - span.start, sliceEnd - span.start),
+        })
+      }
+
+      cursor++
+    }
+
+    if (overlapSlices.length === 0) {
+      leaves.push({
+        ...metadataAttributes,
+        text: plainText.slice(start, end),
+      })
+      continue
+    }
+
+    const metadataOnlyAttributes =
+      !preferDeltaMetadata &&
+      overlapSlices.length === 1 &&
+      Object.keys(overlapSlices[0]!.attributes).length === 0 &&
+      Object.keys(metadataAttributes).length > 0
+    const useMetadataAttributes =
+      !preferDeltaAttributes &&
+      (metadata.length > 1 ||
+        metadataOnlyAttributes ||
+        overlapSlices.length > 1 ||
+        overlapSlices.some((slice) => slice.isPartialSpan))
+
+    if (useMetadataAttributes) {
+      const deltaAttributes = Object.fromEntries(
+        Object.entries(overlapSlices[0]?.attributes ?? {}).filter(
+          ([key]) => !metadataControlledAttributeKeys.has(key)
+        )
+      )
+      const controlledMetadataAttributes = preferDeltaMetadata
+        ? Object.fromEntries(
+            Object.entries(metadataAttributes).filter(([key]) =>
+              metadataControlledAttributeKeys.has(key)
+            )
+          )
+        : Object.fromEntries(
+            Object.entries(metadataAttributes).filter(
+              ([key]) => !deltaControlledAttributeKeys.has(key)
+            )
+          )
+      const metadataFallbackAttributes = preferDeltaMetadata
+        ? {
+            ...controlledMetadataAttributes,
+            ...getNullMetadataFallbackAttributes(
+              metadataAttributes,
+              deltaAttributes
+            ),
+          }
+        : controlledMetadataAttributes
+
+      leaves.push({
+        ...metadataFallbackAttributes,
+        ...deltaAttributes,
+        text: plainText.slice(start, end),
+      })
+      continue
+    }
+
+    for (const slice of overlapSlices) {
+      const deltaAttributes = Object.fromEntries(
+        Object.entries(slice.attributes).filter(
+          ([key]) => !metadataControlledAttributeKeys.has(key)
+        )
+      )
+      const metadataFallbackAttributes = preferDeltaMetadata
+        ? getMetadataFallbackAttributes(
+            metadataAttributes,
+            slice.attributes,
+            metadataControlledAttributeKeys
+          )
+        : Object.fromEntries(
+            Object.entries(metadataAttributes).filter(
+              ([key]) =>
+                !metadataControlledAttributeKeys.has(key) &&
+                !deltaControlledAttributeKeys.has(key) &&
+                !hasOwn(slice.attributes, key)
+            )
+          )
+
+      leaves.push({
+        ...metadataFallbackAttributes,
+        ...deltaAttributes,
+        text: slice.text,
+      })
+    }
+  }
+
+  return leaves
+}
+
+const readYjsText = (
+  sharedText: Y.XmlText,
+  options: { preferDeltaMetadata?: boolean } = {}
+): SlateTextLeafRecord[] => {
   const delta = sharedText.toDelta() as YjsTextDeltaEntry[]
   const plainText = getPlainTextFromDelta(delta)
   const metadata = sharedText.getAttribute(TEXT_LEAVES_ATTRIBUTE)
@@ -369,18 +857,12 @@ const readYjsText = (sharedText: Y.XmlText): SlateTextLeafRecord[] => {
     )
 
     if (metadataLength === plainText.length) {
-      let offset = 0
-
-      return metadata.map((entry) => {
-        const text = plainText.slice(offset, offset + entry.length)
-
-        offset += entry.length
-
-        return {
-          ...(entry.attributes ? clone(entry.attributes) : {}),
-          text,
-        }
-      })
+      return readYjsTextWithMetadata(
+        delta,
+        metadata,
+        plainText,
+        options.preferDeltaMetadata ?? true
+      )
     }
   }
 
@@ -409,19 +891,28 @@ const readYjsText = (sharedText: Y.XmlText): SlateTextLeafRecord[] => {
   ]
 }
 
-const readYjsNode = (node: Y.XmlElement | Y.XmlText): Descendant[] => {
+const getYjsTextReadOptions = (sharedRoot: Y.XmlElement) => ({
+  preferDeltaMetadata: sharedRoot.getAttribute(VERSION_ATTRIBUTE) != null,
+})
+
+const readYjsNode = (
+  node: Y.XmlElement | Y.XmlText,
+  options: { preferDeltaMetadata?: boolean } = {}
+): Descendant[] => {
   if (isYjsDeleted(node)) {
     return []
   }
 
   if (isYjsXmlText(node)) {
-    return readYjsText(node) as Descendant[]
+    return readYjsText(node, options) as Descendant[]
   }
 
   const children = node
     .toArray()
     .flatMap((child) =>
-      isYjsXmlElement(child) || isYjsXmlText(child) ? readYjsNode(child) : []
+      isYjsXmlElement(child) || isYjsXmlText(child)
+        ? readYjsNode(child, options)
+        : []
     )
   const attributes = getYjsAttributes(node)
 
@@ -441,17 +932,22 @@ export const readSlateValueFromYjs = (
     return null
   }
 
+  const readOptions = getYjsTextReadOptions(sharedRoot)
+
   return normalizeValue(
     sharedRoot
       .toArray()
       .flatMap((child) =>
-        isYjsXmlElement(child) || isYjsXmlText(child) ? readYjsNode(child) : []
+        isYjsXmlElement(child) || isYjsXmlText(child)
+          ? readYjsNode(child, readOptions)
+          : []
       ) as Value
   )
 }
 
 const getYjsTextLeaves = (sharedRoot: Y.XmlElement): YjsTextLeaf[] => {
   const leaves: YjsTextLeaf[] = []
+  const readOptions = getYjsTextReadOptions(sharedRoot)
 
   const visitChildren = (parent: Y.XmlElement, path: number[]) => {
     let slateIndex = 0
@@ -463,7 +959,7 @@ const getYjsTextLeaves = (sharedRoot: Y.XmlElement): YjsTextLeaf[] => {
 
       if (isYjsXmlText(child)) {
         let offset = 0
-        const textLeaves = readYjsText(child)
+        const textLeaves = readYjsText(child, readOptions)
 
         textLeaves.forEach((leaf) => {
           const text = leaf.text
@@ -566,7 +1062,8 @@ const getYjsTextNodes = (sharedRoot: Y.XmlElement) => {
 
 const syncYjsTextMetadataFromValue = (
   sharedRoot: Y.XmlElement,
-  value: Value
+  value: Value,
+  options: { syncDeltaAttributes?: boolean } = {}
 ) => {
   const textNodes = getYjsTextNodes(sharedRoot)
   const textGroups = getSlateTextGroups(value)
@@ -575,10 +1072,14 @@ const syncYjsTextMetadataFromValue = (
     const group = textGroups[index]
 
     if (group) {
-      textNode.setAttribute(
-        TEXT_LEAVES_ATTRIBUTE,
-        createTextLeafMetadata(group)
-      )
+      if (options.syncDeltaAttributes) {
+        setYjsTextLeaves(textNode, group)
+      } else {
+        textNode.setAttribute(
+          TEXT_LEAVES_ATTRIBUTE,
+          createTextLeafMetadata(group)
+        )
+      }
     }
   })
 }
@@ -642,6 +1143,7 @@ class SlateYjsSelectionBinding {
 
     return {
       index: leaf.start + point.offset,
+      leaf,
       sharedText: leaf.sharedText,
     }
   }
@@ -649,17 +1151,33 @@ class SlateYjsSelectionBinding {
   slateRangeToYjs(_value: Value, range: Range): SlateYjsRelativeRange {
     const anchor = this.slatePointToYjs(range.anchor)
     const focus = this.slatePointToYjs(range.focus)
+    const isCollapsed =
+      PathApi.equals(range.anchor.path, range.focus.path) &&
+      range.anchor.offset === range.focus.offset
+    const anchorLeafIndex = anchor.leaf.path.at(-1)
+    const collapsedAssoc =
+      isCollapsed &&
+      typeof anchorLeafIndex === 'number' &&
+      anchorLeafIndex > 0 &&
+      anchor.leaf.text.length > 0 &&
+      range.anchor.offset === 0
+        ? 1
+        : 0
 
     return {
       anchor: encodeRelativePosition(
         Y.createRelativePositionFromTypeIndex(
           anchor.sharedText,
           anchor.index,
-          0
+          isCollapsed ? collapsedAssoc : 0
         )
       ),
       focus: encodeRelativePosition(
-        Y.createRelativePositionFromTypeIndex(focus.sharedText, focus.index, -1)
+        Y.createRelativePositionFromTypeIndex(
+          focus.sharedText,
+          focus.index,
+          isCollapsed ? collapsedAssoc : -1
+        )
       ),
     }
   }
@@ -673,6 +1191,46 @@ class SlateYjsSelectionBinding {
       (entry) => entry.sharedText === sharedText
     )
     const boundedIndex = Math.max(0, Math.min(index, leaves.at(-1)?.end ?? 0))
+
+    if (assoc === 0) {
+      const emptyLeafAtIndex = leaves.find(
+        (leaf) => leaf.text.length === 0 && leaf.start === boundedIndex
+      )
+
+      if (emptyLeafAtIndex) {
+        return {
+          path: [...emptyLeafAtIndex.path],
+          offset: 0,
+        }
+      }
+    }
+
+    if (assoc > 0) {
+      for (let i = 0; i < leaves.length; i++) {
+        const leaf = leaves[i]!
+        const isLast = i === leaves.length - 1
+        const next = leaves[i + 1]
+
+        if (
+          leaf.text.length === 0 &&
+          !isLast &&
+          boundedIndex === leaf.start &&
+          next?.start === boundedIndex
+        ) {
+          continue
+        }
+
+        if (
+          boundedIndex >= leaf.start &&
+          (boundedIndex < leaf.end || isLast || leaf.text.length === 0)
+        ) {
+          return {
+            path: [...leaf.path],
+            offset: Math.max(0, boundedIndex - leaf.start),
+          }
+        }
+      }
+    }
 
     if (assoc < 0) {
       for (let i = leaves.length - 1; i >= 0; i--) {
@@ -759,7 +1317,8 @@ export const yjsRelativeRangeToSlateRange = (
 
 const getYjsChildForSlateIndex = (
   parent: Y.XmlElement,
-  slateIndex: number
+  slateIndex: number,
+  options: { preferDeltaMetadata?: boolean } = {}
 ): Y.XmlElement | Y.XmlText | null => {
   let currentSlateIndex = 0
 
@@ -768,7 +1327,7 @@ const getYjsChildForSlateIndex = (
       if (isYjsDeleted(child)) {
         continue
       }
-      const leafCount = readYjsText(child).length
+      const leafCount = readYjsText(child, options).length
 
       if (
         slateIndex >= currentSlateIndex &&
@@ -801,13 +1360,14 @@ const getYjsNodeAtPath = (
   path: readonly number[]
 ): Y.XmlElement | Y.XmlText | null => {
   let node: Y.XmlElement | Y.XmlText = sharedRoot
+  const readOptions = getYjsTextReadOptions(sharedRoot)
 
   for (const index of path) {
     if (!isYjsXmlElement(node)) {
       return null
     }
 
-    const child = getYjsChildForSlateIndex(node, index)
+    const child = getYjsChildForSlateIndex(node, index, readOptions)
 
     if (!child) {
       return null
@@ -822,7 +1382,8 @@ const getYjsNodeAtPath = (
 const getYjsChildrenForSlateRange = (
   parent: Y.XmlElement,
   index: number,
-  length: number
+  length: number,
+  options: { preferDeltaMetadata?: boolean } = {}
 ): Array<Y.XmlElement | Y.XmlText> => {
   const children: Array<Y.XmlElement | Y.XmlText> = []
   let currentSlateIndex = 0
@@ -833,7 +1394,7 @@ const getYjsChildrenForSlateRange = (
         continue
       }
 
-      const leafCount = readYjsText(child).length
+      const leafCount = readYjsText(child, options).length
 
       if (
         index < currentSlateIndex + leafCount &&
@@ -877,7 +1438,8 @@ const getYjsParentAtPath = (
 
 const getYjsInsertIndexForSlateIndex = (
   parent: Y.XmlElement,
-  slateIndex: number
+  slateIndex: number,
+  options: { preferDeltaMetadata?: boolean } = {}
 ) => {
   let currentSlateIndex = 0
   let yjsIndex = 0
@@ -889,7 +1451,7 @@ const getYjsInsertIndexForSlateIndex = (
         continue
       }
 
-      const leafCount = readYjsText(child).length
+      const leafCount = readYjsText(child, options).length
 
       if (slateIndex <= currentSlateIndex + leafCount - 1) {
         return yjsIndex
@@ -977,6 +1539,7 @@ const applyReplaceChildrenToYjs = (
   operation: Extract<Operation, { type: 'replace_children' }>
 ) => {
   const parent = getYjsParentAtPath(sharedRoot, operation.path)
+  const readOptions = getYjsTextReadOptions(sharedRoot)
 
   if (!parent) {
     return false
@@ -985,7 +1548,8 @@ const applyReplaceChildrenToYjs = (
   const replacedChildren = getYjsChildrenForSlateRange(
     parent,
     operation.index,
-    operation.children.length
+    operation.children.length,
+    readOptions
   )
 
   if (replacedChildren.length !== operation.children.length) {
@@ -998,7 +1562,7 @@ const applyReplaceChildrenToYjs = (
 
   if (operation.newChildren.length > 0) {
     parent.insert(
-      getYjsInsertIndexForSlateIndex(parent, operation.index),
+      getYjsInsertIndexForSlateIndex(parent, operation.index, readOptions),
       slateNodesToYjsChildren(operation.newChildren as Descendant[])
     )
   }
@@ -1016,36 +1580,87 @@ const applyReplaceFragmentToYjs = (
     type: 'replace_children',
   })
 
+const getYjsTextDeltaAttributeKeys = (
+  delta: YjsTextDeltaEntry[],
+  start: number,
+  end: number
+) => {
+  const keys = new Set<string>()
+  let offset = 0
+
+  for (const entry of delta) {
+    if (typeof entry.insert !== 'string') {
+      continue
+    }
+
+    const entryStart = offset
+    const entryEnd = offset + entry.insert.length
+
+    if (start < entryEnd && entryStart < end && isRecord(entry.attributes)) {
+      for (const key of Object.keys(entry.attributes)) {
+        keys.add(key)
+      }
+    }
+
+    offset = entryEnd
+  }
+
+  return keys
+}
+
+const syncYjsTextDeltaAttributes = (
+  sharedText: Y.XmlText,
+  currentDelta: YjsTextDeltaEntry[],
+  nextDelta: YjsTextLeafDeltaEntry[]
+) => {
+  let offset = 0
+
+  for (const entry of nextDelta) {
+    const length = entry.insert.length
+    const nextAttributes = entry.attributes ?? {}
+    const keys = getYjsTextDeltaAttributeKeys(
+      currentDelta,
+      offset,
+      offset + length
+    )
+
+    for (const key of Object.keys(nextAttributes)) {
+      keys.add(key)
+    }
+
+    const attributes: Record<string, unknown> = {}
+
+    for (const key of keys) {
+      attributes[key] = hasOwn(nextAttributes, key) ? nextAttributes[key] : null
+    }
+
+    if (Object.keys(attributes).length > 0) {
+      sharedText.format(offset, length, attributes)
+    }
+
+    offset += length
+  }
+}
+
 const setYjsTextLeaves = (
   sharedText: Y.XmlText,
   leaves: Record<string, unknown>[]
 ) => {
+  const nextDelta = createYjsTextLeafDelta(leaves)
   const nextText = leaves
     .map((leaf) => (typeof leaf.text === 'string' ? leaf.text : ''))
     .join('')
-  const currentText = getPlainTextFromDelta(
-    sharedText.toDelta() as YjsTextDeltaEntry[]
-  )
+  const currentDelta = sharedText.toDelta() as YjsTextDeltaEntry[]
+  const currentText = getPlainTextFromDelta(currentDelta)
 
-  if (currentText !== nextText) {
+  if (currentText === nextText) {
+    syncYjsTextDeltaAttributes(sharedText, currentDelta, nextDelta)
+  } else {
     if (sharedText.length > 0) {
       sharedText.delete(0, sharedText.length)
     }
     if (nextText.length > 0) {
-      sharedText.applyDelta(
-        leaves
-          .filter(
-            (leaf) => typeof leaf.text === 'string' && leaf.text.length > 0
-          )
-          .map((leaf) => {
-            const attributes = getNodeAttributes(leaf)
-
-            return Object.keys(attributes).length > 0
-              ? { insert: leaf.text as string, attributes }
-              : { insert: leaf.text as string }
-          }),
-        { sanitize: false }
-      )
+      sharedText.applyDelta(nextDelta, { sanitize: false })
     }
   }
 
@@ -1076,6 +1691,7 @@ const applyTextSplitNodeToYjs = (
   sharedRoot: Y.XmlElement,
   operation: Extract<Operation, { type: 'split_node' }>
 ) => {
+  const readOptions = getYjsTextReadOptions(sharedRoot)
   const leaf = getYjsTextLeaves(sharedRoot).find((entry) =>
     PathApi.equals(entry.path, operation.path)
   )
@@ -1088,7 +1704,7 @@ const applyTextSplitNodeToYjs = (
     return false
   }
 
-  const leaves = readYjsText(leaf.sharedText)
+  const leaves = readYjsText(leaf.sharedText, readOptions)
   const leafIndex = getYjsTextLeafIndex(
     sharedRoot,
     leaf.sharedText,
@@ -1122,12 +1738,15 @@ const applyTextSplitNodeToYjs = (
   return true
 }
 
-const cloneYjsChild = (child: Y.XmlElement | Y.XmlText) => {
+const cloneYjsChild = (
+  child: Y.XmlElement | Y.XmlText,
+  options: { preferDeltaMetadata?: boolean } = {}
+) => {
   if (isYjsXmlText(child)) {
-    return createYjsText(readYjsText(child))
+    return createYjsText(readYjsText(child, options))
   }
 
-  const node = readYjsNode(child)[0]
+  const node = readYjsNode(child, options)[0]
 
   return node && isRecord(node)
     ? createYjsElement(node)
@@ -1142,12 +1761,33 @@ const getVisibleYjsChildren = (parent: Y.XmlElement) =>
         (isYjsXmlElement(child) || isYjsXmlText(child)) && !isYjsDeleted(child)
     )
 
+const pruneYjsNodeIfEmpty = (node: Y.XmlElement | Y.XmlText) => {
+  if (isYjsXmlText(node)) {
+    if (node.length > 0) {
+      node.delete(0, node.length)
+    }
+    node.setAttribute(DELETED_ATTRIBUTE, DELETED_IF_EMPTY_ATTRIBUTE)
+    node.setAttribute(
+      TEXT_LEAVES_ATTRIBUTE,
+      createTextLeafMetadata([{ text: '' }])
+    )
+    return
+  }
+
+  for (const child of getVisibleYjsChildren(node)) {
+    pruneYjsNodeIfEmpty(child)
+  }
+
+  node.setAttribute(DELETED_ATTRIBUTE, DELETED_IF_EMPTY_ATTRIBUTE)
+}
+
 const appendYjsChildren = (
   parent: Y.XmlElement,
-  children: Array<Y.XmlElement | Y.XmlText>
+  children: Array<Y.XmlElement | Y.XmlText>,
+  options: { preferDeltaMetadata?: boolean } = {}
 ) => {
   for (const child of children) {
-    parent.insert(parent.length, [cloneYjsChild(child)])
+    parent.insert(parent.length, [cloneYjsChild(child, options)])
   }
 }
 
@@ -1155,6 +1795,7 @@ const applyTextMergeNodeToYjs = (
   sharedRoot: Y.XmlElement,
   operation: Extract<Operation, { type: 'merge_node' }>
 ) => {
+  const readOptions = getYjsTextReadOptions(sharedRoot)
   const leaf = getYjsTextLeaves(sharedRoot).find((entry) =>
     PathApi.equals(entry.path, operation.path)
   )
@@ -1175,13 +1816,24 @@ const applyTextMergeNodeToYjs = (
     : null
 
   if (previousSharedLeaf && previousSharedLeaf.sharedText !== leaf.sharedText) {
-    return (
-      PathApi.equals(previousPath!.slice(0, -1), operation.path.slice(0, -1)) &&
-      operation.position === previousSharedLeaf.text.length
-    )
+    if (
+      !PathApi.equals(
+        previousPath!.slice(0, -1),
+        operation.path.slice(0, -1)
+      ) ||
+      operation.position !== previousSharedLeaf.text.length
+    ) {
+      return false
+    }
+
+    if (leaf.text.length === 0) {
+      leaf.sharedText.setAttribute(DELETED_ATTRIBUTE, 'true')
+    }
+
+    return true
   }
 
-  const leaves = readYjsText(leaf.sharedText)
+  const leaves = readYjsText(leaf.sharedText, readOptions)
   const leafIndex = getYjsTextLeafIndex(
     sharedRoot,
     leaf.sharedText,
@@ -1203,10 +1855,7 @@ const applyTextMergeNodeToYjs = (
     ...previousLeaf,
     text: `${previousLeaf.text}${currentLeaf.text}`,
   })
-  leaf.sharedText.setAttribute(
-    TEXT_LEAVES_ATTRIBUTE,
-    createTextLeafMetadata(leaves)
-  )
+  setYjsTextLeaves(leaf.sharedText, leaves)
 
   return true
 }
@@ -1218,19 +1867,20 @@ const applyElementMergeNodeToYjs = (
   const parentPath = operation.path.slice(0, -1)
   const slateIndex = operation.path.at(-1)
   const parent = getYjsParentAtPath(sharedRoot, parentPath)
+  const readOptions = getYjsTextReadOptions(sharedRoot)
 
   if (!parent || slateIndex === undefined || slateIndex <= 0) {
     return false
   }
 
-  const current = getYjsChildForSlateIndex(parent, slateIndex)
-  const previous = getYjsChildForSlateIndex(parent, slateIndex - 1)
+  const current = getYjsChildForSlateIndex(parent, slateIndex, readOptions)
+  const previous = getYjsChildForSlateIndex(parent, slateIndex - 1, readOptions)
 
   if (!isYjsXmlElement(current) || !isYjsXmlElement(previous)) {
     return false
   }
 
-  appendYjsChildren(previous, getVisibleYjsChildren(current))
+  appendYjsChildren(previous, getVisibleYjsChildren(current), readOptions)
   current.setAttribute(DELETED_ATTRIBUTE, 'true')
 
   return true
@@ -1240,6 +1890,7 @@ const applyTextRemoveNodeToYjs = (
   sharedRoot: Y.XmlElement,
   operation: Extract<Operation, { type: 'remove_node' }>
 ) => {
+  const readOptions = getYjsTextReadOptions(sharedRoot)
   const leaf = getYjsTextLeaves(sharedRoot).find((entry) =>
     PathApi.equals(entry.path, operation.path)
   )
@@ -1248,7 +1899,7 @@ const applyTextRemoveNodeToYjs = (
     return false
   }
 
-  const leaves = readYjsText(leaf.sharedText)
+  const leaves = readYjsText(leaf.sharedText, readOptions)
   const leafIndex = getYjsTextLeafIndex(
     sharedRoot,
     leaf.sharedText,
@@ -1271,7 +1922,10 @@ const applyTextRemoveNodeToYjs = (
       createTextLeafMetadata(leaves)
     )
   } else {
-    leaf.sharedText.setAttribute(DELETED_ATTRIBUTE, 'true')
+    leaf.sharedText.setAttribute(
+      DELETED_ATTRIBUTE,
+      hasSlateText(operation.node) ? 'true' : DELETED_IF_EMPTY_ATTRIBUTE
+    )
   }
 
   return true
@@ -1287,7 +1941,7 @@ const applyRemoveNodeToYjs = (
     return applyTextRemoveNodeToYjs(sharedRoot, operation)
   }
   if (isYjsXmlElement(node)) {
-    node.setAttribute(DELETED_ATTRIBUTE, 'true')
+    pruneYjsNodeIfEmpty(node)
     return true
   }
 
@@ -1298,6 +1952,8 @@ const applyMoveNodeToYjs = (
   sharedRoot: Y.XmlElement,
   operation: Extract<Operation, { type: 'move_node' }>
 ) => {
+  const readOptions = getYjsTextReadOptions(sharedRoot)
+
   if (PathApi.equals(operation.path, operation.newPath)) {
     return true
   }
@@ -1314,7 +1970,7 @@ const applyMoveNodeToYjs = (
     return false
   }
 
-  const node = readYjsNode(current)[0]
+  const node = readYjsNode(current, readOptions)[0]
   const sameParentForwardMove =
     operation.path.length === operation.newPath.length &&
     operation.path.at(-1) != null &&
@@ -1325,7 +1981,7 @@ const applyMoveNodeToYjs = (
     ) &&
     operation.path.at(-1)! < operation.newPath.at(-1)!
   const truePath = sameParentForwardMove
-    ? operation.newPath
+    ? [...operation.newPath.slice(0, -1), operation.newPath.at(-1)! + 1]
     : PathApi.transform(operation.newPath, {
         node: node ?? { text: '' },
         path: operation.path,
@@ -1348,8 +2004,12 @@ const applyMoveNodeToYjs = (
   }
 
   destinationParent.insert(
-    getYjsInsertIndexForSlateIndex(destinationParent, destinationIndex),
-    [cloneYjsChild(current)]
+    getYjsInsertIndexForSlateIndex(
+      destinationParent,
+      destinationIndex,
+      readOptions
+    ),
+    [cloneYjsChild(current, readOptions)]
   )
   current.setAttribute(DELETED_ATTRIBUTE, 'true')
 
@@ -1369,11 +2029,22 @@ const applyMergeNodeToYjs = (
   return applyElementMergeNodeToYjs(sharedRoot, operation)
 }
 
-const splitYjsTextAtLeafIndex = (sharedText: Y.XmlText, leafIndex: number) => {
-  const leaves = readYjsText(sharedText)
+const splitYjsTextAtLeafIndex = (
+  sharedText: Y.XmlText,
+  leafIndex: number,
+  options: { preferDeltaMetadata?: boolean } = {}
+) => {
+  const leaves = readYjsText(sharedText, options)
   const before = leaves.slice(0, leafIndex)
   const after = leaves.slice(leafIndex)
+  const beforeTextLength = before.reduce(
+    (length, leaf) => length + leaf.text.length,
+    0
+  )
 
+  if (beforeTextLength < sharedText.length) {
+    sharedText.delete(beforeTextLength, sharedText.length - beforeTextLength)
+  }
   setYjsTextLeaves(sharedText, before.length > 0 ? before : [{ text: '' }])
 
   return createYjsText(after.length > 0 ? after : [{ text: '' }])
@@ -1381,7 +2052,8 @@ const splitYjsTextAtLeafIndex = (sharedText: Y.XmlText, leafIndex: number) => {
 
 const splitYjsElementChildren = (
   element: Y.XmlElement,
-  slatePosition: number
+  slatePosition: number,
+  options: { preferDeltaMetadata?: boolean } = {}
 ) => {
   const rightChildren: Array<Y.XmlElement | Y.XmlText> = []
   const rawChildren = element.toArray()
@@ -1399,14 +2071,14 @@ const splitYjsElementChildren = (
     }
 
     if (isYjsXmlText(child)) {
-      const leafCount = readYjsText(child).length
+      const leafCount = readYjsText(child, options).length
 
       if (slatePosition <= slateIndex) {
-        rightChildren.push(cloneYjsChild(child))
+        rightChildren.push(cloneYjsChild(child, options))
         rawIndexesToDelete.push(rawIndex)
       } else if (slatePosition < slateIndex + leafCount) {
         rightChildren.push(
-          splitYjsTextAtLeafIndex(child, slatePosition - slateIndex)
+          splitYjsTextAtLeafIndex(child, slatePosition - slateIndex, options)
         )
       }
 
@@ -1415,7 +2087,7 @@ const splitYjsElementChildren = (
     }
 
     if (slateIndex >= slatePosition) {
-      rightChildren.push(cloneYjsChild(child))
+      rightChildren.push(cloneYjsChild(child, options))
       rawIndexesToDelete.push(rawIndex)
     }
 
@@ -1435,6 +2107,7 @@ const applyElementSplitNodeToYjs = (
   sharedRoot: Y.XmlElement,
   operation: Extract<Operation, { type: 'split_node' }>
 ) => {
+  const readOptions = getYjsTextReadOptions(sharedRoot)
   const node = getYjsNodeAtPath(sharedRoot, operation.path)
   const parentPath = operation.path.slice(0, -1)
   const parent = getYjsParentAtPath(sharedRoot, parentPath)
@@ -1444,7 +2117,11 @@ const applyElementSplitNodeToYjs = (
     return false
   }
 
-  const rightChildren = splitYjsElementChildren(node, operation.position)
+  const rightChildren = splitYjsElementChildren(
+    node,
+    operation.position,
+    readOptions
+  )
   const nextNode = new Y.XmlElement(ELEMENT_NODE_NAME)
   const attributes = getYjsAttributes(node)
   const nextAttributes = {
@@ -1462,9 +2139,10 @@ const applyElementSplitNodeToYjs = (
   }
 
   nextNode.insert(0, rightChildren)
-  parent.insert(getYjsInsertIndexForSlateIndex(parent, slateIndex + 1), [
-    nextNode,
-  ])
+  parent.insert(
+    getYjsInsertIndexForSlateIndex(parent, slateIndex + 1, readOptions),
+    [nextNode]
+  )
 
   return true
 }
@@ -1501,6 +2179,9 @@ const applySlateOperationsToYjs = (
   operations: readonly Operation[],
   nextValue: Value
 ) => {
+  const shouldBackfillDeltaAttributes =
+    sharedRoot.getAttribute(VERSION_ATTRIBUTE) == null
+
   for (const operation of operations) {
     if (SLATE_YJS_OPERATION_TYPES[operation.type] !== true) {
       return false
@@ -1560,13 +2241,14 @@ const applySlateOperationsToYjs = (
         const parentPath = operation.path.slice(0, -1)
         const slateIndex = operation.path.at(-1)
         const parent = getYjsParentAtPath(sharedRoot, parentPath)
+        const readOptions = getYjsTextReadOptions(sharedRoot)
 
         if (!parent || slateIndex === undefined) {
           return false
         }
 
         parent.insert(
-          getYjsInsertIndexForSlateIndex(parent, slateIndex),
+          getYjsInsertIndexForSlateIndex(parent, slateIndex, readOptions),
           slateNodesToYjsChildren([operation.node as Descendant])
         )
         break
@@ -1615,7 +2297,9 @@ const applySlateOperationsToYjs = (
     }
   }
 
-  syncYjsTextMetadataFromValue(sharedRoot, nextValue)
+  syncYjsTextMetadataFromValue(sharedRoot, nextValue, {
+    syncDeltaAttributes: shouldBackfillDeltaAttributes,
+  })
   sharedRoot.setAttribute(
     VERSION_ATTRIBUTE,
     String(Number(sharedRoot.getAttribute(VERSION_ATTRIBUTE) ?? 0) + 1)
@@ -1853,6 +2537,137 @@ const repairTextMatchOperation = (
   return true
 }
 
+const repairTextMergeHistoryOperation = (
+  operation: Extract<Operation, { type: 'merge_node' }>,
+  value: Value
+) => {
+  const node = getTextNode(value, operation.path)
+
+  if (!node) {
+    return true
+  }
+
+  const slateIndex = operation.path.at(-1)
+
+  if (slateIndex === undefined || slateIndex <= 0) {
+    return true
+  }
+
+  const previousNode = getTextNode(value, [
+    ...operation.path.slice(0, -1),
+    slateIndex - 1,
+  ])
+  const previousText =
+    typeof previousNode?.text === 'string' ? previousNode.text : null
+
+  if (previousText == null) {
+    return true
+  }
+
+  operation.position = previousText.length
+
+  return true
+}
+
+const operationPropertyMatchesNode = (
+  node: Record<string, unknown>,
+  key: string,
+  expected: unknown
+) => {
+  if (!Object.hasOwn(node, key)) {
+    return expected == null
+  }
+
+  return jsonEqual(node[key], expected)
+}
+
+const isStaleSetNodeHistoryOperation = (
+  operation: Extract<Operation, { type: 'set_node' }>,
+  value: Value,
+  mode: TextHistoryReplayMode
+) => {
+  const replayOperation =
+    mode === 'undo'
+      ? (OperationApi.inverse(operation) as Extract<
+          Operation,
+          { type: 'set_node' }
+        >)
+      : operation
+  const node = getNode(value, replayOperation.path)
+
+  if (!node) {
+    return true
+  }
+
+  return Object.entries(replayOperation.properties).some(([key, expected]) => {
+    return !operationPropertyMatchesNode(node, key, expected)
+  })
+}
+
+const getOnlyTextDescendant = (
+  node: unknown,
+  path: number[] = []
+): { path: number[]; text: string } | null => {
+  if (!isRecord(node)) {
+    return null
+  }
+
+  if (typeof node.text === 'string') {
+    return { path, text: node.text }
+  }
+
+  if (!Array.isArray(node.children)) {
+    return null
+  }
+
+  let textDescendant: { path: number[]; text: string } | null = null
+
+  for (const [index, child] of node.children.entries()) {
+    const next = getOnlyTextDescendant(child, [...path, index])
+
+    if (!next || next.text.length === 0) {
+      continue
+    }
+    if (textDescendant) {
+      return null
+    }
+
+    textDescendant = next
+  }
+
+  return textDescendant
+}
+
+const repairRemoveNodeHistoryOperation = (
+  operation: Extract<Operation, { type: 'remove_node' }>,
+  value: Value,
+  mode: TextHistoryReplayMode
+): Operation => {
+  if (mode !== 'undo') {
+    return operation
+  }
+
+  const removedText = getOnlyTextDescendant(operation.node)
+
+  if (!removedText) {
+    return operation
+  }
+
+  const path = [...operation.path, ...removedText.path]
+  const node = getTextNode(value, path)
+
+  if (!node || typeof node.text !== 'string') {
+    return operation
+  }
+
+  return {
+    path,
+    offset: 0,
+    text: removedText.text,
+    type: 'remove_text',
+  }
+}
+
 const repairHistoryStackTextOperations = (
   stack: HistoryStack | undefined,
   value: Value,
@@ -1866,7 +2681,31 @@ const repairHistoryStackTextOperations = (
     const batch = stack[index]!
     let keepBatch = true
 
+    if (batch.operations) {
+      batch.operations = batch.operations.map((operation) =>
+        operation.type === 'remove_node'
+          ? repairRemoveNodeHistoryOperation(operation, value, mode)
+          : operation
+      )
+    }
+
     for (const operation of batch.operations ?? []) {
+      if (
+        operation.type === 'merge_node' &&
+        !repairTextMergeHistoryOperation(operation, value)
+      ) {
+        keepBatch = false
+        break
+      }
+
+      if (
+        operation.type === 'set_node' &&
+        isStaleSetNodeHistoryOperation(operation, value, mode)
+      ) {
+        keepBatch = false
+        break
+      }
+
       if (
         operation.type !== 'insert_text' &&
         operation.type !== 'remove_text'
@@ -2521,17 +3360,18 @@ class SlateYjsControllerImpl implements SlateYjsController {
 
       const sharedValue = readSlateValueFromYjs(this.sharedRoot)
 
-      if (jsonEqual(sharedValue, children)) {
-        return true
+      if (!sharedValue) {
+        return false
       }
 
-      if (direction === 'undo') {
-        this.undoManager.redo()
-      } else {
-        this.undoManager.undo()
+      if (!jsonEqual(sharedValue, children)) {
+        this.replaceEditorValue(
+          sharedValue,
+          getEditorSnapshot(this.editor!).selection
+        )
       }
 
-      return false
+      return true
     } finally {
       this.syncingSlateHistoryToYjs = false
     }

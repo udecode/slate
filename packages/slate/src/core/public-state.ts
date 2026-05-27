@@ -4116,7 +4116,10 @@ export const runEditorTransaction = (
       !options.skipNormalize &&
       !selectionOnlyTransaction
     ) {
-      const latestContentOperationByRoot = new Map<string, Operation>()
+      const latestContentOperationByRoot = new Map<
+        string,
+        Operation | undefined
+      >()
 
       for (const operation of operationsSinceSnapshot) {
         if (operation.type === 'set_selection') {
@@ -4129,13 +4132,23 @@ export const runEditorTransaction = (
         )
       }
 
+      if (
+        latestContentOperationByRoot.size === 0 &&
+        snapshot?.reason === 'replace'
+      ) {
+        latestContentOperationByRoot.set(
+          snapshot.childrenRoot ?? MAIN_ROOT_KEY,
+          undefined
+        )
+      }
+
       for (const root of latestContentOperationByRoot.keys()) {
         const operation = latestContentOperationByRoot.get(root)
         const normalize = () =>
           profileCoreDuration('transaction-normalize', () =>
             getEditorTransformRegistry(editor).normalize({
               explicit: false,
-              force: getOperationCount(editor) === 0,
+              force: operation ? getOperationCount(editor) === 0 : true,
               operation,
             })
           )

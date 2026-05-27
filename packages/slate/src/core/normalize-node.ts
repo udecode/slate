@@ -247,6 +247,22 @@ const normalizeNodeDefault = (
     return
   }
 
+  if (NodeApi.isEditor(node) && getNodeChildren(editor, node).length === 0) {
+    const fallback = resolveFallbackElement(fallbackElement)
+    const emptyElement = fallback
+      ? {
+          ...fallback,
+          children:
+            Array.isArray(fallback.children) && fallback.children.length > 0
+              ? fallback.children
+              : [{ text: '' }],
+        }
+      : { children: [{ text: '' }] }
+
+    insertNodes(editor, emptyElement, { at: [0] })
+    return
+  }
+
   if (!NodeApi.isEditor(node) && node.children.length === 0) {
     insertNodes(editor, { text: '' }, { at: [...path, 0] })
     return

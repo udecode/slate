@@ -27,10 +27,27 @@ const selectFirstText = async (page: Page, peer: PeerId, length: number) => {
 
 const getPeerParagraphTexts = (page: Page, peer: PeerId) =>
   peerTextbox(page, peer).evaluate((textbox) =>
-    [...textbox.querySelectorAll('p')].map(
-      (paragraph) => paragraph.textContent ?? ''
+    [...textbox.querySelectorAll('p')].map((paragraph) =>
+      (paragraph.textContent ?? '').replaceAll('\uFEFF', '')
     )
   )
+
+const getPeerLayoutProof = (page: Page, peer: PeerId) =>
+  peerTextbox(page, peer).evaluate((textbox) => {
+    const editorRect = textbox.getBoundingClientRect()
+
+    return {
+      editorHeight: Math.round(editorRect.height),
+      paragraphs: [...textbox.querySelectorAll('p')].map((paragraph) => {
+        const rect = paragraph.getBoundingClientRect()
+
+        return {
+          height: Math.round(rect.height),
+          text: paragraph.textContent ?? '',
+        }
+      }),
+    }
+  })
 
 const getHistoryShortcuts = (page: Page) =>
   page.evaluate(() =>
@@ -99,6 +116,71 @@ const placePeerCaret = async (
   )
 
   await page.mouse.click(point.x, point.y)
+}
+
+const selectPeerTextRange = async (
+  page: Page,
+  peer: PeerId,
+  paragraphIndex: number,
+  anchorOffset: number,
+  focusOffset: number
+) => {
+  await peerTextbox(page, peer).click()
+  await page.evaluate(
+    ({ anchorOffset, focusOffset, paragraphIndex, peer }) => {
+      const root = document.querySelector(`#yjs-peer-${peer}-editor-surface`)
+      const textbox = root?.querySelector<HTMLElement>('[role="textbox"]')
+      const paragraph = textbox?.querySelectorAll('p')[paragraphIndex]
+
+      if (!textbox || !paragraph) {
+        throw new Error(`Peer ${peer} paragraph ${paragraphIndex} not found`)
+      }
+
+      const findPoint = (offset: number) => {
+        const walker = document.createTreeWalker(
+          paragraph,
+          NodeFilter.SHOW_TEXT
+        )
+        let seen = 0
+        let textNode = walker.nextNode()
+
+        while (textNode) {
+          const text = textNode.textContent ?? ''
+          const nextSeen = seen + text.replaceAll('\uFEFF', '').length
+
+          if (offset <= nextSeen) {
+            return {
+              node: textNode,
+              offset: Math.max(0, offset - seen),
+            }
+          }
+
+          seen = nextSeen
+          textNode = walker.nextNode()
+        }
+
+        return {
+          node: paragraph,
+          offset: paragraph.childNodes.length,
+        }
+      }
+
+      const anchor = findPoint(anchorOffset)
+      const focus = findPoint(focusOffset)
+      const range = document.createRange()
+
+      range.setStart(anchor.node, anchor.offset)
+      range.setEnd(focus.node, focus.offset)
+
+      const selection = document.getSelection()
+
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+      textbox.focus()
+      document.dispatchEvent(new Event('selectionchange'))
+    },
+    { anchorOffset, focusOffset, paragraphIndex, peer }
+  )
 }
 
 const selectPeerParagraphNode = async (
@@ -266,6 +348,107 @@ test.describe('yjs collaboration example', () => {
     await expect(peerSurface(page, 'b')).toContainText(typedText)
   })
 
+  test('keeps peers usable after selecting all and deleting', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+
+    page.on('pageerror', (error) => {
+      pageErrors.push(String(error.message || error))
+    })
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    const editorA = peerTextbox(page, 'a')
+
+    await editorA.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+
+    await expect(editorA).toBeFocused()
+    await expect(editorA.locator('p')).toHaveCount(1)
+    await expect(peerTextbox(page, 'b').locator('p')).toHaveCount(1)
+    await expect
+      .poll(() =>
+        editorA.evaluate((textbox) => {
+          const paragraph = textbox.querySelector('p')
+          const placeholder = textbox.querySelector(
+            '[data-slate-placeholder="true"]'
+          )
+
+          if (!paragraph || !placeholder) {
+            return null
+          }
+
+          const paragraphRect = paragraph.getBoundingClientRect()
+          const placeholderRect = placeholder.getBoundingClientRect()
+
+          return {
+            leftDelta: Math.abs(placeholderRect.left - paragraphRect.left),
+            topDelta: Math.abs(placeholderRect.top - paragraphRect.top),
+            widthDelta: Math.abs(placeholderRect.width - paragraphRect.width),
+          }
+        })
+      )
+      .toEqual({ leftDelta: 0, topDelta: 0, widthDelta: 0 })
+
+    const { undo } = await getHistoryShortcuts(page)
+
+    await page.keyboard.press(undo)
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual(['Hello world!'])
+    }
+
+    expect(pageErrors).toEqual([])
+  })
+
+  test('keeps single-line select-all deletion focused for continued typing', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+
+    page.on('pageerror', (error) => {
+      pageErrors.push(String(error.message || error))
+    })
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    const editorA = peerTextbox(page, 'a')
+
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'a'))
+      .toEqual(['Hello world!'])
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['Hello world!'])
+
+    await page.keyboard.press('ControlOrMeta+A')
+    await expect(editorA).toBeFocused()
+    await expect
+      .poll(() => page.evaluate(() => getSelection()?.toString()))
+      .toBe('Hello world!')
+
+    await page.keyboard.press('Backspace')
+
+    await expect(editorA).toBeFocused()
+    await page.keyboard.type('2')
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect.poll(() => getPeerParagraphTexts(page, peer)).toEqual(['2'])
+    }
+
+    expect(pageErrors).toEqual([])
+  })
+
   test('clears stale local undo after a remote replace deletes that edit', async ({
     page,
   }) => {
@@ -303,6 +486,54 @@ test.describe('yjs collaboration example', () => {
     )
     await expect(peerSurface(page, 'b')).toContainText(
       'Lin canonical snapshot.'
+    )
+    expect(pageErrors).toEqual([])
+  })
+
+  test('clears stale local undo after a remote replace deletes an offline mark', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+
+    page.on('pageerror', (error) => {
+      pageErrors.push(String(error.message || error))
+    })
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await byTestId(page, 'yjs-peer-b-disconnect').click()
+    await selectFirstText(page, 'b', 'Hello'.length)
+    await byTestId(page, 'yjs-peer-b-mark-bold').click()
+
+    await expect(peerSurface(page, 'b').locator('strong')).toContainText(
+      'Hello'
+    )
+    await expect(byTestId(page, 'yjs-peer-b-undo')).toBeEnabled()
+
+    await byTestId(page, 'yjs-peer-a-replace').click()
+
+    await expect(peerSurface(page, 'a')).toContainText(
+      'Ada canonical snapshot.'
+    )
+    await expect(peerSurface(page, 'b')).toContainText('Hello world!')
+
+    await byTestId(page, 'yjs-peer-b-connect').click()
+
+    await expect(peerSurface(page, 'b')).toContainText(
+      'Ada canonical snapshot.'
+    )
+    await expect(byTestId(page, 'yjs-peer-b-undo')).toBeDisabled()
+
+    await peerSurface(page, 'b').locator('[role="textbox"]').focus()
+    const { undo } = await getHistoryShortcuts(page)
+
+    await page.keyboard.press(undo)
+
+    await expect(peerSurface(page, 'b')).toContainText(
+      'Ada canonical snapshot.'
     )
     expect(pageErrors).toEqual([])
   })
@@ -432,7 +663,7 @@ test.describe('yjs collaboration example', () => {
   test('preserves concurrent text when an offline Backspace merge reconnects', async ({
     page,
   }) => {
-    const editor = await openExample(page, 'yjs-collaboration', {
+    await openExample(page, 'yjs-collaboration', {
       ready: { editor: 'visible' },
       surface: { scope: '#yjs-peer-a-editor-surface' },
     })
@@ -449,10 +680,7 @@ test.describe('yjs collaboration example', () => {
       .poll(() => getPeerParagraphTexts(page, 'b'))
       .toEqual(['alphabeta'])
 
-    await editor.selection.selectDOM({
-      anchor: { path: [0, 0], offset: 'alpha'.length },
-      focus: { path: [0, 0], offset: 'alpha'.length },
-    })
+    await selectPeerTextRange(page, 'a', 0, 'alpha'.length, 'alpha'.length)
     await page.keyboard.type('!')
     await expect
       .poll(() => getPeerParagraphTexts(page, 'a'))
@@ -464,6 +692,97 @@ test.describe('yjs collaboration example', () => {
       await expect
         .poll(() => getPeerParagraphTexts(page, peer))
         .toEqual(['alpha!beta'])
+    }
+  })
+
+  test('undoes offline split paragraph insertion after reconnect', async ({
+    page,
+  }) => {
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await replacePeerText(page, 'a', ['alpha'])
+    await expect.poll(() => getPeerParagraphTexts(page, 'b')).toEqual(['alpha'])
+
+    await byTestId(page, 'yjs-peer-b-disconnect').click()
+    await placePeerCaret(page, 'b', 0, 'alpha'.length)
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('beta')
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['alpha', 'beta'])
+
+    await selectPeerTextRange(page, 'a', 0, 'alpha'.length, 'alpha'.length)
+    await page.keyboard.type('!')
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'a'))
+      .toEqual(['alpha!'])
+
+    await byTestId(page, 'yjs-peer-b-connect').click()
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual(['alpha!', 'beta'])
+    }
+
+    await peerTextbox(page, 'b').focus()
+    const { undo } = await getHistoryShortcuts(page)
+
+    await page.keyboard.press(undo)
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual(['alpha!'])
+    }
+  })
+
+  test('undoes offline Backspace merge after a concurrent text edit reconnects', async ({
+    page,
+  }) => {
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await replacePeerText(page, 'a', ['alpha', 'beta'])
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['alpha', 'beta'])
+
+    await byTestId(page, 'yjs-peer-b-disconnect').click()
+    await placePeerCaret(page, 'b', 1, 0)
+    await page.keyboard.press('Backspace')
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['alphabeta'])
+
+    await selectPeerTextRange(page, 'a', 0, 'alpha'.length, 'alpha'.length)
+    await page.keyboard.type('!')
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'a'))
+      .toEqual(['alpha!', 'beta'])
+
+    await byTestId(page, 'yjs-peer-b-connect').click()
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual(['alpha!beta'])
+    }
+
+    await peerTextbox(page, 'b').focus()
+    const { undo } = await getHistoryShortcuts(page)
+
+    await page.keyboard.press(undo)
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual(['alpha!', 'beta'])
     }
   })
 
@@ -500,6 +819,102 @@ test.describe('yjs collaboration example', () => {
       await expect
         .poll(() => getPeerParagraphTexts(page, peer))
         .toEqual(['alpha!'])
+    }
+  })
+
+  test('preserves concurrent text inside a block whose text is removed offline', async ({
+    page,
+  }) => {
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await replacePeerText(page, 'a', ['alpha', 'beta'])
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['alpha', 'beta'])
+
+    await byTestId(page, 'yjs-peer-b-disconnect').click()
+    await selectPeerTextRange(page, 'b', 1, 0, 'beta'.length)
+    await page.keyboard.press('Backspace')
+    await expect.poll(() => getPeerParagraphTexts(page, 'b')).toEqual(['alpha'])
+
+    await selectPeerTextRange(page, 'a', 1, 'beta'.length, 'beta'.length)
+    await page.keyboard.type('!')
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'a'))
+      .toEqual(['alpha', 'beta!'])
+
+    await byTestId(page, 'yjs-peer-b-connect').click()
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual(['alpha', '!'])
+    }
+
+    await peerTextbox(page, 'b').focus()
+    const { undo } = await getHistoryShortcuts(page)
+
+    await page.keyboard.press(undo)
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual(['alpha', 'beta!'])
+    }
+  })
+
+  test('undoes an offline selection replacement without dropping concurrent text', async ({
+    page,
+  }) => {
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await replacePeerText(page, 'a', ['alpha beta'])
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['alpha beta'])
+
+    await byTestId(page, 'yjs-peer-b-disconnect').click()
+    await selectPeerTextRange(page, 'b', 0, 0, 'alpha'.length)
+    await page.keyboard.type('ALPHA')
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['ALPHA beta'])
+
+    await selectPeerTextRange(
+      page,
+      'a',
+      0,
+      'alpha beta'.length,
+      'alpha beta'.length
+    )
+    await page.keyboard.type('!')
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'a'))
+      .toEqual(['alpha beta!'])
+
+    await byTestId(page, 'yjs-peer-b-connect').click()
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual(['ALPHA beta!'])
+    }
+
+    await peerTextbox(page, 'b').focus()
+    const { undo } = await getHistoryShortcuts(page)
+
+    await page.keyboard.press(undo)
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual(['alpha beta!'])
     }
   })
 
@@ -540,6 +955,123 @@ test.describe('yjs collaboration example', () => {
     }
   })
 
+  test('keeps offline move undo and redo converged after reconnect', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await replacePeerText(page, 'a', ['alpha', 'beta', 'gamma'])
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['alpha', 'beta', 'gamma'])
+
+    await byTestId(page, 'yjs-peer-b-disconnect').click()
+    await byTestId(page, 'yjs-peer-b-move').click()
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['beta', 'alpha', 'gamma'])
+
+    await editor.selection.selectDOM({
+      anchor: { path: [2, 0], offset: 'gamma'.length },
+      focus: { path: [2, 0], offset: 'gamma'.length },
+    })
+    await page.keyboard.type('!')
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'a'))
+      .toEqual(['alpha', 'beta', 'gamma!'])
+
+    await byTestId(page, 'yjs-peer-b-connect').click()
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual(['beta', 'alpha', 'gamma!'])
+    }
+
+    await peerTextbox(page, 'b').focus()
+    const { redo, undo } = await getHistoryShortcuts(page)
+
+    await page.keyboard.press(undo)
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual(['alpha', 'beta', 'gamma!'])
+    }
+
+    await page.keyboard.press(redo)
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual(['beta', 'alpha', 'gamma!'])
+    }
+  })
+
+  test('keeps peer DOM layout synchronized after rapid history button replay', async ({
+    page,
+  }) => {
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await placePeerCaret(page, 'a', 0, 'Hello world!'.length)
+
+    for (let index = 0; index < 3; index++) {
+      await page.keyboard.press('Enter')
+    }
+
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['Hello world!', '', '', ''])
+
+    for (let index = 0; index < 3; index++) {
+      await byTestId(page, 'yjs-peer-a-undo').click()
+    }
+    for (let index = 0; index < 3; index++) {
+      await byTestId(page, 'yjs-peer-a-redo').click()
+    }
+
+    await expect
+      .poll(async () => {
+        const proofs = await Promise.all(
+          (['a', 'b', 'c', 'd'] as const).map((peer) =>
+            getPeerLayoutProof(page, peer)
+          )
+        )
+        const heights = proofs.map((proof) => proof.editorHeight)
+        const heightSpread = Math.max(...heights) - Math.min(...heights)
+        const paragraphHeights = proofs.flatMap((proof) =>
+          proof.paragraphs.map((paragraph) => paragraph.height)
+        )
+        const paragraphHeightSpread =
+          Math.max(...paragraphHeights) - Math.min(...paragraphHeights)
+        const paragraphTexts = proofs.map((proof) =>
+          proof.paragraphs.map((paragraph) => paragraph.text)
+        )
+
+        return {
+          heightSpread,
+          paragraphHeightSpread,
+          paragraphTexts,
+        }
+      })
+      .toEqual({
+        heightSpread: 0,
+        paragraphHeightSpread: 0,
+        paragraphTexts: [
+          ['Hello world!', '', '', ''],
+          ['Hello world!', '', '', ''],
+          ['Hello world!', '', '', ''],
+          ['Hello world!', '', '', ''],
+        ],
+      })
+  })
+
   test('merges offline mark, text replacement, and paragraph insertion edits', async ({
     page,
   }) => {
@@ -561,8 +1093,7 @@ test.describe('yjs collaboration example', () => {
     await selectFirstText(page, 'c', 'Hello'.length)
     await page.keyboard.type('Hi')
 
-    await peerTextbox(page, 'd').click({ position: { x: 8, y: 28 } })
-    await page.keyboard.press('Meta+ArrowRight')
+    await placePeerCaret(page, 'd', 0, 'Hello world!'.length)
     await page.keyboard.press('Enter')
     await page.keyboard.type('Test')
 

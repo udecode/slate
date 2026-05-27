@@ -530,6 +530,33 @@ describe('slate-history contract', () => {
     assert.deepEqual(getVisibleState(editor), before)
   })
 
+  it('merges continued typing after a selected text replacement into one undo unit', () => {
+    const editor = historyTestEditor()
+    const replacementSelection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 'alpha'.length },
+    }
+
+    replace(editor, [paragraph('alpha beta')], replacementSelection)
+    const before = getVisibleState(editor)
+
+    write(editor, (tx) => {
+      tx.text.insert('A', { at: replacementSelection })
+    })
+    for (const text of ['L', 'P', 'H', 'A']) {
+      write(editor, (tx) => {
+        tx.text.insert(text)
+      })
+    }
+
+    assert.equal(Editor.string(editor, []), 'ALPHA beta')
+    assert.equal(getHistory(editor).undos.length, 1)
+
+    undo(editor)
+
+    assert.deepEqual(getVisibleState(editor), before)
+  })
+
   it('uses update metadata to push, merge, and skip history batches', () => {
     const pushEditor = historyTestEditor()
 
@@ -951,6 +978,29 @@ describe('slate-history contract', () => {
     undo(editor)
 
     assert.deepEqual(getVisibleState(editor), afterStructuralBatch)
+  })
+
+  it('undoes typing into a paragraph inserted by the previous insertBreak batch', () => {
+    const editor = historyTestEditor()
+
+    replace(editor, [paragraph('Alpha')], {
+      anchor: { path: [0, 0], offset: 5 },
+      focus: { path: [0, 0], offset: 5 },
+    })
+    const before = getVisibleState(editor)
+
+    write(editor, () => {
+      Editor.insertBreak(editor)
+    })
+    for (const text of ['B', 'e', 't', 'a']) {
+      write(editor, (tx) => {
+        tx.text.insert(text)
+      })
+    }
+
+    undo(editor)
+
+    assert.deepEqual(getVisibleState(editor), before)
   })
 
   it('reselects the restored text after deleteFragment and undo', () => {

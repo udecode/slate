@@ -308,6 +308,18 @@ const createDefaultParagraph = (): Descendant =>
     children: [{ text: '' }],
   }) as Descendant
 
+const isRootBlockPath = (path: Path): boolean => path.length === 1
+
+const deletesWholeRoot = (editor: RuntimeEditor, blockPaths: Path[]) => {
+  if (!blockPaths.every(isRootBlockPath)) {
+    return false
+  }
+
+  return (
+    editor.read((state) => state.nodes.children().length) === blockPaths.length
+  )
+}
+
 const isBlockVoid = (editor: RuntimeEditor, node: Node) =>
   NodeApi.isElement(node) &&
   Editor.isBlock(editor, node) &&
@@ -479,9 +491,16 @@ const applyFullBlockDeleteFragment = (
     return false
   }
 
+  const shouldResetRoot = deletesWholeRoot(editor, blockPaths)
+  const rootStart = { path: [0, 0], offset: 0 }
+
   editor.update((tx) => {
     for (const blockPath of [...blockPaths].reverse()) {
       tx.nodes.remove({ at: blockPath })
+    }
+
+    if (shouldResetRoot) {
+      tx.selection.set({ anchor: rootStart, focus: rootStart })
     }
   })
 
