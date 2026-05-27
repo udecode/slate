@@ -15,18 +15,26 @@ import { EDITOR_TO_ROOT_VIEW_EDITORS } from 'slate-dom/internal'
 import { scheduleSlateReactFocus } from '../hooks/focus-scheduler'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import {
-  createSlateProjectionGraph,
-  type SlateProjectedPoint,
-  type SlateProjectionGraphNodeInput,
-} from '../projection-graph'
+  createSlateViewBoundaryGraph,
+  getSlateBoundaryPoint,
+  getSlateDescendantAtPath,
+  getSlatePointRoot,
+  getSlateRootBoundaryPoint,
+  getSlateViewBoundaryPointRoot,
+  rootSlatePoint,
+  type SlateViewBoundaryGraphNodeInput,
+  type SlateViewBoundaryPoint,
+  sameSlateRootPoint,
+} from '../view-boundary-graph'
 import {
   createSlateViewSelection,
+  readSlateViewSelection,
   writeSlateViewSelection,
 } from '../view-selection'
-import { getEditorExtensionRegistry } from './runtime-editor-api'
+import { Editor, getEditorExtensionRegistry } from './runtime-editor-api'
 
 type ContentRootNavigationDirection = 'backward' | 'forward'
-type ContentRootNavigationAxis = 'horizontal' | 'vertical'
+type ContentRootNavigationAxis = 'horizontal' | 'vertical' | 'word'
 
 type ContentRootNavigationAction =
   | {
@@ -42,7 +50,18 @@ type ContentRootNavigationAction =
       kind: 'move'
     }
 
-type ContentRootOwner = {
+type ContentRootViewSelectionAction =
+  | {
+      axis: ContentRootNavigationAxis
+      direction: ContentRootNavigationDirection
+      kind: 'move'
+    }
+  | {
+      direction: ContentRootNavigationDirection
+      kind: 'document-boundary'
+    }
+
+export type ContentRootOwner = {
   childRoot: RootKey
   ownerPath: Path
   ownerRoot: RootKey
@@ -88,67 +107,11 @@ const getChildRoot = (element: Element, slot: string): RootKey | null => {
   return isRootKey(childRoot) ? childRoot : null
 }
 
-const getBoundaryPoint = (
-  node: Descendant,
-  path: Path,
-  edge: 'end' | 'start'
-): Point | null => {
-  if (NodeApi.isText(node)) {
-    return {
-      path: [...path],
-      offset: edge === 'start' ? 0 : node.text.length,
-    }
-  }
-
-  const childIndexes =
-    edge === 'start'
-      ? node.children.keys()
-      : [...node.children.keys()].reverse()
-
-  for (const index of childIndexes) {
-    const child = node.children[index]
-    const point = child && getBoundaryPoint(child, path.concat(index), edge)
-
-    if (point) {
-      return point
-    }
-  }
-
-  return null
-}
-
-const getRootBoundaryPoint = (
-  children: readonly Descendant[],
-  edge: 'end' | 'start'
-): Point | null => {
-  const indexes =
-    edge === 'start' ? children.keys() : [...children.keys()].reverse()
-
-  for (const index of indexes) {
-    const child = children[index]
-    const point = child && getBoundaryPoint(child, [index], edge)
-
-    if (point) {
-      return point
-    }
-  }
-
-  return null
-}
-
-const sameRootPoint = (left: Point, right: Point, root: RootKey) =>
-  (left.root ?? root) === (right.root ?? root) &&
-  left.offset === right.offset &&
-  PathApi.equals(left.path, right.path)
-
 const isPointInPath = (point: Point, path: Path) =>
   PathApi.equals(point.path, path) || PathApi.isDescendant(point.path, path)
 
-const rootedPoint = (point: Point, root: RootKey): Point =>
-  root === 'main' ? point : { ...point, root }
-
 const rootedRange = (point: Point, root: RootKey): Range => {
-  const rooted = rootedPoint(point, root)
+  const rooted = rootSlatePoint(point, root)
 
   return {
     anchor: rooted,
@@ -187,7 +150,7 @@ const getRegisteredRootViewEditor = (
   return null
 }
 
-const findContentRootOwners = (
+export const findContentRootOwners = (
   editor: ContentRootNavigationEditor
 ): ContentRootOwner[] =>
   editor.read((state) => {
@@ -239,6 +202,30 @@ const isKnownContentRootOwner = (
 const getContentRootOwnerKey = (owner: ContentRootOwner) =>
   `${owner.ownerRoot}\u0000${owner.ownerPath.join('.')}\u0000${owner.childRoot}`
 
+const getOwnerForCurrentViewEditor = ({
+  editor,
+  getContentRootOwnerViewEditor,
+  owners,
+}: {
+  editor: ContentRootNavigationEditor
+  getContentRootOwnerViewEditor?: (
+    owner: ContentRootOwner
+  ) => ReactRuntimeEditor | null
+  owners: readonly ContentRootOwner[]
+}): ContentRootOwner | null => {
+  if (!getContentRootOwnerViewEditor) {
+    return null
+  }
+
+  const viewEditor = editor as ReactRuntimeEditor
+
+  return (
+    owners.find(
+      (owner) => getContentRootOwnerViewEditor(owner) === viewEditor
+    ) ?? null
+  )
+}
+
 const getOwnerForRoot = ({
   currentRoot,
   getActiveContentRootOwner,
@@ -284,7 +271,7 @@ export const createContentRootProjectionGraph = (
   owners: readonly ContentRootOwner[]
 ) =>
   editor.read((state) => {
-    const nodes: SlateProjectionGraphNodeInput[] = []
+    const nodes: SlateViewBoundaryGraphNodeInput[] = []
     const { roots } = state.value.get()
 
     const appendRoot = (
@@ -331,7 +318,7 @@ export const createContentRootProjectionGraph = (
 
     appendRoot('main', null, new Set())
 
-    return createSlateProjectionGraph(nodes)
+    return createSlateViewBoundaryGraph(nodes)
   })
 
 const toProjectedPoint = ({
@@ -342,27 +329,10 @@ const toProjectedPoint = ({
   owner: ContentRootOwner | null | undefined
   point: Point
   root: RootKey
-}): SlateProjectedPoint => ({
+}): SlateViewBoundaryPoint => ({
   ...(owner ? { owner } : {}),
-  point: rootedPoint(point, root),
+  point: rootSlatePoint(point, root),
 })
-
-const getNodeAtPath = (
-  children: readonly Descendant[],
-  path: Path
-): Descendant | null => {
-  let node: Descendant | null = children[path[0]!] ?? null
-
-  for (const index of path.slice(1)) {
-    if (!node || !NodeApi.isElement(node)) {
-      return null
-    }
-
-    node = node.children[index] ?? null
-  }
-
-  return node
-}
 
 const getSiblingBoundary = ({
   children,
@@ -388,13 +358,13 @@ const getSiblingBoundary = ({
     return null
   }
 
-  const sibling = getNodeAtPath(children, siblingPath)
+  const sibling = getSlateDescendantAtPath(children, siblingPath)
 
   if (!sibling) {
     return null
   }
 
-  const point = getBoundaryPoint(
+  const point = getSlateBoundaryPoint(
     sibling,
     siblingPath,
     side === 'before' ? 'end' : 'start'
@@ -430,7 +400,8 @@ const getOwnerBoundaryPoint = (
 ): Point | null =>
   editor.read((state) => {
     const children = state.value.get().roots[owner.ownerRoot]
-    const ownerNode = children && getNodeAtPath(children, owner.ownerPath)
+    const ownerNode =
+      children && getSlateDescendantAtPath(children, owner.ownerPath)
 
     if (!children || !ownerNode) {
       return null
@@ -446,7 +417,7 @@ const getOwnerBoundaryPoint = (
       return siblingPoint
     }
 
-    return getBoundaryPoint(
+    return getSlateBoundaryPoint(
       ownerNode,
       owner.ownerPath,
       direction === 'forward' ? 'start' : 'end'
@@ -477,9 +448,12 @@ const getOwnerSelfBoundaryPoint = (
 ): Point | null =>
   editor.read((state) => {
     const children = state.value.get().roots[owner.ownerRoot]
-    const ownerNode = children && getNodeAtPath(children, owner.ownerPath)
+    const ownerNode =
+      children && getSlateDescendantAtPath(children, owner.ownerPath)
 
-    return ownerNode ? getBoundaryPoint(ownerNode, owner.ownerPath, edge) : null
+    return ownerNode
+      ? getSlateBoundaryPoint(ownerNode, owner.ownerPath, edge)
+      : null
   })
 
 const getExitBoundaryPoint = (
@@ -489,7 +463,8 @@ const getExitBoundaryPoint = (
 ): Point | null =>
   editor.read((state) => {
     const children = state.value.get().roots[owner.ownerRoot]
-    const ownerNode = children && getNodeAtPath(children, owner.ownerPath)
+    const ownerNode =
+      children && getSlateDescendantAtPath(children, owner.ownerPath)
 
     if (!children || !ownerNode) {
       return null
@@ -505,7 +480,7 @@ const getExitBoundaryPoint = (
       return siblingPoint
     }
 
-    return getBoundaryPoint(
+    return getSlateBoundaryPoint(
       ownerNode,
       owner.ownerPath,
       direction === 'forward' ? 'end' : 'start'
@@ -522,7 +497,7 @@ const getRootBoundaryNavigationTarget = ({
   owner: ContentRootOwner
 }): ContentRootNavigationTarget | null => {
   const point = editor.read((state) =>
-    getRootBoundaryPoint(
+    getSlateRootBoundaryPoint(
       state.value.get().roots[owner.childRoot] ?? [],
       direction === 'forward' ? 'start' : 'end'
     )
@@ -639,7 +614,7 @@ const getDocumentBoundaryNavigationTarget = ({
     : owners.find((owner) => owner.childRoot === currentRoot)
   const targetRoot = ownerForCurrentRoot?.ownerRoot ?? currentRoot
   const point = editor.read((state) =>
-    getRootBoundaryPoint(
+    getSlateRootBoundaryPoint(
       state.value.get().roots[targetRoot] ?? [],
       direction === 'forward' ? 'end' : 'start'
     )
@@ -662,6 +637,28 @@ const getRootViewEditor = ({
   (editor.read((state) => state.view.root()) === root
     ? (editor as ReactRuntimeEditor)
     : null)
+
+const getProjectedPointViewEditor = ({
+  editor,
+  getContentRootOwnerViewEditor,
+  getMountedViewEditor,
+  owner,
+  root,
+}: {
+  editor: ContentRootNavigationEditor
+  getContentRootOwnerViewEditor?: (
+    owner: ContentRootOwner
+  ) => ReactRuntimeEditor | null
+  getMountedViewEditor?: (root: RootKey) => ReactRuntimeEditor | null
+  owner: ContentRootOwner | null | undefined
+  root: RootKey
+}): ReactRuntimeEditor | null =>
+  (owner ? getContentRootOwnerViewEditor?.(owner) : null) ??
+  getRootViewEditor({
+    editor,
+    getMountedViewEditor,
+    root,
+  })
 
 const hasUsableRect = (rect: DOMRect | null): rect is DOMRect =>
   !!rect &&
@@ -1032,19 +1029,21 @@ const getVerticalNavigationTarget = ({
     : owners.find((owner) => owner.childRoot === currentRoot)
 
   if (ownerForCurrentRoot) {
-    const sourceEditor = getRootViewEditor({
+    const sourceEditor = getProjectedPointViewEditor({
       editor,
+      getContentRootOwnerViewEditor,
       getMountedViewEditor,
+      owner: ownerForCurrentRoot,
       root: currentRoot,
     })
     const rootEdge = editor.read((state) =>
-      getRootBoundaryPoint(
+      getSlateRootBoundaryPoint(
         state.value.get().roots[currentRoot] ?? [],
         direction === 'forward' ? 'end' : 'start'
       )
     )
     const atModelBoundary =
-      rootEdge && sameRootPoint(point, rootEdge, currentRoot)
+      rootEdge && sameSlateRootPoint(point, rootEdge, currentRoot)
     const sourceElement = sourceEditor?.api.dom.resolveDOMNode(sourceEditor)
     const atVisualBoundary =
       !!sourceEditor &&
@@ -1111,7 +1110,7 @@ const getVerticalNavigationTarget = ({
     const entryPoint = getOwnerBoundaryPoint(editor, owner, direction)
     const adjacentBoundary = getOwnerAdjacentBoundary(editor, owner, direction)
     const atModelBoundary =
-      entryPoint && sameRootPoint(point, entryPoint, currentRoot)
+      entryPoint && sameSlateRootPoint(point, entryPoint, currentRoot)
     const adjacentElement =
       sourceEditor && adjacentBoundary
         ? getPathElement(sourceEditor, adjacentBoundary.path)
@@ -1163,6 +1162,324 @@ const getVerticalNavigationTarget = ({
   return null
 }
 
+const getHorizontalNavigationTarget = ({
+  currentRoot,
+  direction,
+  editor,
+  getActiveContentRootOwner,
+  owners,
+  point,
+}: {
+  currentRoot: RootKey
+  direction: ContentRootNavigationDirection
+  editor: ContentRootNavigationEditor
+  getActiveContentRootOwner?: (root: RootKey) => ContentRootOwner | null
+  owners: ContentRootOwner[]
+  point: Point
+}): ContentRootNavigationTarget | null => {
+  const activeOwner = getActiveContentRootOwner?.(currentRoot)
+  const ownerForCurrentRoot = isKnownContentRootOwner(owners, activeOwner)
+    ? activeOwner
+    : owners.find((owner) => owner.childRoot === currentRoot)
+
+  if (ownerForCurrentRoot) {
+    const rootEdge = editor.read((state) =>
+      getSlateRootBoundaryPoint(
+        state.value.get().roots[currentRoot] ?? [],
+        direction === 'forward' ? 'end' : 'start'
+      )
+    )
+    const exitPoint =
+      rootEdge && sameSlateRootPoint(point, rootEdge, currentRoot)
+        ? getExitBoundaryPoint(editor, ownerForCurrentRoot, direction)
+        : null
+
+    return exitPoint
+      ? {
+          point: exitPoint,
+          root: ownerForCurrentRoot.ownerRoot,
+        }
+      : null
+  }
+
+  for (const owner of owners) {
+    if (owner.ownerRoot !== currentRoot) {
+      continue
+    }
+
+    const entryPoint = getOwnerBoundaryPoint(editor, owner, direction)
+
+    if (entryPoint && sameSlateRootPoint(point, entryPoint, currentRoot)) {
+      return getRootBoundaryNavigationTarget({
+        direction,
+        editor,
+        owner,
+      })
+    }
+  }
+
+  return null
+}
+
+const getRootLocalHorizontalSelectionTarget = ({
+  direction,
+  point,
+  root,
+  sourceEditor,
+  unit,
+}: {
+  direction: ContentRootNavigationDirection
+  point: Point
+  root: RootKey
+  sourceEditor: ReactRuntimeEditor
+  unit?: 'word'
+}): ContentRootNavigationTarget | null => {
+  const nextPoint = sourceEditor.read((state) =>
+    direction === 'forward'
+      ? Editor.after(sourceEditor, point, unit ? { unit } : undefined)
+      : Editor.before(sourceEditor, point, unit ? { unit } : undefined)
+  )
+
+  if (!nextPoint || getSlatePointRoot(nextPoint, root) !== root) {
+    return null
+  }
+
+  return {
+    point: rootSlatePoint(nextPoint, root),
+    root,
+  }
+}
+
+const getTextPointAtPreferredOffset = (
+  node: Descendant,
+  path: Path,
+  preferredOffset: number
+): Point | null => {
+  if (NodeApi.isText(node)) {
+    return {
+      offset: Math.min(preferredOffset, node.text.length),
+      path,
+    }
+  }
+
+  for (const [index, child] of node.children.entries()) {
+    const point = getTextPointAtPreferredOffset(
+      child,
+      path.concat(index),
+      preferredOffset
+    )
+
+    if (point) {
+      return point
+    }
+  }
+
+  return null
+}
+
+const getRootLocalVerticalModelSelectionTarget = ({
+  direction,
+  point,
+  root,
+  sourceEditor,
+}: {
+  direction: ContentRootNavigationDirection
+  point: Point
+  root: RootKey
+  sourceEditor: ReactRuntimeEditor
+}): ContentRootNavigationTarget | null =>
+  sourceEditor.read((state) => {
+    const children = (
+      state.view.root() === root
+        ? state.nodes.children()
+        : (state.value.get().roots[root] ?? [])
+    ) as readonly Descendant[]
+    const blockIndex = point.path[0]
+
+    if (blockIndex == null) {
+      return null
+    }
+
+    const nextBlockIndex =
+      direction === 'forward' ? blockIndex + 1 : blockIndex - 1
+    const nextBlock = children[nextBlockIndex]
+
+    if (!nextBlock) {
+      return null
+    }
+
+    const nextPoint = getTextPointAtPreferredOffset(
+      nextBlock,
+      [nextBlockIndex],
+      point.offset
+    )
+
+    return nextPoint
+      ? {
+          point: rootSlatePoint(nextPoint, root),
+          root,
+        }
+      : null
+  })
+
+const getRootLocalVerticalSelectionTarget = ({
+  direction,
+  point,
+  root,
+  sourceEditor,
+}: {
+  direction: ContentRootNavigationDirection
+  point: Point
+  root: RootKey
+  sourceEditor: ReactRuntimeEditor
+}): ContentRootNavigationTarget | null => {
+  const sourceRect = resolveUsableRangeRect(
+    sourceEditor,
+    rootedRange(point, root)
+  )
+  const sourceElement = sourceEditor.api.dom.resolveDOMNode(sourceEditor)
+
+  if (!hasUsableRect(sourceRect) || !sourceElement) {
+    return getRootLocalVerticalModelSelectionTarget({
+      direction,
+      point,
+      root,
+      sourceEditor,
+    })
+  }
+
+  const sourceElementRect = sourceElement.getBoundingClientRect()
+  const step = Math.min(Math.max(sourceRect.height, 8), 24)
+  const rawY =
+    direction === 'forward'
+      ? sourceRect.bottom + step / 2
+      : sourceRect.top - step / 2
+  const y = clamp(rawY, sourceElementRect.top + 1, sourceElementRect.bottom - 1)
+  const x = clamp(
+    sourceRect.left,
+    sourceElementRect.left + 1,
+    sourceElementRect.right - 1
+  )
+  const nextPoint = getPointAtCoordinates(sourceEditor, x, y)
+
+  if (
+    !nextPoint ||
+    getSlatePointRoot(nextPoint, root) !== root ||
+    sameSlateRootPoint(nextPoint, point, root) ||
+    nextPoint.path[0] === point.path[0]
+  ) {
+    return getRootLocalVerticalModelSelectionTarget({
+      direction,
+      point,
+      root,
+      sourceEditor,
+    })
+  }
+
+  return {
+    point: rootSlatePoint(nextPoint, root),
+    root,
+  }
+}
+
+const getContentRootMovementTarget = ({
+  action,
+  allowRootLocalMovement,
+  currentRoot,
+  currentOwner,
+  editor,
+  getActiveContentRootOwner,
+  getContentRootOwnerViewEditor,
+  getMountedViewEditor,
+  owners,
+  point,
+}: {
+  action: Extract<ContentRootViewSelectionAction, { kind: 'move' }>
+  allowRootLocalMovement: boolean
+  currentOwner?: ContentRootOwner | null
+  currentRoot: RootKey
+  editor: ContentRootNavigationEditor
+  getActiveContentRootOwner?: (root: RootKey) => ContentRootOwner | null
+  getContentRootOwnerViewEditor?: (
+    owner: ContentRootOwner
+  ) => ReactRuntimeEditor | null
+  getMountedViewEditor?: (root: RootKey) => ReactRuntimeEditor | null
+  owners: ContentRootOwner[]
+  point: Point
+}): ContentRootNavigationTarget | null => {
+  const getCurrentRootOwner = (root: RootKey) =>
+    root === currentRoot && isKnownContentRootOwner(owners, currentOwner)
+      ? currentOwner
+      : (getActiveContentRootOwner?.(root) ?? null)
+  const boundaryTarget =
+    action.kind === 'move' && action.axis === 'vertical'
+      ? getVerticalNavigationTarget({
+          currentRoot,
+          direction: action.direction,
+          editor,
+          getActiveContentRootOwner: getCurrentRootOwner,
+          getContentRootOwnerViewEditor,
+          getMountedViewEditor,
+          owners,
+          point,
+        })
+      : action.kind === 'move'
+        ? getHorizontalNavigationTarget({
+            currentRoot,
+            direction: action.direction,
+            editor,
+            getActiveContentRootOwner: getCurrentRootOwner,
+            owners,
+            point,
+          })
+        : null
+
+  if (boundaryTarget) {
+    return boundaryTarget
+  }
+
+  if (!allowRootLocalMovement) {
+    return null
+  }
+
+  const sourceEditor = getProjectedPointViewEditor({
+    editor,
+    getContentRootOwnerViewEditor,
+    getMountedViewEditor,
+    owner: currentOwner,
+    root: currentRoot,
+  })
+
+  if (!sourceEditor) {
+    return null
+  }
+
+  const rootLocalTarget =
+    action.axis === 'vertical'
+      ? getRootLocalVerticalSelectionTarget({
+          direction: action.direction,
+          point,
+          root: currentRoot,
+          sourceEditor,
+        })
+      : getRootLocalHorizontalSelectionTarget({
+          direction: action.direction,
+          point,
+          root: currentRoot,
+          sourceEditor,
+          unit: action.axis === 'word' ? 'word' : undefined,
+        })
+
+  return rootLocalTarget &&
+    rootLocalTarget.root === currentRoot &&
+    isKnownContentRootOwner(owners, currentOwner)
+    ? {
+        ...rootLocalTarget,
+        owner: currentOwner,
+      }
+    : rootLocalTarget
+}
+
 export const getContentRootNavigationTarget = ({
   editor,
   event,
@@ -1195,6 +1512,15 @@ export const getContentRootNavigationTarget = ({
   const point = selection.anchor
   const currentRoot = point.root ?? editor.read((state) => state.view.root())
   const owners = findContentRootOwners(editor)
+  const currentViewOwner = getOwnerForCurrentViewEditor({
+    editor,
+    getContentRootOwnerViewEditor,
+    owners,
+  })
+  const getCurrentRootOwner = (root: RootKey) =>
+    root === currentRoot && isKnownContentRootOwner(owners, currentViewOwner)
+      ? currentViewOwner
+      : (getActiveContentRootOwner?.(root) ?? null)
 
   if (action.kind === 'enter') {
     for (const owner of owners) {
@@ -1206,8 +1532,8 @@ export const getContentRootNavigationTarget = ({
       const end = getOwnerSelfBoundaryPoint(editor, owner, 'end')
 
       if (
-        (start && sameRootPoint(point, start, currentRoot)) ||
-        (end && sameRootPoint(point, end, currentRoot))
+        (start && sameSlateRootPoint(point, start, currentRoot)) ||
+        (end && sameSlateRootPoint(point, end, currentRoot))
       ) {
         return getRootBoundaryNavigationTarget({
           direction: 'forward',
@@ -1225,7 +1551,7 @@ export const getContentRootNavigationTarget = ({
       currentRoot,
       direction: action.direction,
       editor,
-      getActiveContentRootOwner,
+      getActiveContentRootOwner: getCurrentRootOwner,
       owners,
     })
   }
@@ -1237,7 +1563,7 @@ export const getContentRootNavigationTarget = ({
       currentRoot,
       direction,
       editor,
-      getActiveContentRootOwner,
+      getActiveContentRootOwner: getCurrentRootOwner,
       getContentRootOwnerViewEditor,
       getMountedViewEditor,
       owners,
@@ -1245,63 +1571,83 @@ export const getContentRootNavigationTarget = ({
     })
   }
 
-  const activeOwner = getActiveContentRootOwner?.(currentRoot)
-  const ownerForCurrentRoot = isKnownContentRootOwner(owners, activeOwner)
-    ? activeOwner
-    : owners.find((owner) => owner.childRoot === currentRoot)
-
-  if (ownerForCurrentRoot) {
-    const rootEdge = editor.read((state) =>
-      getRootBoundaryPoint(
-        state.value.get().roots[currentRoot] ?? [],
-        direction === 'forward' ? 'end' : 'start'
-      )
-    )
-    const exitPoint =
-      rootEdge && sameRootPoint(point, rootEdge, currentRoot)
-        ? getExitBoundaryPoint(editor, ownerForCurrentRoot, direction)
-        : null
-
-    return exitPoint
-      ? {
-          point: exitPoint,
-          root: ownerForCurrentRoot.ownerRoot,
-        }
-      : null
-  }
-
-  for (const owner of owners) {
-    if (owner.ownerRoot !== currentRoot) {
-      continue
-    }
-
-    const entryPoint = getOwnerBoundaryPoint(editor, owner, direction)
-
-    if (entryPoint && sameRootPoint(point, entryPoint, currentRoot)) {
-      return getRootBoundaryNavigationTarget({
-        direction,
-        editor,
-        owner,
-      })
-    }
-  }
-
-  return null
+  return getHorizontalNavigationTarget({
+    currentRoot,
+    direction,
+    editor,
+    getActiveContentRootOwner: getCurrentRootOwner,
+    owners,
+    point,
+  })
 }
 
-const getProjectedSelectionDirection = (
+const getProjectedSelectionAction = ({
+  event,
+  isRTL,
+}: {
   event: ReactKeyboardEvent<HTMLDivElement>
-): ContentRootNavigationDirection | null => {
+  isRTL: boolean
+}): ContentRootViewSelectionAction | null => {
+  if (Hotkeys.isExtendWordBackward(event.nativeEvent)) {
+    return {
+      axis: 'word',
+      direction: isRTL ? 'forward' : 'backward',
+      kind: 'move',
+    }
+  }
+
+  if (Hotkeys.isExtendWordForward(event.nativeEvent)) {
+    return {
+      axis: 'word',
+      direction: isRTL ? 'backward' : 'forward',
+      kind: 'move',
+    }
+  }
+
+  if (Hotkeys.isExtendLineBackward(event.nativeEvent)) {
+    return { axis: 'vertical', direction: 'backward', kind: 'move' }
+  }
+
+  if (Hotkeys.isExtendLineForward(event.nativeEvent)) {
+    return { axis: 'vertical', direction: 'forward', kind: 'move' }
+  }
+
   if (!event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) {
+    if (event.shiftKey && event.metaKey && !event.altKey && !event.ctrlKey) {
+      if (event.key === 'ArrowUp') {
+        return { direction: 'backward', kind: 'document-boundary' }
+      }
+
+      if (event.key === 'ArrowDown') {
+        return { direction: 'forward', kind: 'document-boundary' }
+      }
+    }
+
     return null
   }
 
   if (event.key === 'ArrowUp') {
-    return 'backward'
+    return { axis: 'vertical', direction: 'backward', kind: 'move' }
   }
 
   if (event.key === 'ArrowDown') {
-    return 'forward'
+    return { axis: 'vertical', direction: 'forward', kind: 'move' }
+  }
+
+  if (event.key === 'ArrowLeft') {
+    return {
+      axis: 'horizontal',
+      direction: isRTL ? 'forward' : 'backward',
+      kind: 'move',
+    }
+  }
+
+  if (event.key === 'ArrowRight') {
+    return {
+      axis: 'horizontal',
+      direction: isRTL ? 'backward' : 'forward',
+      kind: 'move',
+    }
   }
 
   return null
@@ -1313,6 +1659,7 @@ export const applyContentRootViewSelection = ({
   getActiveContentRootOwner,
   getContentRootOwnerViewEditor,
   getMountedViewEditor,
+  isRTL,
   selection,
 }: {
   editor: ReactRuntimeEditor
@@ -1322,51 +1669,89 @@ export const applyContentRootViewSelection = ({
     owner: ContentRootOwner
   ) => ReactRuntimeEditor | null
   getMountedViewEditor?: (root: RootKey) => ReactRuntimeEditor | null
+  isRTL: boolean
   selection: Range | null
 }): ContentRootNavigationResult => {
-  const direction = getProjectedSelectionDirection(event)
+  const action = getProjectedSelectionAction({ event, isRTL })
 
-  if (!direction || !hasContentRootElementSpec(editor)) {
+  if (!action || !hasContentRootElementSpec(editor)) {
     return { handled: false }
   }
 
-  if (!selection || !RangeApi.isCollapsed(selection)) {
-    return { handled: false }
-  }
-
-  const point = selection.anchor
-  const currentRoot = point.root ?? editor.read((state) => state.view.root())
   const owners = findContentRootOwners(editor)
-  const target = getVerticalNavigationTarget({
-    currentRoot,
-    direction,
+  const viewSelection = readSlateViewSelection(editor)
+  const currentViewOwner = getOwnerForCurrentViewEditor({
     editor,
-    getActiveContentRootOwner,
     getContentRootOwnerViewEditor,
-    getMountedViewEditor,
     owners,
-    point,
   })
+  const currentOwner = viewSelection
+    ? (viewSelection.focus.owner ?? null)
+    : currentViewOwner
+  const point = viewSelection?.focus.point ?? selection?.anchor
+  const currentRoot = viewSelection
+    ? getSlateViewBoundaryPointRoot(viewSelection.focus)
+    : (point?.root ?? editor.read((state) => state.view.root()))
+
+  if (
+    !point ||
+    (!viewSelection && (!selection || !RangeApi.isCollapsed(selection)))
+  ) {
+    return { handled: false }
+  }
+
+  const getCurrentRootOwner = (root: RootKey) =>
+    root === currentRoot && isKnownContentRootOwner(owners, currentOwner)
+      ? currentOwner
+      : (getActiveContentRootOwner?.(root) ?? null)
+
+  const target =
+    action.kind === 'document-boundary'
+      ? getDocumentBoundaryNavigationTarget({
+          currentRoot,
+          direction: action.direction,
+          editor,
+          getActiveContentRootOwner: getCurrentRootOwner,
+          owners,
+        })
+      : getContentRootMovementTarget({
+          action,
+          allowRootLocalMovement: Boolean(viewSelection),
+          currentOwner,
+          currentRoot,
+          editor,
+          getActiveContentRootOwner,
+          getContentRootOwnerViewEditor,
+          getMountedViewEditor,
+          owners,
+          point,
+        })
 
   if (!target) {
     return { handled: false }
   }
 
   const graph = createContentRootProjectionGraph(editor, owners)
-  const currentOwner = getOwnerForRoot({
-    currentRoot,
-    getActiveContentRootOwner,
-    owners,
-  })
+  const anchor =
+    viewSelection?.anchor ??
+    toProjectedPoint({
+      owner:
+        isKnownContentRootOwner(owners, currentOwner) &&
+        currentOwner.childRoot === currentRoot
+          ? currentOwner
+          : getOwnerForRoot({
+              currentRoot,
+              getActiveContentRootOwner,
+              owners,
+            }),
+      point: selection!.anchor,
+      root: currentRoot,
+    })
 
   writeSlateViewSelection(
     editor,
     createSlateViewSelection(graph, {
-      anchor: toProjectedPoint({
-        owner: currentOwner,
-        point: selection.anchor,
-        root: currentRoot,
-      }),
+      anchor,
       focus: toProjectedPoint({
         owner: target.owner,
         point: target.point,

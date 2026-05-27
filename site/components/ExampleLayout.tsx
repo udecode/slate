@@ -1,5 +1,8 @@
 import Link from 'next/link'
 import React, { type ErrorInfo, useState } from 'react'
+
+import { cn } from '@/utils/cn'
+
 import { type ExampleBadge, NON_HIDDEN_EXAMPLES } from '../constants/examples'
 import { Icon } from '../examples/ts/components/index'
 
@@ -24,7 +27,7 @@ const Pill = (props: React.ComponentProps<'span'>) => (
 )
 
 const ExampleBadgeLabel = ({ badge }: { badge: ExampleBadge }) => (
-  <span className={`example-badge example-badge-${badge}`}>
+  <span className={cn('example-badge', `example-badge-${badge}`)}>
     {badge === 'alpha' ? 'Alpha' : 'New'}
   </span>
 )
@@ -38,7 +41,7 @@ const TabList = ({
     aria-label="Examples navigation"
     role="menu"
     {...props}
-    className={`example-tab-list ${isVisible ? 'visible' : 'hidden'}`}
+    className={cn('example-tab-list', isVisible ? 'visible' : 'hidden')}
   />
 )
 
@@ -48,7 +51,10 @@ const TabListUnderlay = ({
 }: React.ComponentProps<'div'> & { isVisible?: boolean }) => (
   <div
     {...props}
-    className={`example-tab-list-underlay ${isVisible ? 'visible' : 'hidden'}`}
+    className={cn(
+      'example-tab-list-underlay',
+      isVisible ? 'visible' : 'hidden'
+    )}
   />
 )
 
@@ -72,7 +78,7 @@ const Tab = ({
     aria-current={active ? 'page' : undefined}
     role="menuitem"
     {...props}
-    className={`example-tab ${active ? 'active' : ''} ${className ?? ''}`.trim()}
+    className={cn('example-tab', active && 'active', className)}
   />
 )
 

@@ -12,10 +12,10 @@ import {
 } from '../hooks/use-slate-node-ref'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import {
-  createSlateProjectionGraph,
-  type SlateProjectedPoint,
-  type SlateProjectionGraphNodeInput,
-} from '../projection-graph'
+  createSlateViewBoundaryGraph,
+  type SlateViewBoundaryGraphNodeInput,
+  type SlateViewBoundaryPoint,
+} from '../view-boundary-graph'
 import {
   createSlateViewSelection,
   readSlateViewSelection,
@@ -72,9 +72,9 @@ export type SlateBrowserHandle = {
   selectRange: (selection: Range) => void
   setViewSelection: (
     selection: {
-      anchor: SlateProjectedPoint
-      focus: SlateProjectedPoint
-      graph: readonly SlateProjectionGraphNodeInput[]
+      anchor: SlateViewBoundaryPoint
+      focus: SlateViewBoundaryPoint
+      graph: readonly SlateViewBoundaryGraphNodeInput[]
     } | null
   ) => void
   undo: () => void
@@ -116,6 +116,15 @@ export const attachSlateBrowserHandle = ({
   isPartialDOMBackedSelection: (selection: Range | null) => boolean
   setExplicitPartialDOMBackedSelection: (nextValue: boolean) => void
 }) => {
+  const refocusHandleElement = () => {
+    const focusHandleElement = () => {
+      element.focus({ preventScroll: true })
+    }
+
+    focusHandleElement()
+    queueMicrotask(focusHandleElement)
+    setTimeout(focusHandleElement)
+  }
   const runCommand = (
     command: EditableCommand,
     { forceRenderAfter = true }: { forceRenderAfter?: boolean } = {}
@@ -151,6 +160,7 @@ export const attachSlateBrowserHandle = ({
       ),
       state: inputController.state,
     })
+    refocusHandleElement()
     recordEditableKernelTrace({
       editor,
       trace: {
@@ -320,6 +330,7 @@ export const attachSlateBrowserHandle = ({
       }
 
       forceRender()
+      refocusHandleElement()
     },
     resolveRangeRef: (id) => {
       const rangeRef = browserHandleRangeRefs.current.get(id)
@@ -358,7 +369,7 @@ export const attachSlateBrowserHandle = ({
         editor,
         selection
           ? createSlateViewSelection(
-              createSlateProjectionGraph(selection.graph),
+              createSlateViewBoundaryGraph(selection.graph),
               {
                 anchor: selection.anchor,
                 focus: selection.focus,
@@ -373,6 +384,7 @@ export const attachSlateBrowserHandle = ({
       }
 
       forceRender()
+      refocusHandleElement()
     },
     unrefRangeRef: (id) => {
       const rangeRef = browserHandleRangeRefs.current.get(id)

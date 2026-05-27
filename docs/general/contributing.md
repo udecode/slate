@@ -146,6 +146,42 @@ To run integrations with [Playwright](https://playwright.dev/), either:
 The local integration command manages its own exported-site server, so it does
 not need the normal dev server to already be running.
 
+For a broad local sweep that should not block your current terminal or agent
+thread, start it asynchronously:
+
+```text
+bun test:integration-local:async
+```
+
+The async command accepts Playwright targets and flags when you want a narrower
+background run:
+
+```text
+bun test:integration-local:async playwright/integration/examples/richtext.test.ts --project=chromium
+```
+
+Then inspect the latest run later:
+
+```text
+bun test:integration-local:pickup
+bun test:integration-local:status
+bun test:integration-local:failures
+```
+
+Async runs write ignored artifacts under `.tmp/integration-runs/<run-id>/`,
+including `status.json`, `pickup.md`, `raw.log`, `report.json`, and
+`failures.md`. Only one async integration run starts at a time. Start from
+`pickup.md` or `bun test:integration-local:pickup` when resuming a previous
+run.
+
+The async command is shared across local agents. If the same command is already
+running for the current source stamp, `bun test:integration-local:async` reuses
+that run and prints its pickup/status commands instead of starting another
+Playwright sweep. If the same command already completed for the current source
+stamp, it prints the cached pickup. A different command while another run is
+active is rejected clearly; use `pickup` first, then start the different sweep
+after the active one finishes.
+
 ### Running integration tests in Docker
 
 If tests fail on CI but pass locally (often due to OS differences), you can run tests in a Docker container that replicates the same environment as CI.

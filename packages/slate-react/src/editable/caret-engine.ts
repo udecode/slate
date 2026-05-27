@@ -62,14 +62,18 @@ const restoreSelectionIfMovementEnteredBoundary = ({
   }
 
   const previousBoundaryIds = getBoundarySelectionIds(editor, previousSelection)
-  const enteredBoundary = DOMCoverage.getBoundariesForRange(
+  const focusedBoundary = DOMCoverage.getBoundaryForPoint(
     editor,
-    nextSelection
-  ).find(
-    (boundary) =>
-      boundary.selectionPolicy === 'boundary' &&
-      !previousBoundaryIds.has(boundary.boundaryId)
+    nextSelection.focus
   )
+  const enteredBoundary =
+    focusedBoundary?.selectionPolicy === 'boundary'
+      ? focusedBoundary
+      : DOMCoverage.getBoundariesForRange(editor, nextSelection).find(
+          (boundary) =>
+            boundary.selectionPolicy === 'boundary' &&
+            !previousBoundaryIds.has(boundary.boundaryId)
+        )
 
   if (!enteredBoundary) {
     return
@@ -218,6 +222,42 @@ export const applyEditableCaretMovement = ({
         tx.selection.move({
           edge: 'focus',
           reverse: isRTL,
+        })
+      },
+      preserveAnchorOnBoundarySkip: true,
+      reverse: isRTL,
+      selection,
+    })
+    return caretMovementHandled()
+  }
+
+  if (Hotkeys.isExtendWordBackward(nativeEvent)) {
+    event.preventDefault()
+    moveSelectionAndRespectBoundaries({
+      editor,
+      move: (tx) => {
+        tx.selection.move({
+          edge: 'focus',
+          reverse: !isRTL,
+          unit: 'word',
+        })
+      },
+      preserveAnchorOnBoundarySkip: true,
+      reverse: !isRTL,
+      selection,
+    })
+    return caretMovementHandled()
+  }
+
+  if (Hotkeys.isExtendWordForward(nativeEvent)) {
+    event.preventDefault()
+    moveSelectionAndRespectBoundaries({
+      editor,
+      move: (tx) => {
+        tx.selection.move({
+          edge: 'focus',
+          reverse: isRTL,
+          unit: 'word',
         })
       },
       preserveAnchorOnBoundarySkip: true,

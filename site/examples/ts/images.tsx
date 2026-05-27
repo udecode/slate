@@ -1,4 +1,3 @@
-import { css } from '@emotion/css'
 import imageExtensions from 'image-extensions'
 import isUrl from 'is-url'
 import type { PointerEvent } from 'react'
@@ -14,6 +13,8 @@ import {
   useElementSelected,
   useSlateEditor,
 } from 'slate-react'
+
+import { cn } from '@/utils/cn'
 
 import { Button, Icon, Toolbar } from './components'
 import type {
@@ -159,25 +160,20 @@ const Image = ({ element }: RenderVoidProps<ImageElement>) => {
   const selected = useElementSelected({ mode: 'collapsed' })
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div className="slate-images-figure">
       <img
-        className={css`
-          display: block;
-          max-width: 100%;
-          max-height: 20em;
-          box-shadow: ${selected && focused ? '0 0 0 3px #B4D5FF' : 'none'};
-        `}
+        className={cn(
+          'slate-images-image',
+          selected && focused && 'is-selected'
+        )}
         src={element.url}
       />
       <Button
         active
-        className={css`
-          display: ${selected && focused ? 'inline' : 'none'};
-          position: absolute;
-          top: 0.5em;
-          left: 0.5em;
-          background-color: white;
-        `}
+        className={cn(
+          'slate-images-remove-button',
+          selected && focused && 'is-visible'
+        )}
         onClick={() => {
           const path = editor.api.dom.resolvePath(element)
 

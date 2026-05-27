@@ -480,6 +480,154 @@ describe('keyboard input strategy', () => {
     }
   })
 
+  it('keeps word selection extension model-owned across boundary-policy hidden ranges', () => {
+    const intro = 'Intro visible before hidden blocks.'
+    const editor = createEditor({
+      initialSelection: {
+        anchor: { path: [0, 0], offset: intro.length },
+        focus: { path: [0, 0], offset: intro.length },
+      },
+      initialValue: [
+        {
+          type: 'paragraph',
+          children: [{ text: intro }],
+        },
+        {
+          type: 'hidden-block',
+          children: [{ text: 'Hidden word.' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: 'Next visible paragraph.' }],
+        },
+      ],
+    }) as ReactEditorType
+    const event = reactKeyEvent(
+      keyEvent('ArrowRight', { ctrlKey: true, shiftKey: true })
+    )
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(false)
+
+    DOMCoverage.registerBoundary(editor, {
+      anchor: { type: 'placeholder' },
+      boundaryId: 'hidden-word',
+      copyPolicy: 'include-model',
+      coveredPathRanges: [{ anchor: [1, 0], focus: [1, 0] }],
+      coveredRuntimeRanges: [],
+      findPolicy: 'not-native-until-mounted',
+      ownerPath: [],
+      ownerRuntimeId: null,
+      reason: 'app-hidden',
+      selectionPolicy: 'boundary',
+      state: 'intentionally-hidden',
+      version: 1,
+    })
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: null,
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(event.preventDefault).toHaveBeenCalled()
+      expect(editor.read((state) => state.selection.get())).toEqual({
+        anchor: { offset: intro.length, path: [0, 0] },
+        focus: { offset: 0, path: [2, 0] },
+      })
+    } finally {
+      DOMCoverage.clear(editor)
+      hasEditableTarget.mockRestore()
+      isComposing.mockRestore()
+    }
+  })
+
+  it('keeps reverse word selection extension out of already-spanned hidden ranges', () => {
+    const intro = 'Intro visible before hidden blocks.'
+    const editor = createEditor({
+      initialSelection: {
+        anchor: { path: [0, 0], offset: intro.length },
+        focus: { path: [2, 0], offset: 0 },
+      },
+      initialValue: [
+        {
+          type: 'paragraph',
+          children: [{ text: intro }],
+        },
+        {
+          type: 'hidden-block',
+          children: [{ text: 'Hidden word.' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: 'Next visible paragraph.' }],
+        },
+      ],
+    }) as ReactEditorType
+    const event = reactKeyEvent(
+      keyEvent('ArrowLeft', { ctrlKey: true, shiftKey: true })
+    )
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(false)
+
+    DOMCoverage.registerBoundary(editor, {
+      anchor: { type: 'placeholder' },
+      boundaryId: 'hidden-word',
+      copyPolicy: 'include-model',
+      coveredPathRanges: [{ anchor: [1, 0], focus: [1, 0] }],
+      coveredRuntimeRanges: [],
+      findPolicy: 'not-native-until-mounted',
+      ownerPath: [],
+      ownerRuntimeId: null,
+      reason: 'app-hidden',
+      selectionPolicy: 'boundary',
+      state: 'intentionally-hidden',
+      version: 1,
+    })
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: null,
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(event.preventDefault).toHaveBeenCalled()
+      expect(editor.read((state) => state.selection.get())).toEqual({
+        anchor: { offset: intro.length, path: [0, 0] },
+        focus: { offset: intro.length, path: [0, 0] },
+      })
+    } finally {
+      DOMCoverage.clear(editor)
+      hasEditableTarget.mockRestore()
+      isComposing.mockRestore()
+    }
+  })
+
   it('skips multiple hidden ranges owned by the same boundary', () => {
     const intro = 'Intro visible before hidden blocks.'
     const editor = createEditor({

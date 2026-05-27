@@ -1,4 +1,3 @@
-import { css } from '@emotion/css'
 import { memo, useState } from 'react'
 import { NodeApi } from 'slate'
 import {
@@ -10,6 +9,8 @@ import {
   useSlateEditor,
   useSlateRangeDecorationSource,
 } from 'slate-react'
+
+import { cn } from '@/utils/cn'
 
 import { Icon, Toolbar } from './components'
 import type { CustomText } from './custom-types.d'
@@ -57,26 +58,10 @@ const SearchHighlightingExample = () => {
   return (
     <>
       <Toolbar>
-        <div
-          className={css`
-            position: relative;
-          `}
-        >
-          <Icon
-            className={css`
-              position: absolute;
-              top: 0.3em;
-              left: 0.4em;
-              color: #ccc;
-            `}
-          >
-            search
-          </Icon>
+        <div className="slate-search-highlighting-box">
+          <Icon className="slate-search-highlighting-icon">search</Icon>
           <input
-            className={css`
-              padding-left: 2.5em !important;
-              width: 100%;
-            `}
+            className="slate-search-highlighting-input"
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search the text..."
             type="search"
@@ -107,9 +92,7 @@ const SearchHighlightingEditor = memo(
               (slice.data as { highlight?: true } | undefined)?.highlight
           ) ? (
             <span
-              className={css`
-                background-color: #ffeeba;
-              `}
+              className="slate-search-highlighting-highlight"
               data-cy="search-highlighted"
             >
               {children}
@@ -134,9 +117,7 @@ const Leaf = ({ attributes, children, leaf }: SearchLeafProps) => {
   return (
     <span
       {...attributes}
-      className={css`
-        font-weight: ${highlightLeaf.bold && 'bold'};
-      `}
+      className={cn(highlightLeaf.bold && 'slate-search-highlighting-bold')}
     >
       {children}
     </span>

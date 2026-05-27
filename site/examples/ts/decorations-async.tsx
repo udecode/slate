@@ -1,4 +1,3 @@
-import { css } from '@emotion/css'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   type Ancestor,
@@ -27,39 +26,6 @@ const searchParams =
     ? null
     : new URLSearchParams(document.location.search)
 const decorationMode = searchParams?.get('source') === 'hook' ? 'hook' : 'prop'
-
-const containerCss = css`
-  max-width: 760px;
-  margin: 40px auto;
-  padding: 0 24px 48px;
-`
-
-const titleCss = css`
-  margin: 0 0 16px;
-  font-size: 22px;
-  font-weight: 700;
-`
-
-const statusCss = css`
-  margin: 0 0 16px;
-  color: #4b5563;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
-`
-
-const highlightCss = css`
-  background: #fde68a;
-  border-radius: 3px;
-  box-decoration-break: clone;
-`
-
-const editorCss = css`
-  min-height: 120px;
-  padding: 16px;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  line-height: 1.55;
-`
 
 const getDocumentText = (value: readonly Descendant[]) =>
   NodeApi.string({ children: value } as never)
@@ -171,9 +137,14 @@ const AsyncDecorationsExample = () => {
   )
 
   return (
-    <div className={containerCss}>
-      <h1 className={`example-page-title ${titleCss}`}>Async Decorations</h1>
-      <div className={statusCss} data-testid="async-decoration-status">
+    <div className="slate-decorations-async-container">
+      <h1 className="example-page-title slate-decorations-async-title">
+        Async Decorations
+      </h1>
+      <div
+        className="slate-decorations-async-status"
+        data-testid="async-decoration-status"
+      >
         decorated-length:{decoratedLength}
       </div>
       <Slate
@@ -184,7 +155,7 @@ const AsyncDecorationsExample = () => {
         onValueChange={scheduleAsyncDecorations}
       >
         <Editable
-          className={editorCss}
+          className="slate-decorations-async-editor"
           decorate={decorationMode === 'prop' ? decorate : undefined}
           id="decorations-async"
           renderSegment={(segment, children) =>
@@ -193,7 +164,7 @@ const AsyncDecorationsExample = () => {
                 (slice.data as AsyncHighlightData | undefined)?.asyncHighlight
             ) ? (
               <span
-                className={highlightCss}
+                className="slate-decorations-async-highlight"
                 data-cy="async-decoration-highlight"
               >
                 {children}

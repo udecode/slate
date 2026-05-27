@@ -1,4 +1,3 @@
-import { css, cx } from '@emotion/css'
 import type { PointerEvent } from 'react'
 import { defineEditorExtension } from 'slate'
 import {
@@ -165,47 +164,6 @@ const ParagraphElement = ({
   <p {...attributes}>{children}</p>
 )
 
-const syncedBlockCss = css`
-  margin: 10px 0;
-  border: 1px solid #9a5b18;
-  border-radius: 6px;
-  background: #fff;
-`
-
-const syncedBlockToolbarCss = css`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 30px;
-  padding: 4px 8px;
-  border-bottom: 1px solid #ead7c0;
-  color: #6b4a2a;
-  font-size: 12px;
-`
-
-const syncedBlockActionsCss = css`
-  display: flex;
-  gap: 8px;
-`
-
-const syncedBlockBodyCss = css`
-  min-height: 54px;
-  padding: 8px;
-
-  & > *:first-child {
-    margin-top: 0;
-  }
-
-  & > *:last-child {
-    margin-bottom: 0;
-  }
-`
-
-const syncedBlockButtonCss = css`
-  color: #6b4a2a;
-`
-
 const SyncedBlock = ({
   attributes,
   element,
@@ -257,17 +215,19 @@ const SyncedBlock = ({
   return (
     <section
       {...attributes}
-      className={syncedBlockCss}
-      contentEditable={false}
+      className="slate-synced-blocks-synced-block"
       data-slate-synced-block
       data-slate-synced-root={bodyRoot}
     >
-      <div className={syncedBlockToolbarCss} contentEditable={false}>
+      <div
+        className="slate-synced-blocks-synced-block-toolbar"
+        contentEditable={false}
+      >
         <span>{isOriginal ? 'Editing original' : 'Editing synced copy'}</span>
-        <span className={syncedBlockActionsCss}>
+        <span className="slate-synced-blocks-synced-block-actions">
           <Button
             aria-label="Duplicate synced block"
-            className={syncedBlockButtonCss}
+            className="slate-synced-blocks-synced-block-button"
             onClick={duplicate}
             onPointerDown={keepEditorFocus}
           >
@@ -275,7 +235,7 @@ const SyncedBlock = ({
           </Button>
           <Button
             aria-label="Unsync synced block"
-            className={syncedBlockButtonCss}
+            className="slate-synced-blocks-synced-block-button"
             onClick={unsync}
             onPointerDown={keepEditorFocus}
           >
@@ -285,7 +245,7 @@ const SyncedBlock = ({
       </div>
       {slots.contentRoot('body', {
         ariaLabel: `Synced block ${element.copyId} content`,
-        className: syncedBlockBodyCss,
+        className: 'slate-synced-blocks-synced-block-body',
         placeholder: 'Empty synced block',
       })}
     </section>
@@ -298,7 +258,7 @@ const InsertSyncedBlockButton = () => {
   return (
     <Button
       aria-label="Insert synced block"
-      className={cx(syncedBlockButtonCss)}
+      className="slate-synced-blocks-synced-block-button"
       onClick={() => {
         const bodyRoot = nextSyncedBlockRoot()
 

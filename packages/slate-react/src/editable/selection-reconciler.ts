@@ -31,6 +31,7 @@ import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { writeSlateViewSelection } from '../view-selection'
+import { applyDOMCoverageSelectionPolicy } from './dom-coverage-selection'
 import { getInputEventTargetRanges } from './dom-input-event'
 import {
   type EditableInputController,
@@ -1000,6 +1001,17 @@ export const useEditableSelectionReconciler = ({
             exactMatch: false,
           })
         )
+        return
+      }
+
+      if (
+        selection &&
+        applyDOMCoverageSelectionPolicy({
+          domSelection,
+          editor,
+          selection,
+        })
+      ) {
         return
       }
 

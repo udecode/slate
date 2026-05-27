@@ -71,6 +71,30 @@ const focusRoot = async (
 const getNativeSelectionText = (page: Parameters<typeof openExample>[0]) =>
   page.evaluate(() => window.getSelection()?.toString() ?? '')
 
+const dragFromLocatorToLocator = async ({
+  from,
+  page,
+  to,
+}: {
+  from: Locator
+  page: Parameters<typeof openExample>[0]
+  to: Locator
+}) => {
+  const fromBox = await from.boundingBox()
+  const toBox = await to.boundingBox()
+
+  if (!fromBox || !toBox) {
+    throw new Error('Cannot drag across unmounted text locators')
+  }
+
+  await page.mouse.move(fromBox.x + fromBox.width - 1, fromBox.y + 4)
+  await page.mouse.down()
+  await page.mouse.move(toBox.x + Math.min(toBox.width, 18), toBox.y + 4, {
+    steps: 8,
+  })
+  await page.mouse.up()
+}
+
 const getViewSelection = (
   root:
     | ReturnType<typeof getSyncedEditor>
@@ -197,6 +221,7 @@ test.describe('synced blocks example', () => {
       )
 
       await second.selection.collapse({ path: [0, 0], offset: 0 })
+      await focusRoot(secondEditor)
       await second.insertText('Second ')
       await expect(secondEditor).toBeFocused()
       await expect(firstEditor).toContainText('Second Shared mission statement')
@@ -592,12 +617,319 @@ test.describe('synced blocks example', () => {
       })
   })
 
+  test('extends Shift+Arrow through synced blocks like sibling blocks', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected selection proof uses Chromium caret geometry'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-outer',
+      outerEditor
+    )
+
+    await outer.selection.collapse({ path: [0, 0], offset: 1 })
+    await focusRoot(outerEditor)
+
+    await outer.press('Shift+ArrowDown')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: { point: { path: [0, 0], offset: 1 } },
+        focus: {
+          owner: firstSharedOwner,
+          point: { path: [0, 0], root: SHARED_ROOT },
+        },
+        segments: { backward: false },
+      })
+    await outer.press('Shift+ArrowDown')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: { point: { path: [0, 0], offset: 1 } },
+        focus: {
+          owner: firstSharedOwner,
+          point: { path: [1, 0], root: SHARED_ROOT },
+        },
+        segments: { backward: false },
+      })
+
+    await outer.press('Shift+ArrowDown')
+    await expect(outerEditor).toBeFocused()
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: { point: { path: [0, 0], offset: 1 } },
+        focus: { point: { path: [2, 0] } },
+        segments: { backward: false },
+      })
+
+    await page.keyboard.press('ArrowDown')
+    await expect.poll(() => getViewSelection(outerEditor)).toBe(null)
+
+    await outer.selection.collapse({ path: [6, 0], offset: 0 })
+    await focusRoot(outerEditor)
+    await outer.press('Shift+ArrowUp')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: { point: { path: [6, 0], offset: 0 } },
+        focus: {
+          owner: {
+            childRoot: SHARED_ROOT,
+            ownerPath: [5],
+            ownerRoot: 'main',
+          },
+          point: { root: SHARED_ROOT },
+        },
+        segments: { backward: true },
+      })
+  })
+
+  test('mouse selection across synced blocks becomes the same visible-order selection as sibling blocks', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop mouse selection proof uses Chromium pointer selection'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+
+    await dragFromLocatorToLocator({
+      from: outerEditor.getByText('p1', { exact: true }),
+      page,
+      to: firstEditor.getByText(SHARED_BODY_FIRST, { exact: true }),
+    })
+
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          point: { path: [0, 0] },
+        },
+        focus: {
+          owner: firstSharedOwner,
+          point: { path: [0, 0], root: SHARED_ROOT },
+        },
+        segments: { backward: false },
+      })
+    await expect.poll(() => getNativeSelectionText(page)).not.toBe('\n')
+    expect(await getNativeSelectionText(page)).not.toContain('Editing original')
+
+    await setViewSelection(outerEditor, null)
+    await dragFromLocatorToLocator({
+      from: firstEditor.getByText(SHARED_BODY_SECOND, { exact: true }),
+      page,
+      to: outerEditor.getByText('Between synced copies.', { exact: true }),
+    })
+
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: { path: [1, 0], root: SHARED_ROOT },
+        },
+        focus: {
+          point: { path: [2, 0] },
+        },
+        segments: { backward: false },
+      })
+    await expect.poll(() => getNativeSelectionText(page)).not.toBe('\n')
+    expect(await getNativeSelectionText(page)).not.toContain('Editing original')
+  })
+
+  test('extends Shift+ArrowLeft and Shift+ArrowRight through synced blocks like sibling text', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected selection proof uses Chromium keyboard events'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-outer',
+      outerEditor
+    )
+
+    await outer.selection.collapse({ path: [0, 0], offset: 'p1'.length })
+    await focusRoot(outerEditor)
+    await outer.press('Shift+ArrowRight')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: { point: { path: [0, 0], offset: 'p1'.length } },
+        focus: {
+          owner: firstSharedOwner,
+          point: { path: [0, 0], root: SHARED_ROOT, offset: 0 },
+        },
+        segments: { backward: false },
+      })
+
+    await outer.press('Shift+ArrowRight')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: { point: { path: [0, 0], offset: 'p1'.length } },
+        focus: {
+          owner: firstSharedOwner,
+          point: { path: [0, 0], root: SHARED_ROOT, offset: 1 },
+        },
+        segments: { backward: false },
+      })
+
+    await setViewSelection(outerEditor, null)
+    await outer.selection.collapse({ path: [6, 0], offset: 0 })
+    await focusRoot(outerEditor)
+    await outer.press('Shift+ArrowLeft')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: { point: { path: [6, 0], offset: 0 } },
+        focus: {
+          owner: {
+            childRoot: SHARED_ROOT,
+            ownerPath: [5],
+            ownerRoot: 'main',
+          },
+          point: {
+            path: [1, 0],
+            root: SHARED_ROOT,
+            offset: SHARED_BODY_SECOND.length,
+          },
+        },
+        segments: { backward: true },
+      })
+
+    await outer.press('Shift+ArrowLeft')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: { point: { path: [6, 0], offset: 0 } },
+        focus: {
+          owner: {
+            childRoot: SHARED_ROOT,
+            ownerPath: [5],
+            ownerRoot: 'main',
+          },
+          point: {
+            path: [1, 0],
+            root: SHARED_ROOT,
+            offset: SHARED_BODY_SECOND.length - 1,
+          },
+        },
+        segments: { backward: true },
+      })
+  })
+
+  test('keeps ordinary Shift+Arrow selection local inside normal paragraphs', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop native selection proof uses Chromium keyboard events'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-outer',
+      outerEditor
+    )
+
+    await outer.selection.collapse({ path: [0, 0], offset: 0 })
+    await focusRoot(outerEditor)
+    await outer.press('Shift+ArrowRight')
+
+    await expect.poll(() => getViewSelection(outerEditor)).toBe(null)
+    await expect
+      .poll(() => outer.selection.get())
+      .toEqual({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 1 },
+      })
+    await expect.poll(() => getNativeSelectionText(page)).toBe('p')
+  })
+
+  test('extends word selection from the projected synced-block focus', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected word-selection proof uses Chromium keyboard events'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-outer',
+      outerEditor
+    )
+
+    await outer.selection.collapse({ path: [0, 0], offset: 'p1'.length })
+    await focusRoot(outerEditor)
+    await outer.press('Shift+ArrowRight')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: { point: { path: [0, 0], offset: 'p1'.length } },
+        focus: {
+          owner: firstSharedOwner,
+          point: { path: [0, 0], root: SHARED_ROOT, offset: 0 },
+        },
+      })
+
+    await outer.press('Control+Shift+ArrowRight')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: { point: { path: [0, 0], offset: 'p1'.length } },
+        focus: {
+          owner: firstSharedOwner,
+          point: {
+            path: [0, 0],
+            root: SHARED_ROOT,
+            offset: 'Shared'.length,
+          },
+        },
+        segments: { backward: false },
+      })
+  })
+
   test('typing over a projected Shift+Arrow selection replaces text across the outer and synced roots', async ({
     page,
   }, testInfo) => {
     test.skip(
       testInfo.project.name !== 'chromium',
-      'Desktop projected command proof uses Chromium caret geometry'
+      'Desktop projected input proof uses Chromium caret geometry'
     )
 
     await openExample(page, 'synced-blocks', {
@@ -625,7 +957,7 @@ test.describe('synced blocks example', () => {
     })
     await expect.poll(() => getViewSelection(outerEditor)).not.toBe(null)
 
-    await outer.insertText('X')
+    await page.keyboard.type('X')
 
     const syncedRemainder = SHARED_BODY_FIRST.slice(2)
 
@@ -663,12 +995,12 @@ test.describe('synced blocks example', () => {
     await expect.poll(() => getViewSelection(outerEditor)).toBe(null)
   })
 
-  test('delete-fragment over a projected Shift+Arrow selection removes text across the outer and synced roots', async ({
+  test('Backspace over a projected Shift+Arrow selection removes text across the outer and synced roots', async ({
     page,
   }, testInfo) => {
     test.skip(
       testInfo.project.name !== 'chromium',
-      'Desktop projected command proof uses Chromium caret geometry'
+      'Desktop projected input proof uses Chromium caret geometry'
     )
 
     await openExample(page, 'synced-blocks', {
@@ -696,7 +1028,7 @@ test.describe('synced blocks example', () => {
     })
     await expect.poll(() => getViewSelection(outerEditor)).not.toBe(null)
 
-    await outer.deleteFragment()
+    await page.keyboard.press('Backspace')
 
     const syncedRemainder = SHARED_BODY_FIRST.slice(2)
 
@@ -931,6 +1263,62 @@ test.describe('synced blocks example', () => {
       .toEqual({
         anchor: { path: [0, 0], offset: 0 },
         focus: { path: [0, 0], offset: 0 },
+      })
+  })
+
+  test('Cmd+Shift+Arrow extends selection between synced copies and document boundaries', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop command-shift-arrow proof uses Chromium keyboard events'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const secondEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 1)
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-outer',
+      outerEditor
+    )
+    const second = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-second-copy',
+      secondEditor
+    )
+
+    await outer.selection.collapse({ path: [0, 0], offset: 1 })
+    await focusRoot(outerEditor)
+    await outer.press('Meta+Shift+ArrowDown')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: { point: { path: [0, 0], offset: 1 } },
+        focus: { point: { path: [6, 0], offset: 'p2'.length } },
+        segments: { backward: false },
+      })
+
+    await setViewSelection(outerEditor, null)
+    await second.selection.collapse({ path: [0, 0], offset: 1 })
+    await focusRoot(secondEditor)
+    await second.press('Meta+Shift+ArrowUp')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: {
+            childRoot: SHARED_ROOT,
+            ownerPath: [5],
+            ownerRoot: 'main',
+          },
+          point: { path: [0, 0], root: SHARED_ROOT, offset: 1 },
+        },
+        focus: { point: { path: [0, 0], offset: 0 } },
+        segments: { backward: true },
       })
   })
 

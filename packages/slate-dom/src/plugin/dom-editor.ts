@@ -826,12 +826,6 @@ export const DOMEditor: DOMEditorInterface = {
     const el = DOMEditor.assertDOMNode(editor, editor)
     const root = DOMEditor.findDocumentOrShadowRoot(editor)
 
-    // Return if already focused. The flag can be stale after focus moves through
-    // external controls, so the DOM active element is the decisive check.
-    if (IS_FOCUSED.get(editor) && root.activeElement === el) {
-      return
-    }
-
     const getLiveSelection = () => Editor.getSelection(editor)
     const selection = getLiveSelection()
     const selectionAtFocus = selection

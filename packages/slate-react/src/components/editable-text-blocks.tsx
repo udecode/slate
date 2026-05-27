@@ -430,6 +430,7 @@ export type EditableContentRootSlotOptions = {
   readOnly?: boolean
   spellCheck?: boolean
   style?: CSSProperties
+  tabIndex?: number
 }
 
 type EditableContentRootSlotRenderers<
@@ -658,6 +659,7 @@ function EditableContentRootView({
     placeholder,
     spellCheck,
     style,
+    tabIndex = 0,
   } = options
   const {
     renderElement,
@@ -744,6 +746,7 @@ function EditableContentRootView({
         renderVoid={renderVoid}
         spellCheck={spellCheck}
         style={style}
+        tabIndex={tabIndex}
       />
     </div>
   )

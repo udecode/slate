@@ -1,4 +1,3 @@
-import { css } from '@emotion/css'
 import { useState } from 'react'
 import type { Bookmark, createEditor, Path, Point, Range, Value } from 'slate'
 import {
@@ -109,50 +108,6 @@ const getOutline = (value: Value) =>
     .map((row) => row.text)
     .join('|')
 
-const rowCss = css`
-  display: grid;
-  grid-template-columns: minmax(180px, 220px) minmax(220px, 1fr);
-  gap: 12px;
-  align-items: center;
-  margin-top: 12px;
-`
-
-const codeCss = css`
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: #111827;
-  color: white;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
-`
-
-const panelCss = css`
-  max-width: 760px;
-  margin: 40px auto;
-  padding: 0 24px 48px;
-`
-
-const controlsCss = css`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 16px;
-`
-
-const buttonCss = css`
-  border: 1px solid #d1d5db;
-  background: white;
-  padding: 10px 14px;
-  border-radius: 10px;
-  cursor: pointer;
-  font-weight: 600;
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
-  }
-`
-
 const toBlockOffset = (row: BlockRowDescriptor, point: Point) => {
   const childIndex = point.path[1] ?? 0
   const leadingLength = row.childTexts
@@ -196,11 +151,17 @@ const ProjectionRow = ({
           .join('|') || 'none'
 
   return (
-    <div className={rowCss}>
-      <span className={codeCss} id={`${slot}-text`}>
+    <div className="slate-persistent-annotation-anchors-row">
+      <span
+        className="slate-persistent-annotation-anchors-code"
+        id={`${slot}-text`}
+      >
         {row.text}
       </span>
-      <span className={codeCss} id={`${slot}-projection`}>
+      <span
+        className="slate-persistent-annotation-anchors-code"
+        id={`${slot}-projection`}
+      >
         {projectionText}
       </span>
     </div>
@@ -213,9 +174,12 @@ const Outline = () => {
   )
 
   return (
-    <div className={rowCss}>
+    <div className="slate-persistent-annotation-anchors-row">
       <strong>Document outline</strong>
-      <span className={codeCss} id="document-outline">
+      <span
+        className="slate-persistent-annotation-anchors-code"
+        id="document-outline"
+      >
         {outline}
       </span>
     </div>
@@ -251,9 +215,12 @@ const AnnotationSidebar = () => {
   )
 
   return (
-    <div className={rowCss}>
+    <div className="slate-persistent-annotation-anchors-row">
       <strong>Annotation sidebar</strong>
-      <span className={codeCss} id="annotation-sidebar">
+      <span
+        className="slate-persistent-annotation-anchors-code"
+        id="annotation-sidebar"
+      >
         {snapshot.allIds.length === 0
           ? 'none'
           : snapshot.allIds
@@ -287,9 +254,12 @@ const WidgetPanel = ({
   const snapshot = useSlateWidgets(store)
 
   return (
-    <div className={rowCss}>
+    <div className="slate-persistent-annotation-anchors-row">
       <strong>Widget panel</strong>
-      <span className={codeCss} id="widget-panel">
+      <span
+        className="slate-persistent-annotation-anchors-code"
+        id="widget-panel"
+      >
         {snapshot.allIds.length === 0
           ? 'none'
           : snapshot.allIds
@@ -352,15 +322,15 @@ const AnchoredProjectionContent = ({
   )
 
   return (
-    <div className={panelCss} id="editor-root">
+    <div className="slate-persistent-annotation-anchors-panel" id="editor-root">
       <Instruction>
         Persistent bookmarks keep the annotation slice attached to the same
         logical text even when the document shape changes.
       </Instruction>
 
-      <div className={controlsCss}>
+      <div className="slate-persistent-annotation-anchors-controls">
         <button
-          className={buttonCss}
+          className="slate-persistent-annotation-anchors-button"
           disabled={!!annotation}
           id="add-anchor"
           onClick={() => {
@@ -384,7 +354,7 @@ const AnchoredProjectionContent = ({
           Add anchor
         </button>
         <button
-          className={buttonCss}
+          className="slate-persistent-annotation-anchors-button"
           id="insert-fragment"
           onClick={() => {
             const path = getLeafPathByText(editor, (text) =>
@@ -414,7 +384,7 @@ const AnchoredProjectionContent = ({
           Insert fragment before anchor
         </button>
         <button
-          className={buttonCss}
+          className="slate-persistent-annotation-anchors-button"
           id="insert-prefix"
           onClick={() => {
             const at = getPointBeforeText(editor, 'alpha')
@@ -430,7 +400,7 @@ const AnchoredProjectionContent = ({
           Insert prefix
         </button>
         <button
-          className={buttonCss}
+          className="slate-persistent-annotation-anchors-button"
           disabled={!annotation}
           id="clear-anchor"
           onClick={() => {

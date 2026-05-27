@@ -1,4 +1,3 @@
-import { css } from '@emotion/css'
 import { useEffect, useState } from 'react'
 import type { Value } from 'slate'
 import {
@@ -225,13 +224,7 @@ const AndroidTestsExample = () => {
         </select>
       </label>
 
-      <p
-        className={css`
-          font-weight: 600;
-          margin: 0.5rem 0;
-          white-space: pre-line;
-        `}
-      >
+      <p className="slate-android-tests-instructions">
         {testCase.instructions}
       </p>
 

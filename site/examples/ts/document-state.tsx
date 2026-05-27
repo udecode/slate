@@ -1,4 +1,3 @@
-import { css } from '@emotion/css'
 import { type ChangeEvent, type KeyboardEvent, useRef } from 'react'
 import { defineStateField, type EditorCommit } from 'slate'
 import {
@@ -27,94 +26,6 @@ const spellcheck = defineStateField({
   initial: () => true,
   persist: true,
 })
-
-const panelCss = css`
-  max-width: 760px;
-  margin: 40px auto;
-  padding: 0 24px 48px;
-`
-
-const topBarCss = css`
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
-  gap: 12px;
-  align-items: end;
-  margin-bottom: 14px;
-
-  @media (max-width: 640px) {
-    grid-template-columns: 1fr;
-  }
-`
-
-const titleLabelCss = css`
-  display: grid;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-`
-
-const titleInputCss = css`
-  width: 100%;
-  min-width: 0;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 20px;
-  font-weight: 650;
-`
-
-const toggleLabelCss = css`
-  display: inline-flex;
-  gap: 8px;
-  align-items: center;
-  min-height: 42px;
-  font-size: 14px;
-  font-weight: 600;
-`
-
-const controlsCss = css`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin: 0 0 14px;
-`
-
-const buttonCss = css`
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: white;
-  padding: 9px 12px;
-  cursor: pointer;
-  font-weight: 650;
-`
-
-const statusCss = css`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 16px;
-`
-
-const codeCss = css`
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: #111827;
-  color: white;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
-`
-
-const editorCss = css`
-  min-height: 118px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 14px 16px;
-  background: #ffffff;
-`
-
-const editorSurfaceCss = css`
-  display: contents;
-`
 
 const formatList = (items: readonly string[]) =>
   items.length === 0 ? 'none' : items.join(',')
@@ -250,20 +161,20 @@ const DocumentStatePanel = () => {
   }
 
   return (
-    <div className={panelCss}>
-      <div className={topBarCss}>
-        <label className={titleLabelCss}>
+    <div className="slate-document-state-panel">
+      <div className="slate-document-state-top-bar">
+        <label className="slate-document-state-title-label">
           Document title
           <input
             aria-label="Document title"
-            className={titleInputCss}
+            className="slate-document-state-title-input"
             onChange={updateTitle}
             onKeyDown={handleTitleKeyDown}
             ref={titleInputRef}
             value={title}
           />
         </label>
-        <label className={toggleLabelCss}>
+        <label className="slate-document-state-toggle-label">
           <input
             aria-label="Enable spellcheck"
             checked={spellcheckEnabled}
@@ -273,16 +184,16 @@ const DocumentStatePanel = () => {
           Spellcheck
         </label>
       </div>
-      <div className={controlsCss}>
+      <div className="slate-document-state-controls">
         <button
-          className={buttonCss}
+          className="slate-document-state-button"
           onClick={() => setTitle('Q3 Launch Brief')}
           type="button"
         >
           Set Q3 title
         </button>
         <button
-          className={buttonCss}
+          className="slate-document-state-button"
           onClick={() => {
             editor.update((tx) => tx.history.undo())
           }}
@@ -291,7 +202,7 @@ const DocumentStatePanel = () => {
           Undo document change
         </button>
         <button
-          className={buttonCss}
+          className="slate-document-state-button"
           onClick={() => {
             editor.update((tx) => tx.history.redo())
           }}
@@ -300,27 +211,33 @@ const DocumentStatePanel = () => {
           Redo document change
         </button>
         <button
-          className={buttonCss}
+          className="slate-document-state-button"
           onClick={receiveRemoteTitle}
           type="button"
         >
           Receive remote title
         </button>
       </div>
-      <div className={statusCss}>
-        <span className={codeCss} id="document-state-title">
+      <div className="slate-document-state-status">
+        <span className="slate-document-state-code" id="document-state-title">
           title:{title}
         </span>
-        <span className={codeCss} id="document-state-spellcheck">
+        <span
+          className="slate-document-state-code"
+          id="document-state-spellcheck"
+        >
           spellcheck:{spellcheckEnabled ? 'on' : 'off'}
         </span>
-        <span className={codeCss} id="document-state-commit">
+        <span className="slate-document-state-code" id="document-state-commit">
           {commitSummary}
         </span>
       </div>
-      <div className={editorSurfaceCss} id="document-state-editor-surface">
+      <div
+        className="slate-document-state-editor-surface"
+        id="document-state-editor-surface"
+      >
         <Editable
-          className={editorCss}
+          className="slate-document-state-editor"
           id="document-state"
           spellCheck={spellcheckEnabled}
         />

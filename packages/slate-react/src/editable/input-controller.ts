@@ -237,6 +237,8 @@ export const classifyKeyboardIntent = ({
     Hotkeys.isExtendForward(nativeEvent) ||
     Hotkeys.isMoveBackward(nativeEvent) ||
     Hotkeys.isMoveForward(nativeEvent) ||
+    Hotkeys.isExtendWordBackward(nativeEvent) ||
+    Hotkeys.isExtendWordForward(nativeEvent) ||
     Hotkeys.isMoveWordBackward(nativeEvent) ||
     Hotkeys.isMoveWordForward(nativeEvent)
   ) {

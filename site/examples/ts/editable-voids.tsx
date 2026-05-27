@@ -1,4 +1,3 @@
-import { css } from '@emotion/css'
 import type { PointerEvent } from 'react'
 import { defineEditorExtension } from 'slate'
 import {
@@ -209,29 +208,16 @@ const ParagraphElement = ({
   <p {...attributes}>{children}</p>
 )
 
-const unsetWidthStyle = css`
-  width: unset;
-`
-
-const childEditorCss = css`
-  min-height: 76px;
-  padding: 12px;
-  border: 2px solid #ddd;
-`
-
-const editorOnlyRootCss = css`
-  margin: 12px 0;
-  border: 2px solid #555;
-`
+const unsetWidthStyle = 'slate-editable-voids-unset-width-style'
 
 const EditableSection = ({ element }: { element: EditableSectionElement }) => {
   const { chrome, root } = useSlateContentRoot(element)
 
   return (
-    <div {...chrome.props} className={editorOnlyRootCss}>
+    <div {...chrome.props} className="slate-editable-voids-editor-only-root">
       <Editable
         aria-label="Editor-only content root"
-        className={childEditorCss}
+        className="slate-editable-voids-child-editor"
         renderElement={renderElement}
         renderLeaf={renderLeaf}
         root={root}
@@ -245,20 +231,10 @@ const EditableVoid = ({ element }: { element: EditableVoidElement }) => {
   const chrome = useSlateRootChrome(bodyRoot)
 
   return (
-    <div
-      className={css`
-        box-shadow: 0 0 0 3px #ddd;
-        padding: 8px;
-      `}
-    >
+    <div className="slate-editable-voids-card">
       <div contentEditable={false}>
         <h4>Name:</h4>
-        <input
-          className={css`
-            margin: 8px 0;
-          `}
-          type="text"
-        />
+        <input className="slate-editable-voids-input" type="text" />
         <h4>Left or right handed:</h4>
         <input
           className={unsetWidthStyle}
@@ -280,7 +256,7 @@ const EditableVoid = ({ element }: { element: EditableVoidElement }) => {
       <div {...chrome.props}>
         <Editable
           aria-label="Editable void rich content"
-          className={childEditorCss}
+          className="slate-editable-voids-child-editor"
           placeholder="Tell us about yourself..."
           renderElement={renderElement}
           renderLeaf={renderLeaf}

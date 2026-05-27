@@ -1,6 +1,6 @@
 import type { Descendant, Range, RootKey } from 'slate'
 
-import type { SlateProjectionOwner } from '../projection-graph'
+import type { SlateViewBoundaryOwner } from '../view-boundary-graph'
 
 export type ProjectedRemoteSelectionPaintPolicy =
   | 'active-projection'
@@ -17,7 +17,7 @@ export type RootQualifiedRemoteSelection = Readonly<{
 }>
 
 export type ProjectedRemoteSelectionPaintTarget = Readonly<{
-  owner: SlateProjectionOwner | null
+  owner: SlateViewBoundaryOwner | null
   range: Range
   root: RootKey
 }>
@@ -50,8 +50,8 @@ export const getProjectedRemoteSelectionPaintTargets = ({
   policy,
   selection,
 }: {
-  activeOwner?: SlateProjectionOwner | null
-  owners: readonly SlateProjectionOwner[]
+  activeOwner?: SlateViewBoundaryOwner | null
+  owners: readonly SlateViewBoundaryOwner[]
   policy: ProjectedRemoteSelectionPaintPolicy
   selection: RootQualifiedRemoteSelection
 }): readonly ProjectedRemoteSelectionPaintTarget[] => {

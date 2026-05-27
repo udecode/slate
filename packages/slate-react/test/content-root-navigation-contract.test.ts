@@ -8,10 +8,15 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   applyContentRootNavigation,
+  applyContentRootViewSelection,
   createContentRootProjectionGraph,
 } from '../src/editable/content-root-navigation'
 import type { ReactRuntimeEditor } from '../src/plugin/react-editor'
-import { createSlateViewSelection } from '../src/view-selection'
+import {
+  createSlateViewSelection,
+  readSlateViewSelection,
+  writeSlateViewSelection,
+} from '../src/view-selection'
 
 const contentRootExtension = defineEditorExtension({
   elements: [
@@ -92,21 +97,26 @@ const selectPoint = (editor: ReactRuntimeEditor, point: Point) => {
   })
 }
 
-const keyEvent = (key: string) =>
+const keyEvent = (
+  key: string,
+  modifiers: Partial<
+    Pick<KeyboardEvent, 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey'>
+  > = {}
+) =>
   ({
-    altKey: false,
-    ctrlKey: false,
+    altKey: modifiers.altKey ?? false,
+    ctrlKey: modifiers.ctrlKey ?? false,
     key,
-    metaKey: false,
+    metaKey: modifiers.metaKey ?? false,
     nativeEvent: {
-      altKey: false,
-      ctrlKey: false,
+      altKey: modifiers.altKey ?? false,
+      ctrlKey: modifiers.ctrlKey ?? false,
       key,
-      metaKey: false,
-      shiftKey: false,
+      metaKey: modifiers.metaKey ?? false,
+      shiftKey: modifiers.shiftKey ?? false,
     },
     preventDefault: vi.fn(),
-    shiftKey: false,
+    shiftKey: modifiers.shiftKey ?? false,
   }) as any
 
 describe('content root navigation', () => {
@@ -335,6 +345,53 @@ describe('content root navigation', () => {
     expect(runtimeValue(mainEditor).roots['card:body']).toEqual([
       paragraph('Inside'),
     ])
+  })
+
+  it('extends an existing projected selection by word from the projected focus', () => {
+    const { bodyEditor, mainEditor } = createFixture()
+    const event = keyEvent('ArrowRight', {
+      ctrlKey: true,
+      shiftKey: true,
+    })
+    const owner = {
+      childRoot: 'card:body',
+      ownerPath: [1],
+      ownerRoot: 'main',
+    } as const
+    const graph = createContentRootProjectionGraph(mainEditor, [owner])
+
+    selectPoint(mainEditor, { path: [0, 0], offset: 'Before'.length })
+    writeSlateViewSelection(
+      mainEditor,
+      createSlateViewSelection(graph, {
+        anchor: { point: { path: [0, 0], offset: 'Before'.length } },
+        focus: {
+          owner,
+          point: { path: [0, 0], root: 'card:body', offset: 2 },
+        },
+      })
+    )
+
+    const result = applyContentRootViewSelection({
+      editor: mainEditor,
+      event,
+      getContentRootOwnerViewEditor: (candidate) =>
+        candidate.ownerPath[0] === 1 ? bodyEditor : null,
+      getMountedViewEditor: (root) =>
+        root === 'card:body' ? bodyEditor : mainEditor,
+      isRTL: false,
+      selection: mainEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(true)
+    expect(event.preventDefault).toHaveBeenCalled()
+    expect(readSlateViewSelection(mainEditor)).toMatchObject({
+      anchor: { point: { path: [0, 0], offset: 'Before'.length } },
+      focus: {
+        owner,
+        point: { path: [0, 0], root: 'card:body', offset: 'Inside'.length },
+      },
+    })
   })
 
   it('enters the content root from a selected owner placeholder', () => {

@@ -1078,6 +1078,12 @@ export const getEditableCommandFromKeyDown = ({
   if (Hotkeys.isExtendForward(nativeEvent)) {
     return { axis: 'horizontal', extend: true, kind: 'move-selection' }
   }
+  if (Hotkeys.isExtendWordBackward(nativeEvent)) {
+    return { axis: 'word', extend: true, kind: 'move-selection', reverse: true }
+  }
+  if (Hotkeys.isExtendWordForward(nativeEvent)) {
+    return { axis: 'word', extend: true, kind: 'move-selection' }
+  }
   if (Hotkeys.isMoveWordBackward(nativeEvent)) {
     return { axis: 'word', kind: 'move-selection', reverse: true }
   }

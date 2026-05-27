@@ -1,4 +1,4 @@
-import { css } from '@emotion/css'
+import { cva } from 'class-variance-authority'
 import {
   type Dispatch,
   type PointerEvent,
@@ -20,6 +20,8 @@ import {
   useSlateWidgetStore,
   useSlateWidgets,
 } from 'slate-react'
+
+import { cn } from '@/utils/cn'
 
 import { Instruction } from './components'
 
@@ -47,6 +49,8 @@ type CommentProjection = {
   tone: CommentTone
 }
 
+type CommentVisualState = 'question' | 'resolved' | 'review'
+
 type CommentEditor = Editor<Value, readonly [ReturnType<typeof react>]>
 
 const initialValue: Value = [
@@ -68,158 +72,6 @@ const initialValue: Value = [
   },
 ]
 
-const panelCss = css`
-  max-width: 1180px;
-  margin: 40px auto;
-  padding: 0 24px 48px;
-`
-
-const proofGridCss = css`
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin: 18px 0;
-
-  @media (max-width: 760px) {
-    grid-template-columns: 1fr;
-  }
-`
-
-const proofCellCss = css`
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 10px;
-  background: #f8fafc;
-`
-
-const layoutCss = css`
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 18px;
-
-  @media (max-width: 900px) {
-    grid-template-columns: 1fr;
-  }
-`
-
-const paneCss = css`
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 16px;
-  background: white;
-`
-
-const writerPaneCss = css`
-  order: 1;
-`
-
-const commentPaneCss = css`
-  order: 2;
-`
-
-const paneHeaderCss = css`
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-`
-
-const titleCss = css`
-  font-size: 15px;
-  font-weight: 700;
-`
-
-const mutedCss = css`
-  color: #64748b;
-  font-size: 13px;
-`
-
-const editorCss = css`
-  min-height: 138px;
-  padding: 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-`
-
-const controlsCss = css`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 12px 0 0;
-`
-
-const buttonCss = css`
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #111827;
-  cursor: pointer;
-  font-weight: 600;
-  padding: 8px 10px;
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.45;
-  }
-`
-
-const codeCss = css`
-  display: inline-flex;
-  width: fit-content;
-  padding: 3px 7px;
-  border-radius: 6px;
-  background: #111827;
-  color: white;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-`
-
-const sidebarCss = css`
-  margin-top: 14px;
-  display: grid;
-  gap: 8px;
-`
-
-const commentCardCss = css`
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 10px;
-  display: grid;
-  gap: 8px;
-`
-
-const widgetRowCss = css`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-`
-
-const toneBadgeCss = (tone: CommentTone, status: CommentStatus) => css`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  width: fit-content;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: ${
-    status === 'resolved'
-      ? '#e2e8f0'
-      : tone === 'question'
-        ? '#dbeafe'
-        : '#fef3c7'
-  };
-  color: ${
-    status === 'resolved'
-      ? '#475569'
-      : tone === 'question'
-        ? '#1d4ed8'
-        : '#92400e'
-  };
-  font-size: 13px;
-  font-weight: 700;
-`
-
 const cloneValue = (value: Value): Value =>
   JSON.parse(JSON.stringify(value)) as Value
 
@@ -233,22 +85,33 @@ const formatRange = (range: Range | null) =>
     ? `${range.anchor.path.join('.')}:${range.anchor.offset}|${range.focus.path.join('.')}:${range.focus.offset}`
     : 'none'
 
-const commentBackground = (
+const commentVisualState = (
   tone: CommentTone,
-  status: CommentStatus,
-  overlapCount: number
-) => ({
-  backgroundColor:
-    status === 'resolved'
-      ? '#e2e8f0'
-      : tone === 'question'
-        ? '#dbeafe'
-        : '#fef3c7',
-  borderRadius: 4,
-  boxShadow:
-    overlapCount > 1
-      ? 'inset 0 -2px 0 rgba(234, 88, 12, 0.85)'
-      : 'inset 0 -2px 0 rgba(0, 0, 0, 0.08)',
+  status: CommentStatus
+): CommentVisualState => (status === 'resolved' ? 'resolved' : tone)
+
+const commentHighlightVariants = cva('slate-comment-mode-highlight', {
+  variants: {
+    overlap: {
+      false: 'slate-comment-mode-highlight-single',
+      true: 'slate-comment-mode-highlight-overlap',
+    },
+    state: {
+      question: 'slate-comment-mode-highlight-question',
+      resolved: 'slate-comment-mode-highlight-resolved',
+      review: 'slate-comment-mode-highlight-review',
+    },
+  },
+})
+
+const commentToneBadgeVariants = cva('slate-comment-mode-tone-badge', {
+  variants: {
+    state: {
+      question: 'is-question',
+      resolved: 'is-resolved',
+      review: 'is-review',
+    },
+  },
 })
 
 const createCommentAnnotations = (comments: readonly CommentThread[]) =>
@@ -275,7 +138,7 @@ const CommentedEditable = ({
   readOnly?: boolean
 }) => (
   <Editable
-    className={editorCss}
+    className="slate-comment-mode-editor"
     id={id}
     readOnly={readOnly}
     renderSegment={(segment, children) => {
@@ -293,14 +156,18 @@ const CommentedEditable = ({
 
       return (
         <span
+          className={cn(
+            commentHighlightVariants({
+              overlap: segment.slices.length > 1,
+              state: commentVisualState(
+                firstSlice?.tone ?? 'review',
+                firstSlice?.status ?? 'open'
+              ),
+            })
+          )}
           data-comment-count={String(segment.slices.length)}
           data-comment-status={firstSlice?.status ?? 'open'}
           data-comment-tone={firstSlice?.tone ?? 'review'}
-          style={commentBackground(
-            firstSlice?.tone ?? 'review',
-            firstSlice?.status ?? 'open',
-            segment.slices.length
-          )}
         >
           {children}
         </span>
@@ -367,15 +234,17 @@ const WriterPane = ({ editor }: { editor: CommentEditor }) => {
   }
 
   return (
-    <div className={`${paneCss} ${writerPaneCss}`}>
-      <div className={paneHeaderCss}>
-        <span className={titleCss}>Edit mode</span>
-        <span className={mutedCss}>document writes enabled</span>
+    <div className="slate-comment-mode-pane slate-comment-mode-writer-pane">
+      <div className="slate-comment-mode-pane-header">
+        <span className="slate-comment-mode-title">Edit mode</span>
+        <span className="slate-comment-mode-muted">
+          document writes enabled
+        </span>
       </div>
       <CommentedEditable id="comment-mode-document" />
-      <div className={controlsCss}>
+      <div className="slate-comment-mode-controls">
         <button
-          className={buttonCss}
+          className="slate-comment-mode-button"
           disabled={!firstAnnotation?.range}
           onClick={insertPrefixBeforeFirstComment}
           type="button"
@@ -383,14 +252,16 @@ const WriterPane = ({ editor }: { editor: CommentEditor }) => {
           Insert prefix before first comment
         </button>
         <button
-          className={buttonCss}
+          className="slate-comment-mode-button"
           disabled={!firstAnnotation?.range}
           onClick={insertParagraphBeforeFirstComment}
           type="button"
         >
           Insert paragraph before first comment
         </button>
-        <span className={codeCss}>selection:{formatRange(selection)}</span>
+        <span className="slate-comment-mode-code">
+          selection:{formatRange(selection)}
+        </span>
       </div>
     </div>
   )
@@ -566,15 +437,17 @@ const CommentModePane = ({
   }
 
   return (
-    <div className={`${paneCss} ${commentPaneCss}`}>
-      <div className={paneHeaderCss}>
-        <span className={titleCss}>Comment mode</span>
-        <span className={mutedCss}>read-only document, writable comments</span>
+    <div className="slate-comment-mode-pane slate-comment-mode-comment-pane">
+      <div className="slate-comment-mode-pane-header">
+        <span className="slate-comment-mode-title">Comment mode</span>
+        <span className="slate-comment-mode-muted">
+          read-only document, writable comments
+        </span>
       </div>
       <CommentedEditable id="comment-mode" readOnly />
-      <div className={controlsCss}>
+      <div className="slate-comment-mode-controls">
         <button
-          className={buttonCss}
+          className="slate-comment-mode-button"
           disabled={isCollapsed(selection)}
           onClick={addComment}
           onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
@@ -584,11 +457,15 @@ const CommentModePane = ({
         >
           Add comment on selection
         </button>
-        <button className={buttonCss} onClick={seedComment} type="button">
+        <button
+          className="slate-comment-mode-button"
+          onClick={seedComment}
+          type="button"
+        >
           Seed example comment
         </button>
         <button
-          className={buttonCss}
+          className="slate-comment-mode-button"
           disabled={comments.length === 0}
           onClick={retoneFirstComment}
           type="button"
@@ -596,7 +473,7 @@ const CommentModePane = ({
           Retone first comment
         </button>
         <button
-          className={buttonCss}
+          className="slate-comment-mode-button"
           disabled={comments.length === 0}
           onClick={updateFirstCommentBody}
           type="button"
@@ -604,7 +481,7 @@ const CommentModePane = ({
           Update first comment
         </button>
         <button
-          className={buttonCss}
+          className="slate-comment-mode-button"
           disabled={comments.length === 0}
           onClick={toggleFirstCommentStatus}
           type="button"
@@ -612,20 +489,20 @@ const CommentModePane = ({
           Toggle resolved
         </button>
         <button
-          className={buttonCss}
+          className="slate-comment-mode-button"
           disabled={comments.length === 0}
           onClick={clearComments}
           type="button"
         >
           Clear comments
         </button>
-        <span className={codeCss} id="comment-mode-selection">
+        <span className="slate-comment-mode-code" id="comment-mode-selection">
           selection:{formatRange(selection)}
         </span>
       </div>
-      <div className={sidebarCss}>
+      <div className="slate-comment-mode-sidebar">
         {annotationSnapshot.allIds.length === 0 ? (
-          <span className={codeCss} id="comments-empty">
+          <span className="slate-comment-mode-code" id="comments-empty">
             comments:none
           </span>
         ) : (
@@ -634,25 +511,29 @@ const CommentModePane = ({
 
             return (
               <div
-                className={commentCardCss}
+                className="slate-comment-mode-comment-card"
                 id={`comment-card-${annotation.id}`}
                 key={annotation.id}
               >
                 <span
-                  className={toneBadgeCss(
-                    annotation.data?.tone ?? 'review',
-                    annotation.data?.status ?? 'open'
+                  className={cn(
+                    commentToneBadgeVariants({
+                      state: commentVisualState(
+                        annotation.data?.tone ?? 'review',
+                        annotation.data?.status ?? 'open'
+                      ),
+                    })
                   )}
                 >
                   {annotation.data?.label ?? annotation.id} -{' '}
                   {annotation.data?.status ?? 'open'}
                 </span>
                 <strong>{annotation.data?.body}</strong>
-                <span className={codeCss}>
+                <span className="slate-comment-mode-code">
                   range:{formatRange(annotation.range)}
                 </span>
                 <button
-                  className={buttonCss}
+                  className="slate-comment-mode-button"
                   onClick={() => removeComment(annotation.id)}
                   type="button"
                 >
@@ -662,9 +543,9 @@ const CommentModePane = ({
             )
           })
         )}
-        <div className={widgetRowCss}>
+        <div className="slate-comment-mode-widget-row">
           {widgetSnapshot.allIds.length === 0 ? (
-            <span className={codeCss} id="widgets-empty">
+            <span className="slate-comment-mode-code" id="widgets-empty">
               widgets:none
             </span>
           ) : (
@@ -672,7 +553,7 @@ const CommentModePane = ({
               const widget = widgetSnapshot.byId.get(id)!
 
               return widget.visible ? (
-                <span className={codeCss} key={widget.id}>
+                <span className="slate-comment-mode-code" key={widget.id}>
                   {widget.id}:{widget.data?.label ?? 'none'}
                 </span>
               ) : null
@@ -732,36 +613,45 @@ const CommentModeExample = () => {
   }
 
   return (
-    <div className={panelCss}>
+    <div className="slate-comment-mode-panel">
       <Instruction>
         Edit mode owns document writes. Comment mode renders the same document
         read-only, creates bookmark-backed comments, and writes only to the
         external comment channel.
       </Instruction>
-      <div className={proofGridCss}>
-        <div className={proofCellCss}>
+      <div className="slate-comment-mode-proof-grid">
+        <div className="slate-comment-mode-proof-cell">
           <strong>document writes</strong>
           <br />
-          <span className={codeCss} id="comment-mode-document-writes">
+          <span
+            className="slate-comment-mode-code"
+            id="comment-mode-document-writes"
+          >
             {documentWrites}
           </span>
         </div>
-        <div className={proofCellCss}>
+        <div className="slate-comment-mode-proof-cell">
           <strong>comment writes</strong>
           <br />
-          <span className={codeCss} id="comment-mode-comment-writes">
+          <span
+            className="slate-comment-mode-code"
+            id="comment-mode-comment-writes"
+          >
             {commentWrites}
           </span>
         </div>
-        <div className={proofCellCss}>
+        <div className="slate-comment-mode-proof-cell">
           <strong>read-only document writes</strong>
           <br />
-          <span className={codeCss} id="comment-mode-read-only-writes">
+          <span
+            className="slate-comment-mode-code"
+            id="comment-mode-read-only-writes"
+          >
             0
           </span>
         </div>
       </div>
-      <div className={layoutCss}>
+      <div className="slate-comment-mode-layout">
         <Slate annotationStore={commentAnnotationStore} editor={commentEditor}>
           <CommentModePane
             annotationStore={commentAnnotationStore}

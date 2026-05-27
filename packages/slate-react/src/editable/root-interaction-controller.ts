@@ -2,8 +2,12 @@ import { type MouseEventHandler, useCallback, useRef } from 'react'
 import type { BaseSelection, Range, RootKey } from 'slate'
 
 import { scheduleSlateReactFocus } from '../hooks/focus-scheduler'
-import { focusSlateEditable } from '../hooks/focus-slate-editable'
+import {
+  type focusSlateEditable,
+  focusSlateEditableAfterEventFrame,
+} from '../hooks/focus-slate-editable'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
+import { writeSlateViewSelection } from '../view-selection'
 import {
   isRootInteractionEditableFocused,
   type RootInteractionFocusSelection,
@@ -80,29 +84,41 @@ export const useRootInteractionController = ({
       selection?: RootInteractionFocusSelection
     } = {}) => {
       const focusEditor = getMountedViewEditor(root) ?? editor
+      const getEndSelection = (): Range => {
+        const point = focusEditor.read((state) => state.points.end([]))
 
-      if (selectionPreference === 'end') {
-        focusEditor.update((tx) => {
-          const point = tx.points.end([])
-          tx.selection.set({ anchor: point, focus: point })
-        })
-      } else if (
-        selectionPreference === 'restore' &&
-        (forceSelection || !focusEditor.read((state) => state.selection.get()))
-      ) {
-        const previousSelection = getLastSelectionForRoot(root)
-
-        focusEditor.update((tx) => {
-          if (previousSelection) {
-            tx.selection.set(previousSelection)
-          } else {
-            const point = tx.points.end([])
-            tx.selection.set({ anchor: point, focus: point })
-          }
-        })
+        return { anchor: point, focus: point }
       }
+      const focusSelection =
+        selectionPreference === 'end'
+          ? getEndSelection()
+          : selectionPreference === 'restore' &&
+              (forceSelection ||
+                !focusEditor.read((state) => state.selection.get()))
+            ? (getLastSelectionForRoot(root) ?? getEndSelection())
+            : null
+      const applyFocusSelection = () => {
+        if (!focusSelection) {
+          return false
+        }
 
-      focusSlateEditable(focusEditor)
+        writeSlateViewSelection(focusEditor, null)
+        focusEditor.update((tx) => {
+          tx.selection.set(focusSelection)
+        })
+
+        return true
+      }
+      const appliedSelection = applyFocusSelection()
+
+      focusSlateEditableAfterEventFrame(focusEditor)
+
+      if (appliedSelection) {
+        globalThis.setTimeout?.(() => {
+          applyFocusSelection()
+          focusSlateEditableAfterEventFrame(focusEditor)
+        }, 0)
+      }
     },
     [editor, getLastSelectionForRoot, getMountedViewEditor, root, selection]
   )
@@ -115,10 +131,11 @@ export const useRootInteractionController = ({
       const focusEditor = getMountedViewEditor(root) ?? editor
 
       if (action.type === 'set-selection') {
+        writeSlateViewSelection(focusEditor, null)
         focusEditor.update((tx) => {
           tx.selection.set(withInteractionRangeRoot(action.range, root))
         })
-        focusSlateEditable(focusEditor)
+        focusSlateEditableAfterEventFrame(focusEditor)
         return
       }
 

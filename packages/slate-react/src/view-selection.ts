@@ -1,19 +1,18 @@
-import { type Path, PathApi, type Point } from 'slate'
+import { PathApi } from 'slate'
 import {
-  getSlateProjectionOwnerKey,
-  type SlateProjectedPoint,
-  SlateProjectionGraph,
-  type SlateProjectionGraphModel,
-  type SlateProjectionGraphRangeSegments,
-  type SlateProjectionOwner,
-} from './projection-graph'
-
-const MAIN_ROOT_KEY = 'main'
+  cloneSlateViewBoundaryProjectedPoint,
+  getSlateViewBoundaryOwnerKey,
+  getSlateViewBoundaryPointRoot,
+  SlateViewBoundaryGraph,
+  type SlateViewBoundaryGraphModel,
+  type SlateViewBoundaryPoint,
+  type SlateViewBoundaryRangeSegments,
+} from './view-boundary-graph'
 
 export type SlateViewSelection = Readonly<{
-  anchor: SlateProjectedPoint
-  focus: SlateProjectedPoint
-  segments: SlateProjectionGraphRangeSegments
+  anchor: SlateViewBoundaryPoint
+  focus: SlateViewBoundaryPoint
+  segments: SlateViewBoundaryRangeSegments
 }>
 
 export type SlateViewSelectionCollapseEdge =
@@ -23,6 +22,7 @@ export type SlateViewSelectionCollapseEdge =
   | 'start'
 
 const EDITOR_TO_VIEW_SELECTION = new WeakMap<object, SlateViewSelection>()
+const EDITOR_TO_VIEW_SELECTION_STORE_KEY = new WeakMap<object, object>()
 const HISTORY_BATCH_TO_VIEW_SELECTION = new WeakMap<
   object,
   Readonly<{
@@ -31,53 +31,38 @@ const HISTORY_BATCH_TO_VIEW_SELECTION = new WeakMap<
   }>
 >()
 
-const clonePath = (path: Path): Path => [...path] as Path
+const cloneProjectedPoint = cloneSlateViewBoundaryProjectedPoint
 
-const clonePoint = (point: Point): Point =>
-  Object.freeze({
-    ...(point.root ? { root: point.root } : {}),
-    path: Object.freeze(clonePath(point.path)) as Path,
-    offset: point.offset,
-  }) as Point
+export const setSlateViewSelectionStoreKey = (
+  editor: object,
+  storeKey: object
+) => {
+  EDITOR_TO_VIEW_SELECTION_STORE_KEY.set(editor, storeKey)
+}
 
-const cloneOwner = (
-  owner: SlateProjectionOwner | null | undefined
-): SlateProjectionOwner | null =>
-  owner
-    ? Object.freeze({
-        childRoot: owner.childRoot,
-        ownerPath: Object.freeze(clonePath(owner.ownerPath)) as Path,
-        ownerRoot: owner.ownerRoot,
-      })
+const getViewSelectionStoreKey = (editor: object): object =>
+  EDITOR_TO_VIEW_SELECTION_STORE_KEY.get(editor) ?? editor
+
+const getProjectedPointOwnerKey = (projectedPoint: SlateViewBoundaryPoint) =>
+  projectedPoint.owner
+    ? getSlateViewBoundaryOwnerKey(projectedPoint.owner)
     : null
 
-const cloneProjectedPoint = (
-  projectedPoint: SlateProjectedPoint
-): SlateProjectedPoint =>
-  Object.freeze({
-    ...(projectedPoint.owner
-      ? { owner: cloneOwner(projectedPoint.owner) }
-      : {}),
-    point: clonePoint(projectedPoint.point),
-  })
-
-const getProjectedPointOwnerKey = (projectedPoint: SlateProjectedPoint) =>
-  projectedPoint.owner ? getSlateProjectionOwnerKey(projectedPoint.owner) : null
-
 const isProjectedPointEqual = (
-  left: SlateProjectedPoint,
-  right: SlateProjectedPoint
+  left: SlateViewBoundaryPoint,
+  right: SlateViewBoundaryPoint
 ) =>
   getProjectedPointOwnerKey(left) === getProjectedPointOwnerKey(right) &&
   left.point.offset === right.point.offset &&
-  (left.point.root ?? MAIN_ROOT_KEY) === (right.point.root ?? MAIN_ROOT_KEY) &&
+  getSlateViewBoundaryPointRoot(left) ===
+    getSlateViewBoundaryPointRoot(right) &&
   PathApi.equals(left.point.path, right.point.path)
 
 export const createSlateViewSelection = (
-  graph: SlateProjectionGraphModel,
+  graph: SlateViewBoundaryGraphModel,
   range: Readonly<{
-    anchor: SlateProjectedPoint
-    focus: SlateProjectedPoint
+    anchor: SlateViewBoundaryPoint
+    focus: SlateViewBoundaryPoint
   }>
 ): SlateViewSelection => {
   const anchor = cloneProjectedPoint(range.anchor)
@@ -86,7 +71,7 @@ export const createSlateViewSelection = (
   return Object.freeze({
     anchor,
     focus,
-    segments: SlateProjectionGraph.segmentRange(graph, {
+    segments: SlateViewBoundaryGraph.segmentRange(graph, {
       anchor,
       focus,
     }),
@@ -94,9 +79,9 @@ export const createSlateViewSelection = (
 }
 
 export const extendSlateViewSelection = (
-  graph: SlateProjectionGraphModel,
+  graph: SlateViewBoundaryGraphModel,
   selection: SlateViewSelection,
-  focus: SlateProjectedPoint
+  focus: SlateViewBoundaryPoint
 ): SlateViewSelection =>
   createSlateViewSelection(graph, {
     anchor: selection.anchor,
@@ -109,7 +94,7 @@ export const isSlateViewSelectionCollapsed = (selection: SlateViewSelection) =>
 export const collapseSlateViewSelection = (
   selection: SlateViewSelection,
   edge: SlateViewSelectionCollapseEdge
-): SlateProjectedPoint => {
+): SlateViewBoundaryPoint => {
   switch (edge) {
     case 'anchor':
       return cloneProjectedPoint(selection.anchor)
@@ -128,18 +113,21 @@ export const collapseSlateViewSelection = (
 
 export const readSlateViewSelection = (
   editor: object
-): SlateViewSelection | null => EDITOR_TO_VIEW_SELECTION.get(editor) ?? null
+): SlateViewSelection | null =>
+  EDITOR_TO_VIEW_SELECTION.get(getViewSelectionStoreKey(editor)) ?? null
 
 export const writeSlateViewSelection = (
   editor: object,
   selection: SlateViewSelection | null
 ) => {
+  const key = getViewSelectionStoreKey(editor)
+
   if (!selection) {
-    EDITOR_TO_VIEW_SELECTION.delete(editor)
+    EDITOR_TO_VIEW_SELECTION.delete(key)
     return
   }
 
-  EDITOR_TO_VIEW_SELECTION.set(editor, selection)
+  EDITOR_TO_VIEW_SELECTION.set(key, selection)
 }
 
 type HistoryStackName = 'redos' | 'undos'

@@ -51,6 +51,7 @@ import type {
 import { ProjectionContext } from '../projection-context'
 import { recordSlateReactRender } from '../render-profiler'
 import { REACT_MAJOR_VERSION } from '../utils/environment'
+import { setSlateViewSelectionStoreKey } from '../view-selection'
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
 
@@ -197,8 +198,12 @@ const SlateRuntimeView = <
       root,
     })
 
-    return createReactRuntimeViewEditor(view)
-  }, [getView, readOnly, root])
+    const viewEditor = createReactRuntimeViewEditor(view)
+
+    setSlateViewSelectionStoreKey(viewEditor, runtimeContext.runtime.editor)
+
+    return viewEditor
+  }, [getView, readOnly, root, runtimeContext.runtime.editor])
   const reactEditor = editor as unknown as ReactRuntimeEditor<V>
   const viewRoot = editor.read((state) => state.view.root())
   const isFocused = ReactEditor.isFocused(reactEditor)

@@ -59,6 +59,25 @@ describe('root interaction resolver', () => {
     })
   })
 
+  test('keeps root chrome activation on restore when browser coordinates resolve stale text', () => {
+    expect(
+      resolveRootInteractionMouseUp({
+        eventRange: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 0 },
+        },
+        pendingAction: {
+          preventDefault: true,
+          type: 'activate-root',
+        },
+        selection: 'restore',
+      })
+    ).toEqual({
+      selection: 'restore',
+      type: 'focus-root',
+    })
+  })
+
   test('places caret at root end for editable root surface clicks without coordinates', () => {
     const root = createRootChrome()
     const editable = document.createElement('div')
@@ -84,6 +103,25 @@ describe('root interaction resolver', () => {
       resolveRootInteractionMouseUp({
         eventRange: null,
         pendingAction: mouseDown,
+        selection: 'restore',
+      })
+    ).toEqual({
+      selection: 'end',
+      type: 'focus-root',
+    })
+  })
+
+  test('keeps editable root padding clicks at root end even when browser coordinates resolve stale text', () => {
+    expect(
+      resolveRootInteractionMouseUp({
+        eventRange: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 0 },
+        },
+        pendingAction: {
+          preventDefault: true,
+          type: 'place-editable-root',
+        },
         selection: 'restore',
       })
     ).toEqual({

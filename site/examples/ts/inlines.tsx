@@ -1,4 +1,3 @@
-import { css } from '@emotion/css'
 import isUrl from 'is-url'
 import type React from 'react'
 import { type PointerEvent, useMemo } from 'react'
@@ -14,6 +13,8 @@ import {
   useElementSelected,
   useSlateEditor,
 } from 'slate-react'
+
+import { cn } from '@/utils/cn'
 
 import { Button, Icon, Toolbar } from './components'
 import type {
@@ -279,12 +280,7 @@ const wrapButton = (editor: CustomEditor) => {
 // Put this at the start and end of an inline component to work around this Chromium bug:
 // https://bugs.chromium.org/p/chromium/issues/detail?id=1249405
 const InlineChromiumBugfix = () => (
-  <span
-    className={css`
-      font-size: 0;
-    `}
-    contentEditable={false}
-  >
+  <span className="slate-inlines-chromium-bugfix" contentEditable={false}>
     {String.fromCodePoint(160) /* Non-breaking space */}
   </span>
 )
@@ -311,13 +307,7 @@ const LinkComponent = ({
   return (
     <a
       {...attributes}
-      className={
-        selected
-          ? css`
-              box-shadow: 0 0 0 3px #ddd;
-            `
-          : ''
-      }
+      className={cn(selected && 'slate-inlines-link-selected')}
       href={safeUrl}
     >
       <InlineChromiumBugfix />
@@ -344,15 +334,7 @@ const EditableButtonComponent = ({
     <span
       {...attributes}
       // Margin is necessary to clearly show the cursor adjacent to the button
-      className={css`
-        margin: 0 0.1em;
-
-        background-color: #efefef;
-        padding: 2px 6px;
-        border: 1px solid #767676;
-        border-radius: 2px;
-        font-size: 0.9em;
-      `}
+      className="slate-inlines-editable-button"
       onClick={(ev) => ev.preventDefault()}
     >
       <InlineChromiumBugfix />
@@ -371,14 +353,7 @@ const BadgeComponent = ({
   return (
     <span
       {...attributes}
-      className={css`
-        background-color: green;
-        color: white;
-        padding: 2px 6px;
-        border-radius: 2px;
-        font-size: 0.9em;
-        ${selected && 'box-shadow: 0 0 0 3px #ddd;'}
-      `}
+      className={cn('slate-inlines-badge', selected && 'is-selected')}
       contentEditable={false}
       data-playwright-selected={selected}
     >
@@ -403,13 +378,7 @@ const InlineText = (props: RenderTextProps) => {
       // clicking the end of a block puts the cursor inside the inline
       // instead of inside the final {text: ''} node
       // https://github.com/ianstormtaylor/slate/issues/4704#issuecomment-1006696364
-      className={
-        text.text === ''
-          ? css`
-              padding-left: 0.1px;
-            `
-          : undefined
-      }
+      className={cn(text.text === '' && 'slate-inlines-empty-text')}
       {...attributes}
     >
       {children}

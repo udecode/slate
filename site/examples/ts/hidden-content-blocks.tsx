@@ -380,7 +380,11 @@ const Element = ({ children, element, slots }: RenderElementProps) => {
           >
             <AccordionItem value="body">
               <div contentEditable={false}>
-                <AccordionTrigger data-test-id="accordion-trigger">
+                <AccordionTrigger
+                  className="select-none"
+                  contentEditable={false}
+                  data-test-id="accordion-trigger"
+                >
                   Accordion body
                 </AccordionTrigger>
               </div>
@@ -409,7 +413,8 @@ const Element = ({ children, element, slots }: RenderElementProps) => {
             <div contentEditable={false}>
               <CollapsibleTrigger asChild>
                 <Button
-                  className="my-2"
+                  className="my-2 select-none"
+                  contentEditable={false}
                   data-test-id="collapsible-trigger"
                   variant="outline"
                 >
@@ -440,11 +445,21 @@ const Element = ({ children, element, slots }: RenderElementProps) => {
             value={activeTab}
           >
             <div contentEditable={false}>
-              <TabsList>
-                <TabsTrigger data-test-id="tab-overview" value="overview">
+              <TabsList className="select-none" contentEditable={false}>
+                <TabsTrigger
+                  className="select-none"
+                  contentEditable={false}
+                  data-test-id="tab-overview"
+                  value="overview"
+                >
                   Overview
                 </TabsTrigger>
-                <TabsTrigger data-test-id="tab-details" value="details">
+                <TabsTrigger
+                  className="select-none"
+                  contentEditable={false}
+                  data-test-id="tab-details"
+                  value="details"
+                >
                   Details
                 </TabsTrigger>
               </TabsList>

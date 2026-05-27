@@ -1,4 +1,3 @@
-import { css } from '@emotion/css'
 import type { ChangeEvent } from 'react'
 import {
   defineEditorExtension,
@@ -15,6 +14,9 @@ import {
   useEditorReadOnly,
   useSlateEditor,
 } from 'slate-react'
+
+import { cn } from '@/utils/cn'
+
 import type {
   CheckListItemElement as CheckListItemType,
   CustomEditor,
@@ -152,24 +154,8 @@ const CheckListItemElement = ({
   const editor = useEditor<CustomEditor>()
   const readOnly = useEditorReadOnly()
   return (
-    <div
-      {...attributes}
-      className={css`
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-
-        & + & {
-          margin-top: 0;
-        }
-      `}
-    >
-      <span
-        className={css`
-          margin-right: 0.75em;
-        `}
-        contentEditable={false}
-      >
+    <div {...attributes} className="slate-check-lists-item">
+      <span className="slate-check-lists-checkbox" contentEditable={false}>
         <input
           checked={checked}
           onChange={(event: ChangeEvent<HTMLInputElement>) => {
@@ -187,15 +173,7 @@ const CheckListItemElement = ({
         />
       </span>
       <span
-        className={css`
-          flex: 1;
-          opacity: ${checked ? 0.666 : 1};
-          text-decoration: ${checked ? 'line-through' : 'none'};
-
-          &:focus {
-            outline: none;
-          }
-        `}
+        className={cn('slate-check-lists-content', checked && 'is-checked')}
         contentEditable={!readOnly}
         suppressContentEditableWarning
       >

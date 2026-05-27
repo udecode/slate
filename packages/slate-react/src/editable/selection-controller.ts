@@ -4,12 +4,14 @@ import {
   PointApi,
   type Range,
   RangeApi,
+  type RootKey,
   type Selection,
   type TargetFreshnessRequest,
 } from 'slate'
 import {
   containsShadowAware,
   type DOMRange,
+  ELEMENT_TO_NODE,
   getSelection,
   IS_ANDROID,
   IS_FOCUSED,
@@ -19,11 +21,23 @@ import {
   isDOMNode,
   isDOMText,
 } from 'slate-dom'
-import { DOMCoverage } from 'slate-dom/internal'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
-import { getSlateNodeElementByPath } from '../hooks/use-slate-node-ref'
+import {
+  getSlateNodeElementByPath,
+  getSlateNodePathFromDOMElement,
+} from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
-import { writeSlateViewSelection } from '../view-selection'
+import {
+  createSlateViewSelection,
+  readSlateViewSelection,
+  writeSlateViewSelection,
+} from '../view-selection'
+import {
+  type ContentRootOwner,
+  createContentRootProjectionGraph,
+  findContentRootOwners,
+} from './content-root-navigation'
+import { applyDOMCoverageSelectionPolicy } from './dom-coverage-selection'
 import type { EditableSelectionPolicy } from './editing-kernel'
 import type {
   EditableInputController,
@@ -78,6 +92,218 @@ export const isSelectionInEditorView = (
   const viewRoot = editor.read((state) => state.view.root())
 
   return selectionRoot === viewRoot
+}
+
+type ProjectedDOMSelectionEndpoint = {
+  owner?: ContentRootOwner
+  point: Point
+  root: RootKey
+}
+
+const getDOMElementForNode = (node: globalThis.Node | null) =>
+  isDOMElement(node) ? node : isDOMText(node) ? node.parentElement : null
+
+const getDOMEditorElementForNode = (
+  node: globalThis.Node | null
+): HTMLElement | null => {
+  const element = getDOMElementForNode(node)
+  const editorElement = element?.closest('[data-slate-editor="true"]')
+
+  return editorElement instanceof HTMLElement ? editorElement : null
+}
+
+const getEditorFromDOMEditorElement = (
+  editorElement: HTMLElement
+): ReactRuntimeEditor | null => {
+  const editor = ELEMENT_TO_NODE.get(editorElement)
+
+  return editor &&
+    typeof editor === 'object' &&
+    'read' in editor &&
+    'update' in editor
+    ? (editor as ReactRuntimeEditor)
+    : null
+}
+
+const getContentRootOwnerFromDOMEndpoint = ({
+  childRoot,
+  node,
+}: {
+  childRoot: RootKey
+  node: globalThis.Node | null
+}): ContentRootOwner | null => {
+  if (childRoot === MAIN_ROOT_KEY) {
+    return null
+  }
+
+  const element = getDOMElementForNode(node)
+  const slotElement = element?.closest('[data-slate-content-root-slot]')
+  const ownerElement = slotElement?.parentElement?.closest(
+    '[data-slate-node="element"][data-slate-path]'
+  )
+  const ownerEditorElement = ownerElement?.closest('[data-slate-editor="true"]')
+  const ownerPath =
+    ownerElement instanceof HTMLElement
+      ? getSlateNodePathFromDOMElement(ownerElement)
+      : null
+  const ownerRoot =
+    ownerEditorElement?.getAttribute('data-slate-root') ?? MAIN_ROOT_KEY
+
+  return ownerPath
+    ? {
+        childRoot,
+        ownerPath,
+        ownerRoot,
+      }
+    : null
+}
+
+const isSameContentRootOwner = (
+  left: ContentRootOwner | null | undefined,
+  right: ContentRootOwner | null | undefined
+) =>
+  (!left && !right) ||
+  (!!left &&
+    !!right &&
+    left.childRoot === right.childRoot &&
+    left.ownerRoot === right.ownerRoot &&
+    left.ownerPath.length === right.ownerPath.length &&
+    left.ownerPath.every((part, index) => part === right.ownerPath[index]))
+
+const isKnownContentRootOwner = (
+  owner: ContentRootOwner | null | undefined,
+  owners: readonly ContentRootOwner[]
+): owner is ContentRootOwner =>
+  !!owner &&
+  owners.some((candidate) => isSameContentRootOwner(owner, candidate))
+
+const resolveProjectedDOMSelectionEndpoint = ({
+  node,
+  offset,
+}: {
+  node: globalThis.Node | null
+  offset: number
+}): ProjectedDOMSelectionEndpoint | null => {
+  const editorElement = getDOMEditorElementForNode(node)
+  const editor = editorElement
+    ? getEditorFromDOMEditorElement(editorElement)
+    : null
+
+  if (!editorElement || !editor || !node) {
+    return null
+  }
+
+  const range = editorElement.ownerDocument.createRange()
+
+  try {
+    range.setStart(node, offset)
+    range.collapse(true)
+  } catch {
+    return null
+  }
+
+  const slateRange = editor.api.dom.resolveSlateRange(range, {
+    exactMatch: false,
+  })
+
+  if (!slateRange || !RangeApi.isCollapsed(slateRange)) {
+    return null
+  }
+
+  const root = editor.read((state) => state.view.root())
+
+  const owner = getContentRootOwnerFromDOMEndpoint({
+    childRoot: root,
+    node,
+  })
+
+  return {
+    ...(owner ? { owner } : {}),
+    point: {
+      ...slateRange.anchor,
+      ...(root === MAIN_ROOT_KEY ? {} : { root }),
+    },
+    root,
+  }
+}
+
+const resolveProjectedDOMSelection = ({
+  domSelection,
+  editor,
+  editorElement,
+}: {
+  domSelection: globalThis.Selection
+  editor: ReactRuntimeEditor
+  editorElement: HTMLElement
+}) => {
+  if (domSelection.isCollapsed) {
+    return null
+  }
+
+  const anchorEditorElement = getDOMEditorElementForNode(
+    domSelection.anchorNode
+  )
+  const focusEditorElement = getDOMEditorElementForNode(domSelection.focusNode)
+
+  if (
+    !anchorEditorElement ||
+    !focusEditorElement ||
+    !editorElement.contains(anchorEditorElement) ||
+    !editorElement.contains(focusEditorElement)
+  ) {
+    return null
+  }
+
+  const anchor = resolveProjectedDOMSelectionEndpoint({
+    node: domSelection.anchorNode,
+    offset: domSelection.anchorOffset,
+  })
+  const focus = resolveProjectedDOMSelectionEndpoint({
+    node: domSelection.focusNode,
+    offset: domSelection.focusOffset,
+  })
+
+  if (!anchor || !focus) {
+    return null
+  }
+
+  if (
+    anchor.root === focus.root &&
+    isSameContentRootOwner(anchor.owner, focus.owner)
+  ) {
+    return null
+  }
+
+  const owners = findContentRootOwners(editor)
+  const anchorOwner = anchor.owner
+    ? owners.find((owner) => isSameContentRootOwner(owner, anchor.owner))
+    : null
+  const focusOwner = focus.owner
+    ? owners.find((owner) => isSameContentRootOwner(owner, focus.owner))
+    : null
+
+  if (
+    (anchor.root !== MAIN_ROOT_KEY &&
+      !isKnownContentRootOwner(anchorOwner, owners)) ||
+    (focus.root !== MAIN_ROOT_KEY &&
+      !isKnownContentRootOwner(focusOwner, owners))
+  ) {
+    return null
+  }
+
+  return createSlateViewSelection(
+    createContentRootProjectionGraph(editor, owners),
+    {
+      anchor: {
+        ...(anchorOwner ? { owner: anchorOwner } : {}),
+        point: anchor.point,
+      },
+      focus: {
+        ...(focusOwner ? { owner: focusOwner } : {}),
+        point: focus.point,
+      },
+    }
+  )
 }
 
 const getActiveElementInDocument = (targetDocument: Document) => {
@@ -265,38 +491,6 @@ const createFastDOMSelectionRange = ({
     end: endDOMPoint,
     start: startDOMPoint,
   })
-}
-
-const materializeOrModelBackDOMCoverageSelection = ({
-  domSelection,
-  editor,
-  selection,
-}: {
-  domSelection: globalThis.Selection
-  editor: ReactRuntimeEditor
-  selection: Range
-}) => {
-  const boundaries = DOMCoverage.getBoundariesForRange(editor, selection)
-
-  if (boundaries.length === 0) {
-    return false
-  }
-
-  for (const boundary of boundaries) {
-    if (boundary.selectionPolicy === 'materialize') {
-      DOMCoverage.materializeBoundary(
-        editor,
-        boundary.boundaryId,
-        'selection',
-        {
-          range: selection,
-        }
-      )
-    }
-  }
-
-  domSelection.removeAllRanges()
-  return true
 }
 
 export const syncEditorSelectionFromDOM = ({
@@ -636,7 +830,8 @@ export const applyEditableDOMSelectionChange = ({
   const state = inputController.state
   if (
     (!IS_ANDROID && ReactEditor.isComposing(editor)) ||
-    state.isDraggingInternally
+    state.isDraggingInternally ||
+    isEditableOutsideFocusBoundarySettling(state)
   ) {
     return
   }
@@ -650,15 +845,6 @@ export const applyEditableDOMSelectionChange = ({
     IS_FOCUSED.set(editor, true)
   } else {
     IS_FOCUSED.delete(editor)
-  }
-
-  if (
-    activeElement !== editorElement &&
-    isDOMNode(activeElement) &&
-    (ReactEditor.hasDOMNode(editor, activeElement) ||
-      isNestedEditableDOMTarget(editorElement, activeElement))
-  ) {
-    return
   }
 
   if (!domSelection) {
@@ -675,6 +861,38 @@ export const applyEditableDOMSelectionChange = ({
   }
 
   const { anchorNode, focusNode } = domSelection
+
+  const projectedSelection = resolveProjectedDOMSelection({
+    domSelection,
+    editor,
+    editorElement,
+  })
+
+  if (projectedSelection) {
+    editor.update((tx) => {
+      tx.selection.set({
+        anchor: projectedSelection.anchor.point,
+        focus: projectedSelection.anchor.point,
+      })
+    })
+    writeSlateViewSelection(editor, projectedSelection)
+    setEditableModelSelectionPreference({
+      inputController,
+      preferModelSelection: true,
+      reason: 'partial-dom-backed',
+      selectionSource: 'model-owned',
+    })
+    return
+  }
+
+  if (
+    activeElement !== editorElement &&
+    isDOMNode(activeElement) &&
+    (ReactEditor.hasDOMNode(editor, activeElement) ||
+      isNestedEditableDOMTarget(editorElement, activeElement))
+  ) {
+    return
+  }
 
   if (
     isNestedEditableDOMTarget(editorElement, anchorNode) ||
@@ -720,6 +938,13 @@ export const applyEditableDOMSelectionChange = ({
       nextSelection: range,
       selectionChangeOrigin,
     })
+
+  if (
+    readSlateViewSelection(editor) &&
+    selectionChangeOrigin !== 'native-user'
+  ) {
+    return
+  }
 
   if (
     !shouldApplyDOMSelectionChange({
@@ -846,7 +1071,7 @@ export const syncEditableDOMSelectionToEditor = ({
     }
 
     if (
-      materializeOrModelBackDOMCoverageSelection({
+      applyDOMCoverageSelectionPolicy({
         domSelection,
         editor,
         selection,

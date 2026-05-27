@@ -1,4 +1,4 @@
-import type React from 'react'
+import { cva } from 'class-variance-authority'
 import {
   type KeyboardEvent,
   type MouseEvent,
@@ -18,7 +18,7 @@ import {
   useElementSelected,
   useSlateEditor,
 } from 'slate-react'
-
+import { cn } from '@/utils/cn'
 import { Portal } from './components'
 import type {
   CustomEditor,
@@ -28,6 +28,32 @@ import type {
   MentionElement,
   ParagraphElement,
 } from './custom-types.d'
+
+const mentionMenuItemVariants = cva('slate-mentions-menu-item', {
+  variants: {
+    active: {
+      false: null,
+      true: 'is-active',
+    },
+  },
+})
+
+const mentionVariants = cva('slate-mentions-mention', {
+  variants: {
+    bold: {
+      false: null,
+      true: 'is-bold',
+    },
+    italic: {
+      false: null,
+      true: 'is-italic',
+    },
+    selected: {
+      false: null,
+      true: 'is-selected',
+    },
+  },
+})
 
 const MentionExample = () => {
   const ref = useRef<HTMLDivElement | null>(null)
@@ -194,31 +220,17 @@ const MentionExample = () => {
       {target && chars.length > 0 && (
         <Portal>
           <div
+            className="slate-mentions-menu"
             data-cy="mentions-portal"
             ref={ref}
-            style={{
-              top: '-9999px',
-              left: '-9999px',
-              position: 'absolute',
-              zIndex: 1,
-              padding: '3px',
-              background: 'white',
-              borderRadius: '4px',
-              boxShadow: '0 1px 5px rgba(0,0,0,.2)',
-            }}
           >
             {chars.map((char, i) => (
               <div
+                className={cn(mentionMenuItemVariants({ active: i === index }))}
                 key={char}
                 onClick={(e: MouseEvent) => {
                   insertMention(editor, char, target)
                   setTarget(null)
-                }}
-                style={{
-                  padding: '1px 3px',
-                  borderRadius: '3px',
-                  cursor: 'pointer',
-                  background: i === index ? '#B4D5FF' : 'transparent',
                 }}
               >
                 {char}
@@ -300,27 +312,17 @@ const Paragraph = ({
 const Mention = ({ element }: RenderVoidProps<MentionElement>) => {
   const focused = useEditorFocused()
   const selected = useElementSelected()
-  const style: React.CSSProperties = {
-    padding: '3px 3px 2px',
-    margin: '0 1px',
-    verticalAlign: 'baseline',
-    display: 'inline-block',
-    borderRadius: '4px',
-    backgroundColor: '#eee',
-    fontSize: '0.9em',
-    boxShadow: selected && focused ? '0 0 0 2px #B4D5FF' : 'none',
-  }
-  // See if our empty text child has any styling marks applied and apply those
-  if (element.children[0].bold) {
-    style.fontWeight = 'bold'
-  }
-  if (element.children[0].italic) {
-    style.fontStyle = 'italic'
-  }
+
   return (
     <span
+      className={cn(
+        mentionVariants({
+          bold: Boolean(element.children[0].bold),
+          italic: Boolean(element.children[0].italic),
+          selected: selected && focused,
+        })
+      )}
       data-cy={`mention-${element.character.replace(' ', '-')}`}
-      style={style}
     >
       @{element.character}
     </span>

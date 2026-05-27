@@ -167,13 +167,6 @@ export const resolveRootInteractionMouseUp = ({
     return { type: 'ignore' }
   }
 
-  if (eventRange) {
-    return {
-      range: eventRange,
-      type: 'set-selection',
-    }
-  }
-
   if (pendingAction.type === 'focus-native-editable') {
     return { type: 'ignore' }
   }
@@ -182,6 +175,20 @@ export const resolveRootInteractionMouseUp = ({
     return {
       selection: 'end',
       type: 'focus-root',
+    }
+  }
+
+  if (pendingAction.type === 'activate-root') {
+    return {
+      selection,
+      type: 'focus-root',
+    }
+  }
+
+  if (eventRange) {
+    return {
+      range: eventRange,
+      type: 'set-selection',
     }
   }
 

@@ -1,5 +1,5 @@
-import { css } from '@emotion/css'
-import { type CSSProperties, useState } from 'react'
+import { cva } from 'class-variance-authority'
+import { useState } from 'react'
 import { type EditorSnapshot, NodeApi, type Range } from 'slate'
 import {
   Editable,
@@ -10,7 +10,7 @@ import {
   useSlateEditor,
   useSlateRangeDecorationSource,
 } from 'slate-react'
-
+import { cn } from '@/utils/cn'
 import { Instruction } from './components'
 
 type LintSeverity = 'error' | 'info' | 'warning'
@@ -33,78 +33,15 @@ type LintIssueDecoration = {
 
 const NO_LINT_ISSUES: readonly LintIssueDecoration[] = []
 
-const panelCss = css`
-  max-width: 760px;
-  margin: 40px auto;
-  padding: 0 24px 48px;
-`
-
-const controlsCss = css`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin: 0 0 16px;
-`
-
-const buttonCss = css`
-  border: 1px solid #d1d5db;
-  background: white;
-  padding: 10px 14px;
-  border-radius: 10px;
-  cursor: pointer;
-  font-weight: 600;
-
-  &:disabled {
-    color: #9ca3af;
-    cursor: not-allowed;
-  }
-`
-
-const statusCss = css`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 0 16px;
-`
-
-const codeCss = css`
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: #111827;
-  color: white;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
-`
-
-const issueListCss = css`
-  display: grid;
-  gap: 8px;
-  margin: 0 0 20px;
-  padding: 0;
-  list-style: none;
-`
-
-const issueCss = css`
-  padding: 8px 10px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  background: #f9fafb;
-`
-
-const lintStyles: Record<LintSeverity, CSSProperties> = {
-  error: {
-    backgroundColor: '#fee2e2',
-    borderBottom: '2px solid #dc2626',
+const lintSegmentVariants = cva('slate-linting-segment', {
+  variants: {
+    severity: {
+      error: 'slate-linting-segment-error',
+      info: 'slate-linting-segment-info',
+      warning: 'slate-linting-segment-warning',
+    },
   },
-  info: {
-    backgroundColor: '#dbeafe',
-    borderBottom: '2px solid #2563eb',
-  },
-  warning: {
-    backgroundColor: '#fef3c7',
-    borderBottom: '2px solid #f59e0b',
-  },
-}
+})
 
 const rootFor = (snapshot: EditorSnapshot) => ({
   children: snapshot.children,
@@ -271,19 +208,23 @@ const LintingPanel = ({
   }
 
   return (
-    <div className={panelCss}>
+    <div className="slate-linting-panel">
       <Instruction>
         This linter keeps findings outside the Slate document.{' '}
         <code>useSlateRangeDecorationSource</code> reads the current editor
         snapshot, maps lint findings to ranges, and refreshes on text edits or
         external source changes.
       </Instruction>
-      <div className={controlsCss}>
-        <button className={buttonCss} onClick={runLocalLint} type="button">
+      <div className="slate-linting-controls">
+        <button
+          className="slate-linting-button"
+          onClick={runLocalLint}
+          type="button"
+        >
           Run linter
         </button>
         <button
-          className={buttonCss}
+          className="slate-linting-button"
           disabled={!diagnostics.some((diagnostic) => diagnostic.data.fixText)}
           onClick={applyFirstFix}
           type="button"
@@ -291,31 +232,35 @@ const LintingPanel = ({
           Apply first fix
         </button>
         <button
-          className={buttonCss}
+          className="slate-linting-button"
           onClick={receiveServerDiagnostics}
           type="button"
         >
           Receive server diagnostics
         </button>
-        <button className={buttonCss} onClick={clearDiagnostics} type="button">
+        <button
+          className="slate-linting-button"
+          onClick={clearDiagnostics}
+          type="button"
+        >
           Clear diagnostics
         </button>
       </div>
-      <div className={statusCss}>
-        <span className={codeCss} id="linting-source">
+      <div className="slate-linting-status">
+        <span className="slate-linting-code" id="linting-source">
           source:{sourceLabel}
         </span>
-        <span className={codeCss} id="linting-count">
+        <span className="slate-linting-code" id="linting-count">
           issues:{diagnostics.length}
         </span>
-        <span className={codeCss} id="linting-snapshot">
+        <span className="slate-linting-code" id="linting-snapshot">
           {formatIssues(diagnostics)}
         </span>
       </div>
-      <ul className={issueListCss} id="linting-issues">
+      <ul className="slate-linting-issue-list" id="linting-issues">
         {diagnostics.map((diagnostic) => (
           <li
-            className={issueCss}
+            className="slate-linting-issue"
             data-lint-issue={diagnostic.data.id}
             key={diagnostic.data.id}
           >
@@ -325,18 +270,16 @@ const LintingPanel = ({
         ))}
       </ul>
       <Editable
+        className="slate-linting-editor"
         id="linting"
         renderSegment={(segment, children) => {
           const issue = getSegmentIssue(segment.slices)
 
           return issue ? (
             <span
+              className={cn(lintSegmentVariants({ severity: issue.severity }))}
               data-lint-rule={issue.ruleId}
               data-lint-severity={issue.severity}
-              style={{
-                borderRadius: 4,
-                ...lintStyles[issue.severity],
-              }}
             >
               {children}
             </span>
@@ -344,7 +287,6 @@ const LintingPanel = ({
             children
           )
         }}
-        style={{ minHeight: 96 }}
       />
     </div>
   )

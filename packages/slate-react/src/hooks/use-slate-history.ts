@@ -10,7 +10,7 @@ import {
   writeSlateViewSelection,
 } from '../view-selection'
 import { scheduleSlateReactFocus } from './focus-scheduler'
-import { focusSlateEditable } from './focus-slate-editable'
+import { focusSlateEditableAfterEventFrame } from './focus-slate-editable'
 import {
   useRequiredSlateRuntimeContext,
   useSlateRootEditor,
@@ -207,8 +207,8 @@ export function useSlateHistory({
           const focusRoot =
             editor.read(
               (state) =>
-                selectLastCommitSingleOperationRoot(state) ??
-                selectSelectionRoot(state)
+                selectSelectionRoot(state) ??
+                selectLastCommitSingleOperationRoot(state)
             ) ?? root
           const focusEditor = getMountedViewEditor(focusRoot) ?? editor
 
@@ -219,7 +219,7 @@ export function useSlateHistory({
             })
           }
 
-          focusSlateEditable(focusEditor)
+          focusSlateEditableAfterEventFrame(focusEditor)
         })
       }
     },

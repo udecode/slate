@@ -39,6 +39,8 @@ export const attachEditableOutsideFocusBoundaryListener = ({
 
     let hadRootOwnedNativeState = false
     const activeElement = targetDocument.activeElement
+    const hasReadOnlyModelSelection =
+      readOnly && Boolean(editor.read((state) => state.selection.get()))
 
     if (
       targetWindow &&
@@ -63,13 +65,17 @@ export const attachEditableOutsideFocusBoundaryListener = ({
       }
     }
 
+    if (hasReadOnlyModelSelection) {
+      hadRootOwnedNativeState = true
+    }
+
     if (!hadRootOwnedNativeState) {
       return
     }
 
     IS_FOCUSED.delete(editor)
 
-    if (readOnly && editor.read((state) => state.selection.get())) {
+    if (hasReadOnlyModelSelection) {
       editor.update((tx) => {
         tx.selection.clear()
       })

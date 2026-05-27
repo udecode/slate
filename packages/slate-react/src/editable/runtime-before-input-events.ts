@@ -4,6 +4,7 @@ import type {
   EditableDOMBeforeInputContext,
   EditableDOMBeforeInputHandler,
 } from '../components/editable'
+import { focusSlateEditable } from '../hooks/focus-slate-editable'
 import { useOptionalSlateRuntimeContext } from '../hooks/use-slate-runtime'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
@@ -277,7 +278,7 @@ export const useRuntimeBeforeInputEvents = ({
           )
 
           if (request) {
-            targetEditor.api.dom.focus()
+            focusSlateEditable(targetEditor)
           }
 
           return

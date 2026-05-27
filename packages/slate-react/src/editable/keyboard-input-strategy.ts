@@ -350,9 +350,9 @@ export const applyEditableKeyDown = ({
           },
           editor: targetEditor,
         })
-        targetEditor.api.dom.focus()
+        focusSlateEditable(targetEditor)
         scheduleSlateReactFocus(() => {
-          targetEditor.api.dom.focus()
+          focusSlateEditable(targetEditor)
         })
 
         return keyDownHandled()
@@ -454,6 +454,7 @@ export const applyEditableKeyDown = ({
       getActiveContentRootOwner,
       getContentRootOwnerViewEditor,
       getMountedViewEditor,
+      isRTL,
       selection,
     })
 

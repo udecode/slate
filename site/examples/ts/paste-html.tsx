@@ -1,4 +1,3 @@
-import { css } from '@emotion/css'
 import type React from 'react'
 import { useMemo } from 'react'
 import type { Element as SlateElement } from 'slate'
@@ -13,6 +12,8 @@ import {
   useElementSelected,
   useSlateEditor,
 } from 'slate-react'
+
+import { cn } from '@/utils/cn'
 
 import type {
   CustomElement,
@@ -216,12 +217,10 @@ const ImageElement = ({ element }: RenderVoidProps<ImageElementType>) => {
 
   return (
     <img
-      className={css`
-        display: block;
-        max-width: 100%;
-        max-height: 20em;
-        box-shadow: ${selected && focused ? '0 0 0 2px blue;' : 'none'};
-      `}
+      className={cn(
+        'slate-paste-html-image',
+        selected && focused && 'is-selected'
+      )}
       src={element.url}
     />
   )

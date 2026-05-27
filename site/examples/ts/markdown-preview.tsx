@@ -1,4 +1,4 @@
-import { css } from '@emotion/css'
+import { cva } from 'class-variance-authority'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-markdown'
 import type { ReactNode } from 'react'
@@ -10,6 +10,44 @@ import {
   useSlateEditor,
   useSlateRangeDecorationSource,
 } from 'slate-react'
+import { cn } from '@/utils/cn'
+
+const markdownSegmentVariants = cva('slate-markdown-preview-segment', {
+  variants: {
+    blockquote: {
+      false: null,
+      true: 'is-blockquote',
+    },
+    bold: {
+      false: null,
+      true: 'is-bold',
+    },
+    code: {
+      false: null,
+      true: 'is-code',
+    },
+    hr: {
+      false: null,
+      true: 'is-hr',
+    },
+    italic: {
+      false: null,
+      true: 'is-italic',
+    },
+    list: {
+      false: null,
+      true: 'is-list',
+    },
+    title: {
+      false: null,
+      true: 'is-title',
+    },
+    underlined: {
+      false: null,
+      true: 'is-underlined',
+    },
+  },
+})
 
 const MarkdownPreviewExample = () => {
   const editor = useSlateEditor({
@@ -125,54 +163,18 @@ const MarkdownSegment = ({
 
   return (
     <span
-      className={css`
-        font-weight: ${has('bold') ? 'bold' : undefined};
-        font-style: ${has('italic') ? 'italic' : undefined};
-        text-decoration: ${has('underlined') ? 'underline' : undefined};
-        ${
-          has('title') &&
-          css`
-            display: inline-block;
-            font-weight: bold;
-            font-size: 20px;
-            margin: 20px 0 10px 0;
-          `
-        }
-        ${
-          has('list') &&
-          css`
-            padding-left: 10px;
-            font-size: 20px;
-            line-height: 10px;
-          `
-        }
-        ${
-          has('hr') &&
-          css`
-            display: block;
-            text-align: center;
-            border-bottom: 2px solid #ddd;
-          `
-        }
-        ${
-          has('blockquote') &&
-          css`
-            display: inline-block;
-            border-left: 2px solid #ddd;
-            padding-left: 10px;
-            color: #aaa;
-            font-style: italic;
-          `
-        }
-        ${
-          has('code') &&
-          css`
-            font-family: monospace;
-            background-color: #eee;
-            padding: 3px;
-          `
-        }
-      `}
+      className={cn(
+        markdownSegmentVariants({
+          blockquote: has('blockquote'),
+          bold: has('bold'),
+          code: has('code'),
+          hr: has('hr'),
+          italic: has('italic'),
+          list: has('list'),
+          title: has('title'),
+          underlined: has('underlined'),
+        })
+      )}
     >
       {children}
     </span>

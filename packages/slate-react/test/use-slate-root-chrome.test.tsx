@@ -8,6 +8,12 @@ import {
   useSlateRootChrome,
   useSlateRootEditor,
 } from '../src'
+import { createSlateProjectionGraph } from '../src/projection-graph'
+import {
+  createSlateViewSelection,
+  readSlateViewSelection,
+  writeSlateViewSelection,
+} from '../src/view-selection'
 
 const paragraph = (text: string): Descendant => ({
   type: 'paragraph',
@@ -191,6 +197,65 @@ describe('useSlateRootChrome', () => {
       await flushRootChromeFocus()
     })
 
+    expect(
+      headerEditor.read((state) => state.selection.get()?.anchor.offset)
+    ).toBe(3)
+  })
+
+  test('clears projected selections when chrome restores a root selection', async () => {
+    const editor = createReactEditor({ initialValue: initialValue() })
+    let headerEditor!: ReturnType<typeof useSlateRootEditor>
+    let mainEditor!: ReturnType<typeof useSlateRootEditor>
+
+    const HeaderChrome = () => {
+      const chrome = useSlateRootChrome('header')
+      headerEditor = useSlateRootEditor('header')
+      mainEditor = useSlateRootEditor('main')
+
+      return (
+        <section data-testid="header-chrome" {...chrome.props}>
+          <span>Header chrome</span>
+          <Editable aria-label="Header editor" root="header" />
+          <Editable aria-label="Main editor" />
+        </section>
+      )
+    }
+
+    render(
+      <Slate editor={editor}>
+        <HeaderChrome />
+      </Slate>
+    )
+
+    await act(async () => {
+      headerEditor.update((tx) => {
+        tx.selection.set({ path: [0, 0], offset: 3 })
+      })
+    })
+    await act(async () => {
+      mainEditor.update((tx) => {
+        tx.selection.set({ path: [0, 0], offset: 4 })
+      })
+    })
+
+    const graph = createSlateProjectionGraph([
+      { path: [0], root: 'header' },
+      { path: [0], root: 'main' },
+    ])
+    const staleSelection = createSlateViewSelection(graph, {
+      anchor: { point: { path: [0, 0], root: 'header', offset: 1 } },
+      focus: { point: { path: [0, 0], offset: 1 } },
+    })
+
+    writeSlateViewSelection(headerEditor, staleSelection)
+    expect(readSlateViewSelection(headerEditor)).toEqual(staleSelection)
+
+    await act(async () => {
+      fireEvent.mouseDown(screen.getByText('Header chrome'))
+      await flushRootChromeFocus()
+    })
+
+    expect(readSlateViewSelection(headerEditor)).toBe(null)
     expect(
       headerEditor.read((state) => state.selection.get()?.anchor.offset)
     ).toBe(3)

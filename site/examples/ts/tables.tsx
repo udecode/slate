@@ -1,4 +1,3 @@
-import { css } from '@emotion/css'
 import { defineEditorExtension, NodeApi, PointApi, RangeApi } from 'slate'
 import {
   Editable,
@@ -174,12 +173,7 @@ const Element = ({ attributes, children, element }: RenderElementProps) => {
   switch (element.type) {
     case 'table':
       return (
-        <table
-          className={css`
-            // avoid unexpected selection behavior on both sides of the table
-            position: relative;
-          `}
-        >
+        <table className="slate-tables-table">
           <tbody {...attributes}>{children}</tbody>
         </table>
       )

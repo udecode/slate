@@ -1,4 +1,3 @@
-import { css } from '@emotion/css'
 import {
   type ChangeEvent,
   type CSSProperties,
@@ -47,6 +46,8 @@ import {
   useSlateEditor,
 } from 'slate-react'
 
+import { cn } from '@/utils/cn'
+
 const pageSettings = defineStateField<SlatePageSettings>({
   key: 'layout.page',
   collab: 'shared',
@@ -66,181 +67,6 @@ const DEFAULT_TABLE_ROW_HEIGHT = 36
 const DEFAULT_TABLE_ROWS = 40
 const MAX_MEDIA_HEIGHT = 1200
 const MAX_TABLE_ROWS = 1000
-
-const shellCss = css`
-  position: fixed;
-  inset: 84px 0 0;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: linear-gradient(180deg, #e8ecf2 0%, #d8dee8 42%, #cfd6e0 100%);
-`
-
-const toolbarCss = css`
-  flex-shrink: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 7px 12px;
-  border-bottom: 1px solid #c5ccd6;
-  background: #f3f4f6;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
-`
-
-const toolbarGroupCss = css`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-`
-
-const labelCss = css`
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  color: #4b5563;
-  font-size: 12px;
-  font-weight: 650;
-`
-
-const inputCss = css`
-  height: 30px;
-  min-width: 84px;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  background: white;
-  padding: 0 8px;
-  color: #111827;
-  font-size: 13px;
-`
-
-const toolbarSeparatorCss = css`
-  width: 1px;
-  height: 20px;
-  margin: 0 4px;
-  background: #d1d5db;
-`
-
-const switchGroupCss = css`
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  color: #4b5563;
-  font-size: 12px;
-`
-
-const switchCss = css`
-  display: inline-flex;
-  align-items: center;
-  width: 40px;
-  height: 22px;
-  border: 1px solid #d1d5db;
-  border-radius: 999px;
-  background: #e5e7eb;
-  padding: 2px;
-  cursor: pointer;
-
-  &[aria-checked='true'] {
-    border-color: #2563eb;
-    background: #bfdbfe;
-  }
-`
-
-const switchThumbCss = css`
-  display: block;
-  width: 16px;
-  height: 16px;
-  border: 1px solid #d1d5db;
-  border-radius: 50%;
-  background: white;
-  transition: transform 0.15s ease;
-
-  ${switchCss}[aria-checked='true'] & {
-    transform: translateX(18px);
-    border-color: #2563eb;
-  }
-`
-
-const titleRowCss = css`
-  flex-shrink: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 10px 16px 8px;
-  border-bottom: 1px solid #bfc7d4;
-`
-
-const titleCss = css`
-  color: #111827;
-  font-size: 15px;
-  font-weight: 650;
-`
-
-const metaCss = css`
-  color: #4b5563;
-  font-size: 12px;
-`
-
-const viewportCss = css`
-  flex: 1;
-  overflow-x: hidden;
-  overflow-y: auto;
-  padding: 20px 24px 32px;
-`
-
-const viewportInnerCss = css`
-  display: flex;
-  justify-content: center;
-  min-width: 100%;
-`
-
-const scaledSurfaceCss = css`
-  transform-origin: top left;
-`
-
-const editorCss = css`
-  min-height: 100%;
-  outline: none;
-  color: #111827;
-  font: 400 16px/24px ${PAGE_TEXT_FONT};
-`
-
-const pageCss = css`
-  position: relative;
-  box-sizing: border-box;
-  background: white;
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.12);
-`
-
-const pageDebugCss = css`
-  background-image:
-    linear-gradient(rgba(59, 130, 246, 0.16) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(59, 130, 246, 0.16) 1px, transparent 1px);
-  background-size: 24px 24px;
-`
-
-const contentFrameCss = css`
-  position: absolute;
-  box-sizing: border-box;
-  outline: 1px dashed rgba(59, 130, 246, 0.5);
-  background: rgba(59, 130, 246, 0.04);
-  pointer-events: none;
-`
-
-const pageLabelCss = css`
-  position: absolute;
-  right: 8px;
-  bottom: 6px;
-  color: #6b7280;
-  font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
-  pointer-events: none;
-`
 
 const richImageSvg =
   'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 640 240%22%3E%3Crect width=%22640%22 height=%22240%22 fill=%22%23f8fafc%22/%3E%3Cpath d=%22M0 190 150 94l90 62 116-86 284 120v50H0z%22 fill=%22%23bfdbfe%22/%3E%3Ccircle cx=%22518%22 cy=%2262%22 r=%2238%22 fill=%22%23f59e0b%22/%3E%3Ctext x=%2232%22 y=%2250%22 font-family=%22Arial%22 font-size=%2228%22 fill=%22%23111827%22%3EMarkdown asset%3C/text%3E%3C/svg%3E'
@@ -917,13 +743,13 @@ const PaginationSurface = () => {
   )
 
   return (
-    <div className={shellCss}>
-      <div className={toolbarCss}>
-        <div className={toolbarGroupCss}>
-          <label className={labelCss}>
+    <div className="slate-pagination-shell">
+      <div className="slate-pagination-toolbar">
+        <div className="slate-pagination-toolbar-group">
+          <label className="slate-pagination-label">
             Preset
             <select
-              className={inputCss}
+              className="slate-pagination-input"
               onChange={updatePreset}
               value={settings.preset}
             >
@@ -931,10 +757,10 @@ const PaginationSurface = () => {
               <option value="letter">Letter</option>
             </select>
           </label>
-          <label className={labelCss}>
+          <label className="slate-pagination-label">
             Margins
             <input
-              className={inputCss}
+              className="slate-pagination-input"
               min={48}
               onChange={updateMargins}
               step={12}
@@ -946,10 +772,10 @@ const PaginationSurface = () => {
               }
             />
           </label>
-          <label className={labelCss}>
+          <label className="slate-pagination-label">
             DOM strategy
             <select
-              className={inputCss}
+              className="slate-pagination-input"
               onChange={updateDOMStrategy}
               value={domStrategyMode}
             >
@@ -958,10 +784,10 @@ const PaginationSurface = () => {
               <option value="virtualized">Virtualized</option>
             </select>
           </label>
-          <label className={labelCss}>
+          <label className="slate-pagination-label">
             Rows
             <input
-              className={inputCss}
+              className="slate-pagination-input"
               max={MAX_TABLE_ROWS}
               min={8}
               onChange={updateTableRows}
@@ -969,10 +795,10 @@ const PaginationSurface = () => {
               value={tableRows}
             />
           </label>
-          <label className={labelCss}>
+          <label className="slate-pagination-label">
             Row px
             <input
-              className={inputCss}
+              className="slate-pagination-input"
               max={120}
               min={28}
               onChange={updateTableRowHeight}
@@ -981,10 +807,10 @@ const PaginationSurface = () => {
               value={tableRowHeight}
             />
           </label>
-          <label className={labelCss}>
+          <label className="slate-pagination-label">
             Media px
             <input
-              className={inputCss}
+              className="slate-pagination-input"
               max={MAX_MEDIA_HEIGHT}
               min={120}
               onChange={updateMediaHeight}
@@ -993,10 +819,10 @@ const PaginationSurface = () => {
               value={mediaHeight}
             />
           </label>
-          <label className={labelCss}>
+          <label className="slate-pagination-label">
             Media split
             <select
-              className={inputCss}
+              className="slate-pagination-input"
               onChange={updateMediaSplit}
               value={mediaSplit}
             >
@@ -1005,51 +831,51 @@ const PaginationSurface = () => {
             </select>
           </label>
         </div>
-        <div className={toolbarGroupCss}>
-          <span className={toolbarSeparatorCss} />
-          <span className={switchGroupCss}>
+        <div className="slate-pagination-toolbar-group">
+          <span className="slate-pagination-toolbar-separator" />
+          <span className="slate-pagination-switch-group">
             Facing
             <button
               aria-checked={pageLayoutMode === 'spread'}
               aria-label="Facing"
-              className={switchCss}
+              className="slate-pagination-switch"
               onClick={togglePageLayoutMode}
               role="switch"
               type="button"
             >
-              <span className={switchThumbCss} />
+              <span className="slate-pagination-switch-thumb" />
             </button>
           </span>
-          <span className={toolbarSeparatorCss} />
-          <span className={switchGroupCss}>
+          <span className="slate-pagination-toolbar-separator" />
+          <span className="slate-pagination-switch-group">
             Debug
             <button
               aria-checked={debugFrames}
               aria-label="Debug"
-              className={switchCss}
+              className="slate-pagination-switch"
               onClick={() => setDebugFrames((value) => !value)}
               role="switch"
               type="button"
             >
-              <span className={switchThumbCss} />
+              <span className="slate-pagination-switch-thumb" />
             </button>
           </span>
         </div>
       </div>
-      <div className={titleRowCss}>
-        <div className={titleCss}>Untitled document</div>
-        <div className={metaCss}>
+      <div className="slate-pagination-title-row">
+        <div className="slate-pagination-title">Untitled document</div>
+        <div className="slate-pagination-meta">
           pages {snapshot.pages.length} | rows {tableRows} x {tableRowHeight}px
           | media {mediaHeight}px | blocks {metrics.blockCount} | compose{' '}
           {metrics.lastDurationMs.toFixed(1)}ms
         </div>
       </div>
       <div
-        className={viewportCss}
+        className="slate-pagination-viewport"
         data-testid="pagination-viewport"
         ref={viewportRef}
       >
-        <div className={viewportInnerCss}>
+        <div className="slate-pagination-viewport-inner">
           <div
             style={{
               height: pageGeometry.height * pageScale,
@@ -1057,14 +883,14 @@ const PaginationSurface = () => {
             }}
           >
             <div
-              className={scaledSurfaceCss}
+              className="slate-pagination-scaled-surface"
               style={{
                 transform: `scale(${pageScale})`,
                 width: pageGeometry.width,
               }}
             >
               <PagedEditable
-                className={editorCss}
+                className="slate-pagination-editor"
                 decorate={decorate}
                 domStrategy={domStrategy}
                 layout={layout}
@@ -1075,7 +901,10 @@ const PaginationSurface = () => {
                 renderPage={({ attributes, page }) => (
                   <div
                     {...attributes}
-                    className={`${pageCss} ${debugFrames ? pageDebugCss : ''}`}
+                    className={cn(
+                      'slate-pagination-page',
+                      debugFrames && 'slate-pagination-page-debug'
+                    )}
                     style={{
                       height: page.height,
                       overflow: 'hidden',
@@ -1085,7 +914,7 @@ const PaginationSurface = () => {
                     {debugFrames ? (
                       <>
                         <div
-                          className={contentFrameCss}
+                          className="slate-pagination-content-frame"
                           data-testid="pagination-content-frame"
                           style={{
                             height: page.content.height,
@@ -1094,7 +923,7 @@ const PaginationSurface = () => {
                             width: page.content.width,
                           }}
                         />
-                        <div className={pageLabelCss}>
+                        <div className="slate-pagination-page-label">
                           page {page.index} | {page.width}x{page.height}px
                         </div>
                       </>

@@ -562,6 +562,10 @@ export const applyEditableCommand = ({
 }) => {
   switch (command.kind) {
     case 'delete':
+      if (applyProjectedViewSelectionTextCommand({ editor })) {
+        return true
+      }
+
       applyModelOwnedDeleteIntent({
         direction: command.direction,
         editor,
@@ -570,6 +574,10 @@ export const applyEditableCommand = ({
       return true
 
     case 'delete-both':
+      if (applyProjectedViewSelectionTextCommand({ editor })) {
+        return true
+      }
+
       applyModelOwnedDeleteIntent({
         direction: 'backward',
         editor,
@@ -722,6 +730,22 @@ export const applyModelOwnedTextInput = ({
   inputType: string
   selection?: Range | null
 }): EditableRepairRequest => {
+  if (applyProjectedViewSelectionTextCommand({ editor, text: data })) {
+    if (inputType === 'insertText') {
+      return {
+        forceRender: ReactEditor.isComposing(editor as ReactRuntimeEditor),
+        kind: 'repair-caret-after-text-insert',
+        selectionSourceTransition: {
+          preferModelSelection: true,
+          reason: 'model-command',
+          selectionSource: 'model-owned',
+        },
+      }
+    }
+
+    return { kind: 'none' }
+  }
+
   const canUseSyncedCollapsedTarget =
     inputType === 'insertText' &&
     selection &&

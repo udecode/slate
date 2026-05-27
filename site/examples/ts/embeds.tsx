@@ -107,22 +107,11 @@ const VideoElement = ({ element }: RenderVoidProps<VideoElementType>) => {
 
   return (
     <>
-      <div
-        style={{
-          padding: '75% 0 0 0',
-          position: 'relative',
-        }}
-      >
+      <div className="slate-embeds-video-frame">
         <iframe
+          className="slate-embeds-video-iframe"
           frameBorder="0"
           src={`${safeUrl}?title=0&byline=0&portrait=0`}
-          style={{
-            position: 'absolute',
-            top: '0',
-            left: '0',
-            width: '100%',
-            height: '100%',
-          }}
         />
       </div>
       <UrlInput
@@ -152,16 +141,13 @@ const UrlInput = ({ url, onChange }: UrlInputProps) => {
   const [value, setValue] = React.useState(url)
   return (
     <input
+      className="slate-embeds-url-input"
       onChange={(e: ChangeEvent<HTMLInputElement>) => {
         const newUrl = e.target.value
         setValue(newUrl)
         onChange(newUrl)
       }}
       onClick={(e: React.MouseEvent) => e.stopPropagation()}
-      style={{
-        marginTop: '5px',
-        boxSizing: 'border-box',
-      }}
       type="text"
       value={value}
     />

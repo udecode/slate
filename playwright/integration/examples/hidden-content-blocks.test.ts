@@ -185,4 +185,46 @@ test.describe('hidden content blocks example', () => {
     await expect(editor.root).not.toContainText('Overview tab visible text')
     await expect(editor.root).toContainText('Details tab hidden text')
   })
+
+  test('keeps shifted boundary navigation out of shadcn chrome selection', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'hidden-content-blocks', {
+      ready: {
+        editor: 'visible',
+        text: /Overview tab visible text/,
+      },
+    })
+
+    const intro = 'Intro visible before hidden blocks.'
+    await editor.selection.collapse({ offset: intro.length, path: [0, 0] })
+    await page.keyboard.press('Shift+ArrowRight')
+    await editor.assert.selection({
+      anchor: { offset: intro.length, path: [0, 0] },
+      focus: { offset: 0, path: [2, 0, 0] },
+    })
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe('')
+    await expect(page.getByTestId('tab-overview')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+    await expect(page.getByTestId('tab-details')).toHaveAttribute(
+      'data-state',
+      'inactive'
+    )
+
+    await editor.selection.collapse({ offset: intro.length, path: [0, 0] })
+    await page.keyboard.press('Control+Shift+ArrowRight')
+    await editor.assert.selection({
+      anchor: { offset: intro.length, path: [0, 0] },
+      focus: { offset: 0, path: [2, 0, 0] },
+    })
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe('')
+    await expect(editor.root).not.toContainText('Accordion secret alpha')
+    await expect(editor.root).not.toContainText('Details tab hidden text')
+  })
 })

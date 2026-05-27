@@ -185,8 +185,8 @@ const DomCoverageBoundariesExample = () => {
   const boundaries = DOMCoverage.getBoundaries(editor)
 
   return (
-    <div style={styles.page}>
-      <div style={styles.toolbar}>
+    <div className="slate-dom-coverage-page">
+      <div className="slate-dom-coverage-toolbar">
         <button onClick={() => setHeaderHidden((value) => !value)}>
           Header
         </button>
@@ -204,21 +204,21 @@ const DomCoverageBoundariesExample = () => {
         <button onClick={copySelection}>Copy</button>
       </div>
 
-      <div style={styles.editorWrap}>
+      <div className="slate-dom-coverage-editor-wrap">
         <HiddenBoundaryContext.Provider value={hiddenBoundaries}>
           <Slate editor={editor}>
             <Editable
               autoFocus
+              className="slate-dom-coverage-editor"
               placeholder="Try toggles, selection, and copy"
               renderElement={Element}
               spellCheck
-              style={styles.editor}
             />
           </Slate>
         </HiddenBoundaryContext.Provider>
       </div>
 
-      <pre style={styles.debug}>
+      <pre className="slate-dom-coverage-debug">
         {JSON.stringify(
           boundaries.map((boundary) => ({
             id: boundary.boundaryId,
@@ -234,7 +234,7 @@ const DomCoverageBoundariesExample = () => {
         {traceTick ? `\ntraceTick: ${traceTick}` : ''}
       </pre>
 
-      <pre style={styles.copy}>
+      <pre className="slate-dom-coverage-copy">
         {copyPreview || 'copy payload appears here'}
       </pre>
     </div>
@@ -262,7 +262,7 @@ const Element = ({ children, element, slots }: RenderElementProps) => {
     case 'section':
       return (
         <EditableElement>
-          <div contentEditable={false} style={styles.summary}>
+          <div className="slate-dom-coverage-summary" contentEditable={false}>
             Outer section
           </div>
           {childNodes[0]}
@@ -280,7 +280,7 @@ const Element = ({ children, element, slots }: RenderElementProps) => {
     case 'nested-section':
       return (
         <EditableElement>
-          <div contentEditable={false} style={styles.summary}>
+          <div className="slate-dom-coverage-summary" contentEditable={false}>
             Nested section
           </div>
           {childNodes[0]}
@@ -298,7 +298,7 @@ const Element = ({ children, element, slots }: RenderElementProps) => {
     case 'deep-section':
       return (
         <EditableElement>
-          <div contentEditable={false} style={styles.summary}>
+          <div className="slate-dom-coverage-summary" contentEditable={false}>
             Deep section
           </div>
           {childNodes[0]}
@@ -341,55 +341,13 @@ const CoveragePlaceholder = ({
   children: React.ReactNode
   label: string
 }) => (
-  <span aria-label={label} role="note" style={styles.placeholder}>
+  <span
+    aria-label={label}
+    className="slate-dom-coverage-placeholder"
+    role="note"
+  >
     {children}
   </span>
 )
-
-const styles = {
-  copy: {
-    background: '#f8fafc',
-    border: '1px solid #cbd5e1',
-    minHeight: 80,
-    overflow: 'auto',
-    padding: 12,
-    whiteSpace: 'pre-wrap',
-  },
-  debug: {
-    background: '#0f172a',
-    color: '#e2e8f0',
-    minHeight: 120,
-    overflow: 'auto',
-    padding: 12,
-  },
-  editorWrap: {
-    border: '1px solid #cbd5e1',
-    padding: 16,
-  },
-  editor: {
-    zIndex: 0,
-  },
-  page: {
-    display: 'grid',
-    gap: 16,
-  },
-  placeholder: {
-    background: '#fef3c7',
-    border: '1px solid #f59e0b',
-    display: 'inline-block',
-    padding: '2px 6px',
-  },
-  summary: {
-    color: '#475569',
-    fontSize: 12,
-    fontWeight: 600,
-    textTransform: 'uppercase',
-  },
-  toolbar: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-} satisfies Record<string, React.CSSProperties>
 
 export default DomCoverageBoundariesExample

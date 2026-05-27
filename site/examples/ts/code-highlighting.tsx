@@ -1,4 +1,3 @@
-import { css } from '@emotion/css'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-java'
 import 'prismjs/components/prism-javascript'
@@ -27,6 +26,7 @@ import {
   useSlateEditor,
   useSlateRangeDecorationSource,
 } from 'slate-react'
+import { cn } from '@/utils/cn'
 import { Button, Icon, Toolbar } from './components'
 import type {
   CodeBlockElement,
@@ -140,7 +140,7 @@ const editor = useSlateEditor<CustomValue>({ initialValue })`),
         renderElement={ElementWrapper}
         renderSegment={CodeSegment}
       />
-      <style>{prismThemeCss}</style>
+      <style>{prismThemeStyles}</style>
     </Slate>
   )
 }
@@ -170,16 +170,8 @@ const ElementWrapper = (props: RenderElementProps<CustomElement>) => {
     return (
       <div
         {...attributes}
-        className={css(`
-        font-family: monospace;
-        font-size: 16px;
-        line-height: 20px;
-        margin-top: 0;
-        background: rgba(0, 20, 60, .03);
-        padding: 5px 13px;
-      `)}
+        className="slate-code-highlighting-block slate-code-highlighting-positioned"
         spellCheck={false}
-        style={{ position: 'relative' }}
       >
         <LanguageSelect
           onChange={(e) => setLanguage(e.target.value)}
@@ -192,7 +184,7 @@ const ElementWrapper = (props: RenderElementProps<CustomElement>) => {
 
   if (element.type === CodeLineType) {
     return (
-      <div {...attributes} style={{ position: 'relative' }}>
+      <div {...attributes} className="slate-code-highlighting-positioned">
         {children}
       </div>
     )
@@ -202,7 +194,7 @@ const ElementWrapper = (props: RenderElementProps<CustomElement>) => {
     ? 'span'
     : 'div'
   return (
-    <Tag {...attributes} style={{ position: 'relative' }}>
+    <Tag {...attributes} className="slate-code-highlighting-positioned">
       {children}
     </Tag>
   )
@@ -217,12 +209,19 @@ const CodeSegment: NonNullable<
     {},
     ...segment.slices.map((slice) => slice.data ?? {})
   )
-  const className = Object.entries(data)
-    .filter(([, value]) => value === true)
-    .map(([key]) => key)
-    .join(' ')
+  const hasTokenClass = Object.values(data).some((value) => value === true)
 
-  return className ? <span className={className}>{children}</span> : children
+  return hasTokenClass ? (
+    <span
+      className={cn(
+        Object.entries(data).map(([key, value]) => value === true && key)
+      )}
+    >
+      {children}
+    </span>
+  ) : (
+    children
+  )
 }
 
 const ExampleToolbar = () => {
@@ -608,12 +607,7 @@ interface LanguageSelectProps
 const LanguageSelect = (props: LanguageSelectProps) => {
   return (
     <select
-      className={css`
-        position: absolute;
-        right: 5px;
-        top: 5px;
-        z-index: 1;
-      `}
+      className="slate-code-highlighting-language-select"
       contentEditable={false}
       data-test-id="language-select"
       {...props}
@@ -639,10 +633,10 @@ const toCodeLines = (content: string): CodeLineElement[] =>
     .split('\n')
     .map((line) => ({ type: CodeLineType, children: toChildren(line) }))
 
-// Prismjs theme stored as a string instead of emotion css function.
+// Prismjs theme stored as a string for copy/pasting alternate themes.
 // It is useful for copy/pasting different themes. Also lets keeping simpler Leaf implementation
 // In the real project better to use just css file
-const prismThemeCss = `
+const prismThemeStyles = `
 /**
  * prism.js default theme for JavaScript, CSS and HTML
  * Based on dabblet (http://dabblet.com)

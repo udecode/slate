@@ -41,6 +41,7 @@ import {
   type ReactEditor as ReactEditorType,
 } from '../plugin/with-react'
 import { REACT_MAJOR_VERSION } from '../utils/environment'
+import { setSlateViewSelectionStoreKey } from '../view-selection'
 import { focusSlateEditable } from './focus-slate-editable'
 import {
   createRootSelectionCache,
@@ -815,18 +816,20 @@ export function useSlateRootEditor<
   root: RootKey = MAIN_ROOT_KEY,
   options: UseSlateRootEditorOptions = {}
 ): SlateRootEditor<V, TExtensions> {
-  const { getView } = useRequiredSlateRuntimeContext()
+  const { getView, runtime } = useRequiredSlateRuntimeContext()
 
-  return useMemo(
-    () =>
-      createReactRuntimeViewEditor(
-        getView({ readOnly: options.readOnly, root }) as EditorView<
-          V,
-          TExtensions
-        >
-      ) as SlateRootEditor<V, TExtensions>,
-    [getView, options.readOnly, root]
-  )
+  return useMemo(() => {
+    const viewEditor = createReactRuntimeViewEditor(
+      getView({ readOnly: options.readOnly, root }) as EditorView<
+        V,
+        TExtensions
+      >
+    ) as SlateRootEditor<V, TExtensions>
+
+    setSlateViewSelectionStoreKey(viewEditor, runtime.editor)
+
+    return viewEditor
+  }, [getView, options.readOnly, root, runtime.editor])
 }
 
 export function useSlateActiveEditor<
