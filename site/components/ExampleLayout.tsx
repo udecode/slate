@@ -1,10 +1,10 @@
+import { MenuIcon } from 'lucide-react'
 import Link from 'next/link'
 import React, { type ErrorInfo, useState } from 'react'
 
 import { cn } from '@/utils/cn'
 
 import { type ExampleBadge, NON_HIDDEN_EXAMPLES } from '../constants/examples'
-import { Icon } from '../examples/ts/components/index'
 
 const Header = (props: React.ComponentProps<'div'>) => (
   <div {...props} className="example-header" />
@@ -58,13 +58,18 @@ const TabListUnderlay = ({
   />
 )
 
-const TabButton = (props: React.ComponentProps<'button'>) => (
+const TabButton = ({
+  children: _children,
+  ...props
+}: React.ComponentProps<'button'>) => (
   <button
     {...props}
     aria-haspopup="menu"
     aria-label="Toggle examples menu"
     className="example-tab-button"
-  />
+  >
+    <MenuIcon aria-hidden />
+  </button>
 )
 
 const Tab = ({
@@ -138,9 +143,7 @@ export function ExampleLayout({
                 setShowTabs(false)
               }
             }}
-          >
-            <Icon>menu</Icon>
-          </TabButton>
+          />
           <ExampleTitle>
             {exampleName}
             <A

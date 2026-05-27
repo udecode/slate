@@ -22,7 +22,13 @@ const repoRoot = path.resolve(path.dirname(scriptPath), '..')
 const runsRoot = path.join(repoRoot, '.tmp', 'integration-runs')
 const lockPath = path.join(runsRoot, 'lock.json')
 const latestPath = path.join(runsRoot, 'latest.json')
-const sourceStampRoots = ['package.json', 'bun.lock', 'playwright', 'site']
+const sourceStampRoots = [
+  'package.json',
+  'bun.lock',
+  'packages',
+  'playwright',
+  'site',
+]
 const sourceStampIgnoredDirs = new Set([
   '.next',
   '.tmp',
@@ -624,6 +630,22 @@ const runIntegration = async (runId, extraPlaywrightArgs) => {
         status: 'failed',
       })
       return install.exitCode
+    }
+
+    await updateStatus(runId, { phase: 'building-packages' })
+    const packageBuild = await runCommand(runId, 'bun', ['build:packages'])
+    if (packageBuild.exitCode !== 0) {
+      await writeFailureSummary(
+        runId,
+        packageBuild.exitCode,
+        packageBuild.stderr || packageBuild.stdout
+      )
+      await completeRun(runId, {
+        exitCode: packageBuild.exitCode,
+        phase: 'failed',
+        status: 'failed',
+      })
+      return packageBuild.exitCode
     }
 
     await updateStatus(runId, { phase: 'building-site' })

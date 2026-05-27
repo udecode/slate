@@ -1,6 +1,6 @@
 html,
-input,
-textarea {
+input:not([data-slot]),
+textarea:not([data-slot]) {
   font-family: "Roboto", sans-serif;
   line-height: 1.4;
   background: #eee;
@@ -60,8 +60,8 @@ td {
   border: 2px solid #ddd;
 }
 
-input[type="text"],
-input[type="search"] {
+input[type="text"]:not([data-slot]),
+input[type="search"]:not([data-slot]) {
   box-sizing: border-box;
   font-size: 0.85em;
   width: 100%;
@@ -70,8 +70,8 @@ input[type="search"] {
   background: #fafafa;
 }
 
-input[type="text"]:focus,
-input[type="search"]:focus {
+input[type="text"]:focus:not([data-slot]),
+input[type="search"]:focus:not([data-slot]) {
   outline: 0;
   border-color: blue;
 }
@@ -92,6 +92,36 @@ details > summary {
 [data-slate-editor] > * + *,
 [data-slate-chunk] > * + * {
   margin-top: 1em;
+}
+
+[data-slate-editor] h1,
+[data-slate-chunk] h1 {
+  margin: 0;
+  font-weight: 700;
+  font-size: 2em;
+  line-height: 1.2;
+}
+
+[data-slate-editor] h2,
+[data-slate-chunk] h2 {
+  margin: 0;
+  font-weight: 700;
+  font-size: 1.5em;
+  line-height: 1.25;
+}
+
+[data-slate-editor] ul,
+[data-slate-chunk] ul {
+  margin: 0;
+  padding-left: 1.5em;
+  list-style: disc;
+}
+
+[data-slate-editor] ol,
+[data-slate-chunk] ol {
+  margin: 0;
+  padding-left: 1.5em;
+  list-style: decimal;
 }
 
 .fancy {
@@ -209,20 +239,24 @@ details > summary {
 }
 
 .example-tab-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   margin-left: 0.8em;
   background: none;
   border: none;
   cursor: pointer;
   padding: 0;
+  color: inherit;
+}
+
+.example-tab-button > svg {
+  width: 24px;
+  height: 24px;
 }
 
 .example-tab-button:hover {
   cursor: pointer;
-}
-
-.example-tab-button .material-icons {
-  color: #aaa;
-  font-size: 24px;
 }
 
 .example-tab {
@@ -1023,9 +1057,19 @@ details > summary {
   color: #6b4a2a;
 }
 
-.slate-example-icon {
-  font-size: 18px;
-  vertical-align: text-bottom;
+.slate-example-button.is-reversed {
+  color: white;
+}
+
+.slate-example-button.is-reversed:hover,
+.slate-example-button.is-reversed:focus-visible {
+  background: rgba(255, 255, 255, 0.14);
+  color: white;
+}
+
+.slate-example-button.is-reversed.is-active {
+  background: rgba(255, 255, 255, 0.22);
+  color: white;
 }
 
 .slate-example-instruction {
@@ -1037,7 +1081,8 @@ details > summary {
 }
 
 .slate-example-menu > * {
-  display: inline-block;
+  display: inline-flex;
+  vertical-align: middle;
 }
 
 .slate-example-menu > * + * {
@@ -1086,13 +1131,28 @@ details > summary {
   position: absolute;
   top: -10000px;
   left: -10000px;
-  z-index: 1;
-  margin-top: -6px;
-  border-radius: 4px;
-  background-color: #222;
-  padding: 8px 7px 6px;
+  z-index: 20;
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  margin-top: -8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: #18181b;
+  box-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.22),
+    0 2px 8px rgba(0, 0, 0, 0.18);
+  padding: 4px;
   opacity: 0;
-  transition: opacity 0.75s;
+  transition: opacity 120ms ease;
+}
+
+.slate-hovering-toolbar-menu > * {
+  display: inline-flex;
+}
+
+.slate-hovering-toolbar-menu > * + * {
+  margin-left: 0;
 }
 
 .slate-mentions-menu {
@@ -1197,17 +1257,6 @@ details > summary {
 
 .slate-code-highlighting-positioned {
   position: relative;
-}
-
-.slate-search-highlighting-box {
-  position: relative;
-}
-
-.slate-search-highlighting-icon {
-  position: absolute;
-  top: 0.3em;
-  left: 0.4em;
-  color: #ccc;
 }
 
 .slate-search-highlighting-highlight {

@@ -594,7 +594,7 @@ const PerformanceControls = ({
         </CollapsibleContent>
       </Collapsible>
 
-      <Collapsible>
+      <Collapsible defaultOpen>
         <CollapsibleTrigger asChild>
           <Button type="button" variant="ghost">
             Statistics
