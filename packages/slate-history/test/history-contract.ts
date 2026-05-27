@@ -204,6 +204,72 @@ describe('slate-history contract', () => {
     )
   })
 
+  it('undoes and redoes an island insert with its explicit child root', () => {
+    const childRoot = 'island:body'
+    const island = {
+      type: 'editable-void',
+      childRoots: { body: childRoot },
+      children: [{ text: '' }],
+    } as Descendant
+    const editor = createEditor({
+      extensions: [history()],
+      initialValue: {
+        roots: {
+          main: [paragraph('body')],
+        },
+      },
+    })
+
+    write(editor, (tx) => {
+      tx.operations.replay([
+        {
+          children: [],
+          index: 0,
+          newChildren: [paragraph('child')],
+          newSelection: null,
+          path: [],
+          root: childRoot,
+          selection: null,
+          type: 'replace_children',
+        },
+      ])
+      tx.nodes.insert(island, { at: [1] })
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          [childRoot]: [paragraph('child')],
+          main: [paragraph('body'), island],
+        },
+      }
+    )
+
+    undo(editor)
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          main: [paragraph('body')],
+        },
+      }
+    )
+
+    redo(editor)
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          [childRoot]: [paragraph('child')],
+          main: [paragraph('body'), island],
+        },
+      }
+    )
+  })
+
   it('undoes a full-document selected text replacement as one structural batch', () => {
     const editor = historyTestEditor()
     const selection = {

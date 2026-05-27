@@ -25,6 +25,8 @@ const EXAMPLE_IMPORTERS: Record<
     import('../../examples/ts/dom-coverage-boundaries'),
   'editable-voids': () => import('../../examples/ts/editable-voids'),
   embeds: () => import('../../examples/ts/embeds'),
+  'hidden-content-blocks': () =>
+    import('../../examples/ts/hidden-content-blocks'),
   linting: () => import('../../examples/ts/linting'),
   'forced-layout': () => import('../../examples/ts/forced-layout'),
   'hovering-toolbar': () => import('../../examples/ts/hovering-toolbar'),
@@ -47,6 +49,7 @@ const EXAMPLE_IMPORTERS: Record<
   'search-highlighting': () => import('../../examples/ts/search-highlighting'),
   'shadow-dom': () => import('../../examples/ts/shadow-dom'),
   styling: () => import('../../examples/ts/styling'),
+  'synced-blocks': () => import('../../examples/ts/synced-blocks'),
   tables: () => import('../../examples/ts/tables'),
   'yjs-collaboration': () => import('../../examples/ts/yjs-collaboration'),
 }

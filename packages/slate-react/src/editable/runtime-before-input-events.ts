@@ -4,11 +4,17 @@ import type {
   EditableDOMBeforeInputContext,
   EditableDOMBeforeInputHandler,
 } from '../components/editable'
+import { useOptionalSlateRuntimeContext } from '../hooks/use-slate-runtime'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
 import { shouldSkipDuplicateEditableEditingEpochCommand } from './editing-epoch-kernel'
 import { prepareEditableBeforeInputKernel } from './editing-kernel'
-import { isEditableModelSelectionPreferredForInput } from './input-controller'
+import {
+  getNestedEditableDOMSelectionRoot,
+  isEditableModelSelectionPreferredForInput,
+  isNestedEditableDOMTarget,
+  isSelectionInEditorView,
+} from './input-controller'
 import {
   useEditableDOMBeforeInputHandler,
   useEditableReactBeforeInputHandler,
@@ -88,6 +94,8 @@ const isDOMBeforeInputHandled = (
   return event.defaultPrevented
 }
 
+const getSelectionRoot = (selection: Range | null) => selection?.anchor.root
+
 export const useRuntimeBeforeInputEvents = ({
   androidInputManagerRef,
   applyInputRules,
@@ -125,6 +133,7 @@ export const useRuntimeBeforeInputEvents = ({
   setComposing: EditableEventRuntime['composition']['setComposing']
   trace: EditableEventRuntime['trace']
 }) => {
+  const slateRuntimeContext = useOptionalSlateRuntimeContext()
   const handleDOMBeforeInput = useCallback(
     (event: InputEvent) => {
       const decision = profileBeforeInputDuration('beforeinput-prepare', () =>
@@ -164,6 +173,17 @@ export const useRuntimeBeforeInputEvents = ({
       const el = profileBeforeInputDuration('beforeinput-root-node', () =>
         ReactEditor.assertDOMNode(editor, editor)
       )
+      if (isNestedEditableDOMTarget(el, event.target)) {
+        return
+      }
+
+      if (readOnly && ReactEditor.hasEditableTarget(editor, event.target)) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        handledDOMBeforeInputRef.current = true
+        return
+      }
+
       const root = profileBeforeInputDuration(
         'beforeinput-root-owner',
         () => el.getRootNode() as Document | ShadowRoot
@@ -192,6 +212,11 @@ export const useRuntimeBeforeInputEvents = ({
           'beforeinput-read-selection',
           () => readLiveSelection(editor)
         )
+
+        if (!isSelectionInEditorView(editor, currentSelection)) {
+          return
+        }
+
         const hasAppInputPolicy = Boolean(
           onDOMBeforeInput ||
             onBeforeInput ||
@@ -216,6 +241,47 @@ export const useRuntimeBeforeInputEvents = ({
           native: initialNative,
           shouldAbortForCompositionChange,
         } = beforeInputDecision
+        const selectionRoot =
+          getSelectionRoot(currentSelection) ??
+          getNestedEditableDOMSelectionRoot(el)
+        const viewRoot = editor.read((state) => state.view.root())
+        const targetEditor =
+          selectionRoot && selectionRoot !== viewRoot
+            ? slateRuntimeContext?.getMountedViewEditor(selectionRoot)
+            : null
+
+        if (selectionRoot && selectionRoot !== viewRoot && !targetEditor) {
+          return
+        }
+
+        if (targetEditor && targetEditor !== editor) {
+          event.preventDefault()
+          event.stopImmediatePropagation()
+          handledDOMBeforeInputRef.current = true
+
+          const request = profileBeforeInputDuration(
+            'beforeinput-redirect-root',
+            () =>
+              applyModelOwnedBeforeInputOperation({
+                command: decision.command,
+                data,
+                deferredOperations,
+                editor: targetEditor,
+                inputType: type,
+                native: false,
+                selection:
+                  currentSelection ??
+                  targetEditor.read((state) => state.selection.get()),
+                setComposing,
+              })
+          )
+
+          if (request) {
+            targetEditor.api.dom.focus()
+          }
+
+          return
+        }
 
         const domBeforeInputContext: EditableDOMBeforeInputContext = {
           data,
@@ -357,6 +423,7 @@ export const useRuntimeBeforeInputEvents = ({
       repair,
       selection,
       setComposing,
+      slateRuntimeContext,
       trace,
     ]
   )

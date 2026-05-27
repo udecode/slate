@@ -97,6 +97,17 @@ export const applyEditableInput = ({
   }
 
   const repairs: EditableRepairRequest[] = []
+  const modelText = editor.read((state) => state.text.string([]))
+  const domText =
+    event.currentTarget.textContent?.replace(/\uFEFF/g, '') ?? modelText
+
+  if (readOnly) {
+    handledDOMBeforeInputRef.current = false
+
+    return inputResult(
+      domText === modelText ? [] : [{ forceRender: true, kind: 'force-render' }]
+    )
+  }
 
   // Flush native operations, as native events will have propogated
   // and we can correctly compare DOM text values in components
@@ -120,9 +131,6 @@ export const applyEditableInput = ({
   }
 
   const nativeInput = event.nativeEvent as InputEvent
-  const modelText = editor.read((state) => state.text.string([]))
-  const domText =
-    event.currentTarget.textContent?.replace(/\uFEFF/g, '') ?? modelText
 
   if (
     !skipNativeTextInputRepair &&

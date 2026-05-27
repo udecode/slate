@@ -91,4 +91,58 @@ describe('root interaction resolver', () => {
       type: 'focus-root',
     })
   })
+
+  test('prefocuses blurred native text targets without blocking native selection', () => {
+    const root = createRootChrome()
+    const editable = document.createElement('div')
+    const text = document.createElement('span')
+
+    editable.dataset.slateEditor = 'true'
+    text.dataset.slateString = 'true'
+    editable.append(text)
+    root.append(editable)
+
+    const target = resolveRootInteractionTarget({
+      currentTarget: root,
+      target: text,
+    })
+    const mouseDown = resolveRootInteractionMouseDown({
+      editableRootFocused: false,
+      target,
+    })
+
+    expect(target.kind).toBe('native-editable')
+    expect(mouseDown).toEqual({
+      type: 'focus-native-editable',
+    })
+    expect(
+      resolveRootInteractionMouseUp({
+        eventRange: null,
+        pendingAction: mouseDown,
+        selection: 'restore',
+      })
+    ).toEqual({
+      type: 'ignore',
+    })
+  })
+
+  test('lets editable roots ignore nested editor clicks', () => {
+    const root = document.createElement('div')
+    const nested = document.createElement('div')
+    const text = document.createElement('span')
+
+    root.dataset.slateEditor = 'true'
+    nested.dataset.slateEditor = 'true'
+    text.dataset.slateString = 'true'
+    nested.append(text)
+    root.append(nested)
+
+    const target = resolveRootInteractionTarget({
+      currentTarget: root,
+      target: text,
+    })
+
+    expect(target.kind).toBe('interactive-descendant')
+    expect(resolveRootInteractionMouseDown({ target }).type).toBe('ignore')
+  })
 })

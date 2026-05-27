@@ -205,6 +205,7 @@ const createClipboardEvent = (
     clipboardData,
     nativeEvent: { clipboardData },
     preventDefault: jest.fn(),
+    stopPropagation: jest.fn(),
     target,
   }) as unknown as ClipboardEvent<HTMLDivElement>
 
@@ -212,6 +213,7 @@ const createDragEvent = (target: EventTarget, dataTransfer: FakeDataTransfer) =>
   ({
     dataTransfer,
     preventDefault: jest.fn(),
+    stopPropagation: jest.fn(),
     target,
   }) as unknown as DragEvent<HTMLDivElement>
 
@@ -374,7 +376,7 @@ describe('DOM coverage native bridge', () => {
         state: { isDraggingInternally: false },
       })
 
-      expect(event.preventDefault).not.toHaveBeenCalled()
+      expect(event.preventDefault).toHaveBeenCalled()
       expect(result.command).toBe(null)
       expect(Editor.string(editor, [])).toBe('Original text')
       expect(Editor.getSnapshot(editor).selection).toEqual({
@@ -416,13 +418,54 @@ describe('DOM coverage native bridge', () => {
         partialDOMBackedSelection: false,
       })
 
-      expect(event.preventDefault).not.toHaveBeenCalled()
+      expect(event.preventDefault).toHaveBeenCalled()
       expect(result.command).toBe(null)
       expect(Editor.string(editor, [])).toBe('Original text')
       expect(Editor.getSnapshot(editor).selection).toEqual({
         anchor: { offset: 0, path: [0, 0] },
         focus: { offset: 'Original text'.length, path: [0, 0] },
       })
+    } finally {
+      cleanupEditorRoot(editor, root)
+    }
+  })
+
+  test('read-only paste prevents native default even when custom handler returns handled', () => {
+    const editor = createReactEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Original text' }],
+        },
+      ],
+      selection: {
+        anchor: { offset: 0, path: [0, 0] },
+        focus: { offset: 'Original text'.length, path: [0, 0] },
+      },
+    })
+
+    const root = mountEditorRoot(editor)
+    const clipboard = new FakeDataTransfer()
+    const event = createClipboardEvent(root, clipboard)
+    const onPaste = jest.fn(() => true)
+
+    clipboard.setData('text/plain', 'Pasted text')
+
+    try {
+      const result = applyEditablePaste({
+        editor,
+        event,
+        onPaste,
+        readOnly: true,
+        partialDOMBackedSelection: false,
+      })
+
+      expect(onPaste).toHaveBeenCalledWith(event)
+      expect(event.preventDefault).toHaveBeenCalled()
+      expect(result.command).toBe(null)
+      expect(Editor.string(editor, [])).toBe('Original text')
     } finally {
       cleanupEditorRoot(editor, root)
     }

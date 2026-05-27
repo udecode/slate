@@ -391,6 +391,184 @@ describe('rooted operation contract', () => {
     )
   })
 
+  it('records root presence when creating an explicit child root', () => {
+    const childRoot = 'island:body'
+    const editor = createEditor({
+      initialValue: {
+        roots: {
+          main: [paragraph('body')],
+        },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          children: [],
+          index: 0,
+          newChildren: [paragraph('child')],
+          newSelection: null,
+          path: [],
+          root: childRoot,
+          selection: null,
+          type: 'replace_children',
+        },
+      ])
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          [childRoot]: [paragraph('child')],
+          main: [paragraph('body')],
+        },
+      }
+    )
+    assert.deepEqual(Editor.getLastCommit(editor)?.operations, [
+      {
+        children: [],
+        index: 0,
+        newChildren: [paragraph('child')],
+        newSelection: null,
+        path: [],
+        root: childRoot,
+        rootIsPresent: true,
+        rootWasPresent: false,
+        selection: null,
+        type: 'replace_children',
+      },
+    ])
+  })
+
+  it('creates, replaces, and deletes roots through tx.roots', () => {
+    const childRoot = 'island:body'
+    const editor = createEditor({
+      initialValue: {
+        roots: {
+          main: [paragraph('body')],
+        },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.roots.create(childRoot, [paragraph('child')])
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          [childRoot]: [paragraph('child')],
+          main: [paragraph('body')],
+        },
+      }
+    )
+    assert.deepEqual(Editor.getLastCommit(editor)?.operations, [
+      {
+        children: [],
+        index: 0,
+        newChildren: [paragraph('child')],
+        newSelection: null,
+        path: [],
+        root: childRoot,
+        rootIsPresent: true,
+        rootWasPresent: false,
+        selection: null,
+        type: 'replace_children',
+      },
+    ])
+
+    editor.update((tx) => {
+      tx.roots.replace(childRoot, [paragraph('updated')])
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          [childRoot]: [paragraph('updated')],
+          main: [paragraph('body')],
+        },
+      }
+    )
+    assert.deepEqual(Editor.getLastCommit(editor)?.operations, [
+      {
+        children: [paragraph('child')],
+        index: 0,
+        newChildren: [paragraph('updated')],
+        newSelection: null,
+        path: [],
+        root: childRoot,
+        rootIsPresent: true,
+        rootWasPresent: true,
+        selection: null,
+        type: 'replace_children',
+      },
+    ])
+
+    editor.update((tx) => {
+      tx.roots.delete(childRoot)
+    })
+
+    assert.deepEqual(
+      editor.read((state) => state.value.get()),
+      {
+        roots: {
+          main: [paragraph('body')],
+        },
+      }
+    )
+    assert.deepEqual(Editor.getLastCommit(editor)?.operations, [
+      {
+        children: [paragraph('updated')],
+        index: 0,
+        newChildren: [],
+        newSelection: null,
+        path: [],
+        root: childRoot,
+        rootIsPresent: false,
+        rootWasPresent: true,
+        selection: null,
+        type: 'replace_children',
+      },
+    ])
+  })
+
+  it('fails loudly for invalid tx.roots lifecycle calls', () => {
+    const childRoot = 'island:body'
+    const editor = createEditor({
+      initialValue: {
+        roots: {
+          [childRoot]: [paragraph('child')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+
+    assert.throws(
+      () =>
+        editor.update((tx) => {
+          tx.roots.create(childRoot, [paragraph('duplicate')])
+        }),
+      /Cannot create existing editor root/
+    )
+    assert.throws(
+      () =>
+        editor.update((tx) => {
+          tx.roots.replace('missing', [paragraph('missing')])
+        }),
+      /Cannot replace missing editor root/
+    )
+    assert.throws(
+      () =>
+        editor.update((tx) => {
+          tx.roots.delete('main')
+        }),
+      /Cannot mutate the main editor root/
+    )
+  })
+
   it('routes explicit point node inserts through their own root', () => {
     const editor = createEditor({
       initialValue: {

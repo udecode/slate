@@ -106,7 +106,234 @@ const getParagraphGapPoint = async (
     { afterPath, beforePath }
   )
 
+const getPaginationTableProof = async (
+  root: Awaited<ReturnType<typeof openExample>>['root']
+) =>
+  root.evaluate(() => {
+    const table = document.querySelector(
+      '[data-testid="pagination-rich-table"]'
+    )
+    const tablePath = table?.getAttribute('data-slate-path') ?? null
+    const frames = Array.from(
+      document.querySelectorAll('[data-testid="pagination-content-frame"]')
+    ).map((frame) => frame.getBoundingClientRect())
+    const rows = Array.from(
+      document.querySelectorAll('[data-testid="pagination-rich-table-row"]')
+    )
+    const visibleRows = rows
+      .map((row) => {
+        const rect = row.getBoundingClientRect()
+
+        return {
+          display: getComputedStyle(row).display,
+          height: rect.height,
+          left: rect.left,
+          path: row.getAttribute('data-slate-path'),
+          rowIndex: row.getAttribute('data-pagination-row-index'),
+          top: rect.top,
+          width: rect.width,
+        }
+      })
+      .filter((row) => row.display !== 'none' && row.height > 0)
+    const rowFrameIndexes = visibleRows.map((row) =>
+      frames.findIndex(
+        (frame) =>
+          row.left >= frame.left - 1 &&
+          row.left + row.width <= frame.right + 1 &&
+          row.top >= frame.top - 1 &&
+          row.top + row.height <= frame.bottom + 1
+      )
+    )
+    const visibleCellCount = Array.from(
+      document.querySelectorAll('[data-testid="pagination-rich-table-cell"]')
+    ).filter((cell) => cell.getBoundingClientRect().height > 0).length
+    const pathCounts = new Map<string, number>()
+
+    if (tablePath) {
+      document
+        .querySelectorAll(
+          `[data-slate-path="${tablePath}"], [data-slate-path^="${tablePath},"]`
+        )
+        .forEach((element) => {
+          const path = element.getAttribute('data-slate-path')
+
+          if (path) {
+            pathCounts.set(path, (pathCounts.get(path) ?? 0) + 1)
+          }
+        })
+    }
+
+    return {
+      duplicatePaths: [...pathCounts]
+        .filter(([, count]) => count > 1)
+        .map(([path]) => path),
+      rowFrameIndexes,
+      tableCount: document.querySelectorAll(
+        '[data-testid="pagination-rich-table"]'
+      ).length,
+      tablePath,
+      visibleCellCount,
+      visibleRowCount: visibleRows.length,
+    }
+  })
+
 test.describe('pagination example', () => {
+  test('renders the existing pagination route as the canonical paged editable surface', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only smoke proof for canonical pagination route'
+    )
+
+    const editor = await openExample(page, 'pagination', {
+      ready: {
+        editor: 'visible',
+        text: /Premirror Milestone 1 test document/,
+      },
+    })
+
+    const proof = await editor.root.evaluate(() => {
+      return {
+        hasDOMStrategyControl: Boolean(
+          Array.from(document.querySelectorAll('label')).some((label) =>
+            label.textContent?.includes('DOM strategy')
+          )
+        ),
+        hasMediaSplitControl: Boolean(
+          Array.from(document.querySelectorAll('label')).some((label) =>
+            label.textContent?.includes('Media split')
+          )
+        ),
+        hasPagedEditable: Boolean(
+          document.querySelector('[data-slate-paged-editable]')
+        ),
+        hasRowsControl: Boolean(
+          Array.from(document.querySelectorAll('label')).some((label) =>
+            label.textContent?.includes('Rows')
+          )
+        ),
+        pageSurfaceCount: document.querySelectorAll('[data-slate-page-surface]')
+          .length,
+        text: document.body.textContent,
+      }
+    })
+
+    expect(proof.hasPagedEditable).toBe(true)
+    expect(proof.hasDOMStrategyControl).toBe(true)
+    expect(proof.hasMediaSplitControl).toBe(true)
+    expect(proof.hasRowsControl).toBe(true)
+    expect(proof.pageSurfaceCount).toBeGreaterThan(1)
+    expect(proof.text).toContain('Premirror Milestone 1 test document')
+  })
+
+  test('renders a multi-page table as one editable Slate subtree', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for experimental pagination table fragments'
+    )
+
+    const editor = await openExample(page, 'pagination', {
+      ready: {
+        editor: 'visible',
+        text: /Rich Markdown pagination proof/,
+      },
+    })
+
+    await page.getByRole('switch', { name: 'Debug' }).click()
+
+    const proof = await getPaginationTableProof(editor.root)
+
+    expect(proof.tableCount).toBe(1)
+    expect(proof.visibleRowCount).toBe(40)
+    expect(proof.visibleCellCount).toBe(120)
+    expect(new Set(proof.rowFrameIndexes).size).toBeGreaterThan(1)
+    expect(proof.rowFrameIndexes.every((index) => index >= 0)).toBe(true)
+    expect(proof.duplicatePaths).toEqual([])
+  })
+
+  test('edits a visually second-page table cell without splitting the table DOM', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for experimental pagination table editing'
+    )
+
+    const editor = await openExample(page, 'pagination', {
+      ready: {
+        editor: 'visible',
+        text: /Rich Markdown pagination proof/,
+      },
+    })
+    const tablePathAttribute = await editor.root
+      .locator('[data-testid="pagination-rich-table"]')
+      .getAttribute('data-slate-path')
+
+    expect(tablePathAttribute).toBeTruthy()
+
+    const tablePath = Number(tablePathAttribute)
+    const targetText = 'Path-aware cell 29'
+
+    await editor.selection.collapse({
+      path: [tablePath, 28, 1, 0],
+      offset: targetText.length,
+    })
+    await editor.focus()
+    await page.keyboard.insertText(' edited')
+
+    await expect
+      .poll(async () => editor.get.modelText())
+      .toContain(`${targetText} edited`)
+
+    const proof = await getPaginationTableProof(editor.root)
+
+    expect(proof.tableCount).toBe(1)
+    expect(proof.duplicatePaths).toEqual([])
+  })
+
+  test('copies a selection across table rows split by a page boundary', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for experimental pagination table copy'
+    )
+
+    const editor = await openExample(page, 'pagination', {
+      ready: {
+        editor: 'visible',
+        text: /Rich Markdown pagination proof/,
+      },
+    })
+    const tablePathAttribute = await editor.root
+      .locator('[data-testid="pagination-rich-table"]')
+      .getAttribute('data-slate-path')
+
+    expect(tablePathAttribute).toBeTruthy()
+
+    const tablePath = Number(tablePathAttribute)
+
+    await editor.selection.select({
+      anchor: { path: [tablePath, 24, 0, 0], offset: 0 },
+      focus: { path: [tablePath, 25, 2, 0], offset: 'Fragment 26'.length },
+    })
+    await editor.focus()
+    await editor.root.press('ControlOrMeta+C')
+
+    const text = await editor.clipboard.readText()
+
+    expect(text).toContain('Row 25')
+    expect(text).toContain('Fragment 26')
+
+    const proof = await getPaginationTableProof(editor.root)
+
+    expect(proof.tableCount).toBe(1)
+    expect(proof.duplicatePaths).toEqual([])
+  })
+
   test('places selection on an adjacent paragraph when clicking the paragraph gap', async ({
     page,
   }, testInfo) => {
@@ -221,7 +448,7 @@ test.describe('pagination example', () => {
       })
   })
 
-  test('keeps projected block offsets when virtualized strategy degrades', async ({
+  test('keeps projected block offsets when page-level virtualization is active', async ({
     page,
   }, testInfo) => {
     test.skip(
@@ -237,6 +464,27 @@ test.describe('pagination example', () => {
     })
 
     await page.getByLabel('DOM strategy').selectOption('virtualized')
+
+    await expect
+      .poll(async () =>
+        editor.root.evaluate(() => {
+          const rowCount = document.querySelectorAll(
+            '[data-slate-dom-strategy-virtual-row="true"]'
+          ).length
+          const boundaryCount = document.querySelectorAll(
+            '[data-slate-dom-strategy-virtualized-boundary="true"]'
+          ).length
+
+          return (
+            document.querySelector(
+              '[data-slate-dom-strategy-virtualizer="true"]'
+            ) != null &&
+            rowCount > 0 &&
+            boundaryCount > 0
+          )
+        })
+      )
+      .toBe(true)
 
     await expect
       .poll(async () => {
@@ -423,9 +671,6 @@ test.describe('pagination example', () => {
       const viewport = document.querySelector(
         '[data-testid="pagination-viewport"]'
       )
-      const table = document.querySelector(
-        '[data-testid="pagination-rich-table"]'
-      )
       const image = document.querySelector(
         '[data-testid="pagination-rich-image"]'
       )
@@ -513,6 +758,13 @@ test.describe('pagination example', () => {
       const mixedInlineLooseSpacing = mixedInlineRows.flatMap((sorted) =>
         sorted.slice(0, -1).filter((rect) => rect.right - rect.stringRight > 8)
       )
+      const visibleTableRows = Array.from(
+        document.querySelectorAll('[data-testid="pagination-rich-table-row"]')
+      ).filter((row) => row.getBoundingClientRect().height > 0)
+      const visibleTableCells = Array.from(
+        document.querySelectorAll('[data-testid="pagination-rich-table-cell"]')
+      ).filter((cell) => cell.getBoundingClientRect().height > 0)
+      const tableRowsInsideFrame = visibleTableRows.every(isInsideFrame)
 
       return {
         frameCount: frames.length,
@@ -527,10 +779,9 @@ test.describe('pagination example', () => {
         noHorizontalScroll: viewport
           ? viewport.scrollWidth <= viewport.clientWidth + 1
           : false,
-        tableCellCount: document.querySelectorAll(
-          '[data-testid="pagination-rich-table-cell"]'
-        ).length,
-        tableInsideFrame: isInsideFrame(table),
+        tableRowsInsideFrame,
+        visibleTableCellCount: visibleTableCells.length,
+        visibleTableRowCount: visibleTableRows.length,
         thematicBreakInsideFrame: isInsideFrame(thematicBreak),
       }
     })
@@ -544,8 +795,9 @@ test.describe('pagination example', () => {
       mixedInlineLooseSpacingCount: 0,
       mixedInlineOverlapCount: 0,
       noHorizontalScroll: true,
-      tableCellCount: 6,
-      tableInsideFrame: true,
+      tableRowsInsideFrame: true,
+      visibleTableCellCount: 120,
+      visibleTableRowCount: 40,
       thematicBreakInsideFrame: true,
     })
     expect(proof.frameCount).toBeGreaterThan(1)

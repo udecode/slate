@@ -1,3 +1,7 @@
+export {
+  getDOMClipboardFormatKey,
+  setDOMClipboardFormatKey,
+} from '../plugin/dom-clipboard-runtime'
 export type {
   DOMCoverageBoundary,
   DOMCoverageBoundaryAnchor,

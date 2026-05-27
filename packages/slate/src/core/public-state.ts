@@ -27,6 +27,7 @@ import type {
   EditorUpdateTag,
   EditorUpdateTransaction,
   OperationClass,
+  RootKey,
   RuntimeId,
   Selection,
   SnapshotChange,
@@ -759,6 +760,57 @@ const getOperationRoot = (operation: Operation): string | null => {
       return operation.root ?? MAIN_ROOT_KEY
     default:
       return null
+  }
+}
+
+const createRootReplaceChildrenOperation = <V extends Value>(
+  root: RootKey,
+  children: readonly Descendant[],
+  newChildren: readonly Descendant[],
+  options: {
+    rootIsPresent: boolean
+    rootWasPresent: boolean
+  }
+): Extract<Operation<V>, { type: 'replace_children' }> => ({
+  children: cloneValue([...children]) as DescendantIn<V>[],
+  index: 0,
+  newChildren: cloneValue([...newChildren]) as DescendantIn<V>[],
+  newSelection: null,
+  path: [],
+  root,
+  rootIsPresent: options.rootIsPresent,
+  rootWasPresent: options.rootWasPresent,
+  selection: null,
+  type: 'replace_children',
+})
+
+const requireMutableRoot = (root: RootKey) => {
+  if (root === MAIN_ROOT_KEY) {
+    throw new Error('Cannot mutate the main editor root through tx.roots.')
+  }
+}
+
+const withRootLifecycleDefaults = (
+  editor: Editor,
+  operation: Operation
+): Operation => {
+  if (
+    operation.type !== 'replace_children' ||
+    operation.path.length > 0 ||
+    operation.root === undefined ||
+    operation.root === MAIN_ROOT_KEY
+  ) {
+    return operation
+  }
+
+  const rootWasPresent =
+    operation.rootWasPresent ??
+    Object.hasOwn(getEditorDocumentRoots(editor), operation.root)
+
+  return {
+    ...operation,
+    rootIsPresent: operation.rootIsPresent ?? true,
+    rootWasPresent,
   }
 }
 
@@ -1537,76 +1589,83 @@ const getSelectionMarks = <V extends Value>(
     return marks as EditorMarks<V>
   }
 
-  let { anchor, focus } = selection
+  return withEditorRootChildren(editor, getCurrentSelectionRoot(editor), () => {
+    let { anchor, focus } = selection
 
-  if (RangeApi.isExpanded(selection)) {
-    if (RangeApi.isBackward(selection)) {
-      ;[focus, anchor] = [anchor, focus]
-    }
-
-    if (
-      PointApi.equals(
-        anchor,
-        getEditorRuntime(editor).point(anchor.path, { edge: 'end' })
-      )
-    ) {
-      const after = getEditorRuntime(editor).after(anchor)
-
-      if (after) {
-        anchor = after
+    if (RangeApi.isExpanded(selection)) {
+      if (RangeApi.isBackward(selection)) {
+        ;[focus, anchor] = [anchor, focus]
       }
-    }
 
-    const [match] = getNodes(editor, {
-      at: { anchor, focus },
-      match: NodeApi.isText,
-    })
+      if (
+        PointApi.equals(
+          anchor,
+          getEditorRuntime(editor).point(anchor.path, { edge: 'end' })
+        )
+      ) {
+        const after = getEditorRuntime(editor).after(anchor)
 
-    if (match) {
-      const [node] = match
-      const { text, ...rest } = node
+        if (after) {
+          anchor = after
+        }
+      }
 
-      return rest as EditorMarks<V>
-    }
-
-    return {} as EditorMarks<V>
-  }
-
-  const { path } = anchor
-  let [node] = getEditorRuntime(editor).leaf(path)
-
-  if (anchor.offset === 0) {
-    const prev = getEditorRuntime(editor).previous({
-      at: path,
-      match: NodeApi.isText,
-    })
-    const markedVoid = getEditorRuntime(editor).above({
-      match: (n: SlateNode) =>
-        NodeApi.isElement(n) &&
-        getEditorSchema(editor).isVoid(n) &&
-        getEditorSchema(editor).markableVoid(n),
-    })
-
-    if (!markedVoid) {
-      const block = getEditorRuntime(editor).above({
-        match: (n: SlateNode) =>
-          NodeApi.isElement(n) && !getEditorSchema(editor).isInline(n),
+      const [match] = getNodes(editor, {
+        at: { anchor, focus },
+        match: NodeApi.isText,
       })
 
-      if (prev && block) {
-        const [prevNode, prevPath] = prev
-        const [, blockPath] = block
+      if (match) {
+        const [node] = match
+        const { text, ...rest } = node
 
-        if (PathApi.isAncestor(blockPath, prevPath)) {
-          node = prevNode
+        return rest as EditorMarks<V>
+      }
+
+      return {} as EditorMarks<V>
+    }
+
+    const { path } = anchor
+
+    if (!getEditorRuntime(editor).hasPath(path)) {
+      return null
+    }
+
+    let [node] = getEditorRuntime(editor).leaf(path)
+
+    if (anchor.offset === 0) {
+      const prev = getEditorRuntime(editor).previous({
+        at: path,
+        match: NodeApi.isText,
+      })
+      const markedVoid = getEditorRuntime(editor).above({
+        match: (n: SlateNode) =>
+          NodeApi.isElement(n) &&
+          getEditorSchema(editor).isVoid(n) &&
+          getEditorSchema(editor).markableVoid(n),
+      })
+
+      if (!markedVoid) {
+        const block = getEditorRuntime(editor).above({
+          match: (n: SlateNode) =>
+            NodeApi.isElement(n) && !getEditorSchema(editor).isInline(n),
+        })
+
+        if (prev && block) {
+          const [prevNode, prevPath] = prev
+          const [, blockPath] = block
+
+          if (PathApi.isAncestor(blockPath, prevPath)) {
+            node = prevNode
+          }
         }
       }
     }
-  }
 
-  const { text, ...rest } = node
+    const { text, ...rest } = node
 
-  return rest as EditorMarks<V>
+    return rest as EditorMarks<V>
+  })
 }
 
 const createNodesToArray = (editor: Editor): EditorStateNodesApi['toArray'] => {
@@ -2203,6 +2262,58 @@ const getUpdateView = <
         })
       },
     }),
+    roots: Object.freeze({
+      create: (root, children) => {
+        requireMutableRoot(root)
+        const roots = getEditorDocumentRoots(editor)
+
+        if (Object.hasOwn(roots, root)) {
+          throw new Error(`Cannot create existing editor root "${root}".`)
+        }
+
+        applyOperation(
+          editor,
+          createRootReplaceChildrenOperation(root, [], children, {
+            rootIsPresent: true,
+            rootWasPresent: false,
+          })
+        )
+      },
+      delete: (root) => {
+        requireMutableRoot(root)
+        const roots = getEditorDocumentRoots(editor)
+        const children = roots[root]
+
+        if (!Object.hasOwn(roots, root) || children === undefined) {
+          throw new Error(`Cannot delete missing editor root "${root}".`)
+        }
+
+        applyOperation(
+          editor,
+          createRootReplaceChildrenOperation(root, children, [], {
+            rootIsPresent: false,
+            rootWasPresent: true,
+          })
+        )
+      },
+      replace: (root, children) => {
+        requireMutableRoot(root)
+        const roots = getEditorDocumentRoots(editor)
+        const previousChildren = roots[root]
+
+        if (!Object.hasOwn(roots, root) || previousChildren === undefined) {
+          throw new Error(`Cannot replace missing editor root "${root}".`)
+        }
+
+        applyOperation(
+          editor,
+          createRootReplaceChildrenOperation(root, previousChildren, children, {
+            rootIsPresent: true,
+            rootWasPresent: true,
+          })
+        )
+      },
+    }),
     statePatches: Object.freeze({
       replay: (statePatches) => applyStatePatches(editor, statePatches, 'redo'),
     }),
@@ -2554,6 +2665,35 @@ export const setChildren = (
   markTransactionChanged(editor)
 }
 
+export const deleteEditorRoot = (
+  editor: Editor,
+  root: string | null | undefined
+) => {
+  const targetRoot = root ?? MAIN_ROOT_KEY
+
+  if (targetRoot === MAIN_ROOT_KEY) {
+    return
+  }
+
+  const currentRoots = getEditorDocumentRoots(editor)
+
+  if (!Object.hasOwn(currentRoots, targetRoot)) {
+    return
+  }
+
+  const nextRoots = { ...currentRoots }
+  delete nextRoots[targetRoot]
+
+  ROOTS.set(editor, nextRoots)
+  if (ACTIVE_CHILDREN_ROOT.get(editor) === targetRoot) {
+    CHILDREN.set(editor, [])
+  }
+  bumpMutationVersion(editor)
+  bumpRuntimeIndexVersion(editor)
+  SNAPSHOT_CACHE.delete(editor)
+  markTransactionChanged(editor)
+}
+
 export const getCurrentMarks = (editor: Editor): EditorMarks | null =>
   cloneValue(
     CURRENT_MARKS.has(editor)
@@ -2782,7 +2922,10 @@ const applyWithOperationMiddlewares = (
   editor: Editor,
   operation: Operation
 ) => {
-  const initialOperation = withDefaultOperationRoot(editor, operation)
+  const initialOperation = withRootLifecycleDefaults(
+    editor,
+    withDefaultOperationRoot(editor, operation)
+  )
   const baseApply = BASE_APPLY.get(editor)
 
   if (!baseApply) {
@@ -2794,7 +2937,10 @@ const applyWithOperationMiddlewares = (
 
   const dispatch = (nextOperation: Operation = initialOperation) => {
     index += 1
-    const rootedOperation = withDefaultOperationRoot(editor, nextOperation)
+    const rootedOperation = withRootLifecycleDefaults(
+      editor,
+      withDefaultOperationRoot(editor, nextOperation)
+    )
     const middleware = middlewares[index]
 
     if (!middleware) {
@@ -4126,10 +4272,18 @@ export const runEditorTransaction = (
           continue
         }
 
-        latestContentOperationByRoot.set(
-          getOperationRoot(operation) ?? MAIN_ROOT_KEY,
-          operation
-        )
+        const root = getOperationRoot(operation) ?? MAIN_ROOT_KEY
+
+        if (
+          operation.type === 'replace_children' &&
+          operation.path.length === 0 &&
+          operation.rootIsPresent === false
+        ) {
+          latestContentOperationByRoot.delete(root)
+          continue
+        }
+
+        latestContentOperationByRoot.set(root, operation)
       }
 
       if (

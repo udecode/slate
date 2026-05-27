@@ -6,6 +6,7 @@ import {
 } from 'react'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { prepareEditableInputKernel } from './editing-kernel'
+import { isSelectionInEditorView } from './input-controller'
 import {
   useEditableDOMInputHandler,
   useEditableInputHandler,
@@ -16,6 +17,7 @@ import {
   type DeferredOperation,
 } from './model-input-strategy'
 import type { EditableEventRuntime } from './runtime-event-engine'
+import { readRuntimeSelection } from './runtime-selection-state'
 
 type InputHandler = (event: ReactInputEvent<HTMLDivElement>) => boolean | void
 
@@ -49,7 +51,9 @@ export const useRuntimeInputEvents = ({
   const onRuntimeDOMInput = useEditableDOMInputHandler({
     editor,
     onHandledDOMInput: markHandledDOMInput,
+    onReadOnlyDOMInput: repair.forceRender,
     repairDOMInput: trace.repairDOMInputWithTrace,
+    readOnly,
     rootRef,
   })
 
@@ -68,6 +72,9 @@ export const useRuntimeInputEvents = ({
           target: event.target,
         })
         event.stopPropagation()
+        return
+      }
+      if (!isSelectionInEditorView(editor, readRuntimeSelection(editor))) {
         return
       }
 
@@ -126,6 +133,9 @@ export const useRuntimeInputEvents = ({
         event.stopPropagation()
         return
       }
+      if (!isSelectionInEditorView(editor, readRuntimeSelection(editor))) {
+        return
+      }
 
       trace.recordKernelEventTrace({
         family: 'input',
@@ -138,9 +148,13 @@ export const useRuntimeInputEvents = ({
       const { data, inputType } = event.nativeEvent as InputEvent
       const frameId = trace.getCurrentKernelFrameId()
 
+      if (readOnly) {
+        return
+      }
+
       trace.repairDOMInputAfterFrame({ data, inputType }, rootElement, frameId)
     },
-    [editor, inputController, trace]
+    [editor, inputController, readOnly, trace]
   )
   const onRuntimeInputCapture = useEditableInputHandler({
     handleInput: handleInputCapture,

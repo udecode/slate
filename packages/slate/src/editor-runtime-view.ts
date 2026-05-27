@@ -402,10 +402,28 @@ const withRootMarks = <T extends EditorStateView<any, any>>(
 ): T['marks'] =>
   Object.freeze({
     ...state.marks,
-    get: () =>
-      getCurrentSelectionRoot(editor) === viewState.root
-        ? withRootRead(editor, viewState, () => state.marks.get())
-        : null,
+    get: () => {
+      if (getCurrentSelectionRoot(editor) !== viewState.root) {
+        return null
+      }
+
+      const selection = getCurrentSelection(editor)
+
+      if (!selection) {
+        return null
+      }
+
+      return withRootRead(editor, viewState, () => {
+        if (
+          !state.nodes.hasPath(selection.anchor.path) ||
+          !state.nodes.hasPath(selection.focus.path)
+        ) {
+          return null
+        }
+
+        return state.marks.get()
+      })
+    },
   }) as T['marks']
 
 const withRootRuntime = <T extends EditorStateView<any, any>>(

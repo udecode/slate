@@ -30,12 +30,15 @@ import type { AndroidInputManager } from '../hooks/android-input-manager/android
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
+import { writeSlateViewSelection } from '../view-selection'
 import { getInputEventTargetRanges } from './dom-input-event'
 import { isDOMSelectionInsideAnotherSlateEditor } from './dom-selection-owner'
 import {
   type EditableInputController,
   executeEditableSelectionExport,
+  isEditableOutsideFocusBoundarySettling,
   isInteractiveInternalTarget,
+  isSelectionInEditorView,
   type SelectionChangeOrigin,
   setEditableModelSelectionPreference,
   syncEditableDOMSelectionToEditor,
@@ -143,6 +146,8 @@ export const resolveSlateRangeFromDOMSelection = (
 export type EditableSelectionReconcilerState = {
   isUpdatingSelection: boolean
   latestElement: DOMElement | null
+  outsideFocusBoundarySettleUntil: number
+  pendingDOMSelectionImport: boolean
   selectionChangeOrigin?: SelectionChangeOrigin | null
 }
 
@@ -183,9 +188,11 @@ const isReactEventHandled = <
 
 export const attachEditableSelectionChangeListener = ({
   scheduleOnDOMSelectionChange,
+  state,
   targetDocument,
 }: {
   scheduleOnDOMSelectionChange: () => void
+  state: { pendingDOMSelectionImport: boolean }
   targetDocument: Document
 }) => {
   const HTMLElementConstructor = targetDocument.defaultView?.HTMLElement
@@ -203,6 +210,7 @@ export const attachEditableSelectionChangeListener = ({
     if (targetTagName === 'INPUT' || targetTagName === 'TEXTAREA') {
       return
     }
+    state.pendingDOMSelectionImport = true
     scheduleOnDOMSelectionChange()
   }
 
@@ -238,7 +246,6 @@ export const applyEditableBlur = ({
   state: EditableSelectionReconcilerState
 }) => {
   if (
-    readOnly ||
     state.isUpdatingSelection ||
     !ReactEditor.hasSelectableTarget(editor, event.target) ||
     isReactEventHandled({ event, handler: onBlur })
@@ -317,8 +324,11 @@ export const applyEditableFocus = ({
   readOnly: boolean
   state: EditableSelectionReconcilerState
 }) => {
+  if (isEditableOutsideFocusBoundarySettling(state)) {
+    return false
+  }
+
   if (
-    !readOnly &&
     !state.isUpdatingSelection &&
     ReactEditor.hasEditableTarget(editor, event.target) &&
     !isReactEventHandled({ event, handler: onFocus })
@@ -462,6 +472,11 @@ export const applyEditableClick = ({
     return
   }
 
+  if (readOnly) {
+    isReactEventHandled({ event, handler: onClick })
+    return
+  }
+
   const voidTarget = isDOMNode(event.target)
     ? resolveEditableVoidClickTarget(editor, event.target)
     : null
@@ -501,13 +516,10 @@ export const applyEditableClick = ({
       }
 
       const range = Editor.range(editor, blockPath)
+      writeSlateViewSelection(editor, null)
       editor.update((tx) => {
         tx.selection.set(range)
       })
-      return
-    }
-
-    if (readOnly) {
       return
     }
 
@@ -519,6 +531,7 @@ export const applyEditableClick = ({
     if (startVoid && endVoid && PathApi.equals(startVoid[1], endVoid[1])) {
       const range = Editor.range(editor, start)
       ReactEditor.focus(editor)
+      writeSlateViewSelection(editor, null)
       editor.update((tx) => {
         tx.selection.set(range)
       })
@@ -537,6 +550,8 @@ export const applyEditableMouseDown = ({
   inputController: EditableInputController
   onMouseDown?: EditableMouseHandler
 }) => {
+  inputController.state.outsideFocusBoundarySettleUntil = 0
+
   if (isInteractiveInternalTarget(editor, event.target)) {
     setEditableModelSelectionPreference({
       inputController,
@@ -561,6 +576,7 @@ export const applyEditableMouseDown = ({
     const range = Editor.range(editor, start)
 
     ReactEditor.focus(editor)
+    writeSlateViewSelection(editor, null)
     editor.update((tx) => {
       tx.selection.set(range)
     })
@@ -654,6 +670,7 @@ export const syncSelectionForBeforeInput = ({
           nextSelection &&
           Editor.rangeRef(editor, nextSelection)
 
+        writeSlateViewSelection(editor, null)
         editor.update((tx) => {
           tx.selection.set(range)
         })
@@ -683,6 +700,7 @@ export const syncSelectionForBeforeInput = ({
 
     if (range && (!nextSelection || !RangeApi.equals(nextSelection, range))) {
       nextNative = false
+      writeSlateViewSelection(editor, null)
       editor.update((tx) => {
         tx.selection.set(range)
       })
@@ -701,6 +719,7 @@ export const syncSelectionForBeforeInput = ({
     if (firstText) {
       const [, path] = firstText
       const range = Editor.range(editor, { path, offset: 0 })
+      writeSlateViewSelection(editor, null)
       editor.update((tx) => {
         tx.selection.set(range)
       })
@@ -719,6 +738,7 @@ export const syncSelectionForBeforeInput = ({
         : null
 
     if (range && (!nextSelection || !RangeApi.equals(nextSelection, range))) {
+      writeSlateViewSelection(editor, null)
       editor.update((tx) => {
         tx.selection.set(range)
       })
@@ -746,6 +766,7 @@ export const restoreUserSelectionAfterBeforeInput = ({
     (!readRuntimeSelection(editor) ||
       !RangeApi.equals(readRuntimeSelection(editor)!, toRestore))
   ) {
+    writeSlateViewSelection(editor, null)
     editor.update((tx) => {
       tx.selection.set(toRestore)
     })
@@ -800,6 +821,7 @@ export const handleWebKitShadowDOMBeforeInput = ({
     return true
   }
 
+  writeSlateViewSelection(editor, null)
   editor.update((tx) => {
     tx.selection.set(slateRange)
   })
@@ -848,6 +870,14 @@ export const useEditableSelectionReconciler = ({
     const root = ReactEditor.findDocumentOrShadowRoot(editor)
     const domSelection = getSelection(root)
 
+    if (!isSelectionInEditorView(editor, selection)) {
+      return
+    }
+
+    if (isEditableOutsideFocusBoundarySettling(state)) {
+      return
+    }
+
     if (!domSelection || androidInputManagerRef.current?.hasPendingAction()) {
       return
     }
@@ -879,6 +909,17 @@ export const useEditableSelectionReconciler = ({
     }
 
     if (shouldSkipDOMSelection(editor)) {
+      return
+    }
+
+    if (
+      state.pendingDOMSelectionImport &&
+      containsShadowAware(
+        editorElementForActiveTarget,
+        domSelection.anchorNode
+      ) &&
+      containsShadowAware(editorElementForActiveTarget, domSelection.focusNode)
+    ) {
       return
     }
 

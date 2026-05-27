@@ -147,7 +147,8 @@ interface DOMCoverageRegistry {
   boundaryRootKeys: Map<string, Set<string>>
   boundariesByRootKey: Map<string, Set<string>>
   indexedVersion: number
-  materializeHandler: DOMCoverageMaterializeHandler | null
+  materializeHandlers: Map<number, DOMCoverageMaterializeHandler>
+  nextMaterializeHandlerId: number
 }
 
 const EDITOR_TO_DOM_COVERAGE_REGISTRY = new WeakMap<
@@ -164,7 +165,8 @@ const getRegistry = (editor: SlateEditor): DOMCoverageRegistry => {
       boundaryRootKeys: new Map(),
       boundariesByRootKey: new Map(),
       indexedVersion: getSnapshotVersion(editor),
-      materializeHandler: null,
+      materializeHandlers: new Map(),
+      nextMaterializeHandlerId: 1,
     }
     EDITOR_TO_DOM_COVERAGE_REGISTRY.set(editor, registry)
   }
@@ -507,6 +509,21 @@ const rangeIntersectsBoundary = (
   })
 }
 
+const getBoundaryRangeForPoint = (
+  boundary: DOMCoverageBoundary,
+  point: Point
+) =>
+  boundary.coveredPathRanges.reduce<{
+    index: number
+    range: DOMCoveragePathRange
+  } | null>((match, range, index) => {
+    if (match || !pathIsCoveredByRange(point.path, range)) {
+      return match
+    }
+
+    return { index, range }
+  }, null)
+
 const getBoundaryDepth = (boundary: DOMCoverageBoundary) => {
   const rangeDepths = boundary.coveredPathRanges.flatMap((range) => [
     range.anchor.length,
@@ -539,7 +556,7 @@ export const DOMCoverage = {
   },
 
   clearMaterializeHandler(editor: SlateEditor) {
-    getRegistry(editor).materializeHandler = null
+    getRegistry(editor).materializeHandlers.clear()
   },
 
   getBoundaries(editor: SlateEditor): readonly DOMCoverageBoundary[] {
@@ -595,6 +612,47 @@ export const DOMCoverage = {
     return boundary ?? null
   },
 
+  getPointOutsideBoundary(
+    editor: SlateEditor,
+    boundary: DOMCoverageBoundary,
+    point: Point,
+    options: { reverse?: boolean } = {}
+  ) {
+    let targetBoundary: DOMCoverageBoundary | null = boundary
+    let targetPoint: Point | null = point
+    const selectionPolicy = boundary.selectionPolicy
+    const visited = new Set<string>()
+
+    while (targetBoundary?.selectionPolicy === selectionPolicy && targetPoint) {
+      const rangeMatch = getBoundaryRangeForPoint(targetBoundary, targetPoint)
+
+      if (!rangeMatch) {
+        return null
+      }
+
+      const visitKey = `${targetBoundary.boundaryId}:${rangeMatch.index}`
+
+      if (visited.has(visitKey)) {
+        return null
+      }
+      visited.add(visitKey)
+
+      const orderedRange = getOrderedPathRange(rangeMatch.range)
+      const nextPoint = options.reverse
+        ? Editor.before(editor, orderedRange.anchor)
+        : Editor.after(editor, orderedRange.focus)
+
+      if (!nextPoint) {
+        return null
+      }
+
+      targetPoint = nextPoint
+      targetBoundary = DOMCoverage.getBoundaryForPoint(editor, targetPoint)
+    }
+
+    return targetPoint
+  },
+
   materializeBoundary(
     editor: SlateEditor,
     boundaryId: string,
@@ -611,11 +669,14 @@ export const DOMCoverage = {
       return { boundaryId, reason, status: 'unhandled' }
     }
 
-    const didHandle = getRegistry(editor).materializeHandler?.(
-      boundary,
-      reason,
-      options
-    )
+    let didHandle = false
+
+    for (const handler of getRegistry(editor).materializeHandlers.values()) {
+      if (handler(boundary, reason, options)) {
+        didHandle = true
+        break
+      }
+    }
 
     return {
       boundaryId,
@@ -639,7 +700,24 @@ export const DOMCoverage = {
     editor: SlateEditor,
     handler: DOMCoverageMaterializeHandler
   ) {
-    getRegistry(editor).materializeHandler = handler
+    const registry = getRegistry(editor)
+
+    registry.materializeHandlers.clear()
+    registry.materializeHandlers.set(0, handler)
+  },
+
+  registerMaterializeHandler(
+    editor: SlateEditor,
+    handler: DOMCoverageMaterializeHandler
+  ) {
+    const registry = getRegistry(editor)
+    const handlerId = registry.nextMaterializeHandlerId++
+
+    registry.materializeHandlers.set(handlerId, handler)
+
+    return () => {
+      registry.materializeHandlers.delete(handlerId)
+    }
   },
 
   resolveDOMPointOrBoundary(

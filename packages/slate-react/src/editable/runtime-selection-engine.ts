@@ -80,39 +80,43 @@ export const createRuntimeSelectionChangeHandler = ({
       domRepairQueueRef.current?.cancelBefore(frame.id)
     }
 
-    applyEditableDOMSelectionChange({
-      androidInputManager: androidInputManagerRef.current,
-      editor,
-      inputController,
-      processing,
-      readOnly,
-      rerunOnDirtyNodeMap: onDOMSelectionChange,
-    })
+    try {
+      applyEditableDOMSelectionChange({
+        androidInputManager: androidInputManagerRef.current,
+        editor,
+        inputController,
+        processing,
+        readOnly,
+        rerunOnDirtyNodeMap: onDOMSelectionChange,
+      })
 
-    const selectionSourceAfter = inputController.state.selectionSource
+      const selectionSourceAfter = inputController.state.selectionSource
 
-    recordEditableKernelTrace({
-      editor,
-      trace: {
-        command: null,
-        eventFamily: 'selectionchange',
-        intent: null,
-        nativeAllowed: ownership === 'native-allowed',
-        ownership,
-        repair: null,
-        selectionAfter: readLiveSelection(editor),
-        selectionBefore,
+      recordEditableKernelTrace({
+        editor,
+        trace: {
+          command: null,
+          eventFamily: 'selectionchange',
+          intent: null,
+          nativeAllowed: ownership === 'native-allowed',
+          ownership,
+          repair: null,
+          selectionAfter: readLiveSelection(editor),
+          selectionBefore,
+          selectionChangeOrigin,
+          selectionSource: selectionSourceAfter,
+          stateAfter: mapSelectionSourceToKernelState(selectionSourceAfter),
+          stateBefore: mapSelectionSourceToKernelState(selectionSourceBefore),
+          targetOwner: 'editor',
+        },
+      })
+      completeEditableSelectionChangeImport({
+        inputController,
         selectionChangeOrigin,
-        selectionSource: selectionSourceAfter,
-        stateAfter: mapSelectionSourceToKernelState(selectionSourceAfter),
-        stateBefore: mapSelectionSourceToKernelState(selectionSourceBefore),
-        targetOwner: 'editor',
-      },
-    })
-    completeEditableSelectionChangeImport({
-      inputController,
-      selectionChangeOrigin,
-    })
+      })
+    } finally {
+      inputController.state.pendingDOMSelectionImport = false
+    }
   }, 100) as RuntimeSelectionChangeHandler
 
   return onDOMSelectionChange

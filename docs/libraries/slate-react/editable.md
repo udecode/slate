@@ -329,9 +329,10 @@ DOM-present default rows.
 
 ## DOM Coverage Boundaries
 
-`renderElement` receives `slots.unstableBoundary` for model content whose DOM is
-intentionally not mounted. Use it for collapsed sections or hidden element
-shells that still exist in the Slate value.
+`renderElement` receives `slots.contentBoundary` for model content whose DOM is
+intentionally not mounted. Use it for closed accordions, inactive tab panels,
+collapsed sections, or hidden element shells that still exist in the Slate
+value.
 
 ```tsx
 const renderElement = ({ children, element, slots }) => {
@@ -339,20 +340,24 @@ const renderElement = ({ children, element, slots }) => {
     return (
       <EditableElement>
         {React.Children.toArray(children)[0]}
-        <slots.unstableBoundary
-          boundaryId="section-body"
+        <slots.contentBoundary
           mounted={!element.collapsed}
+          onMaterialize={() => openSection(element.id)}
+          renderPlaceholder={({ materialize }) => (
+            <button onClick={materialize} type="button">
+              Show section
+            </button>
+          )}
           scope={{ from: 1, type: 'children' }}
-        >
-          <button type="button">Show section</button>
-        </slots.unstableBoundary>
+          selectionPolicy="materialize"
+        />
       </EditableElement>
     )
   }
 
   if (element.type === 'hidden-header') {
     return (
-      <slots.unstableBoundary
+      <slots.contentBoundary
         boundaryId="hidden-header"
         copyPolicy="exclude"
         mounted={!element.hidden}
@@ -361,7 +366,7 @@ const renderElement = ({ children, element, slots }) => {
         selectionPolicy="boundary"
       >
         <button type="button">Show header</button>
-      </slots.unstableBoundary>
+      </slots.contentBoundary>
     )
   }
 
@@ -376,6 +381,12 @@ text is not available to native browser find or screen-reader traversal until
 the boundary is mounted. Copy behavior follows `copyPolicy`; collapsed document
 sections usually use `include-model`, while app-hidden headers and footers
 usually use `exclude`.
+
+`boundaryId` is optional. Slate derives a stable editor-local boundary id from
+the rendered element and scope, while explicit ids are still useful for tests
+and diagnostics. Use `onMaterialize({ boundary, reason, range })` when a hidden
+surface should open itself before Slate moves selection into it. The callback is
+local UI state plumbing; document content remains in the Slate value.
 
 ## Styling
 

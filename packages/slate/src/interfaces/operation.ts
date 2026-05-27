@@ -129,6 +129,8 @@ export type BaseReplaceChildrenOperation<V extends Value = Value> = {
   newChildren: DescendantIn<V>[]
   selection: Range | null
   newSelection: Range | null
+  rootWasPresent?: boolean
+  rootIsPresent?: boolean
 } & RootedOperationFields
 
 export type ReplaceChildrenOperation<V extends Value = Value> =
@@ -496,12 +498,21 @@ export const OperationApi: OperationInterface = {
       }
 
       case 'replace_children': {
-        const { children, newChildren, newSelection, selection } = op
+        const {
+          children,
+          newChildren,
+          newSelection,
+          rootIsPresent,
+          rootWasPresent,
+          selection,
+        } = op
 
         return {
           ...op,
           children: newChildren,
           newChildren: children,
+          rootIsPresent: rootWasPresent,
+          rootWasPresent: rootIsPresent,
           selection: newSelection,
           newSelection: selection,
         }

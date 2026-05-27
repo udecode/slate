@@ -2,6 +2,7 @@ import { type KeyboardEvent, useCallback } from 'react'
 import type { RuntimeId } from 'slate'
 import type { EditableKeyDownHandler } from '../components/editable'
 import type { MountedTopLevelRange } from '../dom-strategy/dom-strategy-commands'
+import { useOptionalSlateRuntimeContext } from '../hooks/use-slate-runtime'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { prepareEditableKeyDownKernel } from './editing-kernel'
 import { useEditableKeyboardHandler } from './input-router'
@@ -32,6 +33,7 @@ export const useRuntimeKeyboardEvents = ({
   setExplicitPartialDOMBackedSelection: (nextValue: boolean) => void
   partialDOMBackedSelection: boolean
 }) => {
+  const slateRuntimeContext = useOptionalSlateRuntimeContext()
   const runKeyDownEvent = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
       const decision = prepareEditableKeyDownKernel({
@@ -50,6 +52,11 @@ export const useRuntimeKeyboardEvents = ({
         forceRender: runtime.repair.forceRender,
         inputController,
         domStrategyRuntime,
+        getActiveContentRootOwner:
+          slateRuntimeContext?.getActiveContentRootOwner,
+        getContentRootOwnerViewEditor:
+          slateRuntimeContext?.getContentRootOwnerViewEditor,
+        getMountedViewEditor: slateRuntimeContext?.getMountedViewEditor,
         onKeyDown,
         readOnly,
         setExplicitPartialDOMBackedSelection,
@@ -61,6 +68,7 @@ export const useRuntimeKeyboardEvents = ({
       }
       if (
         !readOnly &&
+        !keyDownWorkerResult.handled &&
         decision.intent === 'native-selection-move' &&
         (event.key === 'ArrowUp' || event.key === 'ArrowDown')
       ) {
@@ -81,6 +89,7 @@ export const useRuntimeKeyboardEvents = ({
       onKeyDown,
       readOnly,
       runtime,
+      slateRuntimeContext,
       setExplicitPartialDOMBackedSelection,
       partialDOMBackedSelection,
     ]
@@ -118,6 +127,11 @@ export const useRuntimeKeyboardEvents = ({
         forceRender: runtime.repair.forceRender,
         inputController,
         domStrategyRuntime,
+        getActiveContentRootOwner:
+          slateRuntimeContext?.getActiveContentRootOwner,
+        getContentRootOwnerViewEditor:
+          slateRuntimeContext?.getContentRootOwnerViewEditor,
+        getMountedViewEditor: slateRuntimeContext?.getMountedViewEditor,
         onKeyDown,
         readOnly,
         setExplicitPartialDOMBackedSelection,
@@ -140,6 +154,7 @@ export const useRuntimeKeyboardEvents = ({
       onKeyDown,
       readOnly,
       runtime,
+      slateRuntimeContext,
       setExplicitPartialDOMBackedSelection,
       partialDOMBackedSelection,
     ]

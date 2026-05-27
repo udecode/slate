@@ -11,6 +11,13 @@ import {
 } from 'slate'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
+import {
+  isSlateViewSelectionCollapsed,
+  readSlateViewSelection,
+  readSlateViewSelectionHistoryEntry,
+  saveSlateViewSelectionHistoryEntry,
+  writeSlateViewSelection,
+} from '../view-selection'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import {
   type EditableCommand,
@@ -21,6 +28,7 @@ import type {
   EditableInputController,
   EditableSelectionSourceTransition,
 } from './input-state'
+import { createProjectedSelectionTarget } from './projected-selection-target'
 import { Editor, type Editor as RuntimeEditor } from './runtime-editor-api'
 import { readRuntimeSelection } from './runtime-selection-state'
 import { setEditableModelSelectionPreference } from './selection-controller'
@@ -56,6 +64,10 @@ export const applyModelOwnedHistoryIntent = ({
   direction: 'redo' | 'undo'
   editor: Editor
 }) => {
+  const viewSelectionAfterHistory = readSlateViewSelectionHistoryEntry(
+    editor,
+    direction
+  )
   const hasHistory = editor.read((state) => {
     const history = (state as { history?: unknown }).history as
       | { redos?: unknown; undos?: unknown }
@@ -88,6 +100,7 @@ export const applyModelOwnedHistoryIntent = ({
 
     fn()
   })
+  writeSlateViewSelection(editor, viewSelectionAfterHistory ?? null)
   return true
 }
 
@@ -227,6 +240,58 @@ const clonePoint = (point: Point): Point => ({
   offset: point.offset,
   path: [...point.path],
 })
+
+const advancePointByText = (point: Point, text: string): Point => ({
+  ...(point.root ? { root: point.root } : {}),
+  offset: point.offset + text.length,
+  path: [...point.path],
+})
+
+const applyProjectedViewSelectionTextCommand = ({
+  editor,
+  text,
+}: {
+  editor: RuntimeEditor
+  text?: string
+}) => {
+  const viewSelection = readSlateViewSelection(editor)
+
+  if (!viewSelection || isSlateViewSelectionCollapsed(viewSelection)) {
+    return false
+  }
+
+  const target = createProjectedSelectionTarget(editor, viewSelection)
+
+  if (!target) {
+    writeSlateViewSelection(editor, null)
+    return false
+  }
+
+  editor.update((tx) => {
+    for (const range of [...target.ranges].reverse()) {
+      if (!RangeApi.isCollapsed(range)) {
+        tx.text.delete({ at: range })
+      }
+    }
+
+    if (text) {
+      tx.text.insert(text, { at: target.start })
+    }
+
+    const selectionPoint = text
+      ? advancePointByText(target.start, text)
+      : target.start
+
+    tx.selection.set({ anchor: selectionPoint, focus: selectionPoint })
+  })
+  saveSlateViewSelectionHistoryEntry(editor, {
+    redo: null,
+    undo: viewSelection,
+  })
+  writeSlateViewSelection(editor, null)
+
+  return true
+}
 
 const createRange = (anchor: Point, focus: Point): Range => ({
   anchor: clonePoint(anchor),
@@ -537,6 +602,10 @@ export const applyEditableCommand = ({
       return true
 
     case 'delete-fragment':
+      if (applyProjectedViewSelectionTextCommand({ editor })) {
+        return true
+      }
+
       if (
         applyFullBlockDeleteFragment(
           editor,
@@ -577,6 +646,15 @@ export const applyEditableCommand = ({
       return true
 
     case 'insert-text':
+      if (
+        applyProjectedViewSelectionTextCommand({
+          editor,
+          text: command.text,
+        })
+      ) {
+        return true
+      }
+
       editor.update((tx) => {
         tx.text.insert(command.text)
       })
@@ -590,6 +668,7 @@ export const applyEditableCommand = ({
 
     case 'select':
     case 'select-all':
+      writeSlateViewSelection(editor, null)
       editor.update((tx) => {
         tx.selection.set(
           command.kind === 'select'
@@ -682,6 +761,7 @@ export const applyModelOwnedTextInput = ({
     selection &&
     (RangeApi.isExpanded(selection) || inputType !== 'insertText')
   ) {
+    writeSlateViewSelection(editor, null)
     profileEditableMutationDuration(
       'model-text-input-insert-at-target-selection',
       () =>

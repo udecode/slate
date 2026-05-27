@@ -17,8 +17,10 @@ import {
   NODE_TO_ELEMENT,
 } from 'slate-dom'
 
+import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { isInteractiveInternalTarget } from './input-controller'
+import { readRuntimeText } from './runtime-live-state'
 
 type MutableRefBox<T> = {
   current: T
@@ -65,6 +67,102 @@ export type HandleEditableKeyboard = (
 
 export type EditableDragLifecycleState = {
   isDraggingInternally: boolean
+}
+
+const getReadOnlyDOMStringLengths = ({
+  nativeInput,
+  rootElement,
+  strings,
+  text,
+}: {
+  nativeInput: { data: string | null; inputType: string }
+  rootElement: HTMLElement
+  strings: readonly HTMLElement[]
+  text: string
+}) => {
+  const lengths = strings.map((string) => string.textContent?.length ?? 0)
+  const extraLength =
+    lengths.reduce((sum, length) => sum + length, 0) - text.length
+
+  if (
+    extraLength <= 0 ||
+    nativeInput.inputType !== 'insertText' ||
+    !nativeInput.data
+  ) {
+    return lengths
+  }
+
+  const selection = rootElement.ownerDocument.getSelection()
+  const selectionElement =
+    selection?.anchorNode instanceof Element
+      ? selection.anchorNode
+      : selection?.anchorNode?.parentElement
+  const selectedString = selectionElement?.closest('[data-slate-string="true"]')
+  const selectedIndex =
+    selectedString instanceof HTMLElement ? strings.indexOf(selectedString) : -1
+  const fallbackIndex = strings.findIndex((string) =>
+    string.textContent?.includes(nativeInput.data!)
+  )
+  const targetIndex = selectedIndex >= 0 ? selectedIndex : fallbackIndex
+
+  if (targetIndex >= 0) {
+    lengths[targetIndex] = Math.max(0, lengths[targetIndex]! - extraLength)
+  }
+
+  return lengths
+}
+
+const restoreReadOnlyDOMText = ({
+  editor,
+  nativeInput,
+  rootElement,
+}: {
+  editor: ReactRuntimeEditor
+  nativeInput: { data: string | null; inputType: string }
+  rootElement: HTMLElement
+}) => {
+  rootElement
+    .querySelectorAll<HTMLElement>('[data-slate-node="text"]')
+    .forEach((textElement) => {
+      const path = getSlateNodePathFromDOMElement(textElement)
+      const slateText = path ? readRuntimeText(editor, path)?.text : null
+
+      if (slateText == null) {
+        return
+      }
+
+      const strings = Array.from(
+        textElement.querySelectorAll<HTMLElement>('[data-slate-string="true"]')
+      )
+
+      if (strings.length === 0) {
+        return
+      }
+
+      const lengths = getReadOnlyDOMStringLengths({
+        nativeInput,
+        rootElement,
+        strings,
+        text: slateText,
+      })
+      let offset = 0
+
+      strings.forEach((stringElement, index) => {
+        const length =
+          index === strings.length - 1
+            ? slateText.length - offset
+            : Math.max(
+                0,
+                Math.min(lengths[index] ?? 0, slateText.length - offset)
+              )
+        const nextText = slateText.slice(offset, offset + length)
+
+        if (stringElement.textContent !== nextText) {
+          stringElement.textContent = nextText
+        }
+        offset += length
+      })
+    })
 }
 
 export const attachEditableGlobalDragLifecycleListeners = ({
@@ -195,12 +293,16 @@ export const useEditableRootRef = ({
 export const useEditableDOMInputHandler = ({
   editor,
   onHandledDOMInput,
+  onReadOnlyDOMInput,
   repairDOMInput,
+  readOnly,
   rootRef,
 }: {
   editor: ReactRuntimeEditor
   onHandledDOMInput?: (event: Event) => void
+  onReadOnlyDOMInput?: () => void
   repairDOMInput: RepairDOMInput
+  readOnly: boolean
   rootRef: RefObject<HTMLElement | null>
 }) =>
   useCallback(
@@ -216,10 +318,29 @@ export const useEditableDOMInputHandler = ({
         return
       }
 
+      if (readOnly) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        restoreReadOnlyDOMText({
+          editor,
+          nativeInput,
+          rootElement: rootRef.current,
+        })
+        onReadOnlyDOMInput?.()
+        return
+      }
+
       onHandledDOMInput?.(event)
       repairDOMInput(nativeInput, rootRef.current)
     },
-    [editor, onHandledDOMInput, repairDOMInput, rootRef]
+    [
+      editor,
+      onHandledDOMInput,
+      onReadOnlyDOMInput,
+      readOnly,
+      repairDOMInput,
+      rootRef,
+    ]
   )
 
 export const useEditableDOMBeforeInputHandler = ({

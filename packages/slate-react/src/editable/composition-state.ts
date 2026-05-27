@@ -17,6 +17,7 @@ import type { EditableCompositionStateSetter } from './input-controller'
 import { getNativeTextInputHistoryMetadata } from './input-history'
 import type { EditableInputController } from './input-state'
 import type { Editor } from './runtime-editor-api'
+import { readRuntimeText } from './runtime-live-state'
 import { writeRuntimeMarks } from './runtime-mutation-state'
 
 type EditableCompositionHandler = (
@@ -61,6 +62,31 @@ const isCompositionEventHandled = ({
   }
 
   return event.isDefaultPrevented() || event.isPropagationStopped()
+}
+
+const preventReadOnlyEditableComposition = ({
+  editor,
+  event,
+  setComposing,
+}: {
+  editor: ReactRuntimeEditor
+  event: CompositionEvent<HTMLDivElement>
+  setComposing?: EditableCompositionStateSetter
+}) => {
+  if (!ReactEditor.hasEditableTarget(editor, event.target)) {
+    return false
+  }
+
+  event.preventDefault()
+  event.stopPropagation()
+  EDITOR_TO_PENDING_COMPOSITION_TEXT.delete(editor)
+  EDITOR_TO_COMPOSITION_PREDELETE.delete(editor)
+
+  if (setComposing && ReactEditor.isComposing(editor)) {
+    setComposing(false)
+  }
+
+  return true
 }
 
 export const commitInsertFromComposition = ({
@@ -225,6 +251,7 @@ export const applyEditableCompositionEnd = ({
   event,
   inputController,
   onCompositionEnd,
+  readOnly = false,
   setComposing,
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
@@ -232,9 +259,16 @@ export const applyEditableCompositionEnd = ({
   event: CompositionEvent<HTMLDivElement>
   inputController: EditableInputController
   onCompositionEnd?: EditableCompositionHandler
+  readOnly?: boolean
   setComposing: EditableCompositionStateSetter
 }) => {
   if (isCompositionEventTargetInput({ event })) {
+    return
+  }
+  if (
+    readOnly &&
+    preventReadOnlyEditableComposition({ editor, event, setComposing })
+  ) {
     return
   }
   if (ReactEditor.hasSelectableTarget(editor, event.target)) {
@@ -279,15 +313,20 @@ export const applyEditableCompositionStart = ({
   editor,
   event,
   onCompositionStart,
+  readOnly = false,
   setComposing,
 }: {
   androidInputManagerRef: RefObject<AndroidInputManager | null | undefined>
   editor: ReactRuntimeEditor
   event: CompositionEvent<HTMLDivElement>
   onCompositionStart?: EditableCompositionHandler
+  readOnly?: boolean
   setComposing: EditableCompositionStateSetter
 }) => {
   if (isCompositionEventTargetInput({ event })) {
+    return
+  }
+  if (readOnly && preventReadOnlyEditableComposition({ editor, event })) {
     return
   }
   if (ReactEditor.hasSelectableTarget(editor, event.target)) {
@@ -329,17 +368,25 @@ export const applyEditableCompositionUpdate = ({
   editor,
   event,
   onCompositionUpdate,
+  readOnly = false,
   setComposing,
 }: {
   editor: ReactRuntimeEditor
   event: CompositionEvent<HTMLDivElement>
   onCompositionUpdate?: EditableCompositionHandler
+  readOnly?: boolean
   setComposing: EditableCompositionStateSetter
 }) => {
+  if (isCompositionEventTargetInput({ event })) {
+    return
+  }
+  if (readOnly && preventReadOnlyEditableComposition({ editor, event })) {
+    return
+  }
+
   if (
     ReactEditor.hasSelectableTarget(editor, event.target) &&
     !isCompositionEventHandled({ event, handler: onCompositionUpdate }) &&
-    !isCompositionEventTargetInput({ event }) &&
     !ReactEditor.isComposing(editor)
   ) {
     setComposing(true)
@@ -365,11 +412,15 @@ export const usePendingInsertionMarksEffect = ({
       const selection = editor.read((state) => state.selection.get())
       if (selection) {
         const { anchor } = selection
-        const text = NodeApi.leaf(editor, anchor.path)
+        const text = readRuntimeText(editor, anchor.path)
 
         // While marks isn't a 'complete' text, we can still use loose TextApi.equals
         // here which only compares marks anyway.
-        if (marks && !TextApi.equals(text, marks as Text, { loose: true })) {
+        if (
+          text &&
+          marks &&
+          !TextApi.equals(text, marks as Text, { loose: true })
+        ) {
           EDITOR_TO_PENDING_INSERTION_MARKS.set(editor, marks)
           return
         }

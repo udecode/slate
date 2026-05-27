@@ -21,6 +21,7 @@ export const useRuntimeCompositionEvents = ({
   onCompositionEnd,
   onCompositionStart,
   onCompositionUpdate,
+  readOnly,
   setComposing,
   trace,
 }: {
@@ -30,6 +31,7 @@ export const useRuntimeCompositionEvents = ({
   onCompositionEnd?: CompositionHandler
   onCompositionStart?: CompositionHandler
   onCompositionUpdate?: CompositionHandler
+  readOnly: boolean
   setComposing: EditableEventRuntime['composition']['setComposing']
   trace: EditableEventRuntime['trace']
 }) => {
@@ -53,6 +55,7 @@ export const useRuntimeCompositionEvents = ({
         event,
         inputController,
         onCompositionEnd,
+        readOnly,
         setComposing,
       })
     },
@@ -61,6 +64,7 @@ export const useRuntimeCompositionEvents = ({
       editor,
       inputController,
       onCompositionEnd,
+      readOnly,
       setComposing,
       trace,
     ]
@@ -88,6 +92,7 @@ export const useRuntimeCompositionEvents = ({
         editor,
         event,
         onCompositionStart,
+        readOnly,
         setComposing,
       })
     },
@@ -96,6 +101,7 @@ export const useRuntimeCompositionEvents = ({
       editor,
       inputController,
       onCompositionStart,
+      readOnly,
       setComposing,
       trace,
     ]
@@ -122,10 +128,18 @@ export const useRuntimeCompositionEvents = ({
         editor,
         event,
         onCompositionUpdate,
+        readOnly,
         setComposing,
       })
     },
-    [editor, inputController, onCompositionUpdate, setComposing, trace]
+    [
+      editor,
+      inputController,
+      onCompositionUpdate,
+      readOnly,
+      setComposing,
+      trace,
+    ]
   )
   const onRuntimeCompositionUpdate = useEditableCompositionHandler({
     handleComposition: handleCompositionUpdate,

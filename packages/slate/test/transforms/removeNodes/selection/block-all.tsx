@@ -19,4 +19,10 @@ export const input = (
 export const run = (editor) => {
   editor.nodes.remove()
 }
-export const output = <editor />
+export const output = (
+  <editor>
+    <block>
+      <text />
+    </block>
+  </editor>
+)

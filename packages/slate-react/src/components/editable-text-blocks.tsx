@@ -40,12 +40,14 @@ import {
 import type { DOMStrategyOptions } from '../dom-strategy/create-segment-plan'
 import { DOMStrategySegmentPlaceholder } from '../dom-strategy/segment-placeholder'
 import {
-  canUseElementAsVirtualizerScrollRoot,
   type DOMStrategyVirtualizedConfig,
+  getVirtualizerScrollElement,
   useVirtualizedRootPlan,
+  type VirtualizedPageLayoutItem,
   type VirtualizedTopLevelLayoutItem,
 } from '../dom-strategy/use-virtualized-root-plan'
 import { DOMStrategyVirtualizedRangeBoundary } from '../dom-strategy/virtualized-range-boundary'
+import { useRootInteractionController } from '../editable/root-interaction-controller'
 import {
   type DOMStrategyRootConfig,
   useInternalSegmentDOMStrategyRootSources,
@@ -57,13 +59,17 @@ import { Editor } from '../editable/runtime-editor-api'
 import { readRuntimeNode } from '../editable/runtime-live-state'
 import { useEditor } from '../hooks/use-editor'
 import { useEditorReadOnly } from '../hooks/use-editor-read-only'
+import { useElementPath } from '../hooks/use-element-path'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { useMountedNodeRenderSelector } from '../hooks/use-node-selector'
+import { useSlateContentRoot } from '../hooks/use-slate-content-root'
 import { useSlateNodeRef } from '../hooks/use-slate-node-ref'
+import { useRequiredSlateRuntimeContext } from '../hooks/use-slate-runtime'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { ProjectionContext } from '../projection-context'
 import { recordSlateReactRender } from '../render-profiler'
 import {
+  type DOMCoverageBoundaryMaterializePayload,
   DOMCoverageBoundaryRange,
   DOMCoverageSelfBoundary,
 } from './dom-coverage-boundary'
@@ -397,12 +403,16 @@ export type EditableDOMCoverageBoundaryPlaceholderContext = {
   materialize: () => void
 }
 
+export type EditableDOMCoverageBoundaryMaterializePayload =
+  DOMCoverageBoundaryMaterializePayload
+
 export type EditableDOMCoverageBoundaryProps = {
-  boundaryId: string
+  boundaryId?: string
   children?: ReactNode
   copyPolicy?: DOMCoverageCopyPolicy
   findPolicy?: DOMCoverageFindPolicy
   mounted?: boolean
+  onMaterialize?: (payload: DOMCoverageBoundaryMaterializePayload) => void
   reason?: DOMCoverageReason
   renderPlaceholder?: (
     context: EditableDOMCoverageBoundaryPlaceholderContext
@@ -411,32 +421,101 @@ export type EditableDOMCoverageBoundaryProps = {
   selectionPolicy?: DOMCoverageSelectionPolicy
 }
 
+export type EditableContentRootSlotOptions = {
+  ariaLabel?: string
+  className?: string
+  disableDefaultStyles?: boolean
+  id?: string
+  placeholder?: ReactNode
+  readOnly?: boolean
+  spellCheck?: boolean
+  style?: CSSProperties
+}
+
+type EditableContentRootSlotRenderers<
+  T = unknown,
+  TElement extends SlateElementNode = any,
+> = {
+  renderElement?: RenderElementRenderer<TElement>
+  renderLeaf?: (props: EditableTextLeafProps<T>) => ReactNode
+  renderPlaceholder?: (props: EditableTextRenderPlaceholderProps) => ReactNode
+  renderSegment?: (
+    segment: EditableTextSegment<T>,
+    children: ReactNode
+  ) => ReactNode
+  renderText?: (props: EditableTextRenderTextProps) => ReactNode
+  renderVoid?: RenderVoidRenderer<TElement>
+}
+
 export type EditableElementSlots = {
   /**
-   * Unstable adapter for model-present content whose editable DOM is not
-   * currently mounted. This is experimental until the public boundary API is
-   * finalized.
+   * Renders model-present content whose editable DOM may be intentionally
+   * absent, such as closed accordion bodies or inactive tab panels.
+   */
+  contentBoundary: (props: EditableDOMCoverageBoundaryProps) => ReactNode
+  contentRoot: (
+    slot: string,
+    options?: EditableContentRootSlotOptions
+  ) => ReactNode
+  /**
+   * @deprecated Use `contentBoundary`.
    */
   unstableBoundary: (props: EditableDOMCoverageBoundaryProps) => ReactNode
 }
 
-const createEditableElementSlots = (
+const createContentBoundaryId = (
+  runtimeId: RuntimeId,
+  scope: EditableDOMCoverageBoundaryScope
+) => {
+  if (scope.type === 'self') {
+    return `content-boundary:${runtimeId}:self`
+  }
+
+  return `content-boundary:${runtimeId}:children:${scope.from}:${
+    scope.to ?? scope.from
+  }`
+}
+
+const createEditableElementSlots = <
+  T,
+  TElement extends SlateElementNode = SlateElementNode,
+>(
   editor: ReturnType<typeof useEditor>,
-  props: { children: ReactNode }
-): EditableElementSlots => ({
-  unstableBoundary: ({
+  props: {
+    children: ReactNode
+    element: TElement
+    renderElement?: RenderElementRenderer<TElement>
+    renderLeaf?: (props: EditableTextLeafProps<T>) => ReactNode
+    renderPlaceholder?: (props: EditableTextRenderPlaceholderProps) => ReactNode
+    renderSegment?: (
+      segment: EditableTextSegment<T>,
+      children: ReactNode
+    ) => ReactNode
+    renderText?: (props: EditableTextRenderTextProps) => ReactNode
+    renderVoid?: RenderVoidRenderer<TElement>
+    runtimeId: RuntimeId
+  }
+): EditableElementSlots => {
+  const renderContentBoundary = ({
     boundaryId,
     children,
     copyPolicy,
     findPolicy,
     mounted = true,
+    onMaterialize,
     reason,
     renderPlaceholder,
     scope,
     selectionPolicy,
-  }) => {
+  }: EditableDOMCoverageBoundaryProps) => {
+    const resolvedBoundaryId =
+      boundaryId ?? createContentBoundaryId(props.runtimeId, scope)
     const materialize = () => {
-      DOMCoverage.materializeBoundary(editor, boundaryId, 'programmatic')
+      DOMCoverage.materializeBoundary(
+        editor,
+        resolvedBoundaryId,
+        'programmatic'
+      )
     }
     const placeholder = renderPlaceholder
       ? renderPlaceholder({ materialize })
@@ -446,11 +525,12 @@ const createEditableElementSlots = (
     if (scope.type === 'self') {
       return (
         <DOMCoverageSelfBoundary
-          boundaryId={boundaryId}
+          boundaryId={resolvedBoundaryId}
           content={props.children}
           copyPolicy={copyPolicy}
           findPolicy={findPolicy}
           hidden={hidden}
+          onMaterialize={onMaterialize}
           reason={reason}
           selectionPolicy={selectionPolicy}
         >
@@ -464,12 +544,13 @@ const createEditableElementSlots = (
 
     return (
       <DOMCoverageBoundaryRange
-        boundaryId={boundaryId}
+        boundaryId={resolvedBoundaryId}
         content={childNodes.slice(scope.from, to + 1)}
         copyPolicy={copyPolicy}
         findPolicy={findPolicy}
         from={scope.from}
         hidden={hidden}
+        onMaterialize={onMaterialize}
         reason={reason}
         selectionPolicy={selectionPolicy}
         to={to}
@@ -477,8 +558,196 @@ const createEditableElementSlots = (
         {placeholder}
       </DOMCoverageBoundaryRange>
     )
-  },
-})
+  }
+
+  return {
+    contentBoundary: renderContentBoundary,
+    contentRoot: (slot, options = {}) => {
+      const childCount = props.element.children.length
+
+      return (
+        <>
+          {childCount > 0
+            ? renderContentBoundary({
+                boundaryId: `content-root:${props.runtimeId}:${slot}`,
+                copyPolicy: 'exclude',
+                findPolicy: 'not-native-until-mounted',
+                reason: 'app-hidden',
+                scope: {
+                  from: 0,
+                  to: childCount - 1,
+                  type: 'children',
+                },
+                selectionPolicy: 'boundary',
+              })
+            : null}
+          <EditableContentRootSlot
+            element={props.element}
+            options={options}
+            renderers={
+              {
+                renderElement: props.renderElement,
+                renderLeaf: props.renderLeaf,
+                renderPlaceholder: props.renderPlaceholder,
+                renderSegment: props.renderSegment,
+                renderText: props.renderText,
+                renderVoid: props.renderVoid,
+              } as EditableContentRootSlotRenderers<any, any>
+            }
+            slot={slot}
+          />
+        </>
+      )
+    },
+    unstableBoundary: renderContentBoundary,
+  }
+}
+
+function EditableContentRootSlot({
+  element,
+  options,
+  renderers,
+  slot,
+}: {
+  element: SlateElementNode
+  options: EditableContentRootSlotOptions
+  renderers: EditableContentRootSlotRenderers
+  slot: string
+}) {
+  const ownerEditor = useEditor<ReactRuntimeEditor>()
+  const ownerPath = useElementPath()
+  const ownerRoot = ownerEditor.read((state) => state.view.root())
+  const { root } = useSlateContentRoot(element, { slot })
+  const inheritedReadOnly = useEditorReadOnly()
+  const readOnly = Boolean(options.readOnly || inheritedReadOnly)
+
+  return (
+    <Slate readOnly={readOnly} root={root}>
+      <EditableContentRootView
+        options={options}
+        ownerPath={ownerPath}
+        ownerRoot={ownerRoot}
+        renderers={renderers}
+        root={root}
+        slot={slot}
+      />
+    </Slate>
+  )
+}
+
+function EditableContentRootView({
+  options,
+  ownerPath,
+  ownerRoot,
+  renderers,
+  root,
+  slot,
+}: {
+  options: EditableContentRootSlotOptions
+  ownerPath: Path | null
+  ownerRoot: RootKey
+  renderers: EditableContentRootSlotRenderers
+  root: RootKey
+  slot: string
+}) {
+  const {
+    ariaLabel,
+    className,
+    disableDefaultStyles,
+    id,
+    placeholder,
+    spellCheck,
+    style,
+  } = options
+  const {
+    renderElement,
+    renderLeaf,
+    renderPlaceholder,
+    renderSegment,
+    renderText,
+    renderVoid,
+  } = renderers
+  const editor = useEditor<ReactRuntimeEditor>()
+  const inheritedReadOnly = useEditorReadOnly()
+  const readOnly = Boolean(options.readOnly || inheritedReadOnly)
+  const {
+    getLastSelectionForRoot,
+    getMountedViewEditor,
+    registerContentRootOwner,
+    setActiveViewEditor,
+  } = useRequiredSlateRuntimeContext()
+  useIsomorphicLayoutEffect(() => {
+    if (!ownerPath) {
+      return
+    }
+
+    return registerContentRootOwner(editor, {
+      childRoot: root,
+      ownerPath,
+      ownerRoot,
+    })
+  }, [editor, ownerPath, ownerRoot, registerContentRootOwner, root])
+  const activateRootView = React.useCallback(() => {
+    setActiveViewEditor(editor, root)
+  }, [editor, root, setActiveViewEditor])
+  const rootInteraction = useRootInteractionController({
+    disabled: readOnly,
+    editor,
+    getLastSelectionForRoot,
+    getMountedViewEditor,
+    root,
+    selection: 'restore',
+  })
+  const onMouseDownCapture = React.useCallback<
+    React.MouseEventHandler<HTMLDivElement>
+  >(
+    (event) => {
+      activateRootView()
+      rootInteraction.onMouseDownCapture(event)
+    },
+    [activateRootView, rootInteraction]
+  )
+  const onMouseUpCapture = React.useCallback<
+    React.MouseEventHandler<HTMLDivElement>
+  >(
+    (event) => {
+      activateRootView()
+      rootInteraction.onMouseUpCapture(event)
+    },
+    [activateRootView, rootInteraction]
+  )
+  const onFocusCapture = React.useCallback<
+    React.FocusEventHandler<HTMLDivElement>
+  >(() => {
+    activateRootView()
+  }, [activateRootView])
+
+  return (
+    <div
+      data-slate-content-root-slot={slot}
+      onFocusCapture={onFocusCapture}
+      onMouseDownCapture={onMouseDownCapture}
+      onMouseUpCapture={onMouseUpCapture}
+    >
+      <EditableTextBlocksInner
+        aria-label={ariaLabel}
+        className={className}
+        disableDefaultStyles={disableDefaultStyles}
+        id={id}
+        placeholder={placeholder}
+        readOnly={readOnly}
+        renderElement={renderElement}
+        renderLeaf={renderLeaf}
+        renderPlaceholder={renderPlaceholder}
+        renderSegment={renderSegment}
+        renderText={renderText}
+        renderVoid={renderVoid}
+        spellCheck={spellCheck}
+        style={style}
+      />
+    </div>
+  )
+}
 
 const EditableRenderedVoid = <
   TElement extends SlateElementNode = SlateElementNode,
@@ -546,6 +815,7 @@ export type EditableDecorate<T = unknown> = (
 ) => readonly EditableDecoration<T>[]
 
 export type EditableLayout = {
+  getVirtualizedPageItems?: () => readonly VirtualizedPageLayoutItem[] | null
   getVirtualizedTopLevelItems?: () =>
     | readonly VirtualizedTopLevelLayoutItem[]
     | null
@@ -833,7 +1103,16 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
     }
     const renderElementProps = {
       ...renderElementPropsBase,
-      slots: createEditableElementSlots(editor, renderElementPropsBase),
+      slots: createEditableElementSlots(editor, {
+        ...renderElementPropsBase,
+        renderElement,
+        renderLeaf,
+        renderPlaceholder,
+        renderSegment,
+        renderText,
+        renderVoid,
+        runtimeId,
+      }),
     } as unknown as EditableRenderElementProps<TElement>
 
     return (
@@ -1485,15 +1764,21 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   const selectedVirtualizedTopLevelIndex = useTopLevelSelectionIndex(
     virtualizedDOMStrategyConfig != null
   )
+  const virtualizedScrollElement = React.useMemo(
+    () => getVirtualizerScrollElement(domStrategyRootElement),
+    [domStrategyRootElement]
+  )
   const virtualizedScrollRootReady =
-    virtualizedDOMStrategyConfig != null &&
-    canUseElementAsVirtualizerScrollRoot(domStrategyRootElement)
+    virtualizedDOMStrategyConfig != null && virtualizedScrollElement != null
+  const virtualizedPageItems = layout?.getVirtualizedPageItems?.() ?? null
   const virtualizedLayoutItems = layout?.getVirtualizedTopLevelItems?.() ?? null
   const virtualizedPlan = useVirtualizedRootPlan({
     config: enableVirtualizedRendering ? virtualizedDOMStrategyConfig : null,
     enabled: enableVirtualizedRendering && virtualizedScrollRootReady,
+    pageLayoutItems: virtualizedPageItems,
     promotedTopLevelIndex: promotedVirtualizedTopLevelIndex,
     rootElement: domStrategyRootElement,
+    scrollElement: virtualizedScrollElement,
     selectedTopLevelIndex: selectedVirtualizedTopLevelIndex,
     topLevelLayoutItems: virtualizedLayoutItems,
     topLevelRuntimeIds,
@@ -1561,13 +1846,11 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
       return
     }
 
-    DOMCoverage.setMaterializeHandler(editor, (boundary, _reason, options) =>
-      materializeRootGroupBoundary(boundary, options.range)
+    return DOMCoverage.registerMaterializeHandler(
+      editor,
+      (boundary, _reason, options) =>
+        materializeRootGroupBoundary(boundary, options.range)
     )
-
-    return () => {
-      DOMCoverage.clearMaterializeHandler(editor)
-    }
   }, [editor, materializeRootGroupBoundary, rootGroups])
   const materializeVirtualizedBoundary = React.useCallback(
     (boundary: DOMCoverageBoundary, targetRange?: SlateRange) => {
@@ -1591,13 +1874,11 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
       return
     }
 
-    DOMCoverage.setMaterializeHandler(editor, (boundary, _reason, options) =>
-      materializeVirtualizedBoundary(boundary, options.range)
+    return DOMCoverage.registerMaterializeHandler(
+      editor,
+      (boundary, _reason, options) =>
+        materializeVirtualizedBoundary(boundary, options.range)
     )
-
-    return () => {
-      DOMCoverage.clearMaterializeHandler(editor)
-    }
   }, [editor, materializeVirtualizedBoundary, virtualizedPlan])
   const renderedRootGroups = React.useMemo(() => {
     if (!rootGroups) {

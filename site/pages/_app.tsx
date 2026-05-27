@@ -3,6 +3,7 @@ import { Roboto } from 'next/font/google'
 import { type ErrorInfo, useState } from 'react'
 import { ErrorBoundary } from 'react-error-boundary'
 import { ExampleLayout, Warning } from '../components/ExampleLayout'
+import '../styles/shadcn.css'
 
 const roboto = Roboto({
   weight: ['400', '700'],
