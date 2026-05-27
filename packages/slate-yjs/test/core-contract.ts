@@ -935,6 +935,56 @@ describe('slate-yjs core', () => {
     assert.deepEqual(readSlateValueFromYjs(root), [paragraph('Hello')])
   })
 
+  it('reads text leaves merged across Yjs containers as canonical Slate text for late peers', async () => {
+    const root = sharedRoot()
+    const first = seedEditor([paragraph('alpha'), paragraph('beta')])
+    const late = seedEditor()
+
+    writeSlateValueToYjs(root, [paragraph('alpha'), paragraph('beta')])
+    connectEditors({ editor: first, root })
+
+    first.update((tx) => {
+      tx.operations.replay([
+        {
+          path: [1],
+          position: 1,
+          properties: { type: 'paragraph' },
+          root: 'main',
+          type: 'merge_node',
+        },
+        {
+          path: [0, 1],
+          position: 'alpha'.length,
+          properties: {},
+          root: 'main',
+          type: 'merge_node',
+        },
+      ])
+    })
+
+    assert.deepEqual(value(first), [paragraph('alphabeta')])
+    assert.deepEqual(readSlateValueFromYjs(root), [paragraph('alphabeta')])
+
+    connectEditors({ editor: late, root })
+    await Promise.resolve()
+
+    assert.deepEqual(value(late), [paragraph('alphabeta')])
+    assert.deepEqual(
+      yjsRelativeRangeToSlateRange(
+        root,
+        value(late),
+        slateRangeToYjsRelativeRange(root, value(late), {
+          anchor: { path: [0, 0], offset: 6 },
+          focus: { path: [0, 0], offset: 6 },
+        })
+      ),
+      {
+        anchor: { path: [0, 0], offset: 6 },
+        focus: { path: [0, 0], offset: 6 },
+      }
+    )
+  })
+
   it('syncs local commits to connected peers through extension state and tx groups', () => {
     const root = sharedRoot()
     const first = seedEditor([paragraph('one')], {

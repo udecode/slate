@@ -112,8 +112,11 @@ declare module 'slate' {
 }
 
 type TextLeaf = {
+  attributes: Record<string, unknown>
   end: number
   path: number[]
+  slateEnd: number
+  slateStart: number
   start: number
   text: string
 }
@@ -144,6 +147,12 @@ type YjsTextLeafDeltaEntry = {
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 
 const hasOwn = (value: object, key: string) => Object.hasOwn(value, key)
+
+const getTextAttributes = (text: Record<string, unknown>) => {
+  const { text: _text, ...attributes } = text
+
+  return attributes
+}
 
 const defaultValue = (): Value => [
   { type: 'paragraph', children: [{ text: '' }] },
@@ -895,9 +904,49 @@ const getYjsTextReadOptions = (sharedRoot: Y.XmlElement) => ({
   preferDeltaMetadata: sharedRoot.getAttribute(VERSION_ATTRIBUTE) != null,
 })
 
+const shouldMergeSlateTextLeaves = (left: Descendant, right: Descendant) =>
+  TextApi.isText(left) &&
+  TextApi.isText(right) &&
+  TextApi.equals(left, right, { loose: true })
+
+const shouldMergeYjsTextLeaf = (
+  previous: YjsTextLeaf | undefined,
+  next: SlateTextLeafRecord,
+  sharedText: Y.XmlText,
+  parentPath: number[]
+) =>
+  !!previous &&
+  previous.sharedText !== sharedText &&
+  PathApi.equals(previous.path.slice(0, -1), parentPath) &&
+  TextApi.equals({ ...previous.attributes, text: previous.text }, next, {
+    loose: true,
+  })
+
+const appendYjsReadChildren = (
+  children: Descendant[],
+  nextChildren: Descendant[]
+) => {
+  const first = nextChildren[0]
+  const last = children.at(-1)
+
+  if (first && last && shouldMergeSlateTextLeaves(last, first)) {
+    children[children.length - 1] = {
+      ...last,
+      text: `${last.text}${first.text}`,
+    }
+    children.push(...nextChildren.slice(1))
+    return
+  }
+
+  children.push(...nextChildren)
+}
+
 const readYjsNode = (
   node: Y.XmlElement | Y.XmlText,
-  options: { preferDeltaMetadata?: boolean } = {}
+  options: {
+    mergeAdjacentTextContainers?: boolean
+    preferDeltaMetadata?: boolean
+  } = {}
 ): Descendant[] => {
   if (isYjsDeleted(node)) {
     return []
@@ -907,13 +956,22 @@ const readYjsNode = (
     return readYjsText(node, options) as Descendant[]
   }
 
-  const children = node
-    .toArray()
-    .flatMap((child) =>
-      isYjsXmlElement(child) || isYjsXmlText(child)
-        ? readYjsNode(child, options)
-        : []
-    )
+  const children: Descendant[] = []
+
+  for (const child of node.toArray()) {
+    if (!isYjsXmlElement(child) && !isYjsXmlText(child)) {
+      continue
+    }
+
+    const nextChildren = readYjsNode(child, options)
+
+    if (options.mergeAdjacentTextContainers === true) {
+      appendYjsReadChildren(children, nextChildren)
+    } else {
+      children.push(...nextChildren)
+    }
+  }
+
   const attributes = getYjsAttributes(node)
 
   return [
@@ -925,14 +983,18 @@ const readYjsNode = (
   ]
 }
 
-export const readSlateValueFromYjs = (
-  sharedRoot: Y.XmlElement
+const readSlateValueFromYjsWithOptions = (
+  sharedRoot: Y.XmlElement,
+  options: { mergeAdjacentTextContainers?: boolean } = {}
 ): Value | null => {
   if (sharedRoot.length === 0) {
     return null
   }
 
-  const readOptions = getYjsTextReadOptions(sharedRoot)
+  const readOptions = {
+    ...getYjsTextReadOptions(sharedRoot),
+    ...options,
+  }
 
   return normalizeValue(
     sharedRoot
@@ -945,9 +1007,26 @@ export const readSlateValueFromYjs = (
   )
 }
 
-const getYjsTextLeaves = (sharedRoot: Y.XmlElement): YjsTextLeaf[] => {
+export const readSlateValueFromYjs = (sharedRoot: Y.XmlElement): Value | null =>
+  readSlateValueFromYjsWithOptions(sharedRoot, {
+    mergeAdjacentTextContainers: true,
+  })
+
+const readSlateValueFromYjsForHistoryRepair = (
+  sharedRoot: Y.XmlElement
+): Value | null =>
+  readSlateValueFromYjsWithOptions(sharedRoot, {
+    mergeAdjacentTextContainers: false,
+  })
+
+const getYjsTextLeaves = (
+  sharedRoot: Y.XmlElement,
+  options: { mergeAdjacentTextContainers?: boolean } = {}
+): YjsTextLeaf[] => {
   const leaves: YjsTextLeaf[] = []
   const readOptions = getYjsTextReadOptions(sharedRoot)
+  const mergeAdjacentTextContainers =
+    options.mergeAdjacentTextContainers ?? false
 
   const visitChildren = (parent: Y.XmlElement, path: number[]) => {
     let slateIndex = 0
@@ -964,12 +1043,34 @@ const getYjsTextLeaves = (sharedRoot: Y.XmlElement): YjsTextLeaf[] => {
         textLeaves.forEach((leaf) => {
           const text = leaf.text
           const start = offset
+          const previous = leaves.at(-1)
 
           offset += text.length
+          if (
+            mergeAdjacentTextContainers &&
+            previous &&
+            shouldMergeYjsTextLeaf(previous, leaf, child, path)
+          ) {
+            leaves.push({
+              attributes: getTextAttributes(leaf),
+              end: offset,
+              path: [...previous.path],
+              sharedText: child,
+              slateEnd: previous.slateEnd + text.length,
+              slateStart: previous.slateEnd,
+              start,
+              text,
+            })
+            return
+          }
+
           leaves.push({
+            attributes: getTextAttributes(leaf),
             end: offset,
             path: [...path, slateIndex],
             sharedText: child,
+            slateEnd: text.length,
+            slateStart: 0,
             start,
             text,
           })
@@ -992,9 +1093,12 @@ const getYjsTextLeaves = (sharedRoot: Y.XmlElement): YjsTextLeaf[] => {
 
   if (leaves.length === 0) {
     leaves.push({
+      attributes: {},
       end: 0,
       path: [0, 0],
       sharedText: new Y.XmlText(),
+      slateEnd: 0,
+      slateStart: 0,
       start: 0,
       text: '',
     })
@@ -1088,19 +1192,24 @@ const pointToYjsTextPosition = (
   sharedRoot: Y.XmlElement,
   point: Range['anchor']
 ) => {
-  const leaf = getYjsTextLeaves(sharedRoot).find((entry) =>
-    PathApi.equals(entry.path, point.path)
+  const leaf = getYjsTextLeaves(sharedRoot, {
+    mergeAdjacentTextContainers: true,
+  }).find(
+    (entry) =>
+      PathApi.equals(entry.path, point.path) &&
+      point.offset >= entry.slateStart &&
+      point.offset <= entry.slateEnd
   )
 
   if (!leaf) {
     throw new Error(`Cannot map Slate point at ${point.path.join('.')} to Yjs`)
   }
-  if (point.offset < 0 || point.offset > leaf.text.length) {
+  if (point.offset < 0) {
     throw new Error(`Cannot map Slate point with offset ${point.offset} to Yjs`)
   }
 
   return {
-    index: leaf.start + point.offset,
+    index: leaf.start + point.offset - leaf.slateStart,
     sharedText: leaf.sharedText,
   }
 }
@@ -1122,12 +1231,17 @@ class SlateYjsSelectionBinding {
   }
 
   rebuild() {
-    this.textLeaves = getYjsTextLeaves(this.sharedRoot)
+    this.textLeaves = getYjsTextLeaves(this.sharedRoot, {
+      mergeAdjacentTextContainers: true,
+    })
   }
 
   slatePointToYjs(point: Range['anchor']) {
-    const leaf = this.textLeaves.find((entry) =>
-      PathApi.equals(entry.path, point.path)
+    const leaf = this.textLeaves.find(
+      (entry) =>
+        PathApi.equals(entry.path, point.path) &&
+        point.offset >= entry.slateStart &&
+        point.offset <= entry.slateEnd
     )
 
     if (!leaf) {
@@ -1135,14 +1249,14 @@ class SlateYjsSelectionBinding {
         `Cannot map Slate point at ${point.path.join('.')} to Yjs`
       )
     }
-    if (point.offset < 0 || point.offset > leaf.text.length) {
+    if (point.offset < 0) {
       throw new Error(
         `Cannot map Slate point with offset ${point.offset} to Yjs`
       )
     }
 
     return {
-      index: leaf.start + point.offset,
+      index: leaf.start + point.offset - leaf.slateStart,
       leaf,
       sharedText: leaf.sharedText,
     }
@@ -1200,7 +1314,7 @@ class SlateYjsSelectionBinding {
       if (emptyLeafAtIndex) {
         return {
           path: [...emptyLeafAtIndex.path],
-          offset: 0,
+          offset: emptyLeafAtIndex.slateStart,
         }
       }
     }
@@ -1226,7 +1340,7 @@ class SlateYjsSelectionBinding {
         ) {
           return {
             path: [...leaf.path],
-            offset: Math.max(0, boundedIndex - leaf.start),
+            offset: Math.max(0, leaf.slateStart + boundedIndex - leaf.start),
           }
         }
       }
@@ -1239,7 +1353,10 @@ class SlateYjsSelectionBinding {
         if (boundedIndex >= leaf.start && boundedIndex <= leaf.end) {
           return {
             path: [...leaf.path],
-            offset: Math.min(leaf.text.length, boundedIndex - leaf.start),
+            offset: Math.min(
+              leaf.slateEnd,
+              leaf.slateStart + boundedIndex - leaf.start
+            ),
           }
         }
       }
@@ -1249,14 +1366,14 @@ class SlateYjsSelectionBinding {
       if (boundedIndex >= leaf.start && boundedIndex <= leaf.end) {
         return {
           path: [...leaf.path],
-          offset: Math.max(0, boundedIndex - leaf.start),
+          offset: Math.max(0, leaf.slateStart + boundedIndex - leaf.start),
         }
       }
     }
 
     const last = leaves.at(-1)
 
-    return last ? { path: [...last.path], offset: last.text.length } : null
+    return last ? { path: [...last.path], offset: last.slateEnd } : null
   }
 
   yjsRangeToSlate(_value: Value, range: SlateYjsRelativeRange): Range | null {
@@ -2350,8 +2467,11 @@ const getSlateTextLeaves = (value: Value): TextLeaf[] => {
         const text = child.text
 
         leaves.push({
+          attributes: getTextAttributes(child),
           end: text.length,
           path: childPath,
+          slateEnd: text.length,
+          slateStart: 0,
           start: 0,
           text,
         })
@@ -2899,7 +3019,11 @@ class SlateYjsControllerImpl implements SlateYjsController {
             const children = snapshot.children as Value
 
             if (commit.metadata.collab?.origin === 'remote') {
-              repairHistoryTextOperations(context.editor, children)
+              repairHistoryTextOperations(
+                context.editor,
+                readSlateValueFromYjsForHistoryRepair(this.sharedRoot) ??
+                  children
+              )
             }
 
             this.handleCommit(commit, children)
