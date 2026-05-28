@@ -1,5 +1,5 @@
 import { useCallback, useContext, useState } from 'react'
-import type { Path, RuntimeId, Node as SlateNode } from 'slate'
+import type { Operation, Path, RuntimeId, Node as SlateNode } from 'slate'
 import {
   EDITOR_TO_KEY_TO_ELEMENT,
   ELEMENT_TO_NODE,
@@ -86,24 +86,65 @@ export const getSlateNodePathFromDOMElement = (
       parseDOMPath(element.getAttribute('data-slate-path')))
     : null
 
+const getTextOperationDOMSyncPath = (
+  editor: Editor,
+  operation: Operation
+): Path | null => {
+  if (operation.type === 'insert_text' || operation.type === 'remove_text') {
+    return operation.path
+  }
+
+  if (operation.type === 'split_node') {
+    if (!Editor.hasPath(editor, operation.path)) {
+      return null
+    }
+
+    const [node] = editor.read((state) => state.nodes.get(operation.path))
+
+    return 'text' in node && typeof node.text === 'string'
+      ? operation.path
+      : null
+  }
+
+  if (operation.type === 'merge_node') {
+    const index = operation.path.at(-1)
+
+    if (index == null || index <= 0) {
+      return null
+    }
+
+    const path = [...operation.path.slice(0, -1), index - 1]
+
+    if (!Editor.hasPath(editor, path)) {
+      return null
+    }
+
+    const [node] = editor.read((state) => state.nodes.get(path))
+
+    return 'text' in node && typeof node.text === 'string' ? path : null
+  }
+
+  return null
+}
+
 export const syncTextOperationsToDOM = (
   editor: Editor,
-  operations: readonly { path?: number[]; type: string }[]
+  operations: readonly Operation[]
 ) => {
   const synced = new Set<string>()
   const pathToElement = EDITOR_TO_PATH_TO_ELEMENT.get(editor)
-  const textOperationCount = operations.filter(
-    (operation) =>
-      operation.type === 'insert_text' || operation.type === 'remove_text'
-  ).length
+  const syncPathKeys = Array.from(
+    new Set(
+      operations
+        .map((operation) => getTextOperationDOMSyncPath(editor, operation))
+        .filter((path): path is Path => path !== null)
+        .map(pathKey)
+    )
+  )
+  const textOperationCount = syncPathKeys.length
   const result = () => ({
-    syncedTextOperationCount: operations.filter(
-      (operation) =>
-        (operation.type === 'insert_text' ||
-          operation.type === 'remove_text') &&
-        operation.path &&
-        synced.has(pathKey(operation.path))
-    ).length,
+    syncedTextOperationCount: syncPathKeys.filter((path) => synced.has(path))
+      .length,
     textOperationCount,
   })
 
@@ -123,14 +164,10 @@ export const syncTextOperationsToDOM = (
     return result()
   }
 
-  for (const operation of operations) {
-    if (operation.type !== 'insert_text' && operation.type !== 'remove_text') {
-      continue
-    }
+  for (const syncPathKey of syncPathKeys) {
+    const path = parsePathKey(syncPathKey)
 
-    const path = operation.path
-
-    if (!path) {
+    if (path.length === 0) {
       recordDOMTextSyncProfile('skip-no-path')
       continue
     }

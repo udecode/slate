@@ -77,7 +77,7 @@ const placePeerCaret = async (
   paragraphIndex: number,
   offset: number
 ) => {
-  const point = await page.evaluate(
+  const position = await page.evaluate(
     ({ offset, paragraphIndex, peer }) => {
       const root = document.querySelector(`#yjs-peer-${peer}-editor-surface`)
       const textbox = root?.querySelector<HTMLElement>('[role="textbox"]')
@@ -90,13 +90,18 @@ const placePeerCaret = async (
         throw new Error(`Peer ${peer} paragraph ${paragraphIndex} not found`)
       }
 
+      const textboxRect = textbox.getBoundingClientRect()
       const paragraphRect = paragraph!.getBoundingClientRect()
+      const toTextboxPoint = (x: number, y: number) => ({
+        x: Math.max(1, Math.min(textboxRect.width - 1, x - textboxRect.left)),
+        y: Math.max(1, Math.min(textboxRect.height - 1, y - textboxRect.top)),
+      })
 
       if (offset <= 0) {
-        return {
-          x: paragraphRect.left + 2,
-          y: paragraphRect.top + paragraphRect.height / 2,
-        }
+        return toTextboxPoint(
+          paragraphRect.left + 2,
+          paragraphRect.top + paragraphRect.height / 2
+        )
       }
 
       const range = document.createRange()
@@ -107,15 +112,15 @@ const placePeerCaret = async (
 
       const rect = range.getBoundingClientRect()
 
-      return {
-        x: Math.max(paragraphRect.left + 2, rect.right + 1),
-        y: rect.top + rect.height / 2,
-      }
+      return toTextboxPoint(
+        Math.max(paragraphRect.left + 2, rect.right + 1),
+        rect.top + rect.height / 2
+      )
     },
     { offset, paragraphIndex, peer }
   )
 
-  await page.mouse.click(point.x, point.y)
+  await peerTextbox(page, peer).click({ position })
 }
 
 const selectPeerTextRange = async (
@@ -737,6 +742,111 @@ test.describe('yjs collaboration example', () => {
       await expect
         .poll(() => getPeerParagraphTexts(page, peer))
         .toEqual(['alpha!'])
+    }
+  })
+
+  test('keeps public split button undo converged after reconnect', async ({
+    page,
+  }) => {
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await replacePeerText(page, 'a', ['alphabeta'])
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['alphabeta'])
+
+    await byTestId(page, 'yjs-peer-b-disconnect').click()
+    await byTestId(page, 'yjs-peer-b-split-node').click()
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['alph', 'abeta'])
+
+    await byTestId(page, 'yjs-peer-a-insert-text').click()
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'a'))
+      .toEqual(['alphabeta!'])
+
+    await byTestId(page, 'yjs-peer-b-connect').click()
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual(['alph!', 'abeta'])
+    }
+
+    await byTestId(page, 'yjs-peer-b-undo').click()
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual(['alph!abeta'])
+    }
+  })
+
+  test('preserves concurrent text when an offline wrap button reconnects', async ({
+    page,
+  }) => {
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await replacePeerText(page, 'a', ['alpha', 'beta'])
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['alpha', 'beta'])
+
+    await byTestId(page, 'yjs-peer-b-disconnect').click()
+    await byTestId(page, 'yjs-peer-b-wrap-node').click()
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['alpha', 'beta'])
+
+    await byTestId(page, 'yjs-peer-a-insert-text').click()
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'a'))
+      .toEqual(['alpha!', 'beta'])
+
+    await byTestId(page, 'yjs-peer-b-connect').click()
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual(['alpha!', 'beta'])
+    }
+  })
+
+  test('preserves concurrent text when an offline insert fragment reconnects', async ({
+    page,
+  }) => {
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await replacePeerText(page, 'a', ['alpha'])
+    await expect.poll(() => getPeerParagraphTexts(page, 'b')).toEqual(['alpha'])
+
+    await byTestId(page, 'yjs-peer-b-disconnect').click()
+    await byTestId(page, 'yjs-peer-b-insert-fragment').click()
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['alphaLin fragment'])
+
+    await byTestId(page, 'yjs-peer-a-append').click()
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'a'))
+      .toEqual(['alpha Ada'])
+
+    await byTestId(page, 'yjs-peer-b-connect').click()
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual(['alpha AdaLin fragment'])
     }
   })
 

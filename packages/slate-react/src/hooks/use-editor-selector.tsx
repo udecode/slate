@@ -245,6 +245,7 @@ export function useEditorSelectorContext() {
         change?.affectedNodeRuntimeIds ?? change?.nodeImpactRuntimeIds
       const shouldSkipRuntimeFanout = Boolean(
         change &&
+          operations !== undefined &&
           affectedRuntimeIds == null &&
           !change.selectionChanged &&
           !change.fullDocumentChanged &&

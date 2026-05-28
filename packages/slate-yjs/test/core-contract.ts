@@ -8,6 +8,7 @@ import {
   type Range,
   type Value,
 } from 'slate'
+import { history } from 'slate-history'
 import * as Y from 'yjs'
 
 import {
@@ -52,6 +53,29 @@ const seedEditor = (
   }
 ) => {
   const editor = createEditor()
+
+  editor.update(
+    (tx) => {
+      tx.value.replace({
+        children,
+        marks: null,
+        selection: nextSelection,
+      })
+    },
+    { tag: 'seed' }
+  )
+
+  return editor
+}
+
+const seedHistoryEditor = (
+  children: Value = [paragraph('')],
+  nextSelection = {
+    anchor: { path: [0, 0], offset: 0 },
+    focus: { path: [0, 0], offset: 0 },
+  }
+) => {
+  const editor = createEditor({ extensions: [history()] })
 
   editor.update(
     (tx) => {
@@ -1367,6 +1391,52 @@ describe('slate-yjs core', () => {
     assert.deepEqual(value(editorB), value(editorA))
   })
 
+  it('keeps offline merge undo converged after reconnect', async () => {
+    const initialValue: Value = [paragraph('alpha'), paragraph('beta')]
+    const seedDoc = new Y.Doc()
+    const docA = new Y.Doc()
+    const docB = new Y.Doc()
+    const rootA = docA.getXmlElement('slate')
+    const rootB = docB.getXmlElement('slate')
+    const editorA = seedEditor(initialValue)
+    const editorB = seedHistoryEditor(initialValue, {
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    })
+
+    writeSlateValueToYjs(seedDoc.getXmlElement('slate'), initialValue)
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(seedDoc))
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(seedDoc))
+    connectEditors(
+      { editor: editorA, root: rootA },
+      { editor: editorB, root: rootB }
+    )
+
+    editorB.update((tx) => {
+      tx.nodes.merge({ at: [1] })
+    })
+    editorA.update((tx) => {
+      tx.text.insert(' Ada', { at: { path: [1, 0], offset: 'beta'.length } })
+    })
+
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA), 'network')
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB), 'network')
+    await Promise.resolve()
+
+    assert.deepEqual(value(editorA), [paragraph('alphabeta')])
+    assert.deepEqual(value(editorB), value(editorA))
+
+    editorB.update((tx) => {
+      tx.history.undo()
+    })
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB), 'network')
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA), 'network')
+    await Promise.resolve()
+
+    assert.deepEqual(value(editorA), initialValue)
+    assert.deepEqual(value(editorB), value(editorA))
+  })
+
   it('preserves concurrent text positions when an offline split reconnects', async () => {
     const cases = [
       {
@@ -1431,6 +1501,115 @@ describe('slate-yjs core', () => {
       assert.deepEqual(value(editorA), expected)
       assert.deepEqual(value(editorB), expected)
     }
+  })
+
+  it('exports public tx.nodes.split point splits without duplicating text', () => {
+    const initialValue: Value = [paragraph('alphabeta')]
+    const root = sharedRoot()
+    const editor = seedEditor(initialValue)
+    const peer = seedEditor()
+
+    writeSlateValueToYjs(root, initialValue)
+    connectEditors({ editor, root }, { editor: peer, root })
+
+    editor.update((tx) => {
+      tx.nodes.split({ at: { path: [0, 0], offset: 'alph'.length } })
+    })
+
+    assert.deepEqual(value(editor), [paragraph('alph'), paragraph('abeta')])
+    assert.deepEqual(value(peer), [paragraph('alph'), paragraph('abeta')])
+    assert.deepEqual(readSlateValueFromYjs(root), [
+      paragraph('alph'),
+      paragraph('abeta'),
+    ])
+  })
+
+  it('keeps public tx.nodes.split undo converged after reconnect', async () => {
+    const initialValue: Value = [paragraph('alphabeta')]
+    const seedDoc = new Y.Doc()
+    const docA = new Y.Doc()
+    const docB = new Y.Doc()
+    const rootA = docA.getXmlElement('slate')
+    const rootB = docB.getXmlElement('slate')
+    const editorA = seedHistoryEditor(initialValue)
+    const editorB = seedHistoryEditor(initialValue)
+
+    writeSlateValueToYjs(seedDoc.getXmlElement('slate'), initialValue)
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(seedDoc))
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(seedDoc))
+    connectEditors(
+      { editor: editorA, root: rootA },
+      { editor: editorB, root: rootB }
+    )
+
+    editorB.update((tx) => {
+      tx.nodes.split({ at: { path: [0, 0], offset: 'alph'.length } })
+    })
+    editorA.update((tx) => {
+      tx.text.insert('!', { at: { path: [0, 0], offset: 'alphabeta'.length } })
+    })
+
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA), 'network')
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB), 'network')
+    await Promise.resolve()
+
+    assert.deepEqual(value(editorA), [paragraph('alph!'), paragraph('abeta')])
+    assert.deepEqual(value(editorB), value(editorA))
+
+    editorB.update((tx) => {
+      tx.history.undo()
+    })
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB), 'network')
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA), 'network')
+    await Promise.resolve()
+
+    assert.deepEqual(value(editorA), [paragraph('alph!abeta')])
+    assert.deepEqual(value(editorB), value(editorA))
+  })
+
+  it('keeps offline split undo converged when the remote insert targets the split point', async () => {
+    const initialValue: Value = [paragraph('alphabeta')]
+    const seedDoc = new Y.Doc()
+    const docA = new Y.Doc()
+    const docB = new Y.Doc()
+    docA.clientID = 101
+    docB.clientID = 202
+    const rootA = docA.getXmlElement('slate')
+    const rootB = docB.getXmlElement('slate')
+    const editorA = seedHistoryEditor(initialValue)
+    const editorB = seedHistoryEditor(initialValue)
+
+    writeSlateValueToYjs(seedDoc.getXmlElement('slate'), initialValue)
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(seedDoc))
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(seedDoc))
+    connectEditors(
+      { editor: editorA, root: rootA },
+      { editor: editorB, root: rootB }
+    )
+
+    editorB.update((tx) => {
+      tx.nodes.split({ at: { path: [0, 0], offset: 'alph'.length } })
+    })
+    editorA.update((tx) => {
+      tx.text.insert('!', { at: { path: [0, 0], offset: 'alph'.length } })
+    })
+
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA), 'network')
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB), 'network')
+    await Promise.resolve()
+
+    assert.deepEqual(value(editorA), [paragraph('alph!'), paragraph('abeta')])
+    assert.deepEqual(value(editorB), value(editorA))
+
+    editorB.update((tx) => {
+      tx.history.undo()
+    })
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB), 'network')
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA), 'network')
+    await Promise.resolve()
+
+    assert.deepEqual(value(editorA), [paragraph('alph!abeta')])
+    assert.deepEqual(value(editorB), value(editorA))
   })
 
   it('merges disconnected remove_node with a concurrent edit outside the removed node', async () => {
@@ -1538,6 +1717,84 @@ describe('slate-yjs core', () => {
     assert.deepEqual(value(editorA), [paragraph('omega'), paragraph('beta!')])
     assert.deepEqual(value(editorB), value(editorA))
     assert.deepEqual(value(editorC), value(editorA))
+  })
+
+  it('preserves concurrent text when an offline insert fragment reconnects', async () => {
+    const initialValue: Value = [paragraph('alpha')]
+    const seedDoc = new Y.Doc()
+    const docA = new Y.Doc()
+    const docB = new Y.Doc()
+    docA.clientID = 101
+    docB.clientID = 202
+    const rootA = docA.getXmlElement('slate')
+    const rootB = docB.getXmlElement('slate')
+    const editorA = seedEditor(initialValue)
+    const editorB = seedEditor(initialValue)
+    const at = {
+      anchor: { path: [0, 0], offset: 'alpha'.length },
+      focus: { path: [0, 0], offset: 'alpha'.length },
+    }
+
+    writeSlateValueToYjs(seedDoc.getXmlElement('slate'), initialValue)
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(seedDoc))
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(seedDoc))
+    connectEditors(
+      { editor: editorA, root: rootA },
+      { editor: editorB, root: rootB }
+    )
+
+    editorB.update((tx) => {
+      tx.fragment.insert([paragraph('Lin fragment')], { at })
+    })
+    editorA.update((tx) => {
+      tx.text.insert(' Ada', { at: at.anchor })
+    })
+
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA), 'network')
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB), 'network')
+    await Promise.resolve()
+
+    assert.deepEqual(value(editorA), [paragraph('alpha AdaLin fragment')])
+    assert.deepEqual(value(editorB), value(editorA))
+  })
+
+  it('preserves concurrent text when an offline wrap_node reconnects', async () => {
+    const initialValue: Value = [paragraph('alpha'), paragraph('beta')]
+    const seedDoc = new Y.Doc()
+    const docA = new Y.Doc()
+    const docB = new Y.Doc()
+    const rootA = docA.getXmlElement('slate')
+    const rootB = docB.getXmlElement('slate')
+    const editorA = seedEditor(initialValue)
+    const editorB = seedEditor(initialValue)
+
+    writeSlateValueToYjs(seedDoc.getXmlElement('slate'), initialValue)
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(seedDoc))
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(seedDoc))
+    connectEditors(
+      { editor: editorA, root: rootA },
+      { editor: editorB, root: rootB }
+    )
+
+    editorB.update((tx) => {
+      tx.nodes.wrap({ type: 'block-quote', children: [] }, { at: [0] })
+    })
+    editorA.update((tx) => {
+      tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
+    })
+
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA), 'network')
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB), 'network')
+    await Promise.resolve()
+
+    assert.deepEqual(value(editorA), [
+      {
+        type: 'block-quote',
+        children: [paragraph('alpha!')],
+      },
+      paragraph('beta'),
+    ])
+    assert.deepEqual(value(editorB), value(editorA))
   })
 
   it('encodes forward move_node operations into the Yjs tree', () => {

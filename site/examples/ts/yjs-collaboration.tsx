@@ -10,7 +10,13 @@ import {
   useSlateYjsState,
 } from '@slate/yjs/react'
 import { useMemo, useState, useSyncExternalStore } from 'react'
-import { type Editor, NodeApi, type Range, type Value } from 'slate'
+import {
+  type Editor,
+  NodeApi,
+  type Range,
+  type Element as SlateElement,
+  type Value,
+} from 'slate'
 import {
   Editable,
   type RenderElementProps,
@@ -263,6 +269,11 @@ const initialValue: Value = [
   },
 ]
 
+const createParagraph = (text: string): SlateElement => ({
+  type: 'paragraph',
+  children: [{ text }],
+})
+
 const createConnectionState = (): ExampleConnectionState => ({
   connections: new Map<PeerId, boolean>(
     PEERS.map((peer) => [peer.id, true] as const)
@@ -303,6 +314,8 @@ const createNetwork = () => {
 
   for (const peer of PEERS) {
     const doc = new Y.Doc()
+
+    doc.clientID = peer.clientId
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(seedDoc), NETWORK_ORIGIN)
     docs[peer.id] = doc
     awareness[peer.id] = new ExampleAwareness(peer.clientId, hub)
@@ -537,6 +550,30 @@ const getFirstWordRange = (editor: Editor): Range =>
       focus: { path: [0, 0], offset: end },
     }
   })
+
+const getFirstTextPoint = (
+  editor: Editor,
+  edge: 'start' | 'middle' | 'end'
+): Range['anchor'] =>
+  editor.read((state) => {
+    const text = state.text.string([0])
+    const offset =
+      edge === 'start'
+        ? 0
+        : edge === 'end'
+          ? text.length
+          : Math.max(1, Math.floor(text.length / 2))
+
+    return { path: [0, 0], offset }
+  })
+
+const hasBlockQuote = (editor: Editor) =>
+  editor.read((state) =>
+    state.nodes.some({
+      at: [],
+      match: (node) => NodeApi.isElement(node) && node.type === 'block-quote',
+    })
+  )
 
 const formatRange = (range: Range | null) =>
   range
@@ -856,12 +893,142 @@ const PeerPanel = ({
   const replaceDocument = () => {
     replaceTextAsUser(editor, `${peer.userName} canonical snapshot.`)
   }
-  const canMoveSecondBlock = useEditorSelector((editor: Editor) =>
+  const hasSecondBlock = useEditorSelector((editor: Editor) =>
     editor.read((state) => (state.value.get().roots.main ?? []).length > 1)
   )
+  const canMoveSecondBlock = hasSecondBlock
+  const canLiftFirstBlock = useEditorSelector((editor: Editor) =>
+    editor.read((state) => {
+      if (!state.nodes.hasPath([0, 0])) {
+        return false
+      }
+
+      const [node] = state.nodes.get([0, 0])
+
+      return NodeApi.isElement(node)
+    })
+  )
+  const canUnwrapBlockQuote = useEditorSelector(hasBlockQuote)
   const moveSecondBlockToTop = () => {
     editor.update((tx) => {
       tx.nodes.move({ at: [1], to: [0] })
+    })
+  }
+  const insertNodeAfterFirstBlock = () => {
+    editor.update((tx) => {
+      tx.nodes.insert(createParagraph(`${peer.userName} node`), { at: [1] })
+    })
+  }
+  const removeSecondBlock = () => {
+    editor.update((tx) => {
+      tx.nodes.remove({ at: [1] })
+    })
+  }
+  const splitFirstBlock = () => {
+    const at = getFirstTextPoint(editor, 'middle')
+
+    editor.update((tx) => {
+      tx.nodes.split({ at })
+    })
+  }
+  const mergeSecondBlock = () => {
+    editor.update((tx) => {
+      tx.nodes.merge({ at: [1] })
+    })
+  }
+  const moveFirstBlockDown = () => {
+    editor.update((tx) => {
+      tx.nodes.move({ at: [0], to: [1] })
+    })
+  }
+  const setFirstBlock = () => {
+    editor.update((tx) => {
+      tx.nodes.set<SlateElement>({ type: 'heading-one' }, { at: [0] })
+    })
+  }
+  const unsetFirstBlock = () => {
+    editor.update((tx) => {
+      tx.nodes.unset('type', { at: [0] })
+    })
+  }
+  const wrapFirstBlock = () => {
+    editor.update((tx) => {
+      tx.nodes.wrap({ type: 'block-quote', children: [] }, { at: [0] })
+    })
+  }
+  const unwrapBlockQuotes = () => {
+    editor.update((tx) => {
+      tx.nodes.unwrap({
+        at: [],
+        match: (node) => NodeApi.isElement(node) && node.type === 'block-quote',
+        mode: 'all',
+      })
+    })
+  }
+  const liftFirstWrappedBlock = () => {
+    editor.update((tx) => {
+      tx.nodes.lift({ at: [0, 0] })
+    })
+  }
+  const insertTextCommand = () => {
+    const at = getFirstTextPoint(editor, 'end')
+
+    editor.update((tx) => {
+      tx.text.insert('!', { at })
+    })
+  }
+  const deleteTextCommand = () => {
+    editor.update((tx) => {
+      tx.text.delete({ at: getFirstWordRange(editor) })
+    })
+  }
+  const deleteBackwardCommand = () => {
+    const at = getFirstTextPoint(editor, 'end')
+
+    editor.update((tx) => {
+      tx.selection.set({ anchor: at, focus: at })
+      tx.text.deleteBackward({ unit: 'character' })
+    })
+  }
+  const deleteForwardCommand = () => {
+    const at = getFirstTextPoint(editor, 'start')
+
+    editor.update((tx) => {
+      tx.selection.set({ anchor: at, focus: at })
+      tx.text.deleteForward({ unit: 'character' })
+    })
+  }
+  const insertBreakCommand = () => {
+    const at = getFirstTextPoint(editor, 'end')
+
+    editor.update((tx) => {
+      tx.selection.set({ anchor: at, focus: at })
+      tx.break.insert()
+    })
+  }
+  const insertSoftBreakCommand = () => {
+    const at = getFirstTextPoint(editor, 'end')
+
+    editor.update((tx) => {
+      tx.selection.set({ anchor: at, focus: at })
+      tx.break.insertSoft()
+    })
+  }
+  const insertFragmentCommand = () => {
+    const at = getDocumentEnd(editor)
+
+    editor.update((tx) => {
+      tx.fragment.insert([createParagraph(`${peer.userName} fragment`)], {
+        at: { anchor: at, focus: at },
+      })
+    })
+  }
+  const deleteFragmentCommand = () => {
+    const range = getFirstWordRange(editor)
+
+    editor.update((tx) => {
+      tx.selection.set(range)
+      tx.fragment.delete()
     })
   }
 
@@ -952,6 +1119,173 @@ const PeerPanel = ({
           type="button"
         >
           Move
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-insert-node`}
+          onClick={insertNodeAfterFirstBlock}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Insert Node
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-remove-node`}
+          disabled={!canMoveSecondBlock}
+          onClick={removeSecondBlock}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Remove Node
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-split-node`}
+          onClick={splitFirstBlock}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Split Node
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-merge-node`}
+          disabled={!canMoveSecondBlock}
+          onClick={mergeSecondBlock}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Merge Node
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-move-down`}
+          disabled={!canMoveSecondBlock}
+          onClick={moveFirstBlockDown}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Move Down
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-set-node`}
+          onClick={setFirstBlock}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Set Node
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-unset-node`}
+          onClick={unsetFirstBlock}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Unset Node
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-wrap-node`}
+          onClick={wrapFirstBlock}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Wrap Node
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-unwrap-node`}
+          disabled={!canUnwrapBlockQuote}
+          onClick={unwrapBlockQuotes}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Unwrap Node
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-lift-node`}
+          disabled={!canLiftFirstBlock}
+          onClick={liftFirstWrappedBlock}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Lift Node
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-insert-text`}
+          onClick={insertTextCommand}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Insert Text
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-delete-text`}
+          onClick={deleteTextCommand}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Delete Text
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-delete-backward`}
+          onClick={deleteBackwardCommand}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Delete Back
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-delete-forward`}
+          onClick={deleteForwardCommand}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Delete Fwd
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-insert-break`}
+          onClick={insertBreakCommand}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Break
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-insert-soft-break`}
+          onClick={insertSoftBreakCommand}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Soft Break
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-insert-fragment`}
+          onClick={insertFragmentCommand}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Insert Frag
+        </button>
+        <button
+          className={buttonCss}
+          data-test-id={`${testPrefix}-delete-fragment`}
+          onClick={deleteFragmentCommand}
+          onMouseDown={(event) => event.preventDefault()}
+          type="button"
+        >
+          Delete Frag
         </button>
         <button
           className={buttonCss}

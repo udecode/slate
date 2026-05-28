@@ -92,9 +92,6 @@ type RuntimeContentRootOwner = SlateContentRootOwner & {
 const getContentRootOwnerKey = (owner: RuntimeContentRootOwner) =>
   `${owner.ownerRoot}\u0000${owner.ownerPath.join('.')}\u0000${owner.childRoot}`
 
-const isTextOperation = (operation: Operation) =>
-  operation.type === 'insert_text' || operation.type === 'remove_text'
-
 const isRootValueChanged = (root: RootKey, commit: EditorCommit) =>
   commit.childrenChanged &&
   (commit.fullDocumentChanged ||
@@ -559,21 +556,22 @@ const SlateSingleEditor = <
   )
   const syncMountedRootTextOperationsToDOM = useCallback(
     (operations: readonly Operation[]) => {
-      const textOperations = operations.filter(isTextOperation)
-
-      if (textOperations.length === 0) {
+      if (operations.length === 0) {
         return { syncedTextOperationCount: 0, textOperationCount: 0 }
       }
 
       const operationsByRoot = new Map<RootKey, Operation[]>()
 
-      for (const operation of textOperations) {
+      for (const operation of operations) {
         const root = getOperationRoot(operation)
         const rootOperations = operationsByRoot.get(root) ?? []
 
         rootOperations.push(operation)
         operationsByRoot.set(root, rootOperations)
       }
+
+      let syncedTextOperationCount = 0
+      let textOperationCount = 0
 
       for (const [root, rootOperations] of operationsByRoot) {
         const viewEditors = mountedViewEditorsRef.current.get(root)
@@ -585,18 +583,21 @@ const SlateSingleEditor = <
         for (const viewEditor of viewEditors) {
           const textSync = syncTextOperationsToDOM(viewEditor, rootOperations)
 
+          syncedTextOperationCount += textSync.syncedTextOperationCount
+          textOperationCount += textSync.textOperationCount
+
           if (textSync.syncedTextOperationCount < textSync.textOperationCount) {
             return {
               syncedTextOperationCount: 0,
-              textOperationCount: textOperations.length,
+              textOperationCount,
             }
           }
         }
       }
 
       return {
-        syncedTextOperationCount: textOperations.length,
-        textOperationCount: textOperations.length,
+        syncedTextOperationCount,
+        textOperationCount,
       }
     },
     []
