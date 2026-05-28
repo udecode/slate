@@ -1,6 +1,13 @@
 import { act, render } from '@testing-library/react'
 import { useRef } from 'react'
 import { Editor } from 'slate/internal'
+import {
+  EDITOR_TO_ELEMENT,
+  EDITOR_TO_KEY_TO_ELEMENT,
+  EDITOR_TO_WINDOW,
+  ELEMENT_TO_NODE,
+  NODE_TO_ELEMENT,
+} from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
 
 import {
@@ -99,6 +106,8 @@ test('selection reconciler clears the updating guard when DOM export throws', ()
 })
 
 test('selection reconciler keeps DOM coverage boundary selections model-backed', () => {
+  vi.useFakeTimers()
+
   const editor = createReactEditor()
   const inputController = createEditableInputController({
     preferModelSelectionForInputRef: { current: true },
@@ -180,9 +189,168 @@ test('selection reconciler keeps DOM coverage boundary selections model-backed',
 
     expect(domSelection.rangeCount).toBe(0)
     expect(resolveDOMRange).not.toHaveBeenCalled()
+    expect(state.selectionChangeOrigin).toBe('programmatic-export')
+    expect(state.isUpdatingSelection).toBe(true)
+
+    act(() => {
+      vi.runOnlyPendingTimers()
+    })
+
     expect(state.isUpdatingSelection).toBe(false)
   } finally {
     DOMCoverage.clear(editor)
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  }
+})
+
+test('selection reconciler preserves visible anchor text across DOM coverage boundaries', () => {
+  vi.useFakeTimers()
+
+  const editor = createReactEditor()
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: createEditableInputControllerState(),
+  })
+  const state = inputController.state
+  const androidInputManagerRef = { current: null }
+  let renderTick = 0
+
+  Editor.replace(editor, {
+    children: [
+      { type: 'paragraph', children: [{ text: 'one' }] },
+      { type: 'hidden', children: [{ text: 'secret' }] },
+      { type: 'paragraph', children: [{ text: 'two' }] },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [2, 0], offset: 1 },
+    },
+  })
+  DOMCoverage.registerBoundary(editor, {
+    anchor: { type: 'placeholder' },
+    boundaryId: 'hidden-block',
+    copyPolicy: 'include-model',
+    coveredPathRanges: [{ anchor: [1], focus: [1] }],
+    coveredRuntimeRanges: [],
+    findPolicy: 'not-native-until-mounted',
+    ownerPath: [],
+    ownerRuntimeId: null,
+    reason: 'app-hidden',
+    selectionPolicy: 'boundary',
+    state: 'intentionally-hidden',
+    version: 1,
+  })
+
+  const Harness = () => {
+    const rootRef = useRef<HTMLDivElement | null>(null)
+
+    useEditableSelectionReconciler({
+      androidInputManagerRef,
+      editor,
+      inputController,
+      rootRef,
+      scrollSelectionIntoView: vi.fn(),
+      partialDOMBackedSelection: false,
+      state,
+    })
+
+    return (
+      <div data-render-tick={renderTick} data-selection-test-root ref={rootRef}>
+        <span data-slate-node="text" data-slate-path="0,0">
+          <span data-slate-leaf="true">
+            <span data-slate-string="true">one</span>
+          </span>
+        </span>
+        <button type="button">hidden shell</button>
+        <span data-slate-node="text" data-slate-path="2,0">
+          <span data-slate-leaf="true">
+            <span data-slate-string="true">two</span>
+          </span>
+        </span>
+      </div>
+    )
+  }
+
+  try {
+    const { container, rerender } = render(<Harness />)
+    const root = container.querySelector(
+      '[data-selection-test-root]'
+    ) as HTMLElement | null
+    const [firstString, secondString] = container.querySelectorAll(
+      '[data-slate-string]'
+    )
+    const firstElement = firstString?.closest(
+      '[data-slate-node]'
+    ) as HTMLElement | null
+    const secondElement = secondString?.closest(
+      '[data-slate-node]'
+    ) as HTMLElement | null
+    const firstText = firstString?.firstChild
+    const secondText = secondString?.firstChild
+    const domSelection = document.getSelection()
+
+    if (
+      !root ||
+      !firstElement ||
+      !secondElement ||
+      !firstText ||
+      !secondText ||
+      !domSelection
+    ) {
+      throw new Error('Expected rendered text and document selection')
+    }
+
+    const [firstNode] = editor.read((state) => state.nodes.get([0, 0]))
+    const [secondNode] = editor.read((state) => state.nodes.get([2, 0]))
+    const keyToElement = new WeakMap()
+
+    EDITOR_TO_ELEMENT.set(editor, root)
+    EDITOR_TO_KEY_TO_ELEMENT.set(editor, keyToElement)
+    EDITOR_TO_WINDOW.set(editor, window)
+    ELEMENT_TO_NODE.set(root, editor)
+    ELEMENT_TO_NODE.set(firstElement, firstNode)
+    ELEMENT_TO_NODE.set(secondElement, secondNode)
+    NODE_TO_ELEMENT.set(editor, root)
+    NODE_TO_ELEMENT.set(firstNode, firstElement)
+    NODE_TO_ELEMENT.set(secondNode, secondElement)
+    keyToElement.set(editor.api.dom.findKey(firstNode), firstElement)
+    keyToElement.set(editor.api.dom.findKey(secondNode), secondElement)
+
+    domSelection.removeAllRanges()
+    domSelection.setBaseAndExtent(firstText, 1, firstText, 1)
+
+    vi.spyOn(ReactEditor, 'findDocumentOrShadowRoot').mockReturnValue(document)
+    vi.spyOn(ReactEditor, 'resolveSlateRange').mockReturnValue(null)
+    vi.spyOn(ReactEditor, 'hasRange').mockReturnValue(true)
+    const setBaseAndExtent = vi.spyOn(domSelection, 'setBaseAndExtent')
+
+    act(() => {
+      renderTick++
+      rerender(<Harness />)
+    })
+
+    expect(setBaseAndExtent).toHaveBeenLastCalledWith(
+      firstText,
+      1,
+      secondText,
+      1
+    )
+    expect(state.selectionChangeOrigin).toBe('programmatic-export')
+    expect(state.isUpdatingSelection).toBe(true)
+
+    act(() => {
+      vi.runOnlyPendingTimers()
+    })
+
+    expect(state.isUpdatingSelection).toBe(false)
+  } finally {
+    DOMCoverage.clear(editor)
+    EDITOR_TO_ELEMENT.delete(editor)
+    EDITOR_TO_KEY_TO_ELEMENT.delete(editor)
+    EDITOR_TO_WINDOW.delete(editor)
+    NODE_TO_ELEMENT.delete(editor)
+    vi.useRealTimers()
     vi.restoreAllMocks()
   }
 })

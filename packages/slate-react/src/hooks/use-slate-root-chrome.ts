@@ -18,6 +18,7 @@ export type SlateRootChromeController = {
   props: {
     'data-slate-root-chrome': RootKey
     onMouseDownCapture: MouseEventHandler<HTMLElement>
+    onMouseMoveCapture: MouseEventHandler<HTMLElement>
     onMouseUpCapture: MouseEventHandler<HTMLElement>
   }
   root: RootKey
@@ -30,26 +31,26 @@ export function useSlateRootChrome(
   const editor = useSlateRootEditor(root)
   const { getLastSelectionForRoot, getMountedViewEditor } =
     useRequiredSlateRuntimeContext()
-  const { onMouseDownCapture, onMouseUpCapture } = useRootInteractionController(
-    {
+  const { onMouseDownCapture, onMouseMoveCapture, onMouseUpCapture } =
+    useRootInteractionController({
       disabled,
       editor,
       getLastSelectionForRoot,
       getMountedViewEditor,
       root,
       selection,
-    }
-  )
+    })
 
   return useMemo(
     () => ({
       props: {
         'data-slate-root-chrome': root,
         onMouseDownCapture,
+        onMouseMoveCapture,
         onMouseUpCapture,
       },
       root,
     }),
-    [onMouseDownCapture, onMouseUpCapture, root]
+    [onMouseDownCapture, onMouseMoveCapture, onMouseUpCapture, root]
   )
 }

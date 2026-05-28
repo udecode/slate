@@ -1,4 +1,4 @@
-import { type MouseEvent, useEffect, useRef } from 'react'
+import { type MouseEvent, type PointerEvent, useEffect, useRef } from 'react'
 import { RangeApi } from 'slate'
 import {
   Editable,
@@ -146,13 +146,40 @@ interface FormatButtonProps {
   icon: string
 }
 
+const handleToolbarButtonClick = (
+  event: MouseEvent<HTMLButtonElement>,
+  command: () => void
+) => {
+  if (event.detail === 0) {
+    command()
+  }
+}
+
+const handleToolbarButtonPointerDown = (
+  event: PointerEvent<HTMLButtonElement>,
+  command: () => void
+) => {
+  event.preventDefault()
+  command()
+}
+
 const FormatButton = ({ format, icon }: FormatButtonProps) => {
   const editor = useEditor<CustomEditor>()
   const active = useEditorSelector((editor: CustomEditor) =>
     isMarkActive(editor, format)
   )
+  const runCommand = () => toggleMark(editor, format)
+
   return (
-    <Button active={active} onClick={() => toggleMark(editor, format)} reversed>
+    <Button
+      active={active}
+      data-test-id={`hovering-toolbar-button-${format}`}
+      onClick={(event) => handleToolbarButtonClick(event, runCommand)}
+      onPointerDown={(event) =>
+        handleToolbarButtonPointerDown(event, runCommand)
+      }
+      reversed
+    >
       <Icon>{icon}</Icon>
     </Button>
   )

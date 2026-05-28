@@ -10,3 +10,8 @@ export { ElementContext } from './hooks/use-element'
 export const ElementPathContext = createContext<Path | null>(null)
 export const NodeRuntimeIdContext = createContext<RuntimeId | null>(null)
 export const SlateEditableRootContext = createContext<RootKey | null>(null)
+export const SlateContentRootOwnerContext = createContext<{
+  childRoot: RootKey
+  ownerPath: Path
+  ownerRoot: RootKey
+} | null>(null)

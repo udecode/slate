@@ -1009,6 +1009,11 @@ export const useEditableSelectionReconciler = ({
         applyDOMCoverageSelectionPolicy({
           domSelection,
           editor,
+          onDOMSelectionWillChange: () => {
+            state.isUpdatingSelection = true
+            state.selectionChangeOrigin = 'programmatic-export'
+            clearUpdatingSelection()
+          },
           selection,
         })
       ) {

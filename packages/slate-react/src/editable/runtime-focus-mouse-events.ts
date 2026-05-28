@@ -54,6 +54,19 @@ export const useRuntimeFocusMouseEvents = ({
   const nativeInternalFocusRef = useRef(false)
   const nativePointerFocusRef = useRef(false)
 
+  const markNativePointerFocus = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      nativePointerFocusRef.current = !isInteractiveInternalTarget(
+        editor,
+        event.target
+      )
+      setTimeout(() => {
+        nativePointerFocusRef.current = false
+      })
+    },
+    [editor]
+  )
+
   const handleBlur = useCallback(
     (event: FocusEvent<HTMLDivElement>) => {
       const decision = prepareEditableFocusMouseKernel({
@@ -191,6 +204,16 @@ export const useRuntimeFocusMouseEvents = ({
   )
   const onRuntimeClick = useEditableMouseHandler({ handleMouse: handleClick })
 
+  const handleMouseDownCapture = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      markNativePointerFocus(event)
+    },
+    [markNativePointerFocus]
+  )
+  const onRuntimeMouseDownCapture = useEditableMouseHandler({
+    handleMouse: handleMouseDownCapture,
+  })
+
   const handleMouseDown = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
       const decision = prepareEditableFocusMouseKernel({
@@ -198,13 +221,7 @@ export const useRuntimeFocusMouseEvents = ({
         event,
         inputController,
       })
-      nativePointerFocusRef.current = !isInteractiveInternalTarget(
-        editor,
-        event.target
-      )
-      setTimeout(() => {
-        nativePointerFocusRef.current = false
-      })
+      markNativePointerFocus(event)
       trace.recordKernelEventTrace({
         family: 'mousedown',
         intent: decision.intent,
@@ -218,7 +235,7 @@ export const useRuntimeFocusMouseEvents = ({
         onMouseDown,
       })
     },
-    [editor, inputController, onMouseDown, trace]
+    [editor, inputController, markNativePointerFocus, onMouseDown, trace]
   )
   const onRuntimeMouseDown = useEditableMouseHandler({
     handleMouse: handleMouseDown,
@@ -248,6 +265,7 @@ export const useRuntimeFocusMouseEvents = ({
     onBlur: onRuntimeBlur,
     onClick: onRuntimeClick,
     onFocus: onRuntimeFocus,
+    onMouseDownCapture: onRuntimeMouseDownCapture,
     onMouseDown: onRuntimeMouseDown,
     onMouseUp: onRuntimeMouseUp,
   }

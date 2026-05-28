@@ -172,6 +172,51 @@ export const useTopLevelSelectionIndex = (enabled: boolean) => {
   })
 }
 
+const sameSelectionPaths = (
+  left: readonly Path[] | null,
+  right: readonly Path[] | null
+) =>
+  left === right ||
+  (left != null &&
+    right != null &&
+    left.length === right.length &&
+    left.every(
+      (leftPath, pathIndex) =>
+        leftPath.length === right[pathIndex]!.length &&
+        leftPath.every(
+          (segment, segmentIndex) => segment === right[pathIndex]![segmentIndex]
+        )
+    ))
+
+export const useSelectionPaths = (enabled: boolean) => {
+  const selector = useCallback(
+    (editor: ReactRuntimeEditor) => {
+      if (!enabled) {
+        return null
+      }
+
+      const selection = editor.read((state) => state.selection.get())
+
+      if (!selection) {
+        return null
+      }
+
+      return [selection.anchor.path, selection.focus.path] as const
+    },
+    [enabled]
+  )
+  const shouldUpdate = useCallback(
+    (operations?: readonly Operation[], change?: SnapshotChange) =>
+      enabled && shouldUpdateSelectedTopLevelIndex(operations, change),
+    [enabled]
+  )
+
+  return useEditorSelector(selector, sameSelectionPaths, {
+    profileId: 'selection-paths',
+    shouldUpdate,
+  })
+}
+
 export const usePlaceholderValue = (placeholder?: ReactNode) => {
   const selector = useCallback(
     (editor: ReactRuntimeEditor) =>

@@ -1,6 +1,12 @@
-import { createEditor } from 'slate'
+import {
+  createEditor,
+  createEditorRuntime,
+  createEditorView,
+  type Descendant,
+} from 'slate'
 import { Hotkeys } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
+import { history } from 'slate-history'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -33,6 +39,12 @@ const reactKeyEvent = (nativeEvent: KeyboardEvent) =>
     stopPropagation: vi.fn(),
     target: null,
   }) as any
+
+const paragraph = (text: string) =>
+  ({
+    type: 'paragraph',
+    children: [{ text }],
+  }) satisfies Descendant
 
 describe('keyboard input strategy', () => {
   it('defers iOS Korean Backspace to native input', () => {
@@ -170,6 +182,72 @@ describe('keyboard input strategy', () => {
 
     hasEditableTarget.mockRestore()
     isComposing.mockRestore()
+  })
+
+  it("repairs history focus to the preserved selection root when undoing another root's batch", () => {
+    const runtime = createEditorRuntime({
+      extensions: [history()],
+      initialValue: {
+        roots: {
+          header: [paragraph('header')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+    const headerEditor = createEditorView(runtime, { root: 'header' })
+    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const getMountedViewEditor = vi.fn(() => null)
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(false)
+
+    headerEditor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 'header'.length },
+        focus: { path: [0, 0], offset: 'header'.length },
+      })
+      tx.text.insert('!')
+    })
+    mainEditor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 'body'.length },
+        focus: { path: [0, 0], offset: 'body'.length },
+      })
+      tx.text.insert('?')
+    })
+
+    try {
+      for (let index = 0; index < 2; index++) {
+        const event = reactKeyEvent(keyEvent('z', { ctrlKey: true }))
+
+        applyEditableKeyDown({
+          androidInputManagerRef: { current: null },
+          editor: mainEditor as ReactEditorType,
+          event,
+          forceRender: vi.fn(),
+          getMountedViewEditor,
+          inputController: {} as any,
+          readOnly: false,
+          domStrategyRuntime: null,
+          setComposing: vi.fn(),
+          setExplicitPartialDOMBackedSelection: vi.fn(),
+          partialDOMBackedSelection: false,
+        })
+      }
+
+      expect(getMountedViewEditor).toHaveBeenLastCalledWith('main')
+      expect(mainEditor.read((state) => state.selection.get())).toEqual({
+        anchor: { path: [0, 0], offset: 'body'.length },
+        focus: { path: [0, 0], offset: 'body'.length },
+      })
+      expect(headerEditor.read((state) => state.selection.get())).toBe(null)
+    } finally {
+      hasEditableTarget.mockRestore()
+      isComposing.mockRestore()
+    }
   })
 
   it('runs raw keydown before model fallback', () => {
@@ -403,7 +481,7 @@ describe('keyboard input strategy', () => {
     }
   })
 
-  it('preserves the selection anchor when extending forward across boundary-policy hidden ranges', () => {
+  it('extends to the next visible character when extending forward across boundary-policy hidden ranges', () => {
     const intro = 'Intro visible before hidden blocks.'
     const editor = createEditor({
       initialSelection: {
@@ -471,7 +549,7 @@ describe('keyboard input strategy', () => {
       expect(event.preventDefault).toHaveBeenCalled()
       expect(editor.read((state) => state.selection.get())).toEqual({
         anchor: { offset: 0, path: [0, 0] },
-        focus: { offset: 0, path: [2, 0] },
+        focus: { offset: 1, path: [2, 0] },
       })
     } finally {
       DOMCoverage.clear(editor)
@@ -545,7 +623,7 @@ describe('keyboard input strategy', () => {
       expect(event.preventDefault).toHaveBeenCalled()
       expect(editor.read((state) => state.selection.get())).toEqual({
         anchor: { offset: intro.length, path: [0, 0] },
-        focus: { offset: 0, path: [2, 0] },
+        focus: { offset: 'Next'.length, path: [2, 0] },
       })
     } finally {
       DOMCoverage.clear(editor)
@@ -619,7 +697,7 @@ describe('keyboard input strategy', () => {
       expect(event.preventDefault).toHaveBeenCalled()
       expect(editor.read((state) => state.selection.get())).toEqual({
         anchor: { offset: intro.length, path: [0, 0] },
-        focus: { offset: intro.length, path: [0, 0] },
+        focus: { offset: 'Intro visible before hidden '.length, path: [0, 0] },
       })
     } finally {
       DOMCoverage.clear(editor)

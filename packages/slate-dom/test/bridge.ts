@@ -415,6 +415,95 @@ describe('slate-dom bridge', () => {
     })
   })
 
+  it('resolves event ranges from the nearest visual text line', () => {
+    withDom(({ document, window }) => {
+      const editor = createParagraphEditor(
+        'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+      )
+      const root = mountEditorRoot(editor, document)
+      const owner = document.createElement('span')
+      const leaf = document.createElement('span')
+      const string = document.createElement('span')
+      const domText = document.createTextNode(
+        'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+      )
+      const originalGetBoundingClientRect =
+        window.Range.prototype.getBoundingClientRect
+      const originalGetClientRects = window.Range.prototype.getClientRects
+
+      const createRect = ({
+        height,
+        left,
+        top,
+        width,
+      }: {
+        height: number
+        left: number
+        top: number
+        width: number
+      }) =>
+        ({
+          bottom: top + height,
+          height,
+          left,
+          right: left + width,
+          top,
+          width,
+          x: left,
+          y: top,
+          toJSON: () => ({}),
+        }) as DOMRect
+
+      leaf.setAttribute('data-slate-leaf', 'true')
+      string.setAttribute('data-slate-string', 'true')
+      string.appendChild(domText)
+      leaf.appendChild(string)
+      owner.appendChild(leaf)
+      root.appendChild(owner)
+      bindTextOwner(editor, [0, 0], owner)
+      string.getBoundingClientRect = () =>
+        createRect({ height: 30, left: 0, top: 0, width: 26 })
+
+      window.Range.prototype.getBoundingClientRect = function () {
+        const offset = this.startOffset
+        const isSecondLine = offset > 26
+        const left = isSecondLine ? offset - 26 : offset
+
+        return createRect({
+          height: 10,
+          left,
+          top: isSecondLine ? 20 : 0,
+          width: this.collapsed ? 0 : Math.max(1, this.endOffset - offset),
+        })
+      }
+      window.Range.prototype.getClientRects = function () {
+        return [this.getBoundingClientRect()] as unknown as DOMRectList
+      }
+
+      try {
+        const caretRange = document.createRange()
+        caretRange.setStart(domText, 5)
+        caretRange.collapse(true)
+        ;(document as any).caretRangeFromPoint = () => caretRange
+
+        expect(
+          editor.api.dom.assertEventRange({
+            clientX: 5,
+            clientY: 25,
+            target: string,
+          })
+        ).toEqual({
+          anchor: { path: [0, 0], offset: 31 },
+          focus: { path: [0, 0], offset: 31 },
+        })
+      } finally {
+        window.Range.prototype.getBoundingClientRect =
+          originalGetBoundingClientRect
+        window.Range.prototype.getClientRects = originalGetClientRects
+      }
+    })
+  })
+
   it('treats editor-owned unmapped DOM targets as non-void instead of throwing', () => {
     withDom(({ document }) => {
       const editor = createParagraphEditor()

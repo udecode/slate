@@ -6,10 +6,8 @@ test.describe('selection', () => {
   test('select the correct block when triple clicking', async ({ page }) => {
     // triple clicking the second block (paragraph) shouldn't highlight the
     // quote button
-    for (let i = 0; i < 3; i++) {
-      await page.locator(slateEditor).nth(1).click()
-    }
+    await page.locator(slateEditor).nth(1).click({ clickCount: 3 })
     const quoteButton = page.getByTestId('block-button-block-quote')
-    await expect(quoteButton).toHaveCSS('color', 'rgb(204, 204, 204)')
+    await expect(quoteButton).not.toHaveClass(/is-active/)
   })
 })

@@ -52,7 +52,13 @@ export const getSlateNodeElementByPath = (
 ) => {
   const element = EDITOR_TO_PATH_TO_ELEMENT.get(editor)?.get(pathKey(path))
 
-  return element?.isConnected ? element : null
+  if (!element?.isConnected) {
+    return null
+  }
+
+  return element.getAttribute('data-slate-path') === path.join(',')
+    ? element
+    : null
 }
 
 export const didSyncTextPathToDOM = (editor: Editor, path: readonly number[]) =>

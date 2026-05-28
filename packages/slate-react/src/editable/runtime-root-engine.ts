@@ -41,6 +41,7 @@ import { useEditableRootGlobalLifecycle } from './runtime-root-lifecycle'
 import { useEditableRootSelectionExport } from './runtime-root-selection-export'
 import { useEditableRootSelectionImport } from './runtime-root-selection-import'
 import { readRuntimeSelection } from './runtime-selection-state'
+import { setEditableModelSelectionPreference } from './selection-controller'
 import { useEditableSelectionReconciler } from './selection-reconciler'
 
 type EditableRootCallbackProps = Pick<
@@ -84,6 +85,7 @@ type EditableRootEventBindings = Pick<
   | 'onKeyDown'
   | 'onKeyDownCapture'
   | 'onMouseDown'
+  | 'onMouseDownCapture'
   | 'onMouseUp'
   | 'onPaste'
   | 'ref'
@@ -260,6 +262,31 @@ export const useEditableRootRuntime = ({
     editor,
     inputController,
   })
+  const rootInteractionSelectionBridge = useMemo(
+    () => ({
+      beforeModelSelection: () => {
+        setEditableModelSelectionPreference({
+          inputController,
+          preferModelSelection: true,
+          reason: 'programmatic-export',
+          selectionSource: 'model-owned',
+        })
+        inputController.state.selectionChangeOrigin = 'programmatic-export'
+      },
+      importDOMSelection: () => {
+        setEditableModelSelectionPreference({
+          inputController,
+          preferModelSelection: false,
+          selectionSource: 'dom-current',
+        })
+        inputController.state.selectionChangeOrigin = 'native-user'
+        selectionImportController.syncDOMSelectionFromRuntime()
+        selectionImportController.flushSelectionChange()
+      },
+      syncDOMSelectionToEditor,
+    }),
+    [inputController, selectionImportController, syncDOMSelectionToEditor]
+  )
   const applyInputRules = useCallback(() => false, [])
 
   const eventRuntime = useEditableEventRuntime({
@@ -322,6 +349,7 @@ export const useEditableRootRuntime = ({
       onKeyDown: handlers.onKeyDown,
       onKeyDownCapture: handlers.onKeyDownCapture,
       onMouseDown: handlers.onMouseDown,
+      onMouseDownCapture: handlers.onMouseDownCapture,
       onMouseUp: handlers.onMouseUp,
       onPaste: handlers.onPaste,
       ref: callbackRef,
@@ -344,6 +372,7 @@ export const useEditableRootRuntime = ({
     isComposing,
     receivedUserInput,
     rootRef,
+    rootInteractionSelectionBridge,
     partialDOMBackedSelection,
   }
 }

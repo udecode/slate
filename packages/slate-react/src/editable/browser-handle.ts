@@ -54,6 +54,7 @@ export type SlateBrowserHandle = {
   deleteBackward: () => void
   deleteForward: () => void
   deleteFragment: () => void
+  focus: () => void
   getKernelTrace: () => unknown[]
   getLastCommit: () => unknown
   getElementByPath: (path: Path) => HTMLElement | null
@@ -117,9 +118,14 @@ export const attachSlateBrowserHandle = ({
   isPartialDOMBackedSelection: (selection: Range | null) => boolean
   setExplicitPartialDOMBackedSelection: (nextValue: boolean) => void
 }) => {
+  const getCurrentHandleElement = () =>
+    (editor.api.dom.resolveDOMNode(
+      editor
+    ) as SlateBrowserHandleElement | null) ?? element
+
   const refocusHandleElement = () => {
     const focusHandleElement = () => {
-      element.focus({ preventScroll: true })
+      getCurrentHandleElement().focus({ preventScroll: true })
     }
 
     focusHandleElement()
@@ -217,6 +223,17 @@ export const attachSlateBrowserHandle = ({
     },
     deleteFragment: () => {
       runCommand({ kind: 'delete-fragment' })
+    },
+    focus: () => {
+      setEditableModelSelectionPreference({
+        inputController,
+        preferModelSelection: true,
+        reason: 'browser-handle',
+        selectionSource: 'model-owned',
+      })
+      inputController.state.selectionChangeOrigin = 'browser-handle'
+      editor.api.dom.focus()
+      forceRender()
     },
     getKernelTrace: () => [...getEditableKernelTrace(editor)],
     getLastCommit: () => Editor.getLastCommit(editor),
@@ -354,12 +371,15 @@ export const attachSlateBrowserHandle = ({
       runCommand({ kind: 'select-all' })
     },
     selectRange: (selection) => {
+      const previousIsUpdatingSelection =
+        inputController.state.isUpdatingSelection
       setEditableModelSelectionPreference({
         inputController,
         preferModelSelection: true,
         reason: 'browser-handle',
         selectionSource: 'model-owned',
       })
+      inputController.state.isUpdatingSelection = true
       inputController.state.selectionChangeOrigin = 'browser-handle'
       editor.update((tx) => {
         tx.selection.set(selection)
@@ -367,6 +387,25 @@ export const attachSlateBrowserHandle = ({
       setExplicitPartialDOMBackedSelection(
         isPartialDOMBackedSelection(selection)
       )
+      refocusHandleElement()
+      const syncDOMSelection = () => {
+        syncEditableDOMSelectionToEditor({
+          editor,
+          scrollSelectionIntoView: () => {},
+          partialDOMBackedSelection: isPartialDOMBackedSelection(selection),
+          state: inputController.state,
+        })
+      }
+
+      syncDOMSelection()
+      queueMicrotask(syncDOMSelection)
+      setTimeout(syncDOMSelection)
+      setTimeout(() => {
+        if (inputController.state.selectionChangeOrigin === 'browser-handle') {
+          inputController.state.isUpdatingSelection =
+            previousIsUpdatingSelection
+        }
+      })
     },
     setViewSelection: (selection) => {
       writeSlateViewSelection(

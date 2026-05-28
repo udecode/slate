@@ -796,7 +796,7 @@ test('selection bridge authority has an explicit remaining inventory', () => {
     /\b(syncEditorSelectionFromDOM|syncEditableDOMSelectionToEditor)\(/g,
     {
       'packages/slate-react/src/editable/browser-handle.ts': {
-        count: 2,
+        count: 3,
         next: 'explicit-bridge',
         owner: 'Browser proof handle',
         rationale:
@@ -884,7 +884,7 @@ test('transform registry access is fenced to tx and extension override bridges',
 test('direct force render calls have explicit runtime owners', () => {
   expectAuthorityInventory(/\bforceRender\(/g, {
     'packages/slate-react/src/editable/browser-handle.ts': {
-      count: 5,
+      count: 6,
       next: 'explicit-bridge',
       owner: 'Browser proof handle',
       rationale:

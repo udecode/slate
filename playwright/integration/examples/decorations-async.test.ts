@@ -46,7 +46,7 @@ test.describe('async decorations', () => {
   for (const source of ['prop', 'hook'] as const) {
     test(`keeps the caret at the typed end when delayed ${source} decorations restructure text`, async ({
       page,
-    }) => {
+    }, testInfo) => {
       const editor = await openExample(page, 'decorations-async', {
         query: source === 'hook' ? { source } : undefined,
         ready: {
@@ -64,7 +64,11 @@ test.describe('async decorations', () => {
       })
       await editor.focus()
 
-      await page.keyboard.type(INSERTED_TEXT)
+      if (testInfo.project.name === 'mobile') {
+        await editor.insertText(INSERTED_TEXT)
+      } else {
+        await page.keyboard.type(INSERTED_TEXT)
+      }
 
       await editor.assert.selection({
         anchor: { path: [0, 0], offset: FINAL_CARET_OFFSET },

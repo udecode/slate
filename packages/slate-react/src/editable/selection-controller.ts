@@ -1,5 +1,8 @@
 import type { RefObject } from 'react'
 import {
+  type Descendant,
+  NodeApi,
+  PathApi,
   type Point,
   PointApi,
   type Range,
@@ -7,6 +10,7 @@ import {
   type RootKey,
   type Selection,
   type TargetFreshnessRequest,
+  TextApi,
 } from 'slate'
 import {
   containsShadowAware,
@@ -21,6 +25,7 @@ import {
   isDOMNode,
   isDOMText,
 } from 'slate-dom'
+import { DOMCoverage } from 'slate-dom/internal'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import {
   getSlateNodeElementByPath,
@@ -180,9 +185,11 @@ const isKnownContentRootOwner = (
 const resolveProjectedDOMSelectionEndpoint = ({
   node,
   offset,
+  owners,
 }: {
   node: globalThis.Node | null
   offset: number
+  owners: readonly ContentRootOwner[]
 }): ProjectedDOMSelectionEndpoint | null => {
   const editorElement = getDOMEditorElementForNode(node)
   const editor = editorElement
@@ -216,6 +223,29 @@ const resolveProjectedDOMSelectionEndpoint = ({
     childRoot: root,
     node,
   })
+  const shellOwner =
+    root === MAIN_ROOT_KEY
+      ? owners.find(
+          (candidate) =>
+            candidate.ownerRoot === root &&
+            (PathApi.equals(candidate.ownerPath, slateRange.anchor.path) ||
+              PathApi.isAncestor(candidate.ownerPath, slateRange.anchor.path))
+        )
+      : null
+
+  if (shellOwner) {
+    const point = getRootEdgePoint(editor, shellOwner.childRoot, {
+      edge: slateRange.anchor.offset === 0 ? 'start' : 'end',
+    })
+
+    if (point) {
+      return {
+        owner: shellOwner,
+        point,
+        root: shellOwner.childRoot,
+      }
+    }
+  }
 
   return {
     ...(owner ? { owner } : {}),
@@ -226,6 +256,58 @@ const resolveProjectedDOMSelectionEndpoint = ({
     root,
   }
 }
+
+const getDescendantEdgePoint = (
+  nodes: readonly Descendant[],
+  {
+    edge,
+    path = [],
+  }: {
+    edge: 'end' | 'start'
+    path?: number[]
+  }
+): Point | null => {
+  const orderedEntries =
+    edge === 'start'
+      ? Array.from(nodes.entries())
+      : Array.from(nodes.entries()).reverse()
+
+  for (const [index, node] of orderedEntries) {
+    const currentPath = path.concat(index)
+
+    if (TextApi.isText(node)) {
+      return {
+        offset: edge === 'start' ? 0 : node.text.length,
+        path: currentPath,
+      }
+    }
+
+    if (NodeApi.isElement(node)) {
+      const point = getDescendantEdgePoint(node.children, {
+        edge,
+        path: currentPath,
+      })
+
+      if (point) {
+        return point
+      }
+    }
+  }
+
+  return null
+}
+
+const getRootEdgePoint = (
+  editor: ReactRuntimeEditor,
+  root: RootKey,
+  { edge }: { edge: 'end' | 'start' }
+): Point | null =>
+  editor.read((state) => {
+    const children = state.value.get().roots[root] ?? []
+    const point = getDescendantEdgePoint(children, { edge })
+
+    return point ? { ...point, root } : null
+  })
 
 const resolveProjectedDOMSelection = ({
   domSelection,
@@ -254,13 +336,16 @@ const resolveProjectedDOMSelection = ({
     return null
   }
 
+  const owners = findContentRootOwners(editor)
   const anchor = resolveProjectedDOMSelectionEndpoint({
     node: domSelection.anchorNode,
     offset: domSelection.anchorOffset,
+    owners,
   })
   const focus = resolveProjectedDOMSelectionEndpoint({
     node: domSelection.focusNode,
     offset: domSelection.focusOffset,
+    owners,
   })
 
   if (!anchor || !focus) {
@@ -274,7 +359,6 @@ const resolveProjectedDOMSelection = ({
     return null
   }
 
-  const owners = findContentRootOwners(editor)
   const anchorOwner = anchor.owner
     ? owners.find((owner) => isSameContentRootOwner(owner, anchor.owner))
     : null
@@ -427,6 +511,47 @@ const shouldKeepFullDocumentSelectionModelBacked = ({
         MODEL_BACKED_FULL_DOCUMENT_CHILD_THRESHOLD) &&
     isFullDocumentSelection(editor, selection)
   )
+}
+
+const collapseNativeSelectionForViewSelection = ({
+  domSelection,
+  editor,
+  selection,
+  state,
+}: {
+  domSelection: globalThis.Selection
+  editor: ReactRuntimeEditor
+  selection: Range
+  state: {
+    isUpdatingSelection: boolean
+    selectionChangeOrigin?: SelectionChangeOrigin | null
+  }
+}) => {
+  const point = RangeApi.start(selection)
+  const domRange = ReactEditor.resolveDOMRange(editor, {
+    anchor: point,
+    focus: point,
+  })
+
+  state.isUpdatingSelection = true
+  state.selectionChangeOrigin = 'programmatic-export'
+
+  try {
+    if (domRange) {
+      domSelection.setBaseAndExtent(
+        domRange.startContainer,
+        domRange.startOffset,
+        domRange.startContainer,
+        domRange.startOffset
+      )
+    } else {
+      domSelection.removeAllRanges()
+    }
+  } finally {
+    setTimeout(() => {
+      state.isUpdatingSelection = false
+    })
+  }
 }
 
 const createDOMSelectionRangeFromEndpoints = ({
@@ -882,6 +1007,7 @@ export const applyEditableDOMSelectionChange = ({
       reason: 'partial-dom-backed',
       selectionSource: 'model-owned',
     })
+    domSelection.removeAllRanges()
     return
   }
 
@@ -931,10 +1057,20 @@ export const applyEditableDOMSelectionChange = ({
     return
   }
 
+  const currentSelection = readLiveSelection(editor)
+  const modelSelectionHasDOMCoverage =
+    selectionChangeOrigin === 'programmatic-export' &&
+    currentSelection &&
+    DOMCoverage.getBoundariesForRange(editor, currentSelection).length > 0
   const shouldImportChangedExpandedSelection =
     domSelectionBelongsToEditor &&
+    !modelSelectionHasDOMCoverage &&
+    !(
+      state.isUpdatingSelection &&
+      selectionChangeOrigin === 'programmatic-export'
+    ) &&
     shouldImportChangedExpandedDOMSelection({
-      currentSelection: readLiveSelection(editor),
+      currentSelection,
       nextSelection: range,
       selectionChangeOrigin,
     })
@@ -1060,6 +1196,16 @@ export const syncEditableDOMSelectionToEditor = ({
       return
     }
 
+    if (readSlateViewSelection(editor)) {
+      collapseNativeSelectionForViewSelection({
+        domSelection,
+        editor,
+        selection,
+        state,
+      })
+      return
+    }
+
     if (
       shouldKeepFullDocumentSelectionModelBacked({
         editor,
@@ -1074,6 +1220,13 @@ export const syncEditableDOMSelectionToEditor = ({
       applyDOMCoverageSelectionPolicy({
         domSelection,
         editor,
+        onDOMSelectionWillChange: () => {
+          state.isUpdatingSelection = true
+          state.selectionChangeOrigin = 'programmatic-export'
+          setTimeout(() => {
+            state.isUpdatingSelection = false
+          })
+        },
         selection,
       })
     ) {

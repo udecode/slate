@@ -1,10 +1,11 @@
 import type { KeyboardEvent } from 'react'
-import { type Range, RangeApi } from 'slate'
+import { type MoveUnit, type Point, type Range, RangeApi } from 'slate'
 import { Hotkeys } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { writeSlateViewSelection } from '../view-selection'
 import type { EditableRepairRequest } from './mutation-controller'
+import { Editor } from './runtime-editor-api'
 
 export type EditableCaretMovementResult = {
   handled: boolean
@@ -41,11 +42,13 @@ const getBoundarySelectionIds = (
   )
 
 const restoreSelectionIfMovementEnteredBoundary = ({
+  boundarySkipUnit,
   editor,
   preserveAnchorOnBoundarySkip,
   previousSelection,
   reverse,
 }: {
+  boundarySkipUnit?: MoveUnit
   editor: ReactRuntimeEditor
   preserveAnchorOnBoundarySkip: boolean
   previousSelection: Range | null
@@ -86,27 +89,86 @@ const restoreSelectionIfMovementEnteredBoundary = ({
     { reverse }
   )
 
+  const focusPoint =
+    skipPoint && preserveAnchorOnBoundarySkip && boundarySkipUnit
+      ? getPointPastBoundarySkip({
+          editor,
+          point: skipPoint,
+          reverse,
+          unit: boundarySkipUnit,
+        })
+      : skipPoint
+
   editor.update((tx) => {
     tx.selection.set(
-      skipPoint
+      focusPoint
         ? {
             anchor: preserveAnchorOnBoundarySkip
               ? previousSelection.anchor
-              : skipPoint,
-            focus: skipPoint,
+              : focusPoint,
+            focus: focusPoint,
           }
         : previousSelection
     )
   })
 }
 
+const getPointPastBoundarySkip = ({
+  editor,
+  point,
+  reverse,
+  unit,
+}: {
+  editor: ReactRuntimeEditor
+  point: Point
+  reverse: boolean
+  unit: MoveUnit
+}): Point => {
+  let current = point
+
+  for (let index = 0; index < 128; index++) {
+    const next = reverse
+      ? Editor.before(editor, current, { unit })
+      : Editor.after(editor, current, { unit })
+
+    if (!next) {
+      return current
+    }
+
+    const boundary = DOMCoverage.getBoundaryForPoint(editor, next)
+
+    if (boundary?.selectionPolicy !== 'boundary') {
+      return next
+    }
+
+    const outside = DOMCoverage.getPointOutsideBoundary(
+      editor,
+      boundary,
+      next,
+      {
+        reverse,
+      }
+    )
+
+    if (!outside) {
+      return current
+    }
+
+    current = outside
+  }
+
+  return current
+}
+
 const moveSelectionAndRespectBoundaries = ({
+  boundarySkipUnit,
   editor,
   move,
   preserveAnchorOnBoundarySkip = false,
   reverse,
   selection,
 }: {
+  boundarySkipUnit?: MoveUnit
   editor: ReactRuntimeEditor
   move: Parameters<ReactRuntimeEditor['update']>[0]
   preserveAnchorOnBoundarySkip?: boolean
@@ -116,6 +178,7 @@ const moveSelectionAndRespectBoundaries = ({
   writeSlateViewSelection(editor, null)
   editor.update(move)
   restoreSelectionIfMovementEnteredBoundary({
+    boundarySkipUnit,
     editor,
     preserveAnchorOnBoundarySkip,
     previousSelection: selection,
@@ -176,6 +239,7 @@ export const applyEditableCaretMovement = ({
           unit: 'line',
         })
       },
+      boundarySkipUnit: 'line',
       preserveAnchorOnBoundarySkip: true,
       reverse: true,
       selection,
@@ -190,6 +254,7 @@ export const applyEditableCaretMovement = ({
       move: (tx) => {
         tx.selection.move({ edge: 'focus', unit: 'line' })
       },
+      boundarySkipUnit: 'line',
       preserveAnchorOnBoundarySkip: true,
       reverse: false,
       selection,
@@ -207,6 +272,7 @@ export const applyEditableCaretMovement = ({
           reverse: !isRTL,
         })
       },
+      boundarySkipUnit: 'character',
       preserveAnchorOnBoundarySkip: true,
       reverse: !isRTL,
       selection,
@@ -224,6 +290,7 @@ export const applyEditableCaretMovement = ({
           reverse: isRTL,
         })
       },
+      boundarySkipUnit: 'character',
       preserveAnchorOnBoundarySkip: true,
       reverse: isRTL,
       selection,
@@ -242,6 +309,7 @@ export const applyEditableCaretMovement = ({
           unit: 'word',
         })
       },
+      boundarySkipUnit: 'word',
       preserveAnchorOnBoundarySkip: true,
       reverse: !isRTL,
       selection,
@@ -260,6 +328,7 @@ export const applyEditableCaretMovement = ({
           unit: 'word',
         })
       },
+      boundarySkipUnit: 'word',
       preserveAnchorOnBoundarySkip: true,
       reverse: isRTL,
       selection,

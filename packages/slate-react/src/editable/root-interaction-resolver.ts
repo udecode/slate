@@ -5,6 +5,7 @@ const INTERACTIVE_CHROME_TARGET =
 const NATIVE_EDITABLE_TARGET =
   '[data-slate-string], [data-slate-zero-width], [data-slate-leaf], [data-slate-node="text"], [data-slate-node="element"]'
 const EDITABLE_ROOT_TARGET = '[data-slate-editor="true"]'
+const MAIN_ROOT_KEY = 'main'
 
 export type RootInteractionTarget =
   | { kind: 'external' }
@@ -19,7 +20,7 @@ export type RootInteractionTarget =
 
 export type RootInteractionMouseDownAction =
   | { type: 'ignore' }
-  | { type: 'focus-native-editable' }
+  | { type: 'place-native-editable' }
   | { preventDefault: true; type: 'activate-root' }
   | { preventDefault: true; type: 'place-editable-root' }
 
@@ -69,6 +70,22 @@ const findEditableRootTarget = (
 const isCurrentTargetEditableRoot = (currentTarget: HTMLElement) =>
   currentTarget.matches(EDITABLE_ROOT_TARGET)
 
+const isSameRootChromeEditableSurface = ({
+  currentTarget,
+  editableRoot,
+  target,
+}: {
+  currentTarget: HTMLElement
+  editableRoot: HTMLElement
+  target: Element
+}) => {
+  const chromeRoot = currentTarget.getAttribute('data-slate-root-chrome')
+  const editableRootKey =
+    editableRoot.getAttribute('data-slate-root') ?? MAIN_ROOT_KEY
+
+  return target === editableRoot && chromeRoot === editableRootKey
+}
+
 export const isRootInteractionEditableFocused = (target: HTMLElement) =>
   target.ownerDocument.activeElement === target
 
@@ -86,6 +103,28 @@ export const resolveRootInteractionTarget = ({
   }
 
   const editableRoot = findEditableRootTarget(currentTarget, element)
+
+  if (
+    !isCurrentTargetEditableRoot(currentTarget) &&
+    editableRoot &&
+    editableRoot !== currentTarget
+  ) {
+    if (
+      isSameRootChromeEditableSurface({
+        currentTarget,
+        editableRoot,
+        target: element,
+      })
+    ) {
+      return {
+        editableRoot,
+        kind: 'editable-root',
+        target: editableRoot,
+      }
+    }
+
+    return { kind: 'interactive-descendant', target: element }
+  }
 
   if (
     isCurrentTargetEditableRoot(currentTarget) &&
@@ -131,7 +170,7 @@ export const resolveRootInteractionMouseDown = ({
 
   if (target.kind === 'native-editable') {
     if (target.editableRoot && editableRootFocused === false) {
-      return { type: 'focus-native-editable' }
+      return { type: 'place-native-editable' }
     }
 
     return { type: 'ignore' }
@@ -167,14 +206,17 @@ export const resolveRootInteractionMouseUp = ({
     return { type: 'ignore' }
   }
 
-  if (pendingAction.type === 'focus-native-editable') {
-    return { type: 'ignore' }
-  }
-
   if (pendingAction.type === 'place-editable-root') {
     return {
       selection: 'end',
       type: 'focus-root',
+    }
+  }
+
+  if (pendingAction.type === 'place-native-editable' && eventRange) {
+    return {
+      range: eventRange,
+      type: 'set-selection',
     }
   }
 

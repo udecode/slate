@@ -394,6 +394,87 @@ describe('content root navigation', () => {
     })
   })
 
+  it('promotes an expanded local selection at a content-root boundary into a projected selection', () => {
+    const { bodyEditor, mainEditor } = createFixture()
+    const event = keyEvent('ArrowRight', { shiftKey: true })
+
+    mainEditor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 'Before'.length - 1 },
+        focus: { path: [0, 0], offset: 'Before'.length },
+      })
+    })
+
+    const result = applyContentRootViewSelection({
+      editor: mainEditor,
+      event,
+      getContentRootOwnerViewEditor: (candidate) =>
+        candidate.ownerPath[0] === 1 ? bodyEditor : null,
+      getMountedViewEditor: (root) =>
+        root === 'card:body' ? bodyEditor : mainEditor,
+      isRTL: false,
+      selection: mainEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(true)
+    expect(event.preventDefault).toHaveBeenCalled()
+    expect(readSlateViewSelection(mainEditor)).toMatchObject({
+      anchor: { point: { path: [0, 0], offset: 'Before'.length - 1 } },
+      focus: {
+        owner: {
+          childRoot: 'card:body',
+          ownerPath: [1],
+          ownerRoot: 'main',
+        },
+        point: { path: [0, 0], root: 'card:body', offset: 1 },
+      },
+    })
+  })
+
+  it('extends a projected selection to the content-root block end with command-shift-right', () => {
+    const { bodyEditor, mainEditor } = createFixture()
+    const event = keyEvent('ArrowRight', { metaKey: true, shiftKey: true })
+    const owner = {
+      childRoot: 'card:body',
+      ownerPath: [1],
+      ownerRoot: 'main',
+    } as const
+    const graph = createContentRootProjectionGraph(mainEditor, [owner])
+
+    selectPoint(mainEditor, { path: [0, 0], offset: 0 })
+    writeSlateViewSelection(
+      mainEditor,
+      createSlateViewSelection(graph, {
+        anchor: { point: { path: [0, 0], offset: 0 } },
+        focus: {
+          owner,
+          point: { path: [0, 0], root: 'card:body', offset: 2 },
+        },
+      })
+    )
+
+    const result = applyContentRootViewSelection({
+      editor: mainEditor,
+      event,
+      getContentRootOwnerViewEditor: (candidate) =>
+        candidate.ownerPath[0] === 1 ? bodyEditor : null,
+      getMountedViewEditor: (root) =>
+        root === 'card:body' ? bodyEditor : mainEditor,
+      isRTL: false,
+      selection: mainEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(true)
+    expect(event.preventDefault).toHaveBeenCalled()
+    expect(readSlateViewSelection(mainEditor)).toMatchObject({
+      anchor: { point: { path: [0, 0], offset: 0 } },
+      focus: {
+        owner,
+        point: { path: [0, 0], root: 'card:body', offset: 'Inside'.length },
+      },
+    })
+  })
+
   it('enters the content root from a selected owner placeholder', () => {
     const { bodyEditor, mainEditor } = createFixture()
     const event = keyEvent('Enter')

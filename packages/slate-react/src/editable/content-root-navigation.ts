@@ -34,7 +34,7 @@ import {
 import { Editor, getEditorExtensionRegistry } from './runtime-editor-api'
 
 type ContentRootNavigationDirection = 'backward' | 'forward'
-type ContentRootNavigationAxis = 'horizontal' | 'vertical' | 'word'
+type ContentRootNavigationAxis = 'horizontal' | 'line' | 'vertical' | 'word'
 
 type ContentRootNavigationAction =
   | {
@@ -333,6 +333,68 @@ const toProjectedPoint = ({
   ...(owner ? { owner } : {}),
   point: rootSlatePoint(point, root),
 })
+
+const collapseNativeSelectionForProjectedSelection = (
+  editor: ReactRuntimeEditor,
+  selection: Range | null
+) => {
+  if (!selection) {
+    return
+  }
+
+  const domApi = editor.api.dom
+
+  if (!domApi) {
+    return
+  }
+
+  const { document } = domApi.getWindow()
+  const domSelection = document.getSelection()
+  const point = selection.anchor
+  const range = {
+    anchor: point,
+    focus: point,
+  }
+  const domRange = domApi.resolveDOMRange(range)
+
+  if (!domSelection) {
+    return
+  }
+
+  if (!domRange) {
+    domSelection.removeAllRanges()
+    return
+  }
+
+  domSelection.setBaseAndExtent(
+    domRange.startContainer,
+    domRange.startOffset,
+    domRange.startContainer,
+    domRange.startOffset
+  )
+}
+
+const collapseModelSelectionForProjectedSelection = (
+  editor: ReactRuntimeEditor,
+  selection: Range | null
+) => {
+  if (!selection) {
+    return
+  }
+
+  const range = {
+    anchor: selection.anchor,
+    focus: selection.anchor,
+  }
+
+  if (RangeApi.equals(selection, range)) {
+    return
+  }
+
+  editor.update((tx) => {
+    tx.selection.set(range)
+  })
+}
 
 const getSiblingBoundary = ({
   children,
@@ -1232,7 +1294,7 @@ const getRootLocalHorizontalSelectionTarget = ({
   point: Point
   root: RootKey
   sourceEditor: ReactRuntimeEditor
-  unit?: 'word'
+  unit?: 'line' | 'word'
 }): ContentRootNavigationTarget | null => {
   const nextPoint = sourceEditor.read((state) =>
     direction === 'forward'
@@ -1248,6 +1310,58 @@ const getRootLocalHorizontalSelectionTarget = ({
     point: rootSlatePoint(nextPoint, root),
     root,
   }
+}
+
+const getHorizontalSelectionUnit = (
+  axis: ContentRootNavigationAxis
+): 'line' | 'word' | undefined =>
+  axis === 'line' || axis === 'word' ? axis : undefined
+
+const advanceHorizontalBoundarySelectionTarget = ({
+  action,
+  editor,
+  getContentRootOwnerViewEditor,
+  getMountedViewEditor,
+  target,
+}: {
+  action: Extract<ContentRootViewSelectionAction, { kind: 'move' }>
+  editor: ContentRootNavigationEditor
+  getContentRootOwnerViewEditor?: (
+    owner: ContentRootOwner
+  ) => ReactRuntimeEditor | null
+  getMountedViewEditor?: (root: RootKey) => ReactRuntimeEditor | null
+  target: ContentRootNavigationTarget
+}): ContentRootNavigationTarget => {
+  if (action.axis === 'vertical') {
+    return target
+  }
+
+  const sourceEditor = getProjectedPointViewEditor({
+    editor,
+    getContentRootOwnerViewEditor,
+    getMountedViewEditor,
+    owner: target.owner,
+    root: target.root,
+  })
+
+  if (!sourceEditor) {
+    return target
+  }
+
+  const rootLocalTarget = getRootLocalHorizontalSelectionTarget({
+    direction: action.direction,
+    point: target.point,
+    root: target.root,
+    sourceEditor,
+    unit: getHorizontalSelectionUnit(action.axis),
+  })
+
+  return rootLocalTarget && rootLocalTarget.root === target.root
+    ? {
+        ...rootLocalTarget,
+        ...(target.owner ? { owner: target.owner } : {}),
+      }
+    : target
 }
 
 const getTextPointAtPreferredOffset = (
@@ -1435,7 +1549,13 @@ const getContentRootMovementTarget = ({
         : null
 
   if (boundaryTarget) {
-    return boundaryTarget
+    return advanceHorizontalBoundarySelectionTarget({
+      action,
+      editor,
+      getContentRootOwnerViewEditor,
+      getMountedViewEditor,
+      target: boundaryTarget,
+    })
   }
 
   if (!allowRootLocalMovement) {
@@ -1467,7 +1587,7 @@ const getContentRootMovementTarget = ({
           point,
           root: currentRoot,
           sourceEditor,
-          unit: action.axis === 'word' ? 'word' : undefined,
+          unit: getHorizontalSelectionUnit(action.axis),
         })
 
   return rootLocalTarget &&
@@ -1612,6 +1732,24 @@ const getProjectedSelectionAction = ({
     return { axis: 'vertical', direction: 'forward', kind: 'move' }
   }
 
+  if (event.shiftKey && event.metaKey && !event.altKey && !event.ctrlKey) {
+    if (event.key === 'ArrowLeft') {
+      return {
+        axis: 'line',
+        direction: isRTL ? 'forward' : 'backward',
+        kind: 'move',
+      }
+    }
+
+    if (event.key === 'ArrowRight') {
+      return {
+        axis: 'line',
+        direction: isRTL ? 'backward' : 'forward',
+        kind: 'move',
+      }
+    }
+  }
+
   if (!event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) {
     if (event.shiftKey && event.metaKey && !event.altKey && !event.ctrlKey) {
       if (event.key === 'ArrowUp') {
@@ -1688,15 +1826,24 @@ export const applyContentRootViewSelection = ({
   const currentOwner = viewSelection
     ? (viewSelection.focus.owner ?? null)
     : currentViewOwner
-  const point = viewSelection?.focus.point ?? selection?.anchor
+  const point = viewSelection?.focus.point ?? selection?.focus
   const currentRoot = viewSelection
     ? getSlateViewBoundaryPointRoot(viewSelection.focus)
     : (point?.root ?? editor.read((state) => state.view.root()))
+  const selectionAnchorRoot =
+    selection && !viewSelection
+      ? (selection.anchor.root ?? currentRoot)
+      : currentRoot
+  const selectionFocusRoot =
+    selection && !viewSelection
+      ? (selection.focus.root ?? currentRoot)
+      : currentRoot
 
-  if (
-    !point ||
-    (!viewSelection && (!selection || !RangeApi.isCollapsed(selection)))
-  ) {
+  if (!point || (!viewSelection && !selection)) {
+    return { handled: false }
+  }
+
+  if (!viewSelection && selectionAnchorRoot !== selectionFocusRoot) {
     return { handled: false }
   }
 
@@ -1737,15 +1884,15 @@ export const applyContentRootViewSelection = ({
     toProjectedPoint({
       owner:
         isKnownContentRootOwner(owners, currentOwner) &&
-        currentOwner.childRoot === currentRoot
+        currentOwner.childRoot === selectionAnchorRoot
           ? currentOwner
           : getOwnerForRoot({
-              currentRoot,
+              currentRoot: selectionAnchorRoot,
               getActiveContentRootOwner,
               owners,
             }),
       point: selection!.anchor,
-      root: currentRoot,
+      root: selectionAnchorRoot,
     })
 
   writeSlateViewSelection(
@@ -1759,6 +1906,8 @@ export const applyContentRootViewSelection = ({
       }),
     })
   )
+  collapseModelSelectionForProjectedSelection(editor, selection)
+  collapseNativeSelectionForProjectedSelection(editor, selection)
 
   event.preventDefault()
 

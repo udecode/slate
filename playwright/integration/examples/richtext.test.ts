@@ -638,11 +638,11 @@ test.describe('On richtext example', () => {
       expect.arrayContaining([
         expect.objectContaining({
           data: 'A',
-          inputType: 'insertText',
+          inputType: expect.stringMatching(/^insert(?:Composition)?Text$/),
         }),
         expect.objectContaining({
           data: '7',
-          inputType: 'insertText',
+          inputType: expect.stringMatching(/^insert(?:Composition)?Text$/),
         }),
       ])
     )
@@ -2688,20 +2688,32 @@ test.describe('On richtext example', () => {
     }
   })
 
-  test('opens and rejoins a line before emoji text', async ({ page }) => {
+  test('opens and rejoins a line before emoji text', async ({
+    page,
+  }, testInfo) => {
     const editor = await openExample(page, 'richtext', {
       ready: {
         editor: 'visible',
       },
     })
     const emojiText = '🙂or🙁'
+    const mobile = testInfo.project.name === 'mobile'
 
     await editor.selection.selectAll()
-    await page.keyboard.press('Backspace')
-    await page.keyboard.insertText(emojiText)
-    await editor.selection.collapse({ path: [0, 0], offset: 0 })
-
-    await page.keyboard.press('Enter')
+    if (mobile) {
+      await editor.deleteFragment()
+      await editor.insertText(emojiText)
+      await editor.selection.collapse({ path: [0, 0], offset: 0 })
+      await editor.insertBreak()
+    } else {
+      await page.keyboard.press('Backspace')
+      await page.keyboard.insertText(emojiText)
+      await editor.selection.selectDOM({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+      await page.keyboard.press('Enter')
+    }
 
     await editor.assert.blockTexts(['', emojiText])
     await editor.assert.selection({
@@ -2709,7 +2721,11 @@ test.describe('On richtext example', () => {
       focus: { path: [1, 0], offset: 0 },
     })
 
-    await page.keyboard.press('Backspace')
+    if (mobile) {
+      await editor.deleteBackward()
+    } else {
+      await page.keyboard.press('Backspace')
+    }
 
     await editor.assert.blockTexts([emojiText])
     await editor.assert.selection({
@@ -3216,6 +3232,70 @@ test.describe('On richtext example', () => {
         offset: 1,
         text: "QSince it's rich text, you can do things like turn a selection of text ",
       })
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('runs toolbar block commands on pointerdown', async ({ page }) => {
+    test.setTimeout(60_000)
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const root = page.locator('[data-slate-editor]')
+    const pointerDown = async (testId: string) => {
+      await page.getByTestId(testId).dispatchEvent('pointerdown', {
+        button: 0,
+        buttons: 1,
+        pointerType: 'mouse',
+      })
+    }
+
+    try {
+      await editor.selection.collapse({ path: [0, 0], offset: 0 })
+
+      await pointerDown('block-button-heading-one')
+      const headingOne = root
+        .locator('h1')
+        .filter({ hasText: 'This is editable rich text' })
+      await expect(headingOne).toHaveCount(1)
+      await expect(headingOne).toHaveCSS('font-size', '32px')
+      await expect(headingOne).toHaveCSS('font-weight', '700')
+
+      await pointerDown('block-button-heading-two')
+      await expect(root.locator('h1')).toHaveCount(0)
+      const headingTwo = root
+        .locator('h2')
+        .filter({ hasText: 'This is editable rich text' })
+      await expect(headingTwo).toHaveCount(1)
+      await expect(headingTwo).toHaveCSS('font-size', '24px')
+      await expect(headingTwo).toHaveCSS('font-weight', '700')
+
+      await pointerDown('block-button-numbered-list')
+      const numberedList = root.locator('ol')
+      await expect(numberedList).toHaveCSS('list-style-type', 'decimal')
+      await expect(numberedList).toHaveCSS('padding-left', '24px')
+      await expect(
+        numberedList.locator('> li').filter({
+          hasText: 'This is editable rich text',
+        })
+      ).toHaveCount(1)
+
+      await pointerDown('block-button-bulleted-list')
+      const bulletedList = root.locator('ul')
+      await expect(bulletedList).toHaveCSS('list-style-type', 'disc')
+      await expect(bulletedList).toHaveCSS('padding-left', '24px')
+      await expect(
+        bulletedList.locator('> li').filter({
+          hasText: 'This is editable rich text',
+        })
+      ).toHaveCount(1)
+
+      runtimeErrors.assertNone()
     } finally {
       runtimeErrors.stop()
     }

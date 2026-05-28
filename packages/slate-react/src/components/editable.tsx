@@ -31,6 +31,7 @@ import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect
 import { useRequiredSlateRuntimeContext } from '../hooks/use-slate-runtime'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
+import { useSlateViewSelectionPresence } from '../view-selection-decoration'
 import { RestoreDOM } from './restore-dom/restore-dom'
 
 /**
@@ -275,28 +276,18 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     disableDefaultStyles = false,
     onFocusCapture: propsOnFocusCapture,
     onMouseDownCapture: propsOnMouseDownCapture,
+    onMouseMoveCapture: propsOnMouseMoveCapture,
     onMouseUpCapture: propsOnMouseUpCapture,
     ...attributes
   } = editableProps
   const editor = useEditor<ReactRuntimeEditor>()
   const editorRoot = editor.read((state) => state.view.root())
+  const hasViewSelection = useSlateViewSelectionPresence(editor)
   const { getLastSelectionForRoot, getMountedViewEditor, setActiveViewEditor } =
     useRequiredSlateRuntimeContext()
   const activateRootView = useCallback(() => {
     setActiveViewEditor(editor, editorRoot)
   }, [editor, editorRoot, setActiveViewEditor])
-  const rootInteraction = useRootInteractionController({
-    disabled: readOnly,
-    editor,
-    getLastSelectionForRoot,
-    getMountedViewEditor,
-    root: editorRoot,
-    selection: 'restore',
-  })
-  const {
-    onMouseDownCapture: onRootMouseDownCapture,
-    onMouseUpCapture: onRootMouseUpCapture,
-  } = rootInteraction
   const rootRuntime = useEditableRootRuntime({
     autoFocus,
     callbacks: attributes,
@@ -313,8 +304,25 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     isComposing,
     receivedUserInput,
     rootRef: ref,
+    rootInteractionSelectionBridge,
     partialDOMBackedSelection,
   } = rootRuntime
+  const rootInteraction = useRootInteractionController({
+    disabled: readOnly,
+    editor,
+    getLastSelectionForRoot,
+    getMountedViewEditor,
+    root: editorRoot,
+    selection: 'restore',
+    selectionBridge: rootInteractionSelectionBridge,
+  })
+  const {
+    onMouseDownCapture: onRootMouseDownCapture,
+    onMouseMoveCapture: onRootMouseMoveCapture,
+    onMouseUpCapture: onRootMouseUpCapture,
+  } = rootInteraction
+  const { onMouseDownCapture: onRuntimeMouseDownCapture } =
+    editableEventBindings
   const lastDOMStrategyMetricsRef = useRef<EditableDOMStrategyMetrics | null>(
     null
   )
@@ -325,9 +333,15 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
         propsOnFocusCapture?.(event)
       },
       onMouseDownCapture: (event: React.MouseEvent<HTMLDivElement>) => {
+        onRuntimeMouseDownCapture?.(event)
         activateRootView()
         onRootMouseDownCapture(event)
         propsOnMouseDownCapture?.(event)
+      },
+      onMouseMoveCapture: (event: React.MouseEvent<HTMLDivElement>) => {
+        activateRootView()
+        onRootMouseMoveCapture(event)
+        propsOnMouseMoveCapture?.(event)
       },
       onMouseUpCapture: (event: React.MouseEvent<HTMLDivElement>) => {
         activateRootView()
@@ -338,9 +352,12 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     [
       activateRootView,
       onRootMouseDownCapture,
+      onRootMouseMoveCapture,
       onRootMouseUpCapture,
+      onRuntimeMouseDownCapture,
       propsOnFocusCapture,
       propsOnMouseDownCapture,
+      propsOnMouseMoveCapture,
       propsOnMouseUpCapture,
     ]
   )
@@ -429,7 +446,8 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
                 : {
                     // Keep read-only editors selectable without showing an
                     // insertion caret.
-                    caretColor: readOnly ? 'transparent' : undefined,
+                    caretColor:
+                      readOnly || hasViewSelection ? 'transparent' : undefined,
                     // Allow positioning relative to the editable element.
                     position: 'relative',
                     // Preserve adjacent whitespace and new lines.

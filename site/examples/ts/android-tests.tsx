@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { parseAsStringLiteral, useQueryState } from 'nuqs'
 import type { Value } from 'slate'
 import {
   Editable,
@@ -8,9 +8,21 @@ import {
 } from 'slate-react'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { replaceQueryOptions } from './query-controls'
+
+const TEST_CASE_IDS = [
+  'split-join',
+  'insert',
+  'special',
+  'empty',
+  'remove',
+  'autocorrect',
+] as const
+
+type AndroidTestCaseId = (typeof TEST_CASE_IDS)[number]
 
 interface AndroidTestCase {
-  id: string
+  id: AndroidTestCaseId
   name: string
   instructions: string
   value: Value
@@ -200,13 +212,12 @@ const TEST_CASES: AndroidTestCase[] = [
 ]
 
 const AndroidTestsExample = () => {
-  const [testId, setTestId] = useState(
-    () => window.location.hash.replace('#', '') || TEST_CASES[0].id
+  const [testId, setTestId] = useQueryState(
+    'test',
+    parseAsStringLiteral(TEST_CASE_IDS)
+      .withDefault(TEST_CASE_IDS[0])
+      .withOptions(replaceQueryOptions)
   )
-
-  useEffect(() => {
-    window.history.replaceState({}, '', `#${testId}`)
-  }, [testId])
 
   const testCase = TEST_CASES.find(({ id }) => id === testId)
   if (!testCase) {
@@ -219,7 +230,9 @@ const AndroidTestsExample = () => {
         <Label htmlFor="android-test-case">Test case:</Label>
         <NativeSelect
           id="android-test-case"
-          onChange={(e) => setTestId(e.target.value)}
+          onChange={(e) => {
+            void setTestId(e.target.value as AndroidTestCaseId)
+          }}
           value={testId}
         >
           {TEST_CASES.map(({ name, id }) => (

@@ -65,4 +65,35 @@ describe('SlateElement node ref binding', () => {
     expect(getSlateNodeElementByPath(editor, [1])).toBe(element)
     expect(getSlateNodePathFromDOMElement(element)).toEqual([1])
   })
+
+  test('ignores stale path map entries after a DOM node is rebound', () => {
+    const editor = createReactEditor({
+      initialValue: [{ type: 'block', children: [{ text: 'one' }] }],
+    })
+    const runtimeId = Editor.getRuntimeId(editor, [0])
+
+    if (!runtimeId) {
+      throw new Error('Missing runtime id at 0')
+    }
+
+    render(
+      <EditorContext.Provider value={editor}>
+        <NodeRuntimeIdContext.Provider value={runtimeId}>
+          <ElementPathContext.Provider value={[0]}>
+            <ElementContext.Provider value={readElement(editor, [0])}>
+              <SlateElement data-testid="bound-element">content</SlateElement>
+            </ElementContext.Provider>
+          </ElementPathContext.Provider>
+        </NodeRuntimeIdContext.Provider>
+      </EditorContext.Provider>
+    )
+
+    const element = getSlateNodeElementByPath(editor, [0])
+
+    expect(element).toBeTruthy()
+
+    element?.setAttribute('data-slate-path', '1')
+
+    expect(getSlateNodeElementByPath(editor, [0])).toBe(null)
+  })
 })

@@ -132,7 +132,11 @@ describe('useSlateRootChrome', () => {
 
       return (
         <section data-testid="header-chrome" {...chrome.props}>
-          <div data-slate-editor="true" data-testid="blank-editor-surface" />
+          <div
+            data-slate-editor="true"
+            data-slate-root="header"
+            data-testid="blank-editor-surface"
+          />
         </section>
       )
     }

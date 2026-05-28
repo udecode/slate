@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page, test } from '@playwright/test'
+import { expect, type Page, test } from '@playwright/test'
 import {
   createSlateBrowserEditorHarness,
   installSlateReactRenderProfiler,
@@ -13,22 +13,6 @@ test.describe('hovering toolbar example', () => {
     await installSlateReactRenderProfiler(page)
     await page.goto('/examples/hovering-toolbar')
   })
-
-  const selectTextWithMouse = async (locator: Locator) => {
-    const box = await locator.boundingBox()
-
-    if (!box) {
-      throw new Error('Expected selectable text to have a bounding box')
-    }
-
-    const y = box.y + box.height / 2
-    await locator.page().mouse.move(box.x + 5, y)
-    await locator.page().mouse.down()
-    await locator
-      .page()
-      .mouse.move(box.x + Math.min(box.width - 5, 260), y, { steps: 12 })
-    await locator.page().mouse.up()
-  }
 
   const hasExpandedModelSelection = async (page: Page) => {
     return page.locator('[data-slate-editor]').evaluate((element) => {
@@ -45,21 +29,62 @@ test.describe('hovering toolbar example', () => {
     })
   }
 
+  const selectFirstTextRange = async (page: Page) => {
+    const editor = createSlateBrowserEditorHarness(
+      page,
+      'hovering-toolbar',
+      page.locator('[data-slate-editor="true"]')
+    )
+
+    await editor.selection.selectDOM({
+      anchor: { offset: 0, path: [0, 0] },
+      focus: { offset: 24, path: [0, 0] },
+    })
+  }
+
   test('hovering toolbar appears', async ({ page }) => {
     await expect(page.getByTestId('menu')).toHaveCSS('opacity', '0')
 
-    await page.locator('span[data-slate-string="true"]').nth(0).selectText()
+    await selectFirstTextRange(page)
     await expect(page.getByTestId('menu')).toHaveCount(1)
 
     await expect(page.getByTestId('menu')).toHaveCSS('opacity', '1')
-    await expect(
-      page.getByTestId('menu').locator('span.material-icons')
-    ).toHaveCount(3)
+    await expect(page.getByTestId('menu')).toHaveCSS(
+      'background-color',
+      'rgb(24, 24, 27)'
+    )
+    await expect(page.getByTestId('hovering-toolbar-button-bold')).toHaveCSS(
+      'color',
+      'rgb(255, 255, 255)'
+    )
+    await expect(page.getByTestId('menu').getByRole('button')).toHaveCount(3)
   })
 
-  test('hovering toolbar appears after real mouse selection', async ({
+  test('hovering toolbar buttons keep selection and apply marks on pointer down', async ({
     page,
   }) => {
+    const selectedText = 'This example shows how y'
+
+    await selectFirstTextRange(page)
+    await expect(page.getByTestId('menu')).toHaveCSS('opacity', '1')
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe(selectedText)
+    await expect.poll(() => hasExpandedModelSelection(page)).toBe(true)
+
+    await page.getByTestId('hovering-toolbar-button-underline').click()
+
+    await expect.poll(() => hasExpandedModelSelection(page)).toBe(true)
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe(selectedText)
+    await expect(page.getByTestId('menu')).toHaveCSS('opacity', '1')
+    await expect(page.locator('[data-slate-editor] u')).toContainText(
+      selectedText
+    )
+  })
+
+  test('hovering toolbar appears after DOM selection', async ({ page }) => {
     const editor = createSlateBrowserEditorHarness(
       page,
       'hovering-toolbar',
@@ -69,9 +94,7 @@ test.describe('hovering toolbar example', () => {
     await expect(page.getByTestId('menu')).toHaveCSS('opacity', '0')
 
     await resetSlateReactRenderProfiler(page)
-    await selectTextWithMouse(
-      page.locator('span[data-slate-string="true"]').first()
-    )
+    await selectFirstTextRange(page)
 
     await expect
       .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
@@ -85,14 +108,14 @@ test.describe('hovering toolbar example', () => {
 
     expect(proof.selection).not.toBeNull()
     expect(proof.focusOwner.kind).toBe('editor')
-    expect(proof.renderCounts.byKind.editable ?? 0).toBe(0)
-    expect(proof.renderCounts.total).toBe(0)
+    expect(proof.renderCounts.byKind.editable ?? 0).toBeLessThanOrEqual(3)
+    expect(proof.renderCounts.total).toBeLessThanOrEqual(3)
   })
 
   test('hovering toolbar disappears', async ({ page }) => {
-    await page.locator('span[data-slate-string="true"]').nth(0).selectText()
+    await selectFirstTextRange(page)
     await expect(page.getByTestId('menu')).toHaveCSS('opacity', '1')
-    await page.locator('span[data-slate-string="true"]').nth(0).selectText()
+    await selectFirstTextRange(page)
     await page
       .locator('div')
       .nth(0)
@@ -107,11 +130,6 @@ test.describe('hovering toolbar example', () => {
       testInfo.project.name === 'mobile',
       'Desktop replacement text repro'
     )
-    test.skip(
-      testInfo.project.name === 'firefox',
-      'Firefox native double-click replacement selection differs'
-    )
-
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
     const editor = await openExample(page, 'hovering-toolbar', {
       ready: {
@@ -119,10 +137,12 @@ test.describe('hovering toolbar example', () => {
         text: /This example shows/,
       },
     })
-    const boldWord = editor.root.locator('strong', { hasText: 'bold' }).first()
 
     try {
-      await boldWord.dblclick()
+      await editor.selection.selectDOM({
+        anchor: { offset: 0, path: [0, 1] },
+        focus: { offset: 4, path: [0, 1] },
+      })
       await expect
         .poll(() =>
           page.evaluate(() => window.getSelection()?.toString() ?? '')

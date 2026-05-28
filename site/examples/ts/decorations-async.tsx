@@ -1,3 +1,4 @@
+import { parseAsStringLiteral, useQueryState } from 'nuqs'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   type Ancestor,
@@ -14,6 +15,7 @@ import {
   useSlateDecorationSource,
   useSlateEditor,
 } from 'slate-react'
+import { replaceQueryOptions } from './query-controls'
 
 type AsyncHighlightData = {
   asyncHighlight: true
@@ -21,11 +23,7 @@ type AsyncHighlightData = {
 
 const INITIAL_TEXT = 'This is some text here about. there'
 const ASYNC_DECORATION_DELAY_MS = 500
-const searchParams =
-  typeof document === 'undefined'
-    ? null
-    : new URLSearchParams(document.location.search)
-const decorationMode = searchParams?.get('source') === 'hook' ? 'hook' : 'prop'
+const decorationModes = ['prop', 'hook'] as const
 
 const getDocumentText = (value: readonly Descendant[]) =>
   NodeApi.string({ children: value } as never)
@@ -67,6 +65,12 @@ const collectAsyncHighlightDecorations = (
 }
 
 const AsyncDecorationsExample = () => {
+  const [decorationMode] = useQueryState(
+    'source',
+    parseAsStringLiteral(decorationModes)
+      .withDefault('prop')
+      .withOptions(replaceQueryOptions)
+  )
   const editor = useSlateEditor({
     initialValue: [
       {

@@ -2,12 +2,14 @@ import {
   type Descendant,
   type Node,
   NodeApi,
+  type Operation,
   type Path,
   PathApi,
   type Point,
   PointApi,
   type Range,
   RangeApi,
+  type RootKey,
 } from 'slate'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
@@ -35,6 +37,8 @@ import { setEditableModelSelectionPreference } from './selection-controller'
 import { shouldSkipSelectionFocus } from './selection-side-effect-policy'
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
+const MAIN_ROOT_KEY: RootKey = 'main'
+const EDITOR_TO_HISTORY_FOCUS_ROOT = new WeakMap<Editor, RootKey | null>()
 
 const profileEditableMutationDuration = <T>(
   id: string,
@@ -68,6 +72,7 @@ export const applyModelOwnedHistoryIntent = ({
     editor,
     direction
   )
+  const focusRoot = getHistoryBatchSingleOperationRoot(editor, direction)
   const hasHistory = editor.read((state) => {
     const history = (state as { history?: unknown }).history as
       | { redos?: unknown; undos?: unknown }
@@ -100,8 +105,44 @@ export const applyModelOwnedHistoryIntent = ({
 
     fn()
   })
+  EDITOR_TO_HISTORY_FOCUS_ROOT.set(editor, focusRoot)
   writeSlateViewSelection(editor, viewSelectionAfterHistory ?? null)
   return true
+}
+
+const getOperationRoot = (operation: Operation): RootKey =>
+  ((operation as { root?: RootKey }).root ?? MAIN_ROOT_KEY) as RootKey
+
+const getHistoryBatchSingleOperationRoot = (
+  editor: Editor,
+  direction: 'redo' | 'undo'
+): RootKey | null =>
+  editor.read((state) => {
+    const history = (state as { history?: unknown }).history as
+      | {
+          redos?: () => readonly { operations?: readonly Operation[] }[]
+          undos?: () => readonly { operations?: readonly Operation[] }[]
+        }
+      | undefined
+    const stack = direction === 'undo' ? history?.undos?.() : history?.redos?.()
+    const batch = stack?.at(-1)
+    const roots = new Set(
+      (batch?.operations ?? [])
+        .filter((operation) => operation.type !== 'set_selection')
+        .map(getOperationRoot)
+    )
+
+    return roots.size === 1 ? (roots.values().next().value ?? null) : null
+  })
+
+export const consumeModelOwnedHistoryFocusRoot = (
+  editor: Editor
+): RootKey | null => {
+  const root = EDITOR_TO_HISTORY_FOCUS_ROOT.get(editor) ?? null
+
+  EDITOR_TO_HISTORY_FOCUS_ROOT.delete(editor)
+
+  return root
 }
 
 export const shouldForceRenderAfterModelOwnedHistory = (editor: Editor) => {

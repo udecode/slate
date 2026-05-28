@@ -26,7 +26,7 @@ test.describe('images example', () => {
       await dialog.accept()
     })
 
-    await page.locator('span.material-icons', { hasText: 'image' }).click()
+    await page.getByRole('button', { name: 'Image' }).click()
 
     await expect(page.getByRole('textbox').locator('img')).toHaveCount(2)
   })

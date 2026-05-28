@@ -44,7 +44,10 @@ import {
   applyModelOwnedHistoryIntent,
   shouldForceRenderAfterModelOwnedHistory,
 } from './model-input-strategy'
-import { applyEditableCommand } from './mutation-controller'
+import {
+  applyEditableCommand,
+  consumeModelOwnedHistoryFocusRoot,
+} from './mutation-controller'
 import { Editor } from './runtime-editor-api'
 import { readRuntimeSelection } from './runtime-selection-state'
 
@@ -123,9 +126,12 @@ const getModelOwnedHistoryRepair = ({
   getMountedViewEditor?: (root: RootKey) => ReactRuntimeEditor | null
 }): EditableRepairRequest => {
   const forceRender = shouldForceRenderAfterModelOwnedHistory(editor)
+  const historyFocusRoot = consumeModelOwnedHistoryFocusRoot(editor)
+  const selection = readRuntimeSelection(editor)
   const selectionRoot =
+    (selection ? getSelectionRootKey(selection) : historyFocusRoot) ??
     getLastCommitSingleOperationRoot(editor) ??
-    getSelectionRootKey(readRuntimeSelection(editor))
+    MAIN_ROOT_KEY
   const focusEditor = getMountedViewEditor?.(selectionRoot)
 
   if (focusEditor && focusEditor !== editor) {

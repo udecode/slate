@@ -61,7 +61,7 @@ test.describe('editable voids', () => {
 
   test('should double the elements', async ({ page }) => {
     // click the `+` sign to duplicate the editable void
-    await page.locator('span.material-icons', { hasText: 'add' }).click()
+    await page.getByRole('button', { name: 'Add' }).click()
 
     for (const elem of elements) {
       const { tag, count } = elem
@@ -87,7 +87,7 @@ test.describe('editable voids', () => {
     })
 
     try {
-      await page.locator('span.material-icons', { hasText: 'add' }).click()
+      await page.getByRole('button', { name: 'Add' }).click()
       await expect(page.locator(input)).toHaveCount(2)
 
       const insertedInput = page.locator(input).last()
@@ -116,7 +116,7 @@ test.describe('editable voids', () => {
       outerEditor
     )
 
-    await page.locator('span.material-icons', { hasText: 'add' }).click()
+    await page.getByRole('button', { name: 'Add' }).click()
     await expect(page.locator(input)).toHaveCount(2)
     await expect(editors).toHaveCount(4)
 

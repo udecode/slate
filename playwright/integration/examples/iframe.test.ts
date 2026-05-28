@@ -108,9 +108,7 @@ test.describe('iframe editor', () => {
         )
       })
 
-      await page
-        .locator('span.material-icons', { hasText: 'format_bold' })
-        .click()
+      await page.getByRole('button', { name: 'Bold' }).click()
 
       await expect(
         textbox.locator('strong').filter({ hasText: 'media queries' })

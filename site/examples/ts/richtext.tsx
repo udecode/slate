@@ -1,5 +1,5 @@
 import type React from 'react'
-import type { PointerEvent } from 'react'
+import type { MouseEvent, PointerEvent } from 'react'
 import {
   type Descendant,
   defineEditorExtension,
@@ -489,6 +489,23 @@ const Leaf = ({ attributes, children, leaf }: RenderLeafProps<CustomText>) => {
   return <span {...attributes}>{children}</span>
 }
 
+const handleToolbarButtonClick = (
+  event: MouseEvent<HTMLButtonElement>,
+  command: () => void
+) => {
+  if (event.detail === 0) {
+    command()
+  }
+}
+
+const handleToolbarButtonPointerDown = (
+  event: PointerEvent<HTMLButtonElement>,
+  command: () => void
+) => {
+  event.preventDefault()
+  command()
+}
+
 interface BlockButtonProps {
   format: CustomElementFormat
   icon: string
@@ -499,13 +516,14 @@ const BlockButton = ({ format, icon }: BlockButtonProps) => {
   const active = useEditorSelector((editor: CustomEditor) =>
     isBlockActive(editor, format, isAlignType(format) ? 'align' : 'type')
   )
+  const runCommand = () => toggleBlock(editor, format)
   return (
     <Button
       active={active}
       data-test-id={`block-button-${format}`}
-      onClick={() => toggleBlock(editor, format)}
-      onPointerDown={(event: PointerEvent<HTMLButtonElement>) =>
-        event.preventDefault()
+      onClick={(event) => handleToolbarButtonClick(event, runCommand)}
+      onPointerDown={(event) =>
+        handleToolbarButtonPointerDown(event, runCommand)
       }
     >
       <Icon>{icon}</Icon>
@@ -515,13 +533,14 @@ const BlockButton = ({ format, icon }: BlockButtonProps) => {
 
 const ClearFormattingButton = () => {
   const editor = useEditor<CustomEditor>()
+  const runCommand = () => clearRichTextFormatting(editor)
 
   return (
     <Button
       data-test-id="clear-formatting-button"
-      onClick={() => clearRichTextFormatting(editor)}
-      onPointerDown={(event: PointerEvent<HTMLButtonElement>) =>
-        event.preventDefault()
+      onClick={(event) => handleToolbarButtonClick(event, runCommand)}
+      onPointerDown={(event) =>
+        handleToolbarButtonPointerDown(event, runCommand)
       }
     >
       <Icon>format_clear</Icon>
@@ -539,13 +558,14 @@ const MarkButton = ({ format, icon }: MarkButtonProps) => {
   const active = useEditorSelector((editor: CustomEditor) =>
     isMarkActive(editor, format)
   )
+  const runCommand = () => toggleMark(editor, format)
   return (
     <Button
       active={active}
       data-test-id={`mark-button-${format}`}
-      onClick={() => toggleMark(editor, format)}
-      onPointerDown={(event: PointerEvent<HTMLButtonElement>) =>
-        event.preventDefault()
+      onClick={(event) => handleToolbarButtonClick(event, runCommand)}
+      onPointerDown={(event) =>
+        handleToolbarButtonPointerDown(event, runCommand)
       }
     >
       <Icon>{icon}</Icon>

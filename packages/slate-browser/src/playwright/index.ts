@@ -2528,8 +2528,11 @@ const sleep = (ms: number) =>
     setTimeout(resolve, ms)
   })
 
+const NEXT_DATA_ACCESS_CONTROL_ERROR =
+  /Fetch API cannot load http:\/\/(?:localhost|127\.0\.0\.1):\d+\/_next\/data\//
+
 const isIgnoredRuntimeError = (text: string) =>
-  (text.includes('Fetch API cannot load http://localhost:3101/_next/data/') &&
+  (NEXT_DATA_ACCESS_CONTROL_ERROR.test(text) &&
     text.includes('due to access control checks.')) ||
   (text.includes("Permission policy 'Fullscreen' check failed") &&
     text.includes('https://player.vimeo.com'))
@@ -2577,7 +2580,16 @@ export const recordSlateBrowserRuntimeErrors = (
   }
 }
 
-const parseSyntheticShortcut = (shortcut: string) => {
+type SyntheticKeyInit = {
+  altKey: boolean
+  ctrlKey: boolean
+  key: string
+  metaKey: boolean
+  shiftKey: boolean
+  which?: number
+}
+
+const parseSyntheticShortcut = (shortcut: string): SyntheticKeyInit | null => {
   const parts = shortcut.split('+')
   const key = parts.at(-1)
 
@@ -2616,6 +2628,58 @@ const parseSyntheticShortcut = (shortcut: string) => {
     shiftKey: modifiers.has('Shift'),
     which: key.length === 1 ? key.toUpperCase().charCodeAt(0) : undefined,
   }
+}
+
+const parsePlainSyntheticKey = (shortcut: string): SyntheticKeyInit | null => {
+  if (shortcut.includes('+')) {
+    return null
+  }
+
+  return {
+    altKey: false,
+    ctrlKey: false,
+    key: shortcut,
+    metaKey: false,
+    shiftKey: false,
+    which:
+      shortcut.length === 1 ? shortcut.toUpperCase().charCodeAt(0) : undefined,
+  }
+}
+
+const dispatchSyntheticKey = async (
+  root: Locator,
+  eventInit: SyntheticKeyInit
+) => {
+  await root.evaluate((element: HTMLElement, eventInit: SyntheticKeyInit) => {
+    const createKeyEvent = (type: 'keydown' | 'keyup') =>
+      new KeyboardEvent(type, {
+        altKey: eventInit.altKey,
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: eventInit.ctrlKey,
+        key: eventInit.key,
+        metaKey: eventInit.metaKey,
+        shiftKey: eventInit.shiftKey,
+      })
+    const defineKeyCode = (event: KeyboardEvent) => {
+      if (eventInit.which == null) {
+        return event
+      }
+
+      Object.defineProperty(event, 'keyCode', {
+        value: eventInit.which,
+      })
+      Object.defineProperty(event, 'which', {
+        value: eventInit.which,
+      })
+
+      return event
+    }
+
+    element.dispatchEvent(defineKeyCode(createKeyEvent('keydown')))
+    element.dispatchEvent(defineKeyCode(createKeyEvent('keyup')))
+  }, eventInit)
+  await root.page().waitForTimeout(0)
 }
 
 export const withExclusiveClipboardAccess = async <T>(
@@ -3326,6 +3390,17 @@ const hasDOMSelectionInRoot = async (root: Locator) =>
     return (
       element.contains(selection.anchorNode) &&
       element.contains(selection.focusNode)
+    )
+  })
+
+const supportsRootScopedSelection = async (root: Locator) =>
+  root.evaluate((element: HTMLElement) => {
+    const rootNode = element.getRootNode() as Document | ShadowRoot
+
+    return (
+      !(rootNode instanceof ShadowRoot) ||
+      typeof (rootNode as { getSelection?: unknown }).getSelection ===
+        'function'
     )
   })
 
@@ -4211,6 +4286,30 @@ const waitForSelectionHandle = async (root: Locator, timeout = 2000) => {
   }
 }
 
+const waitForHandleFocus = async (root: Locator) => {
+  await expect
+    .poll(() =>
+      root.evaluate(
+        (element: HTMLElement, { key }: { key: string }) => {
+          const handle = (element as Record<string, any>)[key]
+          const rootNode = element.getRootNode() as Document | ShadowRoot
+          const activeElement =
+            'activeElement' in rootNode
+              ? rootNode.activeElement
+              : element.ownerDocument.activeElement
+
+          const hasFocus =
+            activeElement === element ||
+            (!!activeElement && element.contains(activeElement))
+
+          return hasFocus && !!handle?.getSelection?.()
+        },
+        { key: SLATE_BROWSER_HANDLE_KEY }
+      )
+    )
+    .toBe(true)
+}
+
 const waitForSelectionRange = async (root: Locator) => {
   await expect
     .poll(() =>
@@ -4292,6 +4391,21 @@ const selectAllWithHandle = async (root: Locator) =>
       }
 
       handle.selectAll()
+      return true
+    },
+    { key: SLATE_BROWSER_HANDLE_KEY }
+  )
+
+const focusWithHandle = async (root: Locator) =>
+  root.evaluate(
+    (element: HTMLElement, { key }: { key: string }) => {
+      const handle = (element as Record<string, any>)[key]
+
+      if (!handle?.focus) {
+        return false
+      }
+
+      handle.focus()
       return true
     },
     { key: SLATE_BROWSER_HANDLE_KEY }
@@ -4732,27 +4846,29 @@ const createEditorHarness = (
         if (selectedWithHandle) {
           await waitForHandleSelection(root, selection)
 
-          try {
-            await setDOMSelection(root, selection)
-            await root.evaluate((element: HTMLElement) => {
-              const rootNode = element.getRootNode() as Document | ShadowRoot
+          if (await supportsRootScopedSelection(root)) {
+            try {
+              await setDOMSelection(root, selection)
+              await root.evaluate((element: HTMLElement) => {
+                const rootNode = element.getRootNode() as Document | ShadowRoot
 
-              element.ownerDocument.dispatchEvent(
-                new Event('selectionchange', { bubbles: true })
-              )
-
-              if (rootNode instanceof ShadowRoot) {
-                rootNode.dispatchEvent(
+                element.ownerDocument.dispatchEvent(
                   new Event('selectionchange', { bubbles: true })
                 )
-              }
-            })
-          } catch {
-            // Some semantic selections intentionally do not resolve to a DOM
-            // range, for example shell-backed rendering-strategy rows.
-          }
 
-          await waitForSelectionIfPresent(root)
+                if (rootNode instanceof ShadowRoot) {
+                  rootNode.dispatchEvent(
+                    new Event('selectionchange', { bubbles: true })
+                  )
+                }
+              })
+            } catch {
+              // Some semantic selections intentionally do not resolve to a DOM
+              // range, for example shell-backed rendering-strategy rows.
+            }
+
+            await waitForSelectionIfPresent(root)
+          }
         } else {
           await waitForSelectionRange(root)
         }
@@ -4858,6 +4974,19 @@ const createEditorHarness = (
           { key: SLATE_BROWSER_HANDLE_KEY }
         )
 
+      const focusedWithHandle =
+        (await waitForSelectionHandle(root)) && (await focusWithHandle(root))
+
+      if (focusedWithHandle) {
+        await waitForHandleFocus(root)
+
+        if (await hasDOMSelectionInRoot(root)) {
+          await waitForSelectionSync(root)
+        }
+
+        return
+      }
+
       const selectionBeforeFocus = await readHandleSelection()
 
       await root.evaluate((element: HTMLElement) => {
@@ -4894,55 +5023,21 @@ const createEditorHarness = (
       }
 
       const syntheticShortcut = parseSyntheticShortcut(key)
+      const shouldUseSemanticKeyTransport =
+        !syntheticShortcut &&
+        !(await hasDOMSelectionInRoot(root)) &&
+        (await waitForSelectionHandle(root))
+      const semanticKey = shouldUseSemanticKeyTransport
+        ? parsePlainSyntheticKey(key)
+        : null
 
       if (syntheticShortcut) {
-        await root.evaluate(
-          (
-            element: HTMLElement,
-            eventInit: KeyboardEventInit & { which?: number }
-          ) => {
-            const createEvent = () =>
-              new KeyboardEvent('keydown', {
-                altKey: eventInit.altKey,
-                bubbles: true,
-                cancelable: true,
-                ctrlKey: eventInit.ctrlKey,
-                key: eventInit.key,
-                metaKey: eventInit.metaKey,
-                shiftKey: eventInit.shiftKey,
-              })
-            const defineKeyCode = (event: KeyboardEvent) => {
-              if (eventInit.which == null) {
-                return event
-              }
+        await dispatchSyntheticKey(root, syntheticShortcut)
+        return
+      }
 
-              Object.defineProperty(event, 'keyCode', {
-                value: eventInit.which,
-              })
-              Object.defineProperty(event, 'which', {
-                value: eventInit.which,
-              })
-
-              return event
-            }
-            const keyDown = defineKeyCode(createEvent())
-            const keyUp = defineKeyCode(
-              new KeyboardEvent('keyup', {
-                altKey: eventInit.altKey,
-                bubbles: true,
-                cancelable: true,
-                ctrlKey: eventInit.ctrlKey,
-                key: eventInit.key,
-                metaKey: eventInit.metaKey,
-                shiftKey: eventInit.shiftKey,
-              })
-            )
-            element.dispatchEvent(keyDown)
-            element.dispatchEvent(keyUp)
-          },
-          syntheticShortcut
-        )
-        await page.waitForTimeout(0)
+      if (semanticKey) {
+        await dispatchSyntheticKey(root, semanticKey)
         return
       }
 

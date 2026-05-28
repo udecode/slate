@@ -1,4 +1,6 @@
-import { memo, useState } from 'react'
+import { SearchIcon } from 'lucide-react'
+import { parseAsString, useQueryState } from 'nuqs'
+import { memo } from 'react'
 import { NodeApi } from 'slate'
 import {
   Editable,
@@ -10,14 +12,22 @@ import {
   useSlateRangeDecorationSource,
 } from 'slate-react'
 
-import { Input } from '@/components/ui/input'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from '@/components/ui/input-group'
 import { cn } from '@/utils/cn'
 
-import { Icon, Toolbar } from './components'
+import { Toolbar } from './components'
 import type { CustomText } from './custom-types.d'
+import { replaceQueryOptions } from './query-controls'
 
 const SearchHighlightingExample = () => {
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useQueryState(
+    'q',
+    parseAsString.withDefault('').withOptions(replaceQueryOptions)
+  )
   const editor = useSlateEditor({
     initialValue: [
       {
@@ -59,16 +69,19 @@ const SearchHighlightingExample = () => {
   return (
     <>
       <Toolbar>
-        <div className="slate-search-highlighting-box">
-          <Icon className="slate-search-highlighting-icon">search</Icon>
-          <Input
-            className="pl-10"
-            onChange={(event) => setSearch(event.target.value)}
+        <InputGroup className="!flex max-w-sm">
+          <InputGroupInput
+            onChange={(event) => {
+              void setSearch(event.target.value)
+            }}
             placeholder="Search the text..."
             type="search"
             value={search}
           />
-        </div>
+          <InputGroupAddon>
+            <SearchIcon aria-hidden />
+          </InputGroupAddon>
+        </InputGroup>
       </Toolbar>
       <SearchHighlightingEditor editor={editor} searchSource={searchSource} />
     </>

@@ -467,6 +467,27 @@ const getSlateDOMRuntimePath = (
   return runtimeId ? Editor.getPathByRuntimeId(editor, runtimeId) : null
 }
 
+const isSamePath = (left: Path, right: Path) =>
+  left.length === right.length &&
+  left.every((part, index) => part === right[index])
+
+const resolveMountedDOMPath = (
+  editor: DOMEditor<any>,
+  element: HTMLElement
+): Path | null => {
+  const attributePath = parseSlateDOMPath(
+    element.getAttribute('data-slate-path')
+  )
+
+  if (attributePath && Editor.hasPath(editor, attributePath)) {
+    return attributePath
+  }
+
+  const runtimePath = getSlateDOMRuntimePath(editor, element)
+
+  return runtimePath && Editor.hasPath(editor, runtimePath) ? runtimePath : null
+}
+
 const findMountedDOMNodeByPath = (
   editor: DOMEditor<any>,
   path: Path
@@ -626,6 +647,245 @@ const resolveSlateTextPoint = ({
   return null
 }
 
+const getUsableDOMRangeRect = (range: globalThis.Range): DOMRect | null => {
+  const clientRect =
+    typeof range.getClientRects === 'function'
+      ? (Array.from(range.getClientRects())[0] ?? null)
+      : null
+  const boundingRect =
+    typeof range.getBoundingClientRect === 'function'
+      ? range.getBoundingClientRect()
+      : null
+  const hasRect = (rect: DOMRect | null) =>
+    !!rect && (rect.width > 0 || rect.height > 0)
+
+  return hasRect(clientRect)
+    ? clientRect
+    : hasRect(boundingRect)
+      ? boundingRect
+      : null
+}
+
+const getRectVerticalDistance = (rect: DOMRect, y: number) =>
+  y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0
+
+const getCollapsedTextOffsetRect = (
+  document: Document,
+  textNode: globalThis.Node,
+  offset: number
+): {
+  distance: (point: { x: number; y: number }) => {
+    horizontal: number
+    vertical: number
+  }
+  offset: number
+} | null => {
+  const textLength = textNode.textContent?.length ?? 0
+  const safeOffset = Math.max(0, Math.min(offset, textLength))
+  const range = document.createRange()
+
+  range.setStart(textNode, safeOffset)
+  range.collapse(true)
+
+  const rect = getUsableDOMRangeRect(range)
+
+  if (rect) {
+    return {
+      distance: ({ x, y }) => ({
+        horizontal: Math.abs(rect.left - x),
+        vertical: getRectVerticalDistance(rect, y),
+      }),
+      offset: safeOffset,
+    }
+  }
+
+  if (textLength === 0) {
+    return null
+  }
+
+  const probeStart =
+    safeOffset >= textLength ? Math.max(0, textLength - 1) : safeOffset
+  const probeEnd = Math.min(textLength, probeStart + 1)
+
+  if (probeEnd <= probeStart) {
+    return null
+  }
+
+  const probeRange = document.createRange()
+
+  probeRange.setStart(textNode, probeStart)
+  probeRange.setEnd(textNode, probeEnd)
+
+  const probeRect = getUsableDOMRangeRect(probeRange)
+
+  if (!probeRect) {
+    return null
+  }
+
+  return {
+    distance: ({ x, y }) => ({
+      horizontal: Math.abs(
+        safeOffset >= textLength ? probeRect.right - x : probeRect.left - x
+      ),
+      vertical: getRectVerticalDistance(probeRect, y),
+    }),
+    offset: safeOffset,
+  }
+}
+
+const resolvePointNearCoordinatesFromSlateStrings = (
+  editor: DOMEditor<any>,
+  strings: HTMLElement[],
+  x: number,
+  y: number
+): Point | null => {
+  const bestString = strings
+    .map((element) => {
+      const rect = element.getBoundingClientRect()
+      const verticalDistance =
+        y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0
+
+      return { element, rect, verticalDistance }
+    })
+    .sort((left, right) => {
+      if (left.verticalDistance !== right.verticalDistance) {
+        return left.verticalDistance - right.verticalDistance
+      }
+
+      return (
+        Math.abs(left.rect.left + left.rect.width / 2 - x) -
+        Math.abs(right.rect.left + right.rect.width / 2 - x)
+      )
+    })[0]?.element
+  const textNode = Array.from(bestString?.childNodes ?? []).find(
+    (node) => node.nodeType === 3
+  )
+
+  if (!textNode) {
+    return null
+  }
+
+  const { document } = DOMEditor.getWindow(editor)
+  const textLength = textNode.textContent?.length ?? 0
+  let bestOffset = bestString?.hasAttribute('data-slate-zero-width') ? 1 : 0
+  let bestDistance = {
+    horizontal: Number.POSITIVE_INFINITY,
+    vertical: Number.POSITIVE_INFINITY,
+  }
+
+  for (let offset = 0; offset <= textLength; offset++) {
+    const candidate = getCollapsedTextOffsetRect(document, textNode, offset)
+    const distance = candidate?.distance({ x, y }) ?? {
+      horizontal: Number.POSITIVE_INFINITY,
+      vertical: Number.POSITIVE_INFINITY,
+    }
+
+    if (
+      distance.vertical < bestDistance.vertical ||
+      (distance.vertical === bestDistance.vertical &&
+        distance.horizontal < bestDistance.horizontal)
+    ) {
+      bestDistance = distance
+      bestOffset = candidate?.offset ?? bestOffset
+    }
+  }
+
+  if (bestDistance.vertical === Number.POSITIVE_INFINITY) {
+    return null
+  }
+
+  const range = document.createRange()
+
+  range.setStart(textNode, Math.max(0, Math.min(bestOffset, textLength)))
+  range.collapse(true)
+
+  const slateRange = DOMEditor.resolveSlateRange(editor, range, {
+    exactMatch: false,
+  })
+
+  return slateRange && RangeApi.isCollapsed(slateRange)
+    ? slateRange.anchor
+    : null
+}
+
+const resolvePointNearCoordinatesFromEventTarget = (
+  editor: DOMEditor<any>,
+  target: EventTarget | null,
+  x: number,
+  y: number
+): Point | null => {
+  const element = isDOMText(target)
+    ? target.parentElement
+    : isDOMElement(target)
+      ? target
+      : null
+  const textHost = element?.closest('[data-slate-node="text"]')
+
+  if (!textHost || !DOMEditor.hasDOMNode(editor, textHost)) {
+    return null
+  }
+
+  return resolvePointNearCoordinatesFromSlateStrings(
+    editor,
+    Array.from(
+      textHost.querySelectorAll<HTMLElement>(
+        '[data-slate-string], [data-slate-zero-width]'
+      )
+    ),
+    x,
+    y
+  )
+}
+
+const resolvePointNearCoordinatesFromSlateDOM = (
+  editor: DOMEditor<any>,
+  x: number,
+  y: number
+): Point | null => {
+  const editorElement = DOMEditor.resolveDOMNode(editor, editor)
+
+  if (!editorElement) {
+    return null
+  }
+
+  return resolvePointNearCoordinatesFromSlateStrings(
+    editor,
+    Array.from(
+      editorElement.querySelectorAll<HTMLElement>(
+        '[data-slate-string], [data-slate-zero-width]'
+      )
+    ),
+    x,
+    y
+  )
+}
+
+const shouldUseNearestEventPoint = ({
+  domRange,
+  range,
+  x,
+}: {
+  domRange: globalThis.Range
+  range: Range | null
+  x: number
+}) => {
+  if (range && !RangeApi.isCollapsed(range)) {
+    return false
+  }
+
+  if (!domRange.collapsed) {
+    return false
+  }
+
+  if (domRange.startContainer.nodeType !== 3) {
+    return true
+  }
+
+  const rect = getUsableDOMRangeRect(domRange)
+
+  return !rect || x < rect.left - 8 || x > rect.right + 8
+}
+
 // eslint-disable-next-line no-redeclare
 export const DOMEditor: DOMEditorInterface = {
   androidPendingDiffs: (editor) => EDITOR_TO_PENDING_DIFFS.get(editor),
@@ -696,6 +956,14 @@ export const DOMEditor: DOMEditorInterface = {
 
     if (x == null || y == null) {
       return null
+    }
+
+    const targetBoundaryPoint = isDOMNode(target)
+      ? resolveSlatePointFromDOMCoverageBoundary(editor, [target, 0])
+      : null
+
+    if (targetBoundaryPoint) {
+      return Editor.range(editor, targetBoundaryPoint)
     }
 
     const targetIsOwned =
@@ -770,10 +1038,29 @@ export const DOMEditor: DOMEditorInterface = {
       return null
     }
 
-    // Resolve a Slate range from the DOM range.
     const range = DOMEditor.resolveSlateRange(editor, domRange, {
       exactMatch: false,
     })
+
+    const targetPoint = resolvePointNearCoordinatesFromEventTarget(
+      editor,
+      target,
+      x,
+      y
+    )
+
+    if (targetPoint && (!range || RangeApi.isCollapsed(range))) {
+      return Editor.range(editor, targetPoint)
+    }
+
+    if (shouldUseNearestEventPoint({ domRange, range, x })) {
+      const nearestPoint = resolvePointNearCoordinatesFromSlateDOM(editor, x, y)
+
+      if (nearestPoint) {
+        return Editor.range(editor, nearestPoint)
+      }
+    }
+
     return range
   },
 
@@ -1245,32 +1532,31 @@ export const DOMEditor: DOMEditorInterface = {
     const node = belongsToEditor
       ? ELEMENT_TO_NODE.get(domEl as HTMLElement)
       : null
-
-    if (node) {
-      return node
-    }
-
-    const fallbackPath =
+    const mountedPath =
       domEl && belongsToEditor
-        ? (getSlateDOMRuntimePath(editor, domEl as HTMLElement) ??
-          parseSlateDOMPath(domEl.getAttribute('data-slate-path')))
+        ? resolveMountedDOMPath(editor, domEl as HTMLElement)
         : null
 
-    if (fallbackPath && Editor.hasPath(editor, fallbackPath)) {
-      const [fallbackNode] = editor.read((state) =>
-        state.nodes.get(fallbackPath)
-      )
-      const fallbackElement = domEl as HTMLElement
-      const key = DOMEditor.findKey(editor, fallbackNode)
-      const keyToElement = EDITOR_TO_KEY_TO_ELEMENT.get(editor) ?? new WeakMap()
+    if (node) {
+      const nodePath = resolveSlateNodePath(editor, node)
 
-      if (!EDITOR_TO_KEY_TO_ELEMENT.has(editor)) {
-        EDITOR_TO_KEY_TO_ELEMENT.set(editor, keyToElement)
+      if (!mountedPath || (nodePath && isSamePath(nodePath, mountedPath))) {
+        return node
       }
 
-      keyToElement.set(key, fallbackElement)
-      ELEMENT_TO_NODE.set(fallbackElement, fallbackNode)
-      NODE_TO_ELEMENT.set(fallbackNode, fallbackElement)
+      const [mountedNode] = editor.read((state) => state.nodes.get(mountedPath))
+
+      cacheSlateDOMNode(editor, mountedNode, domEl as HTMLElement)
+
+      return mountedNode
+    }
+
+    if (mountedPath) {
+      const [fallbackNode] = editor.read((state) =>
+        state.nodes.get(mountedPath)
+      )
+
+      cacheSlateDOMNode(editor, fallbackNode, domEl as HTMLElement)
 
       return fallbackNode
     }
@@ -1542,10 +1828,17 @@ export const DOMEditor: DOMEditorInterface = {
     // COMPAT: If someone is clicking from one Slate editor into another,
     // the select event fires twice, once for the old editor's `element`
     // first, and then afterwards for the correct `element`. (2017/03/03)
+    const mountedPath = resolveMountedDOMPath(editor, textNode! as HTMLElement)
     const slateNode = DOMEditor.resolveSlateNode(editor, textNode!)
-    const path = slateNode ? DOMEditor.resolvePath(editor, slateNode) : null
+    const resolvedPath = slateNode
+      ? DOMEditor.resolvePath(editor, slateNode)
+      : null
+    const path = mountedPath ?? resolvedPath
+    const pointNode = path
+      ? editor.read((state) => state.nodes.get(path))[0]
+      : slateNode
 
-    if (!slateNode || !path) {
+    if (!pointNode || !path) {
       const fallbackPath = parseSlateDOMPath(
         textNode?.getAttribute('data-slate-path') ?? null
       )
@@ -1571,7 +1864,7 @@ export const DOMEditor: DOMEditorInterface = {
       exactMatch,
       offset,
       path,
-      slateNode,
+      slateNode: pointNode,
     })
 
     return point

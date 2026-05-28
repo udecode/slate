@@ -1,7 +1,7 @@
 import { faker } from '@faker-js/faker'
+import { parseAsBoolean, parseAsStringLiteral, useQueryStates } from 'nuqs'
 import React, {
   type CSSProperties,
-  type Dispatch,
   StrictMode,
   useCallback,
   useEffect,
@@ -29,6 +29,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
+import { parseAsBoundedInteger, replaceQueryOptions } from './query-controls'
 
 const SUPPORTS_EVENT_TIMING =
   typeof window !== 'undefined' && 'PerformanceEventTiming' in window
@@ -54,6 +55,8 @@ type RenderConfig = {
   showSelectedHeadings: boolean
 }
 
+type SetConfig = (partialConfig: Partial<Config>) => void
+
 const RenderConfigContext = React.createContext<RenderConfig>({
   contentVisibility: false,
   showSelectedHeadings: false,
@@ -64,75 +67,43 @@ const blocksOptions = [
   50_000, 100_000, 200_000,
 ]
 
-const searchParams =
-  typeof document === 'undefined'
-    ? null
-    : new URLSearchParams(document.location.search)
-
-const parseNumber = (key: string, defaultValue: number) => {
-  const parsed = Number.parseInt(searchParams?.get(key) ?? '', 10)
-  return Number.isFinite(parsed) ? parsed : defaultValue
-}
-
-const parseBoolean = (key: string, defaultValue: boolean) => {
-  const value = searchParams?.get(key)
-  if (value) return value === 'true'
-  return defaultValue
-}
-
-const parseEnum = <T extends string>(
-  key: string,
-  options: T[],
-  defaultValue: T
-): T => {
-  const value = searchParams?.get(key) as T | null | undefined
-  if (value && options.includes(value)) return value
-  return defaultValue
-}
+const contentVisibilityModeOptions = ['none', 'element'] as const
+const domStrategyModeOptions = [
+  'auto',
+  'full',
+  'staged',
+  'virtualized',
+] as const
 
 const toContentVisibilityMode = (
   value: string
 ): Config['contentVisibilityMode'] => (value === 'element' ? 'element' : 'none')
 
-const initialConfig: Config = {
-  blocks: parseNumber('blocks', 10_000),
-  contentVisibilityMode: parseEnum(
-    'content_visibility',
-    ['none', 'element'],
-    'element'
-  ),
-  editorHeight: parseNumber('editor_height', 420),
-  domStrategyMode: parseEnum(
-    'strategy',
-    ['auto', 'full', 'staged', 'virtualized'],
+const hugeDocumentQueryParsers = {
+  blocks: parseAsBoundedInteger(1, 200_000).withDefault(10_000),
+  contentVisibilityMode: parseAsStringLiteral(
+    contentVisibilityModeOptions
+  ).withDefault('element'),
+  domStrategyMode: parseAsStringLiteral(domStrategyModeOptions).withDefault(
     'auto'
   ),
-  domStrategyOverscan: parseNumber('overscan', 0),
-  domStrategyThreshold: parseNumber('threshold', 2000),
-  showSelectedHeadings: parseBoolean('selected_headings', false),
-  strictMode: parseBoolean('strict', false),
-  virtualizedEstimatedBlockSize: parseNumber('estimated_block_size', 48),
+  domStrategyOverscan: parseAsBoundedInteger(0, 1000).withDefault(0),
+  domStrategyThreshold: parseAsBoundedInteger(1, 200_000).withDefault(2000),
+  editorHeight: parseAsBoundedInteger(120, 2000).withDefault(420),
+  showSelectedHeadings: parseAsBoolean.withDefault(false),
+  strictMode: parseAsBoolean.withDefault(false),
+  virtualizedEstimatedBlockSize: parseAsBoundedInteger(1, 1000).withDefault(48),
 }
 
-const setSearchParams = (config: Config) => {
-  if (searchParams) {
-    searchParams.set('blocks', config.blocks.toString())
-    searchParams.set('content_visibility', config.contentVisibilityMode)
-    searchParams.set('editor_height', config.editorHeight.toString())
-    searchParams.set('strategy', config.domStrategyMode)
-    searchParams.set('overscan', config.domStrategyOverscan.toString())
-    searchParams.set('threshold', config.domStrategyThreshold.toString())
-    searchParams.set(
-      'selected_headings',
-      config.showSelectedHeadings ? 'true' : 'false'
-    )
-    searchParams.set('strict', config.strictMode ? 'true' : 'false')
-    searchParams.set(
-      'estimated_block_size',
-      config.virtualizedEstimatedBlockSize.toString()
-    )
-    history.replaceState({}, '', `?${searchParams.toString()}`)
-  }
+const hugeDocumentUrlKeys = {
+  contentVisibilityMode: 'content_visibility',
+  domStrategyMode: 'strategy',
+  domStrategyOverscan: 'overscan',
+  domStrategyThreshold: 'threshold',
+  editorHeight: 'editor_height',
+  showSelectedHeadings: 'selected_headings',
+  strictMode: 'strict',
+  virtualizedEstimatedBlockSize: 'estimated_block_size',
 }
 
 const cachedInitialValue: Value = []
@@ -167,11 +138,6 @@ const fallbackInitialValue: Value = [
     children: [{ text: '' }],
   },
 ]
-
-const initialInitialValue: Value =
-  typeof window === 'undefined'
-    ? fallbackInitialValue
-    : getInitialValue(initialConfig.blocks)
 
 const createEditor = (_config: Config, initialValue: Value) =>
   createReactEditor({ initialValue })
@@ -208,10 +174,18 @@ const formatMetric = (value: boolean | number | string | null | undefined) =>
   value ?? '-'
 
 const HugeDocumentExample = () => {
+  const [config, setQueryConfig] = useQueryStates(hugeDocumentQueryParsers, {
+    ...replaceQueryOptions,
+    urlKeys: hugeDocumentUrlKeys,
+  })
   const [isRendering, setIsRendering] = useState(false)
-  const [config, baseSetConfig] = useState<Config>(initialConfig)
   const [editor, setEditor] = useState(() =>
-    createEditor(config, initialInitialValue)
+    createEditor(
+      config,
+      typeof window === 'undefined'
+        ? fallbackInitialValue
+        : getInitialValue(config.blocks)
+    )
   )
   const [editorVersion, setEditorVersion] = useState(0)
   const [domStrategyMetrics, setDOMStrategyMetrics] =
@@ -223,8 +197,7 @@ const HugeDocumentExample = () => {
 
       setIsRendering(true)
       setDOMStrategyMetrics(null)
-      baseSetConfig(newConfig)
-      setSearchParams(newConfig)
+      void setQueryConfig(newConfig)
 
       setTimeout(() => {
         const nextInitialValue = getInitialValue(newConfig.blocks)
@@ -234,7 +207,7 @@ const HugeDocumentExample = () => {
         setEditorVersion((n) => n + 1)
       })
     },
-    [config]
+    [config, setQueryConfig]
   )
 
   const domStrategy = useMemo(() => toDOMStrategy(config), [config])
@@ -345,7 +318,7 @@ const PerformanceControls = ({
   editor: Editor
   config: Config
   domStrategyMetrics: EditableDOMStrategyMetrics | null
-  setConfig: Dispatch<Partial<Config>>
+  setConfig: SetConfig
 }) => {
   const [configurationOpen, setConfigurationOpen] = useState(true)
   const [keyPressDurations, setKeyPressDurations] = useState<number[]>([])

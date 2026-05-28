@@ -23,6 +23,7 @@ export type SlateViewSelectionCollapseEdge =
 
 const EDITOR_TO_VIEW_SELECTION = new WeakMap<object, SlateViewSelection>()
 const EDITOR_TO_VIEW_SELECTION_STORE_KEY = new WeakMap<object, object>()
+const VIEW_SELECTION_LISTENERS = new WeakMap<object, Set<() => void>>()
 const HISTORY_BATCH_TO_VIEW_SELECTION = new WeakMap<
   object,
   Readonly<{
@@ -42,6 +43,12 @@ export const setSlateViewSelectionStoreKey = (
 
 const getViewSelectionStoreKey = (editor: object): object =>
   EDITOR_TO_VIEW_SELECTION_STORE_KEY.get(editor) ?? editor
+
+const notifyViewSelectionListeners = (storeKey: object) => {
+  VIEW_SELECTION_LISTENERS.get(storeKey)?.forEach((listener) => {
+    listener()
+  })
+}
 
 const getProjectedPointOwnerKey = (projectedPoint: SlateViewBoundaryPoint) =>
   projectedPoint.owner
@@ -121,13 +128,38 @@ export const writeSlateViewSelection = (
   selection: SlateViewSelection | null
 ) => {
   const key = getViewSelectionStoreKey(editor)
+  const previous = EDITOR_TO_VIEW_SELECTION.get(key) ?? null
 
   if (!selection) {
     EDITOR_TO_VIEW_SELECTION.delete(key)
+    if (previous) {
+      notifyViewSelectionListeners(key)
+    }
     return
   }
 
   EDITOR_TO_VIEW_SELECTION.set(key, selection)
+  if (previous !== selection) {
+    notifyViewSelectionListeners(key)
+  }
+}
+
+export const subscribeSlateViewSelection = (
+  editor: object,
+  listener: () => void
+) => {
+  const key = getViewSelectionStoreKey(editor)
+  const listeners = VIEW_SELECTION_LISTENERS.get(key) ?? new Set<() => void>()
+
+  listeners.add(listener)
+  VIEW_SELECTION_LISTENERS.set(key, listeners)
+
+  return () => {
+    listeners.delete(listener)
+    if (listeners.size === 0) {
+      VIEW_SELECTION_LISTENERS.delete(key)
+    }
+  }
 }
 
 type HistoryStackName = 'redos' | 'undos'

@@ -79,14 +79,12 @@ describe('root interaction resolver', () => {
   })
 
   test('places caret at root end for editable root surface clicks without coordinates', () => {
-    const root = createRootChrome()
     const editable = document.createElement('div')
 
     editable.dataset.slateEditor = 'true'
-    root.append(editable)
 
     const target = resolveRootInteractionTarget({
-      currentTarget: root,
+      currentTarget: editable,
       target: editable,
     })
     const mouseDown = resolveRootInteractionMouseDown({
@@ -130,7 +128,44 @@ describe('root interaction resolver', () => {
     })
   })
 
-  test('prefocuses blurred native text targets without blocking native selection', () => {
+  test('places blurred native text targets from mouseup coordinates', () => {
+    const editable = document.createElement('div')
+    const text = document.createElement('span')
+
+    editable.dataset.slateEditor = 'true'
+    text.dataset.slateString = 'true'
+    editable.append(text)
+
+    const target = resolveRootInteractionTarget({
+      currentTarget: editable,
+      target: text,
+    })
+    const mouseDown = resolveRootInteractionMouseDown({
+      editableRootFocused: false,
+      target,
+    })
+
+    expect(target.kind).toBe('native-editable')
+    expect(mouseDown).toEqual({ type: 'place-native-editable' })
+    expect(
+      resolveRootInteractionMouseUp({
+        eventRange: {
+          anchor: { path: [0, 0], offset: 1 },
+          focus: { path: [0, 0], offset: 1 },
+        },
+        pendingAction: mouseDown,
+        selection: 'restore',
+      })
+    ).toEqual({
+      range: {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      },
+      type: 'set-selection',
+    })
+  })
+
+  test('lets root chrome ignore editable descendants', () => {
     const root = createRootChrome()
     const editable = document.createElement('div')
     const text = document.createElement('span')
@@ -144,23 +179,33 @@ describe('root interaction resolver', () => {
       currentTarget: root,
       target: text,
     })
+
+    expect(target.kind).toBe('interactive-descendant')
+    expect(resolveRootInteractionMouseDown({ target }).type).toBe('ignore')
+  })
+
+  test('lets root chrome place same-root editable surface clicks', () => {
+    const root = createRootChrome()
+    const editable = document.createElement('div')
+
+    root.dataset.slateRootChrome = 'header'
+    editable.dataset.slateEditor = 'true'
+    editable.dataset.slateRoot = 'header'
+    root.append(editable)
+
+    const target = resolveRootInteractionTarget({
+      currentTarget: root,
+      target: editable,
+    })
     const mouseDown = resolveRootInteractionMouseDown({
       editableRootFocused: false,
       target,
     })
 
-    expect(target.kind).toBe('native-editable')
+    expect(target.kind).toBe('editable-root')
     expect(mouseDown).toEqual({
-      type: 'focus-native-editable',
-    })
-    expect(
-      resolveRootInteractionMouseUp({
-        eventRange: null,
-        pendingAction: mouseDown,
-        selection: 'restore',
-      })
-    ).toEqual({
-      type: 'ignore',
+      preventDefault: true,
+      type: 'place-editable-root',
     })
   })
 

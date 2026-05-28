@@ -243,10 +243,19 @@ export const createDOMRepairQueue = ({
         const textHost = getSlateNodeElementByPath(editor, path)
 
         if (!textHost) {
+          if (kind === 'repair-caret-after-text-insert') {
+            return
+          }
+
           scrollCurrentDOMSelectionIntoView()
           return
         }
 
+        const shouldScrollTextHost =
+          kind !== 'repair-caret-after-text-insert' ||
+          !textHost.closest(
+            '[data-slate-paged-editable-page-virtualization="true"]'
+          )
         const root = ReactEditor.findDocumentOrShadowRoot(editor)
         const domSelection = getSelection(root)
 
@@ -295,13 +304,17 @@ export const createDOMRepairQueue = ({
               domNode,
               domOffset
             )
-            if (!shouldSkipSelectionScroll(editor)) {
+            if (shouldScrollTextHost && !shouldSkipSelectionScroll(editor)) {
               scrollSelectionIntoView(editor, domRange)
             }
             return
           }
 
           offset = nextOffset
+        }
+
+        if (kind === 'repair-caret-after-text-insert') {
+          return
         }
 
         scrollCurrentDOMSelectionIntoView()

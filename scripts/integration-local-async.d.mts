@@ -13,6 +13,8 @@ export function extractFailuresFromPlaywrightReport(
   report: unknown
 ): PlaywrightFailure[]
 
+export function findAvailablePort(startPort?: number): Promise<number>
+
 export function getRunReuseDecision(input: {
   live: boolean
   requestedCommandKey: string

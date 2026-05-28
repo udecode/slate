@@ -52,6 +52,10 @@ import { ProjectionContext } from '../projection-context'
 import { recordSlateReactRender } from '../render-profiler'
 import { REACT_MAJOR_VERSION } from '../utils/environment'
 import { setSlateViewSelectionStoreKey } from '../view-selection'
+import {
+  useSlateViewSelectionDecorationSource,
+  useSlateViewSelectionPresence,
+} from '../view-selection-decoration'
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
 
@@ -218,16 +222,25 @@ const SlateRuntimeView = <
     onValueChange,
     root: viewRoot,
   })
+  const hasViewSelection = useSlateViewSelectionPresence(reactEditor)
+  const viewSelectionDecorationSource = useSlateViewSelectionDecorationSource(
+    reactEditor,
+    hasViewSelection
+  )
   const projectionContextValue = useMemo(() => {
+    const sources = viewSelectionDecorationSource
+      ? [...(decorationSources ?? []), viewSelectionDecorationSource]
+      : decorationSources
+
     if (!annotationStore) {
-      return composeDecorationSources(decorationSources)
+      return composeDecorationSources(sources)
     }
 
     return composeProjectionSources([
-      ...(decorationSources ?? []),
+      ...(sources ?? []),
       annotationStore.projectionStore,
     ])
-  }, [annotationStore, decorationSources])
+  }, [annotationStore, decorationSources, viewSelectionDecorationSource])
 
   return (
     <EditorSelectorContext.Provider value={runtimeContext.selectorContext}>
@@ -719,16 +732,25 @@ const SlateSingleEditor = <
 
   const [isFocused, setIsFocused] = useState(ReactEditor.isFocused(reactEditor))
   const [focusVersion, setFocusVersion] = useState(0)
+  const hasViewSelection = useSlateViewSelectionPresence(reactEditor)
+  const viewSelectionDecorationSource = useSlateViewSelectionDecorationSource(
+    reactEditor,
+    hasViewSelection
+  )
   const projectionContextValue = useMemo(() => {
+    const sources = viewSelectionDecorationSource
+      ? [...(decorationSources ?? []), viewSelectionDecorationSource]
+      : decorationSources
+
     if (!annotationStore) {
-      return composeDecorationSources(decorationSources)
+      return composeDecorationSources(sources)
     }
 
     return composeProjectionSources([
-      ...(decorationSources ?? []),
+      ...(sources ?? []),
       annotationStore.projectionStore,
     ])
-  }, [annotationStore, decorationSources])
+  }, [annotationStore, decorationSources, viewSelectionDecorationSource])
 
   useEffect(() => {
     setIsFocused(ReactEditor.isFocused(reactEditor))

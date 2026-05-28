@@ -58,6 +58,39 @@ const selectCommentModeIntroWithPointer = async (
   await page.mouse.up()
 }
 
+const getTextOffsetPoint = async (
+  page: Page,
+  rootSelector: string,
+  offset: number
+) =>
+  page
+    .locator(`${rootSelector} [data-slate-string]`)
+    .first()
+    .evaluate((element, textOffset) => {
+      const textNode = element.firstChild
+
+      if (!textNode) {
+        throw new Error('Slate string text node was not found')
+      }
+
+      const range = document.createRange()
+      range.setStart(textNode, textOffset)
+      range.setEnd(textNode, textOffset)
+
+      const rect = range.getBoundingClientRect()
+
+      return {
+        x: rect.left,
+        y: rect.top + rect.height / 2,
+      }
+    }, offset)
+
+const getDOMSelectionOffset = (page: Page) =>
+  page.evaluate(() => window.getSelection()?.anchorOffset ?? null)
+
+const writerSelection = (page: Page) =>
+  page.locator('.slate-comment-mode-writer-pane .slate-comment-mode-code')
+
 test.describe('comment mode example', () => {
   test('allows real pointer selection to add a comment in the read-only editor', async ({
     page,
@@ -202,6 +235,55 @@ test.describe('comment mode example', () => {
     await expect
       .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
       .toContain('Comment mode in Slate v')
+  })
+
+  test('places the edit-mode caret from event coordinates after a comment-mode selection', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'desktop click-to-caret proof'
+    )
+
+    await openExample(page, 'comment-mode', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    const documentEditor = page.locator('#comment-mode-document')
+    const targetOffset = 32
+
+    await selectCommentModeIntroWithPointer(page)
+    await expect(page.locator('#comment-mode')).toBeFocused()
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toContain('Comment mode in Slate v')
+
+    const point = await getTextOffsetPoint(
+      page,
+      '#comment-mode-document',
+      targetOffset
+    )
+
+    await page.mouse.move(point.x, point.y)
+    await page.mouse.down()
+
+    await expect(documentEditor).toBeFocused()
+    await expect.poll(() => getDOMSelectionOffset(page)).toBe(targetOffset)
+    await expect(writerSelection(page)).toHaveText(
+      `selection:0.0:${targetOffset}|0.0:${targetOffset}`
+    )
+
+    await page.mouse.up()
+
+    await expect.poll(() => getDOMSelectionOffset(page)).toBe(targetOffset)
+    await expect(writerSelection(page)).toHaveText(
+      `selection:0.0:${targetOffset}|0.0:${targetOffset}`
+    )
+    await expect(page.locator('#comment-mode-selection')).toHaveText(
+      'selection:none'
+    )
   })
 
   test('keeps comment sidebar, inline review slices, and widget panel in sync', async ({

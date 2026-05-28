@@ -3,8 +3,13 @@ import React, {
   type ReactNode,
   type Ref,
   useCallback,
+  useContext,
 } from 'react'
 import type { Path, RuntimeId, Text as SlateTextNode } from 'slate'
+import {
+  SlateContentRootOwnerContext,
+  SlateEditableRootContext,
+} from '../context'
 import {
   type DOMTextSyncOptOutReason,
   getDOMTextSyncCapability,
@@ -18,6 +23,7 @@ import {
 import { useSlateNodeRef } from '../hooks/use-slate-node-ref'
 import { useSlateProjections } from '../hooks/use-slate-projections'
 import type { SlateProjectionSlice } from '../projection-store'
+import { hasVisibleSlateViewSelectionDecoration } from '../view-selection-decoration'
 import { SlateLeaf } from './slate-leaf'
 import {
   getSlatePlaceholderStyle,
@@ -29,6 +35,10 @@ import { TextString } from './text-string'
 import { ZeroWidthString } from './zero-width-string'
 
 const EMPTY_MARKS: Omit<SlateTextNode, 'text'> = {}
+const VIEW_SELECTION_STYLE: CSSProperties = {
+  backgroundColor: 'Highlight',
+  color: 'HighlightText',
+}
 const EMPTY_BOUND_TEXT = Object.freeze({
   marks: EMPTY_MARKS,
   path: null,
@@ -293,6 +303,8 @@ const RenderEditableText = <T,>({
   resolvedMarks: Omit<SlateTextNode, 'text'>
   resolvedText: string
 }) => {
+  const editableRoot = useContext(SlateEditableRootContext)
+  const contentRootOwner = useContext(SlateContentRootOwnerContext)
   const hasText = resolvedText.length > 0
   const domTextSync = getDOMTextSyncCapability({
     hasText,
@@ -341,6 +353,20 @@ const RenderEditableText = <T,>({
           const segmentContent = renderSegment
             ? renderSegment(segment, baseContent)
             : baseContent
+          const decoratedSegmentContent =
+            hasVisibleSlateViewSelectionDecoration(segment.slices, {
+              owner: contentRootOwner,
+              root: editableRoot,
+            }) ? (
+              <span
+                data-slate-view-selection="true"
+                style={VIEW_SELECTION_STYLE}
+              >
+                {segmentContent}
+              </span>
+            ) : (
+              segmentContent
+            )
           const leafNode = {
             text: segment.text,
             ...segment.marks,
@@ -361,14 +387,14 @@ const RenderEditableText = <T,>({
               {renderLeaf ? (
                 renderLeaf({
                   attributes: leafAttributes,
-                  children: segmentContent,
+                  children: decoratedSegmentContent,
                   leaf: leafNode,
                   leafPosition,
                   segment,
                   text: textNode,
                 })
               ) : (
-                <SlateLeaf>{segmentContent}</SlateLeaf>
+                <SlateLeaf>{decoratedSegmentContent}</SlateLeaf>
               )}
             </React.Fragment>
           )

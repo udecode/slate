@@ -127,7 +127,11 @@ test.describe('hidden content blocks example', () => {
       'inactive'
     )
 
-    await editor.root.getByText('Overview tab visible text').click()
+    const overview = 'Overview tab visible text'
+    await editor.selection.collapse({
+      offset: overview.length,
+      path: [2, 0, 0],
+    })
     for (let i = 0; i < 40; i++) {
       await page.keyboard.press('ArrowRight')
     }
@@ -147,7 +151,10 @@ test.describe('hidden content blocks example', () => {
     await expect(
       page.getByTestId('hidden-content-selection-policy')
     ).toContainText('model-backed')
-    await editor.root.getByText('Overview tab visible text').click()
+    await editor.selection.collapse({
+      offset: overview.length,
+      path: [2, 0, 0],
+    })
     for (let i = 0; i < 40; i++) {
       await page.keyboard.press('ArrowRight')
     }
@@ -169,7 +176,10 @@ test.describe('hidden content blocks example', () => {
     await expect(
       page.getByTestId('hidden-content-selection-policy')
     ).toContainText('materialize')
-    await editor.root.getByText('Overview tab visible text').click()
+    await editor.selection.collapse({
+      offset: overview.length,
+      path: [2, 0, 0],
+    })
     for (let i = 0; i < 40; i++) {
       await page.keyboard.press('ArrowRight')
     }
@@ -197,15 +207,29 @@ test.describe('hidden content blocks example', () => {
     })
 
     const intro = 'Intro visible before hidden blocks.'
-    await editor.selection.collapse({ offset: intro.length, path: [0, 0] })
-    await page.keyboard.press('Shift+ArrowRight')
-    await editor.assert.selection({
-      anchor: { offset: intro.length, path: [0, 0] },
-      focus: { offset: 0, path: [2, 0, 0] },
+    await editor.selection.select({
+      anchor: { offset: intro.length - 3, path: [0, 0] },
+      focus: { offset: intro.length, path: [0, 0] },
     })
     await expect
       .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
-      .toBe('')
+      .toBe('ks.')
+    await page.keyboard.press('Shift+ArrowRight')
+    await editor.assert.selection({
+      anchor: { offset: intro.length - 3, path: [0, 0] },
+      focus: { offset: 1, path: [2, 0, 0] },
+    })
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe('ks.\nO')
+    await page.keyboard.press('Shift+ArrowRight')
+    await editor.assert.selection({
+      anchor: { offset: intro.length - 3, path: [0, 0] },
+      focus: { offset: 2, path: [2, 0, 0] },
+    })
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe('ks.\nOv')
     await expect(page.getByTestId('tab-overview')).toHaveAttribute(
       'data-state',
       'active'
@@ -215,15 +239,18 @@ test.describe('hidden content blocks example', () => {
       'inactive'
     )
 
-    await editor.selection.collapse({ offset: intro.length, path: [0, 0] })
+    await editor.selection.select({
+      anchor: { offset: intro.length - 3, path: [0, 0] },
+      focus: { offset: intro.length, path: [0, 0] },
+    })
     await page.keyboard.press('Control+Shift+ArrowRight')
     await editor.assert.selection({
-      anchor: { offset: intro.length, path: [0, 0] },
-      focus: { offset: 0, path: [2, 0, 0] },
+      anchor: { offset: intro.length - 3, path: [0, 0] },
+      focus: { offset: 'Overview'.length, path: [2, 0, 0] },
     })
     await expect
       .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
-      .toBe('')
+      .toBe('ks.\nOverview')
     await expect(editor.root).not.toContainText('Accordion secret alpha')
     await expect(editor.root).not.toContainText('Details tab hidden text')
   })

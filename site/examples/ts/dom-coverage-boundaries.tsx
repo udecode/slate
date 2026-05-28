@@ -1,3 +1,4 @@
+import { parseAsBoolean, useQueryStates } from 'nuqs'
 import React, { useCallback, useMemo, useState } from 'react'
 import { NodeApi, type Element as SlateElement } from 'slate'
 import { DOMCoverage } from 'slate-dom/internal'
@@ -9,6 +10,7 @@ import {
   useSlateEditor,
 } from 'slate-react'
 import { Button } from '@/components/ui/button'
+import { replaceQueryOptions } from './query-controls'
 
 const hiddenBodyPath = [2, 1, 0]
 
@@ -27,6 +29,22 @@ const HiddenBoundaryContext = React.createContext<HiddenBoundaryState>({
   innerHidden: true,
   outerHidden: true,
 })
+
+const hiddenBoundaryQueryParsers = {
+  deepHidden: parseAsBoolean.withDefault(true),
+  footerHidden: parseAsBoolean.withDefault(true),
+  headerHidden: parseAsBoolean.withDefault(true),
+  innerHidden: parseAsBoolean.withDefault(true),
+  outerHidden: parseAsBoolean.withDefault(true),
+}
+
+const hiddenBoundaryUrlKeys = {
+  deepHidden: 'deep_hidden',
+  footerHidden: 'footer_hidden',
+  headerHidden: 'header_hidden',
+  innerHidden: 'inner_hidden',
+  outerHidden: 'outer_hidden',
+}
 
 const DomCoverageBoundariesExample = () => {
   const editor = useSlateEditor({
@@ -99,13 +117,21 @@ const DomCoverageBoundariesExample = () => {
       },
     ] as SlateElement[],
   })
-  const [headerHidden, setHeaderHidden] = useState(true)
-  const [footerHidden, setFooterHidden] = useState(true)
-  const [outerHidden, setOuterHidden] = useState(true)
-  const [innerHidden, setInnerHidden] = useState(true)
-  const [deepHidden, setDeepHidden] = useState(true)
+  const [
+    { deepHidden, footerHidden, headerHidden, innerHidden, outerHidden },
+    setHiddenBoundaryControls,
+  ] = useQueryStates(hiddenBoundaryQueryParsers, {
+    ...replaceQueryOptions,
+    urlKeys: hiddenBoundaryUrlKeys,
+  })
   const [copyPreview, setCopyPreview] = useState('')
   const [traceTick, setTraceTick] = useState(0)
+  const toggleHiddenBoundary = useCallback(
+    (key: keyof HiddenBoundaryState) => {
+      void setHiddenBoundaryControls((state) => ({ [key]: !state[key] }))
+    },
+    [setHiddenBoundaryControls]
+  )
 
   const refreshTrace = useCallback(() => {
     setTimeout(() => setTraceTick((tick) => tick + 1))
@@ -189,35 +215,35 @@ const DomCoverageBoundariesExample = () => {
     <div className="slate-dom-coverage-page">
       <div className="slate-dom-coverage-toolbar">
         <Button
-          onClick={() => setHeaderHidden((value) => !value)}
+          onClick={() => toggleHiddenBoundary('headerHidden')}
           type="button"
           variant="outline"
         >
           Header
         </Button>
         <Button
-          onClick={() => setOuterHidden((value) => !value)}
+          onClick={() => toggleHiddenBoundary('outerHidden')}
           type="button"
           variant="outline"
         >
           Outer
         </Button>
         <Button
-          onClick={() => setInnerHidden((value) => !value)}
+          onClick={() => toggleHiddenBoundary('innerHidden')}
           type="button"
           variant="outline"
         >
           Nested
         </Button>
         <Button
-          onClick={() => setDeepHidden((value) => !value)}
+          onClick={() => toggleHiddenBoundary('deepHidden')}
           type="button"
           variant="outline"
         >
           Deep
         </Button>
         <Button
-          onClick={() => setFooterHidden((value) => !value)}
+          onClick={() => toggleHiddenBoundary('footerHidden')}
           type="button"
           variant="outline"
         >

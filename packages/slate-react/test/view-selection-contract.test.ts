@@ -12,8 +12,11 @@ import {
   extendSlateViewSelection,
   isSlateViewSelectionCollapsed,
   readSlateViewSelection,
+  setSlateViewSelectionStoreKey,
+  subscribeSlateViewSelection,
   writeSlateViewSelection,
 } from '../src/view-selection'
+import { hasVisibleSlateViewSelectionDecoration } from '../src/view-selection-decoration'
 
 const SHARED_ROOT = 'synced-block:shared:body'
 const SEPARATE_ROOT = 'synced-block:separate:body'
@@ -169,5 +172,72 @@ describe('slate view selection', () => {
     writeSlateViewSelection(editorA, null)
 
     expect(readSlateViewSelection(editorA)).toBe(null)
+  })
+
+  it('notifies subscribers through shared runtime view-selection storage', () => {
+    const runtimeEditor = {}
+    const viewEditor = {}
+    const selection = createSlateViewSelection(graph, {
+      anchor: { point: point(undefined, [0, 0], 1) },
+      focus: {
+        owner: separateOwner,
+        point: point(SEPARATE_ROOT, [0, 0], 8),
+      },
+    })
+    const events: unknown[] = []
+
+    setSlateViewSelectionStoreKey(viewEditor, runtimeEditor)
+    const unsubscribe = subscribeSlateViewSelection(viewEditor, () => {
+      events.push(readSlateViewSelection(viewEditor))
+    })
+
+    writeSlateViewSelection(runtimeEditor, selection)
+    writeSlateViewSelection(runtimeEditor, null)
+    unsubscribe()
+    writeSlateViewSelection(runtimeEditor, selection)
+
+    expect(events).toEqual([selection, null])
+  })
+
+  it('renders selection decoration only for the addressed content-root owner copy', () => {
+    const firstCopySlice = {
+      data: {
+        owner: firstSharedOwner,
+        root: SHARED_ROOT,
+        slateViewSelection: true,
+      },
+    }
+    const mainSlice = {
+      data: {
+        owner: null,
+        root: 'main',
+        slateViewSelection: true,
+      },
+    }
+
+    expect(
+      hasVisibleSlateViewSelectionDecoration([firstCopySlice], {
+        owner: firstSharedOwner,
+        root: SHARED_ROOT,
+      })
+    ).toBe(true)
+    expect(
+      hasVisibleSlateViewSelectionDecoration([firstCopySlice], {
+        owner: secondSharedOwner,
+        root: SHARED_ROOT,
+      })
+    ).toBe(false)
+    expect(
+      hasVisibleSlateViewSelectionDecoration([mainSlice], {
+        owner: null,
+        root: 'main',
+      })
+    ).toBe(true)
+    expect(
+      hasVisibleSlateViewSelectionDecoration([mainSlice], {
+        owner: firstSharedOwner,
+        root: SHARED_ROOT,
+      })
+    ).toBe(false)
   })
 })

@@ -1,3 +1,4 @@
+import { parseAsBoolean, parseAsStringLiteral, useQueryStates } from 'nuqs'
 import React, { useCallback, useMemo, useState } from 'react'
 import { NodeApi, type Element as SlateElement } from 'slate'
 import type {
@@ -35,6 +36,7 @@ import {
 } from '@/components/ui/collapsible'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { replaceQueryOptions } from './query-controls'
 
 type HiddenBlocksState = {
   accordionOpen: boolean
@@ -48,22 +50,47 @@ type HiddenBlocksState = {
   setCollapsibleOpen: (value: boolean) => void
 }
 
-const selectionPolicyOptions: DOMCoverageSelectionPolicy[] = [
+const tabOptions = ['overview', 'details'] as const
+
+const selectionPolicyOptions = [
   'boundary',
   'model-backed',
   'materialize',
-]
-const copyPolicyOptions: DOMCoverageCopyPolicy[] = [
+] as const satisfies readonly DOMCoverageSelectionPolicy[]
+const copyPolicyOptions = [
   'include-model',
   'summary-only',
   'exclude',
   'materialize',
-]
-const findPolicyOptions: DOMCoverageFindPolicy[] = [
+] as const satisfies readonly DOMCoverageCopyPolicy[]
+const findPolicyOptions = [
   'not-native-until-mounted',
   'native',
   'custom',
-]
+] as const satisfies readonly DOMCoverageFindPolicy[]
+
+const hiddenContentQueryParsers = {
+  accordionOpen: parseAsBoolean.withDefault(false),
+  activeTab: parseAsStringLiteral(tabOptions).withDefault('overview'),
+  collapsibleOpen: parseAsBoolean.withDefault(false),
+  copyPolicy:
+    parseAsStringLiteral(copyPolicyOptions).withDefault('include-model'),
+  findPolicy: parseAsStringLiteral(findPolicyOptions).withDefault(
+    'not-native-until-mounted'
+  ),
+  selectionPolicy: parseAsStringLiteral(selectionPolicyOptions).withDefault(
+    'boundary'
+  ),
+}
+
+const hiddenContentUrlKeys = {
+  accordionOpen: 'accordion_open',
+  activeTab: 'tab',
+  collapsibleOpen: 'collapsible_open',
+  copyPolicy: 'copy',
+  findPolicy: 'find',
+  selectionPolicy: 'selection',
+}
 
 const HiddenBlocksContext = React.createContext<HiddenBlocksState>({
   accordionOpen: false,
@@ -160,20 +187,59 @@ const HiddenContentBlocksExample = () => {
       },
     ] as SlateElement[],
   })
-  const [accordionOpen, setAccordionOpen] = useState(false)
-  const [collapsibleOpen, setCollapsibleOpen] = useState(false)
-  const [activeTab, setActiveTab] =
-    useState<HiddenBlocksState['activeTab']>('overview')
-  const [selectionPolicy, setSelectionPolicy] =
-    useState<DOMCoverageSelectionPolicy>('boundary')
-  const [copyPolicy, setCopyPolicy] =
-    useState<DOMCoverageCopyPolicy>('include-model')
-  const [findPolicy, setFindPolicy] = useState<DOMCoverageFindPolicy>(
-    'not-native-until-mounted'
-  )
+  const [
+    {
+      accordionOpen,
+      activeTab,
+      collapsibleOpen,
+      copyPolicy,
+      findPolicy,
+      selectionPolicy,
+    },
+    setHiddenContentControls,
+  ] = useQueryStates(hiddenContentQueryParsers, {
+    ...replaceQueryOptions,
+    urlKeys: hiddenContentUrlKeys,
+  })
   const [copyPreview, setCopyPreview] = useState('')
   const [metrics, setMetrics] = useState<EditableDOMStrategyMetrics | null>(
     null
+  )
+  const setAccordionOpen = useCallback(
+    (value: boolean) => {
+      void setHiddenContentControls({ accordionOpen: value })
+    },
+    [setHiddenContentControls]
+  )
+  const setCollapsibleOpen = useCallback(
+    (value: boolean) => {
+      void setHiddenContentControls({ collapsibleOpen: value })
+    },
+    [setHiddenContentControls]
+  )
+  const setActiveTab = useCallback(
+    (value: HiddenBlocksState['activeTab']) => {
+      void setHiddenContentControls({ activeTab: value })
+    },
+    [setHiddenContentControls]
+  )
+  const setSelectionPolicy = useCallback(
+    (value: DOMCoverageSelectionPolicy) => {
+      void setHiddenContentControls({ selectionPolicy: value })
+    },
+    [setHiddenContentControls]
+  )
+  const setCopyPolicy = useCallback(
+    (value: DOMCoverageCopyPolicy) => {
+      void setHiddenContentControls({ copyPolicy: value })
+    },
+    [setHiddenContentControls]
+  )
+  const setFindPolicy = useCallback(
+    (value: DOMCoverageFindPolicy) => {
+      void setHiddenContentControls({ findPolicy: value })
+    },
+    [setHiddenContentControls]
   )
   const state = useMemo(
     () => ({
@@ -193,6 +259,9 @@ const HiddenContentBlocksExample = () => {
       collapsibleOpen,
       copyPolicy,
       findPolicy,
+      setAccordionOpen,
+      setActiveTab,
+      setCollapsibleOpen,
       selectionPolicy,
     ]
   )

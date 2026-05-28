@@ -457,7 +457,7 @@ test('keyboard structural commands keep model selection after delayed text repai
   })
 })
 
-test('keyboard model selection moves import DOM selection after programmatic DOM export', () => {
+test('keyboard model selection moves keep model selection after programmatic DOM export', () => {
   const editor = createEditor() as any
   const inputController = createEditableInputController({
     preferModelSelectionForInputRef: { current: false },
@@ -465,6 +465,39 @@ test('keyboard model selection moves import DOM selection after programmatic DOM
   })
   inputController.state.selectionChangeOrigin = 'programmatic-export'
   inputController.state.selectionSource = 'model-owned'
+
+  const decision = prepareEditableKeyDownKernel({
+    editor,
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: false,
+        key: 'ArrowRight',
+        metaKey: false,
+        shiftKey: false,
+        which: 39,
+      },
+      target: null,
+    } as any,
+    inputController,
+    domStrategyRuntime: null,
+  })
+
+  expect(decision).toMatchObject({
+    intent: 'model-selection-move',
+    ownership: 'model-owned',
+    selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
+    shouldForceDOMImport: false,
+  })
+})
+
+test('keyboard model selection moves import DOM selection when native selection owns it', () => {
+  const editor = createEditor() as any
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  })
+  inputController.state.selectionSource = 'dom-current'
 
   const decision = prepareEditableKeyDownKernel({
     editor,

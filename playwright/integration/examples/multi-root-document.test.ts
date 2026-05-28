@@ -309,12 +309,9 @@ test.describe('multi-root document example', () => {
     await expect(header).not.toContainText('THREE')
   })
 
-  test('keeps repeated multi-root undo from replaying paths in the focused root', async ({
+  test("keyboard undo keeps typing in the preserved focused root after undoing another root's batch", async ({
     page,
   }) => {
-    const pageErrors: Error[] = []
-    page.on('pageerror', (error) => pageErrors.push(error))
-
     await openExample(page, 'multi-root-document', {
       ready: {
         editor: 'visible',
@@ -326,7 +323,135 @@ test.describe('multi-root document example', () => {
 
     const header = page.locator('#multi-root-header')
     const main = page.locator('#multi-root-main')
+    const commitStatus = page.locator('#multi-root-commit')
+    const headerText = 'Confidential quarterly plan'
+    const bodyText = 'The body root carries the document content.'
+    const undoHotkey = (await page.evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent)
+    ))
+      ? 'Meta+Z'
+      : 'Control+Z'
+    const headerBox = await header.boundingBox()
+    const mainBox = await main.boundingBox()
+
+    if (!headerBox || !mainBox) {
+      throw new Error('Multi-root editors are not visible')
+    }
+
+    await page.mouse.click(headerBox.x + headerBox.width - 16, headerBox.y + 24)
+    await expect(header).toBeFocused()
+    await page.keyboard.insertText('p')
+    await expect(header).toContainText(`${headerText}p`)
+    await expect(commitStatus).toContainText('roots:header')
+
+    await page.mouse.click(mainBox.x + mainBox.width - 16, mainBox.y + 24)
+    await expect(main).toBeFocused()
+    await page.keyboard.insertText('poke')
+    await expect(main).toContainText(`${bodyText}poke`)
+    await expect(commitStatus).toContainText('roots:main')
+
+    await main.press(undoHotkey)
+
+    await expect(main).not.toContainText('poke')
+    await expect(header).toContainText(`${headerText}p`)
+    await expect
+      .poll(() => readNativeSelection(page, 'multi-root-main'))
+      .toMatchObject({
+        activeElementId: 'multi-root-main',
+        insideRoot: true,
+        text: bodyText,
+      })
+
+    await main.press(undoHotkey)
+
+    await expect(header).not.toContainText(`${headerText}p`)
+    await expect
+      .poll(() => readNativeSelection(page, 'multi-root-main'))
+      .toMatchObject({
+        activeElementId: 'multi-root-main',
+        insideRoot: true,
+        text: bodyText,
+      })
+
+    await page.keyboard.insertText('x')
+
+    await expect(main).toContainText(`${bodyText}x`)
+    await expect(header).not.toContainText('x')
+    await expect(header).toContainText(headerText)
+  })
+
+  test('keeps repeated multi-root undo from replaying paths in the focused root', async ({
+    page,
+  }, testInfo) => {
+    const pageErrors: Error[] = []
+    page.on('pageerror', (error) => pageErrors.push(error))
+
+    const bodyEditor = await openExample(page, 'multi-root-document', {
+      ready: {
+        editor: 'visible',
+      },
+      surface: {
+        scope: '#multi-root-main-surface',
+      },
+    })
+
+    const header = page.locator('#multi-root-header')
+    const main = page.locator('#multi-root-main')
     const footer = page.locator('#multi-root-footer')
+    const headerText = 'Confidential quarterly plan'
+    const bodyText = 'The body root carries the document content.'
+    const footerText = 'Prepared for leadership review'
+
+    if (testInfo.project.name === 'mobile') {
+      const headerEditor = bodyEditor.rootAt('#multi-root-header')
+      const footerEditor = bodyEditor.rootAt('#multi-root-footer')
+
+      await insertEditorText(headerEditor, ' H1', {
+        path: [0, 0],
+        offset: headerText.length,
+      })
+      await expect(header).toContainText('H1')
+
+      await insertEditorText(bodyEditor, ' B1', {
+        path: [0, 0],
+        offset: bodyText.length,
+      })
+      await expect(main).toContainText('B1')
+
+      await insertEditorText(footerEditor, ' F1', {
+        path: [0, 0],
+        offset: footerText.length,
+      })
+      await expect(footer).toContainText('F1')
+
+      await insertEditorText(headerEditor, ' H2', {
+        path: [0, 0],
+        offset: headerText.length + ' H1'.length,
+      })
+      await expect(header).toContainText('H2')
+
+      await insertEditorText(bodyEditor, ' B2', {
+        path: [0, 0],
+        offset: bodyText.length + ' B1'.length,
+      })
+      await expect(main).toContainText('B2')
+
+      await headerEditor.focus()
+
+      for (let index = 0; index < 5; index++) {
+        await page.getByRole('button', { name: 'Undo document change' }).click()
+      }
+
+      await expect(header).not.toContainText('H1')
+      await expect(header).not.toContainText('H2')
+      await expect(main).not.toContainText('B1')
+      await expect(main).not.toContainText('B2')
+      await expect(footer).not.toContainText('F1')
+      await expect(header).toBeFocused()
+      expect(pageErrors).toEqual([])
+      return
+    }
+
     const headerBox = await header.boundingBox()
     const mainBox = await main.boundingBox()
 
