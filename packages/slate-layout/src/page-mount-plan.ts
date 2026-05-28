@@ -7,21 +7,28 @@ import type {
 
 type PageFragmentIndex = Pick<
   SlatePageLayoutFragment,
-  'blockIndex' | 'pageIndex'
+  'blockIndex' | 'pageIndex' | 'path' | 'units'
 >
 
 export type PagedEditablePageMountItem = {
+  fragmentPaths: readonly number[][]
   index: number
   key: string
   pageIndexes: readonly number[]
   size: number
   start: number
   topLevelIndexes: readonly number[]
+  unitPaths: readonly number[][]
 }
 
 export type PagedEditablePageMountPlan = {
   itemIndexesByTopLevelIndex: ReadonlyMap<number, readonly number[]>
   items: readonly PagedEditablePageMountItem[]
+}
+
+export type PagedEditablePageMountViewport = {
+  bottom: number
+  top: number
 }
 
 const getPageMountGroups = (
@@ -65,13 +72,16 @@ export const createPagedEditablePageMountPlan = ({
   const groups = getPageMountGroups(pages, mode)
   const items = groups.map<PagedEditablePageMountItem>((pageIndexes, index) => {
     const pageIndexSet = new Set(pageIndexes)
+    const itemFragments = fragments.filter((fragment) =>
+      pageIndexSet.has(fragment.pageIndex)
+    )
     const topLevelIndexes = [
-      ...new Set(
-        fragments
-          .filter((fragment) => pageIndexSet.has(fragment.pageIndex))
-          .map((fragment) => fragment.blockIndex)
-      ),
+      ...new Set(itemFragments.map((fragment) => fragment.blockIndex)),
     ].sort((left, right) => left - right)
+    const fragmentPaths = itemFragments.map((fragment) => fragment.path)
+    const unitPaths = itemFragments.flatMap(
+      (fragment) => fragment.units?.map((unit) => unit.path) ?? []
+    )
     const placements = pageIndexes.map((pageIndex) => {
       const pageArrayIndex = pageArrayIndexByPageIndex.get(pageIndex)
 
@@ -101,12 +111,14 @@ export const createPagedEditablePageMountPlan = ({
     }
 
     return {
+      fragmentPaths,
       index,
       key: `page-mount:${pageIndexes.join('-')}`,
       pageIndexes,
       size,
       start,
       topLevelIndexes,
+      unitPaths,
     }
   })
 
@@ -160,4 +172,35 @@ export const getPagedEditableMountedPageIndexes = (
   }
 
   return [...pageIndexes].sort((left, right) => left - right)
+}
+
+export const getPagedEditableVisiblePageMountItems = (
+  plan: PagedEditablePageMountPlan,
+  {
+    gap,
+    overscan,
+    pages,
+    virtualizes,
+    viewport,
+  }: {
+    gap: number
+    overscan: number
+    pages: readonly SlatePageLayoutPage[]
+    virtualizes: boolean
+    viewport: PagedEditablePageMountViewport | null
+  }
+): readonly PagedEditablePageMountItem[] => {
+  if (!virtualizes || !viewport) {
+    return plan.items
+  }
+
+  const firstPageHeight = pages[0]?.height ?? 1024
+  const pageStride = firstPageHeight + gap
+  const overscanSize = overscan * pageStride
+
+  return plan.items.filter(
+    (item) =>
+      item.start + item.size >= viewport.top - overscanSize &&
+      item.start <= viewport.bottom + overscanSize
+  )
 }

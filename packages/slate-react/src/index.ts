@@ -78,6 +78,7 @@ export type {
   DOMStrategyOptions,
   DOMStrategyType,
 } from './dom-strategy/create-segment-plan'
+export type { DOMTextSyncOptions } from './dom-text-sync'
 export {
   type EditorDecorationSelectorContext,
   type EditorDecorationSelectorOptions,

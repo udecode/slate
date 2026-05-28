@@ -10,10 +10,12 @@ import {
   useEditor,
   useEditorSelector,
   useEditorState,
+  useElementPath,
   useNodeSelector,
   useSlateEditor,
   useTextSelector,
 } from '../src'
+import { NodeRuntimeIdContext } from '../src/context'
 import {
   usePlaceholderValue,
   useRootRuntimeIds,
@@ -703,6 +705,40 @@ describe('slate-react provider hooks contract', () => {
     } finally {
       globalThis.__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
     }
+  })
+
+  test('useElementPath updates on top-level root order changes', async () => {
+    const editor = createReactEditor({
+      initialValue: [
+        { type: 'block', children: [{ text: 'one' }] },
+        { type: 'block', children: [{ text: 'two' }] },
+      ],
+    })
+    const runtimeId = Editor.getRuntimeId(editor, [0])
+
+    if (!runtimeId) {
+      throw new Error('Expected runtime id for element path contract')
+    }
+
+    const { result } = renderHook(() => useElementPath(), {
+      wrapper: ({ children }) => (
+        <Slate editor={editor}>
+          <Editable />
+          <NodeRuntimeIdContext.Provider value={runtimeId}>
+            {children}
+          </NodeRuntimeIdContext.Provider>
+        </Slate>
+      ),
+    })
+
+    expect(result.current).toEqual([0])
+
+    await act(async () => {
+      Editor.moveNodes(editor, { at: [0], to: [2] })
+    })
+
+    expect(Editor.getPathByRuntimeId(editor, runtimeId)).toEqual([1])
+    expect(result.current).toEqual([1])
   })
 
   test('Editable keeps large DOM-present root groups stable across local edits and parent rerenders', async () => {

@@ -7,6 +7,7 @@ import type {
   RootKey,
   RuntimeId,
   Element as SlateElementNode,
+  Node as SlateNode,
   Range as SlateRange,
   Text as SlateTextNode,
 } from 'slate'
@@ -29,6 +30,8 @@ import {
   ElementContext,
   ElementPathContext,
   NodeRuntimeIdContext,
+  SlateContentRootOwnerContext,
+  SlateDOMTextSyncContext,
   SlateEditableRootContext,
 } from '../context'
 import {
@@ -53,6 +56,7 @@ import {
   useInternalSegmentDOMStrategyRootSources,
   usePlaceholderValue,
   useRootDocumentEpoch,
+  useSelectionPaths,
   useTopLevelSelectionIndex,
 } from '../editable/root-selector-sources'
 import { Editor } from '../editable/runtime-editor-api'
@@ -67,6 +71,10 @@ import { useSlateNodeRef } from '../hooks/use-slate-node-ref'
 import { useRequiredSlateRuntimeContext } from '../hooks/use-slate-runtime'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { ProjectionContext } from '../projection-context'
+import type {
+  SlateProjectionRuntimeScope,
+  SlateSourceDirtiness,
+} from '../projection-store'
 import { recordSlateReactRender } from '../render-profiler'
 import {
   type DOMCoverageBoundaryMaterializePayload,
@@ -573,6 +581,7 @@ const createEditableElementSlots = <
                 boundaryId: `content-root:${props.runtimeId}:${slot}`,
                 copyPolicy: 'exclude',
                 findPolicy: 'not-native-until-mounted',
+                mounted: false,
                 reason: 'app-hidden',
                 scope: {
                   from: 0,
@@ -672,6 +681,17 @@ function EditableContentRootView({
   const editor = useEditor<ReactRuntimeEditor>()
   const inheritedReadOnly = useEditorReadOnly()
   const readOnly = Boolean(options.readOnly || inheritedReadOnly)
+  const contentRootOwner = React.useMemo(
+    () =>
+      ownerPath
+        ? {
+            childRoot: root,
+            ownerPath,
+            ownerRoot,
+          }
+        : null,
+    [ownerPath, ownerRoot, root]
+  )
   const {
     getLastSelectionForRoot,
     getMountedViewEditor,
@@ -718,6 +738,15 @@ function EditableContentRootView({
     },
     [activateRootView, rootInteraction]
   )
+  const onMouseMoveCapture = React.useCallback<
+    React.MouseEventHandler<HTMLDivElement>
+  >(
+    (event) => {
+      activateRootView()
+      rootInteraction.onMouseMoveCapture(event)
+    },
+    [activateRootView, rootInteraction]
+  )
   const onFocusCapture = React.useCallback<
     React.FocusEventHandler<HTMLDivElement>
   >(() => {
@@ -726,28 +755,33 @@ function EditableContentRootView({
 
   return (
     <div
+      contentEditable={false}
       data-slate-content-root-slot={slot}
       onFocusCapture={onFocusCapture}
       onMouseDownCapture={onMouseDownCapture}
+      onMouseMoveCapture={onMouseMoveCapture}
       onMouseUpCapture={onMouseUpCapture}
+      suppressContentEditableWarning
     >
-      <EditableTextBlocksInner
-        aria-label={ariaLabel}
-        className={className}
-        disableDefaultStyles={disableDefaultStyles}
-        id={id}
-        placeholder={placeholder}
-        readOnly={readOnly}
-        renderElement={renderElement}
-        renderLeaf={renderLeaf}
-        renderPlaceholder={renderPlaceholder}
-        renderSegment={renderSegment}
-        renderText={renderText}
-        renderVoid={renderVoid}
-        spellCheck={spellCheck}
-        style={style}
-        tabIndex={tabIndex}
-      />
+      <SlateContentRootOwnerContext.Provider value={contentRootOwner}>
+        <EditableTextBlocksInner
+          aria-label={ariaLabel}
+          className={className}
+          disableDefaultStyles={disableDefaultStyles}
+          id={id}
+          placeholder={placeholder}
+          readOnly={readOnly}
+          renderElement={renderElement}
+          renderLeaf={renderLeaf}
+          renderPlaceholder={renderPlaceholder}
+          renderSegment={renderSegment}
+          renderText={renderText}
+          renderVoid={renderVoid}
+          spellCheck={spellCheck}
+          style={style}
+          tabIndex={tabIndex}
+        />
+      </SlateContentRootOwnerContext.Provider>
     </div>
   )
 }
@@ -819,6 +853,9 @@ export type EditableDecorate<T = unknown> = (
 
 export type EditableLayout = {
   getVirtualizedPageItems?: () => readonly VirtualizedPageLayoutItem[] | null
+  getVisibleVirtualizedPageItems?: () =>
+    | readonly VirtualizedPageLayoutItem[]
+    | null
   getVirtualizedTopLevelItems?: () =>
     | readonly VirtualizedTopLevelLayoutItem[]
     | null
@@ -831,6 +868,17 @@ export type EditableTextBlocksProps<
   autoFocus?: boolean
   className?: string
   decorate?: EditableDecorate<T>
+  /**
+   * Controls which editor changes recompute `decorate`.
+   *
+   * Use `external` for decorations derived from an external projection, layout,
+   * or annotation source that refreshes the decoration function when it changes.
+   */
+  decorateDirtiness?: SlateSourceDirtiness
+  /**
+   * Limits decoration refresh work to the runtime ids affected by the source.
+   */
+  decorateRuntimeScope?: SlateProjectionRuntimeScope
   disableDefaultStyles?: boolean
   id?: string
   layout?: EditableLayout | null
@@ -1597,6 +1645,8 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   autoFocus,
   className,
   decorate,
+  decorateDirtiness,
+  decorateRuntimeScope,
   disableDefaultStyles = false,
   enableVirtualizedRendering = false,
   id,
@@ -1623,6 +1673,10 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   enableVirtualizedRendering?: boolean
 }) => {
   const domStrategyOptions = domStrategy
+  const domTextSyncOptions =
+    typeof domStrategyOptions === 'object' && domStrategyOptions != null
+      ? (domStrategyOptions.textSync ?? null)
+      : null
   const editor = useEditor()
   const editableRoot = editor.read((state) => state.view.root())
   const inheritedReadOnly = useEditorReadOnly()
@@ -1637,6 +1691,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     }
 
     return createDecorationSource<T>(editor, {
+      dirtiness: decorateDirtiness,
       id: 'editable-decorate',
       read: ({ snapshot }) => {
         const readDecorations = decorateCell.current
@@ -1670,8 +1725,15 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
 
         return decorations
       },
+      runtimeScope: decorateRuntimeScope,
     })
-  }, [decorateCell, editor, hasDecorate])
+  }, [
+    decorateCell,
+    decorateDirtiness,
+    decorateRuntimeScope,
+    editor,
+    hasDecorate,
+  ])
   const projectionStore = React.useMemo(() => {
     if (!decorateSource) {
       return upstreamProjectionStore
@@ -1767,6 +1829,9 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   const selectedVirtualizedTopLevelIndex = useTopLevelSelectionIndex(
     virtualizedDOMStrategyConfig != null
   )
+  const selectedVirtualizedPaths = useSelectionPaths(
+    virtualizedDOMStrategyConfig != null
+  )
   const virtualizedScrollElement = React.useMemo(
     () => getVirtualizerScrollElement(domStrategyRootElement),
     [domStrategyRootElement]
@@ -1774,6 +1839,8 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   const virtualizedScrollRootReady =
     virtualizedDOMStrategyConfig != null && virtualizedScrollElement != null
   const virtualizedPageItems = layout?.getVirtualizedPageItems?.() ?? null
+  const visibleVirtualizedPageItems =
+    layout?.getVisibleVirtualizedPageItems?.() ?? null
   const virtualizedLayoutItems = layout?.getVirtualizedTopLevelItems?.() ?? null
   const virtualizedPlan = useVirtualizedRootPlan({
     config: enableVirtualizedRendering ? virtualizedDOMStrategyConfig : null,
@@ -1782,9 +1849,11 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     promotedTopLevelIndex: promotedVirtualizedTopLevelIndex,
     rootElement: domStrategyRootElement,
     scrollElement: virtualizedScrollElement,
+    selectionPaths: selectedVirtualizedPaths,
     selectedTopLevelIndex: selectedVirtualizedTopLevelIndex,
     topLevelLayoutItems: virtualizedLayoutItems,
     topLevelRuntimeIds,
+    visiblePageLayoutItems: visibleVirtualizedPageItems,
   })
   const internalSegmentDOMStrategySize =
     internalSegmentDOMStrategyConfig?.segmentSize ?? null
@@ -1865,6 +1934,13 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
       }
 
       setPromotedVirtualizedTopLevelIndex(targetIndex)
+      if (
+        targetRange &&
+        virtualizedPlan?.scrollToPath(targetRange.anchor.path, 'center')
+      ) {
+        return true
+      }
+
       virtualizedPlan?.scrollToTopLevelIndex(targetIndex, 'center')
 
       return true
@@ -1883,6 +1959,43 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
         materializeVirtualizedBoundary(boundary, options.range)
     )
   }, [editor, materializeVirtualizedBoundary, virtualizedPlan])
+  const lastVirtualizedScrollPathKeyRef = React.useRef<string | null>(null)
+
+  useIsomorphicLayoutEffect(() => {
+    const anchorPath = selectedVirtualizedPaths?.[0]
+
+    if (!virtualizedPlan || !anchorPath) {
+      lastVirtualizedScrollPathKeyRef.current = null
+      return
+    }
+
+    const anchorPathKey = getSnapshotPathKey(anchorPath)
+    const lastCommit = editor.read((state) => state.value.lastCommit())
+
+    if (lastCommit?.textChanged) {
+      return
+    }
+
+    try {
+      const [node] = editor.read((state) => state.nodes.get(anchorPath))
+
+      if (node && editor.api.dom.resolveDOMNode(node as SlateNode)) {
+        lastVirtualizedScrollPathKeyRef.current = anchorPathKey
+        return
+      }
+    } catch {
+      // If the path is not mounted or temporarily invalid, fall through to
+      // page-aware scrolling.
+    }
+
+    if (lastVirtualizedScrollPathKeyRef.current === anchorPathKey) {
+      return
+    }
+
+    if (virtualizedPlan.scrollToPath(anchorPath, 'center')) {
+      lastVirtualizedScrollPathKeyRef.current = anchorPathKey
+    }
+  }, [selectedVirtualizedPaths, virtualizedPlan])
   const renderedRootGroups = React.useMemo(() => {
     if (!rootGroups) {
       return null
@@ -2102,141 +2215,172 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
 
   return (
     <ProjectionContext.Provider value={projectionStore}>
-      <SlateEditableRootContext.Provider value={editableRoot}>
-        <EditableDOMRoot
-          autoFocus={autoFocus}
-          {...attributes}
-          className={className}
-          disableDefaultStyles={disableDefaultStyles}
-          domStrategyMetrics={domStrategyMetrics}
-          domStrategyRuntime={
-            virtualizedPlan
-              ? {
-                  mountedTopLevelRuntimeIds:
-                    virtualizedPlan.mountedTopLevelRuntimeIds,
-                  mountedTopLevelRanges:
-                    virtualizedPlan.mountedTopLevelRanges ?? undefined,
-                  type: 'virtualized',
-                }
-              : segmentPlan
+      <SlateDOMTextSyncContext.Provider value={domTextSyncOptions}>
+        <SlateEditableRootContext.Provider value={editableRoot}>
+          <EditableDOMRoot
+            autoFocus={autoFocus}
+            {...attributes}
+            className={className}
+            disableDefaultStyles={disableDefaultStyles}
+            domStrategyMetrics={domStrategyMetrics}
+            domStrategyRuntime={
+              virtualizedPlan
                 ? {
-                    mountedTopLevelRuntimeIds,
-                    mountedTopLevelRanges: mountedTopLevelRanges ?? undefined,
-                    type: 'partial-dom',
+                    mountedTopLevelRuntimeIds:
+                      virtualizedPlan.mountedTopLevelRuntimeIds,
+                    mountedTopLevelRanges:
+                      virtualizedPlan.mountedTopLevelRanges ?? undefined,
+                    type: 'virtualized',
                   }
-                : rootGroups
+                : segmentPlan
                   ? {
-                      mountedTopLevelRuntimeIds:
-                        domPresentMountedTopLevelRuntimeIds,
-                      mountedTopLevelRanges:
-                        domPresentMountedTopLevelRanges ?? undefined,
-                      type: 'staged',
+                      mountedTopLevelRuntimeIds,
+                      mountedTopLevelRanges: mountedTopLevelRanges ?? undefined,
+                      type: 'partial-dom',
                     }
-                  : null
-          }
-          id={id}
-          onBeforeInput={onBeforeInput}
-          onDOMBeforeInput={onDOMBeforeInput}
-          onDOMStrategyMetrics={onDOMStrategyMetrics}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-          readOnly={effectiveReadOnly}
-          ref={
-            virtualizedDOMStrategyConfig ? setDOMStrategyRootElement : undefined
-          }
-          scrollSelectionIntoView={scrollSelectionIntoView}
-          spellCheck={spellCheck}
-          style={rootStyle}
-        >
-          {virtualizedPlan ? (
-            <div
-              data-slate-dom-strategy-virtualizer="true"
-              style={{
-                height: virtualizedPlan.totalSize,
-                position: 'relative',
-                width: '100%',
-              }}
-            >
-              {virtualizedPlan.missingRanges.map((range) => (
-                <DOMStrategyVirtualizedRangeBoundary
-                  anchorRuntimeId={range.anchorRuntimeId}
-                  boundaryId={range.boundaryId}
-                  endIndex={range.endIndex}
-                  focusRuntimeId={range.focusRuntimeId}
-                  key={range.boundaryId}
-                  startIndex={range.startIndex}
-                />
-              ))}
-              {virtualizedPlan.virtualItems.map((item) => (
-                <div
-                  data-index={item.index}
-                  data-slate-dom-strategy-virtual-row="true"
-                  key={String(item.key)}
-                  ref={virtualizedPlan.measureElement}
-                  style={{
-                    left: 0,
-                    minHeight: item.size,
-                    position: 'absolute',
-                    top: 0,
-                    transform: `translateY(${item.start}px)`,
-                    width: '100%',
-                  }}
-                >
-                  <EditableDescendantNode
-                    placeholder={placeholderValue}
-                    placeholderRef={placeholderRef}
-                    renderElement={renderElement}
-                    renderLeaf={renderLeaf}
-                    renderPlaceholder={renderPlaceholder}
-                    renderSegment={renderSegment}
-                    renderText={renderText}
-                    renderVoid={renderVoid}
-                    runtimeId={item.runtimeId}
+                  : rootGroups
+                    ? {
+                        mountedTopLevelRuntimeIds:
+                          domPresentMountedTopLevelRuntimeIds,
+                        mountedTopLevelRanges:
+                          domPresentMountedTopLevelRanges ?? undefined,
+                        type: 'staged',
+                      }
+                    : null
+            }
+            id={id}
+            onBeforeInput={onBeforeInput}
+            onDOMBeforeInput={onDOMBeforeInput}
+            onDOMStrategyMetrics={onDOMStrategyMetrics}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+            readOnly={effectiveReadOnly}
+            ref={
+              virtualizedDOMStrategyConfig
+                ? setDOMStrategyRootElement
+                : undefined
+            }
+            scrollSelectionIntoView={scrollSelectionIntoView}
+            spellCheck={spellCheck}
+            style={rootStyle}
+          >
+            {virtualizedPlan ? (
+              <div
+                data-slate-dom-strategy-virtualizer="true"
+                style={{
+                  height: virtualizedPlan.totalSize,
+                  position: 'relative',
+                  width: '100%',
+                }}
+              >
+                {virtualizedPlan.missingRanges.map((range) => (
+                  <DOMStrategyVirtualizedRangeBoundary
+                    anchorRuntimeId={range.anchorRuntimeId}
+                    boundaryId={range.boundaryId}
+                    endIndex={range.endIndex}
+                    focusRuntimeId={range.focusRuntimeId}
+                    key={range.boundaryId}
+                    startIndex={range.startIndex}
                   />
-                </div>
-              ))}
-            </div>
-          ) : segmentPlan ? (
-            segmentPlan.segments.map((segment) =>
-              segment.isActive ? (
-                segment.mountedRuntimeIds.map((runtimeId) => (
-                  <EditableDescendantNode
-                    key={runtimeId}
-                    placeholder={placeholderValue}
-                    placeholderRef={placeholderRef}
-                    renderElement={renderElement}
-                    renderLeaf={renderLeaf}
-                    renderPlaceholder={renderPlaceholder}
-                    renderSegment={renderSegment}
-                    renderText={renderText}
-                    renderVoid={renderVoid}
-                    runtimeId={runtimeId}
+                ))}
+                {virtualizedPlan.virtualItems.map((item) => (
+                  <div
+                    data-index={item.index}
+                    data-slate-dom-strategy-virtual-row="true"
+                    key={String(item.key)}
+                    ref={virtualizedPlan.measureElement}
+                    style={{
+                      left: 0,
+                      minHeight: item.size,
+                      position: 'absolute',
+                      top: 0,
+                      transform: `translateY(${item.start}px)`,
+                      width: '100%',
+                    }}
+                  >
+                    <EditableDescendantNode
+                      placeholder={placeholderValue}
+                      placeholderRef={placeholderRef}
+                      renderElement={renderElement}
+                      renderLeaf={renderLeaf}
+                      renderPlaceholder={renderPlaceholder}
+                      renderSegment={renderSegment}
+                      renderText={renderText}
+                      renderVoid={renderVoid}
+                      runtimeId={item.runtimeId}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : segmentPlan ? (
+              segmentPlan.segments.map((segment) =>
+                segment.isActive ? (
+                  segment.mountedRuntimeIds.map((runtimeId) => (
+                    <EditableDescendantNode
+                      key={runtimeId}
+                      placeholder={placeholderValue}
+                      placeholderRef={placeholderRef}
+                      renderElement={renderElement}
+                      renderLeaf={renderLeaf}
+                      renderPlaceholder={renderPlaceholder}
+                      renderSegment={renderSegment}
+                      renderText={renderText}
+                      renderVoid={renderVoid}
+                      runtimeId={runtimeId}
+                    />
+                  ))
+                ) : (
+                  <DOMStrategySegmentPlaceholder
+                    coverageReason={
+                      domStrategyType === 'virtualized'
+                        ? 'viewport-virtualization'
+                        : 'partial-dom-aggressive'
+                    }
+                    endIndex={segment.endIndex}
+                    key={`partial-dom-${segment.segmentIndex}`}
+                    onPromote={handlePromoteSegment}
+                    previewChars={
+                      internalSegmentDOMStrategyConfig!.previewChars
+                    }
+                    runtimeIds={segment.runtimeIds}
+                    segmentIndex={segment.segmentIndex}
+                    startIndex={segment.startIndex}
                   />
-                ))
-              ) : (
-                <DOMStrategySegmentPlaceholder
-                  coverageReason={
-                    domStrategyType === 'virtualized'
-                      ? 'viewport-virtualization'
-                      : 'partial-dom-aggressive'
-                  }
-                  endIndex={segment.endIndex}
-                  key={`partial-dom-${segment.segmentIndex}`}
-                  onPromote={handlePromoteSegment}
-                  previewChars={internalSegmentDOMStrategyConfig!.previewChars}
-                  runtimeIds={segment.runtimeIds}
-                  segmentIndex={segment.segmentIndex}
-                  startIndex={segment.startIndex}
-                />
+                )
               )
-            )
-          ) : renderedRootGroupItems ? (
-            renderedRootGroupItems.map((item) =>
-              item.kind === 'mounted' ? (
-                <EditableRootGroup
-                  endIndex={item.group.endIndex}
-                  groupId={item.group.groupId}
-                  key={item.group.groupId}
+            ) : renderedRootGroupItems ? (
+              renderedRootGroupItems.map((item) =>
+                item.kind === 'mounted' ? (
+                  <EditableRootGroup
+                    endIndex={item.group.endIndex}
+                    groupId={item.group.groupId}
+                    key={item.group.groupId}
+                    placeholder={placeholderValue}
+                    placeholderRef={placeholderRef}
+                    renderElement={renderElement}
+                    renderLeaf={renderLeaf}
+                    renderPlaceholder={renderPlaceholder}
+                    renderSegment={renderSegment}
+                    renderText={renderText}
+                    renderVoid={renderVoid}
+                    runtimeIds={item.group.runtimeIds}
+                    startIndex={item.group.startIndex}
+                  />
+                ) : (
+                  <EditableRootGroupPlaceholder
+                    anchorRuntimeId={item.anchorRuntimeId}
+                    endIndex={item.endIndex}
+                    focusRuntimeId={item.focusRuntimeId}
+                    groupId={item.groupId}
+                    key={item.groupId}
+                    startIndex={item.startIndex}
+                  />
+                )
+              )
+            ) : (
+              topLevelRuntimeIds.map((runtimeId) => (
+                <EditableDescendantNode
+                  key={runtimeId}
                   placeholder={placeholderValue}
                   placeholderRef={placeholderRef}
                   renderElement={renderElement}
@@ -2245,38 +2389,13 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
                   renderSegment={renderSegment}
                   renderText={renderText}
                   renderVoid={renderVoid}
-                  runtimeIds={item.group.runtimeIds}
-                  startIndex={item.group.startIndex}
+                  runtimeId={runtimeId}
                 />
-              ) : (
-                <EditableRootGroupPlaceholder
-                  anchorRuntimeId={item.anchorRuntimeId}
-                  endIndex={item.endIndex}
-                  focusRuntimeId={item.focusRuntimeId}
-                  groupId={item.groupId}
-                  key={item.groupId}
-                  startIndex={item.startIndex}
-                />
-              )
-            )
-          ) : (
-            topLevelRuntimeIds.map((runtimeId) => (
-              <EditableDescendantNode
-                key={runtimeId}
-                placeholder={placeholderValue}
-                placeholderRef={placeholderRef}
-                renderElement={renderElement}
-                renderLeaf={renderLeaf}
-                renderPlaceholder={renderPlaceholder}
-                renderSegment={renderSegment}
-                renderText={renderText}
-                renderVoid={renderVoid}
-                runtimeId={runtimeId}
-              />
-            ))
-          )}
-        </EditableDOMRoot>
-      </SlateEditableRootContext.Provider>
+              ))
+            )}
+          </EditableDOMRoot>
+        </SlateEditableRootContext.Provider>
+      </SlateDOMTextSyncContext.Provider>
     </ProjectionContext.Provider>
   )
 }

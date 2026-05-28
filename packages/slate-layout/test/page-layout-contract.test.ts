@@ -20,6 +20,7 @@ import {
 import {
   createPagedEditablePageMountPlan,
   getPagedEditableMountedPageIndexes,
+  getPagedEditableVisiblePageMountItems,
 } from '../src/page-mount-plan'
 import { useSlateLayout } from '../src/react'
 
@@ -60,6 +61,8 @@ class TestOffscreenCanvas {
     return new TestCanvasRenderingContext2D()
   }
 }
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 const pageSettings = defineStateField<SlatePageSettings>({
   key: 'layout.page',
@@ -436,7 +439,7 @@ describe('createSlatePageLayout', () => {
     staleReader.destroy()
   })
 
-  it('refreshes subscribers after editor text changes', () => {
+  it('refreshes subscribers after editor text changes', async () => {
     const editor = createEditor({
       extensions: [pageSettings],
       initialValue: [
@@ -463,8 +466,45 @@ describe('createSlatePageLayout', () => {
 
     expect(wakeCount).toBe(1)
     expect(layout.getMetrics().composeCount).toBe(2)
+    expect(layout.getSnapshot().blocks[0]?.text).toBe(
+      'Short paragraph. Added text.'
+    )
 
     unsubscribe()
+    layout.destroy()
+  })
+
+  it('bounds deferred text refreshes during sustained typing', async () => {
+    const editor = createEditor({
+      extensions: [pageSettings],
+      initialValue: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Typing paragraph.' }],
+        },
+      ],
+    })
+    const layout = createSlatePageLayout(editor, () => ({
+      engine: createEstimatedPageLayoutEngine(),
+      page: pageSettings,
+      textChangeRefresh: 'deferred',
+    }))
+    const composeCount = layout.getMetrics().composeCount
+
+    for (const text of ['a', 'b', 'c', 'd']) {
+      editor.update((tx) => {
+        tx.text.insert(text, {
+          at: {
+            path: [0, 0],
+            offset: editor.read((state) => state.text.string([0]).length),
+          },
+        })
+      })
+      await wait(220)
+    }
+
+    expect(layout.getMetrics().composeCount).toBeGreaterThan(composeCount)
+
     layout.destroy()
   })
 
@@ -1442,6 +1482,12 @@ describe('getSlatePageLayoutProjection', () => {
       ],
     ])
 
+    expect([
+      ...getSlatePageLayoutDecorations(projection, {
+        filter: ({ run }) => run.path[1] === 1,
+      }).keys(),
+    ]).toEqual(['0.1'])
+
     layout.destroy()
   })
 
@@ -1567,9 +1613,9 @@ describe('PagedEditable page mount plan', () => {
     })
     const plan = createPagedEditablePageMountPlan({
       fragments: [
-        { blockIndex: 0, pageIndex: 0 },
-        { blockIndex: 1, pageIndex: 1 },
-        { blockIndex: 2, pageIndex: 2 },
+        { blockIndex: 0, pageIndex: 0, path: [0] },
+        { blockIndex: 1, pageIndex: 1, path: [1] },
+        { blockIndex: 2, pageIndex: 2, path: [2] },
       ],
       geometry,
       mode: 'single',
@@ -1579,27 +1625,33 @@ describe('PagedEditable page mount plan', () => {
     expect(plan.items).toEqual([
       {
         index: 0,
+        fragmentPaths: [[0]],
         key: 'page-mount:0',
         pageIndexes: [0],
         size: pages[0]!.height,
         start: 0,
         topLevelIndexes: [0],
+        unitPaths: [],
       },
       {
         index: 1,
+        fragmentPaths: [[1]],
         key: 'page-mount:1',
         pageIndexes: [1],
         size: pages[1]!.height,
         start: pages[0]!.height + 24,
         topLevelIndexes: [1],
+        unitPaths: [],
       },
       {
         index: 2,
+        fragmentPaths: [[2]],
         key: 'page-mount:2',
         pageIndexes: [2],
         size: pages[2]!.height,
         start: (pages[0]!.height + 24) * 2,
         topLevelIndexes: [2],
+        unitPaths: [],
       },
     ])
     expect([...plan.itemIndexesByTopLevelIndex]).toEqual([
@@ -1622,10 +1674,10 @@ describe('PagedEditable page mount plan', () => {
     })
     const plan = createPagedEditablePageMountPlan({
       fragments: [
-        { blockIndex: 0, pageIndex: 0 },
-        { blockIndex: 1, pageIndex: 1 },
-        { blockIndex: 2, pageIndex: 2 },
-        { blockIndex: 3, pageIndex: 2 },
+        { blockIndex: 0, pageIndex: 0, path: [0] },
+        { blockIndex: 1, pageIndex: 1, path: [1] },
+        { blockIndex: 2, pageIndex: 2, path: [2] },
+        { blockIndex: 3, pageIndex: 2, path: [3] },
       ],
       geometry,
       mode: 'spread',
@@ -1635,21 +1687,68 @@ describe('PagedEditable page mount plan', () => {
     expect(plan.items).toEqual([
       {
         index: 0,
+        fragmentPaths: [[0], [1]],
         key: 'page-mount:0-1',
         pageIndexes: [0, 1],
         size: pages[0]!.height,
         start: 0,
         topLevelIndexes: [0, 1],
+        unitPaths: [],
       },
       {
         index: 1,
+        fragmentPaths: [[2], [3]],
         key: 'page-mount:2',
         pageIndexes: [2],
         size: pages[2]!.height,
         start: pages[0]!.height + 24,
         topLevelIndexes: [2, 3],
+        unitPaths: [],
       },
     ])
+  })
+
+  it('does not filter page surfaces before a virtualization viewport is known', () => {
+    const settings = { margins: 96, preset: 'a4' } as const
+    const pages = [
+      createSlatePage(settings, 0),
+      createSlatePage(settings, 1),
+      createSlatePage(settings, 2),
+      createSlatePage(settings, 3),
+    ]
+    const geometry = getSlatePageLayoutGeometry(pages, {
+      pageGap: 24,
+      pageLayoutMode: 'single',
+    })
+    const plan = createPagedEditablePageMountPlan({
+      fragments: pages.map((page) => ({
+        blockIndex: page.index,
+        pageIndex: page.index,
+        path: [page.index],
+      })),
+      geometry,
+      mode: 'single',
+      pages,
+    })
+
+    expect(
+      getPagedEditableVisiblePageMountItems(plan, {
+        gap: 24,
+        overscan: 0,
+        pages,
+        virtualizes: true,
+        viewport: null,
+      }).map((item) => item.index)
+    ).toEqual([0, 1, 2, 3])
+    expect(
+      getPagedEditableVisiblePageMountItems(plan, {
+        gap: 24,
+        overscan: 0,
+        pages,
+        virtualizes: true,
+        viewport: { bottom: pages[0]!.height / 2, top: 0 },
+      }).map((item) => item.index)
+    ).toEqual([0])
   })
 
   it('retains split blocks on every page that owns one of their fragments', () => {
@@ -1665,10 +1764,10 @@ describe('PagedEditable page mount plan', () => {
     })
     const plan = createPagedEditablePageMountPlan({
       fragments: [
-        { blockIndex: 0, pageIndex: 0 },
-        { blockIndex: 0, pageIndex: 1 },
-        { blockIndex: 1, pageIndex: 1 },
-        { blockIndex: 2, pageIndex: 2 },
+        { blockIndex: 0, pageIndex: 0, path: [0] },
+        { blockIndex: 0, pageIndex: 1, path: [0] },
+        { blockIndex: 1, pageIndex: 1, path: [1] },
+        { blockIndex: 2, pageIndex: 2, path: [2] },
       ],
       geometry,
       mode: 'single',
@@ -1700,6 +1799,7 @@ describe('PagedEditable page mount plan', () => {
       fragments: pages.map((page) => ({
         blockIndex: page.index,
         pageIndex: page.index,
+        path: [page.index],
       })),
       geometry,
       mode: 'spread',

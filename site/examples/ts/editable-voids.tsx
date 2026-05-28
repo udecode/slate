@@ -8,7 +8,6 @@ import {
   Slate,
   useEditor,
   useSlateChildRoot,
-  useSlateContentRoot,
   useSlateEditor,
   useSlateRootChrome,
 } from 'slate-react'
@@ -20,13 +19,11 @@ import type {
   CustomElement,
   CustomText,
   CustomValue,
-  EditableSectionElement,
   EditableVoidElement,
   ParagraphElement as ParagraphElementType,
 } from './custom-types.d'
 
 let editableVoidId = 0
-let editableSectionId = 0
 
 const paragraph = (text: string): ParagraphElementType => ({
   type: 'paragraph',
@@ -39,20 +36,8 @@ const nextEditableVoidRoot = () => {
   return `editable-void:${editableVoidId}:body`
 }
 
-const nextEditableSectionRoot = () => {
-  editableSectionId += 1
-
-  return `editable-section:${editableSectionId}:body`
-}
-
 const createEditableVoid = (bodyRoot: string): EditableVoidElement => ({
   type: 'editable-void',
-  childRoots: { body: bodyRoot },
-  children: [{ text: '' }],
-})
-
-const createEditableSection = (bodyRoot: string): EditableSectionElement => ({
-  type: 'editable-section',
   childRoots: { body: bodyRoot },
   children: [{ text: '' }],
 })
@@ -78,18 +63,12 @@ const createEditableVoidBody = (): CustomValue => [
 ]
 
 const createEmptyEditableVoidBody = (): CustomValue => [paragraph('')]
-const createEditableSectionBody = (): CustomValue => [
-  paragraph('This editor-only root behaves like document flow.'),
-  paragraph('Arrow keys cross its root boundary like sibling blocks.'),
-]
-const createEmptyEditableSectionBody = (): CustomValue => [paragraph('')]
 
 const EditableVoidsExample = () => {
   const editor = useSlateEditor({
     extensions: [editableVoid()],
     initialValue: {
       roots: {
-        'editable-section:initial:body': createEditableSectionBody(),
         'editable-void:initial:body': createEditableVoidBody(),
         main: [
           {
@@ -100,8 +79,6 @@ const EditableVoidsExample = () => {
               },
             ],
           },
-          createEditableSection('editable-section:initial:body'),
-          paragraph('Back in the main root after the editor-only section.'),
           createEditableVoid('editable-void:initial:body'),
           {
             type: 'paragraph',
@@ -119,7 +96,6 @@ const EditableVoidsExample = () => {
   return (
     <Slate editor={editor}>
       <Toolbar>
-        <InsertEditableSectionButton />
         <InsertEditableVoidButton />
       </Toolbar>
 
@@ -137,11 +113,6 @@ const editableVoid = () =>
   defineEditorExtension({
     name: 'editable-voids',
     elements: [
-      {
-        type: 'editable-section',
-        contentRoot: { slot: 'body' },
-        void: 'editable-island',
-      },
       {
         type: 'editable-void',
         contentRoot: { slot: 'body' },
@@ -169,10 +140,6 @@ const renderElement = (props: RenderElementProps<CustomElement>) => {
 
 const renderVoid = (props: RenderVoidProps<CustomElement>) => {
   switch (props.element.type) {
-    case 'editable-section':
-      return (
-        <EditableSection element={props.element as EditableSectionElement} />
-      )
     case 'editable-void':
       return <EditableVoid element={props.element} />
     default:
@@ -209,22 +176,6 @@ const ParagraphElement = ({
 )
 
 const unsetWidthStyle = 'slate-editable-voids-unset-width-style'
-
-const EditableSection = ({ element }: { element: EditableSectionElement }) => {
-  const { chrome, root } = useSlateContentRoot(element)
-
-  return (
-    <div {...chrome.props} className="slate-editable-voids-editor-only-root">
-      <Editable
-        aria-label="Editor-only content root"
-        className="slate-editable-voids-child-editor"
-        renderElement={renderElement}
-        renderLeaf={renderLeaf}
-        root={root}
-      />
-    </div>
-  )
-}
 
 const EditableVoid = ({ element }: { element: EditableVoidElement }) => {
   const bodyRoot = useSlateChildRoot(element, 'body')
@@ -264,27 +215,6 @@ const EditableVoid = ({ element }: { element: EditableVoidElement }) => {
         />
       </div>
     </div>
-  )
-}
-
-const InsertEditableSectionButton = () => {
-  const editor = useEditor<CustomEditor>()
-  return (
-    <Button
-      onClick={() => {
-        const bodyRoot = nextEditableSectionRoot()
-
-        editor.update((tx) => {
-          tx.roots.create(bodyRoot, createEmptyEditableSectionBody())
-          tx.nodes.insert(createEditableSection(bodyRoot))
-        })
-      }}
-      onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
-        event.preventDefault()
-      }}
-    >
-      <Icon>subject</Icon>
-    </Button>
   )
 }
 

@@ -184,9 +184,19 @@ export const syncTextOperationsToDOM = (
     )
 
     if (textNode) {
+      if (textNode.nodeValue === text) {
+        synced.add(pathKey(path))
+        recordDOMTextSyncProfile('already-synced')
+        continue
+      }
       markDOMTextSyncMutationTarget(textNode)
       textNode.nodeValue = text
     } else {
+      if (stringElement.textContent === text) {
+        synced.add(pathKey(path))
+        recordDOMTextSyncProfile('already-synced')
+        continue
+      }
       markDOMTextSyncMutationTarget(stringElement)
       stringElement.textContent = text
     }

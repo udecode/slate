@@ -5,7 +5,7 @@ import {
   type Range as VirtualRange,
 } from '@tanstack/react-virtual'
 import React from 'react'
-import type { RuntimeId } from 'slate'
+import type { Path, RuntimeId } from 'slate'
 
 import type { MountedTopLevelRange } from './dom-strategy-commands'
 
@@ -30,12 +30,14 @@ export type VirtualizedTopLevelLayoutItem = {
 }
 
 export type VirtualizedPageLayoutItem = {
+  fragmentPaths?: readonly Path[]
   index: number
   key: string
   pageIndexes: readonly number[]
   size: number
   start: number
   topLevelIndexes: readonly number[]
+  unitPaths?: readonly Path[]
 }
 
 export type VirtualizedMissingTopLevelRange = {
@@ -232,6 +234,42 @@ const createPageItemIndexesByTopLevelIndex = (
   return pageIndexesByTopLevelIndex
 }
 
+const isPathWithin = (path: Path, ancestor: Path) =>
+  ancestor.length <= path.length &&
+  ancestor.every((segment, index) => path[index] === segment)
+
+const pathsOverlap = (left: Path, right: Path) =>
+  isPathWithin(left, right) || isPathWithin(right, left)
+
+export const createPageItemIndexesForPath = (
+  pageLayoutItems: readonly VirtualizedPageLayoutItem[] | null | undefined,
+  path: Path
+) => {
+  if (path.length <= 1) {
+    return pageLayoutItems
+      ?.filter((item) => item.topLevelIndexes.includes(path[0] ?? -1))
+      .map((item) => item.index)
+  }
+
+  const unitMatches = pageLayoutItems
+    ?.filter((item) =>
+      item.unitPaths?.some((unitPath) => pathsOverlap(path, unitPath))
+    )
+    .map((item) => item.index)
+
+  if (unitMatches?.length) {
+    return unitMatches
+  }
+
+  return pageLayoutItems
+    ?.filter((item) =>
+      item.fragmentPaths?.some((fragmentPath) =>
+        pathsOverlap(path, fragmentPath)
+      )
+    )
+    .map((item) => item.index)
+}
+
 const getMissingRanges = ({
   count,
   mountedRanges,
@@ -278,19 +316,23 @@ export const useVirtualizedRootPlan = ({
   pageLayoutItems,
   rootElement,
   scrollElement,
+  selectionPaths,
   selectedTopLevelIndex,
   topLevelLayoutItems,
   topLevelRuntimeIds,
+  visiblePageLayoutItems,
 }: {
   config: DOMStrategyVirtualizedConfig | null
   enabled: boolean
   promotedTopLevelIndex: number | null
   rootElement: HTMLElement | null
   scrollElement: HTMLElement | null
+  selectionPaths: readonly Path[] | null
   selectedTopLevelIndex: number | null
   pageLayoutItems?: readonly VirtualizedPageLayoutItem[] | null
   topLevelLayoutItems?: readonly VirtualizedTopLevelLayoutItem[] | null
   topLevelRuntimeIds: readonly RuntimeId[]
+  visiblePageLayoutItems?: readonly VirtualizedPageLayoutItem[] | null
 }) => {
   const hasPageLayoutItems = Boolean(pageLayoutItems?.length)
   const count = config
@@ -333,6 +375,15 @@ export const useVirtualizedRootPlan = ({
       return [selectedTopLevelIndex, promotedTopLevelIndex]
     }
 
+    const pathIndexes =
+      selectionPaths?.flatMap(
+        (path) => createPageItemIndexesForPath(pageLayoutItems, path) ?? []
+      ) ?? []
+
+    if (pathIndexes.length > 0) {
+      return [...new Set(pathIndexes)]
+    }
+
     return [selectedTopLevelIndex, promotedTopLevelIndex].flatMap((index) =>
       typeof index === 'number'
         ? (pageItemIndexesByTopLevelIndex.get(index) ?? [])
@@ -340,8 +391,10 @@ export const useVirtualizedRootPlan = ({
     )
   }, [
     hasPageLayoutItems,
+    pageLayoutItems,
     pageItemIndexesByTopLevelIndex,
     promotedTopLevelIndex,
+    selectionPaths,
     selectedTopLevelIndex,
   ])
   const rangeExtractor = React.useMemo(
@@ -374,7 +427,28 @@ export const useVirtualizedRootPlan = ({
     return null
   }
 
-  const virtualizerItems = virtualizer.getVirtualItems()
+  const visiblePageLayoutVirtualizerItems =
+    hasPageLayoutItems && visiblePageLayoutItems
+      ? [
+          ...new Set([
+            ...visiblePageLayoutItems.map((item) => item.index),
+            ...retainedVirtualIndexes.filter(
+              (index): index is number => typeof index === 'number'
+            ),
+          ]),
+        ]
+          .map((index) => pageItemByIndex.get(index))
+          .filter((item): item is VirtualizedPageLayoutItem => Boolean(item))
+          .sort((left, right) => left.index - right.index)
+          .map((item) => ({
+            index: item.index,
+            key: item.key,
+            size: item.size,
+            start: item.start,
+          }))
+      : null
+  const virtualizerItems =
+    visiblePageLayoutVirtualizerItems ?? virtualizer.getVirtualItems()
   const virtualTopLevelIndexes = hasPageLayoutItems
     ? [
         ...new Set(
@@ -475,36 +549,90 @@ export const useVirtualizedRootPlan = ({
           0
         )
       : null
+  const scrollToVirtualizerOffset = (
+    start: number,
+    size: number,
+    align: 'start' | 'center' | 'end' | 'auto'
+  ) => {
+    if (!scrollElement) {
+      return
+    }
+
+    const viewportHeight = getElementViewportHeight(
+      scrollElement,
+      estimatedBlockSize * 8
+    )
+    const top =
+      align === 'center'
+        ? start - (viewportHeight - size) / 2
+        : align === 'end'
+          ? start - viewportHeight + size
+          : start
+
+    virtualizer.scrollToOffset(Math.max(0, top))
+  }
+  const scrollToTopLevelIndex = (
+    index: number,
+    align: 'start' | 'center' | 'end' | 'auto' = 'auto'
+  ) => {
+    if (hasPageLayoutItems) {
+      const pageIndex = pageItemIndexesByTopLevelIndex.get(index)?.[0]
+      const pageItem =
+        typeof pageIndex === 'number' ? pageItemByIndex.get(pageIndex) : null
+
+      if (pageItem) {
+        scrollToVirtualizerOffset(pageItem.start, pageItem.size, align)
+        return
+      }
+
+      return
+    }
+
+    const layoutItem = layoutItemByIndex.get(index)
+
+    if (layoutItem && scrollElement) {
+      scrollToVirtualizerOffset(layoutItem.start, layoutItem.size, align)
+      return
+    }
+
+    virtualizer.scrollToIndex(index, { align })
+  }
+  const scrollToPath = (
+    path: Path,
+    align: 'start' | 'center' | 'end' | 'auto' = 'auto'
+  ) => {
+    if (hasPageLayoutItems) {
+      const pageIndex = createPageItemIndexesForPath(pageLayoutItems, path)?.[0]
+      const pageItem =
+        typeof pageIndex === 'number' ? pageItemByIndex.get(pageIndex) : null
+
+      if (pageItem) {
+        scrollToVirtualizerOffset(pageItem.start, pageItem.size, align)
+        return true
+      }
+
+      if (path.length > 1) {
+        return false
+      }
+    }
+
+    const topLevelIndex = path[0]
+
+    if (typeof topLevelIndex === 'number') {
+      scrollToTopLevelIndex(topLevelIndex, align)
+      return true
+    }
+
+    return false
+  }
 
   return {
     estimatedBlockSize,
     missingRanges,
     mountedTopLevelRanges,
     mountedTopLevelRuntimeIds,
-    scrollToTopLevelIndex: (
-      index: number,
-      align: 'start' | 'center' | 'end' | 'auto' = 'auto'
-    ) => {
-      const layoutItem = layoutItemByIndex.get(index)
-
-      if (layoutItem && scrollElement) {
-        const viewportHeight = getElementViewportHeight(
-          scrollElement,
-          estimatedBlockSize * 8
-        )
-        const top =
-          align === 'center'
-            ? layoutItem.start - (viewportHeight - layoutItem.size) / 2
-            : align === 'end'
-              ? layoutItem.start - viewportHeight + layoutItem.size
-              : layoutItem.start
-
-        virtualizer.scrollToOffset(Math.max(0, top))
-        return
-      }
-
-      virtualizer.scrollToIndex(index, { align })
-    },
+    scrollToTopLevelIndex,
+    scrollToPath,
     totalSize:
       pageLayoutTotalSize ?? layoutTotalSize ?? virtualizer.getTotalSize(),
     virtualItems,

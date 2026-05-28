@@ -1,6 +1,10 @@
 import { parseAsBoolean, parseAsStringLiteral, useQueryStates } from 'nuqs'
 import React, { useCallback, useMemo, useState } from 'react'
-import { NodeApi, type Element as SlateElement } from 'slate'
+import {
+  defineEditorExtension,
+  NodeApi,
+  type Element as SlateElement,
+} from 'slate'
 import type {
   DOMCoverageCopyPolicy,
   DOMCoverageFindPolicy,
@@ -139,6 +143,7 @@ const PolicyControls = <T extends string>({
 
 const HiddenContentBlocksExample = () => {
   const editor = useSlateEditor({
+    extensions: [hiddenContentBlocks()],
     initialValue: [
       {
         type: 'paragraph',
@@ -423,6 +428,17 @@ const HiddenContentBlocksExample = () => {
   )
 }
 
+const hiddenContentBlocks = () =>
+  defineEditorExtension({
+    name: 'hidden-content-blocks',
+    elements: [
+      { isolating: true, type: 'accordion-block' },
+      { isolating: true, type: 'collapsible-block' },
+      { isolating: true, type: 'tab-panel' },
+      { isolating: true, type: 'tabs-block' },
+    ],
+  })
+
 const Element = ({ children, element, slots }: RenderElementProps) => {
   const {
     accordionOpen,
@@ -534,7 +550,12 @@ const Element = ({ children, element, slots }: RenderElementProps) => {
               </TabsList>
             </div>
             {childNodes.map((child, index) => {
-              const tab = index === 0 ? 'overview' : 'details'
+              const childElement = element.children[index]
+              const tab =
+                NodeApi.isElement(childElement) &&
+                childElement.tab === 'details'
+                  ? 'details'
+                  : 'overview'
 
               return (
                 <TabsContent forceMount key={tab} value={tab}>

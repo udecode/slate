@@ -391,11 +391,6 @@ export const useRuntimeBeforeInputEvents = ({
               setComposing,
             })
         )
-        if (native && type === 'insertText' && typeof data === 'string') {
-          deferredOperations.current.push(() =>
-            trace.repairDOMInputWithTrace({ data, inputType: type }, el)
-          )
-        }
         if (request) {
           profileBeforeInputDuration('beforeinput-request-repair', () =>
             repair.requestEditableRepair(request)

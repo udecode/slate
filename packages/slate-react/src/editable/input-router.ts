@@ -9,18 +9,27 @@ import {
   type InputEvent as ReactInputEvent,
   type RefObject,
   useCallback,
+  useRef,
   useState,
 } from 'react'
+import { type Path, RangeApi } from 'slate'
 import {
   EDITOR_TO_ELEMENT,
+  getSelection,
   HAS_BEFORE_INPUT_SUPPORT,
+  isDOMElement,
+  isDOMText,
   NODE_TO_ELEMENT,
 } from 'slate-dom'
 
-import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
+import {
+  getSlateNodeElementByPath,
+  getSlateNodePathFromDOMElement,
+} from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { isInteractiveInternalTarget } from './input-controller'
 import { readRuntimeText } from './runtime-live-state'
+import { readRuntimeSelection } from './runtime-selection-state'
 
 type MutableRefBox<T> = {
   current: T
@@ -30,8 +39,29 @@ type CancelableCallback = {
   cancel: () => void
 }
 
+const DEFERRED_NATIVE_TEXT_INPUT_REPAIR_DELAY_MS = 16
+
+type DeferredTextInputRepair = {
+  pathKey: string | null
+  repair: () => void
+}
+
+export type DOMInputRepairTarget = {
+  insert?: {
+    offset: number
+    text: string
+  }
+  path: Path
+  selectionOffset: number
+  text: string
+}
+
 export type RepairDOMInput = (
-  nativeInput: { data: string | null; inputType: string },
+  nativeInput: {
+    data: string | null
+    inputType: string
+    target?: DOMInputRepairTarget | null
+  },
   rootElement: HTMLElement
 ) => void
 
@@ -110,6 +140,113 @@ const getReadOnlyDOMStringLengths = ({
   }
 
   return lengths
+}
+
+const getTextHostSelectionOffset = ({
+  anchorNode,
+  anchorOffset,
+  textHost,
+}: {
+  anchorNode: Node | null
+  anchorOffset: number | null
+  textHost: Element
+}) => {
+  if (anchorOffset == null || !anchorNode) {
+    return null
+  }
+
+  const strings = Array.from(
+    textHost.querySelectorAll('[data-slate-string], [data-slate-zero-width]')
+  )
+  let offset = 0
+
+  for (const string of strings) {
+    const textNode = Array.from(string.childNodes).find(isDOMText)
+    const lengthAttribute = string.getAttribute('data-slate-length')
+    const length =
+      lengthAttribute == null
+        ? (textNode?.textContent?.length ?? string.textContent?.length ?? 0)
+        : Number.parseInt(lengthAttribute, 10)
+    const safeLength = Number.isFinite(length) ? length : 0
+
+    if (anchorNode === textNode || string.contains(anchorNode)) {
+      return offset + Math.max(0, Math.min(anchorOffset, safeLength))
+    }
+
+    offset += safeLength
+  }
+
+  return null
+}
+
+export const getDOMInputRepairTarget = (
+  editor: ReactRuntimeEditor,
+  rootElement: HTMLElement,
+  nativeInput?: { data: string | null; inputType: string }
+): DOMInputRepairTarget | null => {
+  const rootNode = rootElement.getRootNode?.() ?? rootElement.ownerDocument
+  const root =
+    'getSelection' in rootNode
+      ? (rootNode as Document | ShadowRoot)
+      : rootElement.ownerDocument
+  const domSelection = getSelection(root)
+  const anchorNode = domSelection?.anchorNode ?? null
+  const anchorOffset = domSelection?.anchorOffset ?? null
+  const textHost = isDOMText(anchorNode)
+    ? anchorNode.parentElement?.closest('[data-slate-node="text"]')
+    : isDOMElement(anchorNode)
+      ? anchorNode.closest('[data-slate-node="text"]')
+      : null
+  const path = textHost ? getSlateNodePathFromDOMElement(textHost) : null
+  const runtimeSelection = readRuntimeSelection(editor)
+  const runtimePath =
+    runtimeSelection && RangeApi.isCollapsed(runtimeSelection)
+      ? runtimeSelection.anchor.path
+      : null
+  const nativeTextLength =
+    nativeInput?.inputType === 'insertText' &&
+    typeof nativeInput.data === 'string'
+      ? nativeInput.data.length
+      : 0
+  const selectionOffset = textHost
+    ? getTextHostSelectionOffset({ anchorNode, anchorOffset, textHost })
+    : null
+  const text = textHost?.textContent?.replace(/\uFEFF/g, '') ?? null
+
+  if (
+    path &&
+    textHost &&
+    selectionOffset != null &&
+    text != null &&
+    rootElement.contains(textHost)
+  ) {
+    return {
+      path: [...path] as Path,
+      selectionOffset,
+      text,
+    }
+  }
+
+  if (runtimePath) {
+    const runtimeTextHost = getSlateNodeElementByPath(editor, runtimePath)
+    const runtimeText =
+      runtimeTextHost?.textContent?.replace(/\uFEFF/g, '') ?? null
+
+    if (
+      runtimeTextHost &&
+      runtimeText != null &&
+      rootElement.contains(runtimeTextHost) &&
+      readRuntimeText(editor, runtimePath)
+    ) {
+      return {
+        path: [...runtimePath] as Path,
+        selectionOffset: runtimeSelection!.anchor.offset + nativeTextLength,
+        text: runtimeText,
+      }
+    }
+  }
+
+  return null
 }
 
 const restoreReadOnlyDOMText = ({
@@ -291,6 +428,7 @@ export const useEditableRootRef = ({
 }
 
 export const useEditableDOMInputHandler = ({
+  deferNativeTextInputRepair = false,
   editor,
   onHandledDOMInput,
   onReadOnlyDOMInput,
@@ -298,14 +436,44 @@ export const useEditableDOMInputHandler = ({
   readOnly,
   rootRef,
 }: {
+  deferNativeTextInputRepair?: boolean
   editor: ReactRuntimeEditor
   onHandledDOMInput?: (event: Event) => void
   onReadOnlyDOMInput?: () => void
   repairDOMInput: RepairDOMInput
   readOnly: boolean
   rootRef: RefObject<HTMLElement | null>
-}) =>
-  useCallback(
+}) => {
+  const deferredTextInputRepairTimeoutRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null)
+  const deferredTextInputRepairsRef = useRef<DeferredTextInputRepair[]>([])
+  const flushDeferredTextInputRepairs = useCallback(() => {
+    if (deferredTextInputRepairTimeoutRef.current !== null) {
+      clearTimeout(deferredTextInputRepairTimeoutRef.current)
+      deferredTextInputRepairTimeoutRef.current = null
+    }
+
+    const repairs = deferredTextInputRepairsRef.current
+
+    deferredTextInputRepairsRef.current = []
+
+    for (const { repair } of repairs) {
+      repair()
+    }
+  }, [])
+  const scheduleDeferredTextInputRepairs = useCallback(() => {
+    if (deferredTextInputRepairTimeoutRef.current !== null) {
+      clearTimeout(deferredTextInputRepairTimeoutRef.current)
+    }
+
+    deferredTextInputRepairTimeoutRef.current = setTimeout(
+      flushDeferredTextInputRepairs,
+      DEFERRED_NATIVE_TEXT_INPUT_REPAIR_DELAY_MS
+    )
+  }, [flushDeferredTextInputRepairs])
+
+  return useCallback(
     (event: Event) => {
       const nativeInput = event as InputEvent
 
@@ -331,17 +499,58 @@ export const useEditableDOMInputHandler = ({
       }
 
       onHandledDOMInput?.(event)
-      repairDOMInput(nativeInput, rootRef.current)
+      const rootElement = rootRef.current
+      const target =
+        nativeInput.inputType === 'insertText'
+          ? getDOMInputRepairTarget(editor, rootElement, nativeInput)
+          : null
+      const repair = () => {
+        if (rootElement.isConnected) {
+          repairDOMInput(
+            {
+              data: nativeInput.data,
+              inputType: nativeInput.inputType,
+              target,
+            },
+            rootElement
+          )
+        }
+      }
+
+      if (
+        deferNativeTextInputRepair &&
+        nativeInput.inputType === 'insertText' &&
+        typeof nativeInput.data === 'string'
+      ) {
+        const pathKey = target?.path.join(',') ?? null
+        const previousRepair = deferredTextInputRepairsRef.current.at(-1)
+
+        if (pathKey && previousRepair?.pathKey === pathKey) {
+          previousRepair.repair = repair
+        } else {
+          deferredTextInputRepairsRef.current.push({ pathKey, repair })
+        }
+
+        scheduleDeferredTextInputRepairs()
+        return
+      }
+
+      flushDeferredTextInputRepairs()
+      repair()
     },
     [
+      deferNativeTextInputRepair,
       editor,
+      flushDeferredTextInputRepairs,
       onHandledDOMInput,
       onReadOnlyDOMInput,
       readOnly,
       repairDOMInput,
       rootRef,
+      scheduleDeferredTextInputRepairs,
     ]
   )
+}
 
 export const useEditableDOMBeforeInputHandler = ({
   handleDOMBeforeInput,

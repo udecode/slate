@@ -288,6 +288,10 @@ export type SlatePageLayoutDecorationContext = {
 
 export type SlatePageLayoutDecorationOptions<TData> = {
   data?: (context: SlatePageLayoutDecorationContext) => TData | undefined
+  /**
+   * Return false to skip creating a Slate decoration for this projected run.
+   */
+  filter?: (context: SlatePageLayoutDecorationContext) => boolean
   key?: (context: SlatePageLayoutDecorationContext) => string
   rects?: SlatePageLayoutDecorationRectSpace
 }
@@ -411,8 +415,11 @@ export type SlateLayoutOptions<
   page: SlatePageSettingsSource<TSettings>
   pageBreaks?: SlatePageBreaksOptions | null
   root?: RootKey
+  textChangeRefresh?: SlatePageLayoutTextChangeRefresh
   typography?: SlatePageLayoutTypography
 }
+
+export type SlatePageLayoutTextChangeRefresh = 'sync' | 'deferred'
 
 export type SlatePageLayoutOptions<
   TSettings extends SlatePageSettings = SlatePageSettings,
@@ -422,6 +429,7 @@ export type SlatePageLayoutOptions<
   page: SlatePageSettingsSource<TSettings>
   pageBreaks?: SlatePageBreaksOptions | null
   root?: RootKey
+  textChangeRefresh?: SlatePageLayoutTextChangeRefresh
   typography?: SlatePageLayoutTypography
 }
 
@@ -475,6 +483,9 @@ const DEFAULT_MEASUREMENT_PROFILE: SlatePageLayoutMeasurementProfile = {
   schemaVersion: 1,
   typography: 'default',
 }
+
+const TEXT_CHANGE_REFRESH_DELAY_MS = 320
+const TEXT_CHANGE_REFRESH_MAX_DELAY_MS = 640
 
 const getNow = () =>
   typeof performance === 'undefined' ? Date.now() : performance.now()
@@ -1003,6 +1014,11 @@ export const getSlatePageLayoutDecorations = <TData = unknown>(
       const pathKey = getSlatePageLayoutPathKey(run.path)
       const rects = getDecorationRects(line, block, run, rectSpace)
       const context = { block, line, rects, run }
+
+      if (options.filter && !options.filter(context)) {
+        return
+      }
+
       const decoration: SlatePageLayoutDecoration<TData> = {
         key:
           options.key?.(context) ??
@@ -1778,6 +1794,36 @@ const getPretextPreparedKey = (
   wordBreak: NonNullable<PretextPageLayoutEngineOptions['wordBreak']>
 ) => `${font}\0${letterSpacing ?? 0}\0${whiteSpace}\0${wordBreak}\0${text}`
 
+const getPretextMeasuredBlockCacheKey = (
+  block: SlatePageLayoutBlock,
+  pageContentWidth: number
+) =>
+  getStableHashKey({
+    boxes: block.boxes?.map((box) => ({
+      kind: box.kind,
+      path: box.path,
+      rect: box.rect,
+      split: box.split,
+    })),
+    lineHeight: block.lineHeight,
+    pageContentWidth,
+    path: block.path,
+    runs: block.runs?.map((run) => ({
+      path: run.path,
+      range: run.range,
+      textStyle: run.textStyle,
+    })),
+    spacingAfter: block.spacingAfter,
+    textStyle: block.textStyle,
+    units: block.units?.map((unit) => ({
+      key: unit.key,
+      kind: unit.kind,
+      path: unit.path,
+      rect: unit.rect,
+      split: unit.split,
+    })),
+  })
+
 const COLLAPSIBLE_BOUNDARY_RE = /[ \t\n\f\r]+/
 const LEADING_COLLAPSIBLE_BOUNDARY_RE = /^[ \t\n\f\r]+/
 const TRAILING_COLLAPSIBLE_BOUNDARY_RE = /[ \t\n\f\r]+$/
@@ -1789,13 +1835,20 @@ const getTrailingCollapsibleLength = (text: string) =>
   text.match(TRAILING_COLLAPSIBLE_BOUNDARY_RE)?.[0].length ?? 0
 
 export const pretextPageLayoutEngine = ({
-  maxPreparedEntries = 1000,
+  maxPreparedEntries = 5000,
   whiteSpace = 'pre-wrap',
   wordBreak = 'normal',
 }: PretextPageLayoutEngineOptions = {}): SlatePageLayoutEngine => {
   const preparedCache = new Map<
     string,
     ReturnType<typeof prepareWithSegments>
+  >()
+  const measuredBlockCache = new Map<
+    string,
+    {
+      measuredBlock: SlatePageLayoutMeasuredBlock
+      text: string
+    }
   >()
 
   const getPrepared = (
@@ -2060,7 +2113,10 @@ export const pretextPageLayoutEngine = ({
       wordBreak,
     },
     compose(input) {
-      const measuredBlocks = input.blocks.map((block, blockIndex) => {
+      const measureBlock = (
+        block: SlatePageLayoutBlock,
+        blockIndex: number
+      ): SlatePageLayoutMeasuredBlock => {
         const richInlineLines = createRichInlineLines(
           block,
           input.page.content.width
@@ -2111,6 +2167,38 @@ export const pretextPageLayoutEngine = ({
                   })
                 ),
         }
+      }
+
+      const measuredBlocks = input.blocks.map((block, blockIndex) => {
+        const key = getPretextMeasuredBlockCacheKey(
+          block,
+          input.page.content.width
+        )
+        const cached = measuredBlockCache.get(key)
+
+        if (cached && cached.text === block.text) {
+          return {
+            ...cached.measuredBlock,
+            blockIndex,
+          }
+        }
+
+        const measuredBlock = measureBlock(block, blockIndex)
+
+        measuredBlockCache.set(key, {
+          measuredBlock,
+          text: block.text,
+        })
+
+        if (measuredBlockCache.size > maxPreparedEntries) {
+          const [oldestKey] = measuredBlockCache.keys()
+
+          if (oldestKey) {
+            measuredBlockCache.delete(oldestKey)
+          }
+        }
+
+        return measuredBlock
       })
 
       return paginateSlatePageLayoutBlocks({
@@ -2331,6 +2419,11 @@ export const createSlatePageLayout = <
     pageCount: 1,
   }
   const listeners = new Set<() => void>()
+  let scheduledRefresh: {
+    animationFrame: number | null
+    firstScheduledAt: number
+    timeout: ReturnType<typeof setTimeout> | null
+  } | null = null
 
   const notify = () => {
     for (const listener of listeners) {
@@ -2338,7 +2431,28 @@ export const createSlatePageLayout = <
     }
   }
 
+  const cancelScheduledRefresh = () => {
+    if (!scheduledRefresh) {
+      return
+    }
+
+    if (
+      scheduledRefresh.animationFrame !== null &&
+      typeof cancelAnimationFrame === 'function'
+    ) {
+      cancelAnimationFrame(scheduledRefresh.animationFrame)
+    }
+
+    if (scheduledRefresh.timeout !== null) {
+      clearTimeout(scheduledRefresh.timeout)
+    }
+
+    scheduledRefresh = null
+  }
+
   const refresh = (_reason: SlatePageLayoutRefreshReason = 'editor') => {
+    cancelScheduledRefresh()
+
     const startedAt = getNow()
     const options = getOptions()
     const root = readLayoutRoot(editor, options)
@@ -2359,23 +2473,11 @@ export const createSlatePageLayout = <
       options.typography,
       options.nodeLayout
     )
-    const documentKey = getSlateLayoutDocumentKey(blocks)
     const output = options.engine.compose({
       blocks,
       page,
       settings,
       version,
-    })
-    const computedPageBreakSnapshot = createSlatePageBreakSnapshot({
-      documentKey,
-      fragments: output.fragments,
-      measurementProfile,
-      root,
-      version,
-      writerId:
-        options.pageBreaks?.mode === 'write'
-          ? options.pageBreaks.writerId
-          : undefined,
     })
     let pageBreaks: SlatePageBreakSnapshot | null = null
     let pageBreaksStatus: SlatePageBreakSnapshotStatus = 'none'
@@ -2384,6 +2486,7 @@ export const createSlatePageLayout = <
       null
 
     if (options.pageBreaks?.mode === 'read') {
+      const documentKey = getSlateLayoutDocumentKey(blocks)
       const readSnapshot = readSlatePageBreakSnapshot(
         editor,
         options.pageBreaks.source
@@ -2397,6 +2500,15 @@ export const createSlatePageLayout = <
       })
       pageBreaks = pageBreaksStatus === 'accepted' ? readSnapshot : null
     } else if (options.pageBreaks?.mode === 'write') {
+      const documentKey = getSlateLayoutDocumentKey(blocks)
+      const computedPageBreakSnapshot = createSlatePageBreakSnapshot({
+        documentKey,
+        fragments: output.fragments,
+        measurementProfile,
+        root,
+        version,
+        writerId: options.pageBreaks.writerId,
+      })
       const writeSource = options.pageBreaks.source
       const currentSnapshot = editor.read((state) =>
         state.getField(writeSource)
@@ -2439,6 +2551,44 @@ export const createSlatePageLayout = <
     }
   }
 
+  const scheduleRefreshAfterTextInput = (
+    reason: SlatePageLayoutRefreshReason = 'editor'
+  ) => {
+    const now = getNow()
+    const firstScheduledAt = scheduledRefresh?.firstScheduledAt ?? now
+    const delay = Math.max(
+      0,
+      Math.min(
+        TEXT_CHANGE_REFRESH_DELAY_MS,
+        TEXT_CHANGE_REFRESH_MAX_DELAY_MS - (now - firstScheduledAt)
+      )
+    )
+    cancelScheduledRefresh()
+
+    const run = () => {
+      scheduledRefresh = null
+      refresh(reason)
+    }
+
+    scheduledRefresh = {
+      animationFrame: null,
+      firstScheduledAt,
+      timeout: setTimeout(() => {
+        if (!scheduledRefresh) {
+          return
+        }
+
+        if (typeof requestAnimationFrame === 'function') {
+          scheduledRefresh.timeout = null
+          scheduledRefresh.animationFrame = requestAnimationFrame(run)
+          return
+        }
+
+        run()
+      }, delay),
+    }
+  }
+
   const unsubscribeEditor = editor.subscribe((_snapshot, change) => {
     const options = getOptions()
     const writePageBreaks =
@@ -2454,13 +2604,27 @@ export const createSlatePageLayout = <
       return
     }
 
-    if (
+    const shouldRefresh =
       !change ||
       change.childrenChanged ||
       change.dirtyStateKeys.length > 0 ||
       change.textChanged ||
       change.structureChanged
-    ) {
+
+    if (!shouldRefresh) {
+      return
+    }
+
+    const textOnlyChange = Boolean(
+      change?.textChanged &&
+        !change.childrenChanged &&
+        change.dirtyStateKeys.length === 0 &&
+        !change.structureChanged
+    )
+
+    if (textOnlyChange && options.textChangeRefresh === 'deferred') {
+      scheduleRefreshAfterTextInput('editor')
+    } else {
       refresh('editor')
     }
   })
@@ -2469,6 +2633,7 @@ export const createSlatePageLayout = <
 
   return {
     destroy() {
+      cancelScheduledRefresh()
       unsubscribeEditor()
       listeners.clear()
     },
@@ -2526,6 +2691,7 @@ export const createSlateLayout = <
       page: options.page,
       pageBreaks: options.pageBreaks,
       root: options.root,
+      textChangeRefresh: options.textChangeRefresh,
       typography: options.typography,
     }
   })

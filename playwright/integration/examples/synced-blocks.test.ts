@@ -879,6 +879,67 @@ test.describe('synced blocks example', () => {
     await expect.poll(() => getNativeSelectionText(page)).toBe('')
   })
 
+  test('mouse drag through synced block chrome does not project owner text nodes', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop mouse selection proof uses Chromium pointer selection'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page, {
+      patterns: ['Cannot resolve projected point'],
+    })
+
+    try {
+      await openExample(page, 'synced-blocks', {
+        ready: { editor: 'visible' },
+      })
+
+      const outerEditor = page.locator('[data-slate-editor="true"]').first()
+      const firstBlock = getSyncedBlockByRoot(page, SHARED_ROOT, 0)
+      const thirdBlock = getSyncedBlockByRoot(page, SHARED_ROOT, 1)
+      const firstBox = await firstBlock.boundingBox()
+      const thirdBox = await thirdBlock.boundingBox()
+
+      if (!firstBox || !thirdBox) {
+        throw new Error('Cannot drag across synced block chrome')
+      }
+
+      await page.mouse.move(
+        firstBox.x + firstBox.width / 2,
+        firstBox.y + firstBox.height * 0.25
+      )
+      await page.mouse.down()
+      await page.mouse.move(
+        thirdBox.x + thirdBox.width / 2,
+        thirdBox.y + thirdBox.height / 2,
+        { steps: 12 }
+      )
+      await page.mouse.up()
+
+      runtimeErrors.assertNone()
+      await expect
+        .poll(() => getViewSelection(outerEditor))
+        .toMatchObject({
+          anchor: {
+            point: { path: [0, 0] },
+          },
+          focus: {
+            owner: {
+              childRoot: SHARED_ROOT,
+              ownerPath: [5],
+              ownerRoot: 'main',
+            },
+            point: { root: SHARED_ROOT },
+          },
+          segments: { backward: false },
+        })
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
   test('mouse drag updates selection before mouseup after first-focus mousedown', async ({
     page,
   }, testInfo) => {

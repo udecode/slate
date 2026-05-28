@@ -1,4 +1,4 @@
-import { RangeApi } from 'slate'
+import { type Path, PathApi, RangeApi } from 'slate'
 import { type DOMRange, getSelection, isDOMElement, isDOMText } from 'slate-dom'
 import {
   getSlateNodeElementByPath,
@@ -19,6 +19,15 @@ import { shouldSkipSelectionScroll } from './selection-side-effect-policy'
 export type DOMInputRepair = {
   data: string | null
   inputType: string
+  target?: {
+    insert?: {
+      offset: number
+      text: string
+    }
+    path: Path
+    selectionOffset: number
+    text: string
+  } | null
 }
 
 export type DOMRepairQueue = {
@@ -69,6 +78,84 @@ export const isDOMRepairFrameCurrent = (
   frameId: number
 ) => state.currentFrameId === frameId && frameId >= state.cancelledBeforeFrameId
 
+const getTextHostSelectionOffset = ({
+  anchorNode,
+  anchorOffset,
+  textHost,
+}: {
+  anchorNode: Node | null
+  anchorOffset: number | null
+  textHost: Element
+}) => {
+  if (anchorOffset == null || !anchorNode) {
+    return null
+  }
+
+  const strings = Array.from(
+    textHost.querySelectorAll('[data-slate-string], [data-slate-zero-width]')
+  )
+  let offset = 0
+
+  for (const string of strings) {
+    const textNode = Array.from(string.childNodes).find(isDOMText)
+    const lengthAttribute = string.getAttribute('data-slate-length')
+    const length =
+      lengthAttribute == null
+        ? (textNode?.textContent?.length ?? string.textContent?.length ?? 0)
+        : Number.parseInt(lengthAttribute, 10)
+    const safeLength = Number.isFinite(length) ? length : 0
+
+    if (anchorNode === textNode || string.contains(anchorNode)) {
+      return offset + Math.max(0, Math.min(anchorOffset, safeLength))
+    }
+
+    offset += safeLength
+  }
+
+  return null
+}
+
+const getNativeTextInsertDelta = ({
+  inputText,
+  selectionOffset,
+  slateText,
+  textHostText,
+}: {
+  inputText: string
+  selectionOffset: number
+  slateText: string
+  textHostText: string
+}) => {
+  const insertedLength = textHostText.length - slateText.length
+
+  if (insertedLength > 0 && selectionOffset >= insertedLength) {
+    const offset = Math.max(
+      0,
+      Math.min(slateText.length, selectionOffset - insertedLength)
+    )
+    const insertedText = textHostText.slice(offset, offset + insertedLength)
+
+    if (
+      insertedText.length > 0 &&
+      textHostText.slice(0, offset) === slateText.slice(0, offset) &&
+      textHostText.slice(offset + insertedLength) === slateText.slice(offset)
+    ) {
+      return {
+        offset,
+        text: insertedText,
+      }
+    }
+  }
+
+  return {
+    offset: Math.max(
+      0,
+      Math.min(slateText.length, selectionOffset - inputText.length)
+    ),
+    text: inputText,
+  }
+}
+
 export const createDOMRepairQueue = ({
   editor,
   inputController,
@@ -105,20 +192,11 @@ export const createDOMRepairQueue = ({
         return
       }
 
-      const modelText = editor.read((state) => state.text.string([]))
-      const domText =
-        rootElement.textContent?.replace(/\uFEFF/g, '') ?? modelText
-
       if (
         nativeInput.inputType !== 'insertText' ||
         typeof nativeInput.data !== 'string' ||
         nativeInput.data.length === 0
       ) {
-        return
-      }
-
-      if (domText === modelText && modelText.includes(nativeInput.data)) {
-        this.repairCaretAfterModelTextInsert()
         return
       }
 
@@ -131,32 +209,111 @@ export const createDOMRepairQueue = ({
       const domSelection = getSelection(root)
       const anchorNode = domSelection?.anchorNode ?? null
       const anchorOffset = domSelection?.anchorOffset ?? null
-      const textHost = isDOMText(anchorNode)
+      let textHost = isDOMText(anchorNode)
         ? anchorNode.parentElement?.closest('[data-slate-node="text"]')
         : isDOMElement(anchorNode)
           ? anchorNode.closest('[data-slate-node="text"]')
           : null
-      const path = textHost ? getSlateNodePathFromDOMElement(textHost) : null
-      const slateNode = path ? readRuntimeText(editor, path) : null
+      let path = textHost ? getSlateNodePathFromDOMElement(textHost) : null
+      let slateNode = path ? readRuntimeText(editor, path) : null
+      let selectionOffset =
+        textHost && anchorOffset != null
+          ? getTextHostSelectionOffset({ anchorNode, anchorOffset, textHost })
+          : null
+      let textHostText = textHost?.textContent?.replace(/\uFEFF/g, '') ?? null
 
-      if (slateNode && anchorOffset != null && path) {
-        const offset = Math.max(
-          0,
-          Math.min(slateNode.text.length, anchorOffset - inputText.length)
-        )
-        const nextOffset = offset + inputText.length
+      if (nativeInput.target) {
+        path = nativeInput.target.path
+        slateNode = readRuntimeText(editor, path)
+        textHost = getSlateNodeElementByPath(editor, path)
+        selectionOffset = nativeInput.target.selectionOffset
+        textHostText = nativeInput.target.text
+      }
+
+      if (
+        !slateNode ||
+        !path ||
+        selectionOffset == null ||
+        textHostText == null
+      ) {
+        const selection = readRuntimeSelection(editor)
+
+        if (selection && RangeApi.isCollapsed(selection)) {
+          const fallbackPath = selection.anchor.path
+          const fallbackTextHost = getSlateNodeElementByPath(
+            editor,
+            fallbackPath
+          )
+          const fallbackSlateNode = readRuntimeText(editor, fallbackPath)
+
+          if (fallbackTextHost && fallbackSlateNode) {
+            path = fallbackPath
+            slateNode = fallbackSlateNode
+            textHost = fallbackTextHost
+            selectionOffset = selection.anchor.offset + inputText.length
+            textHostText =
+              fallbackTextHost.textContent?.replace(/\uFEFF/g, '') ?? null
+          }
+        }
+      }
+
+      if (
+        slateNode &&
+        path &&
+        selectionOffset != null &&
+        textHostText != null
+      ) {
+        if (textHostText === slateNode.text) {
+          return
+        }
+
+        const insert = nativeInput.target?.insert
+          ? {
+              offset: Math.max(
+                0,
+                Math.min(
+                  slateNode.text.length,
+                  nativeInput.target.insert.offset
+                )
+              ),
+              text: nativeInput.target.insert.text,
+            }
+          : getNativeTextInsertDelta({
+              inputText,
+              selectionOffset,
+              slateText: slateNode.text,
+              textHostText,
+            })
+
+        if (insert.text.length === 0) {
+          return
+        }
+        const nextOffset = insert.offset + insert.text.length
+        const currentSelection = readRuntimeSelection(editor)
+        const shouldMoveSelection =
+          !nativeInput.target ||
+          (currentSelection != null &&
+            RangeApi.isCollapsed(currentSelection) &&
+            PathApi.equals(currentSelection.anchor.path, path) &&
+            currentSelection.anchor.offset === insert.offset)
+
         editor.update(
           (tx) => {
-            tx.text.insert(inputText, { at: { path, offset } })
-            tx.selection.set({
-              anchor: { path, offset: nextOffset },
-              focus: { path, offset: nextOffset },
-            })
+            tx.text.insert(insert.text, { at: { path, offset: insert.offset } })
+
+            if (shouldMoveSelection) {
+              tx.selection.set({
+                anchor: { path, offset: nextOffset },
+                focus: { path, offset: nextOffset },
+              })
+            }
           },
           { metadata: getNativeTextInputHistoryMetadata(editor) }
         )
 
-        this.repairCaretAfterModelTextInsert()
+        if (shouldMoveSelection) {
+          this.repairCaretAfterModelTextInsert()
+        }
       }
     },
 

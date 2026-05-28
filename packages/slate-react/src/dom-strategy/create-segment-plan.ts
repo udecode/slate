@@ -1,4 +1,5 @@
 import type { RuntimeId } from 'slate'
+import type { DOMTextSyncOptions } from '../dom-text-sync'
 
 export type DOMStrategyType = 'auto' | 'full' | 'staged'
 
@@ -12,6 +13,7 @@ export type DOMStrategyOptions =
        */
       estimatedBlockSize?: number
       overscan?: number
+      textSync?: DOMTextSyncOptions
       threshold?: number
       type: 'virtualized'
     }

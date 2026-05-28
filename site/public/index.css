@@ -667,11 +667,6 @@ details > summary {
   border: 2px solid #ddd;
 }
 
-.slate-editable-voids-editor-only-root {
-  margin: 12px 0;
-  border: 2px solid #555;
-}
-
 .slate-linting-panel {
   max-width: 760px;
   margin: 40px auto;

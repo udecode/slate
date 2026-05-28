@@ -17,18 +17,28 @@ export type DOMTextSyncCapability =
       reason: DOMTextSyncOptOutReason
     }
 
+export type DOMTextSyncOptions = {
+  /**
+   * Allows direct DOM text sync through a custom `renderLeaf` only when the
+   * renderer's DOM shape and attributes do not depend on `leaf.text`.
+   */
+  renderLeaf?: 'text-invariant'
+}
+
 export const getDOMTextSyncCapability = ({
   hasText,
   projections,
   renderLeaf,
   renderSegment,
   renderText,
+  textSync,
 }: {
   hasText: boolean
   projections: readonly SlateProjectionSlice<unknown>[]
   renderLeaf?: unknown
   renderSegment?: unknown
   renderText?: unknown
+  textSync?: DOMTextSyncOptions | null
 }): DOMTextSyncCapability => {
   if (!hasText) {
     return { enabled: false, reason: 'empty-text' }
@@ -38,7 +48,7 @@ export const getDOMTextSyncCapability = ({
     return { enabled: false, reason: 'projection' }
   }
 
-  if (renderLeaf) {
+  if (renderLeaf && textSync?.renderLeaf !== 'text-invariant') {
     return { enabled: false, reason: 'custom-leaf' }
   }
 

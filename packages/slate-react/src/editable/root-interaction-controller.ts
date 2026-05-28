@@ -20,6 +20,7 @@ import {
 } from '../hooks/focus-slate-editable'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
+import { getSlateRootBoundaryPoint } from '../view-boundary-graph'
 import {
   createSlateViewSelection,
   writeSlateViewSelection,
@@ -294,6 +295,81 @@ const shouldUseModelProjectedDragSelection = ({
   isSameOwner(anchor.owner, focus.owner) &&
   (anchor.isDOMCoverageBoundary || focus.isDOMCoverageBoundary)
 
+const findOwnerContainingPoint = (
+  owners: readonly ContentRootOwner[],
+  root: RootKey,
+  point: Point
+) =>
+  root === MAIN_ROOT_KEY
+    ? (owners.find(
+        (owner) =>
+          owner.ownerRoot === root &&
+          (PathApi.equals(owner.ownerPath, point.path) ||
+            PathApi.isAncestor(owner.ownerPath, point.path))
+      ) ?? null)
+    : null
+
+const resolveContentRootOwnerChromeEdge = ({
+  event,
+  owner,
+}: {
+  event: MouseEvent<HTMLElement>
+  owner: ContentRootOwner
+}): 'end' | 'start' => {
+  const element = mouseEventTargetToElement(event.target)
+  const ownerElement = element?.closest<HTMLElement>(
+    `[data-slate-node="element"][data-slate-path="${owner.ownerPath.join(',')}"]`
+  )
+  const slotElement = ownerElement?.querySelector<HTMLElement>(
+    '[data-slate-content-root-slot]'
+  )
+
+  if (!slotElement) {
+    return 'start'
+  }
+
+  const slotRect = slotElement.getBoundingClientRect()
+
+  return event.clientY > slotRect.bottom ? 'end' : 'start'
+}
+
+const resolveContentRootOwnerChromeEndpoint = ({
+  editor,
+  event,
+  owners,
+  point,
+  root,
+}: {
+  editor: RootInteractionEditor
+  event: MouseEvent<HTMLElement>
+  owners: readonly ContentRootOwner[]
+  point: Point
+  root: RootKey
+}): RootInteractionDragEndpoint | null => {
+  const owner = findOwnerContainingPoint(owners, root, point)
+
+  if (!owner) {
+    return null
+  }
+
+  const edge = resolveContentRootOwnerChromeEdge({ event, owner })
+  const childPoint = editor.read((state) =>
+    getSlateRootBoundaryPoint(
+      state.value.get().roots[owner.childRoot] ?? [],
+      edge
+    )
+  )
+
+  return childPoint
+    ? {
+        isDOMCoverageBoundary: isDOMCoverageBoundaryTarget(event.target),
+        owner,
+        point: toRootedPoint(childPoint, owner.childRoot),
+        root: owner.childRoot,
+      }
+    : null
+}
+
 const resolveProjectedDragEndpoint = ({
   editor,
   event,
@@ -311,13 +387,29 @@ const resolveProjectedDragEndpoint = ({
     return null
   }
 
+  const point = toRootedPoint(RangeApi.start(range), targetRoot)
+  const ownerChromeEndpoint =
+    targetRoot === MAIN_ROOT_KEY
+      ? resolveContentRootOwnerChromeEndpoint({
+          editor,
+          event,
+          owners: findContentRootOwners(editor),
+          point,
+          root: targetRoot,
+        })
+      : null
+
+  if (ownerChromeEndpoint) {
+    return ownerChromeEndpoint
+  }
+
   return {
     isDOMCoverageBoundary: isDOMCoverageBoundaryTarget(event.target),
     owner: getContentRootOwnerFromTarget({
       childRoot: targetRoot,
       target: event.target,
     }),
-    point: toRootedPoint(RangeApi.start(range), targetRoot),
+    point,
     root: targetRoot,
   }
 }

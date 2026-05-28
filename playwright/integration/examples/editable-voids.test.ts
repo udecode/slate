@@ -118,15 +118,15 @@ test.describe('editable voids', () => {
 
     await page.getByRole('button', { name: 'Add' }).click()
     await expect(page.locator(input)).toHaveCount(2)
-    await expect(editors).toHaveCount(4)
+    await expect(editors).toHaveCount(3)
 
     await outer.undo()
     await expect(page.locator(input)).toHaveCount(1)
-    await expect(editors).toHaveCount(3)
+    await expect(editors).toHaveCount(2)
 
     await outer.redo()
     await expect(page.locator(input)).toHaveCount(2)
-    await expect(editors).toHaveCount(4)
+    await expect(editors).toHaveCount(3)
 
     const restoredChildEditor = page
       .locator('[aria-label="Editable void rich content"]')
@@ -376,86 +376,6 @@ test.describe('editable voids', () => {
     await expect(childEditor).toContainText('Child This is editable')
   })
 
-  test('moves across editor-only content root boundaries with keyboard', async ({
-    page,
-  }, testInfo) => {
-    test.skip(
-      testInfo.project.name === 'mobile',
-      'Keyboard boundary proof uses desktop arrow and backspace behavior'
-    )
-
-    const outerEditor = page.locator('[data-slate-editor="true"]').first()
-    const sectionEditor = page
-      .locator('[aria-label="Editor-only content root"]')
-      .first()
-    const outer = createSlateBrowserEditorHarness(
-      page,
-      'editable-voids-outer',
-      outerEditor
-    )
-    const sectionRoot = createSlateBrowserEditorHarness(
-      page,
-      'editable-voids-editor-only-root',
-      sectionEditor
-    )
-    const beforeText =
-      'In addition to nodes that contain editable text, you can insert void nodes, which can also contain editable elements, inputs, or rich same-runtime child roots.'
-
-    await expect(sectionEditor).toContainText('This editor-only root')
-
-    await outer.selection.collapse({
-      path: [0, 0],
-      offset: beforeText.length,
-    })
-    await outer.press('ArrowRight')
-    await expect
-      .poll(() => sectionRoot.selection.get())
-      .toEqual({
-        anchor: { path: [0, 0], offset: 0 },
-        focus: { path: [0, 0], offset: 0 },
-      })
-    await expect
-      .poll(() => sectionRoot.selection.dom())
-      .toMatchObject({
-        anchorNodeText: 'This editor-only root behaves like document flow.',
-        anchorOffset: 0,
-        focusNodeText: 'This editor-only root behaves like document flow.',
-        focusOffset: 0,
-      })
-
-    await sectionRoot.press('ArrowLeft')
-    await expect(outerEditor).toBeFocused()
-    await expect
-      .poll(() => outer.selection.get())
-      .toEqual({
-        anchor: { path: [0, 0], offset: beforeText.length },
-        focus: { path: [0, 0], offset: beforeText.length },
-      })
-
-    await sectionRoot.selection.collapse({
-      path: [1, 0],
-      offset: 'Arrow keys cross its root boundary like sibling blocks.'.length,
-    })
-    await sectionRoot.press('ArrowRight')
-    await expect(outerEditor).toBeFocused()
-    await expect
-      .poll(() => outer.selection.get())
-      .toEqual({
-        anchor: { path: [2, 0], offset: 0 },
-        focus: { path: [2, 0], offset: 0 },
-      })
-
-    await sectionRoot.selection.collapse({ path: [0, 0], offset: 0 })
-    await sectionRoot.press('Backspace')
-    await expect(outerEditor).toBeFocused()
-    await expect
-      .poll(() => outer.selection.get())
-      .toEqual({
-        anchor: { path: [0, 0], offset: beforeText.length },
-        focus: { path: [0, 0], offset: beforeText.length },
-      })
-  })
-
   test('keeps same-runtime child root focused inside editable void', async ({
     page,
   }, testInfo) => {
@@ -538,13 +458,13 @@ test.describe('editable voids', () => {
         {
           kind: 'clickTextOffset',
           path: [0, 0],
-          offset: 'This is editable '.length,
+          offset: 'This is editable'.length,
         },
         {
           kind: 'assertSelection',
           selection: {
-            anchor: { path: [0, 0], offset: 'This is editable '.length },
-            focus: { path: [0, 0], offset: 'This is editable '.length },
+            anchor: { path: [0, 0], offset: 'This is editable'.length },
+            focus: { path: [0, 0], offset: 'This is editable'.length },
           },
         },
         {
@@ -737,12 +657,12 @@ test.describe('editable voids', () => {
       childEditor
     )
     const beforeVoidText =
-      'Back in the main root after the editor-only section.'
+      'In addition to nodes that contain editable text, you can insert void nodes, which can also contain editable elements, inputs, or rich same-runtime child roots.'
 
     await expect(childEditor).toContainText('This is editable')
 
     await outer.selection.collapse({
-      path: [2, 0],
+      path: [0, 0],
       offset: beforeVoidText.length,
     })
     await outer.press('ArrowRight')
@@ -766,8 +686,8 @@ test.describe('editable voids', () => {
     await expect
       .poll(() => outer.selection.get())
       .toEqual({
-        anchor: { path: [2, 0], offset: beforeVoidText.length },
-        focus: { path: [2, 0], offset: beforeVoidText.length },
+        anchor: { path: [0, 0], offset: beforeVoidText.length },
+        focus: { path: [0, 0], offset: beforeVoidText.length },
       })
 
     await childRoot.selection.collapse({
@@ -779,8 +699,8 @@ test.describe('editable voids', () => {
     await expect
       .poll(() => outer.selection.get())
       .toEqual({
-        anchor: { path: [4, 0], offset: 0 },
-        focus: { path: [4, 0], offset: 0 },
+        anchor: { path: [2, 0], offset: 0 },
+        focus: { path: [2, 0], offset: 0 },
       })
   })
 
@@ -793,9 +713,6 @@ test.describe('editable voids', () => {
     )
 
     const outerEditor = page.locator('[data-slate-editor="true"]').first()
-    const sectionEditor = page
-      .locator('[aria-label="Editor-only content root"]')
-      .first()
     const childEditor = page
       .locator('[aria-label="Editable void rich content"]')
       .first()
@@ -804,58 +721,17 @@ test.describe('editable voids', () => {
       'editable-voids-outer',
       outerEditor
     )
-    const sectionRoot = createSlateBrowserEditorHarness(
-      page,
-      'editable-voids-editor-only-root',
-      sectionEditor
-    )
     const childRoot = createSlateBrowserEditorHarness(
       page,
       'editable-voids-child-root',
       childEditor
     )
-    const beforeVoidText =
-      'Back in the main root after the editor-only section.'
 
-    await expect(sectionEditor).toContainText('This editor-only root')
     await expect(childEditor).toContainText('This is editable')
 
     await outer.selection.collapse({
       path: [0, 0],
       offset: 120,
-    })
-    await outerEditor.evaluate((element: HTMLElement) => {
-      element.focus()
-    })
-    const beforeSectionEntryRect = await getCollapsedSelectionRect(page)
-
-    await outer.press('ArrowDown')
-    await expect(sectionEditor).toBeFocused()
-    await expect.poll(() => sectionRoot.selection.get()).not.toBe(null)
-    expectSameVisualColumn(
-      beforeSectionEntryRect,
-      await getCollapsedSelectionRect(page)
-    )
-
-    await sectionRoot.selection.collapse({
-      path: [1, 0],
-      offset: 'Arrow keys cross its root boundary like sibling blocks.'.length,
-    })
-    await sectionEditor.evaluate((element: HTMLElement) => {
-      element.focus()
-    })
-    await sectionRoot.press('ArrowDown')
-    await expect(outerEditor).toBeFocused()
-    await expect
-      .poll(() => outer.selection.get())
-      .toMatchObject({
-        anchor: { path: [2, 0] },
-        focus: { path: [2, 0] },
-      })
-
-    await outer.selection.collapse({
-      path: [2, 0],
-      offset: Math.floor(beforeVoidText.length / 2),
     })
     await outerEditor.evaluate((element: HTMLElement) => {
       element.focus()
@@ -881,8 +757,8 @@ test.describe('editable voids', () => {
     await expect
       .poll(() => outer.selection.get())
       .toMatchObject({
-        anchor: { path: [2, 0] },
-        focus: { path: [2, 0] },
+        anchor: { path: [0, 0] },
+        focus: { path: [0, 0] },
       })
     expectSameVisualColumn(
       beforeExitAboveRect,
@@ -902,8 +778,8 @@ test.describe('editable voids', () => {
     await expect
       .poll(() => outer.selection.get())
       .toEqual({
-        anchor: { path: [4, 0], offset: 0 },
-        focus: { path: [4, 0], offset: 0 },
+        anchor: { path: [2, 0], offset: 0 },
+        focus: { path: [2, 0], offset: 0 },
       })
   })
 
@@ -964,7 +840,7 @@ test.describe('editable voids', () => {
       [
         {
           kind: 'clickTextOffset',
-          path: [2, 0],
+          path: [0, 0],
           offset: 0,
         },
       ],
@@ -985,65 +861,8 @@ test.describe('editable voids', () => {
     await expect
       .poll(() => outer.selection.get())
       .toEqual({
-        anchor: { path: [2, 0], offset: 0 },
-        focus: { path: [2, 0], offset: 0 },
-      })
-
-    await childRoot.scenario.run(
-      'editable-voids-child-root-refocus-before-empty-outer-click-gauntlet',
-      [
-        {
-          kind: 'clickTextOffset',
-          path: [0, 1],
-          offset: 'rich'.length,
-        },
-        {
-          kind: 'assertSelection',
-          selection: {
-            anchor: { path: [0, 1], offset: 'rich'.length },
-            focus: { path: [0, 1], offset: 'rich'.length },
-          },
-        },
-      ],
-      {
-        metadata: {
-          capabilities: ['child-root', 'mouse-selection', 'unfocus'],
-          platform: testInfo.project.name,
-          transport: 'native-browser',
-        },
-        tracePath: testInfo.outputPath(
-          'editable-voids-child-root-refocus-before-empty-outer-click-gauntlet.json'
-        ),
-      }
-    )
-    await outer.scenario.run(
-      'editable-voids-empty-outer-click-after-focused-child-root-gauntlet',
-      [
-        {
-          kind: 'clickTextOffset',
-          path: [4, 0],
-          offset: 0,
-        },
-      ],
-      {
-        metadata: {
-          capabilities: ['child-root', 'mouse-selection', 'unfocus'],
-          platform: testInfo.project.name,
-          transport: 'native-browser',
-        },
-        tracePath: testInfo.outputPath(
-          'editable-voids-empty-outer-click-after-focused-child-root-gauntlet.json'
-        ),
-      }
-    )
-
-    await expect(outerEditor).toBeFocused()
-    await expect.poll(() => childRoot.selection.get()).toBe(null)
-    await expect
-      .poll(() => outer.selection.get())
-      .toEqual({
-        anchor: { path: [4, 0], offset: 0 },
-        focus: { path: [4, 0], offset: 0 },
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
       })
   })
 

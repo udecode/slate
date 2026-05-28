@@ -1,5 +1,6 @@
 import { createContext } from 'react'
 import type { Path, RootKey, RuntimeId } from 'slate'
+import type { DOMTextSyncOptions } from './dom-text-sync'
 
 export { EditorContext } from './hooks/use-editor'
 export { ComposingContext } from './hooks/use-editor-composing'
@@ -15,3 +16,6 @@ export const SlateContentRootOwnerContext = createContext<{
   ownerPath: Path
   ownerRoot: RootKey
 } | null>(null)
+export const SlateDOMTextSyncContext = createContext<DOMTextSyncOptions | null>(
+  null
+)

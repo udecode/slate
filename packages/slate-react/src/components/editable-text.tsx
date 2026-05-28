@@ -8,6 +8,7 @@ import React, {
 import type { Path, RuntimeId, Text as SlateTextNode } from 'slate'
 import {
   SlateContentRootOwnerContext,
+  SlateDOMTextSyncContext,
   SlateEditableRootContext,
 } from '../context'
 import {
@@ -77,6 +78,18 @@ const samePath = (left: Path | null, right: Path | null) =>
     right != null &&
     left.length === right.length &&
     left.every((part, index) => part === right[index]))
+
+const sameZeroWidth = (
+  left: EditableTextProps['zeroWidth'],
+  right: EditableTextProps['zeroWidth']
+) =>
+  left === right ||
+  (left != null &&
+    right != null &&
+    left.includeSentinel === right.includeSentinel &&
+    left.isLineBreak === right.isLineBreak &&
+    left.isMarkPlaceholder === right.isMarkPlaceholder &&
+    left.length === right.length)
 
 const sameBoundText = (
   left: {
@@ -305,6 +318,7 @@ const RenderEditableText = <T,>({
 }) => {
   const editableRoot = useContext(SlateEditableRootContext)
   const contentRootOwner = useContext(SlateContentRootOwnerContext)
+  const textSync = useContext(SlateDOMTextSyncContext)
   const hasText = resolvedText.length > 0
   const domTextSync = getDOMTextSyncCapability({
     hasText,
@@ -312,6 +326,7 @@ const RenderEditableText = <T,>({
     renderLeaf,
     renderSegment,
     renderText,
+    textSync,
   })
   const segments =
     hasText || projections.some((slice) => slice.start === slice.end)
@@ -580,7 +595,28 @@ const ProjectedEditableText = <T,>({
   )
 }
 
-export const EditableText = <T,>({
+const sameEditableTextProps = <T,>(
+  left: EditableTextProps<T>,
+  right: EditableTextProps<T>
+) =>
+  left.placeholder === right.placeholder &&
+  left.placeholderAs === right.placeholderAs &&
+  left.placeholderDir === right.placeholderDir &&
+  left.placeholderRef === right.placeholderRef &&
+  left.placeholderStyle === right.placeholderStyle &&
+  left.ref === right.ref &&
+  left.renderLeaf === right.renderLeaf &&
+  left.renderPlaceholder === right.renderPlaceholder &&
+  left.renderSegment === right.renderSegment &&
+  left.renderText === right.renderText &&
+  left.runtimeId === right.runtimeId &&
+  left.slateNode === right.slateNode &&
+  left.text === right.text &&
+  sameMarks(left.marks ?? EMPTY_MARKS, right.marks ?? EMPTY_MARKS) &&
+  samePath(left.path ?? null, right.path ?? null) &&
+  sameZeroWidth(left.zeroWidth, right.zeroWidth)
+
+const EditableTextInner = <T,>({
   path,
   ref,
   runtimeId,
@@ -625,3 +661,8 @@ export const EditableText = <T,>({
     />
   )
 }
+
+export const EditableText = React.memo(
+  EditableTextInner,
+  sameEditableTextProps
+) as typeof EditableTextInner

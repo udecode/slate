@@ -899,9 +899,8 @@ test('Editable disables DOM text sync for app-owned text renderers', async () =>
   ).toBe('custom-text')
 })
 
-test('Editable disables DOM text sync for app-owned leaf and segment renderers', async () => {
+test('Editable disables DOM text sync for custom leaf renderers', async () => {
   const leafEditor = createReactEditor()
-  const segmentEditor = createReactEditor()
 
   const children: Descendant[] = [
     {
@@ -911,10 +910,6 @@ test('Editable disables DOM text sync for app-owned leaf and segment renderers',
   ]
 
   Editor.replace(leafEditor, {
-    children,
-    selection: null,
-  })
-  Editor.replace(segmentEditor, {
     children,
     selection: null,
   })
@@ -936,6 +931,75 @@ test('Editable disables DOM text sync for app-owned leaf and segment renderers',
       )}
     />
   )
+
+  expect(
+    leafRendered.container
+      .querySelector('[data-slate-node="text"]')
+      ?.hasAttribute('data-slate-dom-sync')
+  ).toBe(false)
+  expect(
+    leafRendered.container
+      .querySelector('[data-slate-node="text"]')
+      ?.getAttribute('data-slate-dom-sync-reason')
+  ).toBe('custom-leaf')
+})
+
+test('Editable enables DOM text sync for text-invariant custom leaf renderers', async () => {
+  const leafEditor = createReactEditor()
+
+  Editor.replace(leafEditor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha' }],
+      },
+    ],
+    selection: null,
+  })
+
+  const leafRendered = render(
+    <TestEditorSurface
+      domStrategy={{
+        overscan: 0,
+        textSync: { renderLeaf: 'text-invariant' },
+        threshold: 1,
+        type: 'virtualized',
+      }}
+      editor={leafEditor}
+      id="dom-strategy-text-invariant-render-leaf"
+      renderLeaf={({ attributes, children }) => (
+        <span {...attributes} data-custom-leaf="true">
+          {children}
+        </span>
+      )}
+    />
+  )
+
+  expect(
+    leafRendered.container
+      .querySelector('[data-slate-node="text"]')
+      ?.getAttribute('data-slate-dom-sync')
+  ).toBe('true')
+  expect(
+    leafRendered.container
+      .querySelector('[data-slate-node="text"]')
+      ?.hasAttribute('data-slate-dom-sync-reason')
+  ).toBe(false)
+})
+
+test('Editable disables DOM text sync for app-owned segment renderers', async () => {
+  const segmentEditor = createReactEditor()
+
+  Editor.replace(segmentEditor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha' }],
+      },
+    ],
+    selection: null,
+  })
+
   const segmentRendered = render(
     <TestEditorSurface
       domStrategy={{
@@ -952,16 +1016,6 @@ test('Editable disables DOM text sync for app-owned leaf and segment renderers',
     />
   )
 
-  expect(
-    leafRendered.container
-      .querySelector('[data-slate-node="text"]')
-      ?.hasAttribute('data-slate-dom-sync')
-  ).toBe(false)
-  expect(
-    leafRendered.container
-      .querySelector('[data-slate-node="text"]')
-      ?.getAttribute('data-slate-dom-sync-reason')
-  ).toBe('custom-leaf')
   expect(
     segmentRendered.container
       .querySelector('[data-slate-node="text"]')

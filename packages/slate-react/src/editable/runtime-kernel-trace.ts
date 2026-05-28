@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
-import type { DOMRepairQueue } from './dom-repair-queue'
+import type { DOMInputRepair, DOMRepairQueue } from './dom-repair-queue'
 import {
   beginEditableEditingEpoch,
   beginOrJoinEditableEditingEpoch,
@@ -27,7 +27,7 @@ import type { EditableInputController } from './input-state'
 import { readLiveSelection } from './runtime-selection-state'
 
 type RuntimeKernelIntent = ReturnType<typeof classifyKeyboardIntent>
-type RuntimeNativeInput = Pick<InputEvent, 'data' | 'inputType'>
+type RuntimeNativeInput = DOMInputRepair
 
 export const useRuntimeKernelTraceEngine = ({
   domRepairQueue,

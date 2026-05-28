@@ -21,7 +21,6 @@ import {
   Quote,
   RemoveFormatting,
   Search,
-  Text,
   Trash2,
   Underline,
   Unlink,
@@ -67,7 +66,6 @@ const iconComponents: Record<string, LucideIcon> = {
   looks_two: Heading2,
   search: Search,
   smart_button: MousePointerClick,
-  subject: Text,
   sync_alt: ArrowLeftRight,
 }
 
@@ -94,7 +92,6 @@ const iconLabels: Record<string, string> = {
   looks_two: 'Heading two',
   search: 'Search',
   smart_button: 'Button',
-  subject: 'Section',
   sync_alt: 'Sync',
 }
 

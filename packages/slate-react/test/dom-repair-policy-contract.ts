@@ -1,3 +1,4 @@
+import { Editor } from 'slate/internal'
 import {
   EDITOR_TO_ELEMENT,
   EDITOR_TO_WINDOW,
@@ -10,8 +11,10 @@ import {
   beginDOMRepairFrame,
   cancelDOMRepairBefore,
   createDOMRepairFrameState,
+  createDOMRepairQueue,
   isDOMRepairFrameCurrent,
 } from '../src/editable/dom-repair-queue'
+import { createEditableInputControllerState } from '../src/editable/input-state'
 import { executeEditableRepairPolicy } from '../src/editable/mutation-controller'
 
 const asNodeList = (nodes: Node[]) => nodes as unknown as NodeList
@@ -136,6 +139,126 @@ test('restore manager rolls back structural DOM mutations and leaves text sync m
   expect(root.firstChild).toBe(paragraph)
   expect(root.contains(rogue)).toBe(false)
   expect(text.nodeValue).toBe('Bonjour')
+
+  root.remove()
+})
+
+test('native input repair skips already synced local text inside partial DOM roots', () => {
+  const editor = createReactEditor()
+  const root = mountEditorRoot(editor)
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'beta' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [1, 0], offset: 5 },
+      focus: { path: [1, 0], offset: 5 },
+    },
+  })
+
+  const textHost = document.createElement('span')
+  const string = document.createElement('span')
+  const text = document.createTextNode('betax')
+  const range = document.createRange()
+  const selection = window.getSelection()
+  const queue = createDOMRepairQueue({
+    editor,
+    inputController: {
+      preferModelSelectionForInputRef: { current: false },
+      state: createEditableInputControllerState(),
+    },
+    scrollSelectionIntoView: () => {},
+    syncDOMSelectionToEditor: () => {},
+  })
+
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-path', '1,0')
+  string.setAttribute('data-slate-string', 'true')
+  string.append(text)
+  textHost.append(string)
+  root.append(textHost)
+
+  range.setStart(text, 5)
+  range.collapse(true)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+
+  queue.repairDOMInput({ data: 'x', inputType: 'insertText' }, root, 1)
+  expect(editor.read((state) => state.text.string([1]))).toBe('betax')
+
+  queue.repairDOMInput({ data: 'x', inputType: 'insertText' }, root, 2)
+  expect(editor.read((state) => state.text.string([1]))).toBe('betax')
+
+  root.remove()
+})
+
+test('native input repair imports a burst DOM text delta once', () => {
+  const editor = createReactEditor()
+  const root = mountEditorRoot(editor)
+  const prefix = 'Release '
+  const burstText = 'abcdefghijklmnop'
+  const originalText = `${prefix}readiness memo`
+  const domText = `${prefix}${burstText}readiness memo`
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: originalText }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: prefix.length },
+      focus: { path: [0, 0], offset: prefix.length },
+    },
+  })
+
+  const textHost = document.createElement('span')
+  const string = document.createElement('span')
+  const text = document.createTextNode(domText)
+  const range = document.createRange()
+  const selection = window.getSelection()
+  const queue = createDOMRepairQueue({
+    editor,
+    inputController: {
+      preferModelSelectionForInputRef: { current: false },
+      state: createEditableInputControllerState(),
+    },
+    scrollSelectionIntoView: () => {},
+    syncDOMSelectionToEditor: () => {},
+  })
+
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-path', '0,0')
+  string.setAttribute('data-slate-string', 'true')
+  string.append(text)
+  textHost.append(string)
+  root.append(textHost)
+
+  range.setStart(text, prefix.length + burstText.length)
+  range.collapse(true)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+
+  queue.repairDOMInput({ data: 'p', inputType: 'insertText' }, root, 1)
+
+  expect(editor.read((state) => state.text.string([0]))).toBe(domText)
+  expect(editor.read((state) => state.selection.get())).toEqual({
+    anchor: { path: [0, 0], offset: prefix.length + burstText.length },
+    focus: { path: [0, 0], offset: prefix.length + burstText.length },
+  })
+
+  queue.repairDOMInput({ data: 'p', inputType: 'insertText' }, root, 2)
+
+  expect(editor.read((state) => state.text.string([0]))).toBe(domText)
 
   root.remove()
 })

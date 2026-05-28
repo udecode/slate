@@ -217,6 +217,7 @@ export const useEditableEventRuntime = ({
   })
   const inputHandlers = useRuntimeInputEvents({
     androidInputManagerRef: runtime.android.managerRef,
+    deferNativeTextInputRepair: domStrategyRuntime?.type === 'virtualized',
     deferredOperations,
     editor,
     handledDOMBeforeInputRef,

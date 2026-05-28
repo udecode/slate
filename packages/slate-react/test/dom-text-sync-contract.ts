@@ -27,6 +27,15 @@ test('DOM text sync capability names opt-out reasons', () => {
     getDOMTextSyncCapability({
       hasText: true,
       projections: [],
+      renderLeaf: () => null,
+      textSync: { renderLeaf: 'text-invariant' },
+    })
+  ).toEqual({ enabled: true, reason: null })
+
+  expect(
+    getDOMTextSyncCapability({
+      hasText: true,
+      projections: [],
       renderSegment: () => null,
     })
   ).toEqual({ enabled: false, reason: 'custom-segment' })

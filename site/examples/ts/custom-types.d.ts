@@ -27,14 +27,6 @@ export type EditableVoidElement = {
   children: EmptyText[]
 }
 
-export type EditableSectionElement = {
-  type: 'editable-section'
-  childRoots: {
-    body: string
-  }
-  children: EmptyText[]
-}
-
 export type SyncedBlockElement = {
   type: 'synced-block'
   childRoots: {
@@ -156,7 +148,6 @@ export type CustomElement =
   | BlockQuoteElement
   | BulletedListElement
   | CheckListItemElement
-  | EditableSectionElement
   | EditableVoidElement
   | SyncedBlockElement
   | HeadingElement

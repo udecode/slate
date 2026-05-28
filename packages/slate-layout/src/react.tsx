@@ -5,13 +5,16 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   useSyncExternalStore,
 } from 'react'
+import { flushSync } from 'react-dom'
 import type { Editor, Path } from 'slate'
 import {
   Editable,
   type EditableLayout,
   type EditableProps,
+  useEditorState,
   useElementPath,
 } from 'slate-react'
 
@@ -36,7 +39,10 @@ import {
   type SlatePageSettings,
   type SlatePageSettingsSource,
 } from './index'
-import { createPagedEditablePageMountPlan } from './page-mount-plan'
+import {
+  createPagedEditablePageMountPlan,
+  getPagedEditableVisiblePageMountItems,
+} from './page-mount-plan'
 
 type SlateLayoutFragmentContextValue = {
   layout: SlatePageLayout
@@ -49,7 +55,10 @@ type SlateLayoutFragmentContextValue = {
     ReadonlyMap<string, SlatePageLayoutProjectedUnit>
   >
   projection: SlatePageLayoutProjection
+  selectedPaths: readonly Path[]
   snapshot: SlatePageLayoutSnapshot
+  visibleContentRange: PagedEditableViewport | null
+  visiblePageIndexes: ReadonlySet<number> | null
 }
 
 const SlateLayoutFragmentContext =
@@ -198,11 +207,29 @@ export const useSlateLayoutFragments = (
       return []
     }
 
-    return context.layout.getFragments(targetPath).map((fragment) => {
+    return context.layout.getFragments(targetPath).flatMap((fragment) => {
+      const isSelectedFragment = context.selectedPaths.some((path) =>
+        pathsOverlap(fragment.path, path)
+      )
+
+      if (
+        context.visiblePageIndexes &&
+        !context.visiblePageIndexes.has(fragment.pageIndex) &&
+        !isSelectedFragment
+      ) {
+        return []
+      }
+
       const projectedUnits = context.projectedUnitsByFragment.get(fragment.id)
       const units = fragment.units
         ?.map((unit) => projectedUnits?.get(unit.key))
         .filter((unit): unit is SlatePageLayoutProjectedUnit => Boolean(unit))
+        .filter(
+          (unit) =>
+            !context.visibleContentRange ||
+            isRectWithinVerticalRange(unit.rect, context.visibleContentRange) ||
+            context.selectedPaths.some((path) => pathsOverlap(unit.path, path))
+        )
       const lines = context.projectedLinesByFragment.get(fragment.id) ?? []
       const rects = [
         ...(units?.map((unit) => unit.rect) ?? []),
@@ -223,6 +250,114 @@ export const useSlateLayoutFragments = (
     })
   }, [context, targetPath])
 }
+
+const SCROLLABLE_OVERFLOW_PATTERN = /(auto|scroll|overlay)/
+
+const parseCSSPixels = (value: string | null | undefined) => {
+  if (!value || value === 'auto' || value === 'none') {
+    return 0
+  }
+
+  const parsed = Number.parseFloat(value)
+
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+const canUseElementAsPagedEditableScrollRoot = (
+  element: HTMLElement | null
+) => {
+  if (!element) {
+    return false
+  }
+
+  const style = element.ownerDocument.defaultView?.getComputedStyle(element)
+  const overflow = `${style?.overflow ?? ''} ${style?.overflowY ?? ''}`
+  const hasScrollableOverflow = SCROLLABLE_OVERFLOW_PATTERN.test(overflow)
+  const hasBoundedHeight =
+    element.clientHeight > 0 ||
+    parseCSSPixels(style?.height) > 0 ||
+    parseCSSPixels(style?.maxHeight) > 0
+
+  return hasScrollableOverflow && hasBoundedHeight
+}
+
+const getPagedEditableScrollRoot = (
+  element: HTMLElement | null
+): HTMLElement | null => {
+  const editableRoot =
+    element?.querySelector<HTMLElement>('[data-slate-editor="true"]') ?? null
+
+  if (canUseElementAsPagedEditableScrollRoot(editableRoot)) {
+    return editableRoot
+  }
+
+  let current = element
+
+  while (current) {
+    if (canUseElementAsPagedEditableScrollRoot(current)) {
+      return current
+    }
+
+    current = current.parentElement
+  }
+
+  return null
+}
+
+type VirtualizedDOMStrategy = Extract<
+  NonNullable<EditableProps['domStrategy']>,
+  { type: 'virtualized' }
+>
+
+const isVirtualizedDOMStrategy = (
+  domStrategy: EditableProps['domStrategy']
+): domStrategy is VirtualizedDOMStrategy =>
+  typeof domStrategy === 'object' &&
+  domStrategy != null &&
+  'type' in domStrategy &&
+  domStrategy.type === 'virtualized'
+
+const getVirtualizedDOMStrategyOverscan = (
+  domStrategy: EditableProps['domStrategy']
+) =>
+  isVirtualizedDOMStrategy(domStrategy)
+    ? Math.max(0, domStrategy.overscan ?? 0)
+    : 0
+
+type PagedEditableViewport = {
+  bottom: number
+  top: number
+}
+
+const CONTENT_VIEWPORT_OVERSCAN_RATIO = 0
+
+const isRectWithinVerticalRange = (
+  rect: Pick<SlatePageRect, 'height' | 'top'>,
+  range: PagedEditableViewport
+) => rect.top + rect.height >= range.top && rect.top <= range.bottom
+
+const isPathWithin = (path: Path, ancestor: Path) =>
+  ancestor.length <= path.length &&
+  ancestor.every((segment, index) => path[index] === segment)
+
+const samePath = (left: Path, right: Path) =>
+  left.length === right.length &&
+  left.every((segment, index) => segment === right[index])
+
+const sameSelectedPaths = (
+  left: readonly Path[] | null,
+  right: readonly Path[] | null
+) =>
+  left === right ||
+  (left != null &&
+    right != null &&
+    left.length === right.length &&
+    left.every((path, index) => samePath(path, right[index]!)))
+
+const pathsOverlap = (left: Path, right: Path) =>
+  isPathWithin(left, right) || isPathWithin(right, left)
+
+const EMPTY_SELECTED_PATHS = Object.freeze([]) as readonly Path[]
 
 export type PagedEditableRenderPageProps = {
   attributes: {
@@ -293,6 +428,18 @@ export const PagedEditable = ({
   style,
   ...editableProps
 }: PagedEditableProps) => {
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const [viewport, setViewport] = useState<PagedEditableViewport | null>(null)
+  const selectedPaths = useEditorState(
+    (state) => {
+      const selection = state.selection.get()
+
+      return selection
+        ? [selection.anchor.path, selection.focus.path]
+        : EMPTY_SELECTED_PATHS
+    },
+    { equalityFn: sameSelectedPaths }
+  )
   const snapshot = useSlatePageLayoutSnapshot(layout)
   const pages = snapshot.pages.length === 0 ? [snapshot.page] : snapshot.pages
   const normalizedPageView = normalizePagedEditablePageView({
@@ -364,17 +511,163 @@ export const PagedEditable = ({
       ),
     [geometry.pagePlacements, pages]
   )
+  const virtualizesPageSurfaces = isVirtualizedDOMStrategy(
+    editableProps.domStrategy
+  )
+  const pageSurfaceOverscan = getVirtualizedDOMStrategyOverscan(
+    editableProps.domStrategy
+  )
+  useEffect(() => {
+    if (!virtualizesPageSurfaces) {
+      setViewport(null)
+      return
+    }
+
+    const root = rootRef.current
+    const scrollRoot = getPagedEditableScrollRoot(root)
+
+    if (!root || !scrollRoot) {
+      return
+    }
+
+    const update = (sync = false) => {
+      const rootRect = root.getBoundingClientRect()
+      const scrollRootRect = scrollRoot.getBoundingClientRect()
+      const scrollRootIsInsideRoot =
+        scrollRoot === root || root.contains(scrollRoot)
+      const scrollOffset = scrollRootIsInsideRoot ? scrollRoot.scrollTop : 0
+      const scale =
+        geometry.height > 0 && rootRect.height > 0
+          ? rootRect.height / geometry.height
+          : 1
+      const top = Math.max(
+        0,
+        (scrollRootRect.top - rootRect.top + scrollOffset) / scale
+      )
+      const nextViewport = {
+        bottom: Math.max(
+          top,
+          (scrollRootRect.bottom - rootRect.top + scrollOffset) / scale
+        ),
+        top,
+      }
+      const commit = () => {
+        setViewport((previous) =>
+          previous &&
+          Math.abs(previous.top - nextViewport.top) < 1 &&
+          Math.abs(previous.bottom - nextViewport.bottom) < 1
+            ? previous
+            : nextViewport
+        )
+      }
+
+      if (sync) {
+        flushSync(commit)
+        return
+      }
+
+      commit()
+    }
+    const updateAsync = () => update()
+    const updateOnScroll = () => update(true)
+
+    updateAsync()
+    scrollRoot.addEventListener('scroll', updateOnScroll, { passive: true })
+    root.ownerDocument.defaultView?.addEventListener('resize', updateAsync)
+
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(updateAsync)
+
+    observer?.observe(root)
+    observer?.observe(scrollRoot)
+
+    return () => {
+      scrollRoot.removeEventListener('scroll', updateOnScroll)
+      root.ownerDocument.defaultView?.removeEventListener('resize', updateAsync)
+      observer?.disconnect()
+    }
+  }, [geometry.height, virtualizesPageSurfaces])
+  const pageSurfaceItems = useMemo(() => {
+    return getPagedEditableVisiblePageMountItems(pageMountPlan, {
+      gap: normalizedPageView.gap,
+      overscan: pageSurfaceOverscan,
+      pages,
+      virtualizes: virtualizesPageSurfaces,
+      viewport,
+    })
+  }, [
+    normalizedPageView.gap,
+    pageMountPlan,
+    pageSurfaceOverscan,
+    pages,
+    virtualizesPageSurfaces,
+    viewport,
+  ])
+  const pageContentItems = useMemo(() => {
+    if (!virtualizesPageSurfaces || !viewport) {
+      return null
+    }
+
+    return getPagedEditableVisiblePageMountItems(pageMountPlan, {
+      gap: normalizedPageView.gap,
+      overscan: 0,
+      pages,
+      virtualizes: true,
+      viewport,
+    })
+  }, [
+    normalizedPageView.gap,
+    pageMountPlan,
+    pages,
+    virtualizesPageSurfaces,
+    viewport,
+  ])
+  const visibleContentRange = useMemo(() => {
+    if (!virtualizesPageSurfaces || !viewport) {
+      return null
+    }
+
+    const viewportHeight = Math.max(0, viewport.bottom - viewport.top)
+    const overscanSize = viewportHeight * CONTENT_VIEWPORT_OVERSCAN_RATIO
+
+    return {
+      bottom: viewport.bottom + overscanSize,
+      top: Math.max(0, viewport.top - overscanSize),
+    }
+  }, [virtualizesPageSurfaces, viewport])
+  const visiblePageIndexes = useMemo(
+    () =>
+      pageContentItems
+        ? new Set(pageContentItems.flatMap((item) => item.pageIndexes))
+        : null,
+    [pageContentItems]
+  )
   const editableLayout = useMemo<EditableLayout>(
     () => ({
       getVirtualizedPageItems: () =>
         pageMountPlan.items.map((item) => ({
+          fragmentPaths: item.fragmentPaths,
           index: item.index,
           key: item.key,
           pageIndexes: item.pageIndexes,
           size: item.size,
           start: item.start,
           topLevelIndexes: item.topLevelIndexes,
+          unitPaths: item.unitPaths,
         })),
+      getVisibleVirtualizedPageItems: () =>
+        pageContentItems?.map((item) => ({
+          fragmentPaths: item.fragmentPaths,
+          index: item.index,
+          key: item.key,
+          pageIndexes: item.pageIndexes,
+          size: item.size,
+          start: item.start,
+          topLevelIndexes: item.topLevelIndexes,
+          unitPaths: item.unitPaths,
+        })) ?? null,
       getVirtualizedTopLevelItems: () =>
         projection.blocks.map((block) => ({
           index: block.blockIndex,
@@ -382,7 +675,7 @@ export const PagedEditable = ({
           start: block.top,
         })),
     }),
-    [pageMountPlan, projection]
+    [pageContentItems, pageMountPlan, projection]
   )
   const editable = (
     <Editable
@@ -405,18 +698,25 @@ export const PagedEditable = ({
         projectedLinesByFragment,
         projectedUnitsByFragment,
         projection,
+        selectedPaths,
         snapshot,
+        visibleContentRange,
+        visiblePageIndexes,
       }}
     >
       <div
         data-slate-paged-editable
+        data-slate-paged-editable-page-virtualization={
+          virtualizesPageSurfaces ? 'true' : undefined
+        }
+        ref={rootRef}
         style={{
           minHeight: geometry.height,
           position: 'relative',
           width: geometry.width,
         }}
       >
-        {pageMountPlan.items.flatMap((item) =>
+        {pageSurfaceItems.flatMap((item) =>
           item.pageIndexes.map((pageIndex) => {
             const renderData = pageRenderDataByIndex.get(pageIndex)
 

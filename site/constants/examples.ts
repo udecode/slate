@@ -46,6 +46,7 @@ export const EXAMPLE_NAMES_AND_PATHS = [
 
 export const HIDDEN_EXAMPLES = [
   'android-tests',
+  'decorations-async',
   'dom-coverage-boundaries',
   'persistent-annotation-anchors',
 ] as const

@@ -248,6 +248,81 @@ describe('slate delete contract', () => {
     })
   })
 
+  it('preserves an unselected suffix inside an isolating nested block', () => {
+    const editor = createEditor()
+    const selection = {
+      anchor: { path: [0, 0], offset: 'Intro visible '.length },
+      focus: { path: [2, 0, 0], offset: 'Overview tab'.length },
+    }
+
+    editor.extend(
+      defineEditorExtension({
+        elements: [{ isolating: true, type: 'tabs-block' }],
+        name: 'isolating-expanded-range-delete',
+      })
+    )
+    editor.update((tx) => {
+      tx.value.replace({
+        children: [
+          paragraph('Intro visible before hidden blocks.'),
+          {
+            type: 'accordion-block',
+            children: [
+              paragraph('Accordion secret alpha'),
+              paragraph('Accordion secret beta'),
+            ],
+          },
+          {
+            type: 'tabs-block',
+            children: [
+              {
+                tab: 'overview',
+                type: 'tab-panel',
+                children: [{ text: 'Overview tab visible text' }],
+              },
+              {
+                tab: 'details',
+                type: 'tab-panel',
+                children: [{ text: 'Details tab hidden text' }],
+              },
+            ],
+          },
+          paragraph('Outro visible after hidden blocks.'),
+        ],
+        marks: null,
+        selection,
+      })
+    })
+
+    editor.update((tx) => {
+      tx.text.delete({ at: selection })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      paragraph('Intro visible '),
+      {
+        type: 'tabs-block',
+        children: [
+          {
+            tab: 'overview',
+            type: 'tab-panel',
+            children: [{ text: ' visible text' }],
+          },
+          {
+            tab: 'details',
+            type: 'tab-panel',
+            children: [{ text: 'Details tab hidden text' }],
+          },
+        ],
+      },
+      paragraph('Outro visible after hidden blocks.'),
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 'Intro visible '.length },
+      focus: { path: [0, 0], offset: 'Intro visible '.length },
+    })
+  })
+
   it('merges same-mark text when Backspace crosses an empty marked block start', () => {
     const editor = createEditor()
 

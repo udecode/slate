@@ -183,7 +183,6 @@ export const useSlateViewSelectionDecorationSource = (
 
     return subscribeSlateViewSelection(editor, () => {
       source.refresh({
-        forceInvalidate: true,
         reason: 'external',
       })
     })
