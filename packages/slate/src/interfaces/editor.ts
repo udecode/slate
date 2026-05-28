@@ -594,6 +594,11 @@ export type EditorUpdateTransaction<
   TExtensions extends readonly unknown[] = readonly [],
 > = EditorCoreUpdateTransaction<V> & EditorInstalledTxGroups<V, TExtensions>
 
+export type EditorUpdateContext<TEditor extends BaseEditor<any, any> = Editor> =
+  {
+    afterCommit: (handler: EditorCommitHandler<TEditor>) => void
+  }
+
 export interface BaseEditor<
   V extends Value = Value,
   TExtensions extends readonly unknown[] = readonly [],
@@ -608,7 +613,10 @@ export interface BaseEditor<
   subscribe: (listener: SnapshotListener<any>) => () => void
   update: BivariantMethod<
     [
-      fn: (transaction: EditorUpdateTransaction<V, TExtensions>) => void,
+      fn: (
+        transaction: EditorUpdateTransaction<V, TExtensions>,
+        context: EditorUpdateContext<BaseEditor<V, TExtensions>>
+      ) => void,
       options?: EditorUpdateOptions,
     ],
     void
@@ -1462,15 +1470,15 @@ export type EditorExtensionSetupContext<
   signal: AbortSignal
 }
 
-export type EditorCommitContext<TEditor extends BaseEditor<any> = Editor> = {
-  commit: EditorCommit<ValueOf<TEditor>>
-  editor: TEditor
-  snapshot: EditorSnapshot<ValueOf<TEditor>>
-}
+export type EditorCommitContext<TEditor extends BaseEditor<any, any> = Editor> =
+  {
+    commit: EditorCommit<ValueOf<TEditor>>
+    editor: TEditor
+    snapshot: EditorSnapshot<ValueOf<TEditor>>
+  }
 
-export type EditorCommitHandler<TEditor extends BaseEditor<any> = Editor> = (
-  context: EditorCommitContext<TEditor>
-) => void
+export type EditorCommitHandler<TEditor extends BaseEditor<any, any> = Editor> =
+  (context: EditorCommitContext<TEditor>) => void
 
 export type EditorExtensionSetupOutput<
   TEditor extends BaseEditor<any> = Editor,
@@ -2469,7 +2477,10 @@ export interface EditorStaticApi {
 
   update: <V extends Value>(
     editor: Editor<V>,
-    fn: (transaction: EditorUpdateTransaction<V>) => void,
+    fn: (
+      transaction: EditorUpdateTransaction<V>,
+      context: EditorUpdateContext<Editor<V>>
+    ) => void,
     options?: EditorUpdateOptions
   ) => void
 

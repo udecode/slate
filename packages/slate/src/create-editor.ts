@@ -118,6 +118,7 @@ import type {
   EditorSnapshot,
   EditorTransformMiddlewareArgs,
   EditorTransformRegistry,
+  EditorUpdateContext,
   EditorUpdateOptions,
   EditorUpdateTransaction,
   Element,
@@ -637,12 +638,18 @@ export function createEditor<
     subscribeSource: (source, listener) =>
       subscribeSource(editor, source, listener),
     update: (
-      fn: (transaction: EditorUpdateTransaction<V>) => void,
+      fn: (
+        transaction: EditorUpdateTransaction<V>,
+        context: EditorUpdateContext<Editor<V>>
+      ) => void,
       options?: EditorUpdateOptions
     ) =>
       updateEditor(
         editor,
-        fn as (transaction: EditorUpdateTransaction<V>) => void,
+        fn as (
+          transaction: EditorUpdateTransaction<V>,
+          context: EditorUpdateContext<Editor<V>>
+        ) => void,
         options
       ),
   } satisfies InternalEditorTransactionRuntime<V>
@@ -1070,12 +1077,18 @@ export function createEditor<
     read: (fn) => readEditor(editor, fn),
     subscribe: (listener) => subscribe(editor, listener),
     update: (
-      fn: (transaction: EditorUpdateTransaction<V, TExtensions>) => void,
+      fn: (
+        transaction: EditorUpdateTransaction<V, TExtensions>,
+        context: EditorUpdateContext<Editor<V, TExtensions>>
+      ) => void,
       options
     ) =>
       updateEditor(
         editor,
-        fn as (transaction: EditorUpdateTransaction<V>) => void,
+        fn as (
+          transaction: EditorUpdateTransaction<V>,
+          context: EditorUpdateContext<Editor<V>>
+        ) => void,
         options
       ),
     extend: (extension) => extendEditor(editor, extension),

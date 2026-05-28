@@ -90,7 +90,7 @@
         "slate": "workspace:*",
       },
       "peerDependencies": {
-        "slate": ">=0.121.0",
+        "slate": ">=0.124.2",
       },
     },
     "packages/slate-history": {
@@ -166,8 +166,8 @@
       "peerDependencies": {
         "react": ">=19.2.0",
         "react-dom": ">=19.2.0",
-        "slate": ">=0.124.1",
-        "slate-dom": ">=0.124.1",
+        "slate": ">=0.124.2",
+        "slate-dom": ">=0.124.2",
       },
     },
   },

@@ -380,6 +380,78 @@ test.describe('multi-root document example', () => {
     await expect(header).toContainText(headerText)
   })
 
+  test('keyboard undo from footer keeps body DOM and model rooted across repeated undo', async ({
+    page,
+  }) => {
+    await openExample(page, 'multi-root-document', {
+      ready: {
+        editor: 'visible',
+      },
+      surface: {
+        scope: '#multi-root-main-surface',
+      },
+    })
+
+    const main = page.locator('#multi-root-main')
+    const footer = page.locator('#multi-root-footer')
+    const bodyText = 'The body root carries the document content.'
+    const footerText = 'Prepared for leadership review'
+    const undoHotkey = (await page.evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent)
+    ))
+      ? 'Meta+Z'
+      : 'Control+Z'
+    const mainBox = await main.boundingBox()
+    const footerBox = await footer.boundingBox()
+
+    if (!mainBox || !footerBox) {
+      throw new Error('Multi-root editors are not visible')
+    }
+
+    await page.mouse.click(mainBox.x + mainBox.width - 16, mainBox.y + 24)
+    await expect(main).toBeFocused()
+    await page.keyboard.insertText('pok')
+    await expect(main).toContainText(`${bodyText}pok`)
+    await expect(page.locator('#multi-root-main-status')).toContainText(
+      `main:${bodyText}pok`
+    )
+
+    await page.mouse.click(footerBox.x + footerBox.width - 16, footerBox.y + 24)
+    await expect(footer).toBeFocused()
+    await page.keyboard.insertText('pok')
+    await expect(footer).toContainText(`${footerText}pok`)
+    await expect(page.locator('#multi-root-footer-status')).toContainText(
+      `footer:${footerText}pok`
+    )
+
+    await page.keyboard.press(undoHotkey)
+
+    await expect(footer).toContainText(footerText)
+    await expect(footer).not.toContainText(`${footerText}pok`)
+    await expect(main).toContainText(`${bodyText}pok`)
+    await expect(main).not.toContainText(footerText)
+    await expect(page.locator('#multi-root-main-status')).toContainText(
+      `main:${bodyText}pok`
+    )
+    await expect(page.locator('#multi-root-footer-status')).toContainText(
+      `footer:${footerText}`
+    )
+
+    await page.keyboard.press(undoHotkey)
+
+    await expect(main).toContainText(bodyText)
+    await expect(main).toContainText('Header and footer are editable roots.')
+    await expect(main).not.toContainText(`${bodyText}pok`)
+    await expect(main).not.toContainText(footerText)
+    await expect(footer).toContainText(footerText)
+    await expect(page.locator('#multi-root-main-status')).toContainText(
+      `main:${bodyText} Header and footer are editable roots.`
+    )
+    await expect(page.locator('#multi-root-footer-status')).toContainText(
+      `footer:${footerText}`
+    )
+  })
+
   test('keeps repeated multi-root undo from replaying paths in the focused root', async ({
     page,
   }, testInfo) => {

@@ -766,6 +766,52 @@ test.describe('synced blocks example', () => {
       })
   })
 
+  test('extends keyboard selection from a synced content root into the owner document', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected selection proof uses Chromium caret geometry'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+    const first = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-first-copy',
+      firstEditor
+    )
+
+    await first.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 'Shared mission'.length },
+    })
+    await expect.poll(() => getNativeSelectionText(page)).toBe('Shared mission')
+
+    await page.keyboard.press('Shift+ArrowUp')
+
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: { path: [0, 0], root: SHARED_ROOT },
+        },
+        focus: {
+          point: { path: [0, 0] },
+        },
+        segments: { backward: true },
+      })
+    await expect.poll(() => getRenderedViewSelectionText(page)).toContain('p1')
+    await expect.poll(() => getNativeSelectionText(page)).not.toBe(
+      'Shared mission'
+    )
+  })
+
   test('mouse selection across synced blocks becomes the same visible-order selection as sibling blocks', async ({
     page,
   }, testInfo) => {
@@ -822,6 +868,133 @@ test.describe('synced blocks example', () => {
         segments: { backward: false },
       })
     await expect.poll(() => getNativeSelectionText(page)).not.toBe('\n')
+    expect(await getNativeSelectionText(page)).not.toContain('Editing original')
+  })
+
+  test('mouse drag from a synced content root into the owner document selects both sides', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop mouse selection proof uses Chromium pointer selection'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+    const from = firstEditor.getByText(SHARED_BODY_FIRST, { exact: true })
+    const to = outerEditor.getByText('Between synced copies.', {
+      exact: true,
+    })
+    const fromBox = await from.boundingBox()
+    const toBox = await to.boundingBox()
+
+    if (!fromBox || !toBox) {
+      throw new Error('Cannot drag from synced body into owner text')
+    }
+
+    await page.mouse.move(
+      fromBox.x + fromBox.width * 0.45,
+      fromBox.y + fromBox.height / 2
+    )
+    await page.mouse.down()
+    await page.mouse.move(toBox.x + toBox.width * 0.45, toBox.y + 4, {
+      steps: 16,
+    })
+    await page.mouse.up()
+
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: { path: [0, 0], root: SHARED_ROOT },
+        },
+        focus: {
+          point: { path: [2, 0] },
+        },
+        segments: { backward: false },
+      })
+    await expect
+      .poll(() => getRenderedViewSelectionTextBySharedCopy(page))
+      .toEqual([expect.stringContaining('statement'), ''])
+    await expect
+      .poll(() => getRenderedViewSelectionText(page))
+      .toContain('Between')
+    expect(await getNativeSelectionText(page)).not.toContain('Editing original')
+  })
+
+  test('mouse drag from an existing synced root text selection into the owner document selects both sides', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop mouse selection proof uses Chromium pointer selection'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+    const first = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-first-copy',
+      firstEditor
+    )
+
+    await first.selection.selectAll()
+    await focusRoot(firstEditor)
+    await first.insertText('not so good!')
+    await first.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 'not so '.length },
+      focus: { path: [0, 0], offset: 'not so good'.length },
+    })
+
+    await expect.poll(() => getNativeSelectionText(page)).toBe('good')
+
+    const fromBox = await first.selection.rect()
+    const to = outerEditor.getByText('Between synced copies.', {
+      exact: true,
+    })
+    const toBox = await to.boundingBox()
+
+    if (!fromBox || !toBox) {
+      throw new Error('Cannot drag selected synced text into owner text')
+    }
+
+    await page.mouse.move(
+      fromBox.x + fromBox.width / 2,
+      fromBox.y + fromBox.height / 2
+    )
+    await page.mouse.down()
+    await page.mouse.move(toBox.x + toBox.width * 0.55, toBox.y + 4, {
+      steps: 16,
+    })
+    await page.mouse.up()
+
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: { path: [0, 0], root: SHARED_ROOT },
+        },
+        focus: {
+          point: { path: [2, 0] },
+        },
+        segments: { backward: false },
+      })
+    await expect
+      .poll(() => getRenderedViewSelectionTextBySharedCopy(page))
+      .toEqual([expect.stringMatching(/\S/), ''])
+    await expect
+      .poll(() => getRenderedViewSelectionText(page))
+      .toContain('Between')
     expect(await getNativeSelectionText(page)).not.toContain('Editing original')
   })
 
@@ -1493,6 +1666,141 @@ test.describe('synced blocks example', () => {
         anchor: { path: [0, 0], offset: 1 },
         focus: { path: [0, 0], offset: 1 },
       })
+  })
+
+  test('Delete after native selection inside a synced body keeps the outer document mounted', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop native selection proof uses Chromium caret geometry'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page, {
+      patterns: ['Cannot find a descendant', 'Could not set focus'],
+    })
+
+    try {
+      await openExample(page, 'synced-blocks', {
+        ready: { editor: 'visible' },
+      })
+
+      const outerEditor = page.locator('[data-slate-editor="true"]').first()
+      const firstBlock = getSyncedBlockByRoot(page, SHARED_ROOT, 0)
+      const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+      const secondEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 1)
+      const firstLine = firstBlock.locator(
+        '[data-slate-node="text"][data-slate-path="0,0"]'
+      )
+      const secondLine = firstBlock.locator(
+        '[data-slate-node="text"][data-slate-path="1,0"]'
+      )
+      const firstBox = await firstLine.boundingBox()
+      const secondBox = await secondLine.boundingBox()
+
+      if (!firstBox || !secondBox) {
+        throw new Error('Cannot drag across synced block body text')
+      }
+
+      await page.mouse.move(firstBox.x + 1, firstBox.y + firstBox.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(
+        secondBox.x + secondBox.width - 1,
+        secondBox.y + secondBox.height / 2,
+        { steps: 20 }
+      )
+      await page.mouse.up()
+
+      await expect
+        .poll(() => getNativeSelectionText(page))
+        .toBe(`${SHARED_BODY_FIRST}\n\n${SHARED_BODY_SECOND}`)
+
+      await page.keyboard.press('Delete')
+
+      await expect(page.getByText('p1')).toBeVisible()
+      await expect(page.getByText('Between synced copies.')).toBeVisible()
+      await expect(page.getByText('Between synced documents.')).toBeVisible()
+      await expect(page.getByText('p2')).toBeVisible()
+      await expect(firstEditor).toContainText('Empty synced block')
+      await expect(secondEditor).toContainText('Empty synced block')
+      await expect(firstEditor).not.toContainText(SHARED_BODY_FIRST)
+      await expect(secondEditor).not.toContainText(SHARED_BODY_SECOND)
+      await expect(page.locator('[data-slate-editor="true"]')).toHaveCount(4)
+      await expect
+        .poll(async () => {
+          const bodyBox = await firstBlock
+            .locator('.slate-synced-blocks-synced-block-body')
+            .boundingBox()
+          const placeholderBox = await firstEditor
+            .locator('[data-slate-placeholder="true"]')
+            .boundingBox()
+
+          if (!bodyBox || !placeholderBox) {
+            return null
+          }
+
+          return {
+            leftDelta: Math.round(placeholderBox.x - bodyBox.x),
+            topDelta: Math.round(placeholderBox.y - bodyBox.y),
+          }
+        })
+        .toEqual({
+          leftDelta: 8,
+          topDelta: 8,
+        })
+      await expect
+        .poll(() =>
+          outerEditor.evaluate((element: HTMLElement) => {
+            const handle = (
+              element as HTMLElement & {
+                __slateBrowserHandle?: {
+                  getLastCommit?: () => {
+                    operations?: { root?: string; type: string }[]
+                  } | null
+                }
+              }
+            ).__slateBrowserHandle
+
+            return (
+              handle
+                ?.getLastCommit?.()
+                ?.operations?.filter(
+                  (operation) => operation.type !== 'set_selection'
+                )
+                .map((operation) => operation.root ?? 'main') ?? []
+            )
+          })
+        )
+        .toEqual([SHARED_ROOT, SHARED_ROOT, SHARED_ROOT])
+
+      await page.keyboard.type('w')
+
+      await expect(firstEditor).toContainText('w')
+      await expect(secondEditor).toContainText('w')
+      await expect(firstEditor).not.toContainText('Empty synced block')
+      expect(
+        await createSlateBrowserEditorHarness(
+          page,
+          'synced-blocks-first-copy-after-empty',
+          firstEditor
+        ).get.modelText()
+      ).toBe('w')
+      await page.keyboard.press('Backspace')
+
+      await expect(firstEditor).toContainText('Empty synced block')
+      await expect(secondEditor).toContainText('Empty synced block')
+      expect(
+        await createSlateBrowserEditorHarness(
+          page,
+          'synced-blocks-first-copy-after-backspace',
+          firstEditor
+        ).get.modelText()
+      ).toBe('')
+
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
   })
 
   test('copies a projected selection from visible order instead of root-local DOM selection', async ({

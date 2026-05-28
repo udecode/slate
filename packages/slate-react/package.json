@@ -48,8 +48,8 @@
   "peerDependencies": {
     "react": ">=19.2.0",
     "react-dom": ">=19.2.0",
-    "slate": ">=0.124.1",
-    "slate-dom": ">=0.124.1"
+    "slate": ">=0.124.2",
+    "slate-dom": ">=0.124.2"
   },
   "keywords": [
     "canvas",

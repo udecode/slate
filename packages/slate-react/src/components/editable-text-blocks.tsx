@@ -63,7 +63,6 @@ import { Editor } from '../editable/runtime-editor-api'
 import { readRuntimeNode } from '../editable/runtime-live-state'
 import { useEditor } from '../hooks/use-editor'
 import { useEditorReadOnly } from '../hooks/use-editor-read-only'
-import { useElementPath } from '../hooks/use-element-path'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { useMountedNodeRenderSelector } from '../hooks/use-node-selector'
 import { useSlateContentRoot } from '../hooks/use-slate-content-root'
@@ -502,6 +501,7 @@ const createEditableElementSlots = <
     ) => ReactNode
     renderText?: (props: EditableTextRenderTextProps) => ReactNode
     renderVoid?: RenderVoidRenderer<TElement>
+    ownerPath: Path
     runtimeId: RuntimeId
   }
 ): EditableElementSlots => {
@@ -594,6 +594,7 @@ const createEditableElementSlots = <
           <EditableContentRootSlot
             element={props.element}
             options={options}
+            ownerPath={props.ownerPath}
             renderers={
               {
                 renderElement: props.renderElement,
@@ -616,16 +617,17 @@ const createEditableElementSlots = <
 function EditableContentRootSlot({
   element,
   options,
+  ownerPath,
   renderers,
   slot,
 }: {
   element: SlateElementNode
   options: EditableContentRootSlotOptions
+  ownerPath: Path
   renderers: EditableContentRootSlotRenderers
   slot: string
 }) {
   const ownerEditor = useEditor<ReactRuntimeEditor>()
-  const ownerPath = useElementPath()
   const ownerRoot = ownerEditor.read((state) => state.view.root())
   const { root } = useSlateContentRoot(element, { slot })
   const inheritedReadOnly = useEditorReadOnly()
@@ -654,7 +656,7 @@ function EditableContentRootView({
   slot,
 }: {
   options: EditableContentRootSlotOptions
-  ownerPath: Path | null
+  ownerPath: Path
   ownerRoot: RootKey
   renderers: EditableContentRootSlotRenderers
   root: RootKey
@@ -682,14 +684,11 @@ function EditableContentRootView({
   const inheritedReadOnly = useEditorReadOnly()
   const readOnly = Boolean(options.readOnly || inheritedReadOnly)
   const contentRootOwner = React.useMemo(
-    () =>
-      ownerPath
-        ? {
-            childRoot: root,
-            ownerPath,
-            ownerRoot,
-          }
-        : null,
+    () => ({
+      childRoot: root,
+      ownerPath,
+      ownerRoot,
+    }),
     [ownerPath, ownerRoot, root]
   )
   const {
@@ -699,10 +698,6 @@ function EditableContentRootView({
     setActiveViewEditor,
   } = useRequiredSlateRuntimeContext()
   useIsomorphicLayoutEffect(() => {
-    if (!ownerPath) {
-      return
-    }
-
     return registerContentRootOwner(editor, {
       childRoot: root,
       ownerPath,
@@ -1162,6 +1157,7 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
         renderSegment,
         renderText,
         renderVoid,
+        ownerPath: path,
         runtimeId,
       }),
     } as unknown as EditableRenderElementProps<TElement>
@@ -2292,23 +2288,26 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
                     style={{
                       left: 0,
                       minHeight: item.size,
+                      pointerEvents: 'none',
                       position: 'absolute',
                       top: 0,
                       transform: `translateY(${item.start}px)`,
                       width: '100%',
                     }}
                   >
-                    <EditableDescendantNode
-                      placeholder={placeholderValue}
-                      placeholderRef={placeholderRef}
-                      renderElement={renderElement}
-                      renderLeaf={renderLeaf}
-                      renderPlaceholder={renderPlaceholder}
-                      renderSegment={renderSegment}
-                      renderText={renderText}
-                      renderVoid={renderVoid}
-                      runtimeId={item.runtimeId}
-                    />
+                    <div style={{ pointerEvents: 'auto' }}>
+                      <EditableDescendantNode
+                        placeholder={placeholderValue}
+                        placeholderRef={placeholderRef}
+                        renderElement={renderElement}
+                        renderLeaf={renderLeaf}
+                        renderPlaceholder={renderPlaceholder}
+                        renderSegment={renderSegment}
+                        renderText={renderText}
+                        renderVoid={renderVoid}
+                        runtimeId={item.runtimeId}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>

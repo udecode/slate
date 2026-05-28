@@ -2,6 +2,8 @@ import { type ReactNode, useCallback, useMemo, useRef } from 'react'
 import type { Operation, Path, RuntimeId, SnapshotChange } from 'slate'
 import { NodeApi } from 'slate'
 import { createSegmentPlan } from '../dom-strategy/create-segment-plan'
+import { getSelectionRoot } from '../hooks/root-selection-cache'
+import { useEditor } from '../hooks/use-editor'
 import { useEditorSelector } from '../hooks/use-editor-selector'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
@@ -22,6 +24,32 @@ const isSelectionOperation = (operation: Operation | undefined) =>
 const hasNoOperations = (operations: readonly Operation[] | undefined) =>
   !operations || operations.length === 0
 
+const getOperationRoot = (operation: Operation) =>
+  ((operation as { root?: string }).root ?? 'main') as string
+
+const getChangedOperations = (
+  operations?: readonly Operation[],
+  change?: SnapshotChange
+) => operations ?? change?.operations
+
+const hasOperationForRoot = (root: string, operations?: readonly Operation[]) =>
+  operations?.some((operation) => getOperationRoot(operation) === root)
+
+const isRuntimeIdOperationForRoot = (operation: Operation, root: string) =>
+  !isTextOperation(operation) &&
+  !isSelectionOperation(operation) &&
+  getOperationRoot(operation) === root
+
+const isStructureOperationForRoot = (operation: Operation, root: string) =>
+  !isTextOperation(operation) &&
+  !isSelectionOperation(operation) &&
+  getOperationRoot(operation) === root
+
+const isSelectionChangeForRoot = (root: string, change: SnapshotChange) =>
+  change.selectionChanged &&
+  (getSelectionRoot(change.selectionBefore) === root ||
+    getSelectionRoot(change.selectionAfter) === root)
+
 const topLevelRangesIncludeIndex = (
   ranges: readonly (readonly [number, number])[] | null | undefined,
   index: number
@@ -30,57 +58,89 @@ const topLevelRangesIncludeIndex = (
   ranges.some(([start, end]) => start <= index && end >= index)
 
 const shouldUpdateRootRuntimeIds = (
+  root: string,
   operations?: readonly Operation[],
   change?: SnapshotChange
-) =>
-  change
-    ? change.rootRuntimeIdsChanged
-    : hasNoOperations(operations) ||
-      (operations ?? []).some(
-        (operation) =>
-          !isTextOperation(operation) && !isSelectionOperation(operation)
-      )
+) => {
+  const changedOperations = getChangedOperations(operations, change)
+
+  return change
+    ? change.fullDocumentChanged ||
+        ((change.rootRuntimeIdsChanged || change.topLevelOrderChanged) &&
+          (changedOperations?.some((operation) =>
+            isRuntimeIdOperationForRoot(operation, root)
+          ) ??
+            true))
+    : hasNoOperations(changedOperations) ||
+        (changedOperations ?? []).some((operation) =>
+          isRuntimeIdOperationForRoot(operation, root)
+        )
+}
 
 const shouldUpdateSelectedTopLevelIndex = (
+  root: string,
   operations?: readonly Operation[],
   change?: SnapshotChange
-) =>
-  change
-    ? change.selectionChanged ||
-      change.rootRuntimeIdsChanged ||
-      change.topLevelOrderChanged
-    : hasNoOperations(operations) ||
-      (operations ?? []).some(
-        (operation) =>
-          isSelectionOperation(operation) || !isTextOperation(operation)
-      )
+) => {
+  const changedOperations = getChangedOperations(operations, change)
+
+  return change
+    ? change.fullDocumentChanged ||
+        isSelectionChangeForRoot(root, change) ||
+        ((change.rootRuntimeIdsChanged || change.topLevelOrderChanged) &&
+          (hasOperationForRoot(root, changedOperations) ?? true))
+    : hasNoOperations(changedOperations) ||
+        (changedOperations ?? []).some(
+          (operation) =>
+            isSelectionOperation(operation) || !isTextOperation(operation)
+        )
+}
 
 const shouldUpdatePlaceholderValue = (
+  root: string,
   operations?: readonly Operation[],
   change?: SnapshotChange
-) =>
-  change
+) => {
+  const changedOperations = getChangedOperations(operations, change)
+  const firstTopLevelChanged = topLevelRangesIncludeIndex(
+    change?.dirtyTopLevelRanges,
+    0
+  )
+
+  return change
     ? change.fullDocumentChanged ||
-      change.topLevelOrderChanged ||
-      (change.textChanged &&
-        topLevelRangesIncludeIndex(change.dirtyTopLevelRanges, 0))
-    : hasNoOperations(operations) ||
-      (operations ?? []).some((operation) => !isSelectionOperation(operation))
+        ((change.topLevelOrderChanged ||
+          ((change.textChanged || change.structureChanged) &&
+            firstTopLevelChanged)) &&
+          (hasOperationForRoot(root, changedOperations) ?? true))
+    : hasNoOperations(changedOperations) ||
+        (changedOperations ?? []).some(
+          (operation) => !isSelectionOperation(operation)
+        )
+}
 
 const shouldUpdateEditableRootCommit = (
+  root: string,
   operations?: readonly Operation[],
   change?: SnapshotChange
-) =>
-  change
+) => {
+  const changedOperations = getChangedOperations(operations, change)
+
+  return change
     ? change.fullDocumentChanged ||
-      change.rootRuntimeIdsChanged ||
-      change.structureChanged ||
-      change.topLevelOrderChanged
-    : hasNoOperations(operations) ||
-      (operations ?? []).some(
-        (operation) =>
-          !isTextOperation(operation) && !isSelectionOperation(operation)
-      )
+        ((change.rootRuntimeIdsChanged ||
+          change.structureChanged ||
+          change.topLevelOrderChanged) &&
+          (changedOperations?.some((operation) =>
+            isStructureOperationForRoot(operation, root)
+          ) ??
+            true)) ||
+        change.dirtyStateKeys.length > 0
+    : hasNoOperations(changedOperations) ||
+        (changedOperations ?? []).some((operation) =>
+          isStructureOperationForRoot(operation, root)
+        )
+}
 
 const shouldUpdateRootDocumentEpoch = (
   operations?: readonly Operation[],
@@ -107,17 +167,26 @@ const selectRootRuntimeIds = (editor: ReactRuntimeEditor) => {
   })
 }
 
-export const useRootRuntimeIds = () =>
-  useEditorSelector(
+export const useRootRuntimeIds = () => {
+  const editor = useEditor<ReactRuntimeEditor>()
+  const root = editor.read((state) => state.view.root())
+  const shouldUpdate = useCallback(
+    (operations?: readonly Operation[], change?: SnapshotChange) =>
+      shouldUpdateRootRuntimeIds(root, operations, change),
+    [root]
+  )
+
+  return useEditorSelector(
     selectRootRuntimeIds,
     (left, right) => {
       return left != null && sameRuntimeIds(left as RuntimeId[], right)
     },
     {
       profileId: 'root-runtime-ids',
-      shouldUpdate: shouldUpdateRootRuntimeIds,
+      shouldUpdate,
     }
   )
+}
 
 export const useRootDocumentEpoch = () => {
   const lastEpochRef = useRef(0)
@@ -142,6 +211,8 @@ export const useRootDocumentEpoch = () => {
 }
 
 export const useTopLevelSelectionIndex = (enabled: boolean) => {
+  const editor = useEditor<ReactRuntimeEditor>()
+  const root = editor.read((state) => state.view.root())
   const selector = useCallback(
     (editor: ReactRuntimeEditor) => {
       if (!enabled) {
@@ -162,8 +233,8 @@ export const useTopLevelSelectionIndex = (enabled: boolean) => {
   )
   const shouldUpdate = useCallback(
     (operations?: readonly Operation[], change?: SnapshotChange) =>
-      enabled && shouldUpdateSelectedTopLevelIndex(operations, change),
-    [enabled]
+      enabled && shouldUpdateSelectedTopLevelIndex(root, operations, change),
+    [enabled, root]
   )
 
   return useEditorSelector(selector, Object.is, {
@@ -189,6 +260,8 @@ const sameSelectionPaths = (
     ))
 
 export const useSelectionPaths = (enabled: boolean) => {
+  const editor = useEditor<ReactRuntimeEditor>()
+  const root = editor.read((state) => state.view.root())
   const selector = useCallback(
     (editor: ReactRuntimeEditor) => {
       if (!enabled) {
@@ -207,8 +280,8 @@ export const useSelectionPaths = (enabled: boolean) => {
   )
   const shouldUpdate = useCallback(
     (operations?: readonly Operation[], change?: SnapshotChange) =>
-      enabled && shouldUpdateSelectedTopLevelIndex(operations, change),
-    [enabled]
+      enabled && shouldUpdateSelectedTopLevelIndex(root, operations, change),
+    [enabled, root]
   )
 
   return useEditorSelector(selector, sameSelectionPaths, {
@@ -218,6 +291,8 @@ export const useSelectionPaths = (enabled: boolean) => {
 }
 
 export const usePlaceholderValue = (placeholder?: ReactNode) => {
+  const editor = useEditor<ReactRuntimeEditor>()
+  const root = editor.read((state) => state.view.root())
   const selector = useCallback(
     (editor: ReactRuntimeEditor) =>
       editor.read(
@@ -232,20 +307,34 @@ export const usePlaceholderValue = (placeholder?: ReactNode) => {
     [placeholder]
   )
 
+  const shouldUpdate = useCallback(
+    (operations?: readonly Operation[], change?: SnapshotChange) =>
+      shouldUpdatePlaceholderValue(root, operations, change),
+    [root]
+  )
+
   return useEditorSelector(selector, Object.is, {
     profileId: 'placeholder',
-    shouldUpdate: shouldUpdatePlaceholderValue,
+    shouldUpdate,
   })
 }
 
 export const useEditableRootCommitWakeup = () => {
+  const editor = useEditor<ReactRuntimeEditor>()
+  const root = editor.read((state) => state.view.root())
+  const shouldUpdate = useCallback(
+    (operations?: readonly Operation[], change?: SnapshotChange) =>
+      shouldUpdateEditableRootCommit(root, operations, change),
+    [root]
+  )
+
   useEditorSelector(
     (editor: ReactRuntimeEditor) =>
       editor.read((state) => state.value.lastCommit()?.version ?? 0),
     Object.is,
     {
       profileId: 'editable-root-commit',
-      shouldUpdate: shouldUpdateEditableRootCommit,
+      shouldUpdate,
     }
   )
 }

@@ -22,12 +22,14 @@ import { createEditor } from './create-editor'
 import type { Bookmark } from './interfaces/bookmark'
 import type {
   Editor,
+  EditorCommitContext,
   EditorRuntime,
   EditorRuntimeOptions,
   EditorSnapshot,
   EditorStateView,
   EditorStateViewApi,
   EditorTransformRegistry,
+  EditorUpdateContext,
   EditorUpdateOptions,
   EditorUpdateTransaction,
   EditorView,
@@ -484,14 +486,16 @@ const withViewTransaction = <V extends Value>(
   const hasExplicitTarget = (options: { at?: Location } | undefined) =>
     options?.at !== undefined
   const runSelectionMutation = (fn: () => void) => {
-    runWithViewSelection(editor, viewState, fn)
+    runWithViewSelection(editor, viewState, () =>
+      runRootTransform(editor, viewState, fn)
+    )
   }
   const runImplicitSelectionMutation = (
     options: { at?: Location } | undefined,
     fn: () => void
   ) => {
     if (hasExplicitTarget(options)) {
-      fn()
+      runRootTransform(editor, viewState, fn)
       return
     }
 
@@ -621,6 +625,34 @@ const withViewTransaction = <V extends Value>(
   }) as EditorUpdateTransaction<V>
 }
 
+const withViewUpdateContext = <V extends Value>(
+  editor: Editor<V>,
+  baseContext: EditorUpdateContext<Editor<V>>,
+  viewState: ViewState,
+  getViewEditor: () => Editor<V> | null
+): EditorUpdateContext<Editor<V>> =>
+  Object.freeze({
+    afterCommit(handler) {
+      baseContext.afterCommit((context) => {
+        const selectionRoot = context.snapshot.selection
+          ? (getRangeRoot(context.snapshot.selection).root ?? MAIN_ROOT_KEY)
+          : viewState.root
+        const snapshot = withViewSnapshot(
+          context.snapshot,
+          viewState,
+          selectionRoot
+        )
+        const viewContext = {
+          commit: context.commit,
+          editor: getViewEditor() ?? editor,
+          snapshot,
+        } as EditorCommitContext<Editor<V>>
+
+        handler(viewContext)
+      })
+    },
+  })
+
 const createViewRuntime = <V extends Value>(
   editor: Editor<V>,
   baseRuntime: InternalEditorRuntime<V>,
@@ -740,11 +772,12 @@ const createViewRuntime = <V extends Value>(
 
       const runUpdate = () =>
         withEditorOperationRoot(editor, viewState.root, () => {
-          withEditorOperationRootChildren(editor, viewState.root, () => {
-            baseRuntime.update((transaction) => {
-              fn(withViewTransaction(editor, transaction, viewState))
-            }, updateOptions)
-          })
+          baseRuntime.update((transaction, context) => {
+            fn(
+              withViewTransaction(editor, transaction, viewState),
+              withViewUpdateContext(editor, context, viewState, getViewEditor)
+            )
+          }, updateOptions)
         })
       const targetRuntime = getViewEditor()
         ? getTargetRuntime(getViewEditor()!)
@@ -822,7 +855,10 @@ export const createEditorView = <
     runtime,
     subscribe: viewRuntime.subscribe,
     update: (
-      fn: (transaction: EditorUpdateTransaction<V, TExtensions>) => void,
+      fn: (
+        transaction: EditorUpdateTransaction<V, TExtensions>,
+        context: EditorUpdateContext<Editor<V, TExtensions>>
+      ) => void,
       updateOptions?: EditorUpdateOptions
     ) => {
       if (viewState.readOnly) {
@@ -830,7 +866,10 @@ export const createEditorView = <
       }
 
       viewRuntime.update(
-        fn as (transaction: EditorUpdateTransaction<V>) => void,
+        fn as (
+          transaction: EditorUpdateTransaction<V>,
+          context: EditorUpdateContext<Editor<V>>
+        ) => void,
         updateOptions
       )
     },

@@ -35,7 +35,7 @@
     "slate": "workspace:*"
   },
   "peerDependencies": {
-    "slate": ">=0.121.0"
+    "slate": ">=0.124.2"
   },
   "keywords": [
     "canvas",

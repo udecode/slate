@@ -1,19 +1,22 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 
 import React, { Profiler } from 'react'
-import {
-  createEditor,
-  type Descendant,
-  Editor,
-  type Element as SlateElement,
+import type {
+  Descendant,
+  Element as SlateElement,
 } from '../../../../packages/slate/src/index.ts'
+import { Editor } from '../../../../packages/slate/src/internal/index.ts'
 import {
+  createReactEditor,
   Editable,
   type EditableRenderElementProps,
   type EditableTextLeafProps,
   type EditableTextRenderTextProps,
+  Slate,
 } from '../../../../packages/slate-react/src/index.ts'
 import { mountApp, now, summarizeMetrics } from '../../shared/react-benchmark'
+
+;(globalThis as typeof globalThis & { React?: typeof React }).React = React
 
 const iterations = Number(
   process.env.REACT_ACTIVE_TYPING_BREAKDOWN_ITERATIONS || 3
@@ -77,7 +80,7 @@ const createRenderers = (counts: Counts) => {
 }
 
 const createMountedEditor = async () => {
-  const editor = createEditor()
+  const editor = createReactEditor()
   Editor.replace(editor, {
     children: createChildren(),
     selection: null,
@@ -96,27 +99,28 @@ const createMountedEditor = async () => {
       ? { renderElement: createRenderers(counts).renderElement }
       : {}
   const app = await mountApp(
-    <Profiler
-      id="editable-blocks"
-      onRender={(_id, phase, actualDuration) => {
-        if (phase === 'update') {
-          profilerActualMs += actualDuration
-          profilerCommitCount += 1
-        }
-      }}
-    >
-      <Editable
-        domStrategy={{
-          overscan,
-          type: 'partial-dom',
-          segmentSize,
-          threshold: 1,
+    <Slate editor={editor}>
+      <Profiler
+        id="editable-blocks"
+        onRender={(_id, phase, actualDuration) => {
+          if (phase === 'update') {
+            profilerActualMs += actualDuration
+            profilerCommitCount += 1
+          }
         }}
-        editor={editor}
-        id="active-typing-breakdown"
-        {...renderers}
-      />
-    </Profiler>
+      >
+        <Editable
+          domStrategy={{
+            overscan,
+            type: 'partial-dom',
+            segmentSize,
+            threshold: 1,
+          }}
+          id="active-typing-breakdown"
+          {...renderers}
+        />
+      </Profiler>
+    </Slate>
   )
 
   const resetProfiler = () => {
@@ -142,7 +146,7 @@ const promoteSegment = async ({
 }: {
   blockIndex: number
   container: Element
-  editor: ReturnType<typeof createEditor>
+  editor: ReturnType<typeof createReactEditor>
 }) => {
   const segmentIndex = Math.floor(blockIndex / segmentSize)
   const partialDOMPlaceholder = container.querySelector(
@@ -150,8 +154,8 @@ const promoteSegment = async ({
   )
 
   if (!partialDOMPlaceholder) {
-    editor.update(() => {
-      editor.select({
+    editor.update((tx) => {
+      tx.selection.set({
         anchor: { path: [blockIndex, 0], offset: 0 },
         focus: { path: [blockIndex, 0], offset: 0 },
       })
@@ -209,8 +213,8 @@ const measureScenario = async ({
       if (selectBefore) {
         const start = now()
         await React.act(async () => {
-          context.editor.update(() => {
-            context.editor.select({
+          context.editor.update((tx) => {
+            tx.selection.set({
               anchor: { path: [blockIndex, 0], offset: 0 },
               focus: { path: [blockIndex, 0], offset: 0 },
             })
@@ -252,8 +256,8 @@ const measureTyping = (
     const start = now()
     React.act(() => {
       const transformStart = now()
-      context.editor.update(() => {
-        context.editor.insertText('X', {
+      context.editor.update((tx) => {
+        tx.text.insert('X', {
           at: { path: [blockIndex, 0], offset: index },
         })
       })
@@ -292,10 +296,10 @@ const measureSelectAll = async () => {
 
     const start = now()
     await React.act(async () => {
-      context.editor.update(() => {
-        context.editor.select({
-          anchor: Editor.start(context.editor, []),
-          focus: Editor.end(context.editor, []),
+      context.editor.update((tx) => {
+        tx.selection.set({
+          anchor: Editor.point(context.editor, [], { edge: 'start' }),
+          focus: Editor.point(context.editor, [], { edge: 'end' }),
         })
       })
     })

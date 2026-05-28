@@ -18,6 +18,7 @@ import {
   type Operation,
   type Path,
   PathApi,
+  type Point,
   PointApi,
   RangeApi,
   type Element as SlateElement,
@@ -66,6 +67,14 @@ const pathContainsPoint = (
 ) =>
   PathApi.equals(path as Path, point.path) ||
   PathApi.isAncestor(path as Path, point.path)
+
+const matchPointRootVisibility = (point: Point, reference: Point): Point => {
+  if (reference.root === undefined) {
+    return stripLocationRoots(point)
+  }
+
+  return point.root === undefined ? { ...point, root: reference.root } : point
+}
 
 const valuesEqual = (left: unknown, right: unknown): boolean => {
   if (left === right) {
@@ -1828,11 +1837,14 @@ const getCollapsedDeleteTarget = (
   }
 ) => {
   const { reverse, distance, unit, voids } = options
-  const pointTarget = reverse
-    ? (EditorApi.before(editor, at, { distance, unit, voids }) ??
-      EditorApi.point(editor, [], { edge: 'start' }))
-    : (EditorApi.after(editor, at, { distance, unit, voids }) ??
-      EditorApi.point(editor, [], { edge: 'end' }))
+  const pointTarget = matchPointRootVisibility(
+    reverse
+      ? (EditorApi.before(editor, at, { distance, unit, voids }) ??
+          EditorApi.point(editor, [], { edge: 'start' }))
+      : (EditorApi.after(editor, at, { distance, unit, voids }) ??
+          EditorApi.point(editor, [], { edge: 'end' })),
+    at
+  )
 
   if (unit !== 'character' || distance !== 1) {
     return pointTarget
@@ -1852,6 +1864,8 @@ const getCollapsedDeleteTarget = (
   if (!offsetTarget) {
     return pointTarget
   }
+
+  const normalizedOffsetTarget = matchPointRootVisibility(offsetTarget, at)
 
   if (crossesIsolatingBoundary(editor, at, pointTarget, voids)) {
     return at
@@ -1885,7 +1899,7 @@ const getCollapsedDeleteTarget = (
         ))) &&
     !PathApi.equals(currentBlock[1], targetBlock[1])
   ) {
-    return offsetTarget
+    return normalizedOffsetTarget
   }
 
   return pointTarget

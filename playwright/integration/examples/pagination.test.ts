@@ -385,6 +385,93 @@ const getVisibleProjectedPaginationTextTarget = async (
     return candidates[0] ?? null
   })
 
+const getVisiblePaginationTextTargetByPath = async (
+  root: Awaited<ReturnType<typeof openExample>>['root'],
+  blockPath: string
+) =>
+  root.evaluate((element: HTMLElement, path) => {
+    const viewport = element.ownerDocument.querySelector<HTMLElement>(
+      '[data-testid="pagination-viewport"]'
+    )
+    const viewportRect = viewport?.getBoundingClientRect()
+    const block = element.querySelector<HTMLElement>(
+      `[data-slate-node="element"][data-slate-path="${path}"]`
+    )
+    const leaf = block?.querySelector<HTMLElement>('[data-slate-leaf]')
+
+    if (!block || !leaf || !viewportRect) {
+      return null
+    }
+
+    const rect = leaf.getBoundingClientRect()
+
+    if (
+      rect.width <= 0 ||
+      rect.height <= 0 ||
+      rect.bottom <= viewportRect.top + 10 ||
+      rect.top >= viewportRect.bottom - 10
+    ) {
+      return null
+    }
+
+    return {
+      blockPath: path,
+      blockText: block.textContent ?? '',
+      x: Math.min(rect.right - 4, rect.left + 60),
+      y: (rect.top + rect.bottom) / 2,
+    }
+  }, blockPath)
+
+const getVisiblePaginationLineMarginTargetByPath = async (
+  root: Awaited<ReturnType<typeof openExample>>['root'],
+  blockPath: string
+) =>
+  root.evaluate((element: HTMLElement, path) => {
+    const viewport = element.ownerDocument.querySelector<HTMLElement>(
+      '[data-testid="pagination-viewport"]'
+    )
+    const viewportRect = viewport?.getBoundingClientRect()
+    const block = element.querySelector<HTMLElement>(
+      `[data-slate-node="element"][data-slate-path="${path}"]`
+    )
+    const leaf = block?.querySelector<HTMLElement>('[data-slate-leaf]')
+
+    if (!block || !leaf || !viewportRect) {
+      return null
+    }
+
+    const rect = leaf.getBoundingClientRect()
+
+    if (
+      rect.width <= 0 ||
+      rect.height <= 0 ||
+      rect.bottom <= viewportRect.top + 10 ||
+      rect.top >= viewportRect.bottom - 10
+    ) {
+      return null
+    }
+
+    return {
+      blockPath: path,
+      blockText: block.textContent ?? '',
+      x: rect.left - 60,
+      y: (rect.top + rect.bottom) / 2,
+    }
+  }, blockPath)
+
+const getDOMSelectionTextPath = async (
+  root: Awaited<ReturnType<typeof openExample>>['root']
+) =>
+  root.evaluate(() => {
+    const selection = document.getSelection()
+    const anchorNode = selection?.anchorNode ?? null
+    const anchorElement =
+      anchorNode instanceof Element ? anchorNode : anchorNode?.parentElement
+    const textHost = anchorElement?.closest('[data-slate-node="text"]')
+
+    return textHost?.getAttribute('data-slate-path') ?? null
+  })
+
 const getProjectedPaginationTextProof = async (
   root: Awaited<ReturnType<typeof openExample>>['root'],
   blockPath: string
@@ -1273,6 +1360,234 @@ test.describe('pagination example', () => {
 
     expect(selectReturnedMs).toBeLessThanOrEqual(5000)
     expect(readyMs).toBeLessThanOrEqual(5000)
+  })
+
+  test('moves the cursor between the first two virtualized pagination blocks on click', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for virtualized pagination hit testing'
+    )
+
+    await page.setViewportSize({ height: 637, width: 1533 })
+
+    const editor = await openExample(page, 'pagination', {
+      query: { strategy: 'virtualized' },
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await expect
+      .poll(async () => {
+        const proof = await getPaginationVirtualizedTableProof(editor.root)
+
+        return {
+          boundedDOM: proof.totalElementCount < 1400,
+          boundedPages: proof.pageSurfaceCount <= 8,
+          virtualized: proof.pageVirtualizationEnabled,
+        }
+      })
+      .toEqual({
+        boundedDOM: true,
+        boundedPages: true,
+        virtualized: true,
+      })
+
+    const firstTarget = await getVisiblePaginationTextTargetByPath(
+      editor.root,
+      '0'
+    )
+    const secondTarget = await getVisiblePaginationTextTargetByPath(
+      editor.root,
+      '1'
+    )
+
+    expect(firstTarget).toBeTruthy()
+    expect(secondTarget).toBeTruthy()
+
+    await page.mouse.click(firstTarget!.x, firstTarget!.y)
+    await expect
+      .poll(async () => ({
+        domPath: await getDOMSelectionTextPath(editor.root),
+        selection: await editor.selection.get(),
+      }))
+      .toEqual({
+        domPath: '0,0',
+        selection: expect.objectContaining({
+          anchor: expect.objectContaining({ path: [0, 0] }),
+          focus: expect.objectContaining({ path: [0, 0] }),
+        }),
+      })
+
+    await page.mouse.click(secondTarget!.x, secondTarget!.y)
+    await expect
+      .poll(async () => ({
+        domPath: await getDOMSelectionTextPath(editor.root),
+        selection: await editor.selection.get(),
+      }))
+      .toEqual({
+        domPath: '1,0',
+        selection: expect.objectContaining({
+          anchor: expect.objectContaining({ path: [1, 0] }),
+          focus: expect.objectContaining({ path: [1, 0] }),
+        }),
+      })
+  })
+
+  test('selects virtualized pagination text when dragging from the page line margin', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for virtualized pagination margin hit testing'
+    )
+
+    await page.setViewportSize({ height: 637, width: 1533 })
+
+    const editor = await openExample(page, 'pagination', {
+      query: { strategy: 'virtualized' },
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await expect
+      .poll(async () => {
+        const proof = await getPaginationVirtualizedTableProof(editor.root)
+
+        return {
+          boundedDOM: proof.totalElementCount < 1400,
+          boundedPages: proof.pageSurfaceCount <= 8,
+          virtualized: proof.pageVirtualizationEnabled,
+        }
+      })
+      .toEqual({
+        boundedDOM: true,
+        boundedPages: true,
+        virtualized: true,
+      })
+
+    const startTarget = await getVisiblePaginationLineMarginTargetByPath(
+      editor.root,
+      '0'
+    )
+    const endTarget = await getVisiblePaginationTextTargetByPath(
+      editor.root,
+      '2'
+    )
+
+    expect(startTarget).toBeTruthy()
+    expect(endTarget).toBeTruthy()
+
+    await page.mouse.move(startTarget!.x, startTarget!.y)
+    await page.mouse.down()
+    await page.mouse.move(endTarget!.x, endTarget!.y, { steps: 30 })
+    await page.mouse.up()
+
+    await expect
+      .poll(async () => {
+        const domSelectionText = await page.evaluate(
+          () => document.getSelection()?.toString() ?? ''
+        )
+        const selection = await editor.selection.get()
+        const focusBlock = selection?.focus.path[0] ?? null
+
+        return {
+          anchorAtDocumentStart:
+            selection?.anchor.path.join(',') === '0,0' &&
+            selection.anchor.offset === 0,
+          expanded:
+            !!selection &&
+            (selection.anchor.path.join(',') ===
+              selection.focus.path.join(',') &&
+              selection.anchor.offset === selection.focus.offset) === false,
+          focusInVisiblePageText:
+            typeof focusBlock === 'number' &&
+            focusBlock >= 2 &&
+            focusBlock < 20,
+          includesDraggedText: domSelectionText.includes(
+            'Premirror Milestone 1 test document'
+          ),
+          notVirtualTail: focusBlock !== 3020,
+        }
+      })
+      .toEqual({
+        anchorAtDocumentStart: true,
+        expanded: true,
+        focusInVisiblePageText: true,
+        includesDraggedText: true,
+        notVirtualTail: true,
+      })
+  })
+
+  test('preserves virtualized pagination selection when clicking the page line margin', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for virtualized pagination margin focus ownership'
+    )
+
+    await page.setViewportSize({ height: 637, width: 1533 })
+
+    const editor = await openExample(page, 'pagination', {
+      query: { strategy: 'virtualized' },
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await expect
+      .poll(async () => {
+        const proof = await getPaginationVirtualizedTableProof(editor.root)
+
+        return {
+          boundedDOM: proof.totalElementCount < 1400,
+          boundedPages: proof.pageSurfaceCount <= 8,
+          virtualized: proof.pageVirtualizationEnabled,
+        }
+      })
+      .toEqual({
+        boundedDOM: true,
+        boundedPages: true,
+        virtualized: true,
+      })
+
+    const textTarget = await getVisiblePaginationTextTargetByPath(
+      editor.root,
+      '1'
+    )
+    const marginTarget = await getVisiblePaginationLineMarginTargetByPath(
+      editor.root,
+      '0'
+    )
+
+    expect(textTarget).toBeTruthy()
+    expect(marginTarget).toBeTruthy()
+
+    await page.mouse.click(textTarget!.x, textTarget!.y)
+    await expect
+      .poll(async () => (await editor.selection.get())?.anchor.path ?? null)
+      .toEqual([1, 0])
+
+    await page.mouse.click(marginTarget!.x, marginTarget!.y)
+
+    await expect
+      .poll(async () => ({
+        activeIsEditor: await editor.root.evaluate(
+          (element) => element.ownerDocument.activeElement === element
+        ),
+        selection: await editor.selection.get(),
+      }))
+      .toEqual({
+        activeIsEditor: true,
+        selection: expect.objectContaining({
+          anchor: expect.objectContaining({ path: [1, 0] }),
+          focus: expect.objectContaining({ path: [1, 0] }),
+        }),
+      })
   })
 
   test('keeps split projected paragraphs stable when clicked, navigated, and edited', async ({

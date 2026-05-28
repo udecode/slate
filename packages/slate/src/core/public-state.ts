@@ -7,6 +7,8 @@ import type {
   Editor,
   EditorCommit,
   EditorCommitCommand,
+  EditorCommitContext,
+  EditorCommitHandler,
   EditorCommitSource,
   EditorCoreStateView,
   EditorCoreUpdateTransaction,
@@ -22,6 +24,7 @@ import type {
   EditorStateView,
   EditorTargetRuntime,
   EditorTransaction,
+  EditorUpdateContext,
   EditorUpdateMetadata,
   EditorUpdateOptions,
   EditorUpdateTag,
@@ -69,6 +72,7 @@ import {
 import { getEditorTransformRegistry } from './transform-registry'
 
 type TransactionSnapshot = {
+  afterCommitHandlers: TransactionAfterCommitHandler[]
   children: readonly Descendant[]
   childrenRoot: string
   marks: EditorMarks | null
@@ -88,6 +92,16 @@ type TransactionSnapshot = {
   reason: 'replace' | null
   selection: Selection
   selectionRoot: string
+}
+
+type TransactionAfterCommitHandler = {
+  handler: EditorCommitHandler
+  root: string
+}
+
+type MaterializedAfterCommitHandler = {
+  context: EditorCommitContext
+  handler: EditorCommitHandler
 }
 
 type TransactionAuthority = 'explicit' | 'replace' | 'update'
@@ -190,6 +204,7 @@ const TRANSACTION_VIEW = new WeakMap<Editor, EditorTransaction>()
 const UPDATE_TAG_CONTEXT = new WeakMap<Editor, EditorUpdateTag[][]>()
 const ACTIVE_OPERATION_ROOT = new WeakMap<Editor, string>()
 const ACTIVE_CHILDREN_ROOT = new WeakMap<Editor, string>()
+const CURRENT_CHILDREN_ROOT = new WeakMap<Editor, string>()
 
 const cloneValue = <T>(value: T): T => structuredClone(value)
 const cloneFrozen = <T>(value: T): T => deepFreeze(cloneValue(value))
@@ -213,6 +228,9 @@ const usesImplicitSelectionLocation = (
 
 export const getEditorChildrenRoot = (editor: Editor): string | undefined =>
   ACTIVE_CHILDREN_ROOT.get(editor)
+
+const getCurrentChildrenRoot = (editor: Editor): string =>
+  CURRENT_CHILDREN_ROOT.get(editor) ?? MAIN_ROOT_KEY
 
 const withLocationRootRead = <T>(
   editor: Editor,
@@ -1283,19 +1301,26 @@ const getEditorDocumentRoots = (
   editor: Editor
 ): Record<string, Descendant[]> => {
   const children = getChildren(editor) as Descendant[]
-  const storedRoots = ROOTS.get(editor) ?? {
-    [MAIN_ROOT_KEY]: children,
-  }
-  const activeRoot = ACTIVE_CHILDREN_ROOT.get(editor) ?? MAIN_ROOT_KEY
+  const storedRoots = ROOTS.get(editor)
 
-  if (!Object.hasOwn(storedRoots, activeRoot)) {
+  if (!storedRoots) {
+    return {
+      [MAIN_ROOT_KEY]: children,
+    }
+  }
+
+  const currentRoot = getCurrentChildrenRoot(editor)
+
+  if (!Object.hasOwn(storedRoots, currentRoot)) {
     return storedRoots
   }
 
-  return {
-    ...storedRoots,
-    [activeRoot]: children,
-  }
+  return storedRoots[currentRoot] === children
+    ? storedRoots
+    : {
+        ...storedRoots,
+        [currentRoot]: children,
+      }
 }
 
 const getEditorDocumentValue = <V extends Value>(
@@ -2180,6 +2205,33 @@ export const getEditorStateView = <
   editor: Editor<V, TExtensions>
 ): EditorStateView<V, TExtensions> => getStateView(editor)
 
+const getUpdateContext = <
+  V extends Value,
+  TExtensions extends readonly unknown[] = readonly [],
+>(
+  editor: Editor<V, TExtensions>
+): EditorUpdateContext<Editor<V, TExtensions>> => {
+  const transactionSnapshot = TRANSACTION_SNAPSHOT.get(editor)
+  const transactionRoot = getCurrentChildrenRoot(editor)
+
+  return Object.freeze({
+    afterCommit(handler) {
+      const snapshot = TRANSACTION_SNAPSHOT.get(editor)
+
+      if (!snapshot || snapshot !== transactionSnapshot) {
+        throw new Error(
+          'afterCommit can only be registered during editor.update'
+        )
+      }
+
+      snapshot.afterCommitHandlers.push({
+        handler: handler as EditorCommitHandler,
+        root: transactionRoot,
+      })
+    },
+  })
+}
+
 const getUpdateView = <
   V extends Value,
   TExtensions extends readonly unknown[] = readonly [],
@@ -2449,7 +2501,10 @@ export const updateEditor = <
   TExtensions extends readonly unknown[] = readonly [],
 >(
   editor: Editor<V, TExtensions>,
-  fn: (transaction: EditorUpdateTransaction<V, TExtensions>) => void,
+  fn: (
+    transaction: EditorUpdateTransaction<V, TExtensions>,
+    context: EditorUpdateContext<Editor<V, TExtensions>>
+  ) => void,
   options: EditorUpdateOptions = {}
 ) => {
   if (isExecutingQueryMiddleware(editor)) {
@@ -2466,11 +2521,15 @@ export const updateEditor = <
   const metadata = cloneUpdateMetadata(options.metadata)
   const root = ACTIVE_OPERATION_ROOT.get(editor)
   const run = () =>
-    runEditorTransaction(editor, () => fn(getUpdateView(editor)), {
-      authority: 'update',
-      metadata,
-      skipNormalize: options.skipNormalize,
-    })
+    runEditorTransaction(
+      editor,
+      () => fn(getUpdateView(editor), getUpdateContext(editor)),
+      {
+        authority: 'update',
+        metadata,
+        skipNormalize: options.skipNormalize,
+      }
+    )
 
   return withUpdateTagContext(editor, tags, () =>
     root
@@ -2576,19 +2635,25 @@ const enterEditorRootChildren = (
 ): (() => void) | undefined => {
   const targetRoot = root ?? MAIN_ROOT_KEY
   const previousActiveChildrenRoot = ACTIVE_CHILDREN_ROOT.get(editor)
-  const previousRoot = previousActiveChildrenRoot ?? MAIN_ROOT_KEY
+  const previousRoot = getCurrentChildrenRoot(editor)
+  const previousChildren = getChildren(editor) as Descendant[]
+  const previousRoots = getEditorDocumentRoots(editor)
+  const previousRootChildren = previousRoots[previousRoot]
 
-  if (previousRoot === targetRoot) {
+  if (
+    previousRoot === targetRoot &&
+    previousRootChildren === previousChildren
+  ) {
     return undefined
   }
 
-  const previousRoots = getEditorDocumentRoots(editor)
   const hadTargetRoot = Object.hasOwn(previousRoots, targetRoot)
   const rootChildren = previousRoots[targetRoot] ?? []
 
   ROOTS.set(editor, previousRoots)
   CHILDREN.set(editor, rootChildren)
   ACTIVE_CHILDREN_ROOT.set(editor, targetRoot)
+  CURRENT_CHILDREN_ROOT.set(editor, targetRoot)
   RUNTIME_INDEX_CACHE.delete(editor)
   SNAPSHOT_CACHE.delete(editor)
 
@@ -2598,11 +2663,12 @@ const enterEditorRootChildren = (
       hadTargetRoot || Object.hasOwn(currentRoots, targetRoot)
         ? getEditorDocumentRoots(editor)
         : previousRoots
-    const restoreRoot = previousActiveChildrenRoot ?? MAIN_ROOT_KEY
+    const restoreRoot = previousRoot
     const restoredChildren = nextRoots[restoreRoot] ?? []
 
     CHILDREN.set(editor, restoredChildren)
     ROOTS.set(editor, nextRoots)
+    CURRENT_CHILDREN_ROOT.set(editor, previousRoot)
     if (previousActiveChildrenRoot === undefined) {
       ACTIVE_CHILDREN_ROOT.delete(editor)
     } else {
@@ -2650,7 +2716,7 @@ export const setChildren = (
   children: Descendant[],
   options: { invalidateRuntimeIndex?: boolean } = {}
 ) => {
-  const root = ACTIVE_CHILDREN_ROOT.get(editor) ?? MAIN_ROOT_KEY
+  const root = getCurrentChildrenRoot(editor)
 
   CHILDREN.set(editor, children)
   ROOTS.set(editor, {
@@ -2685,7 +2751,7 @@ export const deleteEditorRoot = (
   delete nextRoots[targetRoot]
 
   ROOTS.set(editor, nextRoots)
-  if (ACTIVE_CHILDREN_ROOT.get(editor) === targetRoot) {
+  if (getCurrentChildrenRoot(editor) === targetRoot) {
     CHILDREN.set(editor, [])
   }
   bumpMutationVersion(editor)
@@ -4003,6 +4069,40 @@ export const notifyListeners = (editor: Editor, change?: SnapshotChange) => {
   }
 }
 
+const materializeAfterCommitHandlers = (
+  editor: Editor,
+  commit: SnapshotChange,
+  handlers: readonly TransactionAfterCommitHandler[]
+): MaterializedAfterCommitHandler[] => {
+  const snapshots = new Map<string, EditorSnapshot>()
+
+  return handlers.map(({ handler, root }) => {
+    let snapshot = snapshots.get(root)
+
+    if (!snapshot) {
+      snapshot = getCurrentRootSnapshot(editor, root)
+      snapshots.set(root, snapshot)
+    }
+
+    return {
+      context: {
+        commit,
+        editor,
+        snapshot,
+      } as EditorCommitContext,
+      handler,
+    }
+  })
+}
+
+const runAfterCommitHandlers = (
+  handlers: readonly MaterializedAfterCommitHandler[]
+) => {
+  for (const { context, handler } of handlers) {
+    handler(context)
+  }
+}
+
 export const incrementVersion = (editor: Editor) => {
   setVersion(editor, getVersion(editor) + 1)
 }
@@ -4084,7 +4184,7 @@ const restoreTransactionSnapshot = (
   transactionSnapshot: TransactionSnapshot
 ) => {
   const restoredRoots = cloneValue(transactionSnapshot.roots)
-  const activeRoot = ACTIVE_CHILDREN_ROOT.get(editor) ?? MAIN_ROOT_KEY
+  const activeRoot = getCurrentChildrenRoot(editor)
   const restoredChildren: Descendant[] = Object.hasOwn(
     restoredRoots,
     activeRoot
@@ -4133,6 +4233,7 @@ const restoreTransactionSnapshot = (
   }
   CHILDREN.set(editor, restoredChildren)
   ROOTS.set(editor, restoredRoots)
+  CURRENT_CHILDREN_ROOT.set(editor, activeRoot)
   bumpMutationVersion(editor)
   bumpRuntimeIndexVersion(editor)
   SNAPSHOT_CACHE.delete(editor)
@@ -4176,7 +4277,7 @@ export const runEditorTransaction = (
       : null
     const previousVersion = previousSnapshot?.version ?? getVersion(editor)
     const previousIndex = previousSnapshot?.index ?? getLiveRuntimeIndex(editor)
-    const childrenRoot = ACTIVE_CHILDREN_ROOT.get(editor) ?? MAIN_ROOT_KEY
+    const childrenRoot = getCurrentChildrenRoot(editor)
     const roots = getEditorDocumentRoots(editor)
     const rootEntries = Object.entries(roots)
     const rootIndexes =
@@ -4203,6 +4304,7 @@ export const runEditorTransaction = (
     )
 
     TRANSACTION_SNAPSHOT.set(editor, {
+      afterCommitHandlers: [],
       children: transactionChildren,
       childrenRoot,
       command: profileCoreDuration('transaction-command', () =>
@@ -4446,9 +4548,20 @@ export const runEditorTransaction = (
             ? withTransactionViewState(editor, snapshot, nextChange)
             : nextChange
         })
+        const afterCommitHandlers =
+          snapshot && snapshot.afterCommitHandlers.length > 0
+            ? materializeAfterCommitHandlers(
+                editor,
+                change,
+                snapshot.afterCommitHandlers
+              )
+            : []
 
         profileCoreDuration('notify-listeners', () =>
           notifyListeners(editor, change)
+        )
+        profileCoreDuration('run-after-commit-handlers', () =>
+          runAfterCommitHandlers(afterCommitHandlers)
         )
       }
     }
@@ -4548,6 +4661,7 @@ export const initializePublicState = <
 
   CHILDREN.set(editor, initialChildren)
   ROOTS.set(editor, initialValue.roots)
+  CURRENT_CHILDREN_ROOT.set(editor, MAIN_ROOT_KEY)
   DOCUMENT_STATE.set(editor, initialValue.state)
   seedRuntimeIds(initialChildren, editor)
   const initialSelectionRoot =

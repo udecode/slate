@@ -90,6 +90,7 @@ export type {
   EditorTransformMiddlewareMap,
   EditorTransformNext,
   EditorTxExtensionGroups,
+  EditorUpdateContext,
   EditorUpdateMetadata,
   EditorUpdateOptions,
   EditorUpdateTag,

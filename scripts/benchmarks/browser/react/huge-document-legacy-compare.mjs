@@ -892,7 +892,6 @@ console.log(JSON.stringify({
   },
   surfaces: {
     legacyChunkOn: await runSurface({ chunking: true }),
-    legacyChunkOff: await runSurface({ chunking: false }),
   },
 }))
 `
@@ -2228,18 +2227,14 @@ const legacy = await benchmarkRepo({
 })
 
 const legacyChunkOn = legacy.surfaces.legacyChunkOn
-const legacyChunkOff = legacy.surfaces.legacyChunkOff
 
 const createDeltaMeanMs = (surface) =>
   Object.fromEntries(
     Object.keys(surface)
-      .filter((lane) => legacyChunkOff[lane] && legacyChunkOn[lane])
+      .filter((lane) => legacyChunkOn[lane])
       .map((lane) => [
         lane,
         {
-          v2MinusLegacyChunkOff: round(
-            surface[lane].mean - legacyChunkOff[lane].mean
-          ),
           v2MinusLegacyChunkOn: round(
             surface[lane].mean - legacyChunkOn[lane].mean
           ),
@@ -2273,7 +2268,6 @@ const summary = {
     typeOps,
   },
   surfaces: {
-    legacyChunkOff,
     legacyChunkOn,
     ...current.surfaces,
   },

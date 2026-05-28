@@ -1,6 +1,6 @@
 import { type KeyboardEvent, useCallback, useMemo } from 'react'
 import type { Operation, RootKey } from 'slate'
-
+import { resolveHistoryFocusEditor } from '../editable/history-focus'
 import {
   getHistoryDirectionFromNativeEvent,
   type HistoryDirection,
@@ -173,7 +173,11 @@ export function useSlateHistory({
   })
   const root = fixedRoot ?? historyRoot
   const editor = useSlateRootEditor(root)
-  const { getMountedViewEditor } = useRequiredSlateRuntimeContext()
+  const {
+    getActiveContentRootOwner,
+    getContentRootOwnerViewEditor,
+    getMountedViewEditor,
+  } = useRequiredSlateRuntimeContext()
   const availability = useSlateRuntimeState(selectHistoryAvailability, {
     deps: [],
     equalityFn: historyAvailabilityEquality,
@@ -204,13 +208,18 @@ export function useSlateHistory({
 
       if (focusPolicy === 'restore-root') {
         scheduleSlateReactFocus(() => {
-          const focusRoot =
-            editor.read(
-              (state) =>
-                selectSelectionRoot(state) ??
-                selectLastCommitSingleOperationRoot(state)
-            ) ?? root
-          const focusEditor = getMountedViewEditor(focusRoot) ?? editor
+          const focusEditor = editor.read((state) =>
+            resolveHistoryFocusEditor({
+              currentRoot: state.view.root(),
+              editor,
+              fallbackRoot: root,
+              getActiveContentRootOwner,
+              getContentRootOwnerViewEditor,
+              getMountedViewEditor,
+              historyRoot: selectLastCommitSingleOperationRoot(state),
+              selectionRoot: selectSelectionRoot(state),
+            })
+          )
 
           if (!focusEditor.read((state) => state.selection.get())) {
             focusEditor.update((tx) => {
@@ -228,6 +237,8 @@ export function useSlateHistory({
       availability.canUndo,
       editor,
       focusPolicy,
+      getActiveContentRootOwner,
+      getContentRootOwnerViewEditor,
       getMountedViewEditor,
       root,
     ]

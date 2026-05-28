@@ -20,16 +20,18 @@ const fragmentBlocks = Number(process.env.HISTORY_BENCH_FRAGMENT_BLOCKS || 200)
 
 const benchmarkSource = `
 import assert from 'node:assert/strict';
-import { withHistory } from 'slate-history';
 
 let Slate;
 let SlateInternal = {};
+let SlateHistory;
 
 try {
   Slate = await import('../../packages/slate/src/index.ts');
   SlateInternal = await import('../../packages/slate/src/internal/index.ts');
+  SlateHistory = await import('../../packages/slate-history/src/index.ts');
 } catch {
   Slate = await import('slate');
+  SlateHistory = await import('slate-history');
 
   try {
     SlateInternal = await import('slate/internal');
@@ -38,6 +40,8 @@ try {
 
 const { createEditor } = Slate;
 const Editor = Slate.Editor ?? SlateInternal.Editor;
+const historyExtension = SlateHistory.history;
+const withHistory = SlateHistory.withHistory;
 
 const iterations = Number(process.env.HISTORY_BENCH_ITERATIONS || 3);
 const blocks = Number(process.env.HISTORY_BENCH_BLOCKS || 5000);
@@ -106,7 +110,51 @@ const createFragment = (count) =>
     children: [{ text: \`fragment-\${index}\` }],
   }));
 
-const withHistoryEditor = () => withHistory(createEditor());
+const withHistoryEditor = () => {
+  if (typeof historyExtension === 'function') {
+    return createEditor({ extensions: [historyExtension()] });
+  }
+
+  if (typeof withHistory === 'function') {
+    return withHistory(createEditor());
+  }
+
+  throw new Error('No supported slate-history API found');
+};
+
+const readHistory = (editor) => {
+  if (editor.history) {
+    return editor.history;
+  }
+
+  if (typeof editor.read === 'function') {
+    return editor.read((state) => state.history.get());
+  }
+
+  throw new Error('No supported history state API found');
+};
+
+const undo = (editor) => {
+  if (typeof editor.undo === 'function') {
+    editor.undo();
+    return;
+  }
+
+  editor.update((tx) => {
+    tx.history.undo();
+  });
+};
+
+const redo = (editor) => {
+  if (typeof editor.redo === 'function') {
+    editor.redo();
+    return;
+  }
+
+  editor.update((tx) => {
+    tx.history.redo();
+  });
+};
 
 const replaceEditor = (editor, input) => {
   if (typeof Editor.replace === 'function') {
@@ -156,7 +204,7 @@ const typeEditor = () => {
     }
   });
 
-  assert.equal(editor.history.undos.length > 0, true);
+  assert.equal(readHistory(editor).undos.length > 0, true);
 
   return editor;
 };
@@ -180,7 +228,7 @@ const fragmentEditor = () => {
     }
   });
 
-  assert.equal(editor.history.undos.length > 0, true);
+  assert.equal(readHistory(editor).undos.length > 0, true);
   editor.__fragmentChildrenLength = getChildren(editor).length;
 
   return editor;
@@ -206,9 +254,9 @@ const measureLane = (setup, run, assertFn) => {
 
 const typingUndoMs = measureLane(
   typeEditor,
-  (editor) => editor.undo(),
+  undo,
   (editor) => {
-    assert.equal(editor.history.redos.length > 0, true);
+    assert.equal(readHistory(editor).redos.length > 0, true);
     assert.equal(
       getChildren(editor)[0]?.children[0]?.text,
       'block-0'
@@ -219,12 +267,12 @@ const typingUndoMs = measureLane(
 const typingRedoMs = measureLane(
   () => {
     const editor = typeEditor();
-    editor.undo();
+    undo(editor);
     return editor;
   },
-  (editor) => editor.redo(),
+  redo,
   (editor) => {
-    assert.equal(editor.history.undos.length > 0, true);
+    assert.equal(readHistory(editor).undos.length > 0, true);
     assert.equal(
       getChildren(editor)[0]?.children[0]?.text.startsWith('block-0'),
       true
@@ -234,9 +282,9 @@ const typingRedoMs = measureLane(
 
 const fragmentUndoMs = measureLane(
   fragmentEditor,
-  (editor) => editor.undo(),
+  undo,
   (editor) => {
-    assert.equal(editor.history.redos.length > 0, true);
+    assert.equal(readHistory(editor).redos.length > 0, true);
     assert.equal(getChildren(editor).length, blocks);
   }
 );
@@ -244,12 +292,12 @@ const fragmentUndoMs = measureLane(
 const fragmentRedoMs = measureLane(
   () => {
     const editor = fragmentEditor();
-    editor.undo();
+    undo(editor);
     return editor;
   },
-  (editor) => editor.redo(),
+  redo,
   (editor) => {
-    assert.equal(editor.history.undos.length > 0, true);
+    assert.equal(readHistory(editor).undos.length > 0, true);
     assert.equal(
       getChildren(editor).length,
       editor.__fragmentChildrenLength

@@ -33,10 +33,7 @@ const materializationTimeoutMs = Number(
 const headless = process.env.SLATE_LEGACY_BROWSER_TRACE_HEADLESS !== '0'
 const buildLegacySite = process.env.SLATE_LEGACY_BROWSER_TRACE_BUILD === '1'
 const selectedSurfaces = new Set(
-  (
-    process.env.SLATE_LEGACY_BROWSER_TRACE_SURFACES ||
-    'legacyChunkOn,legacyChunkOff'
-  )
+  (process.env.SLATE_LEGACY_BROWSER_TRACE_SURFACES || 'legacyChunkOn')
     .split(',')
     .map((surface) => surface.trim())
     .filter(Boolean)
@@ -66,11 +63,6 @@ const surfaces = [
     key: 'legacyChunkOn',
     label: 'Slate chunk-on',
     path: `/examples/huge-document?blocks=${blocks}&chunking=true&chunk_size=1000&chunk_divs=true&content_visibility=none&strict=false`,
-  },
-  {
-    key: 'legacyChunkOff',
-    label: 'Slate chunk-off',
-    path: `/examples/huge-document?blocks=${blocks}&chunking=false&chunk_divs=false&content_visibility=none&strict=false`,
   },
 ].filter((surface) => selectedSurfaces.has(surface.key))
 

@@ -8,7 +8,7 @@ import { Hotkeys } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
 import { history } from 'slate-history'
 import { describe, expect, it, vi } from 'vitest'
-
+import { resolveHistoryFocusEditor } from '../src/editable/history-focus'
 import {
   applyEditableKeyDown,
   shouldDeferBackspaceToNativeInput,
@@ -248,6 +248,25 @@ describe('keyboard input strategy', () => {
       hasEditableTarget.mockRestore()
       isComposing.mockRestore()
     }
+  })
+
+  it('repairs history focus to the history root when undo leaves no selection', () => {
+    const currentEditor = {} as any
+    const historyEditor = {} as any
+    const getMountedViewEditor = vi.fn((root: string) =>
+      root === 'header' ? historyEditor : currentEditor
+    )
+
+    expect(
+      resolveHistoryFocusEditor({
+        currentRoot: 'main',
+        editor: currentEditor,
+        getMountedViewEditor,
+        historyRoot: 'header',
+        selectionRoot: null,
+      })
+    ).toBe(historyEditor)
+    expect(getMountedViewEditor).toHaveBeenLastCalledWith('header')
   })
 
   it('runs raw keydown before model fallback', () => {

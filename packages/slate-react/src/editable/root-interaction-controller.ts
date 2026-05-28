@@ -79,6 +79,7 @@ type PendingRootInteraction = {
   action: RootInteractionMouseDownAction
   clientX: number
   clientY: number
+  coordinateDragSelection: boolean
   preventNativeSelection: boolean
   startRange: Range | null
 }
@@ -139,6 +140,7 @@ const ignoreInteraction = (): PendingRootInteraction => ({
   action: { type: 'ignore' },
   clientX: 0,
   clientY: 0,
+  coordinateDragSelection: false,
   preventNativeSelection: false,
   startRange: null,
 })
@@ -453,8 +455,40 @@ const applyProjectedDragSelection = ({
       },
     })
   )
+  collapseModelSelectionToProjectedDragAnchor({ anchor, editor })
 
   return true
+}
+
+const collapseModelSelectionToProjectedDragAnchor = ({
+  anchor,
+  editor,
+}: {
+  anchor: RootInteractionDragEndpoint
+  editor: RootInteractionEditor
+}) => {
+  const viewRoot = editor.read((state) => state.view.root())
+
+  if (anchor.root !== viewRoot) {
+    return
+  }
+
+  const range = withInteractionRangeRoot(
+    {
+      anchor: anchor.point,
+      focus: anchor.point,
+    },
+    viewRoot
+  )
+  const selection = editor.read((state) => state.selection.get())
+
+  if (selection && RangeApi.equals(selection, range)) {
+    return
+  }
+
+  editor.update((tx) => {
+    tx.selection.set(range)
+  })
 }
 
 const applyModelProjectedDragSelection = ({
@@ -494,11 +528,45 @@ const shouldPlaceFocusedNativeEditableFromCoordinates = (
     return false
   }
 
-  const strings = Array.from(
-    textHost.querySelectorAll<HTMLElement>(
-      '[data-slate-string], [data-slate-zero-width]'
-    )
+  return shouldPlaceNearSlateStringFromCoordinates({
+    event,
+    strings: Array.from(
+      textHost.querySelectorAll<HTMLElement>(
+        '[data-slate-string], [data-slate-zero-width]'
+      )
+    ),
+  })
+}
+
+const shouldPlaceEditableRootChromeFromCoordinates = (
+  event: MouseEvent<HTMLElement>
+) => {
+  const element = mouseEventTargetToElement(event.target)
+  const editableRoot = element?.closest<HTMLElement>(
+    '[data-slate-editor="true"]'
   )
+
+  if (!editableRoot || !event.currentTarget.contains(editableRoot)) {
+    return false
+  }
+
+  return shouldPlaceNearSlateStringFromCoordinates({
+    event,
+    strings: Array.from(
+      editableRoot.querySelectorAll<HTMLElement>(
+        '[data-slate-string], [data-slate-zero-width]'
+      )
+    ),
+  })
+}
+
+const shouldPlaceNearSlateStringFromCoordinates = ({
+  event,
+  strings,
+}: {
+  event: MouseEvent<HTMLElement>
+  strings: HTMLElement[]
+}) => {
   const nearestString = strings
     .map((string) => {
       const rect = string.getBoundingClientRect()
@@ -541,6 +609,12 @@ const createDragSelectionRange = ({
   focus: RangeApi.end(endRange),
 })
 
+const canApplyCoordinateDragSelection = (
+  pendingInteraction: PendingRootInteraction
+) =>
+  pendingInteraction.action.type === 'place-native-editable' ||
+  pendingInteraction.coordinateDragSelection
+
 const clearDOMSelectionFromEvent = (event: MouseEvent<HTMLElement>) => {
   const rootNode = event.currentTarget.getRootNode() as Document | ShadowRoot
   const domSelection =
@@ -568,6 +642,7 @@ const applyProjectedDragSelectionFromEvent = ({
         action: { type: 'ignore' },
         clientX: projectedDrag.clientX,
         clientY: projectedDrag.clientY,
+        coordinateDragSelection: false,
         preventNativeSelection: false,
         startRange: null,
       },
@@ -756,19 +831,29 @@ export const useRootInteractionController = ({
           : undefined,
         target,
       })
+      const placeRootChromeFromCoordinates =
+        action.type === 'activate-root' &&
+        shouldPlaceEditableRootChromeFromCoordinates(event)
+      const placeFocusedNativeEditableFromCoordinates =
+        action.type === 'ignore' &&
+        target.kind === 'native-editable' &&
+        shouldPlaceFocusedNativeEditableFromCoordinates(event)
       const preventNativeSelection =
         action.type === 'place-native-editable' ||
-        (action.type === 'ignore' &&
-          target.kind === 'native-editable' &&
-          shouldPlaceFocusedNativeEditableFromCoordinates(event))
+        placeRootChromeFromCoordinates ||
+        placeFocusedNativeEditableFromCoordinates
 
-      if (preventNativeSelection) {
+      if (
+        action.type === 'place-native-editable' ||
+        placeFocusedNativeEditableFromCoordinates
+      ) {
         action = { type: 'place-native-editable' }
       }
 
       const focusEditor = getMountedViewEditor(root) ?? editor
       const startRange =
-        action.type === 'place-native-editable'
+        action.type === 'place-native-editable' ||
+        placeRootChromeFromCoordinates
           ? focusEditor.api.dom.resolveEventRange(event.nativeEvent)
           : null
       const projectedDragEndpoint = resolveProjectedDragEndpoint({
@@ -790,6 +875,7 @@ export const useRootInteractionController = ({
         action,
         clientX: event.clientX,
         clientY: event.clientY,
+        coordinateDragSelection: placeRootChromeFromCoordinates,
         preventNativeSelection,
         startRange,
       }
@@ -861,10 +947,7 @@ export const useRootInteractionController = ({
         return
       }
 
-      if (
-        disabled ||
-        pendingInteraction.action.type !== 'place-native-editable'
-      ) {
+      if (disabled || !canApplyCoordinateDragSelection(pendingInteraction)) {
         return
       }
 
@@ -947,7 +1030,7 @@ export const useRootInteractionController = ({
       const pointerMoved = hasPointerMoved(pendingInteraction, event)
 
       if (
-        pendingAction.type === 'place-native-editable' &&
+        canApplyCoordinateDragSelection(pendingInteraction) &&
         eventRange &&
         pendingInteraction.startRange &&
         pointerMoved

@@ -1,5 +1,5 @@
 import { useCallback, useContext, useState } from 'react'
-import type { Path, RuntimeId, Node as SlateNode } from 'slate'
+import type { Operation, Path, RuntimeId, Node as SlateNode } from 'slate'
 import {
   EDITOR_TO_KEY_TO_ELEMENT,
   ELEMENT_TO_NODE,
@@ -8,7 +8,10 @@ import {
   NODE_TO_RUNTIME_ID,
 } from 'slate-dom'
 import { EditorContext } from '../context'
-import { Editor } from '../editable/runtime-editor-api'
+import {
+  Editor,
+  withOperationRootChildren,
+} from '../editable/runtime-editor-api'
 import { recordSlateReactRender } from '../render-profiler'
 import { useIsomorphicLayoutEffect } from './use-isomorphic-layout-effect'
 
@@ -94,7 +97,7 @@ export const getSlateNodePathFromDOMElement = (
 
 export const syncTextOperationsToDOM = (
   editor: Editor,
-  operations: readonly { path?: number[]; type: string }[]
+  operations: readonly Operation[]
 ) => {
   const synced = new Set<string>()
   const pathToElement = EDITOR_TO_PATH_TO_ELEMENT.get(editor)
@@ -156,14 +159,20 @@ export const syncTextOperationsToDOM = (
       continue
     }
 
-    if (!Editor.hasPath(editor, path)) {
+    const text = withOperationRootChildren(editor, operation, () => {
+      if (!Editor.hasPath(editor, path)) {
+        return undefined
+      }
+
+      const [node] = editor.read((state) => state.nodes.get(path))
+
+      return 'text' in node && typeof node.text === 'string' ? node.text : null
+    })
+
+    if (text === undefined) {
       recordDOMTextSyncProfile('skip-missing-path')
       continue
     }
-
-    const [node] = editor.read((state) => state.nodes.get(path))
-    const text =
-      'text' in node && typeof node.text === 'string' ? node.text : null
 
     if (text === null) {
       recordDOMTextSyncProfile('skip-non-text')

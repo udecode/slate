@@ -27,6 +27,7 @@ import type {
   EditorSnapshot,
   EditorStateView,
   EditorStaticApi,
+  EditorUpdateContext,
   EditorUpdateOptions,
   EditorUpdateTransaction,
   RuntimeId,
@@ -119,7 +120,10 @@ export type InternalEditorTransactionRuntime<V extends Value = Value> = {
     listener: SnapshotListener<V>
   ) => () => void
   update: (
-    fn: (transaction: EditorUpdateTransaction<V>) => void,
+    fn: (
+      transaction: EditorUpdateTransaction<V>,
+      context: EditorUpdateContext<Editor<V>>
+    ) => void,
     options?: EditorUpdateOptions
   ) => void
 }

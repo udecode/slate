@@ -234,6 +234,126 @@ describe('editor runtime/view contract', () => {
     )
   })
 
+  it('passes root-scoped afterCommit snapshots for nested root-bound view updates', () => {
+    const runtime = createEditorRuntime({
+      initialValue: {
+        roots: {
+          header: [paragraph('header')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+    const headerEditor = createEditorView(runtime, { root: 'header' })
+    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const snapshots: string[] = []
+    const getSnapshotText = (children: readonly Descendant[]) =>
+      (children[0]?.children[0] as { text: string }).text
+
+    headerEditor.update((headerTx, { afterCommit }) => {
+      afterCommit(({ snapshot }) => {
+        snapshots.push(`header:${getSnapshotText(snapshot.children)}`)
+      })
+
+      headerTx.text.insert('!', {
+        at: { path: [0, 0], offset: 6 },
+      })
+
+      mainEditor.update((mainTx, { afterCommit }) => {
+        afterCommit(({ snapshot }) => {
+          snapshots.push(`main:${getSnapshotText(snapshot.children)}`)
+        })
+
+        mainTx.text.insert('!', {
+          at: { path: [0, 0], offset: 4 },
+        })
+      })
+    })
+
+    assert.deepEqual(snapshots, ['header:header!', 'main:body!'])
+  })
+
+  it('keeps afterCommit bound to the context root when registered during a nested update', () => {
+    const runtime = createEditorRuntime({
+      initialValue: {
+        roots: {
+          header: [paragraph('header')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+    const headerEditor = createEditorView(runtime, { root: 'header' })
+    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const getSnapshotText = (children: readonly Descendant[]) =>
+      (children[0]?.children[0] as { text: string }).text
+    let snapshotText = ''
+
+    headerEditor.update((_headerTx, context) => {
+      mainEditor.update((mainTx) => {
+        context.afterCommit(({ snapshot }) => {
+          snapshotText = getSnapshotText(snapshot.children)
+        })
+
+        mainTx.text.insert('!', {
+          at: { path: [0, 0], offset: 4 },
+        })
+      })
+    })
+
+    assert.equal(snapshotText, 'header')
+  })
+
+  it('keeps main-root view afterCommit selection from the committed snapshot', () => {
+    const runtime = createEditorRuntime({
+      extensions: [
+        defineEditorExtension({
+          name: 'move-selection-on-commit',
+          onCommit({ commit, editor }) {
+            if (
+              commit.operations.some(
+                (operation) =>
+                  operation.type === 'insert_text' &&
+                  'text' in operation &&
+                  operation.text === '!'
+              )
+            ) {
+              editor.update((tx) => {
+                tx.selection.set({
+                  anchor: { path: [0, 0], offset: 0, root: 'header' },
+                  focus: { path: [0, 0], offset: 0, root: 'header' },
+                })
+              })
+            }
+          },
+        }),
+      ],
+      initialValue: {
+        roots: {
+          header: [paragraph('header')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+    const mainEditor = createEditorView(runtime, { root: 'main' })
+    let snapshotSelection: unknown = null
+
+    mainEditor.update((tx, { afterCommit }) => {
+      afterCommit(({ snapshot }) => {
+        snapshotSelection = snapshot.selection
+      })
+
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 'body'.length },
+        focus: { path: [0, 0], offset: 'body'.length },
+      })
+      tx.text.insert('!')
+    })
+
+    assert.deepEqual(snapshotSelection, {
+      anchor: { path: [0, 0], offset: 'body!'.length },
+      focus: { path: [0, 0], offset: 'body!'.length },
+    })
+  })
+
   it('reads root-local paths through a root-bound view', () => {
     const runtime = createEditorRuntime({
       initialValue: {
@@ -1198,6 +1318,41 @@ describe('editor runtime/view contract', () => {
     )
   })
 
+  it('restores the view root before notifying subscribers for nested-root structural edits', () => {
+    const runtime = createEditorRuntime({
+      initialValue: {
+        roots: {
+          header: [paragraph('ab'), paragraph('cd')],
+          main: [paragraph('main')],
+        },
+      },
+    })
+    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const headerEditor = createEditorView(runtime, { root: 'header' })
+    const getViewTexts = (editor: typeof mainEditor) =>
+      editor.read((state) =>
+        state.nodes.children().map((node) => NodeApi.string(node))
+      )
+    const subscriberReads: string[][] = []
+    const unsubscribe = runtime.subscribe(() => {
+      subscriberReads.push(getViewTexts(mainEditor))
+    })
+
+    headerEditor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 2 },
+      })
+      tx.text.delete()
+    })
+
+    unsubscribe()
+
+    assert.deepEqual(subscriberReads, [['main']])
+    assert.deepEqual(getViewTexts(mainEditor), ['main'])
+    assert.deepEqual(getViewTexts(headerEditor), [''])
+  })
+
   it('keeps repeated view-local text inserts ordered after rootless selection import', () => {
     const runtime = createEditorRuntime({
       initialValue: {
@@ -1830,6 +1985,52 @@ describe('editor runtime/view contract', () => {
     assert.deepEqual(
       runtime.read((state) => state.value.get().roots.header),
       [paragraph('heade')]
+    )
+  })
+
+  it('keeps root-local collapsed delete ranges in the view root', () => {
+    const runtime = createEditorRuntime({
+      initialValue: {
+        roots: {
+          header: [paragraph('h')],
+          main: [paragraph('body')],
+        },
+      },
+    })
+    const headerEditor = createEditorView(runtime, { root: 'header' })
+
+    headerEditor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      })
+      tx.text.delete({
+        at: {
+          anchor: { path: [0, 0], offset: 1 },
+          focus: { path: [0, 0], offset: 1 },
+        },
+        reverse: true,
+        unit: 'character',
+      })
+    })
+
+    assert.deepEqual(
+      runtime.read((state) => state.value.get().roots.header),
+      [paragraph('')]
+    )
+    assert.deepEqual(
+      runtime
+        .read((state) => state.value.lastCommit()?.operations ?? [])
+        .filter((operation) => operation.type !== 'set_selection'),
+      [
+        {
+          offset: 0,
+          path: [0, 0],
+          root: 'header',
+          text: 'h',
+          type: 'remove_text',
+        },
+      ]
     )
   })
 

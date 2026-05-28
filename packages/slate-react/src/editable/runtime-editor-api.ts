@@ -19,6 +19,7 @@ export {
   setEditorSelection,
   setEditorTargetRuntime,
   setEditorTransformRegistry,
+  withOperationRootChildren,
 } from 'slate/internal'
 
 export const inheritEditorExtensionRegistry = (

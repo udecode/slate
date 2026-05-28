@@ -40,6 +40,13 @@ const VIEW_SELECTION_STYLE: CSSProperties = {
   backgroundColor: 'Highlight',
   color: 'HighlightText',
 }
+const PLACEHOLDER_ANCHOR_STYLE: CSSProperties = {
+  display: 'inline-block',
+  maxWidth: '100%',
+  position: 'relative',
+  verticalAlign: 'top',
+  width: '100%',
+}
 const EMPTY_BOUND_TEXT = Object.freeze({
   marks: EMPTY_MARKS,
   path: null,
@@ -440,16 +447,24 @@ const RenderEditableText = <T,>({
               </SlatePlaceholder>
             )
           ) : null
-          const content = (
-            <>
-              <ZeroWidthString
-                includeSentinel={zeroWidth?.includeSentinel}
-                isLineBreak={zeroWidth?.isLineBreak}
-                isMarkPlaceholder={zeroWidth?.isMarkPlaceholder}
-                length={zeroWidth?.length}
-              />
+          const zeroWidthString = (
+            <ZeroWidthString
+              includeSentinel={zeroWidth?.includeSentinel}
+              isLineBreak={zeroWidth?.isLineBreak}
+              isMarkPlaceholder={zeroWidth?.isMarkPlaceholder}
+              length={zeroWidth?.length}
+            />
+          )
+          const content = placeholderNode ? (
+            <span
+              data-slate-placeholder-anchor="true"
+              style={PLACEHOLDER_ANCHOR_STYLE}
+            >
+              {zeroWidthString}
               {placeholderNode}
-            </>
+            </span>
+          ) : (
+            zeroWidthString
           )
           const leafNode = {
             text: '',

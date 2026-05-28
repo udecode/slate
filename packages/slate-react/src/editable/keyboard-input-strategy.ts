@@ -33,6 +33,10 @@ import {
 } from './editing-epoch-kernel'
 import { getEditableCommandFromKeyDown } from './editing-kernel'
 import {
+  type HistoryFocusOwnerApi,
+  resolveHistoryFocusEditor,
+} from './history-focus'
+import {
   type EditableCompositionStateSetter,
   type EditableInputController,
   type EditableRepairRequest,
@@ -120,19 +124,26 @@ const getLastCommitSingleOperationRoot = (
 
 const getModelOwnedHistoryRepair = ({
   editor,
+  getActiveContentRootOwner,
+  getContentRootOwnerViewEditor,
   getMountedViewEditor,
 }: {
   editor: ReactRuntimeEditor
-  getMountedViewEditor?: (root: RootKey) => ReactRuntimeEditor | null
-}): EditableRepairRequest => {
+} & HistoryFocusOwnerApi): EditableRepairRequest => {
   const forceRender = shouldForceRenderAfterModelOwnedHistory(editor)
   const historyFocusRoot = consumeModelOwnedHistoryFocusRoot(editor)
   const selection = readRuntimeSelection(editor)
-  const selectionRoot =
-    (selection ? getSelectionRootKey(selection) : historyFocusRoot) ??
-    getLastCommitSingleOperationRoot(editor) ??
-    MAIN_ROOT_KEY
-  const focusEditor = getMountedViewEditor?.(selectionRoot)
+  const selectionRoot = selection ? getSelectionRootKey(selection) : null
+  const currentRoot = editor.read((state) => state.view.root())
+  const focusEditor = resolveHistoryFocusEditor({
+    currentRoot,
+    editor,
+    getActiveContentRootOwner,
+    getContentRootOwnerViewEditor,
+    getMountedViewEditor,
+    historyRoot: historyFocusRoot ?? getLastCommitSingleOperationRoot(editor),
+    selectionRoot,
+  })
 
   if (focusEditor && focusEditor !== editor) {
     focusSlateEditable(focusEditor)
@@ -264,7 +275,12 @@ export const applyEditableKeyDown = ({
         })
       ) {
         return keyDownHandled(
-          getModelOwnedHistoryRepair({ editor, getMountedViewEditor })
+          getModelOwnedHistoryRepair({
+            editor,
+            getActiveContentRootOwner,
+            getContentRootOwnerViewEditor,
+            getMountedViewEditor,
+          })
         )
       }
 
@@ -282,7 +298,12 @@ export const applyEditableKeyDown = ({
         })
       ) {
         return keyDownHandled(
-          getModelOwnedHistoryRepair({ editor, getMountedViewEditor })
+          getModelOwnedHistoryRepair({
+            editor,
+            getActiveContentRootOwner,
+            getContentRootOwnerViewEditor,
+            getMountedViewEditor,
+          })
         )
       }
 
@@ -409,7 +430,12 @@ export const applyEditableKeyDown = ({
         })
       ) {
         return keyDownHandled(
-          getModelOwnedHistoryRepair({ editor, getMountedViewEditor })
+          getModelOwnedHistoryRepair({
+            editor,
+            getActiveContentRootOwner,
+            getContentRootOwnerViewEditor,
+            getMountedViewEditor,
+          })
         )
       }
 
@@ -426,7 +452,12 @@ export const applyEditableKeyDown = ({
         })
       ) {
         return keyDownHandled(
-          getModelOwnedHistoryRepair({ editor, getMountedViewEditor })
+          getModelOwnedHistoryRepair({
+            editor,
+            getActiveContentRootOwner,
+            getContentRootOwnerViewEditor,
+            getMountedViewEditor,
+          })
         )
       }
 

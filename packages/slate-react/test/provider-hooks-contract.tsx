@@ -1252,6 +1252,47 @@ describe('slate-react provider hooks contract', () => {
     await waitFor(() => expect(result.current).toBe('Type something'))
   })
 
+  test('placeholder root source tracks structural edits inside the first block', async () => {
+    const editor = createReactEditor()
+
+    Editor.replace(editor, {
+      children: [{ type: 'block', children: [{ text: '' }] }],
+      selection: null,
+    })
+
+    const { result } = renderHook(() => usePlaceholderValue('Type something'), {
+      wrapper: ({ children }) => (
+        <Slate editor={editor}>
+          <Editable />
+          {children}
+        </Slate>
+      ),
+    })
+
+    await waitFor(() => expect(result.current).toBe('Type something'))
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.nodes.insert({ text: 'x' } as never, { at: [0, 1] })
+      })
+    })
+
+    expect(result.current).toBeUndefined()
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.text.delete({
+          at: {
+            anchor: { path: [0, 0], offset: 0 },
+            focus: { path: [0, 0], offset: 1 },
+          },
+        })
+      })
+    })
+
+    await waitFor(() => expect(result.current).toBe('Type something'))
+  })
+
   test('placeholder root source ignores selection-only commits', async () => {
     const editor = createReactEditor()
 

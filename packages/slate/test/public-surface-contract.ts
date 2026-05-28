@@ -399,6 +399,16 @@ describe('primary slate package surface', () => {
     assert.equal(rootSource.includes('EditorElementReadOnlyOptions'), false)
   })
 
+  it('exports public update callback types from the primary package', () => {
+    const rootSource = readFileSync(
+      resolve(repoRoot, 'packages/slate/src/index.ts'),
+      'utf8'
+    )
+
+    assert.match(rootSource, /\bEditorUpdateContext\b/)
+    assert.match(rootSource, /\bEditorUpdateTransaction\b/)
+  })
+
   it('does not export the editor-state static namespace as a value', () => {
     assert.equal('Editor' in Slate, false)
   })
