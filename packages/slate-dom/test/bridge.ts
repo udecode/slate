@@ -674,6 +674,58 @@ describe('slate-dom bridge', () => {
     })
   })
 
+  it('does not double count projected leaf offsets when importing DOM points', () => {
+    withDom(({ document }) => {
+      const editor = createParagraphEditor()
+      const root = mountEditorRoot(editor, document)
+
+      const owner = document.createElement('span')
+      const firstLeaf = document.createElement('span')
+      const middleLeaf = document.createElement('span')
+      const lastLeaf = document.createElement('span')
+      const first = document.createElement('span')
+      const middle = document.createElement('span')
+      const last = document.createElement('span')
+      const firstText = document.createTextNode('a')
+      const middleText = document.createTextNode('lph')
+      const lastText = document.createTextNode('a beta')
+
+      firstLeaf.setAttribute('data-slate-leaf', 'true')
+      firstLeaf.setAttribute('data-slate-leaf-start', '0')
+      firstLeaf.setAttribute('data-slate-leaf-end', '1')
+      middleLeaf.setAttribute('data-slate-leaf', 'true')
+      middleLeaf.setAttribute('data-slate-leaf-start', '1')
+      middleLeaf.setAttribute('data-slate-leaf-end', '4')
+      lastLeaf.setAttribute('data-slate-leaf', 'true')
+      lastLeaf.setAttribute('data-slate-leaf-start', '4')
+      lastLeaf.setAttribute('data-slate-leaf-end', '10')
+      first.setAttribute('data-slate-string', 'true')
+      middle.setAttribute('data-slate-string', 'true')
+      last.setAttribute('data-slate-string', 'true')
+
+      first.appendChild(firstText)
+      middle.appendChild(middleText)
+      last.appendChild(lastText)
+      firstLeaf.appendChild(first)
+      middleLeaf.appendChild(middle)
+      lastLeaf.appendChild(last)
+      owner.append(firstLeaf, middleLeaf, lastLeaf)
+      root.appendChild(owner)
+      bindTextOwner(editor, [0, 0], owner)
+
+      expect(
+        editor.api.dom.assertSlatePoint([middleText, 1], {
+          exactMatch: false,
+        })
+      ).toEqual({ path: [0, 0], offset: 2 })
+      expect(
+        editor.api.dom.assertSlatePoint([lastText, 2], {
+          exactMatch: false,
+        })
+      ).toEqual({ path: [0, 0], offset: 6 })
+    })
+  })
+
   it('adjusts zero-width DOM range offsets when converting a collapsed Slate range', () => {
     withDom(({ document }) => {
       const editor = createParagraphEditor()

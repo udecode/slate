@@ -2881,8 +2881,8 @@ test.describe('On richtext example', () => {
       | undefined
 
     expect(moveTrace?.selectionPolicy).toEqual({
-      kind: 'import-dom',
-      reason: 'unknown-selection',
+      kind: 'preserve-model',
+      reason: 'model-owned',
     })
     expect(moveTrace?.repairPolicy).toEqual({
       kind: 'none',

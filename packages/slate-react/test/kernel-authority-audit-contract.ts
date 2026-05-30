@@ -293,7 +293,7 @@ test('root selector source ownership is fenced to named source modules', () => {
     editableRootRuntimeFiles,
     {
       'packages/slate-react/src/editable/root-selector-sources.ts': {
-        count: 5,
+        count: 6,
         next: 'root-source',
         owner: 'Editable root selector sources',
         rationale:
@@ -832,7 +832,7 @@ test('mutation and repair authority has an explicit remaining inventory', () => 
     /\b(requestRepair|applyEditableRepairRequest|repairDOMInput|domRepairQueue\.repair|repairCaretAfterModelOperation|repairCaretAfterModelTextInsert)\(/g,
     {
       'packages/slate-react/src/editable/dom-repair-queue.ts': {
-        count: 6,
+        count: 5,
         next: 'central-owner',
         owner: 'DOM repair queue',
         rationale: 'Repair queue is the central DOM repair executor.',

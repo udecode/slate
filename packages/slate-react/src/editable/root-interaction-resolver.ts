@@ -21,7 +21,11 @@ export type RootInteractionTarget =
 export type RootInteractionMouseDownAction =
   | { type: 'ignore' }
   | { type: 'place-native-editable' }
-  | { preventDefault: true; type: 'activate-root' }
+  | {
+      fallbackSelection?: RootInteractionFocusSelection
+      preventDefault: true
+      type: 'activate-root'
+    }
   | { preventDefault: true; type: 'place-editable-root' }
 
 export type RootInteractionFocusSelection = 'end' | 'preserve' | 'restore'
@@ -29,7 +33,11 @@ export type RootInteractionFocusSelection = 'end' | 'preserve' | 'restore'
 export type RootInteractionMouseUpAction =
   | { type: 'ignore' }
   | { range: Range; type: 'set-selection' }
-  | { selection: RootInteractionFocusSelection; type: 'focus-root' }
+  | {
+      fallbackSelection?: RootInteractionFocusSelection
+      selection: RootInteractionFocusSelection
+      type: 'focus-root'
+    }
 
 export type RootInteractionSelectionMode = 'end' | 'restore'
 
@@ -208,7 +216,8 @@ export const resolveRootInteractionMouseUp = ({
 
   if (pendingAction.type === 'place-editable-root') {
     return {
-      selection: 'end',
+      fallbackSelection: 'end',
+      selection,
       type: 'focus-root',
     }
   }
@@ -222,6 +231,7 @@ export const resolveRootInteractionMouseUp = ({
 
   if (pendingAction.type === 'activate-root') {
     return {
+      fallbackSelection: pendingAction.fallbackSelection ?? 'end',
       selection,
       type: 'focus-root',
     }
@@ -235,6 +245,7 @@ export const resolveRootInteractionMouseUp = ({
   }
 
   return {
+    fallbackSelection: 'end',
     selection,
     type: 'focus-root',
   }

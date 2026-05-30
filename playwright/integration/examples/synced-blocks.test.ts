@@ -24,6 +24,15 @@ const getBrowserRedoHotkey = async (root: Locator) =>
       /Mac OS X/.test(navigator.userAgent) ? 'Meta+Shift+Z' : 'Control+Shift+Z'
     )
 
+const getBrowserWordForwardHotkey = async (root: Locator) =>
+  root
+    .page()
+    .evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent)
+        ? 'Alt+ArrowRight'
+        : 'Control+ArrowRight'
+    )
+
 const getSyncedBlock = (
   page: Parameters<typeof openExample>[0],
   index: number
@@ -807,9 +816,495 @@ test.describe('synced blocks example', () => {
         segments: { backward: true },
       })
     await expect.poll(() => getRenderedViewSelectionText(page)).toContain('p1')
-    await expect.poll(() => getNativeSelectionText(page)).not.toBe(
-      'Shared mission'
+    await expect
+      .poll(() => getNativeSelectionText(page))
+      .not.toBe('Shared mission')
+  })
+
+  test('extends keyboard selection from a synced content root into the next owner block', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected selection proof uses Chromium caret geometry'
     )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+    const first = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-first-copy',
+      firstEditor
+    )
+    const selectedText = 'updates every synced'
+    const selectionStart = SHARED_BODY_SECOND.indexOf(selectedText)
+
+    await first.selection.selectDOM({
+      anchor: { path: [1, 0], offset: selectionStart },
+      focus: { path: [1, 0], offset: selectionStart + selectedText.length },
+    })
+    await expect.poll(() => getNativeSelectionText(page)).toBe(selectedText)
+
+    await page.keyboard.press('Shift+ArrowDown')
+
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: { path: [1, 0], root: SHARED_ROOT },
+        },
+        focus: {
+          point: { path: [2, 0] },
+        },
+        segments: { backward: false },
+      })
+    await expect
+      .poll(() => getRenderedViewSelectionText(page))
+      .toContain('Betwee')
+    await expect
+      .poll(() => getRenderedViewSelectionTextBySharedCopy(page))
+      .toEqual([expect.stringMatching(/\S/), ''])
+    await expect.poll(() => getNativeSelectionText(page)).not.toBe(selectedText)
+  })
+
+  test('extends collapsed keyboard selection from a synced content root into owner siblings', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected selection proof uses Chromium keyboard events'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+    const first = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-first-copy',
+      firstEditor
+    )
+
+    await first.selection.collapse({ path: [0, 0], offset: 0 })
+    await focusRoot(firstEditor)
+    await page.keyboard.press('Shift+ArrowLeft')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: { path: [0, 0], root: SHARED_ROOT, offset: 0 },
+        },
+        focus: { point: { path: [0, 0], offset: 'p1'.length - 1 } },
+        segments: { backward: true },
+      })
+
+    await setViewSelection(outerEditor, null)
+    await first.selection.collapse({ path: [0, 0], offset: 0 })
+    await focusRoot(firstEditor)
+    await page.keyboard.press('Shift+ArrowUp')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: { path: [0, 0], root: SHARED_ROOT, offset: 0 },
+        },
+        focus: { point: { path: [0, 0] } },
+        segments: { backward: true },
+      })
+
+    await setViewSelection(outerEditor, null)
+    await first.selection.collapse({
+      path: [1, 0],
+      offset: SHARED_BODY_SECOND.length,
+    })
+    await focusRoot(firstEditor)
+    await page.keyboard.press('Shift+ArrowRight')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: {
+            path: [1, 0],
+            root: SHARED_ROOT,
+            offset: SHARED_BODY_SECOND.length,
+          },
+        },
+        focus: { point: { path: [2, 0], offset: 1 } },
+        segments: { backward: false },
+      })
+
+    await setViewSelection(outerEditor, null)
+    await first.selection.collapse({
+      path: [1, 0],
+      offset: SHARED_BODY_SECOND.length,
+    })
+    await focusRoot(firstEditor)
+    await page.keyboard.press('Shift+ArrowDown')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: {
+            path: [1, 0],
+            root: SHARED_ROOT,
+            offset: SHARED_BODY_SECOND.length,
+          },
+        },
+        focus: { point: { path: [2, 0] } },
+        segments: { backward: false },
+      })
+  })
+
+  test('promotes local Shift+Arrow selection from inside a synced content root into owner siblings', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected selection proof uses Chromium keyboard events'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+    const first = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-first-copy',
+      firstEditor
+    )
+
+    await first.selection.collapse({ path: [0, 0], offset: 1 })
+    await focusRoot(firstEditor)
+    await page.keyboard.press('Shift+ArrowLeft')
+    await expect.poll(() => getViewSelection(outerEditor)).toBe(null)
+    await expect.poll(() => getNativeSelectionText(page)).toBe('S')
+
+    await page.keyboard.press('Shift+ArrowLeft')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: { path: [0, 0], root: SHARED_ROOT, offset: 1 },
+        },
+        focus: { point: { path: [0, 0], offset: 'p1'.length - 1 } },
+        segments: { backward: true },
+      })
+    await expect.poll(() => getRenderedViewSelectionText(page)).toBe('1S')
+    await expect.poll(() => getNativeSelectionText(page)).toBe('')
+
+    await setViewSelection(outerEditor, null)
+    await first.selection.collapse({
+      path: [1, 0],
+      offset: SHARED_BODY_SECOND.length - 1,
+    })
+    await focusRoot(firstEditor)
+    await page.keyboard.press('Shift+ArrowRight')
+    await expect.poll(() => getViewSelection(outerEditor)).toBe(null)
+    await expect.poll(() => getNativeSelectionText(page)).toBe('.')
+
+    await page.keyboard.press('Shift+ArrowRight')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: {
+            path: [1, 0],
+            root: SHARED_ROOT,
+            offset: SHARED_BODY_SECOND.length - 1,
+          },
+        },
+        focus: { point: { path: [2, 0], offset: 1 } },
+        segments: { backward: false },
+      })
+    await expect.poll(() => getRenderedViewSelectionText(page)).toBe('.B')
+    await expect.poll(() => getNativeSelectionText(page)).toBe('')
+  })
+
+  test('extends vertical keyboard selection from a content-root line into visible owner text', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected selection proof uses Chromium keyboard events'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+    const first = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-first-copy',
+      firstEditor
+    )
+
+    await first.selection.collapse({ path: [0, 0], offset: 'Shared'.length })
+    await focusRoot(firstEditor)
+    await page.keyboard.press('Shift+ArrowUp')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: {
+            path: [0, 0],
+            root: SHARED_ROOT,
+            offset: 'Shared'.length,
+          },
+        },
+        focus: { point: { path: [0, 0], offset: 0 } },
+        segments: { backward: true },
+      })
+    await expect.poll(() => getRenderedViewSelectionText(page)).toBe('p1Shared')
+
+    await page.keyboard.press('Shift+ArrowUp')
+    await expect.poll(() => getRenderedViewSelectionText(page)).toBe('p1Shared')
+
+    await setViewSelection(outerEditor, null)
+    await first.selection.collapse({
+      path: [1, 0],
+      offset: 'Editing any'.length,
+    })
+    await focusRoot(firstEditor)
+    await page.keyboard.press('Shift+ArrowDown')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: {
+            path: [1, 0],
+            root: SHARED_ROOT,
+            offset: 'Editing any'.length,
+          },
+        },
+        focus: { point: { path: [2, 0] } },
+        segments: { backward: false },
+      })
+    await expect
+      .poll(() => getRenderedViewSelectionText(page))
+      .toContain('Betwee')
+    await expect.poll(() => getNativeSelectionText(page)).toBe('')
+  })
+
+  test('continues vertical keyboard selection across multiple content roots', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected selection proof uses Chromium keyboard events'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+    const first = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-first-copy',
+      firstEditor
+    )
+
+    await first.selection.collapse({
+      path: [1, 0],
+      offset: 'Editing any'.length,
+    })
+    await focusRoot(firstEditor)
+
+    await page.keyboard.press('Shift+ArrowDown')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: {
+            path: [1, 0],
+            root: SHARED_ROOT,
+            offset: 'Editing any'.length,
+          },
+        },
+        focus: {
+          point: { path: [2, 0], offset: 'Editing any'.length },
+        },
+        segments: { backward: false },
+      })
+    await expect
+      .poll(() => getRenderedViewSelectionText(page))
+      .toContain('Between syn')
+
+    await page.keyboard.press('Shift+ArrowDown')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: {
+            path: [1, 0],
+            root: SHARED_ROOT,
+            offset: 'Editing any'.length,
+          },
+        },
+        focus: {
+          owner: {
+            childRoot: SEPARATE_ROOT,
+            ownerPath: [3],
+            ownerRoot: 'main',
+          },
+          point: {
+            path: [0, 0],
+            root: SEPARATE_ROOT,
+            offset: 'Editing any'.length,
+          },
+        },
+        segments: { backward: false },
+      })
+    await expect
+      .poll(() => getRenderedViewSelectionText(page))
+      .toContain('Separate sy')
+    await expect.poll(() => getNativeSelectionText(page)).toBe('')
+  })
+
+  test('extends projected vertical selection to the document-bottom line end before no-op', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected selection proof uses Chromium keyboard events'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+    const first = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-first-copy',
+      firstEditor
+    )
+    const anchorOffset = SHARED_BODY_SECOND.indexOf('updates')
+
+    await first.selection.collapse({
+      path: [1, 0],
+      offset: anchorOffset,
+    })
+    await focusRoot(firstEditor)
+
+    for (let i = 0; i < 7; i++) {
+      await page.keyboard.press('Shift+ArrowDown')
+    }
+
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: {
+            path: [1, 0],
+            root: SHARED_ROOT,
+            offset: anchorOffset,
+          },
+        },
+        focus: { point: { path: [6, 0], offset: 'p'.length } },
+        segments: { backward: false },
+      })
+    await expect.poll(() => getNativeSelectionText(page)).toBe('')
+
+    await page.keyboard.press('Shift+ArrowDown')
+
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: {
+            path: [1, 0],
+            root: SHARED_ROOT,
+            offset: anchorOffset,
+          },
+        },
+        focus: { point: { path: [6, 0], offset: 'p2'.length } },
+        segments: { backward: false },
+      })
+    await expect.poll(() => getRenderedViewSelectionText(page)).toContain('p2')
+    await expect.poll(() => getNativeSelectionText(page)).toBe('')
+
+    await page.keyboard.press('Shift+ArrowDown')
+
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: firstSharedOwner,
+          point: {
+            path: [1, 0],
+            root: SHARED_ROOT,
+            offset: anchorOffset,
+          },
+        },
+        focus: { point: { path: [6, 0], offset: 'p2'.length } },
+        segments: { backward: false },
+      })
+    await expect.poll(() => getNativeSelectionText(page)).toBe('')
+  })
+
+  test('keeps left-edge vertical selection from overselecting the synced root line', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected selection proof uses Chromium caret geometry'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-outer',
+      outerEditor
+    )
+
+    await outer.selection.collapse({ path: [0, 0], offset: 0 })
+    await focusRoot(outerEditor)
+    await outer.press('Shift+ArrowDown')
+
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: { point: { path: [0, 0], offset: 0 } },
+        focus: {
+          owner: firstSharedOwner,
+          point: { path: [0, 0], root: SHARED_ROOT, offset: 0 },
+        },
+        segments: { backward: false },
+      })
+    await expect.poll(() => getRenderedViewSelectionText(page)).toContain('p1')
+    await expect
+      .poll(() => getRenderedViewSelectionTextBySharedCopy(page))
+      .toEqual(['', ''])
   })
 
   test('mouse selection across synced blocks becomes the same visible-order selection as sibling blocks', async ({
@@ -1668,6 +2163,230 @@ test.describe('synced blocks example', () => {
       })
   })
 
+  test('Enter over a projected Shift+Arrow selection inserts a paragraph break across the outer and synced roots', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected input proof uses Chromium caret geometry'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page, {
+      patterns: ['Cannot find a descendant', 'Could not set focus'],
+    })
+
+    try {
+      await openExample(page, 'synced-blocks', {
+        ready: { editor: 'visible' },
+      })
+
+      const outerEditor = page.locator('[data-slate-editor="true"]').first()
+      const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+      const secondEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 1)
+      const outer = createSlateBrowserEditorHarness(
+        page,
+        'synced-blocks-outer',
+        outerEditor
+      )
+
+      await outer.selection.collapse({ path: [0, 0], offset: 1 })
+      await focusRoot(outerEditor)
+      await setViewSelection(outerEditor, {
+        anchor: { point: { path: [0, 0], offset: 1 } },
+        focus: {
+          owner: firstSharedOwner,
+          point: { path: [0, 0], root: SHARED_ROOT, offset: 2 },
+        },
+        graph: firstSharedProjectionGraph,
+      })
+      await expect.poll(() => getViewSelection(outerEditor)).not.toBe(null)
+
+      await page.keyboard.press('Enter')
+
+      const syncedRemainder = SHARED_BODY_FIRST.slice(2)
+
+      await expect(outerEditor.getByText('p', { exact: true })).toBeVisible()
+      await expect(firstEditor).toContainText(syncedRemainder)
+      await expect(firstEditor).not.toContainText(SHARED_BODY_FIRST)
+      await expect(secondEditor).toContainText(syncedRemainder)
+      await expect.poll(() => getViewSelection(outerEditor)).toBe(null)
+      await expect
+        .poll(() => outer.selection.get())
+        .toEqual({
+          anchor: { path: [1, 0], offset: 0 },
+          focus: { path: [1, 0], offset: 0 },
+        })
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('Backspace over a projected selection from a synced body into the owner document deletes without crashing', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected input proof uses Chromium caret geometry'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page, {
+      patterns: ['Cannot find a descendant', 'Could not set focus'],
+    })
+
+    try {
+      await openExample(page, 'synced-blocks', {
+        ready: { editor: 'visible' },
+      })
+
+      const outerEditor = page.locator('[data-slate-editor="true"]').first()
+      const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+      const secondEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 1)
+      const first = createSlateBrowserEditorHarness(
+        page,
+        'synced-blocks-first-copy',
+        firstEditor
+      )
+      const outer = createSlateBrowserEditorHarness(
+        page,
+        'synced-blocks-outer',
+        outerEditor
+      )
+      const anchorOffset = SHARED_BODY_SECOND.indexOf('any')
+      const selectedText = SHARED_BODY_SECOND.slice(anchorOffset)
+
+      await first.selection.selectDOM({
+        anchor: { path: [1, 0], offset: anchorOffset },
+        focus: { path: [1, 0], offset: SHARED_BODY_SECOND.length },
+      })
+      await expect.poll(() => getNativeSelectionText(page)).toBe(selectedText)
+
+      await page.keyboard.press('Shift+ArrowDown')
+
+      await expect
+        .poll(() => getRenderedViewSelectionText(page))
+        .toContain('any copy updates every synced copy.Between synced copies.')
+      await expect
+        .poll(() => getViewSelection(firstEditor))
+        .toMatchObject({
+          anchor: {
+            owner: firstSharedOwner,
+            point: {
+              path: [1, 0],
+              root: SHARED_ROOT,
+              offset: anchorOffset,
+            },
+          },
+          focus: {
+            point: { path: [2, 0] },
+          },
+          segments: { backward: false },
+        })
+      await expect
+        .poll(() => getNativeSelectionText(page))
+        .not.toBe(selectedText)
+
+      await page.keyboard.press('Backspace')
+
+      await expect
+        .poll(() => first.get.modelText())
+        .toBe(`${SHARED_BODY_FIRST}Editing `)
+      await expect
+        .poll(() =>
+          createSlateBrowserEditorHarness(
+            page,
+            'synced-blocks-second-copy',
+            secondEditor
+          ).get.modelText()
+        )
+        .toBe(`${SHARED_BODY_FIRST}Editing `)
+      await expect
+        .poll(() => outer.get.modelText())
+        .toBe('p1Between synced documents.p2')
+      await expect.poll(() => getViewSelection(outerEditor)).toBe(null)
+      await expect.poll(() => getNativeSelectionText(page)).toBe('')
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('Enter over a projected selection from a synced body into the owner document inserts a paragraph break without crashing', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected input proof uses Chromium caret geometry'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page, {
+      patterns: ['Cannot find a descendant', 'Could not set focus'],
+    })
+
+    try {
+      await openExample(page, 'synced-blocks', {
+        ready: { editor: 'visible' },
+      })
+
+      const outerEditor = page.locator('[data-slate-editor="true"]').first()
+      const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+      const secondEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 1)
+      const first = createSlateBrowserEditorHarness(
+        page,
+        'synced-blocks-first-copy',
+        firstEditor
+      )
+      const outer = createSlateBrowserEditorHarness(
+        page,
+        'synced-blocks-outer',
+        outerEditor
+      )
+      const anchorOffset = SHARED_BODY_SECOND.indexOf('any')
+      const selectedText = SHARED_BODY_SECOND.slice(anchorOffset)
+
+      await first.selection.selectDOM({
+        anchor: { path: [1, 0], offset: anchorOffset },
+        focus: { path: [1, 0], offset: SHARED_BODY_SECOND.length },
+      })
+      await expect.poll(() => getNativeSelectionText(page)).toBe(selectedText)
+
+      await page.keyboard.press('Shift+ArrowDown')
+
+      await expect
+        .poll(() => getRenderedViewSelectionText(page))
+        .toContain('any copy updates every synced copy.Between synced copies.')
+
+      await page.keyboard.press('Enter')
+
+      await expect
+        .poll(() => first.get.modelText())
+        .toBe(`${SHARED_BODY_FIRST}Editing `)
+      await expect
+        .poll(() =>
+          createSlateBrowserEditorHarness(
+            page,
+            'synced-blocks-second-copy',
+            secondEditor
+          ).get.modelText()
+        )
+        .toBe(`${SHARED_BODY_FIRST}Editing `)
+      await expect
+        .poll(() => first.selection.get())
+        .toEqual({
+          anchor: { path: [2, 0], offset: 0 },
+          focus: { path: [2, 0], offset: 0 },
+        })
+      await expect
+        .poll(() => outer.get.modelText())
+        .toBe('p1Between synced documents.p2')
+      await expect.poll(() => getViewSelection(outerEditor)).toBe(null)
+      await expect.poll(() => getNativeSelectionText(page)).toBe('')
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
   test('Delete after native selection inside a synced body keeps the outer document mounted', async ({
     page,
   }, testInfo) => {
@@ -1973,6 +2692,45 @@ test.describe('synced blocks example', () => {
           path: [4, 0],
           offset: 'Between synced documents.'.length,
         },
+      })
+  })
+
+  test('moves word navigation into synced root blocks instead of skipping them', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop word-navigation proof uses Chromium keyboard events'
+    )
+
+    await openExample(page, 'synced-blocks', {
+      ready: { editor: 'visible' },
+    })
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const firstEditor = getSyncedEditorByRoot(page, SHARED_ROOT, 0)
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-outer',
+      outerEditor
+    )
+    const first = createSlateBrowserEditorHarness(
+      page,
+      'synced-blocks-first-copy',
+      firstEditor
+    )
+    const wordForward = await getBrowserWordForwardHotkey(outerEditor)
+
+    await outer.selection.collapse({ path: [0, 0], offset: 'p1'.length })
+    await focusRoot(outerEditor)
+    await outer.press(wordForward)
+
+    await expect(firstEditor).toBeFocused()
+    await expect
+      .poll(() => first.selection.get())
+      .toEqual({
+        anchor: { path: [0, 0], offset: 'Shared'.length },
+        focus: { path: [0, 0], offset: 'Shared'.length },
       })
   })
 

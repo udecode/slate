@@ -208,7 +208,7 @@ const table = defineEditorExtension({
           const start = editor.read(state => state.points.start(cellPath))
 
           if (PointApi.equals(selection.anchor, start)) {
-            return
+            return true
           }
         }
       }
@@ -227,7 +227,7 @@ const table = defineEditorExtension({
         )
 
         if (cell) {
-          return
+          return true
         }
       }
 

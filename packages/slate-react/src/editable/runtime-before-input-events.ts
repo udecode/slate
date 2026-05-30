@@ -167,6 +167,15 @@ export const useRuntimeBeforeInputEvents = ({
         return
       }
 
+      if (
+        shouldSkipDuplicateEditableEditingEpochCommand(editor, decision.command)
+      ) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        handledDOMBeforeInputRef.current = true
+        return
+      }
+
       if (decision.internalTarget) {
         event.stopImmediatePropagation()
         return
@@ -316,17 +325,6 @@ export const useRuntimeBeforeInputEvents = ({
           operation()
         }
         deferredOperations.current = []
-
-        if (
-          shouldSkipDuplicateEditableEditingEpochCommand(
-            editor,
-            decision.command
-          )
-        ) {
-          event.preventDefault()
-          handledDOMBeforeInputRef.current = true
-          return
-        }
 
         let native = beforeInputDecision.native
 

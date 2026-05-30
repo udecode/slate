@@ -163,10 +163,10 @@ const inline = () =>
             tx.selection.collapse({ edge: 'end' })
           }
 
-          return
+          return true
         }
 
-        next()
+        return next()
       },
     },
     elements: [

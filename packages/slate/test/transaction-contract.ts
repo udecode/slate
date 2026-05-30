@@ -1288,6 +1288,49 @@ describe('slate transaction contract', () => {
     )
   })
 
+  it('lets boolean false decline a command without stopping propagation', () => {
+    const editor = createEditor()
+    const seenCommands: string[] = []
+
+    replaceChildren(editor, [paragraph('one')])
+    selectEditor(editor, {
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    })
+
+    const unsubscribeDecline = Editor.registerCommand(
+      editor,
+      'insert_text',
+      (context) => {
+        seenCommands.push(`decline:${context.command.text}`)
+        return false
+      },
+      { priority: 2 }
+    )
+    const unsubscribeOverride = Editor.registerCommand(
+      editor,
+      'insert_text',
+      (context, next) => {
+        seenCommands.push(`override:${context.command.text}`)
+        return next({
+          ...context.command,
+          text: '?',
+        })
+      },
+      { priority: 1 }
+    )
+
+    editor.update(() => {
+      Editor.insertText(editor, '!')
+    })
+
+    unsubscribeDecline()
+    unsubscribeOverride()
+
+    assert.deepEqual(seenCommands, ['decline:!', 'override:!'])
+    assert.equal(Editor.string(editor, [0]), 'one?')
+  })
+
   it('exposes stable extension registry slots beyond commands', () => {
     const editor = createEditor()
     const registry = Editor.getExtensionRegistry(editor)

@@ -63,7 +63,7 @@ export const move: SelectionMutationMethods['move'] = (
     { options, type: 'move_selection' },
     (command) => {
       applyMove(editor, command.options)
-      return { handled: true }
+      return true
     }
   )
 }

@@ -11,11 +11,12 @@ import {
   type Range,
   RangeApi,
   type RootKey,
+  TextApi,
 } from 'slate'
 
 import { scheduleSlateReactFocus } from '../hooks/focus-scheduler'
 import {
-  focusSlateEditable,
+  type focusSlateEditable,
   focusSlateEditableAfterEventFrame,
 } from '../hooks/focus-slate-editable'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
@@ -30,6 +31,7 @@ import {
   createContentRootProjectionGraph,
   findContentRootOwners,
 } from './content-root-navigation'
+import { writeCollapsedModelSelectionDOMPreference } from './model-selection-dom-preference'
 import {
   isRootInteractionEditableFocused,
   type RootInteractionFocusSelection,
@@ -40,6 +42,14 @@ import {
   resolveRootInteractionMouseUp,
   resolveRootInteractionTarget,
 } from './root-interaction-resolver'
+import {
+  getEditableRootSlateStringCoordinatePlacement,
+  getSlateStringDocumentOffset,
+  getSlateStringEdgeOffset,
+  getSlateStringPlacementDOMPoint,
+  type SlateStringCoordinatePlacement,
+  type SlateStringPlacementDOMPoint,
+} from './slate-string-coordinate-placement'
 
 type SlateFocusableEditor = Parameters<typeof focusSlateEditable>[0]
 const MAIN_ROOT_KEY: RootKey = 'main'
@@ -60,6 +70,7 @@ export type RootInteractionControllerOptions = {
   editor: RootInteractionEditor
   getLastSelectionForRoot: (root: RootKey) => BaseSelection
   getMountedViewEditor: (root: RootKey) => RootInteractionEditor | null
+  ignoreBlankEditableRootClicks?: boolean
   root: RootKey
   selection: RootInteractionSelectionMode
   selectionBridge?: {
@@ -80,6 +91,7 @@ type PendingRootInteraction = {
   clientX: number
   clientY: number
   coordinateDragSelection: boolean
+  placementDOMPoint: SlateStringPlacementDOMPoint | null
   preventNativeSelection: boolean
   startRange: Range | null
 }
@@ -141,6 +153,7 @@ const ignoreInteraction = (): PendingRootInteraction => ({
   clientX: 0,
   clientY: 0,
   coordinateDragSelection: false,
+  placementDOMPoint: null,
   preventNativeSelection: false,
   startRange: null,
 })
@@ -376,14 +389,19 @@ const resolveProjectedDragEndpoint = ({
   editor,
   event,
   getMountedViewEditor,
+  range: resolvedRange,
+  root: resolvedRoot,
 }: {
   editor: RootInteractionEditor
   event: MouseEvent<HTMLElement>
   getMountedViewEditor: (root: RootKey) => RootInteractionEditor | null
+  range?: Range | null
+  root?: RootKey
 }): RootInteractionDragEndpoint | null => {
-  const targetRoot = getEditableRootFromTarget(event.target)
+  const targetRoot = resolvedRoot ?? getEditableRootFromTarget(event.target)
   const targetEditor = getMountedViewEditor(targetRoot) ?? editor
-  const range = targetEditor.api.dom.resolveEventRange(event.nativeEvent)
+  const range =
+    resolvedRange ?? targetEditor.api.dom.resolveEventRange(event.nativeEvent)
 
   if (!range) {
     return null
@@ -518,77 +536,108 @@ const applyModelProjectedDragSelection = ({
   return true
 }
 
-const shouldPlaceFocusedNativeEditableFromCoordinates = (
+const getEditableRootChromeCoordinatePlacement = ({
+  editor,
+  event,
+  includeInsideString = false,
+}: {
+  editor: RootInteractionEditor
   event: MouseEvent<HTMLElement>
-) => {
+  includeInsideString?: boolean
+}): SlateStringCoordinatePlacement => {
   const element = mouseEventTargetToElement(event.target)
-  const textHost = element?.closest('[data-slate-node="text"]')
-
-  if (!textHost) {
-    return false
-  }
-
-  return shouldPlaceNearSlateStringFromCoordinates({
-    event,
-    strings: Array.from(
-      textHost.querySelectorAll<HTMLElement>(
-        '[data-slate-string], [data-slate-zero-width]'
-      )
-    ),
-  })
-}
-
-const shouldPlaceEditableRootChromeFromCoordinates = (
-  event: MouseEvent<HTMLElement>
-) => {
-  const element = mouseEventTargetToElement(event.target)
-  const editableRoot = element?.closest<HTMLElement>(
+  const targetEditableRoot = element?.closest<HTMLElement>(
     '[data-slate-editor="true"]'
   )
+  const currentTargetEditableRoot = event.currentTarget.matches(
+    '[data-slate-editor="true"]'
+  )
+    ? event.currentTarget
+    : event.currentTarget.querySelector<HTMLElement>(
+        '[data-slate-editor="true"]'
+      )
+  let mountedEditableRoot: HTMLElement | null = null
 
-  if (!editableRoot || !event.currentTarget.contains(editableRoot)) {
-    return false
+  try {
+    const mountedElement = editor.api.dom.resolveDOMNode(editor)
+
+    mountedEditableRoot =
+      mountedElement instanceof HTMLElement ? mountedElement : null
+  } catch {
+    mountedEditableRoot = null
   }
 
-  return shouldPlaceNearSlateStringFromCoordinates({
-    event,
-    strings: Array.from(
-      editableRoot.querySelectorAll<HTMLElement>(
-        '[data-slate-string], [data-slate-zero-width]'
-      )
-    ),
+  const editableRoot =
+    targetEditableRoot && event.currentTarget.contains(targetEditableRoot)
+      ? targetEditableRoot
+      : (mountedEditableRoot ?? currentTargetEditableRoot)
+
+  if (!editableRoot) {
+    return null
+  }
+
+  return getEditableRootSlateStringCoordinatePlacement({
+    editableRoot,
+    event: event.nativeEvent,
+    includeInsideString,
+    target: includeInsideString ? element : null,
   })
 }
 
-const shouldPlaceNearSlateStringFromCoordinates = ({
-  event,
-  strings,
+const resolveSlateStringPlacementRange = ({
+  editor,
+  placement,
 }: {
-  event: MouseEvent<HTMLElement>
-  strings: HTMLElement[]
-}) => {
-  const nearestString = strings
-    .map((string) => {
-      const rect = string.getBoundingClientRect()
-      const verticalDistance =
-        event.clientY < rect.top
-          ? rect.top - event.clientY
-          : event.clientY > rect.bottom
-            ? event.clientY - rect.bottom
-            : 0
+  editor: RootInteractionEditor
+  placement: NonNullable<SlateStringCoordinatePlacement>
+}): Range | null => {
+  const textHost = placement.string.closest<HTMLElement>(
+    '[data-slate-node="text"]'
+  )
+  const path =
+    textHost instanceof HTMLElement
+      ? getSlateNodePathFromDOMElement(textHost)
+      : null
+  const offset = textHost
+    ? placement.offset == null
+      ? getSlateStringEdgeOffset({
+          edge: placement.edge,
+          rect: placement.rect,
+          string: placement.string,
+          textHost,
+        })
+      : getSlateStringDocumentOffset({
+          offset: placement.offset,
+          string: placement.string,
+          textHost,
+        })
+    : null
 
-      return { rect, verticalDistance }
-    })
-    .sort((left, right) => left.verticalDistance - right.verticalDistance)[0]
-
-  if (!nearestString || nearestString.verticalDistance > 16) {
-    return false
+  if (!path || offset == null) {
+    return null
   }
 
-  return (
-    event.clientX < nearestString.rect.left - 4 ||
-    event.clientX > nearestString.rect.right + 4
-  )
+  const node = editor.read((state) => {
+    if (!state.nodes.hasPath(path)) {
+      return null
+    }
+
+    return state.nodes.get(path)[0]
+  })
+
+  if (!node) {
+    return null
+  }
+
+  const safeOffset = TextApi.isText(node)
+    ? Math.max(0, Math.min(offset, node.text.length))
+    : offset
+  const point = { path, offset: safeOffset }
+
+  return {
+    anchor: point,
+    focus: point,
+  }
 }
 
 const hasPointerMoved = (
@@ -643,6 +692,7 @@ const applyProjectedDragSelectionFromEvent = ({
         clientX: projectedDrag.clientX,
         clientY: projectedDrag.clientY,
         coordinateDragSelection: false,
+        placementDOMPoint: null,
         preventNativeSelection: false,
         startRange: null,
       },
@@ -719,6 +769,7 @@ export const useRootInteractionController = ({
   editor,
   getLastSelectionForRoot,
   getMountedViewEditor,
+  ignoreBlankEditableRootClicks = false,
   root,
   selection,
   selectionBridge,
@@ -729,26 +780,48 @@ export const useRootInteractionController = ({
 
   const focusRoot = useCallback(
     ({
+      fallbackSelection,
       forceSelection = false,
       selection: selectionPreference = selection,
     }: {
+      fallbackSelection?: RootInteractionFocusSelection
       forceSelection?: boolean
       selection?: RootInteractionFocusSelection
     } = {}) => {
       const focusEditor = getMountedViewEditor(root) ?? editor
+      const currentSelection = focusEditor.read((state) =>
+        state.selection.get()
+      )
       const getEndSelection = (): Range => {
         const point = focusEditor.read((state) => state.points.end([]))
 
         return { anchor: point, focus: point }
       }
-      const focusSelection =
+      let focusSelection =
         selectionPreference === 'end'
           ? getEndSelection()
           : selectionPreference === 'restore' &&
-              (forceSelection ||
-                !focusEditor.read((state) => state.selection.get()))
-            ? (getLastSelectionForRoot(root) ?? getEndSelection())
+              (forceSelection || !currentSelection)
+            ? getLastSelectionForRoot(root)
             : null
+
+      if (
+        selectionPreference === 'restore' &&
+        !focusSelection &&
+        !currentSelection &&
+        fallbackSelection === 'end'
+      ) {
+        focusSelection = getEndSelection()
+      }
+
+      if (
+        selectionPreference === 'restore' &&
+        !focusSelection &&
+        !currentSelection
+      ) {
+        return
+      }
+
       const applyFocusSelection = () => {
         if (!focusSelection) {
           return false
@@ -776,13 +849,20 @@ export const useRootInteractionController = ({
   )
 
   const applyInteractionAction = useCallback(
-    (action: RootInteractionMouseUpAction) => {
+    (
+      action: RootInteractionMouseUpAction,
+      options: {
+        placementDOMPoint?: SlateStringPlacementDOMPoint | null
+      } = {}
+    ) => {
       if (action.type === 'ignore') {
         return
       }
       const focusEditor = getMountedViewEditor(root) ?? editor
 
       if (action.type === 'set-selection') {
+        const range = withInteractionRangeRoot(action.range, root)
+
         selectionBridge?.beforeModelSelection()
         try {
           focusEditor.api.dom
@@ -792,10 +872,15 @@ export const useRootInteractionController = ({
           // The regular focus path below handles temporarily unmounted roots.
         }
         writeSlateViewSelection(focusEditor, null)
+        writeCollapsedModelSelectionDOMPreference(
+          focusEditor,
+          range,
+          options.placementDOMPoint ?? null
+        )
         focusEditor.update((tx) => {
-          tx.selection.set(withInteractionRangeRoot(action.range, root))
+          tx.selection.set(range)
         })
-        focusSlateEditable(focusEditor)
+        focusSlateEditableAfterEventFrame(focusEditor)
         selectionBridge?.syncDOMSelectionToEditor()
         scheduleSlateReactFocus(() => {
           selectionBridge?.syncDOMSelectionToEditor()
@@ -804,6 +889,7 @@ export const useRootInteractionController = ({
       }
 
       focusRoot({
+        fallbackSelection: action.fallbackSelection,
         forceSelection: action.selection === 'restore',
         selection: action.selection,
       })
@@ -831,36 +917,108 @@ export const useRootInteractionController = ({
           : undefined,
         target,
       })
+      const shouldResolveRootChromeFromCoordinates =
+        action.type === 'place-editable-root' ||
+        target.kind === 'editable-root' ||
+        target.kind === 'native-editable' ||
+        target.kind === 'root-chrome'
+      const rootChromeCoordinatePlacement =
+        shouldResolveRootChromeFromCoordinates
+          ? getEditableRootChromeCoordinatePlacement({
+              editor,
+              event,
+              includeInsideString: target.kind === 'native-editable',
+            })
+          : null
+      const rootEdgeCoordinatePlacement =
+        rootChromeCoordinatePlacement?.source === 'root-edge'
       const placeRootChromeFromCoordinates =
-        action.type === 'activate-root' &&
-        shouldPlaceEditableRootChromeFromCoordinates(event)
-      const placeFocusedNativeEditableFromCoordinates =
-        action.type === 'ignore' &&
+        rootChromeCoordinatePlacement !== null
+      const nativeEditableChromeTarget =
         target.kind === 'native-editable' &&
-        shouldPlaceFocusedNativeEditableFromCoordinates(event)
-      const preventNativeSelection =
-        action.type === 'place-native-editable' ||
-        placeRootChromeFromCoordinates ||
-        placeFocusedNativeEditableFromCoordinates
+        !target.target.closest(
+          '[data-slate-string], [data-slate-zero-width], [data-slate-leaf], [data-slate-node="text"]'
+        )
+      const focusedNativeEditableCoordinateTarget =
+        ignoreBlankEditableRootClicks &&
+        action.type === 'ignore' &&
+        target.kind === 'native-editable'
+      const ignoreBlankNativeEditableClick =
+        focusedNativeEditableCoordinateTarget && !placeRootChromeFromCoordinates
+      const rootChromeSelfTarget =
+        target.kind === 'root-chrome' && target.target === event.currentTarget
+      const coordinatePlacementOwnsMouseDown =
+        placeRootChromeFromCoordinates &&
+        !rootEdgeCoordinatePlacement &&
+        (action.type !== 'ignore' ||
+          focusedNativeEditableCoordinateTarget ||
+          nativeEditableChromeTarget ||
+          target.kind === 'editable-root' ||
+          (target.kind === 'root-chrome' && !rootChromeSelfTarget))
+      const coordinateDragRootChromePlacement =
+        coordinatePlacementOwnsMouseDown && !rootEdgeCoordinatePlacement
+      const ignoreBlankEditableRootClick =
+        ignoreBlankEditableRootClicks &&
+        target.kind === 'editable-root' &&
+        (action.type === 'place-editable-root' || action.type === 'ignore') &&
+        !placeRootChromeFromCoordinates
+      const ignoreBlankRootChromeClick =
+        ignoreBlankEditableRootClicks &&
+        action.type === 'activate-root' &&
+        target.kind === 'root-chrome' &&
+        target.target === event.currentTarget &&
+        !placeRootChromeFromCoordinates
 
       if (
         action.type === 'place-native-editable' ||
-        placeFocusedNativeEditableFromCoordinates
+        coordinateDragRootChromePlacement
       ) {
         action = { type: 'place-native-editable' }
+      } else if (
+        ignoreBlankEditableRootClick ||
+        ignoreBlankNativeEditableClick ||
+        ignoreBlankRootChromeClick
+      ) {
+        action = { type: 'ignore' }
       }
 
-      const focusEditor = getMountedViewEditor(root) ?? editor
-      const startRange =
+      const preventNativeSelection =
         action.type === 'place-native-editable' ||
-        placeRootChromeFromCoordinates
+        coordinatePlacementOwnsMouseDown ||
+        ignoreBlankEditableRootClick ||
+        ignoreBlankNativeEditableClick ||
+        ignoreBlankRootChromeClick
+
+      const focusEditor = getMountedViewEditor(root) ?? editor
+      const startRange = rootChromeCoordinatePlacement
+        ? (resolveSlateStringPlacementRange({
+            editor: focusEditor,
+            placement: rootChromeCoordinatePlacement,
+          }) ?? focusEditor.api.dom.resolveEventRange(event.nativeEvent))
+        : action.type === 'place-native-editable'
           ? focusEditor.api.dom.resolveEventRange(event.nativeEvent)
           : null
-      const projectedDragEndpoint = resolveProjectedDragEndpoint({
-        editor,
-        event,
-        getMountedViewEditor,
-      })
+      const placementDOMPoint = rootChromeCoordinatePlacement
+        ? getSlateStringPlacementDOMPoint(rootChromeCoordinatePlacement)
+        : null
+
+      if (ignoreBlankEditableRootClick && !startRange) {
+        action = { type: 'ignore' }
+      }
+
+      const projectedDragEndpoint =
+        ignoreBlankEditableRootClick ||
+        ignoreBlankNativeEditableClick ||
+        ignoreBlankRootChromeClick ||
+        rootEdgeCoordinatePlacement
+          ? null
+          : resolveProjectedDragEndpoint({
+              editor,
+              event,
+              getMountedViewEditor,
+              range: rootChromeCoordinatePlacement ? startRange : undefined,
+              root: rootChromeCoordinatePlacement ? root : undefined,
+            })
 
       pendingProjectedDrag = projectedDragEndpoint
         ? {
@@ -875,12 +1033,17 @@ export const useRootInteractionController = ({
         action,
         clientX: event.clientX,
         clientY: event.clientY,
-        coordinateDragSelection: placeRootChromeFromCoordinates,
+        coordinateDragSelection: coordinateDragRootChromePlacement,
+        placementDOMPoint,
         preventNativeSelection,
         startRange,
       }
 
       if (action.type === 'ignore') {
+        if (preventNativeSelection) {
+          event.preventDefault()
+        }
+
         return
       }
 
@@ -897,10 +1060,13 @@ export const useRootInteractionController = ({
 
       if (action.type === 'place-native-editable') {
         if (startRange) {
-          applyInteractionAction({
-            range: startRange,
-            type: 'set-selection',
-          })
+          applyInteractionAction(
+            {
+              range: startRange,
+              type: 'set-selection',
+            },
+            { placementDOMPoint }
+          )
         }
         return
       }
@@ -920,6 +1086,7 @@ export const useRootInteractionController = ({
       disabled,
       editor,
       getMountedViewEditor,
+      ignoreBlankEditableRootClicks,
       root,
       selection,
     ]
@@ -1050,10 +1217,34 @@ export const useRootInteractionController = ({
         pendingInteraction.startRange &&
         !pointerMoved
       ) {
+        applyInteractionAction(
+          {
+            range: pendingInteraction.startRange,
+            type: 'set-selection',
+          },
+          { placementDOMPoint: pendingInteraction.placementDOMPoint }
+        )
+        return
+      }
+
+      if (
+        (pendingAction.type === 'activate-root' ||
+          pendingAction.type === 'place-editable-root') &&
+        pendingInteraction.startRange &&
+        !pointerMoved
+      ) {
         applyInteractionAction({
           range: pendingInteraction.startRange,
           type: 'set-selection',
         })
+        return
+      }
+
+      if (
+        pendingAction.type === 'place-editable-root' &&
+        !pendingInteraction.startRange &&
+        pointerMoved
+      ) {
         return
       }
 

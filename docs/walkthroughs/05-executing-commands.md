@@ -125,7 +125,7 @@ const markdownBlocks = defineEditorExtension({
                 }
               )
             })
-            return
+            return true
           }
         }
       }

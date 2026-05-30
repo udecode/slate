@@ -234,13 +234,13 @@ export const history = <const TEnabled extends boolean | undefined = undefined>(
           redo() {
             executeCommand(editor, { type: 'history_redo' }, () => {
               applyRedo(editor)
-              return { handled: true }
+              return true
             })
           },
           undo() {
             executeCommand(editor, { type: 'history_undo' }, () => {
               applyUndo(editor)
-              return { handled: true }
+              return true
             })
           },
         }

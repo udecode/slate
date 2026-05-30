@@ -37,7 +37,7 @@ describe('extension method hard cut', () => {
     const commandExtension = asExtensionInput({
       commands: [
         {
-          handler: () => ({ handled: false }),
+          handler: () => false,
           type: 'insert_text',
         },
       ],
@@ -304,11 +304,10 @@ describe('extension method hard cut', () => {
             seenText.push(text)
 
             if (text === '?') {
-              next({ text: '!' })
-              return
+              return next({ text: '!' })
             }
 
-            next()
+            return next()
           },
         },
       })
@@ -342,8 +341,10 @@ describe('extension method hard cut', () => {
         transforms: {
           insertText({ next, text, tx }) {
             seenOffsets.push(tx.selection.get()?.anchor.offset ?? -1)
-            next({ text: text.toUpperCase() })
+            const handled = next({ text: text.toUpperCase() })
             seenOffsets.push(tx.selection.get()?.anchor.offset ?? -1)
+
+            return handled
           },
         },
       })
@@ -406,7 +407,7 @@ describe('extension method hard cut', () => {
           name: 'insert-break-transform',
           transforms: {
             insertBreak({ next }) {
-              next()
+              return next()
             },
           },
         }),
@@ -421,7 +422,7 @@ describe('extension method hard cut', () => {
         name: 'insert-text-transform',
         transforms: {
           insertText({ next }) {
-            next()
+            return next()
           },
         },
       })
@@ -449,6 +450,7 @@ describe('extension method hard cut', () => {
         transforms: {
           deleteBackward({ unit }) {
             seenUnits.push(unit)
+            return true
           },
         },
       })
@@ -483,38 +485,47 @@ describe('extension method hard cut', () => {
             addMark({ key }) {
               assert.equal(key, 'bold')
               seen.push('addMark')
+              return true
             },
             collapse({ options }) {
               assert.equal(options?.edge, 'start')
               seen.push('collapse')
+              return true
             },
             delete({ options }) {
               assert.equal(options?.unit, 'character')
               seen.push('delete')
+              return true
             },
             deleteBackward({ unit }) {
               assert.equal(unit, 'character')
               seen.push('deleteBackward')
+              return true
             },
             deleteForward({ unit }) {
               assert.equal(unit, 'word')
               seen.push('deleteForward')
+              return true
             },
             deleteFragment({ options }) {
               assert.equal(options?.direction, 'backward')
               seen.push('deleteFragment')
+              return true
             },
             deselect() {
               seen.push('deselect')
+              return true
             },
             insertBreak() {
               seen.push('insertBreak')
+              return true
             },
             insertFragment({ fragment }) {
               assert.deepEqual(fragment, [
                 { type: 'paragraph', children: [{ text: 'fragment' }] },
               ])
               seen.push('insertFragment')
+              return true
             },
             insertNode({ node }) {
               assert.deepEqual(node, {
@@ -522,79 +533,98 @@ describe('extension method hard cut', () => {
                 children: [{ text: 'node' }],
               })
               seen.push('insertNode')
+              return true
             },
             insertNodes({ nodes }) {
               assert.equal(Array.isArray(nodes), true)
               seen.push('insertNodes')
+              return true
             },
             insertSoftBreak() {
               seen.push('insertSoftBreak')
+              return true
             },
             insertText({ text }) {
               assert.equal(text, '!')
               seen.push('insertText')
+              return true
             },
             liftNodes({ options }) {
               assert.deepEqual(options?.at, [0])
               seen.push('liftNodes')
+              return true
             },
             mergeNodes({ options }) {
               assert.deepEqual(options?.at, [1])
               seen.push('mergeNodes')
+              return true
             },
             move({ options }) {
               assert.equal(options?.distance, 1)
               seen.push('move')
+              return true
             },
             moveNodes({ options }) {
               assert.deepEqual(options.to, [1])
               seen.push('moveNodes')
+              return true
             },
             removeMark({ key }) {
               assert.equal(key, 'bold')
               seen.push('removeMark')
+              return true
             },
             removeNodes({ options }) {
               assert.deepEqual(options?.at, [0])
               seen.push('removeNodes')
+              return true
             },
             select({ target }) {
               assert.deepEqual(target, { path: [0, 0], offset: 0 })
               seen.push('select')
+              return true
             },
             setNodes({ props }) {
               assert.deepEqual(props, { type: 'heading' })
               seen.push('setNodes')
+              return true
             },
             setPoint({ options, props }) {
               assert.equal(options?.edge, 'anchor')
               assert.equal(props.offset, 0)
               seen.push('setPoint')
+              return true
             },
             setSelection({ props }) {
               assert.equal(props.anchor?.offset, 0)
               seen.push('setSelection')
+              return true
             },
             splitNodes({ options }) {
               assert.equal(options?.always, true)
               seen.push('splitNodes')
+              return true
             },
             toggleMark({ key, value }) {
               assert.equal(key, 'bold')
               assert.equal(value, true)
               seen.push('toggleMark')
+              return true
             },
             unsetNodes({ props }) {
               assert.deepEqual(props, ['bold'])
               seen.push('unsetNodes')
+              return true
             },
             unwrapNodes({ options }) {
               assert.deepEqual(options?.at, [0])
               seen.push('unwrapNodes')
+              return true
             },
             wrapNodes({ element }) {
               assert.equal(element.type, 'quote')
               seen.push('wrapNodes')
+              return true
             },
           },
         })
@@ -728,7 +758,7 @@ describe('extension method hard cut', () => {
         transforms: {
           insertNode({ next, node, options }) {
             seenNodes.push(node)
-            next({
+            return next({
               node: {
                 type: 'paragraph',
                 children: [{ text: 'override' }],
@@ -773,7 +803,7 @@ describe('extension method hard cut', () => {
         transforms: {
           insertText({ next }) {
             next()
-            next()
+            return next()
           },
         },
       })

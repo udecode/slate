@@ -132,6 +132,8 @@ export type EditableTextSegment<T = unknown> = {
 export type EditableTextLeafProps<T = unknown> = {
   attributes: {
     'data-slate-leaf': true
+    'data-slate-leaf-end'?: number
+    'data-slate-leaf-start'?: number
   }
   children: ReactNode
   leaf: SlateTextNode
@@ -340,9 +342,13 @@ const RenderEditableText = <T,>({
       ? splitTextByProjections(resolvedText, projections, resolvedMarks)
       : []
 
-  const leafAttributes = {
+  const getLeafAttributes = (
+    leafPosition?: EditableTextLeafProps<T>['leafPosition']
+  ) => ({
     'data-slate-leaf': true as const,
-  }
+    'data-slate-leaf-end': leafPosition?.end,
+    'data-slate-leaf-start': leafPosition?.start,
+  })
   const textNode = {
     text: resolvedText,
     ...resolvedMarks,
@@ -403,6 +409,7 @@ const RenderEditableText = <T,>({
                   start: segment.start,
                 }
               : undefined
+          const leafAttributes = getLeafAttributes(leafPosition)
 
           return (
             <React.Fragment key={`${segment.start}:${segment.end}:${index}`}>
@@ -416,7 +423,9 @@ const RenderEditableText = <T,>({
                   text: textNode,
                 })
               ) : (
-                <SlateLeaf>{decoratedSegmentContent}</SlateLeaf>
+                <SlateLeaf attributes={leafAttributes}>
+                  {decoratedSegmentContent}
+                </SlateLeaf>
               )}
             </React.Fragment>
           )
@@ -470,6 +479,7 @@ const RenderEditableText = <T,>({
             text: '',
             ...resolvedMarks,
           }
+          const leafAttributes = getLeafAttributes()
 
           return renderLeaf ? (
             renderLeaf({

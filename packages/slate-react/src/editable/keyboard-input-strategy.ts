@@ -22,6 +22,7 @@ import type { AndroidInputManager } from '../hooks/android-input-manager/android
 import { scheduleSlateReactFocus } from '../hooks/focus-scheduler'
 import { focusSlateEditable } from '../hooks/focus-slate-editable'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
+import { readSlateViewSelection } from '../view-selection'
 import { applyEditableCaretMovement } from './caret-engine'
 import {
   applyContentRootNavigation,
@@ -29,6 +30,7 @@ import {
 } from './content-root-navigation'
 import {
   isDestructiveEditableCommand,
+  isEditableEditingEpochCommand,
   markEditableEditingEpochCommandHandled,
 } from './editing-epoch-kernel'
 import { getEditableCommandFromKeyDown } from './editing-kernel'
@@ -263,6 +265,32 @@ export const applyEditableKeyDown = ({
 }): EditableKeyDownResult => {
   if (isInteractiveInternalTarget(editor, event.target)) {
     const { nativeEvent } = event
+    const nestedEditableTarget = (() => {
+      try {
+        return isNestedEditableDOMTarget(
+          ReactEditor.assertDOMNode(editor, editor),
+          event.target
+        )
+      } catch {
+        return false
+      }
+    })()
+    const projectedCommand =
+      nestedEditableTarget && readSlateViewSelection(editor)
+        ? getEditableCommandFromKeyDown({
+            event,
+            selection: readRuntimeSelection(editor),
+          })
+        : null
+
+    if (!readOnly && isEditableEditingEpochCommand(projectedCommand)) {
+      event.preventDefault()
+      event.stopPropagation()
+      applyEditableCommand({ command: projectedCommand, editor })
+      markEditableEditingEpochCommandHandled(editor, projectedCommand)
+
+      return keyDownHandled(DEFAULT_MODEL_COMMAND_REPAIR)
+    }
 
     if (!readOnly && Hotkeys.isRedo(nativeEvent)) {
       event.preventDefault()
@@ -564,6 +592,7 @@ export const applyEditableKeyDown = ({
     if (keyDownCommand?.kind === 'insert-break') {
       event.preventDefault()
       applyEditableCommand({ command: keyDownCommand, editor })
+      markEditableEditingEpochCommandHandled(editor, keyDownCommand)
 
       return keyDownHandled({
         focus: true,

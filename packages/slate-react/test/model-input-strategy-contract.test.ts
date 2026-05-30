@@ -8,6 +8,7 @@ import {
   applyModelOwnedBeforeInputOperation,
   applyModelOwnedNativeHistoryEvent,
 } from '../src/editable/model-input-strategy'
+import { applyModelOwnedDataTransferInput } from '../src/editable/mutation-controller'
 
 const createTextEditor = (text = '', offset = 0, type = 'paragraph') => {
   const editor = createEditor()
@@ -25,6 +26,65 @@ const createTextEditor = (text = '', offset = 0, type = 'paragraph') => {
 }
 
 describe('model input strategy', () => {
+  it('routes model-owned data transfer input through the editable command boundary', () => {
+    const editor = createTextEditor()
+    const data = {} as DataTransfer
+    let insertCount = 0
+
+    ;(editor as any).api = {
+      clipboard: {
+        insertData(receivedData: DataTransfer) {
+          insertCount++
+          expect(receivedData).toBe(data)
+
+          return true
+        },
+      },
+    }
+
+    expect(
+      applyModelOwnedDataTransferInput({
+        data,
+        editor: editor as ReactEditor,
+      })
+    ).toBe(true)
+    expect(insertCount).toBe(1)
+  })
+
+  it('routes model-owned insert-data beforeinput through the same command boundary', () => {
+    const editor = createTextEditor()
+    const data = {} as DataTransfer
+    let insertCount = 0
+
+    ;(editor as any).api = {
+      clipboard: {
+        insertData(receivedData: DataTransfer) {
+          insertCount++
+          expect(receivedData).toBe(data)
+
+          return true
+        },
+      },
+    }
+
+    expect(
+      applyModelOwnedBeforeInputOperation({
+        command: {
+          data,
+          kind: 'insert-data',
+        },
+        data,
+        deferredOperations: { current: [] },
+        editor: editor as ReactEditor,
+        inputType: 'insertFromPaste',
+        native: false,
+        selection: Editor.getSelection(editor),
+        setComposing: () => {},
+      })
+    ).toEqual({ kind: 'repair-caret' })
+    expect(insertCount).toBe(1)
+  })
+
   it('executes the prepared beforeinput command instead of reparsing event data', () => {
     const editor = createTextEditor()
 
@@ -89,10 +149,10 @@ describe('model input strategy', () => {
                 tx.text.delete()
                 tx.nodes.set({ type: 'list-item' })
               })
-              return
+              return true
             }
 
-            next()
+            return next()
           },
         },
       })

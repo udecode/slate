@@ -4,7 +4,7 @@ import type { DOMInputRepair, DOMRepairQueue } from './dom-repair-queue'
 import {
   beginEditableEditingEpoch,
   beginOrJoinEditableEditingEpoch,
-  isDestructiveEditableCommand,
+  isEditableEditingEpochCommand,
 } from './editing-epoch-kernel'
 import {
   beginEditableEventFrame,
@@ -128,7 +128,7 @@ export const useRuntimeKernelTraceEngine = ({
       }
       pendingKernelFrameIdRef.current = null
 
-      if (isDestructiveEditableCommand(command ?? null)) {
+      if (isEditableEditingEpochCommand(command ?? null)) {
         beginOrJoinEditableEditingEpoch(editor, {
           command: command ?? null,
           modelSelectionBefore: selection,
@@ -245,7 +245,7 @@ export const useRuntimeKernelTraceEngine = ({
         targetOwner: decision.targetOwner,
       })
 
-      if (isDestructiveEditableCommand(decision.command)) {
+      if (isEditableEditingEpochCommand(decision.command)) {
         beginEditableEditingEpoch(editor, {
           command: decision.command,
           modelSelectionBefore: decision.selectionBefore,

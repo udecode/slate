@@ -39,7 +39,7 @@ export const deleteFragment: EditorStaticApi['deleteFragment'] = (
     { direction, type: 'delete_fragment' },
     (command) => {
       applyDeleteFragment(editor, { direction: command.direction })
-      return { handled: true }
+      return true
     }
   )
 }

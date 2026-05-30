@@ -427,20 +427,18 @@ export const writeDOMSelectionData = <V extends Value>(
 export const insertDOMData = <V extends Value>(
   editor: DOMEditor<V>,
   data: DataTransfer
-) => {
+): boolean => {
   const handlers = Editor.getExtensionRegistry(editor).capabilities.get(
     'clipboard.insertData'
   ) as DOMClipboardInsertDataHandler<V>[] | undefined
 
   for (const handler of handlers ?? []) {
     if (handler(editor, data)) {
-      return
+      return true
     }
   }
 
-  if (!insertDOMFragmentData(editor, data)) {
-    insertDOMTextData(editor, data)
-  }
+  return insertDOMFragmentData(editor, data) || insertDOMTextData(editor, data)
 }
 
 export const insertDOMFragmentData = <V extends Value>(

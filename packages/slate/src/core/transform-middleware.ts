@@ -121,7 +121,7 @@ export const executeTransformMiddleware = <
   if (isApplyingTransformDefault(editor)) {
     applyDefault(args)
 
-    return { handled: true }
+    return true
   }
 
   const type = getTransformCommandType(key)
@@ -130,7 +130,7 @@ export const executeTransformMiddleware = <
   if (!handlers?.length) {
     runTransformDefault(editor, () => applyDefault(args))
 
-    return { handled: true }
+    return true
   }
 
   return executeCommand<TransformMiddlewareCommand<V, TKey>>(
@@ -142,7 +142,7 @@ export const executeTransformMiddleware = <
     (command) => {
       runTransformDefault(editor, () => applyDefault(stripCommandType(command)))
 
-      return { handled: true }
+      return true
     }
   )
 }

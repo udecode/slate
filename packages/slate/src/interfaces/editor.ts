@@ -933,7 +933,7 @@ export type EditorTransformMiddlewareMap<
       TEditor,
       EditorTransformMiddlewareArgs<ValueOf<TEditor>>[K]
     >
-  ) => EditorCommandResult | void
+  ) => EditorCommandResult
 }
 
 type EmptyQueryMiddlewareArgs = Record<never, never>
@@ -1290,9 +1290,7 @@ export type EditorCommandContext<
   editor: TEditor
 }
 
-export type EditorCommandResult = {
-  handled: boolean
-}
+export type EditorCommandResult = boolean
 
 export type EditorCommandNext<TCommand extends EditorCommand> = (
   command?: TCommand
@@ -1304,7 +1302,7 @@ export type EditorCommandHandler<
 > = (
   context: EditorCommandContext<TCommand, TEditor>,
   next: EditorCommandNext<TCommand>
-) => EditorCommandResult | void
+) => EditorCommandResult
 
 export type EditorOperationContext<TEditor extends BaseEditor<any> = Editor> = {
   editor: TEditor
@@ -1439,7 +1437,7 @@ export type EditorClipboardInsertDataContext<
   TEditor extends BaseEditor<any> = Editor,
 > = {
   editor: TEditor
-  next: () => boolean | void
+  next: () => boolean
   state: EditorStateView<ValueOf<TEditor>>
 }
 
@@ -1449,7 +1447,7 @@ export type EditorClipboardMiddlewareMap<
   insertData?: (
     data: DataTransfer,
     context: EditorClipboardInsertDataContext<TEditor>
-  ) => boolean | void
+  ) => boolean
 }
 
 export type EditorExtensionRuntimeState<TValue> = {
@@ -2354,23 +2352,6 @@ export interface EditorStaticApi {
   rangeRefs: (editor: Editor) => Set<RangeRef>
 
   /**
-   * Define a typed internal command token.
-   */
-  defineCommand: <TCommand extends EditorCommand>(
-    type: TCommand['type']
-  ) => EditorCommandDefinition<TCommand>
-
-  /**
-   * Register a command middleware handler for the editor.
-   */
-  registerCommand: <TCommand extends EditorCommand>(
-    editor: Editor,
-    command: EditorCommandReference<TCommand>,
-    handler: EditorCommandHandler<TCommand>,
-    options?: EditorCommandOptions
-  ) => () => void
-
-  /**
    * Register an extension capability value.
    */
   registerCapability: (
@@ -2516,6 +2497,25 @@ export interface EditorStaticApi {
   ) => boolean
 }
 
+export interface InternalEditorStaticApi extends EditorStaticApi {
+  /**
+   * Define a typed internal command token.
+   */
+  defineCommand: <TCommand extends EditorCommand>(
+    type: TCommand['type']
+  ) => EditorCommandDefinition<TCommand>
+
+  /**
+   * Register a command middleware handler for the editor.
+   */
+  registerCommand: <TCommand extends EditorCommand>(
+    editor: Editor,
+    command: EditorCommandReference<TCommand>,
+    handler: EditorCommandHandler<TCommand>,
+    options?: EditorCommandOptions
+  ) => () => void
+}
+
 const getImplicitSelectionRoot = (editor: Editor) =>
   getCurrentSelection(editor) ? getCurrentSelectionRoot(editor) : undefined
 
@@ -2565,7 +2565,7 @@ const replaceEditorSnapshot = (editor: Editor, input: SnapshotInput) => {
   replaceSnapshot(editor, input)
 }
 
-const InternalEditor: EditorStaticApi = {
+const InternalEditor: InternalEditorStaticApi = {
   above(editor, options) {
     return getEditorRuntime(editor).above(options)
   },
@@ -3100,7 +3100,9 @@ const InternalEditor: EditorStaticApi = {
   },
 }
 
-export { InternalEditor as Editor }
+const Editor: EditorStaticApi = InternalEditor
+
+export { Editor, InternalEditor }
 
 /**
  * A helper type for narrowing matched nodes with a predicate.

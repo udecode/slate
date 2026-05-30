@@ -51,6 +51,7 @@ import type {
   SelectionSource,
 } from './input-state'
 import { isEditableOutsideFocusBoundarySettling } from './input-state'
+import { takeModelSelectionDOMPreference } from './model-selection-dom-preference'
 import {
   readLiveSelection,
   readRuntimeSelection,
@@ -1234,11 +1235,17 @@ export const syncEditableDOMSelectionToEditor = ({
     }
 
     const domRange =
+      takeModelSelectionDOMPreference({
+        editor,
+        editorElement,
+        selection,
+      }) ??
       createFastDOMSelectionRange({
         editor,
         editorElement,
         selection,
-      }) ?? ReactEditor.resolveDOMRange(editor, selection)
+      }) ??
+      ReactEditor.resolveDOMRange(editor, selection)
 
     if (!domRange) {
       return

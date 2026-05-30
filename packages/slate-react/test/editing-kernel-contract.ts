@@ -25,6 +25,7 @@ import {
   createEditableInputController,
   createEditableInputControllerState,
 } from '../src/editable/input-state'
+import { writeSlateViewSelection } from '../src/view-selection'
 
 const createBaseTrace = () =>
   ({
@@ -521,6 +522,45 @@ test('keyboard model selection moves import DOM selection when native selection 
     ownership: 'model-owned',
     selectionPolicy: { kind: 'import-dom', reason: 'unknown-selection' },
     shouldForceDOMImport: true,
+  })
+})
+
+test('keyboard input preserves projected view selection before command routing', () => {
+  const editor = createEditor() as any
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  })
+  inputController.state.selectionSource = 'dom-current'
+  writeSlateViewSelection(editor, {
+    anchor: { point: { path: [0, 0], offset: 0 } },
+    focus: { point: { path: [1, 0], offset: 0 } },
+    segments: { backward: false, parts: [] },
+  } as any)
+
+  const decision = prepareEditableKeyDownKernel({
+    editor,
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: false,
+        key: 'ArrowDown',
+        metaKey: false,
+        shiftKey: true,
+        which: 40,
+      },
+      shiftKey: true,
+      target: null,
+    } as any,
+    inputController,
+    domStrategyRuntime: null,
+  })
+
+  expect(decision).toMatchObject({
+    intent: 'native-selection-move',
+    nativeAllowed: true,
+    selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
+    selectionSourceTransition: null,
   })
 })
 

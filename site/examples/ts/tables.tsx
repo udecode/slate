@@ -124,7 +124,7 @@ const table = () =>
             const start = tx.points.start(cellPath)
 
             if (PointApi.equals(selection.anchor, start)) {
-              return
+              return true
             }
           }
         }
@@ -144,7 +144,7 @@ const table = () =>
             const end = tx.points.end(cellPath)
 
             if (PointApi.equals(selection.anchor, end)) {
-              return
+              return true
             }
           }
         }
@@ -160,7 +160,7 @@ const table = () =>
           })
 
           if (cell) {
-            return
+            return true
           }
         }
 

@@ -14,6 +14,11 @@ import {
   shouldDeferBackspaceToNativeInput,
 } from '../src/editable/keyboard-input-strategy'
 import { ReactEditor } from '../src/plugin/react-editor'
+import { createSlateProjectionGraph } from '../src/projection-graph'
+import {
+  createSlateViewSelection,
+  writeSlateViewSelection,
+} from '../src/view-selection'
 
 const keyEvent = (
   key: string,
@@ -148,6 +153,65 @@ describe('keyboard input strategy', () => {
       expect(event.preventDefault).toHaveBeenCalled()
       expect(forceRender).not.toHaveBeenCalled()
     } finally {
+      hasEditableTarget.mockRestore()
+    }
+  })
+
+  it('does not apply projected destructive commands while read-only', () => {
+    const editor = createEditor({
+      initialSelection: {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 3 },
+      },
+      initialValue: [paragraph('test')],
+    }) as ReactEditorType
+    const root = document.createElement('div')
+    const nested = document.createElement('div')
+    const graph = createSlateProjectionGraph([{ path: [0], root: 'main' }])
+    const event = reactKeyEvent(keyEvent('Backspace'))
+    const assertDOMNode = vi
+      .spyOn(ReactEditor, 'assertDOMNode')
+      .mockReturnValue(root)
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(false)
+
+    root.dataset.slateEditor = 'true'
+    nested.dataset.slateEditor = 'true'
+    root.append(nested)
+    document.body.append(root)
+    event.target = nested
+    writeSlateViewSelection(
+      editor,
+      createSlateViewSelection(graph, {
+        anchor: { point: { path: [0, 0], offset: 1 } },
+        focus: { point: { path: [0, 0], offset: 3 } },
+      })
+    )
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: true,
+        domStrategyRuntime: null,
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(event.preventDefault).not.toHaveBeenCalled()
+      expect(event.stopPropagation).toHaveBeenCalled()
+      expect(editor.read((state) => state.value.get().roots.main)).toEqual([
+        paragraph('test'),
+      ])
+    } finally {
+      root.remove()
+      assertDOMNode.mockRestore()
       hasEditableTarget.mockRestore()
     }
   })

@@ -6,6 +6,7 @@ import {
   type Range,
   RangeApi,
   type RuntimeId,
+  type Editor as SlateEditor,
   TextApi,
   type Value,
 } from 'slate'
@@ -61,7 +62,7 @@ import { DOMCoverage } from './dom-coverage'
  * A DOM-specific version of the `Editor` interface.
  */
 
-export interface DOMEditor<V extends Value = Value> extends Editor<V> {
+export interface DOMEditor<V extends Value = Value> extends SlateEditor<V> {
   dom: DOMEditorCapability
 }
 
@@ -129,7 +130,7 @@ export interface DOMEditorClipboardCapability {
   /**
    * Insert data from a `DataTransfer` into the editor.
    */
-  insertData: (data: DataTransfer) => void
+  insertData: (data: DataTransfer) => boolean
 
   /**
    * Insert fragment data from a `DataTransfer` into the editor.
@@ -175,13 +176,13 @@ export class SlateDOMResolutionError extends Error {
 export type DOMClipboardInsertDataHandler<V extends Value = Value> = (
   editor: DOMEditor<V>,
   data: DataTransfer
-) => boolean | void
+) => boolean
 
 export interface DOMEditorClipboardInterface {
   /**
    * Insert data from a `DataTransfer` into the editor.
    */
-  insertData: (editor: DOMEditor<any>, data: DataTransfer) => void
+  insertData: (editor: DOMEditor<any>, data: DataTransfer) => boolean
 
   /**
    * Insert fragment data from a `DataTransfer` into the editor.
@@ -206,12 +207,12 @@ export interface DOMEditorInterface {
   /**
    * Experimental and android specific: Get pending diffs
    */
-  androidPendingDiffs: (editor: Editor<any>) => TextDiff[] | undefined
+  androidPendingDiffs: (editor: SlateEditor<any>) => TextDiff[] | undefined
 
   /**
    * Experimental and android specific: Flush all pending diffs and cancel composition at the next possible time.
    */
-  androidScheduleFlush: (editor: Editor<any>) => void
+  androidScheduleFlush: (editor: SlateEditor<any>) => void
 
   /**
    * Blur the editor.
@@ -1259,9 +1260,7 @@ export const DOMEditor: DOMEditorInterface = {
     isDOMNode(target) && DOMEditor.hasDOMNode(editor, target),
 
   clipboard: {
-    insertData: (editor, data) => {
-      insertDOMData(editor, data)
-    },
+    insertData: (editor, data) => insertDOMData(editor, data),
 
     insertFragmentData: (editor, data) => insertDOMFragmentData(editor, data),
 

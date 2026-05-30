@@ -110,6 +110,38 @@ const readPackageJson = (packageName: string) =>
     version: string
   }
 
+const bumpPatchVersion = (version: string) => {
+  const [major = 0, minor = 0, patch = 0] = version
+    .split('.')
+    .map((part) => Number(part))
+
+  return `${major}.${minor}.${patch + 1}`
+}
+
+const hasPendingChangesetRelease = (packageName: string) => {
+  for (const file of readdirSync(resolve(repoRoot, '.changeset'))) {
+    if (!file.endsWith('.md')) continue
+
+    const source = readFileSync(resolve(repoRoot, '.changeset', file), 'utf8')
+    const match = source.match(
+      new RegExp(`"${packageName}"\\s*:\\s*(major|minor|patch)`)
+    )
+
+    if (match) return true
+  }
+
+  return false
+}
+
+const expectedRuntimePeerFloor = (packageName: string) => {
+  const packageJson = readPackageJson(packageName)
+  const version = hasPendingChangesetRelease(packageName)
+    ? bumpPatchVersion(packageJson.version)
+    : packageJson.version
+
+  return `>=${version}`
+}
+
 const allowedSlateInternalImportFiles = new Set([
   'packages/slate-react/src/editable/runtime-editor-api.ts',
   'packages/slate-react/src/editable/runtime-live-state.ts',
@@ -232,8 +264,6 @@ describe('slate-react surface contract', () => {
 
   test('runtime package-private imports pin peer floors to sibling runtime packages', () => {
     const slateReactPackage = readPackageJson('slate-react')
-    const slatePackage = readPackageJson('slate')
-    const slateDomPackage = readPackageJson('slate-dom')
     const runtimeSources = [
       'packages/slate-react/src/editable/runtime-editor-api.ts',
       'packages/slate-react/src/editable/runtime-repair-engine.ts',
@@ -246,10 +276,10 @@ describe('slate-react surface contract', () => {
     expect(runtimeSources).toContain("from 'slate-dom'")
     expect(runtimeSources).toContain("from 'slate'")
     expect(slateReactPackage.peerDependencies?.slate).toBe(
-      `>=${slatePackage.version}`
+      expectedRuntimePeerFloor('slate')
     )
     expect(slateReactPackage.peerDependencies?.['slate-dom']).toBe(
-      `>=${slateDomPackage.version}`
+      expectedRuntimePeerFloor('slate-dom')
     )
   })
 
@@ -272,11 +302,11 @@ describe('slate-react surface contract', () => {
       ['packages/slate-react/src'],
       {
         'packages/slate-react/src/editable/root-selector-sources.ts': {
-          count: 5,
+          count: 6,
           next: 'root-source',
           owner: 'Editable root selector sources',
           rationale:
-            'Top-level runtime ids, root document epoch, selected top-level index, placeholder visibility, and the editable root commit wakeup are owned by named root source selectors.',
+            'Top-level runtime ids, root document epoch, selected top-level index, selection paths, placeholder visibility, and the editable root commit wakeup are owned by named root source selectors.',
         },
         'packages/slate-react/src/hooks/use-node-selector.tsx': {
           count: 1,

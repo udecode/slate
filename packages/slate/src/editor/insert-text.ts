@@ -151,7 +151,7 @@ export const insertText: EditorStaticApi['insertText'] = (
         run()
       }
 
-      return { handled }
+      return handled
     }
   )
 }

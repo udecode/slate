@@ -84,15 +84,26 @@ export const executeCommand = <TCommand extends EditorCommand>(
       return defaultHandler(nextCommand)
     }
 
-    return (
-      registration.handler(
-        {
-          command: nextCommand,
-          editor,
-        },
-        (overrideCommand = nextCommand) => dispatch(index + 1, overrideCommand)
-      ) ?? { handled: false }
+    let delegated = false
+    const result = registration.handler(
+      {
+        command: nextCommand,
+        editor,
+      },
+      (overrideCommand = nextCommand) => {
+        delegated = true
+        return dispatch(index + 1, overrideCommand)
+      }
     )
+
+    if (result) {
+      return true
+    }
+    if (delegated) {
+      return false
+    }
+
+    return dispatch(index + 1, nextCommand)
   }
 
   if (getCommandContext(editor)) {
@@ -107,7 +118,7 @@ export const executeCommand = <TCommand extends EditorCommand>(
     )
   }
 
-  let result: EditorCommandResult = { handled: false }
+  let result: EditorCommandResult = false
   updateEditor(editor, () => {
     result = withCommandContext(
       editor,

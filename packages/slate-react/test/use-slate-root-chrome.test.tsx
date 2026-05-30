@@ -38,12 +38,58 @@ const flushRootChromeFocus = () =>
   })
 
 describe('useSlateRootChrome', () => {
-  test('focuses the requested root when clicking non-interactive chrome', async () => {
+  test('focuses the root end when no restorable selection exists', async () => {
     const editor = createReactEditor({ initialValue: initialValue() })
     let headerEditor!: ReturnType<typeof useSlateRootEditor>
 
     const HeaderChrome = () => {
       const chrome = useSlateRootChrome('header')
+      headerEditor = useSlateRootEditor('header')
+
+      return (
+        <section data-testid="header-chrome" {...chrome.props}>
+          <span>Header chrome</span>
+          <Editable aria-label="Header editor" root="header" />
+        </section>
+      )
+    }
+
+    render(
+      <Slate editor={editor}>
+        <HeaderChrome />
+        <Editable aria-label="Main editor" />
+      </Slate>
+    )
+
+    await act(async () => {
+      fireEvent.mouseDown(screen.getByTestId('header-chrome'))
+      await flushRootChromeFocus()
+    })
+
+    expect(document.activeElement).toBe(screen.getByLabelText('Header editor'))
+    expect(headerEditor.read((state) => state.selection.get())).toEqual({
+      anchor: { offset: 6, path: [0, 0], root: 'header' },
+      focus: { offset: 6, path: [0, 0], root: 'header' },
+    })
+
+    await act(async () => {
+      fireEvent.mouseDown(screen.getByText('Header chrome'))
+      await flushRootChromeFocus()
+    })
+
+    expect(document.activeElement).toBe(screen.getByLabelText('Header editor'))
+    expect(headerEditor.read((state) => state.selection.get())).toEqual({
+      anchor: { offset: 6, path: [0, 0], root: 'header' },
+      focus: { offset: 6, path: [0, 0], root: 'header' },
+    })
+  })
+
+  test('places selection at the root end when explicitly requested', async () => {
+    const editor = createReactEditor({ initialValue: initialValue() })
+    let headerEditor!: ReturnType<typeof useSlateRootEditor>
+
+    const HeaderChrome = () => {
+      const chrome = useSlateRootChrome('header', { selection: 'end' })
       headerEditor = useSlateRootEditor('header')
 
       return (
@@ -123,6 +169,44 @@ describe('useSlateRootChrome', () => {
   })
 
   test('handles blank editable root clicks synchronously', async () => {
+    const editor = createReactEditor({ initialValue: initialValue() })
+    let headerEditor!: ReturnType<typeof useSlateRootEditor>
+
+    const HeaderChrome = () => {
+      const chrome = useSlateRootChrome('header', { selection: 'end' })
+      headerEditor = useSlateRootEditor('header')
+
+      return (
+        <section data-testid="header-chrome" {...chrome.props}>
+          <div
+            data-slate-editor="true"
+            data-slate-root="header"
+            data-testid="blank-editor-surface"
+          />
+        </section>
+      )
+    }
+
+    render(
+      <Slate editor={editor}>
+        <HeaderChrome />
+      </Slate>
+    )
+
+    fireEvent.mouseDown(screen.getByTestId('blank-editor-surface'))
+    fireEvent.mouseUp(screen.getByTestId('blank-editor-surface'))
+    await flushRootChromeFocus()
+
+    expect(headerEditor.read((state) => state.selection.get()?.anchor)).toEqual(
+      {
+        offset: 6,
+        path: [0, 0],
+        root: 'header',
+      }
+    )
+  })
+
+  test('blank editable root clicks focus at the end without a restorable selection', async () => {
     const editor = createReactEditor({ initialValue: initialValue() })
     let headerEditor!: ReturnType<typeof useSlateRootEditor>
 

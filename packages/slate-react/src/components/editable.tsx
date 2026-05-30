@@ -64,6 +64,8 @@ export interface RenderLeafProps<TText extends Text = any> {
   text: TText
   attributes: {
     'data-slate-leaf': true
+    'data-slate-leaf-end'?: number
+    'data-slate-leaf-start'?: number
   }
   /**
    * The position of the leaf within the Text node, only present when the text node is split by decorations.
@@ -95,6 +97,7 @@ export type EditableDOMRootProps = {
     type: 'staged' | 'partial-dom' | 'virtualized'
   } | null
   domStrategyMetrics?: EditableDOMStrategyMetricsBase | null
+  ignoreBlankEditableRootClicks?: boolean
   onDOMBeforeInput?: EditableDOMBeforeInputHandler
   onKeyDown?: EditableKeyDownHandler
   onDOMStrategyMetrics?: (metrics: EditableDOMStrategyMetrics) => void
@@ -266,6 +269,7 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     children: customChildren,
     domStrategyRuntime = null,
     domStrategyMetrics = null,
+    ignoreBlankEditableRootClicks = false,
     onKeyDown: propsOnKeyDown,
     onDOMBeforeInput: propsOnDOMBeforeInput,
     onDOMStrategyMetrics,
@@ -312,6 +316,8 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     editor,
     getLastSelectionForRoot,
     getMountedViewEditor,
+    ignoreBlankEditableRootClicks:
+      ignoreBlankEditableRootClicks || domStrategyRuntime !== null,
     root: editorRoot,
     selection: 'restore',
     selectionBridge: rootInteractionSelectionBridge,

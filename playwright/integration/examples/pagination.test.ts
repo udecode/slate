@@ -459,6 +459,685 @@ const getVisiblePaginationLineMarginTargetByPath = async (
     }
   }, blockPath)
 
+const getVisiblePaginationWrappedLineMarginTargets = async (
+  root: Awaited<ReturnType<typeof openExample>>['root'],
+  side: 'left' | 'right'
+) =>
+  root.evaluate(
+    (element: HTMLElement, targetSide) => {
+      const edge = targetSide as 'end' | 'start'
+      const getRectVerticalDistance = (rect: DOMRect, y: number) =>
+        y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0
+      const getLineEdgeOffset = (
+        textNode: ChildNode,
+        lineRect: DOMRect,
+        edge: 'end' | 'start'
+      ) => {
+        const textLength = textNode.textContent?.length ?? 0
+        const y = lineRect.top + lineRect.height / 2
+        const range = element.ownerDocument.createRange()
+        let best: { distance: number; offset: number } | null = null
+
+        for (let offset = 0; offset < textLength; offset++) {
+          range.setStart(textNode, offset)
+          range.setEnd(textNode, offset + 1)
+
+          for (const rect of Array.from(range.getClientRects())) {
+            const verticalDistance = getRectVerticalDistance(rect, y)
+            const verticalCenterDistance = Math.abs(
+              rect.top + rect.height / 2 - y
+            )
+            const horizontalDistance =
+              edge === 'start'
+                ? Math.abs(rect.left - lineRect.left)
+                : Math.abs(rect.right - lineRect.right)
+            const distance =
+              verticalDistance * 1_000_000 +
+              verticalCenterDistance * 1000 +
+              horizontalDistance
+
+            if (!best || distance < best.distance) {
+              best = {
+                distance,
+                offset: edge === 'start' ? offset : offset + 1,
+              }
+            }
+          }
+        }
+
+        return best?.offset ?? (edge === 'start' ? 0 : textLength)
+      }
+      const toNumber = (value: string | null) =>
+        value === null ? null : Number.parseInt(value, 10)
+      const getStringDocumentOffset = (
+        textHost: HTMLElement,
+        string: HTMLElement,
+        lineOffset: number
+      ) => {
+        const leaf = string.closest<HTMLElement>('[data-slate-leaf]')
+        const leafStart = toNumber(
+          leaf ? leaf.getAttribute('data-slate-leaf-start') : null
+        )
+        const leafEnd = toNumber(
+          leaf ? leaf.getAttribute('data-slate-leaf-end') : null
+        )
+
+        if (
+          leafStart !== null &&
+          leafEnd !== null &&
+          Number.isFinite(leafStart) &&
+          Number.isFinite(leafEnd)
+        ) {
+          return Math.max(leafStart, Math.min(leafStart + lineOffset, leafEnd))
+        }
+
+        let offset = 0
+
+        for (const candidate of Array.from(
+          textHost.querySelectorAll<HTMLElement>(
+            '[data-slate-string], [data-slate-zero-width]'
+          )
+        )) {
+          const length = candidate.hasAttribute('data-slate-zero-width')
+            ? 0
+            : (candidate.textContent?.length ?? 0)
+
+          if (candidate === string) {
+            return offset + lineOffset
+          }
+
+          offset += length
+        }
+
+        return null
+      }
+      const viewport = element.ownerDocument.querySelector<HTMLElement>(
+        '[data-testid="pagination-viewport"]'
+      )
+      const viewportRect = viewport?.getBoundingClientRect()
+
+      if (!viewportRect) {
+        return null
+      }
+
+      for (const block of Array.from(
+        element.querySelectorAll<HTMLElement>(
+          '[data-slate-node="element"][data-slate-path]'
+        )
+      )) {
+        const blockPath = block.getAttribute('data-slate-path')
+
+        if (!blockPath || blockPath.includes(',')) {
+          continue
+        }
+
+        const textHost = block.querySelector<HTMLElement>(
+          '[data-slate-node="text"]'
+        )
+        const page = Array.from(
+          element.ownerDocument.querySelectorAll<HTMLElement>(
+            '[data-slate-page]'
+          )
+        ).find((candidate) => {
+          const rect = candidate.getBoundingClientRect()
+          const blockRect = block.getBoundingClientRect()
+
+          return blockRect.top < rect.bottom && blockRect.bottom > rect.top
+        })
+        if (!textHost || !page) {
+          continue
+        }
+
+        const frame = page.querySelector<HTMLElement>(
+          '[data-testid="pagination-content-frame"]'
+        )
+        const rectEntries = Array.from(
+          textHost.querySelectorAll<HTMLElement>('[data-slate-string]')
+        ).flatMap((string) =>
+          Array.from(string.getClientRects())
+            .filter(
+              (rect) =>
+                rect.width > 0 &&
+                rect.height > 0 &&
+                rect.bottom > viewportRect.top + 10 &&
+                rect.top < viewportRect.bottom - 10
+            )
+            .map((rect) => ({ rect, string }))
+        )
+
+        if (rectEntries.length < 3) {
+          continue
+        }
+
+        const lineGroups: { rect: DOMRect; string: HTMLElement }[][] = []
+
+        for (const entry of rectEntries.sort(
+          (left, right) => left.rect.top - right.rect.top
+        )) {
+          const group = lineGroups.find(
+            (candidate) => Math.abs(candidate[0]!.rect.top - entry.rect.top) < 2
+          )
+
+          if (group) {
+            group.push(entry)
+          } else {
+            lineGroups.push([entry])
+          }
+        }
+
+        if (lineGroups.length < 3) {
+          continue
+        }
+
+        const pageRect = page.getBoundingClientRect()
+        const frameRect = frame?.getBoundingClientRect()
+        const targets = lineGroups
+          .slice(1, Math.min(lineGroups.length, 6))
+          .flatMap((group, lineIndex) => {
+            const sortedGroup = group.sort(
+              (left, right) => left.rect.left - right.rect.left
+            )
+            const entry =
+              edge === 'start' ? sortedGroup[0]! : sortedGroup.at(-1)!
+            const textNode = Array.from(entry.string.childNodes).find(
+              (node) => node.nodeType === Node.TEXT_NODE
+            )
+
+            if (!textNode) {
+              return []
+            }
+
+            const expectedOffset = getStringDocumentOffset(
+              textHost,
+              entry.string,
+              getLineEdgeOffset(textNode, entry.rect, edge)
+            )
+            const expectedDOMOffset = getLineEdgeOffset(
+              textNode,
+              entry.rect,
+              edge
+            )
+
+            if (expectedOffset === null || !Number.isFinite(expectedOffset)) {
+              return []
+            }
+
+            const x =
+              edge === 'start'
+                ? Math.max(
+                    pageRect.left + 4,
+                    frameRect
+                      ? Math.max(
+                          (pageRect.left + frameRect.left) / 2,
+                          entry.rect.left - 52
+                        )
+                      : entry.rect.left - 52
+                  )
+                : Math.min(
+                    pageRect.right - 4,
+                    frameRect
+                      ? Math.min(
+                          (frameRect.right + pageRect.right) / 2,
+                          entry.rect.right + 52
+                        )
+                      : entry.rect.right + 52
+                  )
+
+            return [
+              {
+                blockPath,
+                expectedDOMOffset,
+                expectedDOMText: entry.string.textContent ?? '',
+                expectedOffset,
+                lineIndex: lineIndex + 1,
+                lineText: entry.string.textContent ?? '',
+                x,
+                y: (entry.rect.top + entry.rect.bottom) / 2,
+              },
+            ]
+          })
+
+        if (targets.length > 0) {
+          return targets
+        }
+      }
+
+      return []
+    },
+    side === 'left' ? 'start' : 'end'
+  )
+
+const getVisiblePaginationRightLineMarginTarget = async (
+  root: Awaited<ReturnType<typeof openExample>>['root']
+) =>
+  root.evaluate((element: HTMLElement) => {
+    const getLineEndOffset = (textNode: ChildNode, lineRect: DOMRect) => {
+      const textLength = textNode.textContent?.length ?? 0
+      const y = lineRect.top + lineRect.height / 2
+      const range = element.ownerDocument.createRange()
+      let best: { distance: number; offset: number } | null = null
+
+      for (let offset = 0; offset < textLength; offset++) {
+        range.setStart(textNode, offset)
+        range.setEnd(textNode, offset + 1)
+
+        for (const rect of Array.from(range.getClientRects())) {
+          const verticalDistance =
+            y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0
+          const horizontalDistance = Math.abs(rect.right - lineRect.right)
+          const distance = verticalDistance * 1000 + horizontalDistance
+
+          if (!best || distance < best.distance) {
+            best = { distance, offset: offset + 1 }
+          }
+        }
+      }
+
+      return best?.offset ?? null
+    }
+    const viewport = element.ownerDocument.querySelector<HTMLElement>(
+      '[data-testid="pagination-viewport"]'
+    )
+    const viewportRect = viewport?.getBoundingClientRect()
+
+    if (!viewportRect) {
+      return null
+    }
+
+    for (const block of Array.from(
+      element.querySelectorAll<HTMLElement>('[data-slate-path]')
+    )) {
+      const path = block.getAttribute('data-slate-path')
+
+      if (!path || path.includes(',')) {
+        continue
+      }
+
+      const strings = Array.from(
+        block.querySelectorAll<HTMLElement>('[data-slate-string]')
+      )
+      const blockRect = block.getBoundingClientRect()
+      const rootRect = element.getBoundingClientRect()
+
+      for (const string of strings) {
+        const textNode = Array.from(string.childNodes).find(
+          (node) => node.nodeType === Node.TEXT_NODE
+        )
+        const rects = Array.from(string.getClientRects()).filter(
+          (rect) => rect.width > 0 && rect.height > 0
+        )
+
+        if (!textNode || rects.length === 0) {
+          continue
+        }
+
+        const rect = rects[0]!
+        const lineOffset = getLineEndOffset(textNode, rect)
+        const leaf = string.closest<HTMLElement>('[data-slate-leaf]')
+        const leafStartAttribute = leaf?.getAttribute('data-slate-leaf-start')
+        const leafEndAttribute = leaf?.getAttribute('data-slate-leaf-end')
+        const leafStart =
+          leafStartAttribute == null
+            ? 0
+            : Number.parseInt(leafStartAttribute, 10)
+        const leafEnd =
+          leafEndAttribute == null
+            ? null
+            : Number.parseInt(leafEndAttribute, 10)
+        const blockText = block.textContent ?? ''
+        const expectedOffset =
+          leafEnd !== null && Number.isFinite(leafEnd)
+            ? leafEnd
+            : lineOffset == null || !Number.isFinite(leafStart)
+              ? null
+              : leafStart + lineOffset
+        const x = Math.min(rootRect.right - 12, rect.right + 60)
+
+        if (
+          expectedOffset == null ||
+          expectedOffset >= blockText.length ||
+          rect.bottom <= viewportRect.top + 10 ||
+          rect.top >= viewportRect.bottom - 10 ||
+          x <= rect.right + 8 ||
+          x <= blockRect.left ||
+          x >= rootRect.right
+        ) {
+          continue
+        }
+
+        return {
+          blockPath: path,
+          blockText,
+          expectedOffset,
+          x,
+          y: (rect.top + rect.bottom) / 2,
+        }
+      }
+    }
+
+    return null
+  })
+
+const getVisiblePaginationTableRowMarginTargets = async (
+  root: Awaited<ReturnType<typeof openExample>>['root'],
+  rowIndex: number
+) =>
+  root.evaluate(async (element: HTMLElement, index) => {
+    const row = element.ownerDocument.querySelector<HTMLElement>(
+      `[data-testid="pagination-rich-table-row"][data-pagination-row-index="${index}"]`
+    )
+    const viewport = element.ownerDocument.querySelector<HTMLElement>(
+      '[data-testid="pagination-viewport"]'
+    )
+
+    if (!row || !viewport) {
+      return null
+    }
+
+    row.scrollIntoView({ block: 'center' })
+    await new Promise(requestAnimationFrame)
+
+    const rowRect = row.getBoundingClientRect()
+    const page = Array.from(
+      element.ownerDocument.querySelectorAll<HTMLElement>(
+        '[data-slate-page-index]'
+      )
+    ).find((candidate) => {
+      const rect = candidate.getBoundingClientRect()
+
+      return rowRect.top < rect.bottom && rowRect.bottom > rect.top
+    })
+
+    if (!page) {
+      return null
+    }
+
+    const pageIndex = page.getAttribute('data-slate-page-index')
+    const frame =
+      pageIndex == null
+        ? null
+        : element.ownerDocument.querySelector<HTMLElement>(
+            `[data-slate-page-index="${pageIndex}"] [data-testid="pagination-content-frame"]`
+          )
+    const cells = Array.from(
+      row.querySelectorAll<HTMLElement>(
+        '[data-testid="pagination-rich-table-cell"]'
+      )
+    )
+    const firstTextHost = cells[0]?.querySelector<HTMLElement>(
+      '[data-slate-node="text"]'
+    )
+    const lastTextHost = cells
+      .at(-1)
+      ?.querySelector<HTMLElement>('[data-slate-node="text"]')
+
+    if (!frame || !firstTextHost || !lastTextHost) {
+      return null
+    }
+
+    const pageRect = page.getBoundingClientRect()
+    const frameRect = frame.getBoundingClientRect()
+    const y = (rowRect.top + rowRect.bottom) / 2
+    const leftPath = firstTextHost.getAttribute('data-slate-path')
+    const rightPath = lastTextHost.getAttribute('data-slate-path')
+    const rightText = lastTextHost.textContent ?? ''
+
+    if (!leftPath || !rightPath) {
+      return null
+    }
+
+    return {
+      left: {
+        expectedOffset: 0,
+        expectedPath: leftPath.split(',').map(Number),
+        x: (pageRect.left + frameRect.left) / 2,
+        y,
+      },
+      right: {
+        expectedOffset: rightText.length,
+        expectedPath: rightPath.split(',').map(Number),
+        x: (frameRect.right + pageRect.right) / 2,
+        y,
+      },
+    }
+  }, rowIndex)
+
+const getFirstPageMarginClickMatrix = async (
+  root: Awaited<ReturnType<typeof openExample>>['root']
+) =>
+  root.evaluate((element: HTMLElement) => {
+    const pageElement = element.ownerDocument.querySelector<HTMLElement>(
+      '[data-slate-page-index="0"]'
+    )
+    const frameElement = element.ownerDocument.querySelector<HTMLElement>(
+      '[data-slate-page-index="0"] [data-testid="pagination-content-frame"]'
+    )
+    const viewport = element.ownerDocument.querySelector<HTMLElement>(
+      '[data-testid="pagination-viewport"]'
+    )
+    const table = element.ownerDocument.querySelector<HTMLElement>(
+      '[data-testid="pagination-rich-table"]'
+    )
+    const tablePathText = table?.getAttribute('data-slate-path')
+    const tableTopLevelPath = tablePathText
+      ? Number(tablePathText.split(',')[0])
+      : null
+
+    if (
+      !pageElement ||
+      !frameElement ||
+      !viewport ||
+      tableTopLevelPath == null ||
+      !Number.isFinite(tableTopLevelPath)
+    ) {
+      return null
+    }
+
+    const pageRect = pageElement.getBoundingClientRect()
+    const frameRect = frameElement.getBoundingClientRect()
+    const midpoint = (start: number, end: number) => (start + end) / 2
+    const insidePage = (point: { x: number; y: number }) =>
+      point.x > pageRect.left + 2 &&
+      point.x < pageRect.right - 2 &&
+      point.y > pageRect.top + 2 &&
+      point.y < pageRect.bottom - 2
+    const outsideContent = (point: { x: number; y: number }) =>
+      point.x < frameRect.left ||
+      point.x > frameRect.right ||
+      point.y < frameRect.top ||
+      point.y > frameRect.bottom
+
+    const firstPageTopLevelPaths = Array.from(
+      element.querySelectorAll<HTMLElement>(
+        '[data-slate-node="element"][data-slate-path]'
+      )
+    )
+      .flatMap((node) => {
+        const path = node.getAttribute('data-slate-path')
+
+        if (!path || path.includes(',')) {
+          return []
+        }
+
+        const rect = node.getBoundingClientRect()
+        const intersectsPage =
+          rect.width > 0 &&
+          rect.height > 0 &&
+          rect.right > pageRect.left &&
+          rect.left < pageRect.right &&
+          rect.bottom > pageRect.top &&
+          rect.top < pageRect.bottom
+
+        return intersectsPage ? [Number(path)] : []
+      })
+      .filter((path) => Number.isFinite(path) && path < tableTopLevelPath)
+
+    const targetCandidates = [
+      {
+        name: 'top-left-corner',
+        x: midpoint(pageRect.left, frameRect.left),
+        y: midpoint(pageRect.top, frameRect.top),
+      },
+      {
+        name: 'top-center',
+        x: midpoint(frameRect.left, frameRect.right),
+        y: midpoint(pageRect.top, frameRect.top),
+      },
+      {
+        name: 'top-right-corner',
+        x: midpoint(frameRect.right, pageRect.right),
+        y: midpoint(pageRect.top, frameRect.top),
+      },
+      {
+        name: 'left-upper-side',
+        x: midpoint(pageRect.left, frameRect.left),
+        y: frameRect.top + frameRect.height * 0.25,
+      },
+      {
+        name: 'left-middle-side',
+        x: midpoint(pageRect.left, frameRect.left),
+        y: midpoint(frameRect.top, frameRect.bottom),
+      },
+      {
+        name: 'left-lower-side',
+        x: midpoint(pageRect.left, frameRect.left),
+        y: frameRect.top + frameRect.height * 0.75,
+      },
+      {
+        name: 'right-upper-side',
+        x: midpoint(frameRect.right, pageRect.right),
+        y: frameRect.top + frameRect.height * 0.25,
+      },
+      {
+        name: 'right-middle-side',
+        x: midpoint(frameRect.right, pageRect.right),
+        y: midpoint(frameRect.top, frameRect.bottom),
+      },
+      {
+        name: 'right-lower-side',
+        x: midpoint(frameRect.right, pageRect.right),
+        y: frameRect.top + frameRect.height * 0.75,
+      },
+      {
+        name: 'bottom-left-corner',
+        x: midpoint(pageRect.left, frameRect.left),
+        y: midpoint(frameRect.bottom, pageRect.bottom),
+      },
+      {
+        name: 'bottom-center',
+        x: midpoint(frameRect.left, frameRect.right),
+        y: midpoint(frameRect.bottom, pageRect.bottom),
+      },
+      {
+        name: 'bottom-right-corner',
+        x: midpoint(frameRect.right, pageRect.right),
+        y: midpoint(frameRect.bottom, pageRect.bottom),
+      },
+    ]
+    const targets = targetCandidates.filter(
+      (target) => insidePage(target) && outsideContent(target)
+    )
+
+    return {
+      firstPageTopLevelPaths: [...new Set(firstPageTopLevelPaths)].sort(
+        (left, right) => left - right
+      ),
+      initialScrollTop: viewport.scrollTop,
+      tableTopLevelPath,
+      targets,
+    }
+  })
+
+const getVisiblePaginationTablePageCornerMatrix = async (
+  root: Awaited<ReturnType<typeof openExample>>['root'],
+  rowIndex: number
+) =>
+  root.evaluate(async (element: HTMLElement, index) => {
+    const row = element.ownerDocument.querySelector<HTMLElement>(
+      `[data-testid="pagination-rich-table-row"][data-pagination-row-index="${index}"]`
+    )
+    const viewport = element.ownerDocument.querySelector<HTMLElement>(
+      '[data-testid="pagination-viewport"]'
+    )
+    const table = element.ownerDocument.querySelector<HTMLElement>(
+      '[data-testid="pagination-rich-table"]'
+    )
+    const tablePathText = table?.getAttribute('data-slate-path')
+    const tableTopLevelPath = tablePathText
+      ? Number(tablePathText.split(',')[0])
+      : null
+
+    if (
+      !row ||
+      !viewport ||
+      tableTopLevelPath == null ||
+      !Number.isFinite(tableTopLevelPath)
+    ) {
+      return null
+    }
+
+    row.scrollIntoView({ block: 'center' })
+    await new Promise(requestAnimationFrame)
+
+    const rowRect = row.getBoundingClientRect()
+    const page = Array.from(
+      element.ownerDocument.querySelectorAll<HTMLElement>(
+        '[data-slate-page-index]'
+      )
+    ).find((candidate) => {
+      const rect = candidate.getBoundingClientRect()
+
+      return rowRect.top < rect.bottom && rowRect.bottom > rect.top
+    })
+
+    if (!page) {
+      return null
+    }
+
+    const pageIndex = page.getAttribute('data-slate-page-index')
+    const frame =
+      pageIndex == null
+        ? null
+        : element.ownerDocument.querySelector<HTMLElement>(
+            `[data-slate-page-index="${pageIndex}"] [data-testid="pagination-content-frame"]`
+          )
+
+    if (!frame) {
+      return null
+    }
+
+    const pageRect = page.getBoundingClientRect()
+    const frameRect = frame.getBoundingClientRect()
+    const midpoint = (start: number, end: number) => (start + end) / 2
+
+    return {
+      initialScrollTop: viewport.scrollTop,
+      tableTopLevelPath,
+      targets: [
+        {
+          name: 'visible-table-page-top-left-corner',
+          x: midpoint(pageRect.left, frameRect.left),
+          y: midpoint(pageRect.top, frameRect.top),
+        },
+        {
+          name: 'visible-table-page-top-right-corner',
+          x: midpoint(frameRect.right, pageRect.right),
+          y: midpoint(pageRect.top, frameRect.top),
+        },
+        {
+          name: 'visible-table-page-bottom-left-corner',
+          x: midpoint(pageRect.left, frameRect.left),
+          y: midpoint(frameRect.bottom, pageRect.bottom),
+        },
+        {
+          name: 'visible-table-page-bottom-right-corner',
+          x: midpoint(frameRect.right, pageRect.right),
+          y: midpoint(frameRect.bottom, pageRect.bottom),
+        },
+      ],
+    }
+  }, rowIndex)
+
 const getDOMSelectionTextPath = async (
   root: Awaited<ReturnType<typeof openExample>>['root']
 ) =>
@@ -1085,6 +1764,322 @@ test.describe('pagination example', () => {
     expect(proof.duplicatePaths).toEqual([])
   })
 
+  test('does not jump to the table when clicking unfocused first-page margins and corners', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for pagination page-margin hit testing'
+    )
+
+    const editor = await openExample(page, 'pagination', {
+      query: { debug: 'true' },
+      ready: {
+        editor: 'visible',
+        text: /Rich Markdown pagination proof/,
+      },
+    })
+    const matrix = await getFirstPageMarginClickMatrix(editor.root)
+
+    expect(matrix).toBeTruthy()
+    expect(matrix!.targets.length).toBeGreaterThanOrEqual(12)
+    expect(matrix!.firstPageTopLevelPaths.length).toBeGreaterThan(0)
+    expect(matrix!.firstPageTopLevelPaths).not.toContain(
+      matrix!.tableTopLevelPath
+    )
+
+    for (const target of matrix!.targets) {
+      await editor.selection.collapse({
+        path: [0, 0],
+        offset: 0,
+      })
+      await page.getByLabel('Rows').focus()
+      await page.mouse.click(target.x, target.y)
+
+      await expect
+        .poll(
+          async () => {
+            const selection = await editor.selection.get()
+            const selectedTopLevelPaths = [
+              selection?.anchor.path[0],
+              selection?.focus.path[0],
+            ]
+            const scrollTop = await editor.root.evaluate(
+              (element: HTMLElement) => {
+                const viewport =
+                  element.ownerDocument.querySelector<HTMLElement>(
+                    '[data-testid="pagination-viewport"]'
+                  )
+
+                return viewport?.scrollTop ?? null
+              }
+            )
+
+            return {
+              jumpedToTable: selectedTopLevelPaths.includes(
+                matrix!.tableTopLevelPath
+              ),
+              leftFirstPage: selectedTopLevelPaths.some(
+                (path) =>
+                  path !== undefined &&
+                  !matrix!.firstPageTopLevelPaths.includes(path)
+              ),
+              scrollJumped:
+                scrollTop === null ||
+                Math.abs(scrollTop - matrix!.initialScrollTop) > 1,
+            }
+          },
+          { message: target.name }
+        )
+        .toEqual({
+          jumpedToTable: false,
+          leftFirstPage: false,
+          scrollJumped: false,
+        })
+    }
+  })
+
+  test('does not jump to the table when clicking a fresh single-layout page corner', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for fresh pagination page-corner hit testing'
+    )
+
+    const editor = await openExample(page, 'pagination', {
+      query: { debug: 'true', page_layout: 'single' },
+      ready: {
+        editor: 'visible',
+        text: /Rich Markdown pagination proof/,
+      },
+    })
+    const matrix = await getFirstPageMarginClickMatrix(editor.root)
+
+    expect(matrix).toBeTruthy()
+
+    const target = matrix!.targets.find(
+      (candidate) => candidate.name === 'top-right-corner'
+    )
+
+    expect(target).toBeTruthy()
+    await expect.poll(async () => editor.selection.get()).toBeNull()
+
+    await page.getByLabel('Rows').focus()
+    await page.mouse.click(target!.x, target!.y)
+
+    await expect
+      .poll(async () => {
+        const selection = await editor.selection.get()
+        const selectedTopLevelPaths = [
+          selection?.anchor.path[0],
+          selection?.focus.path[0],
+        ]
+        const scrollTop = await editor.root.evaluate((element: HTMLElement) => {
+          const viewport = element.ownerDocument.querySelector<HTMLElement>(
+            '[data-testid="pagination-viewport"]'
+          )
+
+          return viewport?.scrollTop ?? null
+        })
+
+        return {
+          jumpedToTable: selectedTopLevelPaths.includes(
+            matrix!.tableTopLevelPath
+          ),
+          leftFirstPage: selectedTopLevelPaths.some(
+            (path) =>
+              path !== undefined &&
+              !matrix!.firstPageTopLevelPaths.includes(path)
+          ),
+          scrollJumped:
+            scrollTop === null ||
+            Math.abs(scrollTop - matrix!.initialScrollTop) > 1,
+        }
+      })
+      .toEqual({
+        jumpedToTable: false,
+        leftFirstPage: false,
+        scrollJumped: false,
+      })
+  })
+
+  test('does not jump to the table when clicking a focused single-layout page corner', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for focused pagination page-corner hit testing'
+    )
+
+    const editor = await openExample(page, 'pagination', {
+      query: { debug: 'true', page_layout: 'single' },
+      ready: {
+        editor: 'visible',
+        text: /Rich Markdown pagination proof/,
+      },
+    })
+    const matrix = await getFirstPageMarginClickMatrix(editor.root)
+
+    expect(matrix).toBeTruthy()
+
+    const target = matrix!.targets.find(
+      (candidate) => candidate.name === 'top-right-corner'
+    )
+
+    expect(target).toBeTruthy()
+
+    await editor.selection.collapse({
+      path: [0, 0],
+      offset: 0,
+    })
+    await editor.focus()
+    await page.mouse.click(target!.x, target!.y)
+
+    await expect
+      .poll(async () => {
+        const selection = await editor.selection.get()
+        const selectedTopLevelPaths = [
+          selection?.anchor.path[0],
+          selection?.focus.path[0],
+        ]
+        const scrollTop = await editor.root.evaluate((element: HTMLElement) => {
+          const viewport = element.ownerDocument.querySelector<HTMLElement>(
+            '[data-testid="pagination-viewport"]'
+          )
+
+          return viewport?.scrollTop ?? null
+        })
+
+        return {
+          jumpedToTable: selectedTopLevelPaths.includes(
+            matrix!.tableTopLevelPath
+          ),
+          leftFirstPage: selectedTopLevelPaths.some(
+            (path) =>
+              path !== undefined &&
+              !matrix!.firstPageTopLevelPaths.includes(path)
+          ),
+          scrollJumped:
+            scrollTop === null ||
+            Math.abs(scrollTop - matrix!.initialScrollTop) > 1,
+        }
+      })
+      .toEqual({
+        jumpedToTable: false,
+        leftFirstPage: false,
+        scrollJumped: false,
+      })
+  })
+
+  test('places blurred single-layout table row side-margin clicks on the clicked row', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for blurred pagination margin hit testing'
+    )
+
+    const editor = await openExample(page, 'pagination', {
+      query: { debug: 'true', page_layout: 'single' },
+      ready: {
+        editor: 'visible',
+        text: /Rich Markdown pagination proof/,
+      },
+    })
+    const targets = await getVisiblePaginationTableRowMarginTargets(
+      editor.root,
+      238
+    )
+
+    expect(targets).toBeTruthy()
+
+    for (const target of [targets!.left, targets!.right]) {
+      await page.getByLabel('Rows').focus()
+      await page.mouse.click(target.x, target.y)
+
+      await expect
+        .poll(async () => editor.selection.get())
+        .toEqual({
+          anchor: {
+            offset: target.expectedOffset,
+            path: target.expectedPath,
+          },
+          focus: {
+            offset: target.expectedOffset,
+            path: target.expectedPath,
+          },
+        })
+    }
+  })
+
+  test('does not jump to the table when clicking current visible page corners', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for current pagination page-corner hit testing'
+    )
+
+    const editor = await openExample(page, 'pagination', {
+      query: { debug: 'true', page_layout: 'single' },
+      ready: {
+        editor: 'visible',
+        text: /Rich Markdown pagination proof/,
+      },
+    })
+    await editor.selection.collapse({
+      path: [0, 0],
+      offset: 0,
+    })
+    const matrix = await getVisiblePaginationTablePageCornerMatrix(
+      editor.root,
+      238
+    )
+
+    expect(matrix).toBeTruthy()
+
+    for (const target of matrix!.targets) {
+      await page.getByLabel('Rows').focus()
+      await page.mouse.click(target.x, target.y)
+
+      await expect
+        .poll(
+          async () => {
+            const selection = await editor.selection.get()
+            const selectedTopLevelPaths = [
+              selection?.anchor.path[0],
+              selection?.focus.path[0],
+            ]
+            const scrollTop = await editor.root.evaluate(
+              (element: HTMLElement) => {
+                const viewport =
+                  element.ownerDocument.querySelector<HTMLElement>(
+                    '[data-testid="pagination-viewport"]'
+                  )
+
+                return viewport?.scrollTop ?? null
+              }
+            )
+
+            return {
+              jumpedToTable: selectedTopLevelPaths.includes(
+                matrix!.tableTopLevelPath
+              ),
+              scrollJumped:
+                scrollTop === null ||
+                Math.abs(scrollTop - matrix!.initialScrollTop) > 1,
+            }
+          },
+          { message: target.name }
+        )
+        .toEqual({
+          jumpedToTable: false,
+          scrollJumped: false,
+        })
+    }
+  })
+
   test('places selection on an adjacent paragraph when clicking the paragraph gap', async ({
     page,
   }, testInfo) => {
@@ -1141,6 +2136,113 @@ test.describe('pagination example', () => {
         anchor: { path: [0, 0], offset: firstBlockText.length },
         focus: { path: [0, 0], offset: firstBlockText.length },
       })
+  })
+
+  test('places selection at wrapped line end when clicking the right page margin', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for pagination right-margin hit testing'
+    )
+
+    const editor = await openExample(page, 'pagination', {
+      ready: {
+        editor: 'visible',
+        text: /Premirror Milestone 1 test document/,
+      },
+    })
+    const secondBlockText = (await editor.get.blockTexts())[1]!
+    const point = await getVisiblePaginationRightLineMarginTarget(editor.root)
+
+    expect(point).toBeTruthy()
+
+    await editor.selection.collapse({
+      path: [1, 0],
+      offset: Math.min(4, secondBlockText.length),
+    })
+    await editor.focus()
+    await page.mouse.click(point!.x, point!.y)
+
+    await expect
+      .poll(async () => editor.selection.get())
+      .toEqual({
+        anchor: {
+          path: [Number(point!.blockPath), 0],
+          offset: point!.expectedOffset,
+        },
+        focus: {
+          path: [Number(point!.blockPath), 0],
+          offset: point!.expectedOffset,
+        },
+      })
+  })
+
+  test('places selection at wrapped line starts when clicking the left paragraph gutter', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for pagination left-margin hit testing'
+    )
+
+    await page.setViewportSize({ height: 814, width: 1994 })
+
+    const editor = await openExample(page, 'pagination', {
+      query: { page_layout: 'single' },
+      ready: {
+        editor: 'visible',
+        text: /Rich Markdown pagination proof/,
+      },
+    })
+    const targets = await getVisiblePaginationWrappedLineMarginTargets(
+      editor.root,
+      'left'
+    )
+
+    expect(targets.length).toBeGreaterThanOrEqual(3)
+
+    for (const target of targets) {
+      await editor.selection.collapse({
+        path: [0, 0],
+        offset: 0,
+      })
+      await editor.focus()
+      await page.mouse.click(target.x, target.y)
+
+      await expect
+        .poll(async () => ({
+          activeIsEditor: await editor.root.evaluate(
+            (element) => element.ownerDocument.activeElement === element
+          ),
+          nativeSelection: await editor.root.evaluate(() => {
+            const selection = document.getSelection()
+
+            return {
+              anchorOffset: selection?.anchorOffset ?? null,
+              anchorText: selection?.anchorNode?.textContent ?? null,
+            }
+          }),
+          selection: await editor.selection.get(),
+        }))
+        .toEqual({
+          activeIsEditor: true,
+          nativeSelection: {
+            anchorOffset: target.expectedDOMOffset,
+            anchorText: target.expectedDOMText,
+          },
+          selection: {
+            anchor: {
+              path: [Number(target.blockPath), 0],
+              offset: target.expectedOffset,
+            },
+            focus: {
+              path: [Number(target.blockPath), 0],
+              offset: target.expectedOffset,
+            },
+          },
+        })
+    }
   })
 
   test('keeps typed trailing spaces at the paragraph end', async ({
@@ -1522,7 +2624,7 @@ test.describe('pagination example', () => {
       })
   })
 
-  test('preserves virtualized pagination selection when clicking the page line margin', async ({
+  test('places virtualized pagination selection at line start from the page margin', async ({
     page,
   }, testInfo) => {
     test.skip(
@@ -1583,10 +2685,10 @@ test.describe('pagination example', () => {
       }))
       .toEqual({
         activeIsEditor: true,
-        selection: expect.objectContaining({
-          anchor: expect.objectContaining({ path: [1, 0] }),
-          focus: expect.objectContaining({ path: [1, 0] }),
-        }),
+        selection: {
+          anchor: { path: [Number(marginTarget!.blockPath), 0], offset: 0 },
+          focus: { path: [Number(marginTarget!.blockPath), 0], offset: 0 },
+        },
       })
   })
 

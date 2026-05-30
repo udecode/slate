@@ -29,7 +29,15 @@ const dragTextRange = async (
         }
       }
 
-      const pointFor = ({ offset, text }: { offset: number; text: string }) => {
+      const pointFor = ({
+        edge,
+        offset,
+        text,
+      }: {
+        edge: 'end' | 'start'
+        offset: number
+        text: string
+      }) => {
         const node = textNodes.find((textNode) =>
           textNode.nodeValue?.includes(text)
         )
@@ -40,20 +48,29 @@ const dragTextRange = async (
 
         const range = document.createRange()
 
-        range.setStart(node, offset)
-        range.collapse(true)
+        if (edge === 'end' && offset > 0) {
+          range.setStart(node, offset - 1)
+          range.setEnd(node, offset)
+        } else {
+          range.setStart(node, offset)
+          range.setEnd(node, Math.min(offset + 1, node.length))
+        }
 
-        const rect = range.getBoundingClientRect()
+        const rects = Array.from(range.getClientRects())
+        const rect =
+          edge === 'end'
+            ? (rects.at(-1) ?? range.getBoundingClientRect())
+            : (rects[0] ?? range.getBoundingClientRect())
 
         return {
-          x: rect.left,
+          x: edge === 'end' ? rect.right + 1 : rect.left,
           y: rect.top + rect.height / 2,
         }
       }
 
       return {
-        end: pointFor(end),
-        start: pointFor(start),
+        end: pointFor({ ...end, edge: 'end' }),
+        start: pointFor({ ...start, edge: 'start' }),
       }
     },
     { end, start }
@@ -358,7 +375,9 @@ test.describe('hidden content blocks example', () => {
 
   test('preserves the unselected active tab suffix when deleting across visible hidden content', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop mouse drag proof')
+
     const editor = await openExample(page, 'hidden-content-blocks', {
       query: { accordion_open: true },
       ready: {
@@ -403,7 +422,9 @@ test.describe('hidden content blocks example', () => {
 
   test('preserves the unselected second tab suffix when deleting across visible hidden content', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop mouse drag proof')
+
     const editor = await openExample(page, 'hidden-content-blocks', {
       query: { accordion_open: true, tab: 'details' },
       ready: {

@@ -1574,7 +1574,7 @@ export const insertFragment: TextMutationMethods['insertFragment'] = (
     { fragment, options, type: 'insert_fragment' },
     (command) => {
       applyInsertFragment(editor, command.fragment, command.options)
-      return { handled: true }
+      return true
     }
   )
 }

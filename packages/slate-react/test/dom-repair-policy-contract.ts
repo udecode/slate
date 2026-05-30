@@ -263,6 +263,63 @@ test('native input repair imports a burst DOM text delta once', () => {
   root.remove()
 })
 
+test('native input repair replaces expanded model selections and collapses at the DOM caret', () => {
+  const editor = createReactEditor()
+  const root = mountEditorRoot(editor)
+  const originalText = 'This is editable plain text'
+  const replacementText = 'foo'
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: originalText }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: originalText.length },
+    },
+  })
+
+  const textHost = document.createElement('span')
+  const string = document.createElement('span')
+  const text = document.createTextNode(replacementText)
+  const range = document.createRange()
+  const selection = window.getSelection()
+  const queue = createDOMRepairQueue({
+    editor,
+    inputController: {
+      preferModelSelectionForInputRef: { current: true },
+      state: createEditableInputControllerState(),
+    },
+    scrollSelectionIntoView: () => {},
+    syncDOMSelectionToEditor: () => {},
+  })
+
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-path', '0,0')
+  string.setAttribute('data-slate-string', 'true')
+  string.append(text)
+  textHost.append(string)
+  root.append(textHost)
+
+  range.setStart(text, replacementText.length)
+  range.collapse(true)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+
+  queue.repairDOMInput({ data: replacementText, inputType: 'insertText' }, root)
+
+  expect(editor.read((state) => state.text.string([0]))).toBe(replacementText)
+  expect(editor.read((state) => state.selection.get())).toEqual({
+    anchor: { path: [0, 0], offset: replacementText.length },
+    focus: { path: [0, 0], offset: replacementText.length },
+  })
+
+  root.remove()
+})
+
 test('repair execution is skipped for none policy', () => {
   let calls = 0
 

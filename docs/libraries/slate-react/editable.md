@@ -259,10 +259,10 @@ const markdown = defineEditorExtension({
         if (selection) {
           tx.nodes.set({ type: 'code' })
         }
-        return
+        return true
       }
 
-      next()
+      return next()
     },
   },
 })

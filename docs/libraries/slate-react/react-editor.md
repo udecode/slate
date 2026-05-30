@@ -140,9 +140,10 @@ range is not currently mappable.
 
 ## DataTransfer
 
-#### `editor.api.clipboard.insertData(data: DataTransfer): void`
+#### `editor.api.clipboard.insertData(data: DataTransfer): boolean`
 
-Insert data from a `DataTransfer` into the editor.
+Insert data from a `DataTransfer` into the editor. Returns `true` when Slate or
+an extension inserts content.
 
 Slate runs typed `clipboard.insertData` extension handlers first. A handler that
 returns `true` stops the default import path. When no handler claims the data,

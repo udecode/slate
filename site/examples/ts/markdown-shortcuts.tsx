@@ -137,7 +137,7 @@ const markdownShortcuts = () =>
 
               selectCurrentBlockStart(tx)
               editor.api.dom.focus()
-              return
+              return true
             }
           }
         }
@@ -229,11 +229,11 @@ const markdownShortcuts = () =>
             selectCurrentBlockStart(tx)
             editor.api.dom.focus()
 
-            return
+            return true
           }
         }
 
-        next()
+        return next()
       },
     },
   })

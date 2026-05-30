@@ -5,6 +5,7 @@ import {
   isNestedEditableDOMTarget,
 } from '../src/editable/input-controller'
 import { createEditableInputController } from '../src/editable/input-state'
+import { writeCollapsedModelSelectionDOMPreference } from '../src/editable/model-selection-dom-preference'
 import {
   completeEditableSelectionChangeImport,
   executeEditableSelectionExport,
@@ -197,6 +198,76 @@ test('model selection export is owned by the matching root view only', () => {
 
   expect(resolveDOMRange).not.toHaveBeenCalled()
   vi.restoreAllMocks()
+})
+
+test('model selection export preserves preferred collapsed DOM point', () => {
+  vi.useFakeTimers()
+
+  const editor = createReactEditor()
+  const editorElement = document.createElement('div')
+  const firstLine = document.createTextNode('first line')
+  const secondLine = document.createTextNode('second line')
+  const domSelection = document.getSelection()
+  const selection = {
+    anchor: { path: [0, 0], offset: firstLine.textContent!.length },
+    focus: { path: [0, 0], offset: firstLine.textContent!.length },
+  }
+
+  if (!domSelection) {
+    throw new Error('Expected document selection')
+  }
+
+  editorElement.setAttribute('data-slate-editor', 'true')
+  editorElement.append(firstLine, secondLine)
+  document.body.append(editorElement)
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: `${firstLine.textContent}${secondLine.textContent}` },
+        ],
+      },
+    ],
+    selection,
+  })
+
+  vi.spyOn(ReactEditor, 'findDocumentOrShadowRoot').mockReturnValue(document)
+  vi.spyOn(ReactEditor, 'assertDOMNode').mockReturnValue(editorElement)
+  vi.spyOn(ReactEditor, 'resolveDOMRange').mockImplementation(() => {
+    const fallbackRange = document.createRange()
+
+    fallbackRange.setStart(firstLine, firstLine.textContent!.length)
+    fallbackRange.setEnd(firstLine, firstLine.textContent!.length)
+
+    return fallbackRange
+  })
+
+  writeCollapsedModelSelectionDOMPreference(editor, selection, {
+    node: secondLine,
+    offset: 0,
+  })
+
+  try {
+    syncEditableDOMSelectionToEditor({
+      editor,
+      scrollSelectionIntoView: vi.fn(),
+      partialDOMBackedSelection: false,
+      state: {
+        isUpdatingSelection: false,
+        outsideFocusBoundarySettleUntil: 0,
+        selectionChangeOrigin: null,
+      },
+    })
+
+    expect(domSelection.anchorNode).toBe(secondLine)
+    expect(domSelection.anchorOffset).toBe(0)
+  } finally {
+    editorElement.remove()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  }
 })
 
 test('native editor-owned selectionchange clears model preference before DOM import', () => {

@@ -261,6 +261,7 @@ describe('primary slate package surface', () => {
     'before',
     'bookmark',
     'collapse',
+    'defineCommand',
     'deleteBackward',
     'deleteForward',
     'deleteFragment',
@@ -396,6 +397,7 @@ describe('primary slate package surface', () => {
 
     assert.equal(rootSource.includes("export * from './interfaces'"), false)
     assert.equal(rootSource.includes('EditorStaticApi'), false)
+    assert.equal(rootSource.includes('InternalEditorStaticApi'), false)
     assert.equal(rootSource.includes('EditorElementReadOnlyOptions'), false)
   })
 
@@ -430,6 +432,40 @@ describe('primary slate package surface', () => {
     assert.equal('defineCommand' in Slate, false)
     assert.equal('registerCommand' in Slate, false)
     assert.equal('executeCommand' in Slate, false)
+  })
+
+  it('keeps command middleware returns strict boolean', () => {
+    const sourceFiles = ['packages/slate/src/core/command-registry.ts']
+    const failures = sourceFiles.flatMap((relativePath) => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+
+      return [
+        /\bEditorCommandResult\s*\|\s*void\b/,
+        /\bvoid\s*\|\s*EditorCommandResult\b/,
+      ]
+        .filter((pattern) => pattern.test(source))
+        .map((pattern) => `${relativePath}: ${pattern}`)
+    })
+
+    assert.deepEqual(failures, [])
+  })
+
+  it('keeps command middleware off the public static editor API type', () => {
+    const editorSource = readFileSync(
+      resolve(repoRoot, 'packages/slate/src/interfaces/editor.ts'),
+      'utf8'
+    )
+    const staticApiStart = editorSource.indexOf(
+      'export interface EditorStaticApi'
+    )
+    const staticApiEnd = editorSource.indexOf(
+      '\nexport interface InternalEditorStaticApi',
+      staticApiStart
+    )
+    const staticApiSource = editorSource.slice(staticApiStart, staticApiEnd)
+
+    assert.equal(staticApiSource.includes('defineCommand'), false)
+    assert.equal(staticApiSource.includes('registerCommand'), false)
   })
 
   it('does not expose document replacement helpers on editor instances', () => {

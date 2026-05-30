@@ -98,7 +98,7 @@ const inventoryRules: InventoryRule[] = [
       'Changelog entries preserve history and are not primary API guidance.',
   },
   {
-    expected: { primitive: 50, stale: 249 },
+    expected: { primitive: 55, stale: 301 },
     gate: 'browser proof handles must stay explicitly classified as proof transport',
     id: 'browser-proof-rows',
     next: 'explicit-proof-bridge',
@@ -157,7 +157,7 @@ const inventoryRules: InventoryRule[] = [
     rationale: 'History contracts guard undo/redo behavior during the rewrite.',
   },
   {
-    expected: { bridge: 13, primitive: 9 },
+    expected: { bridge: 19, primitive: 11, stale: 1 },
     gate: 'React tests may exercise bridges only as contract proof',
     id: 'slate-react-tests',
     next: 'keep-as-contract',

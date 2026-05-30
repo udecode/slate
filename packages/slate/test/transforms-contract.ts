@@ -110,6 +110,52 @@ describe('slate transforms contract', () => {
     assert.deepEqual(after.selection, collapsedSelection([0, 1], 5))
   })
 
+  it('insertText replaces a selection spanning a block void without keeping a void anchor', () => {
+    const editor = createEditor()
+    editor.extend(
+      defineEditorExtension({
+        elements: [{ type: 'image', void: 'block' }],
+        name: 'block-void-insert-selection-contract',
+      })
+    )
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Before' }],
+        },
+        {
+          type: 'image',
+          children: [{ text: '' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: 'After' }],
+        },
+      ] as Descendant[],
+      selection: {
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [2, 0], offset: 2 },
+      },
+      marks: null,
+    })
+
+    editor.update((tx) => {
+      tx.text.insert('X')
+    })
+
+    const after = Editor.getSnapshot(editor)
+
+    assert.deepEqual(after.children, [
+      {
+        type: 'paragraph',
+        children: [{ text: 'BefXter' }],
+      },
+    ])
+    assert.deepEqual(after.selection, collapsedSelection([0, 0], 4))
+  })
+
   it('mergeNodes does not cross an isolating block boundary', () => {
     const editor = createEditor()
     editor.extend(

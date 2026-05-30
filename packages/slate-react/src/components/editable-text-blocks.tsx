@@ -2245,6 +2245,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
                     : null
             }
             id={id}
+            ignoreBlankEditableRootClicks={layout != null}
             onBeforeInput={onBeforeInput}
             onDOMBeforeInput={onDOMBeforeInput}
             onDOMStrategyMetrics={onDOMStrategyMetrics}

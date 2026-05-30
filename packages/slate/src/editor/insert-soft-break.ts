@@ -16,7 +16,7 @@ export const insertSoftBreak: EditorStaticApi['insertSoftBreak'] = (editor) => {
     { type: 'insert_soft_break' },
     () => {
       applyInsertSoftBreak(editor)
-      return { handled: true }
+      return true
     }
   )
 }

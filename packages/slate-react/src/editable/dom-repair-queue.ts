@@ -290,7 +290,29 @@ export const createDOMRepairQueue = ({
         }
         const nextOffset = insert.offset + insert.text.length
         const currentSelection = readRuntimeSelection(editor)
+        const expandedReplacementRange =
+          currentSelection &&
+          RangeApi.isExpanded(currentSelection) &&
+          PathApi.equals(currentSelection.anchor.path, path) &&
+          PathApi.equals(currentSelection.focus.path, path)
+            ? currentSelection
+            : null
+        const expandedReplacementEdges = expandedReplacementRange
+          ? RangeApi.edges(expandedReplacementRange)
+          : null
+        const expandedReplacementStart = expandedReplacementEdges?.[0] ?? null
+        const expandedReplacementEnd = expandedReplacementEdges?.[1] ?? null
+        const shouldReplaceExpandedSelection =
+          !!expandedReplacementRange &&
+          !!expandedReplacementStart &&
+          !!expandedReplacementEnd &&
+          insert.offset === expandedReplacementStart.offset &&
+          textHostText ===
+            slateNode.text.slice(0, expandedReplacementStart.offset) +
+              insert.text +
+              slateNode.text.slice(expandedReplacementEnd.offset)
         const shouldMoveSelection =
+          shouldReplaceExpandedSelection ||
           !nativeInput.target ||
           (currentSelection != null &&
             RangeApi.isCollapsed(currentSelection) &&
@@ -299,7 +321,11 @@ export const createDOMRepairQueue = ({
 
         editor.update(
           (tx) => {
-            tx.text.insert(insert.text, { at: { path, offset: insert.offset } })
+            tx.text.insert(insert.text, {
+              at: shouldReplaceExpandedSelection
+                ? expandedReplacementRange
+                : { path, offset: insert.offset },
+            })
 
             if (shouldMoveSelection) {
               tx.selection.set({

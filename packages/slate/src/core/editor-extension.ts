@@ -68,7 +68,7 @@ type TransformMiddleware<
     TEditor,
     TransformMiddlewareArgs<TEditor, TKey>
   >
-) => EditorCommandResult | void
+) => EditorCommandResult
 
 const EXTENSION_STATE = new WeakMap<Editor, ExtensionState>()
 
@@ -284,18 +284,6 @@ const createRuntimeState = <TValue>(
   }
 }
 
-const resolveTransformResult = (
-  result: EditorCommandResult | void,
-  delegated: boolean,
-  nextResult: EditorCommandResult
-): EditorCommandResult => {
-  if (result) {
-    return result
-  }
-
-  return delegated ? nextResult : { handled: true }
-}
-
 const hasExtensionNamed = (
   state: ExtensionState,
   pending: Map<string, EditorExtension<Editor, any>>,
@@ -460,7 +448,7 @@ const registerExtensionSlots = <TEditor extends Editor>(
           (context, next) => {
             const { type: _type, ...commandArgs } = context.command
             let delegated = false
-            let nextResult: EditorCommandResult = { handled: false }
+            let nextResult: EditorCommandResult = false
 
             const runNext = (
               overrides: Partial<
@@ -492,7 +480,13 @@ const registerExtensionSlots = <TEditor extends Editor>(
               ),
             })
 
-            return resolveTransformResult(result, delegated, nextResult)
+            if (typeof result !== 'boolean') {
+              throw new Error(
+                'Transform middleware must return true, false, or next(...).'
+              )
+            }
+
+            return result
           }
         )
       )

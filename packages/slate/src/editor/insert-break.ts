@@ -13,6 +13,6 @@ const applyInsertBreak: EditorStaticApi['insertBreak'] = (editor) => {
 export const insertBreak: EditorStaticApi['insertBreak'] = (editor) => {
   executeCommand<InsertBreakCommand>(editor, { type: 'insert_break' }, () => {
     applyInsertBreak(editor)
-    return { handled: true }
+    return true
   })
 }

@@ -3,8 +3,22 @@ import type { ReactNode } from 'react'
 import { recordSlateReactRender } from '../render-profiler'
 import { getSlateLeafShellAttributes } from '../shell-runtime'
 
-export const SlateLeaf = ({ children }: { children: ReactNode }) => {
+export const SlateLeaf = ({
+  attributes,
+  children,
+}: {
+  attributes?: {
+    'data-slate-leaf': true
+    'data-slate-leaf-end'?: number
+    'data-slate-leaf-start'?: number
+  }
+  children: ReactNode
+}) => {
   recordSlateReactRender({ kind: 'leaf' })
 
-  return <span {...getSlateLeafShellAttributes()}>{children}</span>
+  return (
+    <span {...getSlateLeafShellAttributes()} {...attributes}>
+      {children}
+    </span>
+  )
 }

@@ -7,6 +7,7 @@ import {
   PointApi,
   type Range,
   RangeApi,
+  type Editor as SlateEditor,
 } from 'slate'
 import { Editor, getOperationRoot, MAIN_ROOT_KEY } from 'slate/internal'
 import { EDITOR_TO_PENDING_DIFFS } from './weak-maps'
@@ -23,7 +24,7 @@ export type TextDiff = {
   diff: StringDiff
 }
 
-const getPendingDiffRoot = (editor?: Editor<any>) =>
+const getPendingDiffRoot = (editor?: SlateEditor<any>) =>
   editor?.read((state) => state.view.root()) ?? MAIN_ROOT_KEY
 
 /**
@@ -31,7 +32,7 @@ const getPendingDiffRoot = (editor?: Editor<any>) =>
  * recover the pending selection.
  */
 export function verifyDiffState(
-  editor: Editor<any>,
+  editor: SlateEditor<any>,
   textDiff: TextDiff
 ): boolean {
   const { path, diff } = textDiff
@@ -169,7 +170,7 @@ export function targetRange(textDiff: TextDiff): Range {
  * have a valid point inside the document
  */
 export function normalizePoint(
-  editor: Editor<any>,
+  editor: SlateEditor<any>,
   point: Point
 ): Point | null {
   let { path, offset } = point
@@ -209,7 +210,7 @@ export function normalizePoint(
  * Normalize a 'pending selection' to ensure it's valid in the current document state.
  */
 export function normalizeRange(
-  editor: Editor<any>,
+  editor: SlateEditor<any>,
   range: Range
 ): Range | null {
   const anchor = normalizePoint(editor, range.anchor)
@@ -229,10 +230,13 @@ export function normalizeRange(
   return { anchor, focus }
 }
 
-const getPendingPointRoot = (editor: Editor<any>, point: Point) =>
+const getPendingPointRoot = (editor: SlateEditor<any>, point: Point) =>
   point.root ?? editor.read((state) => state.view.root())
 
-const withPendingPointRoot = (editor: Editor<any>, point: Point): Point => {
+const withPendingPointRoot = (
+  editor: SlateEditor<any>,
+  point: Point
+): Point => {
   const root = getPendingPointRoot(editor, point)
 
   return point.root === undefined && root !== MAIN_ROOT_KEY
@@ -254,7 +258,7 @@ const stripImplicitPendingPointRoot = (
 }
 
 export function transformPendingPoint(
-  editor: Editor<any>,
+  editor: SlateEditor<any>,
   point: Point,
   op: Operation
 ): Point | null {
@@ -327,7 +331,7 @@ export function transformPendingPoint(
 }
 
 export function transformPendingRange(
-  editor: Editor<any>,
+  editor: SlateEditor<any>,
   range: Range,
   op: Operation
 ): Range | null {
@@ -351,7 +355,7 @@ export function transformPendingRange(
 export function transformTextDiff(
   textDiff: TextDiff,
   op: Operation,
-  editor?: Editor<any>
+  editor?: SlateEditor<any>
 ): TextDiff | null {
   const { path, diff, id } = textDiff
   const root = getPendingDiffRoot(editor)

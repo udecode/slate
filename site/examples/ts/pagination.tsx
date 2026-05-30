@@ -8,6 +8,7 @@ import {
 import {
   type ChangeEvent,
   Children,
+  type ComponentProps,
   type CSSProperties,
   createContext,
   Fragment,
@@ -60,6 +61,7 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/utils/cn'
+
 import {
   clampNumber,
   parseAsBoundedInteger,
@@ -140,216 +142,266 @@ const paginationControlUrlKeys = {
 type PaginationControls = Values<typeof paginationControlParsers>
 type SetPaginationControls = SetValues<typeof paginationControlParsers>
 
+const PaginationControlsToolbar = ({
+  applyTableRows,
+  controls,
+  setControls,
+}: {
+  applyTableRows: (rows: number) => void
+  controls: PaginationControls
+  setControls: SetPaginationControls
+}) => {
+  const {
+    debugFrames,
+    domStrategyMode,
+    margins,
+    mediaHeight,
+    mediaSplit,
+    pageLayoutMode,
+    pageOverscan,
+    preset,
+    tableRowHeight,
+    tableRows,
+    virtualizedStressPages,
+  } = controls
+
+  const updatePreset = (event: ChangeEvent<HTMLSelectElement>) => {
+    const preset = event.currentTarget.value as PaginationControls['preset']
+    void setControls({ preset })
+  }
+
+  const updateMargins = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = Number.parseInt(event.currentTarget.value, 10)
+    if (Number.isFinite(value)) {
+      void setControls({ margins: clampNumber(value, 48, 240) })
+    }
+  }
+
+  const updateDOMStrategy = (event: ChangeEvent<HTMLSelectElement>) => {
+    void setControls({
+      domStrategyMode: event.currentTarget.value as DOMStrategyMode,
+    })
+  }
+
+  const updateTableRows = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = Number.parseInt(event.currentTarget.value, 10)
+
+    if (Number.isFinite(value)) {
+      const nextTableRows = clampNumber(value, 8, MAX_TABLE_ROWS)
+
+      applyTableRows(nextTableRows)
+      void setControls({ tableRows: nextTableRows })
+    }
+  }
+
+  const updateTableRowHeight = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = Number.parseInt(event.currentTarget.value, 10)
+
+    if (Number.isFinite(value)) {
+      void setControls({
+        tableRowHeight: clampNumber(value, 28, MAX_TABLE_ROW_HEIGHT),
+      })
+    }
+  }
+
+  const updateMediaHeight = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = Number.parseInt(event.currentTarget.value, 10)
+
+    if (Number.isFinite(value)) {
+      void setControls({
+        mediaHeight: clampNumber(value, 120, MAX_MEDIA_HEIGHT),
+      })
+    }
+  }
+
+  const updateMediaSplit = (event: ChangeEvent<HTMLSelectElement>) => {
+    void setControls({
+      mediaSplit: event.currentTarget.value as PaginationControls['mediaSplit'],
+    })
+  }
+
+  const updatePageOverscan = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = Number.parseInt(event.currentTarget.value, 10)
+
+    if (Number.isFinite(value)) {
+      void setControls({
+        pageOverscan: clampNumber(value, 0, MAX_PAGE_OVERSCAN),
+      })
+    }
+  }
+
+  const updateVirtualizedStressPages = (
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const value = Number.parseInt(event.currentTarget.value, 10)
+
+    if (Number.isFinite(value)) {
+      void setControls({
+        virtualizedStressPages: clampNumber(
+          value,
+          0,
+          MAX_VIRTUALIZED_STRESS_PAGES
+        ),
+      })
+    }
+  }
+
+  const togglePageLayoutMode = () => {
+    void setControls((state) => ({
+      pageLayoutMode: state.pageLayoutMode === 'spread' ? 'single' : 'spread',
+    }))
+  }
+
+  return (
+    <div className="slate-pagination-toolbar">
+      <div className="slate-pagination-toolbar-group">
+        <span className="slate-pagination-label">
+          <Label htmlFor="pagination-preset">Preset</Label>
+          <NativeSelect
+            className="w-24"
+            id="pagination-preset"
+            onChange={updatePreset}
+            value={preset}
+          >
+            <NativeSelectOption value="a4">A4</NativeSelectOption>
+            <NativeSelectOption value="letter">Letter</NativeSelectOption>
+          </NativeSelect>
+        </span>
+        <span className="slate-pagination-label">
+          <Label htmlFor="pagination-margins">Margins</Label>
+          <Input
+            className="w-20"
+            id="pagination-margins"
+            min={48}
+            onChange={updateMargins}
+            step={12}
+            type="number"
+            value={margins}
+          />
+        </span>
+        <span className="slate-pagination-label">
+          <Label htmlFor="pagination-dom-strategy">DOM strategy</Label>
+          <NativeSelect
+            className="w-32"
+            id="pagination-dom-strategy"
+            onChange={updateDOMStrategy}
+            value={domStrategyMode}
+          >
+            <NativeSelectOption value="staged">Staged</NativeSelectOption>
+            <NativeSelectOption value="full">Full</NativeSelectOption>
+            <NativeSelectOption value="virtualized">
+              Virtualized
+            </NativeSelectOption>
+          </NativeSelect>
+        </span>
+        <span className="slate-pagination-label">
+          <Label htmlFor="pagination-rows">Rows</Label>
+          <Input
+            className="w-24"
+            id="pagination-rows"
+            max={MAX_TABLE_ROWS}
+            min={8}
+            onChange={updateTableRows}
+            type="number"
+            value={tableRows}
+          />
+        </span>
+        <span className="slate-pagination-label">
+          <Label htmlFor="pagination-row-height">Row px</Label>
+          <Input
+            className="w-20"
+            id="pagination-row-height"
+            max={MAX_TABLE_ROW_HEIGHT}
+            min={28}
+            onChange={updateTableRowHeight}
+            step={4}
+            type="number"
+            value={tableRowHeight}
+          />
+        </span>
+        <span className="slate-pagination-label">
+          <Label htmlFor="pagination-media-height">Media px</Label>
+          <Input
+            className="w-24"
+            id="pagination-media-height"
+            max={MAX_MEDIA_HEIGHT}
+            min={120}
+            onChange={updateMediaHeight}
+            step={40}
+            type="number"
+            value={mediaHeight}
+          />
+        </span>
+        <span className="slate-pagination-label">
+          <Label htmlFor="pagination-media-split">Media split</Label>
+          <NativeSelect
+            className="w-24"
+            id="pagination-media-split"
+            onChange={updateMediaSplit}
+            value={mediaSplit}
+          >
+            <NativeSelectOption value="avoid">Avoid</NativeSelectOption>
+            <NativeSelectOption value="page">Page</NativeSelectOption>
+          </NativeSelect>
+        </span>
+        {domStrategyMode === 'virtualized' && (
+          <>
+            <span className="slate-pagination-label">
+              <Label htmlFor="pagination-page-overscan">Page overscan</Label>
+              <Input
+                className="w-20"
+                id="pagination-page-overscan"
+                max={MAX_PAGE_OVERSCAN}
+                min={0}
+                onChange={updatePageOverscan}
+                type="number"
+                value={pageOverscan}
+              />
+            </span>
+            <span className="slate-pagination-label">
+              <Label htmlFor="pagination-rich-stress">Stress pages</Label>
+              <Input
+                className="w-24"
+                id="pagination-rich-stress"
+                max={MAX_VIRTUALIZED_STRESS_PAGES}
+                min={0}
+                onChange={updateVirtualizedStressPages}
+                step={10}
+                type="number"
+                value={virtualizedStressPages}
+              />
+            </span>
+          </>
+        )}
+      </div>
+      <div className="slate-pagination-toolbar-group">
+        <Separator className="h-6" orientation="vertical" />
+        <span className="slate-pagination-switch-group">
+          Facing
+          <Switch
+            aria-label="Facing"
+            checked={pageLayoutMode === 'spread'}
+            onCheckedChange={() => togglePageLayoutMode()}
+          />
+        </span>
+        <Separator className="h-6" orientation="vertical" />
+        <span className="slate-pagination-switch-group">
+          Debug
+          <Switch
+            aria-label="Debug"
+            checked={debugFrames}
+            onCheckedChange={(checked) => {
+              void setControls({ debugFrames: Boolean(checked) })
+            }}
+          />
+        </span>
+      </div>
+    </div>
+  )
+}
+
 const richImageSvg =
   'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 640 240%22%3E%3Crect width=%22640%22 height=%22240%22 fill=%22%23f8fafc%22/%3E%3Cpath d=%22M0 190 150 94l90 62 116-86 284 120v50H0z%22 fill=%22%23bfdbfe%22/%3E%3Ccircle cx=%22518%22 cy=%2262%22 r=%2238%22 fill=%22%23f59e0b%22/%3E%3Ctext x=%2232%22 y=%2250%22 font-family=%22Arial%22 font-size=%2228%22 fill=%22%23111827%22%3EMarkdown asset%3C/text%3E%3C/svg%3E'
-
-type ElementSize = {
-  height: number
-  width: number
-}
-
-type PaginationLineDecorationData = {
-  paginationLine?: SlatePageLayoutDecorationRects
-}
-
-const flowProjectedTypes = new Set(['image', 'table', 'thematic-break'])
-
-const isFlowProjectedType = (type: unknown) =>
-  typeof type === 'string' && flowProjectedTypes.has(type)
-
-type PaginationTableLayout = {
-  left: number
-  top: number
-}
-
-const PaginationTableLayoutContext =
-  createContext<PaginationTableLayout | null>(null)
-
-const getFragmentUnitBounds = (
-  fragments: readonly SlateLayoutRenderedFragment[]
-): SlatePageRect | null => {
-  const units = fragments.flatMap((fragment) => fragment.units ?? [])
-
-  if (units.length === 0) {
-    return null
-  }
-
-  const left = Math.min(...units.map((unit) => unit.rect.left))
-  const top = Math.min(...units.map((unit) => unit.rect.top))
-  const right = Math.max(
-    ...units.map((unit) => unit.rect.left + unit.rect.width)
-  )
-  const bottom = Math.max(
-    ...units.map((unit) => unit.rect.top + unit.rect.height)
-  )
-
-  return {
-    height: bottom - top,
-    left,
-    top,
-    width: right - left,
-  }
-}
-
-const getNativeFlowEditablePathKeys = (
-  fragments: readonly {
-    pageIndex: number
-    path: number[]
-    units?: readonly unknown[]
-  }[]
-) => {
-  const fragmentsByPath = new Map<
-    string,
-    { count: number; pageIndexes: Set<number> }
-  >()
-
-  for (const fragment of fragments) {
-    if (fragment.units && fragment.units.length > 0) {
-      continue
-    }
-
-    const key = getSlatePageLayoutPathKey(fragment.path)
-    const entry = fragmentsByPath.get(key) ?? {
-      count: 0,
-      pageIndexes: new Set<number>(),
-    }
-
-    entry.count += 1
-    entry.pageIndexes.add(fragment.pageIndex)
-    fragmentsByPath.set(key, entry)
-  }
-
-  return new Set(
-    [...fragmentsByPath]
-      .filter(([, entry]) => entry.count === 1 && entry.pageIndexes.size === 1)
-      .map(([key]) => key)
-  )
-}
-
-const getVisibleTableRowRanges = (
-  tablePathLength: number,
-  fragments: readonly SlateLayoutRenderedFragment[]
-) => {
-  const rowIndexes = [
-    ...new Set(
-      fragments.flatMap(
-        (fragment) =>
-          fragment.units
-            ?.map((unit) => unit.path[tablePathLength])
-            .filter((index): index is number => typeof index === 'number') ?? []
-      )
-    ),
-  ].sort((left, right) => left - right)
-  const ranges: { end: number; start: number }[] = []
-
-  for (const rowIndex of rowIndexes) {
-    const previous = ranges.at(-1)
-
-    if (previous && rowIndex === previous.end + 1) {
-      previous.end = rowIndex
-      continue
-    }
-
-    ranges.push({ end: rowIndex, start: rowIndex })
-  }
-
-  return ranges
-}
-
-const renderTableChildrenWindow = ({
-  children,
-  ranges,
-  rowCount,
-  slots,
-}: Pick<RenderElementProps, 'children' | 'slots'> & {
-  ranges: readonly { end: number; start: number }[]
-  rowCount: number
-}) => {
-  const childNodes = Children.toArray(children)
-  const renderedChildren = []
-  let nextIndex = 0
-
-  for (const range of ranges) {
-    if (nextIndex < range.start) {
-      renderedChildren.push(
-        <Fragment key={`hidden-${nextIndex}-${range.start - 1}`}>
-          {slots.contentBoundary({
-            boundaryId: `pagination-table-hidden:${nextIndex}-${range.start - 1}`,
-            copyPolicy: 'include-model',
-            findPolicy: 'not-native-until-mounted',
-            mounted: false,
-            reason: 'viewport-virtualization',
-            renderPlaceholder: () => null,
-            scope: {
-              from: nextIndex,
-              to: range.start - 1,
-              type: 'children',
-            },
-            selectionPolicy: 'materialize',
-          })}
-        </Fragment>
-      )
-    }
-
-    renderedChildren.push(
-      ...childNodes.slice(range.start, Math.min(range.end + 1, rowCount))
-    )
-    nextIndex = range.end + 1
-  }
-
-  if (nextIndex < rowCount) {
-    renderedChildren.push(
-      <Fragment key={`hidden-${nextIndex}-${rowCount - 1}`}>
-        {slots.contentBoundary({
-          boundaryId: `pagination-table-hidden:${nextIndex}-${rowCount - 1}`,
-          copyPolicy: 'include-model',
-          findPolicy: 'not-native-until-mounted',
-          mounted: false,
-          reason: 'viewport-virtualization',
-          renderPlaceholder: () => null,
-          scope: {
-            from: nextIndex,
-            to: rowCount - 1,
-            type: 'children',
-          },
-          selectionPolicy: 'materialize',
-        })}
-      </Fragment>
-    )
-  }
-
-  return renderedChildren
-}
-
-const useElementSize = <T extends HTMLElement>(): [
-  RefObject<T | null>,
-  ElementSize,
-] => {
-  const ref = useRef<T | null>(null)
-  const [size, setSize] = useState<ElementSize>({ height: 0, width: 0 })
-
-  useEffect(() => {
-    const element = ref.current
-
-    if (!element) {
-      return
-    }
-
-    const update = () => {
-      const rect = element.getBoundingClientRect()
-      setSize({ height: rect.height, width: rect.width })
-    }
-
-    update()
-
-    const observer = new ResizeObserver(update)
-    observer.observe(element)
-
-    return () => observer.disconnect()
-  }, [])
-
-  return [ref, size]
-}
 
 const fixtureParagraphs = [
   'Premirror Milestone 1 test document. This paragraph is intentionally long so we can validate word wrapping inside the composed frame. The quick brown fox jumps over the lazy dog while pagination logic tracks run boundaries and maps document ranges to absolute fragment positions.',
@@ -607,6 +659,179 @@ const createInitialValue = ({
   ...createRichMarkdownValue({ stressPages, tableRows }),
 ]
 
+type PaginationLineDecorationData = {
+  paginationLine?: SlatePageLayoutDecorationRects
+}
+
+const flowProjectedTypes = new Set(['image', 'table', 'thematic-break'])
+
+const isFlowProjectedType = (type: unknown) =>
+  typeof type === 'string' && flowProjectedTypes.has(type)
+
+type PaginationTableLayout = {
+  left: number
+  top: number
+}
+
+const PaginationTableLayoutContext =
+  createContext<PaginationTableLayout | null>(null)
+
+const getFragmentUnitBounds = (
+  fragments: readonly SlateLayoutRenderedFragment[]
+): SlatePageRect | null => {
+  const units = fragments.flatMap((fragment) => fragment.units ?? [])
+
+  if (units.length === 0) {
+    return null
+  }
+
+  const left = Math.min(...units.map((unit) => unit.rect.left))
+  const top = Math.min(...units.map((unit) => unit.rect.top))
+  const right = Math.max(
+    ...units.map((unit) => unit.rect.left + unit.rect.width)
+  )
+  const bottom = Math.max(
+    ...units.map((unit) => unit.rect.top + unit.rect.height)
+  )
+
+  return {
+    height: bottom - top,
+    left,
+    top,
+    width: right - left,
+  }
+}
+
+const getNativeFlowEditablePathKeys = (
+  fragments: readonly {
+    pageIndex: number
+    path: number[]
+    units?: readonly unknown[]
+  }[]
+) => {
+  const fragmentsByPath = new Map<
+    string,
+    { count: number; pageIndexes: Set<number> }
+  >()
+
+  for (const fragment of fragments) {
+    if (fragment.units && fragment.units.length > 0) {
+      continue
+    }
+
+    const key = getSlatePageLayoutPathKey(fragment.path)
+    const entry = fragmentsByPath.get(key) ?? {
+      count: 0,
+      pageIndexes: new Set<number>(),
+    }
+
+    entry.count += 1
+    entry.pageIndexes.add(fragment.pageIndex)
+    fragmentsByPath.set(key, entry)
+  }
+
+  return new Set(
+    [...fragmentsByPath]
+      .filter(([, entry]) => entry.count === 1 && entry.pageIndexes.size === 1)
+      .map(([key]) => key)
+  )
+}
+
+const getVisibleTableRowRanges = (
+  tablePathLength: number,
+  fragments: readonly SlateLayoutRenderedFragment[]
+) => {
+  const rowIndexes = [
+    ...new Set(
+      fragments.flatMap(
+        (fragment) =>
+          fragment.units
+            ?.map((unit) => unit.path[tablePathLength])
+            .filter((index): index is number => typeof index === 'number') ?? []
+      )
+    ),
+  ].sort((left, right) => left - right)
+  const ranges: { end: number; start: number }[] = []
+
+  for (const rowIndex of rowIndexes) {
+    const previous = ranges.at(-1)
+
+    if (previous && rowIndex === previous.end + 1) {
+      previous.end = rowIndex
+      continue
+    }
+
+    ranges.push({ end: rowIndex, start: rowIndex })
+  }
+
+  return ranges
+}
+
+const renderTableChildrenWindow = ({
+  children,
+  ranges,
+  rowCount,
+  slots,
+}: Pick<RenderElementProps, 'children' | 'slots'> & {
+  ranges: readonly { end: number; start: number }[]
+  rowCount: number
+}) => {
+  const childNodes = Children.toArray(children)
+  const renderedChildren = []
+  let nextIndex = 0
+
+  for (const range of ranges) {
+    if (nextIndex < range.start) {
+      renderedChildren.push(
+        <Fragment key={`hidden-${nextIndex}-${range.start - 1}`}>
+          {slots.contentBoundary({
+            boundaryId: `pagination-table-hidden:${nextIndex}-${range.start - 1}`,
+            copyPolicy: 'include-model',
+            findPolicy: 'not-native-until-mounted',
+            mounted: false,
+            reason: 'viewport-virtualization',
+            renderPlaceholder: () => null,
+            scope: {
+              from: nextIndex,
+              to: range.start - 1,
+              type: 'children',
+            },
+            selectionPolicy: 'materialize',
+          })}
+        </Fragment>
+      )
+    }
+
+    renderedChildren.push(
+      ...childNodes.slice(range.start, Math.min(range.end + 1, rowCount))
+    )
+    nextIndex = range.end + 1
+  }
+
+  if (nextIndex < rowCount) {
+    renderedChildren.push(
+      <Fragment key={`hidden-${nextIndex}-${rowCount - 1}`}>
+        {slots.contentBoundary({
+          boundaryId: `pagination-table-hidden:${nextIndex}-${rowCount - 1}`,
+          copyPolicy: 'include-model',
+          findPolicy: 'not-native-until-mounted',
+          mounted: false,
+          reason: 'viewport-virtualization',
+          renderPlaceholder: () => null,
+          scope: {
+            from: nextIndex,
+            to: rowCount - 1,
+            type: 'children',
+          },
+          selectionPolicy: 'materialize',
+        })}
+      </Fragment>
+    )
+  }
+
+  return renderedChildren
+}
+
 type PaginationElementProps = RenderElementProps & {
   blockBoxes: ReadonlyMap<string, SlatePageLayoutProjectedBlock>
   debugFrames: boolean
@@ -852,6 +1077,187 @@ const PaginationElement = ({
   )
 }
 
+const renderPaginationLeaf = ({
+  attributes,
+  children,
+  segment,
+}: RenderLeafProps) => {
+  const line = (
+    segment.slices.find(
+      (slice) =>
+        (slice.data as PaginationLineDecorationData | undefined)?.paginationLine
+    )?.data as PaginationLineDecorationData | undefined
+  )?.paginationLine
+
+  if (!line) {
+    return <span {...attributes}>{children}</span>
+  }
+
+  return (
+    <span
+      {...attributes}
+      style={{
+        color: '#111827',
+        display: 'inline-block',
+        fontFamily: segment.marks.code
+          ? 'SFMono-Regular, Menlo, monospace'
+          : undefined,
+        fontStyle: segment.marks.italic ? 'italic' : undefined,
+        fontWeight: segment.marks.bold ? 700 : undefined,
+        height: line.hitRect.height,
+        left: line.textRect.left,
+        lineHeight: `${line.textRect.height}px`,
+        minWidth: line.textRect.width === 0 ? 1 : undefined,
+        position: 'absolute',
+        textDecoration: segment.marks.strikethrough
+          ? 'line-through'
+          : undefined,
+        top: line.textRect.top,
+        whiteSpace: 'pre',
+        width: line.hitRect.width,
+      }}
+    >
+      {children}
+    </span>
+  )
+}
+
+type PagedEditableProps = ComponentProps<typeof PagedEditable>
+
+type PaginationPageViewProps = {
+  debugFrames: boolean
+  decorate: PagedEditableProps['decorate']
+  domStrategy: PagedEditableProps['domStrategy']
+  layout: PagedEditableProps['layout']
+  onDOMStrategyMetrics: PagedEditableProps['onDOMStrategyMetrics']
+  pageGeometry: {
+    height: number
+    width: number
+  }
+  pageLayoutMode: 'single' | 'spread'
+  pageScale: number
+  renderElement: PagedEditableProps['renderElement']
+  renderLeaf: PagedEditableProps['renderLeaf']
+  viewportRef: RefObject<HTMLDivElement | null>
+}
+
+const PaginationPageView = ({
+  debugFrames,
+  decorate,
+  domStrategy,
+  layout,
+  onDOMStrategyMetrics,
+  pageGeometry,
+  pageLayoutMode,
+  pageScale,
+  renderElement,
+  renderLeaf,
+  viewportRef,
+}: PaginationPageViewProps) => (
+  <div
+    className="slate-pagination-viewport"
+    data-testid="pagination-viewport"
+    ref={viewportRef}
+  >
+    <div className="slate-pagination-viewport-inner">
+      <div
+        style={{
+          height: pageGeometry.height * pageScale,
+          width: pageGeometry.width * pageScale,
+        }}
+      >
+        <div
+          className="slate-pagination-scaled-surface"
+          style={{
+            transform: `scale(${pageScale})`,
+            width: pageGeometry.width,
+          }}
+        >
+          <PagedEditable
+            className="slate-pagination-editor"
+            decorate={decorate}
+            decorateDirtiness="external"
+            domStrategy={domStrategy}
+            layout={layout}
+            onDOMStrategyMetrics={onDOMStrategyMetrics}
+            pageView={{ gap: PAGE_GAP, mode: pageLayoutMode }}
+            renderElement={renderElement}
+            renderLeaf={renderLeaf}
+            renderPage={({ attributes, page }) => (
+              <div
+                {...attributes}
+                className={cn(
+                  'slate-pagination-page',
+                  debugFrames && 'slate-pagination-page-debug'
+                )}
+                style={{
+                  height: page.height,
+                  overflow: 'hidden',
+                  width: page.width,
+                }}
+              >
+                {debugFrames ? (
+                  <>
+                    <div
+                      className="slate-pagination-content-frame"
+                      data-testid="pagination-content-frame"
+                      style={{
+                        height: page.content.height,
+                        left: page.content.left,
+                        top: page.content.top,
+                        width: page.content.width,
+                      }}
+                    />
+                    <div className="slate-pagination-page-label">
+                      page {page.index} | {page.width}x{page.height}px
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            )}
+            spellCheck
+          />
+        </div>
+      </div>
+    </div>
+  </div>
+)
+
+type ElementSize = {
+  height: number
+  width: number
+}
+
+const useElementSize = <T extends HTMLElement>(): [
+  RefObject<T | null>,
+  ElementSize,
+] => {
+  const ref = useRef<T | null>(null)
+  const [size, setSize] = useState<ElementSize>({ height: 0, width: 0 })
+
+  useEffect(() => {
+    const element = ref.current
+
+    if (!element) {
+      return
+    }
+
+    const update = () => {
+      const rect = element.getBoundingClientRect()
+      setSize({ height: rect.height, width: rect.width })
+    }
+
+    update()
+
+    const observer = new ResizeObserver(update)
+    observer.observe(element)
+
+    return () => observer.disconnect()
+  }, [])
+
+  return [ref, size]
+}
+
 const PaginationSurface = ({
   controls,
   setControls,
@@ -972,15 +1378,18 @@ const PaginationSurface = ({
           return
         }
 
-        tx.value.replace({
-          children: [
-            ...root.filter((node) => !isRichMarkdownStressBlock(node)),
-            ...Array.from({ length: nextStressPages }, (_, index) =>
-              createRichMarkdownStressSection(index)
-            ).flat(),
-          ],
-          selection: null,
-        })
+        for (let index = stressIndexes.length - 1; index >= 0; index--) {
+          tx.nodes.remove({ at: [stressIndexes[index]!] })
+        }
+
+        const nextStressBlocks = Array.from(
+          { length: nextStressPages },
+          (_, index) => createRichMarkdownStressSection(index)
+        ).flat()
+
+        if (nextStressBlocks.length > 0) {
+          tx.nodes.insertMany(nextStressBlocks, { at: [nonStressCount] })
+        }
       })
     },
     [editor]
@@ -1182,93 +1591,6 @@ const PaginationSurface = ({
     snapshot.pages.length,
     visiblePageRows * (pageLayoutMode === 'spread' ? 2 : 1)
   )
-
-  const updatePreset = (event: ChangeEvent<HTMLSelectElement>) => {
-    const preset = event.currentTarget.value as PaginationControls['preset']
-    void setControls({ preset })
-  }
-
-  const updateMargins = (event: ChangeEvent<HTMLInputElement>) => {
-    const value = Number.parseInt(event.currentTarget.value, 10)
-    if (Number.isFinite(value)) {
-      void setControls({ margins: clampNumber(value, 48, 240) })
-    }
-  }
-
-  const updateDOMStrategy = (event: ChangeEvent<HTMLSelectElement>) => {
-    void setControls({
-      domStrategyMode: event.currentTarget.value as DOMStrategyMode,
-    })
-  }
-
-  const updateTableRows = (event: ChangeEvent<HTMLInputElement>) => {
-    const value = Number.parseInt(event.currentTarget.value, 10)
-
-    if (Number.isFinite(value)) {
-      const nextTableRows = clampNumber(value, 8, MAX_TABLE_ROWS)
-
-      applyTableRows(nextTableRows)
-      void setControls({ tableRows: nextTableRows })
-    }
-  }
-
-  const updateTableRowHeight = (event: ChangeEvent<HTMLInputElement>) => {
-    const value = Number.parseInt(event.currentTarget.value, 10)
-
-    if (Number.isFinite(value)) {
-      void setControls({
-        tableRowHeight: clampNumber(value, 28, MAX_TABLE_ROW_HEIGHT),
-      })
-    }
-  }
-
-  const updateMediaHeight = (event: ChangeEvent<HTMLInputElement>) => {
-    const value = Number.parseInt(event.currentTarget.value, 10)
-
-    if (Number.isFinite(value)) {
-      void setControls({
-        mediaHeight: clampNumber(value, 120, MAX_MEDIA_HEIGHT),
-      })
-    }
-  }
-
-  const updateMediaSplit = (event: ChangeEvent<HTMLSelectElement>) => {
-    void setControls({
-      mediaSplit: event.currentTarget.value as PaginationControls['mediaSplit'],
-    })
-  }
-
-  const updatePageOverscan = (event: ChangeEvent<HTMLInputElement>) => {
-    const value = Number.parseInt(event.currentTarget.value, 10)
-
-    if (Number.isFinite(value)) {
-      void setControls({
-        pageOverscan: clampNumber(value, 0, MAX_PAGE_OVERSCAN),
-      })
-    }
-  }
-
-  const updateVirtualizedStressPages = (
-    event: ChangeEvent<HTMLInputElement>
-  ) => {
-    const value = Number.parseInt(event.currentTarget.value, 10)
-
-    if (Number.isFinite(value)) {
-      void setControls({
-        virtualizedStressPages: clampNumber(
-          value,
-          0,
-          MAX_VIRTUALIZED_STRESS_PAGES
-        ),
-      })
-    }
-  }
-
-  const togglePageLayoutMode = () => {
-    void setControls((state) => ({
-      pageLayoutMode: state.pageLayoutMode === 'spread' ? 'single' : 'spread',
-    }))
-  }
   const decorate = useCallback<EditableDecorate<PaginationLineDecorationData>>(
     ([node, path]) => {
       if (!NodeApi.isText(node)) {
@@ -1291,197 +1613,15 @@ const PaginationSurface = ({
     ),
     [activeFlowBlockPaths, blockBoxes, debugFrames, usesVirtualizedLayout]
   )
-  const renderLeaf = useCallback(
-    ({ attributes, children, segment }: RenderLeafProps) => {
-      const line = (
-        segment.slices.find(
-          (slice) =>
-            (slice.data as PaginationLineDecorationData | undefined)
-              ?.paginationLine
-        )?.data as PaginationLineDecorationData | undefined
-      )?.paginationLine
-
-      if (!line) {
-        return <span {...attributes}>{children}</span>
-      }
-
-      return (
-        <span
-          {...attributes}
-          style={{
-            display: 'inline-block',
-            fontFamily: segment.marks.code
-              ? 'SFMono-Regular, Menlo, monospace'
-              : undefined,
-            fontStyle: segment.marks.italic ? 'italic' : undefined,
-            fontWeight: segment.marks.bold ? 700 : undefined,
-            height: line.hitRect.height,
-            left: line.textRect.left,
-            lineHeight: `${line.textRect.height}px`,
-            minWidth: line.textRect.width === 0 ? 1 : undefined,
-            position: 'absolute',
-            top: line.textRect.top,
-            color: '#111827',
-            textDecoration: segment.marks.strikethrough
-              ? 'line-through'
-              : undefined,
-            whiteSpace: 'pre',
-            width: line.hitRect.width,
-          }}
-        >
-          {children}
-        </span>
-      )
-    },
-    []
-  )
+  const renderLeaf = renderPaginationLeaf
 
   return (
     <div className="slate-pagination-shell">
-      <div className="slate-pagination-toolbar">
-        <div className="slate-pagination-toolbar-group">
-          <span className="slate-pagination-label">
-            <Label htmlFor="pagination-preset">Preset</Label>
-            <NativeSelect
-              className="w-24"
-              id="pagination-preset"
-              onChange={updatePreset}
-              value={preset}
-            >
-              <NativeSelectOption value="a4">A4</NativeSelectOption>
-              <NativeSelectOption value="letter">Letter</NativeSelectOption>
-            </NativeSelect>
-          </span>
-          <span className="slate-pagination-label">
-            <Label htmlFor="pagination-margins">Margins</Label>
-            <Input
-              className="w-20"
-              id="pagination-margins"
-              min={48}
-              onChange={updateMargins}
-              step={12}
-              type="number"
-              value={margins}
-            />
-          </span>
-          <span className="slate-pagination-label">
-            <Label htmlFor="pagination-dom-strategy">DOM strategy</Label>
-            <NativeSelect
-              className="w-32"
-              id="pagination-dom-strategy"
-              onChange={updateDOMStrategy}
-              value={domStrategyMode}
-            >
-              <NativeSelectOption value="staged">Staged</NativeSelectOption>
-              <NativeSelectOption value="full">Full</NativeSelectOption>
-              <NativeSelectOption value="virtualized">
-                Virtualized
-              </NativeSelectOption>
-            </NativeSelect>
-          </span>
-          <span className="slate-pagination-label">
-            <Label htmlFor="pagination-rows">Rows</Label>
-            <Input
-              className="w-24"
-              id="pagination-rows"
-              max={MAX_TABLE_ROWS}
-              min={8}
-              onChange={updateTableRows}
-              type="number"
-              value={tableRows}
-            />
-          </span>
-          <span className="slate-pagination-label">
-            <Label htmlFor="pagination-row-height">Row px</Label>
-            <Input
-              className="w-20"
-              id="pagination-row-height"
-              max={MAX_TABLE_ROW_HEIGHT}
-              min={28}
-              onChange={updateTableRowHeight}
-              step={4}
-              type="number"
-              value={tableRowHeight}
-            />
-          </span>
-          <span className="slate-pagination-label">
-            <Label htmlFor="pagination-media-height">Media px</Label>
-            <Input
-              className="w-24"
-              id="pagination-media-height"
-              max={MAX_MEDIA_HEIGHT}
-              min={120}
-              onChange={updateMediaHeight}
-              step={40}
-              type="number"
-              value={mediaHeight}
-            />
-          </span>
-          <span className="slate-pagination-label">
-            <Label htmlFor="pagination-media-split">Media split</Label>
-            <NativeSelect
-              className="w-24"
-              id="pagination-media-split"
-              onChange={updateMediaSplit}
-              value={mediaSplit}
-            >
-              <NativeSelectOption value="avoid">Avoid</NativeSelectOption>
-              <NativeSelectOption value="page">Page</NativeSelectOption>
-            </NativeSelect>
-          </span>
-          {domStrategyMode === 'virtualized' && (
-            <>
-              <span className="slate-pagination-label">
-                <Label htmlFor="pagination-page-overscan">Page overscan</Label>
-                <Input
-                  className="w-20"
-                  id="pagination-page-overscan"
-                  max={MAX_PAGE_OVERSCAN}
-                  min={0}
-                  onChange={updatePageOverscan}
-                  type="number"
-                  value={pageOverscan}
-                />
-              </span>
-              <span className="slate-pagination-label">
-                <Label htmlFor="pagination-rich-stress">Stress pages</Label>
-                <Input
-                  className="w-24"
-                  id="pagination-rich-stress"
-                  max={MAX_VIRTUALIZED_STRESS_PAGES}
-                  min={0}
-                  onChange={updateVirtualizedStressPages}
-                  step={10}
-                  type="number"
-                  value={virtualizedStressPages}
-                />
-              </span>
-            </>
-          )}
-        </div>
-        <div className="slate-pagination-toolbar-group">
-          <Separator className="h-6" orientation="vertical" />
-          <span className="slate-pagination-switch-group">
-            Facing
-            <Switch
-              aria-label="Facing"
-              checked={pageLayoutMode === 'spread'}
-              onCheckedChange={() => togglePageLayoutMode()}
-            />
-          </span>
-          <Separator className="h-6" orientation="vertical" />
-          <span className="slate-pagination-switch-group">
-            Debug
-            <Switch
-              aria-label="Debug"
-              checked={debugFrames}
-              onCheckedChange={(checked) => {
-                void setControls({ debugFrames: Boolean(checked) })
-              }}
-            />
-          </span>
-        </div>
-      </div>
+      <PaginationControlsToolbar
+        applyTableRows={applyTableRows}
+        controls={controls}
+        setControls={setControls}
+      />
       <div className="slate-pagination-title-row">
         <div className="slate-pagination-title">Untitled document</div>
         <div className="slate-pagination-meta">
@@ -1492,82 +1632,30 @@ const PaginationSurface = ({
           {metrics.blockCount} | compose {metrics.lastDurationMs.toFixed(1)}ms
         </div>
       </div>
-      <div
-        className="slate-pagination-viewport"
-        data-testid="pagination-viewport"
-        ref={viewportRef}
-      >
-        <div className="slate-pagination-viewport-inner">
-          <div
-            style={{
-              height: pageGeometry.height * pageScale,
-              width: pageGeometry.width * pageScale,
-            }}
-          >
-            <div
-              className="slate-pagination-scaled-surface"
-              style={{
-                transform: `scale(${pageScale})`,
-                width: pageGeometry.width,
-              }}
-            >
-              <PagedEditable
-                className="slate-pagination-editor"
-                decorate={decorate}
-                decorateDirtiness="external"
-                domStrategy={domStrategy}
-                layout={layout}
-                onDOMStrategyMetrics={setDOMStrategyMetrics}
-                pageView={{ gap: PAGE_GAP, mode: pageLayoutMode }}
-                renderElement={renderElement}
-                renderLeaf={renderLeaf}
-                renderPage={({ attributes, page }) => (
-                  <div
-                    {...attributes}
-                    className={cn(
-                      'slate-pagination-page',
-                      debugFrames && 'slate-pagination-page-debug'
-                    )}
-                    style={{
-                      height: page.height,
-                      overflow: 'hidden',
-                      width: page.width,
-                    }}
-                  >
-                    {debugFrames ? (
-                      <>
-                        <div
-                          className="slate-pagination-content-frame"
-                          data-testid="pagination-content-frame"
-                          style={{
-                            height: page.content.height,
-                            left: page.content.left,
-                            top: page.content.top,
-                            width: page.content.width,
-                          }}
-                        />
-                        <div className="slate-pagination-page-label">
-                          page {page.index} | {page.width}x{page.height}px
-                        </div>
-                      </>
-                    ) : null}
-                  </div>
-                )}
-                spellCheck
-              />
-            </div>
-          </div>
-        </div>
-      </div>
+      <PaginationPageView
+        debugFrames={debugFrames}
+        decorate={decorate}
+        domStrategy={domStrategy}
+        layout={layout}
+        onDOMStrategyMetrics={setDOMStrategyMetrics}
+        pageGeometry={pageGeometry}
+        pageLayoutMode={pageLayoutMode}
+        pageScale={pageScale}
+        renderElement={renderElement}
+        renderLeaf={renderLeaf}
+        viewportRef={viewportRef}
+      />
     </div>
   )
 }
 
-const PaginationExample = () => {
-  const [controls, setControls] = useQueryStates(paginationControlParsers, {
-    ...replaceQueryOptions,
-    urlKeys: paginationControlUrlKeys,
-  })
+const PaginationEditor = ({
+  controls,
+  setControls,
+}: {
+  controls: PaginationControls
+  setControls: SetPaginationControls
+}) => {
   const initialStressPages =
     controls.domStrategyMode === 'virtualized'
       ? controls.virtualizedStressPages
@@ -1592,6 +1680,23 @@ const PaginationExample = () => {
     <Slate editor={editor}>
       <PaginationSurface controls={controls} setControls={setControls} />
     </Slate>
+  )
+}
+
+const PaginationExample = () => {
+  const [controls, setControls] = useQueryStates(paginationControlParsers, {
+    ...replaceQueryOptions,
+    urlKeys: paginationControlUrlKeys,
+  })
+  const editorKey =
+    controls.domStrategyMode === 'virtualized' ? 'virtualized' : 'standard'
+
+  return (
+    <PaginationEditor
+      controls={controls}
+      key={editorKey}
+      setControls={setControls}
+    />
   )
 }
 
