@@ -1449,6 +1449,9 @@ export const getOperationDirtiness = (
   const hasReplaceFragmentOperation = operations.some(
     (op) => op.type === 'replace_fragment'
   )
+  const hasStructuralTextOperation = operations.some(
+    operationChangesTextContent
+  )
   const classes =
     reason === 'replace' || hasReplaceFragmentOperation
       ? (['replace'] as const)
@@ -1464,7 +1467,9 @@ export const getOperationDirtiness = (
             )
           ? (['text'] as const)
           : operations.length > 0
-            ? (['structural'] as const)
+            ? hasStructuralTextOperation
+              ? (['structural', 'text'] as const)
+              : (['structural'] as const)
             : statePatches.length > 0
               ? (['state'] as const)
               : (['mark'] as const)
@@ -3574,6 +3579,10 @@ const operationChangesTopLevelOrder = (operation: Operation): boolean => {
   }
 }
 
+function operationChangesTextContent(operation: Operation): boolean {
+  return operation.type === 'split_node' && operation.path.length > 1
+}
+
 const getOperationScopePaths = (operations: readonly Operation[]): Path[] =>
   operations.flatMap((operation) => {
     if (!('path' in operation) || !Array.isArray(operation.path)) {
@@ -3588,6 +3597,15 @@ const getOperationScopePaths = (operations: readonly Operation[]): Path[] =>
 const getTextOperationPaths = (operations: readonly Operation[]): Path[] =>
   operations.flatMap((operation) =>
     operation.type === 'insert_text' || operation.type === 'remove_text'
+      ? [operation.path]
+      : []
+  )
+
+const getStructuralTextOperationPaths = (
+  operations: readonly Operation[]
+): Path[] =>
+  operations.flatMap((operation) =>
+    operation.type === 'split_node' && operation.path.length > 1
       ? [operation.path]
       : []
   )
@@ -3662,6 +3680,14 @@ const buildCommitRuntimeDirtiness = ({
     }
   }
 
+  const structuralTextRuntimeIds =
+    changeClass === 'structural'
+      ? getRuntimeIdsForPaths(
+          getStructuralTextOperationPaths(operations),
+          previousIndex,
+          nextIndex
+        )
+      : []
   const dirtyTextRuntimeIds =
     changeClass === 'text'
       ? getRuntimeIdsForPaths(
@@ -3669,7 +3695,7 @@ const buildCommitRuntimeDirtiness = ({
           previousIndex,
           nextIndex
         )
-      : []
+      : structuralTextRuntimeIds
   const dirtyElementRuntimeIds =
     changeClass === 'structural'
       ? null
@@ -3686,7 +3712,9 @@ const buildCommitRuntimeDirtiness = ({
     affectedProjectionRuntimeIds: decorationImpactRuntimeIds,
     affectedSelectionRuntimeIds: selectionImpactRuntimeIds,
     affectedTextRuntimeIds:
-      changeClass === 'text' ? dirtyTextRuntimeIds : ([] as RuntimeId[]),
+      changeClass === 'text' || structuralTextRuntimeIds.length > 0
+        ? dirtyTextRuntimeIds
+        : ([] as RuntimeId[]),
     dirtyElementRuntimeIds,
     dirtyTextRuntimeIds,
     dirtyTopLevelRanges: getTopLevelRanges(scopePaths),
@@ -3699,7 +3727,9 @@ const buildCommitRuntimeDirtiness = ({
     structuralDirtyRuntimeIds:
       changeClass === 'structural' ? null : ([] as RuntimeId[]),
     textDirtyRuntimeIds:
-      changeClass === 'text' ? dirtyTextRuntimeIds : ([] as RuntimeId[]),
+      changeClass === 'text' || structuralTextRuntimeIds.length > 0
+        ? dirtyTextRuntimeIds
+        : ([] as RuntimeId[]),
     topLevelOrderChanged,
   }
 }
@@ -3882,6 +3912,9 @@ export const buildSnapshotChange = ({
   const hasReplaceFragmentOperation = operations.some(
     (op) => op.type === 'replace_fragment'
   )
+  const hasStructuralTextOperation = operations.some(
+    operationChangesTextContent
+  )
   const classes =
     reason === 'replace' || hasReplaceFragmentOperation
       ? (['replace'] as const)
@@ -3897,7 +3930,9 @@ export const buildSnapshotChange = ({
             )
           ? (['text'] as const)
           : operations.length > 0
-            ? (['structural'] as const)
+            ? hasStructuralTextOperation
+              ? (['structural', 'text'] as const)
+              : (['structural'] as const)
             : statePatches.length > 0
               ? (['state'] as const)
               : (['mark'] as const)

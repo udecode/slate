@@ -972,15 +972,20 @@ const PaginationSurface = ({
           return
         }
 
-        tx.value.replace({
-          children: [
-            ...root.filter((node) => !isRichMarkdownStressBlock(node)),
-            ...Array.from({ length: nextStressPages }, (_, index) =>
-              createRichMarkdownStressSection(index)
-            ).flat(),
-          ],
-          selection: null,
-        })
+        tx.selection.clear()
+
+        for (let index = stressIndexes.length - 1; index >= 0; index--) {
+          tx.nodes.remove({ at: [stressIndexes[index]!] })
+        }
+
+        const stressBlocks = Array.from(
+          { length: nextStressPages },
+          (_, index) => createRichMarkdownStressSection(index)
+        ).flat()
+
+        if (stressBlocks.length > 0) {
+          tx.nodes.insertMany(stressBlocks, { at: [nonStressCount] })
+        }
       })
     },
     [editor]

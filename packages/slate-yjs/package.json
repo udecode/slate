@@ -1,0 +1,63 @@
+{
+  "name": "@slate/yjs",
+  "description": "Yjs collaboration bindings for Slate.",
+  "version": "0.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/ianstormtaylor/slate.git",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js",
+      "default": "./dist/core/index.js"
+    },
+    "./internal": {
+      "types": "./dist/internal/index.d.ts",
+      "import": "./dist/internal/index.js",
+      "default": "./dist/internal/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js",
+      "default": "./dist/react/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsdown --config ./tsdown.config.mts --log-level warn",
+    "clean": "rimraf dist lib",
+    "typecheck": "tsc --project tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "yjs": "13.6.30"
+  },
+  "devDependencies": {
+    "@types/node": "^20.8.7",
+    "@types/react": "^19.2.14",
+    "react": "^19.2.5",
+    "slate": "workspace:*",
+    "slate-history": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": ">=19.2.0",
+    "slate": ">=0.124.2",
+    "yjs": "13.6.30"
+  },
+  "keywords": [
+    "collaboration",
+    "editor",
+    "slate",
+    "yjs"
+  ]
+}

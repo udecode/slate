@@ -807,9 +807,9 @@ test.describe('synced blocks example', () => {
         segments: { backward: true },
       })
     await expect.poll(() => getRenderedViewSelectionText(page)).toContain('p1')
-    await expect.poll(() => getNativeSelectionText(page)).not.toBe(
-      'Shared mission'
-    )
+    await expect
+      .poll(() => getNativeSelectionText(page))
+      .not.toBe('Shared mission')
   })
 
   test('mouse selection across synced blocks becomes the same visible-order selection as sibling blocks', async ({
