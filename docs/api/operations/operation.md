@@ -2,6 +2,17 @@
 
 `Operation` objects define the low-level instructions that Slate editors use to apply changes to their internal state. Representing all changes as operations is what allows Slate editors to easily implement history, collaboration, and other features.
 
+Node, text, selection, fragment, and `replace_children` operations may include
+`root`. When `root` is omitted, Slate resolves the operation against the
+active operation/view root, then falls back to `main` for the base editor.
+Serialized non-main operations should preserve `root`.
+
+Root lifecycle updates from `tx.roots.create`, `tx.roots.replace`, and
+`tx.roots.delete` are represented as `replace_children` operations at `path:
+[]`. Those operations carry `root`, `rootWasPresent`, and `rootIsPresent` so
+history and collaboration replay can create, replace, or delete the named root
+instead of applying the change to `main`.
+
 - [Static methods](operation.md#static-methods)
   - [Manipulation methods](operation.md#manipulation-methods)
   - [Check methods](operation.md#check-methods)

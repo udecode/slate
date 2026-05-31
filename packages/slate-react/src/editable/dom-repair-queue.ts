@@ -12,6 +12,7 @@ import {
 } from './editing-kernel'
 import { getNativeTextInputHistoryMetadata } from './input-history'
 import type { EditableInputController } from './input-state'
+import { getNativeTextInsertDelta } from './native-text-input-delta'
 import { readRuntimeText } from './runtime-live-state'
 import { readRuntimeSelection } from './runtime-selection-state'
 import { shouldSkipSelectionScroll } from './selection-side-effect-policy'
@@ -25,6 +26,7 @@ export type DOMInputRepair = {
       text: string
     }
     path: Path
+    preferCapturedInsert?: boolean
     selectionOffset: number
     text: string
   } | null
@@ -78,6 +80,61 @@ export const isDOMRepairFrameCurrent = (
   frameId: number
 ) => state.currentFrameId === frameId && frameId >= state.cancelledBeforeFrameId
 
+const applyTextInsert = (
+  text: string,
+  insert: {
+    offset: number
+    text: string
+  }
+) => text.slice(0, insert.offset) + insert.text + text.slice(insert.offset)
+
+const getDOMTextRepairInsert = ({
+  inputText,
+  preferCapturedInsert,
+  selectionOffset,
+  slateText,
+  targetInsert,
+  textHostText,
+}: {
+  inputText: string
+  preferCapturedInsert?: boolean
+  selectionOffset: number
+  slateText: string
+  targetInsert?: {
+    offset: number
+    text: string
+  }
+  textHostText: string
+}) => {
+  const clampedTargetInsert = targetInsert
+    ? {
+        offset: Math.max(0, Math.min(slateText.length, targetInsert.offset)),
+        text: targetInsert.text,
+      }
+    : null
+
+  if (clampedTargetInsert && preferCapturedInsert) {
+    return clampedTargetInsert
+  }
+
+  const insert = getNativeTextInsertDelta({
+    inputText,
+    selectionOffset,
+    slateText,
+    textHostText,
+  })
+
+  if (applyTextInsert(slateText, insert) === textHostText) {
+    return insert
+  }
+
+  if (clampedTargetInsert) {
+    return clampedTargetInsert
+  }
+
+  return insert
+}
+
 const getTextHostSelectionOffset = ({
   anchorNode,
   anchorOffset,
@@ -113,47 +170,6 @@ const getTextHostSelectionOffset = ({
   }
 
   return null
-}
-
-const getNativeTextInsertDelta = ({
-  inputText,
-  selectionOffset,
-  slateText,
-  textHostText,
-}: {
-  inputText: string
-  selectionOffset: number
-  slateText: string
-  textHostText: string
-}) => {
-  const insertedLength = textHostText.length - slateText.length
-
-  if (insertedLength > 0 && selectionOffset >= insertedLength) {
-    const offset = Math.max(
-      0,
-      Math.min(slateText.length, selectionOffset - insertedLength)
-    )
-    const insertedText = textHostText.slice(offset, offset + insertedLength)
-
-    if (
-      insertedText.length > 0 &&
-      textHostText.slice(0, offset) === slateText.slice(0, offset) &&
-      textHostText.slice(offset + insertedLength) === slateText.slice(offset)
-    ) {
-      return {
-        offset,
-        text: insertedText,
-      }
-    }
-  }
-
-  return {
-    offset: Math.max(
-      0,
-      Math.min(slateText.length, selectionOffset - inputText.length)
-    ),
-    text: inputText,
-  }
 }
 
 export const createDOMRepairQueue = ({
@@ -221,6 +237,8 @@ export const createDOMRepairQueue = ({
           ? getTextHostSelectionOffset({ anchorNode, anchorOffset, textHost })
           : null
       let textHostText = textHost?.textContent?.replace(/\uFEFF/g, '') ?? null
+      const liveDOMPath = path
+      const liveDOMSelectionOffset = selectionOffset
 
       if (nativeInput.target) {
         path = nativeInput.target.path
@@ -267,23 +285,14 @@ export const createDOMRepairQueue = ({
           return
         }
 
-        const insert = nativeInput.target?.insert
-          ? {
-              offset: Math.max(
-                0,
-                Math.min(
-                  slateNode.text.length,
-                  nativeInput.target.insert.offset
-                )
-              ),
-              text: nativeInput.target.insert.text,
-            }
-          : getNativeTextInsertDelta({
-              inputText,
-              selectionOffset,
-              slateText: slateNode.text,
-              textHostText,
-            })
+        const insert = getDOMTextRepairInsert({
+          inputText,
+          preferCapturedInsert: nativeInput.target?.preferCapturedInsert,
+          selectionOffset,
+          slateText: slateNode.text,
+          targetInsert: nativeInput.target?.insert,
+          textHostText,
+        })
 
         if (insert.text.length === 0) {
           return
@@ -311,13 +320,15 @@ export const createDOMRepairQueue = ({
             slateNode.text.slice(0, expandedReplacementStart.offset) +
               insert.text +
               slateNode.text.slice(expandedReplacementEnd.offset)
+        const targetStillOwnsDOMSelection =
+          !!nativeInput.target &&
+          !!liveDOMPath &&
+          PathApi.equals(liveDOMPath, nativeInput.target.path) &&
+          liveDOMSelectionOffset === nativeInput.target.selectionOffset
         const shouldMoveSelection =
           shouldReplaceExpandedSelection ||
           !nativeInput.target ||
-          (currentSelection != null &&
-            RangeApi.isCollapsed(currentSelection) &&
-            PathApi.equals(currentSelection.anchor.path, path) &&
-            currentSelection.anchor.offset === insert.offset)
+          targetStillOwnsDOMSelection
 
         editor.update(
           (tx) => {

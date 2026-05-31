@@ -17,6 +17,8 @@ interface Editor {
 - [Creating an editor](editor.md#creating-an-editor)
 - [Reading state](editor.md#reading-state)
 - [Updating state](editor.md#updating-state)
+- [Document roots](editor.md#document-roots)
+- [Document state](editor.md#document-state)
 - [Schema behavior](editor.md#schema-behavior)
 - [Subscribing to commits](editor.md#subscribing-to-commits)
 - [Extending the editor](editor.md#extending-the-editor)
@@ -30,7 +32,7 @@ Create an editor.
 
 ```javascript
 const editor = createEditor({
-  extensions: [paragraph(), history()],
+  initialValue: [{ type: 'paragraph', children: [{ text: 'Body' }] }],
 })
 ```
 
@@ -51,7 +53,7 @@ Use `state` for editor-state queries:
 
 ```javascript
 editor.read(state => {
-  const children = state.children.get()
+  const children = state.nodes.children()
   const marks = state.marks.get()
   const first = state.nodes.get([0])
   const start = state.points.start([])
@@ -110,6 +112,99 @@ editor.update(
 
 `tag` is the cheap lifecycle label. `metadata` is the typed policy channel for
 history, collaboration, and model/DOM selection behavior.
+
+## Document roots
+
+The default document root is `main`. A plain block array initializes `main`.
+Pass `initialValue.roots` when one editor owns multiple roots.
+
+```javascript
+const editor = createEditor({
+  initialValue: {
+    roots: {
+      header: [{ type: 'paragraph', children: [{ text: 'Draft' }] }],
+      main: [{ type: 'paragraph', children: [{ text: 'Body' }] }],
+      footer: [{ type: 'paragraph', children: [{ text: 'Internal' }] }],
+    },
+  },
+})
+```
+
+Read roots from `state.value.get().roots`.
+
+```javascript
+const footer = editor.read((state) => state.value.get().roots.footer)
+```
+
+Create, replace, or delete non-main roots with `tx.roots`.
+
+```javascript
+editor.update((tx) => {
+  tx.roots.create('aside:1', [
+    { type: 'paragraph', children: [{ text: 'Aside' }] },
+  ])
+})
+```
+
+Use normal node and text transforms for the `main` root. See
+[Roots](../../concepts/13-roots.md) for React rendering, root chrome, and
+content roots.
+
+## Document state
+
+`state.value.get()` returns the persisted document value.
+
+```ts
+type EditorDocumentValue = {
+  roots: Record<string, Descendant[]>
+  state?: Record<string, unknown>
+}
+```
+
+Use it for database persistence because it includes named roots and persistent
+state fields.
+
+```javascript
+const documentValue = editor.read((state) => state.value.get())
+```
+
+State fields are registered with `defineStateField` and read through
+`state.getField(field)`.
+
+```javascript
+const title = editor.read((state) => state.getField(documentTitle))
+```
+
+Write state fields with `tx.setField`.
+
+```javascript
+editor.update((tx) => {
+  tx.setField(documentTitle, 'Q3 Launch Brief')
+})
+```
+
+State-field writes appear in `commit.statePatches` and
+`commit.dirtyStateKeys`. Collaboration adapters should export only shared
+state-patch keys. Replay remote state patches with `tx.statePatches.replay(...)`.
+
+```javascript
+editor.update(
+  (tx) => {
+    tx.statePatches.replay(remoteStatePatches)
+  },
+  {
+    metadata: {
+      collab: { origin: 'remote', saveToHistory: false },
+      history: { mode: 'skip' },
+      selection: { dom: 'preserve' },
+    },
+    tag: ['collaboration', 'remote-state'],
+  }
+)
+```
+
+See [Document State](../../concepts/14-document-state.md) for persistence
+patterns and comments ownership.
 
 ## Schema behavior
 
@@ -174,9 +269,11 @@ Subscribe to committed editor changes. The listener receives the current
 snapshot and commit metadata.
 
 ```javascript
-const unsubscribe = editor.subscribe((snapshot, commit) => {
-  if (commit.childrenChanged) {
-    save(snapshot.children)
+const unsubscribe = editor.subscribe((_snapshot, commit) => {
+  if (commit.childrenChanged || commit.dirtyStateKeys.length > 0) {
+    const documentValue = editor.read((state) => state.value.get())
+
+    save(documentValue)
   }
 })
 ```

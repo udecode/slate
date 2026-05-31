@@ -827,6 +827,7 @@ describe('slate-react surface contract', () => {
       ],
     }) as ReactRuntimeEditor
     const elementSelectedRenders: Record<string, boolean[] | undefined> = {}
+    const latestElementSelected: Record<string, boolean | undefined> = {}
 
     const renderElement = ({
       element,
@@ -836,6 +837,7 @@ describe('slate-react surface contract', () => {
       // eslint-disable-next-line react-hooks/rules-of-hooks
       const selected = useElementSelected()
       const { id } = element as { id: string }
+      latestElementSelected[id] = selected
 
       let selectedRenders = elementSelectedRenders[id]
 
@@ -893,8 +895,9 @@ describe('slate-react surface contract', () => {
       '0.2': [],
       '1': [],
       new: [false],
-      '2': [true],
+      '2': [],
     })
+    expect(latestElementSelected['2']).toBe(true)
   })
 
   test('custom element handlers resolve the current path after leading inserts without shifted rerender', async () => {

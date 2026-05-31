@@ -278,6 +278,9 @@ Specs can describe behavior such as `inline`, `void`, `atom`, `isolating`,
 `keyboardSelectable`, `readOnly`, `selectable`, and `markableVoid`.
 `void: 'editable-island'` keeps the element void for rendering policy while
 allowing Slate cursor projection to enter its text children.
+`contentRoot: { slot }` declares that the element owns an editable child root
+stored at `element.childRoots[slot]`. See [Roots](13-roots.md#content-roots)
+for rendering and root ownership.
 
 `properties` are descriptors for extension-owned element fields. A descriptor
 can provide a default and equality function. Defaults are read through

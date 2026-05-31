@@ -41,7 +41,10 @@ import {
   withOperationRootChildren,
 } from './runtime-editor-api'
 import { readRuntimeSelection } from './runtime-selection-state'
-import { setEditableModelSelectionPreference } from './selection-controller'
+import {
+  armModelOwnedTextInputGuard,
+  setEditableModelSelectionPreference,
+} from './selection-controller'
 import { shouldSkipSelectionFocus } from './selection-side-effect-policy'
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
@@ -1333,8 +1336,20 @@ export const applyEditableRepairRequest = ({
           inputController,
           preferModelSelection:
             request.selectionSourceTransition.preferModelSelection,
+          reason:
+            request.selectionSourceTransition.reason === 'native-selection-move'
+              ? 'native-selection'
+              : request.selectionSourceTransition.reason === 'unknown-selection'
+                ? 'unknown'
+                : request.selectionSourceTransition.reason,
           selectionSource: request.selectionSourceTransition.selectionSource,
         })
+        if (
+          request.selectionSourceTransition.preferModelSelection &&
+          request.selectionSourceTransition.reason === 'model-command'
+        ) {
+          armModelOwnedTextInputGuard({ inputController })
+        }
       }
 
       if (

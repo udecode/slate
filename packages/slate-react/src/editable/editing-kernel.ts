@@ -1198,7 +1198,8 @@ export const prepareEditableKeyDownKernel = ({
     intent === 'insert-break' ||
     intent === 'model-selection-move'
   const shouldPreserveModelSelection =
-    shouldForceDOMImport && hasAuthoritativeModelSelection({ inputController })
+    (shouldForceDOMImport || intent === 'text-insert') &&
+    hasAuthoritativeModelSelection({ inputController })
   const shouldApplyForcedDOMImport =
     shouldForceDOMImport && !shouldPreserveModelSelection
 

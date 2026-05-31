@@ -55,6 +55,7 @@ export type EditableSelectionSourceTransition = {
     | 'model-command'
     | 'native-selection-move'
     | 'projection-refresh'
+    | 'repair-induced'
     | 'unknown-selection'
   selectionSource: SelectionSource
 }
@@ -66,6 +67,7 @@ export type EditableInputControllerState = {
   isUpdatingSelection: boolean
   latestElement: DOMElement | null
   modelSelectionPreference?: ModelSelectionPreference | null
+  modelOwnedTextInputGuard?: number
   outsideFocusBoundarySettleUntil: number
   pendingDOMSelectionImport: boolean
   selectionChangeOrigin: SelectionChangeOrigin | null
@@ -85,6 +87,7 @@ export const createEditableInputControllerState =
     isUpdatingSelection: false,
     latestElement: null,
     modelSelectionPreference: null,
+    modelOwnedTextInputGuard: 0,
     outsideFocusBoundarySettleUntil: 0,
     pendingDOMSelectionImport: false,
     selectionChangeOrigin: null,

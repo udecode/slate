@@ -53,7 +53,9 @@ export const useElementPath = (): Path | null => {
   )
 
   return useEditorSelector(selector, samePath, {
+    includeRootOrderChanges: true,
     profileId: 'element-path',
+    runtimeId,
     shouldUpdate,
   })
 }

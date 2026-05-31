@@ -26,6 +26,7 @@ type MouseHandler = (event: MouseEvent<HTMLDivElement>) => boolean | void
 
 export const useRuntimeFocusMouseEvents = ({
   editor,
+  flushPendingNativeTextInput,
   inputController,
   onBlur,
   onClick,
@@ -39,6 +40,7 @@ export const useRuntimeFocusMouseEvents = ({
   trace,
 }: {
   editor: ReactRuntimeEditor
+  flushPendingNativeTextInput?: () => void
   inputController: EditableInputController
   onBlur?: FocusHandler
   onClick?: MouseHandler
@@ -69,6 +71,7 @@ export const useRuntimeFocusMouseEvents = ({
 
   const handleBlur = useCallback(
     (event: FocusEvent<HTMLDivElement>) => {
+      flushPendingNativeTextInput?.()
       const decision = prepareEditableFocusMouseKernel({
         editor,
         event,
@@ -98,6 +101,7 @@ export const useRuntimeFocusMouseEvents = ({
     },
     [
       editor,
+      flushPendingNativeTextInput,
       inputController,
       onBlur,
       readOnly,
@@ -216,6 +220,7 @@ export const useRuntimeFocusMouseEvents = ({
 
   const handleMouseDown = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
+      flushPendingNativeTextInput?.()
       const decision = prepareEditableFocusMouseKernel({
         editor,
         event,
@@ -235,7 +240,14 @@ export const useRuntimeFocusMouseEvents = ({
         onMouseDown,
       })
     },
-    [editor, inputController, markNativePointerFocus, onMouseDown, trace]
+    [
+      editor,
+      flushPendingNativeTextInput,
+      inputController,
+      markNativePointerFocus,
+      onMouseDown,
+      trace,
+    ]
   )
   const onRuntimeMouseDown = useEditableMouseHandler({
     handleMouse: handleMouseDown,

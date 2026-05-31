@@ -94,6 +94,7 @@ type EditableRootEventBindings = Pick<
 export const useEditableRootRuntime = ({
   autoFocus,
   callbacks,
+  deferNativeTextInputRepair,
   editor,
   forwardedRef,
   domStrategyRuntime,
@@ -104,6 +105,7 @@ export const useEditableRootRuntime = ({
 }: {
   autoFocus?: boolean
   callbacks: EditableRootCallbackProps
+  deferNativeTextInputRepair?: boolean
   editor: ReactRuntimeEditor
   forwardedRef?: ForwardedRef<HTMLDivElement>
   domStrategyRuntime: {
@@ -296,6 +298,7 @@ export const useEditableRootRuntime = ({
     browserHandleRangeRefs,
     callbacks,
     deferredOperations,
+    deferNativeTextInputRepair,
     editor,
     handledDOMBeforeInputRef,
     inputController,

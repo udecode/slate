@@ -520,6 +520,66 @@ describe('DOM coverage private boundary harness', () => {
     expect(rendered.container.textContent).not.toContain('Hidden alpha')
   })
 
+  test('renderElement slots render child ranges without materializing all children', () => {
+    const editor = createReactEditor()
+    const children = Array.from({ length: 500 }, (_, index) => ({
+      type: 'item',
+      children: [{ text: `Row ${index + 1}` }],
+    }))
+    let renderedItemCount = 0
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'section',
+          children,
+        },
+      ],
+      selection: null,
+    })
+
+    const rendered = render(
+      <Slate editor={editor}>
+        <Editable
+          id="dom-coverage-lazy-child-range-slot"
+          renderElement={(props) => {
+            if (props.element.type === 'section') {
+              return (
+                <EditableElement>
+                  <props.slots.contentBoundary
+                    boundaryId="lazy-child-range-before"
+                    mounted={false}
+                    renderPlaceholder={() => null}
+                    scope={{ from: 0, to: 249, type: 'children' }}
+                  />
+                  {props.slots.children({ from: 250, to: 251 })}
+                  <props.slots.contentBoundary
+                    boundaryId="lazy-child-range-after"
+                    mounted={false}
+                    renderPlaceholder={() => null}
+                    scope={{ from: 252, to: 499, type: 'children' }}
+                  />
+                </EditableElement>
+              )
+            }
+
+            if (props.element.type === 'item') {
+              renderedItemCount++
+            }
+
+            return <EditableElement>{props.children}</EditableElement>
+          }}
+        />
+      </Slate>
+    )
+
+    expect(renderedItemCount).toBe(2)
+    expect(rendered.container.textContent).toContain('Row 251')
+    expect(rendered.container.textContent).toContain('Row 252')
+    expect(rendered.container.textContent).not.toContain('Row 1')
+    expect(rendered.container.textContent).not.toContain('Row 500')
+  })
+
   test('BoundaryRange does not leak duplicate boundaries in StrictMode', async () => {
     const editor = createReactEditor()
 

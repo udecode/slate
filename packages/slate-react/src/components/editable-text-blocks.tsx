@@ -456,6 +456,7 @@ type EditableContentRootSlotRenderers<
 }
 
 export type EditableElementSlots = {
+  children: (range?: { from?: number; to?: number }) => ReactNode
   /**
    * Renders model-present content whose editable DOM may be intentionally
    * absent, such as closed accordion bodies or inactive tab panels.
@@ -490,9 +491,9 @@ const createEditableElementSlots = <
 >(
   editor: ReturnType<typeof useEditor>,
   props: {
-    children: ReactNode
     element: TElement
     renderElement?: RenderElementRenderer<TElement>
+    renderChildren: (from?: number, to?: number) => ReactNode
     renderLeaf?: (props: EditableTextLeafProps<T>) => ReactNode
     renderPlaceholder?: (props: EditableTextRenderPlaceholderProps) => ReactNode
     renderSegment?: (
@@ -532,10 +533,12 @@ const createEditableElementSlots = <
     const hidden = !mounted
 
     if (scope.type === 'self') {
+      const content = mounted ? (children ?? props.renderChildren()) : null
+
       return (
         <DOMCoverageSelfBoundary
           boundaryId={resolvedBoundaryId}
-          content={props.children}
+          content={content}
           copyPolicy={copyPolicy}
           findPolicy={findPolicy}
           hidden={hidden}
@@ -548,13 +551,15 @@ const createEditableElementSlots = <
       )
     }
 
-    const childNodes = React.Children.toArray(props.children)
     const to = scope.to ?? scope.from
+    const content = mounted
+      ? (children ?? props.renderChildren(scope.from, to))
+      : null
 
     return (
       <DOMCoverageBoundaryRange
         boundaryId={resolvedBoundaryId}
-        content={childNodes.slice(scope.from, to + 1)}
+        content={content}
         copyPolicy={copyPolicy}
         findPolicy={findPolicy}
         from={scope.from}
@@ -570,6 +575,8 @@ const createEditableElementSlots = <
   }
 
   return {
+    children: (range = {}) =>
+      props.renderChildren(range.from, range.to ?? range.from),
     contentBoundary: renderContentBoundary,
     contentRoot: (slot, options = {}) => {
       const childCount = props.element.children.length
@@ -986,7 +993,7 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
       }
     },
     sameDescendantBinding,
-    { runtimeId }
+    { includeRootOrderChanges: true, runtimeId }
   )
 
   const { childRuntimeIds, node, path } = binding
@@ -1041,7 +1048,7 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
     'data-slate-void': voidNode ? (true as const) : undefined,
     ref: bindNodeRef as React.RefCallback<HTMLElement>,
   }
-  const children = childRuntimeIds.map((childRuntimeId) => (
+  const renderChild = (childRuntimeId: RuntimeId) => (
     <EditableDescendantNode
       key={childRuntimeId}
       placeholder={placeholder}
@@ -1054,7 +1061,14 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
       renderVoid={renderVoid}
       runtimeId={childRuntimeId}
     />
-  ))
+  )
+  const renderChildren = (from = 0, to = childRuntimeIds.length - 1) => {
+    if (childRuntimeIds.length === 0 || to < from) {
+      return null
+    }
+
+    return childRuntimeIds.slice(from, to + 1).map(renderChild)
+  }
   const defaultChildren = childRuntimeIds.map((childRuntimeId, index) => {
     const child = node.children[index]
 
@@ -1117,6 +1131,8 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
       return null
     }
 
+    const children = renderChildren()
+
     return (
       <NodeRuntimeIdContext.Provider key={runtimeId} value={runtimeId}>
         <ElementPathContext.Provider value={path}>
@@ -1143,15 +1159,20 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
 
     const renderElementPropsBase = {
       attributes,
-      children,
       element: node as TElement,
       isInline: inline,
     }
     const renderElementProps = {
-      ...renderElementPropsBase,
+      attributes,
+      element: node as TElement,
+      get children() {
+        return renderChildren()
+      },
+      isInline: inline,
       slots: createEditableElementSlots(editor, {
         ...renderElementPropsBase,
         renderElement,
+        renderChildren,
         renderLeaf,
         renderPlaceholder,
         renderSegment,
@@ -2217,6 +2238,9 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
             autoFocus={autoFocus}
             {...attributes}
             className={className}
+            deferNativeTextInputRepair={
+              domStrategyType === 'staged' || domStrategyType === 'virtualized'
+            }
             disableDefaultStyles={disableDefaultStyles}
             domStrategyMetrics={domStrategyMetrics}
             domStrategyRuntime={

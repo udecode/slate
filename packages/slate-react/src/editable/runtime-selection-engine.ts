@@ -50,10 +50,14 @@ export const createRuntimeSelectionChangeHandler = ({
       inputController.state.selectionChangeOrigin ?? 'native-user'
 
     if (selectionChangeOrigin === 'repair-induced') {
+      const preference = inputController.state.modelSelectionPreference
       setEditableModelSelectionPreference({
         inputController,
         preferModelSelection: true,
-        reason: 'repair-induced',
+        reason:
+          preference?.preferModelSelection === true
+            ? preference.reason
+            : 'repair-induced',
         selectionSource: 'model-owned',
       })
     }

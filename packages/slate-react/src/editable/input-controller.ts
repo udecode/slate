@@ -37,6 +37,7 @@ export {
 } from './mutation-controller'
 export {
   applyEditableDOMSelectionChange,
+  armModelOwnedTextInputGuard,
   completeEditableSelectionChangeImport,
   type EditableSelectionController,
   executeEditableSelectionExport,
@@ -47,6 +48,7 @@ export {
   prepareEditableSelectionChangeImport,
   resolveEditableImplicitTarget,
   setEditableModelSelectionPreference,
+  shouldForceModelOwnedTextInput,
   syncEditableDOMSelectionToEditor,
   syncEditorSelectionFromDOM,
 } from './selection-controller'

@@ -7,7 +7,6 @@ import {
 } from 'nuqs'
 import {
   type ChangeEvent,
-  Children,
   type ComponentProps,
   type CSSProperties,
   createContext,
@@ -955,15 +954,13 @@ const getVisibleTableRowRanges = (
 }
 
 const renderTableChildrenWindow = ({
-  children,
   ranges,
   rowCount,
   slots,
-}: Pick<RenderElementProps, 'children' | 'slots'> & {
+}: Pick<RenderElementProps, 'slots'> & {
   ranges: readonly { end: number; start: number }[]
   rowCount: number
 }) => {
-  const childNodes = Children.toArray(children)
   const renderedChildren = []
   let nextIndex = 0
 
@@ -990,7 +987,10 @@ const renderTableChildrenWindow = ({
     }
 
     renderedChildren.push(
-      ...childNodes.slice(range.start, Math.min(range.end + 1, rowCount))
+      slots.children({
+        from: range.start,
+        to: Math.min(range.end, rowCount - 1),
+      })
     )
     nextIndex = range.end + 1
   }
@@ -1050,16 +1050,16 @@ const getProjectedStyle = ({
   width: Math.max(1, box.width),
 })
 
-const PaginationElement = ({
-  attributes,
-  blockBoxes,
-  children,
-  debugFrames,
-  element,
-  flowBlockPaths,
-  slots,
-  usesVirtualizedLayout,
-}: PaginationElementProps) => {
+const PaginationElement = (props: PaginationElementProps) => {
+  const {
+    attributes,
+    blockBoxes,
+    debugFrames,
+    element,
+    flowBlockPaths,
+    slots,
+    usesVirtualizedLayout,
+  } = props
   const path = useElementPath()
   const fragments = useSlateLayoutFragments()
   const tableLayout = useContext(PaginationTableLayoutContext)
@@ -1101,7 +1101,7 @@ const PaginationElement = ({
           width: rowUnit.rect.width,
         }}
       >
-        {children}
+        {props.children}
       </div>
     )
   }
@@ -1126,7 +1126,7 @@ const PaginationElement = ({
           padding: '5px 8px',
         }}
       >
-        {children}
+        {props.children}
       </div>
     )
   }
@@ -1143,12 +1143,12 @@ const PaginationElement = ({
             elementType as CustomElementType
           )}
         >
-          {children}
+          {props.children}
         </TextBlock>
       )
     }
 
-    return <div {...attributes}>{children}</div>
+    return <div {...attributes}>{props.children}</div>
   }
 
   const flowElement =
@@ -1184,7 +1184,6 @@ const PaginationElement = ({
             selectionPolicy: 'materialize',
           })
         : renderTableChildrenWindow({
-            children,
             ranges: visibleRowRanges,
             rowCount: element.children.length,
             slots,
@@ -1226,7 +1225,7 @@ const PaginationElement = ({
             width: '100%',
           }}
         />
-        {children}
+        {props.children}
       </div>
     )
   }
@@ -1245,7 +1244,7 @@ const PaginationElement = ({
             margin: '11px 0 0',
           }}
         />
-        {children}
+        {props.children}
       </div>
     )
   }
@@ -1274,7 +1273,7 @@ const PaginationElement = ({
             : undefined),
         }}
       >
-        {children}
+        {props.children}
       </TextBlock>
     )
   }
@@ -1304,7 +1303,7 @@ const PaginationElement = ({
         paddingLeft: elementType === 'block-quote' ? 12 : undefined,
       }}
     >
-      {children}
+      {props.children}
     </div>
   )
 }
@@ -1660,15 +1659,24 @@ const PaginationSurface = ({
       const page = createSlatePage(pageSettings)
 
       if (element.type === 'table') {
-        const rows = element.children.filter(
-          (child) => NodeApi.isElement(child) && child.type === 'table-row'
-        )
-        const visibleRows = rows.slice(0, tableRows)
+        const rowCount = Math.min(tableRows, element.children.length)
 
         return {
-          boxes: defaults.boxes,
+          boxes: [
+            {
+              kind: 'table',
+              path: [...path],
+              rect: {
+                height: rowCount * tableRowHeight,
+                left: 0,
+                top: 0,
+                width: page.content.width,
+              },
+              split: 'row',
+            },
+          ],
           type: 'units',
-          units: visibleRows.map((_, rowIndex) => ({
+          units: Array.from({ length: rowCount }, (_, rowIndex) => ({
             key: `row-${rowIndex}`,
             kind: 'table-row',
             path: [...path, rowIndex],
@@ -1819,7 +1827,12 @@ const PaginationSurface = ({
             threshold: 1,
             type: 'virtualized',
           }
-        : domStrategyMode,
+        : domStrategyMode === 'staged'
+          ? {
+              textSync: { renderLeaf: 'text-invariant' },
+              type: 'staged',
+            }
+          : domStrategyMode,
     [domStrategyMode, pageOverscan]
   )
   const usesVirtualizedLayout =

@@ -15,6 +15,7 @@ import {
   isEditableModelSelectionPreferredForInput,
   isNestedEditableDOMTarget,
   isSelectionInEditorView,
+  shouldForceModelOwnedTextInput,
 } from './input-controller'
 import {
   useEditableDOMBeforeInputHandler,
@@ -104,10 +105,10 @@ export const useRuntimeBeforeInputEvents = ({
   editor,
   handledDOMBeforeInputRef,
   inputController,
+  flushPendingNativeTextInput,
   onBeforeInput,
   onDOMBeforeInput,
   onInput,
-  onKeyDown,
   onUserInput,
   processing,
   readOnly,
@@ -122,10 +123,10 @@ export const useRuntimeBeforeInputEvents = ({
   editor: ReactRuntimeEditor
   handledDOMBeforeInputRef: RefObject<boolean>
   inputController: EditableInputController
+  flushPendingNativeTextInput?: () => void
   onBeforeInput?: ReactBeforeInputHandler
   onDOMBeforeInput?: EditableDOMBeforeInputHandler
   onInput?: unknown
-  onKeyDown?: unknown
   onUserInput: () => void
   processing: RefObject<boolean>
   readOnly: boolean
@@ -137,6 +138,10 @@ export const useRuntimeBeforeInputEvents = ({
   const slateRuntimeContext = useOptionalSlateRuntimeContext()
   const handleDOMBeforeInput = useCallback(
     (event: InputEvent) => {
+      if (event.inputType !== 'insertText') {
+        flushPendingNativeTextInput?.()
+      }
+
       const decision = profileBeforeInputDuration('beforeinput-prepare', () =>
         prepareEditableBeforeInputKernel({
           editor,
@@ -231,9 +236,17 @@ export const useRuntimeBeforeInputEvents = ({
           onDOMBeforeInput ||
             onBeforeInput ||
             onInput ||
-            onKeyDown ||
             hasEditorTransformMiddleware(editor, 'insertText')
         )
+
+        if (hasAppInputPolicy) {
+          flushPendingNativeTextInput?.()
+          currentSelection = profileBeforeInputDuration(
+            'beforeinput-reread-selection-after-native-text-flush',
+            () => readLiveSelection(editor)
+          )
+        }
+
         const beforeInputDecision = profileBeforeInputDuration(
           'beforeinput-native-decision',
           () =>
@@ -327,6 +340,10 @@ export const useRuntimeBeforeInputEvents = ({
         deferredOperations.current = []
 
         let native = beforeInputDecision.native
+        const forceModelOwnedTextInput = shouldForceModelOwnedTextInput({
+          inputController,
+          inputType: type,
+        })
 
         const beforeInputSelection = profileBeforeInputDuration(
           'beforeinput-sync-selection',
@@ -339,6 +356,7 @@ export const useRuntimeBeforeInputEvents = ({
               editor,
               editorElement: el,
               event,
+              forceModelOwnedTextInput,
               inputType: type,
               isCompositionChange,
               native,
@@ -346,7 +364,7 @@ export const useRuntimeBeforeInputEvents = ({
                 isEditableModelSelectionPreferredForInput({
                   inputController,
                   inputType: type,
-                }),
+                }) || forceModelOwnedTextInput,
               root,
               selection: currentSelection,
             })
@@ -405,12 +423,12 @@ export const useRuntimeBeforeInputEvents = ({
       applyInputRules,
       deferredOperations,
       editor,
+      flushPendingNativeTextInput,
       handledDOMBeforeInputRef,
       inputController,
       onBeforeInput,
       onDOMBeforeInput,
       onInput,
-      onKeyDown,
       onUserInput,
       processing,
       readOnly,

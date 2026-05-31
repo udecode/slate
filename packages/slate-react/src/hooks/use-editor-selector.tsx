@@ -34,6 +34,7 @@ export interface EditorSelectorOptions<
   TEditor extends Editor<any> = Editor<any>,
 > {
   deferred?: boolean
+  includeRootOrderChanges?: boolean
   profileId?: string
   runtimeId?: RuntimeId | null
   shouldUpdate?: (
@@ -109,6 +110,7 @@ export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
   equalityFn: (a: T | null, b: T) => boolean = refEquality,
   {
     deferred,
+    includeRootOrderChanges,
     profileId,
     runtimeId,
     shouldUpdate,
@@ -157,6 +159,7 @@ export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
   useIsomorphicLayoutEffect(() => {
     const unsubscribe = addEventListener(updateWithOperations, {
       deferred,
+      includeRootOrderChanges,
       profileId,
       runtimeId,
       shouldUpdate: shouldUpdate ? shouldUpdateWithEditor : undefined,
@@ -170,6 +173,7 @@ export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
     deferred,
     profileId,
     runtimeId,
+    includeRootOrderChanges,
     shouldUpdate,
     shouldUpdateWithEditor,
   ])
@@ -213,6 +217,7 @@ export function useEditorState<T, TEditor extends Editor<any> = Editor<any>>(
 export function useEditorSelectorContext() {
   const eventListeners = useRef(new Set<Callback>())
   const runtimeEventListeners = useRef(new Map<RuntimeId, Set<Callback>>())
+  const rootOrderRuntimeEventListeners = useRef(new Set<Callback>())
   const deferredEventListeners = useRef(
     new Map<Callback, DeferredCallbackPayload>()
   )
@@ -241,21 +246,21 @@ export function useEditorSelectorContext() {
         listener(operations, change)
       })
 
-      const affectedRuntimeIds =
-        change?.affectedNodeRuntimeIds ?? change?.nodeImpactRuntimeIds
-      const shouldSkipRuntimeFanout = Boolean(
+      const shouldRouteRootOrderRuntimeListeners = Boolean(
         change &&
-          affectedRuntimeIds == null &&
-          !change.selectionChanged &&
-          !change.fullDocumentChanged &&
-          (change.rootRuntimeIdsChanged || change.topLevelOrderChanged)
+          (change.fullDocumentChanged ||
+            change.rootRuntimeIdsChanged ||
+            change.structureChanged ||
+            change.topLevelOrderChanged)
       )
+      const affectedRuntimeIds = change?.fullDocumentChanged
+        ? change.affectedNodeRuntimeIds
+        : change?.topLevelOrderChanged
+          ? []
+          : change?.nodeImpactRuntimeIds
       const runtimeCallbacks = new Set<Callback>()
 
-      if (shouldSkipRuntimeFanout) {
-        // Root-level selectors rebuild the mounted runtime-id list for these
-        // commits. Notifying every stale mounted node would only add fanout.
-      } else if (!change || affectedRuntimeIds == null) {
+      if (!change || affectedRuntimeIds == null) {
         runtimeEventListeners.current.forEach((listeners) => {
           listeners.forEach((listener) => {
             runtimeCallbacks.add(listener)
@@ -267,6 +272,11 @@ export function useEditorSelectorContext() {
             runtimeCallbacks.add(listener)
           })
         }
+      }
+      if (shouldRouteRootOrderRuntimeListeners) {
+        rootOrderRuntimeEventListeners.current.forEach((listener) => {
+          runtimeCallbacks.add(listener)
+        })
       }
 
       runtimeCallbacks.forEach((listener) => {
@@ -285,6 +295,7 @@ export function useEditorSelectorContext() {
       callbackProp: Callback,
       {
         deferred = false,
+        includeRootOrderChanges = false,
         profileId,
         runtimeId = null,
         shouldUpdate,
@@ -352,11 +363,15 @@ export function useEditorSelectorContext() {
           runtimeEventListeners.current.get(runtimeId) ?? new Set<Callback>()
         listeners.add(callback)
         runtimeEventListeners.current.set(runtimeId, listeners)
+        if (includeRootOrderChanges) {
+          rootOrderRuntimeEventListeners.current.add(callback)
+        }
 
         return () => {
           isSubscribed = false
           deferredEventListeners.current.delete(queuedCallback)
           listeners.delete(callback)
+          rootOrderRuntimeEventListeners.current.delete(callback)
 
           if (listeners.size === 0) {
             runtimeEventListeners.current.delete(runtimeId)

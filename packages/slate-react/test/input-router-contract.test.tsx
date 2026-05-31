@@ -1,6 +1,12 @@
 import { render, renderHook } from '@testing-library/react'
-import { useMemo, useRef } from 'react'
+import { type KeyboardEvent, useMemo, useRef } from 'react'
 import { Editor } from 'slate/internal'
+import {
+  EDITOR_TO_ELEMENT,
+  EDITOR_TO_WINDOW,
+  ELEMENT_TO_NODE,
+  NODE_TO_ELEMENT,
+} from 'slate-dom'
 
 import {
   createEditableInputController,
@@ -11,7 +17,9 @@ import {
   useEditableDOMInputHandler,
   useEditableRootRef,
 } from '../src/editable/input-router'
+import { useRuntimeFocusMouseEvents } from '../src/editable/runtime-focus-mouse-events'
 import { useRuntimeInputEvents } from '../src/editable/runtime-input-events'
+import { shouldFlushPendingNativeTextInputForKeyDown } from '../src/editable/runtime-keyboard-events'
 import { createReactEditor } from '../src/plugin/with-react'
 
 const cancelable = () => ({ cancel: () => {} })
@@ -107,7 +115,7 @@ test('read-only native input repairs leaked DOM mutations', () => {
     })
   )
 
-  result.current(event)
+  result.current.onDOMInput(event)
 
   expect(event.defaultPrevented).toBe(true)
   expect(stopImmediatePropagation).toHaveBeenCalled()
@@ -148,7 +156,7 @@ test('read-only native input repairs split decorated text strings', () => {
     })
   )
 
-  result.current(event)
+  result.current.onDOMInput(event)
 
   const strings = root.querySelectorAll('[data-slate-string="true"]')
   expect(repairDOMInput).not.toHaveBeenCalled()
@@ -196,18 +204,489 @@ const selectTextOffset = (text: Text, offset: number) => {
   selection?.addRange(range)
 }
 
-test('deferred native text input repair coalesces burst input for the same text target', () => {
+const mountEditableRoot = (editor: ReturnType<typeof createReactEditor>) => {
+  const root = document.createElement('div')
+
+  root.setAttribute('contenteditable', 'true')
+  root.setAttribute('data-slate-editor', 'true')
+  Object.defineProperty(root, 'isContentEditable', {
+    configurable: true,
+    value: true,
+  })
+  document.body.append(root)
+
+  EDITOR_TO_ELEMENT.set(editor, root)
+  EDITOR_TO_WINDOW.set(editor, window)
+  ELEMENT_TO_NODE.set(root, editor)
+  NODE_TO_ELEMENT.set(editor, root)
+
+  return root
+}
+
+const unmountEditableRoot = (
+  editor: ReturnType<typeof createReactEditor>,
+  root: HTMLElement
+) => {
+  EDITOR_TO_ELEMENT.delete(editor)
+  EDITOR_TO_WINDOW.delete(editor)
+  ELEMENT_TO_NODE.delete(root)
+  NODE_TO_ELEMENT.delete(editor)
+  root.remove()
+}
+
+const flushAnimationFrame = (
+  readFrame: () => FrameRequestCallback | null,
+  timestamp: number
+) => {
+  const frame = readFrame()
+
+  frame?.(timestamp)
+}
+
+test('deferred native text input repair coalesces burst input for the same text target after input idle', () => {
   const editor = createReactEditor()
   const root = document.createElement('div')
   const repairDOMInput = vi.fn()
-  let pendingTimeout: (() => void) | null = null
+  let pendingFrame: FrameRequestCallback | null = null
+  let pendingTimeout: TimerHandler | null = null
+  const requestAnimationFrameSpy = vi
+    .spyOn(window, 'requestAnimationFrame')
+    .mockImplementation((callback) => {
+      pendingFrame = callback
+
+      return 1
+    })
+  const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame')
   const setTimeoutSpy = vi
     .spyOn(window, 'setTimeout')
     .mockImplementation((callback) => {
-      pendingTimeout = callback as () => void
+      pendingTimeout = callback
 
       return 1
-    }) as unknown as ReturnType<typeof vi.spyOn>
+    })
+  const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout')
+  const text = appendTextHost(root, '0,0')
+
+  Editor.replace(editor, {
+    children: [{ type: 'paragraph', children: [{ text: '' }] }],
+    selection: null,
+  })
+  document.body.append(root)
+
+  try {
+    const startedAt = performance.now()
+    const { result } = renderHook(() =>
+      useEditableDOMInputHandler({
+        deferNativeTextInputRepair: true,
+        editor,
+        readOnly: false,
+        repairDOMInput,
+        rootRef: { current: root },
+      })
+    )
+
+    text.nodeValue = 'x'
+    selectTextOffset(text, 1)
+    result.current.onDOMInput(createNativeInsertTextEvent('x'))
+
+    text.nodeValue = 'xy'
+    selectTextOffset(text, 2)
+    result.current.onDOMInput(createNativeInsertTextEvent('y'))
+
+    expect(cancelAnimationFrameSpy).not.toHaveBeenCalled()
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 24)
+    expect(pendingTimeout).toBeTypeOf('function')
+    expect(repairDOMInput).not.toHaveBeenCalled()
+
+    flushAnimationFrame(() => pendingFrame, startedAt + 12)
+    expect(repairDOMInput).not.toHaveBeenCalled()
+
+    flushAnimationFrame(() => pendingFrame, startedAt + 40)
+
+    expect(repairDOMInput).toHaveBeenCalledWith(
+      {
+        data: 'y',
+        inputType: 'insertText',
+        target: {
+          insert: { offset: 0, text: 'xy' },
+          path: [0, 0],
+          preferCapturedInsert: true,
+          selectionOffset: 2,
+          text: 'xy',
+        },
+      },
+      root
+    )
+    expect(repairDOMInput).toHaveBeenCalledTimes(1)
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(1)
+  } finally {
+    requestAnimationFrameSpy.mockRestore()
+    cancelAnimationFrameSpy.mockRestore()
+    setTimeoutSpy.mockRestore()
+    clearTimeoutSpy.mockRestore()
+    root.remove()
+  }
+})
+
+test('deferred native text input repair coalesces projected boundary bursts', () => {
+  const editor = createReactEditor()
+  const root = document.createElement('div')
+  const repairDOMInput = vi.fn()
+  let pendingFrame: FrameRequestCallback | null = null
+  const requestAnimationFrameSpy = vi
+    .spyOn(window, 'requestAnimationFrame')
+    .mockImplementation((callback) => {
+      pendingFrame = callback
+
+      return 1
+    })
+  const setTimeoutSpy = vi
+    .spyOn(window, 'setTimeout')
+    .mockImplementation(() => 1)
+  const textHost = document.createElement('span')
+  const firstString = document.createElement('span')
+  const secondString = document.createElement('span')
+  const firstText = document.createTextNode('This ')
+  const secondText = document.createTextNode('mixed')
+
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-path', '0,0')
+  firstString.setAttribute('data-slate-string', 'true')
+  secondString.setAttribute('data-slate-string', 'true')
+  firstString.append(firstText)
+  secondString.append(secondText)
+  textHost.append(firstString, secondString)
+  root.append(textHost)
+
+  Editor.replace(editor, {
+    children: [{ type: 'paragraph', children: [{ text: 'This mixed' }] }],
+    selection: null,
+  })
+  document.body.append(root)
+
+  try {
+    const startedAt = performance.now()
+    const { result } = renderHook(() =>
+      useEditableDOMInputHandler({
+        deferNativeTextInputRepair: true,
+        editor,
+        readOnly: false,
+        repairDOMInput,
+        rootRef: { current: root },
+      })
+    )
+
+    firstText.nodeValue = 'This q'
+    selectTextOffset(firstText, 6)
+    result.current.onDOMInput(createNativeInsertTextEvent('q'))
+
+    secondText.nodeValue = 'mrixed'
+    selectTextOffset(secondText, 2)
+    result.current.onDOMInput(createNativeInsertTextEvent('r'))
+
+    flushAnimationFrame(() => pendingFrame, startedAt + 40)
+
+    expect(repairDOMInput).toHaveBeenCalledWith(
+      {
+        data: 'r',
+        inputType: 'insertText',
+        target: {
+          insert: { offset: 5, text: 'qr' },
+          path: [0, 0],
+          preferCapturedInsert: true,
+          selectionOffset: 8,
+          text: 'This qmrixed',
+        },
+      },
+      root
+    )
+    expect(repairDOMInput).toHaveBeenCalledTimes(1)
+  } finally {
+    requestAnimationFrameSpy.mockRestore()
+    setTimeoutSpy.mockRestore()
+    root.remove()
+  }
+})
+
+test('deferred native text input repair preserves inserts across text targets after input idle', () => {
+  const editor = createReactEditor()
+  const root = document.createElement('div')
+  const repairDOMInput = vi.fn()
+  let pendingFrame: FrameRequestCallback | null = null
+  let pendingTimeout: TimerHandler | null = null
+  const requestAnimationFrameSpy = vi
+    .spyOn(window, 'requestAnimationFrame')
+    .mockImplementation((callback) => {
+      pendingFrame = callback
+
+      return 1
+    })
+  const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame')
+  const setTimeoutSpy = vi
+    .spyOn(window, 'setTimeout')
+    .mockImplementation((callback) => {
+      pendingTimeout = callback
+
+      return 1
+    })
+  const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout')
+  const firstText = appendTextHost(root, '0,0')
+  const secondText = appendTextHost(root, '1,0')
+
+  Editor.replace(editor, {
+    children: [
+      { type: 'paragraph', children: [{ text: '' }] },
+      { type: 'paragraph', children: [{ text: '' }] },
+    ],
+    selection: null,
+  })
+  document.body.append(root)
+
+  try {
+    const startedAt = performance.now()
+    const { result } = renderHook(() =>
+      useEditableDOMInputHandler({
+        deferNativeTextInputRepair: true,
+        editor,
+        readOnly: false,
+        repairDOMInput,
+        rootRef: { current: root },
+      })
+    )
+
+    firstText.nodeValue = 'x'
+    selectTextOffset(firstText, 1)
+    result.current.onDOMInput(createNativeInsertTextEvent('x'))
+
+    secondText.nodeValue = 'y'
+    selectTextOffset(secondText, 1)
+    result.current.onDOMInput(createNativeInsertTextEvent('y'))
+
+    expect(cancelAnimationFrameSpy).not.toHaveBeenCalled()
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 24)
+    expect(pendingTimeout).toBeTypeOf('function')
+    expect(repairDOMInput).not.toHaveBeenCalled()
+
+    flushAnimationFrame(() => pendingFrame, startedAt + 190)
+
+    expect(repairDOMInput).toHaveBeenNthCalledWith(
+      1,
+      {
+        data: 'x',
+        inputType: 'insertText',
+        target: {
+          insert: { offset: 0, text: 'x' },
+          path: [0, 0],
+          selectionOffset: 1,
+          text: 'x',
+        },
+      },
+      root
+    )
+    expect(repairDOMInput).toHaveBeenNthCalledWith(
+      2,
+      {
+        data: 'y',
+        inputType: 'insertText',
+        target: {
+          insert: { offset: 0, text: 'y' },
+          path: [1, 0],
+          selectionOffset: 1,
+          text: 'y',
+        },
+      },
+      root
+    )
+  } finally {
+    requestAnimationFrameSpy.mockRestore()
+    cancelAnimationFrameSpy.mockRestore()
+    setTimeoutSpy.mockRestore()
+    clearTimeoutSpy.mockRestore()
+    root.remove()
+  }
+})
+
+test('deferred native text input repair preserves same-path inserts after the caret moves', () => {
+  const editor = createReactEditor()
+  const root = document.createElement('div')
+  const repairDOMInput = vi.fn()
+  let pendingFrame: FrameRequestCallback | null = null
+  const requestAnimationFrameSpy = vi
+    .spyOn(window, 'requestAnimationFrame')
+    .mockImplementation((callback) => {
+      pendingFrame = callback
+
+      return 1
+    })
+  const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame')
+  const setTimeoutSpy = vi
+    .spyOn(window, 'setTimeout')
+    .mockImplementation(() => 1)
+  const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout')
+  const text = appendTextHost(root, '0,0', 'abc')
+
+  Editor.replace(editor, {
+    children: [{ type: 'paragraph', children: [{ text: 'abc' }] }],
+    selection: null,
+  })
+  document.body.append(root)
+
+  try {
+    const startedAt = performance.now()
+    const { result } = renderHook(() =>
+      useEditableDOMInputHandler({
+        deferNativeTextInputRepair: true,
+        editor,
+        readOnly: false,
+        repairDOMInput,
+        rootRef: { current: root },
+      })
+    )
+
+    text.nodeValue = 'abcX'
+    selectTextOffset(text, 4)
+    result.current.onDOMInput(createNativeInsertTextEvent('X'))
+
+    text.nodeValue = 'aYbcX'
+    selectTextOffset(text, 2)
+    result.current.onDOMInput(createNativeInsertTextEvent('Y'))
+
+    flushAnimationFrame(() => pendingFrame, startedAt + 190)
+
+    expect(repairDOMInput).toHaveBeenNthCalledWith(
+      1,
+      {
+        data: 'X',
+        inputType: 'insertText',
+        target: {
+          insert: { offset: 3, text: 'X' },
+          path: [0, 0],
+          selectionOffset: 4,
+          text: 'abcX',
+        },
+      },
+      root
+    )
+    expect(repairDOMInput).toHaveBeenNthCalledWith(
+      2,
+      {
+        data: 'Y',
+        inputType: 'insertText',
+        target: {
+          insert: { offset: 1, text: 'Y' },
+          path: [0, 0],
+          selectionOffset: 2,
+          text: 'aYbcX',
+        },
+      },
+      root
+    )
+  } finally {
+    requestAnimationFrameSpy.mockRestore()
+    cancelAnimationFrameSpy.mockRestore()
+    setTimeoutSpy.mockRestore()
+    clearTimeoutSpy.mockRestore()
+    root.remove()
+  }
+})
+
+test('deferred native text input repair preserves later same-path inserts before input idle', () => {
+  const editor = createReactEditor()
+  const root = document.createElement('div')
+  const repairDOMInput = vi.fn()
+  let pendingFrame: FrameRequestCallback | null = null
+  const requestAnimationFrameSpy = vi
+    .spyOn(window, 'requestAnimationFrame')
+    .mockImplementation((callback) => {
+      pendingFrame = callback
+
+      return 1
+    })
+  const setTimeoutSpy = vi
+    .spyOn(window, 'setTimeout')
+    .mockImplementation(() => 1)
+  const text = appendTextHost(root, '0,0', 'abc')
+
+  Editor.replace(editor, {
+    children: [{ type: 'paragraph', children: [{ text: 'abc' }] }],
+    selection: null,
+  })
+  document.body.append(root)
+
+  try {
+    const startedAt = performance.now()
+    const { result } = renderHook(() =>
+      useEditableDOMInputHandler({
+        deferNativeTextInputRepair: true,
+        editor,
+        readOnly: false,
+        repairDOMInput,
+        rootRef: { current: root },
+      })
+    )
+
+    text.nodeValue = 'Xabc'
+    selectTextOffset(text, 1)
+    result.current.onDOMInput(createNativeInsertTextEvent('X'))
+
+    text.nodeValue = 'XabcY'
+    selectTextOffset(text, 5)
+    result.current.onDOMInput(createNativeInsertTextEvent('Y'))
+
+    flushAnimationFrame(() => pendingFrame, startedAt + 190)
+
+    expect(repairDOMInput).toHaveBeenNthCalledWith(
+      1,
+      {
+        data: 'X',
+        inputType: 'insertText',
+        target: {
+          insert: { offset: 0, text: 'X' },
+          path: [0, 0],
+          selectionOffset: 1,
+          text: 'Xabc',
+        },
+      },
+      root
+    )
+    expect(repairDOMInput).toHaveBeenNthCalledWith(
+      2,
+      {
+        data: 'Y',
+        inputType: 'insertText',
+        target: {
+          insert: { offset: 3, text: 'Y' },
+          path: [0, 0],
+          selectionOffset: 5,
+          text: 'XabcY',
+        },
+      },
+      root
+    )
+    expect(repairDOMInput).toHaveBeenCalledTimes(2)
+  } finally {
+    requestAnimationFrameSpy.mockRestore()
+    setTimeoutSpy.mockRestore()
+    root.remove()
+  }
+})
+
+test('deferred native text input repair has a timer-backed idle flush', () => {
+  const editor = createReactEditor()
+  const root = document.createElement('div')
+  const repairDOMInput = vi.fn()
+  let pendingTimeout: TimerHandler | null = null
+  const requestAnimationFrameSpy = vi
+    .spyOn(window, 'requestAnimationFrame')
+    .mockImplementation(() => 1)
+  const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame')
+  const setTimeoutSpy = vi
+    .spyOn(window, 'setTimeout')
+    .mockImplementation((callback) => {
+      pendingTimeout = callback
+
+      return 1
+    })
   const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout')
   const text = appendTextHost(root, '0,0')
 
@@ -230,106 +709,207 @@ test('deferred native text input repair coalesces burst input for the same text 
 
     text.nodeValue = 'x'
     selectTextOffset(text, 1)
-    result.current(createNativeInsertTextEvent('x'))
+    result.current.onDOMInput(createNativeInsertTextEvent('x'))
 
-    text.nodeValue = 'xy'
-    selectTextOffset(text, 2)
-    result.current(createNativeInsertTextEvent('y'))
-
-    expect(setTimeoutSpy).toHaveBeenCalledTimes(2)
-    expect(clearTimeoutSpy).toHaveBeenCalledTimes(1)
     expect(repairDOMInput).not.toHaveBeenCalled()
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 24)
 
-    pendingTimeout?.()
+    if (typeof pendingTimeout === 'function') {
+      pendingTimeout()
+    }
 
     expect(repairDOMInput).toHaveBeenCalledWith(
       {
-        data: 'y',
+        data: 'x',
         inputType: 'insertText',
-        target: { path: [0, 0], selectionOffset: 2, text: 'xy' },
+        target: {
+          insert: { offset: 0, text: 'x' },
+          path: [0, 0],
+          selectionOffset: 1,
+          text: 'x',
+        },
       },
       root
     )
-    expect(repairDOMInput).toHaveBeenCalledTimes(1)
+    expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(1)
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(1)
   } finally {
+    requestAnimationFrameSpy.mockRestore()
+    cancelAnimationFrameSpy.mockRestore()
     setTimeoutSpy.mockRestore()
     clearTimeoutSpy.mockRestore()
     root.remove()
   }
 })
 
-test('deferred native text input repair preserves inserts across text targets', () => {
+const createKeyDownDecision = (
+  overrides: Partial<
+    Parameters<typeof shouldFlushPendingNativeTextInputForKeyDown>[0]
+  >
+): Parameters<typeof shouldFlushPendingNativeTextInputForKeyDown>[0] =>
+  ({
+    command: null,
+    intent: null,
+    internalTarget: false,
+    nativeAllowed: false,
+    ownership: 'no-op',
+    selectionBefore: null,
+    selectionPolicy: { kind: 'none', reason: 'not-requested' },
+    selectionSourceTransition: null,
+    shouldForceDOMImport: false,
+    stateBefore: 'dom-current',
+    targetOwner: 'editor',
+    ...overrides,
+  }) as Parameters<typeof shouldFlushPendingNativeTextInputForKeyDown>[0]
+
+const createKeyDownEvent = (
+  overrides: Partial<KeyboardEvent<HTMLDivElement>>
+): KeyboardEvent<HTMLDivElement> =>
+  ({
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    ...overrides,
+  }) as KeyboardEvent<HTMLDivElement>
+
+test('plain text keydown does not flush deferred native text repair between characters', () => {
+  expect(
+    shouldFlushPendingNativeTextInputForKeyDown(
+      createKeyDownDecision({
+        intent: 'text-insert',
+        ownership: 'model-owned',
+      }),
+      createKeyDownEvent({ key: 'b' })
+    )
+  ).toBe(false)
+})
+
+test('plain text shortcut boundary keydown flushes deferred native text repair', () => {
+  expect(
+    shouldFlushPendingNativeTextInputForKeyDown(
+      createKeyDownDecision({
+        intent: 'text-insert',
+        ownership: 'model-owned',
+      }),
+      createKeyDownEvent({ key: ' ' })
+    )
+  ).toBe(true)
+})
+
+test('native selection movement keydown flushes deferred native text repair', () => {
+  expect(
+    shouldFlushPendingNativeTextInputForKeyDown(
+      createKeyDownDecision({
+        intent: 'native-selection-move',
+        nativeAllowed: true,
+        ownership: 'native-allowed',
+      }),
+      createKeyDownEvent({ key: 'ArrowLeft' })
+    )
+  ).toBe(true)
+})
+
+test('model-owned keydown boundaries flush deferred native text repair', () => {
+  expect(
+    shouldFlushPendingNativeTextInputForKeyDown(
+      createKeyDownDecision({
+        intent: 'insert-break',
+        ownership: 'model-owned',
+        shouldForceDOMImport: true,
+      }),
+      createKeyDownEvent({ key: 'Enter' })
+    )
+  ).toBe(true)
+  expect(
+    shouldFlushPendingNativeTextInputForKeyDown(
+      createKeyDownDecision({
+        intent: 'native-selection-move',
+        nativeAllowed: true,
+        ownership: 'native-allowed',
+      }),
+      createKeyDownEvent({ key: '1', metaKey: true })
+    )
+  ).toBe(true)
+})
+
+test('editable blur flushes pending native text before app blur callbacks', () => {
   const editor = createReactEditor()
-  const root = document.createElement('div')
-  const repairDOMInput = vi.fn()
-  let pendingTimeout: (() => void) | null = null
-  const setTimeoutSpy = vi
-    .spyOn(window, 'setTimeout')
-    .mockImplementation((callback) => {
-      pendingTimeout = callback as () => void
-
-      return 1
-    }) as unknown as ReturnType<typeof vi.spyOn>
-  const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout')
-  const firstText = appendTextHost(root, '0,0')
-  const secondText = appendTextHost(root, '1,0')
-
-  Editor.replace(editor, {
-    children: [
-      { type: 'paragraph', children: [{ text: '' }] },
-      { type: 'paragraph', children: [{ text: '' }] },
-    ],
-    selection: null,
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
   })
-  document.body.append(root)
+  const root = mountEditableRoot(editor)
+  const order: string[] = []
+  const relatedTarget = document.createElement('button')
+  const { result } = renderHook(() =>
+    useRuntimeFocusMouseEvents({
+      editor,
+      flushPendingNativeTextInput: () => {
+        order.push('flush')
+      },
+      inputController,
+      onBlur: () => {
+        order.push('blur')
+      },
+      readOnly: false,
+      selection: { syncDOMSelectionFromRuntime: vi.fn() } as any,
+      state: inputController.state,
+      syncDOMSelectionToEditor: vi.fn(),
+      trace: { recordKernelEventTrace: vi.fn() } as any,
+    })
+  )
 
   try {
-    const { result } = renderHook(() =>
-      useEditableDOMInputHandler({
-        deferNativeTextInputRepair: true,
-        editor,
-        readOnly: false,
-        repairDOMInput,
-        rootRef: { current: root },
-      })
-    )
+    result.current.onBlur({
+      currentTarget: root,
+      isDefaultPrevented: () => false,
+      isPropagationStopped: () => false,
+      relatedTarget,
+      target: root,
+    } as any)
 
-    firstText.nodeValue = 'x'
-    selectTextOffset(firstText, 1)
-    result.current(createNativeInsertTextEvent('x'))
-
-    secondText.nodeValue = 'y'
-    selectTextOffset(secondText, 1)
-    result.current(createNativeInsertTextEvent('y'))
-
-    expect(setTimeoutSpy).toHaveBeenCalledTimes(2)
-    expect(clearTimeoutSpy).toHaveBeenCalledTimes(1)
-    expect(repairDOMInput).not.toHaveBeenCalled()
-
-    pendingTimeout?.()
-
-    expect(repairDOMInput).toHaveBeenNthCalledWith(
-      1,
-      {
-        data: 'x',
-        inputType: 'insertText',
-        target: { path: [0, 0], selectionOffset: 1, text: 'x' },
-      },
-      root
-    )
-    expect(repairDOMInput).toHaveBeenNthCalledWith(
-      2,
-      {
-        data: 'y',
-        inputType: 'insertText',
-        target: { path: [1, 0], selectionOffset: 1, text: 'y' },
-      },
-      root
-    )
+    expect(order).toEqual(['flush', 'blur'])
   } finally {
-    setTimeoutSpy.mockRestore()
-    clearTimeoutSpy.mockRestore()
-    root.remove()
+    unmountEditableRoot(editor, root)
+  }
+})
+
+test('editable mouse down flushes pending native text before app mouse callbacks', () => {
+  const editor = createReactEditor()
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  })
+  const root = mountEditableRoot(editor)
+  const order: string[] = []
+  const { result } = renderHook(() =>
+    useRuntimeFocusMouseEvents({
+      editor,
+      flushPendingNativeTextInput: () => {
+        order.push('flush')
+      },
+      inputController,
+      onMouseDown: () => {
+        order.push('mouse')
+      },
+      readOnly: false,
+      selection: { syncDOMSelectionFromRuntime: vi.fn() } as any,
+      state: inputController.state,
+      syncDOMSelectionToEditor: vi.fn(),
+      trace: { recordKernelEventTrace: vi.fn() } as any,
+    })
+  )
+
+  try {
+    result.current.onMouseDown({
+      currentTarget: root,
+      target: root,
+    } as any)
+
+    expect(order).toEqual(['flush', 'mouse'])
+  } finally {
+    unmountEditableRoot(editor, root)
   }
 })
 
@@ -362,6 +942,7 @@ test('native input repair prefers a valid DOM text target over stale runtime sel
         inputType: 'insertText',
       })
     ).toEqual({
+      insert: { offset: 0, text: 'x' },
       path: [0, 0],
       selectionOffset: 1,
       text: 'xa',
@@ -411,7 +992,7 @@ test('read-only input capture does not schedule model-owning DOM input repair', 
   expect(repairDOMInputAfterFrame).not.toHaveBeenCalled()
 })
 
-test('deferred native text input repair resets stale same-path offsets after caret moves', () => {
+test('deferred runtime input capture leaves native text repair to DOM input handler', () => {
   const editor = createReactEditor()
   const inputController = createEditableInputController({
     preferModelSelectionForInputRef: { current: false },
@@ -420,10 +1001,6 @@ test('deferred native text input repair resets stale same-path offsets after car
   const root = document.createElement('div')
   const text = appendTextHost(root, '0,0')
   const repairDOMInputAfterFrame = vi.fn()
-  const setTimeoutSpy = vi
-    .spyOn(window, 'setTimeout')
-    .mockImplementation(() => 1) as unknown as ReturnType<typeof vi.spyOn>
-  const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout')
 
   Editor.replace(editor, {
     children: [{ type: 'paragraph', children: [{ text: '' }] }],
@@ -466,49 +1043,8 @@ test('deferred native text input repair resets stale same-path offsets after car
       target: null,
     } as any)
 
-    text.nodeValue = 'xy'
-    selectTextOffset(text, 2)
-    result.current.onInputCapture({
-      currentTarget: root,
-      nativeEvent: { data: 'y', inputType: 'insertText' },
-      stopPropagation: vi.fn(),
-      target: null,
-    } as any)
-
-    Editor.withoutNormalizing(editor, () => {
-      editor.selection = {
-        anchor: { path: [0, 0], offset: 0 },
-        focus: { path: [0, 0], offset: 0 },
-      }
-    })
-    text.nodeValue = 'zxy'
-    selectTextOffset(text, 1)
-    result.current.onInputCapture({
-      currentTarget: root,
-      nativeEvent: { data: 'z', inputType: 'insertText' },
-      stopPropagation: vi.fn(),
-      target: null,
-    } as any)
-
-    expect(repairDOMInputAfterFrame).toHaveBeenLastCalledWith(
-      {
-        data: 'z',
-        inputType: 'insertText',
-        target: {
-          insert: { offset: 0, text: 'z' },
-          path: [0, 0],
-          selectionOffset: 1,
-          text: 'zxy',
-        },
-      },
-      root,
-      1
-    )
-    expect(setTimeoutSpy).toHaveBeenCalledTimes(3)
-    expect(clearTimeoutSpy).toHaveBeenCalledTimes(2)
+    expect(repairDOMInputAfterFrame).not.toHaveBeenCalled()
   } finally {
-    setTimeoutSpy.mockRestore()
-    clearTimeoutSpy.mockRestore()
     root.remove()
   }
 })

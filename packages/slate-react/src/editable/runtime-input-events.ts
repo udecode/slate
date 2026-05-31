@@ -4,7 +4,6 @@ import {
   useCallback,
   useRef,
 } from 'react'
-import { RangeApi } from 'slate'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { prepareEditableInputKernel } from './editing-kernel'
 import { isSelectionInEditorView } from './input-controller'
@@ -22,11 +21,6 @@ import type { EditableEventRuntime } from './runtime-event-engine'
 import { readRuntimeSelection } from './runtime-selection-state'
 
 type InputHandler = (event: ReactInputEvent<HTMLDivElement>) => boolean | void
-
-type DeferredNativeTextInput = {
-  nextOffset: number
-  pathKey: string
-}
 
 export const useRuntimeInputEvents = ({
   androidInputManagerRef,
@@ -54,32 +48,10 @@ export const useRuntimeInputEvents = ({
   trace: EditableEventRuntime['trace']
 }) => {
   const handledDOMInputEventsRef = useRef<WeakSet<Event>>(new WeakSet())
-  const deferredNativeTextInputRef = useRef<DeferredNativeTextInput | null>(
-    null
-  )
-  const deferredNativeTextInputResetRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null)
-  const resetDeferredNativeTextInput = useCallback(() => {
-    if (deferredNativeTextInputResetRef.current !== null) {
-      clearTimeout(deferredNativeTextInputResetRef.current)
-      deferredNativeTextInputResetRef.current = null
-    }
-    deferredNativeTextInputRef.current = null
-  }, [])
-  const scheduleDeferredNativeTextInputReset = useCallback(() => {
-    if (deferredNativeTextInputResetRef.current !== null) {
-      clearTimeout(deferredNativeTextInputResetRef.current)
-    }
-    deferredNativeTextInputResetRef.current = setTimeout(() => {
-      deferredNativeTextInputResetRef.current = null
-      deferredNativeTextInputRef.current = null
-    })
-  }, [])
   const markHandledDOMInput = useCallback((event: Event) => {
     handledDOMInputEventsRef.current.add(event)
   }, [])
-  const onRuntimeDOMInput = useEditableDOMInputHandler({
+  const domInput = useEditableDOMInputHandler({
     deferNativeTextInputRepair,
     editor,
     onHandledDOMInput: markHandledDOMInput,
@@ -178,89 +150,41 @@ export const useRuntimeInputEvents = ({
 
       const rootElement = event.currentTarget
       const { data, inputType } = event.nativeEvent as InputEvent
-      let target =
-        inputType === 'insertText'
-          ? getDOMInputRepairTarget(editor, rootElement, { data, inputType })
-          : null
       const frameId = trace.getCurrentKernelFrameId()
 
       if (readOnly) {
         return
       }
 
-      let shouldResetDeferredNativeTextInput = false
-
       if (
         deferNativeTextInputRepair &&
-        target &&
         inputType === 'insertText' &&
         typeof data === 'string' &&
         data.length > 0
       ) {
-        const pathKey = target.path.join(',')
-        const pending = deferredNativeTextInputRef.current
-        const selection = readRuntimeSelection(editor)
-        const selectionOffset =
-          selection &&
-          RangeApi.isCollapsed(selection) &&
-          selection.anchor.path.join(',') === pathKey
-            ? selection.anchor.offset
-            : null
-        const targetInsertOffset = Math.max(
-          0,
-          target.selectionOffset - data.length
-        )
-        const pendingOffset =
-          pending?.pathKey === pathKey ? pending.nextOffset : null
-        const insertOffset =
-          pendingOffset != null &&
-          (pendingOffset === selectionOffset ||
-            pendingOffset === targetInsertOffset)
-            ? pendingOffset
-            : (selectionOffset ?? targetInsertOffset)
-
-        deferredNativeTextInputRef.current = {
-          nextOffset: insertOffset + data.length,
-          pathKey,
-        }
-        target = {
-          ...target,
-          insert: {
-            offset: insertOffset,
-            text: data,
-          },
-        }
-        shouldResetDeferredNativeTextInput = true
-      } else {
-        resetDeferredNativeTextInput()
+        return
       }
+
+      const target =
+        inputType === 'insertText'
+          ? getDOMInputRepairTarget(editor, rootElement, { data, inputType })
+          : null
 
       trace.repairDOMInputAfterFrame(
         { data, inputType, target },
         rootElement,
         frameId
       )
-
-      if (shouldResetDeferredNativeTextInput) {
-        scheduleDeferredNativeTextInputReset()
-      }
     },
-    [
-      deferNativeTextInputRepair,
-      editor,
-      inputController,
-      readOnly,
-      resetDeferredNativeTextInput,
-      scheduleDeferredNativeTextInputReset,
-      trace,
-    ]
+    [deferNativeTextInputRepair, editor, inputController, readOnly, trace]
   )
   const onRuntimeInputCapture = useEditableInputHandler({
     handleInput: handleInputCapture,
   })
 
   return {
-    onDOMInput: onRuntimeDOMInput,
+    flushPendingNativeTextInput: domInput.flushPendingNativeTextInput,
+    onDOMInput: domInput.onDOMInput,
     onInput: onRuntimeInput,
     onInputCapture: onRuntimeInputCapture,
   }

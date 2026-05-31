@@ -484,8 +484,8 @@ const DEFAULT_MEASUREMENT_PROFILE: SlatePageLayoutMeasurementProfile = {
   typography: 'default',
 }
 
-const TEXT_CHANGE_REFRESH_DELAY_MS = 320
-const TEXT_CHANGE_REFRESH_MAX_DELAY_MS = 640
+const TEXT_CHANGE_REFRESH_DELAY_MS = 40
+const TEXT_CHANGE_REFRESH_MAX_DELAY_MS = 80
 
 const getNow = () =>
   typeof performance === 'undefined' ? Date.now() : performance.now()
@@ -1499,20 +1499,23 @@ const createTableLayoutBoxes = (
 
 const resolveNodeLayoutPlan = (
   plan: SlateNodeLayoutPlan | null | undefined,
-  defaultBoxes: readonly SlatePageLayoutBox[]
+  getDefaultBoxes: () => readonly SlatePageLayoutBox[]
 ): {
   boxes: readonly SlatePageLayoutBox[]
+  mode: 'text' | 'units'
   units?: readonly SlatePageLayoutUnit[]
 } => {
   if (!plan || plan.type === 'text') {
     return {
-      boxes: plan?.boxes ?? defaultBoxes,
+      boxes: plan?.boxes ?? getDefaultBoxes(),
+      mode: 'text',
     }
   }
 
   if (plan.type === 'box') {
     return {
       boxes: [plan.box],
+      mode: 'units',
       units: [
         {
           key: `${getSlatePageLayoutPathKey(plan.box.path)}:${plan.box.kind}`,
@@ -1526,7 +1529,8 @@ const resolveNodeLayoutPlan = (
   }
 
   return {
-    boxes: plan.boxes ?? defaultBoxes,
+    boxes: plan.boxes ?? getDefaultBoxes(),
+    mode: 'units',
     units: plan.units,
   }
 }
@@ -1548,23 +1552,40 @@ const extractLayoutBlocks = (
 
     const path = [index]
     const blockStyle = getBlockStyle(typography, node, path)
-    const runs = extractLayoutRuns(node, path, typography)
-    const defaultBoxes = createLayoutBoxes(node, path, blockStyle.lineHeight)
-    const textStyle = runs[0]?.textStyle ?? getTextStyle(typography, node, path)
+    let defaultBoxes: readonly SlatePageLayoutBox[] | null = null
+    let defaultTextStyle: SlatePageLayoutTextStyle | null = null
+    const getDefaultBoxes = () => {
+      defaultBoxes ??= createLayoutBoxes(node, path, blockStyle.lineHeight)
+
+      return defaultBoxes
+    }
+    const getDefaultTextStyle = () => {
+      defaultTextStyle ??= getTextStyle(typography, node, path, { text: '' })
+
+      return defaultTextStyle
+    }
     const resolvedLayout = resolveNodeLayoutPlan(
       nodeLayout?.({
         defaults: {
           block: blockStyle,
-          boxes: defaultBoxes,
-          text: textStyle,
+          get boxes() {
+            return getDefaultBoxes()
+          },
+          get text() {
+            return getDefaultTextStyle()
+          },
         },
         element: node,
         measurementProfile,
         pageSettings: settings,
         path,
       }),
-      defaultBoxes
+      getDefaultBoxes
     )
+    const textLayout = resolvedLayout.mode === 'text'
+    const runs = textLayout ? extractLayoutRuns(node, path, typography) : []
+    const text = textLayout ? NodeApi.string(node) : ''
+    const textStyle = runs[0]?.textStyle ?? getDefaultTextStyle()
 
     return {
       boxes: resolvedLayout.boxes,
@@ -1573,7 +1594,7 @@ const extractLayoutBlocks = (
       path,
       runs,
       spacingAfter: blockStyle.blockSpacing ?? 0,
-      text: NodeApi.string(node),
+      text,
       textStyle,
       units: resolvedLayout.units,
     }

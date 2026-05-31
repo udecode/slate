@@ -4,10 +4,14 @@ import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { getInputEventData } from './dom-input-event'
 import { Editor } from './runtime-editor-api'
 
-const NATIVE_CHAR_RE = /[a-z ]/i
+const NATIVE_CHAR_RE = /^[ -~]$/
 
 const hasNativeBlockingMarks = (marks: Record<string, unknown> | null) =>
   marks != null && Object.keys(marks).length > 0
+
+const canUseNativeTextHost = (textHost: Element | null | undefined) =>
+  textHost?.getAttribute('data-slate-dom-sync') === 'true' ||
+  textHost?.getAttribute('data-slate-dom-sync-reason') === 'projection'
 
 export const canUseNativeSingleCharacterInput = ({
   editor,
@@ -23,7 +27,7 @@ export const canUseNativeSingleCharacterInput = ({
   if (
     !selection ||
     !RangeApi.isCollapsed(selection) ||
-    // Only use native character insertion for single characters a-z or space for now.
+    // Only use native character insertion for printable ASCII for now.
     // Long-press events (hold a + press 4 = ä) to choose a special character otherwise
     // causes duplicate inserts.
     !eventData ||
@@ -62,7 +66,7 @@ export const canUseNativeSingleCharacterInput = ({
   const [node, offset] = domPoint
   const textHost = node.parentElement?.closest('[data-slate-node="text"]')
 
-  if (textHost?.getAttribute('data-slate-dom-sync') !== 'true') {
+  if (!canUseNativeTextHost(textHost)) {
     return false
   }
 

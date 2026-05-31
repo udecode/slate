@@ -7,6 +7,7 @@ import {
 import { createEditableInputController } from '../src/editable/input-state'
 import { writeCollapsedModelSelectionDOMPreference } from '../src/editable/model-selection-dom-preference'
 import {
+  armModelOwnedTextInputGuard,
   completeEditableSelectionChangeImport,
   executeEditableSelectionExport,
   executeEditableSelectionImport,
@@ -15,6 +16,7 @@ import {
   prepareEditableSelectionChangeImport,
   setEditableModelSelectionPreference,
   shouldApplyDOMSelectionChange,
+  shouldForceModelOwnedTextInput,
   shouldImportChangedExpandedDOMSelection,
   syncEditableDOMSelectionToEditor,
 } from '../src/editable/selection-controller'
@@ -551,42 +553,40 @@ test('native selectionchange clears its origin after import handling', () => {
   expect(inputController.state.selectionChangeOrigin).toBe(null)
 })
 
-test('native insertText ignores stale repair and programmatic model preference', () => {
-  for (const reason of ['programmatic-export', 'repair-induced'] as const) {
-    const inputController = createEditableInputController({
-      preferModelSelectionForInputRef: { current: true },
-      state: {
-        activeIntent: null,
-        isComposing: false,
-        isDraggingInternally: false,
-        isUpdatingSelection: false,
-        latestElement: null,
-        pendingDOMSelectionImport: false,
-        selectionChangeOrigin: reason,
-        selectionSource: 'model-owned',
-      },
-    })
-
-    setEditableModelSelectionPreference({
-      inputController,
-      preferModelSelection: true,
-      reason,
+test('native insertText ignores stale programmatic model preference', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: 'programmatic-export',
       selectionSource: 'model-owned',
-    })
+    },
+  })
 
-    expect(
-      isEditableModelSelectionPreferredForInput({
-        inputController,
-        inputType: 'insertText',
-      })
-    ).toBe(false)
-    expect(
-      isEditableModelSelectionPreferredForInput({
-        inputController,
-        inputType: 'deleteContentBackward',
-      })
-    ).toBe(true)
-  }
+  setEditableModelSelectionPreference({
+    inputController,
+    preferModelSelection: true,
+    reason: 'programmatic-export',
+    selectionSource: 'model-owned',
+  })
+
+  expect(
+    isEditableModelSelectionPreferredForInput({
+      inputController,
+      inputType: 'insertText',
+    })
+  ).toBe(false)
+  expect(
+    isEditableModelSelectionPreferredForInput({
+      inputController,
+      inputType: 'deleteContentBackward',
+    })
+  ).toBe(true)
 })
 
 test('native insertText preserves explicit model-owned input guards', () => {
@@ -624,5 +624,68 @@ test('native insertText preserves explicit model-owned input guards', () => {
         inputType: 'insertText',
       })
     ).toBe(true)
+  }
+})
+
+test('model-command text input forces model ownership', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: null,
+      selectionSource: 'model-owned',
+    },
+  })
+
+  setEditableModelSelectionPreference({
+    inputController,
+    preferModelSelection: true,
+    reason: 'model-command',
+    selectionSource: 'model-owned',
+  })
+  armModelOwnedTextInputGuard({ inputController })
+
+  expect(
+    shouldForceModelOwnedTextInput({
+      inputController,
+      inputType: 'insertText',
+    })
+  ).toBe(true)
+})
+
+test('browser-handle and repair-induced text input can keep the native fast path', () => {
+  for (const reason of ['browser-handle', 'repair-induced'] as const) {
+    const inputController = createEditableInputController({
+      preferModelSelectionForInputRef: { current: true },
+      state: {
+        activeIntent: null,
+        isComposing: false,
+        isDraggingInternally: false,
+        isUpdatingSelection: false,
+        latestElement: null,
+        pendingDOMSelectionImport: false,
+        selectionChangeOrigin: null,
+        selectionSource: 'model-owned',
+      },
+    })
+
+    setEditableModelSelectionPreference({
+      inputController,
+      preferModelSelection: true,
+      reason,
+      selectionSource: 'model-owned',
+    })
+
+    expect(
+      shouldForceModelOwnedTextInput({
+        inputController,
+        inputType: 'insertText',
+      })
+    ).toBe(false)
   }
 })

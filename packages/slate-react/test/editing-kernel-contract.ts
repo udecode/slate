@@ -458,6 +458,45 @@ test('keyboard structural commands keep model selection after delayed text repai
   })
 })
 
+test('keyboard text insert keeps model selection after repair-induced text input', () => {
+  const editor = createEditor() as any
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: createEditableInputControllerState(),
+  })
+  inputController.state.modelSelectionPreference = {
+    preferModelSelection: true,
+    reason: 'repair-induced',
+    selectionSource: 'model-owned',
+  }
+  inputController.state.selectionChangeOrigin = null
+  inputController.state.selectionSource = 'model-owned'
+
+  const decision = prepareEditableKeyDownKernel({
+    editor,
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: false,
+        key: 'a',
+        metaKey: false,
+        shiftKey: false,
+        which: 65,
+      },
+      target: null,
+    } as any,
+    inputController,
+    domStrategyRuntime: null,
+  })
+
+  expect(decision).toMatchObject({
+    intent: 'text-insert',
+    ownership: 'model-owned',
+    selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
+    shouldForceDOMImport: false,
+  })
+})
+
 test('keyboard model selection moves keep model selection after programmatic DOM export', () => {
   const editor = createEditor() as any
   const inputController = createEditableInputController({

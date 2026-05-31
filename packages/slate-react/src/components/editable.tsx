@@ -91,6 +91,7 @@ export interface RenderTextProps {
 
 export type EditableDOMRootProps = {
   children?: React.ReactNode
+  deferNativeTextInputRepair?: boolean
   domStrategyRuntime?: {
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
@@ -267,6 +268,7 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
   const {
     autoFocus,
     children: customChildren,
+    deferNativeTextInputRepair = false,
     domStrategyRuntime = null,
     domStrategyMetrics = null,
     ignoreBlankEditableRootClicks = false,
@@ -297,6 +299,7 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     callbacks: attributes,
     editor,
     forwardedRef,
+    deferNativeTextInputRepair,
     domStrategyRuntime,
     onDOMBeforeInput: propsOnDOMBeforeInput,
     onKeyDown: propsOnKeyDown,

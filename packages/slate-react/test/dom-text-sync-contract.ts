@@ -51,6 +51,14 @@ test('DOM text sync capability names opt-out reasons', () => {
   expect(
     getDOMTextSyncCapability({
       hasText: true,
+      projections: [{ key: 'p' } as any],
+      renderText: () => null,
+    })
+  ).toEqual({ enabled: false, reason: 'custom-text' })
+
+  expect(
+    getDOMTextSyncCapability({
+      hasText: true,
       projections: [],
     })
   ).toEqual({ enabled: true, reason: null })

@@ -3,8 +3,15 @@ import type { DOMTextSyncOptions } from '../dom-text-sync'
 
 export type DOMStrategyType = 'auto' | 'full' | 'staged'
 
+type DOMStrategyTextSyncConfig = {
+  textSync?: DOMTextSyncOptions
+}
+
 export type DOMStrategyOptions =
   | DOMStrategyType
+  | (DOMStrategyTextSyncConfig & {
+      type: DOMStrategyType
+    })
   | {
       /**
        * Experimental viewport-only rendering for pathological documents.

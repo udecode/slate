@@ -1,7 +1,12 @@
 import { act, render, renderHook, waitFor } from '@testing-library/react'
 import _ from 'lodash'
 import { Component, type ReactNode, useLayoutEffect } from 'react'
-import { type Operation, type SnapshotChange, TextApi } from 'slate'
+import {
+  type Operation,
+  type RuntimeId,
+  type SnapshotChange,
+  TextApi,
+} from 'slate'
 import { Editor } from 'slate/internal'
 import {
   createReactEditor,
@@ -739,6 +744,59 @@ describe('slate-react provider hooks contract', () => {
 
     expect(Editor.getPathByRuntimeId(editor, runtimeId)).toEqual([1])
     expect(result.current).toEqual([1])
+  })
+
+  test('useElementPath scopes text edits to the impacted runtime id', async () => {
+    const value = Array.from({ length: 64 }, (_value, index) => ({
+      type: 'block',
+      children: [{ text: `line ${index}` }],
+    }))
+    const editor = createReactEditor({ initialValue: value })
+    const runtimeIds = value.map((_value, index) =>
+      Editor.getRuntimeId(editor, [index])
+    ) as RuntimeId[]
+    const counter = createSlateReactRenderCounter()
+    const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
+
+    const PathProbe = ({ runtimeId }: { runtimeId: RuntimeId }) => {
+      const path = useElementPath()
+
+      return (
+        <span data-testid={`path-${runtimeId}`}>{path?.join('.') ?? ''}</span>
+      )
+    }
+
+    globalThis.__SLATE_REACT_RENDER_PROFILER__ = counter.profiler
+
+    try {
+      render(
+        <Slate editor={editor}>
+          <Editable />
+          {runtimeIds.map((runtimeId) => (
+            <NodeRuntimeIdContext.Provider key={runtimeId} value={runtimeId}>
+              <PathProbe runtimeId={runtimeId} />
+            </NodeRuntimeIdContext.Provider>
+          ))}
+        </Slate>
+      )
+
+      counter.reset()
+
+      await act(async () => {
+        editor.update((tx) => {
+          tx.text.insert('!', { at: { path: [0, 0], offset: 0 } })
+        })
+      })
+
+      const elementPathChecks = counter
+        .snapshot()
+        .events.filter((event) => event.id === 'selector-element-path-check')
+
+      expect(elementPathChecks).toHaveLength(1)
+      expect(elementPathChecks[0]?.runtimeId).toBe(runtimeIds[0])
+    } finally {
+      globalThis.__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+    }
   })
 
   test('Editable keeps large DOM-present root groups stable across local edits and parent rerenders', async () => {

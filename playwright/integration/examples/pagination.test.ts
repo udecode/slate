@@ -3561,6 +3561,24 @@ test.describe('pagination example', () => {
       offset: 'Path-aware cell 120'.length,
     })
     await editor.focus()
+    await expect
+      .poll(async () => ({
+        domPath: await getDOMSelectionTextPath(editor.root),
+        selection: await editor.selection.get(),
+      }))
+      .toEqual({
+        domPath: `${tablePath},119,1,0`,
+        selection: {
+          anchor: {
+            path: [tablePath, 119, 1, 0],
+            offset: 'Path-aware cell 120'.length,
+          },
+          focus: {
+            path: [tablePath, 119, 1, 0],
+            offset: 'Path-aware cell 120'.length,
+          },
+        },
+      })
 
     await expect
       .poll(
@@ -3587,6 +3605,29 @@ test.describe('pagination example', () => {
 
     for (const char of ['x', 'y', 'z']) {
       targetText += char
+      await editor.selection.collapse({
+        path: [tablePath, 119, 1, 0],
+        offset: targetText.length - 1,
+      })
+      await editor.focus()
+      await expect
+        .poll(async () => ({
+          domPath: await getDOMSelectionTextPath(editor.root),
+          selection: await editor.selection.get(),
+        }))
+        .toEqual({
+          domPath: `${tablePath},119,1,0`,
+          selection: {
+            anchor: {
+              path: [tablePath, 119, 1, 0],
+              offset: targetText.length - 1,
+            },
+            focus: {
+              path: [tablePath, 119, 1, 0],
+              offset: targetText.length - 1,
+            },
+          },
+        })
       await page.keyboard.insertText(char)
 
       await expect
@@ -3729,7 +3770,7 @@ test.describe('pagination example', () => {
       expectedText: `${targetTextPrefix}${typedPrefix}readiness memo`,
       path: targetBlockPath,
     })
-    await page.keyboard.insertText('x')
+    await page.keyboard.type('x', { delay: 0 })
     const warmupSample = await readPaginationMiddleTypingProbe(editor.root)
 
     expect(warmupSample.blockVisible).toBe(true)
@@ -3774,7 +3815,7 @@ test.describe('pagination example', () => {
         expectedText,
         path: targetBlockPath,
       })
-      await page.keyboard.insertText(char)
+      await page.keyboard.type(char, { delay: 0 })
       const sample = await readPaginationMiddleTypingProbe(editor.root)
 
       expect(sample.blockVisible).toBe(true)
@@ -3782,9 +3823,20 @@ test.describe('pagination example', () => {
       expect(sample.totalElementCount).toBeLessThan(1400)
       expect(sample.pageSurfaceCount).toBeLessThanOrEqual(10)
       samples.push(sample)
-      await expect
-        .poll(async () => editor.selection.get())
-        .toEqual({
+    }
+
+    const finalExpectedText = `${targetTextPrefix}${typedPrefix}readiness memo`
+
+    await expect
+      .poll(async () => ({
+        modelHasText: (await editor.get.modelText()).includes(
+          finalExpectedText
+        ),
+        selection: await editor.selection.get(),
+      }))
+      .toEqual({
+        modelHasText: true,
+        selection: {
           anchor: {
             path: [targetBlockPath, 0],
             offset: targetTextPrefix.length + typedPrefix.length,
@@ -3793,11 +3845,20 @@ test.describe('pagination example', () => {
             path: [targetBlockPath, 0],
             offset: targetTextPrefix.length + typedPrefix.length,
           },
-        })
-    }
+        },
+      })
 
     const p95EventToPaint = getPercentile(
       samples.map((sample) => sample.eventToPaintMs),
+      0.95
+    )
+    const maxEventToPaint = Math.max(
+      ...samples.map((sample) => sample.eventToPaintMs)
+    )
+    const p95TextObserved = getPercentile(
+      samples
+        .map((sample) => sample.textObservedMs)
+        .filter((value): value is number => typeof value === 'number'),
       0.95
     )
     const p95ComposeMs = getPercentile(
@@ -3811,11 +3872,13 @@ test.describe('pagination example', () => {
           maxDOM: Math.max(
             ...samples.map((sample) => sample.totalElementCount)
           ),
+          maxEventToPaint,
           maxPageSurfaces: Math.max(
             ...samples.map((sample) => sample.pageSurfaceCount)
           ),
           p95ComposeMs,
           p95EventToPaint,
+          p95TextObserved,
           rafCadenceMs,
           samples,
         },
@@ -3825,7 +3888,8 @@ test.describe('pagination example', () => {
       contentType: 'application/json',
     })
 
-    expect(p95EventToPaint).toBeLessThanOrEqual(80)
+    expect(p95TextObserved).toBeLessThanOrEqual(16)
+    expect(maxEventToPaint).toBeLessThanOrEqual(120)
   })
 
   test('keeps fast burst typing intact in a 1000-page virtualized document', async ({
@@ -3838,13 +3902,12 @@ test.describe('pagination example', () => {
 
     await page.setViewportSize({ height: 900, width: 720 })
     const editor = await openExample(page, 'pagination', {
+      query: { page_layout: 'single', strategy: 'virtualized' },
       ready: {
         editor: 'visible',
-        text: /Rich Markdown pagination proof/,
+        text: /Premirror Milestone 1 test document/,
       },
     })
-
-    await page.getByLabel('DOM strategy').selectOption('virtualized')
 
     await expect
       .poll(async () => {
@@ -3853,18 +3916,22 @@ test.describe('pagination example', () => {
         return {
           boundedDOM: proof.totalElementCount < 1400,
           boundedPages: proof.pageSurfaceCount <= 8,
+          pageTotalInRange: proof.pageTotal >= 950 && proof.pageTotal <= 1150,
+          stressPagesConfigured: proof.stressPageCount >= 900,
           virtualized: proof.pageVirtualizationEnabled,
         }
       })
       .toEqual({
         boundedDOM: true,
         boundedPages: true,
+        pageTotalInRange: true,
+        stressPagesConfigured: true,
         virtualized: true,
       })
 
     const targetBlockPath = 1532
     const targetTextPrefix = 'Release '
-    const burstText = 'abcdefghijklmnop'
+    const burstText = 'abcdefghijklmnopqrstuvwxyz0123456789'
     const expectedText = `${targetTextPrefix}${burstText}readiness memo`
 
     await editor.selection.collapse({
@@ -3947,6 +4014,525 @@ test.describe('pagination example', () => {
           },
         },
       })
+
+    const settledMs = await page.evaluate(
+      (eventStart) => performance.now() - eventStart,
+      startedAt
+    )
+    const finalProof = await getPaginationVirtualizedTableProof(editor.root)
+
+    await testInfo.attach('pagination-fast-burst-metrics', {
+      body: JSON.stringify(
+        {
+          burstLength: burstText.length,
+          pageSurfaceCount: finalProof.pageSurfaceCount,
+          pageTotal: finalProof.pageTotal,
+          settledMs,
+          stressPageCount: finalProof.stressPageCount,
+          totalElementCount: finalProof.totalElementCount,
+        },
+        null,
+        2
+      ),
+      contentType: 'application/json',
+    })
+
+    expect(settledMs).toBeLessThanOrEqual(600)
+  })
+
+  test('keeps staged burst typing responsive in the 15-page document', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for staged pagination burst typing latency'
+    )
+
+    await page.setViewportSize({ height: 900, width: 720 })
+    const editor = await openExample(page, 'pagination', {
+      query: { page_layout: 'single', strategy: 'staged' },
+      ready: {
+        editor: 'visible',
+        text: /Rich Markdown pagination proof/,
+      },
+    })
+
+    await expect
+      .poll(async () => {
+        const proof = await getPaginationVirtualizedTableProof(editor.root)
+
+        return {
+          pageTotalInRange: proof.pageTotal >= 12 && proof.pageTotal <= 18,
+          staged:
+            (await editor.root
+              .locator('[data-slate-dom-strategy-virtualizer="true"]')
+              .count()) === 0,
+        }
+      })
+      .toEqual({
+        pageTotalInRange: true,
+        staged: true,
+      })
+
+    const targetBlockPath = 43
+    const targetTextPrefix = 'This '
+    const incrementalText = 'abcdefghijklmnop'
+    const burstText = 'qrstuvwxyz12'
+
+    await editor.selection.collapse({
+      path: [targetBlockPath, 0],
+      offset: targetTextPrefix.length,
+    })
+    await editor.root
+      .locator(`[data-slate-path="${targetBlockPath}"]`)
+      .evaluate(async (block) => {
+        block.scrollIntoView({ block: 'center' })
+        await new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        )
+      })
+    await editor.selection.collapse({
+      path: [targetBlockPath, 0],
+      offset: targetTextPrefix.length,
+    })
+    await editor.focus()
+
+    let typedPrefix = ''
+    const samples: PaginationMiddleTypingSample[] = []
+
+    for (const char of incrementalText) {
+      typedPrefix += char
+      const expectedText = `${targetTextPrefix}${typedPrefix}mixed block carries`
+
+      await armPaginationMiddleTypingProbe(editor.root, {
+        expectedText,
+        path: targetBlockPath,
+      })
+      await page.keyboard.type(char, { delay: 0 })
+      const sample = await readPaginationMiddleTypingProbe(editor.root)
+
+      expect(sample.blockVisible).toBe(true)
+      expect(sample.hasExpectedText).toBe(true)
+      samples.push(sample)
+    }
+
+    const finalText = `${targetTextPrefix}${incrementalText}${burstText}mixed block carries`
+
+    await armPaginationMiddleTypingProbe(editor.root, {
+      expectedText: finalText,
+      path: targetBlockPath,
+    })
+    await page.keyboard.type(burstText, { delay: 0 })
+    const burstSample = await readPaginationMiddleTypingProbe(editor.root)
+
+    expect(burstSample.blockVisible).toBe(true)
+    expect(burstSample.hasExpectedText).toBe(true)
+
+    await expect
+      .poll(
+        async () => {
+          return editor.root.evaluate(
+            (
+              element: HTMLElement,
+              payload: {
+                expectedText: string
+                path: number
+              }
+            ) => {
+              const block = element.ownerDocument.querySelector<HTMLElement>(
+                `[data-slate-path="${payload.path}"]`
+              )
+              const handle = (element as Record<string, any>)
+                .__slateBrowserHandle
+
+              return {
+                hasExpectedText:
+                  block?.textContent?.includes(payload.expectedText) ?? false,
+                modelHasExpectedText:
+                  handle?.getText?.().includes(payload.expectedText) ?? false,
+                selection: handle?.getSelection?.() ?? null,
+              }
+            },
+            {
+              expectedText: finalText,
+              path: targetBlockPath,
+            }
+          )
+        },
+        { intervals: [16], timeout: 5000 }
+      )
+      .toEqual({
+        hasExpectedText: true,
+        modelHasExpectedText: true,
+        selection: {
+          anchor: {
+            path: [targetBlockPath, 0],
+            offset:
+              targetTextPrefix.length +
+              incrementalText.length +
+              burstText.length,
+          },
+          focus: {
+            path: [targetBlockPath, 0],
+            offset:
+              targetTextPrefix.length +
+              incrementalText.length +
+              burstText.length,
+          },
+        },
+      })
+
+    const burstSettledMs = burstSample.eventToPaintMs
+    const p95EventToPaint = getPercentile(
+      samples.map((sample) => sample.eventToPaintMs),
+      0.95
+    )
+    const maxEventToPaint = Math.max(
+      ...samples.map((sample) => sample.eventToPaintMs)
+    )
+    const p95ComposeMs = getPercentile(
+      samples.map((sample) => sample.composeMs),
+      0.95
+    )
+
+    await testInfo.attach('pagination-staged-burst-metrics', {
+      body: JSON.stringify(
+        {
+          burstLength: burstText.length,
+          burstSettledMs,
+          burstSample,
+          maxEventToPaint,
+          p95ComposeMs,
+          p95EventToPaint,
+          samples,
+        },
+        null,
+        2
+      ),
+      contentType: 'application/json',
+    })
+
+    expect(p95EventToPaint).toBeLessThanOrEqual(16)
+    expect(maxEventToPaint).toBeLessThanOrEqual(50)
+    expect(burstSettledMs).toBeLessThanOrEqual(250)
+  })
+
+  test('keeps staged typing responsive in a 500-row provider-owned table document', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for table-heavy staged pagination typing latency'
+    )
+
+    await page.setViewportSize({ height: 900, width: 720 })
+    const editor = await openExample(page, 'pagination', {
+      query: { page_layout: 'single', rows: 500, strategy: 'staged' },
+      ready: {
+        editor: 'visible',
+        text: /Rich Markdown pagination proof/,
+      },
+    })
+
+    await expect
+      .poll(async () => {
+        const proof = await getPaginationVirtualizedTableProof(editor.root)
+
+        return {
+          boundedDOM: proof.totalElementCount < 1600,
+          mountedRowsBounded: proof.mountedRowCount <= 80,
+          pageTotalInRange: proof.pageTotal >= 20 && proof.pageTotal <= 40,
+          staged:
+            (await editor.root
+              .locator('[data-slate-dom-strategy-virtualizer="true"]')
+              .count()) === 0,
+          tableRowsWindowed: proof.mountedRowCount < 500,
+        }
+      })
+      .toEqual({
+        boundedDOM: true,
+        mountedRowsBounded: true,
+        pageTotalInRange: true,
+        staged: true,
+        tableRowsWindowed: true,
+      })
+
+    const targetBlockPath = 43
+    const targetTextPrefix = 'This '
+    const incrementalText = 'abcdefghijklmnop'
+    const burstText = 'qrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+    await editor.selection.collapse({
+      path: [targetBlockPath, 0],
+      offset: targetTextPrefix.length,
+    })
+    await editor.root
+      .locator(`[data-slate-path="${targetBlockPath}"]`)
+      .evaluate(async (block) => {
+        block.scrollIntoView({ block: 'center' })
+        await new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        )
+      })
+    await editor.selection.collapse({
+      path: [targetBlockPath, 0],
+      offset: targetTextPrefix.length,
+    })
+    await editor.focus()
+
+    let typedPrefix = ''
+    const samples: PaginationMiddleTypingSample[] = []
+
+    for (const char of incrementalText) {
+      typedPrefix += char
+      const expectedText = `${targetTextPrefix}${typedPrefix}mixed block carries`
+
+      await armPaginationMiddleTypingProbe(editor.root, {
+        expectedText,
+        path: targetBlockPath,
+      })
+      await page.keyboard.type(char, { delay: 0 })
+      const sample = await readPaginationMiddleTypingProbe(editor.root)
+
+      expect(sample.blockVisible).toBe(true)
+      expect(sample.hasExpectedText).toBe(true)
+      expect(sample.totalElementCount).toBeLessThan(1600)
+      samples.push(sample)
+    }
+
+    const finalText = `${targetTextPrefix}${incrementalText}${burstText}mixed block carries`
+
+    await armPaginationMiddleTypingProbe(editor.root, {
+      expectedText: finalText,
+      path: targetBlockPath,
+    })
+    await page.keyboard.type(burstText, { delay: 0 })
+    const burstSample = await readPaginationMiddleTypingProbe(editor.root)
+
+    expect(burstSample.blockVisible).toBe(true)
+    expect(burstSample.hasExpectedText).toBe(true)
+
+    await expect
+      .poll(
+        async () => {
+          return editor.root.evaluate(
+            (
+              element: HTMLElement,
+              payload: {
+                expectedText: string
+                path: number
+              }
+            ) => {
+              const block = element.ownerDocument.querySelector<HTMLElement>(
+                `[data-slate-path="${payload.path}"]`
+              )
+              const handle = (element as Record<string, any>)
+                .__slateBrowserHandle
+
+              return {
+                hasExpectedText:
+                  block?.textContent?.includes(payload.expectedText) ?? false,
+                modelHasExpectedText:
+                  handle?.getText?.().includes(payload.expectedText) ?? false,
+                selection: handle?.getSelection?.() ?? null,
+              }
+            },
+            {
+              expectedText: finalText,
+              path: targetBlockPath,
+            }
+          )
+        },
+        { intervals: [16], timeout: 5000 }
+      )
+      .toEqual({
+        hasExpectedText: true,
+        modelHasExpectedText: true,
+        selection: {
+          anchor: {
+            path: [targetBlockPath, 0],
+            offset:
+              targetTextPrefix.length +
+              incrementalText.length +
+              burstText.length,
+          },
+          focus: {
+            path: [targetBlockPath, 0],
+            offset:
+              targetTextPrefix.length +
+              incrementalText.length +
+              burstText.length,
+          },
+        },
+      })
+
+    const burstSettledMs = burstSample.eventToPaintMs
+    const p95EventToPaint = getPercentile(
+      samples.map((sample) => sample.eventToPaintMs),
+      0.95
+    )
+    const maxEventToPaint = Math.max(
+      ...samples.map((sample) => sample.eventToPaintMs)
+    )
+    const p95ComposeMs = getPercentile(
+      samples.map((sample) => sample.composeMs),
+      0.95
+    )
+    const finalProof = await getPaginationVirtualizedTableProof(editor.root)
+
+    await testInfo.attach('pagination-staged-500-row-burst-metrics', {
+      body: JSON.stringify(
+        {
+          burstLength: burstText.length,
+          burstSettledMs,
+          burstSample,
+          maxEventToPaint,
+          mountedCellCount: finalProof.mountedCellCount,
+          mountedRowCount: finalProof.mountedRowCount,
+          p95ComposeMs,
+          p95EventToPaint,
+          samples,
+          totalElementCount: finalProof.totalElementCount,
+        },
+        null,
+        2
+      ),
+      contentType: 'application/json',
+    })
+
+    expect(finalProof.mountedRowCount).toBeLessThan(500)
+    expect(finalProof.totalElementCount).toBeLessThan(1600)
+    expect(p95EventToPaint).toBeLessThanOrEqual(16)
+    expect(maxEventToPaint).toBeLessThanOrEqual(50)
+    expect(burstSettledMs).toBeLessThanOrEqual(250)
+  })
+
+  test('keeps fast staged text after insert breaks at the model caret', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for staged pagination insert-break burst routing'
+    )
+
+    await page.setViewportSize({ height: 900, width: 720 })
+    const editor = await openExample(page, 'pagination', {
+      query: { page_layout: 'single', strategy: 'staged' },
+      ready: {
+        editor: 'visible',
+        text: /Rich Markdown pagination proof/,
+      },
+    })
+
+    await expect
+      .poll(async () => {
+        const proof = await getPaginationVirtualizedTableProof(editor.root)
+
+        return {
+          pageTotalInRange: proof.pageTotal >= 12 && proof.pageTotal <= 18,
+          staged:
+            (await editor.root
+              .locator('[data-slate-dom-strategy-virtualizer="true"]')
+              .count()) === 0,
+        }
+      })
+      .toEqual({
+        pageTotalInRange: true,
+        staged: true,
+      })
+
+    const targetBlockPath = 43
+    const targetTextPrefix = 'This '
+    const originalSuffix =
+      'mixed block carries strong, emphasis, inline code, and strikethrough text for run-aware layout.'
+
+    await editor.selection.collapse({
+      path: [targetBlockPath, 0],
+      offset: targetTextPrefix.length,
+    })
+    await editor.root
+      .locator(`[data-slate-path="${targetBlockPath}"]`)
+      .evaluate(async (block) => {
+        block.scrollIntoView({ block: 'center' })
+        await new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        )
+      })
+    await editor.selection.collapse({
+      path: [targetBlockPath, 0],
+      offset: targetTextPrefix.length,
+    })
+    await editor.focus()
+
+    await page.keyboard.type('abc\ndef\nghi\njkl\nmno', { delay: 0 })
+
+    await expect
+      .poll(async () =>
+        editor.root.evaluate(
+          (
+            element: HTMLElement,
+            payload: {
+              endPath: number
+              startPath: number
+            }
+          ) => {
+            const handle = (element as Record<string, any>).__slateBrowserHandle
+            const blockTexts = []
+
+            for (
+              let path = payload.startPath;
+              path <= payload.endPath;
+              path++
+            ) {
+              blockTexts.push(
+                element.querySelector<HTMLElement>(
+                  `[data-slate-path="${path}"]`
+                )?.textContent ?? ''
+              )
+            }
+
+            return {
+              blockTexts,
+              selection: handle?.getSelection?.() ?? null,
+            }
+          },
+          {
+            endPath: targetBlockPath + 4,
+            startPath: targetBlockPath,
+          }
+        )
+      )
+      .toEqual({
+        blockTexts: [
+          `${targetTextPrefix}abc`,
+          'def',
+          'ghi',
+          'jkl',
+          `mno${originalSuffix}`,
+        ],
+        selection: {
+          anchor: { path: [targetBlockPath + 4, 0], offset: 3 },
+          focus: { path: [targetBlockPath + 4, 0], offset: 3 },
+        },
+      })
+
+    await testInfo.attach('pagination-insert-break-burst-proof', {
+      body: JSON.stringify(
+        {
+          expectedBlocks: [
+            `${targetTextPrefix}abc`,
+            'def',
+            'ghi',
+            'jkl',
+            `mno${originalSuffix}`,
+          ],
+          targetBlockPath,
+        },
+        null,
+        2
+      ),
+      contentType: 'application/json',
+    })
   })
 
   test('resets deferred virtualized text offset after moving the caret in the same block', async ({

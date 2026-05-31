@@ -9,6 +9,9 @@ interface Range {
 }
 ```
 
+Both points must resolve inside the same root. The `main` root is implicit; named
+roots are stored on each point with `root`.
+
 - [Static methods](range.md#static-methods)
   - [Retrieval methods](range.md#retrieval-methods)
   - [Check methods](range.md#check-methods)

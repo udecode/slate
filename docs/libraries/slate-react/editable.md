@@ -39,6 +39,7 @@ type EditableProps = {
   ) => React.ReactNode
   renderText?: (props: RenderTextProps) => React.ReactNode
   renderVoid?: (props: RenderVoidProps) => React.ReactNode
+  root?: RootKey
   scrollSelectionIntoView?: (editor: Editor, domRange: globalThis.Range) => void
   spellCheck?: boolean
   style?: React.CSSProperties
@@ -340,33 +341,34 @@ const renderElement = ({ children, element, slots }) => {
     return (
       <EditableElement>
         {React.Children.toArray(children)[0]}
-        <slots.contentBoundary
-          mounted={!element.collapsed}
-          onMaterialize={() => openSection(element.id)}
-          renderPlaceholder={({ materialize }) => (
+        {slots.contentBoundary({
+          mounted: !element.collapsed,
+          onMaterialize: () => openSection(element.id),
+          renderPlaceholder: ({ materialize }) => (
             <button onClick={materialize} type="button">
               Show section
             </button>
-          )}
-          scope={{ from: 1, type: 'children' }}
-          selectionPolicy="materialize"
-        />
+          ),
+          scope: { from: 1, type: 'children' },
+          selectionPolicy: 'materialize',
+        })}
       </EditableElement>
     )
   }
 
   if (element.type === 'hidden-header') {
     return (
-      <slots.contentBoundary
-        boundaryId="hidden-header"
-        copyPolicy="exclude"
-        mounted={!element.hidden}
-        reason="app-hidden"
-        scope={{ type: 'self' }}
-        selectionPolicy="skip"
-      >
-        <button type="button">Show header</button>
-      </slots.contentBoundary>
+      <EditableElement>
+        {slots.contentBoundary({
+          boundaryId: 'hidden-header',
+          children: <button type="button">Show header</button>,
+          copyPolicy: 'exclude',
+          mounted: !element.hidden,
+          reason: 'app-hidden',
+          scope: { type: 'self' },
+          selectionPolicy: 'skip',
+        })}
+      </EditableElement>
     )
   }
 
@@ -376,34 +378,37 @@ const renderElement = ({ children, element, slots }) => {
 
 Boundary content is model-present but DOM-incomplete while `mounted` is `false`.
 Slate maps selection, copy, paste, and DOM point import through the boundary
-registry instead of resolving missing descendants with raw DOM lookups. Hidden
-text is not available to native browser find or screen-reader traversal until
-the boundary is mounted.
+registry instead of resolving missing descendants with raw DOM lookups.
 
-`copyPolicy` controls what a copy operation emits when the selection crosses
-hidden content.
+Use the dedicated [DOM Coverage Boundaries](./dom-coverage-boundaries.md) page
+for `selectionPolicy`, `copyPolicy`, `findPolicy`, and `onMaterialize`.
 
-| Policy | Behavior |
-| --- | --- |
-| `model` | Copy the hidden Slate content from the editor value. |
-| `summary` | Copy the boundary placeholder or summary content only. |
-| `exclude` | Omit the hidden content from the clipboard. |
-| `materialize` | Mount the hidden content before copying and then copy normally. |
+## Multiple Roots
 
-`selectionPolicy` controls keyboard and model selection through hidden content.
-Use `skip` for closed UI chrome, `model` for model-owned selection through
-unmounted content, and `materialize` when reaching the hidden range should mount
-the UI first.
+Pass `root` when one editor renders a named document root.
 
-`findPolicy` describes search ownership. Use `native` when browser find covers
-the mounted DOM, and `custom` when the app indexes hidden model content itself.
-Native browser find cannot search content that is not mounted in the DOM.
+```tsx
+<Slate editor={editor}>
+  <Editable aria-label="Header" root="header" />
+  <Editable aria-label="Body" />
+  <Editable aria-label="Footer" root="footer" />
+</Slate>
+```
 
-`boundaryId` is optional. Slate derives a stable editor-local boundary id from
-the rendered element and scope, while explicit ids are still useful for tests
-and diagnostics. Use `onMaterialize({ boundary, reason, range })` when a hidden
-surface should open itself before Slate moves selection into it. The callback is
-local UI state plumbing; document content remains in the Slate value.
+Use `slots.contentRoot(slot)` from `renderElement` when an element owns an
+editable child root, such as a synced block body.
+
+```tsx
+const SyncedBlock = ({ attributes, element, slots }) => (
+  <section {...attributes}>
+    <div contentEditable={false}>Synced block</div>
+    {slots.contentRoot('body', { ariaLabel: 'Synced block body' })}
+  </section>
+)
+```
+
+See [Roots](../../concepts/13-roots.md) for the value shape, `tx.roots`, root
+chrome, and content-root ownership.
 
 ## Styling
 

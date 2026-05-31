@@ -62,6 +62,51 @@ describe('selection reconciler', () => {
     }
   })
 
+  it('keeps native text insertion when the model selection is preferred but not forced', () => {
+    const editor = createTextEditor()
+    const selection = Editor.getSelection(editor)
+
+    const result = syncSelectionForBeforeInput({
+      allowDOMSelectionImport: true,
+      data: 'x',
+      editor: editor as ReactRuntimeEditor,
+      editorElement: {} as HTMLElement,
+      event: { getTargetRanges: () => [] } as unknown as InputEvent,
+      inputType: 'insertText',
+      isCompositionChange: false,
+      native: true,
+      preferModelSelectionForInput: true,
+      root: createRootWithoutSelection(),
+      selection,
+    })
+
+    assert.deepEqual(result.selection, selection)
+    assert.equal(result.native, true)
+  })
+
+  it('forces model-owned text insertion during structural command repair windows', () => {
+    const editor = createTextEditor()
+    const selection = Editor.getSelection(editor)
+
+    const result = syncSelectionForBeforeInput({
+      allowDOMSelectionImport: true,
+      data: 'x',
+      editor: editor as ReactRuntimeEditor,
+      editorElement: {} as HTMLElement,
+      event: { getTargetRanges: () => [] } as unknown as InputEvent,
+      forceModelOwnedTextInput: true,
+      inputType: 'insertText',
+      isCompositionChange: false,
+      native: true,
+      preferModelSelectionForInput: true,
+      root: createRootWithoutSelection(),
+      selection,
+    })
+
+    assert.deepEqual(result.selection, selection)
+    assert.equal(result.native, false)
+  })
+
   it('imports expanded delete target ranges from blur-time IME cleanup events', () => {
     const editor = createTextEditor()
     const selection = Editor.getSelection(editor)

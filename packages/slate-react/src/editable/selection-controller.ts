@@ -67,6 +67,7 @@ export type EditableSelectionController = {
 
 const MODEL_BACKED_FULL_DOCUMENT_CHILD_THRESHOLD = 1000
 const MAIN_ROOT_KEY = 'main'
+const MODEL_OWNED_TEXT_INPUT_GUARD_MS = 100
 
 const isNestedEditableDOMTarget = (
   editorElement: HTMLElement,
@@ -691,6 +692,9 @@ export const setEditableModelSelectionPreference = ({
   const nextSelectionSource =
     selectionSource ?? (preferModelSelection ? 'model-owned' : 'dom-current')
 
+  if (!preferModelSelection) {
+    inputController.state.modelOwnedTextInputGuard = 0
+  }
   inputController.preferModelSelectionForInputRef.current = preferModelSelection
   inputController.state.selectionSource = nextSelectionSource
   inputController.state.modelSelectionPreference = {
@@ -762,6 +766,41 @@ export const isEditableModelSelectionPreferredForInput = ({
     preference.reason === 'model-command' ||
     preference.reason === 'partial-dom-backed'
   )
+}
+
+export const shouldForceModelOwnedTextInput = ({
+  inputController,
+  inputType,
+}: {
+  inputController: EditableInputController
+  inputType: string
+}) => {
+  if (inputType !== 'insertText') {
+    return false
+  }
+
+  return (
+    isEditableModelSelectionPreferred(inputController) &&
+    (inputController.state.modelOwnedTextInputGuard ?? 0) > 0
+  )
+}
+
+export const armModelOwnedTextInputGuard = ({
+  inputController,
+}: {
+  inputController: EditableInputController
+}) => {
+  const nextGuard = (inputController.state.modelOwnedTextInputGuard ?? 0) + 1
+
+  inputController.state.modelOwnedTextInputGuard = nextGuard
+
+  const clearGuard = () => {
+    if (inputController.state.modelOwnedTextInputGuard === nextGuard) {
+      inputController.state.modelOwnedTextInputGuard = 0
+    }
+  }
+
+  setTimeout(clearGuard, MODEL_OWNED_TEXT_INPUT_GUARD_MS)
 }
 
 export const shouldImportChangedExpandedDOMSelection = ({

@@ -1061,6 +1061,82 @@ describe('createSlatePageLayout', () => {
     layout.destroy()
   })
 
+  it('does not recursively extract text or default cell boxes for provider-owned unit blocks', () => {
+    const rows = Array.from({ length: 500 }, (_, rowIndex) => ({
+      type: 'table-row',
+      children: Array.from({ length: 3 }, (_, cellIndex) => ({
+        type: 'table-cell',
+        children: [{ text: `Row ${rowIndex + 1} cell ${cellIndex + 1}` }],
+      })),
+    }))
+    let textStyleCalls = 0
+    const editor = createEditor({
+      initialValue: [
+        {
+          type: 'table',
+          children: rows,
+        },
+      ],
+    })
+    const page = { margins: 96, preset: 'a4' } as const
+    const layout = createSlatePageLayout(editor, () => ({
+      engine: createEstimatedPageLayoutEngine(),
+      nodeLayout({ element, path, pageSettings }) {
+        if (element.type !== 'table') {
+          return { type: 'text' }
+        }
+
+        const pageRect = createSlatePage(pageSettings)
+
+        return {
+          boxes: [
+            {
+              kind: 'table',
+              path,
+              rect: {
+                height: rows.length * 36,
+                left: 0,
+                top: 0,
+                width: pageRect.content.width,
+              },
+              split: 'row',
+            },
+          ],
+          type: 'units',
+          units: rows.map((_, rowIndex) => ({
+            key: `row-${rowIndex}`,
+            kind: 'table-row',
+            path: [...path, rowIndex],
+            rect: {
+              height: 36,
+              left: 0,
+              top: rowIndex * 36,
+              width: pageRect.content.width,
+            },
+            split: 'avoid',
+          })),
+        }
+      },
+      page,
+      typography: {
+        text() {
+          textStyleCalls++
+
+          return {}
+        },
+      },
+    }))
+    const block = layout.getSnapshot().blocks[0]!
+
+    expect(textStyleCalls).toBeLessThanOrEqual(1)
+    expect(block.runs).toEqual([])
+    expect(block.text).toBe('')
+    expect(block.boxes).toHaveLength(1)
+    expect(block.units).toHaveLength(500)
+
+    layout.destroy()
+  })
+
   it('writes authoritative page breaks for provider-owned unit fragments', () => {
     const pageBreaks = defineStateField<SlatePageBreakSnapshot | null>({
       key: 'layout.unitPageBreaks',

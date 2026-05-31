@@ -106,6 +106,7 @@ export const useEditableEventRuntime = ({
   browserHandleNextId,
   browserHandleRangeRefs,
   callbacks,
+  deferNativeTextInputRepair = false,
   deferredOperations,
   editor,
   handledDOMBeforeInputRef,
@@ -136,6 +137,7 @@ export const useEditableEventRuntime = ({
     Map<string, ReturnType<typeof Editor.rangeRef>>
   >
   callbacks: EditableRootCallbackProps
+  deferNativeTextInputRepair?: boolean
   deferredOperations: RefObject<DeferredOperation[]>
   editor: ReactRuntimeEditor
   handledDOMBeforeInputRef: RefObject<boolean>
@@ -194,40 +196,43 @@ export const useEditableEventRuntime = ({
     setExplicitPartialDOMBackedSelection,
   })
 
+  const inputHandlers = useRuntimeInputEvents({
+    androidInputManagerRef: runtime.android.managerRef,
+    deferNativeTextInputRepair:
+      deferNativeTextInputRepair || domStrategyRuntime?.type === 'virtualized',
+    deferredOperations,
+    editor,
+    handledDOMBeforeInputRef,
+    inputController,
+    readOnly,
+    repair: runtime.repair,
+    rootRef,
+    trace: runtime.trace,
+    onInput: callbacks.onInput as
+      | ((event: ReactInputEvent<HTMLDivElement>) => boolean | void)
+      | undefined,
+  })
   const beforeInputHandlers = useRuntimeBeforeInputEvents({
     androidInputManagerRef: runtime.android.managerRef,
     applyInputRules,
     deferredOperations,
     editor,
+    flushPendingNativeTextInput: inputHandlers.flushPendingNativeTextInput,
     handledDOMBeforeInputRef,
     inputController,
     onBeforeInput: callbacks.onBeforeInput as
       | ((event: FormEvent<HTMLDivElement>) => boolean | void)
       | undefined,
     onDOMBeforeInput,
-    onInput: callbacks.onInput,
-    onKeyDown,
+    onInput: callbacks.onInput as
+      | ((event: ReactInputEvent<HTMLDivElement>) => boolean | void)
+      | undefined,
     onUserInput,
     processing,
     readOnly,
     repair: runtime.repair,
     selection: runtime.selection,
     setComposing: runtime.composition.setComposing,
-    trace: runtime.trace,
-  })
-  const inputHandlers = useRuntimeInputEvents({
-    androidInputManagerRef: runtime.android.managerRef,
-    deferNativeTextInputRepair: domStrategyRuntime?.type === 'virtualized',
-    deferredOperations,
-    editor,
-    handledDOMBeforeInputRef,
-    inputController,
-    onInput: callbacks.onInput as
-      | ((event: ReactInputEvent<HTMLDivElement>) => boolean | void)
-      | undefined,
-    readOnly,
-    repair: runtime.repair,
-    rootRef,
     trace: runtime.trace,
   })
   const clipboardHandlers = useRuntimeClipboardEvents({
@@ -267,6 +272,7 @@ export const useEditableEventRuntime = ({
   })
   const focusMouseHandlers = useRuntimeFocusMouseEvents({
     editor,
+    flushPendingNativeTextInput: inputHandlers.flushPendingNativeTextInput,
     inputController,
     onBlur: callbacks.onBlur,
     onClick: callbacks.onClick,
@@ -283,6 +289,7 @@ export const useEditableEventRuntime = ({
     editor,
     inputController,
     domStrategyRuntime,
+    flushPendingNativeTextInput: inputHandlers.flushPendingNativeTextInput,
     onKeyDown,
     readOnly,
     runtime,

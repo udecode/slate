@@ -57,6 +57,7 @@ type SlateLayoutFragmentContextValue = {
   projection: SlatePageLayoutProjection
   selectedPaths: readonly Path[]
   snapshot: SlatePageLayoutSnapshot
+  tracksContentViewport: boolean
   visibleContentRange: PagedEditableViewport | null
   visiblePageIndexes: ReadonlySet<number> | null
 }
@@ -224,12 +225,22 @@ export const useSlateLayoutFragments = (
       const units = fragment.units
         ?.map((unit) => projectedUnits?.get(unit.key))
         .filter((unit): unit is SlatePageLayoutProjectedUnit => Boolean(unit))
-        .filter(
-          (unit) =>
-            !context.visibleContentRange ||
-            isRectWithinVerticalRange(unit.rect, context.visibleContentRange) ||
-            context.selectedPaths.some((path) => pathsOverlap(unit.path, path))
-        )
+        .filter((unit) => {
+          const selected = context.selectedPaths.some((path) =>
+            pathsOverlap(unit.path, path)
+          )
+
+          if (context.visibleContentRange) {
+            return (
+              isRectWithinVerticalRange(
+                unit.rect,
+                context.visibleContentRange
+              ) || selected
+            )
+          }
+
+          return !context.tracksContentViewport || selected
+        })
       const lines = context.projectedLinesByFragment.get(fragment.id) ?? []
       const rects = [
         ...(units?.map((unit) => unit.rect) ?? []),
@@ -514,11 +525,28 @@ export const PagedEditable = ({
   const virtualizesPageSurfaces = isVirtualizedDOMStrategy(
     editableProps.domStrategy
   )
+  const hasViewportWindowedUnits = useMemo(
+    () =>
+      snapshot.fragments.some((fragment) =>
+        fragment.units?.some(
+          (unit, index, units) => units.length > 1 || unit.kind === 'table-row'
+        )
+      ),
+    [snapshot.fragments]
+  )
+  const [canTrackContentViewport, setCanTrackContentViewport] = useState(
+    () => typeof window !== 'undefined'
+  )
+  const tracksContentViewport =
+    virtualizesPageSurfaces || hasViewportWindowedUnits
+  const filtersContentViewport =
+    tracksContentViewport && canTrackContentViewport
   const pageSurfaceOverscan = getVirtualizedDOMStrategyOverscan(
     editableProps.domStrategy
   )
   useEffect(() => {
-    if (!virtualizesPageSurfaces) {
+    if (!tracksContentViewport) {
+      setCanTrackContentViewport(false)
       setViewport(null)
       return
     }
@@ -527,8 +555,12 @@ export const PagedEditable = ({
     const scrollRoot = getPagedEditableScrollRoot(root)
 
     if (!root || !scrollRoot) {
+      setCanTrackContentViewport(false)
+      setViewport(null)
       return
     }
+
+    setCanTrackContentViewport(true)
 
     const update = (sync = false) => {
       const rootRect = root.getBoundingClientRect()
@@ -588,7 +620,7 @@ export const PagedEditable = ({
       root.ownerDocument.defaultView?.removeEventListener('resize', updateAsync)
       observer?.disconnect()
     }
-  }, [geometry.height, virtualizesPageSurfaces])
+  }, [geometry.height, tracksContentViewport])
   const pageSurfaceItems = useMemo(() => {
     return getPagedEditableVisiblePageMountItems(pageMountPlan, {
       gap: normalizedPageView.gap,
@@ -625,7 +657,7 @@ export const PagedEditable = ({
     viewport,
   ])
   const visibleContentRange = useMemo(() => {
-    if (!virtualizesPageSurfaces || !viewport) {
+    if (!filtersContentViewport || !viewport) {
       return null
     }
 
@@ -636,7 +668,7 @@ export const PagedEditable = ({
       bottom: viewport.bottom + overscanSize,
       top: Math.max(0, viewport.top - overscanSize),
     }
-  }, [virtualizesPageSurfaces, viewport])
+  }, [filtersContentViewport, viewport])
   const visiblePageIndexes = useMemo(
     () =>
       pageContentItems
@@ -700,6 +732,7 @@ export const PagedEditable = ({
         projection,
         selectedPaths,
         snapshot,
+        tracksContentViewport: filtersContentViewport,
         visibleContentRange,
         visiblePageIndexes,
       }}

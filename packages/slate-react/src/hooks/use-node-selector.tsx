@@ -30,6 +30,7 @@ export type EditorTextSelectorContext = EditorNodeSelectorContext & {
 
 export type EditorRuntimeSelectorOptions = {
   deferred?: boolean
+  includeRootOrderChanges?: boolean
   runtimeId?: RuntimeId | null
 }
 
@@ -46,7 +47,8 @@ const shouldUpdateRuntimeNode = (
   runtimeId: RuntimeId | null,
   operations?: readonly Operation[],
   change?: SnapshotChange,
-  updatePolicy: SlateRuntimeSelectorUpdatePolicy = 'model-truth'
+  updatePolicy: SlateRuntimeSelectorUpdatePolicy = 'model-truth',
+  includeRootOrderChanges = false
 ) => {
   if (
     updatePolicy === 'skip-synced-text-render' &&
@@ -60,6 +62,10 @@ const shouldUpdateRuntimeNode = (
   }
 
   if (change.nodeImpactRuntimeIds === null) {
+    return true
+  }
+
+  if (includeRootOrderChanges && change.topLevelOrderChanged) {
     return true
   }
 
@@ -129,6 +135,7 @@ function useRuntimeNodeSelector<T>(
   equalityFn: (a: T | null, b: T) => boolean = refEquality,
   {
     deferred = false,
+    includeRootOrderChanges = false,
     runtimeId: runtimeIdProp,
     updatePolicy = 'model-truth',
   }: InternalEditorRuntimeSelectorOptions = {}
@@ -156,13 +163,15 @@ function useRuntimeNodeSelector<T>(
         runtimeId,
         operations,
         change,
-        updatePolicy
+        updatePolicy,
+        includeRootOrderChanges
       ),
-    [editor, runtimeId, updatePolicy]
+    [editor, includeRootOrderChanges, runtimeId, updatePolicy]
   )
 
   return useEditorSelector(nodeSelector, equalityFn, {
     deferred,
+    includeRootOrderChanges,
     profileId: runtimeId ? 'runtime-node' : 'runtime-node-missing-id',
     runtimeId,
     shouldUpdate,

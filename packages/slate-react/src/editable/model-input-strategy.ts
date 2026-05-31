@@ -124,7 +124,7 @@ export const applyEditableInput = ({
       kind: 'repair-caret',
       selectionSourceTransition: {
         preferModelSelection: true,
-        reason: 'model-command',
+        reason: 'repair-induced',
         selectionSource: 'model-owned',
       },
     })
@@ -181,7 +181,7 @@ export const applyEditableInput = ({
       kind: 'repair-caret',
       selectionSourceTransition: {
         preferModelSelection: true,
-        reason: 'model-command',
+        reason: 'repair-induced',
         selectionSource: 'model-owned',
       },
     })

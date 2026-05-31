@@ -44,10 +44,6 @@ export const getDOMTextSyncCapability = ({
     return { enabled: false, reason: 'empty-text' }
   }
 
-  if (projections.length > 0) {
-    return { enabled: false, reason: 'projection' }
-  }
-
   if (renderLeaf && textSync?.renderLeaf !== 'text-invariant') {
     return { enabled: false, reason: 'custom-leaf' }
   }
@@ -58,6 +54,10 @@ export const getDOMTextSyncCapability = ({
 
   if (renderText) {
     return { enabled: false, reason: 'custom-text' }
+  }
+
+  if (projections.length > 0) {
+    return { enabled: false, reason: 'projection' }
   }
 
   return { enabled: true, reason: null }

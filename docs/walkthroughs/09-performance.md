@@ -81,6 +81,10 @@ documents. Read
 [Experimental Virtualized Rendering](../libraries/slate-react/experimental-virtualized-rendering.md)
 when you need that research lane.
 
+For paginated documents, keep virtualization at the page boundary. See
+[Slate Layout](../libraries/slate-layout/README.md) for `PagedEditable` and
+page mount planning.
+
 Use projection stores for overlays instead of render-time decoration callbacks. Projection sources let decorations, annotations, widgets, diagnostics, and search results share the same range projection runtime without forcing everything through one `decorate` prop.
 
 ## Optimizing DOM Painting

@@ -599,6 +599,7 @@ export const syncSelectionForBeforeInput = ({
   editor,
   editorElement,
   event,
+  forceModelOwnedTextInput = false,
   inputType: type,
   isCompositionChange,
   native,
@@ -611,6 +612,7 @@ export const syncSelectionForBeforeInput = ({
   editor: ReactRuntimeEditor
   editorElement: HTMLElement
   event: InputEvent
+  forceModelOwnedTextInput?: boolean
   inputType: string
   isCompositionChange: boolean
   native: boolean
@@ -623,6 +625,11 @@ export const syncSelectionForBeforeInput = ({
 } => {
   let nextNative = native
   let nextSelection = selection
+  const shouldPreferModelSelectionForInput =
+    preferModelSelectionForInput || forceModelOwnedTextInput
+  if (type === 'insertText' && forceModelOwnedTextInput) {
+    nextNative = false
+  }
   const domSelection = getSelection(root)
   const domSelectionAnchorNode = domSelection?.anchorNode ?? null
   const domSelectionFocusNode = domSelection?.focusNode ?? null
@@ -651,7 +658,7 @@ export const syncSelectionForBeforeInput = ({
       const shouldUseTargetRange =
         range &&
         !(
-          preferModelSelectionForInput &&
+          shouldPreferModelSelectionForInput &&
           type === 'insertText' &&
           RangeApi.isCollapsed(range)
         ) &&
@@ -687,7 +694,7 @@ export const syncSelectionForBeforeInput = ({
   if (
     allowDOMSelectionImport &&
     type === 'insertText' &&
-    !preferModelSelectionForInput &&
+    !shouldPreferModelSelectionForInput &&
     domSelection &&
     domSelectionBelongsToEditor
   ) {
@@ -731,7 +738,7 @@ export const syncSelectionForBeforeInput = ({
   if (
     allowDOMSelectionImport &&
     type.startsWith('delete') &&
-    !preferModelSelectionForInput
+    !shouldPreferModelSelectionForInput
   ) {
     const range =
       domSelectionBelongsToEditor && domSelection

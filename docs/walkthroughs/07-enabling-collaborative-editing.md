@@ -37,23 +37,31 @@ A commit contains the operations that changed the document plus the metadata
 Slate computed while applying them.
 
 ```tsx
+const sharedStateKeys = new Set(['document.title', 'page.settings'])
 const commit = editor.read((state) => state.value.lastCommit())
 
 if (commit) {
-  sendToPeers({
-    metadata: commit.metadata,
-    operations: commit.operations,
-    tags: commit.tags,
-    selectionBefore: commit.selectionBefore,
-    selectionAfter: commit.selectionAfter,
-  })
+  const statePatches = commit.statePatches.filter((patch) =>
+    sharedStateKeys.has(patch.key)
+  )
+
+  if (commit.operations.length > 0 || statePatches.length > 0) {
+    sendToPeers({
+      metadata: commit.metadata,
+      operations: commit.operations,
+      statePatches,
+      tags: commit.tags,
+      selectionBefore: commit.selectionBefore,
+      selectionAfter: commit.selectionAfter,
+    })
+  }
 }
 ```
 
-The operations are the document replay contract. Your adapter can translate
-them into its own transport format, persist them, batch them, or merge them
-with a CRDT. Slate only requires that the operations you replay are valid Slate
-operations.
+Operations and shared state patches are the document replay contract. Your
+adapter can translate them into its own transport format, persist them, batch
+them, or merge them with a CRDT. Slate only requires that the operations and
+state patches you replay are valid Slate payloads.
 
 Bulk edits are still operations. A paste can publish one `replace_fragment`
 operation that replaces a child slice and carries the selection before and after
@@ -82,23 +90,67 @@ editor.update(tx => {
 Importing operations produces a normal commit. Subscribers, history, extension
 listeners, and React projection code all observe the same commit shape.
 
+If the remote message includes document state-field changes, replay those
+patches in the same transaction.
+
+```tsx
+const sharedStateKeys = new Set(['document.title', 'page.settings'])
+const statePatches = (message.statePatches ?? []).filter((patch) =>
+  sharedStateKeys.has(patch.key)
+)
+
+editor.update(
+  (tx) => {
+    tx.operations.replay(message.operations)
+    tx.statePatches.replay(statePatches)
+  },
+  {
+    tag: ['collaboration', 'remote-import'],
+    metadata: {
+      collab: { origin: 'remote', saveToHistory: false },
+      history: { mode: 'skip' },
+      selection: { dom: 'preserve' },
+    },
+  }
+)
+```
+
 ## Subscribe to commits
 
 Use `editor.subscribe` when an adapter needs to observe committed state. The
 listener receives the snapshot and the commit that produced it.
 
 ```tsx
-const unsubscribe = editor.subscribe((snapshot, commit) => {
+const sharedStateKeys = new Set(['document.title', 'page.settings'])
+
+const unsubscribe = editor.subscribe((_snapshot, commit) => {
   if (!commit) return
 
-  persist({
-    children: snapshot.children,
+  const documentValue = editor.read((state) => state.value.get())
+  const statePatches = commit.statePatches.filter((patch) =>
+    sharedStateKeys.has(patch.key)
+  )
+
+  saveDocument(documentValue)
+
+  if (commit.metadata.collab?.origin === 'remote') return
+
+  if (commit.operations.length === 0 && statePatches.length === 0) {
+    return
+  }
+
+  sendToPeers({
     operations: commit.operations,
+    statePatches,
     tags: commit.tags,
     dirty: commit.dirty,
   })
 })
 ```
+
+Send operations and filtered state patches to peers. Save the full
+`state.value.get()` document value to your database, not to the collaboration
+transport, unless your adapter strips local persisted state first.
 
 Call the returned function when the adapter disconnects.
 
@@ -118,6 +170,7 @@ write inside one `editor.update` call.
 | Field | Use |
 | --- | --- |
 | `operations` | The Slate operations that changed the document. |
+| `statePatches` | State-field changes. Filter to shared adapter-owned keys before exporting collaboration payloads. |
 | `tags` | Adapter/app metadata such as `local-edit` or `remote-import`. |
 | `metadata` | Typed policy for history, collaboration, selection, and origin. |
 | `classes` | Runtime classification, such as text or structural changes. |
@@ -185,7 +238,7 @@ editor.extend(
       table(state) {
         return {
           rowCount() {
-            return state.value.get().length
+            return state.nodes.children().length
           },
         }
       },
@@ -196,7 +249,7 @@ editor.extend(
           insertRow(text: string) {
             tx.nodes.insert(
               { type: 'paragraph', children: [{ text }] },
-              { at: [tx.value.get().length] }
+              { at: [tx.nodes.children().length] }
             )
           },
         }
