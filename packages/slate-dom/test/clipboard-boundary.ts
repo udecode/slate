@@ -398,7 +398,7 @@ describe('slate-dom clipboard boundary', () => {
     })
   })
 
-  it('does not emit hidden model fragments for summary-only coverage copy policy', () => {
+  it('does not emit hidden model fragments for summary coverage copy policy', () => {
     withDom((document) => {
       const source = createClipboardEditor(createChildren(), {
         anchor: { path: [0, 0], offset: 0 },
@@ -410,7 +410,7 @@ describe('slate-dom clipboard boundary', () => {
       DOMCoverage.registerBoundary(source, {
         boundaryId: 'summary-alpha',
         anchor: { type: 'placeholder', runtimeId: getRuntimeId(source, [0]) },
-        copyPolicy: 'summary-only',
+        copyPolicy: 'summary',
         coveredPathRanges: [{ anchor: [0, 0], focus: [0, 0] }],
         coveredRuntimeRanges: [],
         findPolicy: 'native',

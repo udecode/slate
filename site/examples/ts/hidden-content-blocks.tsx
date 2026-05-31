@@ -60,8 +60,8 @@ const selectionPolicyOptions = [
   'materialize',
 ] as const satisfies readonly DOMCoverageSelectionPolicy[]
 const copyPolicyOptions = [
-  'include-model',
-  'summary-only',
+  'model',
+  'summary',
   'exclude',
   'materialize',
 ] as const satisfies readonly DOMCoverageCopyPolicy[]
@@ -70,8 +70,7 @@ const hiddenContentQueryParsers = {
   accordionOpen: parseAsBoolean.withDefault(false),
   activeTab: parseAsStringLiteral(tabOptions).withDefault('overview'),
   collapsibleOpen: parseAsBoolean.withDefault(false),
-  copyPolicy:
-    parseAsStringLiteral(copyPolicyOptions).withDefault('include-model'),
+  copyPolicy: parseAsStringLiteral(copyPolicyOptions).withDefault('model'),
   selectionPolicy: parseAsStringLiteral(selectionPolicyOptions).withDefault(
     'skip'
   ),
@@ -89,7 +88,7 @@ const HiddenBlocksContext = React.createContext<HiddenBlocksState>({
   accordionOpen: false,
   activeTab: 'overview',
   collapsibleOpen: false,
-  copyPolicy: 'include-model',
+  copyPolicy: 'model',
   selectionPolicy: 'skip',
   setAccordionOpen: () => {},
   setActiveTab: () => {},

@@ -41,8 +41,8 @@ export type DOMCoverageReason =
 export type DOMCoverageSelectionPolicy = 'materialize' | 'skip' | 'model'
 
 export type DOMCoverageCopyPolicy =
-  | 'include-model'
-  | 'summary-only'
+  | 'model'
+  | 'summary'
   | 'exclude'
   | 'materialize'
 

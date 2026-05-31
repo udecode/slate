@@ -148,7 +148,7 @@ const registerSectionBodyBoundary = (editor: DOMTestEditor) =>
   DOMCoverage.registerBoundary(editor, {
     boundaryId: 'section-body',
     anchor: { type: 'summary-slot', runtimeId: getRuntimeId(editor, [0, 0]) },
-    copyPolicy: 'include-model',
+    copyPolicy: 'model',
     coveredPathRanges: [{ anchor: [0, 1], focus: [0, 1] }],
     coveredRuntimeRanges: [
       {
@@ -169,7 +169,7 @@ const registerNestedParagraphBoundary = (editor: DOMTestEditor) =>
   DOMCoverage.registerBoundary(editor, {
     boundaryId: 'nested-paragraph',
     anchor: { type: 'placeholder', runtimeId: getRuntimeId(editor, [0, 1]) },
-    copyPolicy: 'summary-only',
+    copyPolicy: 'summary',
     coveredPathRanges: [{ anchor: [0, 1, 0], focus: [0, 1, 0] }],
     coveredRuntimeRanges: [],
     findPolicy: 'native',
@@ -359,7 +359,7 @@ describe('DOM coverage boundaries', () => {
       DOMCoverage.getBoundaryForPoint(editor, { path: [0, 1, 0], offset: 0 })
     ).toMatchObject({
       boundaryId: 'section-body',
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       selectionPolicy: 'skip',
     })
 
@@ -660,7 +660,7 @@ describe('DOM coverage boundaries', () => {
     DOMCoverage.registerBoundary(editor, {
       boundaryId: 'merged-section-body',
       anchor: { type: 'placeholder', runtimeId: getRuntimeId(editor, [1, 1]) },
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       coveredPathRanges: [{ anchor: [1, 1], focus: [1, 1] }],
       coveredRuntimeRanges: [
         {
@@ -702,7 +702,7 @@ describe('DOM coverage boundaries', () => {
       DOMCoverage.registerBoundary(editor, {
         boundaryId: `hidden-${index}`,
         anchor: { type: 'placeholder', runtimeId: getRuntimeId(editor, path) },
-        copyPolicy: 'include-model',
+        copyPolicy: 'model',
         coveredPathRanges: [{ anchor: path, focus: path }],
         coveredRuntimeRanges: [],
         findPolicy: 'native',
@@ -732,7 +732,7 @@ describe('DOM coverage boundaries', () => {
     DOMCoverage.registerBoundary(editor, {
       boundaryId: 'hidden-200',
       anchor: { type: 'placeholder', runtimeId: getRuntimeId(editor, [200]) },
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       coveredPathRanges: [{ anchor: [200, 0], focus: [200, 0] }],
       coveredRuntimeRanges: [],
       findPolicy: 'native',

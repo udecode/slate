@@ -137,7 +137,7 @@ test('Editable domStrategy partial-DOMs far segments without mounting editable d
   expect(
     DOMCoverage.getBoundary(editor, 'partial-dom-aggressive:1')
   ).toMatchObject({
-    copyPolicy: 'include-model',
+    copyPolicy: 'model',
     coveredPathRanges: [{ anchor: [2], focus: [3] }],
     coveredRuntimeRanges: [
       {
@@ -370,7 +370,7 @@ test('Editable domStrategy experimental virtualized mode uses viewport DOM cover
   )
 
   expect(initialVirtualizedBoundary).toMatchObject({
-    copyPolicy: 'include-model',
+    copyPolicy: 'model',
     findPolicy: 'native',
     reason: 'viewport-virtualization',
     selectionPolicy: 'materialize',
@@ -650,7 +650,7 @@ test('Editable domStrategy experimental virtualized mode keeps broad selections 
   expect(
     DOMCoverage.getBoundariesForRange(editor, Editor.range(editor, []))
       .filter((boundary) => boundary.reason === 'viewport-virtualization')
-      .every((boundary) => boundary.copyPolicy === 'include-model')
+      .every((boundary) => boundary.copyPolicy === 'model')
   ).toBe(true)
 })
 

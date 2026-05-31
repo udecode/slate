@@ -135,7 +135,7 @@ describe('DOM coverage private boundary harness', () => {
     await waitFor(() => {
       expect(DOMCoverage.getBoundary(editor, 'section-body')).toMatchObject({
         boundaryId: 'section-body',
-        copyPolicy: 'include-model',
+        copyPolicy: 'model',
         coveredPathRanges: [{ anchor: [0, 1], focus: [0, 1] }],
       })
     })
@@ -509,7 +509,7 @@ describe('DOM coverage private boundary harness', () => {
       expect(
         DOMCoverage.getBoundary(editor, 'slot-section-body')
       ).toMatchObject({
-        copyPolicy: 'include-model',
+        copyPolicy: 'model',
         coveredPathRanges: [{ anchor: [0, 1], focus: [0, 1] }],
       })
     })

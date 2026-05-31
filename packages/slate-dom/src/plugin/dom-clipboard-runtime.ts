@@ -303,7 +303,7 @@ export const writeDOMSelectionData = <V extends Value>(
   const hasPolicyBoundaries = coveredBoundaries.length > 0
   const shouldWriteModelBackedSelection = coveredBoundaries.some(
     (boundary) =>
-      boundary.copyPolicy === 'include-model' ||
+      boundary.copyPolicy === 'model' ||
       (boundary.copyPolicy === 'materialize' &&
         materializedBoundaryIds.has(boundary.boundaryId))
   )

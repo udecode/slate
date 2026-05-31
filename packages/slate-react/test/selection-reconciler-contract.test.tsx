@@ -131,7 +131,7 @@ test('selection reconciler keeps DOM coverage skip selections model-owned', () =
   DOMCoverage.registerBoundary(editor, {
     anchor: { type: 'placeholder' },
     boundaryId: 'hidden-block',
-    copyPolicy: 'include-model',
+    copyPolicy: 'model',
     coveredPathRanges: [{ anchor: [1], focus: [1] }],
     coveredRuntimeRanges: [],
     findPolicy: 'native',
@@ -230,7 +230,7 @@ test('DOM coverage selection materializes every covered materialize boundary wit
     DOMCoverage.registerBoundary(editor, {
       anchor: { type: 'placeholder' },
       boundaryId,
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       coveredPathRanges: [{ anchor: path, focus: path }],
       coveredRuntimeRanges: [],
       findPolicy: 'native',
@@ -301,7 +301,7 @@ test('selection reconciler preserves visible anchor text across DOM coverage bou
   DOMCoverage.registerBoundary(editor, {
     anchor: { type: 'placeholder' },
     boundaryId: 'hidden-block',
-    copyPolicy: 'include-model',
+    copyPolicy: 'model',
     coveredPathRanges: [{ anchor: [1], focus: [1] }],
     coveredRuntimeRanges: [],
     findPolicy: 'native',

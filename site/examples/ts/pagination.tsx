@@ -973,7 +973,7 @@ const renderTableChildrenWindow = ({
         <Fragment key={`hidden-${nextIndex}-${range.start - 1}`}>
           {slots.contentBoundary({
             boundaryId: `pagination-table-hidden:${nextIndex}-${range.start - 1}`,
-            copyPolicy: 'include-model',
+            copyPolicy: 'model',
             findPolicy: 'native',
             mounted: false,
             reason: 'viewport-virtualization',
@@ -1000,7 +1000,7 @@ const renderTableChildrenWindow = ({
       <Fragment key={`hidden-${nextIndex}-${rowCount - 1}`}>
         {slots.contentBoundary({
           boundaryId: `pagination-table-hidden:${nextIndex}-${rowCount - 1}`,
-          copyPolicy: 'include-model',
+          copyPolicy: 'model',
           findPolicy: 'native',
           mounted: false,
           reason: 'viewport-virtualization',
@@ -1171,7 +1171,7 @@ const PaginationElement = ({
       visibleRowRanges.length === 0
         ? slots.contentBoundary({
             boundaryId: 'pagination-table-hidden:all',
-            copyPolicy: 'include-model',
+            copyPolicy: 'model',
             findPolicy: 'native',
             mounted: false,
             reason: 'viewport-virtualization',

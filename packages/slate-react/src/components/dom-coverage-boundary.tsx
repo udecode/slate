@@ -45,7 +45,7 @@ export const DOMCoverageBoundaryRange = ({
   boundaryId,
   children,
   content,
-  copyPolicy = 'include-model',
+  copyPolicy = 'model',
   findPolicy = 'native',
   from,
   hidden = true,

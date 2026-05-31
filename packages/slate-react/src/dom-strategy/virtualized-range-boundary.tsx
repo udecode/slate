@@ -24,7 +24,7 @@ export const DOMStrategyVirtualizedRangeBoundary = React.memo(
       () => ({
         anchor: { type: 'placeholder' as const },
         boundaryId,
-        copyPolicy: 'include-model' as const,
+        copyPolicy: 'model' as const,
         coveredPathRanges: [
           {
             anchor: [startIndex] as Path,

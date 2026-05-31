@@ -438,7 +438,7 @@ describe('keyboard input strategy', () => {
     DOMCoverage.registerBoundary(editor, {
       anchor: { type: 'placeholder' },
       boundaryId: 'inactive-tab',
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       coveredPathRanges: [{ anchor: [0, 1], focus: [0, 1] }],
       coveredRuntimeRanges: [],
       findPolicy: 'native',
@@ -525,7 +525,7 @@ describe('keyboard input strategy', () => {
     DOMCoverage.registerBoundary(editor, {
       anchor: { type: 'placeholder' },
       boundaryId: 'closed-accordion',
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       coveredPathRanges: [{ anchor: [1, 0], focus: [1, 1] }],
       coveredRuntimeRanges: [],
       findPolicy: 'native',
@@ -602,7 +602,7 @@ describe('keyboard input strategy', () => {
     DOMCoverage.registerBoundary(editor, {
       anchor: { type: 'placeholder' },
       boundaryId: 'closed-accordion',
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       coveredPathRanges: [{ anchor: [1, 0], focus: [1, 0] }],
       coveredRuntimeRanges: [],
       findPolicy: 'native',
@@ -676,7 +676,7 @@ describe('keyboard input strategy', () => {
     DOMCoverage.registerBoundary(editor, {
       anchor: { type: 'placeholder' },
       boundaryId: 'hidden-word',
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       coveredPathRanges: [{ anchor: [1, 0], focus: [1, 0] }],
       coveredRuntimeRanges: [],
       findPolicy: 'native',
@@ -750,7 +750,7 @@ describe('keyboard input strategy', () => {
     DOMCoverage.registerBoundary(editor, {
       anchor: { type: 'placeholder' },
       boundaryId: 'hidden-word',
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       coveredPathRanges: [{ anchor: [1, 0], focus: [1, 0] }],
       coveredRuntimeRanges: [],
       findPolicy: 'native',
@@ -826,7 +826,7 @@ describe('keyboard input strategy', () => {
     DOMCoverage.registerBoundary(editor, {
       anchor: { type: 'placeholder' },
       boundaryId: 'same-owner-hidden-ranges',
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       coveredPathRanges: [
         { anchor: [1, 0], focus: [1, 0] },
         { anchor: [2, 0], focus: [2, 0] },
@@ -904,7 +904,7 @@ describe('keyboard input strategy', () => {
     DOMCoverage.registerBoundary(editor, {
       anchor: { type: 'placeholder' },
       boundaryId: 'hidden-line',
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       coveredPathRanges: [{ anchor: [1, 0], focus: [1, 0] }],
       coveredRuntimeRanges: [],
       findPolicy: 'native',
@@ -977,7 +977,7 @@ describe('keyboard input strategy', () => {
     DOMCoverage.registerBoundary(editor, {
       anchor: { type: 'placeholder' },
       boundaryId: 'hidden-line',
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       coveredPathRanges: [{ anchor: [1, 0], focus: [1, 0] }],
       coveredRuntimeRanges: [],
       findPolicy: 'native',
@@ -1050,7 +1050,7 @@ describe('keyboard input strategy', () => {
     DOMCoverage.registerBoundary(editor, {
       anchor: { type: 'placeholder' },
       boundaryId: 'hidden-line',
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       coveredPathRanges: [{ anchor: [1, 0], focus: [1, 0] }],
       coveredRuntimeRanges: [],
       findPolicy: 'native',
@@ -1123,7 +1123,7 @@ describe('keyboard input strategy', () => {
     DOMCoverage.registerBoundary(editor, {
       anchor: { type: 'placeholder' },
       boundaryId: 'hidden-line',
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       coveredPathRanges: [{ anchor: [1, 0], focus: [1, 0] }],
       coveredRuntimeRanges: [],
       findPolicy: 'native',
@@ -1195,7 +1195,7 @@ describe('keyboard input strategy', () => {
     DOMCoverage.registerBoundary(editor, {
       anchor: { type: 'placeholder' },
       boundaryId: 'hidden-line',
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       coveredPathRanges: [{ anchor: [1, 0], focus: [1, 0] }],
       coveredRuntimeRanges: [],
       findPolicy: 'native',

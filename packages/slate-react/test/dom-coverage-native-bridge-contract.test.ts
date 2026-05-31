@@ -125,7 +125,7 @@ const createHiddenSelectionEditor = () => {
   DOMCoverage.registerBoundary(editor, {
     anchor: { runtimeId: getRuntimeId(editor, [0, 0]), type: 'summary-slot' },
     boundaryId: 'section-body',
-    copyPolicy: 'include-model',
+    copyPolicy: 'model',
     coveredPathRanges: [{ anchor: [0, 1], focus: [0, 1] }],
     coveredRuntimeRanges: [
       {

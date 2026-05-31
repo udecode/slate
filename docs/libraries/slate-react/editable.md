@@ -378,9 +378,17 @@ Boundary content is model-present but DOM-incomplete while `mounted` is `false`.
 Slate maps selection, copy, paste, and DOM point import through the boundary
 registry instead of resolving missing descendants with raw DOM lookups. Hidden
 text is not available to native browser find or screen-reader traversal until
-the boundary is mounted. Copy behavior follows `copyPolicy`; collapsed document
-sections usually use `include-model`, while app-hidden headers and footers
-usually use `exclude`.
+the boundary is mounted.
+
+`copyPolicy` controls what a copy operation emits when the selection crosses
+hidden content.
+
+| Policy | Behavior |
+| --- | --- |
+| `model` | Copy the hidden Slate content from the editor value. |
+| `summary` | Copy the boundary placeholder or summary content only. |
+| `exclude` | Omit the hidden content from the clipboard. |
+| `materialize` | Mount the hidden content before copying and then copy normally. |
 
 `selectionPolicy` controls keyboard and model selection through hidden content.
 Use `skip` for closed UI chrome, `model` for model-owned selection through
