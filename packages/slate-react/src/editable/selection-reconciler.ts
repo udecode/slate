@@ -43,6 +43,7 @@ import {
   setEditableModelSelectionPreference,
   syncEditableDOMSelectionToEditor,
 } from './input-controller'
+import { readModelSelectionDOMPreference } from './model-selection-dom-preference'
 import { Editor } from './runtime-editor-api'
 import { readRuntimeNode, readRuntimeText } from './runtime-live-state'
 import { writeRuntimeSelection } from './runtime-mutation-state'
@@ -1027,7 +1028,11 @@ export const useEditableSelectionReconciler = ({
       let newDomRange: DOMRange | null = null
 
       newDomRange = selection
-        ? ReactEditor.resolveDOMRange(editor, selection)
+        ? (readModelSelectionDOMPreference({
+            editor,
+            editorElement,
+            selection,
+          }) ?? ReactEditor.resolveDOMRange(editor, selection))
         : null
 
       if (newDomRange) {

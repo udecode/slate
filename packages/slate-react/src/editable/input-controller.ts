@@ -8,6 +8,7 @@ import type { Editor } from 'slate'
 import { Hotkeys, IS_COMPOSING, isDOMElement, isDOMText } from 'slate-dom'
 
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
+import { shouldModelOwnPlainVerticalDOMCoverageExtension } from './dom-coverage-vertical-selection'
 import type { EditableInputController, InputIntent } from './input-state'
 
 export type {
@@ -233,6 +234,10 @@ export const classifyKeyboardIntent = ({
     Hotkeys.isMoveLineForward(nativeEvent) ||
     Hotkeys.isExtendLineBackward(nativeEvent) ||
     Hotkeys.isExtendLineForward(nativeEvent) ||
+    shouldModelOwnPlainVerticalDOMCoverageExtension({
+      editor,
+      event: nativeEvent,
+    }) ||
     Hotkeys.isExtendBackward(nativeEvent) ||
     Hotkeys.isExtendForward(nativeEvent) ||
     Hotkeys.isMoveBackward(nativeEvent) ||

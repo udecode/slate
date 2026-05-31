@@ -47,6 +47,52 @@ const getCaretAndFrameLeft = async (
     }
   })
 
+const getPaginationLeafStyleForText = async (
+  root: Awaited<ReturnType<typeof openExample>>['root'],
+  text: string
+) =>
+  root.evaluate((element: HTMLElement, targetText) => {
+    const leaves = Array.from(
+      element.querySelectorAll<HTMLElement>('[data-slate-leaf]')
+    ).filter((leaf) => leaf.textContent?.includes(targetText))
+
+    if (leaves.length === 0) {
+      return null
+    }
+
+    const styles = leaves.map((leaf) => getComputedStyle(leaf))
+
+    return {
+      hasUnderline: styles.some((style) =>
+        style.textDecorationLine.split(' ').includes('underline')
+      ),
+      isBold: styles.some((style) => {
+        const fontWeight = Number.parseInt(style.fontWeight, 10)
+
+        return Number.isFinite(fontWeight)
+          ? fontWeight >= 600
+          : style.fontWeight === 'bold'
+      }),
+      isItalic: styles.some((style) => style.fontStyle === 'italic'),
+    }
+  }, text)
+
+const getPaginationElementTag = async (
+  root: Awaited<ReturnType<typeof openExample>>['root'],
+  path: string
+) =>
+  root
+    .locator(`[data-slate-node="element"][data-slate-path="${path}"]`)
+    .first()
+    .evaluate((element) => element.tagName.toLowerCase())
+
+const getBrowserModKey = async (
+  root: Awaited<ReturnType<typeof openExample>>['root']
+) =>
+  root.evaluate(() =>
+    /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
+  )
+
 const getParagraphBlankTailPoint = async (
   root: Awaited<ReturnType<typeof openExample>>['root'],
   path: string
@@ -422,6 +468,103 @@ const getVisiblePaginationTextTargetByPath = async (
     }
   }, blockPath)
 
+const getPaginationTextAlignmentByPath = async (
+  root: Awaited<ReturnType<typeof openExample>>['root'],
+  blockPath: string
+) =>
+  root.evaluate((element: HTMLElement, path) => {
+    const block = element.querySelector<HTMLElement>(
+      `[data-slate-node="element"][data-slate-path="${path}"]`
+    )
+    const leaf = block?.querySelector<HTMLElement>('[data-slate-leaf]')
+
+    if (!block || !leaf) {
+      return null
+    }
+
+    const blockRect = block.getBoundingClientRect()
+    const leafRect = leaf.getBoundingClientRect()
+    const blockStyle = getComputedStyle(block)
+    const leafStyle = getComputedStyle(leaf)
+
+    return {
+      blockLeft: blockRect.left,
+      blockWidth: blockRect.width,
+      firstLeafLeft: leafRect.left,
+      firstLeafPosition: leafStyle.position,
+      paddingLeft: Number.parseFloat(blockStyle.paddingLeft) || 0,
+      relativeLeft: leafRect.left - blockRect.left,
+    }
+  }, blockPath)
+
+const getPaginationDragAutoscrollTarget = async (
+  root: Awaited<ReturnType<typeof openExample>>['root'],
+  direction: 'bottom' | 'top'
+) =>
+  root.evaluate(async (element: HTMLElement, scrollDirection) => {
+    const viewport = element.ownerDocument.querySelector<HTMLElement>(
+      '[data-testid="pagination-viewport"]'
+    )
+
+    if (!viewport) {
+      return null
+    }
+
+    if (scrollDirection === 'top') {
+      viewport.scrollTop = Math.min(
+        900,
+        viewport.scrollHeight - viewport.clientHeight
+      )
+    } else {
+      viewport.scrollTop = 0
+    }
+
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    })
+
+    const viewportRect = viewport.getBoundingClientRect()
+    const minTop = viewportRect.top + (scrollDirection === 'top' ? 80 : 48)
+    const maxBottom =
+      viewportRect.bottom - (scrollDirection === 'top' ? 48 : 80)
+    const strings = Array.from(
+      element.ownerDocument.querySelectorAll<HTMLElement>('[data-slate-string]')
+    )
+    const target = strings.find((string) => {
+      const rect = string.getBoundingClientRect()
+
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.top > minTop &&
+        rect.bottom < maxBottom
+      )
+    })
+
+    if (!target) {
+      return null
+    }
+
+    const rect = target.getBoundingClientRect()
+    const x = Math.min(rect.right - 4, rect.left + 64)
+
+    return {
+      edge: {
+        x,
+        y:
+          scrollDirection === 'top'
+            ? viewportRect.top + 8
+            : viewportRect.bottom - 8,
+      },
+      initialScrollTop: viewport.scrollTop,
+      start: {
+        x,
+        y: (rect.top + rect.bottom) / 2,
+      },
+      text: target.textContent ?? '',
+    }
+  }, direction)
+
 const getVisiblePaginationLineMarginTargetByPath = async (
   root: Awaited<ReturnType<typeof openExample>>['root'],
   blockPath: string
@@ -468,6 +611,61 @@ const getVisiblePaginationWrappedLineMarginTargets = async (
       const edge = targetSide as 'end' | 'start'
       const getRectVerticalDistance = (rect: DOMRect, y: number) =>
         y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0
+      const cssBreakWhitespacePattern = /^[\t\n\f\r ]$/
+      const getCollapsedOffsetLineRelation = (
+        textNode: ChildNode,
+        offset: number,
+        lineRect: DOMRect
+      ): 'inside' | 'outside' | 'unavailable' => {
+        const range = element.ownerDocument.createRange()
+
+        range.setStart(textNode, offset)
+        range.setEnd(textNode, offset)
+
+        const collapsedRects = Array.from(range.getClientRects()).filter(
+          (rect) => rect.width > 0 || rect.height > 0
+        )
+
+        if (collapsedRects.length === 0) {
+          return 'unavailable'
+        }
+
+        const y = lineRect.top + lineRect.height / 2
+        const tolerance = Math.max(2, lineRect.height / 4)
+
+        return collapsedRects.every(
+          (collapsedRect) =>
+            getRectVerticalDistance(collapsedRect, y) > tolerance
+        )
+          ? 'outside'
+          : 'inside'
+      }
+      const areSegmentRectsOutsideLine = (
+        textNode: ChildNode,
+        start: number,
+        end: number,
+        lineRect: DOMRect
+      ) => {
+        const range = element.ownerDocument.createRange()
+
+        range.setStart(textNode, start)
+        range.setEnd(textNode, end)
+
+        const segmentRects = Array.from(range.getClientRects()).filter(
+          (rect) => rect.width > 0 || rect.height > 0
+        )
+
+        if (segmentRects.length === 0) {
+          return false
+        }
+
+        const y = lineRect.top + lineRect.height / 2
+        const tolerance = Math.max(2, lineRect.height / 4)
+
+        return segmentRects.every(
+          (segmentRect) => getRectVerticalDistance(segmentRect, y) > tolerance
+        )
+      }
       const getLineEdgeOffset = (
         textNode: ChildNode,
         lineRect: DOMRect,
@@ -479,6 +677,8 @@ const getVisiblePaginationWrappedLineMarginTargets = async (
         let best: { distance: number; offset: number } | null = null
 
         for (let offset = 0; offset < textLength; offset++) {
+          const nextOffset = offset + 2
+
           range.setStart(textNode, offset)
           range.setEnd(textNode, offset + 1)
 
@@ -491,6 +691,24 @@ const getVisiblePaginationWrappedLineMarginTargets = async (
               edge === 'start'
                 ? Math.abs(rect.left - lineRect.left)
                 : Math.abs(rect.right - lineRect.right)
+            const segment = textNode.textContent?.[offset] ?? ''
+            const collapsedRelation = cssBreakWhitespacePattern.test(segment)
+              ? getCollapsedOffsetLineRelation(textNode, offset + 1, lineRect)
+              : 'inside'
+            const edgeOffset =
+              edge === 'end' &&
+              cssBreakWhitespacePattern.test(segment) &&
+              (collapsedRelation === 'outside' ||
+                (nextOffset <= textLength &&
+                  collapsedRelation === 'unavailable' &&
+                  areSegmentRectsOutsideLine(
+                    textNode,
+                    offset + 1,
+                    nextOffset,
+                    lineRect
+                  )))
+                ? offset
+                : offset + 1
             const distance =
               verticalDistance * 1_000_000 +
               verticalCenterDistance * 1000 +
@@ -499,7 +717,7 @@ const getVisiblePaginationWrappedLineMarginTargets = async (
             if (!best || distance < best.distance) {
               best = {
                 distance,
-                offset: edge === 'start' ? offset : offset + 1,
+                offset: edge === 'start' ? offset : edgeOffset,
               }
             }
           }
@@ -557,7 +775,7 @@ const getVisiblePaginationWrappedLineMarginTargets = async (
       const viewportRect = viewport?.getBoundingClientRect()
 
       if (!viewportRect) {
-        return null
+        return []
       }
 
       for (const block of Array.from(
@@ -689,6 +907,12 @@ const getVisiblePaginationWrappedLineMarginTargets = async (
                 expectedDOMOffset,
                 expectedDOMText: entry.string.textContent ?? '',
                 expectedOffset,
+                lineRect: {
+                  bottom: entry.rect.bottom,
+                  left: entry.rect.left,
+                  right: entry.rect.right,
+                  top: entry.rect.top,
+                },
                 lineIndex: lineIndex + 1,
                 lineText: entry.string.textContent ?? '',
                 x,
@@ -706,6 +930,33 @@ const getVisiblePaginationWrappedLineMarginTargets = async (
     },
     side === 'left' ? 'start' : 'end'
   )
+
+const getCollapsedCaretRect = async (
+  root: Awaited<ReturnType<typeof openExample>>['root']
+) =>
+  root.evaluate((element: HTMLElement) => {
+    const selection = element.ownerDocument.getSelection()
+
+    if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) {
+      return null
+    }
+
+    const range = selection.getRangeAt(0).cloneRange()
+    const nativeRect =
+      Array.from(range.getClientRects()).find(
+        (rect) => rect.width > 0 || rect.height > 0
+      ) ?? range.getBoundingClientRect()
+
+    if (nativeRect.width > 0 || nativeRect.height > 0) {
+      return {
+        bottom: nativeRect.bottom,
+        left: nativeRect.left,
+        top: nativeRect.top,
+      }
+    }
+
+    return null
+  })
 
 const getVisiblePaginationRightLineMarginTarget = async (
   root: Awaited<ReturnType<typeof openExample>>['root']
@@ -1615,6 +1866,57 @@ test.describe('pagination example', () => {
     expect(proof.text).toContain('Premirror Milestone 1 test document')
   })
 
+  test('supports mark and heading keyboard shortcuts in the pagination editor', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for pagination keyboard shortcuts'
+    )
+
+    const editor = await openExample(page, 'pagination', {
+      query: { page_layout: 'single' },
+      ready: {
+        editor: 'visible',
+        text: /Premirror Milestone 1 test document/,
+      },
+    })
+    const markedText = 'Z'
+    const modKey = await getBrowserModKey(editor.root)
+
+    await editor.selection.collapse({ offset: 0, path: [0, 0] })
+    await editor.focus()
+    await page.keyboard.press(`${modKey}+b`)
+    await page.keyboard.press(`${modKey}+i`)
+    await page.keyboard.press(`${modKey}+u`)
+    await page.keyboard.insertText(markedText)
+
+    await expect
+      .poll(async () => getPaginationLeafStyleForText(editor.root, markedText))
+      .toEqual({
+        hasUnderline: true,
+        isBold: true,
+        isItalic: true,
+      })
+
+    await editor.selection.collapse({ offset: 0, path: [1, 0] })
+    await editor.focus()
+    await page.keyboard.press(`${modKey}+Alt+1`)
+    await expect
+      .poll(async () => getPaginationElementTag(editor.root, '1'))
+      .toBe('h1')
+
+    await page.keyboard.press(`${modKey}+Alt+2`)
+    await expect
+      .poll(async () => getPaginationElementTag(editor.root, '1'))
+      .toBe('h2')
+
+    await page.keyboard.press(`${modKey}+Alt+3`)
+    await expect
+      .poll(async () => getPaginationElementTag(editor.root, '1'))
+      .toBe('h3')
+  })
+
   test('renders a multi-page table as one editable Slate subtree', async ({
     page,
   }, testInfo) => {
@@ -2245,6 +2547,65 @@ test.describe('pagination example', () => {
     }
   })
 
+  test('autoscrolls pagination viewport while drag-selecting near vertical edges', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for pagination drag-selection autoscroll'
+    )
+
+    await page.setViewportSize({ height: 637, width: 1533 })
+
+    const editor = await openExample(page, 'pagination', {
+      query: { page_layout: 'single' },
+      ready: {
+        editor: 'visible',
+        text: /Rich Markdown pagination proof/,
+      },
+    })
+
+    for (const direction of ['bottom', 'top'] as const) {
+      const target = await getPaginationDragAutoscrollTarget(
+        editor.root,
+        direction
+      )
+
+      expect(target).toBeTruthy()
+
+      await page.mouse.move(target!.start.x, target!.start.y)
+      await page.mouse.down()
+      await page.mouse.move(target!.edge.x, target!.edge.y, { steps: 20 })
+
+      await expect
+        .poll(async () =>
+          editor.root.evaluate(
+            (element: HTMLElement, args) => {
+              const viewport = element.ownerDocument.querySelector<HTMLElement>(
+                '[data-testid="pagination-viewport"]'
+              )
+              const selection = element.ownerDocument.getSelection()
+
+              return {
+                expanded: Boolean(selection && !selection.isCollapsed),
+                scrolled:
+                  args.direction === 'top'
+                    ? (viewport?.scrollTop ?? 0) < args.initialScrollTop - 16
+                    : (viewport?.scrollTop ?? 0) > args.initialScrollTop + 16,
+              }
+            },
+            { direction, initialScrollTop: target!.initialScrollTop }
+          )
+        )
+        .toEqual({
+          expanded: true,
+          scrolled: true,
+        })
+
+      await page.mouse.up()
+    }
+  })
+
   test('keeps typed trailing spaces at the paragraph end', async ({
     page,
   }, testInfo) => {
@@ -2538,6 +2899,59 @@ test.describe('pagination example', () => {
       })
   })
 
+  test('keeps virtualized pagination text aligned when a paragraph becomes selected', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for virtualized pagination selected text alignment'
+    )
+
+    await page.setViewportSize({ height: 637, width: 1533 })
+
+    const editor = await openExample(page, 'pagination', {
+      query: { page_layout: 'single', strategy: 'virtualized' },
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    const before = await getPaginationTextAlignmentByPath(editor.root, '0')
+
+    expect(before).toEqual(
+      expect.objectContaining({
+        firstLeafPosition: 'absolute',
+      })
+    )
+
+    await editor.selection.collapse({ offset: 10, path: [0, 0] })
+    await editor.focus()
+
+    await expect
+      .poll(async () => {
+        const after = await getPaginationTextAlignmentByPath(editor.root, '0')
+
+        return {
+          aligned:
+            !!before &&
+            !!after &&
+            Math.abs(after.firstLeafLeft - before.firstLeafLeft) <= 0.5,
+          nativeFlow: after?.firstLeafPosition === 'static',
+          wrapWidthPreserved:
+            !!before &&
+            !!after &&
+            Math.abs(
+              after.blockWidth - after.paddingLeft - before.blockWidth
+            ) <= 0.5,
+        }
+      })
+      .toEqual({
+        aligned: true,
+        nativeFlow: true,
+        wrapWidthPreserved: true,
+      })
+  })
+
   test('selects virtualized pagination text when dragging from the page line margin', async ({
     page,
   }, testInfo) => {
@@ -2690,6 +3104,100 @@ test.describe('pagination example', () => {
           focus: { path: [Number(marginTarget!.blockPath), 0], offset: 0 },
         },
       })
+  })
+
+  test('places virtualized pagination selection at wrapped line ends from the right page margin', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for virtualized pagination right-margin hit testing'
+    )
+
+    await page.setViewportSize({ height: 637, width: 1533 })
+
+    const editor = await openExample(page, 'pagination', {
+      query: { page_layout: 'single', strategy: 'virtualized' },
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await expect
+      .poll(async () => {
+        const proof = await getPaginationVirtualizedTableProof(editor.root)
+
+        return {
+          boundedDOM: proof.totalElementCount < 1400,
+          boundedPages: proof.pageSurfaceCount <= 8,
+          virtualized: proof.pageVirtualizationEnabled,
+        }
+      })
+      .toEqual({
+        boundedDOM: true,
+        boundedPages: true,
+        virtualized: true,
+      })
+
+    await editor.selection.collapse({
+      path: [0, 0],
+      offset: 0,
+    })
+    await editor.focus()
+
+    const targets = await getVisiblePaginationWrappedLineMarginTargets(
+      editor.root,
+      'right'
+    )
+    expect(targets.length).toBeGreaterThanOrEqual(3)
+
+    for (const target of targets.slice(0, 3)) {
+      await editor.selection.collapse({
+        path: [0, 0],
+        offset: 0,
+      })
+      await editor.focus()
+      await page.mouse.click(target.x, target.y)
+
+      await expect
+        .poll(async () => ({
+          activeIsEditor: await editor.root.evaluate(
+            (element) => element.ownerDocument.activeElement === element
+          ),
+          nativeSelection: await editor.root.evaluate(() => {
+            const selection = document.getSelection()
+
+            return {
+              anchorOffset: selection?.anchorOffset ?? null,
+              anchorText: selection?.anchorNode?.textContent ?? null,
+            }
+          }),
+          caretAtLineEnd: await getCollapsedCaretRect(editor.root).then(
+            (caretRect) =>
+              !!caretRect &&
+              Math.abs(caretRect.left - target.lineRect.right) <= 12 &&
+              Math.abs(caretRect.top - target.lineRect.top) <= 8
+          ),
+          selection: await editor.selection.get(),
+        }))
+        .toEqual({
+          activeIsEditor: true,
+          caretAtLineEnd: true,
+          nativeSelection: expect.objectContaining({
+            anchorOffset: target.expectedOffset,
+          }),
+          selection: {
+            anchor: {
+              path: [Number(target.blockPath), 0],
+              offset: target.expectedOffset,
+            },
+            focus: {
+              path: [Number(target.blockPath), 0],
+              offset: target.expectedOffset,
+            },
+          },
+        })
+    }
   })
 
   test('keeps split projected paragraphs stable when clicked, navigated, and edited', async ({

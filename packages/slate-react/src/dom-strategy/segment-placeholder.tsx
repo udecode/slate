@@ -148,9 +148,7 @@ export const DOMStrategySegmentPlaceholder = React.memo(
     const anchorRuntimeId = runtimeIds[0] ?? null
     const focusRuntimeId = runtimeIds.at(-1) ?? null
     const selectionPolicy: DOMCoverageSelectionPolicy =
-      coverageReason === 'viewport-virtualization'
-        ? 'materialize'
-        : 'model-backed'
+      coverageReason === 'viewport-virtualization' ? 'materialize' : 'model'
     const boundary = React.useMemo(
       () => ({
         anchor: { type: 'placeholder' as const },
@@ -166,7 +164,7 @@ export const DOMStrategySegmentPlaceholder = React.memo(
           anchorRuntimeId && focusRuntimeId
             ? [{ anchor: anchorRuntimeId, focus: focusRuntimeId }]
             : [],
-        findPolicy: 'not-native-until-mounted' as const,
+        findPolicy: 'native' as const,
         ownerPath: [] as Path,
         ownerRuntimeId: null,
         reason: coverageReason,

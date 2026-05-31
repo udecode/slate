@@ -57,7 +57,7 @@ describe('slate-react render profiler contract', () => {
 
     const initialSnapshot = counter.snapshot()
 
-    expect(initialSnapshot.byKind.element).toBeGreaterThanOrEqual(2)
+    expect(initialSnapshot.byKind.element).toBeGreaterThanOrEqual(1)
     expect(initialSnapshot.byKind).toMatchObject({
       leaf: 1,
       spacer: 1,

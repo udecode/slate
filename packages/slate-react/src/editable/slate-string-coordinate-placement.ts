@@ -18,6 +18,7 @@ type SlateStringRectCandidate = {
   verticalDistance: number
 }
 
+const CSS_BREAK_WHITESPACE_PATTERN = /^[\t\n\f\r ]+$/
 const STRING_EDGE_HIT_SLOP = 3
 
 const getRectVerticalDistance = (rect: DOMRect, y: number) =>
@@ -370,6 +371,189 @@ const getGraphemeBoundaryOffsets = (text: string) => {
   ]
 }
 
+const getUsableRangeRects = (range: Range) => {
+  const hasRect = (rect: DOMRect | null): rect is DOMRect =>
+    !!rect && (rect.width > 0 || rect.height > 0)
+  const clientRects = Array.from(range.getClientRects()).filter(hasRect)
+
+  if (clientRects.length > 0) {
+    return clientRects
+  }
+
+  const boundingRect =
+    typeof range.getBoundingClientRect === 'function'
+      ? range.getBoundingClientRect()
+      : null
+
+  return hasRect(boundingRect) ? [boundingRect] : []
+}
+
+const getCollapsedOffsetLineRelation = ({
+  offset,
+  range,
+  rect,
+  textNode,
+}: {
+  offset: number
+  range: Range
+  rect: DOMRect
+  textNode: ChildNode
+}): 'inside' | 'outside' | 'unavailable' => {
+  range.setStart(textNode, offset)
+  range.setEnd(textNode, offset)
+
+  const collapsedRects = getUsableRangeRects(range)
+
+  if (collapsedRects.length === 0) {
+    return 'unavailable'
+  }
+
+  const y = rect.top + rect.height / 2
+  const tolerance = Math.max(2, rect.height / 4)
+
+  return collapsedRects.every(
+    (collapsedRect) => getRectVerticalDistance(collapsedRect, y) > tolerance
+  )
+    ? 'outside'
+    : 'inside'
+}
+
+const areSegmentRectsOutsideLine = ({
+  end,
+  range,
+  rect,
+  start,
+  textNode,
+}: {
+  end: number
+  range: Range
+  rect: DOMRect
+  start: number
+  textNode: ChildNode
+}) => {
+  range.setStart(textNode, start)
+  range.setEnd(textNode, end)
+
+  const segmentRects = getUsableRangeRects(range)
+
+  if (segmentRects.length === 0) {
+    return false
+  }
+
+  const y = rect.top + rect.height / 2
+  const tolerance = Math.max(2, rect.height / 4)
+
+  return segmentRects.every(
+    (segmentRect) => getRectVerticalDistance(segmentRect, y) > tolerance
+  )
+}
+
+const isNextSlateStringSegmentOutsideLine = ({
+  range,
+  rect,
+  string,
+}: {
+  range: Range
+  rect: DOMRect
+  string: HTMLElement
+}) => {
+  const textHost = string.closest<HTMLElement>('[data-slate-node="text"]')
+  const scope = textHost?.parentElement ?? textHost
+
+  if (!scope) {
+    return false
+  }
+
+  const strings = Array.from(
+    scope.querySelectorAll<HTMLElement>(
+      '[data-slate-string], [data-slate-zero-width]'
+    )
+  )
+  const stringIndex = strings.indexOf(string)
+
+  if (stringIndex === -1) {
+    return false
+  }
+
+  for (const nextString of strings.slice(stringIndex + 1)) {
+    if (nextString.hasAttribute('data-slate-zero-width')) {
+      continue
+    }
+
+    const nextTextNode = Array.from(nextString.childNodes).find(
+      (node) => node.nodeType === Node.TEXT_NODE
+    )
+    const nextText = nextTextNode?.textContent ?? ''
+
+    if (!nextTextNode || nextText.length === 0) {
+      continue
+    }
+
+    const nextOffsets = getGraphemeBoundaryOffsets(nextText)
+    const nextEnd = nextOffsets[1]
+
+    return nextEnd == null
+      ? false
+      : areSegmentRectsOutsideLine({
+          end: nextEnd,
+          range,
+          rect,
+          start: 0,
+          textNode: nextTextNode,
+        })
+  }
+
+  return false
+}
+
+const getSegmentEndOffset = ({
+  end,
+  index,
+  offsets,
+  range,
+  rect,
+  segment,
+  segmentRect,
+  start,
+  string,
+  textNode,
+}: {
+  end: number
+  index: number
+  offsets: number[]
+  range: Range
+  rect: DOMRect
+  segment: string
+  segmentRect: DOMRect
+  start: number
+  string: HTMLElement
+  textNode: ChildNode
+}) => {
+  const nextEnd = offsets[index + 2]
+  const collapsedRelation = CSS_BREAK_WHITESPACE_PATTERN.test(segment)
+    ? getCollapsedOffsetLineRelation({ offset: end, range, rect, textNode })
+    : 'inside'
+
+  return CSS_BREAK_WHITESPACE_PATTERN.test(segment) &&
+    (collapsedRelation === 'outside' ||
+      (nextEnd != null &&
+        collapsedRelation === 'unavailable' &&
+        segmentRect.width === 0 &&
+        areSegmentRectsOutsideLine({
+          end: nextEnd,
+          range,
+          rect,
+          start: end,
+          textNode,
+        })) ||
+      (nextEnd == null &&
+        collapsedRelation === 'unavailable' &&
+        segmentRect.width === 0 &&
+        isNextSlateStringSegmentOutsideLine({ range, rect, string })))
+    ? start
+    : end
+}
+
 const getSlateStringLineEdgeTextOffset = ({
   edge,
   rect,
@@ -394,7 +578,8 @@ const getSlateStringLineEdgeTextOffset = ({
   }
 
   const physicalEdge = getPhysicalEdgeFromLogicalEdge(string, edge)
-  const offsets = getGraphemeBoundaryOffsets(textNode.textContent ?? '')
+  const text = textNode.textContent ?? ''
+  const offsets = getGraphemeBoundaryOffsets(text)
   const y = rect.top + rect.height / 2
   const range = string.ownerDocument.createRange()
   let best: {
@@ -407,15 +592,12 @@ const getSlateStringLineEdgeTextOffset = ({
   for (let index = 0; index < offsets.length - 1; index++) {
     const start = offsets[index]!
     const end = offsets[index + 1]!
+    const segment = text.slice(start, end)
 
     range.setStart(textNode, start)
     range.setEnd(textNode, end)
 
-    for (const characterRect of Array.from(range.getClientRects())) {
-      if (characterRect.width === 0 && characterRect.height === 0) {
-        continue
-      }
-
+    for (const characterRect of getUsableRangeRects(range)) {
       const verticalDistance = getRectVerticalDistance(characterRect, y)
       const verticalCenterDistance = getRectVerticalCenterDistance(
         characterRect,
@@ -427,7 +609,21 @@ const getSlateStringLineEdgeTextOffset = ({
           : Math.abs(characterRect.right - rect.right)
       const candidate = {
         horizontalDistance,
-        offset: edge === 'start' ? start : end,
+        offset:
+          edge === 'start'
+            ? start
+            : getSegmentEndOffset({
+                end,
+                index,
+                offsets,
+                range,
+                rect,
+                segment,
+                segmentRect: characterRect,
+                start,
+                string,
+                textNode,
+              }),
         verticalCenterDistance,
         verticalDistance,
       }
@@ -489,20 +685,29 @@ const getSlateStringLineOffsetAtX = ({
     range.setStart(textNode, start)
     range.setEnd(textNode, end)
 
-    for (const characterRect of Array.from(range.getClientRects())) {
-      if (characterRect.width === 0 && characterRect.height === 0) {
-        continue
-      }
-
+    for (const characterRect of getUsableRangeRects(range)) {
       const midpoint = characterRect.left + characterRect.width / 2
+      const segment = text.slice(start, end)
+      const endOffset = getSegmentEndOffset({
+        end,
+        index,
+        offsets,
+        range,
+        rect,
+        segment,
+        segmentRect: characterRect,
+        start,
+        string,
+        textNode,
+      })
       const offset =
         direction === 'rtl'
           ? event.clientX <= midpoint
-            ? end
+            ? endOffset
             : start
           : event.clientX <= midpoint
             ? start
-            : end
+            : endOffset
       const horizontalDistance =
         event.clientX < characterRect.left
           ? characterRect.left - event.clientX

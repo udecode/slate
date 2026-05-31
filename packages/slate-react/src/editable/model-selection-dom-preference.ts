@@ -8,6 +8,8 @@ export type ModelSelectionDOMPoint = {
 
 type ModelSelectionDOMPreference = {
   anchor: ModelSelectionDOMPoint
+  deleteScheduled: boolean
+  expiresAt: number
   focus: ModelSelectionDOMPoint
   selection: SlateRange
 }
@@ -16,6 +18,9 @@ const MODEL_SELECTION_DOM_PREFERENCES = new WeakMap<
   object,
   ModelSelectionDOMPreference
 >()
+const MODEL_SELECTION_DOM_PREFERENCE_TTL_MS = 5000
+
+const getTimestamp = () => globalThis.performance?.now?.() ?? Date.now()
 
 const isConnectedInsideEditor = (
   editorElement: HTMLElement,
@@ -32,14 +37,39 @@ export const writeCollapsedModelSelectionDOMPreference = (
     return
   }
 
-  MODEL_SELECTION_DOM_PREFERENCES.set(editor, {
+  const preference: ModelSelectionDOMPreference = {
     anchor: point,
+    deleteScheduled: false,
+    expiresAt: getTimestamp() + MODEL_SELECTION_DOM_PREFERENCE_TTL_MS,
     focus: point,
     selection,
-  })
+  }
+
+  MODEL_SELECTION_DOM_PREFERENCES.set(editor, preference)
+  globalThis.setTimeout?.(() => {
+    if (MODEL_SELECTION_DOM_PREFERENCES.get(editor) === preference) {
+      MODEL_SELECTION_DOM_PREFERENCES.delete(editor)
+    }
+  }, MODEL_SELECTION_DOM_PREFERENCE_TTL_MS)
 }
 
-export const takeModelSelectionDOMPreference = ({
+const scheduleModelSelectionDOMPreferenceDelete = (
+  editor: object,
+  preference: ModelSelectionDOMPreference
+) => {
+  if (preference.deleteScheduled) {
+    return
+  }
+
+  preference.deleteScheduled = true
+  globalThis.setTimeout?.(() => {
+    if (MODEL_SELECTION_DOM_PREFERENCES.get(editor) === preference) {
+      MODEL_SELECTION_DOM_PREFERENCES.delete(editor)
+    }
+  }, 0)
+}
+
+export const readModelSelectionDOMPreference = ({
   editor,
   editorElement,
   selection,
@@ -54,9 +84,13 @@ export const takeModelSelectionDOMPreference = ({
     return null
   }
 
-  MODEL_SELECTION_DOM_PREFERENCES.delete(editor)
+  if (preference.expiresAt < getTimestamp()) {
+    MODEL_SELECTION_DOM_PREFERENCES.delete(editor)
+    return null
+  }
 
   if (!RangeApi.equals(preference.selection, selection)) {
+    MODEL_SELECTION_DOM_PREFERENCES.delete(editor)
     return null
   }
 
@@ -72,6 +106,7 @@ export const takeModelSelectionDOMPreference = ({
 
     domRange.setStart(preference.anchor.node, preference.anchor.offset)
     domRange.setEnd(preference.focus.node, preference.focus.offset)
+    scheduleModelSelectionDOMPreferenceDelete(editor, preference)
 
     return domRange
   } catch {

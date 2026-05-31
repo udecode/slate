@@ -38,10 +38,7 @@ export type DOMCoverageReason =
   | 'partial-dom-aggressive'
   | 'runtime-atom'
 
-export type DOMCoverageSelectionPolicy =
-  | 'materialize'
-  | 'boundary'
-  | 'model-backed'
+export type DOMCoverageSelectionPolicy = 'materialize' | 'skip' | 'model'
 
 export type DOMCoverageCopyPolicy =
   | 'include-model'
@@ -49,10 +46,7 @@ export type DOMCoverageCopyPolicy =
   | 'exclude'
   | 'materialize'
 
-export type DOMCoverageFindPolicy =
-  | 'native'
-  | 'not-native-until-mounted'
-  | 'custom'
+export type DOMCoverageFindPolicy = 'native' | 'custom'
 
 export interface DOMCoveragePathRange {
   anchor: SlatePath
@@ -115,6 +109,8 @@ export type DOMCoverageMaterializeReason =
   | 'programmatic'
   | 'background'
 
+export type DOMCoverageMaterializeRangeRole = 'anchor' | 'focus' | 'interior'
+
 export type DOMCoverageMaterializeResult =
   | {
       boundaryId: string
@@ -134,6 +130,7 @@ export type DOMCoverageMaterializeResult =
 
 export type DOMCoverageMaterializeOptions = {
   range?: SlateRange
+  rangeRole?: DOMCoverageMaterializeRangeRole
 }
 
 export type DOMCoverageMaterializeHandler = (

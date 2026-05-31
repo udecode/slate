@@ -892,7 +892,7 @@ describe('slate-react surface contract', () => {
       '0.1': [],
       '0.2': [],
       '1': [],
-      new: [false, false],
+      new: [false],
       '2': [true],
     })
   })

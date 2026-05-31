@@ -580,7 +580,7 @@ const createEditableElementSlots = <
             ? renderContentBoundary({
                 boundaryId: `content-root:${props.runtimeId}:${slot}`,
                 copyPolicy: 'exclude',
-                findPolicy: 'not-native-until-mounted',
+                findPolicy: 'native',
                 mounted: false,
                 reason: 'app-hidden',
                 scope: {
@@ -588,7 +588,7 @@ const createEditableElementSlots = <
                   to: childCount - 1,
                   type: 'children',
                 },
-                selectionPolicy: 'boundary',
+                selectionPolicy: 'skip',
               })
             : null}
           <EditableContentRootSlot
@@ -1552,7 +1552,7 @@ const EditableRootGroupPlaceholder = ({
         anchorRuntimeId && focusRuntimeId
           ? [{ anchor: anchorRuntimeId, focus: focusRuntimeId }]
           : [],
-      findPolicy: 'not-native-until-mounted' as const,
+      findPolicy: 'native' as const,
       ownerPath: [] as Path,
       ownerRuntimeId: null,
       reason: 'rendering-staged' as const,

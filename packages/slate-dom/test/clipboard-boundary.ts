@@ -413,11 +413,11 @@ describe('slate-dom clipboard boundary', () => {
         copyPolicy: 'summary-only',
         coveredPathRanges: [{ anchor: [0, 0], focus: [0, 0] }],
         coveredRuntimeRanges: [],
-        findPolicy: 'not-native-until-mounted',
+        findPolicy: 'native',
         ownerPath: [0],
         ownerRuntimeId: getRuntimeId(source, [0]),
         reason: 'app-collapse',
-        selectionPolicy: 'boundary',
+        selectionPolicy: 'skip',
         state: 'intentionally-hidden',
         version: 1,
       })

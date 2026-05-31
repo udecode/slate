@@ -363,7 +363,7 @@ const renderElement = ({ children, element, slots }) => {
         mounted={!element.hidden}
         reason="app-hidden"
         scope={{ type: 'self' }}
-        selectionPolicy="boundary"
+        selectionPolicy="skip"
       >
         <button type="button">Show header</button>
       </slots.contentBoundary>
@@ -381,6 +381,15 @@ text is not available to native browser find or screen-reader traversal until
 the boundary is mounted. Copy behavior follows `copyPolicy`; collapsed document
 sections usually use `include-model`, while app-hidden headers and footers
 usually use `exclude`.
+
+`selectionPolicy` controls keyboard and model selection through hidden content.
+Use `skip` for closed UI chrome, `model` for model-owned selection through
+unmounted content, and `materialize` when reaching the hidden range should mount
+the UI first.
+
+`findPolicy` describes search ownership. Use `native` when browser find covers
+the mounted DOM, and `custom` when the app indexes hidden model content itself.
+Native browser find cannot search content that is not mounted in the DOM.
 
 `boundaryId` is optional. Slate derives a stable editor-local boundary id from
 the rendered element and scope, while explicit ids are still useful for tests

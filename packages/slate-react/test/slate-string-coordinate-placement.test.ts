@@ -70,6 +70,10 @@ const rangeDescriptor = Object.getOwnPropertyDescriptor(
   Range.prototype,
   'getClientRects'
 )
+const rangeBoundingDescriptor = Object.getOwnPropertyDescriptor(
+  Range.prototype,
+  'getBoundingClientRect'
+)
 
 afterEach(() => {
   document.body.textContent = ''
@@ -78,6 +82,16 @@ afterEach(() => {
     Object.defineProperty(Range.prototype, 'getClientRects', rangeDescriptor)
   } else {
     delete (Range.prototype as Partial<Range>).getClientRects
+  }
+
+  if (rangeBoundingDescriptor) {
+    Object.defineProperty(
+      Range.prototype,
+      'getBoundingClientRect',
+      rangeBoundingDescriptor
+    )
+  } else {
+    delete (Range.prototype as Partial<Range>).getBoundingClientRect
   }
 })
 
@@ -398,6 +412,351 @@ describe('slate string coordinate placement', () => {
         textHost,
       })
     ).toBe(text.length)
+  })
+
+  test('places collapsed trailing whitespace right-edge clicks before the wrapped space', () => {
+    const { string, textHost } = createTextHost({ text: 'wrap ' })
+    const lineRect = rect({ left: 10, right: 90 })
+    const wrappedCaretRect = rect({ left: 10, right: 10, top: 24 })
+    const characterRects = [
+      rect({ left: 10, right: 30 }),
+      rect({ left: 30, right: 50 }),
+      rect({ left: 50, right: 65 }),
+      rect({ left: 65, right: 80 }),
+      rect({ left: 90, right: 90 }),
+    ]
+
+    setClientRects(string, [lineRect])
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value(this: Range) {
+        if (this.startOffset === this.endOffset) {
+          return this.startOffset === 5 ? [wrappedCaretRect] : []
+        }
+
+        return [characterRects[this.startOffset] ?? characterRects[0]]
+      },
+    })
+
+    const rightPlacement = getSlateStringCoordinatePlacement({
+      event: { clientX: 120, clientY: 10 },
+      strings: [string],
+    })
+
+    expect(
+      getSlateStringEdgeOffset({
+        edge: rightPlacement!.edge,
+        rect: rightPlacement!.rect,
+        string,
+        textHost,
+      })
+    ).toBe(4)
+  })
+
+  test('places right-edge clicks before soft-wrap whitespace when collapsed rects are unavailable', () => {
+    const { string, textHost } = createTextHost({ text: 'wrap next' })
+    const edgeLineRect = rect({ left: 10, right: 90 })
+    const stretchedLineRect = rect({ left: 10, right: 150 })
+    const characterRects = [
+      rect({ left: 10, right: 30 }),
+      rect({ left: 30, right: 50 }),
+      rect({ left: 50, right: 65 }),
+      rect({ left: 65, right: 80 }),
+      rect({ left: 90, right: 90 }),
+      rect({ left: 10, right: 30, top: 24 }),
+      rect({ left: 30, right: 50, top: 24 }),
+      rect({ left: 50, right: 70, top: 24 }),
+      rect({ left: 70, right: 90, top: 24 }),
+    ]
+
+    setClientRects(string, [stretchedLineRect])
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value(this: Range) {
+        if (this.startOffset === this.endOffset) {
+          return []
+        }
+
+        return [characterRects[this.startOffset] ?? characterRects[0]]
+      },
+    })
+
+    expect(
+      getSlateStringEdgeOffset({
+        edge: 'end',
+        rect: edgeLineRect,
+        string,
+        textHost,
+      })
+    ).toBe(4)
+    expect(
+      getSlateStringCoordinatePlacement({
+        event: { clientX: 126, clientY: 10 },
+        includeInsideString: true,
+        strings: [string],
+      })
+    ).toMatchObject({
+      offset: 4,
+      source: 'string-offset',
+      string,
+    })
+  })
+
+  test('places right-edge clicks before soft-wrap whitespace split across strings', () => {
+    const textHost = document.createElement('span')
+    const firstString = document.createElement('span')
+    const secondString = document.createElement('span')
+    const firstText = document.createTextNode('wrap ')
+    const secondText = document.createTextNode('next')
+    const lineRect = rect({ left: 10, right: 90 })
+    const firstRects = [
+      rect({ left: 10, right: 30 }),
+      rect({ left: 30, right: 50 }),
+      rect({ left: 50, right: 65 }),
+      rect({ left: 65, right: 80 }),
+      rect({ left: 90, right: 90 }),
+    ]
+    const secondRect = rect({ left: 10, right: 30, top: 24 })
+
+    textHost.dataset.slateNode = 'text'
+    firstString.dataset.slateString = 'true'
+    secondString.dataset.slateString = 'true'
+    firstString.append(firstText)
+    secondString.append(secondText)
+    textHost.append(firstString, secondString)
+    document.body.append(textHost)
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value(this: Range) {
+        if (this.startOffset === this.endOffset) {
+          return []
+        }
+
+        return this.startContainer === secondText
+          ? [secondRect]
+          : [firstRects[this.startOffset] ?? firstRects[0]]
+      },
+    })
+
+    expect(
+      getSlateStringEdgeOffset({
+        edge: 'end',
+        rect: lineRect,
+        string: firstString,
+        textHost,
+      })
+    ).toBe(4)
+  })
+
+  test('places right-edge clicks before soft-wrap whitespace split across text hosts', () => {
+    const element = document.createElement('div')
+    const first = createTextHost({ text: 'wrap ' })
+    const second = createTextHost({ text: 'next' })
+    const firstText = first.string.firstChild
+    const secondText = second.string.firstChild
+    const lineRect = rect({ left: 10, right: 90 })
+    const firstRects = [
+      rect({ left: 10, right: 30 }),
+      rect({ left: 30, right: 50 }),
+      rect({ left: 50, right: 65 }),
+      rect({ left: 65, right: 80 }),
+      rect({ left: 90, right: 90 }),
+    ]
+    const secondRect = rect({ left: 10, right: 30, top: 24 })
+
+    if (!firstText || !secondText) {
+      throw new Error('Expected text nodes')
+    }
+
+    element.append(first.textHost, second.textHost)
+    document.body.append(element)
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value(this: Range) {
+        if (this.startOffset === this.endOffset) {
+          return []
+        }
+
+        return this.startContainer === secondText
+          ? [secondRect]
+          : [firstRects[this.startOffset] ?? firstRects[0]]
+      },
+    })
+
+    expect(
+      getSlateStringEdgeOffset({
+        edge: 'end',
+        rect: lineRect,
+        string: first.string,
+        textHost: first.textHost,
+      })
+    ).toBe(4)
+  })
+
+  test('keeps visible trailing whitespace when the caret stays on the line', () => {
+    const { string, textHost } = createTextHost({ text: 'wrap next' })
+    const edgeLineRect = rect({ left: 10, right: 90 })
+    const stretchedLineRect = rect({ left: 10, right: 150 })
+    const visibleCaretRect = rect({ left: 90, right: 90 })
+    const characterRects = [
+      rect({ left: 10, right: 30 }),
+      rect({ left: 30, right: 50 }),
+      rect({ left: 50, right: 65 }),
+      rect({ left: 65, right: 80 }),
+      rect({ left: 80, right: 90 }),
+      rect({ left: 10, right: 30, top: 24 }),
+      rect({ left: 30, right: 50, top: 24 }),
+      rect({ left: 50, right: 70, top: 24 }),
+      rect({ left: 70, right: 90, top: 24 }),
+    ]
+
+    setClientRects(string, [stretchedLineRect])
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value(this: Range) {
+        if (this.startOffset === this.endOffset) {
+          return this.startOffset === 5 ? [visibleCaretRect] : []
+        }
+
+        return [characterRects[this.startOffset] ?? characterRects[0]]
+      },
+    })
+
+    expect(
+      getSlateStringEdgeOffset({
+        edge: 'end',
+        rect: edgeLineRect,
+        string,
+        textHost,
+      })
+    ).toBe(5)
+    expect(
+      getSlateStringCoordinatePlacement({
+        event: { clientX: 126, clientY: 10 },
+        includeInsideString: true,
+        strings: [string],
+      })
+    ).toMatchObject({
+      offset: 5,
+      source: 'string-offset',
+      string,
+    })
+  })
+
+  test('keeps visible trailing whitespace when collapsed caret only has a bounding rect', () => {
+    const { string, textHost } = createTextHost({ text: 'wrap next' })
+    const edgeLineRect = rect({ left: 10, right: 90 })
+    const visibleCaretRect = rect({ left: 90, right: 90 })
+    const characterRects = [
+      rect({ left: 10, right: 30 }),
+      rect({ left: 30, right: 50 }),
+      rect({ left: 50, right: 65 }),
+      rect({ left: 65, right: 80 }),
+      rect({ left: 80, right: 90 }),
+      rect({ left: 10, right: 30, top: 24 }),
+      rect({ left: 30, right: 50, top: 24 }),
+      rect({ left: 50, right: 70, top: 24 }),
+      rect({ left: 70, right: 90, top: 24 }),
+    ]
+
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value(this: Range) {
+        if (this.startOffset === this.endOffset) {
+          return []
+        }
+
+        return [characterRects[this.startOffset] ?? characterRects[0]]
+      },
+    })
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value(this: Range) {
+        return this.startOffset === this.endOffset && this.startOffset === 5
+          ? visibleCaretRect
+          : rect({ bottom: 0, left: 0, right: 0 })
+      },
+    })
+
+    expect(
+      getSlateStringEdgeOffset({
+        edge: 'end',
+        rect: edgeLineRect,
+        string,
+        textHost,
+      })
+    ).toBe(5)
+  })
+
+  test('keeps non-breaking spaces as visible text', () => {
+    const { string, textHost } = createTextHost({ text: 'wrap\u00a0' })
+    const lineRect = rect({ left: 10, right: 90 })
+    const wrappedCaretRect = rect({ left: 10, right: 10, top: 24 })
+    const characterRects = [
+      rect({ left: 10, right: 30 }),
+      rect({ left: 30, right: 50 }),
+      rect({ left: 50, right: 65 }),
+      rect({ left: 65, right: 80 }),
+      rect({ left: 80, right: 90 }),
+    ]
+
+    setClientRects(string, [lineRect])
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value(this: Range) {
+        if (this.startOffset === this.endOffset) {
+          return this.startOffset === 5 ? [wrappedCaretRect] : []
+        }
+
+        return [characterRects[this.startOffset] ?? characterRects[0]]
+      },
+    })
+
+    expect(
+      getSlateStringEdgeOffset({
+        edge: 'end',
+        rect: lineRect,
+        string,
+        textHost,
+      })
+    ).toBe(5)
+  })
+
+  test('places stretched-line inside clicks before collapsed trailing whitespace', () => {
+    const { string } = createTextHost({ text: 'wrap ' })
+    const lineRect = rect({ left: 10, right: 150 })
+    const wrappedCaretRect = rect({ left: 10, right: 10, top: 24 })
+    const characterRects = [
+      rect({ left: 10, right: 30 }),
+      rect({ left: 30, right: 50 }),
+      rect({ left: 50, right: 65 }),
+      rect({ left: 65, right: 80 }),
+      rect({ left: 80, right: 90 }),
+    ]
+
+    setClientRects(string, [lineRect])
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value(this: Range) {
+        if (this.startOffset === this.endOffset) {
+          return this.startOffset === 5 ? [wrappedCaretRect] : []
+        }
+
+        return [characterRects[this.startOffset] ?? characterRects[0]]
+      },
+    })
+
+    expect(
+      getSlateStringCoordinatePlacement({
+        event: { clientX: 126, clientY: 10 },
+        includeInsideString: true,
+        strings: [string],
+      })
+    ).toMatchObject({
+      offset: 4,
+      source: 'string-offset',
+      string,
+    })
   })
 
   test('maps split leaf local offsets to document text offsets', () => {

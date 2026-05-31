@@ -12,6 +12,7 @@ import {
   type CSSProperties,
   createContext,
   Fragment,
+  type KeyboardEvent,
   type RefObject,
   useCallback,
   useContext,
@@ -20,7 +21,8 @@ import {
   useRef,
   useState,
 } from 'react'
-import { defineStateField, NodeApi, type Value } from 'slate'
+import { defineStateField, type Node, NodeApi, type Value } from 'slate'
+import { isHotkey } from 'slate-dom'
 import {
   createSlatePage,
   getSlatePageLayoutDecorations,
@@ -61,7 +63,13 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/utils/cn'
-
+import type {
+  CustomEditor,
+  CustomElementType,
+  CustomText,
+  CustomTextKey,
+} from './custom-types.d'
+import { toggleMark } from './mark-utils'
 import {
   clampNumber,
   parseAsBoundedInteger,
@@ -87,6 +95,7 @@ const PAGE_GAP = 24
 const PAGE_CONTENT_INLINE_INSET = 2
 const PAGE_STACK_SAFE_INLINE = 72
 const PAGE_TEXT_FONT = '"Helvetica Neue", Helvetica, Arial, sans-serif'
+const PAGE_CODE_FONT = 'SFMono-Regular, Menlo, monospace'
 const DEFAULT_MEDIA_HEIGHT = 240
 const DEFAULT_TABLE_ROW_HEIGHT = 36
 const DEFAULT_TABLE_ROWS = 240
@@ -141,6 +150,184 @@ const paginationControlUrlKeys = {
 
 type PaginationControls = Values<typeof paginationControlParsers>
 type SetPaginationControls = SetValues<typeof paginationControlParsers>
+type PaginationBlockFormat = Extract<
+  CustomElementType,
+  'heading-one' | 'heading-three' | 'heading-two' | 'paragraph'
+>
+
+const paginationMarkHotkeys: [string, CustomTextKey][] = [
+  ['mod+b', 'bold'],
+  ['mod+i', 'italic'],
+  ['mod+u', 'underline'],
+]
+
+const paginationBlockHotkeys: [string, PaginationBlockFormat][] = [
+  ['mod+alt+1', 'heading-one'],
+  ['mod+alt+2', 'heading-two'],
+  ['mod+alt+3', 'heading-three'],
+]
+
+const paginationTextBlockTypes = new Set<PaginationBlockFormat>([
+  'heading-one',
+  'heading-two',
+  'heading-three',
+  'paragraph',
+])
+
+const paginationTextBlockTags = {
+  'heading-one': 'h1',
+  'heading-two': 'h2',
+  'heading-three': 'h3',
+  paragraph: 'p',
+} satisfies Record<PaginationBlockFormat, 'h1' | 'h2' | 'h3' | 'p'>
+
+const paginationTextBlockStyles = {
+  'heading-one': {
+    blockSpacing: 18,
+    fontSize: 28,
+    fontWeight: 700,
+    lineHeight: 34,
+  },
+  'heading-two': {
+    blockSpacing: 16,
+    fontSize: 22,
+    fontWeight: 700,
+    lineHeight: 30,
+  },
+  'heading-three': {
+    blockSpacing: 14,
+    fontSize: 18,
+    fontWeight: 700,
+    lineHeight: 26,
+  },
+  paragraph: {
+    blockSpacing: 12,
+    fontSize: 16,
+    fontWeight: 400,
+    lineHeight: 24,
+  },
+} satisfies Record<
+  PaginationBlockFormat,
+  {
+    blockSpacing: number
+    fontSize: number
+    fontWeight: 400 | 700
+    lineHeight: number
+  }
+>
+
+const isPaginationBlockFormat = (
+  type: CustomElementType
+): type is PaginationBlockFormat =>
+  paginationTextBlockTypes.has(type as PaginationBlockFormat)
+
+const isPaginationTextBlock = (
+  node: Node
+): node is Node & { type: PaginationBlockFormat } =>
+  NodeApi.isElement(node) &&
+  isPaginationBlockFormat(node.type as CustomElementType)
+
+const getPaginationTextBlockStyle = (type: CustomElementType) =>
+  isPaginationBlockFormat(type)
+    ? paginationTextBlockStyles[type]
+    : paginationTextBlockStyles.paragraph
+
+const getPaginationTextBlockElementStyle = (
+  type: CustomElementType
+): CSSProperties | undefined => {
+  if (!isPaginationBlockFormat(type)) {
+    return undefined
+  }
+
+  const textStyle = paginationTextBlockStyles[type]
+
+  return {
+    fontSize: textStyle.fontSize,
+    fontWeight: textStyle.fontWeight,
+    lineHeight: `${textStyle.lineHeight}px`,
+  }
+}
+
+const getPaginationTextFont = (
+  elementType: CustomElementType,
+  leaf: CustomText
+) => {
+  const blockStyle = getPaginationTextBlockStyle(elementType)
+  const fontFamily = leaf.code ? PAGE_CODE_FONT : PAGE_TEXT_FONT
+  const fontStyle = leaf.italic ? 'italic' : 'normal'
+  const fontWeight = leaf.bold ? 700 : blockStyle.fontWeight
+
+  return `${fontStyle} ${fontWeight} ${blockStyle.fontSize}px ${fontFamily}`
+}
+
+const getPaginationTextDecorationLine = (marks: Partial<CustomText>) => {
+  const lines = [
+    marks.underline ? 'underline' : null,
+    marks.strikethrough ? 'line-through' : null,
+  ].filter(Boolean)
+
+  return lines.length > 0 ? lines.join(' ') : undefined
+}
+
+const getPaginationLeafStyle = (marks: Partial<CustomText>): CSSProperties => ({
+  fontFamily: marks.code ? PAGE_CODE_FONT : undefined,
+  fontStyle: marks.italic ? 'italic' : undefined,
+  fontWeight: marks.bold ? 700 : undefined,
+  textDecorationLine: getPaginationTextDecorationLine(marks),
+})
+
+const isPaginationBlockActive = (
+  editor: CustomEditor,
+  format: PaginationBlockFormat
+) => {
+  const selection = editor.read((state) => state.selection.get())
+
+  if (!selection) {
+    return false
+  }
+
+  return editor.read((state) =>
+    state.nodes.some({
+      at: state.ranges.unhang(selection),
+      match: (node) => isPaginationTextBlock(node) && node.type === format,
+    })
+  )
+}
+
+const togglePaginationBlock = (
+  editor: CustomEditor,
+  format: PaginationBlockFormat
+) => {
+  const isActive = isPaginationBlockActive(editor, format)
+
+  editor.update((tx) => {
+    tx.nodes.set(
+      { type: isActive ? 'paragraph' : format },
+      { match: isPaginationTextBlock }
+    )
+  })
+}
+
+const handlePaginationKeyDown = (
+  editor: CustomEditor,
+  event: KeyboardEvent<HTMLDivElement>
+) => {
+  for (const [hotkey, format] of paginationBlockHotkeys) {
+    if (isHotkey(hotkey, event)) {
+      event.preventDefault()
+      togglePaginationBlock(editor, format)
+      return true
+    }
+  }
+
+  for (const [hotkey, mark] of paginationMarkHotkeys) {
+    if (isHotkey(hotkey, event)) {
+      event.preventDefault()
+      toggleMark(editor, mark)
+      return true
+    }
+  }
+}
 
 const PaginationControlsToolbar = ({
   applyTableRows,
@@ -787,7 +974,7 @@ const renderTableChildrenWindow = ({
           {slots.contentBoundary({
             boundaryId: `pagination-table-hidden:${nextIndex}-${range.start - 1}`,
             copyPolicy: 'include-model',
-            findPolicy: 'not-native-until-mounted',
+            findPolicy: 'native',
             mounted: false,
             reason: 'viewport-virtualization',
             renderPlaceholder: () => null,
@@ -814,7 +1001,7 @@ const renderTableChildrenWindow = ({
         {slots.contentBoundary({
           boundaryId: `pagination-table-hidden:${nextIndex}-${rowCount - 1}`,
           copyPolicy: 'include-model',
-          findPolicy: 'not-native-until-mounted',
+          findPolicy: 'native',
           mounted: false,
           reason: 'viewport-virtualization',
           renderPlaceholder: () => null,
@@ -945,6 +1132,22 @@ const PaginationElement = ({
   }
 
   if (!box) {
+    if (isPaginationBlockFormat(elementType as CustomElementType)) {
+      const TextBlock =
+        paginationTextBlockTags[elementType as PaginationBlockFormat]
+
+      return (
+        <TextBlock
+          {...attributes}
+          style={getPaginationTextBlockElementStyle(
+            elementType as CustomElementType
+          )}
+        >
+          {children}
+        </TextBlock>
+      )
+    }
+
     return <div {...attributes}>{children}</div>
   }
 
@@ -969,7 +1172,7 @@ const PaginationElement = ({
         ? slots.contentBoundary({
             boundaryId: 'pagination-table-hidden:all',
             copyPolicy: 'include-model',
-            findPolicy: 'not-native-until-mounted',
+            findPolicy: 'native',
             mounted: false,
             reason: 'viewport-virtualization',
             renderPlaceholder: () => null,
@@ -1047,6 +1250,35 @@ const PaginationElement = ({
     )
   }
 
+  if (isPaginationBlockFormat(elementType as CustomElementType)) {
+    const TextBlock =
+      paginationTextBlockTags[elementType as PaginationBlockFormat]
+
+    return (
+      <TextBlock
+        {...attributes}
+        data-testid={debugFrames ? 'pagination-projected-block' : undefined}
+        style={{
+          ...projectedStyle,
+          ...getPaginationTextBlockElementStyle(
+            elementType as CustomElementType
+          ),
+          ...(flowElement && usesVirtualizedLayout
+            ? {
+                paddingLeft: PAGE_CONTENT_INLINE_INSET,
+                width:
+                  typeof projectedStyle.width === 'number'
+                    ? projectedStyle.width + PAGE_CONTENT_INLINE_INSET
+                    : projectedStyle.width,
+              }
+            : undefined),
+        }}
+      >
+        {children}
+      </TextBlock>
+    )
+  }
+
   return (
     <div
       {...attributes}
@@ -1090,7 +1322,11 @@ const renderPaginationLeaf = ({
   )?.paginationLine
 
   if (!line) {
-    return <span {...attributes}>{children}</span>
+    return (
+      <span {...attributes} style={getPaginationLeafStyle(segment.marks)}>
+        {children}
+      </span>
+    )
   }
 
   return (
@@ -1099,9 +1335,7 @@ const renderPaginationLeaf = ({
       style={{
         color: '#111827',
         display: 'inline-block',
-        fontFamily: segment.marks.code
-          ? 'SFMono-Regular, Menlo, monospace'
-          : undefined,
+        fontFamily: segment.marks.code ? PAGE_CODE_FONT : undefined,
         fontStyle: segment.marks.italic ? 'italic' : undefined,
         fontWeight: segment.marks.bold ? 700 : undefined,
         height: line.hitRect.height,
@@ -1109,9 +1343,7 @@ const renderPaginationLeaf = ({
         lineHeight: `${line.textRect.height}px`,
         minWidth: line.textRect.width === 0 ? 1 : undefined,
         position: 'absolute',
-        textDecoration: segment.marks.strikethrough
-          ? 'line-through'
-          : undefined,
+        textDecorationLine: getPaginationTextDecorationLine(segment.marks),
         top: line.textRect.top,
         whiteSpace: 'pre',
         width: line.hitRect.width,
@@ -1130,6 +1362,7 @@ type PaginationPageViewProps = {
   domStrategy: PagedEditableProps['domStrategy']
   layout: PagedEditableProps['layout']
   onDOMStrategyMetrics: PagedEditableProps['onDOMStrategyMetrics']
+  onKeyDown: PagedEditableProps['onKeyDown']
   pageGeometry: {
     height: number
     width: number
@@ -1147,6 +1380,7 @@ const PaginationPageView = ({
   domStrategy,
   layout,
   onDOMStrategyMetrics,
+  onKeyDown,
   pageGeometry,
   pageLayoutMode,
   pageScale,
@@ -1180,6 +1414,7 @@ const PaginationPageView = ({
             domStrategy={domStrategy}
             layout={layout}
             onDOMStrategyMetrics={onDOMStrategyMetrics}
+            onKeyDown={onKeyDown}
             pageView={{ gap: PAGE_GAP, mode: pageLayoutMode }}
             renderElement={renderElement}
             renderLeaf={renderLeaf}
@@ -1265,7 +1500,7 @@ const PaginationSurface = ({
   controls: PaginationControls
   setControls: SetPaginationControls
 }) => {
-  const editor = useEditor()
+  const editor = useEditor<CustomEditor>()
   const setSettings = useSetStateField(pageSettings)
   const [domStrategyMetrics, setDOMStrategyMetrics] =
     useState<EditableDOMStrategyMetrics | null>(null)
@@ -1289,21 +1524,28 @@ const PaginationSurface = ({
     () =>
       ({
         block: ({ element }) => ({
-          blockSpacing:
-            element.type === 'heading-one' || element.type === 'table'
+          blockSpacing: isPaginationBlockFormat(
+            element.type as CustomElementType
+          )
+            ? getPaginationTextBlockStyle(element.type as CustomElementType)
+                .blockSpacing
+            : element.type === 'table'
               ? 18
               : 12,
-          lineHeight:
-            element.type === 'heading-one'
-              ? 34
-              : element.type === 'table'
-                ? 72
-                : element.type === 'image'
-                  ? 120
-                  : 24,
+          lineHeight: isPaginationBlockFormat(element.type as CustomElementType)
+            ? getPaginationTextBlockStyle(element.type as CustomElementType)
+                .lineHeight
+            : element.type === 'table'
+              ? 72
+              : element.type === 'image'
+                ? 120
+                : 24,
         }),
-        text: ({ leaf }) => ({
-          font: `${leaf.bold ? 700 : 400} 16px ${PAGE_TEXT_FONT}`,
+        text: ({ element, leaf }) => ({
+          font: getPaginationTextFont(
+            element.type as CustomElementType,
+            leaf as CustomText
+          ),
           letterSpacing: 0,
         }),
       }) satisfies SlatePageLayoutTypography,
@@ -1614,6 +1856,11 @@ const PaginationSurface = ({
     [activeFlowBlockPaths, blockBoxes, debugFrames, usesVirtualizedLayout]
   )
   const renderLeaf = renderPaginationLeaf
+  const onKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) =>
+      handlePaginationKeyDown(editor, event),
+    [editor]
+  )
 
   return (
     <div className="slate-pagination-shell">
@@ -1638,6 +1885,7 @@ const PaginationSurface = ({
         domStrategy={domStrategy}
         layout={layout}
         onDOMStrategyMetrics={setDOMStrategyMetrics}
+        onKeyDown={onKeyDown}
         pageGeometry={pageGeometry}
         pageLayoutMode={pageLayoutMode}
         pageScale={pageScale}

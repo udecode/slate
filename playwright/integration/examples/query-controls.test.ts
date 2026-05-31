@@ -68,7 +68,6 @@ test.describe('example query controls', () => {
         accordion_open: true,
         collapsible_open: true,
         copy: 'exclude',
-        find: 'native',
         selection: 'materialize',
         tab: 'details',
       },
@@ -90,9 +89,6 @@ test.describe('example query controls', () => {
     ).toContainText('materialize')
     await expect(page.getByTestId('hidden-content-copy-policy')).toContainText(
       'exclude'
-    )
-    await expect(page.getByTestId('hidden-content-find-policy')).toContainText(
-      'native'
     )
   })
 

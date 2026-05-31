@@ -1,4 +1,4 @@
-import { useCallback, useContext, useState } from 'react'
+import { useCallback, useContext, useRef } from 'react'
 import type { Operation, Path, RuntimeId, Node as SlateNode } from 'slate'
 import {
   EDITOR_TO_KEY_TO_ELEMENT,
@@ -7,6 +7,7 @@ import {
   NODE_TO_ELEMENT,
   NODE_TO_RUNTIME_ID,
 } from 'slate-dom'
+import type { DOMEditor } from 'slate-dom/internal'
 import { EditorContext } from '../context'
 import {
   Editor,
@@ -218,6 +219,86 @@ export const syncTextOperationsToDOM = (
   return result()
 }
 
+const bindSlateNodeElement = ({
+  editor,
+  node,
+  providedPathKey,
+  providedSlateNode,
+  runtimeId,
+}: {
+  editor: Editor
+  node: Node
+  providedPathKey: string | null
+  providedSlateNode: SlateNode | null
+  runtimeId: RuntimeId
+}) => {
+  const path =
+    providedPathKey == null
+      ? Editor.getPathByRuntimeId(editor, runtimeId)
+      : parsePathKey(providedPathKey)
+
+  if (!path || !(node instanceof HTMLElement)) {
+    return null
+  }
+
+  const slateNode = (providedSlateNode ??
+    editor.read((state) => state.nodes.get(path))[0]) as SlateNode
+  const nextPathKey = pathKey(path)
+  const key = (
+    (editor as DOMEditor).api as { dom: DOMEditor['dom'] }
+  ).dom.findKey(slateNode)
+  const keyToElement = EDITOR_TO_KEY_TO_ELEMENT.get(editor) ?? new WeakMap()
+
+  if (!EDITOR_TO_KEY_TO_ELEMENT.has(editor)) {
+    EDITOR_TO_KEY_TO_ELEMENT.set(editor, keyToElement)
+  }
+
+  keyToElement.set(key, node)
+  NODE_TO_ELEMENT.set(slateNode, node)
+  NODE_TO_RUNTIME_ID.set(slateNode, runtimeId)
+  ELEMENT_TO_NODE.set(node, slateNode)
+  ELEMENT_TO_PATH.set(node, [...path] as Path)
+  node.setAttribute('data-slate-path', path.join(','))
+  node.setAttribute('data-slate-runtime-id', runtimeId)
+  getPathElementMap(editor).set(nextPathKey, node)
+
+  return () => {
+    if (keyToElement.get(key) === node) {
+      keyToElement.delete(key)
+    }
+
+    if (NODE_TO_ELEMENT.get(slateNode) === node) {
+      NODE_TO_ELEMENT.delete(slateNode)
+
+      if (NODE_TO_RUNTIME_ID.get(slateNode) === runtimeId) {
+        NODE_TO_RUNTIME_ID.delete(slateNode)
+      }
+    }
+
+    if (ELEMENT_TO_NODE.get(node) === slateNode) {
+      ELEMENT_TO_NODE.delete(node)
+    }
+
+    const currentPath = ELEMENT_TO_PATH.get(node)
+    if (currentPath && pathKey(currentPath) === nextPathKey) {
+      ELEMENT_TO_PATH.delete(node)
+    }
+
+    if (node.getAttribute('data-slate-path') === path.join(',')) {
+      node.removeAttribute('data-slate-path')
+    }
+
+    if (node.getAttribute('data-slate-runtime-id') === runtimeId) {
+      node.removeAttribute('data-slate-runtime-id')
+    }
+
+    const pathElementMap = getPathElementMap(editor)
+    if (pathElementMap.get(nextPathKey) === node) {
+      pathElementMap.delete(nextPathKey)
+    }
+  }
+}
+
 export const useSlateNodeRef = (
   runtimeId: RuntimeId | null,
   options: {
@@ -226,81 +307,54 @@ export const useSlateNodeRef = (
   } = {}
 ) => {
   const editor = useContext(EditorContext)
-  const [node, setNode] = useState<Node | null>(null)
+  const nodeRef = useRef<Node | null>(null)
+  const cleanupRef = useRef<(() => void) | null>(null)
   const providedPathKey = options.path == null ? null : pathKey(options.path)
   const providedSlateNode = options.slateNode ?? null
 
-  useIsomorphicLayoutEffect(() => {
-    if (!editor || !node || !runtimeId) {
-      return
-    }
-
-    const path =
-      providedPathKey == null
-        ? Editor.getPathByRuntimeId(editor, runtimeId)
-        : parsePathKey(providedPathKey)
-
-    if (!path || !(node instanceof HTMLElement)) {
-      return
-    }
-
-    const slateNode =
-      providedSlateNode ?? editor.read((state) => state.nodes.get(path))[0]
-    const nextPathKey = pathKey(path)
-    const key = editor.api.dom.findKey(slateNode)
-    const keyToElement = EDITOR_TO_KEY_TO_ELEMENT.get(editor) ?? new WeakMap()
-
-    if (!EDITOR_TO_KEY_TO_ELEMENT.has(editor)) {
-      EDITOR_TO_KEY_TO_ELEMENT.set(editor, keyToElement)
-    }
-
-    keyToElement.set(key, node)
-    NODE_TO_ELEMENT.set(slateNode, node)
-    NODE_TO_RUNTIME_ID.set(slateNode, runtimeId)
-    ELEMENT_TO_NODE.set(node, slateNode)
-    ELEMENT_TO_PATH.set(node, [...path] as Path)
-    node.setAttribute('data-slate-path', path.join(','))
-    node.setAttribute('data-slate-runtime-id', runtimeId)
-    getPathElementMap(editor).set(nextPathKey, node)
-
-    return () => {
-      if (keyToElement.get(key) === node) {
-        keyToElement.delete(key)
-      }
-
-      if (NODE_TO_ELEMENT.get(slateNode) === node) {
-        NODE_TO_ELEMENT.delete(slateNode)
-
-        if (NODE_TO_RUNTIME_ID.get(slateNode) === runtimeId) {
-          NODE_TO_RUNTIME_ID.delete(slateNode)
-        }
-      }
-
-      if (ELEMENT_TO_NODE.get(node) === slateNode) {
-        ELEMENT_TO_NODE.delete(node)
-      }
-
-      const currentPath = ELEMENT_TO_PATH.get(node)
-      if (currentPath && pathKey(currentPath) === nextPathKey) {
-        ELEMENT_TO_PATH.delete(node)
-      }
-
-      if (node.getAttribute('data-slate-path') === path.join(',')) {
-        node.removeAttribute('data-slate-path')
-      }
-
-      if (node.getAttribute('data-slate-runtime-id') === runtimeId) {
-        node.removeAttribute('data-slate-runtime-id')
-      }
-
-      const pathElementMap = getPathElementMap(editor)
-      if (pathElementMap.get(nextPathKey) === node) {
-        pathElementMap.delete(nextPathKey)
-      }
-    }
-  }, [editor, node, providedPathKey, providedSlateNode, runtimeId])
-
-  return useCallback((nextNode: Node | null) => {
-    setNode(nextNode)
+  const cleanupBinding = useCallback(() => {
+    cleanupRef.current?.()
+    cleanupRef.current = null
   }, [])
+
+  const bindNode = useCallback(
+    (nextNode: Node | null) => {
+      cleanupBinding()
+
+      if (!nextNode) {
+        return
+      }
+
+      if (!editor || !runtimeId) {
+        return
+      }
+
+      cleanupRef.current = bindSlateNodeElement({
+        editor,
+        node: nextNode,
+        providedPathKey,
+        providedSlateNode,
+        runtimeId,
+      })
+    },
+    [cleanupBinding, editor, providedPathKey, providedSlateNode, runtimeId]
+  )
+
+  useIsomorphicLayoutEffect(() => {
+    bindNode(nodeRef.current)
+
+    return cleanupBinding
+  }, [bindNode, cleanupBinding])
+
+  return useCallback(
+    (nextNode: Node | null) => {
+      if (nodeRef.current === nextNode) {
+        return
+      }
+
+      nodeRef.current = nextNode
+      bindNode(nextNode)
+    },
+    [bindNode]
+  )
 }

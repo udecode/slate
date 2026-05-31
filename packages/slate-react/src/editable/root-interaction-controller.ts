@@ -2,6 +2,7 @@ import {
   type MouseEvent,
   type MouseEventHandler,
   useCallback,
+  useEffect,
   useRef,
 } from 'react'
 import {
@@ -110,7 +111,33 @@ type PendingProjectedDrag = {
   endpoint: RootInteractionDragEndpoint
 }
 
+type PendingDragAutoScroll = {
+  animationFrame: number | null
+  clientX: number
+  clientY: number
+  editor: RootInteractionEditor
+  releaseCleanup: (() => void) | null
+  root: RootKey
+  rootElement: HTMLElement
+  selectionBridge?: RootInteractionControllerOptions['selectionBridge']
+  startRange: Range
+}
+
+type PendingDragAutoScrollRef = {
+  current: PendingDragAutoScroll | null
+}
+
 let pendingProjectedDrag: PendingProjectedDrag | null = null
+
+const DRAG_AUTOSCROLL_EDGE_SIZE = 48
+const DRAG_AUTOSCROLL_MAX_DELTA = 28
+const SCROLLABLE_OVERFLOW_PATTERN = /(auto|scroll|overlay)/
+
+const clampDragAutoScrollCoordinate = (
+  value: number,
+  min: number,
+  max: number
+) => Math.min(Math.max(value, min), Math.max(min, max - 1))
 
 const withInteractionRangeRoot = (range: Range, root: RootKey): Range => {
   if (root === MAIN_ROOT_KEY) {
@@ -170,6 +197,181 @@ const mouseEventTargetToElement = (
   }
 
   return null
+}
+
+const getComposedParentElement = (element: HTMLElement) => {
+  if (element.parentElement) {
+    return element.parentElement
+  }
+
+  const window = element.ownerDocument.defaultView
+
+  if (!window) {
+    return null
+  }
+
+  const ShadowRootConstructor = window.ShadowRoot
+  const root = element.getRootNode()
+
+  if (ShadowRootConstructor && root instanceof ShadowRootConstructor) {
+    const { host } = root
+
+    return host instanceof window.HTMLElement ? host : null
+  }
+
+  return null
+}
+
+export const canScrollY = (element: HTMLElement) => {
+  const style = element.ownerDocument.defaultView?.getComputedStyle(element)
+  const overflowY = style?.overflowY ?? ''
+
+  return (
+    SCROLLABLE_OVERFLOW_PATTERN.test(overflowY) &&
+    element.scrollHeight > element.clientHeight
+  )
+}
+
+const getDragAutoScrollDelta = ({
+  clientY,
+  rect,
+}: {
+  clientY: number
+  rect: Pick<DOMRect, 'bottom' | 'top'>
+}) => {
+  const topDistance = clientY - rect.top
+  const bottomDistance = rect.bottom - clientY
+
+  if (
+    topDistance < DRAG_AUTOSCROLL_EDGE_SIZE &&
+    topDistance >= -DRAG_AUTOSCROLL_EDGE_SIZE
+  ) {
+    const intensity = 1 - Math.max(0, topDistance) / DRAG_AUTOSCROLL_EDGE_SIZE
+
+    return -Math.max(1, Math.ceil(intensity * DRAG_AUTOSCROLL_MAX_DELTA))
+  }
+
+  if (
+    bottomDistance < DRAG_AUTOSCROLL_EDGE_SIZE &&
+    bottomDistance >= -DRAG_AUTOSCROLL_EDGE_SIZE
+  ) {
+    const intensity =
+      1 - Math.max(0, bottomDistance) / DRAG_AUTOSCROLL_EDGE_SIZE
+
+    return Math.max(1, Math.ceil(intensity * DRAG_AUTOSCROLL_MAX_DELTA))
+  }
+
+  return 0
+}
+
+export const getDragAutoScrollTarget = ({
+  clientX,
+  clientY,
+  rootElement,
+}: {
+  clientX: number
+  clientY: number
+  rootElement: HTMLElement
+}): null | {
+  clientX: number
+  clientY: number
+  scroll: () => boolean
+} => {
+  for (
+    let parent: HTMLElement | null = rootElement;
+    parent;
+    parent = getComposedParentElement(parent)
+  ) {
+    if (!canScrollY(parent)) {
+      continue
+    }
+
+    const rect = parent.getBoundingClientRect()
+
+    if (
+      clientX < rect.left ||
+      clientX > rect.right ||
+      clientY < rect.top - DRAG_AUTOSCROLL_EDGE_SIZE ||
+      clientY > rect.bottom + DRAG_AUTOSCROLL_EDGE_SIZE
+    ) {
+      continue
+    }
+
+    const delta = getDragAutoScrollDelta({ clientY, rect })
+
+    if (delta === 0) {
+      continue
+    }
+
+    const maxScrollTop = parent.scrollHeight - parent.clientHeight
+    const canMove =
+      delta < 0 ? parent.scrollTop > 0 : parent.scrollTop < maxScrollTop
+
+    if (!canMove) {
+      continue
+    }
+
+    return {
+      clientX: clampDragAutoScrollCoordinate(clientX, rect.left, rect.right),
+      clientY: clampDragAutoScrollCoordinate(clientY, rect.top, rect.bottom),
+      scroll: () => {
+        const previousScrollTop = parent.scrollTop
+
+        parent.scrollTop += delta
+
+        return parent.scrollTop !== previousScrollTop
+      },
+    }
+  }
+
+  const window = rootElement.ownerDocument.defaultView
+  const scrollingElement = rootElement.ownerDocument.scrollingElement
+
+  if (!window || !scrollingElement) {
+    return null
+  }
+
+  if (
+    clientX < 0 ||
+    clientX > window.innerWidth ||
+    clientY < -DRAG_AUTOSCROLL_EDGE_SIZE ||
+    clientY > window.innerHeight + DRAG_AUTOSCROLL_EDGE_SIZE ||
+    scrollingElement.scrollHeight <= scrollingElement.clientHeight
+  ) {
+    return null
+  }
+
+  const delta = getDragAutoScrollDelta({
+    clientY,
+    rect: { bottom: window.innerHeight, top: 0 },
+  })
+
+  if (delta === 0) {
+    return null
+  }
+
+  const maxScrollTop =
+    scrollingElement.scrollHeight - scrollingElement.clientHeight
+  const canMove =
+    delta < 0
+      ? scrollingElement.scrollTop > 0
+      : scrollingElement.scrollTop < maxScrollTop
+
+  if (!canMove) {
+    return null
+  }
+
+  return {
+    clientX: clampDragAutoScrollCoordinate(clientX, 0, window.innerWidth),
+    clientY: clampDragAutoScrollCoordinate(clientY, 0, window.innerHeight),
+    scroll: () => {
+      const previousScrollTop = scrollingElement.scrollTop
+
+      window.scrollBy(0, delta)
+
+      return scrollingElement.scrollTop !== previousScrollTop
+    },
+  }
 }
 
 const getEditableRootFromTarget = (target: EventTarget | null): RootKey => {
@@ -764,6 +966,170 @@ const applyModelDragSelection = ({
   selectionBridge?.syncDOMSelectionToEditor()
 }
 
+const stopDragAutoScroll = (ref: PendingDragAutoScrollRef) => {
+  const state = ref.current
+
+  if (state && state.animationFrame !== null) {
+    state.rootElement.ownerDocument.defaultView?.cancelAnimationFrame(
+      state.animationFrame
+    )
+  }
+
+  state?.releaseCleanup?.()
+  ref.current = null
+}
+
+const attachDragAutoScrollReleaseListeners = (
+  ref: PendingDragAutoScrollRef,
+  rootElement: HTMLElement
+) => {
+  const document = rootElement.ownerDocument
+  const window = document.defaultView
+  const stop = () => {
+    stopDragAutoScroll(ref)
+  }
+
+  document.addEventListener('mouseup', stop, true)
+  document.addEventListener('pointerup', stop, true)
+  document.addEventListener('dragend', stop, true)
+  window?.addEventListener('blur', stop, true)
+
+  return () => {
+    document.removeEventListener('mouseup', stop, true)
+    document.removeEventListener('pointerup', stop, true)
+    document.removeEventListener('dragend', stop, true)
+    window?.removeEventListener('blur', stop, true)
+  }
+}
+
+const resolveDragAutoScrollEventRange = ({
+  clientX,
+  clientY,
+  editor,
+  rootElement,
+}: {
+  clientX: number
+  clientY: number
+  editor: RootInteractionEditor
+  rootElement: HTMLElement
+}) => {
+  const targetAtPoint = rootElement.ownerDocument.elementFromPoint(
+    clientX,
+    clientY
+  )
+  let target: EventTarget = rootElement
+
+  if (targetAtPoint) {
+    try {
+      if (editor.api.dom.hasDOMNode(targetAtPoint)) {
+        target = targetAtPoint
+      }
+    } catch {
+      target = rootElement
+    }
+  }
+
+  return editor.api.dom.resolveEventRange({
+    clientX,
+    clientY,
+    target,
+  } as unknown as Event)
+}
+
+export const applyDragAutoScrollFrame = (state: PendingDragAutoScroll) => {
+  const target = getDragAutoScrollTarget({
+    clientX: state.clientX,
+    clientY: state.clientY,
+    rootElement: state.rootElement,
+  })
+
+  if (!target?.scroll()) {
+    return false
+  }
+
+  const eventRange = resolveDragAutoScrollEventRange({
+    clientX: target.clientX,
+    clientY: target.clientY,
+    editor: state.editor,
+    rootElement: state.rootElement,
+  })
+
+  if (!eventRange) {
+    return false
+  }
+
+  applyModelDragSelection({
+    editor: state.editor,
+    range: createDragSelectionRange({
+      endRange: eventRange,
+      startRange: state.startRange,
+    }),
+    root: state.root,
+    selectionBridge: state.selectionBridge,
+  })
+
+  return true
+}
+
+const scheduleDragAutoScroll = (ref: PendingDragAutoScrollRef) => {
+  const state = ref.current
+  const window = state?.rootElement.ownerDocument.defaultView
+
+  if (!state || !window || state.animationFrame !== null) {
+    return
+  }
+
+  state.animationFrame = window.requestAnimationFrame(() => {
+    const latest = ref.current
+
+    if (!latest) {
+      return
+    }
+
+    latest.animationFrame = null
+
+    if (applyDragAutoScrollFrame(latest)) {
+      scheduleDragAutoScroll(ref)
+    } else {
+      stopDragAutoScroll(ref)
+    }
+  })
+}
+
+const updateDragAutoScroll = (
+  ref: PendingDragAutoScrollRef,
+  state: Omit<PendingDragAutoScroll, 'animationFrame' | 'releaseCleanup'>
+) => {
+  if (
+    !getDragAutoScrollTarget({
+      clientX: state.clientX,
+      clientY: state.clientY,
+      rootElement: state.rootElement,
+    })
+  ) {
+    stopDragAutoScroll(ref)
+    return
+  }
+
+  const animationFrame = ref.current?.animationFrame ?? null
+  let releaseCleanup = ref.current?.releaseCleanup ?? null
+
+  if (ref.current?.rootElement !== state.rootElement) {
+    releaseCleanup?.()
+    releaseCleanup = attachDragAutoScrollReleaseListeners(
+      ref,
+      state.rootElement
+    )
+  }
+
+  ref.current = {
+    ...state,
+    animationFrame,
+    releaseCleanup,
+  }
+  scheduleDragAutoScroll(ref)
+}
+
 export const useRootInteractionController = ({
   disabled,
   editor,
@@ -776,6 +1142,14 @@ export const useRootInteractionController = ({
 }: RootInteractionControllerOptions): RootInteractionController => {
   const pendingInteractionRef = useRef<PendingRootInteraction>(
     ignoreInteraction()
+  )
+  const pendingDragAutoScrollRef = useRef<PendingDragAutoScroll | null>(null)
+
+  useEffect(
+    () => () => {
+      stopDragAutoScroll(pendingDragAutoScrollRef)
+    },
+    []
   )
 
   const focusRoot = useCallback(
@@ -902,6 +1276,8 @@ export const useRootInteractionController = ({
       if (disabled || event.defaultPrevented) {
         return
       }
+
+      stopDragAutoScroll(pendingDragAutoScrollRef)
 
       const target = resolveRootInteractionTarget({
         currentTarget: event.currentTarget,
@@ -1099,6 +1475,7 @@ export const useRootInteractionController = ({
 
       if (event.buttons === 0) {
         pendingProjectedDrag = null
+        stopDragAutoScroll(pendingDragAutoScrollRef)
         return
       }
 
@@ -1111,10 +1488,12 @@ export const useRootInteractionController = ({
           selectionBridge,
         })
       ) {
+        stopDragAutoScroll(pendingDragAutoScrollRef)
         return
       }
 
       if (disabled || !canApplyCoordinateDragSelection(pendingInteraction)) {
+        stopDragAutoScroll(pendingDragAutoScrollRef)
         return
       }
 
@@ -1124,20 +1503,34 @@ export const useRootInteractionController = ({
       )
 
       if (
-        eventRange &&
         pendingInteraction.startRange &&
         hasPointerMoved(pendingInteraction, event)
       ) {
         event.preventDefault()
-        applyModelDragSelection({
+
+        if (eventRange) {
+          applyModelDragSelection({
+            editor: focusEditor,
+            range: createDragSelectionRange({
+              endRange: eventRange,
+              startRange: pendingInteraction.startRange,
+            }),
+            root,
+            selectionBridge,
+          })
+        }
+
+        updateDragAutoScroll(pendingDragAutoScrollRef, {
+          clientX: event.clientX,
+          clientY: event.clientY,
           editor: focusEditor,
-          range: createDragSelectionRange({
-            endRange: eventRange,
-            startRange: pendingInteraction.startRange,
-          }),
           root,
+          rootElement: event.currentTarget,
           selectionBridge,
+          startRange: pendingInteraction.startRange,
         })
+      } else {
+        stopDragAutoScroll(pendingDragAutoScrollRef)
       }
     },
     [disabled, editor, getMountedViewEditor, root, selectionBridge]
@@ -1147,6 +1540,7 @@ export const useRootInteractionController = ({
     (event) => {
       const pendingInteraction = pendingInteractionRef.current
       pendingInteractionRef.current = ignoreInteraction()
+      stopDragAutoScroll(pendingDragAutoScrollRef)
       const { action: pendingAction } = pendingInteraction
       const projectedDrag = pendingProjectedDrag
       pendingProjectedDrag = null
@@ -1213,6 +1607,14 @@ export const useRootInteractionController = ({
       }
 
       if (
+        canApplyCoordinateDragSelection(pendingInteraction) &&
+        pendingInteraction.startRange &&
+        pointerMoved
+      ) {
+        return
+      }
+
+      if (
         pendingAction.type === 'place-native-editable' &&
         pendingInteraction.startRange &&
         !pointerMoved
@@ -1233,10 +1635,13 @@ export const useRootInteractionController = ({
         pendingInteraction.startRange &&
         !pointerMoved
       ) {
-        applyInteractionAction({
-          range: pendingInteraction.startRange,
-          type: 'set-selection',
-        })
+        applyInteractionAction(
+          {
+            range: pendingInteraction.startRange,
+            type: 'set-selection',
+          },
+          { placementDOMPoint: pendingInteraction.placementDOMPoint }
+        )
         return
       }
 

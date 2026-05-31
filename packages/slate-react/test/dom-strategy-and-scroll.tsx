@@ -145,11 +145,11 @@ test('Editable domStrategy partial-DOMs far segments without mounting editable d
         focus: getRuntimeId(editor, [3]),
       },
     ],
-    findPolicy: 'not-native-until-mounted',
+    findPolicy: 'native',
     ownerPath: [],
     ownerRuntimeId: null,
     reason: 'partial-dom-aggressive',
-    selectionPolicy: 'model-backed',
+    selectionPolicy: 'model',
     state: 'virtualized',
   })
   expect(
@@ -157,7 +157,7 @@ test('Editable domStrategy partial-DOMs far segments without mounting editable d
   ).toMatchObject({
     coveredPathRanges: [{ anchor: [4], focus: [5] }],
     reason: 'partial-dom-aggressive',
-    selectionPolicy: 'model-backed',
+    selectionPolicy: 'model',
     state: 'virtualized',
   })
   expect(
@@ -371,7 +371,7 @@ test('Editable domStrategy experimental virtualized mode uses viewport DOM cover
 
   expect(initialVirtualizedBoundary).toMatchObject({
     copyPolicy: 'include-model',
-    findPolicy: 'not-native-until-mounted',
+    findPolicy: 'native',
     reason: 'viewport-virtualization',
     selectionPolicy: 'materialize',
     state: 'virtualized',
@@ -1341,7 +1341,7 @@ test('Editable staged full-document replacement resets staged coverage without s
 
   expect(boundary).toMatchObject({
     copyPolicy: 'materialize',
-    findPolicy: 'not-native-until-mounted',
+    findPolicy: 'native',
     ownerPath: [],
     ownerRuntimeId: null,
     reason: 'rendering-staged',
@@ -1419,7 +1419,7 @@ test('Editable staged registers pending root groups as DOM coverage boundaries',
 
   expect(boundary).toMatchObject({
     copyPolicy: 'materialize',
-    findPolicy: 'not-native-until-mounted',
+    findPolicy: 'native',
     ownerPath: [],
     ownerRuntimeId: null,
     reason: 'rendering-staged',
@@ -1485,7 +1485,7 @@ test('Editable staged selection export consults DOM coverage before raw DOM look
           focus: getRuntimeId(editor, [1]),
         },
       ],
-      findPolicy: 'not-native-until-mounted',
+      findPolicy: 'native',
       ownerPath: [],
       ownerRuntimeId: null,
       reason: 'rendering-staged',
@@ -1646,7 +1646,7 @@ test('Editable domStrategy promotes a partial-DOM segment on mouse down', async 
     DOMCoverage.getBoundary(editor, 'partial-dom-aggressive:2')
   ).toMatchObject({
     reason: 'partial-dom-aggressive',
-    selectionPolicy: 'model-backed',
+    selectionPolicy: 'model',
     state: 'virtualized',
   })
   expect(

@@ -9,7 +9,7 @@ import {
   NODE_TO_ELEMENT,
 } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
-
+import { applyDOMCoverageSelectionPolicy } from '../src/editable/dom-coverage-selection'
 import {
   createEditableInputController,
   createEditableInputControllerState,
@@ -105,7 +105,7 @@ test('selection reconciler clears the updating guard when DOM export throws', ()
   }
 })
 
-test('selection reconciler keeps DOM coverage boundary selections model-backed', () => {
+test('selection reconciler keeps DOM coverage skip selections model-owned', () => {
   vi.useFakeTimers()
 
   const editor = createReactEditor()
@@ -134,11 +134,11 @@ test('selection reconciler keeps DOM coverage boundary selections model-backed',
     copyPolicy: 'include-model',
     coveredPathRanges: [{ anchor: [1], focus: [1] }],
     coveredRuntimeRanges: [],
-    findPolicy: 'not-native-until-mounted',
+    findPolicy: 'native',
     ownerPath: [],
     ownerRuntimeId: null,
     reason: 'app-hidden',
-    selectionPolicy: 'boundary',
+    selectionPolicy: 'skip',
     state: 'intentionally-hidden',
     version: 1,
   })
@@ -204,6 +204,77 @@ test('selection reconciler keeps DOM coverage boundary selections model-backed',
   }
 })
 
+test('DOM coverage selection materializes every covered materialize boundary with range roles', () => {
+  const editor = createReactEditor()
+  const materialized: string[] = []
+
+  Editor.replace(editor, {
+    children: [
+      { type: 'paragraph', children: [{ text: 'anchor' }] },
+      { type: 'paragraph', children: [{ text: 'before' }] },
+      { type: 'paragraph', children: [{ text: 'middle' }] },
+      { type: 'paragraph', children: [{ text: 'after' }] },
+      { type: 'paragraph', children: [{ text: 'focus' }] },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 'anchor'.length },
+      focus: { path: [4, 0], offset: 0 },
+    },
+  })
+
+  for (const [boundaryId, path] of [
+    ['hidden-anchor', [0]],
+    ['hidden-middle', [2]],
+    ['hidden-focus', [4]],
+  ] as const) {
+    DOMCoverage.registerBoundary(editor, {
+      anchor: { type: 'placeholder' },
+      boundaryId,
+      copyPolicy: 'include-model',
+      coveredPathRanges: [{ anchor: path, focus: path }],
+      coveredRuntimeRanges: [],
+      findPolicy: 'native',
+      ownerPath: [],
+      ownerRuntimeId: null,
+      reason: 'app-hidden',
+      selectionPolicy: 'materialize',
+      state: 'intentionally-hidden',
+      version: 1,
+    })
+  }
+
+  DOMCoverage.setMaterializeHandler(editor, (boundary, reason, options) => {
+    materialized.push(
+      `${boundary.boundaryId}:${reason}:${options.rangeRole ?? 'none'}`
+    )
+    return true
+  })
+
+  const domSelection = document.getSelection()
+  const selection = Editor.getSelection(editor)
+
+  try {
+    if (!domSelection || !selection) {
+      throw new Error('Expected document and editor selection')
+    }
+
+    expect(
+      applyDOMCoverageSelectionPolicy({
+        domSelection,
+        editor,
+        selection,
+      })
+    ).toBe(true)
+    expect(materialized.sort()).toEqual([
+      'hidden-anchor:selection:anchor',
+      'hidden-focus:selection:focus',
+      'hidden-middle:selection:interior',
+    ])
+  } finally {
+    DOMCoverage.clear(editor)
+  }
+})
+
 test('selection reconciler preserves visible anchor text across DOM coverage boundaries', () => {
   vi.useFakeTimers()
 
@@ -233,11 +304,11 @@ test('selection reconciler preserves visible anchor text across DOM coverage bou
     copyPolicy: 'include-model',
     coveredPathRanges: [{ anchor: [1], focus: [1] }],
     coveredRuntimeRanges: [],
-    findPolicy: 'not-native-until-mounted',
+    findPolicy: 'native',
     ownerPath: [],
     ownerRuntimeId: null,
     reason: 'app-hidden',
-    selectionPolicy: 'boundary',
+    selectionPolicy: 'skip',
     state: 'intentionally-hidden',
     version: 1,
   })

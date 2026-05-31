@@ -12,6 +12,7 @@ export type {
   DOMCoverageDOMRangeResult,
   DOMCoverageFindPolicy,
   DOMCoverageMaterializeHandler,
+  DOMCoverageMaterializeRangeRole,
   DOMCoverageMaterializeReason,
   DOMCoverageMaterializeResult,
   DOMCoveragePathRange,
