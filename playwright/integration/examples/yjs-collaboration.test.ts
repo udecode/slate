@@ -129,7 +129,7 @@ const replacePeerText = async (
       })
     })
 
-    handle.applyOperations(operations)
+    handle.applyOperations(operations, { tag: 'yjs-example-test-setup' })
   }, paragraphs)
 }
 
@@ -565,6 +565,50 @@ test.describe('yjs collaboration example', () => {
 
     await expect(peerSurface(page, 'a')).toContainText(typedText)
     await expect(peerSurface(page, 'b')).toContainText(typedText)
+  })
+
+  test('keyboard undo matches one toolbar undo step and publishes the cursor', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+    const initialText = 'Hello world!'
+    const appendedOnce = `${initialText} Ada`
+    const appendedTwice = `${appendedOnce} Ada`
+    const nextSelection = {
+      anchor: { path: [0, 0], offset: appendedOnce.length },
+      focus: { path: [0, 0], offset: appendedOnce.length },
+    }
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+    await byTestId(page, 'yjs-peer-a-append').click()
+    await byTestId(page, 'yjs-peer-a-append').click()
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual([appendedTwice])
+    }
+
+    await peerTextbox(page, 'a').focus()
+    const { undo } = await getHistoryShortcuts(page)
+
+    await page.keyboard.press(undo)
+
+    for (const peer of ['a', 'b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerParagraphTexts(page, peer))
+        .toEqual([appendedOnce])
+    }
+    await expect.poll(() => editor.selection.get()).toEqual(nextSelection)
+    await expect(byTestId(page, 'yjs-peer-b-cursors')).toContainText(
+      `101:0.0:${appendedOnce.length}-0.0:${appendedOnce.length}`
+    )
   })
 
   test('keeps peers usable after selecting all and deleting', async ({

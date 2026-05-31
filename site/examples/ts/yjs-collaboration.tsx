@@ -6,7 +6,13 @@ import {
 import { useYjsRemoteCursors } from '@slate/yjs/react'
 import type { KeyboardEvent, MouseEvent, PointerEvent } from 'react'
 import { useMemo, useState } from 'react'
-import { createEditor, NodeApi, type Operation, type Range } from 'slate'
+import {
+  createEditor,
+  type Descendant,
+  NodeApi,
+  type Operation,
+  type Range,
+} from 'slate'
 import { history } from 'slate-history'
 import {
   Editable,
@@ -37,14 +43,25 @@ type PeerDefinition = {
   replacementText: string
 }
 
+type ExampleUndoGroup = {
+  kind: 'command' | 'keyboard'
+  size: number
+}
+
+type KeyboardInputType = 'delete' | 'enter' | 'text'
+
 type ExamplePeer = PeerDefinition & {
   awareness: ExampleAwareness
   connected: boolean
   doc: Y.Doc
   editor?: CustomEditor
+  pendingKeyboardInputType?: KeyboardInputType
+  pendingLocalChangeKind?: ExampleUndoGroup['kind']
   redoDepth: number
+  redoGroups: ExampleUndoGroup[]
   renderEpoch: number
   undoDepth: number
+  undoGroups: ExampleUndoGroup[]
 }
 
 type ExampleNetwork = {
@@ -90,6 +107,32 @@ const PEERS: PeerDefinition[] = [
     replacementText: 'Eve canonical snapshot.',
   },
 ] as const
+
+const syncPeerHistoryDepths = (peer: ExamplePeer) => {
+  peer.undoDepth = peer.undoGroups.length
+  peer.redoDepth = peer.redoGroups.length
+}
+
+const recordPeerUndoGroup = (
+  peer: ExamplePeer,
+  kind: ExampleUndoGroup['kind'],
+  inputType?: KeyboardInputType
+) => {
+  const previous = peer.undoGroups.at(-1)
+
+  if (
+    kind === 'keyboard' &&
+    inputType !== 'enter' &&
+    previous?.kind === 'keyboard'
+  ) {
+    previous.size += 1
+  } else {
+    peer.undoGroups.push({ kind, size: 1 })
+  }
+
+  peer.redoGroups = []
+  syncPeerHistoryDepths(peer)
+}
 
 const INITIAL_VALUE: CustomValue = [
   {
@@ -205,8 +248,10 @@ const createExampleNetwork = (): ExampleNetwork => {
       connected: true,
       doc,
       redoDepth: 0,
+      redoGroups: [],
       renderEpoch: 0,
       undoDepth: 0,
+      undoGroups: [],
     }
   })
 
@@ -221,8 +266,11 @@ const createExampleNetwork = (): ExampleNetwork => {
         operations.length === 0 ||
         operations.some((operation) => operation.type !== 'set_selection')
       ) {
-        peer.undoDepth += 1
-        peer.redoDepth = 0
+        recordPeerUndoGroup(
+          peer,
+          peer.pendingLocalChangeKind ?? 'keyboard',
+          peer.pendingKeyboardInputType
+        )
       }
     },
     runWithoutLocalHistory(fn) {
@@ -310,6 +358,195 @@ const getEditorValue = (editor: CustomEditor): CustomValue =>
     cloneValue(state.value.get().roots.main)
   ) as CustomValue
 
+type TextEntry = {
+  path: number[]
+  text: string
+}
+
+const isCustomText = (node: Descendant): node is CustomText => 'text' in node
+
+const hasDescendantChildren = (
+  node: Descendant
+): node is Descendant & { children: readonly Descendant[] } =>
+  'children' in node && Array.isArray(node.children)
+
+const findLastTextEntry = (
+  nodes: readonly Descendant[],
+  basePath: number[] = []
+): TextEntry | null => {
+  for (let index = nodes.length - 1; index >= 0; index--) {
+    const node = nodes[index]
+
+    if (!node) {
+      continue
+    }
+
+    const path = [...basePath, index]
+
+    if (isCustomText(node)) {
+      return { path, text: node.text }
+    }
+
+    if (!hasDescendantChildren(node)) {
+      continue
+    }
+
+    const entry = findLastTextEntry(node.children, path)
+
+    if (entry) {
+      return entry
+    }
+  }
+
+  return null
+}
+
+const getTextEntryAtPath = (
+  nodes: readonly Descendant[],
+  path: number[]
+): TextEntry | null => {
+  let current: Descendant | undefined
+  let children: readonly Descendant[] = nodes
+
+  for (let depth = 0; depth < path.length; depth++) {
+    const index = path[depth]
+
+    if (index === undefined) {
+      return null
+    }
+
+    current = children[index]
+
+    if (!current) {
+      return null
+    }
+
+    if (isCustomText(current)) {
+      return depth === path.length - 1 ? { path, text: current.text } : null
+    }
+
+    if (!hasDescendantChildren(current)) {
+      return null
+    }
+
+    children = current.children
+  }
+
+  return current && isCustomText(current) ? { path, text: current.text } : null
+}
+
+const pointAtTextEnd = (entry: TextEntry) => ({
+  path: entry.path,
+  offset: entry.text.length,
+})
+
+const readEditorSelection = (editor: CustomEditor) =>
+  editor.read((state) => state.selection.get()) as Range | null
+
+const isCollapsedSelection = (selection: Range) =>
+  selection.anchor.path.join('.') === selection.focus.path.join('.') &&
+  selection.anchor.offset === selection.focus.offset
+
+const isSelectionAtTextEnd = (value: CustomValue, selection: Range) => {
+  if (!isCollapsedSelection(selection)) {
+    return false
+  }
+
+  const entry = getTextEntryAtPath(value, selection.anchor.path)
+
+  return entry ? selection.anchor.offset === entry.text.length : false
+}
+
+const normalizeHistorySelection = (
+  value: CustomValue,
+  selection: Range | null,
+  options: { preferEndOfPreviousEndSelection?: Range | null } = {}
+): Range | null => {
+  const fallbackEntry = findLastTextEntry(value)
+
+  if (options.preferEndOfPreviousEndSelection) {
+    const entry =
+      getTextEntryAtPath(
+        value,
+        options.preferEndOfPreviousEndSelection.anchor.path
+      ) ?? fallbackEntry
+
+    if (entry) {
+      const point = pointAtTextEnd(entry)
+
+      return { anchor: point, focus: point }
+    }
+  }
+
+  if (!selection) {
+    if (!fallbackEntry) {
+      return null
+    }
+
+    const point = pointAtTextEnd(fallbackEntry)
+
+    return { anchor: point, focus: point }
+  }
+
+  const anchorEntry = getTextEntryAtPath(value, selection.anchor.path)
+  const focusEntry = getTextEntryAtPath(value, selection.focus.path)
+
+  if (!anchorEntry || !focusEntry) {
+    if (!fallbackEntry) {
+      return null
+    }
+
+    const point = pointAtTextEnd(fallbackEntry)
+
+    return { anchor: point, focus: point }
+  }
+
+  return {
+    anchor: {
+      path: anchorEntry.path,
+      offset: Math.min(selection.anchor.offset, anchorEntry.text.length),
+    },
+    focus: {
+      path: focusEntry.path,
+      offset: Math.min(selection.focus.offset, focusEntry.text.length),
+    },
+  }
+}
+
+const syncPeerSelectionAfterHistory = (
+  network: ExampleNetwork,
+  peer: ExamplePeer,
+  editor: CustomEditor,
+  previousValue: CustomValue,
+  previousSelection: Range | null
+) => {
+  const value = getEditorValue(editor)
+  const selection = normalizeHistorySelection(
+    value,
+    readEditorSelection(editor),
+    {
+      preferEndOfPreviousEndSelection:
+        previousSelection &&
+        isSelectionAtTextEnd(previousValue, previousSelection)
+          ? previousSelection
+          : null,
+    }
+  )
+
+  if (!selection) {
+    network.syncAwareness()
+    return
+  }
+
+  editor.update((tx) => {
+    tx.selection.set(selection)
+    yjsTx(tx).sendSelection(selection, {
+      name: peer.name,
+    })
+  })
+  network.syncAwareness()
+}
+
 const getBlockText = (editor: CustomEditor, index: number) =>
   editor.read((state) => {
     const node = state.nodes.children()[index]
@@ -321,8 +558,9 @@ const getParagraphCount = (editor: CustomEditor) =>
   editor.read((state) => state.nodes.children().length)
 
 const clearPeerHistory = (peer: ExamplePeer) => {
-  peer.undoDepth = 0
-  peer.redoDepth = 0
+  peer.undoGroups = []
+  peer.redoGroups = []
+  syncPeerHistoryDepths(peer)
 }
 
 const documentText = (editor: CustomEditor) =>
@@ -364,11 +602,15 @@ const runPeerCommand = (
   { undoable = true }: { undoable?: boolean } = {}
 ) => {
   syncSelectionFromDom(editor)
-  command(editor)
+  const previousKind = peer.pendingLocalChangeKind
 
-  if (undoable) {
-    peer.undoDepth += 1
-    peer.redoDepth = 0
+  peer.pendingLocalChangeKind = undoable ? 'command' : undefined
+  try {
+    editor.api.history.withNewBatch(() => {
+      command(editor)
+    })
+  } finally {
+    peer.pendingLocalChangeKind = previousKind
   }
 
   network.syncAll()
@@ -424,20 +666,30 @@ const selectHello = (
 
 const appendText = (peer: ExamplePeer, editor: CustomEditor) => {
   const text = getBlockText(editor, 0)
+  const offset = text.length + peer.appendText.length
 
   editor.update((tx) => {
     tx.text.insert(peer.appendText, {
       at: { path: [0, 0], offset: text.length },
+    })
+    tx.selection.set({
+      anchor: { path: [0, 0], offset },
+      focus: { path: [0, 0], offset },
     })
   })
 }
 
 const insertExclamation = (editor: CustomEditor) => {
   const text = getBlockText(editor, 0)
+  const offset = text.length + 1
 
   editor.update((tx) => {
     tx.text.insert('!', {
       at: { path: [0, 0], offset: text.length },
+    })
+    tx.selection.set({
+      anchor: { path: [0, 0], offset },
+      focus: { path: [0, 0], offset },
     })
   })
 }
@@ -871,18 +1123,32 @@ const undoPeer = (
   peer: ExamplePeer,
   editor: CustomEditor
 ) => {
-  if (peer.undoDepth === 0) {
+  const group = peer.undoGroups.pop()
+
+  if (!group) {
     return
   }
 
+  const previousValue = getEditorValue(editor)
+  const previousSelection = readEditorSelection(editor)
+
   network.runWithoutLocalHistory(() => {
-    editor.update((tx) => {
-      yjsTx(tx).undo()
-    })
+    for (let index = 0; index < group.size; index++) {
+      editor.update((tx) => {
+        yjsTx(tx).undo()
+      })
+    }
   })
 
-  peer.undoDepth = Math.max(0, peer.undoDepth - 1)
-  peer.redoDepth += 1
+  peer.redoGroups.push(group)
+  syncPeerHistoryDepths(peer)
+  syncPeerSelectionAfterHistory(
+    network,
+    peer,
+    editor,
+    previousValue,
+    previousSelection
+  )
   network.syncAll()
 }
 
@@ -891,18 +1157,32 @@ const redoPeer = (
   peer: ExamplePeer,
   editor: CustomEditor
 ) => {
-  if (peer.redoDepth === 0) {
+  const group = peer.redoGroups.pop()
+
+  if (!group) {
     return
   }
 
+  const previousValue = getEditorValue(editor)
+  const previousSelection = readEditorSelection(editor)
+
   network.runWithoutLocalHistory(() => {
-    editor.update((tx) => {
-      yjsTx(tx).redo()
-    })
+    for (let index = 0; index < group.size; index++) {
+      editor.update((tx) => {
+        yjsTx(tx).redo()
+      })
+    }
   })
 
-  peer.undoDepth += 1
-  peer.redoDepth = Math.max(0, peer.redoDepth - 1)
+  peer.undoGroups.push(group)
+  syncPeerHistoryDepths(peer)
+  syncPeerSelectionAfterHistory(
+    network,
+    peer,
+    editor,
+    previousValue,
+    previousSelection
+  )
   network.syncAll()
 }
 
@@ -915,24 +1195,38 @@ const handleHistoryKeyDown = (
   const isModifier = event.metaKey || event.ctrlKey
 
   if (!isModifier || event.key.toLowerCase() !== 'z') {
-    return
+    return false
   }
 
   event.preventDefault()
+  event.stopPropagation()
+  event.nativeEvent.stopImmediatePropagation()
 
   if (event.shiftKey) {
-    const redoDepth = peer.redoDepth
-
-    for (let index = 0; index < redoDepth; index++) {
-      redoPeer(network, peer, editor)
-    }
+    redoPeer(network, peer, editor)
   } else {
-    const undoDepth = peer.undoDepth
-
-    for (let index = 0; index < undoDepth; index++) {
-      undoPeer(network, peer, editor)
-    }
+    undoPeer(network, peer, editor)
   }
+
+  return true
+}
+
+const getKeyboardInputType = (
+  event: KeyboardEvent<HTMLDivElement>
+): KeyboardInputType | null => {
+  if (event.metaKey || event.ctrlKey || event.altKey) {
+    return null
+  }
+
+  if (event.key === 'Enter') {
+    return 'enter'
+  }
+
+  if (event.key === 'Backspace' || event.key === 'Delete') {
+    return 'delete'
+  }
+
+  return event.key.length === 1 ? 'text' : null
 }
 
 const handleEditableKeyDown = (
@@ -941,6 +1235,13 @@ const handleEditableKeyDown = (
   peer: ExamplePeer,
   editor: CustomEditor
 ) => {
+  const keyboardInputType = getKeyboardInputType(event)
+
+  if (keyboardInputType) {
+    peer.pendingLocalChangeKind = 'keyboard'
+    peer.pendingKeyboardInputType = keyboardInputType
+  }
+
   if (handleDeleteKeyDown(event, network, peer, editor)) {
     return
   }
@@ -1080,7 +1381,12 @@ const PeerPanel = ({
         if (network.syncing && hasCanonicalSnapshot(editor)) {
           clearPeerHistory(peer)
         }
-        network.recordLocalChange(peer, change.operations)
+        if (
+          !change.tags.includes('historic') &&
+          !change.tags.includes('yjs-example-test-setup')
+        ) {
+          network.recordLocalChange(peer, change.operations)
+        }
         network.syncAll()
       }}
     >
