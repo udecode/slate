@@ -399,6 +399,12 @@ export type SlatePageBreaksOptions =
     }
 
 export type PretextPageLayoutEngineOptions = {
+  estimateBlock?: (context: {
+    block: SlatePageLayoutBlock
+    blockIndex: number
+    page: SlatePageLayoutPage
+    settings: SlatePageSettings
+  }) => boolean
   maxPreparedEntries?: number
   whiteSpace?: 'normal' | 'pre-wrap'
   wordBreak?: 'normal' | 'keep-all'
@@ -411,6 +417,7 @@ export type SlatePageSettingsSource<
 export type SlateLayoutOptions<
   TSettings extends SlatePageSettings = SlatePageSettings,
 > = {
+  engine?: SlatePageLayoutEngine
   nodeLayout?: SlateNodeLayoutProvider
   page: SlatePageSettingsSource<TSettings>
   pageBreaks?: SlatePageBreaksOptions | null
@@ -1745,7 +1752,7 @@ const createEstimatedLines = (
 }
 
 const createEstimatedLineRuns = (
-  block: SlatePageLayoutMeasuredBlock,
+  block: SlatePageLayoutBlock,
   lineStart: number,
   lineEnd: number
 ): SlatePageLayoutPlacedRun[] =>
@@ -1777,26 +1784,89 @@ const createEstimatedLineRuns = (
 
 const estimateTextWidth = (text: string) => text.length * 8
 
+const createEstimatedBlockLines = (
+  block: SlatePageLayoutBlock,
+  page: SlatePageLayoutPage
+): SlatePageLayoutMeasuredLine[] => {
+  const charactersPerLine = Math.max(18, Math.floor(page.content.width / 8))
+  const lines: SlatePageLayoutMeasuredLine[] = []
+  const hardLines = block.text.split('\n')
+  let offset = 0
+
+  hardLines.forEach((hardLine, hardLineIndex) => {
+    if (hardLine.length === 0) {
+      lines.push({
+        end: offset,
+        height: block.lineHeight,
+        runs: createEstimatedLineRuns(block, offset, offset),
+        start: offset,
+        text: '',
+        width: 0,
+      })
+    } else {
+      for (
+        let lineStart = 0;
+        lineStart < hardLine.length;
+        lineStart += charactersPerLine
+      ) {
+        const lineEnd = Math.min(hardLine.length, lineStart + charactersPerLine)
+        const start = offset + lineStart
+        const end = offset + lineEnd
+        const text = block.text.slice(start, end)
+
+        lines.push({
+          end,
+          height: block.lineHeight,
+          runs: createEstimatedLineRuns(block, start, end),
+          start,
+          text,
+          width: Math.min(page.content.width, estimateTextWidth(text)),
+        })
+      }
+    }
+
+    offset += hardLine.length
+
+    if (hardLineIndex < hardLines.length - 1) {
+      offset += 1
+    }
+  })
+
+  return lines.length > 0
+    ? lines
+    : [
+        {
+          end: 0,
+          height: block.lineHeight,
+          start: 0,
+          text: '',
+          width: 0,
+        },
+      ]
+}
+
+const estimateSlatePageLayoutMeasuredBlock = (
+  block: SlatePageLayoutBlock,
+  blockIndex: number,
+  page: SlatePageLayoutPage
+): SlatePageLayoutMeasuredBlock => {
+  const lines = createEstimatedBlockLines(block, page)
+
+  return {
+    ...block,
+    blockIndex,
+    lineCount: Math.max(1, lines.length),
+    lines,
+  }
+}
+
 export const createEstimatedPageLayoutEngine = (): SlatePageLayoutEngine => ({
   id: 'estimated',
   measurementProfile: { strategy: 'estimated' },
   compose(input) {
-    const measuredBlocks = input.blocks.map((block, blockIndex) => {
-      const charactersPerLine = Math.max(
-        18,
-        Math.floor(input.page.content.width / 8)
-      )
-      const lineCount = Math.max(
-        1,
-        Math.ceil(block.text.length / charactersPerLine)
-      )
-
-      return {
-        ...block,
-        blockIndex,
-        lineCount,
-      }
-    })
+    const measuredBlocks = input.blocks.map((block, blockIndex) =>
+      estimateSlatePageLayoutMeasuredBlock(block, blockIndex, input.page)
+    )
 
     return paginateSlatePageLayoutBlocks({
       measuredBlocks,
@@ -1856,6 +1926,7 @@ const getTrailingCollapsibleLength = (text: string) =>
   text.match(TRAILING_COLLAPSIBLE_BOUNDARY_RE)?.[0].length ?? 0
 
 export const pretextPageLayoutEngine = ({
+  estimateBlock,
   maxPreparedEntries = 5000,
   whiteSpace = 'pre-wrap',
   wordBreak = 'normal',
@@ -1960,7 +2031,12 @@ export const pretextPageLayoutEngine = ({
     block: SlatePageLayoutBlock,
     maxWidth: number
   ): SlatePageLayoutMeasuredLine[] | null => {
-    if (whiteSpace !== 'normal' || wordBreak !== 'normal' || !block.runs) {
+    if (
+      whiteSpace !== 'normal' ||
+      wordBreak !== 'normal' ||
+      !block.runs ||
+      block.runs.length <= 1
+    ) {
       return null
     }
 
@@ -2112,6 +2188,40 @@ export const pretextPageLayoutEngine = ({
     block: SlatePageLayoutBlock,
     line: Omit<SlatePageLayoutMeasuredLine, 'runs'>
   ): SlatePageLayoutMeasuredLine => {
+    if (block.runs?.length === 1) {
+      const run = block.runs[0]!
+      const lineEnd =
+        line.end === line.start && line.text.length > 0
+          ? line.start + line.text.length
+          : line.end
+      const start = Math.max(line.start, run.range.start)
+      const end = Math.min(lineEnd, run.range.end)
+
+      if (end < start || (end === start && run.text.length > 0)) {
+        return line
+      }
+
+      const textStart = start - run.range.start
+      const textEnd = end - run.range.start
+
+      return {
+        ...line,
+        runs: [
+          {
+            ...run,
+            leafRange: {
+              end: textEnd,
+              start: textStart,
+            },
+            left: 0,
+            range: { end, start },
+            text: run.text.slice(textStart, textEnd),
+            width: line.width,
+          },
+        ],
+      }
+    }
+
     const runs = createLineRuns(block, line.start, line.end)
 
     if (runs.length === 0) {
@@ -2130,6 +2240,7 @@ export const pretextPageLayoutEngine = ({
   return {
     id: 'pretext',
     measurementProfile: {
+      estimatedBlocks: Boolean(estimateBlock),
       whiteSpace,
       wordBreak,
     },
@@ -2191,6 +2302,21 @@ export const pretextPageLayoutEngine = ({
       }
 
       const measuredBlocks = input.blocks.map((block, blockIndex) => {
+        if (
+          estimateBlock?.({
+            block,
+            blockIndex,
+            page: input.page,
+            settings: input.settings,
+          })
+        ) {
+          return estimateSlatePageLayoutMeasuredBlock(
+            block,
+            blockIndex,
+            input.page
+          )
+        }
+
         const key = getPretextMeasuredBlockCacheKey(
           block,
           input.page.content.width
@@ -2699,12 +2825,13 @@ export const createSlateLayout = <
   editor: SlateEditor<Value>,
   getOptions: () => SlateLayoutOptions<TSettings>
 ): SlateLayout => {
-  const engine = canUseCanvasTextMeasurement()
+  const fallbackEngine = canUseCanvasTextMeasurement()
     ? pretextPageLayoutEngine()
     : createEstimatedPageLayoutEngine()
 
   return createSlatePageLayout(editor, () => {
     const options = getOptions()
+    const engine = options.engine ?? fallbackEngine
 
     return {
       engine,

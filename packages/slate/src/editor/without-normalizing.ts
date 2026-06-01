@@ -20,6 +20,7 @@ export const withoutNormalizing: EditorStaticApi['withoutNormalizing'] = (
   } finally {
     setNormalizing(editor, value)
   }
+
   const latestOperation =
     getLatestContentOperation(editor, operationCount) ??
     getLatestOperation(editor)

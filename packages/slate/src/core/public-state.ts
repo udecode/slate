@@ -77,7 +77,7 @@ type TransactionSnapshot = {
   childrenRoot: string
   marks: EditorMarks | null
   metadata: EditorUpdateMetadata
-  operations: Operation[]
+  operationStart: number
   documentState: Record<string, unknown> | undefined
   rootIndexes: Record<string, RuntimeIndexLike>
   roots: Record<string, Descendant[]>
@@ -85,7 +85,7 @@ type TransactionSnapshot = {
   tags: Set<EditorUpdateTag>
   implicitTarget: Selection
   implicitTargetResolved: boolean
-  previousIndex: RuntimeIndexLike
+  previousIndex: RuntimeIndexLike | null
   previousSnapshot: EditorSnapshot | null
   previousVersion: number
   command: EditorCommitCommand | null
@@ -112,6 +112,11 @@ type LiveRuntimeIndex = {
 }
 
 type RuntimeIndexLike = SnapshotIndex | LiveRuntimeIndex
+
+const EMPTY_RUNTIME_INDEX = Object.freeze({
+  idToPath: Object.freeze({}),
+  pathToId: Object.freeze({}),
+}) as unknown as SnapshotIndex
 
 type CommitRuntimeDirtiness = Pick<
   EditorCommit,
@@ -1268,7 +1273,7 @@ const hasTransactionNetChanges = (
     return true
   }
 
-  if (getLiveOperations(editor).length !== snapshot.operations.length) {
+  if (getLiveOperations(editor).length !== snapshot.operationStart) {
     return true
   }
 
@@ -1478,27 +1483,56 @@ export const getOperationDirtiness = (
           )
         )
       : []
+  const topLevelOrderChanged =
+    classes[0] === 'structural' &&
+    operations.some(operationChangesTopLevelOrder)
+  const topLevelOnlyStructuralChange =
+    classes[0] === 'structural' &&
+    operations.every(operationTouchesOnlyTopLevelPaths)
+  const pathStableStructuralChange =
+    classes[0] === 'structural' &&
+    operations.every((operation) => operation.type === 'set_node')
+  const sparseStructuralRuntimeIndex = pathStableStructuralChange
+    ? buildSparseRuntimeIndexForPaths(
+        editor,
+        uniqPaths([
+          ...getOperationScopePaths(operations),
+          ...getOperationScopePaths(operations)
+            .filter((path) => path.length > 0)
+            .map((path) => [path[0]!] as Path),
+        ])
+      )
+    : null
+  const shouldComputeSelectionImpact =
+    hasListeners(editor) ||
+    getExtensionRegistry(editor).commitListeners.size > 0
+  const skipSelectionRuntimeIndexes =
+    classes[0] === 'selection' && !shouldComputeSelectionImpact
   const touchedRuntimeIds =
     classes[0] === 'replace'
       ? null
       : classes[0] === 'selection' || classes[0] === 'mark'
         ? []
-        : uniqPaths(
-            operations.flatMap((op) =>
-              'path' in op && Array.isArray(op.path) ? [op.path] : []
+        : topLevelOrderChanged
+          ? getTopLevelOrderTouchedRuntimeIds(editor, operations)
+          : uniqPaths(
+              operations.flatMap((op) =>
+                'path' in op && Array.isArray(op.path) ? [op.path] : []
+              )
             )
-          )
-            .map((path) => {
-              const key = pathKey(path)
-              const previousRuntimeId = previousIndex
-                ? previousIndex.pathToId instanceof Map
-                  ? previousIndex.pathToId.get(key)
-                  : previousIndex.pathToId[key]
-                : undefined
+              .map((path) => {
+                const key = pathKey(path)
+                const touchedIndex =
+                  sparseStructuralRuntimeIndex ?? previousIndex
+                const previousRuntimeId = touchedIndex
+                  ? touchedIndex.pathToId instanceof Map
+                    ? touchedIndex.pathToId.get(key)
+                    : touchedIndex.pathToId[key]
+                  : undefined
 
-              return previousRuntimeId ?? getLiveRuntimeIdAtPath(editor, path)
-            })
-            .filter(Boolean)
+                return previousRuntimeId ?? getLiveRuntimeIdAtPath(editor, path)
+              })
+              .filter(Boolean)
   const marksAfter = getCurrentMarks(editor)
   const selectionAfter = getCurrentSelection(editor)
   const marksChanged =
@@ -1508,17 +1542,37 @@ export const getOperationDirtiness = (
     operations.some((op) => op.type === 'set_selection') ||
     JSON.stringify(selectionBefore ?? null) !==
       JSON.stringify(selectionAfter ?? null)
-  const previousRuntimeIndex = previousIndex ?? getSnapshot(editor).index
-  const topLevelOrderChanged =
-    classes[0] === 'structural' &&
-    operations.some(operationChangesTopLevelOrder)
+  const canUseSparseTextRuntimeIndex =
+    classes[0] === 'text' &&
+    (!selectionBefore || RangeApi.isCollapsed(selectionBefore)) &&
+    (!selectionAfter || RangeApi.isCollapsed(selectionAfter))
+  const sparseTextRuntimeIndex = canUseSparseTextRuntimeIndex
+    ? buildSparseRuntimeIndexForPaths(editor, dirtyPaths)
+    : null
+  const canSkipRuntimeIndexes =
+    topLevelOrderChanged ||
+    topLevelOnlyStructuralChange ||
+    pathStableStructuralChange ||
+    canUseSparseTextRuntimeIndex ||
+    skipSelectionRuntimeIndexes
+  const previousRuntimeIndex = canSkipRuntimeIndexes
+    ? (sparseTextRuntimeIndex ??
+      sparseStructuralRuntimeIndex ??
+      previousIndex ??
+      EMPTY_RUNTIME_INDEX)
+    : (previousIndex ?? getSnapshot(editor).index)
   const nextRuntimeIndex =
     nextIndex ??
-    (topLevelOrderChanged && classes[0] === 'structural'
+    (canSkipRuntimeIndexes && classes[0] === 'structural'
       ? previousRuntimeIndex
-      : getLiveRuntimeIndex(editor))
+      : sparseTextRuntimeIndex
+        ? previousRuntimeIndex
+        : getLiveRuntimeIndex(editor))
   const selectionImpactRuntimeIds =
-    classes[0] === 'replace' || topLevelOrderChanged
+    classes[0] === 'replace' ||
+    topLevelOrderChanged ||
+    (classes[0] === 'structural' && !selectionChanged) ||
+    skipSelectionRuntimeIndexes
       ? null
       : getSelectionImpactRuntimeIds({
           nextIndex: nextRuntimeIndex,
@@ -1539,6 +1593,7 @@ export const getOperationDirtiness = (
     classes,
     dirtyPaths,
     nextIndex: nextRuntimeIndex,
+    operations,
     previousIndex: previousRuntimeIndex,
     touchedRuntimeIds:
       touchedRuntimeIds == null ? null : (touchedRuntimeIds as RuntimeId[]),
@@ -1564,6 +1619,8 @@ export const getOperationDirtiness = (
         operations,
         previousIndex: previousRuntimeIndex,
         selectionImpactRuntimeIds,
+        touchedRuntimeIds:
+          touchedRuntimeIds == null ? null : (touchedRuntimeIds as RuntimeId[]),
       }),
       childrenChanged:
         classes[0] === 'replace' ||
@@ -3189,12 +3246,26 @@ const getTransactionSnapshotIndex = (
   editor: Editor,
   transactionSnapshot: TransactionSnapshot,
   root: string
-): RuntimeIndexLike =>
-  transactionSnapshot.rootIndexes[root] ??
-  (root === transactionSnapshot.childrenRoot
-    ? transactionSnapshot.previousIndex
-    : null) ??
-  buildSnapshotIndex(editor, transactionSnapshot.roots[root] ?? [])
+): RuntimeIndexLike => {
+  const existingIndex =
+    transactionSnapshot.rootIndexes[root] ??
+    (root === transactionSnapshot.childrenRoot
+      ? transactionSnapshot.previousIndex
+      : null)
+
+  if (existingIndex) {
+    return existingIndex
+  }
+
+  const index = buildSnapshotIndex(
+    editor,
+    transactionSnapshot.roots[root] ?? []
+  )
+
+  transactionSnapshot.rootIndexes[root] = index
+
+  return index
+}
 
 const getTransactionRootSnapshot = (
   editor: Editor,
@@ -3523,6 +3594,34 @@ const getIndexedRuntimeId = (
     : index.pathToId[key]
 }
 
+const buildSparseRuntimeIndexForPaths = (
+  editor: Editor,
+  paths: readonly Path[]
+): SnapshotIndex => {
+  const idToPath = {} as Record<RuntimeId, Path>
+  const pathToId = {} as Record<string, RuntimeId>
+
+  for (const path of paths) {
+    if (path.length === 0) {
+      continue
+    }
+
+    const runtimeId = getLiveRuntimeIdAtPath(editor, path)
+
+    if (!runtimeId) {
+      continue
+    }
+
+    idToPath[runtimeId] = path
+    pathToId[pathKey(path)] = runtimeId
+  }
+
+  return {
+    idToPath: Object.freeze(idToPath),
+    pathToId: Object.freeze(pathToId),
+  }
+}
+
 const uniqRuntimeIds = (
   runtimeIds: readonly (RuntimeId | null | undefined)[]
 ): RuntimeId[] => {
@@ -3585,6 +3684,23 @@ const getOperationScopePaths = (operations: readonly Operation[]): Path[] =>
       : [operation.path]
   })
 
+const operationTouchesOnlyTopLevelPaths = (operation: Operation): boolean => {
+  switch (operation.type) {
+    case 'insert_node':
+    case 'merge_node':
+    case 'remove_node':
+    case 'set_node':
+    case 'split_node':
+      return operation.path.length === 1
+    case 'move_node':
+      return operation.path.length === 1 && operation.newPath.length === 1
+    case 'replace_children':
+      return operation.path.length === 0
+    default:
+      return false
+  }
+}
+
 const getTextOperationPaths = (operations: readonly Operation[]): Path[] =>
   operations.flatMap((operation) =>
     operation.type === 'insert_text' || operation.type === 'remove_text'
@@ -3612,6 +3728,67 @@ const getTopLevelRuntimeIdsForPaths = (
     nextIndex
   )
 
+const getOperationNodeRuntimeIds = (
+  editor: Editor,
+  node: unknown
+): RuntimeId[] => {
+  if (!node || typeof node !== 'object') {
+    return []
+  }
+
+  const descendant = node as Descendant
+  const runtimeIds = [getOrCreateRuntimeId(descendant, editor)]
+
+  if ('children' in descendant && Array.isArray(descendant.children)) {
+    runtimeIds.push(
+      ...descendant.children.flatMap((child) =>
+        getOperationNodeRuntimeIds(editor, child)
+      )
+    )
+  }
+
+  return runtimeIds
+}
+
+const getLiveSubtreeRuntimeIdsAtPath = (
+  editor: Editor,
+  path: Path
+): RuntimeId[] => {
+  const node = getLiveNode(editor, path)
+
+  return getOperationNodeRuntimeIds(editor, node)
+}
+
+const getTopLevelOrderTouchedRuntimeIds = (
+  editor: Editor,
+  operations: readonly Operation[]
+): RuntimeId[] =>
+  uniqRuntimeIds(
+    operations.flatMap((operation) => {
+      switch (operation.type) {
+        case 'insert_node':
+        case 'remove_node':
+          return getOperationNodeRuntimeIds(editor, operation.node)
+        case 'move_node':
+          return getLiveSubtreeRuntimeIdsAtPath(editor, operation.newPath)
+        case 'replace_children':
+          return [
+            ...operation.children.flatMap((node) =>
+              getOperationNodeRuntimeIds(editor, node)
+            ),
+            ...operation.newChildren.flatMap((node) =>
+              getOperationNodeRuntimeIds(editor, node)
+            ),
+          ]
+        case 'merge_node':
+        case 'split_node':
+          return getLiveSubtreeRuntimeIdsAtPath(editor, operation.path)
+        default:
+          return []
+      }
+    })
+  )
+
 const buildCommitRuntimeDirtiness = ({
   classes,
   decorationImpactRuntimeIds,
@@ -3622,6 +3799,7 @@ const buildCommitRuntimeDirtiness = ({
   operations,
   previousIndex,
   selectionImpactRuntimeIds,
+  touchedRuntimeIds,
 }: {
   classes: readonly OperationClass[]
   decorationImpactRuntimeIds: readonly RuntimeId[] | null
@@ -3632,6 +3810,7 @@ const buildCommitRuntimeDirtiness = ({
   operations: readonly Operation[]
   previousIndex: RuntimeIndexLike
   selectionImpactRuntimeIds: readonly RuntimeId[] | null
+  touchedRuntimeIds: readonly RuntimeId[] | null
 }): CommitRuntimeDirtiness => {
   const changeClass = classes[0]
   const fullDocumentChanged = dirtyScope === 'all' || changeClass === 'replace'
@@ -3692,7 +3871,10 @@ const buildCommitRuntimeDirtiness = ({
     dirtyTopLevelRanges: getTopLevelRanges(scopePaths),
     dirtyTopLevelRuntimeIds: topLevelOrderChanged
       ? null
-      : getTopLevelRuntimeIdsForPaths(scopePaths, previousIndex, nextIndex),
+      : changeClass === 'structural' &&
+          operations.every(operationTouchesOnlyTopLevelPaths)
+        ? uniqRuntimeIds([...(touchedRuntimeIds ?? [])])
+        : getTopLevelRuntimeIdsForPaths(scopePaths, previousIndex, nextIndex),
     fullDocumentChanged,
     markDirtyRuntimeIds: [],
     rootRuntimeIdsChanged,
@@ -3827,18 +4009,31 @@ const getNodeImpactRuntimeIds = ({
   classes,
   dirtyPaths,
   nextIndex,
+  operations,
   previousIndex,
   touchedRuntimeIds,
 }: {
   classes: readonly OperationClass[]
   dirtyPaths: readonly Path[]
   nextIndex: RuntimeIndexLike
+  operations: readonly Operation[]
   previousIndex: RuntimeIndexLike
   touchedRuntimeIds: readonly RuntimeId[] | null
 }): readonly RuntimeId[] | null => {
   const changeClass = classes[0]
 
-  if (changeClass === 'replace' || changeClass === 'structural') {
+  if (changeClass === 'replace') {
+    return null
+  }
+
+  if (
+    changeClass === 'structural' &&
+    operations.some(operationChangesTopLevelOrder)
+  ) {
+    return touchedRuntimeIds
+  }
+
+  if (changeClass === 'structural') {
     return null
   }
 
@@ -3960,6 +4155,7 @@ export const buildSnapshotChange = ({
     classes,
     dirtyPaths,
     nextIndex: nextSnapshot.index,
+    operations,
     previousIndex: previousSnapshot.index,
     touchedRuntimeIds,
   })
@@ -3984,6 +4180,7 @@ export const buildSnapshotChange = ({
         operations,
         previousIndex: previousSnapshot.index,
         selectionImpactRuntimeIds,
+        touchedRuntimeIds,
       }),
       childrenChanged,
       classes,
@@ -4114,6 +4311,50 @@ export const canUseTextFastPath = (editor: Editor) =>
     DEFAULT_SHOULD_NORMALIZE.get(editor) &&
   getEditorRuntime(editor).isNormalizing === DEFAULT_IS_NORMALIZING.get(editor)
 
+const canSkipDefaultTopLevelStructuralNormalize = (
+  editor: Editor,
+  operations: readonly Operation[],
+  snapshot: TransactionSnapshot | undefined
+) => {
+  if (!snapshot || !canUseTextFastPath(editor) || operations.length === 0) {
+    return false
+  }
+
+  let topLevelRemovals = 0
+
+  for (const operation of operations) {
+    if (operation.type === 'set_selection') {
+      continue
+    }
+
+    if (operation.type === 'set_node') {
+      if (operation.path.length < 1) {
+        return false
+      }
+      continue
+    }
+
+    if (operation.type === 'move_node') {
+      if (operation.path.length !== 1 || operation.newPath.length !== 1) {
+        return false
+      }
+      continue
+    }
+
+    if (operation.type === 'remove_node') {
+      if (operation.path.length !== 1) {
+        return false
+      }
+      topLevelRemovals += 1
+      continue
+    }
+
+    return false
+  }
+
+  return snapshot.children.length - topLevelRemovals > 0
+}
+
 export const hasListeners = (editor: Editor) =>
   (LISTENERS.get(editor)?.size ?? 0) > 0 || hasSourceListeners(editor)
 
@@ -4183,6 +4424,16 @@ const restoreTransactionSnapshot = (
   editor: Editor,
   transactionSnapshot: TransactionSnapshot
 ) => {
+  const restoreRootIndexes = Object.fromEntries(
+    Object.entries(transactionSnapshot.roots).map(([root, children]) => [
+      root,
+      transactionSnapshot.rootIndexes[root] ??
+        (root === transactionSnapshot.childrenRoot
+          ? transactionSnapshot.previousIndex
+          : null) ??
+        buildSnapshotIndex(editor, children),
+    ])
+  ) as Record<string, RuntimeIndexLike>
   const restoredRoots = cloneValue(transactionSnapshot.roots)
   const activeRoot = getCurrentChildrenRoot(editor)
   const restoredChildren: Descendant[] = Object.hasOwn(
@@ -4219,17 +4470,7 @@ const restoreTransactionSnapshot = (
   }
 
   for (const [root, children] of Object.entries(restoredRoots)) {
-    const index =
-      transactionSnapshot.rootIndexes[root] ??
-      (root === transactionSnapshot.childrenRoot
-        ? transactionSnapshot.previousIndex
-        : null)
-
-    if (index) {
-      seedFromIndex(children, index)
-    } else {
-      seedRuntimeIds(children, editor)
-    }
+    seedFromIndex(children, restoreRootIndexes[root]!)
   }
   CHILDREN.set(editor, restoredChildren)
   ROOTS.set(editor, restoredRoots)
@@ -4249,7 +4490,10 @@ const restoreTransactionSnapshot = (
       ? cloneValue(transactionSnapshot.documentState)
       : undefined
   )
-  setOperations(editor, transactionSnapshot.operations)
+  setOperations(
+    editor,
+    getLiveOperations(editor).slice(0, transactionSnapshot.operationStart)
+  )
 }
 
 export const runEditorTransaction = (
@@ -4276,21 +4520,10 @@ export const runEditorTransaction = (
         )
       : null
     const previousVersion = previousSnapshot?.version ?? getVersion(editor)
-    const previousIndex = previousSnapshot?.index ?? getLiveRuntimeIndex(editor)
+    const previousIndex = previousSnapshot?.index ?? null
     const childrenRoot = getCurrentChildrenRoot(editor)
     const roots = getEditorDocumentRoots(editor)
-    const rootEntries = Object.entries(roots)
-    const rootIndexes =
-      previousSnapshot || rootEntries.length > 1
-        ? profileCoreDuration('transaction-root-indexes', () =>
-            Object.fromEntries(
-              rootEntries.map(([root, children]) => [
-                root,
-                buildSnapshotIndex(editor, children),
-              ])
-            )
-          )
-        : {}
+    const rootIndexes: Record<string, RuntimeIndexLike> = {}
     const transactionRoots = profileCoreDuration(
       'transaction-roots-snapshot',
       () => ({ ...roots })
@@ -4315,7 +4548,7 @@ export const runEditorTransaction = (
       implicitTargetResolved: false,
       marks: previousSnapshot?.marks ?? getCurrentMarks(editor),
       metadata: cloneUpdateMetadata(options.metadata),
-      operations: [...getOperations(editor)],
+      operationStart: getLiveOperations(editor).length,
       previousIndex,
       previousSnapshot,
       previousVersion,
@@ -4349,7 +4582,7 @@ export const runEditorTransaction = (
     const operations = getLiveOperations(editor)
     const snapshot = TRANSACTION_SNAPSHOT.get(editor)
     const operationsSinceSnapshot = operations.slice(
-      snapshot?.operations.length ?? 0
+      snapshot?.operationStart ?? 0
     )
     const selectionOnlyTransaction =
       operationsSinceSnapshot.length > 0 &&
@@ -4362,9 +4595,17 @@ export const runEditorTransaction = (
       (TRANSACTION_CHANGED.get(editor) ?? false) &&
       getEditorRuntime(editor).isNormalizing() &&
       !options.skipNormalize &&
+      !canSkipDefaultTopLevelStructuralNormalize(
+        editor,
+        operationsSinceSnapshot,
+        snapshot
+      ) &&
       !selectionOnlyTransaction
     ) {
-      const latestContentOperationByRoot = new Map<string, Operation>()
+      const latestContentOperationByRoot = new Map<
+        string,
+        Operation | undefined
+      >()
 
       for (const operation of operationsSinceSnapshot) {
         if (operation.type === 'set_selection') {
@@ -4374,6 +4615,16 @@ export const runEditorTransaction = (
         latestContentOperationByRoot.set(
           getOperationRoot(operation) ?? MAIN_ROOT_KEY,
           operation
+        )
+      }
+
+      if (
+        latestContentOperationByRoot.size === 0 &&
+        snapshot?.reason === 'replace'
+      ) {
+        latestContentOperationByRoot.set(
+          snapshot.childrenRoot ?? MAIN_ROOT_KEY,
+          undefined
         )
       }
 
@@ -4428,12 +4679,9 @@ export const runEditorTransaction = (
         profileCoreDuration('set-version', () =>
           setVersion(editor, getVersion(editor) + 1)
         )
-        const allOperations = profileCoreDuration('copy-operations', () => [
-          ...getOperations(editor),
-        ])
-        const operations = snapshot
-          ? allOperations.slice(snapshot.operations.length)
-          : allOperations
+        const operations = profileCoreDuration('copy-operations', () =>
+          getLiveOperations(editor).slice(snapshot?.operationStart ?? 0)
+        )
         const operationRoot = getHomogeneousOperationRoot(operations)
         const changeRoot =
           operationRoot === null
@@ -4452,7 +4700,7 @@ export const runEditorTransaction = (
                   getOperationDirtiness(editor, operations, {
                     command: snapshot?.command,
                     marksBefore: snapshot?.marks,
-                    previousIndex: snapshot?.previousIndex,
+                    previousIndex: snapshot?.previousIndex ?? undefined,
                     previousVersion,
                     reason: snapshot?.reason ?? null,
                     selectionBefore: snapshot?.selection,
@@ -4499,14 +4747,34 @@ export const runEditorTransaction = (
                     })
                   })()
                 : (() => {
+                    const topLevelStructuralChange = operations.every(
+                      operationTouchesOnlyTopLevelPaths
+                    )
+                    const localPathStableChange =
+                      operations.length > 0 &&
+                      operations.every(
+                        (operation) =>
+                          operation.type === 'insert_text' ||
+                          operation.type === 'remove_text' ||
+                          operation.type === 'set_selection'
+                      )
+                    const pathStableStructuralChange =
+                      operations.length > 0 &&
+                      operations.every(
+                        (operation) => operation.type === 'set_node'
+                      )
                     const previousIndexForChange =
-                      snapshot && changeRoot
-                        ? getTransactionSnapshotIndex(
-                            editor,
-                            snapshot,
-                            changeRoot
-                          )
-                        : snapshot?.previousIndex
+                      topLevelStructuralChange ||
+                      localPathStableChange ||
+                      pathStableStructuralChange
+                        ? undefined
+                        : snapshot && changeRoot
+                          ? getTransactionSnapshotIndex(
+                              editor,
+                              snapshot,
+                              changeRoot
+                            )
+                          : (snapshot?.previousIndex ?? undefined)
                     const operationIndexesArePathStable =
                       snapshot &&
                       changeRoot &&
@@ -4522,11 +4790,16 @@ export const runEditorTransaction = (
                               changeRoot
                             )
                           : snapshot?.marks,
-                      nextIndex: operationIndexesArePathStable
-                        ? previousIndexForChange
-                        : changeRoot
-                          ? getCurrentRootIndex(editor, changeRoot)
-                          : undefined,
+                      nextIndex:
+                        topLevelStructuralChange ||
+                        localPathStableChange ||
+                        pathStableStructuralChange
+                          ? undefined
+                          : operationIndexesArePathStable
+                            ? previousIndexForChange
+                            : changeRoot
+                              ? getCurrentRootIndex(editor, changeRoot)
+                              : undefined,
                       previousIndex: previousIndexForChange,
                       previousVersion,
                       reason: snapshot?.reason ?? null,

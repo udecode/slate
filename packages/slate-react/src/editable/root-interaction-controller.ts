@@ -54,6 +54,8 @@ import {
 
 type SlateFocusableEditor = Parameters<typeof focusSlateEditable>[0]
 const MAIN_ROOT_KEY: RootKey = 'main'
+const NATIVE_EDITABLE_TEXT_TARGET =
+  '[data-slate-string], [data-slate-zero-width], [data-slate-leaf], [data-slate-node="text"]'
 
 export type RootInteractionEditor = ReactRuntimeEditor &
   SlateFocusableEditor & {
@@ -1293,11 +1295,22 @@ export const useRootInteractionController = ({
           : undefined,
         target,
       })
+      const nativeEditableTextTarget =
+        target.kind === 'native-editable' &&
+        !!target.target.closest(NATIVE_EDITABLE_TEXT_TARGET)
+      const nativeEditableMultiClick =
+        nativeEditableTextTarget && event.detail > 1
+
+      if (nativeEditableMultiClick) {
+        action = { type: 'ignore' }
+      }
+
       const shouldResolveRootChromeFromCoordinates =
-        action.type === 'place-editable-root' ||
-        target.kind === 'editable-root' ||
-        target.kind === 'native-editable' ||
-        target.kind === 'root-chrome'
+        !nativeEditableMultiClick &&
+        (action.type === 'place-editable-root' ||
+          target.kind === 'editable-root' ||
+          target.kind === 'native-editable' ||
+          target.kind === 'root-chrome')
       const rootChromeCoordinatePlacement =
         shouldResolveRootChromeFromCoordinates
           ? getEditableRootChromeCoordinatePlacement({
@@ -1312,10 +1325,9 @@ export const useRootInteractionController = ({
         rootChromeCoordinatePlacement !== null
       const nativeEditableChromeTarget =
         target.kind === 'native-editable' &&
-        !target.target.closest(
-          '[data-slate-string], [data-slate-zero-width], [data-slate-leaf], [data-slate-node="text"]'
-        )
+        !target.target.closest(NATIVE_EDITABLE_TEXT_TARGET)
       const focusedNativeEditableCoordinateTarget =
+        !nativeEditableMultiClick &&
         ignoreBlankEditableRootClicks &&
         action.type === 'ignore' &&
         target.kind === 'native-editable'
@@ -1383,6 +1395,7 @@ export const useRootInteractionController = ({
       }
 
       const projectedDragEndpoint =
+        nativeEditableMultiClick ||
         ignoreBlankEditableRootClick ||
         ignoreBlankNativeEditableClick ||
         ignoreBlankRootChromeClick ||

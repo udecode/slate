@@ -3085,6 +3085,24 @@ test.describe('On richtext example', () => {
           path: [1, 0],
         },
         {
+          kind: 'assertSelectedText',
+          label: 'assert-native-selected-word',
+          text: 'text',
+        },
+        {
+          kind: 'assertWindowSelectionText',
+          label: 'assert-window-selected-word',
+          text: 'text',
+        },
+        {
+          kind: 'assertSelection',
+          label: 'assert-model-selected-word',
+          selection: {
+            anchor: { offset: 16, path: [1, 0] },
+            focus: { offset: 20, path: [1, 0] },
+          },
+        },
+        {
           kind: 'clickTestId',
           label: 'toggle-mark-from-toolbar',
           testId: 'mark-button-bold',

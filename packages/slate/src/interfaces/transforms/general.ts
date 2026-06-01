@@ -4,6 +4,7 @@ import {
   getCurrentSelectionRoot,
   runEditorTransaction,
   setCurrentSelection,
+  setChildren as setEditorChildren,
   syncImplicitTargetToCurrentSelection,
 } from '../../core/public-state'
 import {
@@ -129,6 +130,16 @@ const getChildContainerChildren = (
   return node.children
 }
 
+const mutateTopLevelChildren = (
+  editor: Editor,
+  mutate: (children: Descendant[]) => void
+) => {
+  const children = Editor.getChildren(editor)
+
+  mutate(children)
+  setEditorChildren(editor, children)
+}
+
 export interface OperationTransformMethods {
   /**
    * Transform the editor by an operation.
@@ -161,6 +172,18 @@ export const transform: OperationTransformMethods['transform'] = (
 
       if (NodeApi.isEditor(node)) {
         throw new Error('Cannot insert an editor as a descendant node.')
+      }
+
+      if (PathApi.parent(path).length === 0) {
+        mutateTopLevelChildren(editor, (children) => {
+          const index = path.at(-1)!
+
+          assertChildIndex(op, path, index, children.length, true)
+          children.splice(index, 0, node)
+        })
+
+        transformSelection = true
+        break
       }
 
       modifyChildren(editor, PathApi.parent(path), (children) => {
@@ -317,10 +340,6 @@ export const transform: OperationTransformMethods['transform'] = (
           ] as Path)
         : null
 
-      modifyChildren(editor, PathApi.parent(path), (children) =>
-        removeChildren(children, index, 1)
-      )
-
       // This is tricky, but since the `path` and `newPath` both refer to
       // the same snapshot in time, there's a mismatch. After either
       // removing the original position, the second step's path can be out
@@ -341,6 +360,26 @@ export const transform: OperationTransformMethods['transform'] = (
         newPath: effectiveSelectionPath ?? truePath,
       }
 
+      if (
+        sourceParentPath.length === 0 &&
+        PathApi.parent(truePath).length === 0
+      ) {
+        mutateTopLevelChildren(editor, (children) => {
+          const [movedNode] = children.splice(index, 1)
+
+          if (movedNode) {
+            children.splice(newIndex, 0, movedNode)
+          }
+        })
+
+        transformSelection = true
+        break
+      }
+
+      modifyChildren(editor, PathApi.parent(path), (children) =>
+        removeChildren(children, index, 1)
+      )
+
       modifyChildren(editor, PathApi.parent(truePath), (children) =>
         insertChildren(children, newIndex, node)
       )
@@ -353,11 +392,18 @@ export const transform: OperationTransformMethods['transform'] = (
       const { path } = op
       const index = path.at(-1)!
 
-      modifyChildren(editor, PathApi.parent(path), (children) => {
-        assertChildIndex(op, path, index, children.length, false)
+      if (PathApi.parent(path).length === 0) {
+        mutateTopLevelChildren(editor, (children) => {
+          assertChildIndex(op, path, index, children.length, false)
+          children.splice(index, 1)
+        })
+      } else {
+        modifyChildren(editor, PathApi.parent(path), (children) => {
+          assertChildIndex(op, path, index, children.length, false)
 
-        return removeChildren(children, index, 1)
-      })
+          return removeChildren(children, index, 1)
+        })
+      }
 
       // Transform all the points in the value, but if the point was in the
       // node that was removed we need to update the range or remove it.

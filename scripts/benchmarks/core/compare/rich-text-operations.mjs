@@ -714,6 +714,51 @@ const deltaMeanMs = Object.fromEntries(
     ])
 )
 
+const structuralLaneNames = [
+  'beforeAfterWalkMs',
+  'removeNodesWindowMs',
+  'moveNodesWindowMs',
+  'insertFragmentMixedBlocksMs',
+  'setNodesSelectedBlocksMs',
+]
+
+const getRatio = (currentValue, legacyValue) =>
+  legacyValue > 0 ? round(currentValue / legacyValue) : 0
+
+const structuralOps = Object.fromEntries(
+  structuralLaneNames.map((metricName) => {
+    const currentLane = current.lanes[metricName]
+    const legacyLane = legacy.lanes[metricName]
+
+    return [
+      metricName,
+      {
+        currentMeanMs: currentLane.mean,
+        currentP95Ms: currentLane.p95,
+        legacyMeanMs: legacyLane.mean,
+        legacyP95Ms: legacyLane.p95,
+        meanRatio: getRatio(currentLane.mean, legacyLane.mean),
+        p95Ratio: getRatio(currentLane.p95, legacyLane.p95),
+      },
+    ]
+  })
+)
+const worstP95Entry = Object.entries(structuralOps).reduce((worst, entry) =>
+  entry[1].p95Ratio > worst[1].p95Ratio ? entry : worst
+)
+const worstMeanEntry = Object.entries(structuralOps).reduce((worst, entry) =>
+  entry[1].meanRatio > worst[1].meanRatio ? entry : worst
+)
+const structuralComposite = {
+  p95Ms: Math.max(
+    ...Object.values(structuralOps).map((lane) => lane.currentP95Ms)
+  ),
+  worstMeanLane: worstMeanEntry[0],
+  worstMeanRatio: worstMeanEntry[1].meanRatio,
+  worstP95Lane: worstP95Entry[0],
+  worstP95Ratio: worstP95Entry[1].p95Ratio,
+}
+
 const summary = {
   lane: 'core-rich-text-operations-compare-local',
   currentRepo,
@@ -728,6 +773,8 @@ const summary = {
   current: current.lanes,
   legacy: legacy.lanes,
   deltaMeanMs,
+  structuralComposite,
+  structuralOps,
 }
 
 await writeBenchmarkArtifact(
@@ -736,3 +783,15 @@ await writeBenchmarkArtifact(
 )
 
 console.log(JSON.stringify(summary, null, 2))
+console.log(
+  `METRIC rich_text_structural_ops_p95_ms=${round(structuralComposite.p95Ms)}`
+)
+console.log(
+  `METRIC rich_text_structural_ops_worst_ratio=${structuralComposite.worstP95Ratio}`
+)
+console.log(
+  `METRIC rich_text_structural_ops_worst_mean_ratio=${structuralComposite.worstMeanRatio}`
+)
+console.log(
+  `rich-text structural worst p95 lane=${structuralComposite.worstP95Lane} worst mean lane=${structuralComposite.worstMeanLane}`
+)

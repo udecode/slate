@@ -2522,17 +2522,27 @@ const getImplicitSelectionRoot = (editor: Editor) =>
 const getWriteRoot = (editor: Editor, at: Location | undefined) =>
   at === undefined ? getImplicitSelectionRoot(editor) : getLocationRoot(at)
 
+const isPathLocation = (value: Location | undefined): value is Path =>
+  Array.isArray(value) && value.every((segment) => Number.isInteger(segment))
+
+const runRootedInternalWrite = <T>(
+  editor: Editor,
+  fn: () => T,
+  root?: string
+): T =>
+  root
+    ? withEditorOperationRoot(editor, root, () =>
+        withEditorOperationRootChildren(editor, root, fn)
+      )
+    : fn()
+
 const runInternalEditorWrite = <T>(
   editor: Editor,
   fn: () => T,
   root?: string
 ): T => {
   const runRooted = <TReturn>(callback: () => TReturn) =>
-    root
-      ? withEditorOperationRoot(editor, root, () =>
-          withEditorOperationRootChildren(editor, root, callback)
-        )
-      : callback()
+    runRootedInternalWrite(editor, callback, root)
 
   if (isInTransaction(editor)) {
     return runRooted(fn)
@@ -2547,6 +2557,33 @@ const runInternalEditorWrite = <T>(
   }
 
   runRooted(runUpdate)
+
+  return result
+}
+
+const runInternalEditorWriteSkipNormalize = <T>(
+  editor: Editor,
+  fn: () => T,
+  root?: string
+): T => {
+  if (isInTransaction(editor)) {
+    return runRootedInternalWrite(editor, fn, root)
+  }
+
+  let result!: T
+
+  runRootedInternalWrite(
+    editor,
+    () => {
+      editor.update(
+        () => {
+          result = fn()
+        },
+        { skipNormalize: true }
+      )
+    },
+    root
+  )
 
   return result
 }
@@ -2869,6 +2906,14 @@ const InternalEditor: InternalEditorStaticApi = {
   },
 
   moveNodes(editor, options) {
+    if (isPathLocation(options.at) && options.at.length === 1) {
+      return runInternalEditorWriteSkipNormalize(
+        editor,
+        () => getEditorTransformRegistry(editor).moveNodes(options),
+        getWriteRoot(editor, options.at)
+      )
+    }
+
     runInternalEditorWrite(
       editor,
       () => getEditorTransformRegistry(editor).moveNodes(options),
@@ -2978,6 +3023,18 @@ const InternalEditor: InternalEditorStaticApi = {
   },
 
   removeNodes(editor, options) {
+    if (
+      isPathLocation(options?.at) &&
+      options.at.length === 1 &&
+      getEditorRuntime(editor).getChildren().length > 1
+    ) {
+      return runInternalEditorWriteSkipNormalize(
+        editor,
+        () => getEditorTransformRegistry(editor).removeNodes(options),
+        getWriteRoot(editor, options.at)
+      )
+    }
+
     runInternalEditorWrite(
       editor,
       () => getEditorTransformRegistry(editor).removeNodes(options),

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import {
@@ -8,9 +9,15 @@ import {
 import { round, writeBenchmarkArtifact } from '../../shared/stats.mjs'
 
 const currentRepo = process.cwd()
+const defaultLegacyRepo =
+  [
+    resolve(currentRepo, '../slate'),
+    resolve(currentRepo, '../../../slate'),
+  ].find((candidate) => existsSync(resolve(candidate, 'package.json'))) ??
+  resolve(currentRepo, '../slate')
 const legacyRepo = resolve(
   currentRepo,
-  process.env.REACT_HUGE_COMPARE_LEGACY_REPO || '../slate'
+  process.env.REACT_HUGE_COMPARE_LEGACY_REPO || defaultLegacyRepo
 )
 
 const iterations = Number(process.env.REACT_HUGE_COMPARE_ITERATIONS || 3)

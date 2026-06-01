@@ -63,6 +63,11 @@ const surfaces = [
     label: 'v2 staged DOM-present',
     path: `/examples/huge-document?blocks=${blocks}&content_visibility=none&strict=false&strategy=staged`,
   },
+  {
+    key: 'virtualized',
+    label: 'v2 virtualized',
+    path: `/examples/huge-document?blocks=${blocks}&content_visibility=none&strict=false&strategy=virtualized&threshold=1&overscan=2&editor_height=600`,
+  },
 ].filter((surface) => selectedSurfaces.has(surface.key))
 
 const lanes = [
@@ -163,20 +168,28 @@ const installTraceObserver = async (page) => {
     const trace = {
       longAnimationFrames: [],
       longTasks: [],
+      profilerEvents: [],
       reset() {
         this.longAnimationFrames.length = 0
         this.longTasks.length = 0
+        this.profilerEvents.length = 0
       },
       snapshot() {
         return {
           longAnimationFrames: this.longAnimationFrames.slice(),
           longTasks: this.longTasks.slice(),
+          profilerEvents: this.profilerEvents.slice(),
         }
       },
     }
 
     target.__SLATE_BROWSER_TRACE__ = trace
     target.__SLATE_BROWSER_TRACE_OBSERVER__ = true
+    target.__SLATE_REACT_RENDER_PROFILER__ = {
+      record(event) {
+        trace.profilerEvents.push(event)
+      },
+    }
 
     if ('PerformanceObserver' in target) {
       try {
@@ -236,6 +249,19 @@ const waitForNativeSurface = async (page) => {
           return false
         }
 
+        const effectiveStrategy = document.querySelector(
+          '[data-test-id="huge-document-effective-strategy"]'
+        )?.textContent
+        const mountedTopLevelCount = Number(
+          document.querySelector(
+            '[data-test-id="huge-document-mounted-top-level-count"]'
+          )?.textContent ?? 0
+        )
+
+        if (effectiveStrategy === 'virtualized') {
+          return mountedTopLevelCount > 0
+        }
+
         return (
           root.querySelectorAll('[data-slate-node="text"]').length >=
           expectedBlocks
@@ -265,6 +291,39 @@ const resetTrace = async (page) => {
 
 const getTraceSnapshot = async (page) =>
   page.evaluate(() => globalThis.__SLATE_BROWSER_TRACE__?.snapshot?.() ?? null)
+
+const summarizeProfilerEvents = (events = []) => {
+  const buckets = new Map()
+
+  for (const event of events) {
+    const key =
+      event.kind === 'core-time' || event.kind === 'editable-mutation'
+        ? `${event.kind}:${event.id}`
+        : event.kind
+    const current = buckets.get(key) ?? {
+      count: 0,
+      durationMs: 0,
+    }
+
+    current.count += 1
+    current.durationMs +=
+      typeof event.duration === 'number' && Number.isFinite(event.duration)
+        ? event.duration
+        : 0
+    buckets.set(key, current)
+  }
+
+  return Object.fromEntries(
+    [...buckets.entries()]
+      .sort(
+        ([leftKey, left], [rightKey, right]) =>
+          right.durationMs - left.durationMs ||
+          right.count - left.count ||
+          leftKey.localeCompare(rightKey)
+      )
+      .slice(0, 20)
+  )
+}
 
 const readBlockText = async (page, blockIndex) =>
   page.evaluate((index) => {
@@ -376,13 +435,34 @@ const syncDOMSelection = async (page, blockIndex) =>
     range.collapse(true)
     domSelection?.removeAllRanges()
     domSelection?.addRange(range)
+    root.focus()
     document.dispatchEvent(new Event('selectionchange', { bubbles: true }))
   }, blockIndex)
+
+const waitForDOMSelectionPath = async (page, blockIndex) => {
+  await page.waitForFunction(
+    (index) => {
+      const selection = document.getSelection()
+      const textElement = selection?.anchorNode?.parentElement?.closest(
+        '[data-slate-node="text"]'
+      )
+
+      return textElement?.getAttribute('data-slate-path') === `${index},0`
+    },
+    blockIndex,
+    { timeout: 5000 }
+  )
+}
 
 const selectCollapsed = async (page, blockIndex) => {
   await requestCollapsedSelection(page, blockIndex)
   await waitForMaterializedText(page, blockIndex)
+  await nextPaint(page)
+  await waitForMaterializedText(page, blockIndex)
   await syncDOMSelection(page, blockIndex)
+  await waitForDOMSelectionPath(page, blockIndex)
+  await nextPaint(page)
+  await waitForDOMSelectionPath(page, blockIndex)
 }
 
 const measureInteraction = async (page, lane) => {
@@ -400,25 +480,54 @@ const measureInteraction = async (page, lane) => {
   const typeStart = await page.evaluate(() => performance.now())
   await page.keyboard.type(typeText)
 
-  await page.waitForFunction(
-    ({ expectedPrefix, index }) => {
-      const root = document.querySelector('[data-slate-editor="true"]')
-      const textElements = Array.from(
-        root?.querySelectorAll('[data-slate-node="text"]') ?? []
-      )
-      const textElement =
-        root?.querySelector(
-          `[data-slate-node="text"][data-slate-path="${index},0"]`
-        ) ?? textElements[index]
-      const block = textElement?.closest('[data-slate-node="element"]')
-      const text =
-        (block ?? textElement)?.textContent?.replace(/\uFEFF/g, '') ?? ''
+  await page
+    .waitForFunction(
+      ({ expectedPrefix, index }) => {
+        const root = document.querySelector('[data-slate-editor="true"]')
+        const textElements = Array.from(
+          root?.querySelectorAll('[data-slate-node="text"]') ?? []
+        )
+        const textElement =
+          root?.querySelector(
+            `[data-slate-node="text"][data-slate-path="${index},0"]`
+          ) ?? textElements[index]
+        const block = textElement?.closest('[data-slate-node="element"]')
+        const text =
+          (block ?? textElement)?.textContent?.replace(/\uFEFF/g, '') ?? ''
 
-      return text.startsWith(expectedPrefix)
-    },
-    { expectedPrefix: typeText, index: lane.blockIndex },
-    { timeout: 10_000 }
-  )
+        return text.startsWith(expectedPrefix)
+      },
+      { expectedPrefix: typeText, index: lane.blockIndex },
+      { timeout: 10_000 }
+    )
+    .catch(async (error) => {
+      const diagnostics = await page.evaluate((index) => {
+        const root = document.querySelector('[data-slate-editor="true"]')
+        const activeElement = document.activeElement
+        const domSelection = document.getSelection()
+        const block = root
+          ?.querySelector(
+            `[data-slate-node="text"][data-slate-path="${index},0"]`
+          )
+          ?.closest('[data-slate-node="element"]')
+        const selectedText =
+          domSelection?.anchorNode?.parentElement?.closest(
+            '[data-slate-node="element"]'
+          )?.textContent ?? null
+
+        return {
+          activeElementTag: activeElement?.tagName ?? null,
+          blockText: block?.textContent?.replace(/\uFEFF/g, '') ?? null,
+          domAnchorText: domSelection?.anchorNode?.textContent ?? null,
+          domSelectionText: selectedText?.replace(/\uFEFF/g, '') ?? null,
+          handleSelection: root?.__slateBrowserHandle?.getSelection?.() ?? null,
+        }
+      }, lane.blockIndex)
+
+      throw new Error(
+        `Typing assertion timed out for ${lane.key} at block ${lane.blockIndex}: ${error.message}; diagnostics=${JSON.stringify(diagnostics)}`
+      )
+    })
 
   const updateTime = await page.evaluate(() => performance.now())
   const paintTime = await nextPaint(page)
@@ -444,6 +553,7 @@ const measureInteraction = async (page, lane) => {
     ),
     selectMs: selectPaint - combinedStart,
     selectThenTypeToPaintMs: paintTime - combinedStart,
+    profiler: summarizeProfilerEvents(trace?.profilerEvents),
     typeToPaintMs: paintTime - typeStart,
     typeToUpdateMs: updateTime - typeStart,
   }
@@ -460,6 +570,32 @@ const summarizeTagSamples = (samples, key) =>
 const summarizeNumberSamples = (samples, key) =>
   summarize(samples.map((sample) => sample[key]).filter(Number.isFinite))
 
+const summarizeProfilerBuckets = (samples) => {
+  const bucketNames = new Set()
+
+  for (const sample of samples) {
+    for (const bucketName of Object.keys(sample.profiler ?? {})) {
+      bucketNames.add(bucketName)
+    }
+  }
+
+  return Object.fromEntries(
+    [...bucketNames].map((bucketName) => [
+      bucketName,
+      {
+        count: summarize(
+          samples.map((sample) => sample.profiler?.[bucketName]?.count ?? 0)
+        ),
+        durationMs: summarize(
+          samples.map(
+            (sample) => sample.profiler?.[bucketName]?.durationMs ?? 0
+          )
+        ),
+      },
+    ])
+  )
+}
+
 const summarizeLane = (samples) => ({
   domTags: {
     domNodeCount: summarizeTagSamples(samples, 'domNodeCount'),
@@ -471,6 +607,7 @@ const summarizeLane = (samples) => ({
   longAnimationFrameMaxMs: summarizeMetric(samples, 'longAnimationFrameMaxMs'),
   longTaskCount: summarizeMetric(samples, 'longTaskCount'),
   longTaskMaxMs: summarizeMetric(samples, 'longTaskMaxMs'),
+  profiler: summarizeProfilerBuckets(samples),
   selectMs: summarizeMetric(samples, 'selectMs'),
   selectThenTypeToPaintMs: summarizeMetric(samples, 'selectThenTypeToPaintMs'),
   typeToPaintMs: summarizeMetric(samples, 'typeToPaintMs'),
@@ -582,6 +719,31 @@ const run = async () => {
         )
       }
     }
+
+    const laneSummaries = Object.values(summary.surfaces).flatMap((surface) =>
+      Object.values(surface.lanes)
+    )
+    const maxTypeToPaintP95Ms = Math.max(
+      ...laneSummaries.map((lane) => lane.typeToPaintMs.p95)
+    )
+    const maxDomNodesP95 = Math.max(
+      ...laneSummaries.map((lane) => lane.domTags.domNodeCount.p95)
+    )
+    const maxHeapMBP95 = Math.max(
+      ...laneSummaries.map((lane) => lane.domTags.jsHeapUsedMB.p95)
+    )
+    const maxLongTaskP95Ms = Math.max(
+      ...laneSummaries.map((lane) => lane.longTaskMaxMs.p95)
+    )
+
+    console.log(
+      `METRIC react_huge_doc_type_to_paint_p95_ms=${round(maxTypeToPaintP95Ms)}`
+    )
+    console.log(`METRIC react_huge_doc_dom_nodes_p95=${round(maxDomNodesP95)}`)
+    console.log(`METRIC react_huge_doc_heap_mb_p95=${round(maxHeapMBP95)}`)
+    console.log(
+      `METRIC react_huge_doc_long_task_max_p95_ms=${round(maxLongTaskP95Ms)}`
+    )
 
     console.log(`\nWrote ${runArtifactPath}`)
   } finally {

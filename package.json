@@ -25,6 +25,7 @@
     "bench:history:compare:local": "bun ./scripts/benchmarks/core/compare/history.mjs",
     "bench:react:rerender-breadth:local": "cd ./packages/slate-react && bun ../../scripts/benchmarks/browser/react/rerender-breadth.tsx",
     "bench:react:huge-document-overlays:local": "cd ./packages/slate-react && bun ../../scripts/benchmarks/browser/react/huge-document-overlays.tsx",
+    "bench:react:runtime-node-fanout:local": "cd ./packages/slate-react && bun ../../scripts/benchmarks/browser/react/runtime-node-fanout.tsx",
     "bench:react:active-typing:local": "bun ./scripts/benchmarks/browser/react/active-typing-breakdown.tsx",
     "bench:react:pagination-virtualized-char-burst:local": "bun ./scripts/benchmarks/browser/react/pagination-virtualized-char-burst.mjs",
     "bench:react:huge-document:legacy-compare:local": "bun ./scripts/benchmarks/browser/react/huge-document-legacy-compare.mjs",

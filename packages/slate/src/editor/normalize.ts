@@ -2,9 +2,6 @@ import { batchDirtyPaths } from '../core/batch-dirty-paths'
 import { getEditorRuntime } from '../core/editor-runtime'
 import {
   canUseTextFastPath,
-  getChildren,
-  getCurrentMarks,
-  getCurrentSelection,
   getEditorOperationRoot,
   getMutationVersion,
   isInTransaction,
@@ -68,12 +65,28 @@ export const normalize: EditorStaticApi['normalize'] = (
     )
   }
 
-  const createPassSignature = () =>
-    JSON.stringify({
-      children: getChildren(editor),
-      marks: getCurrentMarks(editor),
-      selection: getCurrentSelection(editor),
-    })
+  const createNodeSignature = (entryNode: NodeEntry[0]) => {
+    const props = Object.fromEntries(
+      Object.entries(entryNode)
+        .filter(([key]) => key !== 'children' && key !== 'text')
+        .sort(([left], [right]) => left.localeCompare(right))
+    )
+
+    return NodeApi.isText(entryNode)
+      ? ['text', entryNode.text.length, props]
+      : [
+          NodeApi.isEditor(entryNode) ? 'editor' : 'element',
+          props,
+          'children' in entryNode && Array.isArray(entryNode.children)
+            ? entryNode.children.length
+            : 0,
+        ]
+  }
+
+  const createPassSignature = (entries: NodeEntry[]) =>
+    JSON.stringify(
+      entries.map(([entryNode, path]) => [path, createNodeSignature(entryNode)])
+    )
 
   const collectNormalizeEntries = (): NodeEntry[] =>
     Array.from(
@@ -127,10 +140,7 @@ export const normalize: EditorStaticApi['normalize'] = (
           return
         }
 
-        const signature = JSON.stringify({
-          state: createPassSignature(),
-          entries: entries.map(([, path]) => path),
-        })
+        const signature = createPassSignature(entries)
 
         if (seenSignatures.has(signature)) {
           throw new Error(
@@ -174,7 +184,7 @@ export const normalize: EditorStaticApi['normalize'] = (
 
         if (iteration > maxIterations) {
           throw new Error(
-            `normalizeNode exhausted derived pass budget (${maxIterations}) without reaching fixpoint`
+            `normalizeNode exhausted derived pass budget (${maxIterations}) without reaching fixpoint; possible no-progress normalization loop`
           )
         }
       }

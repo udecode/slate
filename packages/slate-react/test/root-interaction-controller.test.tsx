@@ -54,11 +54,13 @@ const createMouseCaptureEvent = ({
   clientX,
   clientY,
   currentTarget,
+  detail = 1,
   target,
 }: {
   clientX: number
   clientY: number
   currentTarget: HTMLElement
+  detail?: number
   target: Element
 }) =>
   ({
@@ -67,6 +69,7 @@ const createMouseCaptureEvent = ({
     clientY,
     currentTarget,
     defaultPrevented: false,
+    detail,
     nativeEvent: {},
     preventDefault: vi.fn(),
     target,
@@ -239,6 +242,45 @@ describe('root interaction controller', () => {
     expect(fireEvent.mouseDown(string!, { clientX: 8, clientY: 10 })).toBe(
       false
     )
+  })
+
+  test('leaves native double-click word selection to the browser in layout mode', async () => {
+    const editor = createReactEditor({
+      initialValue: {
+        roots: {
+          main: [paragraph('body')],
+        },
+      },
+    })
+
+    render(
+      <Slate editor={editor}>
+        <Editable aria-label="Main editor" layout={{}} />
+      </Slate>
+    )
+
+    const editable = screen.getByLabelText('Main editor')
+    const string = editable.querySelector<HTMLElement>('[data-slate-string]')
+
+    expect(string).toBeTruthy()
+
+    Object.defineProperty(string!, 'getClientRects', {
+      configurable: true,
+      value: () => [rect({ left: 10, right: 80 })],
+    })
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [rect({ left: 10, right: 30 })],
+    })
+
+    await act(async () => {
+      editable.focus()
+    })
+
+    expect(document.activeElement).toBe(editable)
+    expect(
+      fireEvent.mouseDown(string!, { clientX: 8, clientY: 10, detail: 2 })
+    ).toBe(true)
   })
 
   test('preserves dragged coordinate selection when mouseup has no range', () => {

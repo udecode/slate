@@ -1123,10 +1123,53 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
 ) => {
   runEditorTransaction(editor, (tx) => {
     const operationCount = getOperationCount(editor)
+    let usedReplaceChildrenFastPath = false
+    const applyReplaceChildren = (
+      operation: Parameters<typeof tx.apply>[0]
+    ) => {
+      usedReplaceChildrenFastPath = true
+      tx.apply(operation)
+    }
+
+    if (!fragment.length) {
+      return
+    }
+
+    const { hanging = false, voids = false } = options
+    let fastAt = tx.resolveTarget({ at: options.at })
+
+    if (!fastAt && options.at === undefined && tx.getModelSelection() == null) {
+      fastAt = getDefaultInsertLocation(editor)
+    }
+
+    if (!fastAt) {
+      return
+    }
+
+    if (LocationApi.isRange(fastAt)) {
+      if (!hanging) {
+        fastAt = Editor.unhangRange(editor, fastAt, { voids })
+      }
+
+      const topLevelStructuralBlockReplacement =
+        getTopLevelStructuralBlockFragmentReplacement(editor, fastAt, fragment)
+
+      if (topLevelStructuralBlockReplacement) {
+        applyReplaceChildren({
+          children: topLevelStructuralBlockReplacement.previousChildren,
+          index: topLevelStructuralBlockReplacement.index,
+          newChildren: topLevelStructuralBlockReplacement.children,
+          newSelection: topLevelStructuralBlockReplacement.selection,
+          path: [],
+          selection: tx.getModelSelection(),
+          type: 'replace_children',
+        })
+        return
+      }
+    }
 
     Editor.withoutNormalizing(editor, () => {
       const transforms = getEditorTransformRegistry(editor)
-      const { hanging = false, voids = false } = options
       const { batchDirty = true } = options
       let at = tx.resolveTarget({ at: options.at })
 
@@ -1145,6 +1188,22 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
       if (LocationApi.isRange(at)) {
         if (!hanging) {
           at = Editor.unhangRange(editor, at, { voids })
+        }
+
+        const topLevelStructuralBlockReplacement =
+          getTopLevelStructuralBlockFragmentReplacement(editor, at, fragment)
+
+        if (topLevelStructuralBlockReplacement) {
+          applyReplaceChildren({
+            children: topLevelStructuralBlockReplacement.previousChildren,
+            index: topLevelStructuralBlockReplacement.index,
+            newChildren: topLevelStructuralBlockReplacement.children,
+            newSelection: topLevelStructuralBlockReplacement.selection,
+            path: [],
+            selection: tx.getModelSelection(),
+            type: 'replace_children',
+          })
+          return
         }
 
         if (isFullDocumentRange(editor, at)) {
@@ -1169,7 +1228,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
               onlyFragmentNode.children
             )
 
-            tx.apply({
+            applyReplaceChildren({
               children: editorChildren,
               index: 0,
               newChildren: children,
@@ -1181,7 +1240,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
             return
           }
 
-          tx.apply({
+          applyReplaceChildren({
             children: editorChildren,
             index: 0,
             newChildren: fragment as Value,
@@ -1200,7 +1259,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         )
 
         if (replacement) {
-          tx.apply({
+          applyReplaceChildren({
             children: replacement.previousChildren,
             index: 0,
             newChildren: replacement.children,
@@ -1219,7 +1278,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         )
 
         if (textBlockReplacement) {
-          tx.apply({
+          applyReplaceChildren({
             children: textBlockReplacement.previousChildren,
             index: 0,
             newChildren: textBlockReplacement.newChildren,
@@ -1235,7 +1294,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
           getTopLevelTextBlockFragmentReplacement(editor, at, fragment)
 
         if (topLevelTextBlockReplacement) {
-          tx.apply({
+          applyReplaceChildren({
             children: topLevelTextBlockReplacement.previousChildren,
             index: topLevelTextBlockReplacement.index,
             newChildren: topLevelTextBlockReplacement.children,
@@ -1247,27 +1306,11 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
           return
         }
 
-        const topLevelStructuralBlockReplacement =
-          getTopLevelStructuralBlockFragmentReplacement(editor, at, fragment)
-
-        if (topLevelStructuralBlockReplacement) {
-          tx.apply({
-            children: topLevelStructuralBlockReplacement.previousChildren,
-            index: topLevelStructuralBlockReplacement.index,
-            newChildren: topLevelStructuralBlockReplacement.children,
-            newSelection: topLevelStructuralBlockReplacement.selection,
-            path: [],
-            selection: tx.getModelSelection(),
-            type: 'replace_children',
-          })
-          return
-        }
-
         const nestedTextBlockReplacement =
           getNestedTextBlockFragmentReplacement(editor, at, fragment)
 
         if (nestedTextBlockReplacement) {
-          tx.apply({
+          applyReplaceChildren({
             children: nestedTextBlockReplacement.previousChildren,
             index: nestedTextBlockReplacement.index,
             newChildren: nestedTextBlockReplacement.children,
@@ -1286,7 +1329,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         )
 
         if (topLevelBlockReplacement) {
-          tx.apply({
+          applyReplaceChildren({
             children: topLevelBlockReplacement.previousChildren,
             index: topLevelBlockReplacement.index,
             newChildren: topLevelBlockReplacement.children,
@@ -1558,7 +1601,10 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
       endRef.unref()
     })
 
-    if (getOperationCount(editor) > operationCount) {
+    if (
+      !usedReplaceChildrenFastPath &&
+      getOperationCount(editor) > operationCount
+    ) {
       Editor.normalize(editor)
     }
   })

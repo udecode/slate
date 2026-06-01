@@ -993,7 +993,7 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
       }
     },
     sameDescendantBinding,
-    { includeRootOrderChanges: true, runtimeId }
+    { runtimeId }
   )
 
   const { childRuntimeIds, node, path } = binding
