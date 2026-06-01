@@ -8,12 +8,12 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import { flushSync } from 'react-dom'
 import type { Editor, Path } from 'slate'
 import {
   Editable,
   type EditableLayout,
   type EditableProps,
+  defaultScrollSelectionIntoView,
   useEditorState,
   useElementPath,
 } from 'slate-react'
@@ -128,12 +128,19 @@ export const useSlateLayout = <
     () => createSlateLayout(editor, () => optionsRef.current),
     [editor]
   )
+  const didRunInitialRefreshEffectRef = useRef(false)
   const pageDependency = getPageSourceDependency(options.page)
 
   useEffect(() => {
+    if (!didRunInitialRefreshEffectRef.current) {
+      didRunInitialRefreshEffectRef.current = true
+      return
+    }
+
     layout.refresh('settings')
   }, [
     layout,
+    options.engine,
     options.nodeLayout,
     options.root,
     options.typography,
@@ -163,9 +170,15 @@ export const useSlatePageLayout = <
     () => createSlatePageLayout(editor, () => optionsRef.current),
     [editor]
   )
+  const didRunInitialRefreshEffectRef = useRef(false)
   const pageDependency = getPageSourceDependency(options.page)
 
   useEffect(() => {
+    if (!didRunInitialRefreshEffectRef.current) {
+      didRunInitialRefreshEffectRef.current = true
+      return
+    }
+
     layout.refresh('settings')
   }, [
     layout,
@@ -210,7 +223,9 @@ export const useSlateLayoutFragments = (
 
     return context.layout.getFragments(targetPath).flatMap((fragment) => {
       const isSelectedFragment = context.selectedPaths.some((path) =>
-        pathsOverlap(fragment.path, path)
+        fragment.units?.length
+          ? fragment.units.some((unit) => pathsOverlap(unit.path, path))
+          : pathsOverlap(fragment.path, path)
       )
 
       if (
@@ -369,6 +384,10 @@ const pathsOverlap = (left: Path, right: Path) =>
   isPathWithin(left, right) || isPathWithin(right, left)
 
 const EMPTY_SELECTED_PATHS = Object.freeze([]) as readonly Path[]
+const USER_SCROLL_SELECTION_SCROLL_SUPPRESSION_MS = 500
+
+const getNow = () =>
+  typeof performance === 'undefined' ? Date.now() : performance.now()
 
 export type PagedEditableRenderPageProps = {
   attributes: {
@@ -430,6 +449,48 @@ const normalizePagedEditablePageView = ({
   mode: pageView?.mode ?? pageLayoutMode ?? 'single',
 })
 
+const createPagedEditableTopLevelLayoutItems = ({
+  fragments,
+  geometry,
+  pages,
+}: {
+  fragments: readonly SlatePageLayoutFragment[]
+  geometry: ReturnType<typeof getSlatePageLayoutGeometry>
+  pages: readonly SlatePageLayoutPage[]
+}) => {
+  const items = new Map<number, { end: number; start: number }>()
+
+  for (const fragment of fragments) {
+    const page = pages[fragment.pageIndex] ?? pages[0]
+    const placement = geometry.pagePlacements[fragment.pageIndex] ?? {
+      left: 0,
+      top: page ? page.index * page.height : 0,
+    }
+
+    const start = placement.top + fragment.top
+    const end = start + fragment.height
+    const current = items.get(fragment.blockIndex)
+
+    items.set(
+      fragment.blockIndex,
+      current
+        ? {
+            end: Math.max(current.end, end),
+            start: Math.min(current.start, start),
+          }
+        : { end, start }
+    )
+  }
+
+  return [...items.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([index, item]) => ({
+      index,
+      size: Math.max(1, item.end - item.start),
+      start: item.start,
+    }))
+}
+
 export const PagedEditable = ({
   layout,
   pageGap,
@@ -440,6 +501,7 @@ export const PagedEditable = ({
   ...editableProps
 }: PagedEditableProps) => {
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const lastViewportScrollAtRef = useRef(-Infinity)
   const [viewport, setViewport] = useState<PagedEditableViewport | null>(null)
   const selectedPaths = useEditorState(
     (state) => {
@@ -458,47 +520,14 @@ export const PagedEditable = ({
     pageLayoutMode,
     pageView,
   })
-  const geometry = getSlatePageLayoutGeometry(pages, {
-    pageGap: normalizedPageView.gap,
-    pageLayoutMode: normalizedPageView.mode,
-  })
-  const projection = useMemo(
+  const geometry = useMemo(
     () =>
-      getSlatePageLayoutProjection(snapshot, {
-        geometry,
-        hitTesting: false,
+      getSlatePageLayoutGeometry(pages, {
         pageGap: normalizedPageView.gap,
         pageLayoutMode: normalizedPageView.mode,
       }),
-    [geometry, normalizedPageView.gap, normalizedPageView.mode, snapshot]
+    [normalizedPageView.gap, normalizedPageView.mode, pages]
   )
-  const projectedUnitsByFragment = useMemo(() => {
-    const byFragment = new Map<
-      string,
-      Map<string, SlatePageLayoutProjectedUnit>
-    >()
-
-    projection.units.forEach((unit) => {
-      const units = byFragment.get(unit.fragmentId) ?? new Map()
-
-      units.set(unit.key, unit)
-      byFragment.set(unit.fragmentId, units)
-    })
-
-    return byFragment
-  }, [projection.units])
-  const projectedLinesByFragment = useMemo(() => {
-    const byFragment = new Map<string, SlatePageLayoutProjectedLine[]>()
-
-    projection.lines.forEach((line) => {
-      const lines = byFragment.get(line.fragmentId) ?? []
-
-      lines.push(line)
-      byFragment.set(line.fragmentId, lines)
-    })
-
-    return byFragment
-  }, [projection.lines])
   const pageMountPlan = useMemo(
     () =>
       createPagedEditablePageMountPlan({
@@ -524,6 +553,15 @@ export const PagedEditable = ({
   )
   const virtualizesPageSurfaces = isVirtualizedDOMStrategy(
     editableProps.domStrategy
+  )
+  const topLevelLayoutItems = useMemo(
+    () =>
+      createPagedEditableTopLevelLayoutItems({
+        fragments: snapshot.fragments,
+        geometry,
+        pages,
+      }),
+    [geometry, pages, snapshot.fragments]
   )
   const hasViewportWindowedUnits = useMemo(
     () =>
@@ -562,7 +600,7 @@ export const PagedEditable = ({
 
     setCanTrackContentViewport(true)
 
-    const update = (sync = false) => {
+    const update = () => {
       const rootRect = root.getBoundingClientRect()
       const scrollRootRect = scrollRoot.getBoundingClientRect()
       const scrollRootIsInsideRoot =
@@ -593,15 +631,13 @@ export const PagedEditable = ({
         )
       }
 
-      if (sync) {
-        flushSync(commit)
-        return
-      }
-
       commit()
     }
     const updateAsync = () => update()
-    const updateOnScroll = () => update(true)
+    const updateOnScroll = () => {
+      lastViewportScrollAtRef.current = getNow()
+      update()
+    }
 
     updateAsync()
     scrollRoot.addEventListener('scroll', updateOnScroll, { passive: true })
@@ -626,10 +662,11 @@ export const PagedEditable = ({
       gap: normalizedPageView.gap,
       overscan: pageSurfaceOverscan,
       pages,
-      virtualizes: virtualizesPageSurfaces,
+      virtualizes: virtualizesPageSurfaces && canTrackContentViewport,
       viewport,
     })
   }, [
+    canTrackContentViewport,
     normalizedPageView.gap,
     pageMountPlan,
     pageSurfaceOverscan,
@@ -638,7 +675,7 @@ export const PagedEditable = ({
     viewport,
   ])
   const pageContentItems = useMemo(() => {
-    if (!virtualizesPageSurfaces || !viewport) {
+    if (!virtualizesPageSurfaces || !canTrackContentViewport) {
       return null
     }
 
@@ -650,6 +687,7 @@ export const PagedEditable = ({
       viewport,
     })
   }, [
+    canTrackContentViewport,
     normalizedPageView.gap,
     pageMountPlan,
     pages,
@@ -676,6 +714,55 @@ export const PagedEditable = ({
         : null,
     [pageContentItems]
   )
+  const projectedFragments = useMemo(() => {
+    if (!visiblePageIndexes) {
+      return snapshot.fragments
+    }
+
+    return snapshot.fragments.filter(
+      (fragment) =>
+        visiblePageIndexes.has(fragment.pageIndex) ||
+        selectedPaths.some((path) => pathsOverlap(fragment.path, path))
+    )
+  }, [selectedPaths, snapshot.fragments, visiblePageIndexes])
+  const projection = useMemo(
+    () =>
+      getSlatePageLayoutProjection(
+        { ...snapshot, fragments: projectedFragments },
+        {
+          geometry,
+          hitTesting: false,
+        }
+      ),
+    [geometry, projectedFragments, snapshot]
+  )
+  const projectedUnitsByFragment = useMemo(() => {
+    const byFragment = new Map<
+      string,
+      Map<string, SlatePageLayoutProjectedUnit>
+    >()
+
+    projection.units.forEach((unit) => {
+      const units = byFragment.get(unit.fragmentId) ?? new Map()
+
+      units.set(unit.key, unit)
+      byFragment.set(unit.fragmentId, units)
+    })
+
+    return byFragment
+  }, [projection.units])
+  const projectedLinesByFragment = useMemo(() => {
+    const byFragment = new Map<string, SlatePageLayoutProjectedLine[]>()
+
+    projection.lines.forEach((line) => {
+      const lines = byFragment.get(line.fragmentId) ?? []
+
+      lines.push(line)
+      byFragment.set(line.fragmentId, lines)
+    })
+
+    return byFragment
+  }, [projection.lines])
   const editableLayout = useMemo<EditableLayout>(
     () => ({
       getVirtualizedPageItems: () =>
@@ -701,18 +788,41 @@ export const PagedEditable = ({
           unitPaths: item.unitPaths,
         })) ?? null,
       getVirtualizedTopLevelItems: () =>
-        projection.blocks.map((block) => ({
-          index: block.blockIndex,
-          size: block.height,
-          start: block.top,
-        })),
+        topLevelLayoutItems,
     }),
-    [pageContentItems, pageMountPlan, projection]
+    [pageContentItems, pageMountPlan, topLevelLayoutItems]
   )
+  const scrollSelectionIntoView = useMemo(() => {
+    const scroll = editableProps.scrollSelectionIntoView
+
+    return ((editor, domRange) => {
+      if (
+        virtualizesPageSurfaces &&
+        getNow() - lastViewportScrollAtRef.current <
+          USER_SCROLL_SELECTION_SCROLL_SUPPRESSION_MS
+      ) {
+        return
+      }
+
+      if (scroll) {
+        ;(scroll as (editor: Editor, domRange: globalThis.Range) => void)(
+          editor,
+          domRange
+        )
+        return
+      }
+
+      defaultScrollSelectionIntoView(
+        editor as Parameters<typeof defaultScrollSelectionIntoView>[0],
+        domRange
+      )
+    }) satisfies NonNullable<EditableProps['scrollSelectionIntoView']>
+  }, [editableProps.scrollSelectionIntoView, virtualizesPageSurfaces])
   const editable = (
     <Editable
       {...editableProps}
       layout={editableLayout}
+      scrollSelectionIntoView={scrollSelectionIntoView}
       style={{
         minHeight: geometry.height,
         position: 'relative',

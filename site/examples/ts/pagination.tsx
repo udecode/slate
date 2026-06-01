@@ -28,9 +28,9 @@ import {
   getSlatePageLayoutGeometry,
   getSlatePageLayoutPathKey,
   getSlatePageLayoutProjection,
+  pretextPageLayoutEngine,
   type SlateNodeLayoutProvider,
   type SlatePageLayoutDecorationRects,
-  type SlatePageLayoutProjectedBlock,
   type SlatePageLayoutTypography,
   type SlatePageRect,
   type SlatePageSettings,
@@ -862,32 +862,6 @@ type PaginationTableLayout = {
 const PaginationTableLayoutContext =
   createContext<PaginationTableLayout | null>(null)
 
-const getFragmentUnitBounds = (
-  fragments: readonly SlateLayoutRenderedFragment[]
-): SlatePageRect | null => {
-  const units = fragments.flatMap((fragment) => fragment.units ?? [])
-
-  if (units.length === 0) {
-    return null
-  }
-
-  const left = Math.min(...units.map((unit) => unit.rect.left))
-  const top = Math.min(...units.map((unit) => unit.rect.top))
-  const right = Math.max(
-    ...units.map((unit) => unit.rect.left + unit.rect.width)
-  )
-  const bottom = Math.max(
-    ...units.map((unit) => unit.rect.top + unit.rect.height)
-  )
-
-  return {
-    height: bottom - top,
-    left,
-    top,
-    width: right - left,
-  }
-}
-
 const getNativeFlowEditablePathKeys = (
   fragments: readonly {
     pageIndex: number
@@ -921,6 +895,32 @@ const getNativeFlowEditablePathKeys = (
       .filter(([, entry]) => entry.count === 1 && entry.pageIndexes.size === 1)
       .map(([key]) => key)
   )
+}
+
+const getFragmentBounds = (
+  fragments: readonly SlateLayoutRenderedFragment[]
+): SlatePageRect | null => {
+  const rects = fragments.map((fragment) => fragment.rect)
+
+  if (rects.length === 0) {
+    return null
+  }
+
+  const left = Math.min(...rects.map((rect) => rect.left))
+  const top = Math.min(...rects.map((rect) => rect.top))
+  const right = Math.max(
+    ...rects.map((rect) => rect.left + rect.width)
+  )
+  const bottom = Math.max(
+    ...rects.map((rect) => rect.top + rect.height)
+  )
+
+  return {
+    height: bottom - top,
+    left,
+    top,
+    width: right - left,
+  }
 }
 
 const getVisibleTableRowRanges = (
@@ -1020,7 +1020,6 @@ const renderTableChildrenWindow = ({
 }
 
 type PaginationElementProps = RenderElementProps & {
-  blockBoxes: ReadonlyMap<string, SlatePageLayoutProjectedBlock>
   debugFrames: boolean
   flowBlockPaths: ReadonlySet<string>
   usesVirtualizedLayout: boolean
@@ -1053,7 +1052,6 @@ const getProjectedStyle = ({
 const PaginationElement = (props: PaginationElementProps) => {
   const {
     attributes,
-    blockBoxes,
     debugFrames,
     element,
     flowBlockPaths,
@@ -1064,14 +1062,7 @@ const PaginationElement = (props: PaginationElementProps) => {
   const fragments = useSlateLayoutFragments()
   const tableLayout = useContext(PaginationTableLayoutContext)
   const elementType = element.type
-  const blockBox = path
-    ? blockBoxes.get(getSlatePageLayoutPathKey(path))
-    : undefined
-  const unitBounds = getFragmentUnitBounds(fragments)
-  const box =
-    elementType === 'table' && usesVirtualizedLayout
-      ? (blockBox ?? unitBounds)
-      : (unitBounds ?? blockBox)
+  const box = getFragmentBounds(fragments)
 
   if (elementType === 'table-row') {
     const rowUnit = fragments[0]?.units?.[0]
@@ -1504,6 +1495,8 @@ const PaginationSurface = ({
   const [domStrategyMetrics, setDOMStrategyMetrics] =
     useState<EditableDOMStrategyMetrics | null>(null)
   const [viewportRef, viewportSize] = useElementSize<HTMLDivElement>()
+  const tableRowsEffectMountedRef = useRef(false)
+  const stressPagesEffectMountedRef = useRef(false)
   const {
     debugFrames,
     domStrategyMode,
@@ -1519,6 +1512,27 @@ const PaginationSurface = ({
   } = controls
   const effectiveStressPageCount =
     domStrategyMode === 'virtualized' ? virtualizedStressPages : 0
+  const activeFlowBlockKey = useEditorState(
+    (state) => {
+      if (domStrategyMode !== 'virtualized') {
+        return null
+      }
+
+      const selection = state.selection.get()
+      const anchorIndex = selection?.anchor.path[0]
+      const focusIndex = selection?.focus.path[0]
+      const indexes = [anchorIndex, focusIndex]
+        .filter((index): index is number => typeof index === 'number')
+        .sort((left, right) => left - right)
+
+      return indexes.length === 0
+        ? null
+        : [...new Set(indexes)]
+            .map((index) => getSlatePageLayoutPathKey([index]))
+            .join('|')
+    },
+    { deps: [domStrategyMode] }
+  )
   const typography = useMemo(
     () =>
       ({
@@ -1549,6 +1563,29 @@ const PaginationSurface = ({
         }),
       }) satisfies SlatePageLayoutTypography,
     []
+  )
+  const activeFlowBlockPathKeys = useMemo(
+    () =>
+      new Set(
+        (activeFlowBlockKey?.split('|') ?? []).filter(
+          (pathKey) => pathKey.length > 0
+        )
+      ),
+    [activeFlowBlockKey]
+  )
+  const layoutEngine = useMemo(
+    () =>
+      pretextPageLayoutEngine({
+        estimateBlock:
+          domStrategyMode === 'virtualized'
+            ? ({ block }) =>
+                block.element.paginationFixture === richMarkdownStressFixture &&
+                !activeFlowBlockPathKeys.has(
+                  getSlatePageLayoutPathKey(block.path)
+                )
+            : undefined,
+      }),
+    [activeFlowBlockPathKeys, domStrategyMode]
   )
   const applyTableRows = useCallback(
     (nextTableRows: number) => {
@@ -1647,10 +1684,20 @@ const PaginationSurface = ({
   }, [margins, preset, setSettings])
 
   useEffect(() => {
+    if (!tableRowsEffectMountedRef.current) {
+      tableRowsEffectMountedRef.current = true
+      return
+    }
+
     applyTableRows(tableRows)
   }, [applyTableRows, tableRows])
 
   useEffect(() => {
+    if (!stressPagesEffectMountedRef.current) {
+      stressPagesEffectMountedRef.current = true
+      return
+    }
+
     applyStressPages(effectiveStressPageCount)
   }, [applyStressPages, effectiveStressPageCount])
 
@@ -1713,6 +1760,7 @@ const PaginationSurface = ({
     [mediaHeight, mediaSplit, tableRowHeight, tableRows]
   )
   const layout = useSlateLayout(editor, {
+    engine: layoutEngine,
     nodeLayout,
     page: pageSettings,
     root: 'main',
@@ -1729,54 +1777,17 @@ const PaginationSurface = ({
       }),
     [pageLayoutMode, snapshot.pages]
   )
-  const layoutProjection = useMemo(
-    () =>
-      getSlatePageLayoutProjection(snapshot, {
-        geometry: pageGeometry,
-        hitTesting: { inlineInset: PAGE_CONTENT_INLINE_INSET },
-      }),
-    [pageGeometry, snapshot]
-  )
-  const blockBoxes = useMemo(
-    () =>
-      new Map(
-        layoutProjection.blocks.map((block) => [
-          getSlatePageLayoutPathKey(block.path),
-          block,
-        ])
-      ),
-    [layoutProjection]
-  )
   const tablePageCount = useMemo(() => {
-    const tablePages = new Set(
-      layoutProjection.units
-        .filter((unit) => unit.kind === 'table-row')
-        .map((unit) => unit.pageIndex)
-    )
+    const tablePages = new Set<number>()
+
+    snapshot.fragments.forEach((fragment) => {
+      if (fragment.units?.some((unit) => unit.kind === 'table-row')) {
+        tablePages.add(fragment.pageIndex)
+      }
+    })
 
     return tablePages.size
-  }, [layoutProjection.units])
-  const activeFlowBlockKey = useEditorState(
-    (state) => {
-      if (domStrategyMode !== 'virtualized') {
-        return null
-      }
-
-      const selection = state.selection.get()
-      const anchorIndex = selection?.anchor.path[0]
-      const focusIndex = selection?.focus.path[0]
-      const indexes = [anchorIndex, focusIndex]
-        .filter((index): index is number => typeof index === 'number')
-        .sort((left, right) => left - right)
-
-      return indexes.length === 0
-        ? null
-        : [...new Set(indexes)]
-            .map((index) => getSlatePageLayoutPathKey([index]))
-            .join('|')
-    },
-    { deps: [domStrategyMode] }
-  )
+  }, [snapshot.fragments])
   const nativeFlowEditablePathKeys = useMemo(
     () => getNativeFlowEditablePathKeys(snapshot.fragments),
     [snapshot.fragments]
@@ -1790,24 +1801,13 @@ const PaginationSurface = ({
       ),
     [activeFlowBlockKey, nativeFlowEditablePathKeys]
   )
-  const paginationDecorations = useMemo(
+  const paginationDecorationCache = useMemo(
     () =>
-      getSlatePageLayoutDecorations<PaginationLineDecorationData>(
-        layoutProjection,
-        {
-          data: ({ rects }) => ({ paginationLine: rects }),
-          filter: ({ block, line }) =>
-            !isFlowProjectedType(
-              snapshot.blocks[line.blockIndex]?.element.type
-            ) &&
-            !(
-              block &&
-              activeFlowBlockPaths.has(getSlatePageLayoutPathKey(block.path))
-            ),
-          rects: 'block',
-        }
-      ),
-    [activeFlowBlockPaths, layoutProjection, snapshot.blocks]
+      new Map<
+        string,
+        ReturnType<EditableDecorate<PaginationLineDecorationData>>
+      >(),
+    [activeFlowBlockPaths, layout, pageGeometry, snapshot]
   )
   const availableWidth = Math.max(
     0,
@@ -1852,21 +1852,67 @@ const PaginationSurface = ({
         return []
       }
 
-      return paginationDecorations.get(getSlatePageLayoutPathKey(path)) ?? []
+      const pathKey = getSlatePageLayoutPathKey(path)
+      const cached = paginationDecorationCache.get(pathKey)
+
+      if (cached) {
+        return cached
+      }
+
+      const blockPath = path.slice(0, -1)
+      const blockFragments = layout.getFragments(blockPath)
+
+      if (blockFragments.length === 0) {
+        paginationDecorationCache.set(pathKey, [])
+        return []
+      }
+
+      const pathProjection = getSlatePageLayoutProjection(
+        { ...snapshot, fragments: blockFragments },
+        {
+          geometry: pageGeometry,
+          hitTesting: { inlineInset: PAGE_CONTENT_INLINE_INSET },
+        }
+      )
+      const decorations =
+        getSlatePageLayoutDecorations<PaginationLineDecorationData>(
+          pathProjection,
+          {
+            data: ({ rects }) => ({ paginationLine: rects }),
+            filter: ({ block, line }) =>
+              !isFlowProjectedType(
+                snapshot.blocks[line.blockIndex]?.element.type
+              ) &&
+              !(
+                block &&
+                activeFlowBlockPaths.has(getSlatePageLayoutPathKey(block.path))
+              ),
+            rects: 'block',
+          }
+        ).get(pathKey) ?? []
+
+      paginationDecorationCache.set(pathKey, decorations)
+
+      return decorations
     },
-    [paginationDecorations]
+    [
+      activeFlowBlockPaths,
+      layout,
+      pageGeometry,
+      paginationDecorationCache,
+      snapshot,
+    ]
   )
   const renderElement = useCallback(
     (props: RenderElementProps) => (
       <PaginationElement
         {...props}
-        blockBoxes={blockBoxes}
         debugFrames={debugFrames}
         flowBlockPaths={activeFlowBlockPaths}
         usesVirtualizedLayout={usesVirtualizedLayout}
       />
     ),
-    [activeFlowBlockPaths, blockBoxes, debugFrames, usesVirtualizedLayout]
+    [activeFlowBlockPaths, debugFrames, usesVirtualizedLayout]
   )
   const renderLeaf = renderPaginationLeaf
   const onKeyDown = useCallback(

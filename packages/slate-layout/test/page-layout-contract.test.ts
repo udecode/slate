@@ -247,6 +247,98 @@ describe('createSlatePageLayout', () => {
     ])
   })
 
+  it('lets Pretext callers estimate selected cold blocks', () => {
+    Reflect.set(globalThis, 'OffscreenCanvas', TestOffscreenCanvas)
+    const settings = { margins: 96, preset: 'a4' } as const
+    const page = createSlatePage(settings)
+    const output = pretextPageLayoutEngine({
+      estimateBlock: ({ blockIndex }) => blockIndex === 0,
+    }).compose({
+      blocks: [
+        {
+          element: {
+            type: 'paragraph',
+            children: [{ text: 'abcdefghij' }],
+          },
+          lineHeight: 24,
+          path: [0],
+          runs: [
+            {
+              id: '0.0:0-10',
+              path: [0, 0],
+              range: { end: 10, start: 0 },
+              text: 'abcdefghij',
+              textStyle: {
+                font: '400 16px Arial',
+                letterSpacing: 0,
+              },
+            },
+          ],
+          spacingAfter: 12,
+          text: 'abcdefghij',
+          textStyle: {
+            font: '400 16px Arial',
+            letterSpacing: 0,
+          },
+        },
+      ],
+      page,
+      settings,
+      version: 1,
+    })
+    const line = output.fragments[0]!.lines[0]!
+
+    expect(line.width).toBe(80)
+    expect(line.runs![0]!.width).toBe(80)
+  })
+
+  it('keeps hard line breaks when estimating cold Pretext blocks', () => {
+    Reflect.set(globalThis, 'OffscreenCanvas', TestOffscreenCanvas)
+    const settings = { margins: 96, preset: 'a4' } as const
+    const page = createSlatePage(settings)
+    const output = pretextPageLayoutEngine({
+      estimateBlock: () => true,
+    }).compose({
+      blocks: [
+        {
+          element: {
+            type: 'code-block',
+            children: [{ text: 'alpha\nbeta\ngamma' }],
+          },
+          lineHeight: 24,
+          path: [0],
+          runs: [
+            {
+              id: '0.0:0-16',
+              path: [0, 0],
+              range: { end: 16, start: 0 },
+              text: 'alpha\nbeta\ngamma',
+              textStyle: {
+                font: '400 16px monospace',
+                letterSpacing: 0,
+              },
+            },
+          ],
+          spacingAfter: 12,
+          text: 'alpha\nbeta\ngamma',
+          textStyle: {
+            font: '400 16px monospace',
+            letterSpacing: 0,
+          },
+        },
+      ],
+      page,
+      settings,
+      version: 1,
+    })
+
+    expect(output.fragments[0]!.lines.map((line) => line.text)).toEqual([
+      'alpha',
+      'beta',
+      'gamma',
+    ])
+  })
+
   it('projects collapsed rich-inline whitespace at style boundaries', () => {
     Reflect.set(globalThis, 'OffscreenCanvas', TestOffscreenCanvas)
     const editor = createEditor({
@@ -290,6 +382,27 @@ describe('createSlatePageLayout', () => {
     expect(snapshot.settings).toEqual({ margins: 72, preset: 'letter' })
     expect(snapshot.page.width).toBe(816)
     expect(snapshot.blocks[0]!.text).toBe('Generic layout call site.')
+
+    layout.destroy()
+  })
+
+  it('accepts a caller-supplied engine in the generic layout API', () => {
+    const editor = createEditor({
+      initialValue: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Estimated generic layout call site.' }],
+        },
+      ],
+    })
+    const layout = createSlateLayout(editor, () => ({
+      engine: createEstimatedPageLayoutEngine(),
+      page: { margins: 72, preset: 'letter' },
+    }))
+    const snapshot = layout.getSnapshot()
+
+    expect(snapshot.measurementProfile.engine.id).toBe('estimated')
+    expect(snapshot.blocks[0]!.text).toBe('Estimated generic layout call site.')
 
     layout.destroy()
   })
@@ -1784,7 +1897,7 @@ describe('PagedEditable page mount plan', () => {
     ])
   })
 
-  it('does not filter page surfaces before a virtualization viewport is known', () => {
+  it('mounts an initial virtualized page window before the viewport is known', () => {
     const settings = { margins: 96, preset: 'a4' } as const
     const pages = [
       createSlatePage(settings, 0),
@@ -1815,7 +1928,16 @@ describe('PagedEditable page mount plan', () => {
         virtualizes: true,
         viewport: null,
       }).map((item) => item.index)
-    ).toEqual([0, 1, 2, 3])
+    ).toEqual([0])
+    expect(
+      getPagedEditableVisiblePageMountItems(plan, {
+        gap: 24,
+        overscan: 1,
+        pages,
+        virtualizes: true,
+        viewport: null,
+      }).map((item) => item.index)
+    ).toEqual([0, 1])
     expect(
       getPagedEditableVisiblePageMountItems(plan, {
         gap: 24,
