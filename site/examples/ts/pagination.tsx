@@ -908,12 +908,8 @@ const getFragmentBounds = (
 
   const left = Math.min(...rects.map((rect) => rect.left))
   const top = Math.min(...rects.map((rect) => rect.top))
-  const right = Math.max(
-    ...rects.map((rect) => rect.left + rect.width)
-  )
-  const bottom = Math.max(
-    ...rects.map((rect) => rect.top + rect.height)
-  )
+  const right = Math.max(...rects.map((rect) => rect.left + rect.width))
+  const bottom = Math.max(...rects.map((rect) => rect.top + rect.height))
 
   return {
     height: bottom - top,

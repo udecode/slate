@@ -2238,9 +2238,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
             autoFocus={autoFocus}
             {...attributes}
             className={className}
-            deferNativeTextInputRepair={
-              domStrategyType === 'staged' || domStrategyType === 'virtualized'
-            }
+            deferNativeTextInputRepair={domStrategyType === 'staged'}
             disableDefaultStyles={disableDefaultStyles}
             domStrategyMetrics={domStrategyMetrics}
             domStrategyRuntime={

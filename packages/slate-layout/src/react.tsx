@@ -10,10 +10,10 @@ import {
 } from 'react'
 import type { Editor, Path } from 'slate'
 import {
+  defaultScrollSelectionIntoView,
   Editable,
   type EditableLayout,
   type EditableProps,
-  defaultScrollSelectionIntoView,
   useEditorState,
   useElementPath,
 } from 'slate-react'
@@ -501,7 +501,7 @@ export const PagedEditable = ({
   ...editableProps
 }: PagedEditableProps) => {
   const rootRef = useRef<HTMLDivElement | null>(null)
-  const lastViewportScrollAtRef = useRef(-Infinity)
+  const lastViewportScrollAtRef = useRef(Number.NEGATIVE_INFINITY)
   const [viewport, setViewport] = useState<PagedEditableViewport | null>(null)
   const selectedPaths = useEditorState(
     (state) => {
@@ -787,8 +787,7 @@ export const PagedEditable = ({
           topLevelIndexes: item.topLevelIndexes,
           unitPaths: item.unitPaths,
         })) ?? null,
-      getVirtualizedTopLevelItems: () =>
-        topLevelLayoutItems,
+      getVirtualizedTopLevelItems: () => topLevelLayoutItems,
     }),
     [pageContentItems, pageMountPlan, topLevelLayoutItems]
   )

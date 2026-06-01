@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
-import { createServer } from 'node:http'
 import { existsSync, readFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
 
 import handler from 'serve-handler'
@@ -174,7 +174,7 @@ const startNextDevServer = async () => {
         setTimeout(() => {
           killGroup('SIGKILL')
           finish()
-        }, 5_000)
+        }, 5000)
         child.once('exit', finish)
       }),
     url,
@@ -230,8 +230,7 @@ const server = process.env.SLATE_PAGINATION_CHAR_BURST_BASE_URL
   : process.env.SLATE_PAGINATION_CHAR_BURST_STATIC === '1'
     ? await startStaticServer()
     : await startNextDevServer()
-const baseURL =
-  process.env.SLATE_PAGINATION_CHAR_BURST_BASE_URL ?? server?.url
+const baseURL = process.env.SLATE_PAGINATION_CHAR_BURST_BASE_URL ?? server?.url
 
 const result = await runPlaywright(baseURL)
 await server?.close()
@@ -355,7 +354,9 @@ const getFailureSample = () => {
 
 const staged = jsonAttachment('pagination-staged-burst-metrics')
 const stagedTable = jsonAttachment('pagination-staged-500-row-burst-metrics')
-const virtualized = jsonAttachment('pagination-virtualized-rows800-perf-metrics')
+const virtualized = jsonAttachment(
+  'pagination-virtualized-rows800-perf-metrics'
+)
 const failureSample = getFailureSample()
 const virtualizedBurstMs =
   virtualized?.burstSettledMs ?? failureSample?.eventToPaintMs ?? 5000

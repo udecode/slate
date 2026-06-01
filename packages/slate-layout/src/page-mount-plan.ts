@@ -195,7 +195,7 @@ export const getPagedEditableVisiblePageMountItems = (
     overscan: number
     pages: readonly SlatePageLayoutPage[]
     virtualizes: boolean
-  viewport: PagedEditablePageMountViewport | null
+    viewport: PagedEditablePageMountViewport | null
   }
 ): readonly PagedEditablePageMountItem[] => {
   if (!virtualizes) {
