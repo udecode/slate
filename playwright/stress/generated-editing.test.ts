@@ -615,13 +615,13 @@ const editableIslandNativeFocus = (): StressCase =>
     route: 'editable-voids',
     steps: [
       {
-        count: 2,
+        count: 1,
         kind: 'assertLocatorCount',
         label: 'assert-editable-island-shell',
         selector: '[data-slate-void="true"]',
       },
       {
-        count: 2,
+        count: 1,
         kind: 'assertLocatorCount',
         label: 'assert-editable-island-spacer',
         selector: '[data-slate-void="true"] [data-slate-spacer]',

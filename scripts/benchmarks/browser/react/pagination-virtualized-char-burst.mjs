@@ -18,8 +18,56 @@ const artifactPath =
   'tmp/slate-pagination-virtualized-char-burst-benchmark.json'
 const grep =
   'keeps (staged burst typing responsive|staged typing responsive in a 500-row|rows=800 virtualized pagination in the staged-class perf envelope)'
+const useDevServer = process.env.SLATE_PAGINATION_CHAR_BURST_DEV === '1'
+const skipStaticBuild =
+  process.env.SLATE_PAGINATION_CHAR_BURST_SKIP_BUILD === '1' ||
+  process.env.SLATE_PAGINATION_CHAR_BURST_SKIP_STATIC_BUILD === '1'
+
+const runStaticBuild = async () =>
+  new Promise((resolve, reject) => {
+    if (skipStaticBuild) {
+      resolve()
+      return
+    }
+
+    const child = spawn('bun', ['next', 'build'], {
+      cwd: siteRoot,
+      env: {
+        ...process.env,
+        NEXT_TELEMETRY_DISABLED: '1',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const logs = []
+    const collectLog = (chunk) => {
+      logs.push(Buffer.from(chunk))
+      if (logs.length > 40) {
+        logs.shift()
+      }
+    }
+
+    child.stdout.on('data', collectLog)
+    child.stderr.on('data', collectLog)
+    child.once('error', reject)
+    child.once('exit', (status) => {
+      if (status === 0) {
+        resolve()
+        return
+      }
+
+      reject(
+        new Error(
+          `Pagination benchmark static build exited with ${status}:\n${Buffer.concat(
+            logs
+          ).toString('utf8')}`
+        )
+      )
+    })
+  })
 
 const startStaticServer = async () => {
+  await runStaticBuild()
+
   const server = createServer((request, response) => {
     Promise.resolve()
       .then(() =>
@@ -186,8 +234,9 @@ const runPlaywright = async (baseURL) =>
     const child = spawn(
       'bun',
       [
+        'run',
         'playwright',
-        'test',
+        '--',
         'playwright/integration/examples/pagination.test.ts',
         '--project=chromium',
         '-g',
@@ -227,9 +276,9 @@ const runPlaywright = async (baseURL) =>
 
 const server = process.env.SLATE_PAGINATION_CHAR_BURST_BASE_URL
   ? null
-  : process.env.SLATE_PAGINATION_CHAR_BURST_STATIC === '1'
-    ? await startStaticServer()
-    : await startNextDevServer()
+  : useDevServer || process.env.SLATE_PAGINATION_CHAR_BURST_STATIC === '0'
+    ? await startNextDevServer()
+    : await startStaticServer()
 const baseURL = process.env.SLATE_PAGINATION_CHAR_BURST_BASE_URL ?? server?.url
 
 const result = await runPlaywright(baseURL)

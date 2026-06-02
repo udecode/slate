@@ -45,6 +45,7 @@ const getFarBlockIndex = () =>
 const getWarmupSegmentIndex = () => {
   const targetSegmentIndex = getFarSegmentIndex()
   const segmentCount = getSegmentCount()
+  const initialActiveEnd = Math.min(segmentCount - 1, overscan)
   const candidates = [
     targetSegmentIndex - 3,
     targetSegmentIndex + 3,
@@ -59,6 +60,7 @@ const getWarmupSegmentIndex = () => {
       (segmentIndex) =>
         segmentIndex >= 0 &&
         segmentIndex < segmentCount &&
+        segmentIndex > initialActiveEnd &&
         Math.abs(segmentIndex - targetSegmentIndex) > overscan
     ) ?? null
   )
