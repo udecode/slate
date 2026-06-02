@@ -64,4 +64,6 @@ node "/Users/zbeyens/git/codex-autoresearch/plugins/codex-autoresearch/scripts/a
 - Run 10 measure: Accept full huge-doc benchmark contract repair; primary ratio under budget with checks green.; metric=0.49; best=unknown.
 - Run 11 crash: Full huge-doc packet exposed stale browser-trace artifact reuse after virtualized substep failed.; metric=0.92; best=unknown; commit=7eaafb9; Git: no scoped experiment changes to revert; preserved 62 unowned dirty path(s). cleanup=e8d37fc0f65b..
 - Run 12 measure: Accept full huge-doc benchmark contract repair with normalized burst scoring and stale-artifact protection.; metric=0.87; best=unknown.
+- Run 13 measure: Accepted segment-1 baseline for react-huge-document-full; benchmark and checks pass with max budget ratio under budget.; metric=0.82; best=unknown.
+- Run 14 measure: Accepted segment-1 repeat for react-huge-document-full; benchmark and checks pass with stable max budget ratio under budget.; metric=0.82; best=unknown.
 <!-- AUTORESEARCH_RUN_LEDGER:END -->
