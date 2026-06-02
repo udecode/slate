@@ -3,6 +3,7 @@ import { useCallback, useMemo, useRef } from 'react'
 import {
   type Element,
   type LeafPosition,
+  type Path,
   type Range,
   RangeApi,
   type RuntimeId,
@@ -92,11 +93,7 @@ export interface RenderTextProps {
 export type EditableDOMRootProps = {
   children?: React.ReactNode
   deferNativeTextInputRepair?: boolean
-  domStrategyRuntime?: {
-    mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
-    mountedTopLevelRanges?: readonly MountedTopLevelRange[]
-    type: 'staged' | 'partial-dom' | 'virtualized'
-  } | null
+  domStrategyRuntime?: EditableDOMStrategyRuntime | null
   domStrategyMetrics?: EditableDOMStrategyMetricsBase | null
   ignoreBlankEditableRootClicks?: boolean
   onDOMBeforeInput?: EditableDOMBeforeInputHandler
@@ -110,6 +107,15 @@ export type EditableDOMRootProps = {
   as?: React.ElementType
   disableDefaultStyles?: boolean
 } & Omit<React.ComponentPropsWithRef<'div'>, 'children' | 'onKeyDown'>
+
+export type EditableDOMStrategyScrollAlign = 'auto' | 'center' | 'end' | 'start'
+
+export type EditableDOMStrategyRuntime = {
+  mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
+  mountedTopLevelRanges?: readonly MountedTopLevelRange[]
+  scrollToPath?: (path: Path, align?: EditableDOMStrategyScrollAlign) => boolean
+  type: 'staged' | 'partial-dom' | 'virtualized'
+}
 
 export type EditableDOMStrategyCohort =
   | 'normal'

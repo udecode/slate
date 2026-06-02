@@ -37,6 +37,7 @@ export interface EditorSelectorOptions<
   includeRootOrderChanges?: boolean
   profileId?: string
   runtimeId?: RuntimeId | null
+  runtimeIds?: readonly RuntimeId[] | null
   shouldUpdate?: (
     operations?: readonly Operation<ValueOf<TEditor>>[],
     change?: SnapshotChange<ValueOf<TEditor>>
@@ -113,6 +114,7 @@ export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
     includeRootOrderChanges,
     profileId,
     runtimeId,
+    runtimeIds,
     shouldUpdate,
   }: EditorSelectorOptions<TEditor> = {}
 ): T {
@@ -162,6 +164,7 @@ export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
       includeRootOrderChanges,
       profileId,
       runtimeId,
+      runtimeIds,
       shouldUpdate: shouldUpdate ? shouldUpdateWithEditor : undefined,
     })
     update()
@@ -173,6 +176,7 @@ export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
     deferred,
     profileId,
     runtimeId,
+    runtimeIds,
     includeRootOrderChanges,
     shouldUpdate,
     shouldUpdateWithEditor,
@@ -255,9 +259,7 @@ export function useEditorSelectorContext() {
       )
       const affectedRuntimeIds = change?.fullDocumentChanged
         ? change.affectedNodeRuntimeIds
-        : change?.topLevelOrderChanged
-          ? []
-          : change?.nodeImpactRuntimeIds
+        : change?.nodeImpactRuntimeIds
       const runtimeCallbacks = new Set<Callback>()
 
       if (!change || affectedRuntimeIds == null) {
@@ -298,17 +300,26 @@ export function useEditorSelectorContext() {
         includeRootOrderChanges = false,
         profileId,
         runtimeId = null,
+        runtimeIds = null,
         shouldUpdate,
       }: EditorSelectorOptions = {}
     ) => {
+      const subscribedRuntimeIds =
+        runtimeIds && runtimeIds.length > 0
+          ? Array.from(new Set(runtimeIds))
+          : runtimeId
+            ? [runtimeId]
+            : null
+      const profileRuntimeId =
+        subscribedRuntimeIds?.length === 1 ? subscribedRuntimeIds[0] : runtimeId
       const shouldNotify = (
         operations?: readonly Operation[],
         change?: SnapshotChange
       ) => {
         recordSlateReactRender({
-          id: getSelectorProfileId(profileId, runtimeId, 'check'),
+          id: getSelectorProfileId(profileId, profileRuntimeId, 'check'),
           kind: 'selector',
-          runtimeId,
+          runtimeId: profileRuntimeId,
         })
 
         return shouldUpdate ? shouldUpdate(operations, change) : true
@@ -325,9 +336,9 @@ export function useEditorSelectorContext() {
         ? (operations?: readonly Operation[], change?: SnapshotChange) => {
             if (shouldNotify(operations, change)) {
               recordSlateReactRender({
-                id: getSelectorProfileId(profileId, runtimeId, 'notify'),
+                id: getSelectorProfileId(profileId, profileRuntimeId, 'notify'),
                 kind: 'selector',
-                runtimeId,
+                runtimeId: profileRuntimeId,
               })
               queueDeferredCallback(
                 deferredEventListeners.current,
@@ -340,29 +351,37 @@ export function useEditorSelectorContext() {
         : (operations?: readonly Operation[], change?: SnapshotChange) => {
             if (shouldNotify(operations, change)) {
               recordSlateReactRender({
-                id: getSelectorProfileId(profileId, runtimeId, 'notify'),
+                id: getSelectorProfileId(profileId, profileRuntimeId, 'notify'),
                 kind: 'selector',
-                runtimeId,
+                runtimeId: profileRuntimeId,
               })
               callbackProp(operations, change)
             }
           }
 
       recordSlateReactRender({
-        id: runtimeId
+        id: subscribedRuntimeIds
           ? 'selector-subscription-runtime'
           : deferred
             ? 'selector-subscription-deferred'
             : 'selector-subscription-global',
         kind: 'selector',
-        runtimeId,
+        runtimeId: profileRuntimeId,
       })
 
-      if (runtimeId) {
-        const listeners =
-          runtimeEventListeners.current.get(runtimeId) ?? new Set<Callback>()
-        listeners.add(callback)
-        runtimeEventListeners.current.set(runtimeId, listeners)
+      if (subscribedRuntimeIds) {
+        const listenerSets: Set<Callback>[] = []
+
+        subscribedRuntimeIds.forEach((subscribedRuntimeId) => {
+          const listeners =
+            runtimeEventListeners.current.get(subscribedRuntimeId) ??
+            new Set<Callback>()
+
+          listeners.add(callback)
+          runtimeEventListeners.current.set(subscribedRuntimeId, listeners)
+          listenerSets.push(listeners)
+        })
+
         if (includeRootOrderChanges) {
           rootOrderRuntimeEventListeners.current.add(callback)
         }
@@ -370,12 +389,16 @@ export function useEditorSelectorContext() {
         return () => {
           isSubscribed = false
           deferredEventListeners.current.delete(queuedCallback)
-          listeners.delete(callback)
-          rootOrderRuntimeEventListeners.current.delete(callback)
+          subscribedRuntimeIds.forEach((subscribedRuntimeId, index) => {
+            const listeners = listenerSets[index]
 
-          if (listeners.size === 0) {
-            runtimeEventListeners.current.delete(runtimeId)
-          }
+            listeners.delete(callback)
+
+            if (listeners.size === 0) {
+              runtimeEventListeners.current.delete(subscribedRuntimeId)
+            }
+          })
+          rootOrderRuntimeEventListeners.current.delete(callback)
         }
       }
 

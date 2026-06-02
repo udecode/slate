@@ -6,6 +6,7 @@ import {
   EDITOR_TO_KEY_TO_ELEMENT,
   EDITOR_TO_WINDOW,
   ELEMENT_TO_NODE,
+  IS_NODE_MAP_DIRTY,
   NODE_TO_ELEMENT,
 } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
@@ -16,10 +17,345 @@ import {
 } from '../src/editable/input-controller'
 import {
   applyEditableClick,
+  syncSelectionForBeforeInput,
   useEditableSelectionReconciler,
 } from '../src/editable/selection-reconciler'
 import { ReactEditor } from '../src/plugin/react-editor'
 import { createReactEditor } from '../src/plugin/with-react'
+
+test('beforeinput preserves pending native text repair selection over mismatched DOM selection', () => {
+  const editor = createReactEditor()
+  const root = document.createElement('div')
+  const textHost = document.createElement('span')
+  const leaf = document.createElement('span')
+  const string = document.createElement('span')
+  const text = document.createTextNode('one')
+  const domSelection = document.getSelection()
+
+  if (!domSelection) {
+    throw new Error('Expected document selection')
+  }
+
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-path', '0,0')
+  string.setAttribute('data-slate-string', 'true')
+  string.append(text)
+  leaf.append(string)
+  textHost.append(leaf)
+  root.append(textHost)
+  document.body.append(root)
+
+  Editor.replace(editor, {
+    children: [
+      { type: 'paragraph', children: [{ text: 'one' }] },
+      { type: 'paragraph', children: [{ text: 'two' }] },
+    ],
+    selection: {
+      anchor: { path: [1, 0], offset: 1 },
+      focus: { path: [1, 0], offset: 1 },
+    },
+  })
+
+  const modelSelection = Editor.getSelection(editor)
+
+  try {
+    domSelection.removeAllRanges()
+    domSelection.setBaseAndExtent(text, 0, text, 0)
+    vi.spyOn(ReactEditor, 'hasSelectableTarget').mockReturnValue(true)
+
+    const result = syncSelectionForBeforeInput({
+      allowDOMSelectionImport: true,
+      data: 'x',
+      editor,
+      editorElement: root,
+      event: { getTargetRanges: () => [] } as unknown as InputEvent,
+      inputType: 'insertText',
+      isCompositionChange: false,
+      native: true,
+      pendingNativeTextInputRepairPathKey: '1,0',
+      preferModelSelectionForInput: false,
+      root: document,
+      selection: modelSelection,
+    })
+
+    expect(result.native).toBe(false)
+    expect(result.selection).toEqual(modelSelection)
+    expect(Editor.getSelection(editor)).toEqual(modelSelection)
+  } finally {
+    root.remove()
+    domSelection.removeAllRanges()
+    vi.restoreAllMocks()
+  }
+})
+
+test('beforeinput preserves model selection for same-path pending native text repair', () => {
+  const editor = createReactEditor()
+  const root = document.createElement('div')
+  const textHost = document.createElement('span')
+  const string = document.createElement('span')
+  const text = document.createTextNode('oXXXne')
+  const domSelection = document.getSelection()
+
+  if (!domSelection) {
+    throw new Error('Expected document selection')
+  }
+
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-path', '0,0')
+  string.setAttribute('data-slate-string', 'true')
+  string.append(text)
+  textHost.append(string)
+  root.append(textHost)
+  document.body.append(root)
+
+  Editor.replace(editor, {
+    children: [{ type: 'paragraph', children: [{ text: 'one' }] }],
+    selection: {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    },
+  })
+
+  const modelSelection = Editor.getSelection(editor)
+
+  try {
+    domSelection.removeAllRanges()
+    domSelection.setBaseAndExtent(text, 4, text, 4)
+    vi.spyOn(ReactEditor, 'hasSelectableTarget').mockReturnValue(true)
+
+    const result = syncSelectionForBeforeInput({
+      allowDOMSelectionImport: true,
+      data: 'X',
+      editor,
+      editorElement: root,
+      event: { getTargetRanges: () => [] } as unknown as InputEvent,
+      inputType: 'insertText',
+      isCompositionChange: false,
+      native: true,
+      pendingNativeTextInputRepairOffset: 4,
+      pendingNativeTextInputRepairPathKey: '0,0',
+      preferModelSelectionForInput: false,
+      root: document,
+      selection: modelSelection,
+    })
+
+    expect(result.native).toBe(true)
+    expect(result.selection).toEqual(modelSelection)
+    expect(Editor.getSelection(editor)).toEqual(modelSelection)
+  } finally {
+    root.remove()
+    domSelection.removeAllRanges()
+    vi.restoreAllMocks()
+  }
+})
+
+test('beforeinput imports same-path native selection when pending repair owns a different offset', () => {
+  const editor = createReactEditor()
+  const root = document.createElement('div')
+  const textHost = document.createElement('span')
+  const string = document.createElement('span')
+  const text = document.createTextNode('oXXXne')
+  const domSelection = document.getSelection()
+
+  if (!domSelection) {
+    throw new Error('Expected document selection')
+  }
+
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-path', '0,0')
+  string.setAttribute('data-slate-string', 'true')
+  string.append(text)
+  textHost.append(string)
+  root.append(textHost)
+  document.body.append(root)
+
+  Editor.replace(editor, {
+    children: [{ type: 'paragraph', children: [{ text: 'one' }] }],
+    selection: {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    },
+  })
+
+  try {
+    domSelection.removeAllRanges()
+    domSelection.setBaseAndExtent(text, 2, text, 2)
+    vi.spyOn(ReactEditor, 'hasSelectableTarget').mockReturnValue(true)
+
+    const result = syncSelectionForBeforeInput({
+      allowDOMSelectionImport: true,
+      data: 'Y',
+      editor,
+      editorElement: root,
+      event: { getTargetRanges: () => [] } as unknown as InputEvent,
+      inputType: 'insertText',
+      isCompositionChange: false,
+      native: true,
+      pendingNativeTextInputRepairOffset: 4,
+      pendingNativeTextInputRepairPathKey: '0,0',
+      preferModelSelectionForInput: false,
+      root: document,
+      selection: Editor.getSelection(editor),
+    })
+
+    expect(result.native).toBe(false)
+    expect(result.selection).toEqual(Editor.getSelection(editor))
+  } finally {
+    root.remove()
+    domSelection.removeAllRanges()
+    vi.restoreAllMocks()
+  }
+})
+
+test('beforeinput ignores text host target ranges while the node map is dirty', () => {
+  const editor = createReactEditor()
+  const root = document.createElement('div')
+  const textHost = document.createElement('span')
+  const string = document.createElement('span')
+  const text = document.createTextNode('one')
+  const domSelection = document.getSelection()
+
+  if (!domSelection) {
+    throw new Error('Expected document selection')
+  }
+
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-path', '0,0')
+  string.setAttribute('data-slate-string', 'true')
+  string.append(text)
+  textHost.append(string)
+  root.append(textHost)
+  document.body.append(root)
+
+  Editor.replace(editor, {
+    children: [
+      { type: 'paragraph', children: [{ text: 'one' }] },
+      { type: 'paragraph', children: [{ text: 'two' }] },
+    ],
+    selection: {
+      anchor: { path: [1, 0], offset: 1 },
+      focus: { path: [1, 0], offset: 1 },
+    },
+  })
+
+  const modelSelection = Editor.getSelection(editor)
+  const targetRange = {
+    collapsed: false,
+    endContainer: text,
+    endOffset: 3,
+    startContainer: text,
+    startOffset: 0,
+  } as unknown as StaticRange
+
+  try {
+    domSelection.removeAllRanges()
+    vi.spyOn(ReactEditor, 'hasSelectableTarget').mockReturnValue(true)
+    IS_NODE_MAP_DIRTY.set(editor, true)
+
+    const result = syncSelectionForBeforeInput({
+      allowDOMSelectionImport: true,
+      data: '. ',
+      editor,
+      editorElement: root,
+      event: {
+        getTargetRanges: () => [targetRange],
+      } as unknown as InputEvent,
+      inputType: 'insertText',
+      isCompositionChange: false,
+      native: false,
+      preferModelSelectionForInput: true,
+      root: document,
+      selection: modelSelection,
+    })
+
+    expect(result.selection).toEqual(modelSelection)
+    expect(Editor.getSelection(editor)).toEqual(modelSelection)
+  } finally {
+    IS_NODE_MAP_DIRTY.delete(editor)
+    root.remove()
+    domSelection.removeAllRanges()
+    vi.restoreAllMocks()
+  }
+})
+
+test('beforeinput keeps current text host target ranges while the node map is dirty', () => {
+  const editor = createReactEditor()
+  const root = document.createElement('div')
+  const textHost = document.createElement('span')
+  const string = document.createElement('span')
+  const text = document.createTextNode('one')
+  const domSelection = document.getSelection()
+
+  if (!domSelection) {
+    throw new Error('Expected document selection')
+  }
+
+  Editor.replace(editor, {
+    children: [
+      { type: 'paragraph', children: [{ text: 'one' }] },
+      { type: 'paragraph', children: [{ text: 'two' }] },
+    ],
+    selection: {
+      anchor: { path: [1, 0], offset: 1 },
+      focus: { path: [1, 0], offset: 1 },
+    },
+  })
+
+  const runtimeId = Editor.getRuntimeId(editor, [0, 0])
+
+  if (!runtimeId) {
+    throw new Error('Expected text runtime id')
+  }
+
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-path', '0,0')
+  textHost.setAttribute('data-slate-runtime-id', runtimeId)
+  string.setAttribute('data-slate-string', 'true')
+  string.append(text)
+  textHost.append(string)
+  root.append(textHost)
+  document.body.append(root)
+
+  const targetRange = {
+    collapsed: false,
+    endContainer: text,
+    endOffset: 3,
+    startContainer: text,
+    startOffset: 0,
+  } as unknown as StaticRange
+  const targetSlateRange = {
+    anchor: { path: [0, 0], offset: 0 },
+    focus: { path: [0, 0], offset: 3 },
+  }
+
+  try {
+    domSelection.removeAllRanges()
+    IS_NODE_MAP_DIRTY.set(editor, true)
+
+    const result = syncSelectionForBeforeInput({
+      allowDOMSelectionImport: true,
+      data: '. ',
+      editor,
+      editorElement: root,
+      event: {
+        getTargetRanges: () => [targetRange],
+      } as unknown as InputEvent,
+      inputType: 'insertText',
+      isCompositionChange: false,
+      native: false,
+      preferModelSelectionForInput: true,
+      root: document,
+      selection: Editor.getSelection(editor),
+    })
+
+    expect(result.selection).toEqual(targetSlateRange)
+    expect(Editor.getSelection(editor)).toEqual(targetSlateRange)
+  } finally {
+    IS_NODE_MAP_DIRTY.delete(editor)
+    root.remove()
+    domSelection.removeAllRanges()
+  }
+})
 
 test('selection reconciler clears the updating guard when DOM export throws', () => {
   vi.useFakeTimers()

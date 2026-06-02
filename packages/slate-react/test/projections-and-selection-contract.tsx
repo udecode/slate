@@ -24,7 +24,14 @@ import {
   useDecorationSelector,
   useSlateProjections,
 } from '../src'
+import {
+  createEditableInputController,
+  createEditableInputControllerState,
+  type EditableRepairRequest,
+} from '../src/editable/input-controller'
+import { useProjectionDOMRepairBridge } from '../src/editable/projection-repair-bridge'
 import { ProjectionContext } from '../src/projection-context'
+import type { SlateProjectionRefreshListener } from '../src/projection-store'
 
 type SegmentLike = {
   end: number
@@ -132,6 +139,64 @@ const findTextRangesByText = (
   })
 
 describe('slate-react projections and selection contract', () => {
+  test('projection refresh bridge forces a render before exporting projection selection', () => {
+    const inputController = createEditableInputController({
+      preferModelSelectionForInputRef: { current: false },
+      state: createEditableInputControllerState(),
+    })
+    const requests: EditableRepairRequest[] = []
+    let refreshListener: SlateProjectionRefreshListener | null = null
+    const store = {
+      getSnapshot: () => ({}),
+      subscribe: () => () => {},
+      subscribeProjectionRefresh: (
+        listener: SlateProjectionRefreshListener
+      ) => {
+        refreshListener = listener
+        return () => {
+          refreshListener = null
+        }
+      },
+    }
+    const Harness = () => {
+      useProjectionDOMRepairBridge({
+        inputController,
+        requestEditableRepair: (request) => {
+          requests.push(request)
+        },
+      })
+
+      return null
+    }
+
+    render(
+      <ProjectionContext.Provider value={store}>
+        <Harness />
+      </ProjectionContext.Provider>
+    )
+
+    act(() => {
+      refreshListener?.({
+        changedRuntimeIds: ['runtime:a'],
+        didChange: true,
+        reason: 'external',
+        requiresDOMSelectionExport: true,
+      })
+    })
+
+    expect(requests).toEqual([
+      {
+        forceRender: true,
+        kind: 'force-render',
+        selectionSourceTransition: {
+          preferModelSelection: true,
+          reason: 'projection-refresh',
+          selectionSource: 'model-owned',
+        },
+      },
+    ])
+  })
+
   test('registers product-noun decoration sources without a projectionStore prop', () => {
     const editor = createEditor()
 

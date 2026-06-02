@@ -681,7 +681,7 @@ export const PagedEditable = ({
 
     return getPagedEditableVisiblePageMountItems(pageMountPlan, {
       gap: normalizedPageView.gap,
-      overscan: 0,
+      overscan: pageSurfaceOverscan,
       pages,
       virtualizes: true,
       viewport,
@@ -690,6 +690,7 @@ export const PagedEditable = ({
     canTrackContentViewport,
     normalizedPageView.gap,
     pageMountPlan,
+    pageSurfaceOverscan,
     pages,
     virtualizesPageSurfaces,
     viewport,

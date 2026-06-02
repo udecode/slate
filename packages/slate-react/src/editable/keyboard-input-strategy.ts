@@ -10,11 +10,14 @@ import {
   type RootKey,
 } from 'slate'
 import {
+  getSelection,
   HAS_BEFORE_INPUT_SUPPORT,
   Hotkeys,
   IS_CHROME,
   IS_IOS,
   IS_WEBKIT,
+  isDOMElement,
+  isDOMText,
 } from 'slate-dom'
 import type { EditableKeyDownHandler } from '../components/editable'
 import { isSelectAllHotkey } from '../dom-strategy/dom-strategy-commands'
@@ -177,6 +180,64 @@ const isPartialDOMStrategyRuntime = (domStrategyRuntime: unknown) =>
     (domStrategyRuntime as { type?: unknown }).type === 'virtualized')
 
 const getSelectionRoot = (selection: Range | null) => selection?.anchor.root
+
+const isCollapsedSelectionBackedByEditableTextDOM = ({
+  editor,
+  inputController,
+  selection,
+}: {
+  editor: ReactRuntimeEditor
+  inputController: EditableInputController
+  selection: Range | null
+}) => {
+  if (!selection || !RangeApi.isCollapsed(selection)) {
+    return false
+  }
+
+  let root: Document | ShadowRoot
+
+  try {
+    root = ReactEditor.findDocumentOrShadowRoot(editor)
+  } catch {
+    return false
+  }
+
+  const domSelection = getSelection(root)
+  const anchorNode = domSelection?.anchorNode ?? null
+  const focusNode = domSelection?.focusNode ?? null
+
+  if (
+    !domSelection?.isCollapsed ||
+    !ReactEditor.hasSelectableTarget(editor, anchorNode) ||
+    !ReactEditor.hasSelectableTarget(editor, focusNode)
+  ) {
+    return false
+  }
+
+  const anchorElement = isDOMText(anchorNode)
+    ? anchorNode.parentElement
+    : isDOMElement(anchorNode)
+      ? anchorNode
+      : null
+  const textHost = anchorElement?.closest('[data-slate-node="text"]')
+  const textHostPath = textHost?.getAttribute('data-slate-path')
+  const domOffset = isDOMText(anchorNode) ? domSelection.anchorOffset : null
+  const pendingNativeTextInputRepairPathKey =
+    inputController.state?.pendingNativeTextInputRepairPathKey ?? null
+
+  if (
+    pendingNativeTextInputRepairPathKey &&
+    textHostPath === pendingNativeTextInputRepairPathKey &&
+    selection.anchor.path.join(',') === pendingNativeTextInputRepairPathKey
+  ) {
+    return true
+  }
+
+  return (
+    textHostPath === selection.anchor.path.join(',') &&
+    domOffset === selection.anchor.offset
+  )
+}
 
 export const shouldDeferBackspaceToNativeInput = ({
   isIOS = IS_IOS,
@@ -495,6 +556,11 @@ export const applyEditableKeyDown = ({
     if (
       isPartialDOMStrategyRuntime(domStrategyRuntime) &&
       partialDOMBackedSelection &&
+      !isCollapsedSelectionBackedByEditableTextDOM({
+        editor,
+        inputController,
+        selection,
+      }) &&
       selection &&
       nativeEvent.key.length === 1 &&
       !nativeEvent.altKey &&
@@ -510,7 +576,15 @@ export const applyEditableKeyDown = ({
         },
         editor,
       })
-      return keyDownHandled()
+      return keyDownHandled({
+        focus: true,
+        kind: 'repair-caret-after-text-insert',
+        selectionSourceTransition: {
+          preferModelSelection: true,
+          reason: 'model-command',
+          selectionSource: 'model-owned',
+        },
+      })
     }
 
     const contentRootViewSelectionResult = applyContentRootViewSelection({

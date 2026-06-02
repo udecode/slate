@@ -27,10 +27,7 @@ import {
 } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
-import {
-  getSlateNodeElementByPath,
-  getSlateNodePathFromDOMElement,
-} from '../hooks/use-slate-node-ref'
+import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import {
   createSlateViewSelection,
@@ -44,6 +41,7 @@ import {
 } from './content-root-navigation'
 import { applyDOMCoverageSelectionPolicy } from './dom-coverage-selection'
 import type { EditableSelectionPolicy } from './editing-kernel'
+import { createFastDOMSelectionRange } from './fast-dom-selection-range'
 import type {
   EditableInputController,
   ModelSelectionPreferenceReason,
@@ -432,51 +430,6 @@ export const executeEditableSelectionExport = ({
   return true
 }
 
-const getDOMPointForSlateTextPoint = (
-  editor: ReactRuntimeEditor,
-  point: Point
-): { node: globalThis.Node; offset: number } | null => {
-  const textHost = getSlateNodeElementByPath(editor, point.path)
-
-  if (!textHost) {
-    return null
-  }
-
-  const strings = Array.from(
-    textHost.querySelectorAll('[data-slate-string], [data-slate-zero-width]')
-  )
-  let offset = 0
-
-  for (const string of strings) {
-    const textNode = Array.from(string.childNodes).find(isDOMText)
-    const lengthAttribute = string.getAttribute('data-slate-length')
-    const length =
-      lengthAttribute == null
-        ? (textNode?.textContent?.length ?? string.textContent?.length ?? 0)
-        : Number.parseInt(lengthAttribute, 10)
-    const nextOffset = offset + (Number.isFinite(length) ? length : 0)
-
-    if (point.offset <= nextOffset) {
-      const zeroWidthOffset =
-        textNode?.textContent?.startsWith('\uFEFF') ||
-        string.textContent === '\uFEFF'
-          ? 1
-          : 0
-
-      return {
-        node: textNode ?? string,
-        offset: string.hasAttribute('data-slate-zero-width')
-          ? zeroWidthOffset
-          : Math.max(0, Math.min(point.offset - offset, length)),
-      }
-    }
-
-    offset = nextOffset
-  }
-
-  return null
-}
-
 const isFullDocumentSelection = (
   editor: ReactRuntimeEditor,
   selection: Range
@@ -554,70 +507,6 @@ const collapseNativeSelectionForViewSelection = ({
       state.isUpdatingSelection = false
     })
   }
-}
-
-const createDOMSelectionRangeFromEndpoints = ({
-  editorElement,
-  end,
-  start,
-}: {
-  editorElement: HTMLElement
-  end: { node: globalThis.Node; offset: number }
-  start: { node: globalThis.Node; offset: number }
-}) => {
-  const range = editorElement.ownerDocument.createRange()
-
-  range.setStart(start.node, start.offset)
-  range.setEnd(end.node, end.offset)
-
-  return range
-}
-
-const isSamePath = (left: readonly number[], right: readonly number[]) =>
-  left.length === right.length &&
-  left.every((part, index) => part === right[index])
-
-const createFastDOMSelectionRange = ({
-  editor,
-  editorElement,
-  selection,
-}: {
-  editor: ReactRuntimeEditor
-  editorElement: HTMLElement
-  selection: Range
-}): DOMRange | null => {
-  if (isFullDocumentSelection(editor, selection)) {
-    return createDOMSelectionRangeFromEndpoints({
-      editorElement,
-      end: {
-        node: editorElement,
-        offset: editorElement.childNodes.length,
-      },
-      start: {
-        node: editorElement,
-        offset: 0,
-      },
-    })
-  }
-
-  const [start, end] = RangeApi.edges(selection)
-
-  if (!isSamePath(start.path, end.path)) {
-    return null
-  }
-
-  const startDOMPoint = getDOMPointForSlateTextPoint(editor, start)
-  const endDOMPoint = getDOMPointForSlateTextPoint(editor, end)
-
-  if (!startDOMPoint || !endDOMPoint) {
-    return null
-  }
-
-  return createDOMSelectionRangeFromEndpoints({
-    editorElement,
-    end: endDOMPoint,
-    start: startDOMPoint,
-  })
 }
 
 export const syncEditorSelectionFromDOM = ({
@@ -881,6 +770,48 @@ export const completeEditableSelectionChangeImport = ({
   inputController.state.selectionChangeOrigin = null
 }
 
+export const getPendingNativeTextInputRepairSelectionChangePolicy = ({
+  pendingNativeTextInputRepairDOMOffset,
+  pendingNativeTextInputRepairOffset,
+  pendingNativeTextInputRepairPathKey,
+  range,
+  selectionChangeOrigin,
+}: {
+  pendingNativeTextInputRepairDOMOffset?: number | null
+  pendingNativeTextInputRepairOffset?: number | null
+  pendingNativeTextInputRepairPathKey: string | null
+  range: Range | null
+  selectionChangeOrigin: SelectionChangeOrigin
+}): 'allow' | 'clear-and-allow' | 'suppress' => {
+  if (
+    selectionChangeOrigin !== 'native-user' ||
+    !pendingNativeTextInputRepairPathKey
+  ) {
+    return 'allow'
+  }
+
+  if (!range) {
+    return 'suppress'
+  }
+
+  if (
+    !RangeApi.isCollapsed(range) ||
+    range.anchor.path.join(',') !== pendingNativeTextInputRepairPathKey
+  ) {
+    return 'clear-and-allow'
+  }
+
+  if (
+    pendingNativeTextInputRepairOffset != null &&
+    pendingNativeTextInputRepairDOMOffset != null &&
+    pendingNativeTextInputRepairDOMOffset !== pendingNativeTextInputRepairOffset
+  ) {
+    return 'clear-and-allow'
+  }
+
+  return 'allow'
+}
+
 export const resolveEditableImplicitTarget = ({
   editor,
   inputController,
@@ -1081,6 +1012,8 @@ export const applyEditableDOMSelectionChange = ({
       })
     : null
   const selectionChangeOrigin = state.selectionChangeOrigin ?? 'native-user'
+  const pendingNativeTextInputRepairPathKey =
+    state.pendingNativeTextInputRepairPathKey ?? null
 
   if (
     selectionChangeOrigin === 'native-user' &&
@@ -1095,6 +1028,28 @@ export const applyEditableDOMSelectionChange = ({
     isEditableModelSelectionPreferred(inputController)
   ) {
     return
+  }
+
+  const pendingRepairSelectionChangePolicy =
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      pendingNativeTextInputRepairDOMOffset:
+        domSelection.isCollapsed && isDOMText(anchorNode)
+          ? domSelection.anchorOffset
+          : null,
+      pendingNativeTextInputRepairOffset:
+        state.pendingNativeTextInputRepairOffset ?? null,
+      pendingNativeTextInputRepairPathKey,
+      range,
+      selectionChangeOrigin,
+    })
+
+  if (pendingRepairSelectionChangePolicy === 'suppress') {
+    return
+  }
+
+  if (pendingRepairSelectionChangePolicy === 'clear-and-allow') {
+    state.pendingNativeTextInputRepairOffset = null
+    state.pendingNativeTextInputRepairPathKey = null
   }
 
   const currentSelection = readLiveSelection(editor)

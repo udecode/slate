@@ -84,9 +84,9 @@ const hugeDocumentQueryParsers = {
   contentVisibilityMode: parseAsStringLiteral(
     contentVisibilityModeOptions
   ).withDefault('element'),
-  domStrategyMode: parseAsStringLiteral(domStrategyModeOptions).withDefault(
-    'auto'
-  ),
+  domStrategyMode: parseAsStringLiteral(domStrategyModeOptions)
+    .withDefault('virtualized')
+    .withOptions({ clearOnDefault: false }),
   domStrategyOverscan: parseAsBoundedInteger(0, 1000).withDefault(0),
   domStrategyThreshold: parseAsBoundedInteger(1, 200_000).withDefault(2000),
   editorHeight: parseAsBoundedInteger(120, 2000).withDefault(420),

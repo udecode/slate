@@ -6,6 +6,7 @@ import {
   RangeApi,
   type RuntimeId,
 } from 'slate'
+import type { EditableDOMStrategyScrollAlign } from '../components/editable'
 import {
   didSyncTextPathToDOM,
   getSlateNodeElementByPath,
@@ -56,6 +57,7 @@ export type SlateBrowserHandle = {
   deleteFragment: () => void
   focus: () => void
   getKernelTrace: () => unknown[]
+  getInputState: () => unknown
   getLastCommit: () => unknown
   getElementByPath: (path: Path) => HTMLElement | null
   getPathByRuntimeId: (runtimeId: RuntimeId) => Path | null
@@ -72,6 +74,10 @@ export type SlateBrowserHandle = {
   resolveRangeRef: (id: string) => Range | null
   selectAll: () => void
   selectRange: (selection: Range) => void
+  scrollPathIntoView: (
+    path: Path,
+    align?: EditableDOMStrategyScrollAlign
+  ) => boolean
   setViewSelection: (
     selection: {
       anchor: SlateViewBoundaryPoint
@@ -100,6 +106,7 @@ export const attachSlateBrowserHandle = ({
   applyInputRules,
   forceRender,
   isPartialDOMBackedSelection,
+  scrollPathIntoView,
   setExplicitPartialDOMBackedSelection,
 }: {
   applyInputRules?: (input: {
@@ -116,6 +123,10 @@ export const attachSlateBrowserHandle = ({
   inputController: EditableInputController
   forceRender: () => void
   isPartialDOMBackedSelection: (selection: Range | null) => boolean
+  scrollPathIntoView?: (
+    path: Path,
+    align?: EditableDOMStrategyScrollAlign
+  ) => boolean
   setExplicitPartialDOMBackedSelection: (nextValue: boolean) => void
 }) => {
   const getCurrentHandleElement = () =>
@@ -258,6 +269,18 @@ export const attachSlateBrowserHandle = ({
           }
         : null
     },
+    getInputState: () => ({
+      activeIntent: inputController.state.activeIntent,
+      modelOwnedTextInputGuard:
+        inputController.state.modelOwnedTextInputGuard ?? 0,
+      modelSelectionPreference: inputController.state.modelSelectionPreference,
+      pendingNativeTextInputRepairPathKey:
+        inputController.state.pendingNativeTextInputRepairPathKey ?? null,
+      preferModelSelection:
+        inputController.preferModelSelectionForInputRef.current,
+      selectionChangeOrigin: inputController.state.selectionChangeOrigin,
+      selectionSource: inputController.state.selectionSource,
+    }),
     getText: () => Editor.string(editor, []),
     getViewSelection: () => readSlateViewSelection(editor),
     importDOMSelection: () => {
@@ -373,6 +396,7 @@ export const attachSlateBrowserHandle = ({
     selectRange: (selection) => {
       const previousIsUpdatingSelection =
         inputController.state.isUpdatingSelection
+      const partialDOMBackedSelection = isPartialDOMBackedSelection(selection)
       setEditableModelSelectionPreference({
         inputController,
         preferModelSelection: true,
@@ -384,15 +408,16 @@ export const attachSlateBrowserHandle = ({
       editor.update((tx) => {
         tx.selection.set(selection)
       })
-      setExplicitPartialDOMBackedSelection(
-        isPartialDOMBackedSelection(selection)
-      )
+      setExplicitPartialDOMBackedSelection(partialDOMBackedSelection)
+      if (partialDOMBackedSelection) {
+        scrollPathIntoView?.(RangeApi.start(selection).path, 'center')
+      }
       refocusHandleElement()
       const syncDOMSelection = () => {
         syncEditableDOMSelectionToEditor({
           editor,
           scrollSelectionIntoView: () => {},
-          partialDOMBackedSelection: isPartialDOMBackedSelection(selection),
+          partialDOMBackedSelection,
           state: inputController.state,
         })
       }
@@ -407,6 +432,8 @@ export const attachSlateBrowserHandle = ({
         }
       })
     },
+    scrollPathIntoView: (path, align = 'center') =>
+      scrollPathIntoView?.(path, align) ?? false,
     setViewSelection: (selection) => {
       writeSlateViewSelection(
         editor,

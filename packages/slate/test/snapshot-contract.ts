@@ -1318,6 +1318,84 @@ it('insertBreak after marked text moves selection into the new block', () => {
   })
 })
 
+it('insertBreak before marked text moves the marked leaf into the new block', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'plain ' }, { bold: true, text: 'marked' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 1], offset: 0 },
+      focus: { path: [0, 1], offset: 0 },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    Editor.insertBreak(editor)
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'paragraph',
+      children: [{ text: 'plain ' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ bold: true, text: 'marked' }],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
+  })
+})
+
+it('insertBreak at the start of text opens a blank block before the text', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: '🙂or🙁' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    Editor.insertBreak(editor)
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'paragraph',
+      children: [{ text: '' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: '🙂or🙁' }],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
+  })
+})
+
 it('insertBreak inside a nested block splits the nested block without splitting its container', () => {
   const editor = createEditor()
 

@@ -1,9 +1,23 @@
-import { act, render } from '@testing-library/react'
+import { act, render, waitFor } from '@testing-library/react'
 import { Editor } from 'slate/internal'
 import { createReactEditor, Editable, Slate } from '../src'
 import { ReactEditor } from '../src/plugin/react-editor'
 
 describe('slate-react DOM capability contract', () => {
+  const createInsertTextBeforeInput = (data: string) => {
+    const event = new Event('beforeinput', {
+      bubbles: true,
+      cancelable: true,
+    }) as InputEvent
+
+    Object.defineProperties(event, {
+      data: { value: data },
+      inputType: { value: 'insertText' },
+    })
+
+    return event
+  }
+
   test('editor.api.dom.focus initializes a null selection at the top of the document', async () => {
     const initialValue = [{ type: 'block', children: [{ text: 'test' }] }]
     const editor = createReactEditor({ initialValue })
@@ -201,6 +215,54 @@ describe('slate-react DOM capability contract', () => {
     expect(document.getSelection()?.focusNode).not.toBe(editable)
 
     assertDOMRange.mockRestore()
+  })
+
+  test('model-owned text insert keeps untrusted printable input model-owned', async () => {
+    const initialValue = [{ type: 'block', children: [{ text: 'alpha' }] }]
+    const editor = createReactEditor({ initialValue })
+
+    const mounted = render(
+      <Slate editor={editor}>
+        <Editable />
+      </Slate>
+    )
+    const editable = mounted.container.querySelector('[data-slate-editor]') as
+      | (HTMLDivElement & {
+          __slateBrowserHandle?: {
+            selectRange: (selection: {
+              anchor: { offset: number; path: number[] }
+              focus: { offset: number; path: number[] }
+            }) => void
+          }
+        })
+      | null
+    Object.defineProperty(editable, 'isContentEditable', {
+      configurable: true,
+      value: true,
+    })
+
+    await act(async () => {
+      editable?.__slateBrowserHandle?.selectRange({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+    })
+
+    const first = createInsertTextBeforeInput('X')
+    await act(async () => {
+      editable?.dispatchEvent(first)
+    })
+
+    expect(first.defaultPrevented).toBe(true)
+    await waitFor(() => expect(Editor.string(editor, [])).toBe('Xalpha'))
+
+    const second = createInsertTextBeforeInput('Y')
+    await act(async () => {
+      editable?.dispatchEvent(second)
+    })
+
+    expect(second.defaultPrevented).toBe(true)
+    await waitFor(() => expect(Editor.string(editor, [])).toBe('XYalpha'))
   })
 
   test('browser handle resolves mounted elements by Slate path without DOM scans', () => {

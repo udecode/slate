@@ -1332,7 +1332,8 @@ export const useRootInteractionController = ({
         action.type === 'ignore' &&
         target.kind === 'native-editable'
       const ignoreBlankNativeEditableClick =
-        focusedNativeEditableCoordinateTarget && !placeRootChromeFromCoordinates
+        focusedNativeEditableCoordinateTarget &&
+        (!placeRootChromeFromCoordinates || rootEdgeCoordinatePlacement)
       const rootChromeSelfTarget =
         target.kind === 'root-chrome' && target.target === event.currentTarget
       const coordinatePlacementOwnsMouseDown =
@@ -1349,25 +1350,29 @@ export const useRootInteractionController = ({
         ignoreBlankEditableRootClicks &&
         target.kind === 'editable-root' &&
         (action.type === 'place-editable-root' || action.type === 'ignore') &&
-        !placeRootChromeFromCoordinates
+        (!placeRootChromeFromCoordinates || rootEdgeCoordinatePlacement)
       const ignoreBlankRootChromeClick =
         ignoreBlankEditableRootClicks &&
         action.type === 'activate-root' &&
         target.kind === 'root-chrome' &&
-        target.target === event.currentTarget &&
-        !placeRootChromeFromCoordinates
+        (!placeRootChromeFromCoordinates || rootEdgeCoordinatePlacement)
+      const ignoreBlankNativeEditableChromeClick =
+        ignoreBlankEditableRootClicks &&
+        nativeEditableChromeTarget &&
+        (!placeRootChromeFromCoordinates || rootEdgeCoordinatePlacement)
 
       if (
+        ignoreBlankEditableRootClick ||
+        ignoreBlankNativeEditableClick ||
+        ignoreBlankRootChromeClick ||
+        ignoreBlankNativeEditableChromeClick
+      ) {
+        action = { type: 'ignore' }
+      } else if (
         action.type === 'place-native-editable' ||
         coordinateDragRootChromePlacement
       ) {
         action = { type: 'place-native-editable' }
-      } else if (
-        ignoreBlankEditableRootClick ||
-        ignoreBlankNativeEditableClick ||
-        ignoreBlankRootChromeClick
-      ) {
-        action = { type: 'ignore' }
       }
 
       const preventNativeSelection =
@@ -1375,7 +1380,8 @@ export const useRootInteractionController = ({
         coordinatePlacementOwnsMouseDown ||
         ignoreBlankEditableRootClick ||
         ignoreBlankNativeEditableClick ||
-        ignoreBlankRootChromeClick
+        ignoreBlankRootChromeClick ||
+        ignoreBlankNativeEditableChromeClick
 
       const focusEditor = getMountedViewEditor(root) ?? editor
       const startRange = rootChromeCoordinatePlacement

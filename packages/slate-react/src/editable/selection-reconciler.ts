@@ -4,7 +4,14 @@ import {
   type RefObject,
   useCallback,
 } from 'react'
-import { NodeApi, PathApi, type Range, RangeApi } from 'slate'
+import {
+  NodeApi,
+  PathApi,
+  type Point,
+  type Range,
+  RangeApi,
+  type RuntimeId,
+} from 'slate'
 import {
   containsShadowAware,
   type DOMElement,
@@ -33,6 +40,7 @@ import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { writeSlateViewSelection } from '../view-selection'
 import { applyDOMCoverageSelectionPolicy } from './dom-coverage-selection'
 import { getInputEventTargetRanges } from './dom-input-event'
+import { createFastDOMSelectionRange } from './fast-dom-selection-range'
 import {
   type EditableInputController,
   executeEditableSelectionExport,
@@ -54,16 +62,14 @@ import {
   shouldSkipSelectionScroll,
 } from './selection-side-effect-policy'
 
-export const resolveSlateCollapsedRangeFromDOMSelection = (
+const resolveSlateTextPointFromDOMPoint = (
   editor: Editor,
-  domSelection: globalThis.Selection
-): Range | null => {
-  if (!domSelection.isCollapsed) {
-    return null
-  }
-
-  const anchorNode = domSelection.anchorNode
-  const anchorOffset = domSelection.anchorOffset
+  anchorNode: globalThis.Node | null,
+  anchorOffset: number,
+  {
+    requireCurrentRuntimeBinding = false,
+  }: { requireCurrentRuntimeBinding?: boolean } = {}
+): Point | null => {
   const anchorElement = isDOMText(anchorNode)
     ? anchorNode.parentElement
     : isDOMElement(anchorNode)
@@ -83,6 +89,23 @@ export const resolveSlateCollapsedRangeFromDOMSelection = (
 
   if (!path || !slateNode) return null
 
+  if (requireCurrentRuntimeBinding) {
+    const runtimeId = textHost.getAttribute(
+      'data-slate-runtime-id'
+    ) as RuntimeId | null
+    const currentPath = runtimeId
+      ? Editor.getPathByRuntimeId(editor, runtimeId)
+      : null
+
+    if (!currentPath || !PathApi.equals(currentPath, path)) {
+      return null
+    }
+  }
+
+  if (!isDOMText(anchorNode)) {
+    return null
+  }
+
   const strings = Array.from(
     textHost.querySelectorAll('[data-slate-string], [data-slate-zero-width]')
   )
@@ -101,16 +124,53 @@ export const resolveSlateCollapsedRangeFromDOMSelection = (
         Math.min(slateNode.text.length, offset + anchorOffset)
       )
 
-      return {
-        anchor: { path, offset: nextOffset },
-        focus: { path, offset: nextOffset },
-      }
+      return { path, offset: nextOffset }
     }
 
     offset += Number.isFinite(length) ? length : 0
   }
 
   return null
+}
+
+export const resolveSlateCollapsedRangeFromDOMSelection = (
+  editor: Editor,
+  domSelection: globalThis.Selection
+): Range | null => {
+  if (!domSelection.isCollapsed) {
+    return null
+  }
+
+  const anchor = resolveSlateTextPointFromDOMPoint(
+    editor,
+    domSelection.anchorNode,
+    domSelection.anchorOffset
+  )
+
+  return anchor ? { anchor, focus: anchor } : null
+}
+
+const resolveSlateRangeFromDOMTextRange = (
+  editor: Editor,
+  domRange: StaticRange,
+  {
+    requireCurrentRuntimeBinding = false,
+  }: { requireCurrentRuntimeBinding?: boolean } = {}
+): Range | null => {
+  const anchor = resolveSlateTextPointFromDOMPoint(
+    editor,
+    domRange.startContainer,
+    domRange.startOffset,
+    { requireCurrentRuntimeBinding }
+  )
+  const focus = resolveSlateTextPointFromDOMPoint(
+    editor,
+    domRange.endContainer,
+    domRange.endOffset,
+    { requireCurrentRuntimeBinding }
+  )
+
+  return anchor && focus ? { anchor, focus } : null
 }
 
 export const resolveSlateRangeFromDOMSelection = (
@@ -603,6 +663,8 @@ export const syncSelectionForBeforeInput = ({
   inputType: type,
   isCompositionChange,
   native,
+  pendingNativeTextInputRepairOffset = null,
+  pendingNativeTextInputRepairPathKey = null,
   preferModelSelectionForInput,
   root,
   selection,
@@ -616,6 +678,8 @@ export const syncSelectionForBeforeInput = ({
   inputType: string
   isCompositionChange: boolean
   native: boolean
+  pendingNativeTextInputRepairOffset?: number | null
+  pendingNativeTextInputRepairPathKey?: string | null
   preferModelSelectionForInput: boolean
   root: Document | ShadowRoot
   selection: Range | null
@@ -642,19 +706,35 @@ export const syncSelectionForBeforeInput = ({
   // COMPAT: Most deleting forward/backward input types can derive the target
   // from the current selection, but IME/focus cleanup can provide an expanded
   // beforeinput target range that must become the model delete range.
-  // If the NODE_MAP is dirty, we can't trust DOM selection import.
-  if (allowDOMSelectionImport && !IS_NODE_MAP_DIRTY.get(editor)) {
+  let didUseBeforeInputTargetRange = false
+  if (allowDOMSelectionImport) {
+    const nodeMapDirty = IS_NODE_MAP_DIRTY.get(editor)
     const [targetRange] = getInputEventTargetRanges(event)
+    const textHostRange = targetRange
+      ? resolveSlateRangeFromDOMTextRange(editor, targetRange, {
+          requireCurrentRuntimeBinding: nodeMapDirty,
+        })
+      : null
+    const targetRangeBelongsToEditor =
+      !!targetRange &&
+      (textHostRange
+        ? editorElement.contains(targetRange.startContainer) &&
+          editorElement.contains(targetRange.endContainer)
+        : ReactEditor.hasSelectableTarget(editor, targetRange.startContainer) &&
+          ReactEditor.hasSelectableTarget(editor, targetRange.endContainer))
 
     if (
       targetRange &&
       domSelectionBelongsToEditor &&
-      ReactEditor.hasSelectableTarget(editor, targetRange.startContainer) &&
-      ReactEditor.hasSelectableTarget(editor, targetRange.endContainer)
+      targetRangeBelongsToEditor
     ) {
-      const range = ReactEditor.resolveSlateRange(editor, targetRange, {
-        exactMatch: false,
-      })
+      const range =
+        textHostRange ??
+        (nodeMapDirty
+          ? null
+          : ReactEditor.resolveSlateRange(editor, targetRange, {
+              exactMatch: false,
+            }))
       const shouldUseTargetRange =
         range &&
         !(
@@ -665,6 +745,10 @@ export const syncSelectionForBeforeInput = ({
         (!type.startsWith('delete') ||
           type.startsWith('deleteBy') ||
           RangeApi.isExpanded(range))
+
+      if (shouldUseTargetRange) {
+        didUseBeforeInputTargetRange = true
+      }
 
       if (
         shouldUseTargetRange &&
@@ -694,6 +778,7 @@ export const syncSelectionForBeforeInput = ({
   if (
     allowDOMSelectionImport &&
     type === 'insertText' &&
+    !didUseBeforeInputTargetRange &&
     !shouldPreferModelSelectionForInput &&
     domSelection &&
     domSelectionBelongsToEditor
@@ -705,6 +790,70 @@ export const syncSelectionForBeforeInput = ({
         : ReactEditor.resolveSlateRange(editor, domSelection, {
             exactMatch: false,
           }))
+    const pendingNativeTextInputRepairPath =
+      pendingNativeTextInputRepairPathKey?.split(',').map(Number) ?? null
+    const pendingNativeTextInputRepairOwnsSelection =
+      !!pendingNativeTextInputRepairPathKey &&
+      !!pendingNativeTextInputRepairPath &&
+      !!range &&
+      RangeApi.isCollapsed(range)
+    const pendingNativeTextInputRepairDOMOffset =
+      domSelection.isCollapsed && isDOMText(domSelection.anchorNode)
+        ? domSelection.anchorOffset
+        : null
+    const pendingNativeTextInputRepairOwnsPoint =
+      pendingNativeTextInputRepairOwnsSelection &&
+      pendingNativeTextInputRepairOffset != null &&
+      pendingNativeTextInputRepairDOMOffset ===
+        pendingNativeTextInputRepairOffset
+    const pendingNativeTextInputRepairOwnsDifferentPath =
+      pendingNativeTextInputRepairOwnsSelection &&
+      !PathApi.equals(range.anchor.path, pendingNativeTextInputRepairPath!)
+    const pendingNativeTextInputRepairOwnsDifferentOffset =
+      pendingNativeTextInputRepairOwnsSelection &&
+      pendingNativeTextInputRepairOffset != null &&
+      pendingNativeTextInputRepairDOMOffset !==
+        pendingNativeTextInputRepairOffset
+
+    if (
+      pendingNativeTextInputRepairOwnsDifferentPath ||
+      pendingNativeTextInputRepairOwnsDifferentOffset
+    ) {
+      nextNative = false
+    } else if (
+      pendingNativeTextInputRepairOwnsSelection &&
+      pendingNativeTextInputRepairPath &&
+      PathApi.equals(range.anchor.path, pendingNativeTextInputRepairPath) &&
+      (pendingNativeTextInputRepairOffset == null ||
+        pendingNativeTextInputRepairOwnsPoint)
+    ) {
+      nextNative = native
+    } else if (
+      range &&
+      (!nextSelection || !RangeApi.equals(nextSelection, range))
+    ) {
+      nextNative = false
+      writeSlateViewSelection(editor, null)
+      editor.update((tx) => {
+        tx.selection.set(range)
+      })
+      nextSelection = range
+    }
+  }
+
+  if (
+    allowDOMSelectionImport &&
+    type !== 'insertText' &&
+    !type.startsWith('delete') &&
+    domSelection &&
+    domSelectionBelongsToEditor &&
+    !IS_NODE_MAP_DIRTY.get(editor)
+  ) {
+    const range =
+      resolveSlateRangeFromDOMSelection(editor, domSelection, editorElement) ??
+      ReactEditor.resolveSlateRange(editor, domSelection, {
+        exactMatch: false,
+      })
 
     if (range && (!nextSelection || !RangeApi.equals(nextSelection, range))) {
       nextNative = false
@@ -1039,7 +1188,14 @@ export const useEditableSelectionReconciler = ({
             editor,
             editorElement,
             selection,
-          }) ?? ReactEditor.resolveDOMRange(editor, selection))
+          }) ??
+          createFastDOMSelectionRange({
+            editor,
+            editorElement,
+            includeFullDocument: false,
+            selection,
+          }) ??
+          ReactEditor.resolveDOMRange(editor, selection))
         : null
 
       if (newDomRange) {

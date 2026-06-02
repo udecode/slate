@@ -4891,7 +4891,18 @@ const createEditorHarness = (
         })
         await waitForSelectionRange(root)
         if (await waitForSelectionHandle(root)) {
-          await setSelectionWithHandle(root, selection)
+          await root.evaluate(
+            (element: HTMLElement, { key }: { key: string }) => {
+              const handle = (element as Record<string, any>)[key]
+
+              if (!handle?.importDOMSelection) {
+                return
+              }
+
+              handle.importDOMSelection()
+            },
+            { key: SLATE_BROWSER_HANDLE_KEY }
+          )
           await waitForHandleSelection(root, selection)
         }
       },

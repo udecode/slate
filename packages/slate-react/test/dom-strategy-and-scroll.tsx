@@ -169,6 +169,48 @@ test('Editable domStrategy partial-DOMs far segments without mounting editable d
   ).toBe('partial-dom-aggressive:1')
 })
 
+test('Editable domStrategy partial-DOM defaults to smaller promotion segments', async () => {
+  const editor = createReactEditor()
+  const metrics: EditableDOMStrategyMetrics[] = []
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 120 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      domStrategy={{
+        overscan: 0,
+        type: 'partial-dom',
+        threshold: 1,
+      }}
+      editor={editor}
+      id="dom-strategy-partial-dom-default-segment-size"
+      onDOMStrategyMetrics={(metric) => {
+        metrics.push(metric)
+      }}
+    />
+  )
+
+  await waitFor(() => expect(metrics.length).toBeGreaterThan(0))
+
+  expect(metrics.at(-1)).toMatchObject({
+    segmentSize: 50,
+  })
+  expect(
+    rendered.container.querySelectorAll('[data-slate-node="text"]').length
+  ).toBe(50)
+  expect(
+    rendered.container.querySelectorAll(
+      '[data-slate-dom-strategy-placeholder="true"]'
+    ).length
+  ).toBe(2)
+})
+
 test('Editable domStrategy partial-DOM updates coverage when the hidden tail runtime changes', async () => {
   const editor = createReactEditor()
 
@@ -1656,6 +1698,186 @@ test('Editable domStrategy promotes a partial-DOM segment on mouse down', async 
     anchor: { offset: 0, path: [2, 0] },
     focus: { offset: 0, path: [2, 0] },
   })
+})
+
+test('Editable domStrategy mounts only the target partial-DOM segment during the promotion frame', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 8 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      domStrategy={{
+        overscan: 1,
+        type: 'partial-dom',
+        segmentSize: 2,
+        threshold: 1,
+      }}
+      editor={editor}
+      id="dom-strategy-fast-promotion"
+    />
+  )
+
+  const targetPartialDOMPlaceholder = rendered.container.querySelector(
+    '[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="2"]'
+  )
+
+  expect(targetPartialDOMPlaceholder).toBeTruthy()
+
+  await act(async () => {
+    targetPartialDOMPlaceholder!.dispatchEvent(
+      new window.MouseEvent('mousedown', {
+        bubbles: true,
+      })
+    )
+  })
+
+  expect(
+    rendered.container.querySelector(
+      '[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="2"]'
+    )
+  ).toBe(null)
+  expect(
+    rendered.container.querySelectorAll('[data-slate-node="text"]').length
+  ).toBe(2)
+  expect(Editor.getSnapshot(editor).selection).toEqual({
+    anchor: { offset: 0, path: [4, 0] },
+    focus: { offset: 0, path: [4, 0] },
+  })
+
+  await act(async () => {
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 150))
+  })
+
+  expect(
+    rendered.container.querySelectorAll('[data-slate-node="text"]').length
+  ).toBe(6)
+})
+
+test('Editable domStrategy promotes partial-DOM segments without a second root-plan pass', async () => {
+  const editor = createReactEditor()
+  const counter = createSlateReactRenderCounter()
+  const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
+  let rendered: ReturnType<typeof render> | null = null
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 8 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  globalThis.__SLATE_REACT_RENDER_PROFILER__ = counter.profiler
+
+  try {
+    rendered = render(
+      <TestEditorSurface
+        domStrategy={{
+          overscan: 1,
+          type: 'partial-dom',
+          segmentSize: 2,
+          threshold: 1,
+        }}
+        editor={editor}
+        id="dom-strategy-single-pass-promotion"
+      />
+    )
+
+    const targetPartialDOMPlaceholder = rendered.container.querySelector(
+      '[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="2"]'
+    )
+
+    expect(targetPartialDOMPlaceholder).toBeTruthy()
+    counter.reset()
+
+    await act(async () => {
+      targetPartialDOMPlaceholder!.dispatchEvent(
+        new window.MouseEvent('mousedown', {
+          bubbles: true,
+        })
+      )
+    })
+
+    expect(Editor.getSnapshot(editor).selection).toEqual({
+      anchor: { offset: 0, path: [4, 0] },
+      focus: { offset: 0, path: [4, 0] },
+    })
+    expect(
+      rendered.container.querySelectorAll('[data-slate-node="text"]').length
+    ).toBe(2)
+    expect(
+      counter
+        .snapshot()
+        .events.filter(
+          (event) =>
+            event.kind === 'root-plan' &&
+            event.id === 'dom-strategy-root-sources'
+        )
+    ).toHaveLength(1)
+  } finally {
+    rendered?.unmount()
+    globalThis.__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+  }
+})
+
+test('Editable domStrategy keeps model inserts stable after partial-DOM promotion', async () => {
+  const editor = createReactEditor()
+  const blockIndex = 2500
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 5000 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      domStrategy={{
+        overscan: 0,
+        type: 'partial-dom',
+        threshold: 1,
+      }}
+      editor={editor}
+      id="dom-strategy-promotion-model-insert"
+    />
+  )
+  const targetPartialDOMPlaceholder = rendered.container.querySelector(
+    '[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="50"]'
+  )
+
+  expect(targetPartialDOMPlaceholder).toBeTruthy()
+
+  await act(async () => {
+    targetPartialDOMPlaceholder!.dispatchEvent(
+      new window.MouseEvent('mousedown', {
+        bubbles: true,
+      })
+    )
+  })
+
+  expect(Editor.getSnapshot(editor).selection).toEqual({
+    anchor: { offset: 0, path: [blockIndex, 0] },
+    focus: { offset: 0, path: [blockIndex, 0] },
+  })
+
+  for (let index = 0; index < 10; index += 1) {
+    await act(async () => {
+      editor.update((tx) => {
+        tx.text.insert('X', { at: { path: [blockIndex, 0], offset: index } })
+      })
+    })
+  }
+
+  expect(Editor.string(editor, [blockIndex]).match(/X/g) ?? []).toHaveLength(10)
 })
 
 test('Editable domStrategy partial-DOM focus does not activate or change model selection', async () => {

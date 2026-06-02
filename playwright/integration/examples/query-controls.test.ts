@@ -97,6 +97,7 @@ test.describe('example query controls', () => {
       query: {
         blocks: 120,
         content_visibility: 'none',
+        strategy: 'staged',
         strict: false,
       },
       ready: {

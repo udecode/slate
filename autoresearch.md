@@ -1,17 +1,14 @@
-# Autoresearch: react-pagination-virtualized-char-burst
+# Autoresearch: react-huge-document-full
 
 ## Objective
-Improve rows=800 virtualized pagination char-burst typing until it is close to
-staged table performance without breaking native editing behavior.
+react-huge-document-full
 
 ## Metrics
-- Primary: pagination_virtualized_vs_table_ratio (ratio, lower is better)
-- Secondary: pagination_virtualized_burst_ms,
-  pagination_virtualized_p95_typing_ms, pagination_virtualized_scroll_ms,
-  pagination_virtualized_dom_nodes, pagination_virtualized_page_surfaces
+- Primary: react_huge_doc_full_max_budget_ratio (ratio, lower is better)
+- Secondary: none yet
 
 ## How to Run
-`cd '/Users/zbeyens/git/plate-2/.tmp/slate-v2' && bun run bench:react:pagination-virtualized-char-burst:local` prints `METRIC name=value` lines.
+`cd '/Users/zbeyens/git/plate-2/.tmp/slate-v2' && HUGE_DOC_FULL_LEGACY_REPO=../../../slate HUGE_DOC_FULL_BLOCKS=5000 HUGE_DOC_FULL_ITERATIONS=5 HUGE_DOC_FULL_TRACE_ITERATIONS=5 HUGE_DOC_FULL_TYPE_OPS=10 bun run bench:react:huge-document:full:local` prints `METRIC name=value` lines.
 
 ## Files in Scope
 - TBD: add files after initial inspection
@@ -20,7 +17,7 @@ staged table performance without breaking native editing behavior.
 - TBD: add off-limits files or behaviors if needed
 
 ## Constraints
-- - Decision contract: typing_seconds is the primary metric; secondary evidence explains tradeoffs but should not silently override it.
+- - Decision contract: react_huge_doc_full_max_budget_ratio is the primary metric; secondary evidence explains tradeoffs but should not silently override it.
 
 ## Decision Rules
 - Keep when the primary metric improves or a baseline is needed and checks pass.
@@ -55,7 +52,16 @@ node "/Users/zbeyens/git/codex-autoresearch/plugins/codex-autoresearch/scripts/a
 ## Run Ledger
 
 <!-- AUTORESEARCH_RUN_LEDGER:START -->
-- Run 1 crash: Baseline pagination packet failed: virtualized rows800 char-burst lost expected text/block visibility before metric emission; metric=null; best=unknown; commit=257935a; Git: no scoped experiment changes to revert; preserved 19 unowned dirty path(s). cleanup=ae8d549d6d8a..
-- Run 2 keep: Virtualized pagination keeps rows=800 char-burst responsive with page-windowed projection and scroll-safe selection retention; metric=2.43; best=2.43; commit=6c5b89f; Git: committed 6c5b89f..
-- Run 3 keep: Virtualized pagination keeps rows=800 char-burst correct with immediate virtualized text repair and page-windowed rendering; metric=2.49; best=2.43; commit=4ed0bf7; Git: committed 4ed0bf7..
+- Run 1 measure: Fresh huge-document full baseline: max budget ratio 1.82 with checks green; metric=1.82; best=unknown.
+- Run 2 measure: Partial-DOM promotion and selection export optimization reduced huge-document max budget ratio to 1.01 with checks green; metric=1.01; best=unknown.
+- Run 3 measure: Repeat huge-document full packet shows remaining budget miss is staged browser type-to-paint variance, not partial-DOM promotion; metric=1.2; best=unknown.
+- Run 4 crash: Full huge-document packet parsed metrics but exited 1 from browser trace; log as crash before diagnosis.; metric=1.06; best=unknown; commit=7eaafb9; Git: no scoped experiment changes to revert; preserved 59 unowned dirty path(s). cleanup=ffb02d653b2b..
+- Run 5 crash: Full huge-document packet still exits 1; partial-DOM promotion cold outlier remains after single-pass promotion and smaller segments.; metric=1.33; best=unknown; commit=7eaafb9; Git: no scoped experiment changes to revert; preserved 60 unowned dirty path(s). cleanup=9b117594d843..
+- Run 6 checks_failed: Benchmark clears with partial-DOM steady promotion and synthetic beforeinput excluded by default, but checks failed on formatter-only issues.; metric=1.27; best=unknown; commit=7eaafb9; Git: no scoped experiment changes to revert; preserved 61 unowned dirty path(s). cleanup=c54a03f10db7..
+- Run 7 measure: Accepted measurement for huge-document benchmark contract repair and partial-DOM promotion improvements; packet passes benchmark and checks without committing.; metric=1.08; best=unknown.
+- Run 8 measure: Accepted packet 8 measurement for huge-document full benchmark contract cleanup; benchmark and checks pass without committing.; metric=1.02; best=unknown.
+- Run 9 measure: Accepted packet 9 repeat measurement; checks pass but the cleaned core budget ratio remains noisy and worse than packet 8.; metric=1.22; best=unknown.
+- Run 10 measure: Accept full huge-doc benchmark contract repair; primary ratio under budget with checks green.; metric=0.49; best=unknown.
+- Run 11 crash: Full huge-doc packet exposed stale browser-trace artifact reuse after virtualized substep failed.; metric=0.92; best=unknown; commit=7eaafb9; Git: no scoped experiment changes to revert; preserved 62 unowned dirty path(s). cleanup=e8d37fc0f65b..
+- Run 12 measure: Accept full huge-doc benchmark contract repair with normalized burst scoring and stale-artifact protection.; metric=0.87; best=unknown.
 <!-- AUTORESEARCH_RUN_LEDGER:END -->

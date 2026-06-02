@@ -30,9 +30,8 @@ import { mergeNodes } from '../transforms-node'
 
 const getCurrentNode = (editor: Editor, path: Path) => getNode(editor, path)[0]
 
-const isTextNode = (
-  node: ReturnType<typeof getCurrentNode>
-): node is import('../interfaces').Text => 'text' in node
+const isTextNode = (node: unknown): node is import('../interfaces').Text =>
+  node != null && typeof node === 'object' && 'text' in node
 
 const getImplicitSelectionRoot = (editor: Editor) =>
   getCurrentSelection(editor) ? getCurrentSelectionRoot(editor) : undefined
@@ -1883,6 +1882,42 @@ const getCollapsedDeleteTarget = (
     mode: 'lowest',
     voids,
   })
+  const sameBlockTextBoundaryTarget =
+    currentBlock &&
+    targetBlock &&
+    PathApi.equals(currentBlock[1], targetBlock[1]) &&
+    !PathApi.equals(at.path, pointTarget.path) &&
+    EditorApi.hasPath(editor, pointTarget.path)
+      ? getCurrentNode(editor, pointTarget.path)
+      : null
+
+  if (
+    isTextNode(sameBlockTextBoundaryTarget) &&
+    sameBlockTextBoundaryTarget.text.length > 0
+  ) {
+    if (
+      reverse &&
+      pointTarget.offset === sameBlockTextBoundaryTarget.text.length
+    ) {
+      const target = EditorApi.before(editor, pointTarget, {
+        distance: 1,
+        unit: 'character',
+        voids,
+      })
+
+      return target ? matchPointRootVisibility(target, at) : pointTarget
+    }
+
+    if (!reverse && pointTarget.offset === 0) {
+      const target = EditorApi.after(editor, pointTarget, {
+        distance: 1,
+        unit: 'character',
+        voids,
+      })
+
+      return target ? matchPointRootVisibility(target, at) : pointTarget
+    }
+  }
 
   if (
     currentBlock &&

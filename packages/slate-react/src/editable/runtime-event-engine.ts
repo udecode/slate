@@ -5,12 +5,12 @@ import {
   type RefObject,
   useMemo,
 } from 'react'
-import type { Range, RuntimeId } from 'slate'
+import type { Range } from 'slate'
 import type {
   EditableDOMBeforeInputHandler,
+  EditableDOMStrategyRuntime,
   EditableKeyDownHandler,
 } from '../components/editable'
-import type { MountedTopLevelRange } from '../dom-strategy/dom-strategy-commands'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import type {
@@ -143,11 +143,7 @@ export const useEditableEventRuntime = ({
   handledDOMBeforeInputRef: RefObject<boolean>
   inputController: EditableInputController
   isPartialDOMBackedSelection: (selection: Range | null) => boolean
-  domStrategyRuntime: {
-    type: 'staged' | 'partial-dom' | 'virtualized'
-    mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
-    mountedTopLevelRanges?: readonly MountedTopLevelRange[]
-  } | null
+  domStrategyRuntime: EditableDOMStrategyRuntime | null
   onDOMBeforeInput?: EditableDOMBeforeInputHandler
   onKeyDown?: EditableKeyDownHandler
   onUserInput: () => void
@@ -193,13 +189,13 @@ export const useEditableEventRuntime = ({
     inputController,
     isPartialDOMBackedSelection,
     rootRef,
+    scrollPathIntoView: domStrategyRuntime?.scrollToPath,
     setExplicitPartialDOMBackedSelection,
   })
 
   const inputHandlers = useRuntimeInputEvents({
     androidInputManagerRef: runtime.android.managerRef,
-    deferNativeTextInputRepair:
-      deferNativeTextInputRepair || domStrategyRuntime?.type === 'virtualized',
+    deferNativeTextInputRepair,
     deferredOperations,
     editor,
     handledDOMBeforeInputRef,
@@ -215,6 +211,7 @@ export const useEditableEventRuntime = ({
   const beforeInputHandlers = useRuntimeBeforeInputEvents({
     androidInputManagerRef: runtime.android.managerRef,
     applyInputRules,
+    deferNativeTextInputRepair,
     deferredOperations,
     editor,
     flushPendingNativeTextInput: inputHandlers.flushPendingNativeTextInput,
@@ -229,6 +226,7 @@ export const useEditableEventRuntime = ({
       | undefined,
     onUserInput,
     processing,
+    queuePendingNativeTextInput: inputHandlers.queuePendingNativeTextInput,
     readOnly,
     repair: runtime.repair,
     selection: runtime.selection,

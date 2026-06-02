@@ -13,6 +13,7 @@ import {
   getEditableKernelTransition,
   getEditableMovementOwnershipTrace,
   getEditableSelectionChangeOwnership,
+  prepareEditableBeforeInputKernel,
   prepareEditableCompositionKernel,
   prepareEditableKeyDownKernel,
   recordEditableKernelTrace,
@@ -494,6 +495,37 @@ test('keyboard text insert keeps model selection after repair-induced text input
     ownership: 'model-owned',
     selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
     shouldForceDOMImport: false,
+  })
+})
+
+test('beforeinput text insert keeps model selection after repair-induced text input', () => {
+  const editor = createEditor() as any
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: createEditableInputControllerState(),
+  })
+  inputController.state.modelSelectionPreference = {
+    preferModelSelection: true,
+    reason: 'repair-induced',
+    selectionSource: 'model-owned',
+  }
+  inputController.state.selectionChangeOrigin = null
+  inputController.state.selectionSource = 'model-owned'
+
+  const decision = prepareEditableBeforeInputKernel({
+    editor,
+    event: {
+      data: 'a',
+      inputType: 'insertText',
+      target: null,
+    } as any,
+    inputController,
+  })
+
+  expect(decision).toMatchObject({
+    intent: 'text-insert',
+    ownership: 'model-owned',
+    selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
   })
 })
 

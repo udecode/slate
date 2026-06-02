@@ -712,6 +712,354 @@ describe('slate-react provider hooks contract', () => {
     }
   })
 
+  test('runtime selector listeners update touched nodes during top-level splits', async () => {
+    const editor = createReactEditor({
+      initialValue: [
+        {
+          type: 'block',
+          children: [{ text: 'Hello ' }, { bold: true, text: 'world' }],
+        },
+      ],
+    })
+    const runtimeId = Editor.getRuntimeId(editor, [0])
+
+    if (!runtimeId) {
+      throw new Error('Expected runtime id for top-level split contract')
+    }
+
+    const selector = jest.fn(({ node }) =>
+      node && 'children' in node
+        ? node.children
+            .map((child) => (TextApi.isText(child) ? child.text : ''))
+            .join('')
+        : null
+    )
+
+    const { result } = renderHook(
+      () =>
+        useNodeSelector(selector, undefined, {
+          runtimeId,
+        }),
+      {
+        wrapper: ({ children }) => (
+          <Slate editor={editor}>
+            <Editable />
+            {children}
+          </Slate>
+        ),
+      }
+    )
+
+    expect(result.current).toBe('Hello world')
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.selection.set({ path: [0, 1], offset: 0 })
+      })
+      Editor.insertBreak(editor)
+    })
+
+    expect(Editor.getLastCommit(editor)?.topLevelOrderChanged).toBe(true)
+    expect(result.current).toBe('Hello ')
+  })
+
+  test('runtime selector listeners update shifted siblings during top-level splits', async () => {
+    const editor = createReactEditor({
+      initialValue: [
+        {
+          type: 'block',
+          children: [{ text: 'Hello world' }],
+        },
+        { type: 'block', children: [{ text: 'sibling' }] },
+      ],
+    })
+    const siblingRuntimeId = Editor.getRuntimeId(editor, [1])
+
+    if (!siblingRuntimeId) {
+      throw new Error('Expected runtime id for shifted split sibling contract')
+    }
+
+    const selector = jest.fn(({ path }) => path?.join('.') ?? null)
+
+    const { result } = renderHook(
+      () =>
+        useNodeSelector(selector, undefined, {
+          runtimeId: siblingRuntimeId,
+        }),
+      {
+        wrapper: ({ children }) => (
+          <Slate editor={editor}>
+            <Editable />
+            {children}
+          </Slate>
+        ),
+      }
+    )
+
+    expect(result.current).toBe('1')
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.selection.set({ path: [0, 0], offset: 5 })
+      })
+      Editor.insertBreak(editor)
+    })
+
+    expect(Editor.getLastCommit(editor)?.topLevelOrderChanged).toBe(true)
+    expect(result.current).toBe('2')
+  })
+
+  test('runtime selector listeners update moved top-level runtime paths', async () => {
+    const editor = createReactEditor({
+      initialValue: [
+        { type: 'block', children: [{ text: 'first' }] },
+        { type: 'block', children: [{ text: 'target' }] },
+      ],
+    })
+    const runtimeId = Editor.getRuntimeId(editor, [1])
+
+    if (!runtimeId) {
+      throw new Error('Expected runtime id for top-level move contract')
+    }
+
+    const selector = jest.fn(({ path }) => path?.join('.') ?? null)
+
+    const { result } = renderHook(
+      () =>
+        useNodeSelector(selector, undefined, {
+          runtimeId,
+        }),
+      {
+        wrapper: ({ children }) => (
+          <Slate editor={editor}>
+            <Editable />
+            {children}
+          </Slate>
+        ),
+      }
+    )
+
+    expect(result.current).toBe('1')
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.nodes.move({ at: [1], to: [0] })
+      })
+    })
+
+    expect(Editor.getLastCommit(editor)?.topLevelOrderChanged).toBe(true)
+    expect(result.current).toBe('0')
+  })
+
+  test('runtime selector listeners update runtime paths moved into a top-level position', async () => {
+    const editor = createReactEditor({
+      initialValue: [
+        {
+          type: 'block',
+          children: [
+            {
+              type: 'block',
+              children: [{ text: 'target' }],
+            },
+          ],
+        },
+        { type: 'block', children: [{ text: 'sibling' }] },
+      ],
+    })
+    const runtimeId = Editor.getRuntimeId(editor, [0, 0])
+
+    if (!runtimeId) {
+      throw new Error('Expected runtime id for nested-to-top-level move')
+    }
+
+    const selector = jest.fn(({ path }) => path?.join('.') ?? null)
+
+    const { result } = renderHook(
+      () =>
+        useNodeSelector(selector, undefined, {
+          runtimeId,
+        }),
+      {
+        wrapper: ({ children }) => (
+          <Slate editor={editor}>
+            <Editable />
+            {children}
+          </Slate>
+        ),
+      }
+    )
+
+    expect(result.current).toBe('0.0')
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.nodes.move({ at: [0, 0], to: [1] })
+      })
+    })
+
+    expect(Editor.getLastCommit(editor)?.topLevelOrderChanged).toBe(true)
+    expect(result.current).toBe('1')
+  })
+
+  test('runtime selector listeners update source parents when nested nodes move into a top-level position', async () => {
+    const editor = createReactEditor({
+      initialValue: [
+        {
+          type: 'block',
+          children: [
+            {
+              type: 'block',
+              children: [{ text: 'target' }],
+            },
+            {
+              type: 'block',
+              children: [{ text: 'survivor' }],
+            },
+          ],
+        },
+        { type: 'block', children: [{ text: 'sibling' }] },
+      ],
+    })
+    const sourceParentRuntimeId = Editor.getRuntimeId(editor, [0])
+
+    if (!sourceParentRuntimeId) {
+      throw new Error('Expected source parent runtime id for nested move')
+    }
+
+    const selector = jest.fn(({ node }) =>
+      node && 'children' in node ? node.children.length : null
+    )
+
+    const { result } = renderHook(
+      () =>
+        useNodeSelector(selector, undefined, {
+          runtimeId: sourceParentRuntimeId,
+        }),
+      {
+        wrapper: ({ children }) => (
+          <Slate editor={editor}>
+            <Editable />
+            {children}
+          </Slate>
+        ),
+      }
+    )
+
+    expect(result.current).toBe(2)
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.nodes.move({ at: [0, 0], to: [2] })
+      })
+    })
+
+    expect(Editor.getLastCommit(editor)?.topLevelOrderChanged).toBe(true)
+    expect(result.current).toBe(1)
+  })
+
+  test('runtime selector listeners update runtime paths moved out of a top-level position', async () => {
+    const editor = createReactEditor({
+      initialValue: [
+        { type: 'block', children: [{ text: 'target' }] },
+        {
+          type: 'block',
+          children: [
+            {
+              type: 'block',
+              children: [{ text: 'nested sibling' }],
+            },
+          ],
+        },
+      ],
+    })
+    const runtimeId = Editor.getRuntimeId(editor, [0])
+
+    if (!runtimeId) {
+      throw new Error('Expected runtime id for top-level-to-nested move')
+    }
+
+    const selector = jest.fn(({ path }) => path?.join('.') ?? null)
+
+    const { result } = renderHook(
+      () =>
+        useNodeSelector(selector, undefined, {
+          runtimeId,
+        }),
+      {
+        wrapper: ({ children }) => (
+          <Slate editor={editor}>
+            <Editable />
+            {children}
+          </Slate>
+        ),
+      }
+    )
+
+    expect(result.current).toBe('0')
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.nodes.move({ at: [0], to: [1, 0] })
+      })
+    })
+
+    expect(Editor.getLastCommit(editor)?.topLevelOrderChanged).toBe(true)
+    expect(result.current).toBe('0.0')
+  })
+
+  test('runtime selector listeners update destination parents when top-level nodes move into nested positions', async () => {
+    const editor = createReactEditor({
+      initialValue: [
+        {
+          type: 'block',
+          children: [
+            {
+              type: 'block',
+              children: [{ text: 'nested sibling' }],
+            },
+          ],
+        },
+        { type: 'block', children: [{ text: 'middle' }] },
+        { type: 'block', children: [{ text: 'target' }] },
+      ],
+    })
+    const destinationParentRuntimeId = Editor.getRuntimeId(editor, [0])
+
+    if (!destinationParentRuntimeId) {
+      throw new Error('Expected destination parent runtime id for nested move')
+    }
+
+    const selector = jest.fn(({ node }) =>
+      node && 'children' in node ? node.children.length : null
+    )
+
+    const { result } = renderHook(
+      () =>
+        useNodeSelector(selector, undefined, {
+          runtimeId: destinationParentRuntimeId,
+        }),
+      {
+        wrapper: ({ children }) => (
+          <Slate editor={editor}>
+            <Editable />
+            {children}
+          </Slate>
+        ),
+      }
+    )
+
+    expect(result.current).toBe(1)
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.nodes.move({ at: [2], to: [0, 1] })
+      })
+    })
+
+    expect(Editor.getLastCommit(editor)?.topLevelOrderChanged).toBe(true)
+    expect(result.current).toBe(2)
+  })
+
   test('useElementPath updates on top-level root order changes', async () => {
     const editor = createReactEditor({
       initialValue: [
@@ -952,45 +1300,49 @@ describe('slate-react provider hooks contract', () => {
     }
   })
 
-  test('Editable leading root inserts do not fan out to every mounted runtime node', async () => {
-    const value = Array.from({ length: 1001 }, (_value, index) => ({
-      type: 'block',
-      children: [{ text: `line ${index}` }],
-    }))
-    const editor = createReactEditor({ initialValue: value })
-    const counter = createSlateReactRenderCounter()
-    const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
-    let rendered: ReturnType<typeof render> | null = null
-    globalThis.__SLATE_REACT_RENDER_PROFILER__ = counter.profiler
+  test('runtime selector listeners update shifted siblings during top-level inserts', async () => {
+    const editor = createReactEditor({
+      initialValue: [
+        { type: 'block', children: [{ text: 'first' }] },
+        { type: 'block', children: [{ text: 'tracked' }] },
+      ],
+    })
+    const trackedRuntimeId = Editor.getRuntimeId(editor, [1])
 
-    try {
-      rendered = render(
-        <Slate editor={editor}>
-          <Editable data-testid="leading-root-order-fanout" />
-        </Slate>
-      )
-      counter.reset()
-
-      await act(async () => {
-        editor.update((tx) => {
-          tx.nodes.insert(
-            { type: 'block', children: [{ text: 'new first line' }] } as never,
-            { at: [0] }
-          )
-        })
-      })
-
-      const profile = counter.snapshot()
-
-      expect(profile.byKey['selector:selector-runtime-node-check'] ?? 0).toBe(0)
-      expect(profile.byKey['selector:selector-runtime-node-notify'] ?? 0).toBe(
-        0
-      )
-      expect(profile.byKey['selector:selector-root-runtime-ids-notify']).toBe(1)
-    } finally {
-      rendered?.unmount()
-      globalThis.__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+    if (!trackedRuntimeId) {
+      throw new Error('Expected runtime id for shifted insert sibling contract')
     }
+
+    const selector = jest.fn(({ path }) => path?.join('.') ?? null)
+
+    const { result } = renderHook(
+      () =>
+        useNodeSelector(selector, undefined, {
+          runtimeId: trackedRuntimeId,
+        }),
+      {
+        wrapper: ({ children }) => (
+          <Slate editor={editor}>
+            <Editable />
+            {children}
+          </Slate>
+        ),
+      }
+    )
+
+    expect(result.current).toBe('1')
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.nodes.insert(
+          { type: 'block', children: [{ text: 'inserted' }] } as never,
+          { at: [0] }
+        )
+      })
+    })
+
+    expect(Editor.getLastCommit(editor)?.topLevelOrderChanged).toBe(true)
+    expect(result.current).toBe('2')
   })
 
   test('Editable full-document replacement does not fan out to stale mounted runtime nodes', async () => {

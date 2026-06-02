@@ -23,13 +23,15 @@ const legacyRepo = resolve(
 const iterations = Number(process.env.REACT_HUGE_COMPARE_ITERATIONS || 3)
 const blocks = Number(process.env.REACT_HUGE_COMPARE_BLOCKS || 5000)
 const chunkSize = Number(process.env.REACT_HUGE_COMPARE_CHUNK_SIZE || 1000)
-const segmentSize = Number(process.env.REACT_HUGE_COMPARE_ISLAND_SIZE || 100)
+const segmentSize = Number(process.env.REACT_HUGE_COMPARE_ISLAND_SIZE || 50)
 const overscan = Number(process.env.REACT_HUGE_COMPARE_ACTIVE_RADIUS || 0)
 const rootGroupSize = 16
 const typeOps = Number(process.env.REACT_HUGE_COMPARE_TYPE_OPS || 20)
 const profile = process.env.REACT_HUGE_COMPARE_PROFILE === '1'
 const compareMode = process.env.REACT_HUGE_COMPARE_MODE || 'compare'
 const readyOnly = process.env.REACT_HUGE_COMPARE_READY_ONLY === '1'
+const includeSyntheticBeforeInput =
+  process.env.REACT_HUGE_COMPARE_SYNTHETIC_BEFOREINPUT === '1'
 const skipBuild = process.env.REACT_HUGE_COMPARE_SKIP_BUILD === '1'
 const isolateCurrentSurfaces =
   process.env.REACT_HUGE_COMPARE_ISOLATE_SURFACES === '1'
@@ -69,6 +71,7 @@ const getRunArtifactPath = ({ mode }) =>
     `blocks-${blocks}`,
     `iters-${iterations}`,
     `ops-${typeOps}`,
+    isolateCurrentSurfaces ? 'isolated-surfaces' : 'combined-surfaces',
     splitSelectionLanes ? 'split-selection' : 'combined-selection',
     profile ? 'profile' : 'no-profile',
   ].join('-')}.json`
@@ -103,6 +106,8 @@ const iterations = Number(process.env.REACT_HUGE_COMPARE_ITERATIONS || 3)
 const blocks = Number(process.env.REACT_HUGE_COMPARE_BLOCKS || 5000)
 const typeOps = Number(process.env.REACT_HUGE_COMPARE_TYPE_OPS || 20)
 const readyOnly = process.env.REACT_HUGE_COMPARE_READY_ONLY === '1'
+const includeSyntheticBeforeInput =
+  process.env.REACT_HUGE_COMPARE_SYNTHETIC_BEFOREINPUT === '1'
 const splitSelectionLanes =
   process.env.REACT_HUGE_COMPARE_SPLIT_SELECTION === '1'
 const disposeDelayMs = Number(process.env.REACT_HUGE_COMPARE_DISPOSE_DELAY_MS || 500)
@@ -132,6 +137,14 @@ const act = React.act ?? TestUtils.act
 const now = () => performance.now()
 const round = (value) => Number(value.toFixed(2))
 const settleBenchmark = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+const forceBenchmarkGC = () => {
+  const gc = globalThis.Bun?.gc
+
+  if (typeof gc === 'function') {
+    gc(true)
+  }
+}
 
 const recordBenchmarkProfileDuration = (id, duration) => {
   globalThis.__SLATE_REACT_RENDER_PROFILER__?.record?.({
@@ -737,7 +750,16 @@ const measureType = async ({ blockIndex, chunking, selectBefore = false }) =>
         })
       }
       const typedText = Editor.string(editor, [blockIndex])
-      assert.equal((typedText.match(/X/g) ?? []).length, typeOps)
+      assert.equal(
+        (typedText.match(/X/g) ?? []).length,
+        typeOps,
+        'legacy measureType block=' +
+          blockIndex +
+          ' selectBefore=' +
+          selectBefore +
+          ' text=' +
+          JSON.stringify(typedText.slice(0, 80))
+      )
     }
   )
 
@@ -777,7 +799,14 @@ const measureTypeAfterSelect = async ({ blockIndex, chunking }) =>
         })
       }
       const typedText = Editor.string(editor, [blockIndex])
-      assert.equal((typedText.match(/X/g) ?? []).length, typeOps)
+      assert.equal(
+        (typedText.match(/X/g) ?? []).length,
+        typeOps,
+        'legacy measureTypeAfterSelect block=' +
+          blockIndex +
+          ' text=' +
+          JSON.stringify(typedText.slice(0, 80))
+      )
     }
   )
 
@@ -893,6 +922,7 @@ console.log(JSON.stringify({
     blocks,
     chunkSize,
     disposeDelayMs,
+    includeSyntheticBeforeInput,
     iterations,
     splitSelectionLanes,
     typeOps,
@@ -907,7 +937,7 @@ const currentBenchmarkSource = `
 ${currentSharedSource}
 import { Editable, Slate } from '../../packages/slate-react/dist/index.js'
 
-const segmentSize = Number(process.env.REACT_HUGE_COMPARE_ISLAND_SIZE || 100)
+const segmentSize = Number(process.env.REACT_HUGE_COMPARE_ISLAND_SIZE || 50)
 const overscan = Number(process.env.REACT_HUGE_COMPARE_ACTIVE_RADIUS || 0)
 const rootGroupSize = 16
 const rootGroupThreshold = 1000
@@ -1388,6 +1418,7 @@ const measureLane = async (setup, run) => {
     try {
       const context = await setup()
       await settleBenchmark()
+      forceBenchmarkGC()
       counter?.reset()
       const start = now()
       const metrics = await run(context)
@@ -1395,6 +1426,7 @@ const measureLane = async (setup, run) => {
       const profile = counter?.snapshot()
       await dispose(context)
       await settleBenchmark()
+      forceBenchmarkGC()
 
       if (iteration > 0) {
         samples.push(duration)
@@ -1437,6 +1469,7 @@ const measurePreparedLane = async (setup, prepare, run) => {
       const context = await setup()
       await prepare(context)
       await settleBenchmark()
+      forceBenchmarkGC()
       counter?.reset()
       const start = now()
       await run(context)
@@ -1444,6 +1477,7 @@ const measurePreparedLane = async (setup, prepare, run) => {
       const profile = counter?.snapshot()
       await dispose(context)
       await settleBenchmark()
+      forceBenchmarkGC()
 
       if (iteration > 0) {
         samples.push(duration)
@@ -1480,11 +1514,13 @@ const measureModelOnlyLane = async (setup, run) => {
 
     try {
       const context = setup()
+      forceBenchmarkGC()
       counter?.reset()
       const start = now()
       await run(context)
       const duration = now() - start
       const profile = counter?.snapshot()
+      forceBenchmarkGC()
 
       if (iteration > 0) {
         samples.push(duration)
@@ -1598,7 +1634,16 @@ const measureType = async ({
         )
       }
       const typedText = Editor.string(editor, [blockIndex])
-      assert.equal((typedText.match(/X/g) ?? []).length, typeOps)
+      assert.equal(
+        (typedText.match(/X/g) ?? []).length,
+        typeOps,
+        'current measureType block=' +
+          blockIndex +
+          ' selectBefore=' +
+          selectBefore +
+          ' text=' +
+          JSON.stringify(typedText.slice(0, 80))
+      )
     }
   )
 
@@ -1644,7 +1689,14 @@ const measureTypeAfterSelect = async ({
         )
       }
       const typedText = Editor.string(editor, [blockIndex])
-      assert.equal((typedText.match(/X/g) ?? []).length, typeOps)
+      assert.equal(
+        (typedText.match(/X/g) ?? []).length,
+        typeOps,
+        'current measureTypeAfterSelect block=' +
+          blockIndex +
+          ' text=' +
+          JSON.stringify(typedText.slice(0, 80))
+      )
     }
   )
 
@@ -1669,14 +1721,10 @@ const measurePromoteThenType = async ({
             })
           )
         })
-      } else {
-        await act(async () => {
-          select(editor, {
-            anchor: { path: [blockIndex, 0], offset: 0 },
-            focus: { path: [blockIndex, 0], offset: 0 },
-          })
-        })
+        await settleBenchmark()
       }
+
+      await selectBlock({ blockIndex, editor })
 
       for (let index = 0; index < typeOps; index += 1) {
         await profileBenchmarkDurationAsync('promote-type-act', () =>
@@ -1688,7 +1736,14 @@ const measurePromoteThenType = async ({
         )
       }
       const typedText = Editor.string(editor, [blockIndex])
-      assert.equal((typedText.match(/X/g) ?? []).length, typeOps)
+      assert.equal(
+        (typedText.match(/X/g) ?? []).length,
+        typeOps,
+        'current measurePromoteThenType block=' +
+          blockIndex +
+          ' text=' +
+          JSON.stringify(typedText.slice(0, 80))
+      )
     }
   )
 
@@ -1813,13 +1868,11 @@ const measureSelectThenModelBeforeInputType = async ({
           'select-then-model-beforeinput-act',
           () =>
             act(async () => {
-              if (!target?.isConnected) {
-                target = getCurrentSelectionTextEventTarget({
-                  blockIndex,
-                  dom,
-                  root,
-                })
-              }
+              target = getCurrentSelectionTextEventTarget({
+                blockIndex,
+                dom,
+                root,
+              })
 
               if (!target) {
                 throw new Error(
@@ -1834,12 +1887,17 @@ const measureSelectThenModelBeforeInputType = async ({
               })
             })
         )
+        await settleBenchmark()
       }
       const typedText = Editor.string(editor, [blockIndex])
       assert.equal(
         (typedText.match(new RegExp(modelOwnedBeforeInputText, 'g')) ?? [])
           .length,
-        typeOps
+        typeOps,
+        'current measureSelectThenModelBeforeInputType block=' +
+          blockIndex +
+          ' text=' +
+          JSON.stringify(typedText.slice(0, 80))
       )
     }
   )
@@ -1858,13 +1916,11 @@ const measureModelBeforeInputType = async ({
       for (let index = 0; index < typeOps; index += 1) {
         await profileBenchmarkDurationAsync('model-beforeinput-act', () =>
           act(async () => {
-            if (!target?.isConnected) {
-              target = getCurrentSelectionTextEventTarget({
-                blockIndex,
-                dom,
-                root: editableRoot,
-              })
-            }
+            target = getCurrentSelectionTextEventTarget({
+              blockIndex,
+              dom,
+              root: editableRoot,
+            })
 
             if (!target) {
               throw new Error(
@@ -1882,13 +1938,18 @@ const measureModelBeforeInputType = async ({
             })
           })
         )
+        await settleBenchmark()
       }
 
       const typedText = Editor.string(editor, [blockIndex])
       assert.equal(
         (typedText.match(new RegExp(modelOwnedBeforeInputText, 'g')) ?? [])
           .length,
-        typeOps
+        typeOps,
+        'current measureModelBeforeInputType block=' +
+          blockIndex +
+          ' text=' +
+          JSON.stringify(typedText.slice(0, 80))
       )
     }
   )
@@ -2047,28 +2108,32 @@ const runSurface = async ({ domStrategy, renderElement, trace }) => {
       domStrategy,
       renderElement,
     }),
-    startBlockModelBeforeInputTypeMs: await measureModelBeforeInputType({
-      blockIndex: 0,
-      domStrategy,
-      renderElement,
-    }),
-    middleBlockModelBeforeInputTypeMs: await measureModelBeforeInputType({
-      blockIndex: Math.floor(blocks / 2),
-      domStrategy,
-      renderElement,
-    }),
-    startBlockSelectThenModelBeforeInputTypeMs:
-      await measureSelectThenModelBeforeInputType({
-        blockIndex: 0,
-        domStrategy,
-        renderElement,
-    }),
-    middleBlockSelectThenModelBeforeInputTypeMs:
-      await measureSelectThenModelBeforeInputType({
-        blockIndex: Math.floor(blocks / 2),
-        domStrategy,
-        renderElement,
-      }),
+    ...(includeSyntheticBeforeInput
+      ? {
+          startBlockModelBeforeInputTypeMs: await measureModelBeforeInputType({
+            blockIndex: 0,
+            domStrategy,
+            renderElement,
+          }),
+          middleBlockModelBeforeInputTypeMs: await measureModelBeforeInputType({
+            blockIndex: Math.floor(blocks / 2),
+            domStrategy,
+            renderElement,
+          }),
+          startBlockSelectThenModelBeforeInputTypeMs:
+            await measureSelectThenModelBeforeInputType({
+              blockIndex: 0,
+              domStrategy,
+              renderElement,
+            }),
+          middleBlockSelectThenModelBeforeInputTypeMs:
+            await measureSelectThenModelBeforeInputType({
+              blockIndex: Math.floor(blocks / 2),
+              domStrategy,
+              renderElement,
+            }),
+        }
+      : {}),
     replaceFullDocumentWithTextModelCommitMs:
       await measureReplaceFullDocumentWithTextModelCommit(),
     replaceFullDocumentWithTextMs: await measureReplaceFullDocumentWithText({
@@ -2096,6 +2161,7 @@ console.log(JSON.stringify({
     blocks,
     disposeDelayMs,
     segmentSize,
+    includeSyntheticBeforeInput,
     iterations,
     profileEnabled,
     readyOnly,
@@ -2110,6 +2176,7 @@ console.log(JSON.stringify({
 const currentPackageManager = await parsePackageManager(currentRepo)
 
 if (!skipBuild) {
+  await buildRepo(currentRepo, currentPackageManager, './packages/slate')
   await buildRepo(currentRepo, currentPackageManager, './packages/slate-react')
 }
 
@@ -2172,6 +2239,7 @@ const current =
             blocks,
             disposeDelayMs,
             segmentSize,
+            includeSyntheticBeforeInput,
             isolateCurrentSurfaces,
             iterations,
             profileEnabled: profile,
@@ -2200,6 +2268,7 @@ if (compareMode === 'current-only') {
       blocks,
       disposeDelayMs,
       segmentSize,
+      includeSyntheticBeforeInput,
       isolateCurrentSurfaces,
       iterations,
       profile,
@@ -2249,6 +2318,48 @@ const createDeltaMeanMs = (surface) =>
       ])
   )
 
+const productSurfaceNames = ['v2DefaultRenderAuto', 'v2DomPresent']
+const productLaneNames = readyOnly
+  ? ['readyMs']
+  : [
+      'readyMs',
+      'middleBlockTypeMs',
+      'middleBlockSelectThenTypeMs',
+      'middleBlockPromoteThenTypeMs',
+      'replaceFullDocumentWithTextMs',
+      'insertFragmentFullDocumentMs',
+    ]
+const p95RatioRows = productSurfaceNames.flatMap((surfaceName) => {
+  const surface = current.surfaces[surfaceName]
+
+  if (!surface) {
+    return []
+  }
+
+  return productLaneNames.flatMap((laneName) => {
+    const currentLane = surface[laneName]
+    const legacyLane = legacyChunkOn[laneName]
+
+    if (!currentLane || !legacyLane || legacyLane.p95 === 0) {
+      return []
+    }
+
+    return [
+      {
+        currentP95Ms: currentLane.p95,
+        laneName,
+        legacyP95Ms: legacyLane.p95,
+        p95Ratio: currentLane.p95 / legacyLane.p95,
+        surfaceName,
+      },
+    ]
+  })
+})
+const worstP95RatioRow = p95RatioRows.reduce(
+  (worst, row) => (!worst || row.p95Ratio > worst.p95Ratio ? row : worst),
+  null
+)
+
 const deltaMeanMsBySurface = Object.fromEntries(
   Object.entries(current.surfaces).map(([surfaceName, surface]) => [
     surfaceName,
@@ -2266,6 +2377,7 @@ const summary = {
     chunkSize,
     disposeDelayMs,
     segmentSize,
+    includeSyntheticBeforeInput,
     isolateCurrentSurfaces,
     iterations,
     profile,
@@ -2285,5 +2397,23 @@ await writeHugeDocumentArtifact({
   path: getRunArtifactPath({ mode: compareMode }),
   summary,
 })
+
+if (worstP95RatioRow) {
+  console.log(
+    `METRIC react_huge_doc_legacy_compare_worst_p95_ratio=${round(
+      worstP95RatioRow.p95Ratio
+    )}`
+  )
+  console.log(
+    `METRIC react_huge_doc_legacy_compare_worst_p95_delta_ms=${round(
+      worstP95RatioRow.currentP95Ms - worstP95RatioRow.legacyP95Ms
+    )}`
+  )
+  console.log(
+    `huge-document legacy compare worst p95 surface=${worstP95RatioRow.surfaceName} lane=${worstP95RatioRow.laneName} current=${round(
+      worstP95RatioRow.currentP95Ms
+    )}ms legacy=${round(worstP95RatioRow.legacyP95Ms)}ms`
+  )
+}
 
 console.log(JSON.stringify(summary, null, 2))

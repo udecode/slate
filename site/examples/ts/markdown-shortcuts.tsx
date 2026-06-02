@@ -194,6 +194,7 @@ const markdownShortcuts = () =>
             match: (n) => NodeApi.isElement(n) && tx.nodes.isBlock(n),
           })
           const path = block ? block[1] : []
+          const currentBlock = block?.[0]
           const start = tx.points.start(path)
           const range = { anchor, focus: start }
           const beforeText = tx.text.string(range) + text.slice(0, -1)
@@ -205,6 +206,25 @@ const markdownShortcuts = () =>
 
             if (!RangeApi.isCollapsed(range)) {
               tx.text.delete()
+            }
+
+            if (
+              type === 'list-item' &&
+              currentBlock &&
+              NodeApi.isElement(currentBlock) &&
+              currentBlock.type === 'list-item'
+            ) {
+              tx.nodes.insert(
+                {
+                  type: 'list-item',
+                  children: [{ text: '' }],
+                },
+                { at: path }
+              )
+              tx.selection.set(tx.points.start(path))
+              editor.api.dom.focus()
+
+              return true
             }
 
             tx.nodes.set(

@@ -405,6 +405,222 @@ describe('keyboard input strategy', () => {
     isComposing.mockRestore()
   })
 
+  it('lets mounted virtualized collapsed text use native printable input', () => {
+    const editor = createEditor({
+      initialSelection: {
+        anchor: { path: [2500, 0], offset: 1 },
+        focus: { path: [2500, 0], offset: 1 },
+      },
+      initialValue: Array.from({ length: 2501 }, (_, index) =>
+        paragraph(index === 2500 ? 'Condico' : 'filler')
+      ),
+    }) as ReactEditorType
+    const root = document.createElement('div')
+    const textHost = document.createElement('span')
+    const text = document.createTextNode('Condico')
+    const range = document.createRange()
+    const domSelection = document.getSelection()
+    const event = reactKeyEvent(keyEvent('X'))
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const hasSelectableTarget = vi
+      .spyOn(ReactEditor, 'hasSelectableTarget')
+      .mockReturnValue(true)
+    const findDocumentOrShadowRoot = vi
+      .spyOn(ReactEditor, 'findDocumentOrShadowRoot')
+      .mockReturnValue(document)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(false)
+
+    root.setAttribute('data-slate-editor', 'true')
+    textHost.setAttribute('data-slate-node', 'text')
+    textHost.setAttribute('data-slate-path', '2500,0')
+    textHost.append(text)
+    root.append(textHost)
+    document.body.append(root)
+    event.target = root
+    range.setStart(text, 1)
+    range.collapse(true)
+    domSelection?.removeAllRanges()
+    domSelection?.addRange(range)
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: {
+          mountedTopLevelRuntimeIds: new Set(),
+          type: 'virtualized',
+        },
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: true,
+      })
+
+      expect(result.handled).toBe(false)
+      expect(event.preventDefault).not.toHaveBeenCalled()
+      expect(editor.read((state) => state.text.string([2500]))).toBe('Condico')
+    } finally {
+      root.remove()
+      hasEditableTarget.mockRestore()
+      hasSelectableTarget.mockRestore()
+      findDocumentOrShadowRoot.mockRestore()
+      isComposing.mockRestore()
+    }
+  })
+
+  it('lets pending virtualized native text bursts keep using native printable input while the model offset lags', () => {
+    const editor = createEditor({
+      initialSelection: {
+        anchor: { path: [2500, 0], offset: 1 },
+        focus: { path: [2500, 0], offset: 1 },
+      },
+      initialValue: Array.from({ length: 2501 }, (_, index) =>
+        paragraph(index === 2500 ? 'Condico' : 'filler')
+      ),
+    }) as ReactEditorType
+    const root = document.createElement('div')
+    const textHost = document.createElement('span')
+    const text = document.createTextNode('CXondico')
+    const range = document.createRange()
+    const domSelection = document.getSelection()
+    const event = reactKeyEvent(keyEvent('X'))
+    const inputController = {
+      preferModelSelectionForInputRef: { current: false },
+      state: {
+        pendingNativeTextInputRepairPathKey: '2500,0',
+      },
+    } as any
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const hasSelectableTarget = vi
+      .spyOn(ReactEditor, 'hasSelectableTarget')
+      .mockReturnValue(true)
+    const findDocumentOrShadowRoot = vi
+      .spyOn(ReactEditor, 'findDocumentOrShadowRoot')
+      .mockReturnValue(document)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(false)
+
+    root.setAttribute('data-slate-editor', 'true')
+    textHost.setAttribute('data-slate-node', 'text')
+    textHost.setAttribute('data-slate-path', '2500,0')
+    textHost.append(text)
+    root.append(textHost)
+    document.body.append(root)
+    event.target = root
+    range.setStart(text, 2)
+    range.collapse(true)
+    domSelection?.removeAllRanges()
+    domSelection?.addRange(range)
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController,
+        readOnly: false,
+        domStrategyRuntime: {
+          mountedTopLevelRuntimeIds: new Set(),
+          type: 'virtualized',
+        },
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: true,
+      })
+
+      expect(result.handled).toBe(false)
+      expect(event.preventDefault).not.toHaveBeenCalled()
+      expect(editor.read((state) => state.text.string([2500]))).toBe('Condico')
+    } finally {
+      root.remove()
+      hasEditableTarget.mockRestore()
+      hasSelectableTarget.mockRestore()
+      findDocumentOrShadowRoot.mockRestore()
+      isComposing.mockRestore()
+    }
+  })
+
+  it('keeps virtualized printable input model-owned when the DOM caret offset is stale', () => {
+    const editor = createEditor({
+      initialSelection: {
+        anchor: { path: [2500, 0], offset: 2 },
+        focus: { path: [2500, 0], offset: 2 },
+      },
+      initialValue: Array.from({ length: 2501 }, (_, index) =>
+        paragraph(index === 2500 ? 'Condico' : 'filler')
+      ),
+    }) as ReactEditorType
+    const root = document.createElement('div')
+    const textHost = document.createElement('span')
+    const text = document.createTextNode('Condico')
+    const range = document.createRange()
+    const domSelection = document.getSelection()
+    const event = reactKeyEvent(keyEvent('X'))
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const hasSelectableTarget = vi
+      .spyOn(ReactEditor, 'hasSelectableTarget')
+      .mockReturnValue(true)
+    const findDocumentOrShadowRoot = vi
+      .spyOn(ReactEditor, 'findDocumentOrShadowRoot')
+      .mockReturnValue(document)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(false)
+
+    root.setAttribute('data-slate-editor', 'true')
+    textHost.setAttribute('data-slate-node', 'text')
+    textHost.setAttribute('data-slate-path', '2500,0')
+    textHost.append(text)
+    root.append(textHost)
+    document.body.append(root)
+    event.target = root
+    range.setStart(text, 1)
+    range.collapse(true)
+    domSelection?.removeAllRanges()
+    domSelection?.addRange(range)
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: {
+          mountedTopLevelRuntimeIds: new Set(),
+          type: 'virtualized',
+        },
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: true,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(event.preventDefault).toHaveBeenCalled()
+      expect(editor.read((state) => state.text.string([2500]))).toBe('CoXndico')
+    } finally {
+      root.remove()
+      hasEditableTarget.mockRestore()
+      hasSelectableTarget.mockRestore()
+      findDocumentOrShadowRoot.mockRestore()
+      isComposing.mockRestore()
+    }
+  })
+
   it('keeps ArrowRight at a skip-policy hidden range edge', () => {
     const editor = createEditor({
       initialSelection: {

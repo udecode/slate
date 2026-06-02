@@ -1272,6 +1272,9 @@ export const prepareEditableBeforeInputKernel = ({
     targetOwner !== 'internal-control' &&
     ownership === 'model-owned' &&
     readSlateViewSelection(editor) !== null
+  const shouldPreserveModelSelection =
+    ownership === 'model-owned' &&
+    hasAuthoritativeModelSelection({ inputController })
 
   return {
     command: getEditableCommandFromBeforeInput({
@@ -1286,7 +1289,7 @@ export const prepareEditableBeforeInputKernel = ({
     selectionPolicy:
       targetOwner === 'internal-control'
         ? { kind: 'none', reason: 'internal-control' }
-        : shouldPreserveProjectedViewSelection
+        : shouldPreserveProjectedViewSelection || shouldPreserveModelSelection
           ? { kind: 'preserve-model', reason: 'model-owned' }
           : ownership === 'model-owned'
             ? { kind: 'import-dom', reason: 'unknown-selection' }

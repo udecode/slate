@@ -43,6 +43,58 @@ const table = (): Descendant => ({
 })
 
 describe('slate delete contract', () => {
+  it('deletes forward across adjacent text leaves with different marks', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ code: true, text: '<textarea>' }, { text: '!' }],
+        },
+      ],
+      marks: null,
+      selection: {
+        anchor: { path: [0, 0], offset: '<textarea>'.length },
+        focus: { path: [0, 0], offset: '<textarea>'.length },
+      },
+    })
+
+    Editor.deleteForward(editor)
+
+    assert.equal(Editor.string(editor, [0]), '<textarea>')
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: '<textarea>'.length },
+      focus: { path: [0, 0], offset: '<textarea>'.length },
+    })
+  })
+
+  it('deletes backward across adjacent text leaves with different marks', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: '!' }, { code: true, text: '<textarea>' }],
+        },
+      ],
+      marks: null,
+      selection: {
+        anchor: { path: [0, 1], offset: 0 },
+        focus: { path: [0, 1], offset: 0 },
+      },
+    })
+
+    Editor.deleteBackward(editor)
+
+    assert.equal(Editor.string(editor, [0]), '<textarea>')
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+  })
+
   it('deletes a full selection that starts with an inline element', () => {
     const editor = createEditor()
     editor.extend({

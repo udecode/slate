@@ -411,6 +411,219 @@ test('native input repair moves model selection when the captured target still o
   root.remove()
 })
 
+test('native input repair guards virtualized DOM replacement selectionchanges', () => {
+  vi.useFakeTimers()
+
+  try {
+    const editor = createReactEditor()
+    const root = mountEditorRoot(editor)
+    const inputController = {
+      preferModelSelectionForInputRef: { current: false },
+      state: createEditableInputControllerState(),
+    }
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'abc' }],
+        },
+      ],
+      selection: {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      },
+    })
+
+    const textHost = document.createElement('span')
+    const string = document.createElement('span')
+    const text = document.createTextNode('aXbc')
+    const range = document.createRange()
+    const selection = window.getSelection()
+    const queue = createDOMRepairQueue({
+      editor,
+      inputController,
+      scrollSelectionIntoView: () => {},
+      syncDOMSelectionToEditor: () => {},
+    })
+
+    textHost.setAttribute('data-slate-node', 'text')
+    textHost.setAttribute('data-slate-path', '0,0')
+    string.setAttribute('data-slate-string', 'true')
+    string.append(text)
+    textHost.append(string)
+    root.append(textHost)
+
+    range.setStart(text, 2)
+    range.collapse(true)
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+
+    queue.repairDOMInput({ data: 'X', inputType: 'insertText' }, root, 1)
+
+    expect(editor.read((state) => state.text.string([0]))).toBe('aXbc')
+    expect(editor.read((state) => state.selection.get())).toEqual({
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 2 },
+    })
+    expect(inputController.state.selectionChangeOrigin).toBe('repair-induced')
+
+    vi.advanceTimersByTime(151)
+
+    expect(inputController.state.selectionChangeOrigin).toBe(null)
+
+    root.remove()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('native text repair keeps model authority inside virtualized pages', () => {
+  const editor = createReactEditor()
+  const root = mountEditorRoot(editor)
+  const inputController = {
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  }
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'abc' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    },
+  })
+
+  const page = document.createElement('div')
+  const textHost = document.createElement('span')
+  const string = document.createElement('span')
+  const text = document.createTextNode('aXbc')
+  const range = document.createRange()
+  const selection = window.getSelection()
+  const queue = createDOMRepairQueue({
+    editor,
+    inputController,
+    scrollSelectionIntoView: () => {},
+    syncDOMSelectionToEditor: () => {},
+  })
+
+  page.setAttribute('data-slate-dom-strategy-virtual-row', 'true')
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-path', '0,0')
+  string.setAttribute('data-slate-string', 'true')
+  string.append(text)
+  textHost.append(string)
+  page.append(textHost)
+  root.append(page)
+
+  range.setStart(text, 2)
+  range.collapse(true)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+
+  queue.repairDOMInput({ data: 'X', inputType: 'insertText' }, root, 1)
+
+  expect(editor.read((state) => state.text.string([0]))).toBe('aXbc')
+  expect(editor.read((state) => state.selection.get())).toEqual({
+    anchor: { path: [0, 0], offset: 2 },
+    focus: { path: [0, 0], offset: 2 },
+  })
+  expect(inputController.preferModelSelectionForInputRef.current).toBe(true)
+  expect(inputController.state.selectionSource).toBe('model-owned')
+  expect(inputController.state.modelOwnedTextInputGuard).toBeGreaterThan(0)
+
+  root.remove()
+})
+
+test('native text repair keeps same virtualized target DOM-owned', () => {
+  const editor = createReactEditor()
+  const root = mountEditorRoot(editor)
+  const inputController = {
+    preferModelSelectionForInputRef: { current: true },
+    state: createEditableInputControllerState(),
+  }
+
+  inputController.state.selectionSource = 'model-owned'
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'abc' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    },
+  })
+
+  const page = document.createElement('div')
+  const textHost = document.createElement('span')
+  const string = document.createElement('span')
+  const text = document.createTextNode('aXbc')
+  const range = document.createRange()
+  const selection = window.getSelection()
+  const setBaseAndExtentSpy = vi.spyOn(Selection.prototype, 'setBaseAndExtent')
+  const queue = createDOMRepairQueue({
+    editor,
+    inputController,
+    scrollSelectionIntoView: () => {},
+    syncDOMSelectionToEditor: () => {},
+  })
+
+  page.setAttribute('data-slate-dom-strategy-virtual-row', 'true')
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-path', '0,0')
+  string.setAttribute('data-slate-string', 'true')
+  string.append(text)
+  textHost.append(string)
+  page.append(textHost)
+  root.append(page)
+
+  range.setStart(text, 2)
+  range.collapse(true)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+
+  try {
+    queue.repairDOMInput(
+      {
+        data: 'X',
+        inputType: 'insertText',
+        target: {
+          insert: { offset: 1, text: 'X' },
+          path: [0, 0],
+          preferCapturedInsert: true,
+          selectionOffset: 2,
+          text: 'aXbc',
+        },
+      },
+      root,
+      1
+    )
+
+    expect(editor.read((state) => state.text.string([0]))).toBe('aXbc')
+    expect(editor.read((state) => state.selection.get())).toEqual({
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 2 },
+    })
+    expect(inputController.preferModelSelectionForInputRef.current).toBe(false)
+    expect(inputController.state.selectionSource).toBe('dom-current')
+    expect(inputController.state.modelOwnedTextInputGuard).toBe(0)
+    expect(setBaseAndExtentSpy).not.toHaveBeenCalled()
+  } finally {
+    setBaseAndExtentSpy.mockRestore()
+  }
+
+  root.remove()
+})
+
 test('native input repair trusts captured coalesced inserts when projected DOM interleaves suffix text', () => {
   const editor = createReactEditor()
   const root = mountEditorRoot(editor)
@@ -645,6 +858,98 @@ test('native input repair does not repair the caret for stale captured targets',
   root.remove()
 })
 
+test('native input repair does not move selection for stale coalesced targets', () => {
+  const editor = createReactEditor()
+  const root = mountEditorRoot(editor)
+  const prefix = 'This '
+  const capturedBurst = 'abc'
+  const suffix = ' note'
+  const originalText = `${prefix}${suffix}`
+  const capturedText = `${prefix}${capturedBurst}${suffix}`
+  const clickedText = 'clicked'
+  const capturedOffset = prefix.length + capturedBurst.length
+  let scrollCalls = 0
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: originalText }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: clickedText }],
+      },
+    ],
+    selection: {
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    },
+  })
+
+  const targetTextHost = document.createElement('span')
+  const targetString = document.createElement('span')
+  const targetText = document.createTextNode(capturedText)
+  const clickedTextHost = document.createElement('span')
+  const clickedString = document.createElement('span')
+  const clickedNode = document.createTextNode(clickedText)
+  const range = document.createRange()
+  const selection = window.getSelection()
+  const queue = createDOMRepairQueue({
+    editor,
+    inputController: {
+      preferModelSelectionForInputRef: { current: false },
+      state: createEditableInputControllerState(),
+    },
+    scrollSelectionIntoView: () => {
+      scrollCalls++
+    },
+    syncDOMSelectionToEditor: () => {},
+  })
+
+  targetTextHost.setAttribute('data-slate-node', 'text')
+  targetTextHost.setAttribute('data-slate-path', '0,0')
+  targetString.setAttribute('data-slate-string', 'true')
+  targetString.append(targetText)
+  targetTextHost.append(targetString)
+  clickedTextHost.setAttribute('data-slate-node', 'text')
+  clickedTextHost.setAttribute('data-slate-path', '1,0')
+  clickedString.setAttribute('data-slate-string', 'true')
+  clickedString.append(clickedNode)
+  clickedTextHost.append(clickedString)
+  root.append(targetTextHost, clickedTextHost)
+
+  range.setStart(clickedNode, 0)
+  range.collapse(true)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+
+  queue.repairDOMInput(
+    {
+      data: capturedBurst.at(-1)!,
+      inputType: 'insertText',
+      target: {
+        insert: { offset: prefix.length, text: capturedBurst },
+        path: [0, 0],
+        preferCapturedInsert: true,
+        selectionOffset: capturedOffset,
+        text: capturedText,
+      },
+    },
+    root,
+    1
+  )
+
+  expect(editor.read((state) => state.text.string([0]))).toBe(capturedText)
+  expect(editor.read((state) => state.selection.get())).toEqual({
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
+  })
+  expect(scrollCalls).toBe(0)
+
+  root.remove()
+})
+
 test('native input repair replaces expanded model selections and collapses at the DOM caret', () => {
   const editor = createReactEditor()
   const root = mountEditorRoot(editor)
@@ -700,6 +1005,73 @@ test('native input repair replaces expanded model selections and collapses at th
   })
 
   root.remove()
+})
+
+test('text insert caret repair waits until rendered text matches the model', () => {
+  const editor = createReactEditor()
+  const root = mountEditorRoot(editor)
+  const inputController = {
+    preferModelSelectionForInputRef: { current: true },
+    state: createEditableInputControllerState(),
+  }
+  inputController.state.selectionSource = 'model-owned'
+  const originalText = 'This is editable'
+  const modelText = `C${originalText}`
+  const textHost = document.createElement('span')
+  const string = document.createElement('span')
+  const text = document.createTextNode(originalText)
+  const range = document.createRange()
+  const selection = window.getSelection()
+  const requestAnimationFrameSpy = vi
+    .spyOn(window, 'requestAnimationFrame')
+    .mockImplementation(() => 1)
+  const setTimeoutSpy = vi
+    .spyOn(window, 'setTimeout')
+    .mockImplementation(() => 1)
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: modelText }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    },
+  })
+
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-path', '0,0')
+  string.setAttribute('data-slate-string', 'true')
+  string.append(text)
+  textHost.append(string)
+  root.append(textHost)
+
+  range.setStart(text, 0)
+  range.collapse(true)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+
+  const queue = createDOMRepairQueue({
+    editor,
+    inputController,
+    scrollSelectionIntoView: () => {},
+    syncDOMSelectionToEditor: () => {},
+  })
+
+  try {
+    queue.repairCaretAfterModelTextInsert()
+
+    expect(selection?.anchorOffset).toBe(0)
+    expect(inputController.preferModelSelectionForInputRef.current).toBe(true)
+    expect(inputController.state.selectionSource).toBe('model-owned')
+  } finally {
+    requestAnimationFrameSpy.mockRestore()
+    setTimeoutSpy.mockRestore()
+    root.remove()
+  }
 })
 
 test('repair execution is skipped for none policy', () => {

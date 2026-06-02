@@ -513,9 +513,11 @@ test.describe('hidden content blocks example', () => {
 
   test('materializes hidden block keyboard selection matrix vertically', async ({
     page,
-  }) => {
+  }, testInfo) => {
     const pageErrors: string[] = []
     page.on('pageerror', (error) => pageErrors.push(error.message))
+    const pureBlockBoundarySelectionText =
+      testInfo.project.name === 'firefox' ? '' : '\n'
 
     let editor = await openExample(page, 'hidden-content-blocks', {
       query: { selection: 'materialize' },
@@ -561,7 +563,7 @@ test.describe('hidden content blocks example', () => {
     await expect(editor.root).toContainText('Accordion secret alpha')
     await expect
       .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
-      .toBe('\n')
+      .toBe(pureBlockBoundarySelectionText)
 
     editor = await openExample(page, 'hidden-content-blocks', {
       query: { selection: 'materialize', tab: 'details' },
@@ -585,7 +587,7 @@ test.describe('hidden content blocks example', () => {
     await expect(editor.root).toContainText('Collapsible hidden note')
     await expect
       .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
-      .toBe('\n')
+      .toBe(pureBlockBoundarySelectionText)
 
     editor = await openExample(page, 'hidden-content-blocks', {
       query: { selection: 'materialize' },
@@ -607,7 +609,7 @@ test.describe('hidden content blocks example', () => {
     await expect(editor.root).toContainText('Collapsible hidden note')
     await expect
       .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
-      .toBe('\n')
+      .toBe(pureBlockBoundarySelectionText)
     await expect.poll(() => pageErrors).toEqual([])
   })
 

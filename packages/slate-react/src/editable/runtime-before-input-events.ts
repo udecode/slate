@@ -1,5 +1,6 @@
 import { type FormEvent, type RefObject, useCallback } from 'react'
-import type { Range } from 'slate'
+import { PathApi, type Range, RangeApi } from 'slate'
+import { getSelection, isDOMElement, isDOMText } from 'slate-dom'
 import type {
   EditableDOMBeforeInputContext,
   EditableDOMBeforeInputHandler,
@@ -18,6 +19,7 @@ import {
   shouldForceModelOwnedTextInput,
 } from './input-controller'
 import {
+  getDOMInputRepairTarget,
   useEditableDOMBeforeInputHandler,
   useEditableReactBeforeInputHandler,
 } from './input-router'
@@ -98,9 +100,59 @@ const isDOMBeforeInputHandled = (
 
 const getSelectionRoot = (selection: Range | null) => selection?.anchor.root
 
+const getDOMSelectionTextPoint = (root: Document | ShadowRoot) => {
+  const domSelection = getSelection(root)
+  const anchorNode = domSelection?.anchorNode ?? null
+  const anchorElement = isDOMText(anchorNode)
+    ? anchorNode.parentElement
+    : isDOMElement(anchorNode)
+      ? anchorNode
+      : null
+
+  const pathKey =
+    anchorElement
+      ?.closest('[data-slate-node="text"]')
+      ?.getAttribute('data-slate-path') ?? null
+  const offset =
+    domSelection?.isCollapsed && isDOMText(anchorNode)
+      ? domSelection.anchorOffset
+      : null
+
+  return pathKey ? { offset, pathKey } : null
+}
+
+export const getDeferredNativeTextInputRepairPathKey = ({
+  data,
+  deferNativeTextInputRepair,
+  inputType,
+  native,
+  selection,
+}: {
+  data: unknown
+  deferNativeTextInputRepair: boolean
+  inputType: string
+  native: boolean
+  selection: Range | null
+}) => {
+  if (
+    !deferNativeTextInputRepair ||
+    !native ||
+    inputType !== 'insertText' ||
+    typeof data !== 'string' ||
+    data.length === 0 ||
+    !selection ||
+    !RangeApi.isCollapsed(selection)
+  ) {
+    return null
+  }
+
+  return selection.anchor.path.join(',')
+}
+
 export const useRuntimeBeforeInputEvents = ({
   androidInputManagerRef,
   applyInputRules,
+  deferNativeTextInputRepair = false,
   deferredOperations,
   editor,
   handledDOMBeforeInputRef,
@@ -111,6 +163,7 @@ export const useRuntimeBeforeInputEvents = ({
   onInput,
   onUserInput,
   processing,
+  queuePendingNativeTextInput,
   readOnly,
   repair,
   selection,
@@ -119,6 +172,7 @@ export const useRuntimeBeforeInputEvents = ({
 }: {
   androidInputManagerRef: EditableEventRuntime['android']['managerRef']
   applyInputRules: ApplyInputRules
+  deferNativeTextInputRepair?: boolean
   deferredOperations: RefObject<DeferredOperation[]>
   editor: ReactRuntimeEditor
   handledDOMBeforeInputRef: RefObject<boolean>
@@ -129,6 +183,12 @@ export const useRuntimeBeforeInputEvents = ({
   onInput?: unknown
   onUserInput: () => void
   processing: RefObject<boolean>
+  queuePendingNativeTextInput?: (input: {
+    data: string
+    inputType: string
+    rootElement: HTMLElement
+    selection: Range | null
+  }) => void
   readOnly: boolean
   repair: EditableEventRuntime['repair']
   selection: EditableEventRuntime['selection']
@@ -204,6 +264,24 @@ export const useRuntimeBeforeInputEvents = ({
         () => el.getRootNode() as Document | ShadowRoot
       )
 
+      if (event.inputType === 'insertText') {
+        const pendingPathKey =
+          inputController.state.pendingNativeTextInputRepairPathKey
+        const pendingOffset =
+          inputController.state.pendingNativeTextInputRepairOffset
+        const domPoint = pendingPathKey ? getDOMSelectionTextPoint(root) : null
+
+        if (
+          pendingPathKey &&
+          (domPoint?.pathKey !== pendingPathKey ||
+            (pendingOffset != null && domPoint.offset !== pendingOffset))
+        ) {
+          flushPendingNativeTextInput?.()
+          inputController.state.pendingNativeTextInputRepairOffset = null
+          inputController.state.pendingNativeTextInputRepairPathKey = null
+        }
+      }
+
       if (
         handleWebKitShadowDOMBeforeInput({
           editor,
@@ -251,6 +329,9 @@ export const useRuntimeBeforeInputEvents = ({
           'beforeinput-native-decision',
           () =>
             getNativeBeforeInputDecision({
+              allowDirtyDOMText:
+                deferNativeTextInputRepair &&
+                inputController.state.selectionSource === 'dom-current',
               editor,
               event,
               hasAppInputPolicy,
@@ -360,6 +441,10 @@ export const useRuntimeBeforeInputEvents = ({
               inputType: type,
               isCompositionChange,
               native,
+              pendingNativeTextInputRepairPathKey:
+                inputController.state.pendingNativeTextInputRepairPathKey,
+              pendingNativeTextInputRepairOffset:
+                inputController.state.pendingNativeTextInputRepairOffset,
               preferModelSelectionForInput:
                 isEditableModelSelectionPreferredForInput({
                   inputController,
@@ -371,6 +456,51 @@ export const useRuntimeBeforeInputEvents = ({
         )
         native = beforeInputSelection.native
         currentSelection = beforeInputSelection.selection
+
+        if (
+          deferNativeTextInputRepair &&
+          !native &&
+          type === 'insertText' &&
+          typeof data === 'string' &&
+          data.length > 0 &&
+          currentSelection &&
+          RangeApi.isCollapsed(currentSelection)
+        ) {
+          flushPendingNativeTextInput?.()
+          currentSelection = readLiveSelection(editor)
+
+          if (currentSelection && RangeApi.isCollapsed(currentSelection)) {
+            const pendingTarget = getDOMInputRepairTarget(editor, el, {
+              data,
+              inputType: type,
+            })
+
+            if (
+              pendingTarget?.insert &&
+              PathApi.equals(pendingTarget.path, currentSelection.anchor.path)
+            ) {
+              trace.repairDOMInputWithTrace(
+                {
+                  data,
+                  inputType: type,
+                  target: pendingTarget,
+                },
+                el
+              )
+              currentSelection = readLiveSelection(editor)
+            }
+          }
+        }
+
+        inputController.state.pendingNativeTextInputRepairPathKey =
+          getDeferredNativeTextInputRepairPathKey({
+            data,
+            deferNativeTextInputRepair,
+            inputType: type,
+            native,
+            selection: currentSelection,
+          })
+        inputController.state.pendingNativeTextInputRepairOffset = null
 
         if (isCompositionChange) {
           return
@@ -393,6 +523,21 @@ export const useRuntimeBeforeInputEvents = ({
           event.preventDefault()
         }
 
+        if (
+          deferNativeTextInputRepair &&
+          native &&
+          type === 'insertText' &&
+          typeof data === 'string' &&
+          data.length > 0
+        ) {
+          queuePendingNativeTextInput?.({
+            data,
+            inputType: type,
+            rootElement: el,
+            selection: currentSelection,
+          })
+        }
+
         const request = profileBeforeInputDuration(
           'beforeinput-apply-model',
           () =>
@@ -408,9 +553,19 @@ export const useRuntimeBeforeInputEvents = ({
             })
         )
         if (request) {
-          profileBeforeInputDuration('beforeinput-request-repair', () =>
-            repair.requestEditableRepair(request)
-          )
+          const shouldDeferNativeTextRepair =
+            deferNativeTextInputRepair &&
+            native &&
+            type === 'insertText' &&
+            typeof data === 'string' &&
+            data.length > 0 &&
+            request.kind === 'repair-caret-after-text-insert'
+
+          if (!shouldDeferNativeTextRepair) {
+            profileBeforeInputDuration('beforeinput-request-repair', () =>
+              repair.requestEditableRepair(request)
+            )
+          }
         }
 
         if (!decision.command) {
@@ -421,6 +576,7 @@ export const useRuntimeBeforeInputEvents = ({
     [
       androidInputManagerRef,
       applyInputRules,
+      deferNativeTextInputRepair,
       deferredOperations,
       editor,
       flushPendingNativeTextInput,
@@ -431,6 +587,7 @@ export const useRuntimeBeforeInputEvents = ({
       onInput,
       onUserInput,
       processing,
+      queuePendingNativeTextInput,
       readOnly,
       repair,
       selection,

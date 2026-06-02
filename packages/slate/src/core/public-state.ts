@@ -3657,6 +3657,28 @@ const getRuntimeIdsForIndex = (index: RuntimeIndexLike): RuntimeId[] =>
     getIndexedPaths(index).map((path) => getIndexedRuntimeId(index, path))
   )
 
+const getRuntimeIdsForIndexedSubtree = (
+  index: RuntimeIndexLike,
+  path: Path
+): RuntimeId[] =>
+  uniqRuntimeIds(
+    getIndexedPaths(index)
+      .filter(
+        (indexedPath) =>
+          PathApi.equals(path, indexedPath) ||
+          PathApi.isAncestor(path, indexedPath)
+      )
+      .map((indexedPath) => getIndexedRuntimeId(index, indexedPath))
+  )
+
+const getRuntimeIdsForIndexedTopLevelSubtree = (
+  index: RuntimeIndexLike,
+  path: Path
+): RuntimeId[] =>
+  path.length > 1 && typeof path[0] === 'number'
+    ? getRuntimeIdsForIndexedSubtree(index, [path[0]])
+    : []
+
 const operationChangesTopLevelOrder = (operation: Operation): boolean => {
   switch (operation.type) {
     case 'replace_children':
@@ -3783,6 +3805,102 @@ const getTopLevelOrderTouchedRuntimeIds = (
         case 'merge_node':
         case 'split_node':
           return getLiveSubtreeRuntimeIdsAtPath(editor, operation.path)
+        default:
+          return []
+      }
+    })
+  )
+
+const getRuntimeIdsForIndexedTopLevelRange = (
+  index: RuntimeIndexLike,
+  startIndex: number,
+  endIndexExclusive = Number.POSITIVE_INFINITY
+): RuntimeId[] =>
+  uniqRuntimeIds(
+    getIndexedPaths(index)
+      .filter((indexedPath) => {
+        const topLevelIndex = indexedPath[0]
+
+        return (
+          typeof topLevelIndex === 'number' &&
+          topLevelIndex >= startIndex &&
+          topLevelIndex < endIndexExclusive
+        )
+      })
+      .map((indexedPath) => getIndexedRuntimeId(index, indexedPath))
+  )
+
+const getTopLevelOrderNodeImpactRuntimeIds = (
+  operations: readonly Operation[],
+  previousIndex: RuntimeIndexLike,
+  nextIndex: RuntimeIndexLike
+): RuntimeId[] =>
+  uniqRuntimeIds(
+    operations.flatMap((operation) => {
+      switch (operation.type) {
+        case 'insert_node':
+          return operation.path.length === 1
+            ? getRuntimeIdsForIndexedTopLevelRange(
+                previousIndex,
+                operation.path[0]!
+              )
+            : []
+        case 'remove_node':
+          return operation.path.length === 1
+            ? getRuntimeIdsForIndexedTopLevelRange(
+                previousIndex,
+                operation.path[0]!
+              )
+            : []
+        case 'move_node':
+          if (operation.path.length === 1 && operation.newPath.length === 1) {
+            return getRuntimeIdsForIndexedTopLevelRange(
+              previousIndex,
+              Math.min(operation.path[0]!, operation.newPath[0]!),
+              Math.max(operation.path[0]!, operation.newPath[0]!) + 1
+            )
+          }
+
+          return [
+            ...getRuntimeIdsForIndexedSubtree(previousIndex, operation.path),
+            ...getRuntimeIdsForIndexedTopLevelSubtree(
+              previousIndex,
+              operation.path
+            ),
+            ...(operation.path.length === 1
+              ? getRuntimeIdsForIndexedTopLevelRange(
+                  previousIndex,
+                  operation.path[0]!
+                )
+              : []),
+            ...(operation.newPath.length === 1
+              ? getRuntimeIdsForIndexedTopLevelRange(
+                  previousIndex,
+                  operation.newPath[0]!
+                )
+              : getRuntimeIdsForIndexedTopLevelSubtree(
+                  previousIndex,
+                  operation.newPath
+                )),
+          ]
+        case 'replace_children':
+          return operation.path.length === 0
+            ? getRuntimeIdsForIndex(previousIndex)
+            : []
+        case 'split_node':
+          return operation.path.length === 1
+            ? getRuntimeIdsForIndexedTopLevelRange(
+                previousIndex,
+                operation.path[0]!
+              )
+            : []
+        case 'merge_node':
+          return operation.path.length === 1 && operation.path[0] > 0
+            ? getRuntimeIdsForIndexedTopLevelRange(
+                previousIndex,
+                PathApi.previous(operation.path)[0]!
+              )
+            : []
         default:
           return []
       }
@@ -4030,7 +4148,11 @@ const getNodeImpactRuntimeIds = ({
     changeClass === 'structural' &&
     operations.some(operationChangesTopLevelOrder)
   ) {
-    return touchedRuntimeIds
+    return getTopLevelOrderNodeImpactRuntimeIds(
+      operations,
+      previousIndex,
+      nextIndex
+    )
   }
 
   if (changeClass === 'structural') {
@@ -4391,6 +4513,7 @@ const getSourcesForChange = (
   }
 
   if (
+    change.classes.includes('structural') ||
     change.nodeImpactRuntimeIds == null ||
     change.nodeImpactRuntimeIds.length > 0
   ) {

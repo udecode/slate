@@ -1237,7 +1237,14 @@ export const applyModelOwnedTextInput = ({
   inputType: string
   selection?: Range | null
 }): EditableRepairRequest => {
-  if (applyProjectedViewSelectionTextCommand({ editor, text: data })) {
+  const hasExplicitTargetSelection =
+    !!selection &&
+    (RangeApi.isExpanded(selection) || inputType !== 'insertText')
+
+  if (
+    !hasExplicitTargetSelection &&
+    applyProjectedViewSelectionTextCommand({ editor, text: data })
+  ) {
     if (inputType === 'insertText') {
       return {
         forceRender: ReactEditor.isComposing(editor as ReactRuntimeEditor),

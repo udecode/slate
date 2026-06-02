@@ -24,7 +24,7 @@ const iterations = Number(
 const blocks = Number(process.env.REACT_ACTIVE_TYPING_BREAKDOWN_BLOCKS || 5000)
 const typeOps = Number(process.env.REACT_ACTIVE_TYPING_BREAKDOWN_TYPE_OPS || 10)
 const segmentSize = Number(
-  process.env.REACT_ACTIVE_TYPING_BREAKDOWN_ISLAND_SIZE || 100
+  process.env.REACT_ACTIVE_TYPING_BREAKDOWN_ISLAND_SIZE || 50
 )
 const overscan = Number(
   process.env.REACT_ACTIVE_TYPING_BREAKDOWN_ACTIVE_RADIUS || 1

@@ -7,13 +7,13 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { Range, RuntimeId } from 'slate'
+import type { Range } from 'slate'
 import { type DOMRange, IS_READ_ONLY } from 'slate-dom'
 import type {
   EditableDOMBeforeInputHandler,
+  EditableDOMStrategyRuntime,
   EditableKeyDownHandler,
 } from '../components/editable'
-import type { MountedTopLevelRange } from '../dom-strategy/dom-strategy-commands'
 import { isSelectionPartialDOMBacked } from '../dom-strategy/dom-strategy-commands'
 import { useFlushDeferredSelectorsOnRender } from '../hooks/use-editor-selector'
 import { useTrackUserInput } from '../hooks/use-track-user-input'
@@ -108,11 +108,7 @@ export const useEditableRootRuntime = ({
   deferNativeTextInputRepair?: boolean
   editor: ReactRuntimeEditor
   forwardedRef?: ForwardedRef<HTMLDivElement>
-  domStrategyRuntime: {
-    type: 'staged' | 'partial-dom' | 'virtualized'
-    mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
-    mountedTopLevelRanges?: readonly MountedTopLevelRange[]
-  } | null
+  domStrategyRuntime: EditableDOMStrategyRuntime | null
   onDOMBeforeInput?: EditableDOMBeforeInputHandler
   onKeyDown?: EditableKeyDownHandler
   readOnly: boolean

@@ -244,6 +244,159 @@ describe('root interaction controller', () => {
     )
   })
 
+  test('ignores layout root chrome descendants that only resolve through root-edge placement', () => {
+    const editable = document.createElement('div')
+    const block = document.createElement('div')
+    const chrome = document.createElement('div')
+    const textHost = document.createElement('span')
+    const string = document.createElement('span')
+    const update = vi.fn()
+
+    editable.dataset.slateEditor = 'true'
+    editable.dataset.slateRoot = 'main'
+    block.dataset.slateNode = 'element'
+    textHost.dataset.slateNode = 'text'
+    textHost.setAttribute('data-slate-path', '0,0')
+    string.dataset.slateString = 'true'
+    string.textContent = 'body'
+    textHost.append(string)
+    block.append(textHost)
+    editable.append(chrome, block)
+    document.body.append(editable)
+
+    Object.defineProperty(editable, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => rect({ bottom: 120, left: 0, right: 240, top: 0 }),
+    })
+    Object.defineProperty(string, 'getClientRects', {
+      configurable: true,
+      value: () => [rect({ bottom: 60, left: 20, right: 80, top: 40 })],
+    })
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [],
+    })
+
+    const editor = {
+      api: {
+        dom: {
+          assertDOMNode: () => editable,
+          focus: vi.fn(),
+          resolveDOMNode: () => editable,
+          resolveEventRange: vi.fn(() => null),
+        },
+      },
+      read: (reader: (state: unknown) => unknown) =>
+        reader({
+          nodes: {
+            get: () => [{ text: 'body' }],
+            hasPath: () => true,
+          },
+          points: {
+            end: () => ({ path: [0, 0], offset: 4 }),
+          },
+          schema: {
+            getElementSpec: () => null,
+          },
+          selection: {
+            get: () => null,
+          },
+          value: {
+            get: () => ({
+              roots: {
+                main: [paragraph('body')],
+              },
+            }),
+          },
+        }),
+      update,
+    }
+
+    const { result, unmount } = renderHook(() =>
+      useRootInteractionController({
+        disabled: false,
+        editor: editor as never,
+        getLastSelectionForRoot: () => null,
+        getMountedViewEditor: () => editor as never,
+        ignoreBlankEditableRootClicks: true,
+        root: 'main',
+        selection: 'restore',
+      })
+    )
+    const mouseDown = createMouseCaptureEvent({
+      clientX: 4,
+      clientY: 4,
+      currentTarget: editable,
+      target: chrome,
+    })
+
+    act(() => {
+      result.current.onMouseDownCapture(mouseDown)
+      result.current.onMouseUpCapture(
+        createMouseCaptureEvent({
+          clientX: 4,
+          clientY: 4,
+          currentTarget: editable,
+          target: chrome,
+        })
+      )
+    })
+
+    expect(mouseDown.preventDefault).toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+
+    update.mockClear()
+
+    const editableMouseDown = createMouseCaptureEvent({
+      clientX: 4,
+      clientY: 4,
+      currentTarget: editable,
+      target: editable,
+    })
+
+    act(() => {
+      result.current.onMouseDownCapture(editableMouseDown)
+      result.current.onMouseUpCapture(
+        createMouseCaptureEvent({
+          clientX: 4,
+          clientY: 4,
+          currentTarget: editable,
+          target: editable,
+        })
+      )
+    })
+
+    expect(editableMouseDown.preventDefault).toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+
+    update.mockClear()
+
+    const nativeEditableMouseDown = createMouseCaptureEvent({
+      clientX: 4,
+      clientY: 4,
+      currentTarget: editable,
+      target: block,
+    })
+
+    act(() => {
+      result.current.onMouseDownCapture(nativeEditableMouseDown)
+      result.current.onMouseUpCapture(
+        createMouseCaptureEvent({
+          clientX: 4,
+          clientY: 4,
+          currentTarget: editable,
+          target: block,
+        })
+      )
+    })
+
+    expect(nativeEditableMouseDown.preventDefault).toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+
+    unmount()
+    editable.remove()
+  })
+
   test('leaves native double-click word selection to the browser in layout mode', async () => {
     const editor = createReactEditor({
       initialValue: {

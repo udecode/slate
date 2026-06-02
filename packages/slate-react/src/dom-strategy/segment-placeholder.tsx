@@ -234,7 +234,9 @@ export const DOMStrategySegmentPlaceholder = React.memo(
       [endIndex, startIndex]
     )
     const preview = useEditorSelector(selectPreview, sameSegmentPreview, {
+      includeRootOrderChanges: true,
       profileId: 'dom-strategy-partial-dom-preview',
+      runtimeIds: previewRuntimeIds,
       shouldUpdate: shouldUpdatePreview,
     })
 
@@ -246,13 +248,11 @@ export const DOMStrategySegmentPlaceholder = React.memo(
           return
         }
 
-        onPromote?.(segmentIndex, { select: true })
         const editorElement = event.currentTarget.closest(
           '[data-slate-editor="true"]'
         ) as HTMLElement | null
-        requestAnimationFrame(() => {
-          editorElement?.focus()
-        })
+        editorElement?.focus()
+        onPromote?.(segmentIndex, { select: true })
       },
       [editor, segmentIndex, onPromote]
     )
@@ -269,13 +269,11 @@ export const DOMStrategySegmentPlaceholder = React.memo(
           return
         }
 
-        onPromote?.(segmentIndex, { select: true })
         const editorElement = event.currentTarget.closest(
           '[data-slate-editor="true"]'
         ) as HTMLElement | null
-        requestAnimationFrame(() => {
-          editorElement?.focus()
-        })
+        editorElement?.focus()
+        onPromote?.(segmentIndex, { select: true })
       },
       [editor, segmentIndex, onPromote]
     )

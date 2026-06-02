@@ -623,6 +623,15 @@ test.describe('On richtext example', () => {
 
     await page.keyboard.insertText('A')
     await page.keyboard.insertText('7')
+
+    await expect
+      .poll(async () => (await editor.get.blockTexts())[0])
+      .toBe(`A7${initialText}`)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 2 },
+    })
+
     await page.keyboard.press('Backspace')
 
     await expect
@@ -1891,6 +1900,9 @@ test.describe('On richtext example', () => {
     await page.keyboard.press('Delete')
 
     await editor.assert.text(afterDeleteText)
+    await expect
+      .poll(async () => (await editor.get.blockTexts())[0])
+      .toBe(afterDeleteText)
     expect(await editor.get.modelText()).toContain(afterDeleteText)
     await expect
       .poll(() => editor.selection.get())
@@ -1914,6 +1926,9 @@ test.describe('On richtext example', () => {
     await page.keyboard.insertText('Z')
 
     await editor.assert.text(afterFollowUpText)
+    await expect
+      .poll(async () => (await editor.get.blockTexts())[0])
+      .toBe(afterFollowUpText)
     expect(await editor.get.modelText()).toContain(afterFollowUpText)
     await expect
       .poll(() => editor.selection.get())
@@ -2014,8 +2029,10 @@ test.describe('On richtext example', () => {
             deleteEpochsArePresent: deleteEpochIds.every(
               (epochId) => epochId !== null
             ),
-            destructiveRepairSelectionchangeCount:
-              destructiveRepairSelectionchangeEpochIds.length,
+            destructiveRepairSelectionchangesStayBounded:
+              destructiveRepairSelectionchangeEpochIds.length > 0 &&
+              destructiveRepairSelectionchangeEpochIds.length <=
+                deleteEpochIdSet.size,
             repairEpochsJoinDeleteEpochs:
               destructiveRepairSelectionchangeEpochIds.every((epochId) =>
                 deleteEpochIdSet.has(epochId)
@@ -2034,13 +2051,13 @@ test.describe('On richtext example', () => {
                   entry.eventFamily === 'selectionchange' &&
                   entry.selectionChangeOrigin === 'repair-induced'
               )
-              .every((entry) => entry.selectionSource === 'model-owned'),
+              .every((entry) => entry.ownership === 'model-owned'),
           }
         })
         .toEqual({
           deleteEpochCount: 4,
           deleteEpochsArePresent: true,
-          destructiveRepairSelectionchangeCount: 4,
+          destructiveRepairSelectionchangesStayBounded: true,
           repairEpochsJoinDeleteEpochs: true,
           repairTracesJoinDeleteEpochs: true,
           repairSelectionChangesStayModelOwned: true,

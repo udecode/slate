@@ -44,7 +44,7 @@ import {
 } from 'slate-layout/react'
 import {
   type EditableDecorate,
-  type EditableDOMStrategyMetrics,
+  type EditableDOMStrategyEffectiveType,
   type EditableProps,
   type RenderElementProps,
   type RenderLeafProps,
@@ -1488,8 +1488,8 @@ const PaginationSurface = ({
 }) => {
   const editor = useEditor<CustomEditor>()
   const setSettings = useSetStateField(pageSettings)
-  const [domStrategyMetrics, setDOMStrategyMetrics] =
-    useState<EditableDOMStrategyMetrics | null>(null)
+  const [effectiveDOMStrategy, setEffectiveDOMStrategy] =
+    useState<EditableDOMStrategyEffectiveType | null>(null)
   const [viewportRef, viewportSize] = useElementSize<HTMLDivElement>()
   const tableRowsEffectMountedRef = useRef(false)
   const stressPagesEffectMountedRef = useRef(false)
@@ -1831,8 +1831,19 @@ const PaginationSurface = ({
           : domStrategyMode,
     [domStrategyMode, pageOverscan]
   )
-  const usesVirtualizedLayout =
-    domStrategyMetrics?.effectiveStrategy === 'virtualized'
+  const usesVirtualizedLayout = effectiveDOMStrategy === 'virtualized'
+  const handleDOMStrategyMetrics = useCallback(
+    ({
+      effectiveStrategy,
+    }: {
+      effectiveStrategy: EditableDOMStrategyEffectiveType
+    }) => {
+      setEffectiveDOMStrategy((current) =>
+        current === effectiveStrategy ? current : effectiveStrategy
+      )
+    },
+    []
+  )
   const pageStride = (pageGeometry.height + PAGE_GAP) * pageScale
   const visiblePageRows =
     pageStride > 0
@@ -1939,7 +1950,7 @@ const PaginationSurface = ({
         decorate={decorate}
         domStrategy={domStrategy}
         layout={layout}
-        onDOMStrategyMetrics={setDOMStrategyMetrics}
+        onDOMStrategyMetrics={handleDOMStrategyMetrics}
         onKeyDown={onKeyDown}
         pageGeometry={pageGeometry}
         pageLayoutMode={pageLayoutMode}

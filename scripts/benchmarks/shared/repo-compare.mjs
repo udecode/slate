@@ -106,6 +106,8 @@ export const benchmarkRepo = async ({
   )
   await writeFile(filePath, benchmarkSource)
 
+  let failed = false
+
   try {
     const { command, args } = runnerArgsFor(
       packageManager,
@@ -114,7 +116,12 @@ export const benchmarkRepo = async ({
     const result = await run(command, args, repo, env)
 
     return JSON.parse(result.stdout.trim())
+  } catch (error) {
+    failed = true
+    throw error
   } finally {
-    await rm(filePath, { force: true })
+    if (!failed || process.env.BENCHMARK_KEEP_FAILED_RUNNER !== '1') {
+      await rm(filePath, { force: true })
+    }
   }
 }

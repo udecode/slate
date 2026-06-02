@@ -40,6 +40,26 @@ export const shouldFlushPendingNativeTextInputForKeyDown = (
   )
 }
 
+export const shouldApplyKeyDownSelectionPolicy = (
+  decision: ReturnType<typeof prepareEditableKeyDownKernel>,
+  event: KeyboardEvent<HTMLDivElement>,
+  inputController: EditableInputController
+) => {
+  const hasCommandModifier = event.altKey || event.ctrlKey || event.metaKey
+  const isTextShortcutBoundary =
+    event.key.length === 1 && WHITESPACE_KEY_RE.test(event.key)
+
+  if (
+    decision.intent !== 'text-insert' ||
+    (!inputController.state.pendingNativeTextInputRepairPathKey &&
+      (inputController.state.modelOwnedTextInputGuard ?? 0) === 0)
+  ) {
+    return true
+  }
+
+  return hasCommandModifier || isTextShortcutBoundary || event.key.length !== 1
+}
+
 export const useRuntimeKeyboardEvents = ({
   editor,
   inputController,
@@ -80,7 +100,9 @@ export const useRuntimeKeyboardEvents = ({
       }
 
       inputController.state.activeIntent = decision.intent
-      runtime.selection.applyKeyDownSelectionPolicy(decision)
+      if (shouldApplyKeyDownSelectionPolicy(decision, event, inputController)) {
+        runtime.selection.applyKeyDownSelectionPolicy(decision)
+      }
       runtime.trace.beginKeyDownEventFrame(decision)
       const keyDownWorkerResult = applyEditableKeyDown({
         androidInputManagerRef: runtime.android.managerRef,

@@ -11,6 +11,7 @@ import {
   completeEditableSelectionChangeImport,
   executeEditableSelectionExport,
   executeEditableSelectionImport,
+  getPendingNativeTextInputRepairSelectionChangePolicy,
   isEditableModelSelectionPreferredForInput,
   isSelectionInEditorView,
   prepareEditableSelectionChangeImport,
@@ -530,6 +531,31 @@ test('repair-induced selectionchange clears its origin after model repair', () =
   expect(inputController.state.selectionSource).toBe('model-owned')
 })
 
+test('repair-induced text input selectionchange can keep DOM-current ownership', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: 'repair-induced',
+      selectionSource: 'dom-current',
+    },
+  })
+
+  completeEditableSelectionChangeImport({
+    inputController,
+    selectionChangeOrigin: 'repair-induced',
+  })
+
+  expect(inputController.state.selectionChangeOrigin).toBe(null)
+  expect(inputController.preferModelSelectionForInputRef.current).toBe(false)
+  expect(inputController.state.selectionSource).toBe('dom-current')
+})
+
 test('native selectionchange clears its origin after import handling', () => {
   const inputController = createEditableInputController({
     preferModelSelectionForInputRef: { current: false },
@@ -551,6 +577,68 @@ test('native selectionchange clears its origin after import handling', () => {
   })
 
   expect(inputController.state.selectionChangeOrigin).toBe(null)
+})
+
+test('pending native repair selectionchange policy allows real user selections', () => {
+  const samePendingPathSelection = {
+    anchor: { path: [0, 0], offset: 1 },
+    focus: { path: [0, 0], offset: 1 },
+  }
+  const otherPathClickSelection = {
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
+  }
+  const samePathExpandedSelection = {
+    anchor: { path: [0, 0], offset: 0 },
+    focus: { path: [0, 0], offset: 2 },
+  }
+
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      pendingNativeTextInputRepairPathKey: '0,0',
+      range: null,
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('suppress')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      pendingNativeTextInputRepairDOMOffset: 1,
+      pendingNativeTextInputRepairOffset: 1,
+      pendingNativeTextInputRepairPathKey: '0,0',
+      range: samePendingPathSelection,
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('allow')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      pendingNativeTextInputRepairDOMOffset: 1,
+      pendingNativeTextInputRepairOffset: 2,
+      pendingNativeTextInputRepairPathKey: '0,0',
+      range: samePendingPathSelection,
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('clear-and-allow')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      pendingNativeTextInputRepairPathKey: '0,0',
+      range: otherPathClickSelection,
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('clear-and-allow')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      pendingNativeTextInputRepairPathKey: '0,0',
+      range: samePathExpandedSelection,
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('clear-and-allow')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      pendingNativeTextInputRepairPathKey: '0,0',
+      range: otherPathClickSelection,
+      selectionChangeOrigin: 'programmatic-export',
+    })
+  ).toBe('allow')
 })
 
 test('native insertText ignores stale programmatic model preference', () => {

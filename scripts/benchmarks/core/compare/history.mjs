@@ -20,7 +20,7 @@ const legacyRepo = resolve(
   process.env.HISTORY_BENCH_LEGACY_REPO || defaultLegacyRepo
 )
 
-const iterations = Number(process.env.HISTORY_BENCH_ITERATIONS || 3)
+const iterations = Number(process.env.HISTORY_BENCH_ITERATIONS || 15)
 const blocks = Number(process.env.HISTORY_BENCH_BLOCKS || 5000)
 const typeOps = Number(process.env.HISTORY_BENCH_TYPE_OPS || 20)
 const fragmentBlocks = Number(process.env.HISTORY_BENCH_FRAGMENT_BLOCKS || 200)
@@ -50,7 +50,7 @@ const Editor = Slate.Editor ?? SlateInternal.Editor;
 const historyExtension = SlateHistory.history;
 const withHistory = SlateHistory.withHistory;
 
-const iterations = Number(process.env.HISTORY_BENCH_ITERATIONS || 3);
+const iterations = Number(process.env.HISTORY_BENCH_ITERATIONS || 15);
 const blocks = Number(process.env.HISTORY_BENCH_BLOCKS || 5000);
 const typeOps = Number(process.env.HISTORY_BENCH_TYPE_OPS || 20);
 const fragmentBlocks = Number(process.env.HISTORY_BENCH_FRAGMENT_BLOCKS || 200);
@@ -354,6 +354,40 @@ const legacy = await benchmarkRepo({
   repo: legacyRepo,
 })
 
+const laneNames = [
+  'typingUndoMs',
+  'typingRedoMs',
+  'fragmentUndoMs',
+  'fragmentRedoMs',
+]
+const ratio = (currentValue, legacyValue) => {
+  if (legacyValue === 0) {
+    return currentValue === 0 ? 1 : 999_999
+  }
+
+  return round(currentValue / legacyValue)
+}
+const laneMetric = (stat, metric) =>
+  Object.fromEntries(
+    laneNames.map((lane) => [
+      lane,
+      stat === 'ratio'
+        ? ratio(current.lanes[lane][metric], legacy.lanes[lane][metric])
+        : round(current.lanes[lane][metric] - legacy.lanes[lane][metric]),
+    ])
+  )
+const worstLane = (values) =>
+  laneNames.reduce((worst, lane) =>
+    values[lane] > values[worst] ? lane : worst
+  )
+
+const p95Ratio = laneMetric('ratio', 'p95')
+const meanRatio = laneMetric('ratio', 'mean')
+const p95DeltaMs = laneMetric('delta', 'p95')
+const meanDeltaMs = laneMetric('delta', 'mean')
+const worstP95Lane = worstLane(p95Ratio)
+const worstMeanLane = worstLane(meanRatio)
+
 const summary = {
   lane: 'history-compare-local',
   currentRepo,
@@ -366,6 +400,26 @@ const summary = {
   },
   current: current.lanes,
   legacy: legacy.lanes,
+  comparison: {
+    p95Ratio,
+    meanRatio,
+    p95DeltaMs,
+    meanDeltaMs,
+    worstP95: {
+      lane: worstP95Lane,
+      ratio: p95Ratio[worstP95Lane],
+      deltaMs: p95DeltaMs[worstP95Lane],
+      currentMs: current.lanes[worstP95Lane].p95,
+      legacyMs: legacy.lanes[worstP95Lane].p95,
+    },
+    worstMean: {
+      lane: worstMeanLane,
+      ratio: meanRatio[worstMeanLane],
+      deltaMs: meanDeltaMs[worstMeanLane],
+      currentMs: current.lanes[worstMeanLane].mean,
+      legacyMs: legacy.lanes[worstMeanLane].mean,
+    },
+  },
   deltaMeanMs: {
     typingUndoMs: round(
       current.lanes.typingUndoMs.mean - legacy.lanes.typingUndoMs.mean
@@ -387,4 +441,19 @@ await writeBenchmarkArtifact(
   summary
 )
 
+console.log(
+  `METRIC history_compare_worst_p95_ratio=${summary.comparison.worstP95.ratio}`
+)
+console.log(
+  `METRIC history_compare_worst_p95_delta_ms=${summary.comparison.worstP95.deltaMs}`
+)
+console.log(
+  `METRIC history_compare_worst_mean_ratio=${summary.comparison.worstMean.ratio}`
+)
+console.log(
+  `METRIC history_compare_worst_mean_delta_ms=${summary.comparison.worstMean.deltaMs}`
+)
+console.log(
+  `WORST history lane p95=${summary.comparison.worstP95.lane} current=${summary.comparison.worstP95.currentMs}ms legacy=${summary.comparison.worstP95.legacyMs}ms`
+)
 console.log(JSON.stringify(summary, null, 2))

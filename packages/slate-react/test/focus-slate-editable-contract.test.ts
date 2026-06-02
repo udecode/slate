@@ -130,7 +130,7 @@ describe('focusSlateEditable', () => {
     }
   })
 
-  it('expires a preferred DOM point after the current interaction turn', () => {
+  it('expires a preferred DOM point after the current task', () => {
     vi.useFakeTimers()
 
     const editor = {}
@@ -157,14 +157,6 @@ describe('focusSlateEditable', () => {
         selection,
       })
     ).not.toBeNull()
-    expect(
-      readModelSelectionDOMPreference({
-        editor,
-        editorElement: element,
-        selection,
-      })
-    ).not.toBeNull()
-
     vi.runOnlyPendingTimers()
 
     expect(

@@ -138,6 +138,103 @@ const selectTextBlockEndDOM = async (
     )
   }, blockIndex)
 
+const waitForTextBlockMaterialized = async (
+  editor: SlateBrowserEditorHarness,
+  blockIndex: number
+) => {
+  await editor.page.waitForFunction(
+    (index) => {
+      const root = document.querySelector('[data-slate-editor="true"]')
+      const materialized = !!root?.querySelector(
+        `[data-slate-node="text"][data-slate-path="${index},0"]`
+      )
+
+      if (!materialized) {
+        const handle = (
+          root as
+            | (HTMLElement & {
+                __slateBrowserHandle?: {
+                  scrollPathIntoView?: (
+                    path: number[],
+                    align: 'center'
+                  ) => boolean
+                }
+              })
+            | null
+        )?.__slateBrowserHandle
+
+        handle?.scrollPathIntoView?.([index, 0], 'center')
+      }
+
+      return materialized
+    },
+    blockIndex,
+    { timeout: hugeDocumentReadyTimeout }
+  )
+}
+
+const getTextBlockText = async (
+  editor: SlateBrowserEditorHarness,
+  blockIndex: number
+) =>
+  editor.root.evaluate((element: HTMLElement, index) => {
+    const textElement = element.querySelector(
+      `[data-slate-node="text"][data-slate-path="${index},0"]`
+    )
+    const block = textElement?.closest('[data-slate-node="element"]')
+
+    return (block ?? textElement)?.textContent?.replace(/\uFEFF/g, '') ?? null
+  }, blockIndex)
+
+const selectTextBlockOffsetDOM = async (
+  editor: SlateBrowserEditorHarness,
+  blockIndex: number,
+  offset: number
+) => {
+  await editor.selection.collapse({ offset, path: [blockIndex, 0] })
+  await waitForTextBlockMaterialized(editor, blockIndex)
+
+  await editor.root.evaluate(
+    (element: HTMLElement, { index, offset }) => {
+      const textElement = element.querySelector<HTMLElement>(
+        `[data-slate-node="text"][data-slate-path="${index},0"]`
+      )
+
+      if (!textElement) {
+        throw new Error(`Missing text element for block ${index}`)
+      }
+
+      const walker = element.ownerDocument.createTreeWalker(
+        textElement,
+        NodeFilter.SHOW_TEXT
+      )
+      const textNode = walker.nextNode()
+
+      if (!textNode) {
+        throw new Error(`Missing text node for block ${index}`)
+      }
+
+      const range = element.ownerDocument.createRange()
+      const selection = element.ownerDocument.getSelection()
+
+      range.setStart(textNode, offset)
+      range.collapse(true)
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+      element.focus()
+      element.ownerDocument.dispatchEvent(
+        new Event('selectionchange', { bubbles: true })
+      )
+    },
+    { index: blockIndex, offset }
+  )
+
+  await editor.assert.selection({
+    anchor: { offset, path: [blockIndex, 0] },
+    focus: { offset, path: [blockIndex, 0] },
+  })
+}
+
 const expectCaretVisibleInScrollableParent = async (
   editor: SlateBrowserEditorHarness
 ) => {
@@ -201,12 +298,24 @@ test.describe('huge document example', () => {
       waitUntil: 'commit',
     })
     await expect(page.getByLabel('Blocks')).toHaveValue('10000')
-    // This route intentionally mounts 10k nodes. Keep the integration proof
-    // patient under full-suite parallelism; perf regressions belong to the
-    // dedicated huge-document benchmarks.
     await expect(page.getByRole('textbox')).toBeVisible({
       timeout: hugeDocumentReadyTimeout,
     })
+    await expect(page.getByLabel('DOM strategy')).toHaveValue('virtualized')
+    await expect
+      .poll(() =>
+        page.getByTestId('huge-document-effective-strategy').textContent()
+      )
+      .toBe('virtualized')
+    await expect
+      .poll(async () =>
+        Number(
+          await page
+            .getByTestId('huge-document-mounted-top-level-count')
+            .textContent()
+        )
+      )
+      .toBeLessThan(200)
     await expect(page.locator('[data-slate-chunk]')).toHaveCount(0)
   })
 
@@ -276,6 +385,50 @@ test.describe('huge document example', () => {
     await expect(
       page.locator('[data-slate-dom-strategy-virtualizer="true"]')
     ).toBeVisible()
+  })
+
+  test('keeps virtualized middle-block fast typing on the selected block', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop typing perf proof')
+
+    const blockIndex = 2500
+    const offset = 1
+    const typeText = 'X'.repeat(10)
+    const editor = await openSmallHugeDocument(page, {
+      blocks: 5000,
+      editor_height: 600,
+      estimated_block_size: 48,
+      overscan: 2,
+      strategy: 'virtualized',
+      threshold: 1,
+    })
+
+    await expect
+      .poll(() =>
+        page.getByTestId('huge-document-effective-strategy').textContent()
+      )
+      .toBe('virtualized')
+
+    await selectTextBlockOffsetDOM(editor, blockIndex, offset)
+    const beforeText = await getTextBlockText(editor, blockIndex)
+
+    if (!beforeText) {
+      throw new Error(`Missing text for block ${blockIndex}`)
+    }
+
+    const expectedText =
+      beforeText.slice(0, offset) + typeText + beforeText.slice(offset)
+
+    await page.keyboard.type(typeText)
+
+    await expect
+      .poll(() => getTextBlockText(editor, blockIndex))
+      .toBe(expectedText)
+    await editor.assert.selection({
+      anchor: { offset: offset + typeText.length, path: [blockIndex, 0] },
+      focus: { offset: offset + typeText.length, path: [blockIndex, 0] },
+    })
   })
 
   test('keeps virtualized backward scroll stable over dynamic block heights', async ({

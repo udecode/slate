@@ -132,6 +132,44 @@ describe('model input strategy', () => {
     })
   })
 
+  it('replaces expanded beforeinput target ranges with typed text', () => {
+    const editor = createEditor()
+    const selection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 3 },
+    }
+
+    Editor.replace(editor, {
+      children: [
+        { type: 'paragraph', children: [{ text: 'one' }] },
+        { type: 'paragraph', children: [{ text: 'two' }] },
+      ],
+      marks: null,
+      selection,
+    })
+
+    applyModelOwnedBeforeInputOperation({
+      command: {
+        inputType: 'insertText',
+        kind: 'insert-text',
+        text: 'X',
+      },
+      data: 'X',
+      deferredOperations: { current: [] },
+      editor: editor as ReactEditor,
+      inputType: 'insertText',
+      native: false,
+      selection,
+      setComposing: () => {},
+    })
+
+    expect(Editor.string(editor, [])).toBe('X')
+    expect(Editor.getSelection(editor)).toEqual({
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
+  })
+
   it('routes model-owned insertText through transform middleware', () => {
     const editor = createTextEditor('-', 1)
 
@@ -451,6 +489,7 @@ describe('model input strategy', () => {
     expect(Editor.string(editor, [])).toBe('acd')
     expect(repair).toEqual({
       focus: true,
+      forceRender: true,
       kind: 'repair-caret',
       selectionSourceTransition: {
         preferModelSelection: true,
@@ -481,6 +520,7 @@ describe('model input strategy', () => {
     })
     expect(repair).toEqual({
       focus: true,
+      forceRender: true,
       kind: 'repair-caret',
       selectionSourceTransition: {
         preferModelSelection: true,
@@ -543,6 +583,7 @@ describe('model input strategy', () => {
     })
     expect(repair).toEqual({
       focus: true,
+      forceRender: true,
       kind: 'repair-caret',
       selectionSourceTransition: {
         preferModelSelection: true,

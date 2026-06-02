@@ -18,6 +18,7 @@ import {
   useElementPath,
   useSlateProjections,
 } from '../../../../packages/slate-react/src/index.ts'
+import { createSlateReactRenderCounter } from '../../../../packages/slate-react/src/render-profiler.ts'
 import {
   cloneCounts,
   deltaCounts,
@@ -40,6 +41,28 @@ const getFarSegmentIndex = () =>
   )
 const getFarBlockIndex = () =>
   Math.min(blockCount - 1, getFarSegmentIndex() * segmentSize)
+
+const getWarmupSegmentIndex = () => {
+  const targetSegmentIndex = getFarSegmentIndex()
+  const segmentCount = getSegmentCount()
+  const candidates = [
+    targetSegmentIndex - 3,
+    targetSegmentIndex + 3,
+    targetSegmentIndex - 2,
+    targetSegmentIndex + 2,
+    0,
+    segmentCount - 1,
+  ]
+
+  return (
+    candidates.find(
+      (segmentIndex) =>
+        segmentIndex >= 0 &&
+        segmentIndex < segmentCount &&
+        Math.abs(segmentIndex - targetSegmentIndex) > overscan
+    ) ?? null
+  )
+}
 
 const createChildren = () =>
   Array.from({ length: blockCount }, (_, index) => ({
@@ -380,6 +403,36 @@ const measureLane = async (run: () => Promise<Record<string, number>>) => {
   return summarizeMetrics(samples)
 }
 
+const promoteSegment = async ({
+  mounted,
+  segmentIndex,
+  view,
+}: {
+  mounted: Awaited<ReturnType<typeof setupScenario>>['mounted']
+  segmentIndex: number
+  view: Window
+}) => {
+  const targetShell = mounted.container.querySelector<HTMLElement>(
+    `[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="${segmentIndex}"]`
+  )
+
+  if (!targetShell) {
+    throw new Error(`Missing target partial DOM placeholder ${segmentIndex}`)
+  }
+
+  const start = now()
+
+  await act(async () => {
+    targetShell.dispatchEvent(
+      new view.MouseEvent('mousedown', {
+        bubbles: true,
+      })
+    )
+  })
+
+  return now() - start
+}
+
 const measureOverlayToggle = async () =>
   measureLane(async () => {
     const { counts, mounted, projectionStore, toggle, view } =
@@ -486,6 +539,10 @@ const measurePartialDOMPromotion = async () =>
   measureLane(async () => {
     const { editor, mounted, projectionStore, toggle, view } =
       await setupScenario()
+    const previousRenderProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
+    const renderCounter = createSlateReactRenderCounter()
+
+    globalThis.__SLATE_REACT_RENDER_PROFILER__ = renderCounter.profiler
 
     await act(async () => {
       toggle.dispatchEvent(
@@ -495,42 +552,80 @@ const measurePartialDOMPromotion = async () =>
       )
     })
 
+    const warmupSegmentIndex = getWarmupSegmentIndex()
+    const coldPromotionMs =
+      warmupSegmentIndex == null
+        ? 0
+        : await promoteSegment({
+            mounted,
+            segmentIndex: warmupSegmentIndex,
+            view,
+          })
+
     const partialDOMCountBefore = countShells(mounted.container)
     const mountedTextBefore = countMountedTextNodes(mounted.container)
-    const targetShell = mounted.container.querySelector<HTMLElement>(
-      `[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="${getFarSegmentIndex()}"]`
-    )
-
-    if (!targetShell) {
-      throw new Error('Missing target partial DOM placeholder for promotion')
-    }
 
     const recomputeBaseline =
       getProjectionMetricCounts(projectionStore).recomputeCount
-    const start = now()
-
-    await act(async () => {
-      targetShell.dispatchEvent(
-        new view.MouseEvent('mousedown', {
-          bubbles: true,
-        })
-      )
+    renderCounter.reset()
+    const promotionMs = await promoteSegment({
+      mounted,
+      segmentIndex: getFarSegmentIndex(),
+      view,
     })
+    const renderProfile = renderCounter.snapshot()
+    if (process.env.REACT_HUGE_DOC_DEBUG_PROFILE === '1') {
+      const durationByKey = new Map<string, number>()
 
-    const promotionMs = now() - start
+      renderProfile.events.forEach((event) => {
+        if (!event.duration) {
+          return
+        }
+
+        const key = event.id ? `${event.kind}:${event.id}` : event.kind
+        durationByKey.set(key, (durationByKey.get(key) ?? 0) + event.duration)
+      })
+      console.error(
+        JSON.stringify(
+          Object.entries(renderProfile.byKey)
+            .sort((left, right) => right[1] - left[1])
+            .slice(0, 24),
+          null,
+          2
+        )
+      )
+      console.error(
+        JSON.stringify(
+          [...durationByKey.entries()]
+            .sort((left, right) => right[1] - left[1])
+            .slice(0, 24),
+          null,
+          2
+        )
+      )
+    }
     const partialDOMCountAfter = countShells(mounted.container)
     const mountedTextAfter = countMountedTextNodes(mounted.container)
     const selection = Editor.getSnapshot(editor).selection
+    globalThis.__SLATE_REACT_RENDER_PROFILER__ = previousRenderProfiler
 
     await mounted.dispose()
 
     return {
+      coldPromotionMs,
       mountedTextAfter,
       mountedTextBefore,
       projectionRecomputeCount:
         getProjectionMetricCounts(projectionStore).recomputeCount -
         recomputeBaseline,
       promotionMs,
+      renderElementCount: renderProfile.byKind.element ?? 0,
+      renderLeafCount: renderProfile.byKind.leaf ?? 0,
+      renderRootPlanCount:
+        renderProfile.byKey['root-plan:dom-strategy-root-sources'] ?? 0,
+      renderSelectorCount: renderProfile.byKind.selector ?? 0,
+      renderTextCount: renderProfile.byKind.text ?? 0,
+      renderTotalCount: renderProfile.total,
       selectionAnchorPathLength: selection?.anchor.path.length ?? 0,
       selectionAnchorTopLevel: Number(selection?.anchor.path[0] ?? -1),
       partialDOMCountAfter,

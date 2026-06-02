@@ -5,7 +5,7 @@ import { node as getNode } from '../editor/node'
 import { nodes as getNodes } from '../editor/nodes'
 import { LocationApi } from '../interfaces'
 import { Editor } from '../interfaces/editor'
-import { NodeApi } from '../interfaces/node'
+import { type Node, NodeApi } from '../interfaces/node'
 import { type Path, PathApi } from '../interfaces/path'
 import type { Point } from '../interfaces/point'
 import type { PointRef } from '../interfaces/point-ref'
@@ -50,6 +50,9 @@ const getTextEndForwardPoint = (
 
   return Editor.point(editor, nextPath, { edge: 'start' })
 }
+
+const isTextStartSplit = (node: Node, point: Point, path: Path) =>
+  NodeApi.isText(node) && PathApi.equals(path, point.path) && point.offset === 0
 
 export const splitNodes: NodeMutationMethods['splitNodes'] = (
   editor,
@@ -175,7 +178,10 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
           const point = beforeRef.current!
           const isEnd = Editor.isEnd(editor, point, path)
 
-          if (textEndForwardPoint && PathApi.equals(path, at.path)) {
+          if (
+            (textEndForwardPoint && PathApi.equals(path, at.path)) ||
+            (always && isTextStartSplit(node, at, path))
+          ) {
             split = false
           } else if (always || !Editor.isEdge(editor, point, path)) {
             split = true

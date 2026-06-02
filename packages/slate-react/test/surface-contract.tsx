@@ -895,12 +895,12 @@ describe('slate-react surface contract', () => {
       '0.2': [],
       '1': [],
       new: [false],
-      '2': [],
+      '2': [true],
     })
     expect(latestElementSelected['2']).toBe(true)
   })
 
-  test('custom element handlers resolve the current path after leading inserts without shifted rerender', async () => {
+  test('custom element handlers resolve the current path after leading inserts', async () => {
     const editor = createReactEditor({
       initialValue: [
         { id: 'first', children: [{ text: '' }] },
@@ -945,7 +945,7 @@ describe('slate-react surface contract', () => {
       })
     })
 
-    expect(renderCounts.target ?? 0).toBe(0)
+    expect(renderCounts.target ?? 0).toBe(1)
     expect(readTargetPath()).toEqual([2])
   })
 

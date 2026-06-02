@@ -54,6 +54,7 @@ export const useRuntimeInputEvents = ({
   const domInput = useEditableDOMInputHandler({
     deferNativeTextInputRepair,
     editor,
+    inputController,
     onHandledDOMInput: markHandledDOMInput,
     onReadOnlyDOMInput: repair.forceRender,
     repairDOMInput: trace.repairDOMInputWithTrace,
@@ -187,5 +188,6 @@ export const useRuntimeInputEvents = ({
     onDOMInput: domInput.onDOMInput,
     onInput: onRuntimeInput,
     onInputCapture: onRuntimeInputCapture,
+    queuePendingNativeTextInput: domInput.queuePendingNativeTextInput,
   }
 }

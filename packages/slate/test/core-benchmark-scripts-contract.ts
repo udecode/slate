@@ -15,6 +15,18 @@ const legacyReactComparePath = fileURLToPath(
     import.meta.url
   )
 )
+const hugeDocumentFullPath = fileURLToPath(
+  new URL(
+    '../../../scripts/benchmarks/browser/react/huge-document-full.mjs',
+    import.meta.url
+  )
+)
+const hugeDocumentBrowserTracePath = fileURLToPath(
+  new URL(
+    '../../../scripts/benchmarks/browser/react/huge-document-browser-trace.mjs',
+    import.meta.url
+  )
+)
 const activeTypingBreakdownPath = fileURLToPath(
   new URL(
     '../../../scripts/benchmarks/browser/react/active-typing-breakdown.tsx',
@@ -444,6 +456,59 @@ describe('core benchmark scripts contract', () => {
       getSelectionSource.indexOf('Editor.getSelection') <
         getSelectionSource.indexOf('Editor.getSnapshot')
     )
+  })
+
+  it('keeps full huge-document core budget evidence separate from legacy ratios', () => {
+    const source = readFileSync(hugeDocumentFullPath, 'utf8')
+
+    assert.match(source, /const coreIterations = Number\(/)
+    assert.match(source, /HUGE_DOC_FULL_CORE_ITERATIONS/)
+    assert.match(source, /CORE_HUGE_BENCH_ITERATIONS: coreIterations/)
+    assert.match(source, /const coreBudgetRatio = \(budgetRows\) =>/)
+    assert.match(source, /existsSync,\s*rmSync/)
+    assert.match(source, /const browserTraceArtifactPath = \(surfaces\) =>/)
+    assert.match(
+      source,
+      /rmSync\(step\.artifactPath,\s*\{\s*force:\s*true\s*\}\)/
+    )
+    assert.match(
+      source,
+      /artifactPath: browserTraceArtifactPath\('defaultAuto,stagedDomPresent'\)/
+    )
+    assert.match(
+      source,
+      /artifactPath: browserTraceArtifactPath\('virtualized'\)/
+    )
+    assert.match(
+      source,
+      /middleBlockTypeMs:\s*\{\s*budget:\s*5,\s*stat:\s*'p75'\s*\}/
+    )
+    assert.match(
+      source,
+      /selectAllMs:\s*\{\s*budget:\s*5,\s*stat:\s*'p75'\s*\}/
+    )
+    assert.match(
+      source,
+      /startBlockTypeMs:\s*\{\s*budget:\s*5,\s*stat:\s*'p75'\s*\}/
+    )
+    assert.match(source, /rawP95Ms: lane\.currentP95Ms/)
+    assert.match(source, /overBudgetSampleCount: sampleCountAbove/)
+    assert.match(source, /browserTraceBurstToPaintPerOpP95Ms/)
+    assert.match(source, /virtualizedBurstToPaintPerOpP95Ms/)
+    assert.match(source, /react_huge_doc_full_burst_to_paint_per_op_p95_ms/)
+    assert.match(source, /react_huge_doc_full_core_worst_budget_ratio/)
+    assert.match(source, /react_huge_doc_full_virtualized_dom_nodes_p95/)
+  })
+
+  it('keeps huge-document burst typing normalized per operation', () => {
+    const source = readFileSync(hugeDocumentBrowserTracePath, 'utf8')
+
+    assert.match(
+      source,
+      /burstToPaintPerOpMs:\s*\(paintTime - typeStart\) \/ typeText\.length/
+    )
+    assert.match(source, /burstToPaintPerOpMs: summarizeMetric/)
+    assert.match(source, /react_huge_doc_burst_to_paint_per_op_p95_ms/)
   })
 
   it('runs the observation compare node traversal through legacy and v2 node APIs', () => {

@@ -1,5 +1,8 @@
+import { Editor } from 'slate/internal'
+import { IS_NODE_MAP_DIRTY } from 'slate-dom'
 import { canUseNativeSingleCharacterInput } from '../src/editable/native-input-strategy'
 import { ReactEditor } from '../src/plugin/react-editor'
+import { createReactEditor } from '../src/plugin/with-react'
 
 const createFrameDocument = () => {
   const frame = document.createElement('iframe')
@@ -132,7 +135,56 @@ test('native single-character input allows synced printable ASCII', () => {
   }
 })
 
-test('native single-character input allows projected text hosts', () => {
+test('native single-character input keeps deferred dirty DOM bursts native on the same synced text host', () => {
+  const editor = createReactEditor()
+  const textHost = document.createElement('span')
+  const text = document.createTextNode('XXalpha')
+
+  Editor.replace(editor, {
+    children: [{ type: 'paragraph', children: [{ text: 'Xalpha' }] }],
+    selection: {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    },
+  })
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-dom-sync', 'true')
+  textHost.setAttribute('data-slate-path', '0,0')
+  textHost.append(text)
+  document.body.append(textHost)
+  IS_NODE_MAP_DIRTY.set(editor, true)
+
+  vi.spyOn(ReactEditor, 'resolveDOMPoint').mockReturnValue([text, 1])
+  vi.spyOn(ReactEditor, 'getWindow').mockReturnValue(window)
+  vi.spyOn(ReactEditor, 'hasDOMNode').mockReturnValue(false)
+
+  try {
+    expect(
+      canUseNativeSingleCharacterInput({
+        allowDirtyDOMText: false,
+        editor,
+        eventData: '5',
+        hasAppInputPolicy: false,
+        selection: Editor.getSelection(editor),
+      })
+    ).toBe(false)
+    expect(
+      canUseNativeSingleCharacterInput({
+        allowDirtyDOMText: true,
+        editor,
+        eventData: '5',
+        hasAppInputPolicy: false,
+        selection: Editor.getSelection(editor),
+      })
+    ).toBe(true)
+  } finally {
+    IS_NODE_MAP_DIRTY.delete(editor)
+    textHost.remove()
+    vi.restoreAllMocks()
+  }
+})
+
+test('native single-character input rejects projected text hosts', () => {
   const textHost = document.createElement('span')
   const text = document.createTextNode('a')
   const editor = {
@@ -164,7 +216,7 @@ test('native single-character input allows projected text hosts', () => {
           focus: { path: [0, 0], offset: 1 },
         },
       })
-    ).toBe(true)
+    ).toBe(false)
   } finally {
     textHost.remove()
     vi.restoreAllMocks()

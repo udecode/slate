@@ -187,16 +187,21 @@ test.describe('plaintext example', () => {
 
         event.getTargetRanges = ranges
         element.dispatchEvent(event)
+
+        return event
       }
 
-      const firstTextNode = findTextNode('i')
+      let firstTextNode = findTextNode('i')
 
-      dispatchBeforeInput({
+      const insertEvent = dispatchBeforeInput({
         data: 'S',
         inputType: 'insertText',
         ranges: targetRanges(firstTextNode, 1, firstTextNode, 1),
       })
-      firstTextNode.textContent += 'S'
+      if (!insertEvent.defaultPrevented) {
+        firstTextNode.textContent += 'S'
+      }
+      firstTextNode = findTextNode('iS')
       const selection = element.ownerDocument.getSelection()
       const range = element.ownerDocument.createRange()
 

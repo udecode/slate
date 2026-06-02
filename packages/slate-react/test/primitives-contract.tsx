@@ -81,6 +81,15 @@ describe('slate-react primitives contract', () => {
     expect(placeholder?.getAttribute('data-slate-placeholder')).toBe('true')
   })
 
+  test('SlatePlaceholder defaults to an inline-safe span', () => {
+    const rendered = render(<SlatePlaceholder>placeholder</SlatePlaceholder>)
+    const placeholder = rendered.container.querySelector(
+      '[data-slate-placeholder="true"]'
+    )
+
+    expect(placeholder?.tagName).toBe('SPAN')
+  })
+
   test('EditableText passes overlay defaults to custom placeholder renderers', () => {
     const rendered = render(
       <EditableText

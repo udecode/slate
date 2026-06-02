@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { render, waitFor } from '@testing-library/react'
 import React from 'react'
 import { Editor } from 'slate/internal'
@@ -78,6 +80,17 @@ const createSplitTableVirtualizedLayout = () => ({
       start: 20,
     },
   ],
+})
+
+test('Editable domStrategy virtualized mode owns deferred native text repair', () => {
+  const editableSource = readFileSync(
+    resolve(process.cwd(), 'src/components/editable-text-blocks.tsx'),
+    'utf8'
+  )
+
+  expect(editableSource).toMatch(
+    /deferNativeTextInputRepair=\{\s*domStrategyType === 'virtualized'\s*\}/
+  )
 })
 
 test('Editable domStrategy virtualized mode uses page layout items as the retained range unit', async () => {

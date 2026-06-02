@@ -256,6 +256,7 @@ export const applyModelOwnedBeforeInputOperation = ({
       }
       return {
         focus: true,
+        forceRender: true,
         kind: 'repair-caret',
         selectionSourceTransition: {
           preferModelSelection: true,
