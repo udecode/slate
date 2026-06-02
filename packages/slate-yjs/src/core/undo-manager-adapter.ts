@@ -58,6 +58,9 @@ export const createYjsUndoManagerAdapter = (undoManager: Y.UndoManager) => {
     peekUndo() {
       return undo().at(-1) ?? null
     },
+    redoDepth() {
+      return redo().length
+    },
     storeUndoMeta(key: unknown, value: unknown) {
       undo().at(-1)?.meta.set(key, value)
     },

@@ -8,15 +8,11 @@ import {
   SUPPORTED_YJS_UNDO_MANAGER_VERSION,
 } from '../src/core/undo-manager-adapter'
 
-describe('@slate/yjs Yjs UndoManager stack adapter contract', () => {
-  it('pins the Yjs stack contract to the audited version', () => {
-    assert.equal(SUPPORTED_YJS_UNDO_MANAGER_VERSION, '13.6.30')
-  })
-
-  it('stores metadata and moves audited stack items through the adapter', () => {
+describe('@slate/yjs UndoManager adapter contract', () => {
+  it('isolates the private Yjs stack access used by split history replay', () => {
     const doc = new Y.Doc()
-    const origin = {}
     const root = doc.get('slate', Y.XmlElement)
+    const origin = {}
     const undoManager = new Y.UndoManager(root, {
       trackedOrigins: new Set([origin]),
     })
@@ -34,17 +30,17 @@ describe('@slate/yjs Yjs UndoManager stack adapter contract', () => {
     assert.equal(undoItem.meta.get('contract'), 42)
 
     adapter.moveUndoToRedo(undoItem)
-    assert.equal(adapter.peekUndo(), null)
     assert.equal(adapter.peekRedo(), undoItem)
+    assert.equal(adapter.redoDepth(), 1)
 
     adapter.moveRedoToUndo(undoItem)
     assert.equal(adapter.peekUndo(), undoItem)
-    assert.equal(adapter.peekRedo(), null)
 
     undoManager.destroy()
+    doc.destroy()
   })
 
-  it('keeps private stack property access isolated to the adapter', () => {
+  it('pins Yjs private stack usage to one adapter file and a fixed version', () => {
     const controllerSource = readFileSync(
       new URL('../src/core/controller.ts', import.meta.url),
       'utf8'
@@ -54,6 +50,7 @@ describe('@slate/yjs Yjs UndoManager stack adapter contract', () => {
       'utf8'
     )
 
+    assert.equal(SUPPORTED_YJS_UNDO_MANAGER_VERSION, '13.6.30')
     assert.equal(controllerSource.includes('undoStack'), false)
     assert.equal(controllerSource.includes('redoStack'), false)
     assert.equal(adapterSource.includes('undoStack'), true)

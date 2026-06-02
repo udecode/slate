@@ -1,4 +1,4 @@
-import type { Operation } from 'slate'
+import type { Descendant, Operation } from 'slate'
 import * as Y from 'yjs'
 
 import {
@@ -22,7 +22,22 @@ import type { YjsTraceEntry } from './types'
 
 const SLATE_TYPE_ATTRIBUTE = 'slate:type'
 
-type ReplaceFragmentOperation = Extract<Operation, { type: 'replace_fragment' }>
+type SlateElementLike = {
+  children: readonly Descendant[]
+} & Record<string, unknown>
+
+const areJsonEqual = (left: unknown, right: unknown) =>
+  JSON.stringify(left) === JSON.stringify(right)
+
+export const isNoopSlateOperationForYjs = (operation: Operation) => {
+  switch (operation.type) {
+    case 'replace_children':
+    case 'replace_fragment':
+      return areJsonEqual(operation.children, operation.newChildren)
+    default:
+      return false
+  }
+}
 
 const isSlateText = (
   node: unknown
@@ -32,8 +47,19 @@ const isSlateText = (
   'text' in node &&
   typeof (node as { text?: unknown }).text === 'string'
 
+const isSlateElement = (node: unknown): node is SlateElementLike =>
+  typeof node === 'object' &&
+  node !== null &&
+  'children' in node &&
+  Array.isArray((node as { children?: unknown }).children)
+
 const getTextAttributes = ({ text: _text, ...attributes }: { text: string }) =>
   attributes as Record<string, unknown>
+
+const getElementAttributes = ({
+  children: _children,
+  ...attributes
+}: SlateElementLike) => attributes
 
 const createYjsText = (text: string, attributes: Record<string, unknown>) => {
   const yjsText = new Y.XmlText()
@@ -216,37 +242,84 @@ const replaceYjsText = (
   }
 }
 
-const replaceTextChildren = (
+const canReplaceCompatibleYjsChildren = (
   children: Array<Y.XmlElement | Y.XmlText>,
-  oldChildren: ReplaceFragmentOperation['children'],
-  newChildren: ReplaceFragmentOperation['newChildren']
-) => {
+  oldChildren: readonly Descendant[],
+  newChildren: readonly Descendant[]
+): boolean => {
   if (
     children.length !== oldChildren.length ||
-    children.length !== newChildren.length ||
-    children.some((child) => !(child instanceof Y.XmlText)) ||
-    oldChildren.some((child) => !isSlateText(child)) ||
-    newChildren.some((child) => !isSlateText(child))
+    children.length !== newChildren.length
   ) {
     return false
   }
 
-  children.forEach((child, index) => {
+  return children.every((child, index) => {
     const oldChild = oldChildren[index]
     const newChild = newChildren[index]
 
+    if (child instanceof Y.XmlText) {
+      return isSlateText(oldChild) && isSlateText(newChild)
+    }
+
     if (
-      !(child instanceof Y.XmlText) ||
-      !isSlateText(oldChild) ||
-      !isSlateText(newChild)
+      child instanceof Y.XmlElement &&
+      isSlateElement(oldChild) &&
+      isSlateElement(newChild)
     ) {
+      return canReplaceCompatibleYjsChildren(
+        getYjsChildren(child),
+        oldChild.children,
+        newChild.children
+      )
+    }
+
+    return false
+  })
+}
+
+const replaceCompatibleYjsChildren = (
+  children: Array<Y.XmlElement | Y.XmlText>,
+  oldChildren: readonly Descendant[],
+  newChildren: readonly Descendant[]
+): boolean => {
+  if (!canReplaceCompatibleYjsChildren(children, oldChildren, newChildren)) {
+    return false
+  }
+
+  children.forEach((child, index) => {
+    const oldChild = oldChildren[index]!
+    const newChild = newChildren[index]!
+
+    if (child instanceof Y.XmlText) {
+      if (!isSlateText(oldChild) || !isSlateText(newChild)) {
+        return
+      }
+
+      const attributes = getTextAttributes(newChild)
+
+      setYjsNodeAttributes(child, getTextAttributes(oldChild), attributes)
+      replaceYjsText(child, oldChild.text, newChild.text, attributes)
+
       return
     }
 
-    const attributes = getTextAttributes(newChild)
-
-    setYjsNodeAttributes(child, getTextAttributes(oldChild), attributes)
-    replaceYjsText(child, oldChild.text, newChild.text, attributes)
+    if (
+      child instanceof Y.XmlElement &&
+      isSlateElement(oldChild) &&
+      isSlateElement(newChild)
+    ) {
+      setYjsNodeAttributes(
+        child,
+        getElementAttributes(oldChild),
+        getElementAttributes(newChild)
+      )
+      replaceCompatibleYjsChildren(
+        getYjsChildren(child),
+        oldChild.children,
+        newChild.children
+      )
+    }
   })
 
   return true
@@ -260,6 +333,10 @@ export const applySlateOperationToYjs = (
   root: Y.XmlElement,
   operation: Operation
 ): YjsTraceEntry | null => {
+  if (isNoopSlateOperationForYjs(operation)) {
+    return null
+  }
+
   switch (operation.type) {
     case 'insert_text': {
       const text = getYjsNode(root, operation.path)
@@ -286,7 +363,7 @@ export const applySlateOperationToYjs = (
     case 'insert_node': {
       const { index, parent } = getYjsParent(root, operation.path)
 
-      parent.insert(index, [createYjsNode(operation.node)])
+      insertYjsChild(root, parent, index, createYjsNode(operation.node))
 
       return { mode: 'operation', operationType: operation.type }
     }
@@ -322,12 +399,15 @@ export const applySlateOperationToYjs = (
           target.delete(operation.position, rightText.length)
         }
 
-        parent.insert(index + 1, [
+        insertYjsChild(
+          root,
+          parent,
+          index + 1,
           createYjsText(
             rightText,
             operation.properties as Record<string, unknown>
-          ),
-        ])
+          )
+        )
 
         return { mode: 'operation', operationType: operation.type }
       }
@@ -342,13 +422,16 @@ export const applySlateOperationToYjs = (
         target.delete(operation.position, deleteCount)
       }
 
-      parent.insert(index + 1, [
+      insertYjsChild(
+        root,
+        parent,
+        index + 1,
         createSplitElement(
           target,
           operation.properties as Record<string, unknown>,
           rightChildren
-        ),
-      ])
+        )
+      )
 
       return { mode: 'operation', operationType: operation.type }
     }
@@ -406,7 +489,11 @@ export const applySlateOperationToYjs = (
 
       const children = getYjsChildren(target)
       if (
-        replaceTextChildren(children, operation.children, operation.newChildren)
+        replaceCompatibleYjsChildren(
+          children,
+          operation.children,
+          operation.newChildren
+        )
       ) {
         return { mode: 'operation', operationType: operation.type }
       }
@@ -444,6 +531,21 @@ export const applySlateOperationToYjs = (
 
       if (!(target instanceof Y.XmlElement)) {
         throw new Error('replace_children target is not a Y.XmlElement.')
+      }
+
+      const existingChildren = getYjsVisibleChildren(root, target).slice(
+        operation.index,
+        operation.index + operation.children.length
+      )
+
+      if (
+        replaceCompatibleYjsChildren(
+          existingChildren,
+          operation.children,
+          operation.newChildren
+        )
+      ) {
+        return { mode: 'operation', operationType: operation.type }
       }
 
       const removalModes = operation.children.map((child) =>

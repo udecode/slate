@@ -134,6 +134,21 @@ const recordPeerUndoGroup = (
   syncPeerHistoryDepths(peer)
 }
 
+const areJsonEqual = (left: unknown, right: unknown) =>
+  JSON.stringify(left) === JSON.stringify(right)
+
+const changesDocument = (operation: Operation) => {
+  switch (operation.type) {
+    case 'set_selection':
+      return false
+    case 'replace_children':
+    case 'replace_fragment':
+      return !areJsonEqual(operation.children, operation.newChildren)
+    default:
+      return true
+  }
+}
+
 const INITIAL_VALUE: CustomValue = [
   {
     type: 'paragraph',
@@ -262,10 +277,7 @@ const createExampleNetwork = (): ExampleNetwork => {
       if (network.syncing) {
         return
       }
-      if (
-        operations.length === 0 ||
-        operations.some((operation) => operation.type !== 'set_selection')
-      ) {
+      if (operations.some(changesDocument)) {
         recordPeerUndoGroup(
           peer,
           peer.pendingLocalChangeKind ?? 'keyboard',
@@ -370,6 +382,64 @@ const hasDescendantChildren = (
 ): node is Descendant & { children: readonly Descendant[] } =>
   'children' in node && Array.isArray(node.children)
 
+const findFirstTextEntryInNode = (
+  node: Descendant,
+  path: number[]
+): TextEntry | null => {
+  if (isCustomText(node)) {
+    return { path, text: node.text }
+  }
+
+  if (!hasDescendantChildren(node)) {
+    return null
+  }
+
+  for (let index = 0; index < node.children.length; index++) {
+    const child = node.children[index]
+
+    if (!child) {
+      continue
+    }
+
+    const entry = findFirstTextEntryInNode(child, [...path, index])
+
+    if (entry) {
+      return entry
+    }
+  }
+
+  return null
+}
+
+const findLastTextEntryInNode = (
+  node: Descendant,
+  path: number[]
+): TextEntry | null => {
+  if (isCustomText(node)) {
+    return { path, text: node.text }
+  }
+
+  if (!hasDescendantChildren(node)) {
+    return null
+  }
+
+  for (let index = node.children.length - 1; index >= 0; index--) {
+    const child = node.children[index]
+
+    if (!child) {
+      continue
+    }
+
+    const entry = findLastTextEntryInNode(child, [...path, index])
+
+    if (entry) {
+      return entry
+    }
+  }
+
+  return null
+}
+
 const findLastTextEntry = (
   nodes: readonly Descendant[],
   basePath: number[] = []
@@ -381,17 +451,7 @@ const findLastTextEntry = (
       continue
     }
 
-    const path = [...basePath, index]
-
-    if (isCustomText(node)) {
-      return { path, text: node.text }
-    }
-
-    if (!hasDescendantChildren(node)) {
-      continue
-    }
-
-    const entry = findLastTextEntry(node.children, path)
+    const entry = findLastTextEntryInNode(node, [...basePath, index])
 
     if (entry) {
       return entry
@@ -435,6 +495,21 @@ const getTextEntryAtPath = (
   return current && isCustomText(current) ? { path, text: current.text } : null
 }
 
+const getFirstBlockTextEntry = (
+  editor: CustomEditor,
+  position: 'first' | 'last'
+) => {
+  const [block] = getEditorValue(editor)
+
+  if (!block) {
+    return null
+  }
+
+  return position === 'first'
+    ? findFirstTextEntryInNode(block, [0])
+    : findLastTextEntryInNode(block, [0])
+}
+
 const pointAtTextEnd = (entry: TextEntry) => ({
   path: entry.path,
   offset: entry.text.length,
@@ -447,6 +522,10 @@ const isCollapsedSelection = (selection: Range) =>
   selection.anchor.path.join('.') === selection.focus.path.join('.') &&
   selection.anchor.offset === selection.focus.offset
 
+const isSamePath = (left: readonly number[], right: readonly number[]) =>
+  left.length === right.length &&
+  left.every((part, index) => part === right[index])
+
 const isSelectionAtTextEnd = (value: CustomValue, selection: Range) => {
   if (!isCollapsedSelection(selection)) {
     return false
@@ -457,12 +536,35 @@ const isSelectionAtTextEnd = (value: CustomValue, selection: Range) => {
   return entry ? selection.anchor.offset === entry.text.length : false
 }
 
+const isSelectionAtDocumentEnd = (value: CustomValue, selection: Range) => {
+  if (!isCollapsedSelection(selection)) {
+    return false
+  }
+
+  const entry = findLastTextEntry(value)
+
+  return (
+    !!entry &&
+    isSamePath(selection.anchor.path, entry.path) &&
+    selection.anchor.offset === entry.text.length
+  )
+}
+
 const normalizeHistorySelection = (
   value: CustomValue,
   selection: Range | null,
-  options: { preferEndOfPreviousEndSelection?: Range | null } = {}
+  options: {
+    preferDocumentEnd?: boolean | null
+    preferEndOfPreviousEndSelection?: Range | null
+  } = {}
 ): Range | null => {
   const fallbackEntry = findLastTextEntry(value)
+
+  if (options.preferDocumentEnd && fallbackEntry) {
+    const point = pointAtTextEnd(fallbackEntry)
+
+    return { anchor: point, focus: point }
+  }
 
   if (options.preferEndOfPreviousEndSelection) {
     const entry =
@@ -525,8 +627,12 @@ const syncPeerSelectionAfterHistory = (
     value,
     readEditorSelection(editor),
     {
+      preferDocumentEnd:
+        previousSelection &&
+        isSelectionAtDocumentEnd(previousValue, previousSelection),
       preferEndOfPreviousEndSelection:
         previousSelection &&
+        !isSelectionAtDocumentEnd(previousValue, previousSelection) &&
         isSelectionAtTextEnd(previousValue, previousSelection)
           ? previousSelection
           : null,
@@ -544,6 +650,7 @@ const syncPeerSelectionAfterHistory = (
       name: peer.name,
     })
   })
+  editor.api.dom.focus({ retries: 1 })
   network.syncAwareness()
 }
 
@@ -649,9 +756,16 @@ const selectHello = (
   peer: ExamplePeer,
   editor: CustomEditor
 ) => {
+  const entry = getFirstBlockTextEntry(editor, 'first')
+
+  if (!entry) {
+    return
+  }
+
+  const length = Math.min(5, entry.text.length)
   const range: Range = {
-    anchor: { path: [0, 0], offset: 0 },
-    focus: { path: [0, 0], offset: 5 },
+    anchor: { path: entry.path, offset: 0 },
+    focus: { path: entry.path, offset: length },
   }
 
   editor.update((tx) => {
@@ -665,31 +779,41 @@ const selectHello = (
 }
 
 const appendText = (peer: ExamplePeer, editor: CustomEditor) => {
-  const text = getBlockText(editor, 0)
-  const offset = text.length + peer.appendText.length
+  const entry = getFirstBlockTextEntry(editor, 'last')
+
+  if (!entry) {
+    return
+  }
+
+  const offset = entry.text.length + peer.appendText.length
 
   editor.update((tx) => {
     tx.text.insert(peer.appendText, {
-      at: { path: [0, 0], offset: text.length },
+      at: { path: entry.path, offset: entry.text.length },
     })
     tx.selection.set({
-      anchor: { path: [0, 0], offset },
-      focus: { path: [0, 0], offset },
+      anchor: { path: entry.path, offset },
+      focus: { path: entry.path, offset },
     })
   })
 }
 
 const insertExclamation = (editor: CustomEditor) => {
-  const text = getBlockText(editor, 0)
-  const offset = text.length + 1
+  const entry = getFirstBlockTextEntry(editor, 'last')
+
+  if (!entry) {
+    return
+  }
+
+  const offset = entry.text.length + 1
 
   editor.update((tx) => {
     tx.text.insert('!', {
-      at: { path: [0, 0], offset: text.length },
+      at: { path: entry.path, offset: entry.text.length },
     })
     tx.selection.set({
-      anchor: { path: [0, 0], offset },
-      focus: { path: [0, 0], offset },
+      anchor: { path: entry.path, offset },
+      focus: { path: entry.path, offset },
     })
   })
 }
@@ -707,12 +831,18 @@ const selectDefaultBoldRange = (editor: CustomEditor) => {
     return
   }
 
-  const length = Math.min(5, getBlockText(editor, 0).length)
+  const entry = getFirstBlockTextEntry(editor, 'first')
+
+  if (!entry) {
+    return
+  }
+
+  const length = Math.min(5, entry.text.length)
 
   editor.update((tx) => {
     tx.selection.set({
-      anchor: { path: [0, 0], offset: 0 },
-      focus: { path: [0, 0], offset: length },
+      anchor: { path: entry.path, offset: 0 },
+      focus: { path: entry.path, offset: length },
     })
   })
 }
@@ -726,45 +856,24 @@ const toggleBold = (editor: CustomEditor) => {
 
 const replaceDocument = (peer: ExamplePeer, editor: CustomEditor) => {
   const value = getEditorValue(editor)
-  const [firstBlock] = value
-  const firstText = firstBlock ? NodeApi.string(firstBlock) : ''
-  const operations: Operation[] = []
-
-  for (let index = value.length - 1; index > 0; index--) {
-    operations.push({
-      node: value[index]!,
-      path: [index],
-      root: 'main',
-      type: 'remove_node',
-    })
-  }
-
-  if (firstText.length > 0) {
-    operations.push({
-      offset: 0,
-      path: [0, 0],
-      root: 'main',
-      text: firstText,
-      type: 'remove_text',
-    })
-  }
-
-  if (peer.replacementText.length > 0) {
-    operations.push({
-      offset: 0,
-      path: [0, 0],
-      root: 'main',
-      text: peer.replacementText,
-      type: 'insert_text',
-    })
-  }
+  const selection = {
+    anchor: { path: [0, 0], offset: peer.replacementText.length },
+    focus: { path: [0, 0], offset: peer.replacementText.length },
+  } satisfies Range
 
   editor.update((tx) => {
-    tx.operations.replay(operations)
-    tx.selection.set({
-      anchor: { path: [0, 0], offset: peer.replacementText.length },
-      focus: { path: [0, 0], offset: peer.replacementText.length },
-    })
+    tx.operations.replay([
+      {
+        children: value,
+        index: 0,
+        newChildren: [paragraph(peer.replacementText)],
+        newSelection: selection,
+        path: [],
+        root: 'main',
+        selection: null,
+        type: 'replace_children',
+      },
+    ])
   })
 }
 
@@ -943,38 +1052,27 @@ const handleDeleteKeyDown = (
 }
 
 const splitFirstText = (peer: ExamplePeer, editor: CustomEditor) => {
-  const text = getBlockText(editor, 0)
-  const offset = Math.max(1, Math.floor(text.length / 2))
-  const [block] = getEditorValue(editor)
+  const value = getEditorValue(editor)
+  const [block] = value
 
-  if (!block || !('children' in block)) {
+  if (!block) {
     return
   }
 
-  const [leaf] = block.children
+  const entry = findFirstTextEntryInNode(block, [0])
 
-  if (!leaf || !('text' in leaf)) {
+  if (!entry || entry.text.length < 2) {
     return
   }
 
-  const { children: _children, ...elementProperties } = block
-  const { text: _text, ...textProperties } = leaf
+  const offset = Math.max(1, Math.floor(entry.text.length / 2))
 
   editor.update((tx) => {
-    tx.operations.replay([
-      {
-        path: [0, 0],
-        position: offset,
-        properties: textProperties,
-        type: 'split_node',
-      },
-      {
-        path: [0],
-        position: 1,
-        properties: elementProperties,
-        type: 'split_node',
-      },
-    ])
+    tx.selection.set({
+      anchor: { path: entry.path, offset },
+      focus: { path: entry.path, offset },
+    })
+    tx.break.insert()
   })
   peer.renderEpoch += 1
 }
@@ -1002,19 +1100,24 @@ const ensureParagraphCount = (editor: CustomEditor, count: number) => {
 }
 
 const removeSecondBlock = (editor: CustomEditor) => {
-  ensureParagraphCount(editor, 2)
+  if (getParagraphCount(editor) < 2) {
+    return
+  }
 
   editor.update((tx) => {
     tx.nodes.remove({ at: [1] })
   })
 }
 
-const mergeSecondBlock = (editor: CustomEditor) => {
-  ensureParagraphCount(editor, 2)
+const mergeSecondBlock = (peer: ExamplePeer, editor: CustomEditor) => {
+  if (getParagraphCount(editor) < 2) {
+    return
+  }
 
   editor.update((tx) => {
     tx.nodes.merge({ at: [1] })
   })
+  peer.renderEpoch += 1
 }
 
 const moveFirstBlockDown = (editor: CustomEditor) => {
@@ -1025,13 +1128,19 @@ const moveFirstBlockDown = (editor: CustomEditor) => {
   })
 }
 
-const setFirstBlock = (editor: CustomEditor) => {
+const setFirstBlockRole = (editor: CustomEditor) => {
   editor.update((tx) => {
-    tx.nodes.set({ role: 'title', type: 'heading-one' } as never, { at: [0] })
+    tx.nodes.set({ role: 'title' } as never, { at: [0] })
   })
 }
 
-const unsetFirstBlock = (editor: CustomEditor) => {
+const unsetFirstBlockRole = (editor: CustomEditor) => {
+  const [firstBlock] = getEditorValue(editor)
+
+  if (!firstBlock || !('role' in firstBlock)) {
+    return
+  }
+
   editor.update((tx) => {
     tx.nodes.unset('role' as never, { at: [0] })
   })
@@ -1045,7 +1154,7 @@ const firstBlockIsQuote = (editor: CustomEditor) => {
 
 const unwrapFirstBlock = (editor: CustomEditor) => {
   if (!firstBlockIsQuote(editor)) {
-    wrapFirstBlock(editor)
+    return
   }
 
   editor.update((tx) => {
@@ -1055,7 +1164,7 @@ const unwrapFirstBlock = (editor: CustomEditor) => {
 
 const liftFirstWrappedBlock = (editor: CustomEditor) => {
   if (!firstBlockIsQuote(editor)) {
-    wrapFirstBlock(editor)
+    return
   }
 
   editor.update((tx) => {
@@ -1064,12 +1173,16 @@ const liftFirstWrappedBlock = (editor: CustomEditor) => {
 }
 
 const insertFragmentText = (peer: ExamplePeer, editor: CustomEditor) => {
-  const text = getBlockText(editor, 0)
+  const entry = getFirstBlockTextEntry(editor, 'last')
+
+  if (!entry) {
+    return
+  }
 
   editor.update((tx) => {
     tx.selection.set({
-      anchor: { path: [0, 0], offset: text.length },
-      focus: { path: [0, 0], offset: text.length },
+      anchor: { path: entry.path, offset: entry.text.length },
+      focus: { path: entry.path, offset: entry.text.length },
     })
     tx.fragment.insert([{ text: `${peer.name} fragment` }])
   })
@@ -1086,8 +1199,13 @@ const moveFirstBlockAfterSecond = (editor: CustomEditor) => {
 }
 
 const deleteFirstFragment = (editor: CustomEditor) => {
-  const text = getBlockText(editor, 0)
-  const length = Math.min(5, text.length)
+  const entry = getFirstBlockTextEntry(editor, 'first')
+
+  if (!entry) {
+    return
+  }
+
+  const length = Math.min(5, entry.text.length)
 
   if (length === 0) {
     return
@@ -1095,24 +1213,24 @@ const deleteFirstFragment = (editor: CustomEditor) => {
 
   editor.update((tx) => {
     tx.selection.set({
-      anchor: { path: [0, 0], offset: 0 },
-      focus: { path: [0, 0], offset: length },
+      anchor: { path: entry.path, offset: 0 },
+      focus: { path: entry.path, offset: length },
     })
     tx.fragment.delete()
   })
 }
 
 const deleteBackwardFromFirstBlockEnd = (editor: CustomEditor) => {
-  const text = getBlockText(editor, 0)
+  const entry = getFirstBlockTextEntry(editor, 'last')
 
-  if (text.length === 0) {
+  if (!entry || entry.text.length === 0) {
     return
   }
 
   editor.update((tx) => {
     tx.selection.set({
-      anchor: { path: [0, 0], offset: text.length },
-      focus: { path: [0, 0], offset: text.length },
+      anchor: { path: entry.path, offset: entry.text.length },
+      focus: { path: entry.path, offset: entry.text.length },
     })
     tx.text.deleteBackward({ unit: 'character' })
   })
@@ -1513,7 +1631,7 @@ const PeerPanel = ({
           <CommandButton
             onRun={() =>
               runPeerCommand(network, peer, editor, () =>
-                mergeSecondBlock(editor)
+                mergeSecondBlock(peer, editor)
               )
             }
             testId={`yjs-peer-${peer.id}-merge-node`}
@@ -1532,21 +1650,23 @@ const PeerPanel = ({
           </CommandButton>
           <CommandButton
             onRun={() =>
-              runPeerCommand(network, peer, editor, () => setFirstBlock(editor))
+              runPeerCommand(network, peer, editor, () =>
+                setFirstBlockRole(editor)
+              )
             }
             testId={`yjs-peer-${peer.id}-set-node`}
           >
-            Set
+            Set Role
           </CommandButton>
           <CommandButton
             onRun={() =>
               runPeerCommand(network, peer, editor, () =>
-                unsetFirstBlock(editor)
+                unsetFirstBlockRole(editor)
               )
             }
             testId={`yjs-peer-${peer.id}-unset-node`}
           >
-            Unset
+            Unset Role
           </CommandButton>
           <CommandButton
             onRun={() =>
@@ -1633,6 +1753,9 @@ const PeerPanel = ({
         <div
           className="min-h-40 px-3 py-3"
           id={`yjs-peer-${peer.id}-editor-surface`}
+          onKeyDownCapture={(event) =>
+            handleHistoryKeyDown(event, network, peer, editor)
+          }
         >
           <Editable
             autoFocus={peer.id === 'a'}

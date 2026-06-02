@@ -32,6 +32,18 @@ const getPeerParagraphTexts = (page: Page, peer: PeerId) =>
     })
   )
 
+const expectAllPeerParagraphTexts = async (page: Page, expected: string[]) => {
+  for (const peer of ['a', 'b', 'c', 'd'] as const) {
+    await expect.poll(() => getPeerParagraphTexts(page, peer)).toEqual(expected)
+  }
+}
+
+const expectNoPeerBlockQuotes = async (page: Page) => {
+  for (const peer of ['a', 'b', 'c', 'd'] as const) {
+    await expect(peerTextbox(page, peer).locator('blockquote')).toHaveCount(0)
+  }
+}
+
 const getPeerLayoutProof = (page: Page, peer: PeerId) =>
   peerTextbox(page, peer).evaluate((textbox) => {
     const editorRect = textbox.getBoundingClientRect()
@@ -431,6 +443,65 @@ test.describe('yjs collaboration example', () => {
     for (const control of controls) {
       await expect(byTestId(page, `yjs-peer-a-${control}`)).toBeVisible()
     }
+  })
+
+  test('keeps set and unset role controls symmetric', async ({ page }) => {
+    const editor = await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await expect(byTestId(page, 'yjs-peer-a-set-node')).toHaveText('Set Role')
+    await expect(byTestId(page, 'yjs-peer-a-unset-node')).toHaveText(
+      'Unset Role'
+    )
+
+    await byTestId(page, 'yjs-peer-a-disconnect').click()
+    await byTestId(page, 'yjs-peer-a-set-node').click()
+
+    const setCommit = (await editor.get.lastCommit()) as {
+      operations?: Array<{
+        newProperties?: unknown
+        path?: number[]
+        properties?: unknown
+        type?: string
+      }>
+    } | null
+    const setOperation = setCommit?.operations?.find(
+      (operation) => operation.type === 'set_node'
+    )
+
+    expect(setOperation).toEqual(
+      expect.objectContaining({
+        newProperties: { role: 'title' },
+        path: [0],
+        properties: {},
+        type: 'set_node',
+      })
+    )
+
+    await byTestId(page, 'yjs-peer-a-unset-node').click()
+
+    const unsetCommit = (await editor.get.lastCommit()) as {
+      operations?: Array<{
+        newProperties?: unknown
+        path?: number[]
+        properties?: unknown
+        type?: string
+      }>
+    } | null
+    const unsetOperation = unsetCommit?.operations?.find(
+      (operation) => operation.type === 'set_node'
+    )
+
+    expect(unsetOperation).toEqual(
+      expect.objectContaining({
+        newProperties: {},
+        path: [0],
+        properties: { role: 'title' },
+        type: 'set_node',
+      })
+    )
   })
 
   test('syncs marks applied from one editor to all connected editors', async ({
@@ -1045,6 +1116,146 @@ test.describe('yjs collaboration example', () => {
     }
   })
 
+  test('undoes a merge followed by a split without a split-history error', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+
+    page.on('pageerror', (error) => {
+      pageErrors.push(String(error.message || error))
+    })
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await replacePeerText(page, 'a', ['Hello world!', 'block 2'])
+    await expectAllPeerParagraphTexts(page, ['Hello world!', 'block 2'])
+
+    await byTestId(page, 'yjs-peer-a-merge-node').click()
+    await byTestId(page, 'yjs-peer-a-split-node').click()
+    await byTestId(page, 'yjs-peer-a-undo').click()
+
+    await expectAllPeerParagraphTexts(page, ['Hello world!block 2'])
+    expect(pageErrors).toEqual([])
+  })
+
+  test('redoes multi-paragraph keyboard input after undoing to an empty document', async ({
+    page,
+  }) => {
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await replacePeerText(page, 'a', [''])
+    await expectAllPeerParagraphTexts(page, [''])
+
+    await placePeerCaret(page, 'a', 0, 0)
+    await page.keyboard.type('a')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('b')
+
+    await expectAllPeerParagraphTexts(page, ['a', 'b'])
+
+    for (let index = 0; index < 2; index++) {
+      await byTestId(page, 'yjs-peer-a-undo').click()
+    }
+
+    await expectAllPeerParagraphTexts(page, [''])
+    await expect(byTestId(page, 'yjs-peer-a-undo')).toBeDisabled()
+
+    for (let index = 0; index < 2; index++) {
+      await byTestId(page, 'yjs-peer-a-redo').click()
+    }
+
+    await expectAllPeerParagraphTexts(page, ['a', 'b'])
+    await expect(byTestId(page, 'yjs-peer-a-redo')).toBeDisabled()
+  })
+
+  test('keyboard redoes multi-paragraph input after undoing to an empty document', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await replacePeerText(page, 'a', [''])
+    await expectAllPeerParagraphTexts(page, [''])
+
+    await placePeerCaret(page, 'a', 0, 0)
+    await page.keyboard.type('a')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('b')
+
+    await expectAllPeerParagraphTexts(page, ['a', 'b'])
+
+    await peerTextbox(page, 'a').focus()
+    const { redo, undo } = await getHistoryShortcuts(page)
+
+    await page.keyboard.press(undo)
+    await page.keyboard.press(undo)
+
+    await expectAllPeerParagraphTexts(page, [''])
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+    await expect(byTestId(page, 'yjs-peer-b-cursors')).toContainText(
+      '101:0.0:0-0.0:0'
+    )
+    await expect(byTestId(page, 'yjs-peer-a-undo')).toBeDisabled()
+
+    await page.keyboard.press(redo)
+    await page.keyboard.press(redo)
+
+    await expectAllPeerParagraphTexts(page, ['a', 'b'])
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [1, 0], offset: 1 },
+        focus: { path: [1, 0], offset: 1 },
+      })
+    await expect(byTestId(page, 'yjs-peer-b-cursors')).toContainText(
+      '101:1.0:1-1.0:1'
+    )
+    await expect(byTestId(page, 'yjs-peer-a-redo')).toBeDisabled()
+  })
+
+  test('keeps no-op structural commands out of history', async ({ page }) => {
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    const commands = [
+      'remove-node',
+      'merge-node',
+      'unwrap',
+      'lift',
+      'unset-node',
+    ] as const
+
+    for (const command of commands) {
+      await test.step(command, async () => {
+        await replacePeerText(page, 'a', ['Hello world!'])
+        await expectAllPeerParagraphTexts(page, ['Hello world!'])
+        await expectNoPeerBlockQuotes(page)
+        await expect(byTestId(page, 'yjs-peer-a-undo')).toBeDisabled()
+
+        await byTestId(page, `yjs-peer-a-${command}`).click()
+
+        await expectAllPeerParagraphTexts(page, ['Hello world!'])
+        await expectNoPeerBlockQuotes(page)
+        await expect(byTestId(page, 'yjs-peer-a-undo')).toBeDisabled()
+      })
+    }
+  })
+
   test('preserves concurrent text when an offline wrap button reconnects', async ({
     page,
   }) => {
@@ -1107,6 +1318,184 @@ test.describe('yjs collaboration example', () => {
         .poll(() => getPeerParagraphTexts(page, peer))
         .toEqual(['alpha AdaLin fragment'])
     }
+  })
+
+  test('replaces a disconnected wrapped first block without stale text paths', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+
+    page.on('pageerror', (error) => {
+      pageErrors.push(String(error.message || error))
+    })
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await byTestId(page, 'yjs-peer-c-wrap-node').click()
+    await byTestId(page, 'yjs-peer-b-disconnect').click()
+    await byTestId(page, 'yjs-peer-b-replace').click()
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['Lin canonical snapshot.'])
+
+    await byTestId(page, 'yjs-peer-b-connect').click()
+
+    await expectAllPeerParagraphTexts(page, ['Lin canonical snapshot.'])
+    expect(pageErrors).toEqual([])
+  })
+
+  test('replaces a disconnected fragmented first block without stale text offsets', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+
+    page.on('pageerror', (error) => {
+      pageErrors.push(String(error.message || error))
+    })
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await byTestId(page, 'yjs-peer-b-insert-fragment').click()
+    await expectAllPeerParagraphTexts(page, ['Hello world!Lin fragment'])
+
+    await byTestId(page, 'yjs-peer-b-disconnect').click()
+    await byTestId(page, 'yjs-peer-b-replace').click()
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['Lin canonical snapshot.'])
+
+    await byTestId(page, 'yjs-peer-b-connect').click()
+
+    await expectAllPeerParagraphTexts(page, ['Lin canonical snapshot.'])
+    expect(pageErrors).toEqual([])
+  })
+
+  test('splits a wrapped first block without page errors', async ({ page }) => {
+    const pageErrors: string[] = []
+
+    page.on('pageerror', (error) => {
+      pageErrors.push(String(error.message || error))
+    })
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await byTestId(page, 'yjs-peer-b-wrap-node').click()
+    await byTestId(page, 'yjs-peer-d-split-node').click()
+
+    await expectAllPeerParagraphTexts(page, ['Hello ', 'world!'])
+    expect(pageErrors).toEqual([])
+  })
+
+  test('keeps the initiating peer DOM synchronized after split then merge buttons', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+
+    page.on('pageerror', (error) => {
+      pageErrors.push(String(error.message || error))
+    })
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await byTestId(page, 'yjs-peer-b-split-node').click()
+    await expectAllPeerParagraphTexts(page, ['Hello ', 'world!'])
+
+    await byTestId(page, 'yjs-peer-d-merge-node').click()
+
+    await expectAllPeerParagraphTexts(page, ['Hello world!'])
+    expect(pageErrors).toEqual([])
+  })
+
+  test('keeps connected fragment button edits converged without page errors', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+
+    page.on('pageerror', (error) => {
+      pageErrors.push(String(error.message || error))
+    })
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await byTestId(page, 'yjs-peer-b-insert-fragment').click()
+    await expectAllPeerParagraphTexts(page, ['Hello world!Lin fragment'])
+
+    await byTestId(page, 'yjs-peer-d-insert-fragment').click()
+
+    await expectAllPeerParagraphTexts(page, [
+      'Hello world!Lin fragmentEve fragment',
+    ])
+    expect(pageErrors).toEqual([])
+  })
+
+  test('runs text commands inside a wrapped first block without stale paths', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+
+    page.on('pageerror', (error) => {
+      pageErrors.push(String(error.message || error))
+    })
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await byTestId(page, 'yjs-peer-c-wrap-node').click()
+    await byTestId(page, 'yjs-peer-b-insert-text').click()
+    await expectAllPeerParagraphTexts(page, ['Hello world!!'])
+
+    await byTestId(page, 'yjs-peer-d-delete-backward').click()
+    await expectAllPeerParagraphTexts(page, ['Hello world!'])
+
+    await byTestId(page, 'yjs-peer-a-delete-fragment').click()
+    await expectAllPeerParagraphTexts(page, [' world!'])
+    expect(pageErrors).toEqual([])
+  })
+
+  test('uses fresh text paths after append, backspace, and fragment buttons', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+
+    page.on('pageerror', (error) => {
+      pageErrors.push(String(error.message || error))
+    })
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await byTestId(page, 'yjs-peer-b-append').click()
+    await expectAllPeerParagraphTexts(page, ['Hello world! Lin'])
+
+    await byTestId(page, 'yjs-peer-d-delete-backward').click()
+    await expectAllPeerParagraphTexts(page, ['Hello world! Li'])
+
+    await byTestId(page, 'yjs-peer-b-insert-fragment').click()
+    await expectAllPeerParagraphTexts(page, ['Hello world! LiLin fragment'])
+
+    await byTestId(page, 'yjs-peer-d-delete-backward').click()
+
+    await expectAllPeerParagraphTexts(page, ['Hello world! LiLin fragmen'])
+    expect(pageErrors).toEqual([])
   })
 
   test('undoes offline Backspace merge after a concurrent text edit reconnects', async ({

@@ -18,11 +18,15 @@ const paragraph = (text: string): Descendant => ({
 
 const initialValue = () => [paragraph('alphabeta')]
 
-const createPeer = (clientId: string, seedUpdate?: Uint8Array): Peer => {
+const createPeer = (
+  clientId: string,
+  seedUpdate?: Uint8Array,
+  children = initialValue()
+): Peer => {
   const editor = createEditor()
 
   Editor.replace(editor, {
-    children: initialValue(),
+    children,
     selection: null,
     marks: null,
   })
@@ -143,6 +147,24 @@ const appendRemoteText = (peer: Peer) => {
   })
 }
 
+const insertTextSplitAndInsertRightText = (peer: Peer) => {
+  peer.editor.update((tx) => {
+    tx.selection.set({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+  })
+  peer.editor.update((tx) => {
+    tx.text.insert('a')
+  })
+  peer.editor.update((tx) => {
+    tx.break.insert()
+  })
+  peer.editor.update((tx) => {
+    tx.text.insert('b')
+  })
+}
+
 describe('@slate/yjs split_node collaboration contract', () => {
   it('applies local offline public split without a root snapshot fallback', () => {
     const peer = createPeer('b')
@@ -213,6 +235,87 @@ describe('@slate/yjs split_node collaboration contract', () => {
     syncConnected(peers)
     assertAllTexts(peers, ['alph!', 'abeta'])
     assertNoRootSnapshot(b)
+  })
+
+  it('redoes text inserted into a split-created paragraph after undoing to an empty document', () => {
+    const peer = createPeer('b', undefined, [paragraph('')])
+
+    insertTextSplitAndInsertRightText(peer)
+    assert.deepEqual(paragraphTexts(peer), ['a', 'b'])
+
+    yjsUpdate(peer, (yjs) => yjs.undo())
+    yjsUpdate(peer, (yjs) => yjs.undo())
+    assert.deepEqual(paragraphTexts(peer), ['a'])
+
+    yjsUpdate(peer, (yjs) => yjs.undo())
+    assert.deepEqual(paragraphTexts(peer), [''])
+
+    yjsUpdate(peer, (yjs) => yjs.redo())
+    assert.deepEqual(paragraphTexts(peer), ['a'])
+
+    yjsUpdate(peer, (yjs) => yjs.redo())
+    yjsUpdate(peer, (yjs) => yjs.redo())
+    assert.deepEqual(paragraphTexts(peer), ['a', 'b'])
+    assertNoRootSnapshot(peer)
+  })
+
+  it('undoes a split after a prior merge without custom split-history replay', () => {
+    const peer = createPeer('b', undefined, [
+      paragraph('Hello world!'),
+      paragraph('block 2'),
+    ])
+
+    peer.editor.update((tx) => {
+      tx.nodes.merge({ at: [1] })
+    })
+    assert.deepEqual(paragraphTexts(peer), ['Hello world!block 2'])
+
+    peer.editor.update((tx) => {
+      tx.operations.replay([
+        {
+          path: [0, 0],
+          position: 'Hello wor'.length,
+          properties: {},
+          type: 'split_node',
+        },
+        {
+          path: [0],
+          position: 1,
+          properties: { type: 'paragraph' },
+          type: 'split_node',
+        },
+      ])
+    })
+    assert.deepEqual(paragraphTexts(peer), ['Hello wor', 'ld!block 2'])
+
+    yjsUpdate(peer, (yjs) => yjs.undo())
+    assert.deepEqual(paragraphTexts(peer), ['Hello world!block 2'])
+    assertNoRootSnapshot(peer)
+  })
+
+  it('undoes a break split after a prior merge without leaving the right split node visible', () => {
+    const peer = createPeer('b', undefined, [
+      paragraph('Hello world!'),
+      paragraph('block 2'),
+    ])
+
+    peer.editor.update((tx) => {
+      tx.nodes.merge({ at: [1] })
+    })
+    assert.deepEqual(paragraphTexts(peer), ['Hello world!block 2'])
+
+    peer.editor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 'Hello wor'.length },
+        focus: { path: [0, 0], offset: 'Hello wor'.length },
+      })
+      tx.break.insert()
+    })
+    assert.deepEqual(paragraphTexts(peer), ['Hello wor', 'ld!block 2'])
+
+    yjsUpdate(peer, (yjs) => yjs.undo())
+    assert.deepEqual(paragraphTexts(peer), ['Hello world!block 2'])
+    assertNoRootSnapshot(peer)
   })
 
   it('undoes an offline public split after a concurrent remote append', () => {

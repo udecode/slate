@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { type Descendant, defineEditorExtension } from 'slate'
 import { Editor } from 'slate/internal'
-
+import { readSlateValueFromYjs } from '../src/core/document'
 import {
   assertNoRootSnapshot,
   assertPeerTexts,
@@ -134,6 +134,39 @@ describe('@slate/yjs wrapNodes collaboration contract', () => {
     assert.deepEqual(topLevelTypes(a), ['quote'])
     assert.deepEqual(topLevelTypes(b), ['quote'])
     assertNoRootSnapshot(b)
+  })
+
+  it('splits text inside a virtual wrapped block without a root snapshot fallback', () => {
+    const peer = createPeer('b')
+
+    wrapFirstBlock(peer)
+    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+
+    peer.editor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0, 0], offset: 2 },
+        focus: { path: [0, 0, 0], offset: 2 },
+      })
+      tx.break.insert()
+    })
+
+    assert.deepEqual(Editor.getSnapshot(peer.editor).children, [
+      {
+        children: [paragraph('al'), paragraph('pha')],
+        type: 'quote',
+      },
+    ])
+    assert.deepEqual(readSlateValueFromYjs(getYjsState(peer).root()), [
+      {
+        children: [paragraph('al'), paragraph('pha')],
+        type: 'quote',
+      },
+    ])
+    assert.deepEqual(getYjsState(peer).trace(), [
+      { mode: 'operation', operationType: 'split_node' },
+      { mode: 'operation', operationType: 'split_node' },
+    ])
+    assertNoRootSnapshot(peer)
   })
 
   it('drops a preserved selection that no longer points to text after remote wrap import', () => {

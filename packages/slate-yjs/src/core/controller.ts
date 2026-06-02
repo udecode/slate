@@ -16,15 +16,19 @@ import {
   yjsAwarenessSelectionsEqual,
 } from './awareness'
 import {
-  getYjsChildren,
   getYjsLength,
   getYjsNode,
   getYjsParent,
   getYjsTextContent,
+  getYjsVisibleChildren,
   readSlateValueFromYjs,
+  removeYjsChild,
   replaceYjsChildren,
 } from './document'
-import { applySlateOperationToYjs } from './operations'
+import {
+  applySlateOperationToYjs,
+  isNoopSlateOperationForYjs,
+} from './operations'
 import type {
   YjsAwarenessChange,
   YjsAwarenessLike,
@@ -146,7 +150,9 @@ export class YjsController {
     }
 
     const operations = commit.operations.filter(
-      (operation) => operation.type !== 'set_selection'
+      (operation) =>
+        operation.type !== 'set_selection' &&
+        !isNoopSlateOperationForYjs(operation)
     )
 
     if (operations.length === 0) {
@@ -446,7 +452,9 @@ export class YjsController {
   private redoSplit() {
     const redo = this.peekSplit(this.undoManagerAdapter.peekRedo())
 
-    if (!redo) {
+    // Later redo items may still target the original right-side Yjs node.
+    // Let Yjs replay those split items natively so their identities survive.
+    if (!redo || this.undoManagerAdapter.redoDepth() > 1) {
       return false
     }
 
@@ -497,7 +505,9 @@ export class YjsController {
   private undoSplit() {
     const undo = this.peekSplit(this.undoManagerAdapter.peekUndo())
 
-    if (!undo) {
+    // If another local edit was undone first, it can depend on the split-created
+    // right-side node. Native Yjs undo keeps that node redoable.
+    if (!undo || this.undoManagerAdapter.redoDepth() > 0) {
       return false
     }
 
@@ -518,8 +528,8 @@ export class YjsController {
         )
       }
 
-      rightText = appendElementText(leftText, rightElement)
-      parent.delete(index, 1)
+      rightText = appendElementText(this.root, leftText, rightElement)
+      removeYjsChild(this.root, parent, index)
     }, this.historyOrigin)
 
     undo.splitHistory.rightText = rightText
@@ -578,19 +588,11 @@ export class YjsController {
   }
 }
 
-const appendElementText = (target: Y.XmlText, element: Y.XmlElement) => {
-  const children = getYjsChildren(element)
-
-  if (children.length !== 1 || !(children[0] instanceof Y.XmlText)) {
-    throw new Error(
-      'Cannot undo split_node with a non-text right-side element yet.'
-    )
-  }
-
+const appendTextContent = (target: Y.XmlText, source: Y.XmlText) => {
   let offset = getYjsLength(target)
   let insertedText = ''
 
-  for (const delta of children[0].toDelta()) {
+  for (const delta of source.toDelta()) {
     if (typeof delta.insert !== 'string' || delta.insert.length === 0) {
       continue
     }
@@ -598,6 +600,24 @@ const appendElementText = (target: Y.XmlText, element: Y.XmlElement) => {
     target.insert(offset, delta.insert, delta.attributes)
     offset += delta.insert.length
     insertedText += delta.insert
+  }
+
+  return insertedText
+}
+
+const appendElementText = (
+  root: Y.XmlElement,
+  target: Y.XmlText,
+  element: Y.XmlElement
+) => {
+  let insertedText = ''
+
+  for (const child of getYjsVisibleChildren(root, element)) {
+    if (child instanceof Y.XmlText) {
+      insertedText += appendTextContent(target, child)
+    } else {
+      insertedText += appendElementText(root, target, child)
+    }
   }
 
   return insertedText

@@ -195,6 +195,30 @@ const appendRemoteText = (peer: Peer) => {
   })
 }
 
+const insertLocalBang = (peer: Peer) => {
+  peer.editor.update((tx) => {
+    tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
+  })
+}
+
+const replayNoopRootReplaceFragment = (peer: Peer) => {
+  const operation: Operation = {
+    children: initialValue(),
+    newChildren: initialValue(),
+    newSelection: {
+      anchor: { path: [0, 0], offset: 'alpha'.length },
+      focus: { path: [0, 0], offset: 'alpha'.length },
+    },
+    path: [],
+    selection: null,
+    type: 'replace_fragment',
+  }
+
+  peer.editor.update((tx) => {
+    tx.operations.replay([operation])
+  })
+}
+
 describe('@slate/yjs replace_fragment collaboration contract', () => {
   it('applies local offline single-text replace_fragment without replacing the Yjs text node', () => {
     const peer = createPeer('b')
@@ -282,6 +306,26 @@ describe('@slate/yjs replace_fragment collaboration contract', () => {
     syncConnected(peers)
     assertAllTexts(peers, ['alpha AdaLin fragment'])
     assertNoRootSnapshot(b)
+  })
+
+  it('ignores no-op replace_fragment so redo history stays usable', () => {
+    const peer = createPeer('b')
+
+    insertLocalBang(peer)
+    assert.deepEqual(paragraphTexts(peer), ['alpha!'])
+
+    yjsUpdate(peer, (yjs) => yjs.undo())
+    assert.deepEqual(paragraphTexts(peer), ['alpha'])
+
+    yjsUpdate(peer, (yjs) => yjs.clearTrace())
+    replayNoopRootReplaceFragment(peer)
+
+    assert.deepEqual(paragraphTexts(peer), ['alpha'])
+    assert.deepEqual(yjsState(peer).trace(), [])
+
+    yjsUpdate(peer, (yjs) => yjs.redo())
+    assert.deepEqual(paragraphTexts(peer), ['alpha!'])
+    assertNoRootSnapshot(peer)
   })
 
   it('uses a traceable fallback for broad replace_fragment replacement', () => {

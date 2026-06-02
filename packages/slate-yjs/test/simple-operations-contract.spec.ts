@@ -85,6 +85,22 @@ const replaceMiddleBlock = (peer: ReturnType<typeof createPeer>) => {
   })
 }
 
+const replaceFirstBlock = (peer: ReturnType<typeof createPeer>) => {
+  const operation: Operation = {
+    children: [paragraph('alpha')],
+    index: 0,
+    newChildren: [paragraph('bravo')],
+    newSelection: null,
+    path: [],
+    selection: null,
+    type: 'replace_children',
+  }
+
+  peer.editor.update((tx) => {
+    tx.operations.replay([operation])
+  })
+}
+
 describe('@slate/yjs simple operation collaboration contract', () => {
   it('applies local offline insert_text in place without a root snapshot fallback', () => {
     const peer = createPeer('b')
@@ -248,6 +264,29 @@ describe('@slate/yjs simple operation collaboration contract', () => {
     runYjsUpdate(b, (yjs) => yjs.redo())
     syncConnectedPeers(peers)
     assertPeerTexts(peers, ['alpha!', 'bravo', 'gamma'])
+    assertNoRootSnapshot(b)
+  })
+
+  it('preserves remote text when an offline replace_children is undone before reconnect', () => {
+    const peers = createPeers(['a', 'b', 'c'])
+    const [a, b] = peers
+
+    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    replaceFirstBlock(b)
+    assert.deepEqual(getParagraphTexts(b), ['bravo', 'beta', 'gamma'])
+
+    runYjsUpdate(b, (yjs) => yjs.undo())
+    assert.deepEqual(getParagraphTexts(b), ['alpha', 'beta', 'gamma'])
+
+    appendRemoteAlpha(a)
+    syncConnectedPeers(peers)
+    assert.deepEqual(getParagraphTexts(a), ['alpha!', 'beta', 'gamma'])
+    assert.deepEqual(getParagraphTexts(b), ['alpha', 'beta', 'gamma'])
+
+    runYjsUpdate(b, (yjs) => yjs.connect())
+    syncConnectedPeers(peers)
+
+    assertPeerTexts(peers, ['alpha!', 'beta', 'gamma'])
     assertNoRootSnapshot(b)
   })
 })

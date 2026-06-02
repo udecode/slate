@@ -66,15 +66,7 @@ const getVirtualChild = (root: Y.XmlElement, node: Y.XmlElement) => {
 }
 
 const getYjsVisibleChildSlots = (root: Y.XmlElement, node: Y.XmlElement) => {
-  if (!isVirtualPlaceholder(node)) {
-    const virtualChild = getVirtualChild(root, node)
-
-    if (virtualChild) {
-      return [{ node: virtualChild, rawIndex: -1 }]
-    }
-  }
-
-  return getRawYjsChildren(node).flatMap((child, rawIndex) => {
+  const rawSlots = getRawYjsChildren(node).flatMap((child, rawIndex) => {
     if (isHiddenYjsNode(child)) {
       return []
     }
@@ -87,6 +79,16 @@ const getYjsVisibleChildSlots = (root: Y.XmlElement, node: Y.XmlElement) => {
 
     return [{ node: child, rawIndex }]
   })
+
+  if (!isVirtualPlaceholder(node)) {
+    const virtualChild = getVirtualChild(root, node)
+
+    if (virtualChild) {
+      return [{ node: virtualChild, rawIndex: -1 }, ...rawSlots]
+    }
+  }
+
+  return rawSlots
 }
 
 export const getYjsChildren = (node: Y.XmlElement) =>
