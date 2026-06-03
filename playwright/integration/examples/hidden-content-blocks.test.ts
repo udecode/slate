@@ -63,7 +63,7 @@ const dragTextRange = async (
             : (rects[0] ?? range.getBoundingClientRect())
 
         return {
-          x: edge === 'end' ? rect.right + 1 : rect.left,
+          x: edge === 'end' ? rect.right - 1 : rect.left,
           y: rect.top + rect.height / 2,
         }
       }

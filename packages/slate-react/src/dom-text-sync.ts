@@ -19,6 +19,11 @@ export type DOMTextSyncCapability =
 
 export type DOMTextSyncOptions = {
   /**
+   * Allows Slate-owned DOM text sync through projection wrappers by updating
+   * rendered leaf ranges in place.
+   */
+  projections?: 'range-transform'
+  /**
    * Allows direct DOM text sync through a custom `renderLeaf` only when the
    * renderer's DOM shape and attributes do not depend on `leaf.text`.
    */
@@ -62,3 +67,25 @@ export const getDOMTextSyncCapability = ({
 
   return { enabled: true, reason: null }
 }
+
+export const canUseProjectedDOMTextSync = ({
+  hasText,
+  projections,
+  renderLeaf,
+  renderSegment,
+  renderText,
+  textSync,
+}: {
+  hasText: boolean
+  projections: readonly SlateProjectionSlice<unknown>[]
+  renderLeaf?: unknown
+  renderSegment?: unknown
+  renderText?: unknown
+  textSync?: DOMTextSyncOptions | null
+}) =>
+  hasText &&
+  projections.length > 0 &&
+  textSync?.projections === 'range-transform' &&
+  (!renderLeaf || textSync.renderLeaf === 'text-invariant') &&
+  !renderSegment &&
+  !renderText

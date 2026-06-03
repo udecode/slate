@@ -12,6 +12,7 @@ import {
   SlateEditableRootContext,
 } from '../context'
 import {
+  canUseProjectedDOMTextSync,
   type DOMTextSyncOptOutReason,
   getDOMTextSyncCapability,
 } from '../dom-text-sync'
@@ -86,6 +87,27 @@ const samePath = (left: Path | null, right: Path | null) =>
     left.length === right.length &&
     left.every((part, index) => part === right[index]))
 
+const samePathOrRuntimeStable = ({
+  leftPath,
+  leftRuntimeId,
+  leftSlateNode,
+  rightPath,
+  rightRuntimeId,
+  rightSlateNode,
+}: {
+  leftPath: Path | null
+  leftRuntimeId: RuntimeId | null | undefined
+  leftSlateNode: SlateTextNode | null | undefined
+  rightPath: Path | null
+  rightRuntimeId: RuntimeId | null | undefined
+  rightSlateNode: SlateTextNode | null | undefined
+}) =>
+  samePath(leftPath, rightPath) ||
+  (leftRuntimeId != null &&
+    leftRuntimeId === rightRuntimeId &&
+    leftSlateNode != null &&
+    leftSlateNode === rightSlateNode)
+
 const sameZeroWidth = (
   left: EditableTextProps['zeroWidth'],
   right: EditableTextProps['zeroWidth']
@@ -118,7 +140,14 @@ const sameBoundText = (
   left.slateNode === right.slateNode &&
   left.runtimeId === right.runtimeId &&
   left.text === right.text &&
-  samePath(left.path, right.path) &&
+  samePathOrRuntimeStable({
+    leftPath: left.path,
+    leftRuntimeId: left.runtimeId,
+    leftSlateNode: left.slateNode,
+    rightPath: right.path,
+    rightRuntimeId: right.runtimeId,
+    rightSlateNode: right.slateNode,
+  }) &&
   sameMarks(left.marks, right.marks)
 
 export type EditableTextSegment<T = unknown> = {
@@ -152,6 +181,7 @@ export type EditableTextRenderTextProps = {
     'data-slate-node': 'text'
     'data-slate-dom-sync-reason'?: DOMTextSyncOptOutReason
     'data-slate-path'?: string
+    'data-slate-projected-dom-sync'?: true
     'data-slate-runtime-id'?: RuntimeId
     ref?: Ref<HTMLSpanElement>
   }
@@ -337,6 +367,14 @@ const RenderEditableText = <T,>({
     renderText,
     textSync,
   })
+  const projectedDOMTextSync = canUseProjectedDOMTextSync({
+    hasText,
+    projections,
+    renderLeaf,
+    renderSegment,
+    renderText,
+    textSync,
+  })
   const segments =
     hasText || projections.some((slice) => slice.start === slice.end)
       ? splitTextByProjections(resolvedText, projections, resolvedMarks)
@@ -357,6 +395,9 @@ const RenderEditableText = <T,>({
     'data-slate-dom-sync-reason': domTextSync.reason ?? undefined,
     'data-slate-node': 'text' as const,
     'data-slate-path': path ? path.join(',') : undefined,
+    'data-slate-projected-dom-sync': projectedDOMTextSync
+      ? (true as const)
+      : undefined,
     'data-slate-runtime-id': runtimeId ?? undefined,
     ref: textRef,
   }
@@ -508,6 +549,7 @@ const RenderEditableText = <T,>({
       domSync={domTextSync.enabled}
       domSyncReason={domTextSync.reason}
       path={path}
+      projectedDomSync={projectedDOMTextSync}
       ref={textRef}
       runtimeId={runtimeId}
     >
@@ -638,7 +680,14 @@ const sameEditableTextProps = <T,>(
   left.slateNode === right.slateNode &&
   left.text === right.text &&
   sameMarks(left.marks ?? EMPTY_MARKS, right.marks ?? EMPTY_MARKS) &&
-  samePath(left.path ?? null, right.path ?? null) &&
+  samePathOrRuntimeStable({
+    leftPath: left.path ?? null,
+    leftRuntimeId: left.runtimeId,
+    leftSlateNode: left.slateNode,
+    rightPath: right.path ?? null,
+    rightRuntimeId: right.runtimeId,
+    rightSlateNode: right.slateNode,
+  }) &&
   sameZeroWidth(left.zeroWidth, right.zeroWidth)
 
 const EditableTextInner = <T,>({

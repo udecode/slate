@@ -188,6 +188,22 @@ describe('slate transaction contract', () => {
     })
   })
 
+  it('reads one document root without materializing the serializable value', () => {
+    const editor = createEditor()
+
+    replaceChildren(editor, [paragraph('main')])
+    editor.update((tx) => {
+      tx.roots.create('header', [paragraph('header')])
+    })
+
+    const root = editor.read((state) => state.value.root('header'))
+    const value = editor.read((state) => state.value.get())
+
+    assert.deepEqual(root, [paragraph('header')])
+    assert.deepEqual(value.roots.header, [paragraph('header')])
+    assert.notEqual(root, value.roots.header)
+  })
+
   it('applyBatch matches manual transaction for structural insert, move, and set batches', () => {
     const children = [paragraph('zero'), paragraph('one')]
     const batchEditor = createEditor()

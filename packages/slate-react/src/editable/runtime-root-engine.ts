@@ -281,9 +281,15 @@ export const useEditableRootRuntime = ({
         selectionImportController.syncDOMSelectionFromRuntime()
         selectionImportController.flushSelectionChange()
       },
+      isPartialDOMBackedSelection,
       syncDOMSelectionToEditor,
     }),
-    [inputController, selectionImportController, syncDOMSelectionToEditor]
+    [
+      inputController,
+      isPartialDOMBackedSelection,
+      selectionImportController,
+      syncDOMSelectionToEditor,
+    ]
   )
   const applyInputRules = useCallback(() => false, [])
 

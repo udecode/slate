@@ -20,6 +20,7 @@ export {
 export {
   applyOperation,
   applyStatePatches,
+  getCurrentMarks as getEditorCurrentMarks,
   getCurrentSelectionRoot as getEditorSelectionRoot,
   getEditorOperationRoot,
   getLiveNode as getEditorLiveNode,

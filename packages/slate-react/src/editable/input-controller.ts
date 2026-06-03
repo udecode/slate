@@ -39,6 +39,7 @@ export {
   applyEditableDOMSelectionChange,
   armModelOwnedTextInputGuard,
   completeEditableSelectionChangeImport,
+  type EditableDOMSelectionSyncOptions,
   type EditableSelectionController,
   executeEditableSelectionExport,
   executeEditableSelectionImport,

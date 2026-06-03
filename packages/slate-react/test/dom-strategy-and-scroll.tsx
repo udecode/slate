@@ -799,6 +799,65 @@ test('Editable reports domStrategy metrics for staged DOM-present surfaces', asy
   expect(latest.editableDescendantCount).toBeGreaterThan(0)
 })
 
+test('Editable auto keeps large documents DOM-bounded instead of staged background mounting', async () => {
+  const editor = createReactEditor()
+  const recordedMetrics: EditableDOMStrategyMetrics[] = []
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 1001 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      domStrategy="auto"
+      editor={editor}
+      id="dom-strategy-auto-bounded"
+      onDOMStrategyMetrics={(metric) => {
+        recordedMetrics.push(metric)
+      }}
+    />
+  )
+
+  await waitFor(() => expect(recordedMetrics.length).toBeGreaterThan(0))
+
+  const latest = recordedMetrics.at(-1)!
+
+  expect(latest).toMatchObject({
+    cohort: 'medium',
+    degradationMode: 'partial-dom',
+    documentSize: 1001,
+    effectiveStrategy: 'partial-dom',
+    mountedGroupCount: 1,
+    mountedTopLevelCount: 50,
+    nativeSurfaceComplete: false,
+    pendingTopLevelCount: 951,
+    requestedStrategy: 'auto',
+    segmentSize: 50,
+  })
+  expect(latest.aggressiveDomCoverageBoundaryCount).toBeGreaterThan(0)
+  expect(latest.domStrategyStagedBoundaryCount).toBe(0)
+  expect(
+    rendered.container.querySelectorAll('[data-slate-node="text"]').length
+  ).toBe(50)
+  expect(
+    rendered.container.querySelectorAll(
+      '[data-slate-dom-strategy-placeholder="true"]'
+    ).length
+  ).toBeGreaterThan(0)
+
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 750))
+  })
+
+  expect(
+    rendered.container.querySelectorAll('[data-slate-node="text"]').length
+  ).toBe(50)
+})
+
 test('Editable reports domStrategy degradation mode for plain and internal partial DOM surfaces', async () => {
   const plainEditor = createReactEditor()
   const partialDOMPlaceholderEditor = createReactEditor()
@@ -1120,6 +1179,146 @@ test('Editable disables DOM text sync when projections affect the text node', as
       .querySelector('[data-slate-node="text"]')
       ?.getAttribute('data-slate-dom-sync-reason')
   ).toBe('projection')
+
+  highlightSource.destroy()
+})
+
+test('Editable treats native-updated projected text as synced without rewriting DOM', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha beta' }],
+      },
+    ],
+    selection: null,
+  })
+
+  const highlightSource = createDecorationSource(editor, {
+    id: 'highlight-alpha',
+    read: () => [
+      {
+        key: 'highlight-alpha',
+        range: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 5 },
+        },
+      },
+    ],
+  })
+
+  const rendered = render(
+    <Slate decorationSources={[highlightSource]} editor={editor}>
+      <Editable
+        domStrategy={{
+          overscan: 0,
+          textSync: {
+            projections: 'range-transform',
+            renderLeaf: 'text-invariant',
+          },
+          type: 'partial-dom',
+          segmentSize: 2,
+          threshold: 1,
+        }}
+        id="dom-strategy-native-projected-dom-sync"
+      />
+    </Slate>
+  )
+  const textElement = rendered.container.querySelector(
+    '[data-slate-node="text"]'
+  )
+  const firstString = rendered.container.querySelector('[data-slate-string]')
+
+  expect(textElement?.getAttribute('data-slate-dom-sync-reason')).toBe(
+    'projection'
+  )
+  expect(textElement?.getAttribute('data-slate-projected-dom-sync')).toBe(
+    'true'
+  )
+  expect(firstString?.textContent).toBe('alpha')
+
+  if (!firstString) {
+    throw new Error('Expected a projected Slate string.')
+  }
+
+  firstString.textContent = 'alpha!'
+
+  await act(async () => {
+    editor.update((tx) => {
+      tx.text.insert('!', { at: { path: [0, 0], offset: 5 } })
+    })
+  })
+
+  expect(didSyncTextPathToDOM(editor, [0, 0])).toBe(true)
+  expect(firstString.textContent).toBe('alpha!')
+
+  highlightSource.destroy()
+})
+
+test('Editable syncs projected leaf strings for Slate-owned text input', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha beta' }],
+      },
+    ],
+    selection: null,
+  })
+
+  const highlightSource = createDecorationSource(editor, {
+    id: 'highlight-alpha',
+    read: () => [
+      {
+        key: 'highlight-alpha',
+        range: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 5 },
+        },
+      },
+    ],
+  })
+
+  const rendered = render(
+    <Slate decorationSources={[highlightSource]} editor={editor}>
+      <Editable
+        domStrategy={{
+          overscan: 0,
+          textSync: {
+            projections: 'range-transform',
+            renderLeaf: 'text-invariant',
+          },
+          type: 'partial-dom',
+          segmentSize: 2,
+          threshold: 1,
+        }}
+        id="dom-strategy-projected-range-dom-sync"
+      />
+    </Slate>
+  )
+
+  expect(
+    [...rendered.container.querySelectorAll('[data-slate-string]')].map(
+      (element) => element.textContent
+    )
+  ).toEqual(['alpha', ' beta'])
+
+  await act(async () => {
+    editor.update((tx) => {
+      tx.text.insert('!', { at: { path: [0, 0], offset: 5 } })
+    })
+  })
+
+  expect(didSyncTextPathToDOM(editor, [0, 0])).toBe(true)
+  expect(
+    [...rendered.container.querySelectorAll('[data-slate-string]')].map(
+      (element) => element.textContent
+    )
+  ).toEqual(['alpha!', ' beta'])
 
   highlightSource.destroy()
 })

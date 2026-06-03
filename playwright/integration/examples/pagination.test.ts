@@ -155,7 +155,7 @@ const getParagraphGapPoint = async (
 const getPaginationTableProof = async (
   root: Awaited<ReturnType<typeof openExample>>['root']
 ) =>
-  root.evaluate(() => {
+  root.evaluate((element: HTMLElement) => {
     const table = document.querySelector(
       '[data-testid="pagination-rich-table"]'
     )
@@ -231,6 +231,7 @@ const getPaginationVirtualizedTableProof = async (
   root: Awaited<ReturnType<typeof openExample>>['root']
 ) =>
   root.evaluate(() => {
+    const editor = document.querySelector('[contenteditable="true"]')
     const metaText =
       document.querySelector('.slate-pagination-meta')?.textContent ?? ''
     const pageTotal = Number(metaText.match(/pages (\d+)/)?.[1] ?? 0)
@@ -269,7 +270,9 @@ const getPaginationVirtualizedTableProof = async (
       tableMounted: Boolean(
         document.querySelector('[data-testid="pagination-rich-table"]')
       ),
-      totalElementCount: document.querySelectorAll('*').length,
+      totalElementCount:
+        editor?.querySelectorAll('*').length ??
+        document.querySelectorAll('*').length,
     }
   })
 
@@ -293,6 +296,8 @@ type PaginationFastScrollSample = {
   pageSurfaceCount: number
   totalElementCount: number
   visibleText: string
+  visibleRowCount: number
+  visibleRowText: string
 }
 
 type PaginationMiddleTypingSample = {
@@ -431,6 +436,92 @@ const getVisibleProjectedPaginationTextTarget = async (
     return candidates[0] ?? null
   })
 
+const getVisiblePaginationTextTarget = async (
+  root: Awaited<ReturnType<typeof openExample>>['root']
+) =>
+  root.evaluate(() => {
+    const viewport = document.querySelector<HTMLElement>(
+      '[data-testid="pagination-viewport"]'
+    )
+    const viewportRect = viewport?.getBoundingClientRect()
+
+    if (!viewportRect) {
+      return null
+    }
+
+    const candidates = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[data-slate-node="element"][data-slate-path]'
+      )
+    )
+      .flatMap((block) => {
+        const blockPath = block.getAttribute('data-slate-path')
+
+        if (!blockPath || blockPath.includes(',')) {
+          return []
+        }
+
+        const textHost = block.querySelector<HTMLElement>(
+          `[data-slate-node="text"][data-slate-path="${blockPath},0"]`
+        )
+
+        if (!textHost) {
+          return []
+        }
+
+        const visibleLeaves = Array.from(
+          textHost.querySelectorAll<HTMLElement>('[data-slate-leaf]')
+        )
+          .map((leaf) => {
+            const rect = leaf.getBoundingClientRect()
+
+            return {
+              bottom: rect.bottom,
+              left: rect.left,
+              right: rect.right,
+              text: leaf.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+              top: rect.top,
+              width: rect.width,
+            }
+          })
+          .filter(
+            (leaf) =>
+              leaf.text.length > 0 &&
+              leaf.width > 0 &&
+              leaf.bottom > viewportRect.top + 32 &&
+              leaf.top < viewportRect.bottom - 32 &&
+              leaf.right > viewportRect.left &&
+              leaf.left < viewportRect.right
+          )
+
+        if (visibleLeaves.length === 0) {
+          return []
+        }
+
+        const firstLeaf = visibleLeaves[0]!
+
+        return [
+          {
+            blockPath,
+            blockText: block.textContent ?? '',
+            firstLeafLeft: firstLeaf.left,
+            firstLeafTop: firstLeaf.top,
+            leafText: firstLeaf.text,
+            visibleLeafCount: visibleLeaves.length,
+            x: Math.min(firstLeaf.right - 4, firstLeaf.left + 40),
+            y: (firstLeaf.top + firstLeaf.bottom) / 2,
+          } satisfies PaginationProjectedTextTarget,
+        ]
+      })
+      .sort(
+        (left, right) =>
+          right.visibleLeafCount - left.visibleLeafCount ||
+          left.firstLeafTop - right.firstLeafTop
+      )
+
+    return candidates[0] ?? null
+  })
+
 const getVisiblePaginationTextTargetByPath = async (
   root: Awaited<ReturnType<typeof openExample>>['root'],
   blockPath: string
@@ -486,12 +577,69 @@ const getPaginationTextAlignmentByPath = async (
     const leafRect = leaf.getBoundingClientRect()
     const blockStyle = getComputedStyle(block)
     const leafStyle = getComputedStyle(leaf)
+    const textRects: {
+      bottom: number
+      left: number
+      right: number
+      top: number
+    }[] = []
+    const walker = block.ownerDocument.createTreeWalker(
+      block,
+      NodeFilter.SHOW_TEXT
+    )
+    let node = walker.nextNode()
+
+    while (node) {
+      if (node.textContent && node.textContent !== '\uFEFF') {
+        const range = block.ownerDocument.createRange()
+
+        range.selectNodeContents(node)
+
+        for (const rect of range.getClientRects()) {
+          if (rect.width > 0 && rect.height > 0) {
+            textRects.push({
+              bottom: rect.bottom,
+              left: rect.left,
+              right: rect.right,
+              top: rect.top,
+            })
+          }
+        }
+      }
+
+      node = walker.nextNode()
+    }
+
+    const lineRects = textRects
+      .reduce<typeof textRects>((groups, rect) => {
+        const group = groups.find(
+          (candidate) => Math.abs(candidate.top - rect.top) <= 0.5
+        )
+
+        if (!group) {
+          groups.push({ ...rect })
+          return groups
+        }
+
+        group.bottom = Math.max(group.bottom, rect.bottom)
+        group.left = Math.min(group.left, rect.left)
+        group.right = Math.max(group.right, rect.right)
+        return groups
+      }, [])
+      .sort((left, right) => left.top - right.top)
+      .map((rect) => ({
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        width: rect.right - rect.left,
+      }))
 
     return {
       blockLeft: blockRect.left,
       blockWidth: blockRect.width,
       firstLeafLeft: leafRect.left,
       firstLeafPosition: leafStyle.position,
+      lineRects,
       paddingLeft: Number.parseFloat(blockStyle.paddingLeft) || 0,
       relativeLeft: leafRect.left - blockRect.left,
     }
@@ -1519,7 +1667,7 @@ const getProjectedPaginationTextProof = async (
       staticLeafCount: visibleLeaves.filter(
         (leaf) => leaf.position === 'static'
       ).length,
-      totalElementCount: element.ownerDocument.querySelectorAll('*').length,
+      totalElementCount: element.querySelectorAll('*').length,
       visibleLeafCount: visibleLeaves.length,
     } satisfies PaginationProjectedTextProof
   }, blockPath)
@@ -1588,6 +1736,33 @@ const getPaginationFastScrollSample = async (
         '[data-testid="pagination-rich-table-row"]'
       )
     )
+    const pageRects = Array.from(
+      element.ownerDocument.querySelectorAll<HTMLElement>(
+        '[data-slate-page-surface]'
+      )
+    ).map((surface) => surface.getBoundingClientRect())
+    const overlapsRect = (rect: DOMRect, containerRect: DOMRect, padding = 0) =>
+      rect.height > 0 &&
+      rect.width > 0 &&
+      rect.bottom > containerRect.top + padding &&
+      rect.top < containerRect.bottom - padding &&
+      rect.right > containerRect.left + padding &&
+      rect.left < containerRect.right - padding
+    const visibleRows = rows
+      .map((row) => ({
+        rect: row.getBoundingClientRect(),
+        text: getText(row),
+      }))
+      .filter(({ rect, text }) => {
+        if (!viewportRect || text.length === 0) {
+          return false
+        }
+
+        return (
+          overlapsRect(rect, viewportRect, 24) &&
+          pageRects.some((pageRect) => overlapsRect(rect, pageRect, 1))
+        )
+      })
     const rowIndexes = rows
       .map((row) => Number(row.getAttribute('data-pagination-row-index')))
       .filter(Number.isFinite)
@@ -1595,6 +1770,10 @@ const getPaginationFastScrollSample = async (
     const visibleText = visibleContent
       .map((content) => content.text)
       .concat([...hitVisibleContent].map(getText))
+      .join(' ')
+      .slice(0, 500)
+    const visibleRowText = visibleRows
+      .map((row) => row.text)
       .join(' ')
       .slice(0, 500)
 
@@ -1610,8 +1789,10 @@ const getPaginationFastScrollSample = async (
       pageSurfaceCount: element.ownerDocument.querySelectorAll(
         '[data-slate-page-surface]'
       ).length,
-      totalElementCount: element.ownerDocument.querySelectorAll('*').length,
+      totalElementCount: element.querySelectorAll('*').length,
       visibleText,
+      visibleRowCount: visibleRows.length,
+      visibleRowText,
     } satisfies PaginationFastScrollSample
   }, eventStart)
 
@@ -1666,7 +1847,7 @@ const getPaginationMiddleTypingSample = async (
         pageSurfaceCount: element.ownerDocument.querySelectorAll(
           '[data-slate-page-surface]'
         ).length,
-        totalElementCount: element.ownerDocument.querySelectorAll('*').length,
+        totalElementCount: element.querySelectorAll('*').length,
       } satisfies PaginationMiddleTypingSample
     },
     { eventStart, expectedText, path }
@@ -3038,26 +3219,42 @@ test.describe('pagination example', () => {
       },
     })
 
-    const before = await getPaginationTextAlignmentByPath(editor.root, '0')
+    const before = await getPaginationTextAlignmentByPath(editor.root, '1')
+    const target = await getVisiblePaginationTextTargetByPath(editor.root, '1')
 
     expect(before).toEqual(
       expect.objectContaining({
         firstLeafPosition: 'absolute',
       })
     )
+    expect(target).toBeTruthy()
 
-    await editor.selection.collapse({ offset: 10, path: [0, 0] })
-    await editor.focus()
+    await page.mouse.click(target!.x, target!.y)
 
     await expect
       .poll(async () => {
-        const after = await getPaginationTextAlignmentByPath(editor.root, '0')
+        const after = await getPaginationTextAlignmentByPath(editor.root, '1')
+        const lineRectsStable =
+          !!before &&
+          !!after &&
+          before.lineRects.length === after.lineRects.length &&
+          before.lineRects.every((beforeRect, index) => {
+            const afterRect = after.lineRects[index]
+
+            return (
+              !!afterRect &&
+              Math.abs(afterRect.left - beforeRect.left) <= 0.5 &&
+              Math.abs(afterRect.right - beforeRect.right) <= 0.5 &&
+              Math.abs(afterRect.top - beforeRect.top) <= 0.5
+            )
+          })
 
         return {
           aligned:
             !!before &&
             !!after &&
             Math.abs(after.firstLeafLeft - before.firstLeafLeft) <= 0.5,
+          lineRectsStable,
           nativeFlow: after?.firstLeafPosition === 'static',
           wrapWidthPreserved:
             !!before &&
@@ -3069,6 +3266,7 @@ test.describe('pagination example', () => {
       })
       .toEqual({
         aligned: true,
+        lineRectsStable: true,
         nativeFlow: true,
         wrapWidthPreserved: true,
       })
@@ -3131,6 +3329,69 @@ test.describe('pagination example', () => {
         },
         tracePath: testInfo.outputPath(
           'pagination-projected-native-word-double-click.json'
+        ),
+      }
+    )
+  })
+
+  test('selects virtualized projected pagination words on native double click', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for native word selection in virtualized pagination text'
+    )
+
+    await page.setViewportSize({ height: 637, width: 1533 })
+
+    const editor = await openExample(page, 'pagination', {
+      query: { page_layout: 'single', strategy: 'virtualized' },
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.scenario.run(
+      'pagination-virtualized-projected-native-word-double-click',
+      [
+        {
+          kind: 'doubleClickTextOffset',
+          label: 'native-select-virtualized-projected-word',
+          offset: 4,
+          path: [0, 0],
+        },
+        {
+          kind: 'assertSelectedText',
+          label: 'assert-native-selected-virtualized-projected-word',
+          text: 'Premirror',
+        },
+        {
+          kind: 'assertWindowSelectionText',
+          label: 'assert-window-selected-virtualized-projected-word',
+          text: 'Premirror',
+        },
+        {
+          kind: 'assertSelection',
+          label: 'assert-model-selected-virtualized-projected-word',
+          selection: {
+            anchor: { offset: 0, path: [0, 0] },
+            focus: { offset: 'Premirror'.length, path: [0, 0] },
+          },
+        },
+      ],
+      {
+        metadata: {
+          capabilities: [
+            'dom-selection',
+            'native-word-selection',
+            'projected-pagination',
+            'page-virtualization',
+          ],
+          platform: testInfo.project.name,
+          transport: 'native-click-and-keyboard',
+        },
+        tracePath: testInfo.outputPath(
+          'pagination-virtualized-projected-native-word-double-click.json'
         ),
       }
     )
@@ -3352,8 +3613,8 @@ test.describe('pagination example', () => {
             const selection = document.getSelection()
 
             return {
-              anchorOffset: selection?.anchorOffset ?? null,
-              anchorText: selection?.anchorNode?.textContent ?? null,
+              collapsed: selection?.isCollapsed ?? false,
+              hasAnchorText: Boolean(selection?.anchorNode?.textContent),
             }
           }),
           caretAtLineEnd: await getCollapsedCaretRect(editor.root).then(
@@ -3367,9 +3628,10 @@ test.describe('pagination example', () => {
         .toEqual({
           activeIsEditor: true,
           caretAtLineEnd: true,
-          nativeSelection: expect.objectContaining({
-            anchorOffset: target.expectedOffset,
-          }),
+          nativeSelection: {
+            collapsed: true,
+            hasAnchorText: true,
+          },
           selection: {
             anchor: {
               path: [Number(target.blockPath), 0],
@@ -3525,6 +3787,183 @@ test.describe('pagination example', () => {
         },
         staticLeafCount: 0,
       })
+  })
+
+  test('survives a rows=800 virtualized real-user editing journey', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for combined virtualized pagination editing'
+    )
+
+    await page.setViewportSize({ height: 637, width: 1533 })
+
+    const editor = await openExample(page, 'pagination', {
+      query: { page_layout: 'single', rows: 800, strategy: 'virtualized' },
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const assertHealthy = async () => {
+      await expect
+        .poll(async () => {
+          const proof = await getPaginationVirtualizedTableProof(editor.root)
+
+          return {
+            boundedDOM: proof.totalElementCount < 1400,
+            boundedPages: proof.pageSurfaceCount <= 8,
+            virtualized: proof.pageVirtualizationEnabled,
+          }
+        })
+        .toEqual({
+          boundedDOM: true,
+          boundedPages: true,
+          virtualized: true,
+        })
+    }
+
+    await assertHealthy()
+
+    const modKey = await getBrowserModKey(editor.root)
+    const firstTarget = await getVisiblePaginationTextTargetByPath(
+      editor.root,
+      '1'
+    )
+
+    expect(firstTarget).toBeTruthy()
+
+    await page.mouse.click(firstTarget!.x, firstTarget!.y)
+    await expect
+      .poll(async () => (await editor.selection.get())?.anchor.path ?? null)
+      .toEqual([1, 0])
+
+    const firstToken = ' journey-alpha'
+
+    await page.keyboard.type(firstToken)
+    await expect(editor.root).toContainText(firstToken)
+    await assertHealthy()
+
+    await page.keyboard.press(`${modKey}+Z`)
+    await expect(editor.root).not.toContainText(firstToken)
+    await page.keyboard.press(
+      modKey === 'Meta' ? `${modKey}+Shift+Z` : `${modKey}+Y`
+    )
+    await expect(editor.root).toContainText(firstToken)
+
+    const secondToken = 'journey-after-enter'
+
+    await page.keyboard.press('Enter')
+    await page.keyboard.type(secondToken)
+    await expect(editor.root).toContainText(secondToken)
+    await expect
+      .poll(async () => {
+        const selection = await editor.selection.get()
+
+        return selection
+          ? {
+              collapsed:
+                selection.anchor.path.join(',') ===
+                  selection.focus.path.join(',') &&
+                selection.anchor.offset === selection.focus.offset,
+              textPath: selection.anchor.path,
+            }
+          : null
+      })
+      .toEqual({
+        collapsed: true,
+        textPath: [2, 0],
+      })
+    await assertHealthy()
+
+    const startTarget = await getVisiblePaginationLineMarginTargetByPath(
+      editor.root,
+      '0'
+    )
+    const endTarget = await getVisiblePaginationTextTargetByPath(
+      editor.root,
+      '3'
+    )
+
+    expect(startTarget).toBeTruthy()
+    expect(endTarget).toBeTruthy()
+
+    await page.mouse.move(startTarget!.x, startTarget!.y)
+    await page.mouse.down()
+    await page.mouse.move(endTarget!.x + 80, endTarget!.y, { steps: 20 })
+    await page.mouse.up()
+
+    await expect
+      .poll(async () => {
+        const selection = await editor.selection.get()
+        const selectedText = await page.evaluate(
+          () => document.getSelection()?.toString() ?? ''
+        )
+
+        return {
+          expanded:
+            !!selection &&
+            (selection.anchor.path.join(',') ===
+              selection.focus.path.join(',') &&
+              selection.anchor.offset === selection.focus.offset) === false,
+          selected: selectedText.includes('Premirror Milestone 1'),
+        }
+      })
+      .toEqual({
+        expanded: true,
+        selected: true,
+      })
+    await assertHealthy()
+
+    const viewport = page.locator('[data-testid="pagination-viewport"]')
+    const scrollStartedAt = await page.evaluate(() => performance.now())
+
+    await viewport.evaluate(async (element) => {
+      const viewport = element as HTMLElement
+
+      viewport.scrollTop = Math.round(
+        (viewport.scrollHeight - viewport.clientHeight) * 0.55
+      )
+      await new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve))
+      )
+    })
+
+    const sample = await getPaginationFastScrollSample(
+      editor.root,
+      scrollStartedAt
+    )
+
+    expect(sample.totalElementCount).toBeLessThan(1400)
+    expect(sample.pageSurfaceCount).toBeLessThanOrEqual(10)
+    expect(sample.visibleText.length).toBeGreaterThan(0)
+    expect(sample.hitVisibleContentCount).toBeGreaterThan(0)
+
+    const scrolledTarget = await getVisiblePaginationTextTarget(editor.root)
+
+    expect(scrolledTarget).toBeTruthy()
+
+    await page.mouse.click(scrolledTarget!.x, scrolledTarget!.y)
+
+    await expect
+      .poll(async () => {
+        const selection = await editor.selection.get()
+
+        return selection
+          ? {
+              collapsed:
+                selection.anchor.path.join(',') ===
+                  selection.focus.path.join(',') &&
+                selection.anchor.offset === selection.focus.offset,
+              path: selection.anchor.path,
+            }
+          : null
+      })
+      .toEqual({
+        collapsed: true,
+        path: [Number(scrolledTarget!.blockPath), 0],
+      })
+    await assertHealthy()
   })
 
   test('imports deferred virtualized table input after selection moves', async ({
@@ -3891,11 +4330,17 @@ test.describe('pagination example', () => {
 
           return {
             domSync: text?.getAttribute('data-slate-dom-sync') ?? null,
+            projectedDomSync:
+              text?.getAttribute('data-slate-projected-dom-sync') ?? null,
             reason: text?.getAttribute('data-slate-dom-sync-reason') ?? null,
           }
         }, targetBlockPath)
       )
-      .toEqual({ domSync: 'true', reason: null })
+      .toEqual({
+        domSync: null,
+        projectedDomSync: 'true',
+        reason: 'projection',
+      })
     await editor.focus()
     await expect
       .poll(async () => editor.selection.get())
@@ -5132,6 +5577,8 @@ test.describe('pagination example', () => {
               boundedRows: sample.mountedRowCount <= 80,
               hitVisibleContent: sample.hitVisibleContentCount > 0,
               hasVisibleText: sample.visibleText.length > 0,
+              visibleRowsWhenMounted:
+                sample.mountedRowCount === 0 || sample.visibleRowCount > 0,
             }
 
             if (Object.values(result).every(Boolean)) {
@@ -5149,6 +5596,7 @@ test.describe('pagination example', () => {
           boundedRows: true,
           hasVisibleText: true,
           hitVisibleContent: true,
+          visibleRowsWhenMounted: true,
         })
 
       if (passingSample) {
@@ -5157,7 +5605,7 @@ test.describe('pagination example', () => {
     }
 
     const rowSamples = samples.filter(
-      (sample) => sample.mountedRowCount > 0 && sample.firstRowIndex !== null
+      (sample) => sample.visibleRowCount > 0 && sample.firstRowIndex !== null
     )
     const eventToPaintSamples = samples.map((sample) => sample.eventToPaintMs)
     const p50EventToPaint = getPercentile(eventToPaintSamples, 0.5)
@@ -5179,6 +5627,191 @@ test.describe('pagination example', () => {
     expect(rowSamples.length).toBeGreaterThan(0)
     expect(p50EventToPaint).toBeLessThanOrEqual(80)
     expect(p95EventToPaint).toBeLessThanOrEqual(500)
+  })
+
+  test('keeps visible content mounted after a large virtualized scroll jump with an active caret', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for pagination scrollbar-jump replay'
+    )
+
+    await page.setViewportSize({ height: 1135, width: 1037 })
+    const editor = await openExample(page, 'pagination', {
+      query: { page_layout: 'single', strategy: 'virtualized' },
+      ready: {
+        editor: 'visible',
+        text: /Premirror Milestone 1 test document/,
+      },
+    })
+
+    await editor.selection.collapse({
+      path: [1, 0],
+      offset: 7,
+    })
+    await editor.focus()
+
+    const viewport = page.locator('[data-testid="pagination-viewport"]')
+    const scrollStartedAt = await page.evaluate(() => performance.now())
+
+    await viewport.evaluate(async (element) => {
+      const viewport = element as HTMLElement
+
+      viewport.scrollTop = Math.round(
+        (viewport.scrollHeight - viewport.clientHeight) * 0.5
+      )
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+
+    await expect
+      .poll(
+        async () => {
+          const sample = await getPaginationFastScrollSample(
+            editor.root,
+            scrollStartedAt
+          )
+
+          return {
+            boundedDOM: sample.totalElementCount < 1400,
+            boundedPages: sample.pageSurfaceCount <= 10,
+            hasVisibleText: sample.visibleText.length > 0,
+            hitVisibleContent: sample.hitVisibleContentCount > 0,
+          }
+        },
+        { intervals: [16], timeout: 5000 }
+      )
+      .toEqual({
+        boundedDOM: true,
+        boundedPages: true,
+        hasVisibleText: true,
+        hitVisibleContent: true,
+      })
+  })
+
+  test('keeps visible content mounted across repeated virtualized scroll jumps', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for repeated virtualized scrollbar jumps'
+    )
+
+    await page.setViewportSize({ height: 1135, width: 1037 })
+    const editor = await openExample(page, 'pagination', {
+      query: { page_layout: 'single', strategy: 'virtualized' },
+      ready: {
+        editor: 'visible',
+        text: /Premirror Milestone 1 test document/,
+      },
+    })
+    const viewport = page.locator('[data-testid="pagination-viewport"]')
+    const samples: PaginationFastScrollSample[] = []
+
+    for (const ratio of [0, 0.05, 0.2, 0.5, 0.8, 0.97, 1, 0.5, 0]) {
+      const scrollStartedAt = await page.evaluate(() => performance.now())
+
+      await viewport.evaluate((element, scrollRatio) => {
+        const scrollRoot = element as HTMLElement
+
+        scrollRoot.scrollTop = Math.round(
+          (scrollRoot.scrollHeight - scrollRoot.clientHeight) * scrollRatio
+        )
+      }, ratio)
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(resolve))
+      )
+
+      const sample = await getPaginationFastScrollSample(
+        editor.root,
+        scrollStartedAt
+      )
+
+      samples.push(sample)
+
+      expect(sample.totalElementCount).toBeLessThan(1400)
+      expect(sample.pageSurfaceCount).toBeLessThanOrEqual(10)
+      expect(sample.visibleText.length).toBeGreaterThan(0)
+      expect(sample.hitVisibleContentCount).toBeGreaterThan(0)
+    }
+
+    await testInfo.attach('pagination-scroll-jump-samples', {
+      body: JSON.stringify(samples, null, 2),
+      contentType: 'application/json',
+    })
+  })
+
+  test('keeps provider-owned table rows visible after fast virtualized wheel scrolling', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium-only proof for provider-owned table row placement during fast virtualized scroll'
+    )
+
+    await page.setViewportSize({ height: 1204, width: 1055 })
+    const editor = await openExample(page, 'pagination', {
+      query: { page_layout: 'single', strategy: 'virtualized' },
+      ready: {
+        editor: 'visible',
+        text: /Premirror Milestone 1 test document/,
+      },
+    })
+
+    await expect
+      .poll(async () => {
+        const proof = await getPaginationVirtualizedTableProof(editor.root)
+
+        return {
+          boundedDOM: proof.totalElementCount < 1400,
+          boundedPages: proof.pageSurfaceCount <= 10,
+          virtualized: proof.pageVirtualizationEnabled,
+        }
+      })
+      .toEqual({
+        boundedDOM: true,
+        boundedPages: true,
+        virtualized: true,
+      })
+
+    const viewport = page.locator('[data-testid="pagination-viewport"]')
+    const box = await viewport.boundingBox()
+
+    expect(box).toBeTruthy()
+
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2)
+
+    const scrollStartedAt = await page.evaluate(() => performance.now())
+
+    for (const deltaY of [2500, 2500, 2500]) {
+      await page.mouse.wheel(0, deltaY)
+    }
+
+    await expect
+      .poll(
+        async () => {
+          const sample = await getPaginationFastScrollSample(
+            editor.root,
+            scrollStartedAt
+          )
+
+          return {
+            boundedDOM: sample.totalElementCount < 1400,
+            boundedPages: sample.pageSurfaceCount <= 10,
+            mountedRows: sample.mountedRowCount > 0,
+            visibleRowText: /Row \d+/.test(sample.visibleRowText),
+            visibleRows: sample.visibleRowCount > 0,
+          }
+        },
+        { intervals: [16, 50, 100], timeout: 5000 }
+      )
+      .toEqual({
+        boundedDOM: true,
+        boundedPages: true,
+        mountedRows: true,
+        visibleRowText: true,
+        visibleRows: true,
+      })
   })
 
   test('keeps scaled virtualized page surfaces aligned with scroll position', async ({

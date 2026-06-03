@@ -1076,6 +1076,94 @@ describe('slate-react projections and selection contract', () => {
     store.destroy()
   })
 
+  test('passes resolved runtime scope into projection source reads', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ children: [{ text: 'A' }] }, { children: [{ text: 'B' }] }],
+      selection: null,
+    })
+
+    const snapshot = Editor.getSnapshot(editor)
+    const firstRuntimeId = snapshot.index.pathToId['0.0']
+    const secondRuntimeId = snapshot.index.pathToId['1.0']
+
+    if (!firstRuntimeId || !secondRuntimeId) {
+      throw new Error('Expected runtime ids for scoped projection read proof')
+    }
+
+    let runtimeScope = [firstRuntimeId] as readonly string[]
+    const sourceScopes: (readonly string[] | null)[] = []
+    const store = createDecorationSource(editor, {
+      id: 'scoped-source',
+      read: ({ runtimeScope: readRuntimeScope, snapshot: nextSnapshot }) => {
+        sourceScopes.push(readRuntimeScope)
+
+        return (readRuntimeScope ?? []).map((runtimeId) => {
+          const path = nextSnapshot.index.idToPath[runtimeId]
+          const text = NodeApi.get(
+            { children: nextSnapshot.children } as never,
+            path
+          ) as { text: string }
+
+          return {
+            key: runtimeId,
+            range: {
+              anchor: { path, offset: 0 },
+              focus: { path, offset: text.text.length },
+            },
+          }
+        })
+      },
+      runtimeScope: () => runtimeScope,
+    })
+
+    expect(sourceScopes).toEqual([[firstRuntimeId]])
+    expect(store.getSnapshot()[firstRuntimeId]).toHaveLength(1)
+    expect(store.getSnapshot()[secondRuntimeId]).toBeUndefined()
+
+    runtimeScope = [secondRuntimeId]
+    store.refresh({ reason: 'external' })
+
+    expect(sourceScopes).toEqual([[firstRuntimeId], [secondRuntimeId]])
+    expect(store.getSnapshot()[firstRuntimeId]).toBeUndefined()
+    expect(store.getSnapshot()[secondRuntimeId]).toHaveLength(1)
+
+    store.destroy()
+  })
+
+  test('Editable decorate walks only the scoped runtime subtree', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ children: [{ text: 'A' }] }, { children: [{ text: 'B' }] }],
+      selection: null,
+    })
+
+    const firstBlockRuntimeId = Editor.getSnapshot(editor).index.pathToId['0']
+
+    if (!firstBlockRuntimeId) {
+      throw new Error('Expected block runtime id for scoped decorate proof')
+    }
+
+    const decoratedPaths = new Set<string>()
+
+    render(
+      <Slate editor={editor}>
+        <Editable
+          decorate={([, path]) => {
+            decoratedPaths.add(path.join('.'))
+
+            return []
+          }}
+          decorateRuntimeScope={() => [firstBlockRuntimeId]}
+        />
+      </Slate>
+    )
+
+    expect([...decoratedPaths].sort()).toEqual(['0', '0.0'])
+  })
+
   test('projection stores receive editor changes through the source bus', async () => {
     const editor = createEditor()
 

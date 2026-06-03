@@ -150,6 +150,9 @@ describe('slate-react DOM capability contract', () => {
     )
     const editable = mounted.container.querySelector('[data-slate-editor]')!
     const assertDOMRange = jest.spyOn(ReactEditor, 'assertDOMRange')
+    const [alphaText, bravoText] = Array.from(
+      editable.querySelectorAll('[data-slate-string="true"]')
+    ).map((node) => node.firstChild)
 
     await act(async () => {
       editor.update((tx) => {
@@ -176,12 +179,11 @@ describe('slate-react DOM capability contract', () => {
     })
 
     expect(assertDOMRange).not.toHaveBeenCalled()
-    expect(document.getSelection()?.anchorNode).toBe(editable)
+    expect(document.getSelection()?.anchorNode).toBe(alphaText)
     expect(document.getSelection()?.anchorOffset).toBe(0)
-    expect(document.getSelection()?.focusNode).toBe(editable)
-    expect(document.getSelection()?.focusOffset).toBe(
-      editable.childNodes.length
-    )
+    expect(document.getSelection()?.focusNode).toBe(bravoText)
+    expect(document.getSelection()?.focusOffset).toBe('bravo'.length)
+    expect(document.getSelection()?.toString()).toBe('alphabravo')
 
     assertDOMRange.mockRestore()
   })

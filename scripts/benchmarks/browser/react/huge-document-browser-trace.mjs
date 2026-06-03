@@ -55,8 +55,8 @@ const typeText = 'X'.repeat(typeOps)
 const surfaces = [
   {
     key: 'defaultAuto',
-    label: 'v2 default auto',
-    path: `/examples/huge-document?blocks=${blocks}&content_visibility=none&strict=false`,
+    label: 'v2 auto',
+    path: `/examples/huge-document?blocks=${blocks}&content_visibility=none&strict=false&strategy=auto`,
   },
   {
     key: 'stagedDomPresent',
@@ -306,7 +306,7 @@ const waitForEditorReady = async (page) => {
 const waitForNativeSurface = async (page) => {
   const start = await page.evaluate(() => performance.now())
 
-  const completed = await page
+  await page
     .waitForFunction(
       (expectedBlocks) => {
         const root = document.querySelector('[data-slate-editor="true"]')
@@ -315,16 +315,25 @@ const waitForNativeSurface = async (page) => {
           return false
         }
 
+        const readNumber = (testId) => {
+          const value = Number(
+            document.querySelector(`[data-test-id="${testId}"]`)?.textContent ??
+              0
+          )
+
+          return Number.isFinite(value) ? value : 0
+        }
         const effectiveStrategy = document.querySelector(
           '[data-test-id="huge-document-effective-strategy"]'
         )?.textContent
-        const mountedTopLevelCount = Number(
-          document.querySelector(
-            '[data-test-id="huge-document-mounted-top-level-count"]'
-          )?.textContent ?? 0
+        const mountedTopLevelCount = readNumber(
+          'huge-document-mounted-top-level-count'
         )
 
-        if (effectiveStrategy === 'virtualized') {
+        if (
+          effectiveStrategy === 'partial-dom' ||
+          effectiveStrategy === 'virtualized'
+        ) {
           return mountedTopLevelCount > 0
         }
 
@@ -341,11 +350,42 @@ const waitForNativeSurface = async (page) => {
 
   const end = await nextPaint(page)
   const domTags = await getMemoryAndDomTags(page)
+  const state = await page.evaluate((expectedBlocks) => {
+    const root = document.querySelector('[data-slate-editor="true"]')
+    const readText = (testId) =>
+      document.querySelector(`[data-test-id="${testId}"]`)?.textContent ?? null
+    const readNumber = (testId) => {
+      const value = Number(readText(testId) ?? 0)
+
+      return Number.isFinite(value) ? value : 0
+    }
+    const effectiveStrategy = readText('huge-document-effective-strategy')
+    const editorTextNodeCount =
+      root?.querySelectorAll('[data-slate-node="text"]').length ?? 0
+    const bounded =
+      effectiveStrategy === 'partial-dom' || effectiveStrategy === 'virtualized'
+
+    return {
+      bounded,
+      complete: !bounded && editorTextNodeCount >= expectedBlocks,
+      editorTextNodeCount,
+      effectiveStrategy,
+      mountedTopLevelCount: readNumber('huge-document-mounted-top-level-count'),
+      pendingTopLevelCount: readNumber('huge-document-pending-top-level-count'),
+      requestedStrategy: readText('huge-document-requested-strategy'),
+    }
+  }, blocks)
 
   return {
-    complete: completed,
+    bounded: state.bounded,
+    complete: state.complete,
     durationMs: end - start,
+    editorTextNodeCount: state.editorTextNodeCount,
+    effectiveStrategy: state.effectiveStrategy,
+    mountedTopLevelCount: state.mountedTopLevelCount,
     observedBlocks: domTags.editorElementCount,
+    pendingTopLevelCount: state.pendingTopLevelCount,
+    requestedStrategy: state.requestedStrategy,
   }
 }
 
@@ -866,6 +906,9 @@ const measureSurface = async ({ browser, baseUrl, surface }) => {
       ])
     ),
     nativeSurface: {
+      boundedCount: nativeSurfaceSamples
+        .slice(1)
+        .filter((sample) => sample.bounded).length,
       completeCount: nativeSurfaceSamples
         .slice(1)
         .filter((sample) => sample.complete).length,
@@ -879,7 +922,7 @@ const measureSurface = async ({ browser, baseUrl, surface }) => {
       ),
       timeoutCount: nativeSurfaceSamples
         .slice(1)
-        .filter((sample) => !sample.complete).length,
+        .filter((sample) => !sample.complete && !sample.bounded).length,
       timeoutMs: nativeSurfaceTimeoutMs,
     },
     path: surface.path,
@@ -926,7 +969,7 @@ const run = async () => {
     for (const [key, surface] of Object.entries(summary.surfaces)) {
       console.log(`\n${key} (${surface.label})`)
       console.log(
-        `nativeSurface durationMs p95=${surface.nativeSurface.durationMs.p95}, complete=${surface.nativeSurface.completeCount}, timedOut=${surface.nativeSurface.timeoutCount}, observedBlocks p95=${surface.nativeSurface.observedBlocks.p95}`
+        `nativeSurface durationMs p95=${surface.nativeSurface.durationMs.p95}, complete=${surface.nativeSurface.completeCount}, bounded=${surface.nativeSurface.boundedCount}, timedOut=${surface.nativeSurface.timeoutCount}, observedBlocks p95=${surface.nativeSurface.observedBlocks.p95}`
       )
 
       for (const [laneKey, lane] of Object.entries(surface.lanes)) {
@@ -954,6 +997,50 @@ const run = async () => {
     const maxLongTaskP95Ms = Math.max(
       ...laneSummaries.map((lane) => lane.longTaskMaxMs.p95)
     )
+    const printSurfaceMetrics = (surfaceKey, prefix) => {
+      const surface = summary.surfaces[surfaceKey]
+
+      if (!surface) {
+        return
+      }
+
+      const surfaceLaneSummaries = Object.values(surface.lanes)
+      const maxSurfaceTypeToPaintP95Ms = Math.max(
+        ...surfaceLaneSummaries.map((lane) => lane.typeToPaintMs.p95)
+      )
+      const maxSurfaceBurstToPaintPerOpP95Ms = Math.max(
+        ...surfaceLaneSummaries.map((lane) => lane.burstToPaintPerOpMs.p95)
+      )
+      const maxSurfaceDomNodesP95 = Math.max(
+        ...surfaceLaneSummaries.map((lane) => lane.domTags.domNodeCount.p95)
+      )
+      const maxSurfaceHeapMBP95 = Math.max(
+        ...surfaceLaneSummaries.map((lane) => lane.domTags.jsHeapUsedMB.p95)
+      )
+      const maxSurfaceLongTaskP95Ms = Math.max(
+        ...surfaceLaneSummaries.map((lane) => lane.longTaskMaxMs.p95)
+      )
+
+      console.log(
+        `METRIC ${prefix}_type_to_paint_p95_ms=${round(
+          maxSurfaceTypeToPaintP95Ms
+        )}`
+      )
+      console.log(
+        `METRIC ${prefix}_burst_to_paint_per_op_p95_ms=${round(
+          maxSurfaceBurstToPaintPerOpP95Ms
+        )}`
+      )
+      console.log(
+        `METRIC ${prefix}_dom_nodes_p95=${round(maxSurfaceDomNodesP95)}`
+      )
+      console.log(`METRIC ${prefix}_heap_mb_p95=${round(maxSurfaceHeapMBP95)}`)
+      console.log(
+        `METRIC ${prefix}_long_task_max_p95_ms=${round(
+          maxSurfaceLongTaskP95Ms
+        )}`
+      )
+    }
 
     console.log(
       `METRIC react_huge_doc_type_to_paint_p95_ms=${round(maxTypeToPaintP95Ms)}`
@@ -968,6 +1055,9 @@ const run = async () => {
     console.log(
       `METRIC react_huge_doc_long_task_max_p95_ms=${round(maxLongTaskP95Ms)}`
     )
+    printSurfaceMetrics('defaultAuto', 'react_huge_doc_auto')
+    printSurfaceMetrics('stagedDomPresent', 'react_huge_doc_staged')
+    printSurfaceMetrics('virtualized', 'react_huge_doc_virtualized')
 
     console.log(`\nWrote ${runArtifactPath}`)
   } finally {

@@ -36,6 +36,7 @@ import type {
 import { resolveProjectedSelectionTarget } from './projected-selection-target'
 import {
   Editor,
+  getEditorCurrentMarks,
   getEditorExtensionRegistry,
   type Editor as RuntimeEditor,
   withOperationRootChildren,
@@ -213,10 +214,13 @@ export const applyModelOwnedDeleteIntent = ({
   editor: Editor
   unit?: 'block' | 'line' | 'word'
 }) => {
+  const selection = readRuntimeSelection(editor)
+
   if (
     direction === 'backward' &&
     unit == null &&
-    applyBackspaceAfterBlockVoid(editor, readRuntimeSelection(editor))
+    (applyBackspaceAtLeadingInlineVoidBlockBoundary(editor, selection) ||
+      applyBackspaceAfterBlockVoid(editor, selection))
   ) {
     return
   }
@@ -427,6 +431,110 @@ const deleteProjectedRangeRefs = (
       tx.text.delete({ at: range })
     }
   }
+}
+
+const hasActiveMarks = (marks: Record<string, unknown> | null) =>
+  !!marks && Object.keys(marks).length > 0
+
+const isUnmarkedTextNode = (node: Node) =>
+  NodeApi.isText(node) && Object.keys(node).length === 1
+
+const isPlainTextLeafStart = ({
+  editor,
+  selection,
+}: {
+  editor: Editor
+  selection: Range
+}) =>
+  editor.read((state) => {
+    const { path } = selection.anchor
+
+    if (path.length < 2 || selection.anchor.offset !== 0) {
+      return false
+    }
+
+    const [node] = state.nodes.get(path)
+
+    if (!isUnmarkedTextNode(node)) {
+      return false
+    }
+
+    const [block] = state.nodes.get([path[0]!])
+    const targetRelativePath = path.slice(1)
+    let previousTextNode: Node | null = null
+
+    for (const [textNode, textPath] of NodeApi.texts(block)) {
+      if (PathApi.equals(textPath, targetRelativePath)) {
+        return previousTextNode === null || isUnmarkedTextNode(previousTextNode)
+      }
+
+      previousTextNode = textNode
+    }
+
+    return false
+  })
+
+const canUseExplicitCollapsedTextInsert = ({
+  editor,
+  marks,
+  selection,
+}: {
+  editor: Editor
+  marks: Record<string, unknown> | null
+  selection: Range
+}) => {
+  if (hasActiveMarks(marks)) {
+    return false
+  }
+  if (marks == null) {
+    return true
+  }
+
+  return editor.read((state) => {
+    const [node] = state.nodes.get(selection.anchor.path)
+
+    return isUnmarkedTextNode(node)
+  })
+}
+
+const canUseCachedCollapsedTextInsert = ({
+  editor,
+  selection,
+}: {
+  editor: Editor
+  selection: Range
+}) => {
+  const marks = getEditorCurrentMarks(editor)
+
+  if (hasActiveMarks(marks)) {
+    return false
+  }
+
+  const unmarkedTextNode = editor.read((state) => {
+    const [node] = state.nodes.get(selection.anchor.path)
+
+    return isUnmarkedTextNode(node)
+  })
+
+  if (!unmarkedTextNode) {
+    return false
+  }
+
+  if (marks !== null || selection.anchor.offset > 0) {
+    return true
+  }
+
+  if (isPlainTextLeafStart({ editor, selection })) {
+    return true
+  }
+
+  return canUseExplicitCollapsedTextInsert({
+    editor,
+    marks: profileEditableMutationDuration('model-text-input-read-marks', () =>
+      editor.read((state) => state.marks.get())
+    ),
+    selection,
+  })
 }
 
 const releaseProjectedRangeRefs = (rangeRefs: RangeRef[]) => {
@@ -898,6 +1006,148 @@ const applyBackspaceAfterBlockVoid = (
   return true
 }
 
+const getPointWithRoot = (point: Point, root: RootKey | undefined): Point =>
+  root === undefined ? point : { ...point, root }
+
+const applyBackspaceAtLeadingInlineVoidBlockBoundary = (
+  editor: RuntimeEditor,
+  selection: Range | null
+) => {
+  if (!selection || RangeApi.isExpanded(selection)) {
+    return false
+  }
+
+  const point = selection.anchor
+
+  if (point.offset !== 0) {
+    return false
+  }
+
+  const target = editor.read((state) => {
+    const isInlineVoidAt = (location: Path | Point) => {
+      if (PathApi.isPath(location)) {
+        if (!state.nodes.hasPath(location)) {
+          return false
+        }
+
+        const [node] = state.nodes.get(location)
+
+        return (
+          NodeApi.isElement(node) &&
+          Editor.isInline(editor, node) &&
+          Editor.isVoid(editor, node)
+        )
+      }
+
+      return !!Editor.above(editor, {
+        at: location,
+        match: (node) =>
+          NodeApi.isElement(node) &&
+          Editor.isInline(editor, node) &&
+          Editor.isVoid(editor, node),
+        mode: 'lowest',
+        voids: true,
+      })
+    }
+    const block = Editor.above(editor, {
+      at: point,
+      match: (node) => NodeApi.isElement(node) && Editor.isBlock(editor, node),
+      mode: 'lowest',
+      voids: true,
+    })
+
+    if (!block) {
+      return null
+    }
+
+    const [, blockPath] = block
+
+    if (blockPath.length !== 1 || !PathApi.hasPrevious(blockPath)) {
+      return null
+    }
+
+    const [blockNode] = block
+    const previousBlockPath = PathApi.previous(blockPath)
+    const [previousBlockNode] = state.nodes.get(previousBlockPath)
+
+    if (
+      !NodeApi.isElement(blockNode) ||
+      !NodeApi.isElement(previousBlockNode) ||
+      !Editor.isBlock(editor, previousBlockNode)
+    ) {
+      return null
+    }
+
+    const blockStart = getPointWithRoot(
+      Editor.point(editor, blockPath, { edge: 'start' }),
+      point.root
+    )
+
+    if (!PointApi.equals(point, blockStart)) {
+      return null
+    }
+
+    const nextSiblingPath = PathApi.next(point.path)
+
+    if (
+      !isInlineVoidAt(point) &&
+      (!Editor.hasPath(editor, nextSiblingPath) ||
+        !isInlineVoidAt(nextSiblingPath))
+    ) {
+      return null
+    }
+
+    const firstChild = blockNode.children[0]
+    const sourceChildIndex =
+      point.path.length === blockPath.length + 1 &&
+      point.path.at(-1) === 0 &&
+      NodeApi.isText(firstChild) &&
+      firstChild.text === ''
+        ? 1
+        : 0
+    const moveCount = blockNode.children.length - sourceChildIndex
+
+    return {
+      blockStart,
+      blockPath,
+      insertPath: [...previousBlockPath, previousBlockNode.children.length],
+      moveCount,
+      previousBlockEnd: getPointWithRoot(
+        Editor.point(editor, previousBlockPath, { edge: 'end' }),
+        point.root
+      ),
+      sourcePath: [...blockPath, sourceChildIndex],
+    }
+  })
+
+  if (!target) {
+    return false
+  }
+
+  editor.update((tx) => {
+    const insertIndex = target.insertPath.at(-1)!
+    const insertParentPath = target.insertPath.slice(0, -1)
+
+    for (let index = 0; index < target.moveCount; index++) {
+      tx.nodes.move({
+        at: target.sourcePath,
+        to: [...insertParentPath, insertIndex + index],
+        voids: true,
+      })
+    }
+    tx.nodes.remove({
+      at: target.blockPath,
+      voids: true,
+    })
+    tx.selection.set({
+      anchor: target.previousBlockEnd,
+      focus: target.previousBlockEnd,
+    })
+  })
+
+  return true
+}
+
 const applyParagraphBreakAfterSelectedBlockVoid = (
   editor: RuntimeEditor,
   selection: Range | null
@@ -1264,9 +1514,7 @@ export const applyModelOwnedTextInput = ({
     inputType === 'insertText' &&
     selection &&
     RangeApi.isCollapsed(selection) &&
-    !profileEditableMutationDuration('model-text-input-read-marks', () =>
-      editor.read((state) => state.marks.get())
-    )
+    canUseCachedCollapsedTextInsert({ editor, selection })
 
   if (canUseSyncedCollapsedTarget) {
     profileEditableMutationDuration(

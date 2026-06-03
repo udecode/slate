@@ -1,4 +1,4 @@
-import { type Point, PointApi, type Range, RangeApi } from 'slate'
+import { type Point, type Range, RangeApi } from 'slate'
 import { type DOMRange, isDOMText } from 'slate-dom'
 import { getSlateNodeElementByPath } from '../hooks/use-slate-node-ref'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
@@ -48,29 +48,6 @@ const getDOMPointForSlateTextPoint = (
   return null
 }
 
-const isSamePath = (left: readonly number[], right: readonly number[]) =>
-  left.length === right.length &&
-  left.every((part, index) => part === right[index])
-
-const isFullDocumentSelection = (
-  editor: ReactRuntimeEditor,
-  selection: Range
-) => {
-  try {
-    const [start, end] = RangeApi.edges(selection)
-    const [documentStart, documentEnd] = editor.read((state) => [
-      state.points.start([]),
-      state.points.end([]),
-    ])
-
-    return (
-      PointApi.equals(start, documentStart) && PointApi.equals(end, documentEnd)
-    )
-  } catch {
-    return false
-  }
-}
-
 const createDOMSelectionRangeFromEndpoints = ({
   editorElement,
   end,
@@ -91,7 +68,6 @@ const createDOMSelectionRangeFromEndpoints = ({
 export const createFastDOMSelectionRange = ({
   editor,
   editorElement,
-  includeFullDocument = true,
   selection,
 }: {
   editor: ReactRuntimeEditor
@@ -99,26 +75,7 @@ export const createFastDOMSelectionRange = ({
   includeFullDocument?: boolean
   selection: Range
 }): DOMRange | null => {
-  if (includeFullDocument && isFullDocumentSelection(editor, selection)) {
-    return createDOMSelectionRangeFromEndpoints({
-      editorElement,
-      end: {
-        node: editorElement,
-        offset: editorElement.childNodes.length,
-      },
-      start: {
-        node: editorElement,
-        offset: 0,
-      },
-    })
-  }
-
   const [start, end] = RangeApi.edges(selection)
-
-  if (!isSamePath(start.path, end.path)) {
-    return null
-  }
-
   const startDOMPoint = getDOMPointForSlateTextPoint(editor, start)
   const endDOMPoint = getDOMPointForSlateTextPoint(editor, end)
 

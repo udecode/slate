@@ -150,6 +150,11 @@ export type EditorStateValueApi<V extends Value = Value> = {
   get: () => EditorDocumentValue<V>
   lastCommit: () => EditorCommit<V> | null
   operations: (startIndex?: number) => readonly Operation<V>[]
+  /**
+   * Reads one document root without cloning the serializable document value.
+   * Treat the returned nodes as read-only live state.
+   */
+  root: (root: RootKey) => readonly Descendant[]
 }
 
 export type EditorTransactionValueApi<V extends Value = Value> =
@@ -611,6 +616,7 @@ export interface BaseEditor<
   ) => EditorApiValueFromExtension<TExtension>
   read: <T>(fn: (state: EditorStateView<V, TExtensions>) => T) => T
   subscribe: (listener: SnapshotListener<any>) => () => void
+  subscribeCommit: (listener: CommitListener<any>) => () => void
   update: BivariantMethod<
     [
       fn: (
@@ -629,7 +635,13 @@ export type EditorRuntime<
   TExtensions extends readonly unknown[] = readonly [],
 > = Pick<
   BaseEditor<V, TExtensions>,
-  'api' | 'extend' | 'getApi' | 'read' | 'subscribe' | 'update'
+  | 'api'
+  | 'extend'
+  | 'getApi'
+  | 'read'
+  | 'subscribe'
+  | 'subscribeCommit'
+  | 'update'
 > & {
   editor: Editor<V, TExtensions>
 }
@@ -1207,6 +1219,10 @@ export type SnapshotInput<V extends Value = Value> = {
 export type SnapshotListener<V extends Value = Value> = (
   snapshot: EditorSnapshot<V>,
   change?: SnapshotChange<V>
+) => void
+
+export type CommitListener<V extends Value = Value> = (
+  change: SnapshotChange<V>
 ) => void
 
 export type EditorCommitSource =
@@ -2450,6 +2466,11 @@ export interface EditorStaticApi {
     listener: SnapshotListener<V>
   ) => () => void
 
+  subscribeCommit: <V extends Value>(
+    editor: Editor<V>,
+    listener: CommitListener<V>
+  ) => () => void
+
   subscribeSource: <V extends Value>(
     editor: Editor<V>,
     source: EditorCommitSource,
@@ -3126,6 +3147,10 @@ const InternalEditor: InternalEditorStaticApi = {
 
   subscribe(editor, listener) {
     return editor.subscribe(listener)
+  },
+
+  subscribeCommit(editor, listener) {
+    return editor.subscribeCommit(listener)
   },
 
   subscribeSource(editor, source, listener) {

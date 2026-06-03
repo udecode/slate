@@ -12,8 +12,8 @@ partial-DOM preview rendering still leave too much DOM or heap pressure.
 
 | Strategy | Use it for | Production posture |
 | --- | --- | --- |
-| `auto` | default editor rendering | production default |
-| `staged` | safe large-document rendering with eventual DOM coverage | production-ready path |
+| `auto` | bounded large-document rendering | production default |
+| `staged` | eventual native DOM coverage for the whole document | explicit product tradeoff |
 | `full` | debugging full DOM behavior | debug path |
 | `virtualized` | viewport-only mounting for pathological documents | experimental, not production-ready |
 
@@ -30,6 +30,9 @@ chrome, layout fragments, and selection projection under one mount boundary.
 Virtualized rendering needs a bounded editable scroll surface. If Slate cannot
 prove that the editable root is a safe scroll owner, it falls back to staged
 rendering and reports the actual strategy through metrics.
+
+`auto` uses bounded partial-DOM rendering for large documents. It does not
+background-mount the whole document.
 
 ```tsx
 <Editable

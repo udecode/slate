@@ -36,6 +36,7 @@ export interface EditorSelectorOptions<
   deferred?: boolean
   includeRootOrderChanges?: boolean
   profileId?: string
+  runtimeEventSource?: 'node' | 'path' | 'render'
   runtimeId?: RuntimeId | null
   runtimeIds?: readonly RuntimeId[] | null
   shouldUpdate?: (
@@ -67,6 +68,11 @@ const getSelectorProfileId = (
   runtimeId: RuntimeId | null | undefined,
   phase: 'check' | 'notify'
 ) => `selector-${profileId ?? (runtimeId ? 'runtime' : 'global')}-${phase}`
+
+const isTextRenderOperation = (operation: Operation) =>
+  operation.type === 'insert_text' ||
+  operation.type === 'remove_text' ||
+  operation.type === 'set_selection'
 
 const scheduleMicrotask =
   typeof queueMicrotask === 'function'
@@ -113,6 +119,7 @@ export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
     deferred,
     includeRootOrderChanges,
     profileId,
+    runtimeEventSource,
     runtimeId,
     runtimeIds,
     shouldUpdate,
@@ -163,6 +170,7 @@ export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
       deferred,
       includeRootOrderChanges,
       profileId,
+      runtimeEventSource,
       runtimeId,
       runtimeIds,
       shouldUpdate: shouldUpdate ? shouldUpdateWithEditor : undefined,
@@ -175,6 +183,7 @@ export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
     updateWithOperations,
     deferred,
     profileId,
+    runtimeEventSource,
     runtimeId,
     runtimeIds,
     includeRootOrderChanges,
@@ -221,6 +230,10 @@ export function useEditorState<T, TEditor extends Editor<any> = Editor<any>>(
 export function useEditorSelectorContext() {
   const eventListeners = useRef(new Set<Callback>())
   const runtimeEventListeners = useRef(new Map<RuntimeId, Set<Callback>>())
+  const runtimePathEventListeners = useRef(new Map<RuntimeId, Set<Callback>>())
+  const runtimeRenderEventListeners = useRef(
+    new Map<RuntimeId, Set<Callback>>()
+  )
   const rootOrderRuntimeEventListeners = useRef(new Set<Callback>())
   const deferredEventListeners = useRef(
     new Map<Callback, DeferredCallbackPayload>()
@@ -260,6 +273,22 @@ export function useEditorSelectorContext() {
       const affectedRuntimeIds = change?.fullDocumentChanged
         ? change.affectedNodeRuntimeIds
         : change?.nodeImpactRuntimeIds
+      const shouldRoutePathRuntimeListeners = Boolean(
+        !change ||
+          change.fullDocumentChanged ||
+          change.rootRuntimeIdsChanged ||
+          change.structureChanged ||
+          change.topLevelOrderChanged
+      )
+      const syncedTextOnlyChange = Boolean(
+        change?.textChanged &&
+          operations &&
+          operations.length > 0 &&
+          operations.every(isTextRenderOperation)
+      )
+      const shouldRouteRenderRuntimeListeners = Boolean(
+        !change || !syncedTextOnlyChange
+      )
       const runtimeCallbacks = new Set<Callback>()
 
       if (!change || affectedRuntimeIds == null) {
@@ -273,6 +302,40 @@ export function useEditorSelectorContext() {
           runtimeEventListeners.current.get(runtimeId)?.forEach((listener) => {
             runtimeCallbacks.add(listener)
           })
+        }
+      }
+      if (shouldRoutePathRuntimeListeners) {
+        if (!change || affectedRuntimeIds == null) {
+          runtimePathEventListeners.current.forEach((listeners) => {
+            listeners.forEach((listener) => {
+              runtimeCallbacks.add(listener)
+            })
+          })
+        } else {
+          for (const runtimeId of affectedRuntimeIds) {
+            runtimePathEventListeners.current
+              .get(runtimeId)
+              ?.forEach((listener) => {
+                runtimeCallbacks.add(listener)
+              })
+          }
+        }
+      }
+      if (shouldRouteRenderRuntimeListeners) {
+        if (!change || affectedRuntimeIds == null) {
+          runtimeRenderEventListeners.current.forEach((listeners) => {
+            listeners.forEach((listener) => {
+              runtimeCallbacks.add(listener)
+            })
+          })
+        } else {
+          for (const runtimeId of affectedRuntimeIds) {
+            runtimeRenderEventListeners.current
+              .get(runtimeId)
+              ?.forEach((listener) => {
+                runtimeCallbacks.add(listener)
+              })
+          }
         }
       }
       if (shouldRouteRootOrderRuntimeListeners) {
@@ -299,6 +362,7 @@ export function useEditorSelectorContext() {
         deferred = false,
         includeRootOrderChanges = false,
         profileId,
+        runtimeEventSource = 'node',
         runtimeId = null,
         runtimeIds = null,
         shouldUpdate,
@@ -370,15 +434,20 @@ export function useEditorSelectorContext() {
       })
 
       if (subscribedRuntimeIds) {
+        const listenerMap =
+          runtimeEventSource === 'path'
+            ? runtimePathEventListeners.current
+            : runtimeEventSource === 'render'
+              ? runtimeRenderEventListeners.current
+              : runtimeEventListeners.current
         const listenerSets: Set<Callback>[] = []
 
         subscribedRuntimeIds.forEach((subscribedRuntimeId) => {
           const listeners =
-            runtimeEventListeners.current.get(subscribedRuntimeId) ??
-            new Set<Callback>()
+            listenerMap.get(subscribedRuntimeId) ?? new Set<Callback>()
 
           listeners.add(callback)
-          runtimeEventListeners.current.set(subscribedRuntimeId, listeners)
+          listenerMap.set(subscribedRuntimeId, listeners)
           listenerSets.push(listeners)
         })
 
@@ -395,7 +464,7 @@ export function useEditorSelectorContext() {
             listeners.delete(callback)
 
             if (listeners.size === 0) {
-              runtimeEventListeners.current.delete(subscribedRuntimeId)
+              listenerMap.delete(subscribedRuntimeId)
             }
           })
           rootOrderRuntimeEventListeners.current.delete(callback)

@@ -248,6 +248,19 @@ export const shouldSkipDuplicateEditableEditingEpochCommand = (
   )
 }
 
+export const completeDuplicateEditableEditingEpochCommand = (
+  editor: Editor,
+  command: EditableCommand | null
+) => {
+  if (!shouldSkipDuplicateEditableEditingEpochCommand(editor, command)) {
+    return false
+  }
+
+  endEditableEditingEpoch(editor)
+
+  return true
+}
+
 export const beginOrJoinEditableEditingEpoch = (
   editor: Editor,
   input: EditableEditingEpochInput

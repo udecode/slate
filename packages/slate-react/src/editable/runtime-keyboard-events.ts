@@ -19,6 +19,11 @@ export const shouldFlushPendingNativeTextInputForKeyDown = (
   const hasCommandModifier = event.altKey || event.ctrlKey || event.metaKey
   const isTextShortcutBoundary =
     event.key.length === 1 && WHITESPACE_KEY_RE.test(event.key)
+  const isModelMutationBoundary =
+    decision.intent === 'delete' ||
+    decision.intent === 'format' ||
+    decision.intent === 'insert-break' ||
+    decision.intent === 'model-selection-move'
 
   if (decision.intent === 'composition') {
     return false
@@ -33,6 +38,7 @@ export const shouldFlushPendingNativeTextInputForKeyDown = (
   }
 
   return (
+    isModelMutationBoundary ||
     decision.shouldForceDOMImport ||
     decision.intent === 'history' ||
     decision.intent === 'native-selection-move' ||

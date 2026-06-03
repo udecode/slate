@@ -2,6 +2,7 @@ import { createEditor } from 'slate'
 import {
   beginEditableEditingEpoch,
   beginOrJoinEditableEditingEpoch,
+  completeDuplicateEditableEditingEpochCommand,
   getCurrentEditableEditingEpoch,
   markEditableEditingEpochCommandHandled,
   shouldSkipDuplicateEditableEditingEpochCommand,
@@ -133,6 +134,39 @@ test('handled insert-break keydown suppresses duplicate beforeinput command', ()
       variant: 'soft',
     })
   ).toBe(false)
+})
+
+test('completed duplicate insert-break beforeinput closes the epoch before the next Enter', () => {
+  const editor = createEditor()
+  const epoch = beginEditableEditingEpoch(editor, {
+    command: insertBreakCommand,
+    ownership: 'model-owned',
+    rootEventFamily: 'keydown',
+    rootIntent: 'insert-break',
+    selectionSource: 'model-owned',
+    targetOwner: 'editor',
+  })
+
+  markEditableEditingEpochCommandHandled(editor, insertBreakCommand)
+
+  expect(
+    completeDuplicateEditableEditingEpochCommand(editor, insertBreakCommand)
+  ).toBe(true)
+  expect(getCurrentEditableEditingEpoch(editor)?.active).toBe(false)
+  expect(
+    shouldSkipDuplicateEditableEditingEpochCommand(editor, insertBreakCommand)
+  ).toBe(false)
+
+  const nextEpoch = beginOrJoinEditableEditingEpoch(editor, {
+    command: insertBreakCommand,
+    ownership: 'model-owned',
+    rootEventFamily: 'keydown',
+    rootIntent: 'insert-break',
+    selectionSource: 'model-owned',
+    targetOwner: 'editor',
+  })
+
+  expect(nextEpoch?.id).not.toBe(epoch.id)
 })
 
 test('handled soft insert-break keydown suppresses matching line-break beforeinput only', () => {

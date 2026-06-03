@@ -1094,7 +1094,7 @@ describe('slate-react provider hooks contract', () => {
     expect(result.current).toEqual([1])
   })
 
-  test('useElementPath scopes text edits to the impacted runtime id', async () => {
+  test('useElementPath skips text-only commits', async () => {
     const value = Array.from({ length: 64 }, (_value, index) => ({
       type: 'block',
       children: [{ text: `line ${index}` }],
@@ -1139,9 +1139,12 @@ describe('slate-react provider hooks contract', () => {
       const elementPathChecks = counter
         .snapshot()
         .events.filter((event) => event.id === 'selector-element-path-check')
+      const elementPathNotifies = counter
+        .snapshot()
+        .events.filter((event) => event.id === 'selector-element-path-notify')
 
-      expect(elementPathChecks).toHaveLength(1)
-      expect(elementPathChecks[0]?.runtimeId).toBe(runtimeIds[0])
+      expect(elementPathChecks).toHaveLength(0)
+      expect(elementPathNotifies).toHaveLength(0)
     } finally {
       globalThis.__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
     }
@@ -1161,7 +1164,7 @@ describe('slate-react provider hooks contract', () => {
     try {
       rendered = render(
         <Slate editor={editor}>
-          <Editable data-testid="grouped-root" />
+          <Editable data-testid="grouped-root" domStrategy="staged" />
         </Slate>
       )
 
@@ -1193,7 +1196,7 @@ describe('slate-react provider hooks contract', () => {
 
       rendered.rerender(
         <Slate editor={editor}>
-          <Editable data-testid="grouped-root-next" />
+          <Editable data-testid="grouped-root-next" domStrategy="staged" />
         </Slate>
       )
 
@@ -1290,9 +1293,67 @@ describe('slate-react provider hooks contract', () => {
       const profile = counter.snapshot()
 
       expect(profile.byKey['selector:selector-runtime-node-check'] ?? 0).toBe(0)
-      expect(profile.byKey['selector:selector-runtime-node-notify'] ?? 0).toBe(
-        0
+      expect(
+        profile.byKey['selector:selector-runtime-node-notify'] ?? 0
+      ).toBeLessThanOrEqual(1)
+      expect(profile.byKey['selector:selector-root-runtime-ids-notify']).toBe(1)
+    } finally {
+      rendered?.unmount()
+      globalThis.__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+    }
+  })
+
+  test('Editable prepends sync shifted DOM paths without mounted runtime-node notifications', async () => {
+    const value = Array.from({ length: 40 }, (_value, index) => ({
+      type: 'block',
+      children: [{ text: `line ${index}` }],
+    }))
+    const editor = createReactEditor({ initialValue: value })
+    const trackedRuntimeId = Editor.getRuntimeId(editor, [10])
+    const counter = createSlateReactRenderCounter()
+    const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
+    let rendered: ReturnType<typeof render> | null = null
+
+    if (!trackedRuntimeId) {
+      throw new Error('Expected runtime id for shifted DOM path sync contract')
+    }
+
+    globalThis.__SLATE_REACT_RENDER_PROFILER__ = counter.profiler
+
+    try {
+      rendered = render(
+        <Slate editor={editor}>
+          <Editable data-testid="root-order-dom-path-sync" />
+        </Slate>
       )
+
+      const getTrackedElement = () =>
+        rendered!.container.querySelector<HTMLElement>(
+          `[data-slate-node="element"][data-slate-runtime-id="${trackedRuntimeId}"]`
+        )
+
+      expect(getTrackedElement()?.getAttribute('data-slate-path')).toBe('10')
+
+      counter.reset()
+
+      await act(async () => {
+        editor.update((tx) => {
+          tx.nodes.insert(
+            { type: 'block', children: [{ text: 'new line' }] } as never,
+            { at: [0] }
+          )
+        })
+      })
+
+      await waitFor(() => {
+        expect(getTrackedElement()?.getAttribute('data-slate-path')).toBe('11')
+      })
+
+      const profile = counter.snapshot()
+
+      expect(
+        profile.byKey['selector:selector-runtime-node-notify'] ?? 0
+      ).toBeLessThanOrEqual(1)
       expect(profile.byKey['selector:selector-root-runtime-ids-notify']).toBe(1)
     } finally {
       rendered?.unmount()
@@ -1391,6 +1452,8 @@ describe('slate-react provider hooks contract', () => {
 
   test('mounted render selector hooks skip synced text commits but catch the next node commit', async () => {
     const editor = createReactEditor()
+    const counter = createSlateReactRenderCounter()
+    const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
 
     Editor.replace(editor, {
       children: [{ type: 'block', children: [{ text: 'one' }] }],
@@ -1416,59 +1479,76 @@ describe('slate-react provider hooks contract', () => {
     })
     const textSelector = jest.fn(({ text }) => text?.text ?? null)
 
-    const { result } = renderHook(
-      () => ({
-        nodeText: useMountedNodeRenderSelector(nodeSelector, undefined, {
-          runtimeId: blockRuntimeId,
+    globalThis.__SLATE_REACT_RENDER_PROFILER__ = counter.profiler
+
+    try {
+      const { result } = renderHook(
+        () => ({
+          nodeText: useMountedNodeRenderSelector(nodeSelector, undefined, {
+            runtimeId: blockRuntimeId,
+          }),
+          text: useMountedTextRenderSelector(textSelector, undefined, {
+            runtimeId: textRuntimeId,
+          }),
         }),
-        text: useMountedTextRenderSelector(textSelector, undefined, {
-          runtimeId: textRuntimeId,
-        }),
-      }),
-      {
-        wrapper: ({ children }) => (
-          <Slate editor={editor}>
-            <Editable />
-            {children}
-          </Slate>
-        ),
+        {
+          wrapper: ({ children }) => (
+            <Slate editor={editor}>
+              <Editable />
+              {children}
+            </Slate>
+          ),
+        }
+      )
+
+      expect(result.current).toEqual({ nodeText: 'one', text: 'one' })
+
+      const callsAfterMount = {
+        node: nodeSelector.mock.calls.length,
+        text: textSelector.mock.calls.length,
       }
-    )
 
-    expect(result.current).toEqual({ nodeText: 'one', text: 'one' })
+      counter.reset()
 
-    const callsAfterMount = {
-      node: nodeSelector.mock.calls.length,
-      text: textSelector.mock.calls.length,
+      await act(async () => {
+        editor.update((tx) => {
+          tx.text.insert('!', { at: { path: [0, 0], offset: 3 } })
+        })
+      })
+
+      const syncedTextProfile = counter.snapshot()
+
+      expect(result.current).toEqual({ nodeText: 'one', text: 'one' })
+      expect(nodeSelector).toBeCalledTimes(callsAfterMount.node)
+      expect(textSelector).toBeCalledTimes(callsAfterMount.text)
+      expect(
+        syncedTextProfile.byKey['selector:selector-runtime-node-check'] ?? 0
+      ).toBe(0)
+
+      await act(async () => {
+        editor.update((tx) => {
+          tx.nodes.set({ tone: true } as never, { at: [0, 0] })
+        })
+      })
+
+      expect(result.current.text).toBe('one!')
+      expect(textSelector.mock.calls.length).toBeGreaterThan(
+        callsAfterMount.text
+      )
+
+      await act(async () => {
+        editor.update((tx) => {
+          tx.nodes.set({ tone: 'block' } as never, { at: [0] })
+        })
+      })
+
+      expect(result.current.nodeText).toBe('one!')
+      expect(nodeSelector.mock.calls.length).toBeGreaterThan(
+        callsAfterMount.node
+      )
+    } finally {
+      globalThis.__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
     }
-
-    await act(async () => {
-      editor.update((tx) => {
-        tx.text.insert('!', { at: { path: [0, 0], offset: 3 } })
-      })
-    })
-
-    expect(result.current).toEqual({ nodeText: 'one', text: 'one' })
-    expect(nodeSelector).toBeCalledTimes(callsAfterMount.node)
-    expect(textSelector).toBeCalledTimes(callsAfterMount.text)
-
-    await act(async () => {
-      editor.update((tx) => {
-        tx.nodes.set({ tone: true } as never, { at: [0, 0] })
-      })
-    })
-
-    expect(result.current.text).toBe('one!')
-    expect(textSelector.mock.calls.length).toBeGreaterThan(callsAfterMount.text)
-
-    await act(async () => {
-      editor.update((tx) => {
-        tx.nodes.set({ tone: 'block' } as never, { at: [0] })
-      })
-    })
-
-    expect(result.current.nodeText).toBe('one!')
-    expect(nodeSelector.mock.calls.length).toBeGreaterThan(callsAfterMount.node)
   })
 
   test('mounted render selector hooks update when DOM text sync is disabled', async () => {

@@ -412,7 +412,7 @@ export const attachSlateBrowserHandle = ({
       if (partialDOMBackedSelection) {
         scrollPathIntoView?.(RangeApi.start(selection).path, 'center')
       }
-      refocusHandleElement()
+      editor.api.dom.focus()
       const syncDOMSelection = () => {
         syncEditableDOMSelectionToEditor({
           editor,

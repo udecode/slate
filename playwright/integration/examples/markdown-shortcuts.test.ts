@@ -78,7 +78,7 @@ test.describe('On markdown-shortcuts example', () => {
     await textbox.pressSequentially('- one')
     await expect(textbox.locator('ul > li')).toHaveCount(1)
 
-    await editor.selection.collapse({ path: [0, 0, 0], offset: 0 })
+    await editor.selection.collapse({ path: [0, 0], offset: 0 })
     await textbox.pressSequentially('- two')
 
     await expect(textbox.locator('ul')).toHaveCount(1)

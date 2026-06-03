@@ -643,7 +643,7 @@ export const transform: OperationTransformMethods['transform'] = (
       // Defend against malicious paths containing strings
       if (typeof index !== 'number') throw new Error('Index must be number')
 
-      modifyChildren(editor, PathApi.parent(path), (children) => {
+      const createSplitNodes = (children: Descendant[]) => {
         assertChildIndex(op, path, index, children.length, false)
 
         const node = children[index]
@@ -709,8 +709,24 @@ export const transform: OperationTransformMethods['transform'] = (
           }
         }
 
-        return replaceChildren(children, index, 1, newNode, nextNode)
-      })
+        return { newNode, nextNode }
+      }
+
+      const parentPath = PathApi.parent(path)
+
+      if (parentPath.length === 0) {
+        mutateTopLevelChildren(editor, (children) => {
+          const { newNode, nextNode } = createSplitNodes(children)
+
+          children.splice(index, 1, newNode, nextNode)
+        })
+      } else {
+        modifyChildren(editor, parentPath, (children) => {
+          const { newNode, nextNode } = createSplitNodes(children)
+
+          return replaceChildren(children, index, 1, newNode, nextNode)
+        })
+      }
 
       if (getCurrentSelection(editor)) {
         const selection = getCurrentSelection(editor)

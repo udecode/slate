@@ -118,6 +118,16 @@ const isSelectionChangeForRoot = (root: string, change: SnapshotChange) =>
   (getSelectionRoot(change.selectionBefore) === root ||
     getSelectionRoot(change.selectionAfter) === root)
 
+const getSelectionPathKey = (selection: SnapshotChange['selectionAfter']) =>
+  selection
+    ? `${getSelectionRoot(selection)}:${selection.anchor.path.join('.')}:${selection.focus.path.join('.')}`
+    : 'null'
+
+const isSelectionPathChangeForRoot = (root: string, change: SnapshotChange) =>
+  isSelectionChangeForRoot(root, change) &&
+  getSelectionPathKey(change.selectionBefore) !==
+    getSelectionPathKey(change.selectionAfter)
+
 const topLevelRangesIncludeIndex = (
   ranges: readonly (readonly [number, number])[] | null | undefined,
   index: number
@@ -154,7 +164,7 @@ const shouldUpdateSelectedTopLevelIndex = (
 
   return change
     ? change.fullDocumentChanged ||
-        isSelectionChangeForRoot(root, change) ||
+        isSelectionPathChangeForRoot(root, change) ||
         ((change.rootRuntimeIdsChanged || change.topLevelOrderChanged) &&
           (hasOperationForRoot(root, changedOperations) ?? true))
     : hasNoOperations(changedOperations) ||
@@ -417,15 +427,6 @@ export const useInternalSegmentDOMStrategyRootSources = ({
   promotedSegmentOverscan?: number | null
 }) => {
   const topLevelRuntimeIds = useRootRuntimeIds()
-  const selectedTopLevelIndex = useTopLevelSelectionIndex(
-    internalSegmentDOMStrategyConfig != null
-  )
-  const selectedSegmentIndex =
-    internalSegmentDOMStrategyConfig && selectedTopLevelIndex != null
-      ? Math.floor(
-          selectedTopLevelIndex / internalSegmentDOMStrategyConfig.segmentSize
-        )
-      : 0
   const segmentRuntimeIdGroups = useMemo(
     () =>
       internalSegmentDOMStrategyConfig &&
@@ -437,6 +438,17 @@ export const useInternalSegmentDOMStrategyRootSources = ({
         : null,
     [internalSegmentDOMStrategyConfig, topLevelRuntimeIds]
   )
+  const selectedTopLevelIndex = useTopLevelSelectionIndex(
+    segmentRuntimeIdGroups != null
+  )
+  const selectedSegmentIndex =
+    internalSegmentDOMStrategyConfig &&
+    segmentRuntimeIdGroups &&
+    selectedTopLevelIndex != null
+      ? Math.floor(
+          selectedTopLevelIndex / internalSegmentDOMStrategyConfig.segmentSize
+        )
+      : 0
 
   return useMemo(() => {
     recordSlateReactRender({

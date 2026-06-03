@@ -24,10 +24,6 @@ export type SlateProjectionSlice<T = unknown> = {
 
 export type SlateProjectionEntry<T = unknown> = SlateProjectionSlice<T>
 
-export type SlateProjectionSource<T = unknown> = (
-  snapshot: EditorSnapshot
-) => readonly SlateProjection<T>[]
-
 export type SlateSourceDirtinessClass =
   | 'always'
   | 'selection'
@@ -53,6 +49,15 @@ export type SlateCustomSourceDirtiness = (
 export type SlateProjectionRuntimeScope =
   | readonly RuntimeId[]
   | ((context: SlateSourceDirtinessContext) => readonly RuntimeId[] | null)
+
+export type SlateProjectionSourceReadContext = SlateSourceDirtinessContext & {
+  runtimeScope: readonly RuntimeId[] | null
+}
+
+export type SlateProjectionSource<T = unknown> = (
+  snapshot: EditorSnapshot,
+  context: SlateProjectionSourceReadContext
+) => readonly SlateProjection<T>[]
 
 export type SlateSourceDirtiness =
   | SlateSourceDirtinessClass
@@ -434,9 +439,22 @@ export const createSlateProjectionStore = <T>(
   const sourceListeners = new Map<string, Set<() => void>>()
   const refreshListeners = new Set<SlateProjectionRefreshListener>()
   let destroyed = false
+  const initialSnapshot = Editor.getSnapshot(editor)
+  const initialContext = {
+    reason: 'refresh',
+    snapshot: initialSnapshot,
+    sourceId: options.sourceId,
+  } satisfies SlateSourceDirtinessContext
+  const initialRuntimeScope = getRuntimeScope(
+    options.runtimeScope,
+    initialContext
+  )
   const initialBuild = buildProjectionSnapshot(
     editor,
-    source(Editor.getSnapshot(editor))
+    source(initialSnapshot, {
+      ...initialContext,
+      runtimeScope: initialRuntimeScope,
+    })
   )
   let metrics = Object.freeze({
     ...EMPTY_METRICS,
@@ -476,12 +494,16 @@ export const createSlateProjectionStore = <T>(
       })
     }
 
-    const nextBuild = buildProjectionSnapshot(editor, source(context.snapshot))
+    const runtimeScope = getRuntimeScope(options.runtimeScope, context)
+    const nextBuild = buildProjectionSnapshot(
+      editor,
+      source(context.snapshot, {
+        ...context,
+        runtimeScope,
+      })
+    )
     const nextSnapshot = nextBuild.snapshot
-    const fullFallbackCount =
-      context.forceInvalidate || !getRuntimeScope(options.runtimeScope, context)
-        ? 1
-        : 0
+    const fullFallbackCount = context.forceInvalidate || !runtimeScope ? 1 : 0
 
     metrics = Object.freeze({
       ...metrics,

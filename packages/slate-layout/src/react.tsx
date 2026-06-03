@@ -8,7 +8,8 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import type { Editor, Path } from 'slate'
+import { flushSync } from 'react-dom'
+import type { Editor, Path, SnapshotChange } from 'slate'
 import {
   defaultScrollSelectionIntoView,
   Editable,
@@ -209,12 +210,16 @@ export const useSlateLayoutSnapshot = (
 ): SlateLayoutSnapshot =>
   useSyncExternalStore(layout.subscribe, layout.getSnapshot, layout.getSnapshot)
 
-export const useSlateLayoutFragments = (
-  path?: Path | null
+/**
+ * Reads rendered layout fragments for a known Slate path.
+ *
+ * Use this when a renderer already has the element path and should avoid an
+ * extra `useElementPath()` subscription.
+ */
+export const useSlateLayoutFragmentsAtPath = (
+  targetPath: Path | null | undefined
 ): readonly SlateLayoutRenderedFragment[] => {
   const context = useContext(SlateLayoutFragmentContext)
-  const elementPath = useElementPath()
-  const targetPath = path ?? elementPath
 
   return useMemo(() => {
     if (!context || !targetPath) {
@@ -275,6 +280,14 @@ export const useSlateLayoutFragments = (
       }
     })
   }, [context, targetPath])
+}
+
+export const useSlateLayoutFragments = (
+  path?: Path | null
+): readonly SlateLayoutRenderedFragment[] => {
+  const elementPath = useElementPath()
+
+  return useSlateLayoutFragmentsAtPath(path ?? elementPath)
 }
 
 const SCROLLABLE_OVERFLOW_PATTERN = /(auto|scroll|overlay)/
@@ -380,14 +393,46 @@ const sameSelectedPaths = (
     left.length === right.length &&
     left.every((path, index) => samePath(path, right[index]!)))
 
+const getSelectionPathsKey = (selection: SnapshotChange['selectionAfter']) =>
+  selection
+    ? `${selection.anchor.path.join('.')}:${selection.focus.path.join('.')}`
+    : 'null'
+
+const shouldUpdatePagedEditableSelectedPaths = (change?: SnapshotChange) =>
+  !change ||
+  change.fullDocumentChanged ||
+  change.rootRuntimeIdsChanged ||
+  change.structureChanged ||
+  change.topLevelOrderChanged ||
+  (change.selectionChanged &&
+    getSelectionPathsKey(change.selectionBefore) !==
+      getSelectionPathsKey(change.selectionAfter))
+
 const pathsOverlap = (left: Path, right: Path) =>
   isPathWithin(left, right) || isPathWithin(right, left)
 
 const EMPTY_SELECTED_PATHS = Object.freeze([]) as readonly Path[]
 const USER_SCROLL_SELECTION_SCROLL_SUPPRESSION_MS = 500
+const VIEWPORT_SYNC_JUMP_RATIO = 0.75
 
 const getNow = () =>
   typeof performance === 'undefined' ? Date.now() : performance.now()
+
+const shouldSynchronizeViewportJump = (
+  previous: PagedEditableViewport | null,
+  next: PagedEditableViewport
+) => {
+  if (!previous) {
+    return true
+  }
+
+  const previousHeight = Math.max(1, previous.bottom - previous.top)
+
+  return (
+    Math.abs(next.top - previous.top) >
+    previousHeight * VIEWPORT_SYNC_JUMP_RATIO
+  )
+}
 
 export type PagedEditableRenderPageProps = {
   attributes: {
@@ -502,6 +547,7 @@ export const PagedEditable = ({
 }: PagedEditableProps) => {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const lastViewportScrollAtRef = useRef(Number.NEGATIVE_INFINITY)
+  const viewportStateRef = useRef<PagedEditableViewport | null>(null)
   const [viewport, setViewport] = useState<PagedEditableViewport | null>(null)
   const selectedPaths = useEditorState(
     (state) => {
@@ -511,7 +557,10 @@ export const PagedEditable = ({
         ? [selection.anchor.path, selection.focus.path]
         : EMPTY_SELECTED_PATHS
     },
-    { equalityFn: sameSelectedPaths }
+    {
+      equalityFn: sameSelectedPaths,
+      shouldUpdate: shouldUpdatePagedEditableSelectedPaths,
+    }
   )
   const snapshot = useSlatePageLayoutSnapshot(layout)
   const pages = snapshot.pages.length === 0 ? [snapshot.page] : snapshot.pages
@@ -585,6 +634,7 @@ export const PagedEditable = ({
   useEffect(() => {
     if (!tracksContentViewport) {
       setCanTrackContentViewport(false)
+      viewportStateRef.current = null
       setViewport(null)
       return
     }
@@ -594,13 +644,14 @@ export const PagedEditable = ({
 
     if (!root || !scrollRoot) {
       setCanTrackContentViewport(false)
+      viewportStateRef.current = null
       setViewport(null)
       return
     }
 
     setCanTrackContentViewport(true)
 
-    const update = () => {
+    const update = ({ sync = false }: { sync?: boolean } = {}) => {
       const rootRect = root.getBoundingClientRect()
       const scrollRootRect = scrollRoot.getBoundingClientRect()
       const scrollRootIsInsideRoot =
@@ -622,21 +673,34 @@ export const PagedEditable = ({
         top,
       }
       const commit = () => {
-        setViewport((previous) =>
-          previous &&
-          Math.abs(previous.top - nextViewport.top) < 1 &&
-          Math.abs(previous.bottom - nextViewport.bottom) < 1
-            ? previous
-            : nextViewport
-        )
+        setViewport((previous) => {
+          if (
+            previous &&
+            Math.abs(previous.top - nextViewport.top) < 1 &&
+            Math.abs(previous.bottom - nextViewport.bottom) < 1
+          ) {
+            return previous
+          }
+
+          viewportStateRef.current = nextViewport
+          return nextViewport
+        })
       }
 
-      commit()
+      if (
+        sync &&
+        virtualizesPageSurfaces &&
+        shouldSynchronizeViewportJump(viewportStateRef.current, nextViewport)
+      ) {
+        flushSync(commit)
+      } else {
+        commit()
+      }
     }
     const updateAsync = () => update()
     const updateOnScroll = () => {
       lastViewportScrollAtRef.current = getNow()
-      update()
+      update({ sync: true })
     }
 
     updateAsync()

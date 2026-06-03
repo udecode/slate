@@ -42,6 +42,33 @@ type InternalEditorRuntimeSelectorOptions = EditorRuntimeSelectorOptions & {
   updatePolicy?: SlateRuntimeSelectorUpdatePolicy
 }
 
+const includesRuntimeId = (
+  runtimeIds: readonly RuntimeId[] | null | undefined,
+  runtimeId: RuntimeId
+) => Array.isArray(runtimeIds) && runtimeIds.includes(runtimeId)
+
+const shouldSkipPathOnlyTopLevelOrderRender = (
+  runtimeId: RuntimeId | null,
+  change?: SnapshotChange
+) => {
+  if (
+    !runtimeId ||
+    !change?.topLevelOrderChanged ||
+    change.fullDocumentChanged ||
+    !Array.isArray(change.touchedRuntimeIds)
+  ) {
+    return false
+  }
+
+  return (
+    !includesRuntimeId(change.touchedRuntimeIds, runtimeId) &&
+    !includesRuntimeId(change.selectionImpactRuntimeIds, runtimeId) &&
+    !includesRuntimeId(change.dirtyTextRuntimeIds, runtimeId) &&
+    !includesRuntimeId(change.dirtyElementRuntimeIds, runtimeId) &&
+    !includesRuntimeId(change.structuralDirtyRuntimeIds, runtimeId)
+  )
+}
+
 const shouldUpdateRuntimeNode = (
   editor: ReactRuntimeEditor,
   runtimeId: RuntimeId | null,
@@ -59,6 +86,13 @@ const shouldUpdateRuntimeNode = (
 
   if (!runtimeId || !change) {
     return true
+  }
+
+  if (
+    updatePolicy === 'skip-synced-text-render' &&
+    shouldSkipPathOnlyTopLevelOrderRender(runtimeId, change)
+  ) {
+    return false
   }
 
   if (change.nodeImpactRuntimeIds === null) {
@@ -173,6 +207,8 @@ function useRuntimeNodeSelector<T>(
     deferred,
     includeRootOrderChanges,
     profileId: runtimeId ? 'runtime-node' : 'runtime-node-missing-id',
+    runtimeEventSource:
+      updatePolicy === 'skip-synced-text-render' ? 'render' : 'node',
     runtimeId,
     shouldUpdate,
   })

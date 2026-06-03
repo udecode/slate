@@ -116,6 +116,42 @@ test.describe('plaintext example', () => {
     ).toBe(false)
   })
 
+  test('keeps repeated trailing insert breaks at the document end', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop Enter key proof')
+
+    const editor = await openExample(page, 'plaintext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const initialText = 'This is editable plain text, just like a <textarea>!'
+    const breakCount = 6
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: initialText.length },
+      focus: { path: [0, 0], offset: initialText.length },
+    })
+
+    for (let index = 0; index < breakCount; index++) {
+      await page.keyboard.press('Enter')
+      await editor.assert.selection({
+        anchor: { path: [index + 1, 0], offset: 0 },
+        focus: { path: [index + 1, 0], offset: 0 },
+      })
+    }
+
+    await editor.assert.blockTexts([
+      initialText,
+      ...new Array(breakCount).fill(''),
+    ])
+    await editor.assert.selection({
+      anchor: { path: [breakCount, 0], offset: 0 },
+      focus: { path: [breakCount, 0], offset: 0 },
+    })
+  })
+
   test('applies beforeinput target ranges for browser text substitutions', async ({
     page,
   }, testInfo) => {

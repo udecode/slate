@@ -84,6 +84,7 @@ export {
   type EditorDecorationSelectorOptions,
   useDecorationSelector,
 } from './hooks/use-decoration-selector'
+export { useDOMStrategyVirtualOffset } from './hooks/use-dom-strategy-virtual-offset'
 export { useEditor } from './hooks/use-editor'
 export { useEditorComposing } from './hooks/use-editor-composing'
 export { useEditorFocused } from './hooks/use-editor-focused'

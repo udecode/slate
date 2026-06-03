@@ -132,6 +132,261 @@ describe('model input strategy', () => {
     })
   })
 
+  it('uses the direct collapsed insert path for empty marks', () => {
+    const editor = createTextEditor('abcd', 2)
+    const events: { id: string; kind: string }[] = []
+    const previousProfiler = (
+      globalThis as typeof globalThis & {
+        __SLATE_REACT_RENDER_PROFILER__?: unknown
+      }
+    ).__SLATE_REACT_RENDER_PROFILER__
+
+    ;(
+      globalThis as typeof globalThis & {
+        __SLATE_REACT_RENDER_PROFILER__?: {
+          record: (event: { id: string; kind: string }) => void
+        }
+      }
+    ).__SLATE_REACT_RENDER_PROFILER__ = {
+      record: (event) => events.push(event),
+    }
+
+    try {
+      applyModelOwnedBeforeInputOperation({
+        command: {
+          inputType: 'insertText',
+          kind: 'insert-text',
+          text: '!',
+        },
+        data: '!',
+        deferredOperations: { current: [] },
+        editor: editor as ReactEditor,
+        inputType: 'insertText',
+        native: false,
+        selection: Editor.getSelection(editor),
+        setComposing: () => {},
+      })
+    } finally {
+      ;(
+        globalThis as typeof globalThis & {
+          __SLATE_REACT_RENDER_PROFILER__?: unknown
+        }
+      ).__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+    }
+
+    expect(Editor.string(editor, [])).toBe('ab!cd')
+    expect(
+      events.some((event) => event.id === 'model-text-input-read-marks')
+    ).toBe(false)
+    expect(
+      events.some(
+        (event) => event.id === 'model-text-input-insert-at-selection'
+      )
+    ).toBe(true)
+    expect(
+      events.some((event) => event.id === 'model-text-input-apply-command')
+    ).toBe(false)
+  })
+
+  it('uses the direct collapsed insert path at the start of a plain leaf', () => {
+    const editor = createTextEditor('', 0)
+    const events: { id: string; kind: string }[] = []
+    const previousProfiler = (
+      globalThis as typeof globalThis & {
+        __SLATE_REACT_RENDER_PROFILER__?: unknown
+      }
+    ).__SLATE_REACT_RENDER_PROFILER__
+
+    ;(
+      globalThis as typeof globalThis & {
+        __SLATE_REACT_RENDER_PROFILER__?: {
+          record: (event: { id: string; kind: string }) => void
+        }
+      }
+    ).__SLATE_REACT_RENDER_PROFILER__ = {
+      record: (event) => events.push(event),
+    }
+
+    try {
+      applyModelOwnedBeforeInputOperation({
+        command: {
+          inputType: 'insertText',
+          kind: 'insert-text',
+          text: 'a',
+        },
+        data: 'a',
+        deferredOperations: { current: [] },
+        editor: editor as ReactEditor,
+        inputType: 'insertText',
+        native: false,
+        selection: Editor.getSelection(editor),
+        setComposing: () => {},
+      })
+    } finally {
+      ;(
+        globalThis as typeof globalThis & {
+          __SLATE_REACT_RENDER_PROFILER__?: unknown
+        }
+      ).__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+    }
+
+    expect(Editor.string(editor, [])).toBe('a')
+    expect(
+      events.some((event) => event.id === 'model-text-input-read-marks')
+    ).toBe(false)
+    expect(
+      events.some(
+        (event) => event.id === 'model-text-input-insert-at-selection'
+      )
+    ).toBe(true)
+    expect(
+      events.some((event) => event.id === 'model-text-input-apply-command')
+    ).toBe(false)
+  })
+
+  it('uses the direct collapsed insert path at the start of a nested plain leaf', () => {
+    const editor = createEditor()
+    const events: { id: string; kind: string }[] = []
+    const previousProfiler = (
+      globalThis as typeof globalThis & {
+        __SLATE_REACT_RENDER_PROFILER__?: unknown
+      }
+    ).__SLATE_REACT_RENDER_PROFILER__
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'quote',
+          children: [{ type: 'paragraph', children: [{ text: '' }] }],
+        },
+      ],
+      marks: null,
+      selection: {
+        anchor: { path: [0, 0, 0], offset: 0 },
+        focus: { path: [0, 0, 0], offset: 0 },
+      },
+    })
+
+    ;(
+      globalThis as typeof globalThis & {
+        __SLATE_REACT_RENDER_PROFILER__?: {
+          record: (event: { id: string; kind: string }) => void
+        }
+      }
+    ).__SLATE_REACT_RENDER_PROFILER__ = {
+      record: (event) => events.push(event),
+    }
+
+    try {
+      applyModelOwnedBeforeInputOperation({
+        command: {
+          inputType: 'insertText',
+          kind: 'insert-text',
+          text: 'a',
+        },
+        data: 'a',
+        deferredOperations: { current: [] },
+        editor: editor as ReactEditor,
+        inputType: 'insertText',
+        native: false,
+        selection: Editor.getSelection(editor),
+        setComposing: () => {},
+      })
+    } finally {
+      ;(
+        globalThis as typeof globalThis & {
+          __SLATE_REACT_RENDER_PROFILER__?: unknown
+        }
+      ).__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+    }
+
+    expect(Editor.string(editor, [])).toBe('a')
+    expect(
+      events.some((event) => event.id === 'model-text-input-read-marks')
+    ).toBe(false)
+    expect(
+      events.some(
+        (event) => event.id === 'model-text-input-insert-at-selection'
+      )
+    ).toBe(true)
+    expect(
+      events.some((event) => event.id === 'model-text-input-apply-command')
+    ).toBe(false)
+  })
+
+  it('does not use the direct collapsed insert path when empty marks clear a marked leaf', () => {
+    const editor = createEditor()
+    const selection = {
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    }
+    const events: { id: string; kind: string }[] = []
+    const previousProfiler = (
+      globalThis as typeof globalThis & {
+        __SLATE_REACT_RENDER_PROFILER__?: unknown
+      }
+    ).__SLATE_REACT_RENDER_PROFILER__
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Bold', bold: true }],
+        },
+      ],
+      marks: {},
+      selection,
+    })
+
+    ;(
+      globalThis as typeof globalThis & {
+        __SLATE_REACT_RENDER_PROFILER__?: {
+          record: (event: { id: string; kind: string }) => void
+        }
+      }
+    ).__SLATE_REACT_RENDER_PROFILER__ = {
+      record: (event) => events.push(event),
+    }
+
+    try {
+      applyModelOwnedBeforeInputOperation({
+        command: {
+          inputType: 'insertText',
+          kind: 'insert-text',
+          text: ' Plain',
+        },
+        data: ' Plain',
+        deferredOperations: { current: [] },
+        editor: editor as ReactEditor,
+        inputType: 'insertText',
+        native: false,
+        selection: Editor.getSelection(editor),
+        setComposing: () => {},
+      })
+    } finally {
+      ;(
+        globalThis as typeof globalThis & {
+          __SLATE_REACT_RENDER_PROFILER__?: unknown
+        }
+      ).__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+    }
+
+    expect(Editor.getChildren(editor)).toEqual([
+      {
+        type: 'paragraph',
+        children: [{ text: 'Bold', bold: true }, { text: ' Plain' }],
+      },
+    ])
+    expect(
+      events.some(
+        (event) => event.id === 'model-text-input-insert-at-selection'
+      )
+    ).toBe(false)
+    expect(
+      events.some((event) => event.id === 'model-text-input-apply-command')
+    ).toBe(true)
+  })
+
   it('replaces expanded beforeinput target ranges with typed text', () => {
     const editor = createEditor()
     const selection = {

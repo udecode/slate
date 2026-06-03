@@ -1088,6 +1088,26 @@ test('model-owned keydown boundaries flush deferred native text repair', () => {
   expect(
     shouldFlushPendingNativeTextInputForKeyDown(
       createKeyDownDecision({
+        intent: 'insert-break',
+        ownership: 'model-owned',
+        shouldForceDOMImport: false,
+      }),
+      createKeyDownEvent({ key: 'Enter' })
+    )
+  ).toBe(true)
+  expect(
+    shouldFlushPendingNativeTextInputForKeyDown(
+      createKeyDownDecision({
+        intent: 'delete',
+        ownership: 'model-owned',
+        shouldForceDOMImport: false,
+      }),
+      createKeyDownEvent({ key: 'Backspace' })
+    )
+  ).toBe(true)
+  expect(
+    shouldFlushPendingNativeTextInputForKeyDown(
+      createKeyDownDecision({
         intent: 'native-selection-move',
         nativeAllowed: true,
         ownership: 'native-allowed',

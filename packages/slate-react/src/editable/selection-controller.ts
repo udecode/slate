@@ -2,6 +2,7 @@ import type { RefObject } from 'react'
 import {
   type Descendant,
   NodeApi,
+  type Path,
   PathApi,
   type Point,
   PointApi,
@@ -108,6 +109,16 @@ type ProjectedDOMSelectionEndpoint = {
 const getDOMElementForNode = (node: globalThis.Node | null) =>
   isDOMElement(node) ? node : isDOMText(node) ? node.parentElement : null
 
+const parseContentRootOwnerPath = (value: string | null): Path | null => {
+  if (!value) {
+    return null
+  }
+
+  const path = value.split(',').map((part) => Number.parseInt(part, 10))
+
+  return path.every(Number.isFinite) ? (path as Path) : null
+}
+
 const getDOMEditorElementForNode = (
   node: globalThis.Node | null
 ): HTMLElement | null => {
@@ -143,16 +154,28 @@ const getContentRootOwnerFromDOMEndpoint = ({
 
   const element = getDOMElementForNode(node)
   const slotElement = element?.closest('[data-slate-content-root-slot]')
+  const slotOwnerPath =
+    slotElement instanceof HTMLElement
+      ? parseContentRootOwnerPath(
+          slotElement.getAttribute('data-slate-content-root-owner-path')
+        )
+      : null
+  const slotOwnerRoot =
+    slotElement instanceof HTMLElement
+      ? slotElement.getAttribute('data-slate-content-root-owner-root')
+      : null
   const ownerElement = slotElement?.parentElement?.closest(
     '[data-slate-node="element"][data-slate-path]'
   )
   const ownerEditorElement = ownerElement?.closest('[data-slate-editor="true"]')
   const ownerPath =
-    ownerElement instanceof HTMLElement
+    slotOwnerPath ??
+    (ownerElement instanceof HTMLElement
       ? getSlateNodePathFromDOMElement(ownerElement)
-      : null
-  const ownerRoot =
-    ownerEditorElement?.getAttribute('data-slate-root') ?? MAIN_ROOT_KEY
+      : null)
+  const ownerRoot = (slotOwnerRoot ??
+    ownerEditorElement?.getAttribute('data-slate-root') ??
+    MAIN_ROOT_KEY) as RootKey
 
   return ownerPath
     ? {
@@ -468,6 +491,67 @@ const shouldKeepFullDocumentSelectionModelBacked = ({
   )
 }
 
+export type EditableDOMSelectionSyncOptions = {
+  preserveScroll?: boolean
+}
+
+const getComposedParentElement = (element: HTMLElement) => {
+  if (element.parentElement) {
+    return element.parentElement
+  }
+
+  const window = element.ownerDocument.defaultView
+
+  if (!window) {
+    return null
+  }
+
+  const ShadowRootConstructor = window.ShadowRoot
+  const root = element.getRootNode()
+
+  if (ShadowRootConstructor && root instanceof ShadowRootConstructor) {
+    const { host } = root
+
+    return host instanceof window.HTMLElement ? host : null
+  }
+
+  return null
+}
+
+const captureScrollOffsets = (startElement: HTMLElement) => {
+  const elements: Array<{
+    element: HTMLElement
+    scrollLeft: number
+    scrollTop: number
+  }> = []
+
+  for (
+    let element: HTMLElement | null = startElement;
+    element;
+    element = getComposedParentElement(element)
+  ) {
+    elements.push({
+      element,
+      scrollLeft: element.scrollLeft,
+      scrollTop: element.scrollTop,
+    })
+  }
+
+  const window = startElement.ownerDocument.defaultView
+  const scrollingElement = startElement.ownerDocument.scrollingElement
+
+  return () => {
+    for (const { element, scrollLeft, scrollTop } of elements) {
+      element.scrollLeft = scrollLeft
+      element.scrollTop = scrollTop
+    }
+
+    if (window && scrollingElement) {
+      window.scrollTo(scrollingElement.scrollLeft, scrollingElement.scrollTop)
+    }
+  }
+}
+
 const collapseNativeSelectionForViewSelection = ({
   domSelection,
   editor,
@@ -507,6 +591,21 @@ const collapseNativeSelectionForViewSelection = ({
       state.isUpdatingSelection = false
     })
   }
+}
+
+const restoreScrollOffsets = (
+  restoreScroll: (() => void) | null,
+  editorElement: HTMLElement
+) => {
+  if (!restoreScroll) {
+    return
+  }
+
+  restoreScroll()
+  queueMicrotask(restoreScroll)
+  editorElement.ownerDocument.defaultView?.requestAnimationFrame(() => {
+    restoreScroll()
+  })
 }
 
 export const syncEditorSelectionFromDOM = ({
@@ -1011,6 +1110,15 @@ export const applyEditableDOMSelectionChange = ({
         exactMatch: false,
       })
     : null
+  const anchorElement = isDOMText(anchorNode)
+    ? anchorNode.parentElement
+    : isDOMElement(anchorNode)
+      ? anchorNode
+      : null
+  const projectedTextSelection =
+    anchorElement
+      ?.closest('[data-slate-node="text"]')
+      ?.getAttribute('data-slate-dom-sync-reason') === 'projection'
   const selectionChangeOrigin = state.selectionChangeOrigin ?? 'native-user'
   const pendingNativeTextInputRepairPathKey =
     state.pendingNativeTextInputRepairPathKey ?? null
@@ -1026,6 +1134,16 @@ export const applyEditableDOMSelectionChange = ({
   if (
     state.selectionSource === 'partial-dom-backed' &&
     isEditableModelSelectionPreferred(inputController)
+  ) {
+    return
+  }
+
+  if (
+    selectionChangeOrigin === 'native-user' &&
+    projectedTextSelection &&
+    RangeApi.isRange(range) &&
+    RangeApi.isCollapsed(range) &&
+    (state.modelOwnedTextInputGuard ?? 0) > 0
   ) {
     return
   }
@@ -1138,11 +1256,13 @@ export const applyEditableDOMSelectionChange = ({
 
 export const syncEditableDOMSelectionToEditor = ({
   editor,
+  options,
   scrollSelectionIntoView,
   partialDOMBackedSelection,
   state,
 }: {
   editor: ReactRuntimeEditor
+  options?: EditableDOMSelectionSyncOptions
   scrollSelectionIntoView: (
     editor: ReactRuntimeEditor,
     domRange: DOMRange
@@ -1191,13 +1311,21 @@ export const syncEditableDOMSelectionToEditor = ({
       return
     }
 
+    const preserveScroll =
+      options?.preserveScroll || shouldSkipSelectionScroll(editor)
+
     if (readSlateViewSelection(editor)) {
+      const restoreScroll = preserveScroll
+        ? captureScrollOffsets(editorElement)
+        : null
+
       collapseNativeSelectionForViewSelection({
         domSelection,
         editor,
         selection,
         state,
       })
+      restoreScrollOffsets(restoreScroll, editorElement)
       return
     }
 
@@ -1249,6 +1377,10 @@ export const syncEditableDOMSelectionToEditor = ({
     state.selectionChangeOrigin = 'programmatic-export'
 
     try {
+      const restoreScroll = preserveScroll
+        ? captureScrollOffsets(editorElement)
+        : null
+
       if (RangeApi.isBackward(selection)) {
         domSelection.setBaseAndExtent(
           domRange.endContainer,
@@ -1265,7 +1397,9 @@ export const syncEditableDOMSelectionToEditor = ({
         )
       }
 
-      if (!shouldSkipSelectionScroll(editor)) {
+      restoreScrollOffsets(restoreScroll, editorElement)
+
+      if (!preserveScroll) {
         scrollSelectionIntoView(editor, domRange)
       }
     } finally {

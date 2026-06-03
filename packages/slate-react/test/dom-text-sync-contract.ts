@@ -18,6 +18,14 @@ test('DOM text sync capability names opt-out reasons', () => {
   expect(
     getDOMTextSyncCapability({
       hasText: true,
+      projections: [{ key: 'p' } as any],
+      textSync: { projections: 'range-transform' },
+    })
+  ).toEqual({ enabled: false, reason: 'projection' })
+
+  expect(
+    getDOMTextSyncCapability({
+      hasText: true,
       projections: [],
       renderLeaf: () => null,
     })

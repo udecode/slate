@@ -42,6 +42,7 @@ import { applyDOMCoverageSelectionPolicy } from './dom-coverage-selection'
 import { getInputEventTargetRanges } from './dom-input-event'
 import { createFastDOMSelectionRange } from './fast-dom-selection-range'
 import {
+  type EditableDOMSelectionSyncOptions,
   type EditableInputController,
   executeEditableSelectionExport,
   isEditableOutsideFocusBoundarySettling,
@@ -689,14 +690,30 @@ export const syncSelectionForBeforeInput = ({
 } => {
   let nextNative = native
   let nextSelection = selection
-  const shouldPreferModelSelectionForInput =
-    preferModelSelectionForInput || forceModelOwnedTextInput
-  if (type === 'insertText' && forceModelOwnedTextInput) {
-    nextNative = false
-  }
   const domSelection = getSelection(root)
   const domSelectionAnchorNode = domSelection?.anchorNode ?? null
   const domSelectionFocusNode = domSelection?.focusNode ?? null
+  const domSelectionAnchorElement = isDOMText(domSelectionAnchorNode)
+    ? domSelectionAnchorNode.parentElement
+    : isDOMElement(domSelectionAnchorNode)
+      ? domSelectionAnchorNode
+      : null
+  const domSelectionTextHost =
+    domSelectionAnchorElement?.closest('[data-slate-node="text"]') ?? null
+  const domSelectionUsesProjectedTextHost =
+    type === 'insertText' &&
+    domSelectionTextHost?.getAttribute('data-slate-dom-sync-reason') ===
+      'projection'
+  const shouldPreferModelSelectionForInput =
+    preferModelSelectionForInput ||
+    forceModelOwnedTextInput ||
+    domSelectionUsesProjectedTextHost
+  if (
+    type === 'insertText' &&
+    (forceModelOwnedTextInput || domSelectionUsesProjectedTextHost)
+  ) {
+    nextNative = false
+  }
   const domSelectionBelongsToEditor =
     !domSelection ||
     domSelection.rangeCount === 0 ||
@@ -1293,19 +1310,23 @@ export const useEditableSelectionReconciler = ({
     }
   })
 
-  const syncDOMSelectionToEditor = useCallback(() => {
-    executeEditableSelectionExport({
-      exportSelection: () => {
-        syncEditableDOMSelectionToEditor({
-          editor,
-          scrollSelectionIntoView,
-          partialDOMBackedSelection,
-          state,
-        })
-      },
-      selectionPolicy: { kind: 'export-model', reason: 'model-owned' },
-    })
-  }, [editor, scrollSelectionIntoView, partialDOMBackedSelection, state])
+  const syncDOMSelectionToEditor = useCallback(
+    (options?: EditableDOMSelectionSyncOptions) => {
+      executeEditableSelectionExport({
+        exportSelection: () => {
+          syncEditableDOMSelectionToEditor({
+            editor,
+            options,
+            scrollSelectionIntoView,
+            partialDOMBackedSelection,
+            state,
+          })
+        },
+        selectionPolicy: { kind: 'export-model', reason: 'model-owned' },
+      })
+    },
+    [editor, scrollSelectionIntoView, partialDOMBackedSelection, state]
+  )
 
   return { syncDOMSelectionToEditor }
 }

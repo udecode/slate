@@ -31,6 +31,7 @@ import {
   pretextPageLayoutEngine,
   type SlateNodeLayoutProvider,
   type SlatePageLayoutDecorationRects,
+  type SlatePageLayoutTextChangeRefresh,
   type SlatePageLayoutTypography,
   type SlatePageRect,
   type SlatePageSettings,
@@ -39,7 +40,7 @@ import {
   PagedEditable,
   type SlateLayoutRenderedFragment,
   useSlateLayout,
-  useSlateLayoutFragments,
+  useSlateLayoutFragmentsAtPath,
   useSlateLayoutSnapshot,
 } from 'slate-layout/react'
 import {
@@ -49,6 +50,7 @@ import {
   type RenderElementProps,
   type RenderLeafProps,
   Slate,
+  useDOMStrategyVirtualOffset,
   useEditor,
   useEditorState,
   useElementPath,
@@ -845,8 +847,13 @@ const createInitialValue = ({
   ...createRichMarkdownValue({ stressPages, tableRows }),
 ]
 
+type PaginationLineDecoration = SlatePageLayoutDecorationRects & {
+  breakAfter?: boolean
+  nativeFlow?: boolean
+}
+
 type PaginationLineDecorationData = {
-  paginationLine?: SlatePageLayoutDecorationRects
+  paginationLine?: PaginationLineDecoration
 }
 
 const flowProjectedTypes = new Set(['image', 'table', 'thematic-break'])
@@ -1026,11 +1033,13 @@ const getProjectedStyle = ({
   debugFrames,
   flowElement,
   usesVirtualizedLayout,
+  virtualOffsetTop,
 }: {
   box: SlatePageRect
   debugFrames: boolean
   flowElement: boolean
   usesVirtualizedLayout: boolean
+  virtualOffsetTop: number
 }): CSSProperties => ({
   boxSizing: 'border-box',
   caretColor: '#111827',
@@ -1041,7 +1050,7 @@ const getProjectedStyle = ({
   outline: debugFrames ? '1px dotted rgba(239, 68, 68, 0.55)' : undefined,
   overflow: 'visible',
   position: 'absolute',
-  top: usesVirtualizedLayout ? 0 : box.top,
+  top: usesVirtualizedLayout ? box.top - virtualOffsetTop : box.top,
   width: Math.max(1, box.width),
 })
 
@@ -1055,7 +1064,8 @@ const PaginationElement = (props: PaginationElementProps) => {
     usesVirtualizedLayout,
   } = props
   const path = useElementPath()
-  const fragments = useSlateLayoutFragments()
+  const virtualOffsetTop = useDOMStrategyVirtualOffset()
+  const fragments = useSlateLayoutFragmentsAtPath(path)
   const tableLayout = useContext(PaginationTableLayoutContext)
   const elementType = element.type
   const box = getFragmentBounds(fragments)
@@ -1146,6 +1156,7 @@ const PaginationElement = (props: PaginationElementProps) => {
     debugFrames,
     flowElement,
     usesVirtualizedLayout,
+    virtualOffsetTop,
   })
 
   if (elementType === 'table') {
@@ -1311,6 +1322,21 @@ const renderPaginationLeaf = ({
     return (
       <span {...attributes} style={getPaginationLeafStyle(segment.marks)}>
         {children}
+      </span>
+    )
+  }
+
+  if (line.nativeFlow) {
+    return (
+      <span
+        {...attributes}
+        style={{
+          ...getPaginationLeafStyle(segment.marks),
+          whiteSpace: 'pre',
+        }}
+      >
+        {children}
+        {line.breakAfter ? <br data-pagination-native-flow-break /> : null}
       </span>
     )
   }
@@ -1527,7 +1553,35 @@ const PaginationSurface = ({
             .map((index) => getSlatePageLayoutPathKey([index]))
             .join('|')
     },
-    { deps: [domStrategyMode] }
+    {
+      deps: [domStrategyMode],
+      shouldUpdate: (change) => {
+        if (domStrategyMode !== 'virtualized') {
+          return false
+        }
+        if (!change) {
+          return true
+        }
+        if (
+          change.fullDocumentChanged ||
+          change.rootRuntimeIdsChanged ||
+          change.structureChanged ||
+          change.topLevelOrderChanged
+        ) {
+          return true
+        }
+        if (!change.selectionChanged) {
+          return false
+        }
+
+        const beforeAnchor = change.selectionBefore?.anchor.path[0]
+        const beforeFocus = change.selectionBefore?.focus.path[0]
+        const afterAnchor = change.selectionAfter?.anchor.path[0]
+        const afterFocus = change.selectionAfter?.focus.path[0]
+
+        return beforeAnchor !== afterAnchor || beforeFocus !== afterFocus
+      },
+    }
   )
   const typography = useMemo(
     () =>
@@ -1560,28 +1614,23 @@ const PaginationSurface = ({
       }) satisfies SlatePageLayoutTypography,
     []
   )
-  const activeFlowBlockPathKeys = useMemo(
-    () =>
-      new Set(
-        (activeFlowBlockKey?.split('|') ?? []).filter(
-          (pathKey) => pathKey.length > 0
-        )
-      ),
-    [activeFlowBlockKey]
-  )
   const layoutEngine = useMemo(
     () =>
       pretextPageLayoutEngine({
         estimateBlock:
           domStrategyMode === 'virtualized'
             ? ({ block }) =>
-                block.element.paginationFixture === richMarkdownStressFixture &&
-                !activeFlowBlockPathKeys.has(
-                  getSlatePageLayoutPathKey(block.path)
-                )
+                block.element.paginationFixture === richMarkdownStressFixture
             : undefined,
       }),
-    [activeFlowBlockPathKeys, domStrategyMode]
+    [domStrategyMode]
+  )
+  const textChangeRefresh = useMemo<SlatePageLayoutTextChangeRefresh>(
+    () =>
+      domStrategyMode === 'virtualized'
+        ? { delayMs: 120, maxDelayMs: 360, mode: 'deferred' }
+        : 'deferred',
+    [domStrategyMode]
   )
   const applyTableRows = useCallback(
     (nextTableRows: number) => {
@@ -1760,7 +1809,7 @@ const PaginationSurface = ({
     nodeLayout,
     page: pageSettings,
     root: 'main',
-    textChangeRefresh: 'deferred',
+    textChangeRefresh,
     typography,
   })
   const snapshot = useSlateLayoutSnapshot(layout)
@@ -1803,7 +1852,7 @@ const PaginationSurface = ({
         string,
         ReturnType<EditableDecorate<PaginationLineDecorationData>>
       >(),
-    [activeFlowBlockPaths, layout, pageGeometry, snapshot]
+    [layout, pageGeometry, snapshot]
   )
   const availableWidth = Math.max(
     0,
@@ -1819,13 +1868,19 @@ const PaginationSurface = ({
         ? {
             estimatedBlockSize: 48,
             overscan: pageOverscan,
-            textSync: { renderLeaf: 'text-invariant' },
+            textSync: {
+              projections: 'range-transform',
+              renderLeaf: 'text-invariant',
+            },
             threshold: 1,
             type: 'virtualized',
           }
         : domStrategyMode === 'staged'
           ? {
-              textSync: { renderLeaf: 'text-invariant' },
+              textSync: {
+                projections: 'range-transform',
+                renderLeaf: 'text-invariant',
+              },
               type: 'staged',
             }
           : domStrategyMode,
@@ -1860,17 +1915,21 @@ const PaginationSurface = ({
       }
 
       const pathKey = getSlatePageLayoutPathKey(path)
-      const cached = paginationDecorationCache.get(pathKey)
+      const blockPath = path.slice(0, -1)
+      const activeFlow = activeFlowBlockPaths.has(
+        getSlatePageLayoutPathKey(blockPath)
+      )
+      const cacheKey = activeFlow ? `${pathKey}:native` : `${pathKey}:projected`
+      const cached = paginationDecorationCache.get(cacheKey)
 
       if (cached) {
         return cached
       }
 
-      const blockPath = path.slice(0, -1)
       const blockFragments = layout.getFragments(blockPath)
 
       if (blockFragments.length === 0) {
-        paginationDecorationCache.set(pathKey, [])
+        paginationDecorationCache.set(cacheKey, [])
         return []
       }
 
@@ -1885,20 +1944,33 @@ const PaginationSurface = ({
         getSlatePageLayoutDecorations<PaginationLineDecorationData>(
           pathProjection,
           {
-            data: ({ rects }) => ({ paginationLine: rects }),
+            data: ({ block, line, rects, run }) => {
+              const nativeFlow =
+                block &&
+                activeFlowBlockPaths.has(getSlatePageLayoutPathKey(block.path))
+              const blockTextLength =
+                snapshot.blocks[line.blockIndex]?.text.length ?? line.end
+
+              return {
+                paginationLine: {
+                  ...rects,
+                  breakAfter:
+                    nativeFlow &&
+                    run.range.end >= line.end &&
+                    line.end < blockTextLength,
+                  nativeFlow,
+                },
+              }
+            },
             filter: ({ block, line }) =>
               !isFlowProjectedType(
                 snapshot.blocks[line.blockIndex]?.element.type
-              ) &&
-              !(
-                block &&
-                activeFlowBlockPaths.has(getSlatePageLayoutPathKey(block.path))
               ),
             rects: 'block',
           }
         ).get(pathKey) ?? []
 
-      paginationDecorationCache.set(pathKey, decorations)
+      paginationDecorationCache.set(cacheKey, decorations)
 
       return decorations
     },
@@ -1937,7 +2009,11 @@ const PaginationSurface = ({
       />
       <div className="slate-pagination-title-row">
         <div className="slate-pagination-title">Untitled document</div>
-        <div className="slate-pagination-meta">
+        <div
+          className="slate-pagination-meta"
+          data-layout-compose-count={metrics.composeCount}
+          data-layout-compose-ms={metrics.lastDurationMs.toFixed(1)}
+        >
           pages {snapshot.pages.length} | rows {tableRows} x {tableRowHeight}px
           | table pages {tablePageCount} | stress pages{' '}
           {effectiveStressPageCount} | page overscan {pageOverscan} | visible

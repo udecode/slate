@@ -426,7 +426,16 @@ export type SlateLayoutOptions<
   typography?: SlatePageLayoutTypography
 }
 
-export type SlatePageLayoutTextChangeRefresh = 'sync' | 'deferred'
+export type SlatePageLayoutDeferredTextChangeRefresh = {
+  delayMs?: number
+  maxDelayMs?: number
+  mode: 'deferred'
+}
+
+export type SlatePageLayoutTextChangeRefresh =
+  | 'sync'
+  | 'deferred'
+  | SlatePageLayoutDeferredTextChangeRefresh
 
 export type SlatePageLayoutOptions<
   TSettings extends SlatePageSettings = SlatePageSettings,
@@ -494,8 +503,82 @@ const DEFAULT_MEASUREMENT_PROFILE: SlatePageLayoutMeasurementProfile = {
 const TEXT_CHANGE_REFRESH_DELAY_MS = 40
 const TEXT_CHANGE_REFRESH_MAX_DELAY_MS = 80
 
+const normalizeRefreshDelay = (value: number | undefined, fallback: number) =>
+  typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, value)
+    : fallback
+
+const getTextChangeRefreshOptions = (
+  refresh: SlatePageLayoutTextChangeRefresh | undefined
+):
+  | {
+      delayMs: number
+      maxDelayMs: number
+      mode: 'deferred'
+    }
+  | {
+      mode: 'sync'
+    } => {
+  if (refresh === 'deferred') {
+    return {
+      delayMs: TEXT_CHANGE_REFRESH_DELAY_MS,
+      maxDelayMs: TEXT_CHANGE_REFRESH_MAX_DELAY_MS,
+      mode: 'deferred',
+    }
+  }
+
+  if (refresh && typeof refresh === 'object' && refresh.mode === 'deferred') {
+    const delayMs = normalizeRefreshDelay(
+      refresh.delayMs,
+      TEXT_CHANGE_REFRESH_DELAY_MS
+    )
+    const maxDelayMs = normalizeRefreshDelay(
+      refresh.maxDelayMs,
+      Math.max(delayMs, TEXT_CHANGE_REFRESH_MAX_DELAY_MS)
+    )
+
+    return {
+      delayMs,
+      maxDelayMs: Math.max(delayMs, maxDelayMs),
+      mode: 'deferred',
+    }
+  }
+
+  return { mode: 'sync' }
+}
+
 const getNow = () =>
   typeof performance === 'undefined' ? Date.now() : performance.now()
+
+const profileLayoutDuration = <T>(id: string, callback: () => T): T => {
+  const profiler = (
+    globalThis as typeof globalThis & {
+      __SLATE_REACT_RENDER_PROFILER__?: {
+        record?: (event: {
+          duration: number
+          id: string
+          kind: 'layout-time'
+        }) => void
+      }
+    }
+  ).__SLATE_REACT_RENDER_PROFILER__
+
+  if (!profiler) {
+    return callback()
+  }
+
+  const start = getNow()
+
+  try {
+    return callback()
+  } finally {
+    profiler.record?.({
+      duration: getNow() - start,
+      id,
+      kind: 'layout-time',
+    })
+  }
+}
 
 const isElement = (node: Descendant): node is Element => !NodeApi.isText(node)
 
@@ -801,9 +884,6 @@ const compareLayoutPaths = (left: Path, right: Path): number => {
 
   return left.length < right.length ? -1 : 1
 }
-
-const isSameLayoutPath = (left: Path, right: Path) =>
-  compareLayoutPaths(left, right) === 0
 
 const compareLayoutPoints = (left: Point, right: Point): number => {
   const pathComparison = compareLayoutPaths(left.path, right.path)
@@ -1550,7 +1630,7 @@ const extractLayoutBlocks = (
   typography: SlatePageLayoutTypography | undefined,
   nodeLayout: SlateNodeLayoutProvider | undefined
 ): SlatePageLayoutBlock[] => {
-  const children = editor.read((state) => state.value.get().roots[root] ?? [])
+  const children = editor.read((state) => state.value.root(root))
 
   return children.flatMap((node: Descendant, index: number) => {
     if (!isElement(node)) {
@@ -1654,37 +1734,144 @@ const createEmptyLayoutSnapshot = (
   }
 }
 
-const isLayoutPathWithin = (path: Path, ancestor: Path) =>
-  ancestor.length <= path.length &&
-  ancestor.every((segment, index) => path[index] === segment)
+type SlatePageLayoutFragmentUnitMatch = {
+  fragment: SlatePageLayoutFragment
+  unit: SlatePageLayoutUnit
+}
+
+type SlatePageLayoutFragmentIndex = {
+  exactFragments: Map<string, readonly SlatePageLayoutFragment[]>
+  unitsByAncestorPath: Map<string, readonly SlatePageLayoutFragmentUnitMatch[]>
+  unitsByPath: Map<string, readonly SlatePageLayoutFragmentUnitMatch[]>
+}
+
+const SNAPSHOT_FRAGMENT_INDEX = new WeakMap<
+  SlatePageLayoutSnapshot,
+  SlatePageLayoutFragmentIndex
+>()
+
+const appendFragmentIndexValue = <T>(
+  map: Map<string, T[]>,
+  key: string,
+  value: T
+) => {
+  const values = map.get(key)
+
+  if (values) {
+    values.push(value)
+  } else {
+    map.set(key, [value])
+  }
+}
+
+const getSlatePageLayoutFragmentIndex = (
+  snapshot: SlatePageLayoutSnapshot
+): SlatePageLayoutFragmentIndex => {
+  const cached = SNAPSHOT_FRAGMENT_INDEX.get(snapshot)
+
+  if (cached) {
+    return cached
+  }
+
+  const exactFragments = new Map<string, SlatePageLayoutFragment[]>()
+  const unitsByAncestorPath = new Map<
+    string,
+    SlatePageLayoutFragmentUnitMatch[]
+  >()
+  const unitsByPath = new Map<string, SlatePageLayoutFragmentUnitMatch[]>()
+
+  for (const fragment of snapshot.fragments) {
+    appendFragmentIndexValue(
+      exactFragments,
+      getSlatePageLayoutPathKey(fragment.path),
+      fragment
+    )
+
+    for (const unit of fragment.units ?? []) {
+      const match = { fragment, unit }
+      const unitPathKey = getSlatePageLayoutPathKey(unit.path)
+
+      appendFragmentIndexValue(unitsByPath, unitPathKey, match)
+
+      for (let index = 0; index <= unit.path.length; index++) {
+        appendFragmentIndexValue(
+          unitsByAncestorPath,
+          getSlatePageLayoutPathKey(unit.path.slice(0, index)),
+          match
+        )
+      }
+    }
+  }
+
+  const index = {
+    exactFragments,
+    unitsByAncestorPath,
+    unitsByPath,
+  }
+
+  SNAPSHOT_FRAGMENT_INDEX.set(snapshot, index)
+  return index
+}
+
+const addFragmentUnitMatches = (
+  target: Map<string, SlatePageLayoutFragmentUnitMatch>,
+  matches: readonly SlatePageLayoutFragmentUnitMatch[] | undefined
+) => {
+  if (!matches) {
+    return
+  }
+
+  for (const match of matches) {
+    target.set(`${match.fragment.id}:${match.unit.key}`, match)
+  }
+}
+
+const getAncestorPathKeys = (path: Path) => {
+  const keys: string[] = []
+
+  for (let index = path.length; index >= 0; index--) {
+    keys.push(getSlatePageLayoutPathKey(path.slice(0, index)))
+  }
+
+  return keys
+}
 
 export const getSlatePageLayoutFragments = (
   snapshot: SlatePageLayoutSnapshot,
   path: Path
-): readonly SlatePageLayoutFragment[] =>
-  snapshot.fragments.flatMap((fragment) => {
-    if (isSameLayoutPath(fragment.path, path)) {
-      return [fragment]
-    }
+): readonly SlatePageLayoutFragment[] => {
+  const index = getSlatePageLayoutFragmentIndex(snapshot)
+  const pathKey = getSlatePageLayoutPathKey(path)
+  const exactFragments = index.exactFragments.get(pathKey)
 
-    const units = fragment.units?.filter(
-      (unit) =>
-        isSameLayoutPath(unit.path, path) ||
-        isLayoutPathWithin(path, unit.path) ||
-        isLayoutPathWithin(unit.path, path)
-    )
+  if (exactFragments) {
+    return exactFragments
+  }
 
-    if (!units?.length) {
-      return []
-    }
+  const matchedUnits = new Map<string, SlatePageLayoutFragmentUnitMatch>()
 
-    return [
-      {
-        ...fragment,
-        units,
-      },
-    ]
-  })
+  for (const ancestorPathKey of getAncestorPathKeys(path)) {
+    addFragmentUnitMatches(matchedUnits, index.unitsByPath.get(ancestorPathKey))
+  }
+  addFragmentUnitMatches(matchedUnits, index.unitsByAncestorPath.get(pathKey))
+
+  if (matchedUnits.size === 0) {
+    return []
+  }
+
+  const unitsByFragment = new Map<string, SlatePageLayoutUnit[]>()
+  const fragmentsById = new Map<string, SlatePageLayoutFragment>()
+
+  for (const { fragment, unit } of matchedUnits.values()) {
+    fragmentsById.set(fragment.id, fragment)
+    appendFragmentIndexValue(unitsByFragment, fragment.id, unit)
+  }
+
+  return [...fragmentsById.values()].map((fragment) => ({
+    ...fragment,
+    units: unitsByFragment.get(fragment.id) ?? [],
+  }))
+}
 
 const readLayoutRoot = <TSettings extends SlatePageSettings>(
   editor: SlateEditor<Value>,
@@ -1860,12 +2047,24 @@ const estimateSlatePageLayoutMeasuredBlock = (
   }
 }
 
+const createUnitSlatePageLayoutMeasuredBlock = (
+  block: SlatePageLayoutBlock,
+  blockIndex: number
+): SlatePageLayoutMeasuredBlock => ({
+  ...block,
+  blockIndex,
+  lineCount: 0,
+  lines: [],
+})
+
 export const createEstimatedPageLayoutEngine = (): SlatePageLayoutEngine => ({
   id: 'estimated',
   measurementProfile: { strategy: 'estimated' },
   compose(input) {
     const measuredBlocks = input.blocks.map((block, blockIndex) =>
-      estimateSlatePageLayoutMeasuredBlock(block, blockIndex, input.page)
+      block.units?.length
+        ? createUnitSlatePageLayoutMeasuredBlock(block, blockIndex)
+        : estimateSlatePageLayoutMeasuredBlock(block, blockIndex, input.page)
     )
 
     return paginateSlatePageLayoutBlocks({
@@ -1887,33 +2086,78 @@ const getPretextPreparedKey = (
 
 const getPretextMeasuredBlockCacheKey = (
   block: SlatePageLayoutBlock,
-  pageContentWidth: number
+  pageContentWidth: number,
+  getTextKey: (text: string) => string = getStableHashKey
 ) =>
   getStableHashKey({
     boxes: block.boxes?.map((box) => ({
       kind: box.kind,
-      path: box.path,
       rect: box.rect,
       split: box.split,
     })),
     lineHeight: block.lineHeight,
     pageContentWidth,
-    path: block.path,
     runs: block.runs?.map((run) => ({
-      path: run.path,
       range: run.range,
       textStyle: run.textStyle,
     })),
     spacingAfter: block.spacingAfter,
+    textKey: getTextKey(block.text),
     textStyle: block.textStyle,
     units: block.units?.map((unit) => ({
       key: unit.key,
       kind: unit.kind,
-      path: unit.path,
       rect: unit.rect,
       split: unit.split,
     })),
   })
+
+const remapPretextMeasuredRun = (
+  run: SlatePageLayoutPlacedRun,
+  block: SlatePageLayoutBlock,
+  measuredBlock: SlatePageLayoutMeasuredBlock
+): SlatePageLayoutPlacedRun => {
+  const runPath = (run as SlatePageLayoutPlacedRun & { path?: Path }).path
+  const matchingRun = block.runs?.find(
+    (blockRun) =>
+      Array.isArray(blockRun.path) &&
+      blockRun.range.start <= run.range.start &&
+      blockRun.range.end >= run.range.end
+  )
+  const path = runPath
+    ? measuredBlock.path.length <= runPath.length
+      ? [...block.path, ...runPath.slice(measuredBlock.path.length)]
+      : [...runPath]
+    : matchingRun
+      ? [...matchingRun.path]
+      : [...block.path, 0]
+
+  return {
+    ...run,
+    id: getRunId(path, run.range.start, run.range.end),
+    path,
+  }
+}
+
+const remapPretextMeasuredBlock = ({
+  block,
+  blockIndex,
+  measuredBlock,
+}: {
+  block: SlatePageLayoutBlock
+  blockIndex: number
+  measuredBlock: SlatePageLayoutMeasuredBlock
+}): SlatePageLayoutMeasuredBlock => ({
+  ...block,
+  blockIndex,
+  lineCount: measuredBlock.lineCount,
+  lines: measuredBlock.lines?.map((line) => ({
+    ...line,
+    runs: line.runs?.map((run) =>
+      remapPretextMeasuredRun(run, block, measuredBlock)
+    ),
+  })),
+})
 
 const COLLAPSIBLE_BOUNDARY_RE = /[ \t\n\f\r]+/
 const LEADING_COLLAPSIBLE_BOUNDARY_RE = /^[ \t\n\f\r]+/
@@ -1942,6 +2186,7 @@ export const pretextPageLayoutEngine = ({
       text: string
     }
   >()
+  const textKeyCache = new Map<string, string>()
 
   const getPrepared = (
     text: string,
@@ -1977,6 +2222,27 @@ export const pretextPageLayoutEngine = ({
     }
 
     return prepared
+  }
+
+  const getTextKey = (text: string) => {
+    const cached = textKeyCache.get(text)
+
+    if (cached) {
+      return cached
+    }
+
+    const key = getStableHashKey(text)
+    textKeyCache.set(text, key)
+
+    if (textKeyCache.size > maxPreparedEntries) {
+      const [oldestKey] = textKeyCache.keys()
+
+      if (oldestKey) {
+        textKeyCache.delete(oldestKey)
+      }
+    }
+
+    return key
   }
 
   const measureInlineText = (
@@ -2245,6 +2511,25 @@ export const pretextPageLayoutEngine = ({
       wordBreak,
     },
     compose(input) {
+      let recordedCacheHit = false
+      let recordedCacheMiss = false
+      const recordCacheEvent = (
+        id: 'measured-block-cache-hit' | 'measured-block-cache-miss'
+      ) => {
+        if (id === 'measured-block-cache-hit') {
+          if (recordedCacheHit) {
+            return
+          }
+          recordedCacheHit = true
+        } else {
+          if (recordedCacheMiss) {
+            return
+          }
+          recordedCacheMiss = true
+        }
+
+        profileLayoutDuration(id, () => {})
+      }
       const measureBlock = (
         block: SlatePageLayoutBlock,
         blockIndex: number
@@ -2301,59 +2586,74 @@ export const pretextPageLayoutEngine = ({
         }
       }
 
-      const measuredBlocks = input.blocks.map((block, blockIndex) => {
-        if (
-          estimateBlock?.({
-            block,
-            blockIndex,
-            page: input.page,
-            settings: input.settings,
+      const measuredBlocks = profileLayoutDuration(
+        'pretext-measure-blocks',
+        () =>
+          input.blocks.map((block, blockIndex) => {
+            if (block.units?.length) {
+              return createUnitSlatePageLayoutMeasuredBlock(block, blockIndex)
+            }
+
+            if (
+              estimateBlock?.({
+                block,
+                blockIndex,
+                page: input.page,
+                settings: input.settings,
+              })
+            ) {
+              return estimateSlatePageLayoutMeasuredBlock(
+                block,
+                blockIndex,
+                input.page
+              )
+            }
+
+            const key = getPretextMeasuredBlockCacheKey(
+              block,
+              input.page.content.width,
+              getTextKey
+            )
+            const cached = measuredBlockCache.get(key)
+
+            if (cached && cached.text === block.text) {
+              recordCacheEvent('measured-block-cache-hit')
+              return remapPretextMeasuredBlock({
+                block,
+                blockIndex,
+                measuredBlock: cached.measuredBlock,
+              })
+            }
+
+            recordCacheEvent('measured-block-cache-miss')
+
+            const measuredBlock = measureBlock(block, blockIndex)
+
+            measuredBlockCache.set(key, {
+              measuredBlock,
+              text: block.text,
+            })
+
+            if (measuredBlockCache.size > maxPreparedEntries) {
+              const [oldestKey] = measuredBlockCache.keys()
+
+              if (oldestKey) {
+                measuredBlockCache.delete(oldestKey)
+              }
+            }
+
+            return measuredBlock
           })
-        ) {
-          return estimateSlatePageLayoutMeasuredBlock(
-            block,
-            blockIndex,
-            input.page
-          )
-        }
+      )
 
-        const key = getPretextMeasuredBlockCacheKey(
-          block,
-          input.page.content.width
-        )
-        const cached = measuredBlockCache.get(key)
-
-        if (cached && cached.text === block.text) {
-          return {
-            ...cached.measuredBlock,
-            blockIndex,
-          }
-        }
-
-        const measuredBlock = measureBlock(block, blockIndex)
-
-        measuredBlockCache.set(key, {
-          measuredBlock,
-          text: block.text,
+      return profileLayoutDuration('pretext-paginate-blocks', () =>
+        paginateSlatePageLayoutBlocks({
+          measuredBlocks,
+          page: input.page,
+          settings: input.settings,
+          version: input.version,
         })
-
-        if (measuredBlockCache.size > maxPreparedEntries) {
-          const [oldestKey] = measuredBlockCache.keys()
-
-          if (oldestKey) {
-            measuredBlockCache.delete(oldestKey)
-          }
-        }
-
-        return measuredBlock
-      })
-
-      return paginateSlatePageLayoutBlocks({
-        measuredBlocks,
-        page: input.page,
-        settings: input.settings,
-        version: input.version,
-      })
+      )
     },
   }
 }
@@ -2602,82 +2902,111 @@ export const createSlatePageLayout = <
 
     const startedAt = getNow()
     const options = getOptions()
-    const root = readLayoutRoot(editor, options)
-    const settings = readLayoutSettings(editor, options.page)
-    const page = createSlatePage(settings)
-    const version = editor.read((state) => state.runtime.snapshot().version)
-    const measurementProfile = createSlatePageLayoutMeasurementProfile({
-      engine: options.engine,
-      root,
-      settings,
-      typography: options.typography,
-    })
-    const blocks = extractLayoutBlocks(
-      editor,
-      root,
-      settings,
-      measurementProfile,
-      options.typography,
-      options.nodeLayout
+    const root = profileLayoutDuration('read-root', () =>
+      readLayoutRoot(editor, options)
     )
-    const output = options.engine.compose({
-      blocks,
-      page,
-      settings,
-      version,
-    })
-    let pageBreaks: SlatePageBreakSnapshot | null = null
-    let pageBreaksStatus: SlatePageBreakSnapshotStatus = 'none'
-    let pageBreakSnapshotToWrite: SlatePageBreakSnapshot | null = null
-    let pageBreakSnapshotWriteSource: EditorStateField<SlatePageBreakSnapshot | null> | null =
-      null
-
-    if (options.pageBreaks?.mode === 'read') {
-      const documentKey = getSlateLayoutDocumentKey(blocks)
-      const readSnapshot = readSlatePageBreakSnapshot(
+    const settings = profileLayoutDuration('read-settings', () =>
+      readLayoutSettings(editor, options.page)
+    )
+    const page = createSlatePage(settings)
+    const version = profileLayoutDuration('read-version', () =>
+      editor.read(
+        (state) =>
+          state.value.lastCommit()?.version ?? state.runtime.snapshot().version
+      )
+    )
+    const measurementProfile = profileLayoutDuration(
+      'measurement-profile',
+      () =>
+        createSlatePageLayoutMeasurementProfile({
+          engine: options.engine,
+          root,
+          settings,
+          typography: options.typography,
+        })
+    )
+    const blocks = profileLayoutDuration('extract-blocks', () =>
+      extractLayoutBlocks(
         editor,
-        options.pageBreaks.source
-      )
-      pageBreaksStatus = getSlatePageBreakSnapshotStatus({
-        documentKey,
-        measurementProfile,
         root,
-        snapshot: readSnapshot,
+        settings,
+        measurementProfile,
+        options.typography,
+        options.nodeLayout
+      )
+    )
+    const output = profileLayoutDuration('engine-compose', () =>
+      options.engine.compose({
+        blocks,
+        page,
+        settings,
         version,
       })
-      pageBreaks = pageBreaksStatus === 'accepted' ? readSnapshot : null
-    } else if (options.pageBreaks?.mode === 'write') {
-      const documentKey = getSlateLayoutDocumentKey(blocks)
-      const computedPageBreakSnapshot = createSlatePageBreakSnapshot({
-        documentKey,
-        fragments: output.fragments,
-        measurementProfile,
-        root,
-        version,
-        writerId: options.pageBreaks.writerId,
-      })
-      const writeSource = options.pageBreaks.source
-      const currentSnapshot = editor.read((state) =>
-        state.getField(writeSource)
-      )
-      const shouldWrite = !sameSlatePageBreakSnapshot(
-        currentSnapshot,
-        computedPageBreakSnapshot
-      )
+    )
+    const pageBreakResult = profileLayoutDuration('page-breaks', () => {
+      let pageBreaks: SlatePageBreakSnapshot | null = null
+      let pageBreaksStatus: SlatePageBreakSnapshotStatus = 'none'
+      let pageBreakSnapshotToWrite: SlatePageBreakSnapshot | null = null
+      let pageBreakSnapshotWriteSource: EditorStateField<SlatePageBreakSnapshot | null> | null =
+        null
+      const pageBreakOptions = options.pageBreaks
 
-      pageBreaks = computedPageBreakSnapshot
-      pageBreaksStatus = shouldWrite ? 'written' : 'accepted'
-      pageBreakSnapshotToWrite = shouldWrite ? computedPageBreakSnapshot : null
-      pageBreakSnapshotWriteSource = shouldWrite ? writeSource : null
-    }
+      if (pageBreakOptions?.mode === 'read') {
+        const documentKey = getSlateLayoutDocumentKey(blocks)
+        const readSnapshot = readSlatePageBreakSnapshot(
+          editor,
+          pageBreakOptions.source
+        )
+        pageBreaksStatus = getSlatePageBreakSnapshotStatus({
+          documentKey,
+          measurementProfile,
+          root,
+          snapshot: readSnapshot,
+          version,
+        })
+        pageBreaks = pageBreaksStatus === 'accepted' ? readSnapshot : null
+      } else if (pageBreakOptions?.mode === 'write') {
+        const documentKey = getSlateLayoutDocumentKey(blocks)
+        const computedPageBreakSnapshot = createSlatePageBreakSnapshot({
+          documentKey,
+          fragments: output.fragments,
+          measurementProfile,
+          root,
+          version,
+          writerId: pageBreakOptions.writerId,
+        })
+        const writeSource = pageBreakOptions.source
+        const currentSnapshot = editor.read((state) =>
+          state.getField(writeSource)
+        )
+        const shouldWrite = !sameSlatePageBreakSnapshot(
+          currentSnapshot,
+          computedPageBreakSnapshot
+        )
+
+        pageBreaks = computedPageBreakSnapshot
+        pageBreaksStatus = shouldWrite ? 'written' : 'accepted'
+        pageBreakSnapshotToWrite = shouldWrite
+          ? computedPageBreakSnapshot
+          : null
+        pageBreakSnapshotWriteSource = shouldWrite ? writeSource : null
+      }
+
+      return {
+        pageBreaks,
+        pageBreaksStatus,
+        pageBreakSnapshotToWrite,
+        pageBreakSnapshotWriteSource,
+      }
+    })
 
     snapshot = {
       blocks,
       fragments: output.fragments,
       measurementProfile,
       page,
-      pageBreaks,
-      pageBreaksStatus,
+      pageBreaks: pageBreakResult.pageBreaks,
+      pageBreaksStatus: pageBreakResult.pageBreaksStatus,
       pages: output.pages.length === 0 ? [page] : output.pages,
       root,
       settings,
@@ -2689,25 +3018,35 @@ export const createSlatePageLayout = <
       lastDurationMs: getNow() - startedAt,
       pageCount: snapshot.pages.length,
     }
-    notify()
+    profileLayoutDuration('notify', notify)
 
-    if (pageBreakSnapshotWriteSource && pageBreakSnapshotToWrite) {
+    if (
+      pageBreakResult.pageBreakSnapshotWriteSource &&
+      pageBreakResult.pageBreakSnapshotToWrite
+    ) {
       editor.update((tx) => {
-        tx.setField(pageBreakSnapshotWriteSource, pageBreakSnapshotToWrite)
+        tx.setField(
+          pageBreakResult.pageBreakSnapshotWriteSource!,
+          pageBreakResult.pageBreakSnapshotToWrite!
+        )
       })
     }
   }
 
   const scheduleRefreshAfterTextInput = (
-    reason: SlatePageLayoutRefreshReason = 'editor'
+    reason: SlatePageLayoutRefreshReason,
+    refreshOptions: {
+      delayMs: number
+      maxDelayMs: number
+    }
   ) => {
     const now = getNow()
     const firstScheduledAt = scheduledRefresh?.firstScheduledAt ?? now
     const delay = Math.max(
       0,
       Math.min(
-        TEXT_CHANGE_REFRESH_DELAY_MS,
-        TEXT_CHANGE_REFRESH_MAX_DELAY_MS - (now - firstScheduledAt)
+        refreshOptions.delayMs,
+        refreshOptions.maxDelayMs - (now - firstScheduledAt)
       )
     )
     cancelScheduledRefresh()
@@ -2736,13 +3075,12 @@ export const createSlatePageLayout = <
     }
   }
 
-  const unsubscribeEditor = editor.subscribe((_snapshot, change) => {
+  const unsubscribeEditor = editor.subscribeCommit((change) => {
     const options = getOptions()
     const writePageBreaks =
       options.pageBreaks?.mode === 'write' ? options.pageBreaks : null
 
     if (
-      change &&
       writePageBreaks &&
       change.operations.length === 0 &&
       change.dirtyStateKeys.length > 0 &&
@@ -2752,7 +3090,6 @@ export const createSlatePageLayout = <
     }
 
     const shouldRefresh =
-      !change ||
       change.childrenChanged ||
       change.dirtyStateKeys.length > 0 ||
       change.textChanged ||
@@ -2764,13 +3101,15 @@ export const createSlatePageLayout = <
 
     const textOnlyChange = Boolean(
       change?.textChanged &&
-        !change.childrenChanged &&
         change.dirtyStateKeys.length === 0 &&
         !change.structureChanged
     )
+    const textChangeRefresh = getTextChangeRefreshOptions(
+      options.textChangeRefresh
+    )
 
-    if (textOnlyChange && options.textChangeRefresh === 'deferred') {
-      scheduleRefreshAfterTextInput('editor')
+    if (textOnlyChange && textChangeRefresh.mode === 'deferred') {
+      scheduleRefreshAfterTextInput('editor', textChangeRefresh)
     } else {
       refresh('editor')
     }

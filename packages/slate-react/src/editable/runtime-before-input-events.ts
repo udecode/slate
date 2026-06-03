@@ -9,7 +9,7 @@ import { focusSlateEditable } from '../hooks/focus-slate-editable'
 import { useOptionalSlateRuntimeContext } from '../hooks/use-slate-runtime'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
-import { shouldSkipDuplicateEditableEditingEpochCommand } from './editing-epoch-kernel'
+import { completeDuplicateEditableEditingEpochCommand } from './editing-epoch-kernel'
 import { prepareEditableBeforeInputKernel } from './editing-kernel'
 import {
   getNestedEditableDOMSelectionRoot,
@@ -233,7 +233,7 @@ export const useRuntimeBeforeInputEvents = ({
       }
 
       if (
-        shouldSkipDuplicateEditableEditingEpochCommand(editor, decision.command)
+        completeDuplicateEditableEditingEpochCommand(editor, decision.command)
       ) {
         event.preventDefault()
         event.stopImmediatePropagation()

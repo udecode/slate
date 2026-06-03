@@ -621,6 +621,44 @@ describe('createSlatePageLayout', () => {
     layout.destroy()
   })
 
+  it('coalesces deferred text refreshes for text commits that mark children dirty', async () => {
+    const editor = createEditor({
+      extensions: [pageSettings],
+      initialValue: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Burst paragraph.' }],
+        },
+      ],
+    })
+    const layout = createSlatePageLayout(editor, () => ({
+      engine: createEstimatedPageLayoutEngine(),
+      page: pageSettings,
+      textChangeRefresh: { delayMs: 25, maxDelayMs: 100, mode: 'deferred' },
+    }))
+    const composeCount = layout.getMetrics().composeCount
+
+    for (const text of ['a', 'b', 'c', 'd']) {
+      editor.update((tx) => {
+        tx.text.insert(text, {
+          at: {
+            path: [0, 0],
+            offset: editor.read((state) => state.text.string([0]).length),
+          },
+        })
+      })
+    }
+
+    expect(layout.getMetrics().composeCount).toBe(composeCount)
+
+    await wait(80)
+
+    expect(layout.getMetrics().composeCount).toBe(composeCount + 1)
+    expect(layout.getSnapshot().blocks[0]?.text).toBe('Burst paragraph.abcd')
+
+    layout.destroy()
+  })
+
   it('binds extracted blocks and projected ranges to the layout root', () => {
     const headerText = 'Header '.repeat(160)
     const mainText = 'Main '.repeat(12)
@@ -1169,6 +1207,30 @@ describe('createSlatePageLayout', () => {
           }),
         ],
       }),
+    ])
+    expect(layout.getFragments([0, 2, 0])).toEqual([
+      expect.objectContaining({
+        pageIndex: 1,
+        units: [
+          expect.objectContaining({
+            path: [0, 2],
+          }),
+        ],
+      }),
+    ])
+    expect(
+      layout
+        .getFragments([0])
+        .map((fragment) => fragment.units?.map((unit) => unit.path))
+    ).toEqual([
+      [
+        [0, 0],
+        [0, 1],
+      ],
+      [
+        [0, 2],
+        [0, 3],
+      ],
     ])
 
     layout.destroy()

@@ -305,7 +305,10 @@ Product input rules belong in higher-level command layers or editor extensions. 
 
 ## DOM Strategy
 
-`Editable` applies safe staged rendering automatically. Use `domStrategy="staged"` to lock that behavior explicitly, or `domStrategy="full"` to render the full document surface for debugging.
+`Editable` keeps large documents DOM-bounded by default. Use
+`domStrategy="staged"` when a product needs eventual native DOM coverage for the
+whole document, or `domStrategy="full"` to render the full document surface for
+debugging.
 
 Use `onDOMStrategyMetrics` to wire production RUM or a Datadog dashboard. The
 callback runs after commit and reports the current document cohort, requested
@@ -314,7 +317,7 @@ coverage boundary counts, visible DOM node count, and editable descendant count.
 
 ```tsx
 <Editable
-  domStrategy="staged"
+  domStrategy="auto"
   onDOMStrategyMetrics={metrics => {
     datadogRum.addAction('slate.dom_strategy.surface', metrics)
   }}
@@ -324,9 +327,9 @@ coverage boundary counts, visible DOM node count, and editable descendant count.
 Track dashboards by interaction name, cohort, document size, requested strategy,
 effective strategy, degradation mode, native surface completion, boundary count,
 visible DOM count, editable descendant count, custom renderer flag, browser,
-mobile/desktop, IME state, and release version. Virtualized, partial-DOM, and
-`staged-warmup` metrics are degraded-mode signals; do not mix them with complete
-DOM-present default rows.
+mobile/desktop, IME state, and release version. Virtualized and partial-DOM
+metrics are bounded-surface rows. `staged-warmup` metrics are staged
+materialization rows. Do not mix either bucket with complete DOM-present rows.
 
 ## DOM Coverage Boundaries
 

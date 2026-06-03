@@ -127,7 +127,13 @@ export type SlateRuntimeValue<
   TExtensions extends readonly unknown[] = readonly [],
 > = Pick<
   ReactEditorType<V, TExtensions>,
-  'api' | 'extend' | 'getApi' | 'read' | 'subscribe' | 'update'
+  | 'api'
+  | 'extend'
+  | 'getApi'
+  | 'read'
+  | 'subscribe'
+  | 'subscribeCommit'
+  | 'update'
 > & {
   editor: ReactEditorType<V, TExtensions>
 }
@@ -200,6 +206,7 @@ const createReactRuntime = <
     getApi: editor.getApi,
     read: editor.read,
     subscribe: editor.subscribe,
+    subscribeCommit: editor.subscribeCommit,
     update: editor.update,
   })
 }
@@ -274,6 +281,11 @@ const operationRoot = (operation: Operation): RootKey =>
 
 const isTextOperation = (operation: Operation) =>
   operation.type === 'insert_text' || operation.type === 'remove_text'
+
+const getTextOperations = (operations: readonly Operation[]) =>
+  operations.every(isTextOperation)
+    ? operations
+    : operations.filter(isTextOperation)
 
 const isRootAffected = (
   root: RootKey,
@@ -505,7 +517,11 @@ export function SlateRuntime<
   )
   const syncRuntimeTextOperationsToDOM = useCallback(
     (operations: readonly Operation[]) => {
-      const textOperations = operations.filter(isTextOperation)
+      if (mountedViewEditorsRef.current.size === 0) {
+        return { syncedTextOperationCount: 0, textOperationCount: 0 }
+      }
+
+      const textOperations = getTextOperations(operations)
 
       if (textOperations.length === 0) {
         return { syncedTextOperationCount: 0, textOperationCount: 0 }
@@ -554,28 +570,17 @@ export function SlateRuntime<
         ? ReactDOM.unstable_batchedUpdates
         : (callback: () => void) => callback()
 
-    const onContextChange: Parameters<typeof runtime.subscribe>[0] = (
-      snapshot,
+    const onContextChange: Parameters<typeof runtime.subscribeCommit>[0] = (
       commit
     ) => {
-      lastSelectionCacheRef.current.record(snapshot.selection)
+      lastSelectionCacheRef.current.record(commit.selectionAfter)
 
-      let currentOperations: readonly Operation[] = []
-      const nextOperations = commit
-        ? [...commit.operations]
-        : runtime.read((state) => {
-            currentOperations = state.value.operations()
-            return currentOperations.slice(lastOperationCountRef.current)
-          })
+      const nextOperations = commit.operations
 
       lastSelectionCacheRef.current.recordOperations(nextOperations)
 
-      lastOperationCountRef.current = commit
-        ? runtime.read((state) => state.value.operations().length)
-        : currentOperations.length
-      lastCommitVersionRef.current = commit
-        ? commit.version
-        : lastCommitVersionRef.current
+      lastOperationCountRef.current += nextOperations.length
+      lastCommitVersionRef.current = commit.version
 
       maybeBatchUpdates(() => {
         setFocused(ReactEditor.isFocused(reactEditor))
@@ -595,11 +600,11 @@ export function SlateRuntime<
       })
     }
 
-    const unsubscribe = runtime.subscribe(onContextChange)
+    const unsubscribe = runtime.subscribeCommit(onContextChange)
     const latestCommit = Editor.getLastCommit(runtime.editor)
 
     if (latestCommit && latestCommit.version > lastCommitVersionRef.current) {
-      onContextChange(Editor.getSnapshot(runtime.editor), latestCommit)
+      onContextChange(latestCommit)
     }
 
     return unsubscribe

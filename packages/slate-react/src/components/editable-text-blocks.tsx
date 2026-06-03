@@ -3,6 +3,7 @@ import React, { type CSSProperties, type ReactNode } from 'react'
 import type {
   Ancestor,
   Descendant,
+  EditorSnapshot,
   Path,
   RootKey,
   RuntimeId,
@@ -31,6 +32,7 @@ import {
   ElementPathContext,
   NodeRuntimeIdContext,
   SlateContentRootOwnerContext,
+  SlateDOMStrategyVirtualOffsetContext,
   SlateDOMTextSyncContext,
   SlateEditableRootContext,
 } from '../context'
@@ -63,6 +65,7 @@ import { Editor } from '../editable/runtime-editor-api'
 import { readRuntimeNode } from '../editable/runtime-live-state'
 import { useEditor } from '../hooks/use-editor'
 import { useEditorReadOnly } from '../hooks/use-editor-read-only'
+import { useElementPath } from '../hooks/use-element-path'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { useMountedNodeRenderSelector } from '../hooks/use-node-selector'
 import { useSlateContentRoot } from '../hooks/use-slate-content-root'
@@ -73,6 +76,7 @@ import { ProjectionContext } from '../projection-context'
 import type {
   SlateProjectionRuntimeScope,
   SlateSourceDirtiness,
+  SlateSourceDirtinessContext,
 } from '../projection-store'
 import { recordSlateReactRender } from '../render-profiler'
 import {
@@ -133,6 +137,48 @@ const ROOT_GROUP_BACKGROUND_MOUNT_BATCH_SIZE = 16
 const INTERNAL_PARTIAL_DOM_SEGMENT_SIZE = 50
 
 const getSnapshotPathKey = (path: Path) => path.join('.')
+
+const resolveProjectionRuntimeScope = (
+  runtimeScope: SlateProjectionRuntimeScope | undefined,
+  context: SlateSourceDirtinessContext
+) => {
+  if (!runtimeScope) {
+    return null
+  }
+
+  return typeof runtimeScope === 'function'
+    ? runtimeScope(context)
+    : runtimeScope
+}
+
+const mergeMountedRuntimeScope = (
+  snapshot: EditorSnapshot,
+  explicitRuntimeScope: readonly RuntimeId[] | null,
+  mountedRuntimeScope: readonly RuntimeId[] | null
+) => {
+  if (!mountedRuntimeScope) {
+    return explicitRuntimeScope
+  }
+
+  if (!explicitRuntimeScope) {
+    return mountedRuntimeScope
+  }
+
+  const mountedTopLevelRuntimeIds = new Set(mountedRuntimeScope)
+
+  return explicitRuntimeScope.filter((runtimeId) => {
+    const path = snapshot.index.idToPath[runtimeId]
+    const topLevelPath = path ? [path[0]] : null
+    const topLevelRuntimeId =
+      topLevelPath && typeof topLevelPath[0] === 'number'
+        ? snapshot.index.pathToId[getSnapshotPathKey(topLevelPath)]
+        : null
+
+    return topLevelRuntimeId
+      ? mountedTopLevelRuntimeIds.has(topLevelRuntimeId)
+      : mountedTopLevelRuntimeIds.has(runtimeId)
+  })
+}
 
 const getDOMStrategyType = (
   domStrategyOptions: InternalDOMStrategyOptions | null | undefined
@@ -321,6 +367,7 @@ const EditableRenderedElement = <
   renderElement: RenderElementRenderer<TElement>
 }) => {
   const editor = useEditor<ReactRuntimeEditor>()
+  const currentPath = useElementPath() ?? path
   const rendered = renderElement(props)
 
   useIsomorphicLayoutEffect(() => {
@@ -336,7 +383,7 @@ const EditableRenderedElement = <
 
       assertRenderedElementChildrenHaveDOMOrCoverage(editor, {
         element: props.element,
-        path,
+        path: currentPath,
       })
     }, 0)
 
@@ -344,7 +391,7 @@ const EditableRenderedElement = <
       cancelled = true
       globalThis.clearTimeout(timeout)
     }
-  }, [editor, path, props.element])
+  }, [currentPath, editor, props.element])
 
   return <>{rendered}</>
 }
@@ -759,6 +806,8 @@ function EditableContentRootView({
   return (
     <div
       contentEditable={false}
+      data-slate-content-root-owner-path={ownerPath.join(',')}
+      data-slate-content-root-owner-root={ownerRoot}
       data-slate-content-root-slot={slot}
       onFocusCapture={onFocusCapture}
       onMouseDownCapture={onMouseDownCapture}
@@ -1685,6 +1734,18 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   const upstreamProjectionStore = React.useContext(ProjectionContext)
   const [decorateCell] = React.useState(() => ({ current: decorate }))
   decorateCell.current = decorate
+  const autoDecorateRuntimeScopeRef = React.useRef<readonly RuntimeId[] | null>(
+    null
+  )
+  const activeDecorateRuntimeScope = React.useCallback(
+    (context: SlateSourceDirtinessContext) =>
+      mergeMountedRuntimeScope(
+        context.snapshot,
+        resolveProjectionRuntimeScope(decorateRuntimeScope, context),
+        autoDecorateRuntimeScopeRef.current
+      ),
+    [decorateRuntimeScope]
+  )
   const hasDecorate = Boolean(decorate)
   const decorateSource = React.useMemo(() => {
     if (!hasDecorate) {
@@ -1694,7 +1755,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     return createDecorationSource<T>(editor, {
       dirtiness: decorateDirtiness,
       id: 'editable-decorate',
-      read: ({ snapshot }) => {
+      read: ({ runtimeScope, snapshot }) => {
         const readDecorations = decorateCell.current
 
         if (!readDecorations) {
@@ -1703,11 +1764,20 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
 
         const root = { children: snapshot.children } as Ancestor
         const decorations: SlateDecoration<T>[] = []
+        const visitedPathKeys = new Set<string>()
 
-        for (const [node, path] of NodeApi.nodes(root)) {
+        const addDecorations = (node: Descendant, path: Path) => {
           if (path.length === 0) {
-            continue
+            return
           }
+
+          const pathKey = getSnapshotPathKey(path)
+
+          if (visitedPathKeys.has(pathKey)) {
+            return
+          }
+
+          visitedPathKeys.add(pathKey)
 
           const entryDecorations = readDecorations(
             [node as Descendant, path],
@@ -1724,14 +1794,50 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
           })
         }
 
+        if (runtimeScope) {
+          for (const runtimeId of runtimeScope) {
+            const scopedRootPath = snapshot.index.idToPath[runtimeId]
+
+            if (!scopedRootPath) {
+              continue
+            }
+
+            const scopedRootNode = NodeApi.getIf(root, scopedRootPath) as
+              | Descendant
+              | undefined
+
+            if (!scopedRootNode) {
+              continue
+            }
+
+            if (isText(scopedRootNode)) {
+              addDecorations(scopedRootNode, scopedRootPath)
+              continue
+            }
+
+            for (const [node, path] of NodeApi.nodes(scopedRootNode)) {
+              addDecorations(
+                node as Descendant,
+                [...scopedRootPath, ...path] as Path
+              )
+            }
+          }
+
+          return decorations
+        }
+
+        for (const [node, path] of NodeApi.nodes(root)) {
+          addDecorations(node as Descendant, path)
+        }
+
         return decorations
       },
-      runtimeScope: decorateRuntimeScope,
+      runtimeScope: activeDecorateRuntimeScope,
     })
   }, [
+    activeDecorateRuntimeScope,
     decorateCell,
     decorateDirtiness,
-    decorateRuntimeScope,
     editor,
     hasDecorate,
   ])
@@ -1790,12 +1896,16 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     virtualizedDOMStrategyOptions?.threshold ?? 25_000
   const internalSegmentDOMStrategyConfig = React.useMemo(
     () =>
-      isInternalSegmentDOMStrategy(domStrategyType)
+      isInternalSegmentDOMStrategy(domStrategyType) ||
+      domStrategyType === 'auto'
         ? ({
             overscan: Math.max(0, internalPartialDOMStrategyOverscan),
             segmentSize: Math.max(1, internalPartialDOMStrategySegmentSize),
             previewChars: Math.max(16, internalPartialDOMStrategyPreviewChars),
-            threshold: Math.max(1, internalPartialDOMStrategyThreshold),
+            threshold:
+              domStrategyType === 'auto'
+                ? ROOT_GROUP_THRESHOLD
+                : Math.max(1, internalPartialDOMStrategyThreshold),
           } satisfies DOMStrategyRootConfig)
         : null,
     [
@@ -1873,9 +1983,8 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     domStrategyType === 'virtualized' && virtualizedPlan == null
   const rootGroups = React.useMemo(() => {
     if (
-      (domStrategyType !== 'auto' &&
-        domStrategyType !== 'staged' &&
-        !shouldUseStagedFallback) ||
+      (domStrategyType !== 'staged' && !shouldUseStagedFallback) ||
+      segmentPlan ||
       topLevelRuntimeIds.length < ROOT_GROUP_THRESHOLD
     ) {
       return null
@@ -1887,7 +1996,12 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     })
 
     return createRootGroups(topLevelRuntimeIds)
-  }, [domStrategyType, shouldUseStagedFallback, topLevelRuntimeIds])
+  }, [
+    domStrategyType,
+    segmentPlan,
+    shouldUseStagedFallback,
+    topLevelRuntimeIds,
+  ])
   const rootGroupPlanKey = React.useMemo(
     () =>
       rootGroups
@@ -2051,6 +2165,33 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
       })) ?? null,
     [domPresentMountedGroups]
   )
+  const autoDecorateRuntimeScope = React.useMemo<
+    readonly RuntimeId[] | null
+  >(() => {
+    if (virtualizedPlan) {
+      return [...virtualizedPlan.mountedTopLevelRuntimeIds]
+    }
+
+    if (segmentPlan && mountedTopLevelRuntimeIds) {
+      return [...mountedTopLevelRuntimeIds]
+    }
+
+    if (domPresentMountedTopLevelRuntimeIds) {
+      return [...domPresentMountedTopLevelRuntimeIds]
+    }
+
+    return null
+  }, [
+    domPresentMountedTopLevelRuntimeIds,
+    mountedTopLevelRuntimeIds,
+    segmentPlan,
+    virtualizedPlan,
+  ])
+  autoDecorateRuntimeScopeRef.current = autoDecorateRuntimeScope
+  const autoDecorateRuntimeScopeKey = React.useMemo(
+    () => autoDecorateRuntimeScope?.join('|') ?? null,
+    [autoDecorateRuntimeScope]
+  )
   const renderedRootGroupItems = React.useMemo(
     () =>
       renderedRootGroups
@@ -2162,13 +2303,20 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   React.useEffect(() => {
     decorateCell.current = decorate
     decorateSource?.refresh({
-      forceInvalidate: true,
       reason: 'external',
       requiresDOMSelectionExport: ReactEditor.isFocused(
         editor as unknown as ReactRuntimeEditor
       ),
     })
   }, [decorate, decorateCell, decorateSource, editor])
+  React.useEffect(() => {
+    decorateSource?.refresh({
+      reason: 'external',
+      requiresDOMSelectionExport: ReactEditor.isFocused(
+        editor as unknown as ReactRuntimeEditor
+      ),
+    })
+  }, [autoDecorateRuntimeScopeKey, decorateSource, editor])
   const rootStyle =
     placeholderHeight && !disableDefaultStyles
       ? { minHeight: placeholderHeight, ...style }
@@ -2359,19 +2507,23 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
                       width: '100%',
                     }}
                   >
-                    <div style={{ pointerEvents: 'auto' }}>
-                      <EditableDescendantNode
-                        placeholder={placeholderValue}
-                        placeholderRef={placeholderRef}
-                        renderElement={renderElement}
-                        renderLeaf={renderLeaf}
-                        renderPlaceholder={renderPlaceholder}
-                        renderSegment={renderSegment}
-                        renderText={renderText}
-                        renderVoid={renderVoid}
-                        runtimeId={item.runtimeId}
-                      />
-                    </div>
+                    <SlateDOMStrategyVirtualOffsetContext.Provider
+                      value={item.start}
+                    >
+                      <div style={{ pointerEvents: 'auto' }}>
+                        <EditableDescendantNode
+                          placeholder={placeholderValue}
+                          placeholderRef={placeholderRef}
+                          renderElement={renderElement}
+                          renderLeaf={renderLeaf}
+                          renderPlaceholder={renderPlaceholder}
+                          renderSegment={renderSegment}
+                          renderText={renderText}
+                          renderVoid={renderVoid}
+                          runtimeId={item.runtimeId}
+                        />
+                      </div>
+                    </SlateDOMStrategyVirtualOffsetContext.Provider>
                   </div>
                 ))}
               </div>

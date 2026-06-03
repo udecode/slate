@@ -147,6 +147,7 @@ describe('root interaction controller', () => {
       animationFrame: null,
       clientX: 50,
       clientY: 130,
+      currentRange: startRange,
       editor: {
         api: {
           dom: {
@@ -178,6 +179,62 @@ describe('root interaction controller', () => {
         clientY: 99,
       })
     )
+  })
+
+  test('ignores stale downward drag autoscroll ranges that would reverse selection', () => {
+    const scroller = createScrollableElement()
+    const previousElementFromPoint = document.elementFromPoint
+    const staleRange = {
+      anchor: { offset: 0, path: [0, 0] },
+      focus: { offset: 0, path: [0, 0] },
+    }
+    const startRange = {
+      anchor: { offset: 4, path: [0, 0] },
+      focus: { offset: 4, path: [0, 0] },
+    }
+    const currentRange = {
+      anchor: { offset: 4, path: [0, 0] },
+      focus: { offset: 10, path: [4, 0] },
+    }
+    const update = vi.fn()
+
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn(() => scroller),
+    })
+
+    const continued = applyDragAutoScrollFrame({
+      animationFrame: null,
+      clientX: 50,
+      clientY: 130,
+      currentRange,
+      editor: {
+        api: {
+          dom: {
+            hasDOMNode: vi.fn(() => true),
+            resolveEventRange: vi.fn(() => staleRange),
+          },
+        },
+        update,
+      } as unknown as RootInteractionEditor,
+      releaseCleanup: null,
+      root: 'main',
+      rootElement: scroller,
+      startRange,
+    })
+
+    if (previousElementFromPoint) {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: previousElementFromPoint,
+      })
+    } else {
+      delete (document as Partial<Document>).elementFromPoint
+    }
+
+    expect(continued).toBe(true)
+    expect(scroller.scrollTop).toBeGreaterThan(0)
+    expect(update).not.toHaveBeenCalled()
   })
 
   test('prevents native fallback on focused blank editable-root clicks', async () => {
@@ -544,6 +601,131 @@ describe('root interaction controller', () => {
     expect(selection).toEqual({
       anchor: { path: [0, 0], offset: 1 },
       focus: { path: [1, 0], offset: 4 },
+    })
+
+    unmount()
+    editable.remove()
+  })
+
+  test('preserves dragged coordinate selection when mouseup resolves before the drag start', () => {
+    const editable = document.createElement('div')
+    const string = document.createElement('span')
+    const startRange = {
+      anchor: { path: [2, 0], offset: 1 },
+      focus: { path: [2, 0], offset: 1 },
+    }
+    const endRange = {
+      anchor: { path: [3, 0], offset: 4 },
+      focus: { path: [3, 0], offset: 4 },
+    }
+    const staleMouseUpRange = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    }
+    const resolvedRanges = [startRange, null, endRange, null, staleMouseUpRange]
+    let selection: unknown = null
+
+    editable.dataset.slateEditor = 'true'
+    editable.dataset.slateRoot = 'main'
+    string.dataset.slateString = 'true'
+    editable.append(string)
+    document.body.append(editable)
+
+    const editor = {
+      api: {
+        dom: {
+          assertDOMNode: () => editable,
+          focus: vi.fn(),
+          resolveDOMNode: () => editable,
+          resolveEventRange: vi.fn(() => resolvedRanges.shift() ?? null),
+        },
+      },
+      read: (reader: (state: unknown) => unknown) =>
+        reader({
+          points: {
+            end: () => ({ path: [3, 0], offset: 4 }),
+          },
+          schema: {
+            getElementSpec: () => null,
+          },
+          selection: {
+            get: () => selection,
+          },
+          value: {
+            get: () => ({
+              roots: {
+                main: [
+                  paragraph('heading'),
+                  paragraph('intro'),
+                  paragraph('first'),
+                  paragraph('second'),
+                ],
+              },
+            }),
+          },
+        }),
+      update: (writer: (tx: unknown) => void) => {
+        writer({
+          selection: {
+            set: (range: unknown) => {
+              selection = range
+            },
+          },
+        })
+      },
+    }
+
+    const { result, unmount } = renderHook(() =>
+      useRootInteractionController({
+        disabled: false,
+        editor: editor as never,
+        getLastSelectionForRoot: () => startRange,
+        getMountedViewEditor: () => editor as never,
+        root: 'main',
+        selection: 'restore',
+      })
+    )
+
+    act(() => {
+      result.current.onMouseDownCapture(
+        createMouseCaptureEvent({
+          clientX: 10,
+          clientY: 10,
+          currentTarget: editable,
+          target: string,
+        })
+      )
+      result.current.onMouseMoveCapture(
+        createMouseCaptureEvent({
+          clientX: 80,
+          clientY: 60,
+          currentTarget: editable,
+          target: string,
+        })
+      )
+    })
+
+    expect(selection).toEqual({
+      anchor: { path: [2, 0], offset: 1 },
+      focus: { path: [3, 0], offset: 4 },
+    })
+
+    document.getSelection()?.removeAllRanges()
+
+    act(() => {
+      result.current.onMouseUpCapture(
+        createMouseCaptureEvent({
+          clientX: 80,
+          clientY: 60,
+          currentTarget: editable,
+          target: string,
+        })
+      )
+    })
+
+    expect(selection).toEqual({
+      anchor: { path: [2, 0], offset: 1 },
+      focus: { path: [3, 0], offset: 4 },
     })
 
     unmount()

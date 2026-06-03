@@ -423,6 +423,47 @@ it('withoutNormalizing suppresses custom normalization until manual normalize', 
   assert.equal(runs > 0, true)
 })
 
+it('withoutNormalizing normalizes split dirty paths instead of the full document', () => {
+  const editor = createEditor()
+  const originalNormalizeNode = getEditorRuntime(editor).normalizeNode
+  const normalizedTopLevelPaths: number[] = []
+
+  getEditorRuntime(editor).normalizeNode = (entry, options) => {
+    const [, path] = entry
+
+    if (path.length === 1) {
+      normalizedTopLevelPaths.push(path[0]!)
+    }
+
+    originalNormalizeNode(entry, options)
+  }
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 256 }, (_value, index) => ({
+      type: 'paragraph',
+      children: [{ text: `line ${index}` }],
+    })),
+    selection: {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 2 },
+    },
+    marks: null,
+  })
+
+  normalizedTopLevelPaths.length = 0
+
+  editor.update((tx) => {
+    tx.break.insert()
+  })
+
+  assert.equal(normalizedTopLevelPaths.includes(200), false)
+  assert.ok(normalizedTopLevelPaths.some((path) => path <= 1))
+  assert.deepEqual(
+    getBlockTexts(Editor.getSnapshot(editor).children).slice(0, 3),
+    ['li', 'ne 0', 'line 1']
+  )
+})
+
 it('mirrors the legacy transforms/normalization/split_node-and-insert_node.tsx oracle row', () => {
   const editor = createEditor()
   defineElement(editor, { type: 'inline', inline: true })
@@ -1279,6 +1320,55 @@ it('insertBreak splits the current top-level block and moves selection into the 
   })
 })
 
+it('insertBreak repeatedly splits trailing empty blocks and moves selection to the document end', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 5 },
+      focus: { path: [0, 0], offset: 5 },
+    },
+    marks: null,
+  })
+
+  editor.update((tx) => {
+    tx.break.insert()
+    tx.break.insert()
+    tx.break.insert()
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'paragraph',
+      children: [{ text: 'alpha' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: '' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: '' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: '' }],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [3, 0], offset: 0 },
+    focus: { path: [3, 0], offset: 0 },
+  })
+})
+
 it('insertBreak after marked text moves selection into the new block', () => {
   const editor = createEditor()
 
@@ -1845,6 +1935,59 @@ it('publishes selection-only dirtiness without touched runtime ids', () => {
     changes[0]?.decorationImpactRuntimeIds,
     changes[0]?.selectionImpactRuntimeIds
   )
+})
+
+it('does not rebuild root snapshots for selection-only subscriber commits', () => {
+  const editor = createEditor()
+  const profiledIds: string[] = []
+  const previousProfiler = (
+    globalThis as typeof globalThis & {
+      __SLATE_REACT_RENDER_PROFILER__?: unknown
+    }
+  ).__SLATE_REACT_RENDER_PROFILER__
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  Editor.subscribe(editor, () => {})
+
+  try {
+    ;(
+      globalThis as typeof globalThis & {
+        __SLATE_REACT_RENDER_PROFILER__?: {
+          record?: (event: { id: string; kind: string }) => void
+        }
+      }
+    ).__SLATE_REACT_RENDER_PROFILER__ = {
+      record(event) {
+        if (event.kind === 'core-time') {
+          profiledIds.push(event.id)
+        }
+      },
+    }
+
+    editor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [1, 0], offset: 1 },
+        focus: { path: [1, 0], offset: 1 },
+      })
+    })
+  } finally {
+    ;(
+      globalThis as typeof globalThis & {
+        __SLATE_REACT_RENDER_PROFILER__?: unknown
+      }
+    ).__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+  }
+
+  assert.ok(profiledIds.includes('build-change'))
+  assert.equal(profiledIds.includes('next-snapshot'), false)
 })
 
 it('routes selection-only commits through source subscribers only', () => {

@@ -36,6 +36,7 @@ import {
   readEditor,
   setBaseApply,
   subscribe,
+  subscribeCommit,
   subscribeSource,
   updateEditor,
   withEditorRootChildren,
@@ -635,6 +636,7 @@ export function createEditor<
   const transactionRuntime = {
     read: (fn) => readEditor(editor, fn),
     subscribe: (listener) => subscribe(editor, listener),
+    subscribeCommit: (listener) => subscribeCommit(editor, listener),
     subscribeSource: (source, listener) =>
       subscribeSource(editor, source, listener),
     update: (
@@ -1076,6 +1078,7 @@ export function createEditor<
     getApi: getApi as Editor<V, TExtensions>['getApi'],
     read: (fn) => readEditor(editor, fn),
     subscribe: (listener) => subscribe(editor, listener),
+    subscribeCommit: (listener) => subscribeCommit(editor, listener),
     update: (
       fn: (
         transaction: EditorUpdateTransaction<V, TExtensions>,
