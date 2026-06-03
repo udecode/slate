@@ -217,6 +217,7 @@ describe('primary slate package surface', () => {
     'getApi',
     'read',
     'subscribe',
+    'subscribeCommit',
     'update',
   ].sort()
   const requiredSlateRootExports = [

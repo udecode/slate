@@ -94,9 +94,9 @@ an app-owned accessible representation outside the editable surface.
 the rendered element and scope. Pass an explicit id when tests or diagnostics
 need a predictable name.
 
-Boundary placeholders render with `contentEditable={false}`. Keep tab triggers,
-accordion buttons, and other app chrome non-editable and non-selectable so
-native selection does not grab UI labels instead of document text.
+Boundary placeholders are runtime-owned non-editable DOM. Keep tab triggers,
+accordion buttons, and other app chrome outside the editable text flow so native
+selection does not grab UI labels instead of document text.
 
 ## Boundaries Versus Content Roots
 

@@ -1063,9 +1063,7 @@ test.describe('editable voids', () => {
         .poll(() => outer.get.modelText())
         .not.toContain('Hello World')
 
-      await outerEditor.evaluate((element: HTMLElement) => {
-        element.focus()
-      })
+      await outer.focus()
       await outer.selection.select(outerSelection)
       await page.keyboard.type('Outer ')
 
@@ -1141,9 +1139,7 @@ test.describe('editable voids', () => {
         .poll(() => outer.get.modelText())
         .not.toContain('Dropped World')
 
-      await outerEditor.evaluate((element: HTMLElement) => {
-        element.focus()
-      })
+      await outer.focus()
       await outer.selection.select(outerSelection)
       await page.keyboard.type('Outer ')
 

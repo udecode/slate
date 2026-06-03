@@ -404,7 +404,7 @@ editable child root, such as a synced block body.
 ```tsx
 const SyncedBlock = ({ attributes, element, slots }) => (
   <section {...attributes}>
-    <div contentEditable={false}>Synced block</div>
+    <header>Synced block</header>
     {slots.contentRoot('body', { ariaLabel: 'Synced block body' })}
   </section>
 )

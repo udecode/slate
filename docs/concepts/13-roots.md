@@ -137,7 +137,7 @@ Render the child root from `renderElement` with `slots.contentRoot(slot)`.
 ```tsx
 const SyncedBlock = ({ attributes, element, slots }) => (
   <section {...attributes}>
-    <div contentEditable={false}>Synced block</div>
+    <header>Synced block</header>
     {slots.contentRoot('body', {
       ariaLabel: 'Synced block body',
       placeholder: 'Empty synced block',

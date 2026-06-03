@@ -4415,7 +4415,7 @@ const setSelection = async (root: Locator, selection: SelectionSnapshot) => {
   await root.evaluate((element: HTMLElement, expected) => {
     const textNodes = Array.from(
       element.querySelectorAll('[data-slate-node="text"]')
-    )
+    ).filter((node) => node.closest('[data-slate-editor="true"]') === element)
 
     const comparePoint = (
       left: SelectionPoint,
@@ -4531,10 +4531,11 @@ const setDOMSelection = async (root: Locator, selection: SelectionSnapshot) => {
     const selectionPointToDOMPoint = (point: SelectionPoint) => {
       const textElements = Array.from(
         element.querySelectorAll('[data-slate-node="text"]')
-      )
+      ).filter((node) => node.closest('[data-slate-editor="true"]') === element)
       const textElement =
-        element.querySelector(
-          `[data-slate-node="text"][data-slate-path="${point.path.join(',')}"]`
+        textElements.find(
+          (node) =>
+            node.getAttribute('data-slate-path') === point.path.join(',')
         ) ?? textElements[point.path.at(-1) ?? 0]
       const stringElements = Array.from(
         textElement?.querySelectorAll(

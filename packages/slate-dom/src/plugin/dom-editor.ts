@@ -1654,6 +1654,19 @@ export const DOMEditor: DOMEditorInterface = {
       // IS_FOCUSED should be set before calling el.focus() to ensure that
       // FocusedContext is updated to the correct value
       IS_FOCUSED.set(editor, true)
+      const activeElement = root.activeElement
+      const activeElementWithBlur = activeElement as
+        | (Element & { blur?: () => void })
+        | null
+
+      if (
+        isDOMElement(activeElement) &&
+        containsShadowAware(el, activeElement) &&
+        typeof activeElementWithBlur?.blur === 'function'
+      ) {
+        activeElementWithBlur.blur()
+      }
+
       el.focus({ preventScroll: true })
       trySyncDomSelection()
       if (selectionAtFocus) {

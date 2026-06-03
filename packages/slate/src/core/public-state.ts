@@ -1,6 +1,12 @@
 import { node as getNode } from '../editor/node'
 import { nodes as getNodes } from '../editor/nodes'
-import { publishRangeRefDrafts, resetRangeRefDrafts } from '../editor/range-ref'
+import { pathRefs } from '../editor/path-refs'
+import { pointRefs } from '../editor/point-refs'
+import {
+  allRangeRefs,
+  publishRangeRefDrafts,
+  resetRangeRefDrafts,
+} from '../editor/range-ref'
 import type {
   CommitListener,
   CreateEditorOptions,
@@ -51,11 +57,15 @@ import {
   type NodeEntry,
   type Node as SlateNode,
 } from '../interfaces/node'
-import type { Operation } from '../interfaces/operation'
+import { type Operation, OperationApi } from '../interfaces/operation'
 import { type Path, PathApi } from '../interfaces/path'
+import { PathRefApi } from '../interfaces/path-ref'
 import { PointApi } from '../interfaces/point'
+import { PointRefApi } from '../interfaces/point-ref'
 import { RangeApi } from '../interfaces/range'
+import { RangeRefApi } from '../interfaces/range-ref'
 import type { Text } from '../interfaces/text'
+import { transform as transformOperation } from '../interfaces/transforms/general'
 import { getCommonLocationRoot } from '../internal/root-location'
 import { createSetSelectionOperation } from '../selection-operation'
 import {
@@ -4666,6 +4676,33 @@ const getSourcesForChange = (
   return sources
 }
 
+const rollbackTransactionOperations = (
+  editor: Editor,
+  transactionSnapshot: TransactionSnapshot
+) => {
+  const operations = getLiveOperations(editor).slice(
+    transactionSnapshot.operationStart
+  )
+
+  for (const operation of operations.toReversed()) {
+    const inverse = OperationApi.inverse(operation)
+
+    for (const ref of pathRefs(editor)) {
+      PathRefApi.transform(ref, inverse)
+    }
+    for (const ref of pointRefs(editor)) {
+      PointRefApi.transform(ref, inverse)
+    }
+    for (const ref of allRangeRefs(editor)) {
+      RangeRefApi.transform(ref, inverse)
+    }
+
+    withOperationRootChildren(editor, inverse, () => {
+      transformOperation(editor, inverse)
+    })
+  }
+}
+
 const restoreTransactionSnapshot = (
   editor: Editor,
   transactionSnapshot: TransactionSnapshot
@@ -4902,6 +4939,7 @@ export const runEditorTransaction = (
       const snapshot = TRANSACTION_SNAPSHOT.get(editor)
 
       if (snapshot) {
+        rollbackTransactionOperations(editor, snapshot)
         restoreTransactionSnapshot(editor, snapshot)
       }
       resetRangeRefDrafts(editor)

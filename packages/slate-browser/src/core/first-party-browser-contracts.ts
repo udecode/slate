@@ -54,7 +54,7 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
   },
   {
     assertions: [
-      'pasted HTML image becomes a runtime-owned block void',
+      'each pasted HTML image becomes a runtime-owned block void',
       'visible image content is contentEditable=false',
       'hidden spacer is owned by the runtime shell',
       'focus remains editor-owned after paste',

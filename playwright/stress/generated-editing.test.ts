@@ -570,13 +570,13 @@ const pasteHtmlImageVoid = (): StressCase =>
         text: 'Before image\nAfter image',
       },
       {
-        count: 1,
+        count: 2,
         kind: 'assertLocatorCount',
         label: 'assert-pasted-images-rendered',
         selector: 'img[src^="https://example.com/pasted-"]',
       },
       {
-        count: 1,
+        count: 2,
         kind: 'assertLocatorCount',
         label: 'assert-pasted-image-void-shell',
         selector: '[data-slate-void="true"]',

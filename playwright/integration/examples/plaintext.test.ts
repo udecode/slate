@@ -367,7 +367,7 @@ test.describe('plaintext example', () => {
       anchor: { path: [0, 0], offset: editOffset },
       focus: { path: [0, 0], offset: editOffset },
     })
-    await page.keyboard.insertText('abc')
+    await page.keyboard.type('abc')
     await editor.assert.text(
       'This is editable abcplain text, just like a <textarea>!'
     )
