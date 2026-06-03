@@ -139,6 +139,8 @@ export const commitChromeCompositionEndFallback = ({
     return
   }
 
+  const target = editor.read((state) => state.selection.get())
+
   // Ensure we insert text with the marks the user was actually seeing
   if (placeholderMarks !== undefined) {
     EDITOR_TO_USER_MARKS.set(
@@ -150,7 +152,19 @@ export const commitChromeCompositionEndFallback = ({
 
   editor.update(
     (tx) => {
-      tx.text.insert(text)
+      if (
+        target &&
+        placeholderMarks &&
+        Object.keys(placeholderMarks).length > 0
+      ) {
+        tx.nodes.insert(
+          { text, ...placeholderMarks },
+          { at: target, select: true }
+        )
+        return
+      }
+
+      tx.text.insert(text, target ? { at: target } : undefined)
     },
     mergeWithCompositionPredelete
       ? { metadata: { history: { mode: 'merge' } } }
@@ -182,6 +196,19 @@ const removeUnmanagedCompositionTextNodes = ({
     .querySelectorAll<HTMLElement>('[data-slate-node="text"]')
     .forEach((textElement) => {
       const textNodes: globalThis.Text[] = []
+      const path = textElement
+        .getAttribute('data-slate-path')
+        ?.split(',')
+        .map((segment) => Number.parseInt(segment, 10))
+      const modelText = path?.every(Number.isInteger)
+        ? (() => {
+            try {
+              return NodeApi.leaf(editor, path).text
+            } catch {
+              return null
+            }
+          })()
+        : null
       const walker = textElement.ownerDocument.createTreeWalker(
         textElement,
         NodeFilter.SHOW_TEXT
@@ -198,42 +225,29 @@ const removeUnmanagedCompositionTextNodes = ({
           '[data-slate-string="true"]'
         )
 
-        if (slateString && textContent.includes(text)) {
-          const path = textElement
-            .getAttribute('data-slate-path')
-            ?.split(',')
-            .map((segment) => Number.parseInt(segment, 10))
+        if (slateString && modelText != null && textContent.includes(text)) {
+          if (
+            textContent !== modelText &&
+            textContent.endsWith(text) &&
+            textContent.slice(0, -text.length) === modelText
+          ) {
+            textNode.textContent = modelText
+            continue
+          }
 
-          if (path?.every(Number.isInteger)) {
-            try {
-              const modelText = NodeApi.leaf(editor, path).text
-
-              if (
-                textContent !== modelText &&
-                textContent.endsWith(text) &&
-                textContent.slice(0, -text.length) === modelText
-              ) {
-                textNode.textContent = modelText
-                continue
-              }
-
-              if (
-                textContent !== modelText &&
-                textContent.startsWith(text) &&
-                textContent.slice(text.length) === modelText
-              ) {
-                textNode.textContent = modelText
-                continue
-              }
-            } catch {
-              // The host may have been removed by the same composition commit.
-            }
+          if (
+            textContent !== modelText &&
+            textContent.startsWith(text) &&
+            textContent.slice(text.length) === modelText
+          ) {
+            textNode.textContent = modelText
+            continue
           }
         }
 
         if (
           textContent === text &&
-          !textNode.parentElement?.closest('[data-slate-string="true"]')
+          (!slateString || (modelText != null && textContent !== modelText))
         ) {
           textNodes.push(textNode)
         }

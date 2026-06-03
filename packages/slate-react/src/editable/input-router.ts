@@ -416,10 +416,61 @@ const getDOMInputRepairInsert = ({
   return insert.text.length === 0 ? undefined : insert
 }
 
+const getRuntimeDOMInputRepairTarget = ({
+  editor,
+  nativeInput,
+  rootElement,
+  selection,
+}: {
+  editor: ReactRuntimeEditor
+  nativeInput?: { data: string | null; inputType: string }
+  rootElement: HTMLElement
+  selection: Range | null
+}): DOMInputRepairTarget | null => {
+  if (!selection || !RangeApi.isCollapsed(selection)) {
+    return null
+  }
+
+  const path = selection.anchor.path
+  const pathAttribute = path.join(',')
+  const textHost =
+    getSlateNodeElementByPath(editor, path) ??
+    rootElement.querySelector<HTMLElement>(
+      `[data-slate-node="text"][data-slate-path="${pathAttribute}"]`
+    )
+  const slateText = readRuntimeText(editor, path)
+
+  if (!textHost || !slateText || !rootElement.contains(textHost)) {
+    return null
+  }
+
+  const nativeText =
+    nativeInput?.inputType === 'insertText' &&
+    typeof nativeInput.data === 'string'
+      ? nativeInput.data
+      : ''
+  const insert =
+    nativeText.length > 0
+      ? {
+          offset: selection.anchor.offset,
+          text: nativeText,
+        }
+      : undefined
+  const selectionOffset = selection.anchor.offset + nativeText.length
+
+  return {
+    ...(insert ? { insert, preferCapturedInsert: true } : {}),
+    path: [...path] as Path,
+    selectionOffset,
+    text: insert ? applyTextInsert(slateText.text, insert) : slateText.text,
+  }
+}
+
 export const getDOMInputRepairTarget = (
   editor: ReactRuntimeEditor,
   rootElement: HTMLElement,
-  nativeInput?: { data: string | null; inputType: string }
+  nativeInput?: { data: string | null; inputType: string },
+  options: { preferRuntimeSelection?: boolean } = {}
 ): DOMInputRepairTarget | null => {
   const rootNode = rootElement.getRootNode?.() ?? rootElement.ownerDocument
   const root =
@@ -449,6 +500,19 @@ export const getDOMInputRepairTarget = (
     ? getTextHostSelectionOffset({ anchorNode, anchorOffset, textHost })
     : null
   const text = textHost?.textContent?.replace(/\uFEFF/g, '') ?? null
+
+  if (options.preferRuntimeSelection) {
+    const runtimeTarget = getRuntimeDOMInputRepairTarget({
+      editor,
+      nativeInput,
+      rootElement,
+      selection: runtimeSelection,
+    })
+
+    if (runtimeTarget) {
+      return runtimeTarget
+    }
+  }
 
   if (
     path &&

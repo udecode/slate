@@ -1,4 +1,5 @@
 import { type FocusEvent, type MouseEvent, useCallback, useRef } from 'react'
+import { isDOMNode } from 'slate-dom'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { prepareEditableFocusMouseKernel } from './editing-kernel'
 import {
@@ -98,6 +99,25 @@ export const useRuntimeFocusMouseEvents = ({
         readOnly,
         state,
       })
+
+      const relatedTarget = event.relatedTarget
+      const movingWithinEditor =
+        relatedTarget != null &&
+        isDOMNode(relatedTarget) &&
+        ReactEditor.hasDOMNode(editor, relatedTarget)
+
+      if (
+        !readOnly &&
+        ReactEditor.hasEditableTarget(editor, event.target) &&
+        !movingWithinEditor
+      ) {
+        setEditableModelSelectionPreference({
+          inputController,
+          preferModelSelection: true,
+          reason: 'model-command',
+          selectionSource: 'model-owned',
+        })
+      }
     },
     [
       editor,
@@ -167,8 +187,12 @@ export const useRuntimeFocusMouseEvents = ({
         event.target === editorElement &&
         !nativePointerFocusRef.current
       ) {
+        const syncProgrammaticFocusSelection = () => syncDOMSelectionToEditor()
+
         nativeInternalFocusRef.current = false
-        syncDOMSelectionToEditor()
+        syncProgrammaticFocusSelection()
+        queueMicrotask(syncProgrammaticFocusSelection)
+        setTimeout(syncProgrammaticFocusSelection)
       }
     },
     [

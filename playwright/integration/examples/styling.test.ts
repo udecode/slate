@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openExample } from 'slate-browser/playwright'
 
 test.describe('styling example', () => {
   test.beforeEach(async ({ page }) => await page.goto('/examples/styling'))
@@ -106,5 +107,47 @@ test.describe('styling example', () => {
     expect(styles.outlineStyle).toBe('dashed')
     expect(styles.outlineColor).toBe('rgb(0, 94, 128)')
     expect(styles.whiteSpace).toBe('pre-wrap')
+  })
+
+  test('mouse drag undo restores typed selected text replacement', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium reporter path')
+
+    const editor = await openExample(page, 'styling', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const originalText = 'This editor is styled using the style prop.'
+    const selectedText = 'using'
+    const selectionStart = originalText.indexOf(selectedText)
+    const selectionEnd = selectionStart + selectedText.length
+
+    await editor.selection.dragTextRange({
+      endOffset: selectionEnd,
+      startOffset: selectionStart,
+      text: originalText,
+    })
+
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe(selectedText)
+
+    await page.keyboard.type('changed')
+    await editor.assert.text('This editor is styled changed the style prop.')
+
+    await page.keyboard.press(
+      await editor.root.evaluate(() =>
+        /Mac OS X/.test(navigator.userAgent) ? 'Meta+Z' : 'Control+Z'
+      )
+    )
+
+    await editor.assert.text(originalText)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: selectionStart },
+      focus: { path: [0, 0], offset: selectionEnd },
+    })
+    await expect.poll(() => editor.get.selectedText()).toBe(selectedText)
   })
 })

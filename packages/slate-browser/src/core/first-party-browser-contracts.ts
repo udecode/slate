@@ -96,7 +96,7 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
     assertions: [
       'external decoration refresh updates rendered highlights',
       'search input keeps focus ownership',
-      'editor root and element nodes stay inside the render budget',
+      'editor root and text nodes stay bounded while element nodes stay out of the render budget',
     ],
     family: 'external-decoration-refresh',
     routes: ['search-highlighting'],

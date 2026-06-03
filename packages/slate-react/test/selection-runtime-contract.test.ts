@@ -385,6 +385,54 @@ describe('selection runtime', () => {
     expect(syncCalls).toBe(0)
   })
 
+  test('exports command-owned text-only selection commits', () => {
+    const inputController = createInputController()
+    inputController.state.selectionSource = 'dom-current'
+    inputController.state.selectionChangeOrigin = 'native-user'
+    let listener:
+      | ((operations?: readonly Operation[], change?: SnapshotChange) => void)
+      | null = null
+    let syncCalls = 0
+
+    subscribeSelectionOnlyDOMExport({
+      addSelectorEventListener(nextListener, options) {
+        listener = (operations, change) => {
+          if (options?.shouldUpdate?.(operations, change) ?? true) {
+            nextListener(operations, change)
+          }
+        }
+
+        return () => {}
+      },
+      getModelSelection: () => expandedSelection,
+      inputController,
+      scheduleDOMExport(callback) {
+        callback()
+      },
+      syncDOMSelectionToEditor() {
+        syncCalls += 1
+      },
+    })
+
+    listener?.(
+      [
+        { offset: 0, path: [0, 0], text: 'x', type: 'remove_text' },
+        {
+          newProperties: expandedSelection,
+          properties: collapsedSelection,
+          type: 'set_selection',
+        },
+      ] as readonly Operation[],
+      createChange({
+        childrenChanged: true,
+        command: { origin: 'command', type: 'history_undo' },
+        selectionChanged: true,
+      })
+    )
+
+    expect(syncCalls).toBe(1)
+  })
+
   test('composition still exports synced text-only selection commits', () => {
     const inputController = createInputController()
     inputController.state.isComposing = true

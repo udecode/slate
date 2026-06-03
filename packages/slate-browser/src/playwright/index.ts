@@ -439,6 +439,14 @@ export type SelectionCaptureOptions = {
   affinity?: RangeRefAffinity
 }
 
+export type SlateBrowserDragTextRangeOptions = {
+  endOffset: number
+  startOffset: number
+  steps?: number
+  text: string
+  textNodeIndex?: number
+}
+
 export type OffsetExpectation = number | readonly [number, number]
 
 export type SelectionSnapshotExpectation = {
@@ -3721,6 +3729,7 @@ export type SlateBrowserEditorHarness = {
   selection: {
     select: (selection: SelectionSnapshot) => Promise<void>
     selectDOM: (selection: SelectionSnapshot) => Promise<void>
+    dragTextRange: (options: SlateBrowserDragTextRangeOptions) => Promise<void>
     collapse: (point: SelectionPoint) => Promise<void>
     capture: (options?: SelectionCaptureOptions) => Promise<SelectionBookmark>
     bookmark: (options?: SelectionCaptureOptions) => Promise<SelectionBookmark>
@@ -4672,6 +4681,76 @@ const dragTextSelection = async (
   await page.mouse.up()
 }
 
+const dragTextRange = async (
+  root: Locator,
+  {
+    endOffset,
+    startOffset,
+    steps = 16,
+    text,
+    textNodeIndex = 0,
+  }: SlateBrowserDragTextRangeOptions
+) => {
+  const points = await root.evaluate(
+    (
+      element,
+      {
+        endOffset,
+        startOffset,
+        text,
+        textNodeIndex,
+      }: Required<Omit<SlateBrowserDragTextRangeOptions, 'steps'>>
+    ) => {
+      if (startOffset > endOffset) {
+        throw new Error('dragTextRange expects startOffset <= endOffset')
+      }
+
+      const ownerDocument = element.ownerDocument
+      const walker = ownerDocument.createTreeWalker(
+        element,
+        NodeFilter.SHOW_TEXT
+      )
+      const matches: Node[] = []
+
+      while (walker.nextNode()) {
+        if (walker.currentNode.textContent === text) {
+          matches.push(walker.currentNode)
+        }
+      }
+
+      const textNode = matches[textNodeIndex]
+
+      if (!textNode) {
+        throw new Error(`Text node not found for drag range: ${text}`)
+      }
+
+      const range = ownerDocument.createRange()
+
+      range.setStart(textNode, startOffset)
+      range.setEnd(textNode, endOffset)
+
+      const rect = range.getClientRects()[0] ?? range.getBoundingClientRect()
+
+      if (!rect || rect.width <= 0 || rect.height <= 0) {
+        throw new Error('Text range has no selectable rect')
+      }
+
+      return {
+        endX: Math.max(rect.left + 1, rect.right - 1),
+        startX: rect.left + 1,
+        y: rect.top + rect.height / 2,
+      }
+    },
+    { endOffset, startOffset, text, textNodeIndex }
+  )
+  const page = root.page()
+
+  await page.mouse.move(points.startX, points.y)
+  await page.mouse.down()
+  await page.mouse.move(points.endX, points.y, { steps })
+  await page.mouse.up()
+}
+
 const waitForReady = async (
   editor: SlateBrowserEditorHarness,
   surface: SurfaceTarget,
@@ -4906,6 +4985,9 @@ const createEditorHarness = (
           )
           await waitForHandleSelection(root, selection)
         }
+      },
+      dragTextRange: async (options: SlateBrowserDragTextRangeOptions) => {
+        await dragTextRange(root, options)
       },
       collapse: async (point: SelectionPoint) => {
         await harness.selection.select({
@@ -5737,12 +5819,14 @@ const createEditorHarness = (
                 break
               case 'assertLocatorText': {
                 const locator = page.locator(step.selector).first()
+                const getText = async () =>
+                  ((await locator.textContent()) ?? '').replace(/\uFEFF/g, '')
 
                 if (step.text !== undefined) {
-                  await expect(locator).toHaveText(step.text)
+                  await expect.poll(getText).toBe(step.text)
                 }
                 if (step.contains !== undefined) {
-                  await expect(locator).toContainText(step.contains)
+                  await expect.poll(getText).toContain(step.contains)
                 }
                 break
               }

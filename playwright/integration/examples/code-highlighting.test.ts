@@ -185,6 +185,54 @@ test.describe('code highlighting', () => {
     )
   })
 
+  test('mouse drag undo restores typed selected paragraph text replacement', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium reporter path')
+
+    const editor = await openExample(page, 'code-highlighting', {
+      ready: {
+        editor: 'visible',
+        text: /const initialValue/,
+      },
+    })
+    const originalText =
+      'If you are using TypeScript, create the editor from the final value shape and pass extension factories at creation time. The example below includes the custom types required for the rest of this example.'
+    const selectedText = 'using'
+    const selectionStart = originalText.indexOf(selectedText)
+    const selectionEnd = selectionStart + selectedText.length
+
+    await editor.selection.dragTextRange({
+      endOffset: selectionEnd,
+      startOffset: selectionStart,
+      text: originalText,
+    })
+
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe(selectedText)
+
+    await page.keyboard.type('writing')
+    await expect(editor.locator.block([2])).toContainText(
+      'If you are writing TypeScript'
+    )
+
+    await page.keyboard.press(
+      await editor.root.evaluate(() =>
+        /Mac OS X/.test(navigator.userAgent) ? 'Meta+Z' : 'Control+Z'
+      )
+    )
+
+    await expect(editor.locator.block([2])).toContainText(
+      'If you are using TypeScript'
+    )
+    await editor.assert.selection({
+      anchor: { path: [2, 0], offset: selectionStart },
+      focus: { path: [2, 0], offset: selectionEnd },
+    })
+    await expect.poll(() => editor.get.selectedText()).toBe(selectedText)
+  })
+
   test('pastes selected text inside a code block without leaving the code block', async ({
     page,
   }, testInfo) => {

@@ -598,6 +598,48 @@ test.describe('On richtext example', () => {
     })
   })
 
+  test('mouse drag undo restores typed multi-leaf selected text replacement', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium reporter path')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const originalText =
+      'This is editable rich text, much better than a <textarea>!'
+    const selectedText = 'editable rich text'
+    const selection = {
+      anchor: { path: [0, 0], offset: 'This is '.length },
+      focus: { path: [0, 2], offset: ' text'.length },
+    }
+
+    await editor.selection.selectDOM(selection)
+
+    await expect.poll(() => editor.get.selectedText()).toBe(selectedText)
+
+    await page.keyboard.type('example')
+    await expect
+      .poll(async () => (await editor.get.blockTexts())[0])
+      .toBe('This is example, much better than a <textarea>!')
+
+    await page.keyboard.press(await getBrowserUndoHotkey(editor.root))
+
+    await expect
+      .poll(async () => (await editor.get.blockTexts())[0])
+      .toBe(originalText)
+    await editor.assert.selection(selection)
+    await expect.poll(() => editor.get.selectedText()).toBe(selectedText)
+    await editor.assert.domSelection({
+      anchorNodeText: 'This is editable ',
+      anchorOffset: 'This is '.length,
+      focusNodeText: ' text, ',
+      focusOffset: ' text'.length,
+    })
+  })
+
   test('exposes input intent for start insert, number insert, and delete', async ({
     page,
   }, testInfo) => {

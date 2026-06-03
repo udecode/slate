@@ -596,6 +596,70 @@ describe('slate-history contract', () => {
     assert.deepEqual(getVisibleState(editor), before)
   })
 
+  it('merges typing after selected text replacement into one undo unit', () => {
+    const editor = historyTestEditor()
+
+    replace(editor, [paragraph('This is editable plain text')], {
+      anchor: { path: [0, 0], offset: 'This is editable '.length },
+      focus: { path: [0, 0], offset: 'This is editable plain '.length },
+    })
+
+    const before = getVisibleState(editor)
+
+    write(editor, (tx) => {
+      tx.text.insert('s')
+    })
+    for (const text of ['i', 'm', 'p', 'l', 'e']) {
+      write(editor, (tx) => {
+        tx.text.insert(text)
+      })
+    }
+
+    assert.equal(getHistory(editor).undos.length, 1)
+    assert.equal(Editor.string(editor, [0]), 'This is editable simpletext')
+
+    undo(editor)
+
+    assert.deepEqual(getVisibleState(editor), before)
+  })
+
+  it('merges typing after multi-leaf selected text replacement into one undo unit', () => {
+    const editor = historyTestEditor()
+
+    replace(
+      editor,
+      [
+        {
+          type: 'paragraph',
+          children: [
+            { text: 'This is editable ' },
+            { bold: true, text: 'rich' },
+            { text: ' text, much better' },
+          ],
+        } as Descendant,
+      ],
+      {
+        anchor: { path: [0, 0], offset: 'This is '.length },
+        focus: { path: [0, 2], offset: ' text'.length },
+      }
+    )
+
+    const before = getVisibleState(editor)
+
+    for (const text of ['e', 'x', 'a', 'm', 'p', 'l', 'e']) {
+      write(editor, (tx) => {
+        tx.text.insert(text)
+      })
+    }
+
+    assert.equal(getHistory(editor).undos.length, 1)
+    assert.equal(Editor.string(editor, [0]), 'This is example, much better')
+
+    undo(editor)
+
+    assert.deepEqual(getVisibleState(editor), before)
+  })
+
   it('uses update metadata to push, merge, and skip history batches', () => {
     const pushEditor = historyTestEditor()
 

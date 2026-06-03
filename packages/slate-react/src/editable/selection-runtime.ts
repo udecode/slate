@@ -89,6 +89,10 @@ const isSyncedTextOnlySelectionCommit = (
     return false
   }
 
+  if (commit.command?.origin === 'command') {
+    return false
+  }
+
   let hasTextOperation = false
 
   for (const operation of operations) {

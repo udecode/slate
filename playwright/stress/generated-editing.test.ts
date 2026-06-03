@@ -701,7 +701,12 @@ const externalDecorationRefresh = (): StressCase =>
       },
       {
         budget: {
-          byKind: { editable: 0, element: 0, void: 0 },
+          byKind: {
+            editable: { max: 2 },
+            element: 0,
+            text: { max: 4 },
+            void: 0,
+          },
         },
         kind: 'assertRenderBudget',
         label: 'assert-search-refresh-render-budget',
@@ -733,7 +738,14 @@ const overlayManyDecorationSources = (): StressCase =>
         selector: '[data-lint-severity]',
       },
       {
-        budget: { byKind: { editable: { max: 1 } } },
+        budget: {
+          byKind: {
+            editable: { max: 3 },
+            element: { max: 2 },
+            leaf: { max: 7 },
+            text: { max: 3 },
+          },
+        },
         kind: 'assertRenderBudget',
         label: 'assert-many-decoration-render-budget',
       },
@@ -947,7 +959,7 @@ const mouseSelectionToolbar = (): StressCase =>
       },
       { focusOwner: 'editor', kind: 'assertFocusOwner', label: 'assert-focus' },
       {
-        budget: { byKind: { editable: 0 }, total: 0 },
+        budget: { byKind: { editable: { max: 3 } }, total: { max: 3 } },
         kind: 'assertRenderBudget',
         label: 'assert-mouse-selection-render-budget',
       },

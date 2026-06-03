@@ -371,10 +371,7 @@ export const history = <const TEnabled extends boolean | undefined = undefined>(
               } else if (preparedBatch.statePatches.length > 0) {
                 merge = false
               } else {
-                merge = shouldMergeBatch(
-                  preparedBatch.operations,
-                  lastBatch.operations
-                )
+                merge = shouldMergeBatch(preparedBatch.operations, lastBatch)
               }
             }
 
@@ -433,12 +430,51 @@ const shouldMerge = (op: Operation, prev: Operation | undefined): boolean => {
   return false
 }
 
+const shouldMergeSelectedReplacementFollowup = (
+  operation: Operation,
+  previousBatch: Batch,
+  previousSaveableOperations: readonly Operation[]
+): boolean => {
+  if (
+    operation.type !== 'insert_text' ||
+    previousBatch.statePatches.length > 0 ||
+    !previousBatch.selectionBefore ||
+    RangeApi.isCollapsed(previousBatch.selectionBefore)
+  ) {
+    return false
+  }
+
+  const previousOperation = previousSaveableOperations.at(-1)
+
+  if (
+    previousOperation?.type !== 'insert_text' ||
+    !shouldMerge(operation, previousOperation)
+  ) {
+    return false
+  }
+
+  const previousRoot = getOperationRoot(previousOperation)
+  const previousBatchSingleRoot = previousSaveableOperations.every(
+    (previous) => getOperationRoot(previous) === previousRoot
+  )
+  const previousBatchDeletedSelection = previousSaveableOperations
+    .slice(0, -1)
+    .some(
+      (previous) =>
+        previous.type === 'remove_text' ||
+        previous.type === 'remove_node' ||
+        previous.type === 'merge_node'
+    )
+
+  return previousBatchSingleRoot && previousBatchDeletedSelection
+}
+
 const shouldMergeBatch = (
   operations: readonly Operation[],
-  previousOperations: readonly Operation[]
+  previousBatch: Batch
 ): boolean => {
   const saveableOperations = operations.filter(shouldSave)
-  const previousSaveableOperations = previousOperations.filter(shouldSave)
+  const previousSaveableOperations = previousBatch.operations.filter(shouldSave)
   const previousOperation = previousSaveableOperations.at(-1)
   const previousRoot = previousOperation
     ? getOperationRoot(previousOperation)
@@ -450,10 +486,26 @@ const shouldMergeBatch = (
         operation.type === previousOperation.type &&
         getOperationRoot(operation) === previousRoot
     )
+  const previousBatchIsSingleTextPath =
+    previousOperation != null &&
+    (previousOperation.type === 'insert_text' ||
+      previousOperation.type === 'remove_text') &&
+    previousSaveableOperations.every(
+      (operation) =>
+        (operation.type === 'insert_text' ||
+          operation.type === 'remove_text') &&
+        getOperationRoot(operation) === previousRoot &&
+        PathApi.equals(operation.path, previousOperation.path)
+    )
 
   return saveableOperations.length === 1
-    ? previousBatchIsTextOnly &&
-        shouldMerge(saveableOperations[0]!, previousOperation)
+    ? shouldMergeSelectedReplacementFollowup(
+        saveableOperations[0]!,
+        previousBatch,
+        previousSaveableOperations
+      ) ||
+        ((previousBatchIsTextOnly || previousBatchIsSingleTextPath) &&
+          shouldMerge(saveableOperations[0]!, previousOperation))
     : false
 }
 

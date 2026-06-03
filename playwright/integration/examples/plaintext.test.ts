@@ -416,4 +416,49 @@ test.describe('plaintext example', () => {
       focus: { path: [0, 0], offset: selectionEnd },
     })
   })
+
+  test('mouse drag undo restores manual typed replacement', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium reporter path')
+
+    const editor = await openExample(page, 'plaintext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const originalText = 'This is editable plain text, just like a <textarea>!'
+    const selectionStart = 'This is editable '.length
+    const selectionEnd = selectionStart + 'plain '.length
+
+    await editor.selection.dragTextRange({
+      endOffset: selectionEnd,
+      startOffset: selectionStart,
+      text: originalText,
+    })
+
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe('plain ')
+
+    await page.keyboard.type('simple')
+    await editor.assert.text(
+      'This is editable simpletext, just like a <textarea>!'
+    )
+
+    await page.keyboard.press(await getBrowserUndoHotkey(editor.root))
+
+    await editor.assert.text(originalText)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: selectionStart },
+      focus: { path: [0, 0], offset: selectionEnd },
+    })
+    await expect.poll(() => editor.get.selectedText()).toBe('plain ')
+    await editor.assert.domSelection({
+      anchorNodeText: originalText,
+      anchorOffset: selectionStart,
+      focusNodeText: originalText,
+      focusOffset: selectionEnd,
+    })
+  })
 })

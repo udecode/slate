@@ -302,6 +302,91 @@ test.describe('Inlines example', () => {
       })
   })
 
+  test('mouse drag undo restores typed plain text replacement', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium reporter path')
+
+    const editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const text =
+      'There are two ways to add links. You can either add a link via the toolbar icon above, or if you want in on a little secret, copy a URL to your keyboard and paste it while a range of text is selected. '
+    const selectionStart = 'There are two ways to add '.length
+    const selectionEnd = selectionStart + 'links'.length
+
+    await editor.selection.dragTextRange({
+      endOffset: selectionEnd,
+      startOffset: selectionStart,
+      text,
+    })
+
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe('links')
+
+    await page.keyboard.type('URLs')
+    await expect
+      .poll(async () => (await editor.get.blockTexts())[1])
+      .toContain('There are two ways to add URLs. You')
+
+    await page.keyboard.press(
+      await editor.root.evaluate(() =>
+        /Mac OS X/.test(navigator.userAgent) ? 'Meta+Z' : 'Control+Z'
+      )
+    )
+
+    await expect
+      .poll(async () => (await editor.get.blockTexts())[1])
+      .toContain('There are two ways to add links. You')
+    await editor.assert.selection({
+      anchor: { path: [1, 0], offset: selectionStart },
+      focus: { path: [1, 0], offset: selectionEnd },
+    })
+    await expect.poll(() => editor.get.selectedText()).toBe('links')
+  })
+
+  test('mouse drag undo restores typed inline link text replacement', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium reporter path')
+
+    const editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const text = 'hyperlink'
+
+    await editor.selection.dragTextRange({
+      endOffset: text.length,
+      startOffset: 0,
+      text,
+    })
+
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe(text)
+
+    await page.keyboard.type('wiki')
+    await expect(editor.root.locator('a').first()).toHaveText('wiki')
+
+    await page.keyboard.press(
+      await editor.root.evaluate(() =>
+        /Mac OS X/.test(navigator.userAgent) ? 'Meta+Z' : 'Control+Z'
+      )
+    )
+
+    await expect(editor.root.locator('a').first()).toHaveText(text)
+    await editor.assert.selection({
+      anchor: { path: [0, 1, 0], offset: 0 },
+      focus: { path: [0, 1, 0], offset: text.length },
+    })
+    await expect.poll(() => editor.get.selectedText()).toBe(text)
+  })
+
   test('places the caret outside a padded inline before typing', async ({
     browserName,
     page,

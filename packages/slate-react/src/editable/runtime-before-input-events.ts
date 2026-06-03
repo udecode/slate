@@ -470,10 +470,17 @@ export const useRuntimeBeforeInputEvents = ({
           currentSelection = readLiveSelection(editor)
 
           if (currentSelection && RangeApi.isCollapsed(currentSelection)) {
-            const pendingTarget = getDOMInputRepairTarget(editor, el, {
-              data,
-              inputType: type,
-            })
+            const pendingTarget = getDOMInputRepairTarget(
+              editor,
+              el,
+              {
+                data,
+                inputType: type,
+              },
+              {
+                preferRuntimeSelection: true,
+              }
+            )
 
             if (
               pendingTarget?.insert &&
