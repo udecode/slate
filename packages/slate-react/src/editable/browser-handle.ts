@@ -293,6 +293,8 @@ export const attachSlateBrowserHandle = ({
             preferModelSelection: false,
             selectionSource: 'dom-current',
           })
+          inputController.state.isUpdatingSelection = false
+          inputController.state.selectionChangeOrigin = 'native-user'
           syncEditorSelectionFromDOM({
             editor,
             ignoreModelSelectionPreference: true,

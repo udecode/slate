@@ -252,14 +252,18 @@ test.describe('plaintext example', () => {
         await page.keyboard.press('Enter')
       }
 
-      await editor.assert.blockTexts(['start', ...Array(12).fill('')])
+      await editor.assert.blockTexts(['start', ...new Array(12).fill('')])
       await editor.assert.selection({
         anchor: { path: [12, 0], offset: 0 },
         focus: { path: [12, 0], offset: 0 },
       })
 
       await page.keyboard.insertText('tail')
-      await editor.assert.blockTexts(['start', ...Array(11).fill(''), 'tail'])
+      await editor.assert.blockTexts([
+        'start',
+        ...new Array(11).fill(''),
+        'tail',
+      ])
       await editor.assert.selection({
         anchor: { path: [12, 0], offset: 'tail'.length },
         focus: { path: [12, 0], offset: 'tail'.length },
@@ -1091,10 +1095,16 @@ test.describe('plaintext example', () => {
             dispatched,
             handle: (element as any).__slateBrowserHandle
               ? {
-                  lastCommit: (element as any).__slateBrowserHandle.getLastCommit?.(),
-                  selection: (element as any).__slateBrowserHandle.getSelection?.(),
+                  lastCommit: (
+                    element as any
+                  ).__slateBrowserHandle.getLastCommit?.(),
+                  selection: (
+                    element as any
+                  ).__slateBrowserHandle.getSelection?.(),
                   text: (element as any).__slateBrowserHandle.getText?.(),
-                  trace: (element as any).__slateBrowserHandle.getKernelTrace?.(),
+                  trace: (
+                    element as any
+                  ).__slateBrowserHandle.getKernelTrace?.(),
                 }
               : null,
           }

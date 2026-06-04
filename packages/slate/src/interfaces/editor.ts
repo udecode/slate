@@ -1824,6 +1824,7 @@ export interface EditorElementReadOnlyOptions {
 }
 
 export interface EditorFragmentDeletionOptions {
+  at?: Location
   direction?: TextDirection
 }
 

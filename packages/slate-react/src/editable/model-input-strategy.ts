@@ -1,5 +1,5 @@
 import type { InputEvent as ReactInputEvent, RefObject } from 'react'
-import { RangeApi, type Range } from 'slate'
+import { type Range, RangeApi } from 'slate'
 import { getSelection, isDOMElement, isDOMText } from 'slate-dom'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'

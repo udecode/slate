@@ -261,7 +261,6 @@ const getSingleEmptyBlockFragmentReplacement = (
 
   const editorChildren = Editor.getChildren(editor)
   const [onlyEditorNode] = editorChildren
-  const [onlyFragmentNode] = fragment
 
   if (
     editorChildren.length !== 1 ||
@@ -273,22 +272,32 @@ const getSingleEmptyBlockFragmentReplacement = (
     return null
   }
 
-  if (fragment.length === 1 && isTextBlockElement(editor, onlyFragmentNode)) {
-    return {
-      children: [cloneDescendant(onlyFragmentNode)] as Value,
-      previousChildren: editorChildren,
-      selection: getBlockChildrenEndSelection([0], onlyFragmentNode.children),
-    }
-  }
+  if (fragment.every((node) => isTextBlockElement(editor, node))) {
+    const [firstFragmentNode, ...tailFragmentNodes] = fragment
 
-  if (
-    fragment.length > 1 &&
-    fragment.every((node) => isTextBlockElement(editor, node))
-  ) {
+    if (!isTextBlockElement(editor, firstFragmentNode)) {
+      return null
+    }
+
+    if (fragment.length === 1) {
+      return null
+    }
+
+    const firstBlock = {
+      ...onlyEditorNode,
+      children: firstFragmentNode.children.map(cloneDescendant),
+    }
+
     return {
-      children: fragment.map(cloneDescendant) as Value,
+      children: [
+        firstBlock,
+        ...tailFragmentNodes.map(cloneDescendant),
+      ] as Value,
       previousChildren: editorChildren,
-      selection: getFragmentEndSelection(fragment),
+      selection:
+        fragment.length === 1
+          ? getBlockChildrenEndSelection([0], firstFragmentNode.children)
+          : getFragmentEndSelection(fragment),
     }
   }
 

@@ -504,6 +504,36 @@ describe('slate-react surface contract', () => {
     expect(typeof SlateReact.createReactEditor).toBe('function')
   })
 
+  test('legacy React hook aliases stay out of the public root at runtime', () => {
+    for (const name of [
+      'useComposing',
+      'useElementIf',
+      'useFocused',
+      'useReadOnly',
+      'useSelected',
+      'useSlateSelection',
+      'useSlateSelector',
+      'useSlateStatic',
+    ]) {
+      expect(name in SlateReact).toBe(false)
+    }
+
+    for (const name of [
+      'useEditor',
+      'useEditorComposing',
+      'useEditorFocused',
+      'useEditorReadOnly',
+      'useEditorSelection',
+      'useEditorSelector',
+      'useElement',
+      'useElementSelected',
+    ]) {
+      expect(typeof SlateReact[name as keyof typeof SlateReact]).toBe(
+        'function'
+      )
+    }
+  })
+
   test('virtualized DOM strategy stays object-only and experimental', () => {
     const segmentPlanSource = readFileSync(
       resolve(packageRoot, 'src/dom-strategy/create-segment-plan.ts'),

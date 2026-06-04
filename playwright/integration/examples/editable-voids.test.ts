@@ -447,7 +447,9 @@ test.describe('editable voids', () => {
       .toContain(
         "Since it's rich text, it can live in a same-runtime child root"
       )
-    await expect.poll(() => childRoot.get.modelText()).toContain('A wise quote.')
+    await expect
+      .poll(() => childRoot.get.modelText())
+      .toContain('A wise quote.')
   })
 
   test('keeps same-runtime child root focused inside editable void', async ({

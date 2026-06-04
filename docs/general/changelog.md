@@ -1,5 +1,8 @@
 # Changelog
 
+This page is historical reference for older Slate releases. Current Slate v2
+API reference lives in the Concepts, API, and Libraries sections.
+
 This is a list of changes to Slate with each new release. Until `1.0` is released, breaking changes will be added as minor version bumps, and smaller, patch-level changes won't be noted since the library is moving quickly while in beta.
 
 > ⚠️ Until [https://github.com/atlassian/changesets/issues/264](https://github.com/atlassian/changesets/issues/264) is solved, each package will maintain its own individual changelog, which you can find here:

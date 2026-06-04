@@ -1564,16 +1564,17 @@ export const applyEditableCommand = ({
         }
 
         editor.update((tx) => {
-          if (selection) {
-            tx.selection.set(selection)
+          if (selection && RangeApi.isExpanded(selection)) {
+            tx.fragment.delete({
+              at: selection,
+              ...(command.direction ? { direction: command.direction } : {}),
+            })
+            return
           }
+
           tx.fragment.delete(
             command.direction ? { direction: command.direction } : undefined
           )
-          if (selection) {
-            const start = RangeApi.start(selection)
-            tx.selection.set({ anchor: start, focus: start })
-          }
         })
         return true
       }

@@ -10,7 +10,6 @@ import {
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { node as getNode } from '../editor/node'
 import { nodes as getNodes } from '../editor/nodes'
-import { getConsistentRangeTextMarks } from '../internal/range-text-marks'
 import {
   type Descendant,
   type Location,
@@ -26,6 +25,7 @@ import {
 } from '../interfaces'
 import { type Editor, Editor as EditorApi } from '../interfaces/editor'
 import type { TextMutationMethods } from '../interfaces/transforms/text'
+import { getConsistentRangeTextMarks } from '../internal/range-text-marks'
 import { getLocationRoot, stripLocationRoots } from '../internal/root-location'
 import { mergeNodes } from '../transforms-node'
 
@@ -2102,9 +2102,9 @@ export const deleteText: TextMutationMethods['delete'] = (
           return
         }
 
-        const deletedMarks = !target.isCollapsed
-          ? getConsistentRangeTextMarks(editor, target.effectiveRange)
-          : null
+        const deletedMarks = target.isCollapsed
+          ? null
+          : getConsistentRangeTextMarks(editor, target.effectiveRange)
         const wholeTopLevelBlockRange = getWholeTopLevelBlockRange(
           editor,
           target

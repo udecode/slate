@@ -15,14 +15,14 @@ import {
   type Value,
 } from '../interfaces'
 import { Editor } from '../interfaces/editor'
-import {
-  getConsistentRangeTextMarks,
-  type TextMarks,
-} from '../internal/range-text-marks'
 import type {
   TextInsertTextOptions,
   TextMutationMethods,
 } from '../interfaces/transforms/text'
+import {
+  getConsistentRangeTextMarks,
+  type TextMarks,
+} from '../internal/range-text-marks'
 import { getLocationRoot } from '../internal/root-location'
 import { getDefaultInsertLocation } from '../utils'
 

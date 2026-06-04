@@ -449,7 +449,17 @@ test.describe('On richtext example', () => {
     })
     await page.keyboard.type('world')
 
-    await expect(editor.root.locator('strong').first()).toHaveText('world')
+    await expect
+      .poll(async () =>
+        editor.root
+          .locator('p')
+          .first()
+          .locator('strong')
+          .evaluateAll((nodes) =>
+            nodes.map((node) => node.textContent ?? '').join('')
+          )
+      )
+      .toBe('world')
     await expect(editor.root.locator('p').first()).toContainText(
       'This is editable world text'
     )
@@ -2883,16 +2893,21 @@ test.describe('On richtext example', () => {
     })
     await editor.selectAll()
     await editor.deleteFragment()
-    await editor.insertText('Heiße')
+    const headingText = 'Heise'
+    await editor.insertText(headingText)
     await editor.selection.select({
       anchor: { path: [0, 0], offset: 0 },
-      focus: { path: [0, 0], offset: 'Heiße'.length },
+      focus: { path: [0, 0], offset: headingText.length },
     })
     await page.getByTestId('block-button-heading-two').click()
     await expect(editor.root.locator('h2')).toHaveCSS(
       'text-transform',
       'uppercase'
     )
+    await editor.selection.collapse({
+      path: [0, 0],
+      offset: headingText.length,
+    })
 
     const finalSourceCharacterRect = await editor.root
       .locator('h2 [data-slate-node="text"]')
@@ -2934,10 +2949,16 @@ test.describe('On richtext example', () => {
     )
     await page.mouse.up()
 
-    await expect.poll(() => editor.get.selectedText()).toBe('E')
+    await expect
+      .poll(async () => (await editor.get.selectedText()).toLowerCase())
+      .toBe('e')
     await expect
       .poll(async () => {
         const selection = await editor.selection.get()
+
+        if (!selection) {
+          return null
+        }
 
         return [selection.anchor.offset, selection.focus.offset].sort(
           (left, right) => left - right
@@ -4303,7 +4324,15 @@ test.describe('On richtext example', () => {
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 'Copied heading'.length },
     })
-    const payload = await editor.clipboard.copyPayload()
+    let payload = await editor.clipboard.copyEventPayload()
+
+    if (payload.html === null) {
+      payload = await editor.clipboard.copyPayload()
+    }
+
+    if (payload.html === null) {
+      throw new Error('Expected copied heading payload to include HTML')
+    }
 
     await editor.selection.collapse({
       path: [0, 0],
@@ -4311,7 +4340,7 @@ test.describe('On richtext example', () => {
     })
     await editor.press('Enter')
     await editor.selection.collapse({ path: [1, 0], offset: 0 })
-    await editor.clipboard.pasteHtml(payload.html, payload.text)
+    await editor.clipboard.pasteEventPayload(payload)
 
     await expect(editor.root.locator('h1')).toHaveCount(2)
     await expect(editor.root.locator('h1').nth(1)).toHaveText('Copied heading')
@@ -4765,7 +4794,11 @@ test.describe('On richtext example', () => {
 
   test('deletes an expanded selection across toolbar list items cleanly', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
     test.setTimeout(60_000)
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)

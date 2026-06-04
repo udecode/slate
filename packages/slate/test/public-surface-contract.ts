@@ -95,6 +95,26 @@ const bannedPublicDocumentationSurface = [
     reason: 'normal React docs must teach useEditor and selector hooks',
   },
   {
+    pattern: /\buseComposing\b/,
+    reason: 'normal React docs must teach useEditorComposing',
+  },
+  {
+    pattern: /\buseReadOnly\b/,
+    reason: 'normal React docs must teach useEditorReadOnly',
+  },
+  {
+    pattern: /\buseSlateSelection\b/,
+    reason: 'normal React docs must teach useEditorSelection',
+  },
+  {
+    pattern: /\buseSlateSelector\b/,
+    reason: 'normal React docs must teach useEditorSelector',
+  },
+  {
+    pattern: /\buseElementIf\b/,
+    reason: 'normal React docs must teach useElement or scoped hooks',
+  },
+  {
     pattern: /\buseSelected\b/,
     reason: 'normal React docs must teach target-scoped selection hooks',
   },

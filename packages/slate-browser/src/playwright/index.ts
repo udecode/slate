@@ -3083,7 +3083,7 @@ const pastePayloadThroughEvent = async (
   payload: { html?: string | null; slateFragment?: string | null; text: string }
 ) =>
   root.evaluate(
-    (
+    async (
       element: HTMLElement,
       nextPayload: {
         html?: string | null
@@ -3093,6 +3093,9 @@ const pastePayloadThroughEvent = async (
       }
     ) => {
       const beforeText = element.textContent
+      const handle = (element as Record<string, any>)[nextPayload.key]
+      const beforeModelText =
+        typeof handle?.getText === 'function' ? handle.getText() : null
       const data = new DataTransfer()
 
       if (nextPayload.html) {
@@ -3112,11 +3115,17 @@ const pastePayloadThroughEvent = async (
         value: data,
       })
 
-      element.dispatchEvent(event)
+      const wasNotCanceled = element.dispatchEvent(event)
+      await new Promise((resolve) => setTimeout(resolve, 0))
 
-      if (element.textContent === beforeText) {
-        const handle = (element as Record<string, any>)[nextPayload.key]
-
+      if (
+        wasNotCanceled &&
+        !event.defaultPrevented &&
+        element.textContent === beforeText &&
+        (beforeModelText == null ||
+          typeof handle?.getText !== 'function' ||
+          handle.getText() === beforeModelText)
+      ) {
         if (!handle?.insertData) {
           throw new Error('This editor surface does not expose insertData')
         }
@@ -3577,46 +3586,50 @@ const unrefSelectionBookmark = async (
     }
   )
 
+const handleSelectionMatches = async (
+  root: Locator,
+  expected: SelectionSnapshot
+): Promise<boolean> =>
+  root.evaluate(
+    (
+      element: HTMLElement,
+      { key, selection }: { key: string; selection: SelectionSnapshot }
+    ) => {
+      const handle = (element as Record<string, any>)[key]
+
+      if (!handle) {
+        return false
+      }
+
+      const current = handle.getSelection()
+
+      if (!current) {
+        return false
+      }
+
+      const samePath = (left: number[], right: number[]) =>
+        left.length === right.length &&
+        left.every((segment, index) => segment === right[index])
+
+      return (
+        samePath(current.anchor.path, selection.anchor.path) &&
+        samePath(current.focus.path, selection.focus.path) &&
+        current.anchor.offset === selection.anchor.offset &&
+        current.focus.offset === selection.focus.offset
+      )
+    },
+    {
+      key: SLATE_BROWSER_HANDLE_KEY,
+      selection: expected,
+    }
+  )
+
 const waitForHandleSelection = async (
   root: Locator,
   expected: SelectionSnapshot
 ) => {
   await expect
-    .poll(async () =>
-      root.evaluate(
-        (
-          element: HTMLElement,
-          { key, selection }: { key: string; selection: SelectionSnapshot }
-        ) => {
-          const handle = (element as Record<string, any>)[key]
-
-          if (!handle) {
-            return false
-          }
-
-          const current = handle.getSelection()
-
-          if (!current) {
-            return false
-          }
-
-          const samePath = (left: number[], right: number[]) =>
-            left.length === right.length &&
-            left.every((segment, index) => segment === right[index])
-
-          return (
-            samePath(current.anchor.path, selection.anchor.path) &&
-            samePath(current.focus.path, selection.focus.path) &&
-            current.anchor.offset === selection.anchor.offset &&
-            current.focus.offset === selection.focus.offset
-          )
-        },
-        {
-          key: SLATE_BROWSER_HANDLE_KEY,
-          selection: expected,
-        }
-      )
-    )
+    .poll(async () => handleSelectionMatches(root, expected))
     .toBe(true)
 }
 
@@ -4617,6 +4630,17 @@ const setDOMSelection = async (root: Locator, selection: SelectionSnapshot) => {
         lastTextNode = textNode
         lastTextLength = length
 
+        if (
+          stringElement.hasAttribute('data-slate-zero-width') &&
+          point.offset === start &&
+          length <= 1
+        ) {
+          return {
+            node: textNode,
+            offset: length,
+          }
+        }
+
         if (point.offset <= end) {
           return {
             node: textNode,
@@ -4657,9 +4681,9 @@ const setDOMSelection = async (root: Locator, selection: SelectionSnapshot) => {
         ? rootNode.getSelection()
         : element.ownerDocument.getSelection()
 
+    element.focus()
     domSelection?.removeAllRanges()
     domSelection?.addRange(range)
-    element.focus()
     element.ownerDocument.dispatchEvent(
       new Event('selectionchange', { bubbles: true })
     )
@@ -4999,6 +5023,7 @@ const createEditorHarness = (
         await harness.assert.selection(selection)
       },
       selectDOM: async (selection: SelectionSnapshot) => {
+        await page.waitForTimeout(0)
         await setDOMSelection(root, selection)
         await root.evaluate((element: HTMLElement) => {
           const rootNode = element.getRootNode() as Document | ShadowRoot
@@ -5027,6 +5052,36 @@ const createEditorHarness = (
             },
             { key: SLATE_BROWSER_HANDLE_KEY }
           )
+          await page.waitForTimeout(0)
+          await root.evaluate(
+            (element: HTMLElement, { key }: { key: string }) => {
+              const handle = (element as Record<string, any>)[key]
+
+              if (!handle?.importDOMSelection) {
+                return
+              }
+
+              handle.importDOMSelection()
+            },
+            { key: SLATE_BROWSER_HANDLE_KEY }
+          )
+          if (!(await handleSelectionMatches(root, selection))) {
+            await setSelectionWithHandle(root, selection)
+            await page.waitForTimeout(0)
+            await setDOMSelection(root, selection)
+            await root.evaluate(
+              (element: HTMLElement, { key }: { key: string }) => {
+                const handle = (element as Record<string, any>)[key]
+
+                if (!handle?.importDOMSelection) {
+                  return
+                }
+
+                handle.importDOMSelection()
+              },
+              { key: SLATE_BROWSER_HANDLE_KEY }
+            )
+          }
           await waitForHandleSelection(root, selection)
         }
       },

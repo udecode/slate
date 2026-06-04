@@ -1852,6 +1852,8 @@ const PaginationSurface = ({
         string,
         ReturnType<EditableDecorate<PaginationLineDecorationData>>
       >(),
+    // Reset line-decoration cache when measured pagination inputs change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [layout, pageGeometry, snapshot]
   )
   const availableWidth = Math.max(

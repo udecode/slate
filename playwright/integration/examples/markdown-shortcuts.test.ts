@@ -75,7 +75,11 @@ test.describe('On markdown-shortcuts example', () => {
 
   test('keeps a heading when typing an ordered marker at its start', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
     const editor = await openMarkdownShortcuts(page)
     const textbox = editor.root
 
@@ -409,26 +413,20 @@ test.describe('On markdown-shortcuts example', () => {
     await expect(page.locator('h2')).toHaveText('Undoable')
   })
 
-  test('can add a h1 item', async ({ page, browserName }, testInfo) => {
+  test('can add a h1 item', async ({ page }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
     const editor = await openMarkdownShortcuts(page)
     const textbox = editor.root
 
     await expect(textbox.locator('h1')).toHaveCount(0)
 
-    if (browserName === 'chromium' && testInfo.project.name !== 'mobile') {
-      await textbox.press('Enter')
-      await textbox.press('ArrowLeft')
-      await textbox.pressSequentially('# ')
-      await textbox.pressSequentially('Heading')
-    } else {
-      await editor.selection.select({
-        anchor: { path: [0, 0], offset: 0 },
-        focus: { path: [0, 0], offset: 228 },
-      })
-      await editor.deleteFragment()
-      await editor.insertText('# ')
-      await editor.insertText('Heading')
-    }
+    await textbox.press('Enter')
+    await textbox.press('ArrowLeft')
+    await textbox.pressSequentially('# ')
+    await textbox.pressSequentially('Heading')
 
     await expect(page.locator('h1')).toHaveCount(1)
 

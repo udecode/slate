@@ -512,12 +512,7 @@ test('selection reconciler clamps stale DOM range offsets after text shortening'
       rerender(<Harness />)
     })
 
-    expect(setBaseAndExtent).toHaveBeenLastCalledWith(
-      textNode,
-      3,
-      textNode,
-      3
-    )
+    expect(setBaseAndExtent).toHaveBeenLastCalledWith(textNode, 3, textNode, 3)
     expect(state.selectionChangeOrigin).toBe('programmatic-export')
   } finally {
     vi.useRealTimers()
