@@ -1,4 +1,9 @@
-import { type Descendant, defineEditorExtension, NodeApi } from 'slate'
+import {
+  type Descendant,
+  defineEditorExtension,
+  NodeApi,
+  RangeApi,
+} from 'slate'
 import { jsx } from 'slate-hyperscript'
 
 import type {
@@ -16,9 +21,13 @@ interface ElementAttributes {
 
 // COMPAT: `B` is omitted here because Google Docs uses `<b>` in weird ways.
 interface TextAttributes {
+  backgroundColor?: string
   code?: boolean
+  color?: string
   fontSize?: string
   strikethrough?: boolean
+  subscript?: boolean
+  superscript?: boolean
   italic?: boolean
   bold?: boolean
   underline?: boolean
@@ -52,10 +61,13 @@ const TEXT_TAGS: Record<string, () => TextAttributes> = {
   I: () => ({ italic: true }),
   S: () => ({ strikethrough: true }),
   STRONG: () => ({ bold: true }),
+  SUB: () => ({ subscript: true }),
+  SUP: () => ({ superscript: true }),
   U: () => ({ underline: true }),
 }
 
 const INLINE_ELEMENT_TYPES = new Set<CustomElementType>(['link'])
+const LIST_STRUCTURE_TAGS = new Set(['LI', 'OL', 'UL'])
 const IGNORED_TAGS = new Set(['COL', 'COLGROUP', 'META', 'SCRIPT', 'STYLE'])
 const LIST_TEXT_BOUNDARY_TAGS = new Set(['DIV'])
 const ELEMENT_ALIGN_VALUES = new Set(['center', 'justify', 'left', 'right'])
@@ -69,6 +81,12 @@ const normalizeFontSize = (fontSize: string) => {
   const value = fontSize.trim()
 
   return /^\d+(\.\d+)?(px|pt|em|rem|%)$/i.test(value) ? value : undefined
+}
+
+const normalizeCssColor = (color: string) => {
+  const value = color.trim()
+
+  return value ? value : undefined
 }
 
 const getElementAlign = (el: HTMLElement) => {
@@ -119,11 +137,23 @@ const getTextTagAttributes = (
 
 const getStyledTextAttributes = (el: HTMLElement): TextAttributes => {
   const attrs: TextAttributes = {}
-  const { fontSize, fontStyle, fontWeight, textDecorationLine } = el.style
+  const {
+    backgroundColor,
+    color,
+    fontSize,
+    fontStyle,
+    fontWeight,
+    textDecorationLine,
+    verticalAlign,
+  } = el.style
   const parsedFontWeight = Number.parseInt(fontWeight, 10)
+  const normalizedBackgroundColor = normalizeCssColor(backgroundColor)
+  const normalizedColor = normalizeCssColor(color)
   const normalizedFontSize = normalizeFontSize(fontSize)
 
-  if (
+  if (isExplicitNonBoldFontWeight(fontWeight)) {
+    attrs.bold = false
+  } else if (
     fontWeight === 'bold' ||
     fontWeight === 'bolder' ||
     parsedFontWeight >= 600
@@ -131,7 +161,9 @@ const getStyledTextAttributes = (el: HTMLElement): TextAttributes => {
     attrs.bold = true
   }
 
-  if (fontStyle === 'italic' || fontStyle === 'oblique') {
+  if (fontStyle === 'normal') {
+    attrs.italic = false
+  } else if (fontStyle === 'italic' || fontStyle === 'oblique') {
     attrs.italic = true
   }
 
@@ -141,6 +173,20 @@ const getStyledTextAttributes = (el: HTMLElement): TextAttributes => {
 
   if (textDecorationLine.includes('line-through')) {
     attrs.strikethrough = true
+  }
+
+  if (verticalAlign === 'super') {
+    attrs.superscript = true
+  } else if (verticalAlign === 'sub') {
+    attrs.subscript = true
+  }
+
+  if (normalizedBackgroundColor) {
+    attrs.backgroundColor = normalizedBackgroundColor
+  }
+
+  if (normalizedColor) {
+    attrs.color = normalizedColor
   }
 
   if (normalizedFontSize) {
@@ -162,7 +208,7 @@ const applyTextAttributes = (children: any[], attrs: TextAttributes): any[] => {
 
     if (child && typeof child === 'object') {
       if ('text' in child && !('children' in child)) {
-        return { ...child, ...attrs }
+        return { ...attrs, ...child }
       }
 
       if (Array.isArray(child.children)) {
@@ -221,7 +267,13 @@ const normalizeTextNode = (node: ChildNode) => {
     return text
   }
 
-  return text.replace(/\r\n?/g, '\n').replaceAll('\n', '')
+  const normalized = text.replace(/\r\n?/g, '\n').replaceAll('\n', '')
+
+  if (node.parentElement?.nodeName === 'LI' && text.includes('\n')) {
+    return normalized.trim()
+  }
+
+  return normalized
 }
 
 const collectInlineCodeText = (node: ChildNode): string => {
@@ -310,6 +362,23 @@ const getMeaningfulChildren = (children: any[]) =>
     (child) => !(typeof child === 'string' && child.trim() === '')
   )
 
+const isOnlyLineBreakChildren = (children: any[]) =>
+  children.length > 0 &&
+  children.every(
+    (child) =>
+      typeof child === 'string' && child.replace(/\n/g, '').trim() === ''
+  )
+
+const isLineBreakOnlyString = (child: unknown): child is string =>
+  typeof child === 'string' &&
+  child.includes('\n') &&
+  child.replace(/\n/g, '').trim() === ''
+
+const createEmptyParagraph = () => ({
+  type: 'paragraph',
+  children: [{ text: '' }],
+})
+
 const deserializeChild = (
   child: ChildNode,
   index: number,
@@ -350,6 +419,9 @@ const isEmptyTextBlock = (node: Descendant) =>
 const hasTopLevelBlockFragment = (fragment: unknown) =>
   Array.isArray(fragment) && fragment.some(isTopLevelBlock)
 
+const isListItemElement = (node: unknown): node is CustomElement =>
+  isTopLevelBlock(node) && node.type === 'list-item'
+
 const getCommentBoundedFragmentRoot = (body: HTMLElement): HTMLElement => {
   const walker = body.ownerDocument.createTreeWalker(body, 128)
   let start: Comment | null = null
@@ -387,6 +459,7 @@ const getCommentBoundedFragmentRoot = (body: HTMLElement): HTMLElement => {
 const normalizeBodyFragment = (children: any[]): Descendant[] => {
   const fragment: Descendant[] = []
   let inlineChildren: any[] = []
+  let orphanListItems: CustomElement[] = []
 
   const flushInlineChildren = () => {
     if (inlineChildren.length === 0) {
@@ -400,21 +473,53 @@ const normalizeBodyFragment = (children: any[]): Descendant[] => {
     inlineChildren = []
   }
 
+  const flushOrphanListItems = () => {
+    if (orphanListItems.length === 0) {
+      return
+    }
+
+    fragment.push({
+      type: 'bulleted-list',
+      children: orphanListItems,
+    })
+    orphanListItems = []
+  }
+
   for (const child of children) {
     if (typeof child === 'string' && child.trim() === '') {
+      if (isLineBreakOnlyString(child)) {
+        flushInlineChildren()
+        flushOrphanListItems()
+
+        for (const character of child) {
+          if (character === '\n') {
+            fragment.push(createEmptyParagraph())
+          }
+        }
+      }
+
       continue
     }
 
     if (isTopLevelBlock(child)) {
       flushInlineChildren()
+
+      if (isListItemElement(child)) {
+        orphanListItems.push(child)
+        continue
+      }
+
+      flushOrphanListItems()
       fragment.push(child)
       continue
     }
 
+    flushOrphanListItems()
     inlineChildren.push(child)
   }
 
   flushInlineChildren()
+  flushOrphanListItems()
 
   return fragment
 }
@@ -465,6 +570,10 @@ export const deserialize = (el: HTMLElement | ChildNode): any => {
   })
 
   if (nodeName === 'P') {
+    if (children.length === 1 && children[0] === '\n') {
+      children = [{ text: '' }]
+    }
+
     const meaningfulChildren = getMeaningfulChildren(children)
 
     if (
@@ -476,11 +585,23 @@ export const deserialize = (el: HTMLElement | ChildNode): any => {
   }
 
   if (nodeName === 'DIV') {
+    if (isOnlyLineBreakChildren(children)) {
+      return jsx('element', { type: 'paragraph' }, jsx('text', {}, ''))
+    }
+
     return jsx('fragment', {}, normalizeBodyFragment(children))
   }
 
   if (el.nodeName === 'BODY') {
     return jsx('fragment', {}, normalizeBodyFragment(children))
+  }
+
+  if (LIST_STRUCTURE_TAGS.has(nodeName)) {
+    children = getMeaningfulChildren(children)
+
+    if (children.length === 0) {
+      children = [{ text: '' }]
+    }
   }
 
   if (ELEMENT_TAGS[nodeName]) {
@@ -513,10 +634,39 @@ const insertHtmlData = (editor: CustomEditor, data: DataTransfer) => {
   const fragment = deserialize(getCommentBoundedFragmentRoot(parsed.body))
   const dropEmptyPasteTarget = hasTopLevelBlockFragment(fragment)
   editor.update((tx) => {
-    tx.nodes.insert(fragment)
-    const firstNode = tx.runtime.snapshot().children[0]
-    if (dropEmptyPasteTarget && firstNode && isEmptyTextBlock(firstNode)) {
+    let emptyPasteTargetPath: number[] | null = null
+    let selection = tx.selection.get()
+
+    if (dropEmptyPasteTarget && selection && RangeApi.isExpanded(selection)) {
+      tx.fragment.delete()
+      selection = tx.selection.get()
+    }
+
+    if (dropEmptyPasteTarget && selection && RangeApi.isCollapsed(selection)) {
+      const blockEntry = tx.nodes.above({
+        match: (node) => NodeApi.isElement(node) && tx.nodes.isBlock(node),
+      })
+
+      if (blockEntry) {
+        const [block, path] = blockEntry
+
+        if (isEmptyTextBlock(block as Descendant)) {
+          emptyPasteTargetPath = path
+        }
+      }
+    }
+
+    if (emptyPasteTargetPath) {
+      tx.nodes.remove({ at: emptyPasteTargetPath })
+      tx.nodes.insert(fragment, { at: emptyPasteTargetPath })
+    } else if (
+      dropEmptyPasteTarget &&
+      isEmptyTextBlock(tx.runtime.snapshot().children[0]!)
+    ) {
+      tx.nodes.insert(fragment)
       tx.nodes.remove({ at: [0] })
+    } else {
+      tx.nodes.insert(fragment)
     }
   })
   return true

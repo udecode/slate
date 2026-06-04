@@ -1,7 +1,12 @@
 import isUrl from 'is-url'
 import type React from 'react'
 import { type PointerEvent, useMemo } from 'react'
-import { defineEditorExtension, NodeApi, RangeApi } from 'slate'
+import {
+  defineEditorExtension,
+  type EditorUpdateTransaction,
+  NodeApi,
+  RangeApi,
+} from 'slate'
 import { isHotkey } from 'slate-dom'
 import * as SlateReact from 'slate-react'
 import {
@@ -137,32 +142,12 @@ const inline = () =>
     transforms: {
       insertText({ next, text, tx }) {
         if (isUrl(text)) {
-          if (
-            tx.nodes.some({
-              match: (n) => NodeApi.isElement(n) && n.type === 'link',
-            })
-          ) {
-            tx.nodes.unwrap({
-              match: (n) => NodeApi.isElement(n) && n.type === 'link',
-            })
-          }
+          insertLinkText(tx, text)
 
-          const selection = tx.selection.get()
-          const isCollapsed = selection && RangeApi.isCollapsed(selection)
-          const link: LinkElement = {
-            type: 'link',
-            url: text,
-            children: isCollapsed ? [{ text }] : [],
-          }
+          return true
+        }
 
-          if (isCollapsed) {
-            tx.nodes.insert(link)
-            tx.selection.move({ unit: 'offset' })
-          } else {
-            tx.nodes.wrap(link, { split: true })
-            tx.selection.collapse({ edge: 'end' })
-          }
-
+        if (insertLinkedTextSegments(tx, text)) {
           return true
         }
 
@@ -175,6 +160,117 @@ const inline = () =>
       { inline: true, readOnly: true, selectable: false, type: 'badge' },
     ],
   })
+
+const URL_TEXT_PATTERN = /https?:\/\/[^\s]+/gi
+
+const trimUrlPunctuation = (text: string) => {
+  const suffix = text.match(/[.,!?;:]+$/)?.[0] ?? ''
+
+  if (!suffix) {
+    return { suffix: '', url: text }
+  }
+
+  return {
+    suffix,
+    url: text.slice(0, -suffix.length),
+  }
+}
+
+const splitLinkedTextSegments = (text: string) => {
+  const segments: Array<{ text: string; url?: true }> = []
+  let cursor = 0
+
+  for (const match of text.matchAll(URL_TEXT_PATTERN)) {
+    const raw = match[0]
+    const index = match.index ?? 0
+    const { suffix, url } = trimUrlPunctuation(raw)
+
+    if (!url || !isUrl(url)) {
+      continue
+    }
+
+    if (index > cursor) {
+      segments.push({ text: text.slice(cursor, index) })
+    }
+
+    segments.push({ text: url, url: true })
+
+    if (suffix) {
+      segments.push({ text: suffix })
+    }
+
+    cursor = index + raw.length
+  }
+
+  if (segments.length === 0) {
+    return null
+  }
+
+  if (cursor < text.length) {
+    segments.push({ text: text.slice(cursor) })
+  }
+
+  return segments
+}
+
+const insertLinkText = (
+  tx: EditorUpdateTransaction<CustomElement[]>,
+  url: string
+) => {
+  if (
+    tx.nodes.some({
+      match: (n) => NodeApi.isElement(n) && n.type === 'link',
+    })
+  ) {
+    tx.nodes.unwrap({
+      match: (n) => NodeApi.isElement(n) && n.type === 'link',
+    })
+  }
+
+  const selection = tx.selection.get()
+  const isCollapsed = selection && RangeApi.isCollapsed(selection)
+  const link: LinkElement = {
+    type: 'link',
+    url,
+    children: isCollapsed ? [{ text: url }] : [],
+  }
+
+  if (isCollapsed) {
+    tx.nodes.insert(link)
+    tx.selection.move({ unit: 'offset' })
+  } else {
+    tx.nodes.wrap(link, { split: true })
+    tx.selection.collapse({ edge: 'end' })
+    tx.selection.move({ unit: 'offset' })
+  }
+}
+
+const insertLinkedTextSegments = (
+  tx: EditorUpdateTransaction<CustomElement[]>,
+  text: string
+) => {
+  const selection = tx.selection.get()
+
+  if (!selection || !RangeApi.isCollapsed(selection)) {
+    return false
+  }
+
+  const segments = splitLinkedTextSegments(text)
+
+  if (!segments) {
+    return false
+  }
+
+  for (const segment of segments) {
+    if (segment.url) {
+      insertLinkText(tx, segment.text)
+    } else {
+      tx.text.insert(segment.text)
+    }
+  }
+
+  return true
+}
 
 const renderElement = (props: RenderElementProps<CustomElement>) => {
   switch (props.element.type) {
@@ -248,7 +344,6 @@ const wrapLink = (editor: CustomEditor, url: string) => {
       tx.selection.move({ unit: 'offset' })
     } else {
       tx.nodes.wrap(link, { split: true })
-      tx.selection.collapse({ edge: 'end' })
     }
   })
 

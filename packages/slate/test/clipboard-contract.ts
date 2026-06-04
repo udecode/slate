@@ -3,7 +3,7 @@ import { describe, it } from 'node:test'
 import { Editor } from 'slate/internal'
 import { history } from 'slate-history'
 
-import { createEditor, type Descendant } from '../src'
+import { createEditor, type Descendant, defineEditorExtension } from '../src'
 import { extendTestSchema } from './support/schema'
 
 const createChildren = (): Descendant[] => [
@@ -377,6 +377,90 @@ describe('slate clipboard contract', () => {
           {
             type: 'list-item',
             children: [{ text: 'three' }],
+          },
+        ],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'Some text.' }],
+      },
+    ])
+    assert.deepEqual(snapshot.selection, {
+      anchor: { path: [1, 0], offset: 'Some text.'.length },
+      focus: { path: [1, 0], offset: 'Some text.'.length },
+    })
+  })
+
+  it('inserts a partial list-plus-block fragment at the end of a populated list item', () => {
+    const editor = createEditor()
+    const fragment: Descendant[] = [
+      {
+        type: 'bulleted-list',
+        children: [
+          {
+            type: 'list-item',
+            children: [{ text: 'ee' }],
+          },
+        ],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'Some text.' }],
+      },
+    ]
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'bulleted-list',
+          children: [
+            {
+              type: 'list-item',
+              children: [{ text: 'one' }],
+            },
+            {
+              type: 'list-item',
+              children: [{ text: 'two' }],
+            },
+            {
+              type: 'list-item',
+              children: [{ text: 'three' }],
+            },
+          ],
+        },
+      ],
+      selection: {
+        anchor: { path: [0, 2, 0], offset: 'three'.length },
+        focus: { path: [0, 2, 0], offset: 'three'.length },
+      },
+      marks: null,
+    })
+
+    editor.update((tx) => {
+      tx.fragment.insert(fragment)
+    })
+
+    const snapshot = Editor.getSnapshot(editor)
+
+    assert.deepEqual(snapshot.children, [
+      {
+        type: 'bulleted-list',
+        children: [
+          {
+            type: 'list-item',
+            children: [{ text: 'one' }],
+          },
+          {
+            type: 'list-item',
+            children: [{ text: 'two' }],
+          },
+          {
+            type: 'list-item',
+            children: [{ text: 'three' }],
+          },
+          {
+            type: 'list-item',
+            children: [{ text: 'ee' }],
           },
         ],
       },
@@ -1195,6 +1279,195 @@ describe('slate clipboard contract', () => {
     assert.deepEqual(snapshot.selection, {
       anchor: { path: [0, 0], offset: 'inserted'.length },
       focus: { path: [0, 0], offset: 'inserted'.length },
+    })
+  })
+
+  it('insertFragment preserves a copied text-block type over an empty target block', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'before' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: '' }],
+        },
+      ],
+      selection: {
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      },
+      marks: null,
+    })
+
+    Editor.insertFragment(editor, [
+      {
+        type: 'heading',
+        children: [{ text: 'inserted' }],
+      },
+    ])
+
+    const snapshot = Editor.getSnapshot(editor)
+
+    assert.deepEqual(snapshot.children, [
+      {
+        type: 'paragraph',
+        children: [{ text: 'before' }],
+      },
+      {
+        type: 'heading',
+        children: [{ text: 'inserted' }],
+      },
+    ])
+    assert.deepEqual(snapshot.selection, {
+      anchor: { path: [1, 0], offset: 'inserted'.length },
+      focus: { path: [1, 0], offset: 'inserted'.length },
+    })
+  })
+
+  it('insertFragment places selection after an inline void pasted into an empty target block', () => {
+    const editor = createEditor()
+    extendTestSchema(editor, { type: 'mention', void: 'markable-inline' })
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'before' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: '' }],
+        },
+      ],
+      selection: {
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      },
+      marks: null,
+    })
+
+    Editor.insertFragment(editor, [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'hello ' },
+          {
+            type: 'mention',
+            character: 'Leia Organa',
+            children: [{ text: '' }],
+          },
+        ],
+      },
+    ])
+
+    const snapshot = Editor.getSnapshot(editor)
+
+    assert.deepEqual(snapshot.children, [
+      {
+        type: 'paragraph',
+        children: [{ text: 'before' }],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'hello ' },
+          {
+            type: 'mention',
+            character: 'Leia Organa',
+            children: [{ text: '' }],
+          },
+          { text: '' },
+        ],
+      },
+    ])
+    assert.deepEqual(snapshot.selection, {
+      anchor: { path: [1, 2], offset: 0 },
+      focus: { path: [1, 2], offset: 0 },
+    })
+  })
+
+  it('insertFragment preserves a copied text-block type over a single empty document block', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: '' }],
+        },
+      ],
+      selection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+      marks: null,
+    })
+
+    Editor.insertFragment(editor, [
+      {
+        type: 'heading',
+        children: [{ text: 'inserted' }],
+      },
+    ])
+
+    const snapshot = Editor.getSnapshot(editor)
+
+    assert.deepEqual(snapshot.children, [
+      {
+        type: 'heading',
+        children: [{ text: 'inserted' }],
+      },
+    ])
+    assert.deepEqual(snapshot.selection, {
+      anchor: { path: [0, 0], offset: 'inserted'.length },
+      focus: { path: [0, 0], offset: 'inserted'.length },
+    })
+  })
+
+  it('insertFragment preserves copied block void attributes over an empty target block', () => {
+    const editor = createEditor()
+    const image = {
+      type: 'image',
+      className: 'copied-image',
+      id: 'image-1',
+      opinionId: 'opinion-1',
+      url: 'https://example.com/copied.png',
+      children: [{ text: '' }],
+    } as Descendant
+
+    editor.extend(
+      defineEditorExtension({
+        elements: [{ type: 'image', void: 'block' }],
+        name: 'image-void-fragment-attrs',
+      })
+    )
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: '' }],
+        },
+      ],
+      selection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+      marks: null,
+    })
+
+    Editor.insertFragment(editor, [image])
+
+    const snapshot = Editor.getSnapshot(editor)
+
+    assert.deepEqual(snapshot.children, [image])
+    assert.deepEqual(snapshot.selection, {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
     })
   })
 

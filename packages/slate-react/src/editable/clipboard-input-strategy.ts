@@ -76,6 +76,9 @@ const isClipboardEventHandled = ({
   return event.isDefaultPrevented() || event.isPropagationStopped()
 }
 
+const hasClipboardFiles = (data: DataTransfer | null | undefined) =>
+  !!data?.files && data.files.length > 0
+
 const isDragEventHandled = ({
   event,
   handler,
@@ -306,6 +309,7 @@ export const applyEditableCut = ({
           RangeApi.start(selection)
         )
         applyEditableCommand({ command, editor })
+        writeSlateViewSelection(editor, null)
         const collapsePoint = collapsePointRef.unref()
         const shouldRemoveEmptyInline =
           inlinePath &&
@@ -630,6 +634,7 @@ export const applyEditablePaste = ({
   if (
     canHandlePaste &&
     (!HAS_BEFORE_INPUT_SUPPORT ||
+      hasClipboardFiles(event.clipboardData) ||
       isPlainTextOnlyPaste(event.nativeEvent) ||
       IS_WEBKIT)
   ) {

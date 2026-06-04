@@ -1131,6 +1131,115 @@ describe('slate transaction contract', () => {
     })
   })
 
+  it('moves word selection across formatted middle sibling text leaves', () => {
+    const forward = createEditor()
+
+    replaceChildren(forward, [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'foo ' },
+          { bold: true, text: 'bar' },
+          { text: ' baz' },
+        ],
+      },
+    ])
+    selectEditor(forward, {
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    })
+
+    forward.update((tx) => {
+      tx.selection.move({ unit: 'word' })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(forward).selection, {
+      anchor: { path: [0, 1], offset: 3 },
+      focus: { path: [0, 1], offset: 3 },
+    })
+
+    const backward = createEditor()
+
+    replaceChildren(backward, [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'foo ' },
+          { bold: true, text: 'bar' },
+          { text: ' baz' },
+        ],
+      },
+    ])
+    selectEditor(backward, {
+      anchor: { path: [0, 2], offset: 1 },
+      focus: { path: [0, 2], offset: 1 },
+    })
+
+    backward.update((tx) => {
+      tx.selection.move({ reverse: true, unit: 'word' })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(backward).selection, {
+      anchor: { path: [0, 1], offset: 0 },
+      focus: { path: [0, 1], offset: 0 },
+    })
+  })
+
+  it('moves word selection through padded formatted leaves in both directions', () => {
+    const editor = createEditor()
+
+    replaceChildren(editor, [
+      {
+        type: 'paragraph',
+        children: [
+          { text: '  123 ' },
+          { bold: true, text: 'ab' },
+          { text: 'c 456  ' },
+          { bold: true, text: 'de' },
+          { text: 'f  ' },
+        ],
+      },
+    ])
+    selectEditor(editor, {
+      anchor: { path: [0, 4], offset: 3 },
+      focus: { path: [0, 4], offset: 3 },
+    })
+
+    for (const point of [
+      { path: [0, 3], offset: 0 },
+      { path: [0, 2], offset: 2 },
+      { path: [0, 1], offset: 0 },
+      { path: [0, 0], offset: 2 },
+      { path: [0, 0], offset: 0 },
+    ]) {
+      editor.update((tx) => {
+        tx.selection.move({ reverse: true, unit: 'word' })
+      })
+
+      assert.deepEqual(Editor.getSnapshot(editor).selection, {
+        anchor: point,
+        focus: point,
+      })
+    }
+
+    for (const point of [
+      { path: [0, 0], offset: 5 },
+      { path: [0, 2], offset: 1 },
+      { path: [0, 2], offset: 5 },
+      { path: [0, 4], offset: 1 },
+      { path: [0, 4], offset: 3 },
+    ]) {
+      editor.update((tx) => {
+        tx.selection.move({ unit: 'word' })
+      })
+
+      assert.deepEqual(Editor.getSnapshot(editor).selection, {
+        anchor: point,
+        focus: point,
+      })
+    }
+  })
+
   it('routes mark commands through command middleware and preserves mark commit metadata', () => {
     const editor = createEditor()
     const seenCommands: unknown[] = []

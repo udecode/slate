@@ -213,6 +213,32 @@ describe('collab and history runtime contract', () => {
     assert.equal(remoteCommits[0]?.snapshotChanged, true)
   })
 
+  it('replays serialized zero text operations during collaboration', () => {
+    const source = createCollabEditor()
+    const remote = createCollabEditor()
+
+    source.update(
+      (tx) => {
+        tx.text.insert('0')
+      },
+      { tag: 'local-zero' }
+    )
+
+    const operations = JSON.parse(
+      JSON.stringify(lastCommit(source).operations)
+    ) as Operation[]
+
+    remote.update((tx) => {
+      tx.operations.replay(operations, { tag: 'remote-zero' })
+    })
+
+    assert.deepEqual(
+      Editor.getSnapshot(remote).children,
+      Editor.getSnapshot(source).children
+    )
+    assert.deepEqual(Editor.getSnapshot(remote).children[0], paragraph('one0'))
+  })
+
   it('uses typed remote collaboration metadata to skip local undo history', () => {
     const source = createCollabEditor()
     const remote = createHistoryCollabEditor()
@@ -477,6 +503,39 @@ describe('collab and history runtime contract', () => {
 
     assert.deepEqual(Editor.getSnapshot(editor).children, before.children)
     assert.deepEqual(Editor.getSnapshot(editor).selection, before.selection)
+  })
+
+  it('undoes selected text replacement while collaboration metadata is present', () => {
+    const editor = createHistoryCollabEditor()
+
+    Editor.replace(editor, {
+      children: [paragraph('hello world')],
+      selection: {
+        anchor: { path: [0, 0], offset: 'hello '.length },
+        focus: { path: [0, 0], offset: 'hello world'.length },
+      },
+      marks: null,
+    })
+
+    editor.update(
+      (tx) => {
+        tx.text.insert('test')
+      },
+      { tag: ['local-edit', 'collab-active'] }
+    )
+
+    assert.equal(Editor.string(editor, []), 'hello test')
+    assert.equal(historyUndoCount(editor), 1)
+
+    editor.update((tx) => {
+      tx.history.undo()
+    })
+
+    assert.equal(Editor.string(editor, []), 'hello world')
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 'hello '.length },
+      focus: { path: [0, 0], offset: 'hello world'.length },
+    })
   })
 
   it('rebases local undo and redo batches across remote text commits', () => {

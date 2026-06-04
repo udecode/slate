@@ -86,6 +86,17 @@ const getTextEndForwardPoint = (
 const isTextStartSplit = (node: Node, point: Point, path: Path) =>
   NodeApi.isText(node) && PathApi.equals(path, point.path) && point.offset === 0
 
+const isInlineStartSplit = (
+  editor: Editor,
+  node: Node,
+  point: Point,
+  path: Path
+) =>
+  NodeApi.isElement(node) &&
+  getEditorSchema(editor).isInline(node) &&
+  PathApi.isAncestor(path, point.path) &&
+  Editor.isStart(editor, point, path)
+
 const ensureStartPointAfterHighestSplit = (
   editor: Editor,
   path: Path
@@ -284,7 +295,9 @@ export const splitNodes: NodeMutationMethods['splitNodes'] = (
               if (
                 (textEndForwardPoint &&
                   PathApi.equals(path, splitPoint.path)) ||
-                (always && isTextStartSplit(node, splitPoint, path))
+                (always &&
+                  (isTextStartSplit(node, splitPoint, path) ||
+                    isInlineStartSplit(editor, node, splitPoint, path)))
               ) {
                 split = false
               } else if (always || !Editor.isEdge(editor, point, path)) {

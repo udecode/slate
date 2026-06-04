@@ -10,6 +10,7 @@ import {
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import { node as getNode } from '../editor/node'
 import { nodes as getNodes } from '../editor/nodes'
+import { getConsistentRangeTextMarks } from '../internal/range-text-marks'
 import {
   type Descendant,
   type Location,
@@ -347,6 +348,7 @@ type DeletePathTarget = {
 }
 type TransactionWriter = {
   apply: (operation: Operation) => void
+  setMarks: (marks: Record<string, unknown> | null) => void
   setSelection: (selection: import('../interfaces').Range | null) => void
 }
 type DeleteRangePlan = {
@@ -423,6 +425,36 @@ const resolveRemovalEndPoint = (
 
 const shouldMergeAcrossBlocks = (plan: DeleteRangePlan) =>
   plan.startNonEditable == null && plan.endNonEditable == null
+
+const shouldRemoveEmptyForwardStartBlock = (
+  editor: Editor,
+  plan: DeleteRangePlan
+) => {
+  if (
+    plan.reverse ||
+    !plan.isCollapsed ||
+    !plan.isAcrossBlocks ||
+    !plan.effectiveStartBlockPath ||
+    !plan.effectiveEndBlockPath ||
+    plan.effectiveStartBlockPath.length !== 1 ||
+    plan.effectiveEndBlockPath.length !== 1 ||
+    !EditorApi.hasPath(editor, plan.effectiveStartBlockPath)
+  ) {
+    return false
+  }
+
+  const startBlock = getCurrentNode(editor, plan.effectiveStartBlockPath)
+
+  return (
+    NodeApi.isElement(startBlock) &&
+    EditorApi.isBlock(editor, startBlock) &&
+    NodeApi.string(startBlock) === '' &&
+    PointApi.equals(
+      plan.start,
+      EditorApi.point(editor, plan.effectiveStartBlockPath, { edge: 'end' })
+    )
+  )
+}
 
 const getClosestIsolatingAncestor = (
   editor: Editor,
@@ -1284,6 +1316,18 @@ const reconcileDeleteStructure = (
         topLevelCleanupRange
       )
       mergeAdjacentTextRuns(editor)
+    } else if (shouldRemoveEmptyForwardStartBlock(editor, plan)) {
+      getEditorTransformRegistry(editor).removeNodes({
+        at: plan.effectiveStartBlockPath!,
+        voids: plan.voids,
+      })
+      removeEmptyStructuralArtifacts(
+        editor,
+        plan.preserveEmptyStartBlockPath,
+        null,
+        topLevelCleanupRange
+      )
+      mergeAdjacentTextRuns(editor)
     } else if (mergePoint) {
       mergeBlocksAtPoint(editor, mergePoint, plan.voids)
       removeEmptyStructuralArtifacts(
@@ -2058,6 +2102,9 @@ export const deleteText: TextMutationMethods['delete'] = (
           return
         }
 
+        const deletedMarks = !target.isCollapsed
+          ? getConsistentRangeTextMarks(editor, target.effectiveRange)
+          : null
         const wholeTopLevelBlockRange = getWholeTopLevelBlockRange(
           editor,
           target
@@ -2065,6 +2112,9 @@ export const deleteText: TextMutationMethods['delete'] = (
 
         if (wholeTopLevelBlockRange) {
           deleteWholeTopLevelBlockRange(editor, wholeTopLevelBlockRange, tx)
+          if (deletedMarks && getCurrentSelection(editor)) {
+            tx.setMarks(deletedMarks)
+          }
           return
         }
 
@@ -2073,6 +2123,9 @@ export const deleteText: TextMutationMethods['delete'] = (
         reconcileDeleteStructure(editor, target, removal)
         cleanupDeleteLeafLifecycle(editor, target)
         resolveDeleteSelection(editor, target, removal, tx)
+        if (deletedMarks && getCurrentSelection(editor)) {
+          tx.setMarks(deletedMarks)
+        }
       }
 
       const root = getLocationRoot(at)

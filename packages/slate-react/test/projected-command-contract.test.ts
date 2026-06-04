@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest'
 import {
   applyEditableCommand,
   applyModelOwnedHistoryIntent,
+  applyModelOwnedTextInput,
 } from '../src/editable/mutation-controller'
 import type { ReactRuntimeEditor } from '../src/plugin/react-editor'
 import {
@@ -56,6 +57,16 @@ const contentRootExtension = defineEditorExtension({
     },
   ],
   name: 'projected-command-test',
+})
+
+const inlineLinkExtension = defineEditorExtension({
+  elements: [{ inline: true, type: 'link' }],
+  name: 'projected-command-inline-test',
+})
+
+const structuralListExtension = defineEditorExtension({
+  elements: [{ type: 'bulleted-list' }, { type: 'list-item' }],
+  name: 'projected-command-structural-list-test',
 })
 
 const paragraph = (text: string) => ({
@@ -922,6 +933,95 @@ describe('projected editable commands', () => {
     expect(editor.read((state) => state.value.get().roots.main)).toEqual([
       paragraph('alpha'),
     ])
+  })
+
+  it('insert-text over a whole text block with inline children preserves the block', () => {
+    const runtime = createEditorRuntime({
+      extensions: [dom(), inlineLinkExtension],
+      initialValue: [
+        {
+          type: 'heading-one',
+          id: 'stable-heading',
+          children: [
+            { text: 'before ' },
+            {
+              type: 'link',
+              url: 'https://example.com',
+              children: [{ text: 'link' }],
+            },
+            { text: ' after' },
+          ],
+        },
+      ],
+    })
+    const editor = createEditorView(runtime) as unknown as ReactRuntimeEditor
+
+    editor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 2], offset: ' after'.length },
+      })
+    })
+
+    applyModelOwnedTextInput({
+      data: 'Z',
+      editor,
+      inputType: 'insertText',
+      selection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 2], offset: ' after'.length },
+      },
+    })
+
+    expect(editor.read((state) => state.value.get().roots.main)).toEqual([
+      {
+        type: 'heading-one',
+        id: 'stable-heading',
+        children: [{ text: 'Z' }],
+      },
+    ])
+    expect(editor.read((state) => state.selection.get())).toEqual({
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
+  })
+
+  it('insert-text over a whole structural block falls back to a paragraph', () => {
+    const runtime = createEditorRuntime({
+      extensions: [structuralListExtension],
+      initialValue: [
+        {
+          type: 'bulleted-list',
+          children: [{ text: 'one' }],
+        },
+      ],
+    })
+    const editor = createEditorView(runtime) as unknown as ReactRuntimeEditor
+
+    editor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 'one'.length },
+      })
+    })
+
+    applyModelOwnedTextInput({
+      data: 'Z',
+      editor,
+      inputType: 'insertText',
+      selection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 'one'.length },
+      },
+    })
+
+    expect(editor.read((state) => state.value.get().roots.main)).toEqual([
+      paragraph('Z'),
+    ])
+    expect(editor.read((state) => state.selection.get())).toEqual({
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
   })
 
   it('undo and redo restore the projected selection sidecar instead of losing owner identity', () => {

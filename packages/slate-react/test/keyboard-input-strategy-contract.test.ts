@@ -8,6 +8,7 @@ import { Hotkeys } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
 import { history } from 'slate-history'
 import { describe, expect, it, vi } from 'vitest'
+import { isSelectAllHotkey } from '../src/dom-strategy/dom-strategy-commands'
 import { resolveHistoryFocusEditor } from '../src/editable/history-focus'
 import {
   applyEditableKeyDown,
@@ -52,6 +53,45 @@ const paragraph = (text: string) =>
   }) satisfies Descendant
 
 describe('keyboard input strategy', () => {
+  it('keeps macOS Control+A available for line-start movement', () => {
+    expect(
+      isSelectAllHotkey(
+        {
+          altKey: false,
+          ctrlKey: true,
+          key: 'a',
+          metaKey: false,
+          shiftKey: false,
+        },
+        'apple'
+      )
+    ).toBe(false)
+    expect(
+      isSelectAllHotkey(
+        {
+          altKey: false,
+          ctrlKey: false,
+          key: 'a',
+          metaKey: true,
+          shiftKey: false,
+        },
+        'apple'
+      )
+    ).toBe(true)
+    expect(
+      isSelectAllHotkey(
+        {
+          altKey: false,
+          ctrlKey: true,
+          key: 'a',
+          metaKey: false,
+          shiftKey: false,
+        },
+        'other'
+      )
+    ).toBe(true)
+  })
+
   it('defers iOS Korean Backspace to native input', () => {
     expect(
       shouldDeferBackspaceToNativeInput({
@@ -1447,6 +1487,82 @@ describe('keyboard input strategy', () => {
       DOMCoverage.clear(editor)
       hasEditableTarget.mockRestore()
       isComposing.mockRestore()
+    }
+  })
+
+  it('routes printable expanded-selection fallback input through the model without beforeinput support', async () => {
+    vi.resetModules()
+
+    const applyEditableCommand = vi.fn(() => true)
+
+    vi.doMock('slate-dom', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('slate-dom')>()
+
+      return {
+        ...actual,
+        HAS_BEFORE_INPUT_SUPPORT: false,
+      }
+    })
+    vi.doMock('../src/editable/mutation-controller', async (importOriginal) => {
+      const actual =
+        await importOriginal<
+          typeof import('../src/editable/mutation-controller')
+        >()
+
+      return {
+        ...actual,
+        applyEditableCommand,
+      }
+    })
+
+    try {
+      const [{ createEditor }, { ReactEditor }, { applyEditableKeyDown }] =
+        await Promise.all([
+          import('slate'),
+          import('../src/plugin/react-editor'),
+          import('../src/editable/keyboard-input-strategy'),
+        ])
+      const editor = createEditor({
+        initialSelection: {
+          anchor: { path: [0, 0], offset: 1 },
+          focus: { path: [1, 0], offset: 2 },
+        },
+        initialValue: [paragraph('one'), paragraph('two')],
+      }) as ReactEditorType
+      const event = reactKeyEvent(keyEvent('a'))
+      const hasEditableTarget = vi
+        .spyOn(ReactEditor, 'hasEditableTarget')
+        .mockReturnValue(true)
+      const isComposing = vi
+        .spyOn(ReactEditor, 'isComposing')
+        .mockReturnValue(false)
+
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: null,
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(event.preventDefault).toHaveBeenCalled()
+      expect(applyEditableCommand).toHaveBeenCalledWith({
+        command: { inputType: 'insertText', kind: 'insert-text', text: 'a' },
+        editor,
+      })
+
+      hasEditableTarget.mockRestore()
+      isComposing.mockRestore()
+    } finally {
+      vi.doUnmock('slate-dom')
+      vi.doUnmock('../src/editable/mutation-controller')
+      vi.resetModules()
     }
   })
 

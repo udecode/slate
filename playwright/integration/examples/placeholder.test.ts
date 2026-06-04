@@ -97,6 +97,49 @@ test.describe('placeholder example', () => {
     })
   })
 
+  test('commits dictation-style insertText beforeinput from the custom placeholder empty state', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'firefox',
+      'Firefox lacks compatible synthetic beforeinput dispatch'
+    )
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop synthetic beforeinput placeholder proof'
+    )
+
+    const editor = await openExample(page, 'custom-placeholder', {
+      ready: {
+        editor: 'visible',
+        placeholder: 'visible',
+      },
+    })
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+    await editor.root.evaluate((element: HTMLElement) => {
+      const event = new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        data: 'dictated text',
+        inputType: 'insertText',
+      })
+
+      element.dispatchEvent(event)
+    })
+
+    await editor.assert.text('dictated text')
+    expect(await editor.get.modelText()).toBe('dictated text')
+    await editor.assert.placeholderVisible(false)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 'dictated text'.length },
+      focus: { path: [0, 0], offset: 'dictated text'.length },
+    })
+  })
+
   test('fires blur when focus leaves during placeholder IME composition', async ({
     page,
   }, testInfo) => {

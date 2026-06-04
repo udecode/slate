@@ -45,6 +45,7 @@ const HEADING_TYPES = new Set<CustomElementType>([
   'heading-six',
 ])
 const ORDERED_LIST_SHORTCUT = /^(\d+)\.$/
+const SHORTCUT_TRAILING_WHITESPACE = /\s$/u
 
 const MarkdownShortcutsExample = () => {
   const initialValue: CustomValue = [
@@ -185,7 +186,7 @@ const markdownShortcuts = () =>
         const selection = tx.selection.get()
 
         if (
-          text.endsWith(' ') &&
+          SHORTCUT_TRAILING_WHITESPACE.test(text) &&
           selection &&
           RangeApi.isCollapsed(selection)
         ) {
@@ -197,34 +198,38 @@ const markdownShortcuts = () =>
           const currentBlock = block?.[0]
           const start = tx.points.start(path)
           const range = { anchor, focus: start }
-          const beforeText = tx.text.string(range) + text.slice(0, -1)
+          const beforeText =
+            tx.text.string(range) +
+            text.replace(SHORTCUT_TRAILING_WHITESPACE, '')
           const orderedListMatch = ORDERED_LIST_SHORTCUT.exec(beforeText)
           const type = orderedListMatch ? 'list-item' : SHORTCUTS[beforeText]
 
           if (type) {
+            if (
+              currentBlock &&
+              NodeApi.isElement(currentBlock) &&
+              currentBlock.type !== 'paragraph'
+            ) {
+              if (type === 'list-item' && currentBlock.type === 'list-item') {
+                tx.selection.set(range)
+
+                if (!RangeApi.isCollapsed(range)) {
+                  tx.text.delete()
+                }
+
+                selectCurrentBlockStart(tx)
+                editor.api.dom.focus()
+
+                return true
+              }
+
+              return next()
+            }
+
             tx.selection.set(range)
 
             if (!RangeApi.isCollapsed(range)) {
               tx.text.delete()
-            }
-
-            if (
-              type === 'list-item' &&
-              currentBlock &&
-              NodeApi.isElement(currentBlock) &&
-              currentBlock.type === 'list-item'
-            ) {
-              tx.nodes.insert(
-                {
-                  type: 'list-item',
-                  children: [{ text: '' }],
-                },
-                { at: path }
-              )
-              tx.selection.set(tx.points.start(path))
-              editor.api.dom.focus()
-
-              return true
             }
 
             tx.nodes.set(

@@ -31,6 +31,38 @@ test.describe('images example', () => {
     await expect(page.getByRole('textbox').locator('img')).toHaveCount(2)
   })
 
+  test('pastes image files from clipboard data', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium file paste proof')
+
+    const editor = await openExample(page, 'images', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selection.collapse({ path: [2, 0], offset: 0 })
+    await editor.root.evaluate((element: HTMLElement) => {
+      const data = new DataTransfer()
+      const file = new File(['not-real-image-bytes'], 'pasted.png', {
+        type: 'image/png',
+      })
+
+      data.items.add(file)
+      element.dispatchEvent(
+        new ClipboardEvent('paste', {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: data,
+        })
+      )
+    })
+
+    await expect(editor.root.locator('img')).toHaveCount(3)
+    await expect(
+      editor.root.locator('img[src^="data:image/png;base64,"]')
+    ).toHaveCount(1)
+  })
+
   test('deletes selected image', async ({ page }) => {
     const editor = page.getByRole('textbox')
     const firstImage = editor.locator('img').first()
@@ -118,6 +150,38 @@ test.describe('images example', () => {
           .evaluate((element) => getComputedStyle(element).boxShadow)
       )
       .not.toBe('none')
+  })
+
+  test('keeps the previous image when Delete removes following text', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'images', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const paragraphAfterImage =
+      'This example shows images in action. It features two ways to add images. You can either add an image via the toolbar icon above, or if you want in on a little secret, copy an image URL to your clipboard and paste it anywhere in the editor!'
+
+    await editor.selection.selectDOM({
+      anchor: { path: [2, 0], offset: 0 },
+      focus: { path: [2, 0], offset: 0 },
+    })
+    await page.keyboard.press('Delete')
+
+    await expect(editor.root.locator('img')).toHaveCount(2)
+    await expect(editor.root).toContainText(paragraphAfterImage.slice(1))
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [2, 0], offset: 0 },
+        focus: { path: [2, 0], offset: 0 },
+      })
   })
 
   test('inserts a paragraph after a clicked selected image on Enter', async ({

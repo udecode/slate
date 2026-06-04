@@ -51,6 +51,8 @@ type EditableHasOnCommand = 'onCommand' extends keyof ComponentProps<
 >
   ? true
   : false
+type EditableAutoCompleteAcceptsBoolean =
+  boolean extends NonNullable<EditableProps['autoComplete']> ? true : false
 type EditableExposesDOMStrategy = ExpectTrue<EditableHasDOMStrategy>
 type EditableDoesNotExposeRenderingStrategy =
   ExpectFalse<EditableHasRenderingStrategy>
@@ -59,6 +61,8 @@ type EditableExposesOnDOMStrategyMetrics =
 type EditableDoesNotExposeOnRenderingStrategyMetrics =
   ExpectFalse<EditableHasOnRenderingStrategyMetrics>
 type EditableDoesNotExposeOnCommand = ExpectFalse<EditableHasOnCommand>
+type EditableRejectsBooleanAutoComplete =
+  ExpectFalse<EditableAutoCompleteAcceptsBoolean>
 
 void (null as unknown as RenderElementDoesNotExposePath)
 void (null as unknown as RenderElementDoesNotExposeIndex)
@@ -69,6 +73,7 @@ void (null as unknown as EditableDoesNotExposeRenderingStrategy)
 void (null as unknown as EditableExposesOnDOMStrategyMetrics)
 void (null as unknown as EditableDoesNotExposeOnRenderingStrategyMetrics)
 void (null as unknown as EditableDoesNotExposeOnCommand)
+void (null as unknown as EditableRejectsBooleanAutoComplete)
 
 const listSourceFiles = (roots: readonly string[]) => {
   const files: string[] = []
@@ -809,6 +814,52 @@ describe('slate-react surface contract', () => {
     })
 
     expect(mergeMounts).toHaveBeenCalledTimes(2)
+  })
+
+  test('parent attribute changes do not remount child element renderers', async () => {
+    const editor = createReactEditor({
+      initialValue: [
+        {
+          type: 'wrapper',
+          status: 'draft',
+          children: [{ type: 'child', children: [{ text: 'inside' }] }],
+        },
+      ],
+    })
+    const childMounts = jest.fn()
+    const childUnmounts = jest.fn()
+
+    const renderElement = ({ children, element }: RenderElementProps) => {
+      const type = (element as { type?: string }).type
+
+      useEffect(() => {
+        if (type !== 'child') {
+          return
+        }
+
+        childMounts()
+        return () => childUnmounts()
+      }, [type])
+
+      return <div data-type={type}>{children}</div>
+    }
+
+    render(
+      <Slate editor={editor}>
+        <Editable renderElement={renderElement} />
+      </Slate>
+    )
+
+    expect(childMounts).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.nodes.set({ status: 'review' }, { at: [0] })
+      })
+    })
+
+    expect(childMounts).toHaveBeenCalledTimes(1)
+    expect(childUnmounts).not.toHaveBeenCalled()
   })
 
   test('useElementSelected remains stable when the selected element path shifts after structural edits', async () => {

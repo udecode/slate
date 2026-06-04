@@ -25,6 +25,28 @@ const createTextEditor = (text = '', offset = 0, type = 'paragraph') => {
   return editor
 }
 
+const createTwoBlockTextEditor = (
+  firstText: string,
+  secondText: string,
+  secondOffset = secondText.length
+) => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      { type: 'paragraph', children: [{ text: firstText }] },
+      { type: 'paragraph', children: [{ text: secondText }] },
+    ],
+    marks: null,
+    selection: {
+      anchor: { path: [1, 0], offset: secondOffset },
+      focus: { path: [1, 0], offset: secondOffset },
+    },
+  })
+
+  return editor
+}
+
 describe('model input strategy', () => {
   it('routes model-owned data transfer input through the editable command boundary', () => {
     const editor = createTextEditor()
@@ -742,6 +764,81 @@ describe('model input strategy', () => {
     })
 
     expect(Editor.string(editor, [])).toBe('acd')
+    expect(repair).toEqual({
+      focus: true,
+      forceRender: true,
+      kind: 'repair-caret',
+      selectionSourceTransition: {
+        preferModelSelection: true,
+        reason: 'model-command',
+        selectionSource: 'model-owned',
+      },
+    })
+  })
+
+  it('deletes the current hard line backward without touching the previous block', () => {
+    const editor = createTwoBlockTextEditor('foobar', 'baz')
+    const selection = Editor.getSelection(editor)
+
+    const repair = applyModelOwnedBeforeInputOperation({
+      data: null,
+      deferredOperations: { current: [] },
+      editor: editor as ReactEditor,
+      inputType: 'deleteHardLineBackward',
+      native: false,
+      selection,
+      setComposing: () => {},
+    })
+
+    expect(Editor.string(editor, [0])).toBe('foobar')
+    expect(Editor.string(editor, [1])).toBe('')
+    expect(Editor.getSelection(editor)).toEqual({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    })
+    expect(repair).toEqual({
+      focus: true,
+      forceRender: true,
+      kind: 'repair-caret',
+      selectionSourceTransition: {
+        preferModelSelection: true,
+        reason: 'model-command',
+        selectionSource: 'model-owned',
+      },
+    })
+  })
+
+  it('deletes forward to the current line end without touching the next block', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        { type: 'paragraph', children: [{ text: 'foobar' }] },
+        { type: 'paragraph', children: [{ text: 'baz' }] },
+      ],
+      marks: null,
+      selection: {
+        anchor: { path: [0, 0], offset: 'foo'.length },
+        focus: { path: [0, 0], offset: 'foo'.length },
+      },
+    })
+
+    const repair = applyModelOwnedBeforeInputOperation({
+      data: null,
+      deferredOperations: { current: [] },
+      editor: editor as ReactEditor,
+      inputType: 'deleteSoftLineForward',
+      native: false,
+      selection: Editor.getSelection(editor),
+      setComposing: () => {},
+    })
+
+    expect(Editor.string(editor, [0])).toBe('foo')
+    expect(Editor.string(editor, [1])).toBe('baz')
+    expect(Editor.getSelection(editor)).toEqual({
+      anchor: { path: [0, 0], offset: 'foo'.length },
+      focus: { path: [0, 0], offset: 'foo'.length },
+    })
     expect(repair).toEqual({
       focus: true,
       forceRender: true,

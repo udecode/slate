@@ -63,6 +63,17 @@ import {
   shouldSkipSelectionScroll,
 } from './selection-side-effect-policy'
 
+const getDOMSelectionOffsetLimit = (node: globalThis.Node) =>
+  isDOMText(node) ? (node.textContent?.length ?? 0) : node.childNodes.length
+
+const clampDOMSelectionPoint = (
+  node: globalThis.Node,
+  offset: number
+): [globalThis.Node, number] => [
+  node,
+  Math.max(0, Math.min(offset, getDOMSelectionOffsetLimit(node))),
+]
+
 const resolveSlateTextPointFromDOMPoint = (
   editor: Editor,
   anchorNode: globalThis.Node | null,
@@ -650,6 +661,7 @@ export const applyEditableMouseDown = ({
       preferModelSelection: false,
       selectionSource: 'dom-current',
     })
+    inputController.state.selectionChangeOrigin = 'native-user'
   }
   onMouseDown?.(event)
 }
@@ -904,6 +916,7 @@ export const syncSelectionForBeforeInput = ({
   if (
     allowDOMSelectionImport &&
     type.startsWith('delete') &&
+    !didUseBeforeInputTargetRange &&
     !shouldPreferModelSelectionForInput
   ) {
     const range =
@@ -1216,30 +1229,39 @@ export const useEditableSelectionReconciler = ({
         : null
 
       if (newDomRange) {
+        const [startContainer, startOffset] = clampDOMSelectionPoint(
+          newDomRange.startContainer,
+          newDomRange.startOffset
+        )
+        const [endContainer, endOffset] = clampDOMSelectionPoint(
+          newDomRange.endContainer,
+          newDomRange.endOffset
+        )
+
         if (ReactEditor.isComposing(editor) && !IS_ANDROID) {
           if (domSelection.rangeCount > 0) {
             domSelection.collapseToEnd()
           } else {
             domSelection.setBaseAndExtent(
-              newDomRange.endContainer,
-              newDomRange.endOffset,
-              newDomRange.endContainer,
-              newDomRange.endOffset
+              endContainer,
+              endOffset,
+              endContainer,
+              endOffset
             )
           }
         } else if (RangeApi.isBackward(selection!)) {
           domSelection.setBaseAndExtent(
-            newDomRange.endContainer,
-            newDomRange.endOffset,
-            newDomRange.startContainer,
-            newDomRange.startOffset
+            endContainer,
+            endOffset,
+            startContainer,
+            startOffset
           )
         } else {
           domSelection.setBaseAndExtent(
-            newDomRange.startContainer,
-            newDomRange.startOffset,
-            newDomRange.endContainer,
-            newDomRange.endOffset
+            startContainer,
+            startOffset,
+            endContainer,
+            endOffset
           )
         }
         if (!shouldSkipSelectionScroll(editor)) {

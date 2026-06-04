@@ -986,6 +986,53 @@ it('normalizeNode inserts spacer text around inline-only children', () => {
   ])
 })
 
+it('insertNodes keeps an inline node in the selected empty paragraph', () => {
+  const editor = createEditor()
+
+  defineElement(editor, { type: 'link', inline: true })
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: '' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'after' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  Editor.insertNodes(editor, {
+    type: 'link',
+    children: [{ text: 'example' }],
+  })
+
+  assert.deepEqual(Editor.getSnapshot(editor).children, [
+    {
+      type: 'paragraph',
+      children: [
+        { text: '' },
+        {
+          type: 'link',
+          children: [{ text: 'example' }],
+        },
+        { text: '' },
+      ],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: 'after' }],
+    },
+  ])
+})
+
 it('normalizeNode removes a stray top-level text child after insertNodes', () => {
   const editor = createEditor()
 
@@ -1320,6 +1367,45 @@ it('insertBreak splits the current top-level block and moves selection into the 
   })
 })
 
+it('insertBreak replaces the next soft break with a block split', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha\nbeta' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 'alpha'.length },
+      focus: { path: [0, 0], offset: 'alpha'.length },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    Editor.insertBreak(editor)
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'paragraph',
+      children: [{ text: 'alpha' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: 'beta' }],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
+  })
+})
+
 it('insertBreak repeatedly splits trailing empty blocks and moves selection to the document end', () => {
   const editor = createEditor()
 
@@ -1366,6 +1452,47 @@ it('insertBreak repeatedly splits trailing empty blocks and moves selection to t
   assert.deepEqual(snapshot.selection, {
     anchor: { path: [3, 0], offset: 0 },
     focus: { path: [3, 0], offset: 0 },
+  })
+})
+
+it('insertBreak from an empty selectable block void creates a trailing block', () => {
+  const editor = createEditor()
+
+  defineElement(editor, { type: 'thematic-break', void: 'block' })
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'thematic-break',
+        children: [{ text: '' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    Editor.insertBreak(editor)
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'thematic-break',
+      children: [{ text: '' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: '' }],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
   })
 })
 
@@ -1486,6 +1613,61 @@ it('insertBreak at the start of text opens a blank block before the text', () =>
   })
 })
 
+it('insertBreak before an inline at block start opens a blank block before the inline', () => {
+  const editor = createEditor()
+
+  defineElement(editor, { type: 'link', inline: true })
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: '' },
+          {
+            type: 'link',
+            children: [{ text: 'link' }],
+          },
+          { text: ' after' },
+        ],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 1, 0], offset: 0 },
+      focus: { path: [0, 1, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    Editor.insertBreak(editor)
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'paragraph',
+      children: [{ text: '' }],
+    },
+    {
+      type: 'paragraph',
+      children: [
+        { text: '' },
+        {
+          type: 'link',
+          children: [{ text: 'link' }],
+        },
+        { text: ' after' },
+      ],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [1, 1, 0], offset: 0 },
+    focus: { path: [1, 1, 0], offset: 0 },
+  })
+})
+
 it('insertBreak inside a nested block splits the nested block without splitting its container', () => {
   const editor = createEditor()
 
@@ -1534,6 +1716,57 @@ it('insertBreak inside a nested block splits the nested block without splitting 
   assert.deepEqual(snapshot.selection, {
     anchor: { path: [0, 1, 0], offset: 0 },
     focus: { path: [0, 1, 0], offset: 0 },
+  })
+})
+
+it('deleteBackward removes a trailing empty nested block line', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'code-block',
+        language: 'javascript',
+        children: [
+          {
+            type: 'code-line',
+            children: [{ text: '// Add the initial value.' }],
+          },
+          {
+            type: 'code-line',
+            children: [{ text: '' }],
+          },
+        ],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 1, 0], offset: 0 },
+      focus: { path: [0, 1, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    Editor.deleteBackward(editor)
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'code-block',
+      language: 'javascript',
+      children: [
+        {
+          type: 'code-line',
+          children: [{ text: '// Add the initial value.' }],
+        },
+      ],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [0, 0, 0], offset: '// Add the initial value.'.length },
+    focus: { path: [0, 0, 0], offset: '// Add the initial value.'.length },
   })
 })
 

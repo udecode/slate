@@ -61,6 +61,7 @@ export type DOMSelectionLocationSnapshot = {
 
 export type ClipboardPayloadSnapshot = {
   html: string | null
+  slateFragment?: string | null
   text: string
   types: string[]
 }
@@ -3050,6 +3051,28 @@ const copyPayloadThroughEvent = async (
 
     return {
       html: data.getData('text/html') || null,
+      slateFragment: data.getData('application/x-slate-fragment') || null,
+      text: data.getData('text/plain'),
+      types: Array.from(data.types),
+    }
+  })
+
+const cutPayloadThroughEvent = async (
+  root: Locator
+): Promise<ClipboardPayloadSnapshot> =>
+  root.evaluate((element: HTMLElement) => {
+    const data = new DataTransfer()
+    const event = new ClipboardEvent('cut', {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: data,
+    })
+
+    element.dispatchEvent(event)
+
+    return {
+      html: data.getData('text/html') || null,
+      slateFragment: data.getData('application/x-slate-fragment') || null,
       text: data.getData('text/plain'),
       types: Array.from(data.types),
     }
@@ -3057,18 +3080,26 @@ const copyPayloadThroughEvent = async (
 
 const pastePayloadThroughEvent = async (
   root: Locator,
-  payload: { html?: string | null; text: string }
+  payload: { html?: string | null; slateFragment?: string | null; text: string }
 ) =>
   root.evaluate(
     (
       element: HTMLElement,
-      nextPayload: { html?: string | null; key: string; text: string }
+      nextPayload: {
+        html?: string | null
+        key: string
+        slateFragment?: string | null
+        text: string
+      }
     ) => {
       const beforeText = element.textContent
       const data = new DataTransfer()
 
       if (nextPayload.html) {
         data.setData('text/html', nextPayload.html)
+      }
+      if (nextPayload.slateFragment) {
+        data.setData('application/x-slate-fragment', nextPayload.slateFragment)
       }
       data.setData('text/plain', nextPayload.text)
 
@@ -3092,6 +3123,7 @@ const pastePayloadThroughEvent = async (
 
         handle.insertData({
           html: nextPayload.html ?? undefined,
+          slateFragment: nextPayload.slateFragment ?? undefined,
           text: nextPayload.text,
         })
       }
@@ -3101,12 +3133,17 @@ const pastePayloadThroughEvent = async (
 
 const insertDataThroughHandle = async (
   root: Locator,
-  payload: { html?: string | null; text: string }
+  payload: { html?: string | null; slateFragment?: string | null; text: string }
 ) =>
   root.evaluate(
     (
       element: HTMLElement,
-      nextPayload: { html?: string | null; key: string; text: string }
+      nextPayload: {
+        html?: string | null
+        key: string
+        slateFragment?: string | null
+        text: string
+      }
     ) => {
       const handle = (element as Record<string, any>)[nextPayload.key]
 
@@ -3116,6 +3153,7 @@ const insertDataThroughHandle = async (
 
       handle.insertData({
         html: nextPayload.html ?? undefined,
+        slateFragment: nextPayload.slateFragment ?? undefined,
         text: nextPayload.text,
       })
     },
@@ -3790,9 +3828,15 @@ export type SlateBrowserEditorHarness = {
   clipboard: {
     copy: () => Promise<void>
     copyEventPayload: () => Promise<ClipboardPayloadSnapshot>
+    cutEventPayload: () => Promise<ClipboardPayloadSnapshot>
     copyPayload: () => Promise<ClipboardPayloadSnapshot>
     readText: () => Promise<string>
     readHtml: () => Promise<string | null>
+    pasteEventPayload: (payload: {
+      html?: string | null
+      slateFragment?: string | null
+      text: string
+    }) => Promise<void>
     pasteText: (text: string) => Promise<void>
     pasteHtml: (html: string, plainText?: string) => Promise<void>
     assert: {
@@ -5362,6 +5406,7 @@ const createEditorHarness = (
       readHtml: async () =>
         withExclusiveClipboardAccess(async () => readClipboardHtml(surface)),
       copyEventPayload: async () => copyPayloadThroughEvent(root),
+      cutEventPayload: async () => cutPayloadThroughEvent(root),
       copyPayload: async () =>
         withExclusiveClipboardAccess(async () => {
           await root.press('ControlOrMeta+C')
@@ -5397,6 +5442,13 @@ const createEditorHarness = (
             types,
           }
         }),
+      pasteEventPayload: async (payload: {
+        html?: string | null
+        slateFragment?: string | null
+        text: string
+      }) => {
+        await pastePayloadThroughEvent(root, payload)
+      },
       pasteText: async (text: string) => {
         await withExclusiveClipboardAccess(async () => {
           const beforeSelectedText = await harness.get.selectedText()

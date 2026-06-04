@@ -117,4 +117,35 @@ describe('slate headless contract', () => {
       },
     ])
   })
+
+  it('lets headless selections drive character deletion without React', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'word' }],
+        },
+      ],
+      selection: {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      },
+      marks: null,
+    })
+
+    Editor.deleteForward(editor)
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'paragraph',
+        children: [{ text: 'wrd' }],
+      },
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
+  })
 })

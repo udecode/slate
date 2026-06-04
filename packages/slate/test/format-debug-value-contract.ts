@@ -9,13 +9,13 @@ describe('formatDebugValue', () => {
     setDebugValueScrubber(undefined)
   })
 
-  it('formats circular values without throwing', () => {
+  it('formats circular values without leaking text content', () => {
     const value: { child?: unknown; text: string } = { text: 'alpha' }
     value.child = value
 
     assert.equal(
       formatDebugValue(value),
-      '{"text":"alpha","child":"[Circular]"}'
+      '{"text":"[text length 5]","child":"[Circular]"}'
     )
   })
 
@@ -23,7 +23,7 @@ describe('formatDebugValue', () => {
     assert.equal(formatDebugValue(1n), '[object BigInt]')
   })
 
-  it('applies the configured scrubber before formatting errors', () => {
+  it('applies the configured scrubber before default text redaction', () => {
     const value: { child?: unknown; text: string } = { text: 'secret' }
     value.child = value
 
@@ -33,5 +33,21 @@ describe('formatDebugValue', () => {
       formatDebugValue(value),
       '{"text":"[redacted]","child":"[Circular]"}'
     )
+  })
+
+  it('keeps user text out of structural error messages by default', () => {
+    const value = {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'private customer sentence' }],
+        },
+      ],
+    }
+
+    const message = formatDebugValue(value)
+
+    assert.equal(message.includes('private customer sentence'), false)
+    assert.match(message, /\[text length 25\]/)
   })
 })

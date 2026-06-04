@@ -198,6 +198,40 @@ const mountSimpleEditorDOM = (editor: Editor, document: Document) => {
   }
 }
 
+const mountListEditorDOM = (editor: Editor, document: Document) => {
+  const root = mountEditorRoot(editor, document)
+  const list = document.createElement('ul')
+
+  list.setAttribute('data-slate-node', 'element')
+
+  for (const [itemIndex, item] of (
+    editor.read((state) => state.runtime.snapshot().children[0]) as SlateElement
+  ).children.entries()) {
+    const itemEl = document.createElement('li')
+    const textEl = createTextDOM(
+      document,
+      ((item as SlateElement).children[0] as { text: string }).text
+    )
+
+    itemEl.setAttribute('data-slate-node', 'element')
+    itemEl.appendChild(textEl)
+    list.appendChild(itemEl)
+
+    const [itemNode] = editor.read((state) => state.nodes.get([0, itemIndex]))
+    const [textNode] = editor.read((state) =>
+      state.nodes.get([0, itemIndex, 0])
+    )
+
+    bindDOMNode(editor, itemNode, itemEl)
+    bindDOMNode(editor, textNode, textEl)
+  }
+
+  root.appendChild(list)
+
+  const [listNode] = editor.read((state) => state.nodes.get([0]))
+  bindDOMNode(editor, listNode, list)
+}
+
 const mountInlineVoidEditorDOM = (editor: Editor, document: Document) => {
   const root = mountEditorRoot(editor, document)
   const blockEl = document.createElement('p')
@@ -395,6 +429,119 @@ describe('slate-dom clipboard boundary', () => {
         anchor: { path: [1, 0], offset: 5 },
         focus: { path: [1, 0], offset: 5 },
       })
+    })
+  })
+
+  it('serializes empty paragraphs as blank lines in plain text clipboard output', () => {
+    withDom((document) => {
+      const source = createClipboardEditor(
+        [
+          {
+            type: 'paragraph',
+            children: [{ text: '1' }],
+          },
+          {
+            type: 'paragraph',
+            children: [{ text: '' }],
+          },
+          {
+            type: 'paragraph',
+            children: [{ text: '2' }],
+          },
+        ],
+        {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [2, 0], offset: 1 },
+        }
+      )
+      const clipboard = new FakeDataTransfer()
+
+      mountSimpleEditorDOM(source, document)
+
+      source.api.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+
+      expect(clipboard.getData('text/plain').trimEnd()).toBe('1\n\n2')
+      expect(clipboard.getData('text/html')).toContain('data-slate-fragment=')
+    })
+  })
+
+  it('serializes space-only and empty paragraphs as distinct plain text lines', () => {
+    withDom((document) => {
+      const source = createClipboardEditor(
+        [
+          {
+            type: 'paragraph',
+            children: [{ text: 'Line 1' }],
+          },
+          {
+            type: 'paragraph',
+            children: [{ text: ' ' }],
+          },
+          {
+            type: 'paragraph',
+            children: [{ text: '' }],
+          },
+          {
+            type: 'paragraph',
+            children: [{ text: 'Line 4' }],
+          },
+        ],
+        {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [3, 0], offset: 'Line 4'.length },
+        }
+      )
+      const clipboard = new FakeDataTransfer()
+
+      mountSimpleEditorDOM(source, document)
+
+      source.api.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+
+      expect(clipboard.getData('text/plain').trimEnd()).toBe(
+        'Line 1\n \n\nLine 4'
+      )
+      expect(clipboard.getData('text/html')).toContain('data-slate-fragment=')
+    })
+  })
+
+  it('copies a selected whole list to clipboard data without DOM range traversal errors', () => {
+    withDom((document) => {
+      const children: Descendant[] = [
+        {
+          type: 'bulleted-list',
+          children: [
+            {
+              type: 'list-item',
+              children: [{ text: 'one' }],
+            },
+            {
+              type: 'list-item',
+              children: [{ text: 'two' }],
+            },
+          ],
+        },
+      ]
+      const source = createClipboardEditor(children, {
+        anchor: { path: [0, 0, 0], offset: 0 },
+        focus: { path: [0, 1, 0], offset: 'two'.length },
+      })
+      const clipboard = new FakeDataTransfer()
+
+      mountListEditorDOM(source, document)
+
+      expect(() => {
+        source.api.clipboard.writeSelection(
+          clipboard as unknown as DataTransfer
+        )
+      }).not.toThrow()
+
+      const encoded = clipboard.getData('application/x-slate-fragment')
+
+      expect(encoded).not.toBe('')
+      expect(decodeFragmentPayload(document, encoded)).toEqual(children)
+      expect(clipboard.getData('text/html')).toContain('data-slate-fragment=')
+      expect(clipboard.getData('text/plain')).toContain('one')
+      expect(clipboard.getData('text/plain')).toContain('two')
     })
   })
 
@@ -606,6 +753,185 @@ describe('slate-dom clipboard boundary', () => {
         focus: { path: [1, 0], offset: 'Some text'.length },
       })
       expect(Editor.getOperations(target).length - operationsBefore).toBe(1)
+    })
+  })
+
+  it('does not add empty text leaves when pasting a full multi-block fragment', () => {
+    withDom((document) => {
+      const copySelection: Range = {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 'second block'.length },
+      }
+      const targetSelection: Range = {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      }
+
+      const source = createClipboardEditor(
+        [
+          {
+            type: 'paragraph',
+            children: [{ text: 'first block' }],
+          },
+          {
+            type: 'paragraph',
+            children: [{ text: 'second block' }],
+          },
+        ],
+        copySelection
+      )
+      const target = createClipboardEditor(
+        [
+          {
+            type: 'paragraph',
+            children: [{ text: '' }],
+          },
+        ],
+        targetSelection
+      )
+      const clipboard = new FakeDataTransfer()
+
+      mountSimpleEditorDOM(source, document)
+      mountEditorRoot(target, document)
+
+      source.api.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+
+      target.update(() => {
+        target.api.clipboard.insertData(clipboard as unknown as DataTransfer)
+      })
+
+      expect(Editor.getSnapshot(target).children).toEqual([
+        {
+          type: 'paragraph',
+          children: [{ text: 'first block' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: 'second block' }],
+        },
+      ])
+    })
+  })
+
+  it('replaces selected content that starts with an empty block when pasting', () => {
+    withDom((document) => {
+      const copySelection: Range = {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 'replacement'.length },
+      }
+      const targetSelection: Range = {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 'old content'.length },
+      }
+
+      const source = createClipboardEditor(
+        [
+          {
+            type: 'paragraph',
+            children: [{ text: 'replacement' }],
+          },
+        ],
+        copySelection
+      )
+      const target = createClipboardEditor(
+        [
+          {
+            type: 'paragraph',
+            children: [{ text: '' }],
+          },
+          {
+            type: 'paragraph',
+            children: [{ text: 'old content' }],
+          },
+        ],
+        targetSelection
+      )
+      const clipboard = new FakeDataTransfer()
+
+      mountSimpleEditorDOM(source, document)
+      mountEditorRoot(target, document)
+
+      source.api.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+
+      target.update(() => {
+        target.api.clipboard.insertData(clipboard as unknown as DataTransfer)
+      })
+
+      expect(Editor.getSnapshot(target).children).toEqual([
+        {
+          type: 'paragraph',
+          children: [{ text: 'replacement' }],
+        },
+      ])
+      expect(Editor.getSnapshot(target).selection).toEqual({
+        anchor: { path: [0, 0], offset: 'replacement'.length },
+        focus: { path: [0, 0], offset: 'replacement'.length },
+      })
+    })
+  })
+
+  it('replaces selected content that starts with an empty block with multiple pasted blocks', () => {
+    withDom((document) => {
+      const copySelection: Range = {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 'second replacement'.length },
+      }
+      const targetSelection: Range = {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 'old content'.length },
+      }
+
+      const source = createClipboardEditor(
+        [
+          {
+            type: 'paragraph',
+            children: [{ text: 'first replacement' }],
+          },
+          {
+            type: 'paragraph',
+            children: [{ text: 'second replacement' }],
+          },
+        ],
+        copySelection
+      )
+      const target = createClipboardEditor(
+        [
+          {
+            type: 'paragraph',
+            children: [{ text: '' }],
+          },
+          {
+            type: 'paragraph',
+            children: [{ text: 'old content' }],
+          },
+        ],
+        targetSelection
+      )
+      const clipboard = new FakeDataTransfer()
+
+      mountSimpleEditorDOM(source, document)
+      mountEditorRoot(target, document)
+
+      source.api.clipboard.writeSelection(clipboard as unknown as DataTransfer)
+
+      target.update(() => {
+        target.api.clipboard.insertData(clipboard as unknown as DataTransfer)
+      })
+
+      expect(Editor.getSnapshot(target).children).toEqual([
+        {
+          type: 'paragraph',
+          children: [{ text: 'first replacement' }],
+        },
+        {
+          type: 'paragraph',
+          children: [{ text: 'second replacement' }],
+        },
+      ])
+      expect(Editor.getSnapshot(target).selection).toEqual({
+        anchor: { path: [1, 0], offset: 'second replacement'.length },
+        focus: { path: [1, 0], offset: 'second replacement'.length },
+      })
     })
   })
 
@@ -920,6 +1246,59 @@ describe('slate-dom clipboard boundary', () => {
     })
   })
 
+  it('keeps a single pasted tab inside one text node through follow-up editing', () => {
+    const editor = createClipboardEditor(
+      [
+        {
+          type: 'paragraph',
+          children: [{ text: '' }],
+        },
+      ],
+      {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+      undefined
+    )
+    const clipboard = new FakeDataTransfer()
+
+    clipboard.setData('text/plain', 'ABD\tEFG')
+
+    editor.update(() => {
+      editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
+    })
+
+    expect(Editor.getSnapshot(editor).children).toEqual([
+      {
+        type: 'paragraph',
+        children: [{ text: 'ABD\tEFG' }],
+      },
+    ])
+
+    Editor.replace(editor, {
+      children: Editor.getSnapshot(editor).children,
+      marks: null,
+      selection: {
+        anchor: { path: [0, 0], offset: 2 },
+        focus: { path: [0, 0], offset: 2 },
+      },
+    })
+
+    Editor.insertText(editor, 'C')
+    Editor.deleteForward(editor, { unit: 'word' })
+
+    expect(Editor.getSnapshot(editor).children).toEqual([
+      {
+        type: 'paragraph',
+        children: [{ text: 'ABC\tEFG' }],
+      },
+    ])
+    expect(Editor.getSnapshot(editor).selection).toEqual({
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    })
+  })
+
   it('falls back to plain text when the custom MIME fragment is malformed', () => {
     withDom((document) => {
       const editor = createClipboardEditor(createChildren(), {
@@ -1156,10 +1535,40 @@ describe('slate-dom clipboard boundary', () => {
         },
       ])
       expect(Editor.getSnapshot(target).selection).toEqual({
-        anchor: { path: [0, 1, 0], offset: 0 },
-        focus: { path: [0, 1, 0], offset: 0 },
+        anchor: { path: [0, 2], offset: 0 },
+        focus: { path: [0, 2], offset: 0 },
       })
       expect(Editor.getOperations(target).length - operationsBefore).toBe(1)
+
+      target.update(() => {
+        target.api.clipboard.insertData(clipboard as unknown as DataTransfer)
+      })
+
+      expect(Editor.getSnapshot(target).children).toEqual([
+        {
+          type: 'paragraph',
+          children: [
+            { text: 'into' },
+            {
+              type: 'mention',
+              character: 'R2-D2',
+              children: [{ text: '' }],
+            },
+            { text: '' },
+            {
+              type: 'mention',
+              character: 'R2-D2',
+              children: [{ text: '' }],
+            },
+            { text: ' target' },
+          ],
+        },
+      ])
+      expect(Editor.getSnapshot(target).selection).toEqual({
+        anchor: { path: [0, 4], offset: 0 },
+        focus: { path: [0, 4], offset: 0 },
+      })
+      expect(Editor.getOperations(target).length - operationsBefore).toBe(2)
 
       source.update((tx) => {
         tx.text.delete()

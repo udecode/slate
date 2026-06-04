@@ -439,6 +439,106 @@ const hasActiveMarks = (marks: Record<string, unknown> | null) =>
 const isUnmarkedTextNode = (node: Node) =>
   NodeApi.isText(node) && Object.keys(node).length === 1
 
+const getTextNodeMarks = (node: Node) => {
+  if (!NodeApi.isText(node)) {
+    return null
+  }
+
+  const { text: _text, ...marks } = node
+
+  return Object.keys(marks).length > 0 ? marks : null
+}
+
+const getTextNodeMarksKey = (marks: Record<string, unknown> | null) =>
+  marks === null
+    ? ''
+    : JSON.stringify(
+        Object.keys(marks)
+          .sort()
+          .map((key) => [key, marks[key]])
+      )
+
+const getConsistentTextMarksInBlocks = (
+  editor: RuntimeEditor,
+  blockPaths: Path[]
+) =>
+  editor.read((state) => {
+    let firstMarks: Record<string, unknown> | null = null
+    let firstMarksKey: string | null = null
+    let sawText = false
+
+    for (const blockPath of blockPaths) {
+      const [block] = state.nodes.get(blockPath)
+
+      for (const [node] of NodeApi.texts(block)) {
+        if (node.text.length === 0) {
+          continue
+        }
+
+        const marks = getTextNodeMarks(node)
+        const marksKey = getTextNodeMarksKey(marks)
+
+        if (!sawText) {
+          sawText = true
+          firstMarks = marks
+          firstMarksKey = marksKey
+          continue
+        }
+
+        if (marksKey !== firstMarksKey) {
+          return null
+        }
+      }
+    }
+
+    return sawText ? firstMarks : null
+  })
+
+const createTextReplacementNode = (
+  editor: RuntimeEditor,
+  blockPaths: Path[],
+  marks: Record<string, unknown> | null,
+  text: string
+): Descendant => {
+  const children = [marks ? { ...marks, text } : { text }]
+
+  if (blockPaths.length !== 1) {
+    return {
+      ...createDefaultParagraph(),
+      children,
+    } as Descendant
+  }
+
+  return editor.read((state) => {
+    const [block] = state.nodes.get(blockPaths[0]!)
+    const { schema } = state
+
+    if (
+      NodeApi.isElement(block) &&
+      !STRUCTURAL_TEXT_REPLACEMENT_BLOCK_TYPES.has(
+        typeof block.type === 'string' ? block.type : ''
+      ) &&
+      !schema.isInline(block) &&
+      !schema.isVoid(block) &&
+      block.children.every(
+        (child) =>
+          NodeApi.isText(child) ||
+          (NodeApi.isElement(child) && schema.isInline(child))
+      )
+    ) {
+      return {
+        ...block,
+        children,
+      } as Descendant
+    }
+
+    return {
+      ...createDefaultParagraph(),
+      children,
+    } as Descendant
+  })
+}
+
 const isPlainTextLeafStart = ({
   editor,
   selection,
@@ -927,6 +1027,15 @@ const createDefaultParagraph = (): Descendant =>
     children: [{ text: '' }],
   }) as Descendant
 
+const STRUCTURAL_TEXT_REPLACEMENT_BLOCK_TYPES = new Set([
+  'bulleted-list',
+  'code-block',
+  'numbered-list',
+  'table',
+  'table-cell',
+  'table-row',
+])
+
 const isBlockVoid = (editor: RuntimeEditor, node: Node) =>
   NodeApi.isElement(node) &&
   Editor.isBlock(editor, node) &&
@@ -1171,7 +1280,14 @@ const applyParagraphBreakAfterSelectedBlockVoid = (
 
 const getFullySelectedBlockPaths = (
   editor: RuntimeEditor,
-  selection: Range | null
+  selection: Range | null,
+  {
+    includeAllSiblings = false,
+    includeOnlyChild = false,
+  }: {
+    includeAllSiblings?: boolean
+    includeOnlyChild?: boolean
+  } = {}
 ): Path[] | null => {
   if (!selection || RangeApi.isCollapsed(selection)) {
     return null
@@ -1224,16 +1340,23 @@ const getFullySelectedBlockPaths = (
         : 0
     })
 
-    return parentChildCount > 1 ? [blockPath] : null
+    return parentChildCount > 1 || includeOnlyChild ? [blockPath] : null
   }
 
   if (PointApi.equals(end, Editor.point(editor, blockPath, { edge: 'end' }))) {
     return [blockPath]
   }
 
-  if (
-    !PointApi.equals(end, Editor.point(editor, endBlockPath, { edge: 'start' }))
-  ) {
+  const endsAtEndBlockStart = PointApi.equals(
+    end,
+    Editor.point(editor, endBlockPath, { edge: 'start' })
+  )
+  const endsAtEndBlockEnd = PointApi.equals(
+    end,
+    Editor.point(editor, endBlockPath, { edge: 'end' })
+  )
+
+  if (!endsAtEndBlockStart && !endsAtEndBlockEnd) {
     return null
   }
 
@@ -1246,13 +1369,60 @@ const getFullySelectedBlockPaths = (
 
   const paths: Path[] = []
   let path = blockPath
+  const stopPath = endsAtEndBlockEnd ? PathApi.next(endBlockPath) : endBlockPath
 
-  while (!PathApi.equals(path, endBlockPath)) {
+  while (!PathApi.equals(path, stopPath)) {
     paths.push(path)
     path = PathApi.next(path)
   }
 
-  return paths
+  const parentPath = PathApi.parent(blockPath)
+  const parentChildCount = editor.read((state) => {
+    if (parentPath.length === 0) {
+      return state.nodes.children().length
+    }
+
+    const [parentNode] = state.nodes.get(parentPath)
+
+    return NodeApi.isAncestor(parentNode) &&
+      'children' in parentNode &&
+      Array.isArray(parentNode.children)
+      ? parentNode.children.length
+      : 0
+  })
+
+  return paths.length < parentChildCount || includeAllSiblings ? paths : null
+}
+
+const getFullySelectedTopLevelBlockPaths = (
+  editor: RuntimeEditor,
+  selection: Range | null
+): Path[] | null => {
+  if (!selection || RangeApi.isCollapsed(selection)) {
+    return null
+  }
+
+  const childCount = editor.read((state) => state.nodes.children().length)
+
+  if (childCount === 0) {
+    return null
+  }
+
+  const [start, end] = RangeApi.edges(selection)
+  const firstPath = [0]
+  const lastPath = [childCount - 1]
+
+  if (
+    !PointApi.equals(start, Editor.point(editor, firstPath, { edge: 'start' }))
+  ) {
+    return null
+  }
+
+  if (!PointApi.equals(end, Editor.point(editor, lastPath, { edge: 'end' }))) {
+    return null
+  }
+
+  return Array.from({ length: childCount }, (_, index) => [index])
 }
 
 const applyFullBlockDeleteFragment = (
@@ -1261,14 +1431,80 @@ const applyFullBlockDeleteFragment = (
 ) => {
   const blockPaths = getFullySelectedBlockPaths(editor, selection)
 
-  if (!blockPaths) {
+  if (blockPaths) {
+    editor.update((tx) => {
+      for (const blockPath of [...blockPaths].reverse()) {
+        tx.nodes.remove({ at: blockPath })
+      }
+    })
+
+    return true
+  }
+
+  const topLevelBlockPaths = getFullySelectedTopLevelBlockPaths(
+    editor,
+    selection
+  )
+
+  if (!topLevelBlockPaths) {
     return false
   }
+
+  const marks = getConsistentTextMarksInBlocks(editor, topLevelBlockPaths)
+  const selectionPoint = getPointWithRoot(
+    { path: [0, 0], offset: 0 },
+    selection?.anchor.root
+  )
+  const paragraph = {
+    ...createDefaultParagraph(),
+    children: [marks ? { ...marks, text: '' } : { text: '' }],
+  } as Descendant
+
+  editor.update((tx) => {
+    for (const blockPath of [...topLevelBlockPaths].reverse()) {
+      tx.nodes.remove({ at: blockPath })
+    }
+    tx.nodes.insert(paragraph, { at: [0] })
+    tx.selection.set({ anchor: selectionPoint, focus: selectionPoint })
+    if (marks) {
+      for (const [key, value] of Object.entries(marks)) {
+        tx.marks.add(key, value)
+      }
+    }
+  })
+
+  return true
+}
+
+const applyFullBlockTextReplacement = (
+  editor: RuntimeEditor,
+  selection: Range | null,
+  text: string
+) => {
+  const blockPaths =
+    getFullySelectedBlockPaths(editor, selection, {
+      includeAllSiblings: true,
+      includeOnlyChild: true,
+    }) ?? getFullySelectedTopLevelBlockPaths(editor, selection)
+
+  if (!blockPaths?.length) {
+    return false
+  }
+
+  const insertionPath = [...blockPaths[0]!]
+  const marks =
+    getEditorCurrentMarks(editor) ??
+    getConsistentTextMarksInBlocks(editor, blockPaths)
+  const nextPoint = { path: insertionPath.concat(0), offset: text.length }
+  const replacement = createTextReplacementNode(editor, blockPaths, marks, text)
 
   editor.update((tx) => {
     for (const blockPath of [...blockPaths].reverse()) {
       tx.nodes.remove({ at: blockPath })
     }
+
+    tx.nodes.insert(replacement, { at: insertionPath })
+    tx.selection.set({ anchor: nextPoint, focus: nextPoint })
   })
 
   return true
@@ -1334,6 +1570,10 @@ export const applyEditableCommand = ({
           tx.fragment.delete(
             command.direction ? { direction: command.direction } : undefined
           )
+          if (selection) {
+            const start = RangeApi.start(selection)
+            tx.selection.set({ anchor: start, focus: start })
+          }
         })
         return true
       }
@@ -1529,13 +1769,15 @@ export const applyModelOwnedTextInput = ({
     (RangeApi.isExpanded(selection) || inputType !== 'insertText')
   ) {
     writeSlateViewSelection(editor, null)
-    profileEditableMutationDuration(
-      'model-text-input-insert-at-target-selection',
-      () =>
-        editor.update((tx) => {
-          tx.text.insert(data, { at: selection })
-        })
-    )
+    if (!applyFullBlockTextReplacement(editor, selection, data)) {
+      profileEditableMutationDuration(
+        'model-text-input-insert-at-target-selection',
+        () =>
+          editor.update((tx) => {
+            tx.text.insert(data, { at: selection })
+          })
+      )
+    }
   } else {
     profileEditableMutationDuration('model-text-input-apply-command', () =>
       applyEditableCommand({

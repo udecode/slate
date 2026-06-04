@@ -43,6 +43,141 @@ const table = (): Descendant => ({
 })
 
 describe('slate delete contract', () => {
+  it('deletes forward over Unicode whitespace before the next word', () => {
+    const whitespaceCases = [
+      ['space', ' '],
+      ['tab', '\t'],
+      ['newline', '\n'],
+      ['no-break space', '\u00A0'],
+      ['en space', '\u2002'],
+      ['em space', '\u2003'],
+      ['thin space', '\u2009'],
+      ['ideographic space', '\u3000'],
+    ] as const
+
+    for (const [label, whitespace] of whitespaceCases) {
+      const editor = createEditor()
+
+      Editor.replace(editor, {
+        children: [paragraph(`Hello${whitespace}World`)],
+        marks: null,
+        selection: {
+          anchor: { path: [0, 0], offset: 'Hello'.length },
+          focus: { path: [0, 0], offset: 'Hello'.length },
+        },
+      })
+
+      Editor.deleteForward(editor, { unit: 'word' })
+
+      assert.equal(Editor.string(editor, [0]), 'Hello', label)
+      assert.deepEqual(
+        Editor.getSnapshot(editor).selection,
+        {
+          anchor: { path: [0, 0], offset: 'Hello'.length },
+          focus: { path: [0, 0], offset: 'Hello'.length },
+        },
+        label
+      )
+    }
+  })
+
+  it('deletes forward by word before a tab without expanding the tab', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [paragraph('Foo\tbar')],
+      marks: null,
+      selection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+    })
+
+    Editor.deleteForward(editor, { unit: 'word' })
+
+    assert.equal(Editor.string(editor, [0]), '\tbar')
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+  })
+
+  it('deletes forward by word over surrogate pairs without leaving halves', () => {
+    const cases = ['A 💩 B', 'A 🧑‍💻 B', 'A 𠮎 B']
+
+    for (const text of cases) {
+      const editor = createEditor()
+
+      Editor.replace(editor, {
+        children: [paragraph(text)],
+        marks: null,
+        selection: {
+          anchor: { path: [0, 0], offset: 'A '.length },
+          focus: { path: [0, 0], offset: 'A '.length },
+        },
+      })
+
+      Editor.deleteForward(editor, { unit: 'word' })
+
+      assert.equal(Editor.string(editor, [0]), 'A  B', text)
+      assert.deepEqual(
+        Editor.getSnapshot(editor).selection,
+        {
+          anchor: { path: [0, 0], offset: 'A '.length },
+          focus: { path: [0, 0], offset: 'A '.length },
+        },
+        text
+      )
+    }
+  })
+
+  it('deletes backward by word at the start of the next word without clearing the line', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [paragraph('Hello World')],
+      marks: null,
+      selection: {
+        anchor: { path: [0, 0], offset: 'Hello '.length },
+        focus: { path: [0, 0], offset: 'Hello '.length },
+      },
+    })
+
+    Editor.deleteBackward(editor, { unit: 'word' })
+
+    assert.equal(Editor.string(editor, [0]), 'World')
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+  })
+
+  it('keeps the first paragraph when Backspace removes its only character', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [paragraph('A'), paragraph('next')],
+      marks: null,
+      selection: {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.text.deleteBackward()
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      paragraph(''),
+      paragraph('next'),
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+  })
+
   it('deletes forward across adjacent text leaves with different marks', () => {
     const editor = createEditor()
 
@@ -175,6 +310,30 @@ describe('slate delete contract', () => {
     assert.deepEqual(Editor.getSnapshot(editor).selection, {
       anchor: { path: [0, 0], offset: 'Say'.length },
       focus: { path: [0, 0], offset: 'Say'.length },
+    })
+  })
+
+  it('normalizes reversed expanded delete ranges before removing text', () => {
+    const editor = createEditor()
+    const selection = {
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 1 },
+    }
+
+    Editor.replace(editor, {
+      children: [paragraph('abcdef')],
+      marks: null,
+      selection,
+    })
+
+    editor.update((tx) => {
+      tx.text.delete({ at: selection })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [paragraph('aef')])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
     })
   })
 
@@ -545,6 +704,100 @@ describe('slate delete contract', () => {
     })
   })
 
+  it('preserves following list and block quote wrappers on Delete from an empty paragraph', () => {
+    const cases: Array<{
+      children: Descendant[]
+      selection: NonNullable<ReturnType<typeof Editor.getSnapshot>['selection']>
+    }> = [
+      {
+        children: [
+          {
+            type: 'bulleted-list',
+            children: [
+              {
+                type: 'list-item',
+                children: [{ text: 'item' }],
+              },
+            ],
+          },
+          paragraph('after'),
+        ],
+        selection: {
+          anchor: { path: [0, 0, 0], offset: 0 },
+          focus: { path: [0, 0, 0], offset: 0 },
+        },
+      },
+      {
+        children: [
+          {
+            type: 'block-quote',
+            children: [{ text: 'quote' }],
+          },
+          paragraph('after'),
+        ],
+        selection: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 0 },
+        },
+      },
+    ]
+
+    for (const { children, selection } of cases) {
+      const editor = createEditor()
+
+      Editor.replace(editor, {
+        children: [paragraph(''), ...structuredClone(children)],
+        marks: null,
+        selection: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 0 },
+        },
+      })
+
+      editor.update((tx) => {
+        tx.text.deleteForward()
+      })
+
+      assert.deepEqual(Editor.getSnapshot(editor).children, children)
+      assert.deepEqual(Editor.getSnapshot(editor).selection, selection)
+    }
+  })
+
+  it('deletes a preceding non-selectable atom block on Backspace without throwing', () => {
+    const editor = createEditor()
+    editor.extend(
+      defineEditorExtension({
+        elements: [{ atom: true, selectable: false, type: 'atom-block' }],
+        name: 'non-selectable-atom-delete-contract',
+      })
+    )
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'atom-block',
+          children: [{ text: '' }],
+        },
+        paragraph(''),
+      ],
+      marks: null,
+      selection: {
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.text.deleteBackward()
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [paragraph('')])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+  })
+
   it('does not merge across an isolating block boundary on Backspace', () => {
     const editor = createEditor()
     editor.extend(
@@ -721,6 +974,33 @@ describe('slate delete contract', () => {
     })
   })
 
+  it('keeps Backspace at the start of leading empty paragraphs as a no-op', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [paragraph(''), paragraph(''), paragraph('text')],
+      marks: null,
+      selection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.text.deleteBackward()
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      paragraph(''),
+      paragraph(''),
+      paragraph('text'),
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+  })
+
   it('keeps earlier empty paragraphs when Backspace merges after a space block', () => {
     const editor = createEditor()
 
@@ -765,6 +1045,76 @@ describe('slate delete contract', () => {
     assert.deepEqual(Editor.getSnapshot(editor).selection, {
       anchor: { path: [4, 0], offset: 1 },
       focus: { path: [4, 0], offset: 1 },
+    })
+  })
+
+  it('keeps marks from deleted text active after Backspace removes the marked run', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ bold: true, text: 'foo' }],
+        },
+      ],
+      marks: null,
+      selection: {
+        anchor: { path: [0, 0], offset: 'foo'.length },
+        focus: { path: [0, 0], offset: 'foo'.length },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.text.deleteBackward()
+      tx.text.deleteBackward()
+      tx.text.deleteBackward()
+      tx.text.insert('bar')
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'paragraph',
+        children: [{ bold: true, text: 'bar' }],
+      },
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 'bar'.length },
+      focus: { path: [0, 0], offset: 'bar'.length },
+    })
+  })
+
+  it('keeps consistently selected marks active after deleting a marked range', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ bold: true, text: 'Styled' }],
+        },
+      ],
+      marks: null,
+      selection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 'Styled'.length },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.fragment.delete({ direction: 'backward' })
+      tx.text.insert('Next')
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'paragraph',
+        children: [{ bold: true, text: 'Next' }],
+      },
+    ])
+    assert.deepEqual(Editor.getSnapshot(editor).selection, {
+      anchor: { path: [0, 0], offset: 'Next'.length },
+      focus: { path: [0, 0], offset: 'Next'.length },
     })
   })
 

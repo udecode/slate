@@ -180,6 +180,39 @@ const assertUnitCharacterDeletion = (
   assert.equal(getEditorText(editor), '')
 }
 
+const assertUnitCharacterMovement = (
+  testCase: LexicalGraphemeCase,
+  reverse: boolean
+) => {
+  const distances = reverse
+    ? testCase.backwardDistances
+    : testCase.forwardDistances
+  const editor = createTextEditor(
+    testCase.text,
+    reverse ? testCase.text.length : 0
+  )
+  let expectedOffset = reverse ? testCase.text.length : 0
+
+  for (const distance of distances) {
+    expectedOffset = reverse
+      ? expectedOffset - distance
+      : expectedOffset + distance
+
+    editor.update((tx) => {
+      tx.selection.move({ reverse, unit: 'character' })
+    })
+
+    assert.deepEqual(
+      Editor.getSnapshot(editor).selection,
+      {
+        anchor: point(expectedOffset),
+        focus: point(expectedOffset),
+      },
+      testCase.description
+    )
+  }
+}
+
 describe('slate text-units contract', () => {
   it('measures basic grapheme distance left-to-right', () => {
     assert.equal(getCharacterDistance('a'), 1)
@@ -256,6 +289,74 @@ describe('slate text-units contract', () => {
     })
   })
 
+  it('moves word selection across whitespace-padded soft line boundaries', () => {
+    const forward = createTextEditor('foo \nbar', 3)
+
+    forward.update((tx) => {
+      tx.selection.move({ unit: 'word' })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(forward).selection, {
+      anchor: point(8),
+      focus: point(8),
+    })
+
+    const backward = createTextEditor('foo\n bar', 5)
+
+    backward.update((tx) => {
+      tx.selection.move({ reverse: true, unit: 'word' })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(backward).selection, {
+      anchor: point(0),
+      focus: point(0),
+    })
+  })
+
+  it('moves word selection backward past an asterisk soft-line prefix', () => {
+    const text = 'Hello world\n* Hello world'
+    const editor = createTextEditor(text, text.length)
+    const expectedOffsets = [20, 14, 6, 0]
+
+    for (const offset of expectedOffsets) {
+      editor.update((tx) => {
+        tx.selection.move({ reverse: true, unit: 'word' })
+      })
+
+      assert.deepEqual(Editor.getSnapshot(editor).selection, {
+        anchor: point(offset),
+        focus: point(offset),
+      })
+    }
+  })
+
+  it('moves word selection through padded words in both directions', () => {
+    const text = '  123 abc 456  def  '
+    const editor = createTextEditor(text, text.length)
+
+    for (const offset of [15, 10, 6, 2, 0]) {
+      editor.update((tx) => {
+        tx.selection.move({ reverse: true, unit: 'word' })
+      })
+
+      assert.deepEqual(Editor.getSnapshot(editor).selection, {
+        anchor: point(offset),
+        focus: point(offset),
+      })
+    }
+
+    for (const offset of [5, 9, 13, 18, 20]) {
+      editor.update((tx) => {
+        tx.selection.move({ unit: 'word' })
+      })
+
+      assert.deepEqual(Editor.getSnapshot(editor).selection, {
+        anchor: point(offset),
+        focus: point(offset),
+      })
+    }
+  })
+
   it('measures portable Lexical #7163 Unicode destructive rows', () => {
     for (const testCase of lexical7163GraphemeCases) {
       assert.deepEqual(
@@ -275,6 +376,13 @@ describe('slate text-units contract', () => {
     for (const testCase of lexical7163GraphemeCases) {
       assertUnitCharacterDeletion(testCase, false)
       assertUnitCharacterDeletion(testCase, true)
+    }
+  })
+
+  it('moves over portable Lexical #7163 Unicode rows by Slate character units', () => {
+    for (const testCase of lexical7163GraphemeCases) {
+      assertUnitCharacterMovement(testCase, false)
+      assertUnitCharacterMovement(testCase, true)
     }
   })
 })

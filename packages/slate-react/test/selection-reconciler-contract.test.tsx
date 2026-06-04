@@ -441,6 +441,90 @@ test('selection reconciler clears the updating guard when DOM export throws', ()
   }
 })
 
+test('selection reconciler clamps stale DOM range offsets after text shortening', () => {
+  vi.useFakeTimers()
+
+  const editor = createReactEditor()
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: createEditableInputControllerState(),
+  })
+  const state = inputController.state
+  const androidInputManagerRef = { current: null }
+  let renderTick = 0
+
+  Editor.replace(editor, {
+    children: [{ type: 'paragraph', children: [{ text: 'abcd' }] }],
+    selection: {
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    },
+  })
+
+  const Harness = () => {
+    const rootRef = useRef<HTMLDivElement | null>(null)
+
+    useEditableSelectionReconciler({
+      androidInputManagerRef,
+      editor,
+      inputController,
+      rootRef,
+      scrollSelectionIntoView: vi.fn(),
+      partialDOMBackedSelection: false,
+      state,
+    })
+
+    return (
+      <div data-render-tick={renderTick} ref={rootRef}>
+        <span>abc</span>
+      </div>
+    )
+  }
+
+  try {
+    const { container, rerender } = render(<Harness />)
+    const textNode = container.querySelector('span')?.firstChild
+    const domSelection = document.getSelection()
+
+    if (!textNode || !domSelection) {
+      throw new Error('Expected shortened rendered text and document selection')
+    }
+
+    domSelection.removeAllRanges()
+    domSelection.setBaseAndExtent(textNode, 0, textNode, 0)
+
+    vi.spyOn(ReactEditor, 'findDocumentOrShadowRoot').mockReturnValue(document)
+    vi.spyOn(ReactEditor, 'resolveSlateRange').mockReturnValue(null)
+    vi.spyOn(ReactEditor, 'hasRange').mockReturnValue(true)
+    vi.spyOn(ReactEditor, 'resolveDOMRange').mockReturnValue({
+      collapsed: true,
+      commonAncestorContainer: textNode,
+      endContainer: textNode,
+      endOffset: 4,
+      startContainer: textNode,
+      startOffset: 4,
+    } as unknown as Range)
+    vi.spyOn(ReactEditor, 'isComposing').mockReturnValue(false)
+    const setBaseAndExtent = vi.spyOn(domSelection, 'setBaseAndExtent')
+
+    act(() => {
+      renderTick++
+      rerender(<Harness />)
+    })
+
+    expect(setBaseAndExtent).toHaveBeenLastCalledWith(
+      textNode,
+      3,
+      textNode,
+      3
+    )
+    expect(state.selectionChangeOrigin).toBe('programmatic-export')
+  } finally {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  }
+})
+
 test('selection reconciler keeps DOM coverage skip selections model-owned', () => {
   vi.useFakeTimers()
 

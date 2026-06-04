@@ -15,6 +15,10 @@ import {
   type Value,
 } from '../interfaces'
 import { Editor } from '../interfaces/editor'
+import {
+  getConsistentRangeTextMarks,
+  type TextMarks,
+} from '../internal/range-text-marks'
 import type {
   TextInsertTextOptions,
   TextMutationMethods,
@@ -46,20 +50,22 @@ const isFullDocumentRange = (editor: SlateEditor, range: Range) => {
 
 const createFullDocumentTextReplacement = (
   editor: SlateEditor,
-  text: string
+  text: string,
+  marks: TextMarks | null = null
 ) => {
   const first = Editor.getChildren(editor)[0]
+  const textNode = marks ? { text, ...marks } : { text }
 
   if (first && 'children' in first) {
     return [
       {
         ...first,
-        children: [{ text }],
+        children: [textNode],
       },
     ]
   }
 
-  return [{ text }]
+  return [textNode]
 }
 
 export const applyInsertText: TextMutationMethods['insertText'] = (
@@ -99,10 +105,16 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
       !RangeApi.isCollapsed(defaultAt) &&
       isFullDocumentRange(editor, defaultAt)
     ) {
+      const replacementMarks = getConsistentRangeTextMarks(editor, defaultAt)
+
       applyOperation(editor, {
         children: [...Editor.getChildren(editor)] as Value,
         index: 0,
-        newChildren: createFullDocumentTextReplacement(editor, text) as Value,
+        newChildren: createFullDocumentTextReplacement(
+          editor,
+          text,
+          replacementMarks
+        ) as Value,
         newSelection: explicitAtPreservesNullSelection
           ? null
           : {
@@ -131,6 +143,8 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
           if (RangeApi.isCollapsed(at)) {
             at = at.anchor
           } else {
+            const replacementMarks =
+              text.length > 0 ? getConsistentRangeTextMarks(editor, at) : null
             const end = RangeApi.end(at)
             if (!voids && Editor.void(editor, { at: end })) {
               return
@@ -161,6 +175,18 @@ export const applyInsertText: TextMutationMethods['insertText'] = (
               transforms.setSelection({ anchor: nextAt, focus: nextAt })
             } else if (explicitAtPreservesNullSelection) {
               transforms.deselect()
+            }
+
+            if (replacementMarks) {
+              transforms.insertNodes(
+                { text, ...replacementMarks },
+                {
+                  at: nextAt,
+                  select: !explicitAtPreservesNullSelection,
+                  voids,
+                }
+              )
+              return
             }
           }
         }

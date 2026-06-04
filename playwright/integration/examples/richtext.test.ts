@@ -354,6 +354,38 @@ test.describe('On richtext example', () => {
     )
   })
 
+  test('normalizes select-all Backspace to one empty paragraph', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop select-all proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await editor.insertText('Heading')
+    await page.getByTestId('block-button-heading-one').click()
+    await editor.press('Enter')
+    await editor.insertText('Body')
+
+    await editor.focus()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+
+    await expect(editor.root.locator('h1')).toHaveCount(0)
+    await expect(editor.root.locator('ol')).toHaveCount(0)
+    await expect(editor.root.locator('p')).toHaveCount(1)
+    await expect.poll(() => editor.get.modelText()).toBe('')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+  })
+
   test('applies mark hotkeys to inserted rich text and clears active marks', async ({
     page,
   }, testInfo) => {
@@ -398,6 +430,278 @@ test.describe('On richtext example', () => {
     await expect(editor.root.locator('p')).toContainText(
       'Bold Plain Italic Under Code Done'
     )
+  })
+
+  test('preserves selected text marks when typing a replacement', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop selection proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 1], offset: 0 },
+      focus: { path: [0, 1], offset: 4 },
+    })
+    await page.keyboard.type('world')
+
+    await expect(editor.root.locator('strong').first()).toHaveText('world')
+    await expect(editor.root.locator('p').first()).toContainText(
+      'This is editable world text'
+    )
+  })
+
+  test('does not create an orphan block when typing with a collapsed italic hotkey', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop hotkey proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+
+    const modifier = await editor.root.evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
+    )
+
+    await editor.root.press(`${modifier}+i`)
+    await page.keyboard.type('Hello')
+
+    await editor.assert.blockTexts(['Hello'])
+    await expect(editor.root.locator('em')).toHaveText('Hello')
+  })
+
+  test('keeps active bold on text typed after a soft line break', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop hotkey proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+
+    const modifier = await editor.root.evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
+    )
+
+    await editor.root.press(`${modifier}+b`)
+    await page.keyboard.type('Bold')
+    await editor.root.press('Shift+Enter')
+    await page.keyboard.type('Next')
+
+    await editor.assert.blockTexts(['Bold', 'Next'])
+    await expect(editor.root.locator('strong')).toHaveText(['Bold', 'Next'])
+  })
+
+  test('keeps active bold when Enter creates a new paragraph', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop hotkey proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+
+    const modifier = await editor.root.evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
+    )
+
+    await editor.root.press(`${modifier}+b`)
+    await page.keyboard.type('Bold')
+    await editor.root.press('Enter')
+    await page.keyboard.type('Next')
+
+    await editor.assert.blockTexts(['Bold', 'Next'])
+    await expect(editor.root.locator('strong')).toHaveText(['Bold', 'Next'])
+  })
+
+  test('keeps active bold after an empty editor loses and regains focus', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop active mark proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+
+    const modifier = await editor.root.evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
+    )
+
+    await editor.root.press(`${modifier}+b`)
+    await page.mouse.click(5, 5)
+    await editor.click()
+    await page.keyboard.type('Bold')
+
+    await editor.assert.blockTexts(['Bold'])
+    await expect(editor.root.locator('strong')).toHaveText('Bold')
+  })
+
+  test('keeps selected bold as the active mark after deleting its text', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop selected mark proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      await editor.selectAll()
+      await editor.deleteFragment()
+      await editor.insertText('Styled')
+      await editor.selection.select({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 'Styled'.length },
+      })
+
+      await page.getByTestId('mark-button-bold').click()
+
+      await expect(editor.root.locator('strong')).toHaveText('Styled')
+      await editor.press('Backspace')
+      runtimeErrors.assertNone()
+      await editor.type('Next')
+
+      await editor.assert.blockTexts(['Next'])
+      await expect(editor.root.locator('strong')).toHaveText('Next')
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('keeps empty paragraph styling after the selection leaves and returns', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop selected mark proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+    await page.keyboard.insertText('Styled')
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 'Styled'.length },
+    })
+    const modifier = await editor.root.evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
+    )
+
+    await editor.root.press(`${modifier}+b`)
+    await page.keyboard.press('Backspace')
+    await editor.root.press('Enter')
+    await page.keyboard.insertText('Other')
+    await editor.selection.collapse({ path: [0, 0], offset: 0 })
+    await page.keyboard.insertText('Next')
+
+    await editor.assert.blockTexts(['Next', 'Other'])
+    await expect(editor.root.locator('p').first().locator('strong')).toHaveText(
+      'Next'
+    )
+  })
+
+  test('keeps active-mark hashtag typing in typed order', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop active mark proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const modifier = await editor.root.evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
+    )
+
+    await editor.selection.collapse({ path: [0, 0], offset: 'This is'.length })
+    await editor.focus()
+    await editor.root.press(`${modifier}+b`)
+    await page.keyboard.type('#hashtag')
+
+    await editor.assert.blockTexts([
+      'This is#hashtag editable rich text, much better than a <textarea>!',
+      "Since it's rich text, you can do things like turn a selection of text bold, or add a semantically rendered block quote in the middle of the page, like this:",
+      'A wise quote.',
+      'Try it out for yourself!',
+    ])
+    await expect(
+      editor.root.locator('strong').filter({ hasText: '#hashtag' })
+    ).toHaveCount(1)
+  })
+
+  test('splits before a soft line break without skipping its line', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'firefox' || testInfo.project.name === 'mobile',
+      'Desktop native Enter DOM proof'
+    )
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+    await editor.insertText('alpha\nbeta')
+    await expect.poll(() => editor.get.modelText()).toBe('alpha\nbeta')
+    await expect(editor.root.locator('p')).toHaveCount(1)
+
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 'alpha'.length },
+      focus: { path: [0, 0], offset: 'alpha'.length },
+    })
+    await editor.focus()
+    await page.keyboard.press('Enter')
+
+    await editor.assert.blockTexts(['alpha', 'beta'])
+    await expect(editor.root.locator('p')).toHaveCount(2)
+    await expect(editor.root.locator('p').nth(0)).toHaveText('alpha')
+    await expect(editor.root.locator('p').nth(1)).toHaveText('beta')
+    await editor.assert.selection({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    })
   })
 
   test('splits text entry between plain and marked text with native Enter', async ({
@@ -595,6 +899,95 @@ test.describe('On richtext example', () => {
     await editor.assert.selection({
       anchor: pointInsideBold,
       focus: pointInsideBold,
+    })
+  })
+
+  test('syncs browser text mutations inside nested mark DOM', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium DOM-change proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const initialText =
+      'This is editable rich text, much better than a <textarea>!'
+    const insertedText =
+      'This is editable riZch text, much better than a <textarea>!'
+    const boldTextRange = {
+      anchor: { path: [0, 1], offset: 0 },
+      focus: { path: [0, 1], offset: 'rich'.length },
+    }
+    const pointInsideNestedMarks = { path: [0, 1], offset: 2 }
+    const nestedMarkText = editor.root.locator('em strong, strong em')
+
+    await editor.selection.select(boldTextRange)
+    await page.getByTestId('mark-button-italic').click()
+    await expect(nestedMarkText).toHaveText('rich')
+
+    await editor.selection.selectDOM({
+      anchor: pointInsideNestedMarks,
+      focus: pointInsideNestedMarks,
+    })
+    await page.keyboard.insertText('Z')
+
+    await editor.assert.text(insertedText)
+    await expect(nestedMarkText).toHaveText('riZch')
+    await editor.assert.selection({
+      anchor: { path: [0, 1], offset: 3 },
+      focus: { path: [0, 1], offset: 3 },
+    })
+
+    await page.keyboard.press('Backspace')
+
+    await editor.assert.text(initialText)
+    await expect(nestedMarkText).toHaveText('rich')
+    await editor.assert.selection({
+      anchor: pointInsideNestedMarks,
+      focus: pointInsideNestedMarks,
+    })
+  })
+
+  test('keeps burst typing before a mixed bold italic boundary at the caret', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium mark-boundary proof'
+    )
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const modifier = await editor.root
+      .page()
+      .evaluate(() =>
+        /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
+      )
+    const burst = 'zzzzzzzz'
+
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await editor.insertText('choice')
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 'choice'.length },
+    })
+    await editor.root.press(`${modifier}+b`)
+    await editor.root.press(`${modifier}+i`)
+    await editor.selection.collapse({ path: [0, 0], offset: 3 })
+    await editor.root.press(`${modifier}+b`)
+    await page.keyboard.insertText(burst)
+    await page.keyboard.insertText('Y')
+
+    await editor.assert.blockTexts([`cho${burst}Yice`])
+    await editor.assert.selection({
+      anchor: { path: [0, 1], offset: burst.length + 1 },
+      focus: { path: [0, 1], offset: burst.length + 1 },
     })
   })
 
@@ -1317,6 +1710,77 @@ test.describe('On richtext example', () => {
     })
   }
 
+  test('does not reverse scroll after PageDown in a scrollable editor', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.root.evaluate((element: HTMLElement) => {
+      element.style.display = 'block'
+      element.style.maxHeight = '120px'
+      element.style.overflowY = 'auto'
+      element.style.scrollBehavior = 'auto'
+    })
+    await editor.selection.select({
+      anchor: { path: [0, 6], offset: 1 },
+      focus: { path: [0, 6], offset: 1 },
+    })
+
+    for (let i = 0; i < 18; i++) {
+      await page.keyboard.insertText(`Line ${i}`)
+      await page.keyboard.press('Enter')
+    }
+
+    await editor.selection.collapse({ path: [0, 0], offset: 0 })
+    await editor.focus()
+    await editor.root.evaluate((element: HTMLElement) => {
+      element.scrollTop = 0
+
+      const target = element as HTMLElement & {
+        __slatePageKeyScrollSamples?: number[]
+        __slatePageKeyScrollUntil?: number
+      }
+
+      target.__slatePageKeyScrollSamples = []
+      target.__slatePageKeyScrollUntil = performance.now() + 500
+
+      const sample = () => {
+        target.__slatePageKeyScrollSamples!.push(element.scrollTop)
+
+        if (performance.now() < target.__slatePageKeyScrollUntil!) {
+          requestAnimationFrame(sample)
+        }
+      }
+
+      requestAnimationFrame(sample)
+    })
+    await editor.root.press('PageDown')
+    await page.waitForTimeout(550)
+
+    const samples = await editor.root.evaluate((element: HTMLElement) => {
+      const target = element as HTMLElement & {
+        __slatePageKeyScrollSamples?: number[]
+      }
+
+      return target.__slatePageKeyScrollSamples ?? []
+    })
+    const finalScrollTop = samples.at(-1) ?? 0
+
+    expect(finalScrollTop).toBeGreaterThan(0)
+    for (let i = 1; i < samples.length; i++) {
+      expect(samples[i]).toBeGreaterThanOrEqual(samples[i - 1] - 2)
+    }
+  })
+
   test('resolves ambiguous browser insertion at a mark boundary', async ({
     page,
   }, testInfo) => {
@@ -1982,6 +2446,93 @@ test.describe('On richtext example', () => {
     await expectVisualCaretAtEndOfFirstBlock(editor.root)
   })
 
+  test('deletes one character with Apple Control+D', async ({
+    browser,
+    browserName,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const context = await browser.newContext({
+      baseURL,
+      userAgent: macChromeUserAgent,
+    })
+    const page = await context.newPage()
+
+    try {
+      const editor = await openExample(page, 'richtext', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+      const initialFirstBlock = (await editor.get.blockTexts())[0]!
+
+      await editor.click()
+      await editor.selection.select({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+      await page.keyboard.press('Control+D')
+
+      await expect
+        .poll(async () => (await editor.get.blockTexts())[0])
+        .toBe(initialFirstBlock.slice(1))
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 0 },
+        })
+    } finally {
+      await context.close()
+    }
+  })
+
+  test('deletes one character backward with Apple Control+H', async ({
+    browser,
+    browserName,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const context = await browser.newContext({
+      baseURL,
+      userAgent: macChromeUserAgent,
+    })
+    const page = await context.newPage()
+
+    try {
+      const editor = await openExample(page, 'richtext', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+
+      await editor.selectAll()
+      await editor.deleteFragment()
+      await editor.insertText('abc')
+      await editor.selection.select({
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 3 },
+      })
+      await page.keyboard.press('Control+H')
+
+      await expect
+        .poll(async () => (await editor.get.blockTexts())[0])
+        .toBe('ab')
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [0, 0], offset: 2 },
+          focus: { path: [0, 0], offset: 2 },
+        })
+    } finally {
+      await context.close()
+    }
+  })
+
   test('keeps model and DOM coherent after persistent native word-delete', async ({
     browser,
     browserName,
@@ -2313,6 +2864,88 @@ test.describe('On richtext example', () => {
     await expectDOMCaretAtTextEnd(editor.root, '!')
   })
 
+  test('maps uppercase text-transform glyph selection to source text offsets', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop visual hit-testing proof'
+    )
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await page.addStyleTag({
+      content: '[data-slate-editor] h2 { text-transform: uppercase; }',
+    })
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await editor.insertText('Heiße')
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 'Heiße'.length },
+    })
+    await page.getByTestId('block-button-heading-two').click()
+    await expect(editor.root.locator('h2')).toHaveCSS(
+      'text-transform',
+      'uppercase'
+    )
+
+    const finalSourceCharacterRect = await editor.root
+      .locator('h2 [data-slate-node="text"]')
+      .first()
+      .evaluate((node) => {
+        const walker = node.ownerDocument.createTreeWalker(
+          node,
+          NodeFilter.SHOW_TEXT
+        )
+        const textNode = walker.nextNode()
+
+        if (!textNode?.textContent) {
+          throw new Error('Expected heading text node')
+        }
+
+        const range = node.ownerDocument.createRange()
+
+        range.setStart(textNode, textNode.textContent.length - 1)
+        range.setEnd(textNode, textNode.textContent.length)
+
+        const rect = range.getBoundingClientRect()
+
+        return {
+          endX: rect.right - 1,
+          startX: rect.left + 1,
+          y: rect.top + rect.height / 2,
+        }
+      })
+
+    await page.mouse.move(
+      finalSourceCharacterRect.endX,
+      finalSourceCharacterRect.y
+    )
+    await page.mouse.down()
+    await page.mouse.move(
+      finalSourceCharacterRect.startX,
+      finalSourceCharacterRect.y,
+      { steps: 4 }
+    )
+    await page.mouse.up()
+
+    await expect.poll(() => editor.get.selectedText()).toBe('E')
+    await expect
+      .poll(async () => {
+        const selection = await editor.selection.get()
+
+        return [selection.anchor.offset, selection.focus.offset].sort(
+          (left, right) => left - right
+        )
+      })
+      .toEqual([4, 5])
+  })
+
   test('keeps ArrowDown then ArrowRight in the browser-selected paragraph', async ({
     browserName,
     page,
@@ -2370,6 +3003,54 @@ test.describe('On richtext example', () => {
       offset: 1,
       text: "Since it's rich text, you can do things like turn a selection of text ",
     })
+  })
+
+  test('keeps DOM caret synced after ArrowUp across paragraphs', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.click()
+    await editor.selection.selectDOM({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    })
+    await editor.assert.domCaret({
+      offset: 0,
+      text: "Since it's rich text, you can do things like turn a selection of text ",
+    })
+
+    await page.keyboard.press('ArrowUp')
+
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+    await editor.assert.domCaret({ offset: 0, text: 'This is editable ' })
+    expect(await editor.get.kernelTrace()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventFamily: 'keydown',
+          movement: expect.objectContaining({
+            axis: 'vertical',
+            key: 'ArrowUp',
+            ownership: 'native-allowed',
+            reason: 'native-vertical-layout',
+          }),
+        }),
+      ])
+    )
   })
 
   test('keeps navigation and mutation chained through browser editing state', async ({
@@ -2790,6 +3471,36 @@ test.describe('On richtext example', () => {
     await editor.assert.selection({
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 0 },
+    })
+  })
+
+  test('splits after a programmatically inserted emoji without breaking it', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop Enter key proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const emoji = '🙂'
+    const text = `${emoji}after`
+
+    await editor.selection.selectAll()
+    await page.keyboard.press('Backspace')
+    await editor.insertText(text)
+    await editor.selection.collapse({
+      path: [0, 0],
+      offset: emoji.length,
+    })
+    await editor.focus()
+    await page.keyboard.press('Enter')
+
+    await editor.assert.blockTexts([emoji, 'after'])
+    await editor.assert.selection({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
     })
   })
 
@@ -3568,6 +4279,95 @@ test.describe('On richtext example', () => {
     await expect(editor.root.locator('p')).toHaveCount(1)
   })
 
+  test('pastes a copied heading into an empty paragraph as a heading', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop structured clipboard proof'
+    )
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await editor.insertText('Copied heading')
+    await page.getByTestId('block-button-heading-one').click()
+    await expect(editor.root.locator('h1')).toHaveText('Copied heading')
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 'Copied heading'.length },
+    })
+    const payload = await editor.clipboard.copyPayload()
+
+    await editor.selection.collapse({
+      path: [0, 0],
+      offset: 'Copied heading'.length,
+    })
+    await editor.press('Enter')
+    await editor.selection.collapse({ path: [1, 0], offset: 0 })
+    await editor.clipboard.pasteHtml(payload.html, payload.text)
+
+    await expect(editor.root.locator('h1')).toHaveCount(2)
+    await expect(editor.root.locator('h1').nth(1)).toHaveText('Copied heading')
+    await expect(editor.root.locator('p')).toHaveCount(0)
+  })
+
+  test('cuts and pastes a fully selected heading as a heading', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    test.skip(
+      browserName !== 'chromium' || testInfo.project.name === 'mobile',
+      'Chromium structured cut/paste proof'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    try {
+      await editor.selectAll()
+      await editor.deleteFragment()
+      await editor.insertText('Cut heading')
+      await page.getByTestId('block-button-heading-one').click()
+      await expect(editor.root.locator('h1')).toHaveText('Cut heading')
+
+      await editor.selectAll()
+      const payload = await editor.clipboard.cutEventPayload()
+
+      runtimeErrors.assertNone()
+      expect(payload.text).toBe('Cut heading')
+      expect(payload.slateFragment).toBeTruthy()
+      expect(payload.html).toContain('data-slate-fragment')
+      expect(payload.types).toEqual(
+        expect.arrayContaining([
+          'application/x-slate-fragment',
+          'text/html',
+          'text/plain',
+        ])
+      )
+      await expect(editor.root.locator('h1')).toHaveCount(0)
+      await expect(editor.root.locator('p')).toHaveCount(1)
+      await expect.poll(() => editor.get.modelText()).toBe('')
+
+      await editor.clipboard.pasteEventPayload(payload)
+
+      await expect(editor.root.locator('h1')).toHaveText('Cut heading')
+      await editor.assert.blockTexts(['Cut heading'])
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
   test('handles empty block quote Enter behavior from the browser', async ({
     page,
   }) => {
@@ -3958,6 +4758,86 @@ test.describe('On richtext example', () => {
         anchor: { path: [1, 0, 0], offset: 0 },
         focus: { path: [1, 0, 0], offset: 0 },
       })
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('deletes an expanded selection across toolbar list items cleanly', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000)
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const root = page.locator('[data-slate-editor]')
+    const secondPrefixText =
+      "Since it's rich text, you can do things like turn a selection of text "
+    const secondTailText =
+      ', or add a semantically rendered block quote in the middle of the page, like this:'
+
+    try {
+      await editor.selection.select({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [1, 0], offset: secondPrefixText.length },
+      })
+      await page.getByTestId('block-button-bulleted-list').click()
+      await expect(root.locator('ul > li')).toHaveCount(2)
+
+      await editor.selection.select({
+        anchor: { path: [0, 0, 0], offset: 0 },
+        focus: { path: [0, 1, 2], offset: secondTailText.length },
+      })
+      await editor.root.press('Backspace')
+
+      runtimeErrors.assertNone()
+      await expect(root.locator('ul')).toHaveCount(0)
+      await expect(root.locator('blockquote')).toHaveText('A wise quote.')
+      await editor.type('after')
+      await expect.poll(() => editor.get.modelText()).toContain('after')
+      await expect(root.locator('ul')).toHaveCount(0)
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('applies toolbar list only to the fully selected paragraph', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000)
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const root = page.locator('[data-slate-editor]')
+    const firstText =
+      'This is editable rich text, much better than a <textarea>!'
+    const secondText = "Since it's rich text"
+
+    try {
+      await editor.selection.selectDOM({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 6], offset: 1 },
+      })
+
+      await page.getByTestId('block-button-numbered-list').click()
+
+      runtimeErrors.assertNone()
+      await expect(root.locator('ol > li')).toHaveCount(1)
+      await expect(root.locator('ol > li').first()).toContainText(firstText)
+      await expect(
+        root.locator('p').filter({ hasText: secondText })
+      ).toHaveCount(1)
+      await expect(
+        root.locator('ol').filter({ hasText: secondText })
+      ).toHaveCount(0)
     } finally {
       runtimeErrors.stop()
     }
@@ -4675,6 +5555,75 @@ test.describe('On richtext example', () => {
       offset: 1,
       text: "ZSince it's rich text, you can do things like turn a selection of text ",
     })
+  })
+
+  test('replaces the current block after browser triple click and typing', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const nextBlockText =
+      "Since it's rich text, you can do things like turn a selection of text bold, or add a semantically rendered block quote in the middle of the page, like this:"
+
+    await editor.click()
+    await page.locator('[data-slate-editor] p').first().click({ clickCount: 3 })
+
+    await page.keyboard.insertText('Z')
+
+    await expect
+      .poll(async () => (await editor.get.blockTexts()).slice(0, 2))
+      .toEqual(['Z', nextBlockText])
+    await editor.assert.domCaret({
+      offset: 1,
+      text: 'Z',
+    })
+  })
+
+  test('preserves the selected heading block after browser text replacement', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      await editor.selectAll()
+      await editor.deleteFragment()
+      await editor.insertText('Heading')
+      await page.getByTestId('block-button-heading-one').click()
+
+      await editor.selection.select({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 'Heading'.length },
+      })
+      await page.keyboard.insertText('Z')
+
+      runtimeErrors.assertNone()
+      await expect(editor.root.locator('h1')).toHaveText('Z')
+      await expect(editor.root.locator('p')).toHaveCount(0)
+      await editor.assert.selection({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      })
+    } finally {
+      runtimeErrors.stop()
+    }
   })
 
   test('keeps the visual caret after browser insertion at the selected text end', async ({

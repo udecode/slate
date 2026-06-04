@@ -80,6 +80,9 @@ const DEFAULT_MODEL_COMMAND_REPAIR: EditableRepairRequest = {
   },
 }
 
+const isPlainTextKeyboardInput = (event: KeyboardEvent) =>
+  event.key.length === 1 && !event.altKey && !event.ctrlKey && !event.metaKey
+
 const MAIN_ROOT_KEY: RootKey = 'main'
 
 const getSelectionRootKey = (selection: Range | null): RootKey =>
@@ -486,6 +489,16 @@ export const applyEditableKeyDown = ({
 
     if (isSelectAllHotkey(nativeEvent)) {
       event.preventDefault()
+      const previousIsUpdatingSelection =
+        inputController.state.isUpdatingSelection
+      setEditableModelSelectionPreference({
+        inputController,
+        preferModelSelection: true,
+        reason: 'model-command',
+        selectionSource: 'model-owned',
+      })
+      inputController.state.isUpdatingSelection = true
+      inputController.state.selectionChangeOrigin = 'programmatic-export'
       applyEditableCommand({ command: { kind: 'select-all' }, editor })
       const partialDOMStrategyRuntime =
         isPartialDOMStrategyRuntime(domStrategyRuntime)
@@ -498,6 +511,14 @@ export const applyEditableKeyDown = ({
       }
       setExplicitPartialDOMBackedSelection(partialDOMStrategyRuntime)
       forceRender()
+      setTimeout(() => {
+        if (
+          inputController.state.selectionChangeOrigin === 'programmatic-export'
+        ) {
+          inputController.state.isUpdatingSelection =
+            previousIsUpdatingSelection
+        }
+      })
       return keyDownHandled()
     }
 
@@ -721,6 +742,24 @@ export const applyEditableKeyDown = ({
         event,
         selection,
       })
+
+      if (
+        selection &&
+        RangeApi.isExpanded(selection) &&
+        isPlainTextKeyboardInput(nativeEvent) &&
+        !ReactEditor.isComposing(editor)
+      ) {
+        event.preventDefault()
+        applyEditableCommand({
+          command: {
+            inputType: 'insertText',
+            kind: 'insert-text',
+            text: nativeEvent.key,
+          },
+          editor,
+        })
+        return keyDownHandled(DEFAULT_MODEL_COMMAND_REPAIR)
+      }
 
       // We don't have a core behavior for these, but they change the
       // DOM if we don't prevent them, so we have to.

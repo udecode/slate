@@ -2,6 +2,14 @@ export type DebugValueScrubber = (key: string, value: unknown) => unknown
 
 let debugValueScrubber: DebugValueScrubber | undefined
 
+const defaultDebugValueScrubber = (key: string, value: unknown): unknown => {
+  if (key === 'text' && typeof value === 'string') {
+    return `[text length ${value.length}]`
+  }
+
+  return value
+}
+
 export const setDebugValueScrubber = (
   scrubber: DebugValueScrubber | null | undefined
 ) => {
@@ -12,7 +20,11 @@ export const formatDebugValue = (value: unknown): string => {
   try {
     const seen = new WeakSet<object>()
     const formatted = JSON.stringify(value, (_key, item) => {
-      const next = debugValueScrubber ? debugValueScrubber(_key, item) : item
+      const scrubbed = debugValueScrubber
+        ? debugValueScrubber(_key, item)
+        : item
+      const next =
+        scrubbed === item ? defaultDebugValueScrubber(_key, item) : scrubbed
 
       if (typeof next !== 'object' || next === null) {
         return next

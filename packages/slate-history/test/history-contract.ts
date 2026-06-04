@@ -91,6 +91,24 @@ describe('slate-history contract', () => {
     assert.equal(History.isHistory(getHistory(editor)), true)
   })
 
+  it('keeps empty undo and redo stacks as no-op commands', () => {
+    const editor = historyTestEditor()
+
+    replace(editor, [paragraph('Initial text')], {
+      anchor: { path: [0, 0], offset: 12 },
+      focus: { path: [0, 0], offset: 12 },
+    })
+
+    const before = getVisibleState(editor)
+
+    undo(editor)
+    redo(editor)
+
+    assert.deepEqual(getVisibleState(editor), before)
+    assert.deepEqual(getHistory(editor).undos, [])
+    assert.deepEqual(getHistory(editor).redos, [])
+  })
+
   it('undoes a plain insertText commit', () => {
     const editor = historyTestEditor()
 
@@ -790,6 +808,75 @@ describe('slate-history contract', () => {
     ])
   })
 
+  it('merges repeated block property changes into one undo unit', () => {
+    const editor = historyTestEditor()
+
+    replace(editor, [paragraph('AAA', { status: 'draft' })], {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+    const before = getVisibleState(editor)
+
+    write(editor, (tx) => {
+      tx.nodes.set<Element>({ status: 'review' }, { at: [0] })
+    })
+    write(editor, (tx) => {
+      tx.nodes.set<Element>({ status: 'published' }, { at: [0] })
+    })
+
+    assert.equal(getHistory(editor).undos.length, 1)
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      paragraph('AAA', { status: 'published' }),
+    ])
+
+    undo(editor)
+
+    assert.deepEqual(getVisibleState(editor), before)
+  })
+
+  it('undoes and redoes custom text property changes', () => {
+    const editor = historyTestEditor()
+
+    replace(editor, [
+      {
+        type: 'paragraph',
+        children: [{ text: 'Styled text', className: 'token' }],
+      },
+    ])
+    const before = getVisibleState(editor)
+
+    write(editor, (tx) => {
+      tx.operations.replay([
+        {
+          type: 'set_node',
+          path: [0, 0],
+          properties: { className: 'token' },
+          newProperties: { className: 'highlight' },
+        },
+      ])
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'paragraph',
+        children: [{ text: 'Styled text', className: 'highlight' }],
+      },
+    ])
+
+    undo(editor)
+
+    assert.deepEqual(getVisibleState(editor), before)
+
+    redo(editor)
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'paragraph',
+        children: [{ text: 'Styled text', className: 'highlight' }],
+      },
+    ])
+  })
+
   it('saves node property commits but ignores empty updates', () => {
     const editor = historyTestEditor()
 
@@ -826,6 +913,25 @@ describe('slate-history contract', () => {
     undo(editor)
 
     assert.deepEqual(getVisibleState(editor), before)
+  })
+
+  it('does not save no-op boundary deletes to history', () => {
+    const editor = historyTestEditor()
+
+    replace(editor, [paragraph('')], {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+
+    write(editor, (tx) => {
+      tx.text.deleteBackward()
+    })
+    write(editor, (tx) => {
+      tx.text.deleteForward()
+    })
+
+    assert.equal(getHistory(editor).undos.length, 0)
+    assert.deepEqual(Editor.getSnapshot(editor).children, [paragraph('')])
   })
 
   it('merges contiguous text commits when selection import shares a text commit', () => {

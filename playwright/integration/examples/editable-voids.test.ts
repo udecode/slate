@@ -404,6 +404,52 @@ test.describe('editable voids', () => {
     await expect(childEditor).toContainText('Child This is editable')
   })
 
+  test('Backspace in the first child-root block preserves the editable void', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop Backspace proof')
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const childEditor = page
+      .locator('[aria-label="Editable void rich content"]')
+      .first()
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-outer',
+      outerEditor
+    )
+    const childRoot = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-child-root',
+      childEditor
+    )
+
+    await childRoot.selection.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 4], offset: 1 },
+    })
+    await childEditor.evaluate((element: HTMLElement) => element.focus())
+    await page.keyboard.press('Backspace')
+
+    await expect(page.locator('.slate-editable-voids-card')).toHaveCount(1)
+    await expect
+      .poll(() => outer.get.modelText())
+      .toContain(
+        'In addition to nodes that contain editable text, you can insert void nodes'
+      )
+    await expect
+      .poll(() => childRoot.get.modelText())
+      .not.toContain(
+        'This is editable rich text, much better than a <textarea>!'
+      )
+    await expect
+      .poll(() => childRoot.get.modelText())
+      .toContain(
+        "Since it's rich text, it can live in a same-runtime child root"
+      )
+    await expect.poll(() => childRoot.get.modelText()).toContain('A wise quote.')
+  })
+
   test('keeps same-runtime child root focused inside editable void', async ({
     page,
   }, testInfo) => {

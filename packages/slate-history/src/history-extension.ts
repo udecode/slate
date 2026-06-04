@@ -469,6 +469,27 @@ const shouldMergeSelectedReplacementFollowup = (
   return previousBatchSingleRoot && previousBatchDeletedSelection
 }
 
+const shouldMergeSetNodeBatch = (
+  operation: Operation,
+  previousSaveableOperations: readonly Operation[]
+): boolean => {
+  if (operation.type !== 'set_node') {
+    return false
+  }
+
+  const previousRoot = getOperationRoot(operation)
+
+  return (
+    previousSaveableOperations.length > 0 &&
+    previousSaveableOperations.every(
+      (previous) =>
+        previous.type === 'set_node' &&
+        getOperationRoot(previous) === previousRoot &&
+        PathApi.equals(previous.path, operation.path)
+    )
+  )
+}
+
 const shouldMergeBatch = (
   operations: readonly Operation[],
   previousBatch: Batch
@@ -504,6 +525,10 @@ const shouldMergeBatch = (
         previousBatch,
         previousSaveableOperations
       ) ||
+        shouldMergeSetNodeBatch(
+          saveableOperations[0]!,
+          previousSaveableOperations
+        ) ||
         ((previousBatchIsTextOnly || previousBatchIsSingleTextPath) &&
           shouldMerge(saveableOperations[0]!, previousOperation))
     : false

@@ -74,7 +74,7 @@ describe('slate transforms contract', () => {
     assert.deepEqual(after.selection, collapsedSelection([0, 1, 0], 0))
   })
 
-  it('insertText replaces a selected marked leaf when the deleted endpoints detach', () => {
+  it('insertText keeps the selected mark when replacing a marked leaf', () => {
     const editor = createEditor()
 
     Editor.replace(editor, {
@@ -104,10 +104,82 @@ describe('slate transforms contract', () => {
     assert.deepEqual(after.children, [
       {
         type: 'paragraph',
-        children: [{ text: 'This ' }, { text: 'plain text' }],
+        children: [
+          { text: 'This ' },
+          { bold: true, text: 'plain' },
+          { text: ' text' },
+        ],
       },
     ])
     assert.deepEqual(after.selection, collapsedSelection([0, 1], 5))
+  })
+
+  it('insertText keeps selected marks when replacing the full document text', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ bold: true, text: 'Styled' }],
+        },
+      ],
+      selection: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 'Styled'.length },
+      },
+      marks: null,
+    })
+
+    editor.update((tx) => {
+      tx.text.insert('Next')
+    })
+
+    const after = Editor.getSnapshot(editor)
+
+    assert.deepEqual(after.children, [
+      {
+        type: 'paragraph',
+        children: [{ bold: true, text: 'Next' }],
+      },
+    ])
+    assert.deepEqual(after.selection, collapsedSelection([0, 0], 4))
+  })
+
+  it('insertText replaces a mixed-mark range without removing text before it', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [
+            { bold: true, text: 'This is a ' },
+            { italic: true, text: 'test' },
+            { bold: true, text: '.' },
+          ],
+        },
+      ],
+      selection: {
+        anchor: { path: [0, 1], offset: 0 },
+        focus: { path: [0, 2], offset: 1 },
+      },
+      marks: null,
+    })
+
+    editor.update((tx) => {
+      tx.text.insert('X')
+    })
+
+    const after = Editor.getSnapshot(editor)
+
+    assert.deepEqual(after.children, [
+      {
+        type: 'paragraph',
+        children: [{ bold: true, text: 'This is a X' }],
+      },
+    ])
+    assert.deepEqual(after.selection, collapsedSelection([0, 0], 11))
   })
 
   it('insertText replaces a selection spanning a block void without keeping a void anchor', () => {
@@ -257,6 +329,34 @@ describe('slate transforms contract', () => {
       {
         type: 'heading-one',
         children: [{ text: 'one' }],
+      },
+    ])
+  })
+
+  it('setNodes preserves existing element attrs and text marks when changing type', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'heading-two',
+          id: 'stable-heading',
+          children: [{ bold: true, text: 'Title' }],
+        } as Descendant,
+      ],
+      selection: collapsedSelection([0, 0], 0),
+      marks: null,
+    })
+
+    editor.update((tx) => {
+      tx.nodes.set<Element>({ type: 'heading-three' }, { at: [0] })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'heading-three',
+        id: 'stable-heading',
+        children: [{ bold: true, text: 'Title' }],
       },
     ])
   })

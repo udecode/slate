@@ -100,9 +100,83 @@ const TablesExample = () => {
     extensions: [table()],
     initialValue,
   })
+  const moveSelectionToAdjacentCell = (reverse: boolean) => {
+    let moved = false
+
+    editor.update((tx) => {
+      const cell = tx.nodes.find({
+        match: (n) => NodeApi.isElement(n) && n.type === 'table-cell',
+      })
+
+      if (!cell) {
+        return
+      }
+
+      const [, cellPath] = cell
+      const cellIndex = cellPath.at(-1)!
+      const rowIndex = cellPath.at(-2)!
+      const rowPath = cellPath.slice(0, -1)
+      const tablePath = cellPath.slice(0, -2)
+      let targetPath: number[] | null = null
+
+      if (reverse) {
+        const previousCellPath = [...rowPath, cellIndex - 1]
+
+        if (cellIndex > 0 && tx.nodes.hasPath(previousCellPath)) {
+          targetPath = previousCellPath
+        } else if (rowIndex > 0) {
+          const previousRowPath = [...tablePath, rowIndex - 1]
+
+          if (tx.nodes.hasPath(previousRowPath)) {
+            const [previousRow] = tx.nodes.get(previousRowPath)
+
+            if (NodeApi.isElement(previousRow)) {
+              targetPath = [...previousRowPath, previousRow.children.length - 1]
+            }
+          }
+        }
+      } else {
+        const nextCellPath = [...rowPath, cellIndex + 1]
+
+        if (tx.nodes.hasPath(nextCellPath)) {
+          targetPath = nextCellPath
+        } else {
+          const nextRowPath = [...tablePath, rowIndex + 1]
+
+          if (tx.nodes.hasPath(nextRowPath)) {
+            targetPath = [...nextRowPath, 0]
+          }
+        }
+      }
+
+      if (targetPath) {
+        tx.selection.set(tx.points.start(targetPath))
+        moved = true
+      }
+    })
+
+    if (moved) {
+      editor.api.dom.focus()
+    }
+
+    return moved
+  }
+
   return (
     <Slate editor={editor}>
-      <Editable renderElement={Element} renderLeaf={Leaf} />
+      <Editable
+        onKeyDown={(event) => {
+          if (event.key !== 'Tab') {
+            return
+          }
+
+          if (moveSelectionToAdjacentCell(event.shiftKey)) {
+            event.preventDefault()
+          }
+        }}
+        renderElement={Element}
+        renderLeaf={Leaf}
+      />
     </Slate>
   )
 }

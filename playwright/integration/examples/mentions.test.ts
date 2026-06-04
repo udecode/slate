@@ -202,6 +202,41 @@ test.describe('mentions example', () => {
     await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(1)
   })
 
+  test('keeps a mention atomic when CJK composition starts after it', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Chromium IME atom proof')
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'mentions', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+
+      await editor.selection.collapse({ path: [1, 2], offset: 0 })
+      await editor.focus()
+      await commitDOMComposition(editor, {
+        committedText: '你',
+        steps: ['n', 'ni', '你'],
+      })
+
+      await expect(page.locator('[data-cy="mention-R2-D2"]')).toHaveCount(1)
+      await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(
+        1
+      )
+      await expect
+        .poll(async () => (await editor.get.blockTexts())[1])
+        .toContain('R2-D2你')
+      expect(((await editor.get.modelText()).match(/你/g) ?? []).length).toBe(1)
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
   test('copies and pastes a selected mention without crashing', async ({
     page,
   }, testInfo) => {
@@ -240,6 +275,68 @@ test.describe('mentions example', () => {
       await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(
         1
       )
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('copies and repeatedly pastes a selected mention as separate atoms', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop clipboard repro')
+    test.skip(
+      testInfo.project.name === 'webkit',
+      'WebKit blocks privileged clipboard reads in Playwright'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'mentions', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+
+      await page.locator('[data-cy="mention-R2-D2"]').click()
+      await editor.assert.selection({
+        anchor: { path: [1, 1, 0], offset: 0 },
+        focus: { path: [1, 1, 0], offset: 0 },
+      })
+
+      const payload = await editor.clipboard.copyPayload()
+
+      expect(payload.html).toContain('data-slate-fragment=')
+      expect(parseSlateFragmentFromHtml(payload.html)).toEqual([
+        {
+          type: 'paragraph',
+          children: [
+            {
+              type: 'mention',
+              character: 'R2-D2',
+              children: [{ text: '', bold: true }],
+            },
+          ],
+        },
+      ])
+
+      await editor.selection.collapse({ path: [1, 2], offset: 4 })
+      await editor.focus()
+
+      for (let i = 0; i < 3; i += 1) {
+        await editor.root.press('ControlOrMeta+V')
+      }
+
+      await expect(page.locator('[data-cy="mention-R2-D2"]')).toHaveCount(4)
+      await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(
+        1
+      )
+      expect(
+        await editor.root
+          .locator('[data-cy="mention-R2-D2"]')
+          .evaluateAll((nodes) => nodes.map((node) => node.textContent))
+      ).toEqual(['@R2-D2', '@R2-D2', '@R2-D2', '@R2-D2'])
       runtimeErrors.assertNone()
     } finally {
       runtimeErrors.stop()
@@ -408,6 +505,20 @@ test.describe('mentions example', () => {
     await selectMentionInsertionPoint(page)
     await getEditor(page).pressSequentially(' @ma')
     await expect(page.locator('[data-cy="mentions-portal"]')).toHaveCount(1)
+  })
+
+  test('keeps mention portal closed for plain text without trigger', async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
+    await getEditor(page).click()
+    await selectMentionInsertionPoint(page)
+    await getEditor(page).pressSequentially(' Kar')
+
+    await expect(page.locator('[data-cy="mentions-portal"]')).toHaveCount(0)
   })
 
   test('inserts from list', async ({ page }, testInfo) => {
@@ -711,6 +822,194 @@ test.describe('mentions example', () => {
     expect(proof.selectionShells?.anchor.element?.isVoid).toBe(true)
   })
 
+  test('Backspace after typing between adjacent inline mentions removes typed text only', async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'mentions', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+      const betweenMentionsText = ' or '
+
+      await editor.selection.select({
+        anchor: { path: [1, 2], offset: 0 },
+        focus: { path: [1, 2], offset: betweenMentionsText.length },
+      })
+      await editor.deleteFragment()
+      await editor.selection.collapse({ path: [1, 2], offset: 0 })
+      await editor.focus()
+      await page.keyboard.insertText('x')
+      await editor.root.press('Backspace')
+
+      runtimeErrors.assertNone()
+      await expect(page.locator('[data-cy="mention-R2-D2"]')).toHaveCount(1)
+      await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(
+        1
+      )
+      await expect
+        .poll(async () =>
+          (await editor.get.blockTexts())[1]?.replaceAll('\u00A0', '')
+        )
+        .toContain('@R2-D2@Mace Windu')
+      await expect
+        .poll(async () =>
+          (await editor.get.blockTexts())[1]?.replaceAll('\u00A0', '')
+        )
+        .not.toContain('@R2-D2x@Mace Windu')
+      await editor.assert.selection({
+        anchor: { path: [1, 2], offset: 0 },
+        focus: { path: [1, 2], offset: 0 },
+      })
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('selects the last character after a leading inline mention and space', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'mentions', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const beforeFirstMentionText = 'Try mentioning characters, like '
+
+    await editor.selection.select({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: beforeFirstMentionText.length },
+    })
+    await editor.deleteFragment()
+
+    const blockText = (await editor.get.blockTexts())[1]?.replaceAll(
+      '\u00A0',
+      ' '
+    )
+
+    expect(blockText).toContain('@R2-D2 or @Mace Windu!')
+    const lastText = editor.root
+      .locator('[data-slate-node="text"][data-slate-path="1,4"]')
+      .locator('[data-slate-string]')
+      .first()
+    const lastTextRect = await lastText.boundingBox()
+
+    if (!lastTextRect) {
+      throw new Error('Missing final mention paragraph text box')
+    }
+
+    await page.mouse.move(
+      lastTextRect.x + lastTextRect.width + 2,
+      lastTextRect.y + lastTextRect.height / 2
+    )
+    await page.mouse.down()
+    await page.mouse.move(
+      lastTextRect.x + 1,
+      lastTextRect.y + lastTextRect.height / 2,
+      { steps: 4 }
+    )
+    await page.mouse.up()
+
+    await expect
+      .poll(async () =>
+        (await editor.get.selectedText()).replaceAll('\u00A0', ' ')
+      )
+      .toBe('!')
+  })
+
+  test('typing two spaces after an inline mention does not insert a dot', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'mentions', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+
+      await editor.selection.collapse({ path: [1, 2], offset: 0 })
+      await editor.focus()
+      await editor.root.press('Space')
+      await editor.root.press('Space')
+
+      await expect
+        .poll(async () =>
+          (await editor.get.blockTexts())[1]?.replaceAll('\u00A0', ' ')
+        )
+        .toContain('R2-D2   or')
+      await expect
+        .poll(async () =>
+          (await editor.get.blockTexts())[1]?.replaceAll('\u00A0', ' ')
+        )
+        .not.toContain('R2-D2.')
+      await editor.assert.selection({
+        anchor: { path: [1, 2], offset: 2 },
+        focus: { path: [1, 2], offset: 2 },
+      })
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('moves to line boundaries across mentions with Slate-owned hotkeys', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop keyboard movement proof'
+    )
+
+    const editor = await openExample(page, 'mentions', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const isMacBrowser = await page.evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent)
+    )
+    const lineStartHotkey = isMacBrowser ? 'Control+A' : 'Home'
+    const lineEndHotkey = isMacBrowser ? 'Control+E' : 'End'
+    const betweenMentionsText = ' or '
+
+    await editor.selection.collapse({
+      path: [1, 2],
+      offset: Math.floor(betweenMentionsText.length / 2),
+    })
+    await editor.focus()
+
+    await editor.root.press(lineStartHotkey)
+    await editor.assert.selection({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 0], offset: 0 },
+    })
+
+    await editor.root.press(lineEndHotkey)
+    await editor.assert.selection({
+      anchor: { path: [1, 4], offset: 1 },
+      focus: { path: [1, 4], offset: 1 },
+    })
+  })
+
   test('preserves a leading mention when Backspace removes its line boundary', async ({
     page,
   }, testInfo) => {
@@ -751,5 +1050,42 @@ test.describe('mentions example', () => {
     expect(await editor.get.modelText()).toContain(
       'Try mentioning characters, like  or !'
     )
+  })
+
+  test('preserves mention order when Backspace removes a line boundary before them', async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'mentions', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const boundaryPoint = {
+      path: [1, 0],
+      offset: 'Try mentioning characters, like '.length,
+    }
+
+    await editor.selection.collapse(boundaryPoint)
+    await editor.focus()
+    await editor.root.press('Enter')
+    await editor.root.press('Backspace')
+
+    await expect(page.locator('[data-cy="mention-R2-D2"]')).toHaveCount(1)
+    await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(1)
+    expect(
+      await editor.root
+        .locator('[data-cy^="mention-"]')
+        .evaluateAll((nodes) =>
+          nodes.map((node) => node.getAttribute('data-cy'))
+        )
+    ).toEqual(['mention-R2-D2', 'mention-Mace-Windu'])
+    await editor.assert.selection({
+      anchor: boundaryPoint,
+      focus: boundaryPoint,
+    })
   })
 })
