@@ -199,6 +199,8 @@ const installSlate = async (surface, blockCount) => {
           threshold: 1,
           type: 'virtualized',
         }
+      : surface === 'slateStaged'
+        ? 'staged'
       : 'auto'
   const editableStyle =
     surface === 'slateVirtualized'
@@ -291,14 +293,53 @@ const selectLexicalBlock = async (blockIndex, offset = 0) => {
   editor.focus()
 }
 
-const selectSlateBlock = (blockIndex, offset = 0) => {
+const selectSlateBlock = async (blockIndex, offset = 0) => {
   const editor = state.slateEditor
+  const root = document.querySelector('[data-slate-editor="true"]')
+  const handle = root?.__slateBrowserHandle
+
+  if (handle?.selectRange) {
+    handle.scrollPathIntoView?.([blockIndex, 0], 'center')
+    handle.selectRange({
+      anchor: { path: [blockIndex, 0], offset },
+      focus: { path: [blockIndex, 0], offset },
+    })
+    await new Promise((resolvePromise) => requestAnimationFrame(resolvePromise))
+
+    const textElement = root.querySelector(
+      '[data-slate-node="text"][data-slate-path="' + blockIndex + ',0"]'
+    )
+
+    if (textElement) {
+      const walker = document.createTreeWalker(
+        textElement,
+        NodeFilter.SHOW_TEXT
+      )
+      const textNode = walker.nextNode()
+
+      if (textNode) {
+        const range = document.createRange()
+        const selection = document.getSelection()
+
+        root.focus()
+        range.setStart(textNode, offset)
+        range.collapse(true)
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+        document.dispatchEvent(
+          new Event('selectionchange', { bubbles: true })
+        )
+        handle.importDOMSelection?.()
+        return
+      }
+    }
+  }
 
   editor.update((tx) => {
     tx.selection.set({ path: [blockIndex, 0], offset })
   })
 
-  document.querySelector('[data-slate-editor="true"]')?.focus()
+  root?.focus()
 }
 
 const blockText = (surface, blockIndex) => {
@@ -343,7 +384,7 @@ globalThis.__CROSS_EDITOR_HUGE__ = {
     }
   },
   async install(surface, blockCount) {
-    if (surface === 'slateAuto' || surface === 'slateVirtualized') {
+    if (surface.startsWith('slate')) {
       await installSlate(surface, blockCount)
       return
     }
@@ -373,8 +414,8 @@ globalThis.__CROSS_EDITOR_HUGE__ = {
     globalThis.__CROSS_EDITOR_TRACE__.longTasks.length = 0
   },
   async select(surface, blockIndex, offset = 0) {
-    if (surface === 'slateAuto' || surface === 'slateVirtualized') {
-      selectSlateBlock(blockIndex, offset)
+    if (surface.startsWith('slate')) {
+      await selectSlateBlock(blockIndex, offset)
     } else if (surface === 'prosemirror') {
       selectProseMirrorBlock(blockIndex, offset)
     } else if (surface === 'lexical') {
@@ -518,6 +559,28 @@ const buildBrowserBundle = async () => {
 const summarizeMetric = (samples, key) =>
   summarize(samples.map((sample) => sample[key]))
 
+const resetCrossEditorTrace = (page) =>
+  page.evaluate(() => globalThis.__CROSS_EDITOR_HUGE__.resetTrace())
+
+const readCrossEditorLongTaskMax = (page) =>
+  page.evaluate(() =>
+    Math.max(
+      0,
+      ...globalThis.__CROSS_EDITOR_TRACE__.longTasks.map(
+        (entry) => entry.duration
+      )
+    )
+  )
+
+const readNativeSelectionTextLength = (page) =>
+  page.evaluate(
+    () =>
+      document
+        .getSelection()
+        ?.toString()
+        .replace(/\uFEFF/g, '').length ?? 0
+  )
+
 const measureSurface = async ({ page, surface }) => {
   const lanes = [
     { blockIndex: 0, key: 'startBlock' },
@@ -571,6 +634,34 @@ const measureSurface = async ({ page, surface }) => {
       const materializedSelectPaint = await page.evaluate(() =>
         globalThis.__CROSS_EDITOR_HUGE__.nextPaint()
       )
+      await resetCrossEditorTrace(page)
+      const shiftDownStart = await page.evaluate(() => performance.now())
+      await page.keyboard.press('Shift+ArrowDown')
+      const shiftDownPaint = await page.evaluate(() =>
+        globalThis.__CROSS_EDITOR_HUGE__.nextPaint()
+      )
+      const shiftDownLongTaskMaxMs = await readCrossEditorLongTaskMax(page)
+      const shiftDownSelectedTextLength =
+        await readNativeSelectionTextLength(page)
+      await resetCrossEditorTrace(page)
+      const shiftUpStart = await page.evaluate(() => performance.now())
+      await page.keyboard.press('Shift+ArrowUp')
+      const shiftUpPaint = await page.evaluate(() =>
+        globalThis.__CROSS_EDITOR_HUGE__.nextPaint()
+      )
+      const shiftUpLongTaskMaxMs = await readCrossEditorLongTaskMax(page)
+      const shiftUpSelectedTextLength =
+        await readNativeSelectionTextLength(page)
+      await page.evaluate(
+        async ({ blockIndex, selectedSurface }) => {
+          await globalThis.__CROSS_EDITOR_HUGE__.select(
+            selectedSurface,
+            blockIndex,
+            1
+          )
+        },
+        { blockIndex: lane.blockIndex, selectedSurface: surface }
+      )
       const typeStart = await page.evaluate(() => performance.now())
       await page.keyboard.type('X'.repeat(typeOps))
       await page.waitForFunction(
@@ -613,6 +704,12 @@ const measureSurface = async ({ page, surface }) => {
             materializedSelectPaint - materializedSelectStart,
           observedBlocks: snapshot.observedBlocks,
           selectToPaintMs: selectPaint - selectStart,
+          shiftDownLongTaskMaxMs,
+          shiftDownSelectedTextLength,
+          shiftDownToPaintMs: shiftDownPaint - shiftDownStart,
+          shiftUpLongTaskMaxMs,
+          shiftUpSelectedTextLength,
+          shiftUpToPaintMs: shiftUpPaint - shiftUpStart,
           typeToPaintMs: typePaint - typeStart,
         })
       }
@@ -633,6 +730,21 @@ const measureSurface = async ({ page, surface }) => {
       ),
       observedBlocks: summarizeMetric(samples, 'observedBlocks'),
       selectToPaintMs: summarizeMetric(samples, 'selectToPaintMs'),
+      shiftDownLongTaskMaxMs: summarizeMetric(
+        samples,
+        'shiftDownLongTaskMaxMs'
+      ),
+      shiftDownSelectedTextLength: summarizeMetric(
+        samples,
+        'shiftDownSelectedTextLength'
+      ),
+      shiftDownToPaintMs: summarizeMetric(samples, 'shiftDownToPaintMs'),
+      shiftUpLongTaskMaxMs: summarizeMetric(samples, 'shiftUpLongTaskMaxMs'),
+      shiftUpSelectedTextLength: summarizeMetric(
+        samples,
+        'shiftUpSelectedTextLength'
+      ),
+      shiftUpToPaintMs: summarizeMetric(samples, 'shiftUpToPaintMs'),
       typeToPaintMs: summarizeMetric(samples, 'typeToPaintMs'),
     }
   }
@@ -656,6 +768,12 @@ const printSurface = (surface, summary) => {
         lane.materializedSelectToPaintMs.p95
       )}, selectToPaintMs p95=${round(
         lane.selectToPaintMs.p95
+      )}, shiftDownToPaintMs p95=${round(
+        lane.shiftDownToPaintMs.p95
+      )}, shiftUpToPaintMs p95=${round(
+        lane.shiftUpToPaintMs.p95
+      )}, shiftDownLongTaskMaxMs p95=${round(
+        lane.shiftDownLongTaskMaxMs.p95
       )}, longTaskMaxMs p95=${round(
         lane.longTaskMaxMs.p95
       )}, domNodes p95=${round(lane.domNodes.p95)}, heapMB p95=${round(
@@ -717,6 +835,12 @@ try {
       'materializedSelectToPaintMs'
     )
     const selectToPaintP95 = surfaceP95(surfaceSummary, 'selectToPaintMs')
+    const shiftDownToPaintP95 = surfaceP95(surfaceSummary, 'shiftDownToPaintMs')
+    const shiftUpToPaintP95 = surfaceP95(surfaceSummary, 'shiftUpToPaintMs')
+    const shiftDownLongTaskMaxP95 = surfaceP95(
+      surfaceSummary,
+      'shiftDownLongTaskMaxMs'
+    )
     const typeToPaintP95 = surfaceP95(surfaceSummary, 'typeToPaintMs')
 
     console.log(
@@ -732,6 +856,21 @@ try {
     console.log(
       `METRIC react_huge_doc_cross_editor_${surface}_select_to_paint_p95_ms=${round(
         selectToPaintP95
+      )}`
+    )
+    console.log(
+      `METRIC react_huge_doc_cross_editor_${surface}_shift_down_to_paint_p95_ms=${round(
+        shiftDownToPaintP95
+      )}`
+    )
+    console.log(
+      `METRIC react_huge_doc_cross_editor_${surface}_shift_up_to_paint_p95_ms=${round(
+        shiftUpToPaintP95
+      )}`
+    )
+    console.log(
+      `METRIC react_huge_doc_cross_editor_${surface}_shift_down_long_task_max_p95_ms=${round(
+        shiftDownLongTaskMaxP95
       )}`
     )
     console.log(

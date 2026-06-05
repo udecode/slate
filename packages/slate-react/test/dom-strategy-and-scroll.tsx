@@ -2444,6 +2444,44 @@ test('Editable domStrategy keeps broad select-all from replanning the active seg
   }
 })
 
+test('Editable staged domStrategy keeps broad select-all model-backed', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 1200 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      domStrategy="staged"
+      editor={editor}
+      id="dom-strategy-staged-select-all"
+    />
+  )
+
+  const root = rendered.container.querySelector(
+    '#dom-strategy-staged-select-all'
+  ) as HTMLElement | null
+
+  expect(root).toBeTruthy()
+
+  await act(async () => {
+    fireEditorSelectAll(root!)
+  })
+
+  expect(Editor.getSnapshot(editor).selection).toEqual({
+    anchor: Editor.point(editor, [], { edge: 'start' }),
+    focus: Editor.point(editor, [], { edge: 'end' }),
+  })
+  expect(root!.getAttribute('data-slate-dom-strategy-selection')).toBe(
+    'partial-dom-backed'
+  )
+})
+
 test('Editable domStrategy preserves multiline plain text over a full-document partial-dom-backed selection', async () => {
   const editor = createReactEditor()
 

@@ -1459,13 +1459,25 @@ const applyFullBlockDeleteFragment = (
     ...createDefaultParagraph(),
     children: [marks ? { ...marks, text: '' } : { text: '' }],
   } as Descendant
+  const root = selection?.anchor.root
+  const selectedChildren = withProjectedMutationRoot(editor, root, () =>
+    editor.read((state) => [...state.nodes.children()])
+  )
+  const nextSelection = { anchor: selectionPoint, focus: selectionPoint }
 
   editor.update((tx) => {
-    for (const blockPath of [...topLevelBlockPaths].reverse()) {
-      tx.nodes.remove({ at: blockPath })
-    }
-    tx.nodes.insert(paragraph, { at: [0] })
-    tx.selection.set({ anchor: selectionPoint, focus: selectionPoint })
+    tx.operations.replay([
+      {
+        children: selectedChildren,
+        index: 0,
+        newChildren: [paragraph],
+        newSelection: nextSelection,
+        path: [],
+        ...(root ? { root } : {}),
+        selection,
+        type: 'replace_children',
+      } as Operation,
+    ])
     if (marks) {
       for (const [key, value] of Object.entries(marks)) {
         tx.marks.add(key, value)

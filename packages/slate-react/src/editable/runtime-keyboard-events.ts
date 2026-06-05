@@ -8,6 +8,7 @@ import { prepareEditableKeyDownKernel } from './editing-kernel'
 import { useEditableKeyboardHandler } from './input-router'
 import type { EditableInputController } from './input-state'
 import { applyEditableKeyDown } from './keyboard-input-strategy'
+import { Editor } from './runtime-editor-api'
 import type { EditableEventRuntimeCore } from './runtime-event-engine'
 
 const WHITESPACE_KEY_RE = /\s/
@@ -66,6 +67,59 @@ export const shouldApplyKeyDownSelectionPolicy = (
   return hasCommandModifier || isTextShortcutBoundary || event.key.length !== 1
 }
 
+export const isNativeVerticalKeyFastPathFullyMounted = ({
+  domStrategyRuntime,
+  editor,
+}: {
+  domStrategyRuntime: {
+    mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
+    mountedTopLevelRanges?: readonly MountedTopLevelRange[]
+  } | null
+  editor: ReactRuntimeEditor
+}) => {
+  if (!domStrategyRuntime) {
+    return true
+  }
+
+  if (!domStrategyRuntime.mountedTopLevelRuntimeIds) {
+    return true
+  }
+
+  const mountedRanges = domStrategyRuntime.mountedTopLevelRanges
+
+  if (!mountedRanges || mountedRanges.length === 0) {
+    return false
+  }
+
+  const topLevelCount = Editor.getSnapshot(editor).children.length
+
+  if (topLevelCount === 0) {
+    return true
+  }
+
+  let coveredUntil = 0
+
+  for (const range of [...mountedRanges].sort(
+    (left, right) => left.startIndex - right.startIndex
+  )) {
+    if (range.endIndex < coveredUntil) {
+      continue
+    }
+
+    if (range.startIndex > coveredUntil) {
+      return false
+    }
+
+    coveredUntil = range.endIndex + 1
+
+    if (coveredUntil >= topLevelCount) {
+      return true
+    }
+  }
+
+  return false
+}
+
 export const useRuntimeKeyboardEvents = ({
   editor,
   inputController,
@@ -94,6 +148,23 @@ export const useRuntimeKeyboardEvents = ({
   const slateRuntimeContext = useOptionalSlateRuntimeContext()
   const runKeyDownEvent = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
+      if (
+        !readOnly &&
+        !onKeyDown &&
+        inputController.state.selectionSource === 'dom-current' &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        isNativeVerticalKeyFastPathFullyMounted({
+          domStrategyRuntime,
+          editor,
+        }) &&
+        (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+      ) {
+        flushPendingNativeTextInput?.()
+        return
+      }
+
       const decision = prepareEditableKeyDownKernel({
         editor,
         event,

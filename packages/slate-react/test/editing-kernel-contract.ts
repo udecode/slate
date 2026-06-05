@@ -459,6 +459,80 @@ test('keyboard structural commands keep model selection after delayed text repai
   })
 })
 
+test('keyboard destructive commands keep partial-DOM-backed model selection', () => {
+  const editor = createEditor() as any
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: createEditableInputControllerState(),
+  })
+  inputController.state.selectionChangeOrigin = null
+  inputController.state.selectionSource = 'partial-dom-backed'
+
+  const decision = prepareEditableKeyDownKernel({
+    editor,
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: false,
+        key: 'Delete',
+        metaKey: false,
+        shiftKey: false,
+        which: 46,
+      },
+      target: null,
+    } as any,
+    inputController,
+    domStrategyRuntime: {
+      mountedTopLevelRuntimeIds: new Set(),
+      type: 'staged',
+    },
+  })
+
+  expect(decision).toMatchObject({
+    intent: 'delete',
+    ownership: 'model-owned',
+    selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
+    shouldForceDOMImport: false,
+  })
+})
+
+test('keyboard no-op shortcuts keep partial-DOM-backed model selection', () => {
+  const editor = createEditor() as any
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: createEditableInputControllerState(),
+  })
+  inputController.state.selectionChangeOrigin = null
+  inputController.state.selectionSource = 'partial-dom-backed'
+
+  const decision = prepareEditableKeyDownKernel({
+    editor,
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: false,
+        key: 'v',
+        metaKey: true,
+        shiftKey: false,
+        which: 86,
+      },
+      target: null,
+    } as any,
+    inputController,
+    domStrategyRuntime: {
+      mountedTopLevelRuntimeIds: new Set(),
+      type: 'partial-dom',
+    },
+  })
+
+  expect(decision).toMatchObject({
+    intent: 'clipboard',
+    ownership: 'model-owned',
+    selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
+    shouldForceDOMImport: false,
+  })
+})
+
 test('keyboard text insert keeps model selection after repair-induced text input', () => {
   const editor = createEditor() as any
   const inputController = createEditableInputController({

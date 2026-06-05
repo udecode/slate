@@ -14,6 +14,7 @@ import {
   applyEditableKeyDown,
   shouldDeferBackspaceToNativeInput,
 } from '../src/editable/keyboard-input-strategy'
+import { isNativeVerticalKeyFastPathFullyMounted } from '../src/editable/runtime-keyboard-events'
 import { ReactEditor } from '../src/plugin/react-editor'
 import { createSlateProjectionGraph } from '../src/projection-graph'
 import {
@@ -120,6 +121,40 @@ describe('keyboard input strategy', () => {
         nativeEvent: keyEvent('Delete'),
       })
     ).toBe(false)
+  })
+
+  it('allows native vertical key fast path only when top-level DOM coverage is complete', () => {
+    const editor = createEditor({
+      initialValue: [paragraph('one'), paragraph('two'), paragraph('three')],
+    }) as any
+
+    expect(
+      isNativeVerticalKeyFastPathFullyMounted({
+        domStrategyRuntime: null,
+        editor,
+      })
+    ).toBe(true)
+    expect(
+      isNativeVerticalKeyFastPathFullyMounted({
+        domStrategyRuntime: {
+          mountedTopLevelRuntimeIds: new Set(['a', 'b']),
+          mountedTopLevelRanges: [{ endIndex: 1, startIndex: 0 }],
+        },
+        editor,
+      })
+    ).toBe(false)
+    expect(
+      isNativeVerticalKeyFastPathFullyMounted({
+        domStrategyRuntime: {
+          mountedTopLevelRuntimeIds: new Set(['a', 'b', 'c']),
+          mountedTopLevelRanges: [
+            { endIndex: 0, startIndex: 0 },
+            { endIndex: 2, startIndex: 1 },
+          ],
+        },
+        editor,
+      })
+    ).toBe(true)
   })
 
   it('does not route undo hotkeys while read-only', () => {

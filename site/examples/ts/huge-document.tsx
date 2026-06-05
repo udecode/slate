@@ -83,7 +83,7 @@ const hugeDocumentQueryParsers = {
   blocks: parseAsBoundedInteger(1, 200_000).withDefault(10_000),
   contentVisibilityMode: parseAsStringLiteral(
     contentVisibilityModeOptions
-  ).withDefault('element'),
+  ).withDefault('none'),
   domStrategyMode: parseAsStringLiteral(domStrategyModeOptions)
     .withDefault('virtualized')
     .withOptions({ clearOnDefault: false }),
@@ -286,6 +286,7 @@ const Element = ({ attributes, children, element }: RenderElementProps) => {
   const { contentVisibility, showSelectedHeadings } =
     React.useContext(RenderConfigContext)
   const style = {
+    containIntrinsicSize: contentVisibility ? 'auto 64px' : undefined,
     contentVisibility: contentVisibility ? 'auto' : undefined,
   } satisfies CSSProperties
 

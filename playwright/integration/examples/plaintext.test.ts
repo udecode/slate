@@ -1,5 +1,6 @@
 import { expect, type Locator, test } from '@playwright/test'
 import {
+  assertSlateBrowserSelectionContract,
   openExample,
   recordSlateBrowserRuntimeErrors,
 } from 'slate-browser/playwright'
@@ -1562,16 +1563,18 @@ test.describe('plaintext example', () => {
     await page.keyboard.press(await getBrowserUndoHotkey(editor.root))
 
     await editor.assert.text(originalText)
-    await editor.assert.selection({
-      anchor: { path: [0, 0], offset: selectionStart },
-      focus: { path: [0, 0], offset: selectionEnd },
-    })
-    await expect.poll(() => editor.get.selectedText()).toBe('plain ')
-    await editor.assert.domSelection({
-      anchorNodeText: originalText,
-      anchorOffset: selectionStart,
-      focusNodeText: originalText,
-      focusOffset: selectionEnd,
+    await assertSlateBrowserSelectionContract(editor, {
+      domSelection: {
+        anchorNodeText: originalText,
+        anchorOffset: selectionStart,
+        focusNodeText: originalText,
+        focusOffset: selectionEnd,
+      },
+      selectedText: 'plain ',
+      selection: {
+        anchor: { path: [0, 0], offset: selectionStart },
+        focus: { path: [0, 0], offset: selectionEnd },
+      },
     })
   })
 })

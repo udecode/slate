@@ -180,6 +180,7 @@ const isPartialDOMStrategyRuntime = (domStrategyRuntime: unknown) =>
   typeof domStrategyRuntime === 'object' &&
   domStrategyRuntime !== null &&
   ((domStrategyRuntime as { type?: unknown }).type === 'partial-dom' ||
+    (domStrategyRuntime as { type?: unknown }).type === 'staged' ||
     (domStrategyRuntime as { type?: unknown }).type === 'virtualized')
 
 const getSelectionRoot = (selection: Range | null) => selection?.anchor.root

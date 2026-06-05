@@ -699,7 +699,8 @@ const hasAuthoritativeModelSelection = ({
 }: {
   inputController: EditableInputController
 }) =>
-  inputController.state.selectionSource === 'model-owned' &&
+  (inputController.state.selectionSource === 'model-owned' ||
+    inputController.state.selectionSource === 'partial-dom-backed') &&
   (inputController.preferModelSelectionForInputRef.current ||
     hasProgrammaticSelectionOrigin(inputController.state.selectionChangeOrigin))
 
@@ -1197,9 +1198,12 @@ export const prepareEditableKeyDownKernel = ({
     intent === 'format' ||
     intent === 'insert-break' ||
     intent === 'model-selection-move'
+  const authoritativeModelSelection = hasAuthoritativeModelSelection({
+    inputController,
+  })
   const shouldPreserveModelSelection =
-    (shouldForceDOMImport || intent === 'text-insert') &&
-    hasAuthoritativeModelSelection({ inputController })
+    authoritativeModelSelection &&
+    (ownership === 'model-owned' || intent === 'text-insert' || intent === null)
   const shouldApplyForcedDOMImport =
     shouldForceDOMImport && !shouldPreserveModelSelection
 

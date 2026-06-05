@@ -3427,7 +3427,16 @@ const clickTextOffset = async (
   await root.page().mouse.click(point.x, point.y, {
     clickCount: options.clickCount,
   })
-  await waitForSelectionSync(root)
+  const isSingleClick = (options.clickCount ?? 1) === 1
+  await waitForSelectionSync(
+    root,
+    isSingleClick
+      ? {
+          anchor: { offset, path },
+          focus: { offset, path },
+        }
+      : undefined
+  )
 }
 
 const hasDOMSelectionInRoot = async (root: Locator) =>
@@ -3765,6 +3774,8 @@ export type SlateBrowserEditorHarness = {
   rootAt: (selector: string) => SlateBrowserEditorHarness
   get: {
     modelText: () => Promise<string>
+    modelBlockText: (index: number) => Promise<string | null>
+    modelBlockTexts: () => Promise<string[]>
     text: () => Promise<string>
     blockTexts: () => Promise<string[]>
     renderedDOMShape: () => Promise<RenderedBlockDOMShapeSnapshot[]>
@@ -3814,6 +3825,8 @@ export type SlateBrowserEditorHarness = {
   selectAll: () => Promise<void>
   assert: {
     text: (text: RegExp | string) => Promise<void>
+    modelBlockText: (index: number, text: string | null) => Promise<void>
+    modelBlockTexts: (texts: string[]) => Promise<void>
     blockTexts: (texts: string[]) => Promise<void>
     html: (expectedFragment: string) => Promise<void>
     htmlContains: (expectedFragment: string) => Promise<void>
@@ -3824,6 +3837,7 @@ export type SlateBrowserEditorHarness = {
     focusOwner: (expected: FocusOwnerSnapshot['kind']) => Promise<void>
     kernelTrace: (expected: SlateBrowserKernelTraceExpectation) => Promise<void>
     selection: (expected: SelectionSnapshotExpectation) => Promise<void>
+    caretVisibleInScrollableParent: () => Promise<void>
     domSelection: (expected: DOMSelectionSnapshotExpectation) => Promise<void>
     domCaret: (expected: { offset: number; text: string }) => Promise<void>
     domSelectionTarget: (
@@ -3883,6 +3897,182 @@ export type SlateBrowserEditorHarness = {
     ) => Promise<SlateBrowserTraceEntry>
   }
   withExtension: <T>(extend: (editor: SlateBrowserEditorHarness) => T) => T
+}
+
+export type SlateBrowserSelectionContractExpectation = {
+  domSelection?: DOMSelectionSnapshotExpectation
+  domSelectionTarget?: Partial<DOMSelectionLocationSnapshot>
+  selectedText?: string
+  selection?: SelectionSnapshotExpectation
+}
+
+export type CaretVisibilitySnapshot = {
+  activeElementTestId: string | null
+  anchorInRoot: boolean
+  anchorNodeText: string | null
+  focusInRoot: boolean
+  hasSelection: boolean
+  parentRect: { bottom: number; top: number } | null
+  rangeCount: number
+  scrollParentTagName: string | null
+  textHostText: string | null
+  visible: boolean
+  visibleRect: {
+    bottom: number
+    height: number
+    top: number
+    width: number
+  } | null
+}
+
+export const assertSlateBrowserSelectionContract = async (
+  editor: SlateBrowserEditorHarness,
+  expected: SlateBrowserSelectionContractExpectation
+) => {
+  if (expected.selection) {
+    await editor.assert.selection(expected.selection)
+  }
+
+  if (expected.selectedText !== undefined) {
+    await expect
+      .poll(() => editor.get.selectedText())
+      .toBe(expected.selectedText)
+  }
+
+  if (expected.domSelection) {
+    await editor.assert.domSelection(expected.domSelection)
+  }
+
+  if (expected.domSelectionTarget) {
+    await editor.assert.domSelectionTarget(expected.domSelectionTarget)
+  }
+}
+
+const takeCaretVisibilitySnapshot = async (
+  root: Locator
+): Promise<CaretVisibilitySnapshot> =>
+  root.evaluate((element: HTMLElement) => {
+    const selection = element.ownerDocument.getSelection()
+    const anchorInRoot =
+      !!selection?.anchorNode && element.contains(selection.anchorNode)
+    const focusInRoot =
+      !!selection?.focusNode && element.contains(selection.focusNode)
+    const base = {
+      activeElementTestId:
+        (element.ownerDocument.activeElement as HTMLElement | null)?.dataset
+          ?.testId ?? null,
+      anchorInRoot,
+      anchorNodeText: selection?.anchorNode?.textContent ?? null,
+      focusInRoot,
+      hasSelection: !!selection,
+      parentRect: null,
+      rangeCount: selection?.rangeCount ?? 0,
+      scrollParentTagName: null,
+      textHostText: null,
+      visible: false,
+      visibleRect: null,
+    } satisfies CaretVisibilitySnapshot
+
+    if (!selection || selection.rangeCount === 0) {
+      return base
+    }
+
+    const scrollParent = [
+      element,
+      ...Array.from(
+        (function* parents() {
+          for (
+            let parent = element.parentElement;
+            parent;
+            parent = parent.parentElement
+          ) {
+            if (parent.scrollHeight > parent.clientHeight) {
+              yield parent
+            }
+          }
+        })()
+      ),
+    ].find((parent) => parent.scrollHeight > parent.clientHeight)
+    const scrollParentTagName = scrollParent?.tagName ?? null
+    const anchorElement =
+      selection.anchorNode instanceof Element
+        ? selection.anchorNode
+        : selection.anchorNode instanceof Text
+          ? selection.anchorNode.parentElement
+          : null
+    const textHost = anchorElement?.closest('[data-slate-node="text"]')
+    const range = selection.getRangeAt(0)
+    const caretRect =
+      Array.from(range.getClientRects())[0] ?? range.getBoundingClientRect()
+    const visibleRect =
+      caretRect.width === 0 && caretRect.height === 0
+        ? textHost?.getBoundingClientRect()
+        : caretRect
+
+    if (!visibleRect || (visibleRect.width === 0 && visibleRect.height === 0)) {
+      return {
+        ...base,
+        scrollParentTagName,
+        textHostText: textHost?.textContent ?? null,
+      }
+    }
+
+    const parentRect = scrollParent?.getBoundingClientRect() ?? {
+      bottom: window.innerHeight,
+      top: 0,
+    }
+    const visible =
+      anchorInRoot &&
+      focusInRoot &&
+      visibleRect.top >= parentRect.top - 1 &&
+      visibleRect.bottom <= parentRect.bottom + 1
+
+    return {
+      ...base,
+      parentRect: {
+        bottom: parentRect.bottom,
+        top: parentRect.top,
+      },
+      scrollParentTagName,
+      textHostText: textHost?.textContent ?? null,
+      visible,
+      visibleRect: {
+        bottom: visibleRect.bottom,
+        height: visibleRect.height,
+        top: visibleRect.top,
+        width: visibleRect.width,
+      },
+    }
+  })
+
+const assertCaretVisibleInScrollableParent = async (root: Locator) => {
+  let lastSnapshot: CaretVisibilitySnapshot | null = null
+
+  try {
+    await expect
+      .poll(async () => {
+        lastSnapshot = await takeCaretVisibilitySnapshot(root)
+
+        return lastSnapshot.visible
+      })
+      .toBe(true)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+
+    throw new Error(
+      `${message}\nLast caret visibility snapshot: ${JSON.stringify(
+        lastSnapshot,
+        null,
+        2
+      )}`
+    )
+  }
+}
+
+export const assertSlateBrowserCaretVisibleInScrollableParent = async (
+  editor: SlateBrowserEditorHarness
+) => {
+  await assertCaretVisibleInScrollableParent(editor.root)
 }
 
 const getSelectionRect = async (
@@ -4304,30 +4494,75 @@ const takeSelectionSnapshotForRoot = async (
     { key: SLATE_BROWSER_HANDLE_KEY }
   )
 
-const waitForSelectionSync = async (root: Locator) => {
+const waitForSelectionSync = async (
+  root: Locator,
+  expectedSelection?: SelectionSnapshot
+) => {
   await expect
     .poll(() =>
-      root.evaluate((element: HTMLElement) => {
-        const rootNode = element.getRootNode() as Document | ShadowRoot
-        const selection =
-          'getSelection' in rootNode
-            ? rootNode.getSelection()
-            : element.ownerDocument.getSelection()
+      root.evaluate(
+        (
+          element: HTMLElement,
+          {
+            expectedSelection,
+            key,
+          }: { expectedSelection?: SelectionSnapshot; key: string }
+        ) => {
+          const pointsEqual = (
+            left: SelectionPoint | null | undefined,
+            right: SelectionPoint | null | undefined
+          ) =>
+            !!left &&
+            !!right &&
+            left.offset === right.offset &&
+            left.path.length === right.path.length &&
+            left.path.every((part, index) => part === right.path[index])
+          const selectionsEqual = (
+            left: SelectionSnapshot | null | undefined,
+            right: SelectionSnapshot | null | undefined
+          ) =>
+            !!left &&
+            !!right &&
+            pointsEqual(left.anchor, right.anchor) &&
+            pointsEqual(left.focus, right.focus)
+          const rootNode = element.getRootNode() as Document | ShadowRoot
+          const selection =
+            'getSelection' in rootNode
+              ? rootNode.getSelection()
+              : element.ownerDocument.getSelection()
+          const nativeSelectionInRoot = Boolean(
+            selection?.rangeCount &&
+              selection.anchorNode &&
+              selection.focusNode &&
+              element.contains(selection.anchorNode) &&
+              element.contains(selection.focusNode)
+          )
 
-        if (
-          !selection ||
-          selection.rangeCount === 0 ||
-          !selection.anchorNode ||
-          !selection.focusNode
-        ) {
-          return false
-        }
+          const handle = (element as Record<string, any>)[key]
+          const handleSelection =
+            typeof handle?.getSelection === 'function'
+              ? handle.getSelection()
+              : null
 
-        return (
-          element.contains(selection.anchorNode) &&
-          element.contains(selection.focusNode)
-        )
-      })
+          if (expectedSelection) {
+            if (selectionsEqual(handleSelection, expectedSelection)) {
+              return true
+            }
+
+            return !handle?.getSelection && nativeSelectionInRoot
+          }
+
+          if (nativeSelectionInRoot) {
+            return true
+          }
+
+          return (
+            element.getAttribute('data-slate-dom-strategy-selection') ===
+              'partial-dom-backed' && !!handleSelection
+          )
+        },
+        { expectedSelection, key: SLATE_BROWSER_HANDLE_KEY }
+      )
     )
     .toBe(true)
   await root.page().waitForTimeout(100)
@@ -4925,6 +5160,39 @@ const createEditorHarness = (
           },
           { key: SLATE_BROWSER_HANDLE_KEY }
         ),
+      modelBlockText: async (index) =>
+        root.evaluate(
+          (
+            element: HTMLElement,
+            { index, key }: { index: number; key: string }
+          ) => {
+            const handle = (element as Record<string, any>)[key]
+
+            if (!handle?.getBlockText) {
+              throw new Error(
+                'This editor surface does not expose getBlockText'
+              )
+            }
+
+            return handle.getBlockText(index)
+          },
+          { index, key: SLATE_BROWSER_HANDLE_KEY }
+        ),
+      modelBlockTexts: async () =>
+        root.evaluate(
+          (element: HTMLElement, { key }: { key: string }) => {
+            const handle = (element as Record<string, any>)[key]
+
+            if (!handle?.getBlockTexts) {
+              throw new Error(
+                'This editor surface does not expose getBlockTexts'
+              )
+            }
+
+            return handle.getBlockTexts()
+          },
+          { key: SLATE_BROWSER_HANDLE_KEY }
+        ),
       text: async () => (await root.textContent()) ?? '',
       blockTexts: async () => getBlockTexts(root),
       renderedDOMShape: async () => getRenderedBlockDOMShapes(root),
@@ -5348,6 +5616,12 @@ const createEditorHarness = (
       text: async (text: RegExp | string) => {
         await expect(root).toContainText(text)
       },
+      modelBlockText: async (index: number, text: string | null) => {
+        await expect.poll(() => harness.get.modelBlockText(index)).toBe(text)
+      },
+      modelBlockTexts: async (texts: string[]) => {
+        await expect.poll(() => harness.get.modelBlockTexts()).toEqual(texts)
+      },
       blockTexts: async (texts: string[]) => {
         await expect.poll(() => getBlockTexts(root)).toEqual(texts)
       },
@@ -5398,6 +5672,9 @@ const createEditorHarness = (
       },
       selection: async (expected: SelectionSnapshotExpectation) => {
         await assertSelectionExpectation(root, expected)
+      },
+      caretVisibleInScrollableParent: async () => {
+        await assertCaretVisibleInScrollableParent(root)
       },
       domSelection: async (expected: DOMSelectionSnapshotExpectation) => {
         await assertDOMSelectionExpectation(root, expected)
@@ -5511,15 +5788,15 @@ const createEditorHarness = (
           const beforeText = await harness.get.modelText()
           const beforeTraceLength = (await harness.get.kernelTrace()).length
 
+          await harness.focus()
+
           try {
             await writeClipboardText(surface, text)
           } catch {
-            await harness.focus()
             await insertDataThroughHandle(root, { text })
             return
           }
 
-          await harness.focus()
           await root.press('ControlOrMeta+V')
           await page.waitForTimeout(50)
 
@@ -5552,15 +5829,15 @@ const createEditorHarness = (
           const beforeTraceLength = (await harness.get.kernelTrace()).length
           const text = plainText ?? (await toPlainText(surface, html))
 
+          await harness.focus()
+
           try {
             await writeClipboardHtml(surface, html, text)
           } catch {
-            await harness.focus()
             await insertDataThroughHandle(root, { html, text })
             return
           }
 
-          await harness.focus()
           await root.press('ControlOrMeta+V')
           await page.waitForTimeout(50)
 

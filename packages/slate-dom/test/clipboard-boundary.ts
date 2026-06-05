@@ -1284,8 +1284,10 @@ describe('slate-dom clipboard boundary', () => {
       },
     })
 
-    Editor.insertText(editor, 'C')
-    Editor.deleteForward(editor, { unit: 'word' })
+    editor.update((tx) => {
+      tx.text.insert('C')
+      tx.text.deleteForward({ unit: 'word' })
+    })
 
     expect(Editor.getSnapshot(editor).children).toEqual([
       {

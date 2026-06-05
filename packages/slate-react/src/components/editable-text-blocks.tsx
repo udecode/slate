@@ -140,6 +140,7 @@ const ROOT_GROUP_STYLE = {
   containIntrinsicSize: '1024px',
   contentVisibility: 'auto',
 } satisfies CSSProperties
+const ROOT_GROUP_NATIVE_SURFACE_STYLE = {} satisfies CSSProperties
 
 const getSnapshotPathKey = (path: Path) => path.join('.')
 
@@ -1500,6 +1501,7 @@ const useMountedRootGroupIds = ({
 const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
   endIndex,
   groupId,
+  nativeSurfaceComplete,
   placeholder,
   placeholderRef,
   renderElement,
@@ -1513,6 +1515,7 @@ const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
 }: {
   endIndex: number
   groupId: string
+  nativeSurfaceComplete: boolean
   placeholder?: ReactNode
   placeholderRef?: React.RefCallback<HTMLElement>
   renderElement?: RenderElementRenderer<TElement>
@@ -1539,7 +1542,11 @@ const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
       data-slate-root-group-id={groupId}
       data-slate-root-group-start={startIndex}
       data-slate-root-group-state="fresh-mounted"
-      style={ROOT_GROUP_STYLE}
+      style={
+        nativeSurfaceComplete
+          ? ROOT_GROUP_NATIVE_SURFACE_STYLE
+          : ROOT_GROUP_STYLE
+      }
     >
       {runtimeIds.map((runtimeId) => (
         <EditableDescendantNode
@@ -1564,6 +1571,7 @@ const EditableRootGroup = React.memo(
   (previous, next) =>
     previous.endIndex === next.endIndex &&
     previous.groupId === next.groupId &&
+    previous.nativeSurfaceComplete === next.nativeSurfaceComplete &&
     previous.placeholder === next.placeholder &&
     previous.placeholderRef === next.placeholderRef &&
     previous.renderElement === next.renderElement &&
@@ -2144,6 +2152,8 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
         activeGroupIds.has(group.groupId) || mountedGroupIds.has(group.groupId),
     }))
   }, [activeGroupIds, mountedGroupIds, rootGroups])
+  const stagedNativeSurfaceComplete =
+    renderedRootGroups?.every((group) => group.isMounted) ?? false
   const domPresentMountedGroups = React.useMemo(
     () => renderedRootGroups?.filter((group) => group.isMounted) ?? null,
     [renderedRootGroups]
@@ -2570,6 +2580,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
                     endIndex={item.group.endIndex}
                     groupId={item.group.groupId}
                     key={item.group.groupId}
+                    nativeSurfaceComplete={stagedNativeSurfaceComplete}
                     placeholder={placeholderValue}
                     placeholderRef={placeholderRef}
                     renderElement={renderElement}

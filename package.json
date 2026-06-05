@@ -33,6 +33,7 @@
     "bench:react:huge-document:legacy-compare:local": "bun ./scripts/benchmarks/browser/react/huge-document-legacy-compare.mjs",
     "bench:react:huge-document:browser-trace:local": "bun ./scripts/benchmarks/browser/react/huge-document-browser-trace.mjs",
     "bench:react:huge-document:slate-browser-trace:local": "bun ./scripts/benchmarks/browser/react/huge-document-slate-browser-trace.mjs",
+    "bench:react:huge-document:staged-keyboard-commands:local": "bun ./scripts/benchmarks/browser/react/huge-document-staged-keyboard-commands.mjs",
     "bench:react:huge-document:cross-editor:local": "bun ./scripts/benchmarks/browser/react/huge-document-cross-editor.mjs",
     "bench:browser:rich-text-replay-coverage:local": "bun ./scripts/benchmarks/browser/rich-text-replay-coverage.mjs",
     "bench:slate:6038:local": "bun ./scripts/benchmarks/slate/6038-transaction-execution.mjs",

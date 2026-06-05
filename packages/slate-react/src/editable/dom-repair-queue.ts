@@ -369,9 +369,15 @@ export const createDOMRepairQueue = ({
         const capturedInsertStillOwnsDOMSelection =
           !!nativeInput.target?.preferCapturedInsert &&
           targetStillOwnsDOMSelection
+        const capturedInsertStillOwnsVirtualizedPath =
+          !!nativeInput.target?.preferCapturedInsert &&
+          !!textHost &&
+          isInsideVirtualizedDOM(textHost) &&
+          targetPathStillOwnsDOMSelection
         const shouldMoveSelection =
           shouldReplaceExpandedSelection ||
           capturedInsertStillOwnsDOMSelection ||
+          capturedInsertStillOwnsVirtualizedPath ||
           !nativeInput.target ||
           targetStillOwnsDOMSelection
         const shouldRepairCaretAfterTextInsert =
@@ -535,11 +541,11 @@ export const createDOMRepairQueue = ({
 
         const isProjectedTextHost =
           textHost.getAttribute('data-slate-dom-sync-reason') === 'projection'
+        const isVirtualizedTextHost = isInsideVirtualizedDOM(textHost)
         const shouldScrollTextHost =
-          kind !== 'repair-caret-after-text-insert' ||
-          !isInsideVirtualizedDOM(textHost)
+          kind !== 'repair-caret-after-text-insert' || !isVirtualizedTextHost
         const shouldReleaseTextInsertSelectionToDOM =
-          !isInsideVirtualizedDOM(textHost) && !isProjectedTextHost
+          !isVirtualizedTextHost && !isProjectedTextHost
         const root = ReactEditor.findDocumentOrShadowRoot(editor)
         const domSelection = getSelection(root)
 
@@ -588,6 +594,16 @@ export const createDOMRepairQueue = ({
               domNode,
               domOffset
             )
+            if (
+              domSelection.rangeCount === 0 ||
+              domSelection.anchorNode !== domNode ||
+              domSelection.anchorOffset !== domOffset ||
+              domSelection.focusNode !== domNode ||
+              domSelection.focusOffset !== domOffset
+            ) {
+              domSelection.removeAllRanges()
+              domSelection.addRange(domRange)
+            }
             if (shouldScrollTextHost && !shouldSkipSelectionScroll(editor)) {
               scrollSelectionIntoView(editor, domRange)
             }
@@ -621,7 +637,11 @@ export const createDOMRepairQueue = ({
           }
 
           const repaired = repairCollapsedSelectionByPath()
-          if (kind === 'repair-caret-after-text-insert' && repaired) {
+          if (
+            kind === 'repair-caret-after-text-insert' &&
+            repaired &&
+            textInsertRepairCompleted
+          ) {
             return
           }
 
@@ -632,20 +652,28 @@ export const createDOMRepairQueue = ({
       }
 
       const repaired = repairCollapsedSelectionByPath()
-      if (kind === 'repair-caret-after-text-insert' && repaired) {
+      if (
+        kind === 'repair-caret-after-text-insert' &&
+        repaired &&
+        textInsertRepairCompleted
+      ) {
         return
       }
 
       queueMicrotask(() => {
         const repaired = repairCollapsedSelectionByPath()
-        if (kind === 'repair-caret-after-text-insert' && repaired) {
+        if (
+          kind === 'repair-caret-after-text-insert' &&
+          repaired &&
+          textInsertRepairCompleted
+        ) {
           return
         }
       })
       setTimeout(() => {
         repairCollapsedSelectionByPath()
       })
-      retry(8)
+      retry(kind === 'repair-caret-after-text-insert' ? 40 : 8)
     },
 
     repairCaretAfterModelTextInsert() {

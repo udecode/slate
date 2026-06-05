@@ -1,6 +1,7 @@
 import { expect, type Locator, test } from '@playwright/test'
 import {
   assertNoIllegalKernelTransitions,
+  assertSlateBrowserSelectionContract,
   createSlateBrowserDestructiveEditingGauntlet,
   createSlateBrowserMarkClickTypingGauntlet,
   createSlateBrowserMarkTypingGauntlet,
@@ -33,6 +34,39 @@ const expectDOMCaretAtTextEnd = async (root: Locator, suffix: string) => {
     )
     .toBe(true)
 }
+
+const getFirstParagraphRightMarginClickPoint = async (root: Locator) =>
+  root
+    .locator('p')
+    .first()
+    .evaluate((paragraph: HTMLElement) => {
+      const paragraphRect = paragraph.getBoundingClientRect()
+      const textRects = Array.from(
+        paragraph.querySelectorAll<HTMLElement>('[data-slate-string]')
+      ).flatMap((element) => Array.from(element.getClientRects()))
+
+      if (textRects.length === 0) {
+        throw new Error('Missing first paragraph text rects')
+      }
+
+      const lastLineRect = textRects.reduce((last, rect) => {
+        const lowerLine = rect.bottom > last.bottom + 1
+        const sameLineFurtherRight =
+          Math.abs(rect.bottom - last.bottom) <= 1 && rect.right > last.right
+
+        return lowerLine || sameLineFurtherRight ? rect : last
+      }, textRects[0]!)
+      const x = Math.min(paragraphRect.right - 8, lastLineRect.right + 80)
+
+      if (x <= lastLineRect.right + 4) {
+        throw new Error('First paragraph has no right-margin click space')
+      }
+
+      return {
+        x,
+        y: lastLineRect.top + lastLineRect.height / 2,
+      }
+    })
 
 const expectVisualCaretAtEndOfFirstBlock = async (root: Locator) => {
   await expect
@@ -316,10 +350,17 @@ test.describe('On richtext example', () => {
     await page.keyboard.insertText('baz qux')
     await editor.assert.blockTexts(['Foo bar', 'baz qux'])
 
-    await page.keyboard.press('ControlOrMeta+A')
+    await editor.selection.selectAll()
     await page.getByTestId('mark-button-bold').click()
     await page.getByTestId('mark-button-italic').click()
     await page.getByTestId('block-button-right').click()
+
+    const paragraphs = editor.root.locator('p')
+
+    await expect(paragraphs.nth(0).locator('strong')).toHaveText('Foo bar')
+    await expect(paragraphs.nth(0).locator('em')).toHaveText('Foo bar')
+    await expect(paragraphs.nth(1).locator('strong')).toHaveText('baz qux')
+    await expect(paragraphs.nth(1).locator('em')).toHaveText('baz qux')
 
     await editor.selection.select({
       anchor: { path: [0, 0], offset: 'Foo '.length },
@@ -328,8 +369,6 @@ test.describe('On richtext example', () => {
     await page.getByTestId('clear-formatting-button').click()
 
     await editor.assert.blockTexts(['Foo bar', 'baz qux'])
-
-    const paragraphs = editor.root.locator('p')
 
     await expect(paragraphs.nth(0).locator('strong')).toHaveText('Foo ')
     await expect(paragraphs.nth(0).locator('em')).toHaveText('Foo ')
@@ -1033,13 +1072,15 @@ test.describe('On richtext example', () => {
     await expect
       .poll(async () => (await editor.get.blockTexts())[0])
       .toBe(originalText)
-    await editor.assert.selection(selection)
-    await expect.poll(() => editor.get.selectedText()).toBe(selectedText)
-    await editor.assert.domSelection({
-      anchorNodeText: 'This is editable ',
-      anchorOffset: 'This is '.length,
-      focusNodeText: ' text, ',
-      focusOffset: ' text'.length,
+    await assertSlateBrowserSelectionContract(editor, {
+      domSelection: {
+        anchorNodeText: 'This is editable ',
+        anchorOffset: 'This is '.length,
+        focusNodeText: ' text, ',
+        focusOffset: ' text'.length,
+      },
+      selectedText,
+      selection,
     })
   })
 
@@ -5675,6 +5716,51 @@ test.describe('On richtext example', () => {
 
     await editor.click()
     await selectEndOfFirstBlockWithDOMSelection(editor.root)
+    await page.keyboard.insertText('O')
+
+    await editor.assert.text(
+      'This is editable rich text, much better than a <textarea>!O'
+    )
+    expect(await editor.get.modelText()).toContain(
+      'This is editable rich text, much better than a <textarea>!O'
+    )
+    await expectDOMCaretAtTextEnd(editor.root, '!O')
+    await expectVisualCaretAtEndOfFirstBlock(editor.root)
+  })
+
+  test('places a right-margin click at the multi-leaf text end', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await page.setViewportSize({ height: 720, width: 1100 })
+    await editor.selection.collapse({ path: [0, 0], offset: 0 })
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+
+    const point = await getFirstParagraphRightMarginClickPoint(editor.root)
+    await page.mouse.click(point.x, point.y)
+
+    await editor.assert.selection({
+      anchor: { path: [0, 6], offset: 1 },
+      focus: { path: [0, 6], offset: 1 },
+    })
+    await editor.assert.domCaret({
+      offset: 1,
+      text: '!',
+    })
+
     await page.keyboard.insertText('O')
 
     await editor.assert.text(

@@ -166,6 +166,7 @@ export const useEditableRootRuntime = ({
       const currentDOMStrategyRuntime = domStrategyRuntimeCell.current
 
       return currentDOMStrategyRuntime?.type === 'partial-dom' ||
+        currentDOMStrategyRuntime?.type === 'staged' ||
         currentDOMStrategyRuntime?.type === 'virtualized'
         ? isSelectionPartialDOMBacked(
             selection,
@@ -181,6 +182,12 @@ export const useEditableRootRuntime = ({
     isPartialDOMBackedSelection(modelSelection)
   const partialDOMBackedSelection =
     explicitPartialDOMBackedSelection || modelPartialDOMBackedSelection
+
+  useEffect(() => {
+    if (explicitPartialDOMBackedSelection && !modelPartialDOMBackedSelection) {
+      setExplicitPartialDOMBackedSelection(false)
+    }
+  }, [explicitPartialDOMBackedSelection, modelPartialDOMBackedSelection])
 
   const [controllerState] = useState(createEditableInputControllerState)
   const inputController = useMemo(

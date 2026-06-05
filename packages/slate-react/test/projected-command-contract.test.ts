@@ -935,6 +935,46 @@ describe('projected editable commands', () => {
     ])
   })
 
+  it('delete-fragment over every top-level block uses one replace_children operation', () => {
+    const initialValue = Array.from({ length: 1200 }, (_, index) =>
+      paragraph(`block-${index}`)
+    )
+    const runtime = createEditorRuntime({
+      initialValue,
+    })
+    const editor = createEditorView(runtime) as unknown as ReactRuntimeEditor
+    const operationsBefore = Editor.getOperations(editor).length
+
+    expect(
+      applyEditableCommand({
+        command: {
+          kind: 'delete-fragment',
+          selection: {
+            anchor: { path: [0, 0], offset: 0 },
+            focus: {
+              path: [initialValue.length - 1, 0],
+              offset: `block-${initialValue.length - 1}`.length,
+            },
+          },
+        },
+        editor,
+      })
+    ).toBe(true)
+
+    expect(editor.read((state) => state.value.get().roots.main)).toEqual([
+      paragraph(''),
+    ])
+    expect(editor.read((state) => state.selection.get())).toEqual({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+    expect(
+      Editor.getOperations(editor)
+        .slice(operationsBefore)
+        .map((operation) => operation.type)
+    ).toEqual(['replace_children'])
+  })
+
   it('insert-text over a whole text block with inline children preserves the block', () => {
     const runtime = createEditorRuntime({
       extensions: [dom(), inlineLinkExtension],

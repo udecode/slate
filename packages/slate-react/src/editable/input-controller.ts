@@ -199,6 +199,13 @@ const MODIFIER_ONLY_KEYS = new Set([
 const isModifierOnlyKeyboardIntent = (event: KeyboardEvent) =>
   MODIFIER_ONLY_KEYS.has(event.key)
 
+const isClipboardKeyboardIntent = (event: KeyboardEvent) =>
+  !event.altKey &&
+  (event.ctrlKey || event.metaKey) &&
+  (event.key.toLowerCase() === 'c' ||
+    event.key.toLowerCase() === 'v' ||
+    event.key.toLowerCase() === 'x')
+
 export const classifyKeyboardIntent = ({
   editor,
   event,
@@ -222,6 +229,10 @@ export const classifyKeyboardIntent = ({
 
   if (isInteractiveInternalTarget(editor, event.target)) {
     return 'internal-control'
+  }
+
+  if (isClipboardKeyboardIntent(nativeEvent)) {
+    return 'clipboard'
   }
 
   if (

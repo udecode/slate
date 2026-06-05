@@ -88,7 +88,7 @@ const inventoryRules: InventoryRule[] = [
       'Generated lib output is not hand-edited, but it remains visible to package consumers until rebuilt.',
   },
   {
-    expected: { primitive: 6, stale: 40 },
+    expected: { stale: 37 },
     gate: 'historical docs are not the current API contract',
     id: 'historical-changelog',
     next: 'historical-only',
@@ -98,7 +98,7 @@ const inventoryRules: InventoryRule[] = [
       'Changelog entries preserve history and are not primary API guidance.',
   },
   {
-    expected: { primitive: 55, stale: 301 },
+    expected: { primitive: 104, stale: 524 },
     gate: 'browser proof handles must stay explicitly classified as proof transport',
     id: 'browser-proof-rows',
     next: 'explicit-proof-bridge',
@@ -138,7 +138,7 @@ const inventoryRules: InventoryRule[] = [
       'Slate React owns editable input, IME, repair, and bridge workers behind the kernel.',
   },
   {
-    expected: { primitive: 102, stale: 65 },
+    expected: { primitive: 116, stale: 65 },
     gate: 'core contract tests may exercise compatibility, but only as tests',
     id: 'slate-core-contract-tests',
     next: 'keep-as-contract',
@@ -157,7 +157,7 @@ const inventoryRules: InventoryRule[] = [
     rationale: 'History contracts guard undo/redo behavior during the rewrite.',
   },
   {
-    expected: { bridge: 19, primitive: 11, stale: 1 },
+    expected: { bridge: 32, primitive: 14 },
     gate: 'React tests may exercise bridges only as contract proof',
     id: 'slate-react-tests',
     next: 'keep-as-contract',
