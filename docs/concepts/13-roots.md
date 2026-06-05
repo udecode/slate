@@ -39,7 +39,7 @@ current root defaults to `main`; a root-bound view resolves rootless locations
 against its own root.
 
 Persist roots through the full [Document State](14-document-state.md) value
-instead of saving only `editor.children`.
+instead of saving only the main root.
 
 ## Reading And Writing Roots
 
