@@ -549,7 +549,7 @@ describe('slate-history contract', () => {
     )
   })
 
-  it('routes compatibility undo and redo through history commands', () => {
+  it('routes tx undo and redo through history commands', () => {
     const editor = historyTestEditor()
     const commands: string[] = []
 

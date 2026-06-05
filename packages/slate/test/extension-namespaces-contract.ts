@@ -74,7 +74,7 @@ describe('editor extension namespaces', () => {
 
     editor.extend(
       defineEditorExtension({
-        name: 'table-backbone',
+        name: 'table-foundation',
         state: {
           table(state) {
             return {

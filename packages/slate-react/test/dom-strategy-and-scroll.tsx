@@ -199,16 +199,16 @@ test('Editable domStrategy partial-DOM defaults to smaller promotion segments', 
   await waitFor(() => expect(metrics.length).toBeGreaterThan(0))
 
   expect(metrics.at(-1)).toMatchObject({
-    segmentSize: 50,
+    segmentSize: 32,
   })
   expect(
     rendered.container.querySelectorAll('[data-slate-node="text"]').length
-  ).toBe(50)
+  ).toBe(32)
   expect(
     rendered.container.querySelectorAll(
       '[data-slate-dom-strategy-placeholder="true"]'
     ).length
-  ).toBe(2)
+  ).toBe(3)
 })
 
 test('Editable domStrategy partial-DOM updates coverage when the hidden tail runtime changes', async () => {
@@ -787,10 +787,10 @@ test('Editable reports domStrategy metrics for staged DOM-present surfaces', asy
     documentSize: 1001,
     effectiveStrategy: 'staged',
     mountedGroupCount: 1,
-    mountedTopLevelCount: 16,
+    mountedTopLevelCount: 32,
     nativeSurfaceComplete: false,
-    pendingGroupCount: 62,
-    pendingTopLevelCount: 985,
+    pendingGroupCount: 31,
+    pendingTopLevelCount: 969,
     requestedStrategy: 'staged',
   })
   expect(latest.domStrategyStagedBoundaryCount).toBeGreaterThan(0)
@@ -832,17 +832,17 @@ test('Editable auto keeps large documents DOM-bounded instead of staged backgrou
     documentSize: 1001,
     effectiveStrategy: 'partial-dom',
     mountedGroupCount: 1,
-    mountedTopLevelCount: 50,
+    mountedTopLevelCount: 32,
     nativeSurfaceComplete: false,
-    pendingTopLevelCount: 951,
+    pendingTopLevelCount: 969,
     requestedStrategy: 'auto',
-    segmentSize: 50,
+    segmentSize: 32,
   })
   expect(latest.aggressiveDomCoverageBoundaryCount).toBeGreaterThan(0)
   expect(latest.domStrategyStagedBoundaryCount).toBe(0)
   expect(
     rendered.container.querySelectorAll('[data-slate-node="text"]').length
-  ).toBe(50)
+  ).toBe(32)
   expect(
     rendered.container.querySelectorAll(
       '[data-slate-dom-strategy-placeholder="true"]'
@@ -855,7 +855,7 @@ test('Editable auto keeps large documents DOM-bounded instead of staged backgrou
 
   expect(
     rendered.container.querySelectorAll('[data-slate-node="text"]').length
-  ).toBe(50)
+  ).toBe(32)
 })
 
 test('Editable reports domStrategy degradation mode for plain and internal partial DOM surfaces', async () => {
@@ -1484,8 +1484,8 @@ test('Editable staged full-document replacement removes stale far DOM immediatel
     />
   )
 
-  expect(rendered.container.textContent).toContain('line 15')
-  expect(rendered.container.textContent).not.toContain('line 16')
+  expect(rendered.container.textContent).toContain('line 31')
+  expect(rendered.container.textContent).not.toContain('line 32')
   expect(
     rendered.container.querySelector(
       '[data-slate-dom-strategy-placeholder="true"]'
@@ -1568,8 +1568,8 @@ test('Editable staged full-document replacement resets staged coverage without s
 
   expect(Editor.string(editor, [])).toContain('fresh line 1000')
   expect(rendered.container.textContent).toContain('fresh line 0')
-  expect(rendered.container.textContent).toContain('fresh line 15')
-  expect(rendered.container.textContent).not.toContain('fresh line 16')
+  expect(rendered.container.textContent).toContain('fresh line 31')
+  expect(rendered.container.textContent).not.toContain('fresh line 32')
   expect(rendered.container.textContent).not.toContain('fresh line 1000')
   expect(rendered.container.textContent).not.toContain('old line 1000')
   expect(
@@ -1589,7 +1589,7 @@ test('Editable staged full-document replacement resets staged coverage without s
     selectionPolicy: 'materialize',
     state: 'pending-mount',
   })
-  expect(boundary?.coveredPathRanges).toEqual([{ anchor: [16], focus: [1000] }])
+  expect(boundary?.coveredPathRanges).toEqual([{ anchor: [32], focus: [1000] }])
 })
 
 test('Editable staged stages far root groups without partial-DOM placeholders', async () => {
@@ -1612,8 +1612,8 @@ test('Editable staged stages far root groups without partial-DOM placeholders', 
   )
 
   expect(rendered.container.textContent).toContain('line 0')
-  expect(rendered.container.textContent).toContain('line 15')
-  expect(rendered.container.textContent).not.toContain('line 16')
+  expect(rendered.container.textContent).toContain('line 31')
+  expect(rendered.container.textContent).not.toContain('line 32')
   expect(
     rendered.container.querySelector(
       '[data-slate-dom-strategy-placeholder="true"]'
@@ -1667,7 +1667,7 @@ test('Editable staged registers pending root groups as DOM coverage boundaries',
     selectionPolicy: 'materialize',
     state: 'pending-mount',
   })
-  expect(boundary?.coveredPathRanges).toEqual([{ anchor: [16], focus: [1000] }])
+  expect(boundary?.coveredPathRanges).toEqual([{ anchor: [32], focus: [1000] }])
 
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 750))
@@ -2028,7 +2028,7 @@ test('Editable domStrategy promotes partial-DOM segments without a second root-p
 
 test('Editable domStrategy keeps model inserts stable after partial-DOM promotion', async () => {
   const editor = createReactEditor()
-  const blockIndex = 2500
+  const blockIndex = 2496
 
   Editor.replace(editor, {
     children: Array.from({ length: 5000 }, (_, index) => ({
@@ -2050,7 +2050,7 @@ test('Editable domStrategy keeps model inserts stable after partial-DOM promotio
     />
   )
   const targetPartialDOMPlaceholder = rendered.container.querySelector(
-    '[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="50"]'
+    '[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="78"]'
   )
 
   expect(targetPartialDOMPlaceholder).toBeTruthy()

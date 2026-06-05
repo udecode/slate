@@ -96,6 +96,15 @@ export const applyEditableInput = ({
     return inputResult()
   }
 
+  if (
+    skipNativeTextInputRepair &&
+    !readOnly &&
+    deferredOperations.current.length === 0
+  ) {
+    handledDOMBeforeInputRef.current = false
+    return inputResult()
+  }
+
   const repairs: EditableRepairRequest[] = []
   const modelText = editor.read((state) => state.text.string([]))
   const domText =
@@ -131,9 +140,13 @@ export const applyEditableInput = ({
   }
 
   const nativeInput = event.nativeEvent as InputEvent
+  const isModelOwnedTextInputGuardActive =
+    (inputController.state.modelOwnedTextInputGuard ?? 0) > 0
 
   if (
     !skipNativeTextInputRepair &&
+    !hadDeferredOperations &&
+    !isModelOwnedTextInputGuardActive &&
     nativeInput.inputType === 'insertText' &&
     typeof nativeInput.data === 'string' &&
     nativeInput.data.length > 0 &&

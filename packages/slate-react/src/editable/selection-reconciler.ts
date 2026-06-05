@@ -731,6 +731,42 @@ export const syncSelectionForBeforeInput = ({
     domSelection.rangeCount === 0 ||
     (ReactEditor.hasSelectableTarget(editor, domSelectionAnchorNode) &&
       ReactEditor.hasSelectableTarget(editor, domSelectionFocusNode))
+  const pendingNativeTextInputRepairPath =
+    pendingNativeTextInputRepairPathKey?.split(',').map(Number) ?? null
+  const pendingNativeTextInputRepairTextHostPath =
+    domSelectionTextHost?.getAttribute('data-slate-path') ?? null
+  const pendingNativeTextInputRepairDOMOffset =
+    domSelection?.isCollapsed && isDOMText(domSelection.anchorNode)
+      ? domSelection.anchorOffset
+      : null
+
+  if (
+    allowDOMSelectionImport &&
+    type === 'insertText' &&
+    !shouldPreferModelSelectionForInput &&
+    domSelection &&
+    domSelectionBelongsToEditor &&
+    pendingNativeTextInputRepairPathKey &&
+    pendingNativeTextInputRepairPath &&
+    pendingNativeTextInputRepairOffset != null &&
+    pendingNativeTextInputRepairTextHostPath ===
+      pendingNativeTextInputRepairPathKey &&
+    pendingNativeTextInputRepairDOMOffset === pendingNativeTextInputRepairOffset
+  ) {
+    return {
+      native: nextNative,
+      selection: {
+        anchor: {
+          offset: pendingNativeTextInputRepairOffset,
+          path: [...pendingNativeTextInputRepairPath],
+        },
+        focus: {
+          offset: pendingNativeTextInputRepairOffset,
+          path: [...pendingNativeTextInputRepairPath],
+        },
+      },
+    }
+  }
 
   // COMPAT: Most deleting forward/backward input types can derive the target
   // from the current selection, but IME/focus cleanup can provide an expanded
@@ -819,17 +855,11 @@ export const syncSelectionForBeforeInput = ({
         : ReactEditor.resolveSlateRange(editor, domSelection, {
             exactMatch: false,
           }))
-    const pendingNativeTextInputRepairPath =
-      pendingNativeTextInputRepairPathKey?.split(',').map(Number) ?? null
     const pendingNativeTextInputRepairOwnsSelection =
       !!pendingNativeTextInputRepairPathKey &&
       !!pendingNativeTextInputRepairPath &&
       !!range &&
       RangeApi.isCollapsed(range)
-    const pendingNativeTextInputRepairDOMOffset =
-      domSelection.isCollapsed && isDOMText(domSelection.anchorNode)
-        ? domSelection.anchorOffset
-        : null
     const pendingNativeTextInputRepairOwnsPoint =
       pendingNativeTextInputRepairOwnsSelection &&
       pendingNativeTextInputRepairOffset != null &&
@@ -857,6 +887,18 @@ export const syncSelectionForBeforeInput = ({
         pendingNativeTextInputRepairOwnsPoint)
     ) {
       nextNative = native
+      const repairOffset =
+        pendingNativeTextInputRepairOffset ?? range.anchor.offset
+      nextSelection = {
+        anchor: {
+          offset: repairOffset,
+          path: [...pendingNativeTextInputRepairPath],
+        },
+        focus: {
+          offset: repairOffset,
+          path: [...pendingNativeTextInputRepairPath],
+        },
+      }
     } else if (
       range &&
       (!nextSelection || !RangeApi.equals(nextSelection, range))

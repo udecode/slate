@@ -59,6 +59,8 @@ export type SlateBrowserHandle = {
   getKernelTrace: () => unknown[]
   getInputState: () => unknown
   getLastCommit: () => unknown
+  getBlockText: (index: number) => string | null
+  getBlockTexts: () => string[]
   getElementByPath: (path: Path) => HTMLElement | null
   getPathByRuntimeId: (runtimeId: RuntimeId) => Path | null
   getProjectedNativeAffordanceMatrix: () => unknown
@@ -105,6 +107,7 @@ export const attachSlateBrowserHandle = ({
   inputController,
   applyInputRules,
   forceRender,
+  flushPendingNativeTextInput,
   isPartialDOMBackedSelection,
   scrollPathIntoView,
   setExplicitPartialDOMBackedSelection,
@@ -122,6 +125,7 @@ export const attachSlateBrowserHandle = ({
   element: SlateBrowserHandleElement
   inputController: EditableInputController
   forceRender: () => void
+  flushPendingNativeTextInput?: () => void
   isPartialDOMBackedSelection: (selection: Range | null) => boolean
   scrollPathIntoView?: (
     path: Path,
@@ -150,6 +154,7 @@ export const attachSlateBrowserHandle = ({
     const previousIsUpdatingSelection =
       inputController.state.isUpdatingSelection
 
+    flushPendingNativeTextInput?.()
     setEditableModelSelectionPreference({
       inputController,
       preferModelSelection: true,
@@ -170,12 +175,23 @@ export const attachSlateBrowserHandle = ({
     })
 
     applyEditableCommand({ command, editor })
+    const selectionAfter = readRuntimeSelection(editor)
+    const partialDOMBackedSelection =
+      isPartialDOMBackedSelection(selectionAfter)
+
+    if (partialDOMBackedSelection) {
+      setEditableModelSelectionPreference({
+        inputController,
+        preferModelSelection: true,
+        reason: 'partial-dom-backed',
+        selectionSource: 'partial-dom-backed',
+      })
+    }
+    setExplicitPartialDOMBackedSelection(partialDOMBackedSelection)
     syncEditableDOMSelectionToEditor({
       editor,
       scrollSelectionIntoView: () => {},
-      partialDOMBackedSelection: isPartialDOMBackedSelection(
-        readRuntimeSelection(editor)
-      ),
+      partialDOMBackedSelection,
       state: inputController.state,
     })
     refocusHandleElement()
@@ -189,9 +205,11 @@ export const attachSlateBrowserHandle = ({
         ownership: 'model-owned',
         repair: null,
         selectionChangeOrigin: 'browser-handle',
-        selectionAfter: readRuntimeSelection(editor),
+        selectionAfter,
         selectionBefore,
-        selectionSource: 'model-owned',
+        selectionSource: partialDOMBackedSelection
+          ? 'partial-dom-backed'
+          : 'model-owned',
         stateAfter: 'model-owned',
         stateBefore: 'model-owned',
         targetOwner: 'editor',
@@ -274,6 +292,8 @@ export const attachSlateBrowserHandle = ({
       modelOwnedTextInputGuard:
         inputController.state.modelOwnedTextInputGuard ?? 0,
       modelSelectionPreference: inputController.state.modelSelectionPreference,
+      pendingNativeTextInputRepairOffset:
+        inputController.state.pendingNativeTextInputRepairOffset ?? null,
       pendingNativeTextInputRepairPathKey:
         inputController.state.pendingNativeTextInputRepairPathKey ?? null,
       preferModelSelection:
@@ -281,9 +301,23 @@ export const attachSlateBrowserHandle = ({
       selectionChangeOrigin: inputController.state.selectionChangeOrigin,
       selectionSource: inputController.state.selectionSource,
     }),
+    getBlockText: (index) => {
+      const snapshot = Editor.getSnapshot(editor)
+
+      if (index < 0 || index >= snapshot.children.length) {
+        return null
+      }
+
+      return Editor.string(editor, [index])
+    },
+    getBlockTexts: () =>
+      Editor.getSnapshot(editor).children.map((_child, index) =>
+        Editor.string(editor, [index])
+      ),
     getText: () => Editor.string(editor, []),
     getViewSelection: () => readSlateViewSelection(editor),
     importDOMSelection: () => {
+      flushPendingNativeTextInput?.()
       const selectionBefore = readRuntimeSelection(editor)
 
       executeEditableSelectionImport({
@@ -396,6 +430,7 @@ export const attachSlateBrowserHandle = ({
       runCommand({ kind: 'select-all' })
     },
     selectRange: (selection) => {
+      flushPendingNativeTextInput?.()
       const previousIsUpdatingSelection =
         inputController.state.isUpdatingSelection
       const partialDOMBackedSelection = isPartialDOMBackedSelection(selection)

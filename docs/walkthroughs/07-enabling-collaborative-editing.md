@@ -223,7 +223,7 @@ Keeping those owners separate is what lets Plate, CRDT adapters, custom
 storage, and local-only editors share the same raw Slate substrate without
 making the editor object grow adapter-specific namespaces.
 
-## Extension backbone
+## Extension helpers
 
 Extensions can add grouped `state` and `tx` helpers for higher-level behavior.
 They should not add adapter-shaped namespaces directly to the editor object.
@@ -233,7 +233,7 @@ import { defineEditorExtension } from 'slate'
 
 editor.extend(
   defineEditorExtension({
-    name: 'table-backbone',
+    name: 'table-foundation',
     state: {
       table(state) {
         return {
@@ -259,7 +259,7 @@ editor.extend(
 )
 ```
 
-That shape gives product frameworks a migration backbone without turning raw
+That shape gives product frameworks an integration backbone without turning raw
 Slate into a framework adapter.
 
 ## What this page does not cover

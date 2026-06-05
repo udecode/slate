@@ -579,7 +579,7 @@ test('native selectionchange clears its origin after import handling', () => {
   expect(inputController.state.selectionChangeOrigin).toBe(null)
 })
 
-test('pending native repair selectionchange policy allows real user selections', () => {
+test('pending native repair selectionchange policy suppresses stale same-path offsets and allows deliberate selections', () => {
   const samePendingPathSelection = {
     anchor: { path: [0, 0], offset: 1 },
     focus: { path: [0, 0], offset: 1 },
@@ -617,7 +617,7 @@ test('pending native repair selectionchange policy allows real user selections',
       range: samePendingPathSelection,
       selectionChangeOrigin: 'native-user',
     })
-  ).toBe('clear-and-allow')
+  ).toBe('suppress')
   expect(
     getPendingNativeTextInputRepairSelectionChangePolicy({
       pendingNativeTextInputRepairPathKey: '0,0',

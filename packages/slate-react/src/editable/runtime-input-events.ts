@@ -171,13 +171,21 @@ export const useRuntimeInputEvents = ({
           ? getDOMInputRepairTarget(editor, rootElement, { data, inputType })
           : null
 
+      markHandledDOMInput(event.nativeEvent)
       trace.repairDOMInputAfterFrame(
         { data, inputType, target },
         rootElement,
         frameId
       )
     },
-    [deferNativeTextInputRepair, editor, inputController, readOnly, trace]
+    [
+      deferNativeTextInputRepair,
+      editor,
+      inputController,
+      markHandledDOMInput,
+      readOnly,
+      trace,
+    ]
   )
   const onRuntimeInputCapture = useEditableInputHandler({
     handleInput: handleInputCapture,

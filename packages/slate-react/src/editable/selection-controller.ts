@@ -905,7 +905,7 @@ export const getPendingNativeTextInputRepairSelectionChangePolicy = ({
     pendingNativeTextInputRepairDOMOffset != null &&
     pendingNativeTextInputRepairDOMOffset !== pendingNativeTextInputRepairOffset
   ) {
-    return 'clear-and-allow'
+    return 'suppress'
   }
 
   return 'allow'

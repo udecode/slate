@@ -66,3 +66,105 @@ test('browser handle selectAll selects the whole editor', () => {
     focus: { offset: 3, path: [1, 0] },
   })
 })
+
+test('browser handle exposes model block texts independently of rendered DOM', () => {
+  const editor = createReactEditor({
+    initialValue: [
+      { type: 'paragraph', children: [{ text: 'one' }] },
+      { type: 'paragraph', children: [{ text: 'two' }] },
+    ],
+  })
+  const element = document.createElement('div') as SlateBrowserHandleElement
+
+  attachSlateBrowserHandle({
+    browserHandleNextId: { current: 0 },
+    browserHandleRangeRefs: { current: new Map() },
+    editor,
+    element,
+    forceRender: vi.fn(),
+    inputController: createInputController(),
+    isPartialDOMBackedSelection: () => false,
+    setExplicitPartialDOMBackedSelection: vi.fn(),
+  })
+
+  expect(element.__slateBrowserHandle?.getBlockTexts()).toEqual(['one', 'two'])
+  expect(element.__slateBrowserHandle?.getBlockText(1)).toBe('two')
+  expect(element.__slateBrowserHandle?.getBlockText(2)).toBeNull()
+})
+
+test('browser handle selectRange flushes pending native text repair first', () => {
+  const editor = createReactEditor({
+    initialValue: [
+      { type: 'paragraph', children: [{ text: 'one' }] },
+      { type: 'paragraph', children: [{ text: 'two' }] },
+    ],
+  })
+  const element = document.createElement('div') as SlateBrowserHandleElement
+  const inputController = createInputController()
+  const flushPendingNativeTextInput = vi.fn(() => {
+    inputController.state.pendingNativeTextInputRepairOffset = null
+    inputController.state.pendingNativeTextInputRepairPathKey = null
+  })
+
+  inputController.state.pendingNativeTextInputRepairOffset = 2
+  inputController.state.pendingNativeTextInputRepairPathKey = '0,0'
+
+  attachSlateBrowserHandle({
+    browserHandleNextId: { current: 0 },
+    browserHandleRangeRefs: { current: new Map() },
+    editor,
+    element,
+    flushPendingNativeTextInput,
+    forceRender: vi.fn(),
+    inputController,
+    isPartialDOMBackedSelection: () => false,
+    setExplicitPartialDOMBackedSelection: vi.fn(),
+  })
+
+  element.__slateBrowserHandle?.selectRange({
+    anchor: { offset: 1, path: [1, 0] },
+    focus: { offset: 1, path: [1, 0] },
+  })
+
+  expect(flushPendingNativeTextInput).toHaveBeenCalledTimes(1)
+  expect(element.__slateBrowserHandle?.getInputState()).toMatchObject({
+    pendingNativeTextInputRepairPathKey: null,
+  })
+  expect(element.__slateBrowserHandle?.getSelection()).toEqual({
+    anchor: { offset: 1, path: [1, 0] },
+    focus: { offset: 1, path: [1, 0] },
+  })
+})
+
+test('browser handle selectAll marks partial-DOM-backed selections', () => {
+  const editor = createReactEditor({
+    initialValue: [
+      { type: 'paragraph', children: [{ text: 'one' }] },
+      { type: 'paragraph', children: [{ text: 'two' }] },
+    ],
+  })
+  const element = document.createElement('div') as SlateBrowserHandleElement
+  const setExplicitPartialDOMBackedSelection = vi.fn()
+
+  attachSlateBrowserHandle({
+    browserHandleNextId: { current: 0 },
+    browserHandleRangeRefs: { current: new Map() },
+    editor,
+    element,
+    forceRender: vi.fn(),
+    inputController: createInputController(),
+    isPartialDOMBackedSelection: () => true,
+    setExplicitPartialDOMBackedSelection,
+  })
+
+  element.__slateBrowserHandle?.selectAll()
+
+  expect(setExplicitPartialDOMBackedSelection).toHaveBeenCalledWith(true)
+  expect(element.__slateBrowserHandle?.getInputState()).toMatchObject({
+    modelSelectionPreference: {
+      reason: 'partial-dom-backed',
+      selectionSource: 'partial-dom-backed',
+    },
+    selectionSource: 'partial-dom-backed',
+  })
+})

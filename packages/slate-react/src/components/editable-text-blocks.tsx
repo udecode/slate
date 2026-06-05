@@ -129,12 +129,17 @@ const EMPTY_DIRECT_TEXT_CHILD_NODES = Object.freeze(
 const EMPTY_DECORATIONS = Object.freeze(
   []
 ) as readonly EditableDecoration<unknown>[]
-const ROOT_GROUP_SIZE = 16
+const ROOT_GROUP_SIZE = 32
 const ROOT_GROUP_THRESHOLD = 1000
 const ROOT_GROUP_BACKGROUND_MOUNT_INITIAL_DELAY_MS = 500
 const ROOT_GROUP_BACKGROUND_MOUNT_DELAY_MS = 16
 const ROOT_GROUP_BACKGROUND_MOUNT_BATCH_SIZE = 16
-const INTERNAL_PARTIAL_DOM_SEGMENT_SIZE = 50
+const INTERNAL_PARTIAL_DOM_SEGMENT_SIZE = 32
+const ROOT_GROUP_STYLE = {
+  contain: 'layout style paint',
+  containIntrinsicSize: '1024px',
+  contentVisibility: 'auto',
+} satisfies CSSProperties
 
 const getSnapshotPathKey = (path: Path) => path.join('.')
 
@@ -514,10 +519,6 @@ export type EditableElementSlots = {
     slot: string,
     options?: EditableContentRootSlotOptions
   ) => ReactNode
-  /**
-   * @deprecated Use `contentBoundary`.
-   */
-  unstableBoundary: (props: EditableDOMCoverageBoundaryProps) => ReactNode
 }
 
 const createContentBoundaryId = (
@@ -665,7 +666,6 @@ const createEditableElementSlots = <
         </>
       )
     },
-    unstableBoundary: renderContentBoundary,
   }
 }
 
@@ -1539,7 +1539,7 @@ const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
       data-slate-root-group-id={groupId}
       data-slate-root-group-start={startIndex}
       data-slate-root-group-state="fresh-mounted"
-      style={{ display: 'contents' }}
+      style={ROOT_GROUP_STYLE}
     >
       {runtimeIds.map((runtimeId) => (
         <EditableDescendantNode

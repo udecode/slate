@@ -163,6 +163,49 @@ describe('slate operations contract', () => {
     )
   })
 
+  it('rejects nullish set_node removals and removes by omission', () => {
+    const editor = createEditor()
+    const children: Descendant[] = [
+      {
+        type: 'element',
+        children: [{ text: '', someKey: true }],
+      },
+    ]
+
+    Editor.replace(editor, {
+      children,
+      selection: collapsedSelection([0, 0], 0),
+      marks: null,
+    })
+
+    for (const value of [null, undefined]) {
+      assert.throws(() => {
+        applyOperation(editor, {
+          type: 'set_node',
+          path: [0, 0],
+          properties: { someKey: true },
+          newProperties: { someKey: value },
+        } as SlateOperation)
+      }, /set_node newProperties cannot remove properties with nullish values/)
+    }
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, children)
+
+    applyOperation(editor, {
+      type: 'set_node',
+      path: [0, 0],
+      properties: { someKey: true },
+      newProperties: {},
+    } as SlateOperation)
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      {
+        type: 'element',
+        children: [{ text: '' }],
+      },
+    ])
+  })
+
   it('rebases refs after replace_children and nulls refs inside the replaced window', () => {
     const editor = createEditor()
 

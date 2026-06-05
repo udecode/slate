@@ -634,7 +634,6 @@ const SlateSingleEditor = <
     },
     []
   )
-
   useIsomorphicLayoutEffect(() => {
     const maybeBatchUpdates =
       REACT_MAJOR_VERSION < 18

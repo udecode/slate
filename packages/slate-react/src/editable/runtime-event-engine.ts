@@ -180,19 +180,6 @@ export const useEditableEventRuntime = ({
     inputController,
     syncDOMSelectionToEditor,
   })
-  useRuntimeBrowserHandle({
-    applyInputRules,
-    browserHandleNextId,
-    browserHandleRangeRefs,
-    editor,
-    forceRender: runtime.repair.forceRender,
-    inputController,
-    isPartialDOMBackedSelection,
-    rootRef,
-    scrollPathIntoView: domStrategyRuntime?.scrollToPath,
-    setExplicitPartialDOMBackedSelection,
-  })
-
   const inputHandlers = useRuntimeInputEvents({
     androidInputManagerRef: runtime.android.managerRef,
     deferNativeTextInputRepair,
@@ -207,6 +194,19 @@ export const useEditableEventRuntime = ({
     onInput: callbacks.onInput as
       | ((event: ReactInputEvent<HTMLDivElement>) => boolean | void)
       | undefined,
+  })
+  useRuntimeBrowserHandle({
+    applyInputRules,
+    browserHandleNextId,
+    browserHandleRangeRefs,
+    editor,
+    flushPendingNativeTextInput: inputHandlers.flushPendingNativeTextInput,
+    forceRender: runtime.repair.forceRender,
+    inputController,
+    isPartialDOMBackedSelection,
+    rootRef,
+    scrollPathIntoView: domStrategyRuntime?.scrollToPath,
+    setExplicitPartialDOMBackedSelection,
   })
   const beforeInputHandlers = useRuntimeBeforeInputEvents({
     androidInputManagerRef: runtime.android.managerRef,

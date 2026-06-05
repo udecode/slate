@@ -28,6 +28,7 @@ export const useRuntimeBrowserHandle = ({
   browserHandleRangeRefs,
   editor,
   forceRender,
+  flushPendingNativeTextInput,
   inputController,
   isPartialDOMBackedSelection,
   rootRef,
@@ -41,6 +42,7 @@ export const useRuntimeBrowserHandle = ({
   >
   editor: ReactRuntimeEditor
   forceRender: () => void
+  flushPendingNativeTextInput?: () => void
   inputController: EditableInputController
   isPartialDOMBackedSelection: (selection: Range | null) => boolean
   rootRef: RefObject<HTMLDivElement | null>
@@ -63,6 +65,7 @@ export const useRuntimeBrowserHandle = ({
       inputController,
       applyInputRules,
       forceRender,
+      flushPendingNativeTextInput,
       isPartialDOMBackedSelection,
       scrollPathIntoView,
       setExplicitPartialDOMBackedSelection,
@@ -73,6 +76,7 @@ export const useRuntimeBrowserHandle = ({
     browserHandleRangeRefs,
     editor,
     forceRender,
+    flushPendingNativeTextInput,
     inputController,
     isPartialDOMBackedSelection,
     rootRef,

@@ -308,7 +308,7 @@ const Element = ({
   switch (element.type) {
     case 'header':
       return (
-        <slots.unstableBoundary
+        <slots.contentBoundary
           boundaryId="hidden-header"
           mounted={!headerHidden}
           renderPlaceholder={() => (
@@ -326,7 +326,7 @@ const Element = ({
             Outer section
           </div>
           {childNodes[0]}
-          <slots.unstableBoundary
+          <slots.contentBoundary
             boundaryId="outer-section-body"
             mounted={!outerHidden}
             renderPlaceholder={() => (
@@ -345,7 +345,7 @@ const Element = ({
             Nested section
           </div>
           {childNodes[0]}
-          <slots.unstableBoundary
+          <slots.contentBoundary
             boundaryId="nested-section-body"
             mounted={!innerHidden}
             renderPlaceholder={() => (
@@ -364,7 +364,7 @@ const Element = ({
             Deep section
           </div>
           {childNodes[0]}
-          <slots.unstableBoundary
+          <slots.contentBoundary
             boundaryId="deep-section-body"
             mounted={!deepHidden}
             renderPlaceholder={() => (
@@ -382,7 +382,7 @@ const Element = ({
       return <li>{children}</li>
     case 'footer':
       return (
-        <slots.unstableBoundary
+        <slots.contentBoundary
           boundaryId="hidden-footer"
           mounted={!footerHidden}
           renderPlaceholder={() => (

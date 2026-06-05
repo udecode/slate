@@ -23,7 +23,7 @@ const legacyRepo = resolve(
 const iterations = Number(process.env.REACT_HUGE_COMPARE_ITERATIONS || 3)
 const blocks = Number(process.env.REACT_HUGE_COMPARE_BLOCKS || 5000)
 const chunkSize = Number(process.env.REACT_HUGE_COMPARE_CHUNK_SIZE || 1000)
-const segmentSize = Number(process.env.REACT_HUGE_COMPARE_ISLAND_SIZE || 50)
+const segmentSize = Number(process.env.REACT_HUGE_COMPARE_ISLAND_SIZE || 32)
 const overscan = Number(process.env.REACT_HUGE_COMPARE_ACTIVE_RADIUS || 0)
 const rootGroupSize = 16
 const typeOps = Number(process.env.REACT_HUGE_COMPARE_TYPE_OPS || 20)
@@ -40,6 +40,7 @@ const splitSelectionLanes =
 const disposeDelayMs = Number(
   process.env.REACT_HUGE_COMPARE_DISPOSE_DELAY_MS || 500
 )
+const printJSON = process.env.REACT_HUGE_COMPARE_PRINT_JSON === '1'
 const pasteText = 'replacement marker'
 const createPasteFragment = () => [
   {
@@ -71,6 +72,14 @@ const getRunArtifactPath = ({ mode }) =>
     `blocks-${blocks}`,
     `iters-${iterations}`,
     `ops-${typeOps}`,
+    `chunk-${chunkSize}`,
+    `segment-${segmentSize}`,
+    `radius-${overscan}`,
+    `dispose-${disposeDelayMs}`,
+    readyOnly ? 'ready-only' : 'full-run',
+    includeSyntheticBeforeInput
+      ? 'synthetic-beforeinput'
+      : 'native-beforeinput',
     isolateCurrentSurfaces ? 'isolated-surfaces' : 'combined-surfaces',
     splitSelectionLanes ? 'split-selection' : 'combined-selection',
     profile ? 'profile' : 'no-profile',
@@ -84,6 +93,15 @@ const writeHugeDocumentArtifact = async ({ path, summary }) => {
 
   await writeBenchmarkArtifact(latestArtifactPath, summary)
   await writeBenchmarkArtifact(path, summary)
+}
+
+const printHugeDocumentSummary = (summary) => {
+  if (printJSON) {
+    console.log(JSON.stringify(summary, null, 2))
+    return
+  }
+
+  console.log(`Wrote ${summary.artifactPaths.run}`)
 }
 
 const sharedSource = `
@@ -937,7 +955,7 @@ const currentBenchmarkSource = `
 ${currentSharedSource}
 import { Editable, Slate } from '../../packages/slate-react/dist/index.js'
 
-const segmentSize = Number(process.env.REACT_HUGE_COMPARE_ISLAND_SIZE || 50)
+const segmentSize = Number(process.env.REACT_HUGE_COMPARE_ISLAND_SIZE || 32)
 const overscan = Number(process.env.REACT_HUGE_COMPARE_ACTIVE_RADIUS || 0)
 const rootGroupSize = 16
 const rootGroupThreshold = 1000
@@ -2285,7 +2303,7 @@ if (compareMode === 'current-only') {
     summary,
   })
 
-  console.log(JSON.stringify(summary, null, 2))
+  printHugeDocumentSummary(summary)
   process.exit(0)
 }
 
@@ -2319,16 +2337,16 @@ const createDeltaMeanMs = (surface) =>
   )
 
 const productSurfaceNames = ['v2DefaultRenderAuto', 'v2DomPresent']
-const productLaneNames = readyOnly
+const comparableProductLaneNames = readyOnly
   ? ['readyMs']
   : [
       'readyMs',
       'middleBlockTypeMs',
       'middleBlockSelectThenTypeMs',
-      'middleBlockPromoteThenTypeMs',
       'replaceFullDocumentWithTextMs',
       'insertFragmentFullDocumentMs',
     ]
+const v2OnlyProductLaneNames = readyOnly ? [] : ['middleBlockPromoteThenTypeMs']
 const p95RatioRows = productSurfaceNames.flatMap((surfaceName) => {
   const surface = current.surfaces[surfaceName]
 
@@ -2336,7 +2354,7 @@ const p95RatioRows = productSurfaceNames.flatMap((surfaceName) => {
     return []
   }
 
-  return productLaneNames.flatMap((laneName) => {
+  return comparableProductLaneNames.flatMap((laneName) => {
     const currentLane = surface[laneName]
     const legacyLane = legacyChunkOn[laneName]
 
@@ -2350,6 +2368,29 @@ const p95RatioRows = productSurfaceNames.flatMap((surfaceName) => {
         laneName,
         legacyP95Ms: legacyLane.p95,
         p95Ratio: currentLane.p95 / legacyLane.p95,
+        surfaceName,
+      },
+    ]
+  })
+})
+const v2OnlyP95Rows = productSurfaceNames.flatMap((surfaceName) => {
+  const surface = current.surfaces[surfaceName]
+
+  if (!surface) {
+    return []
+  }
+
+  return v2OnlyProductLaneNames.flatMap((laneName) => {
+    const currentLane = surface[laneName]
+
+    if (!currentLane?.p95) {
+      return []
+    }
+
+    return [
+      {
+        currentP95Ms: currentLane.p95,
+        laneName,
         surfaceName,
       },
     ]
@@ -2386,11 +2427,14 @@ const summary = {
     splitSelectionLanes,
     typeOps,
   },
+  comparableLaneNames: comparableProductLaneNames,
   surfaces: {
     legacyChunkOn,
     ...current.surfaces,
   },
   deltaMeanMsBySurface,
+  v2OnlyLaneNames: v2OnlyProductLaneNames,
+  v2OnlyP95Rows,
 }
 
 await writeHugeDocumentArtifact({
@@ -2416,4 +2460,18 @@ if (worstP95RatioRow) {
   )
 }
 
-console.log(JSON.stringify(summary, null, 2))
+const defaultAutoPromotionRow = v2OnlyP95Rows.find(
+  (row) =>
+    row.surfaceName === 'v2DefaultRenderAuto' &&
+    row.laneName === 'middleBlockPromoteThenTypeMs'
+)
+
+if (defaultAutoPromotionRow) {
+  console.log(
+    `METRIC react_huge_doc_legacy_compare_partial_dom_promotion_then_type_p95_ms=${round(
+      defaultAutoPromotionRow.currentP95Ms
+    )}`
+  )
+}
+
+printHugeDocumentSummary(summary)

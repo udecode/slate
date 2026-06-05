@@ -1,6 +1,5 @@
 import { type FormEvent, type RefObject, useCallback } from 'react'
 import { PathApi, type Range, RangeApi } from 'slate'
-import { getSelection, isDOMElement, isDOMText } from 'slate-dom'
 import type {
   EditableDOMBeforeInputContext,
   EditableDOMBeforeInputHandler,
@@ -99,27 +98,6 @@ const isDOMBeforeInputHandled = (
 }
 
 const getSelectionRoot = (selection: Range | null) => selection?.anchor.root
-
-const getDOMSelectionTextPoint = (root: Document | ShadowRoot) => {
-  const domSelection = getSelection(root)
-  const anchorNode = domSelection?.anchorNode ?? null
-  const anchorElement = isDOMText(anchorNode)
-    ? anchorNode.parentElement
-    : isDOMElement(anchorNode)
-      ? anchorNode
-      : null
-
-  const pathKey =
-    anchorElement
-      ?.closest('[data-slate-node="text"]')
-      ?.getAttribute('data-slate-path') ?? null
-  const offset =
-    domSelection?.isCollapsed && isDOMText(anchorNode)
-      ? domSelection.anchorOffset
-      : null
-
-  return pathKey ? { offset, pathKey } : null
-}
 
 export const getDeferredNativeTextInputRepairPathKey = ({
   data,
@@ -263,24 +241,6 @@ export const useRuntimeBeforeInputEvents = ({
         'beforeinput-root-owner',
         () => el.getRootNode() as Document | ShadowRoot
       )
-
-      if (event.inputType === 'insertText') {
-        const pendingPathKey =
-          inputController.state.pendingNativeTextInputRepairPathKey
-        const pendingOffset =
-          inputController.state.pendingNativeTextInputRepairOffset
-        const domPoint = pendingPathKey ? getDOMSelectionTextPoint(root) : null
-
-        if (
-          pendingPathKey &&
-          (domPoint?.pathKey !== pendingPathKey ||
-            (pendingOffset != null && domPoint.offset !== pendingOffset))
-        ) {
-          flushPendingNativeTextInput?.()
-          inputController.state.pendingNativeTextInputRepairOffset = null
-          inputController.state.pendingNativeTextInputRepairPathKey = null
-        }
-      }
 
       if (
         handleWebKitShadowDOMBeforeInput({
@@ -456,6 +416,7 @@ export const useRuntimeBeforeInputEvents = ({
         )
         native = beforeInputSelection.native
         currentSelection = beforeInputSelection.selection
+        let didRepairNonNativeDOMTextInput = false
 
         if (
           deferNativeTextInputRepair &&
@@ -494,6 +455,7 @@ export const useRuntimeBeforeInputEvents = ({
                 },
                 el
               )
+              didRepairNonNativeDOMTextInput = true
               currentSelection = readLiveSelection(editor)
             }
           }
@@ -545,20 +507,20 @@ export const useRuntimeBeforeInputEvents = ({
           })
         }
 
-        const request = profileBeforeInputDuration(
-          'beforeinput-apply-model',
-          () =>
-            applyModelOwnedBeforeInputOperation({
-              command: decision.command,
-              data,
-              deferredOperations,
-              editor,
-              inputType: type,
-              native,
-              selection: currentSelection,
-              setComposing,
-            })
-        )
+        const request = didRepairNonNativeDOMTextInput
+          ? null
+          : profileBeforeInputDuration('beforeinput-apply-model', () =>
+              applyModelOwnedBeforeInputOperation({
+                command: decision.command,
+                data,
+                deferredOperations,
+                editor,
+                inputType: type,
+                native,
+                selection: currentSelection,
+                setComposing,
+              })
+            )
         if (request) {
           const shouldDeferNativeTextRepair =
             deferNativeTextInputRepair &&

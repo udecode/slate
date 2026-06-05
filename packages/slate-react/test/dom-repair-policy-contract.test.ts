@@ -624,6 +624,83 @@ test('native text repair keeps same virtualized target DOM-owned', () => {
   root.remove()
 })
 
+test('native text repair advances captured virtualized target when DOM offset lags', () => {
+  const editor = createReactEditor()
+  const root = mountEditorRoot(editor)
+  const inputController = {
+    preferModelSelectionForInputRef: { current: true },
+    state: createEditableInputControllerState(),
+  }
+
+  inputController.state.selectionSource = 'model-owned'
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'abc' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    },
+  })
+
+  const page = document.createElement('div')
+  const textHost = document.createElement('span')
+  const string = document.createElement('span')
+  const text = document.createTextNode('aXbc')
+  const range = document.createRange()
+  const selection = window.getSelection()
+  const queue = createDOMRepairQueue({
+    editor,
+    inputController,
+    scrollSelectionIntoView: () => {},
+    syncDOMSelectionToEditor: () => {},
+  })
+
+  page.setAttribute('data-slate-dom-strategy-virtual-row', 'true')
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-path', '0,0')
+  string.setAttribute('data-slate-string', 'true')
+  string.append(text)
+  textHost.append(string)
+  page.append(textHost)
+  root.append(page)
+
+  range.setStart(text, 1)
+  range.collapse(true)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+
+  queue.repairDOMInput(
+    {
+      data: 'X',
+      inputType: 'insertText',
+      target: {
+        insert: { offset: 1, text: 'X' },
+        path: [0, 0],
+        preferCapturedInsert: true,
+        selectionOffset: 2,
+        text: 'aXbc',
+      },
+    },
+    root,
+    1
+  )
+
+  expect(editor.read((state) => state.text.string([0]))).toBe('aXbc')
+  expect(editor.read((state) => state.selection.get())).toEqual({
+    anchor: { path: [0, 0], offset: 2 },
+    focus: { path: [0, 0], offset: 2 },
+  })
+  expect(inputController.preferModelSelectionForInputRef.current).toBe(false)
+  expect(inputController.state.selectionSource).toBe('dom-current')
+
+  root.remove()
+})
+
 test('native input repair trusts captured coalesced inserts when projected DOM interleaves suffix text', () => {
   const editor = createReactEditor()
   const root = mountEditorRoot(editor)

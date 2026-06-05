@@ -29,6 +29,7 @@ Current live family owners:
 - rerender breadth
 - huge-document overlays
 - huge-document legacy compare
+- huge-document cross-editor browser comparison
 
 ### `core/current`
 
@@ -115,6 +116,7 @@ Current artifact owners:
 - `tmp/bench-slate-6038.json`
 - `tmp/slate-clipboard-large-payload-benchmark.json`
 - `tmp/slate-react-huge-document-legacy-compare-benchmark.json`
+- `tmp/slate-react-huge-document-cross-editor-benchmark.json`
 - `tmp/slate-normalization-benchmark.json`
 - `tmp/slate-query-ref-observation-benchmark.json`
 - `tmp/slate-node-transform-benchmark.json`
@@ -148,9 +150,35 @@ bun run bench:core:observation:compare:local
 bun run bench:core:huge-document:compare:local
 bun run bench:react:rerender-breadth:local
 bun run bench:react:huge-document-overlays:local
+bun run bench:react:huge-document:full:local
 bun run bench:react:huge-document:legacy-compare:local
+bun run bench:react:huge-document:cross-editor:local
 bun run bench:slate:5945:local
 ```
+
+The full huge-document wrapper keeps `defaultAuto` and `virtualized` as strict
+browser perf gates. Full-DOM staged surfaces are diagnostic evidence, printed in
+the wrapper metrics, and should be kept/reverted/quarantined explicitly instead
+of silently inflating the primary product budget. The browser trace and full
+wrapper print cold and materialized selection-ready metrics separately from
+select-to-paint metrics. Selection-ready is the click-latency gate: the editor
+has imported the DOM selection and can type from it. Select-to-paint is the
+settled visual latency after the browser has painted the selection. The same
+trace promotes `core_notify_listeners`, listener sub-buckets
+(`core_notify_commit_listeners`, `core_notify_snapshot_listeners`,
+`core_notify_source_listeners`, `core_notify_extension_commit_listeners`),
+`core_listener_snapshot`, and `selector_dispatch` duration plus selector
+check/notify/subscription count metrics so listener fanout has a
+machine-readable target before any architecture work.
+The route trace also records model-backed ready, type-to-paint, and burst/op
+metrics; DOM-visible typing alone is not enough proof for virtualized editors.
+
+The cross-editor huge-document benchmark compares Slate auto, Slate virtualized,
+ProseMirror, and Lexical on the same large-document browser packet. It emits
+type-to-paint p95, cold select-to-paint p95, materialized select-to-paint p95,
+burst/op p95, DOM p95, and long-task p95 metrics per surface. Cold select
+includes any first-time virtualized materialization; materialized select isolates
+paint-settled latency after the target block exists in the editor surface.
 
 The large clipboard payload lane defaults to a bounded local stress size. To run
 the exact #5945/#5992 issue-size gate:

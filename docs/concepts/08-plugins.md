@@ -84,7 +84,7 @@ The returned slots are the same raw Slate slots as top-level `state`, `tx`,
 const tables = defineEditorExtension({
   name: 'tables',
   peerDependencies: ['collaboration'],
-  conflicts: ['legacy-tables'],
+  conflicts: ['grid-tables'],
   options: {
     navigation: 'cell-boundary',
   },

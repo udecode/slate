@@ -546,13 +546,15 @@ export const transform: OperationTransformMethods['transform'] = (
           }
 
           if (value == null) {
-            delete newNode[<keyof Node>key]
-          } else {
-            newNode[<keyof Node>key] = value
+            throw new Error(
+              'set_node newProperties cannot remove properties with nullish values; omit the property instead'
+            )
           }
+
+          newNode[<keyof Node>key] = value
         }
 
-        // properties that were previously defined, but are now missing, must be deleted
+        // Existing properties missing from the next property set are deleted.
         for (const key in properties) {
           if (!Object.hasOwn(properties, key)) continue
           if (NON_SETTABLE_NODE_PROPERTIES.includes(key)) {

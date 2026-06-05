@@ -82,7 +82,7 @@ const createSplitTableVirtualizedLayout = () => ({
   ],
 })
 
-test('Editable domStrategy virtualized mode owns deferred native text repair', () => {
+test('Editable virtualized strategy owns deferred native text repair', () => {
   const editableSource = readFileSync(
     resolve(process.cwd(), 'src/components/editable-text-blocks.tsx'),
     'utf8'

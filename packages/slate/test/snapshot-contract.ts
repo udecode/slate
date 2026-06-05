@@ -2021,6 +2021,41 @@ it('publishes one path-stable snapshot for batched text commits', () => {
   assert.equal(after.index, before.index)
 })
 
+it('reuses snapshot indexes for selection-only listener snapshots', () => {
+  const editor = createEditor()
+  const snapshots: ReturnType<typeof Editor.getSnapshot>[] = []
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+  })
+
+  const before = Editor.getSnapshot(editor)
+
+  Editor.subscribe(editor, (snapshot) => {
+    snapshots.push(snapshot)
+  })
+
+  Editor.select(editor, {
+    anchor: { path: [1, 0], offset: 2 },
+    focus: { path: [1, 0], offset: 2 },
+  })
+
+  const after = snapshots.at(-1)!
+
+  assert.equal(snapshots.length, 1)
+  assert.equal(after.index, before.index)
+  assert.deepEqual(after.selection, {
+    anchor: { path: [1, 0], offset: 2 },
+    focus: { path: [1, 0], offset: 2 },
+  })
+  assert.equal(after.children, before.children)
+  assert.equal(after.version, before.version + 1)
+})
+
 it('publishes touched runtime ids for collapsed insert_text operations', () => {
   const editor = createEditor()
   const changes: SnapshotChange[] = []
@@ -2221,6 +2256,66 @@ it('does not rebuild root snapshots for selection-only subscriber commits', () =
 
   assert.ok(profiledIds.includes('build-change'))
   assert.equal(profiledIds.includes('next-snapshot'), false)
+})
+
+it('does not materialize listener snapshots for irrelevant source subscribers', () => {
+  const editor = createEditor()
+  const profiledIds: string[] = []
+  const sourceCalls: string[] = []
+  const previousProfiler = (
+    globalThis as typeof globalThis & {
+      __SLATE_REACT_RENDER_PROFILER__?: unknown
+    }
+  ).__SLATE_REACT_RENDER_PROFILER__
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  const unsubscribe = Editor.subscribeSource(editor, 'text', () => {
+    sourceCalls.push('text')
+  })
+
+  try {
+    ;(
+      globalThis as typeof globalThis & {
+        __SLATE_REACT_RENDER_PROFILER__?: {
+          record?: (event: { id: string; kind: string }) => void
+        }
+      }
+    ).__SLATE_REACT_RENDER_PROFILER__ = {
+      record(event) {
+        if (event.kind === 'core-time') {
+          profiledIds.push(event.id)
+        }
+      },
+    }
+
+    editor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [1, 0], offset: 1 },
+        focus: { path: [1, 0], offset: 1 },
+      })
+    })
+  } finally {
+    unsubscribe()
+    ;(
+      globalThis as typeof globalThis & {
+        __SLATE_REACT_RENDER_PROFILER__?: unknown
+      }
+    ).__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+  }
+
+  assert.deepEqual(sourceCalls, [])
+  assert.ok(profiledIds.includes('notify-listeners'))
+  assert.ok(profiledIds.includes('notify-commit-listeners'))
+  assert.equal(profiledIds.includes('listener-snapshot'), false)
+  assert.equal(profiledIds.includes('notify-source-listeners'), false)
 })
 
 it('routes selection-only commits through source subscribers only', () => {

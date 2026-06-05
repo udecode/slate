@@ -504,7 +504,7 @@ describe('slate-react surface contract', () => {
     expect(typeof SlateReact.createReactEditor).toBe('function')
   })
 
-  test('legacy React hook aliases stay out of the public root at runtime', () => {
+  test('React hook aliases stay out of the public root at runtime', () => {
     for (const name of [
       'useComposing',
       'useElementIf',
@@ -532,6 +532,22 @@ describe('slate-react surface contract', () => {
         'function'
       )
     }
+  })
+
+  test('renderElement slots expose contentBoundary without unstable aliases', () => {
+    const editableSource = readFileSync(
+      resolve(packageRoot, 'src/components/editable-text-blocks.tsx'),
+      'utf8'
+    )
+    const domCoverageExample = readFileSync(
+      resolve(repoRoot, 'site/examples/ts/dom-coverage-boundaries.tsx'),
+      'utf8'
+    )
+
+    expect(editableSource).toContain('contentBoundary:')
+    expect(editableSource).not.toContain('unstableBoundary')
+    expect(domCoverageExample).toContain('slots.contentBoundary')
+    expect(domCoverageExample).not.toContain('slots.unstableBoundary')
   })
 
   test('virtualized DOM strategy stays object-only and experimental', () => {

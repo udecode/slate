@@ -74,10 +74,13 @@ const onClick = () => {
 
 ### DOM Strategy
 
-`Editable` uses staged rendering automatically for large documents. Use `domStrategy="staged"` to lock that safe behavior explicitly, or `domStrategy="full"` to render the full document surface while debugging.
+`Editable` keeps large documents DOM-bounded by default. Use
+`domStrategy="staged"` only when a product needs eventual native DOM coverage
+for the whole document, or `domStrategy="full"` to render the full document
+surface while debugging.
 
-Experimental virtualized rendering is a separate stress path for pathological
-documents. Read
+Experimental virtualized rendering is a separate viewport-mounted stress path
+for pathological documents. Read
 [Experimental Virtualized Rendering](../libraries/slate-react/experimental-virtualized-rendering.md)
 when you need that research lane.
 

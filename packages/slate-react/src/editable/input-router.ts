@@ -45,11 +45,12 @@ type CancelableCallback = {
 type DeferredTextInputRepair = {
   pathKey: string | null
   repair: () => void
+  source: 'beforeinput' | 'input'
   target: DOMInputRepairTarget | null
 }
 
-const DEFERRED_NATIVE_TEXT_INPUT_REPAIR_IDLE_MS = 250
-const DEFERRED_NATIVE_TEXT_INPUT_REPAIR_MAX_MS = 1000
+const DEFERRED_NATIVE_TEXT_INPUT_REPAIR_IDLE_MS = 24
+const DEFERRED_NATIVE_TEXT_INPUT_REPAIR_MAX_MS = 120
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
 
@@ -79,6 +80,16 @@ const getCoalescedDeferredTextInputRepairTarget = ({
     previousRepair.pathKey !== pathKey
   ) {
     return null
+  }
+
+  if (
+    previousRepair.source === 'beforeinput' &&
+    previousRepair.target.insert &&
+    target.insert &&
+    target.insert.offset === previousRepair.target.insert.offset &&
+    target.insert.text === previousRepair.target.insert.text
+  ) {
+    return target
   }
 
   const selectionAdvance =
@@ -895,9 +906,15 @@ export const useEditableDOMInputHandler = ({
         })
       ) {
         previousRepair.repair = repair
+        previousRepair.source = 'beforeinput'
         previousRepair.target = target
       } else {
-        deferredTextInputRepairsRef.current.push({ pathKey, repair, target })
+        deferredTextInputRepairsRef.current.push({
+          pathKey,
+          repair,
+          source: 'beforeinput',
+          target,
+        })
       }
 
       scheduleDeferredTextInputRepairs()
@@ -990,6 +1007,20 @@ export const useEditableDOMInputHandler = ({
         typeof nativeInput.data === 'string'
       ) {
         const pathKey = target?.path.join(',') ?? null
+
+        if ((inputController?.state.modelOwnedTextInputGuard ?? 0) > 0) {
+          if (inputController) {
+            inputController.state.pendingNativeTextInputRepairOffset = null
+            inputController.state.pendingNativeTextInputRepairPathKey = null
+          }
+          restoreReadOnlyDOMText({
+            editor,
+            nativeInput,
+            rootElement,
+          })
+          return
+        }
+
         const previousRepair = deferredTextInputRepairsRef.current.at(-1)
         const coalescedTarget = getCoalescedDeferredTextInputRepairTarget({
           data: nativeInput.data,
@@ -1015,6 +1046,7 @@ export const useEditableDOMInputHandler = ({
           })
 
           previousRepair.repair = repair
+          previousRepair.source = 'input'
           previousRepair.target = target
         } else {
           const repair = createDOMInputRepair({
@@ -1025,7 +1057,12 @@ export const useEditableDOMInputHandler = ({
             target,
           })
 
-          deferredTextInputRepairsRef.current.push({ pathKey, repair, target })
+          deferredTextInputRepairsRef.current.push({
+            pathKey,
+            repair,
+            source: 'input',
+            target,
+          })
         }
 
         scheduleDeferredTextInputRepairs()

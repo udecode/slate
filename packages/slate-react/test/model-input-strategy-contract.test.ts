@@ -1010,4 +1010,38 @@ describe('model input strategy', () => {
     expect(undo).not.toHaveBeenCalled()
     expect(Editor.string(editor, [])).toBe('stable')
   })
+
+  it('does not read full editor or DOM text when native input repair already handled the event', () => {
+    const handledDOMBeforeInputRef = { current: true }
+    const editor = {
+      read: vi.fn(() => {
+        throw new Error('editor.read should not run')
+      }),
+    } as unknown as ReactEditor
+    const currentTarget = {
+      get textContent() {
+        throw new Error('currentTarget.textContent should not run')
+      },
+    }
+
+    const result = applyEditableInput({
+      androidInputManagerRef: { current: null },
+      deferredOperations: { current: [] },
+      editor,
+      event: {
+        currentTarget,
+        isDefaultPrevented: () => false,
+        isPropagationStopped: () => false,
+        nativeEvent: { data: 'x', inputType: 'insertText' },
+      } as any,
+      handledDOMBeforeInputRef,
+      inputController: {} as any,
+      readOnly: false,
+      skipNativeTextInputRepair: true,
+    })
+
+    expect(result.repairs).toEqual([])
+    expect(editor.read).not.toHaveBeenCalled()
+    expect(handledDOMBeforeInputRef.current).toBe(false)
+  })
 })

@@ -3257,6 +3257,18 @@ export const getSnapshot = (editor: Editor): EditorSnapshot => {
   return snapshot
 }
 
+const getSelectionOnlySnapshot = (
+  editor: Editor,
+  previousSnapshot: EditorSnapshot
+): EditorSnapshot =>
+  Object.freeze({
+    children: previousSnapshot.children,
+    index: previousSnapshot.index,
+    marks: cloneFrozen(getCurrentMarks(editor)),
+    selection: cloneFrozen(getCurrentSelection(editor)),
+    version: getVersion(editor),
+  }) as unknown as EditorSnapshot
+
 const canBuildPathStableSnapshot = (
   operations: readonly Operation[],
   root: string
@@ -4469,15 +4481,22 @@ export const notifyListeners = (editor: Editor, change?: SnapshotChange) => {
   const extensionCommitListeners = change
     ? getExtensionRegistry(editor).commitListeners
     : null
+  const sourcesForChange =
+    change && sourceListeners ? getSourcesForChange(change) : []
+  const hasSourceListenersForChange = sourcesForChange.some(
+    (source) => (sourceListeners?.get(source)?.size ?? 0) > 0
+  )
   const hasSnapshotListeners =
-    (listeners && listeners.size > 0) || hasSourceListeners(editor)
+    (listeners && listeners.size > 0) || hasSourceListenersForChange
   const extensionCommitListenersNeedSnapshot =
     extensionCommitListeners &&
     [...extensionCommitListeners].some((listener) => listener.length >= 2)
 
   let snapshot: EditorSnapshot | null = null
   const getSnapshotForListeners = () => {
-    snapshot ??= getListenerSnapshot(editor, change)
+    snapshot ??= profileCoreDuration('listener-snapshot', () =>
+      getListenerSnapshot(editor, change)
+    )
 
     return snapshot
   }
@@ -4485,32 +4504,42 @@ export const notifyListeners = (editor: Editor, change?: SnapshotChange) => {
   if (change) {
     LAST_COMMIT.set(editor, change)
 
-    for (const listener of extensionCommitListeners ?? []) {
-      if (listener.length >= 2) {
-        listener(change, getSnapshotForListeners())
-      } else {
-        ;(listener as (commit: SnapshotChange) => void)(change)
+    profileCoreDuration('notify-extension-commit-listeners', () => {
+      for (const listener of extensionCommitListeners ?? []) {
+        if (listener.length >= 2) {
+          listener(change, getSnapshotForListeners())
+        } else {
+          ;(listener as (commit: SnapshotChange) => void)(change)
+        }
       }
-    }
+    })
 
-    for (const listener of COMMIT_LISTENERS.get(editor) ?? []) {
-      listener(change)
-    }
+    profileCoreDuration('notify-commit-listeners', () => {
+      for (const listener of COMMIT_LISTENERS.get(editor) ?? []) {
+        listener(change)
+      }
+    })
   }
 
   if (hasSnapshotListeners || extensionCommitListenersNeedSnapshot) {
-    getSnapshotForListeners()
-
-    for (const listener of listeners ?? []) {
-      listener(getSnapshotForListeners(), change)
+    if ((listeners?.size ?? 0) > 0 || extensionCommitListenersNeedSnapshot) {
+      getSnapshotForListeners()
     }
 
-    if (change && sourceListeners) {
-      for (const source of getSourcesForChange(change)) {
-        for (const listener of sourceListeners.get(source) ?? []) {
-          listener(getSnapshotForListeners(), change)
-        }
+    profileCoreDuration('notify-snapshot-listeners', () => {
+      for (const listener of listeners ?? []) {
+        listener(getSnapshotForListeners(), change)
       }
+    })
+
+    if (change && sourceListeners) {
+      profileCoreDuration('notify-source-listeners', () => {
+        for (const source of sourcesForChange) {
+          for (const listener of sourceListeners.get(source) ?? []) {
+            listener(getSnapshotForListeners(), change)
+          }
+        }
+      })
     }
   }
 }
@@ -5141,6 +5170,17 @@ export const runEditorTransaction = (
                 snapshot.afterCommitHandlers
               )
             : []
+
+        if (
+          selectionOnlyOperations &&
+          snapshot?.previousSnapshot &&
+          hasSnapshotListeners(editor)
+        ) {
+          SNAPSHOT_CACHE.set(
+            editor,
+            getSelectionOnlySnapshot(editor, snapshot.previousSnapshot)
+          )
+        }
 
         profileCoreDuration('notify-listeners', () =>
           notifyListeners(editor, change)

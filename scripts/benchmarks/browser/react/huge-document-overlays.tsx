@@ -30,7 +30,7 @@ import {
 
 const iterations = Number(process.env.REACT_HUGE_DOC_BENCH_ITERATIONS || 5)
 const blockCount = Number(process.env.REACT_HUGE_DOC_BLOCKS || 200)
-const segmentSize = Number(process.env.REACT_HUGE_DOC_ISLAND_SIZE || 20)
+const segmentSize = Number(process.env.REACT_HUGE_DOC_ISLAND_SIZE || 32)
 const overscan = Number(process.env.REACT_HUGE_DOC_ACTIVE_RADIUS || 1)
 
 const getSegmentCount = () => Math.ceil(blockCount / segmentSize)

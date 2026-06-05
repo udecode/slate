@@ -75,5 +75,4 @@
 
 - [Resources](general/resources.md)
 - [Contributing](general/contributing.md)
-- [Changelog (historical)](general/changelog.md)
 - [FAQ](general/faq.md)

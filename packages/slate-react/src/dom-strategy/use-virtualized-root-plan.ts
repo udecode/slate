@@ -575,10 +575,7 @@ export const useVirtualizedRootPlan = ({
       return
     }
 
-    const scrollIndex =
-      align === 'center' ? Math.min(count - 1, index + 1) : index
-
-    virtualizer.scrollToIndex(scrollIndex, { align })
+    virtualizer.scrollToIndex(index, { align })
   }
   const scrollToPath = (
     path: Path,

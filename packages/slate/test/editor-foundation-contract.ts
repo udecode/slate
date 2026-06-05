@@ -15,7 +15,7 @@ const paragraph = (text: string): Descendant => ({
   children: [{ text }],
 })
 
-const createBackboneEditor = () => {
+const createFoundationEditor = () => {
   const editor = createEditor()
 
   Editor.replace(editor, {
@@ -30,9 +30,9 @@ const createBackboneEditor = () => {
   return editor
 }
 
-describe('migration backbone contract', () => {
+describe('editor foundation contract', () => {
   it('combines extension namespaces and schema specs without extension namespaces on the editor surface', () => {
-    const editor = createBackboneEditor()
+    const editor = createFoundationEditor()
 
     extendTestSchema(editor, [
       { type: 'image', void: 'block' },
@@ -48,7 +48,7 @@ describe('migration backbone contract', () => {
             type: 'table-cell',
           },
         ],
-        name: 'table-backbone',
+        name: 'table-foundation',
         state: {
           table(state) {
             return {
@@ -170,8 +170,8 @@ describe('migration backbone contract', () => {
   })
 
   it('replays deterministic operations with commit metadata and local-only runtime targets', () => {
-    const source = createBackboneEditor()
-    const remote = createBackboneEditor()
+    const source = createFoundationEditor()
+    const remote = createFoundationEditor()
     const remoteCommits: NonNullable<
       ReturnType<typeof Editor.getLastCommit>
     >[] = []
@@ -210,7 +210,7 @@ describe('migration backbone contract', () => {
       sourceCommit.operations.map((operation) => operation.type)
     )
 
-    const targetEditor = createBackboneEditor()
+    const targetEditor = createFoundationEditor()
     const removedId = Editor.getRuntimeId(targetEditor, [1])
     const removedNode = Editor.getSnapshot(targetEditor).children[1]!
 

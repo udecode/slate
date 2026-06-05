@@ -14,18 +14,18 @@ const asExtensionInput = (extension: unknown): EditorExtensionInput =>
   extension as EditorExtensionInput
 
 describe('extension method hard cut', () => {
-  it('rejects legacy object methods before mutating the editor', () => {
+  it('rejects object methods before mutating the editor', () => {
     const editor = createEditor()
-    const legacyExtension = asExtensionInput({
-      name: 'legacy-link',
+    const methodsExtension = asExtensionInput({
+      name: 'method-link',
       methods: {
         insertLink() {},
       },
     })
 
     assert.throws(
-      () => editor.extend(legacyExtension),
-      /Editor extension "legacy-link" cannot use methods\. Add state or tx groups instead\./
+      () => editor.extend(methodsExtension),
+      /Editor extension "method-link" cannot use methods\. Add state or tx groups instead\./
     )
     assert.equal('insertText' in editor, false)
     assert.equal('insertLink' in editor, false)
@@ -52,46 +52,46 @@ describe('extension method hard cut', () => {
     assert.equal(Editor.getExtensionRegistry(editor).commands.size, 0)
   })
 
-  it('rejects legacy extension lifecycle slots before mutating the editor', () => {
+  it('rejects unsupported extension lifecycle slots before mutating the editor', () => {
     const editor = createEditor()
 
     assert.throws(
       () =>
         editor.extend(
           asExtensionInput({
-            name: 'legacy-register',
+            name: 'setup-only-register',
             register() {},
           })
         ),
-      /Editor extension "legacy-register" cannot use register\. Add setup instead\./
+      /Editor extension "setup-only-register" cannot use register\. Add setup instead\./
     )
     assert.throws(
       () =>
         editor.extend(
           asExtensionInput({
-            name: 'legacy-operations',
+            name: 'operations-slot',
             operationMiddlewares: [() => {}],
           })
         ),
-      /Editor extension "legacy-operations" cannot use operationMiddlewares\. Add operations\.apply instead\./
+      /Editor extension "operations-slot" cannot use operationMiddlewares\. Add operations\.apply instead\./
     )
     assert.throws(
       () =>
         editor.extend(
           asExtensionInput({
             commitListeners: [() => {}],
-            name: 'legacy-commits',
+            name: 'commit-slot',
           })
         ),
-      /Editor extension "legacy-commits" cannot use commitListeners\. Add onCommit instead\./
+      /Editor extension "commit-slot" cannot use commitListeners\. Add onCommit instead\./
     )
     assert.equal(Editor.getExtensionRegistry(editor).extensions.size, 0)
   })
 
-  it('rejects legacy functional methods before mutating the editor', () => {
+  it('rejects functional methods before mutating the editor', () => {
     const editor = createEditor()
-    const legacyExtension = asExtensionInput({
-      name: 'legacy-wrapper',
+    const methodsExtension = asExtensionInput({
+      name: 'method-wrapper',
       methods() {
         return {
           insertText() {},
@@ -100,8 +100,8 @@ describe('extension method hard cut', () => {
     })
 
     assert.throws(
-      () => editor.extend(legacyExtension),
-      /Editor extension "legacy-wrapper" cannot use methods\. Add state or tx groups instead\./
+      () => editor.extend(methodsExtension),
+      /Editor extension "method-wrapper" cannot use methods\. Add state or tx groups instead\./
     )
     assert.equal('insertText' in editor, false)
     assert.equal(Editor.getExtensionRegistry(editor).extensions.size, 0)

@@ -88,7 +88,7 @@ test('beforeinput preserves pending native text repair selection over mismatched
   }
 })
 
-test('beforeinput preserves model selection for same-path pending native text repair', () => {
+test('beforeinput returns same-path pending native text repair DOM range without importing it', () => {
   const editor = createReactEditor()
   const root = document.createElement('div')
   const textHost = document.createElement('span')
@@ -128,7 +128,11 @@ test('beforeinput preserves model selection for same-path pending native text re
       data: 'X',
       editor,
       editorElement: root,
-      event: { getTargetRanges: () => [] } as unknown as InputEvent,
+      event: {
+        getTargetRanges: () => {
+          throw new Error('pending native repair should skip target ranges')
+        },
+      } as unknown as InputEvent,
       inputType: 'insertText',
       isCompositionChange: false,
       native: true,
@@ -140,7 +144,10 @@ test('beforeinput preserves model selection for same-path pending native text re
     })
 
     expect(result.native).toBe(true)
-    expect(result.selection).toEqual(modelSelection)
+    expect(result.selection).toEqual({
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    })
     expect(Editor.getSelection(editor)).toEqual(modelSelection)
   } finally {
     root.remove()

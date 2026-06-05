@@ -406,7 +406,7 @@ describe('DOM coverage private boundary harness', () => {
     expect(materialized).toEqual([`${boundaryId}:selection:Hidden header`])
   })
 
-  test('renderElement slots expose one unstable boundary adapter for child ranges and self coverage', async () => {
+  test('renderElement slots expose contentBoundary for child ranges and self coverage', async () => {
     const editor = createReactEditor()
 
     Editor.replace(editor, {
@@ -417,29 +417,29 @@ describe('DOM coverage private boundary harness', () => {
     const rendered = render(
       <Slate editor={editor}>
         <Editable
-          id="dom-coverage-unstable-boundary-slot"
+          id="dom-coverage-content-boundary-slot"
           renderElement={({ children, element, slots }) => {
             if (element.type === 'header') {
               return (
-                <slots.unstableBoundary
+                <slots.contentBoundary
                   boundaryId="slot-hidden-header"
                   mounted={false}
                   scope={{ type: 'self' }}
                 >
                   Header hidden by slot
-                </slots.unstableBoundary>
+                </slots.contentBoundary>
               )
             }
 
             if (element.type === 'footer') {
               return (
-                <slots.unstableBoundary
+                <slots.contentBoundary
                   boundaryId="slot-hidden-footer"
                   mounted={false}
                   scope={{ type: 'self' }}
                 >
                   Footer hidden by slot
-                </slots.unstableBoundary>
+                </slots.contentBoundary>
               )
             }
 
@@ -480,7 +480,7 @@ describe('DOM coverage private boundary harness', () => {
     const rendered = render(
       <Slate editor={editor}>
         <Editable
-          id="dom-coverage-unstable-boundary-slot-range"
+          id="dom-coverage-content-boundary-slot-range"
           renderElement={({ children, element, slots }) => {
             if (element.type === 'section') {
               const childNodes = React.Children.toArray(children)
@@ -488,13 +488,13 @@ describe('DOM coverage private boundary harness', () => {
               return (
                 <EditableElement>
                   {childNodes[0]}
-                  <slots.unstableBoundary
+                  <slots.contentBoundary
                     boundaryId="slot-section-body"
                     mounted={false}
                     scope={{ from: 1, type: 'children' }}
                   >
                     Body hidden by slot
-                  </slots.unstableBoundary>
+                  </slots.contentBoundary>
                 </EditableElement>
               )
             }

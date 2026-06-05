@@ -890,22 +890,18 @@ export function createSlateAnnotationStore<
     }
   }
 
-  const unsubscribeEditor = Editor.subscribeSource(
-    editor,
-    'commit',
-    (_snapshot, change) => {
-      const candidateAnnotationIds = getCandidateAnnotationIds(
-        change,
-        annotationRuntimeIds
-      )
+  const unsubscribeEditor = Editor.subscribeCommit(editor, (change) => {
+    const candidateAnnotationIds = getCandidateAnnotationIds(
+      change,
+      annotationRuntimeIds
+    )
 
-      if (candidateAnnotationIds && candidateAnnotationIds.length === 0) {
-        return
-      }
-
-      refreshCandidates(candidateAnnotationIds)
+    if (candidateAnnotationIds && candidateAnnotationIds.length === 0) {
+      return
     }
-  )
+
+    refreshCandidates(candidateAnnotationIds)
+  })
 
   const refresh = (options: SlateAnnotationRefreshOptions = {}) => {
     if (options.ids && options.ids.length === 0) {
