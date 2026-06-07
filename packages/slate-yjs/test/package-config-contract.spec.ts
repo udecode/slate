@@ -24,4 +24,19 @@ describe('@slate/yjs package config contract', () => {
 
     assert.equal(yjsAlias, undefined)
   })
+
+  it('keeps provider integrations supplied by applications', () => {
+    const yjsPackage = readJson('../package.json')
+    const sections = [
+      yjsPackage.dependencies,
+      yjsPackage.devDependencies,
+      yjsPackage.peerDependencies,
+      yjsPackage.optionalDependencies,
+    ]
+
+    for (const dependencies of sections) {
+      assert.equal(dependencies?.['@hocuspocus/provider'], undefined)
+      assert.equal(dependencies?.['y-websocket'], undefined)
+    }
+  })
 })

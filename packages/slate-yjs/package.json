@@ -47,11 +47,13 @@
     "@types/react": "^19.2.14",
     "react": "^19.2.5",
     "slate": "workspace:*",
-    "slate-history": "workspace:*"
+    "slate-history": "workspace:*",
+    "slate-react": "workspace:*"
   },
   "peerDependencies": {
     "react": ">=19.2.0",
     "slate": ">=0.124.2",
+    "slate-react": ">=0.124.2",
     "yjs": "13.6.30"
   },
   "keywords": [

@@ -17,6 +17,45 @@ export type YjsAwarenessLike = {
   setLocalStateField: (field: string, value: unknown) => void
 }
 
+export type YjsProviderStatus =
+  | 'connecting'
+  | 'connected'
+  | 'disconnected'
+  | (string & {})
+
+export type YjsProviderStatusPayload =
+  | YjsProviderStatus
+  | {
+      status: YjsProviderStatus
+    }
+
+export type YjsProviderSyncedPayload =
+  | boolean
+  | {
+      state: boolean
+    }
+  | {
+      synced: boolean
+    }
+
+export type YjsProviderEvent = 'status' | 'sync' | 'synced'
+
+export type YjsProviderEventHandler =
+  | ((status: YjsProviderStatusPayload) => void)
+  | ((synced: YjsProviderSyncedPayload) => void)
+
+export type YjsProviderLike = {
+  awareness?: YjsAwarenessLike
+  connect?: () => Promise<unknown> | unknown
+  destroy?: () => void
+  disconnect?: () => Promise<unknown> | unknown
+  doc?: Y.Doc
+  off?: (event: YjsProviderEvent, handler: YjsProviderEventHandler) => void
+  on?: (event: YjsProviderEvent, handler: YjsProviderEventHandler) => void
+  status?: YjsProviderStatus
+  synced?: boolean
+}
+
 export type YjsAwarenessSelection = {
   anchor: unknown
   focus: unknown
@@ -49,8 +88,11 @@ export type YjsExtensionOptions = {
   awarenessDataField?: string
   awarenessSelectionField?: string
   clientId?: number | string
+  destroyProviderOnUnmount?: boolean
   doc?: Y.Doc
+  provider?: YjsProviderLike
   rootName?: string
+  seedProviderOnSync?: boolean
 }
 
 export type YjsState = {
@@ -59,6 +101,9 @@ export type YjsState = {
   connected: () => boolean
   doc: () => Y.Doc
   paused: () => boolean
+  providerRevision: () => number
+  providerStatus: () => YjsProviderStatus | null
+  providerSynced: () => boolean | null
   remoteCursor: <
     TCursorData extends Record<string, unknown> = Record<string, unknown>,
   >(
@@ -69,6 +114,7 @@ export type YjsState = {
   >() => YjsRemoteCursor<TCursorData>[]
   root: () => Y.XmlElement
   subscribeAwareness: (listener: () => void) => () => void
+  subscribeProvider: (listener: () => void) => () => void
   trace: () => readonly YjsTraceEntry[]
 }
 
@@ -79,6 +125,7 @@ export type YjsTx = {
   disconnect: () => void
   pause: () => void
   reconcile: () => void
+  reconnect: () => void
   redo: () => void
   resume: () => void
   sendCursorData: (data: Record<string, unknown> | null) => void

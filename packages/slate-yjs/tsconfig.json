@@ -2,6 +2,7 @@
   "extends": "../../config/typescript/tsconfig.json",
   "include": ["src/**/*"],
   "compilerOptions": {
-    "types": []
+    "jsx": "react-jsx",
+    "types": ["node", "react"]
   }
 }

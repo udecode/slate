@@ -3,6 +3,33 @@ import { expect, type Page, test } from '@playwright/test'
 import { openExample } from 'slate-browser/playwright'
 
 type PeerId = 'a' | 'b' | 'c' | 'd'
+type YjsPeerControl =
+  | 'append'
+  | 'connect'
+  | 'delete-backward'
+  | 'delete-fragment'
+  | 'disconnect'
+  | 'insert-fragment'
+  | 'insert-text'
+  | 'lift'
+  | 'merge-node'
+  | 'move'
+  | 'move-down'
+  | 'reconcile'
+  | 'redo'
+  | 'remove-node'
+  | 'replace'
+  | 'set-node'
+  | 'split-node'
+  | 'undo'
+  | 'unset-node'
+  | 'unwrap'
+  | 'wrap-node'
+
+type YjsPeerAction = readonly [peer: PeerId, control: YjsPeerControl]
+
+const structuralBrowserErrorPattern =
+  /Slate point does not target a Y\.XmlText|Cannot get the leaf node|No Yjs node at path|Cannot descend into Y\.XmlText|Yjs parent is text|start text node|end text node|<p> cannot be a descendant of <p>|validateDOMNesting/i
 
 const byTestId = (page: Page, id: string) =>
   page.locator(`[data-test-id="${id}"]`)
@@ -32,15 +59,108 @@ const getPeerParagraphTexts = (page: Page, peer: PeerId) =>
     })
   )
 
+const getPeerTopLevelBlockTexts = (page: Page, peer: PeerId) =>
+  peerTextbox(page, peer).evaluate((textbox) =>
+    [...textbox.children].map((block) => {
+      const clone = block.cloneNode(true) as HTMLElement
+
+      clone
+        .querySelectorAll('[data-slate-placeholder="true"]')
+        .forEach((placeholder) => {
+          placeholder.remove()
+        })
+
+      return (clone.textContent ?? '').replaceAll('\uFEFF', '')
+    })
+  )
+
 const expectAllPeerParagraphTexts = async (page: Page, expected: string[]) => {
   for (const peer of ['a', 'b', 'c', 'd'] as const) {
     await expect.poll(() => getPeerParagraphTexts(page, peer)).toEqual(expected)
   }
 }
 
+const expectAllPeerTopLevelBlockTexts = async (
+  page: Page,
+  expected: string[]
+) => {
+  for (const peer of ['a', 'b', 'c', 'd'] as const) {
+    await expect
+      .poll(() => getPeerTopLevelBlockTexts(page, peer))
+      .toEqual(expected)
+  }
+}
+
 const expectNoPeerBlockQuotes = async (page: Page) => {
   for (const peer of ['a', 'b', 'c', 'd'] as const) {
     await expect(peerTextbox(page, peer).locator('blockquote')).toHaveCount(0)
+  }
+}
+
+const expectNoPeerNestedParagraphs = async (page: Page) => {
+  for (const peer of ['a', 'b', 'c', 'd'] as const) {
+    await expect(peerTextbox(page, peer).locator('p p')).toHaveCount(0)
+  }
+}
+
+const watchStructuralBrowserErrors = (page: Page) => {
+  const errors: string[] = []
+
+  page.on('pageerror', (error) => {
+    errors.push(String(error.stack || error.message || error))
+  })
+  page.on('console', (message) => {
+    if (message.type() !== 'error') {
+      return
+    }
+
+    const text = message.text()
+
+    if (structuralBrowserErrorPattern.test(text)) {
+      errors.push(text)
+    }
+  })
+
+  return errors
+}
+
+const clickPeerControl = async (
+  page: Page,
+  peer: PeerId,
+  control: YjsPeerControl
+) => {
+  const button = byTestId(page, `yjs-peer-${peer}-${control}`)
+
+  await expect(button).toBeVisible()
+
+  if (await button.isDisabled()) {
+    return false
+  }
+
+  await button.click()
+
+  return true
+}
+
+const runPeerActions = async (
+  page: Page,
+  actions: readonly YjsPeerAction[],
+  options: { errors?: readonly string[] } = {}
+) => {
+  for (const [peer, control] of actions) {
+    await test.step(`${peer} ${control}`, async () => {
+      await clickPeerControl(page, peer, control)
+      await page.waitForTimeout(0)
+      if (options.errors) {
+        expect(options.errors, `${peer} ${control}`).toEqual([])
+      }
+    })
+  }
+}
+
+const expectAllPeerTextboxesAlive = async (page: Page) => {
+  for (const peer of ['a', 'b', 'c', 'd'] as const) {
+    await expect(peerTextbox(page, peer)).toBeVisible()
   }
 }
 
@@ -204,14 +324,18 @@ const selectPeerTextRange = async (
   anchorOffset: number,
   focusOffset: number
 ) => {
+  const modelRange = {
+    anchor: { path: [paragraphIndex, 0], offset: anchorOffset },
+    focus: { path: [paragraphIndex, 0], offset: focusOffset },
+  }
+
   if (anchorOffset === focusOffset) {
     await placePeerCaret(page, peer, paragraphIndex, anchorOffset)
     return
   }
 
-  await peerTextbox(page, peer).click()
   await page.evaluate(
-    ({ anchorOffset, focusOffset, paragraphIndex, peer }) => {
+    ({ anchorOffset, focusOffset, modelRange, paragraphIndex, peer }) => {
       const root = document.querySelector(`#yjs-peer-${peer}-editor-surface`)
       const textbox = root?.querySelector<HTMLElement>('[role="textbox"]')
       const paragraph = textbox?.querySelectorAll('p')[paragraphIndex]
@@ -280,15 +404,33 @@ const selectPeerTextRange = async (
         }
       ).__slateBrowserHandle
 
-      handle?.selectRange?.({
-        anchor: { path: [paragraphIndex, 0], offset: anchorOffset },
-        focus: { path: [paragraphIndex, 0], offset: focusOffset },
-      })
+      if (!handle?.selectRange) {
+        throw new Error(`Peer ${peer} browser handle not ready`)
+      }
+
+      handle.selectRange(modelRange)
 
       document.dispatchEvent(new Event('selectionchange'))
     },
-    { anchorOffset, focusOffset, paragraphIndex, peer }
+    { anchorOffset, focusOffset, modelRange, paragraphIndex, peer }
   )
+
+  await expect
+    .poll(() =>
+      peerTextbox(page, peer).evaluate((textbox) =>
+        (
+          textbox as HTMLElement & {
+            __slateBrowserHandle?: {
+              getSelection: () => {
+                anchor: { offset: number; path: number[] }
+                focus: { offset: number; path: number[] }
+              } | null
+            }
+          }
+        ).__slateBrowserHandle?.getSelection()
+      )
+    )
+    .toEqual(modelRange)
 }
 
 const selectPeerSlateRange = async (
@@ -299,7 +441,6 @@ const selectPeerSlateRange = async (
     focus: { offset: number; path: number[] }
   }
 ) => {
-  await peerTextbox(page, peer).click()
   await page.evaluate(
     ({ peer, range }) => {
       const root = document.querySelector(`#yjs-peer-${peer}-editor-surface`)
@@ -1075,6 +1216,80 @@ test.describe('yjs collaboration example', () => {
     }
   })
 
+  test('preserves remote split when offline split is undone before reconnect', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+
+    page.on('pageerror', (error) => {
+      pageErrors.push(String(error.message || error))
+    })
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await byTestId(page, 'yjs-peer-a-disconnect').click()
+    await byTestId(page, 'yjs-peer-a-split-node').click()
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'a'))
+      .toEqual(['Hello ', 'world!'])
+
+    await byTestId(page, 'yjs-peer-a-undo').click()
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'a'))
+      .toEqual(['Hello world!'])
+
+    await byTestId(page, 'yjs-peer-b-split-node').click()
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['Hello ', 'world!'])
+
+    await byTestId(page, 'yjs-peer-a-connect').click()
+
+    await expectAllPeerParagraphTexts(page, ['Hello ', 'world!'])
+    expect(pageErrors).toEqual([])
+  })
+
+  test('replays offline split redo onto remote split boundary after reconnect', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+
+    page.on('pageerror', (error) => {
+      pageErrors.push(String(error.message || error))
+    })
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await byTestId(page, 'yjs-peer-a-disconnect').click()
+    await byTestId(page, 'yjs-peer-a-split-node').click()
+    await byTestId(page, 'yjs-peer-a-undo').click()
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'a'))
+      .toEqual(['Hello world!'])
+
+    await byTestId(page, 'yjs-peer-b-insert-text').click()
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['Hello world!!'])
+
+    await byTestId(page, 'yjs-peer-b-split-node').click()
+    await expect
+      .poll(() => getPeerParagraphTexts(page, 'b'))
+      .toEqual(['Hello ', 'world!!'])
+
+    await byTestId(page, 'yjs-peer-a-connect').click()
+    await byTestId(page, 'yjs-peer-a-redo').click()
+
+    await expectAllPeerParagraphTexts(page, ['Hello ', 'world!!'])
+    expect(pageErrors).toEqual([])
+  })
+
   test('keeps public split button undo converged after reconnect', async ({
     page,
   }) => {
@@ -1256,6 +1471,258 @@ test.describe('yjs collaboration example', () => {
     }
   })
 
+  test('survives offline structural mix seed 3 without stale leaf paths', async ({
+    page,
+  }) => {
+    const errors = watchStructuralBrowserErrors(page)
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await runPeerActions(page, [
+      ['a', 'disconnect'],
+      ['a', 'unset-node'],
+      ['d', 'lift'],
+      ['a', 'move-down'],
+      ['d', 'wrap-node'],
+      ['a', 'move-down'],
+      ['b', 'unwrap'],
+    ])
+
+    await expectAllPeerTextboxesAlive(page)
+    await expectNoPeerNestedParagraphs(page)
+    await expect
+      .poll(() => getPeerTopLevelBlockTexts(page, 'a'))
+      .toEqual(['Hello world!', 'block 2'])
+    for (const peer of ['b', 'c', 'd'] as const) {
+      await expect
+        .poll(() => getPeerTopLevelBlockTexts(page, peer))
+        .toEqual(['Hello world!'])
+    }
+
+    await runPeerActions(page, [['a', 'connect']], { errors })
+
+    await expectAllPeerTopLevelBlockTexts(page, ['Hello world!', 'block 2'])
+    expect(errors).toEqual([])
+  })
+
+  test('keeps random-control seed 10 prefix from rendering nested paragraphs', async ({
+    page,
+  }) => {
+    const errors = watchStructuralBrowserErrors(page)
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await runPeerActions(page, [
+      ['a', 'wrap-node'],
+      ['c', 'append'],
+      ['a', 'split-node'],
+      ['c', 'move-down'],
+      ['c', 'merge-node'],
+    ])
+
+    await expectAllPeerTextboxesAlive(page)
+    await expectNoPeerNestedParagraphs(page)
+    expect(errors).toEqual([])
+  })
+
+  test('keeps offline structural mix seed 16 from losing root text boundaries', async ({
+    page,
+  }) => {
+    const errors = watchStructuralBrowserErrors(page)
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await runPeerActions(page, [
+      ['a', 'disconnect'],
+      ['a', 'merge-node'],
+      ['d', 'split-node'],
+      ['a', 'wrap-node'],
+      ['c', 'split-node'],
+      ['a', 'delete-fragment'],
+      ['c', 'move'],
+      ['a', 'wrap-node'],
+      ['d', 'split-node'],
+      ['a', 'connect'],
+    ])
+
+    await expectAllPeerTextboxesAlive(page)
+    await expectNoPeerNestedParagraphs(page)
+    await expectAllPeerTopLevelBlockTexts(page, ['', 'l', 'o ', '', 'world!'])
+    expect(errors).toEqual([])
+  })
+
+  test('keeps random-control seed 75 from losing root end text boundaries', async ({
+    page,
+  }) => {
+    const errors = watchStructuralBrowserErrors(page)
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await runPeerActions(page, [
+      ['b', 'insert-text'],
+      ['a', 'delete-backward'],
+      ['b', 'undo'],
+      ['c', 'insert-fragment'],
+      ['c', 'disconnect'],
+      ['d', 'split-node'],
+      ['d', 'unwrap'],
+      ['a', 'move'],
+      ['a', 'delete-backward'],
+      ['d', 'merge-node'],
+      ['b', 'redo'],
+      ['c', 'unset-node'],
+      ['d', 'delete-fragment'],
+    ])
+
+    await expectAllPeerTextboxesAlive(page)
+    await expectNoPeerNestedParagraphs(page)
+    expect(errors).toEqual([])
+  })
+
+  test('keeps structural warm-up seed 17 from repeating stale leaf paths', async ({
+    page,
+  }) => {
+    const errors = watchStructuralBrowserErrors(page)
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await runPeerActions(page, [
+      ['a', 'disconnect'],
+      ['c', 'split-node'],
+      ['a', 'merge-node'],
+      ['b', 'unwrap'],
+      ['a', 'delete-fragment'],
+      ['b', 'wrap-node'],
+      ['a', 'unset-node'],
+      ['c', 'insert-text'],
+    ])
+
+    await expectAllPeerTextboxesAlive(page)
+    await expectNoPeerNestedParagraphs(page)
+    expect(errors).toEqual([])
+  })
+
+  test('keeps random-control seed 42 from missing Yjs path 1.0', async ({
+    page,
+  }) => {
+    const errors = watchStructuralBrowserErrors(page)
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await runPeerActions(
+      page,
+      [
+        ['b', 'insert-text'],
+        ['c', 'wrap-node'],
+        ['b', 'append'],
+        ['b', 'split-node'],
+        ['d', 'reconcile'],
+        ['d', 'move'],
+        ['c', 'remove-node'],
+        ['c', 'insert-text'],
+        ['a', 'connect'],
+        ['d', 'disconnect'],
+        ['c', 'merge-node'],
+        ['c', 'unwrap'],
+      ],
+      { errors }
+    )
+
+    await expectAllPeerTextboxesAlive(page)
+    await expectNoPeerNestedParagraphs(page)
+    for (const peer of ['a', 'b', 'c'] as const) {
+      await expect
+        .poll(() => getPeerTopLevelBlockTexts(page, peer))
+        .toEqual(['Hello wo'])
+    }
+    await expect
+      .poll(() => getPeerTopLevelBlockTexts(page, 'd'))
+      .toEqual(['Hello world!! Lin!'])
+    await runPeerActions(page, [['d', 'connect']], { errors })
+    await expectAllPeerTopLevelBlockTexts(page, ['Hello wo'])
+    expect(errors).toEqual([])
+  })
+
+  test('keeps random-control seed 96 from repeating missing Yjs path 1.0', async ({
+    page,
+  }) => {
+    const errors = watchStructuralBrowserErrors(page)
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await runPeerActions(
+      page,
+      [
+        ['b', 'reconcile'],
+        ['c', 'wrap-node'],
+        ['b', 'delete-fragment'],
+        ['c', 'set-node'],
+        ['b', 'split-node'],
+        ['b', 'move'],
+        ['b', 'unwrap'],
+      ],
+      { errors }
+    )
+
+    await expectAllPeerTextboxesAlive(page)
+    await expectNoPeerNestedParagraphs(page)
+    expect(errors).toEqual([])
+  })
+
+  test('keeps random-control seed 115 from repeating missing Yjs path 1.0', async ({
+    page,
+  }) => {
+    const errors = watchStructuralBrowserErrors(page)
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await runPeerActions(
+      page,
+      [
+        ['b', 'undo'],
+        ['c', 'connect'],
+        ['a', 'unset-node'],
+        ['d', 'reconcile'],
+        ['a', 'wrap-node'],
+        ['d', 'move'],
+        ['d', 'insert-fragment'],
+        ['b', 'split-node'],
+        ['b', 'insert-text'],
+        ['c', 'unset-node'],
+        ['d', 'unwrap'],
+      ],
+      { errors }
+    )
+
+    await expectAllPeerTextboxesAlive(page)
+    await expectNoPeerNestedParagraphs(page)
+    expect(errors).toEqual([])
+  })
+
   test('preserves concurrent text when an offline wrap button reconnects', async ({
     page,
   }) => {
@@ -1415,6 +1882,42 @@ test.describe('yjs collaboration example', () => {
     await byTestId(page, 'yjs-peer-d-merge-node').click()
 
     await expectAllPeerParagraphTexts(page, ['Hello world!'])
+    expect(pageErrors).toEqual([])
+  })
+
+  test('keeps repeated keyboard split and merge from leaking virtual placeholders', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+    const text = 'Hello world!'
+
+    page.on('pageerror', (error) => {
+      pageErrors.push(String(error.message || error))
+    })
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    for (let index = 0; index < 2; index++) {
+      await selectPeerSlateRange(page, 'a', {
+        anchor: { path: [0, 0], offset: text.length },
+        focus: { path: [0, 0], offset: text.length },
+      })
+      await page.keyboard.press('Enter')
+      await expect
+        .poll(() => getPeerParagraphTexts(page, 'a'))
+        .toEqual([text, ''])
+      await selectPeerSlateRange(page, 'a', {
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      })
+      await page.keyboard.press('Backspace')
+    }
+
+    await expectAllPeerParagraphTexts(page, [text])
+    await expectNoPeerNestedParagraphs(page)
     expect(pageErrors).toEqual([])
   })
 

@@ -3,11 +3,13 @@ import type {
   Editor,
   EditorCommit,
   EditorSnapshot,
+  Element,
   Operation,
   Path,
   Range,
 } from 'slate'
-import { NodeApi } from 'slate'
+import { createEditor, NodeApi, OperationApi } from 'slate'
+import { Editor as EditorApi } from 'slate/internal'
 import * as Y from 'yjs'
 
 import {
@@ -24,6 +26,7 @@ import {
   readSlateValueFromYjs,
   removeYjsChild,
   replaceYjsChildren,
+  SPLIT_UNDO_TEXT_ATTRIBUTE,
 } from './document'
 import {
   applySlateOperationToYjs,
@@ -33,6 +36,10 @@ import type {
   YjsAwarenessChange,
   YjsAwarenessLike,
   YjsExtensionOptions,
+  YjsProviderLike,
+  YjsProviderStatus,
+  YjsProviderStatusPayload,
+  YjsProviderSyncedPayload,
   YjsRemoteCursor,
   YjsState,
   YjsTraceEntry,
@@ -44,15 +51,96 @@ import {
 } from './undo-manager-adapter'
 
 type SplitHistory = {
+  absorbedRemoteSplit?: boolean
   elementPath: Path
   elementPosition: number
   elementProperties: Record<string, unknown>
   rightText: string
   textPath: Path
   textProperties: Record<string, unknown>
+  undoneWhileDisconnected?: boolean
+}
+
+type PendingTextSplitHistory = Omit<
+  SplitHistory,
+  'elementPosition' | 'elementProperties'
+>
+
+type HistoryBatchLike = {
+  operations?: Operation[]
+  statePatches?: unknown[]
+}
+
+type HistoryLike = {
+  redos?: HistoryBatchLike[]
+  undos?: HistoryBatchLike[]
 }
 
 const SPLIT_HISTORY_META = 'slate-yjs:split-history'
+
+const operationsEqual = (a: Operation, b: Operation | undefined) =>
+  !!b && JSON.stringify(a) === JSON.stringify(b)
+
+const normalizeProviderStatus = (
+  value: YjsProviderStatusPayload | unknown
+): YjsProviderStatus | null => {
+  if (typeof value === 'string') {
+    return value
+  }
+
+  if (
+    value &&
+    typeof value === 'object' &&
+    'status' in value &&
+    typeof value.status === 'string'
+  ) {
+    return value.status
+  }
+
+  return null
+}
+
+const normalizeProviderSynced = (
+  value: YjsProviderSyncedPayload | unknown
+): boolean | null => {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (
+    value &&
+    typeof value === 'object' &&
+    'state' in value &&
+    typeof value.state === 'boolean'
+  ) {
+    return value.state
+  }
+
+  if (
+    value &&
+    typeof value === 'object' &&
+    'synced' in value &&
+    typeof value.synced === 'boolean'
+  ) {
+    return value.synced
+  }
+
+  return null
+}
+
+const readProviderStatus = (provider: YjsProviderLike | undefined) =>
+  normalizeProviderStatus(provider?.status)
+
+const readProviderSynced = (provider: YjsProviderLike | undefined) =>
+  normalizeProviderSynced(provider?.synced)
+
+const isPromiseLike = (value: unknown): value is PromiseLike<unknown> =>
+  Boolean(
+    value &&
+      (typeof value === 'object' || typeof value === 'function') &&
+      'then' in value &&
+      typeof value.then === 'function'
+  )
 
 const remoteImportOptions = {
   metadata: {
@@ -71,15 +159,23 @@ export class YjsController {
   private readonly awarenessSelectionField: string
   private readonly awarenessSubscribers = new Set<() => void>()
   private readonly clientId: number | string
+  private readonly destroyProviderOnUnmount: boolean
   private readonly doc: Y.Doc
   private readonly editor: Editor
   private readonly historyOrigin = {}
   private readonly localOrigin = {}
+  private readonly seedOrigin = {}
   private readonly observer: (
     events: Y.YEvent<Y.XmlElement>[],
     transaction: Y.Transaction
   ) => void
+  private readonly provider?: YjsProviderLike
+  private readonly providerOwnedDoc: boolean
+  private readonly providerStatusObserver: (status: unknown) => void
+  private readonly providerSubscribers = new Set<() => void>()
+  private readonly providerSyncedObserver: (synced: unknown) => void
   private readonly root: Y.XmlElement
+  private readonly seedProviderOnSync: boolean
   private readonly traceEntries: YjsTraceEntry[] = []
   private readonly undoManager: Y.UndoManager
   private readonly undoManagerAdapter: ReturnType<
@@ -90,26 +186,68 @@ export class YjsController {
   private connected = true
   private importing = false
   private paused = false
+  private pendingTextSplitHistory: PendingTextSplitHistory | null = null
+  private providerRevision = 0
+  private providerStatusValue: YjsProviderStatus | null
+  private providerSyncedValue: boolean | null
 
   constructor(editor: Editor, options: YjsExtensionOptions) {
     this.editor = editor
-    this.doc = options.doc ?? new Y.Doc()
+    this.provider = options.provider
+    this.providerOwnedDoc =
+      !!this.provider && (!!options.doc || !!this.provider.doc)
+    this.doc = options.doc ?? this.provider?.doc ?? new Y.Doc()
     this.root = this.doc.get(options.rootName ?? 'slate', Y.XmlElement)
     this.clientId = options.clientId ?? this.doc.clientID
-    this.awareness = options.awareness
+    this.destroyProviderOnUnmount = options.destroyProviderOnUnmount ?? false
+    this.seedProviderOnSync = options.seedProviderOnSync ?? true
+    this.awareness = options.awareness ?? this.provider?.awareness
     this.awarenessDataField = options.awarenessDataField ?? 'data'
     this.awarenessSelectionField =
       options.awarenessSelectionField ?? 'selection'
     this.autoSendSelection = options.autoSendSelection ?? true
+    this.providerStatusValue = readProviderStatus(this.provider)
+    this.providerSyncedValue = readProviderSynced(this.provider)
+    this.connected = this.connectedFromProviderStatus(
+      this.providerStatusValue,
+      this.connected
+    )
     this.awarenessObserver = () => {
       this.updateAwarenessRevision()
+    }
+    this.providerStatusObserver = (payload) => {
+      const status = normalizeProviderStatus(payload)
+
+      if (status) {
+        this.updateProviderStatus(status)
+      }
+    }
+    this.providerSyncedObserver = (payload) => {
+      const synced =
+        normalizeProviderSynced(payload) ?? readProviderSynced(this.provider)
+
+      if (synced !== null) {
+        this.updateProviderSynced(synced)
+      }
     }
     this.undoManager = new Y.UndoManager(this.root, {
       trackedOrigins: new Set([this.localOrigin]),
     })
     this.undoManagerAdapter = createYjsUndoManagerAdapter(this.undoManager)
     this.observer = (_events, transaction) => {
-      if (transaction.origin === this.localOrigin || this.paused) {
+      if (
+        transaction.origin === this.localOrigin ||
+        transaction.origin === this.seedOrigin ||
+        this.paused
+      ) {
+        return
+      }
+
+      if (transaction.origin === this.historyOrigin) {
+        this.importFromYjs('remote-reconcile', {
+          repairRemoteSplitAfterOfflineUndo: false,
+        })
+
         return
       }
 
@@ -117,10 +255,22 @@ export class YjsController {
     }
 
     this.awareness?.on?.('change', this.awarenessObserver)
+    this.provider?.on?.('status', this.providerStatusObserver)
+    this.provider?.on?.('sync', this.providerSyncedObserver)
+    this.provider?.on?.('synced', this.providerSyncedObserver)
   }
 
   destroy() {
     this.awareness?.off?.('change', this.awarenessObserver)
+    this.provider?.off?.('status', this.providerStatusObserver)
+    this.provider?.off?.('sync', this.providerSyncedObserver)
+    this.provider?.off?.('synced', this.providerSyncedObserver)
+    if (this.provider) {
+      this.clearSelection()
+    }
+    if (this.destroyProviderOnUnmount) {
+      this.provider?.destroy?.()
+    }
     this.root.unobserveDeep(this.observer)
     this.undoManager.destroy()
   }
@@ -136,7 +286,6 @@ export class YjsController {
     ) {
       return
     }
-
     const shouldSendSelection =
       this.autoSendSelection &&
       commit.operations.some((operation) => operation.type === 'set_selection')
@@ -163,6 +312,21 @@ export class YjsController {
       return
     }
 
+    if (this.shouldRejectUnsafeProviderCommit()) {
+      this.removeRejectedOperationsFromHistory(operations)
+      this.replaceEditorValue(
+        this.readChildrenBeforeOperations(operations),
+        commit.selectionBefore as Range | null
+      )
+      this.removeRejectedOperationsFromHistory(operations)
+      this.removeRejectedOperationsFromHistoryAfterCommit(operations)
+
+      return
+    }
+    if (this.shouldSeedEmptyProviderDocForCommit()) {
+      this.seedValue(this.readChildrenBeforeOperations(operations))
+    }
+
     const splitHistory = this.createSplitHistory(operations)
 
     this.undoManager.stopCapturing()
@@ -181,14 +345,9 @@ export class YjsController {
 
   seed() {
     if (this.root.length === 0) {
-      const children = this.editor.read((state) => [
-        ...state.value.get().roots.main,
-      ]) as Descendant[]
-
-      this.doc.transact(() => {
-        replaceYjsChildren(this.root, children)
-      }, {})
-      this.traceEntries.push({ mode: 'seed' })
+      if (this.shouldSeedInitialProviderDoc()) {
+        this.seedInitialValue()
+      }
     } else {
       this.importFromYjs('seed')
     }
@@ -203,10 +362,14 @@ export class YjsController {
       connected: () => this.connected,
       doc: () => this.doc,
       paused: () => this.paused,
+      providerRevision: () => this.providerRevision,
+      providerStatus: () => this.providerStatusValue,
+      providerSynced: () => this.providerSyncedValue,
       remoteCursor: (clientId) => this.remoteCursor(clientId),
       remoteCursors: () => this.remoteCursors(),
       root: () => this.root,
       subscribeAwareness: (listener) => this.subscribeAwareness(listener),
+      subscribeProvider: (listener) => this.subscribeProvider(listener),
       trace: () => [...this.traceEntries],
     }
   }
@@ -220,18 +383,19 @@ export class YjsController {
         this.traceEntries.length = 0
       },
       connect: () => {
-        this.connected = true
-        this.updateAwarenessRevision()
+        this.connect()
       },
       disconnect: () => {
-        this.connected = false
-        this.updateAwarenessRevision()
+        this.disconnect()
       },
       pause: () => {
         this.paused = true
       },
       reconcile: () => {
-        this.importFromYjs()
+        this.reconcile()
+      },
+      reconnect: () => {
+        this.reconnect()
       },
       redo: () => {
         if (!this.redoSplit()) {
@@ -263,6 +427,14 @@ export class YjsController {
     }
   }
 
+  private subscribeProvider(listener: () => void) {
+    this.providerSubscribers.add(listener)
+
+    return () => {
+      this.providerSubscribers.delete(listener)
+    }
+  }
+
   private updateAwarenessRevision() {
     this.awarenessRevision += 1
 
@@ -271,13 +443,329 @@ export class YjsController {
     }
   }
 
+  private updateProviderRevision() {
+    this.providerRevision += 1
+
+    for (const listener of this.providerSubscribers) {
+      listener()
+    }
+  }
+
+  private updateProviderStatus(status: YjsProviderStatus) {
+    this.updateConnectedFromProviderStatus(status)
+
+    if (this.providerStatusValue === status) {
+      return
+    }
+
+    this.providerStatusValue = status
+    this.updateProviderRevision()
+  }
+
+  private updateConnectedFromProviderStatus(status: YjsProviderStatus) {
+    const connected = this.connectedFromProviderStatus(status, this.connected)
+
+    this.setConnected(connected)
+  }
+
+  private connectedFromProviderStatus(
+    status: YjsProviderStatus | null,
+    fallback: boolean
+  ) {
+    if (status === 'connected') {
+      return true
+    }
+
+    if (status === 'connecting' || status === 'disconnected') {
+      return false
+    }
+
+    return fallback
+  }
+
+  private syncProviderLifecycleStatus(fallbackConnected: boolean) {
+    const status = readProviderStatus(this.provider)
+
+    if (status) {
+      if (!fallbackConnected && status === 'connected') {
+        return
+      }
+
+      this.updateProviderStatus(status)
+
+      return
+    }
+
+    if (this.providerStatusValue === null) {
+      this.setConnected(fallbackConnected)
+    }
+  }
+
+  private setConnected(connected: boolean) {
+    if (this.connected === connected) {
+      return
+    }
+
+    this.connected = connected
+    this.updateAwarenessRevision()
+  }
+
+  private updateProviderSynced(synced: boolean) {
+    if (this.providerSyncedValue === synced) {
+      return
+    }
+
+    this.providerSyncedValue = synced
+    this.reconcileProviderOwnedDocAfterSync()
+    this.updateProviderRevision()
+  }
+
+  private connect() {
+    if (this.provider) {
+      const result = this.provider.connect?.()
+
+      if (isPromiseLike(result)) {
+        void result.then(
+          () => {
+            this.syncProviderLifecycleStatus(true)
+          },
+          () => undefined
+        )
+      } else {
+        this.syncProviderLifecycleStatus(true)
+      }
+
+      return result
+    }
+
+    this.setConnected(true)
+  }
+
+  private disconnect() {
+    if (this.provider) {
+      this.setConnected(false)
+      const result = this.provider.disconnect?.()
+
+      if (isPromiseLike(result)) {
+        void result.then(
+          () => {
+            this.syncProviderLifecycleStatus(false)
+          },
+          () => undefined
+        )
+      } else {
+        this.syncProviderLifecycleStatus(false)
+      }
+
+      return result
+    }
+
+    this.setConnected(false)
+  }
+
+  private reconnect() {
+    const result = this.disconnect()
+
+    if (isPromiseLike(result)) {
+      void result.then(
+        () => {
+          this.connect()
+        },
+        () => undefined
+      )
+
+      return
+    }
+
+    this.connect()
+  }
+
+  private reconcile() {
+    if (this.providerOwnedDoc && this.root.length === 0) {
+      this.reconcileProviderOwnedDocAfterSync()
+
+      return
+    }
+
+    this.importFromYjs()
+  }
+
+  private removeRejectedOperationsFromHistory(
+    operations: readonly Operation[]
+  ) {
+    const history = this.readHistory()
+
+    if (!history) {
+      return
+    }
+
+    this.removeRejectedOperationsFromHistoryStack(history.undos, operations)
+    this.removeRejectedOperationsFromHistoryStack(history.redos, operations)
+  }
+
+  private removeRejectedOperationsFromHistoryAfterCommit(
+    operations: readonly Operation[]
+  ) {
+    const remove = () => {
+      this.removeRejectedOperationsFromHistory(operations)
+    }
+
+    if (typeof queueMicrotask === 'function') {
+      queueMicrotask(remove)
+    } else {
+      void Promise.resolve().then(remove)
+    }
+  }
+
+  private readHistory(): HistoryLike | null {
+    return this.editor.read((state) => {
+      const history = (state as any).history
+
+      if (!history) {
+        return null
+      }
+
+      return {
+        redos: history.redos?.(),
+        undos: history.undos?.(),
+      }
+    })
+  }
+
+  private removeRejectedOperationsFromHistoryStack(
+    stack: HistoryBatchLike[] | undefined,
+    operations: readonly Operation[]
+  ) {
+    if (!stack || operations.length === 0) {
+      return
+    }
+
+    for (let batchIndex = stack.length - 1; batchIndex >= 0; batchIndex -= 1) {
+      const batch = stack[batchIndex]
+      const batchOperations = batch?.operations
+
+      if (!Array.isArray(batchOperations)) {
+        throw new Error('Cannot remove rejected Yjs operations from history.')
+      }
+
+      if (batchOperations.length < operations.length) {
+        continue
+      }
+
+      const start = batchOperations.length - operations.length
+
+      if (
+        operations.every((operation, index) =>
+          operationsEqual(operation, batchOperations[start + index])
+        )
+      ) {
+        batchOperations.splice(start, operations.length)
+
+        if (
+          batchOperations.length === 0 &&
+          (batch.statePatches?.length ?? 0) === 0
+        ) {
+          stack.splice(batchIndex, 1)
+        }
+
+        return
+      }
+    }
+  }
+
+  private shouldDeferProviderSeed() {
+    return (
+      this.providerOwnedDoc &&
+      this.providerSyncedValue !== true &&
+      this.root.length === 0
+    )
+  }
+
+  private shouldSeedEmptyProviderDocForCommit() {
+    return (
+      this.providerOwnedDoc &&
+      this.seedProviderOnSync &&
+      this.providerSyncedValue === true &&
+      this.root.length === 0
+    )
+  }
+
+  private shouldSeedInitialProviderDoc() {
+    return (
+      (!this.providerOwnedDoc || this.seedProviderOnSync) &&
+      !this.shouldDeferProviderSeed()
+    )
+  }
+
+  private shouldRejectUnsafeProviderCommit() {
+    return (
+      this.providerOwnedDoc &&
+      this.root.length === 0 &&
+      (!this.seedProviderOnSync || this.providerSyncedValue !== true)
+    )
+  }
+
+  private shouldWaitForAppSeededProviderDoc() {
+    return this.providerOwnedDoc && this.root.length === 0
+  }
+
+  private readEditorChildren() {
+    return this.editor.read((state) => [
+      ...state.value.get().roots.main,
+    ]) as Element[]
+  }
+
+  private readChildrenBeforeOperations(operations: readonly Operation[]) {
+    const baselineEditor = createEditor()
+
+    EditorApi.replace(baselineEditor, {
+      children: this.readEditorChildren(),
+      marks: null,
+      selection: null,
+    })
+    baselineEditor.update((tx) => {
+      tx.operations.replay([...operations].reverse().map(OperationApi.inverse))
+    })
+
+    return EditorApi.getSnapshot(baselineEditor).children as Element[]
+  }
+
+  private seedInitialValue() {
+    this.seedValue(this.readEditorChildren())
+  }
+
+  private seedValue(children: Descendant[]) {
+    this.doc.transact(() => {
+      replaceYjsChildren(this.root, children)
+    }, this.seedOrigin)
+    this.traceEntries.push({ mode: 'seed' })
+  }
+
+  private reconcileProviderOwnedDocAfterSync() {
+    if (!this.providerOwnedDoc || this.providerSyncedValue !== true) {
+      return
+    }
+
+    if (this.root.length === 0) {
+      if (this.seedProviderOnSync) {
+        this.seedInitialValue()
+      }
+    } else {
+      this.importFromYjs('seed')
+    }
+  }
+
   private clearSelection() {
     if (!this.awareness) {
       return
     }
 
+    const localState = this.awareness.getLocalState()
+
     if (
-      this.awareness.getLocalState()?.[this.awarenessSelectionField] !== null
+      localState &&
+      this.awarenessSelectionField in localState &&
+      localState[this.awarenessSelectionField] !== null
     ) {
       this.awareness.setLocalStateField(this.awarenessSelectionField, null)
     }
@@ -355,13 +843,20 @@ export class YjsController {
     if (!this.awareness) {
       return
     }
+    if (
+      this.shouldDeferProviderSeed() ||
+      this.shouldWaitForAppSeededProviderDoc()
+    ) {
+      return
+    }
 
     if (data !== undefined) {
       this.sendCursorData(data)
     }
 
-    const nextSelection = range
-      ? createYjsAwarenessSelection(this.root, range)
+    const nextRange = range ? this.sanitizeYjsSelection(range) : null
+    const nextSelection = nextRange
+      ? createYjsAwarenessSelection(this.root, nextRange)
       : null
     const currentSelection =
       this.awareness.getLocalState()?.[this.awarenessSelectionField]
@@ -372,6 +867,22 @@ export class YjsController {
         nextSelection
       )
     }
+  }
+
+  private sanitizeYjsSelection(range: Range): Range | null {
+    for (const point of [range.anchor, range.focus]) {
+      const node = getYjsNodeIf(this.root, point.path)
+
+      if (
+        !(node instanceof Y.XmlText) ||
+        point.offset < 0 ||
+        point.offset > getYjsLength(node)
+      ) {
+        return null
+      }
+    }
+
+    return range
   }
 
   private applyOperation(operation: Operation) {
@@ -405,34 +916,61 @@ export class YjsController {
       }
     )
 
+    const elementSplit = operations.find(
+      (operation): operation is Extract<Operation, { type: 'split_node' }> =>
+        operation.type === 'split_node' &&
+        !(
+          operation.path.length > 0 &&
+          getYjsNodeIf(this.root, operation.path) instanceof Y.XmlText
+        )
+    )
+
     if (!textSplit) {
+      const pendingTextSplitHistory = this.pendingTextSplitHistory
+
+      this.pendingTextSplitHistory = null
+
+      if (
+        elementSplit &&
+        pendingTextSplitHistory &&
+        pathsEqual(elementSplit.path, pendingTextSplitHistory.elementPath)
+      ) {
+        return {
+          ...pendingTextSplitHistory,
+          elementPosition: elementSplit.position,
+          elementProperties: elementSplit.properties as Record<string, unknown>,
+        }
+      }
+
       return null
     }
 
     const elementPath = textSplit.path.slice(0, -1)
-    const elementSplit = operations.find(
-      (operation): operation is Extract<Operation, { type: 'split_node' }> =>
-        operation.type === 'split_node' &&
-        pathsEqual(operation.path, elementPath)
-    )
-
-    if (!elementSplit) {
-      return null
-    }
-
     const text = getYjsNode(this.root, textSplit.path)
 
     if (!(text instanceof Y.XmlText)) {
       return null
     }
 
-    return {
+    const pendingTextSplitHistory: PendingTextSplitHistory = {
       elementPath,
-      elementPosition: elementSplit.position,
-      elementProperties: elementSplit.properties as Record<string, unknown>,
       rightText: getYjsTextContent(text).slice(textSplit.position),
       textPath: textSplit.path,
       textProperties: textSplit.properties as Record<string, unknown>,
+    }
+
+    if (!elementSplit || !pathsEqual(elementSplit.path, elementPath)) {
+      this.pendingTextSplitHistory = pendingTextSplitHistory
+
+      return null
+    }
+
+    this.pendingTextSplitHistory = null
+
+    return {
+      ...pendingTextSplitHistory,
+      elementPosition: elementSplit.position,
+      elementProperties: elementSplit.properties as Record<string, unknown>,
     }
   }
 
@@ -456,6 +994,12 @@ export class YjsController {
     // Let Yjs replay those split items natively so their identities survive.
     if (!redo || this.undoManagerAdapter.redoDepth() > 1) {
       return false
+    }
+
+    if (redo.splitHistory.absorbedRemoteSplit) {
+      this.undoManagerAdapter.moveRedoToUndo(redo.item)
+
+      return true
     }
 
     this.doc.transact(() => {
@@ -502,6 +1046,24 @@ export class YjsController {
     this.undoManagerAdapter.storeUndoMeta(SPLIT_HISTORY_META, splitHistory)
   }
 
+  private replaceEditorValue(children: Descendant[], selection: Range | null) {
+    const nextSelection = this.sanitizeImportSelection(children, selection)
+
+    this.importing = true
+
+    try {
+      this.editor.update((tx) => {
+        tx.value.replace({
+          children,
+          marks: null,
+          selection: nextSelection,
+        })
+      }, remoteImportOptions)
+    } finally {
+      this.importing = false
+    }
+  }
+
   private undoSplit() {
     const undo = this.peekSplit(this.undoManagerAdapter.peekUndo())
 
@@ -511,6 +1073,13 @@ export class YjsController {
       return false
     }
 
+    if (undo.splitHistory.absorbedRemoteSplit) {
+      this.undoManagerAdapter.moveUndoToRedo(undo.item)
+
+      return true
+    }
+
+    const undoneWhileDisconnected = !this.connected
     let rightText = undo.splitHistory.rightText
 
     this.doc.transact(() => {
@@ -528,37 +1097,34 @@ export class YjsController {
         )
       }
 
-      rightText = appendElementText(this.root, leftText, rightElement)
+      rightText = appendElementText(this.root, leftText, rightElement, {
+        [SPLIT_UNDO_TEXT_ATTRIBUTE]: undoneWhileDisconnected,
+      })
       removeYjsChild(this.root, parent, index)
     }, this.historyOrigin)
 
     undo.splitHistory.rightText = rightText
+    undo.splitHistory.undoneWhileDisconnected = undoneWhileDisconnected
     this.undoManagerAdapter.moveUndoToRedo(undo.item)
 
     return true
   }
 
-  private importFromYjs(mode: YjsTraceEntry['mode'] = 'remote-reconcile') {
+  private importFromYjs(
+    mode: YjsTraceEntry['mode'] = 'remote-reconcile',
+    options: { repairRemoteSplitAfterOfflineUndo?: boolean } = {}
+  ) {
+    if (options.repairRemoteSplitAfterOfflineUndo ?? true) {
+      this.repairRemoteSplitAfterOfflineUndo()
+    }
+
     const children = readSlateValueFromYjs(this.root)
-    const selection = this.sanitizeImportSelection(
+
+    this.traceEntries.push({ mode })
+    this.replaceEditorValue(
       children,
       this.editor.read((state) => state.selection.get()) as Range | null
     )
-
-    this.traceEntries.push({ mode })
-    this.importing = true
-
-    try {
-      this.editor.update((tx) => {
-        tx.value.replace({
-          children,
-          marks: null,
-          selection,
-        })
-      }, remoteImportOptions)
-    } finally {
-      this.importing = false
-    }
   }
 
   private sanitizeImportSelection(
@@ -586,9 +1152,109 @@ export class YjsController {
 
     return selection
   }
+
+  private repairRemoteSplitAfterOfflineUndo() {
+    const repairs = findSplitUndoTextRepairs(this.root)
+    const redo = this.peekSplit(this.undoManagerAdapter.peekRedo())
+    const splitHistory = redo?.splitHistory
+    const activeRepair = splitHistory?.undoneWhileDisconnected
+      ? this.getSplitUndoTextRepair(splitHistory)
+      : null
+
+    if (repairs.length > 0) {
+      this.doc.transact(() => {
+        for (const repair of repairs) {
+          if (repair.hasRemoteSplitBoundary) {
+            repair.text.delete(repair.offset, repair.length)
+          } else {
+            clearSplitUndoTextAttribute(
+              repair.text,
+              repair.offset,
+              repair.length
+            )
+          }
+        }
+      }, this.historyOrigin)
+    }
+
+    if (!splitHistory?.undoneWhileDisconnected) {
+      return
+    }
+
+    if (
+      activeRepair?.hasRemoteSplitBoundary ||
+      (!activeRepair &&
+        this.hasRemoteSplitBoundary(splitHistory) &&
+        !this.leftTextEndsWithSplitRightText(splitHistory))
+    ) {
+      splitHistory.absorbedRemoteSplit = true
+    } else {
+      splitHistory.undoneWhileDisconnected = false
+    }
+  }
+
+  private getSplitUndoTextRepair(splitHistory: SplitHistory) {
+    if (splitHistory.rightText.length === 0) {
+      return null
+    }
+
+    try {
+      const leftText = getYjsNode(this.root, splitHistory.textPath)
+
+      if (!(leftText instanceof Y.XmlText)) {
+        return null
+      }
+
+      const trailing = getTrailingSplitUndoText(leftText)
+
+      if (!trailing || trailing.value !== splitHistory.rightText) {
+        return null
+      }
+
+      return {
+        ...trailing,
+        hasRemoteSplitBoundary: this.hasRemoteSplitBoundary(splitHistory),
+        text: leftText,
+      } as const
+    } catch {
+      return null
+    }
+  }
+
+  private hasRemoteSplitBoundary(splitHistory: SplitHistory) {
+    try {
+      const rightElement = getYjsNode(
+        this.root,
+        nextPath(splitHistory.elementPath)
+      )
+
+      return getVisibleText(this.root, rightElement).startsWith(
+        splitHistory.rightText
+      )
+    } catch {
+      return false
+    }
+  }
+
+  private leftTextEndsWithSplitRightText(splitHistory: SplitHistory) {
+    try {
+      const leftText = getYjsNode(this.root, splitHistory.textPath)
+
+      return (
+        leftText instanceof Y.XmlText &&
+        getYjsTextContent(leftText).endsWith(splitHistory.rightText)
+      )
+    } catch {
+      return false
+    }
+  }
 }
 
-const appendTextContent = (target: Y.XmlText, source: Y.XmlText) => {
+const appendTextContent = (
+  target: Y.XmlText,
+  source: Y.XmlText,
+  extraAttributes: Record<string, unknown> = {}
+) => {
   let offset = getYjsLength(target)
   let insertedText = ''
 
@@ -597,7 +1263,10 @@ const appendTextContent = (target: Y.XmlText, source: Y.XmlText) => {
       continue
     }
 
-    target.insert(offset, delta.insert, delta.attributes)
+    target.insert(offset, delta.insert, {
+      ...(delta.attributes ?? {}),
+      ...extraAttributes,
+    })
     offset += delta.insert.length
     insertedText += delta.insert
   }
@@ -608,19 +1277,132 @@ const appendTextContent = (target: Y.XmlText, source: Y.XmlText) => {
 const appendElementText = (
   root: Y.XmlElement,
   target: Y.XmlText,
-  element: Y.XmlElement
+  element: Y.XmlElement,
+  extraAttributes: Record<string, unknown> = {}
 ) => {
   let insertedText = ''
 
   for (const child of getYjsVisibleChildren(root, element)) {
     if (child instanceof Y.XmlText) {
-      insertedText += appendTextContent(target, child)
+      insertedText += appendTextContent(target, child, extraAttributes)
     } else {
-      insertedText += appendElementText(root, target, child)
+      insertedText += appendElementText(root, target, child, extraAttributes)
     }
   }
 
   return insertedText
+}
+
+const findLastVisibleText = (
+  root: Y.XmlElement,
+  node: Y.XmlElement | Y.XmlText
+): Y.XmlText | null => {
+  if (node instanceof Y.XmlText) {
+    return node
+  }
+
+  const children = getYjsVisibleChildren(root, node)
+
+  for (let index = children.length - 1; index >= 0; index--) {
+    const child = children[index]
+    const text = child ? findLastVisibleText(root, child) : null
+
+    if (text) {
+      return text
+    }
+  }
+
+  return null
+}
+
+const getTrailingSplitUndoText = (text: Y.XmlText) => {
+  let offset = getYjsLength(text)
+  let value = ''
+
+  for (const delta of [...text.toDelta()].reverse()) {
+    if (typeof delta.insert !== 'string' || delta.insert.length === 0) {
+      return value ? { length: value.length, offset, value } : null
+    }
+
+    if (delta.attributes?.[SPLIT_UNDO_TEXT_ATTRIBUTE] === true) {
+      offset -= delta.insert.length
+      value = delta.insert + value
+      continue
+    }
+
+    break
+  }
+
+  return value ? { length: value.length, offset, value } : null
+}
+
+const clearSplitUndoTextAttribute = (
+  text: Y.XmlText,
+  offset: number,
+  length: number
+) => {
+  text.format(offset, length, {
+    [SPLIT_UNDO_TEXT_ATTRIBUTE]: null,
+  } as unknown as Record<string, never>)
+}
+
+const getVisibleText = (
+  root: Y.XmlElement,
+  node: Y.XmlElement | Y.XmlText
+): string => {
+  if (node instanceof Y.XmlText) {
+    return getYjsTextContent(node)
+  }
+
+  return getYjsVisibleChildren(root, node)
+    .map((child) => getVisibleText(root, child))
+    .join('')
+}
+
+const findSplitUndoTextRepairs = (root: Y.XmlElement) => {
+  const repairs: Array<{
+    hasRemoteSplitBoundary: boolean
+    length: number
+    offset: number
+    text: Y.XmlText
+  }> = []
+
+  const visit = (parent: Y.XmlElement) => {
+    const children = getYjsVisibleChildren(root, parent)
+
+    for (let index = 0; index < children.length; index++) {
+      const left = children[index]
+
+      if (!(left instanceof Y.XmlElement)) {
+        continue
+      }
+
+      const leftText = findLastVisibleText(root, left)
+      const right = children[index + 1]
+      const trailing = leftText ? getTrailingSplitUndoText(leftText) : null
+
+      if (leftText && trailing) {
+        repairs.push({
+          hasRemoteSplitBoundary: right
+            ? getVisibleText(root, right).startsWith(trailing.value)
+            : false,
+          length: trailing.length,
+          offset: trailing.offset,
+          text: leftText,
+        })
+      }
+    }
+
+    for (const child of children) {
+      if (child instanceof Y.XmlElement) {
+        visit(child)
+      }
+    }
+  }
+
+  visit(root)
+
+  return repairs
 }
 
 const isSplitHistory = (value: unknown): value is SplitHistory =>
@@ -639,6 +1421,14 @@ const nextPath = (path: Path) => {
   }
 
   return [...path.slice(0, -1), index + 1]
+}
+
+const getYjsNodeIf = (root: Y.XmlElement, path: Path) => {
+  try {
+    return getYjsNode(root, path)
+  } catch {
+    return null
+  }
 }
 
 const pathsEqual = (a: Path, b: Path) =>

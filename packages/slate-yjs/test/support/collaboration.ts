@@ -5,9 +5,14 @@ import * as Y from 'yjs'
 
 import { createYjsExtension } from '../../src'
 import { getYjsNode } from '../../src/core/document'
-import type { YjsAwarenessChange, YjsAwarenessLike } from '../../src/core/types'
+import type {
+  YjsAwarenessChange,
+  YjsAwarenessLike,
+  YjsProviderLike,
+} from '../../src/core/types'
 
 export type Peer = {
+  cleanup: () => void
   doc: Y.Doc
   editor: ReturnType<typeof createEditor>
 }
@@ -79,12 +84,14 @@ export const createYjsPeer = ({
   awareness,
   clientId,
   numericClientId,
+  provider,
   seedUpdate,
 }: {
   awareness?: YjsAwarenessLike
   children: Descendant[]
   clientId: string
   numericClientId?: number
+  provider?: YjsProviderLike
   seedUpdate?: Uint8Array
 }): Peer => {
   const editor = createEditor()
@@ -105,11 +112,17 @@ export const createYjsPeer = ({
     Y.applyUpdate(doc, seedUpdate)
   }
 
-  editor.extend(
-    createYjsExtension({ awareness, clientId, doc, rootName: 'slate' })
+  const cleanup = editor.extend(
+    createYjsExtension({
+      awareness,
+      clientId,
+      doc,
+      provider,
+      rootName: 'slate',
+    })
   )
 
-  return { doc, editor }
+  return { cleanup, doc, editor }
 }
 
 export const createSeededYjsPeers = ({

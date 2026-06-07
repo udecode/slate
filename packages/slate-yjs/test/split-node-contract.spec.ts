@@ -18,6 +18,8 @@ const paragraph = (text: string): Descendant => ({
 
 const initialValue = () => [paragraph('alphabeta')]
 
+const helloValue = () => [paragraph('Hello world!')]
+
 const createPeer = (
   clientId: string,
   seedUpdate?: Uint8Array,
@@ -42,19 +44,21 @@ const createPeer = (
   return { doc, editor }
 }
 
-const createPeers = (clientIds: string[]) => {
+const createPeers = (clientIds: string[], children = initialValue()) => {
   const [firstClientId, ...remainingClientIds] = clientIds
 
   if (!firstClientId) {
     return []
   }
 
-  const firstPeer = createPeer(firstClientId)
+  const firstPeer = createPeer(firstClientId, undefined, children)
   const seedUpdate = Y.encodeStateAsUpdate(firstPeer.doc)
 
   return [
     firstPeer,
-    ...remainingClientIds.map((clientId) => createPeer(clientId, seedUpdate)),
+    ...remainingClientIds.map((clientId) =>
+      createPeer(clientId, seedUpdate, children)
+    ),
   ]
 }
 
@@ -124,14 +128,20 @@ const syncConnected = (peers: Peer[]) => {
 }
 
 const assertAllTexts = (peers: Peer[], expected: string[]) => {
-  for (const peer of peers) {
-    assert.deepEqual(paragraphTexts(peer), expected)
+  for (const [index, peer] of peers.entries()) {
+    assert.deepEqual(paragraphTexts(peer), expected, `peer ${index}`)
   }
 }
 
 const splitParagraph = (peer: Peer) => {
   peer.editor.update((tx) => {
     tx.nodes.split({ at: { path: [0, 0], offset: 'alph'.length } })
+  })
+}
+
+const splitHelloParagraph = (peer: Peer) => {
+  peer.editor.update((tx) => {
+    tx.nodes.split({ at: { path: [0, 0], offset: 'Hello '.length } })
   })
 }
 
@@ -144,6 +154,31 @@ const insertRemoteTextAtSplitPoint = (peer: Peer) => {
 const appendRemoteText = (peer: Peer) => {
   peer.editor.update((tx) => {
     tx.text.insert('!', { at: { path: [0, 0], offset: 'alphabeta'.length } })
+  })
+}
+
+const appendExclamationToFirstParagraph = (peer: Peer) => {
+  const offset = Editor.string(peer.editor, [0]).length
+
+  peer.editor.update((tx) => {
+    tx.text.insert('!', { at: { path: [0, 0], offset } })
+  })
+}
+
+const insertWorldParagraphAfterFirst = (peer: Peer) => {
+  const offset = Editor.string(peer.editor, [0]).length
+
+  peer.editor.update((tx) => {
+    tx.selection.set({
+      anchor: { path: [0, 0], offset },
+      focus: { path: [0, 0], offset },
+    })
+  })
+  peer.editor.update((tx) => {
+    tx.break.insert()
+  })
+  peer.editor.update((tx) => {
+    tx.text.insert('world! after')
   })
 }
 
@@ -212,6 +247,76 @@ describe('@slate/yjs split_node collaboration contract', () => {
     syncConnected(peers)
 
     assertAllTexts(peers, ['alph', 'abeta'])
+  })
+
+  it('preserves a remote split when an offline local split was undone before reconnect', () => {
+    const peers = createPeers(['a', 'b', 'c'], helloValue())
+    const [a, b] = peers
+
+    yjsUpdate(a, (yjs) => yjs.disconnect())
+    splitHelloParagraph(a)
+    yjsUpdate(a, (yjs) => yjs.undo())
+    assert.deepEqual(paragraphTexts(a), ['Hello world!'])
+
+    splitHelloParagraph(b)
+    syncConnected(peers)
+    assert.deepEqual(paragraphTexts(a), ['Hello world!'])
+    assert.deepEqual(paragraphTexts(b), ['Hello ', 'world!'])
+
+    yjsUpdate(a, (yjs) => yjs.connect())
+    syncConnected(peers)
+
+    assertAllTexts(peers, ['Hello ', 'world!'])
+    assertNoRootSnapshot(a)
+  })
+
+  it('replays an offline split redo onto the remote split boundary after reconnect', () => {
+    const peers = createPeers(['a', 'b', 'c'], helloValue())
+    const [a, b] = peers
+
+    yjsUpdate(a, (yjs) => yjs.disconnect())
+    splitHelloParagraph(a)
+    yjsUpdate(a, (yjs) => yjs.undo())
+    assert.deepEqual(paragraphTexts(a), ['Hello world!'])
+
+    appendExclamationToFirstParagraph(b)
+    syncConnected(peers)
+    splitHelloParagraph(b)
+    syncConnected(peers)
+    assert.deepEqual(paragraphTexts(a), ['Hello world!'])
+    assert.deepEqual(paragraphTexts(b), ['Hello ', 'world!!'])
+
+    yjsUpdate(a, (yjs) => yjs.connect())
+    syncConnected(peers)
+    yjsUpdate(a, (yjs) => yjs.redo())
+    syncConnected(peers)
+
+    assertAllTexts(peers, ['Hello ', 'world!!'])
+    assertNoRootSnapshot(a)
+  })
+
+  it('does not absorb a later unrelated paragraph that matches the offline undo suffix', () => {
+    const peers = createPeers(['a', 'b', 'c'], helloValue())
+    const [a, b] = peers
+
+    yjsUpdate(a, (yjs) => yjs.disconnect())
+    splitHelloParagraph(a)
+    yjsUpdate(a, (yjs) => yjs.undo())
+    assert.deepEqual(paragraphTexts(a), ['Hello world!'])
+
+    yjsUpdate(a, (yjs) => yjs.connect())
+    syncConnected(peers)
+    assertAllTexts(peers, ['Hello world!'])
+
+    insertWorldParagraphAfterFirst(b)
+    syncConnected(peers)
+    assertAllTexts(peers, ['Hello world!', 'world! after'])
+
+    yjsUpdate(a, (yjs) => yjs.redo())
+    syncConnected(peers)
+
+    assertAllTexts(peers, ['Hello ', 'world!', 'world! after'])
+    assertNoRootSnapshot(a)
   })
 
   it('undoes and redoes only the local split intent after reconnect', () => {

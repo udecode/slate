@@ -4,6 +4,7 @@ import * as Y from 'yjs'
 const SLATE_TYPE_ATTRIBUTE = 'slate:type'
 const HIDDEN_ATTRIBUTE = 'slate:yjs-hidden'
 const NODE_ID_ATTRIBUTE = 'slate:yjs-id'
+export const SPLIT_UNDO_TEXT_ATTRIBUTE = 'slate:yjs-split-undo-text'
 const VIRTUAL_CHILD_ID_ATTRIBUTE = 'slate:yjs-virtual-child-id'
 const VIRTUAL_PLACEHOLDER_ATTRIBUTE = 'slate:yjs-virtual-placeholder'
 
@@ -49,17 +50,36 @@ const removeAttribute = (node: Y.XmlElement | Y.XmlText, attribute: string) => {
   node.removeAttribute(attribute)
 }
 
-const isVirtualPlaceholder = (
+export const isVirtualYjsPlaceholder = (
   node: Y.XmlElement | Y.XmlText
 ): node is Y.XmlElement =>
   node instanceof Y.XmlElement &&
   getAttributes(node)[VIRTUAL_PLACEHOLDER_ATTRIBUTE] === true
 
-const getVirtualChild = (root: Y.XmlElement, node: Y.XmlElement) => {
+export const getVirtualYjsChild = (
+  root: Y.XmlElement,
+  node: Y.XmlElement,
+  visited = new Set<Y.XmlElement>()
+): Y.XmlElement | Y.XmlText | null => {
+  if (visited.has(node)) {
+    return null
+  }
+
+  visited.add(node)
+
   const virtualChildId = node.getAttribute(VIRTUAL_CHILD_ID_ATTRIBUTE)
 
   if (typeof virtualChildId === 'string') {
-    return findYjsNodeById(root, virtualChildId)
+    const virtualChild = findYjsNodeById(root, virtualChildId)
+
+    if (
+      virtualChild instanceof Y.XmlElement &&
+      isVirtualYjsPlaceholder(virtualChild)
+    ) {
+      return getVirtualYjsChild(root, virtualChild, visited)
+    }
+
+    return virtualChild
   }
 
   return null
@@ -71,8 +91,8 @@ const getYjsVisibleChildSlots = (root: Y.XmlElement, node: Y.XmlElement) => {
       return []
     }
 
-    if (isVirtualPlaceholder(child)) {
-      const virtualChild = getVirtualChild(root, child)
+    if (isVirtualYjsPlaceholder(child)) {
+      const virtualChild = getVirtualYjsChild(root, child)
 
       return virtualChild ? [{ node: virtualChild, rawIndex }] : []
     }
@@ -80,8 +100,8 @@ const getYjsVisibleChildSlots = (root: Y.XmlElement, node: Y.XmlElement) => {
     return [{ node: child, rawIndex }]
   })
 
-  if (!isVirtualPlaceholder(node)) {
-    const virtualChild = getVirtualChild(root, node)
+  if (!isVirtualYjsPlaceholder(node)) {
+    const virtualChild = getVirtualYjsChild(root, node)
 
     if (virtualChild) {
       return [{ node: virtualChild, rawIndex: -1 }, ...rawSlots]
@@ -175,10 +195,15 @@ export const replaceYjsChildren = (
   }
 }
 
-export const readSlateValueFromYjs = (root: Y.XmlElement): Descendant[] =>
-  getYjsVisibleChildren(root, root).map((node) =>
+export const readSlateValueFromYjs = (root: Y.XmlElement): Descendant[] => {
+  const children = getYjsVisibleChildren(root, root).map((node) =>
     readSlateNodeFromYjs(root, node)
   )
+
+  return children.length > 0
+    ? children
+    : [{ children: [{ text: '' }], type: 'paragraph' }]
+}
 
 const getUniformTextAttributes = (node: Y.XmlText) => {
   const delta = node.toDelta()
@@ -189,7 +214,9 @@ const getUniformTextAttributes = (node: Y.XmlText) => {
       continue
     }
 
-    const partAttributes = part.attributes ?? {}
+    const partAttributes = { ...(part.attributes ?? {}) }
+
+    deleteInternalAttributes(partAttributes)
 
     if (!attributes) {
       attributes = partAttributes
@@ -232,31 +259,56 @@ const readSlateNodeFromYjs = (
   delete attributes[SLATE_TYPE_ATTRIBUTE]
   deleteInternalAttributes(attributes)
 
+  const children = getYjsVisibleChildren(root, node).map((child) =>
+    readSlateNodeFromYjs(root, child)
+  )
+
   return {
     ...attributes,
     type,
-    children: getYjsVisibleChildren(root, node).map((child) =>
-      readSlateNodeFromYjs(root, child)
-    ),
+    children: children.length > 0 ? children : [{ text: '' }],
   } as Descendant
 }
 
-export const cloneYjsNode = (
-  node: Y.XmlElement | Y.XmlText
-): Y.XmlElement | Y.XmlText => {
+const cloneYjsNodeWithRoot = (
+  node: Y.XmlElement | Y.XmlText,
+  root: Y.XmlElement | null
+): Y.XmlElement | Y.XmlText | null => {
+  if (root && node instanceof Y.XmlElement && isVirtualYjsPlaceholder(node)) {
+    const virtualChild = getVirtualYjsChild(root, node)
+
+    return virtualChild ? cloneYjsNodeWithRoot(virtualChild, root) : null
+  }
+
+  const attributes = { ...getAttributes(node) }
+
+  deleteInternalAttributes(attributes)
+
   if (node instanceof Y.XmlText) {
     const clone = new Y.XmlText()
 
-    setAttributes(clone, getAttributes(node))
+    setAttributes(clone, attributes)
     clone.applyDelta(node.toDelta(), { sanitize: false })
 
     return clone
   }
 
   const clone = new Y.XmlElement(node.nodeName)
-  const children = getYjsChildren(node).map(cloneYjsNode)
+  const children = getYjsChildren(node).flatMap((child) => {
+    if (
+      !root &&
+      child instanceof Y.XmlElement &&
+      isVirtualYjsPlaceholder(child)
+    ) {
+      return []
+    }
 
-  setAttributes(clone, getAttributes(node))
+    const childClone = cloneYjsNodeWithRoot(child, root)
+
+    return childClone ? [childClone] : []
+  })
+
+  setAttributes(clone, attributes)
 
   if (children.length > 0) {
     clone.insert(0, children)
@@ -264,6 +316,23 @@ export const cloneYjsNode = (
 
   return clone
 }
+
+export const cloneYjsNode = (
+  node: Y.XmlElement | Y.XmlText
+): Y.XmlElement | Y.XmlText => {
+  const clone = cloneYjsNodeWithRoot(node, null)
+
+  if (!clone) {
+    throw new Error('Cannot clone a missing Yjs node.')
+  }
+
+  return clone
+}
+
+export const cloneVisibleYjsNode = (
+  root: Y.XmlElement,
+  node: Y.XmlElement | Y.XmlText
+): Y.XmlElement | Y.XmlText | null => cloneYjsNodeWithRoot(node, root)
 
 export const getYjsNode = (
   root: Y.XmlElement,
@@ -429,6 +498,7 @@ export const getYjsParent = (
 const deleteInternalAttributes = (attributes: Record<string, unknown>) => {
   delete attributes[HIDDEN_ATTRIBUTE]
   delete attributes[NODE_ID_ATTRIBUTE]
+  delete attributes[SPLIT_UNDO_TEXT_ATTRIBUTE]
   delete attributes[VIRTUAL_CHILD_ID_ATTRIBUTE]
   delete attributes[VIRTUAL_PLACEHOLDER_ATTRIBUTE]
 }

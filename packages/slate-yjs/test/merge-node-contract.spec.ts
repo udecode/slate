@@ -5,6 +5,7 @@ import { Editor } from 'slate/internal'
 import * as Y from 'yjs'
 
 import { createYjsExtension } from '../src'
+import { readSlateValueFromYjs } from '../src/core/document'
 
 type Peer = {
   doc: Y.Doc
@@ -16,7 +17,17 @@ const paragraph = (text: string): Descendant => ({
   children: [{ text }],
 })
 
+const quote = (...children: Descendant[]): Descendant => ({
+  type: 'block-quote',
+  children,
+})
+
 const initialValue = () => [paragraph('alpha'), paragraph('beta')]
+
+const incompatibleMergeValue = (): Descendant[] => [
+  paragraph('block 2'),
+  quote(paragraph('alpha'), paragraph('beta')),
+]
 
 const textMergeValue = (): Descendant[] => [
   {
@@ -167,6 +178,33 @@ const appendRemoteTextToLeftParagraph = (peer: Peer) => {
 }
 
 describe('@slate/yjs merge_node collaboration contract', () => {
+  it('elides incompatible structural merge instead of nesting blocks into a paragraph', () => {
+    const peer = createPeer('b', undefined, incompatibleMergeValue())
+
+    yjsUpdate(peer, (yjs) => yjs.clearTrace())
+    mergeSecondParagraph(peer)
+
+    assert.deepEqual(readSlateValueFromYjs(yjsState(peer).root()), [
+      paragraph('block 2'),
+      quote(paragraph('alpha'), paragraph('beta')),
+    ])
+    assert.deepEqual(yjsState(peer).trace(), [
+      {
+        fallback: 'incompatible-structural-merge-elided',
+        mode: 'traceable-fallback',
+        operationType: 'merge_node',
+      },
+    ])
+
+    yjsUpdate(peer, (yjs) => yjs.reconcile())
+
+    assert.deepEqual(
+      Editor.getSnapshot(peer.editor).children,
+      incompatibleMergeValue()
+    )
+    assertNoRootSnapshot(peer)
+  })
+
   it('applies local offline public merge without a root snapshot fallback', () => {
     const peer = createPeer('b')
     const survivor = yjsNodeAt(peer, [0])

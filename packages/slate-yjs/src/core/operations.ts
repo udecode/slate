@@ -2,7 +2,7 @@ import type { Descendant, Operation } from 'slate'
 import * as Y from 'yjs'
 
 import {
-  cloneYjsNode,
+  cloneVisibleYjsNode,
   createVirtualYjsMovePlaceholder,
   createYjsNode,
   getYjsChildren,
@@ -329,6 +329,77 @@ const pathsEqual = (left: readonly number[], right: readonly number[]) =>
   left.length === right.length &&
   left.every((part, index) => part === right[index])
 
+const getYjsNodeIf = (root: Y.XmlElement, path: number[]) => {
+  try {
+    return getYjsNode(root, path)
+  } catch {
+    return null
+  }
+}
+
+const isEmptyYjsText = (node: Y.XmlElement | Y.XmlText) =>
+  node instanceof Y.XmlText && getYjsTextContent(node).length === 0
+
+const getYjsElementType = (element: Y.XmlElement) =>
+  String(element.getAttribute(SLATE_TYPE_ATTRIBUTE) ?? element.nodeName)
+
+type YjsElementChildKind = 'element' | 'empty' | 'mixed' | 'text'
+
+const getYjsElementChildKind = (
+  root: Y.XmlElement,
+  element: Y.XmlElement
+): YjsElementChildKind => {
+  let kind: YjsElementChildKind = 'empty'
+
+  for (const child of getYjsVisibleChildren(root, element)) {
+    const childKind = child instanceof Y.XmlText ? 'text' : 'element'
+
+    if (kind === 'empty') {
+      kind = childKind
+      continue
+    }
+
+    if (kind !== childKind) {
+      return 'mixed'
+    }
+  }
+
+  return kind
+}
+
+const canMergeYjsElements = (
+  root: Y.XmlElement,
+  previous: Y.XmlElement,
+  target: Y.XmlElement
+) => {
+  if (getYjsElementType(previous) !== getYjsElementType(target)) {
+    return false
+  }
+
+  const previousKind = getYjsElementChildKind(root, previous)
+  const targetKind = getYjsElementChildKind(root, target)
+
+  if (previousKind === 'mixed' || targetKind === 'mixed') {
+    return false
+  }
+
+  return (
+    previousKind === 'empty' ||
+    targetKind === 'empty' ||
+    previousKind === targetKind
+  )
+}
+
+const unsupportedYjsOperation = (operation: never): never => {
+  const operationType = (operation as { type?: unknown }).type
+
+  throw new Error(
+    `Unsupported Yjs operation: ${
+      typeof operationType === 'string' ? operationType : 'unknown'
+    }`
+  )
+}
+
 export const applySlateOperationToYjs = (
   root: Y.XmlElement,
   operation: Operation
@@ -415,7 +486,11 @@ export const applySlateOperationToYjs = (
       const children = getYjsChildren(target)
       const rightChildren = children
         .slice(operation.position)
-        .map((child) => cloneYjsNode(child))
+        .flatMap((child) => {
+          const clone = cloneVisibleYjsNode(root, child)
+
+          return clone ? [clone] : []
+        })
       const deleteCount = getYjsLength(target) - operation.position
 
       if (deleteCount > 0) {
@@ -446,6 +521,14 @@ export const applySlateOperationToYjs = (
       const previous = children[index - 1]
       const target = children[index]
 
+      if (previous instanceof Y.XmlText && !target) {
+        return {
+          fallback: 'empty-text-merge-elided',
+          mode: 'traceable-fallback',
+          operationType: operation.type,
+        }
+      }
+
       if (!previous || !target) {
         throw new Error('Cannot merge a missing Yjs node.')
       }
@@ -459,12 +542,27 @@ export const applySlateOperationToYjs = (
       }
 
       if (previous instanceof Y.XmlElement && target instanceof Y.XmlElement) {
-        for (const child of getYjsChildren(target)) {
+        if (!canMergeYjsElements(root, previous, target)) {
+          return {
+            fallback: 'incompatible-structural-merge-elided',
+            mode: 'traceable-fallback',
+            operationType: operation.type,
+          }
+        }
+
+        const previousHasChildren =
+          getYjsVisibleChildren(root, previous).length > 0
+
+        for (const moveTarget of getYjsVisibleChildren(root, target)) {
+          if (previousHasChildren && isEmptyYjsText(moveTarget)) {
+            continue
+          }
+
           insertYjsChild(
             root,
             previous,
             getYjsLength(previous),
-            createVirtualYjsMovePlaceholder(child)
+            createVirtualYjsMovePlaceholder(moveTarget)
           )
         }
 
@@ -572,16 +670,25 @@ export const applySlateOperationToYjs = (
       return { mode: 'operation', operationType: operation.type }
     }
     case 'move_node': {
-      const target = getYjsNode(root, operation.path)
+      const target = getYjsNodeIf(root, operation.path)
+
+      if (!target) {
+        return {
+          fallback: 'missing-move-source-elided',
+          mode: 'traceable-fallback',
+          operationType: operation.type,
+        }
+      }
+
       const sourceParentPath = operation.path.slice(0, -1)
       const sourceParent =
         sourceParentPath.length === 0
           ? root
-          : getYjsNode(root, sourceParentPath)
+          : getYjsNodeIf(root, sourceParentPath)
       const newParentPath = operation.newPath.slice(0, -1)
       const newIndex = operation.newPath.at(-1)
       const newParent =
-        newParentPath.length === 0 ? root : getYjsNode(root, newParentPath)
+        newParentPath.length === 0 ? root : getYjsNodeIf(root, newParentPath)
 
       if (
         sourceParent instanceof Y.XmlElement &&
@@ -598,7 +705,11 @@ export const applySlateOperationToYjs = (
       }
 
       if (!(newParent instanceof Y.XmlElement)) {
-        throw new Error('move_node destination parent is not a Y.XmlElement.')
+        return {
+          fallback: 'missing-move-destination-elided',
+          mode: 'traceable-fallback',
+          operationType: operation.type,
+        }
       }
       if (newIndex === undefined) {
         throw new Error('move_node destination is missing an index.')
@@ -628,4 +739,6 @@ export const applySlateOperationToYjs = (
       }
     }
   }
+
+  return unsupportedYjsOperation(operation)
 }
