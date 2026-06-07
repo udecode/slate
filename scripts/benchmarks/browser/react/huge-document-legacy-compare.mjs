@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -30,6 +31,8 @@ const typeOps = Number(process.env.REACT_HUGE_COMPARE_TYPE_OPS || 20)
 const profile = process.env.REACT_HUGE_COMPARE_PROFILE === '1'
 const compareMode = process.env.REACT_HUGE_COMPARE_MODE || 'compare'
 const readyOnly = process.env.REACT_HUGE_COMPARE_READY_ONLY === '1'
+const measureNativeSurfaceCompletion =
+  process.env.REACT_HUGE_COMPARE_NATIVE_SURFACE_COMPLETE === '1'
 const includeSyntheticBeforeInput =
   process.env.REACT_HUGE_COMPARE_SYNTHETIC_BEFOREINPUT === '1'
 const skipBuild = process.env.REACT_HUGE_COMPARE_SKIP_BUILD === '1'
@@ -41,6 +44,7 @@ const disposeDelayMs = Number(
   process.env.REACT_HUGE_COMPARE_DISPOSE_DELAY_MS || 500
 )
 const printJSON = process.env.REACT_HUGE_COMPARE_PRINT_JSON === '1'
+const progressEnabled = process.env.REACT_HUGE_COMPARE_PROGRESS !== '0'
 const pasteText = 'replacement marker'
 const createPasteFragment = () => [
   {
@@ -55,14 +59,35 @@ const currentJsdomRequireFrom = resolve(
 const latestArtifactPath =
   'tmp/slate-react-huge-document-legacy-compare-benchmark.json'
 
-const sanitizeArtifactSegment = (value) =>
+const sanitizeArtifactText = (value) =>
   String(value)
     .replace(/[^a-zA-Z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 180) || 'default'
+    .replace(/^-+|-+$/g, '') || 'default'
+
+const sanitizeArtifactSegment = (value, limit = 180) =>
+  sanitizeArtifactText(value).slice(0, limit).replace(/-+$/g, '') || 'default'
+
+const getBoundedArtifactSegment = (value, limit) => {
+  const sanitized = sanitizeArtifactText(value)
+
+  if (sanitized.length <= limit) {
+    return sanitized
+  }
+
+  const hash = createHash('sha1').update(sanitized).digest('hex').slice(0, 8)
+  const prefix =
+    sanitized
+      .slice(0, Math.max(1, limit - hash.length - 1))
+      .replace(/-+$/g, '') || 'default'
+
+  return `${prefix}-${hash}`
+}
 
 const getSelectedSurfaceLabel = () =>
-  sanitizeArtifactSegment(process.env.REACT_HUGE_COMPARE_SURFACES || 'all')
+  getBoundedArtifactSegment(
+    process.env.REACT_HUGE_COMPARE_SURFACES || 'all',
+    32
+  )
 
 const getRunArtifactPath = ({ mode }) =>
   `${[
@@ -104,6 +129,12 @@ const printHugeDocumentSummary = (summary) => {
   console.log(`Wrote ${summary.artifactPaths.run}`)
 }
 
+const logProgress = (message) => {
+  if (progressEnabled) {
+    console.error(`[huge-document-compare] ${message}`)
+  }
+}
+
 const sharedSource = `
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
@@ -124,11 +155,14 @@ const iterations = Number(process.env.REACT_HUGE_COMPARE_ITERATIONS || 3)
 const blocks = Number(process.env.REACT_HUGE_COMPARE_BLOCKS || 5000)
 const typeOps = Number(process.env.REACT_HUGE_COMPARE_TYPE_OPS || 20)
 const readyOnly = process.env.REACT_HUGE_COMPARE_READY_ONLY === '1'
+const measureNativeSurfaceCompletion =
+  process.env.REACT_HUGE_COMPARE_NATIVE_SURFACE_COMPLETE === '1'
 const includeSyntheticBeforeInput =
   process.env.REACT_HUGE_COMPARE_SYNTHETIC_BEFOREINPUT === '1'
 const splitSelectionLanes =
   process.env.REACT_HUGE_COMPARE_SPLIT_SELECTION === '1'
 const disposeDelayMs = Number(process.env.REACT_HUGE_COMPARE_DISPOSE_DELAY_MS || 500)
+const progressEnabled = process.env.REACT_HUGE_COMPARE_PROGRESS !== '0'
 const pasteText = ${JSON.stringify(pasteText)}
 const modelOwnedBeforeInputText = '@'
 const createPasteFragment = ${createPasteFragment.toString()}
@@ -163,6 +197,15 @@ const forceBenchmarkGC = () => {
     gc(true)
   }
 }
+
+const logProgress = (message) => {
+  if (progressEnabled) {
+    console.error('[huge-document-compare] ' + message)
+  }
+}
+
+const formatProgressMs = (value) =>
+  typeof value === 'number' ? value + 'ms' : 'n/a'
 
 const recordBenchmarkProfileDuration = (id, duration) => {
   globalThis.__SLATE_REACT_RENDER_PROFILER__?.record?.({
@@ -935,6 +978,13 @@ const runSurface = async ({ chunking }) => {
   }
 }
 
+logProgress('surface legacyChunkOn start')
+const legacyChunkOnSurface = await runSurface({ chunking: true })
+logProgress(
+  'surface legacyChunkOn done readyP95=' +
+    formatProgressMs(legacyChunkOnSurface.readyMs?.p95)
+)
+
 console.log(JSON.stringify({
   config: {
     blocks,
@@ -946,7 +996,7 @@ console.log(JSON.stringify({
     typeOps,
   },
   surfaces: {
-    legacyChunkOn: await runSurface({ chunking: true }),
+    legacyChunkOn: legacyChunkOnSurface,
   },
 }))
 `
@@ -1718,6 +1768,82 @@ const measureTypeAfterSelect = async ({
     }
   )
 
+const getPartialDOMPlaceholderForBlock = ({ blockIndex, container }) => {
+  const placeholders = [
+    ...container.querySelectorAll(
+      '[data-slate-dom-strategy-placeholder="true"]'
+    ),
+  ]
+  const inferredSegmentSize = Math.max(
+    1,
+    Math.ceil(blocks / (placeholders.length + 1))
+  )
+  const segmentIndex = Math.floor(blockIndex / inferredSegmentSize)
+  const placeholder = placeholders.find(
+    (element) =>
+      element.getAttribute('data-slate-dom-strategy-segment') ===
+      String(segmentIndex)
+  )
+
+  return {
+    inferredSegmentSize,
+    placeholder,
+    segmentIndex,
+  }
+}
+
+const promoteBlock = async ({ blockIndex, container, dom }) => {
+  const { inferredSegmentSize, placeholder, segmentIndex } =
+    getPartialDOMPlaceholderForBlock({ blockIndex, container })
+
+  if (!placeholder) {
+    return {
+      inferredSegmentSize,
+      promoted: false,
+      segmentIndex,
+    }
+  }
+
+  await profileBenchmarkDurationAsync('promote-placeholder-mousedown-act', () =>
+    act(async () => {
+      placeholder.dispatchEvent(
+        new dom.window.MouseEvent('mousedown', {
+          bubbles: true,
+        })
+      )
+    })
+  )
+  await profileBenchmarkDurationAsync('promote-placeholder-settle', () =>
+    settleBenchmark()
+  )
+
+  return {
+    inferredSegmentSize,
+    promoted: true,
+    segmentIndex,
+  }
+}
+
+const measurePromoteBlock = async ({
+  blockIndex,
+  domStrategy,
+  renderElement,
+}) =>
+  measureLane(
+    () => mount({ domStrategy, renderElement }),
+    async ({ container, dom }) => {
+      const promotion = await promoteBlock({ blockIndex, container, dom })
+      const root = getEditableRoot(container)
+
+      return {
+        inferredSegmentSize: promotion.inferredSegmentSize,
+        promoted: promotion.promoted ? 1 : 0,
+        segmentIndex: promotion.segmentIndex,
+        textHostCount: root.querySelectorAll('[data-slate-node="text"]').length,
+      }
+    }
+  )
+
 const measurePromoteThenType = async ({
   blockIndex,
   domStrategy,
@@ -1726,21 +1852,7 @@ const measurePromoteThenType = async ({
   measureLane(
     () => mount({ domStrategy, renderElement }),
     async ({ container, dom, editor }) => {
-      const segmentIndex = Math.floor(blockIndex / segmentSize)
-      const partialDOMPlaceholder = container.querySelector(
-        \`[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="\${segmentIndex}"]\`
-      )
-
-      if (partialDOMPlaceholder) {
-        await act(async () => {
-          partialDOMPlaceholder.dispatchEvent(
-            new dom.window.MouseEvent('mousedown', {
-              bubbles: true,
-            })
-          )
-        })
-        await settleBenchmark()
-      }
+      await promoteBlock({ blockIndex, container, dom })
 
       await selectBlock({ blockIndex, editor })
 
@@ -1766,21 +1878,7 @@ const measurePromoteThenType = async ({
   )
 
 const promoteAndSelectBlock = async ({ blockIndex, container, dom, editor }) => {
-  const segmentIndex = Math.floor(blockIndex / segmentSize)
-  const partialDOMPlaceholder = container.querySelector(
-    \`[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="\${segmentIndex}"]\`
-  )
-
-  if (partialDOMPlaceholder) {
-    await act(async () => {
-      partialDOMPlaceholder.dispatchEvent(
-        new dom.window.MouseEvent('mousedown', {
-          bubbles: true,
-        })
-      )
-    })
-    await settleBenchmark()
-  }
+  await promoteBlock({ blockIndex, container, dom })
 
   const selection = {
     anchor: { path: [blockIndex, 0], offset: 0 },
@@ -2062,7 +2160,8 @@ const runSurface = async ({ domStrategy, renderElement, trace }) => {
     }
   }
 
-  const nativeSurfaceCompleteMs = trace.stagedMountingEnabled
+  const nativeSurfaceCompleteMs =
+    trace.stagedMountingEnabled && measureNativeSurfaceCompletion
     ? await measureNativeSurfaceComplete({ domStrategy, renderElement })
     : null
 
@@ -2121,6 +2220,11 @@ const runSurface = async ({ domStrategy, renderElement, trace }) => {
       renderElement,
       selectBefore: true,
     }),
+    middleBlockPromoteMs: await measurePromoteBlock({
+      blockIndex: Math.floor(blocks / 2),
+      domStrategy,
+      renderElement,
+    }),
     middleBlockPromoteThenTypeMs: await measurePromoteThenType({
       blockIndex: Math.floor(blocks / 2),
       domStrategy,
@@ -2170,7 +2274,17 @@ const runSurface = async ({ domStrategy, renderElement, trace }) => {
 const surfaces = {}
 
 for (const surface of selectedSurfaceDefinitions) {
-  surfaces[surface.name] = await runSurface(surface)
+  logProgress('surface ' + surface.name + ' start')
+  const surfaceResult = await runSurface(surface)
+  logProgress(
+    'surface ' +
+      surface.name +
+      ' done readyP95=' +
+      formatProgressMs(surfaceResult.readyMs?.p95) +
+      ' promoteP95=' +
+      formatProgressMs(surfaceResult.middleBlockPromoteMs?.p95)
+  )
+  surfaces[surface.name] = surfaceResult
 }
 
 console.log(JSON.stringify({
@@ -2181,6 +2295,7 @@ console.log(JSON.stringify({
     segmentSize,
     includeSyntheticBeforeInput,
     iterations,
+    measureNativeSurfaceCompletion,
     profileEnabled,
     readyOnly,
     rootGroupSize,
@@ -2199,13 +2314,18 @@ if (!skipBuild) {
 }
 
 const env = {
+  BENCHMARK_PROGRESS: progressEnabled ? '1' : '0',
   REACT_HUGE_COMPARE_ACTIVE_RADIUS: String(overscan),
   REACT_HUGE_COMPARE_BLOCKS: String(blocks),
   REACT_HUGE_COMPARE_CHUNK_SIZE: String(chunkSize),
   REACT_HUGE_COMPARE_ISLAND_SIZE: String(segmentSize),
   REACT_HUGE_COMPARE_ISOLATE_SURFACES: isolateCurrentSurfaces ? '1' : '0',
   REACT_HUGE_COMPARE_ITERATIONS: String(iterations),
+  REACT_HUGE_COMPARE_NATIVE_SURFACE_COMPLETE: measureNativeSurfaceCompletion
+    ? '1'
+    : '0',
   REACT_HUGE_COMPARE_PROFILE: profile ? '1' : '0',
+  REACT_HUGE_COMPARE_PROGRESS: progressEnabled ? '1' : '0',
   REACT_HUGE_COMPARE_READY_ONLY: readyOnly ? '1' : '0',
   REACT_HUGE_COMPARE_SURFACES: process.env.REACT_HUGE_COMPARE_SURFACES || '',
   REACT_HUGE_COMPARE_TYPE_OPS: String(typeOps),
@@ -2238,6 +2358,9 @@ const current =
         const surfaceEntries = []
 
         for (const surfaceName of currentSurfaceNamesToRun) {
+          logProgress(
+            `current surface ${surfaceName} start (${surfaceEntries.length + 1}/${currentSurfaceNamesToRun.length})`
+          )
           const result = await benchmarkRepo({
             benchmarkSource: currentBenchmarkSource,
             env: {
@@ -2247,6 +2370,7 @@ const current =
             packageManager: currentPackageManager,
             repo: currentRepo,
           })
+          logProgress(`current surface ${surfaceName} done`)
 
           surfaceEntries.push([surfaceName, result.surfaces[surfaceName]])
         }
@@ -2260,6 +2384,7 @@ const current =
             includeSyntheticBeforeInput,
             isolateCurrentSurfaces,
             iterations,
+            measureNativeSurfaceCompletion,
             profileEnabled: profile,
             readyOnly,
             rootGroupSize,
@@ -2269,12 +2394,22 @@ const current =
           surfaces: Object.fromEntries(surfaceEntries),
         }
       })()
-    : await benchmarkRepo({
-        benchmarkSource: currentBenchmarkSource,
-        env,
-        packageManager: currentPackageManager,
-        repo: currentRepo,
-      })
+    : await (async () => {
+        logProgress(
+          `current surfaces ${currentSurfaceNamesToRun.join(',')} start`
+        )
+        const result = await benchmarkRepo({
+          benchmarkSource: currentBenchmarkSource,
+          env,
+          packageManager: currentPackageManager,
+          repo: currentRepo,
+        })
+        logProgress(
+          `current surfaces ${currentSurfaceNamesToRun.join(',')} done`
+        )
+
+        return result
+      })()
 
 if (compareMode === 'current-only') {
   const summary = {
@@ -2289,6 +2424,7 @@ if (compareMode === 'current-only') {
       includeSyntheticBeforeInput,
       isolateCurrentSurfaces,
       iterations,
+      measureNativeSurfaceCompletion,
       profile,
       readyOnly,
       rootGroupSize,
@@ -2310,15 +2446,19 @@ if (compareMode === 'current-only') {
 const legacyPackageManager = await parsePackageManager(legacyRepo)
 
 if (!skipBuild) {
+  logProgress('legacy build start')
   await buildRepo(legacyRepo, legacyPackageManager, './packages/slate-react')
+  logProgress('legacy build done')
 }
 
+logProgress('legacy benchmark start')
 const legacy = await benchmarkRepo({
   benchmarkSource: legacyBenchmarkSource,
   env,
   packageManager: legacyPackageManager,
   repo: legacyRepo,
 })
+logProgress('legacy benchmark done')
 
 const legacyChunkOn = legacy.surfaces.legacyChunkOn
 
@@ -2346,7 +2486,9 @@ const comparableProductLaneNames = readyOnly
       'replaceFullDocumentWithTextMs',
       'insertFragmentFullDocumentMs',
     ]
-const v2OnlyProductLaneNames = readyOnly ? [] : ['middleBlockPromoteThenTypeMs']
+const v2OnlyProductLaneNames = readyOnly
+  ? []
+  : ['middleBlockPromoteMs', 'middleBlockPromoteThenTypeMs']
 const p95RatioRows = productSurfaceNames.flatMap((surfaceName) => {
   const surface = current.surfaces[surfaceName]
 
@@ -2421,6 +2563,7 @@ const summary = {
     includeSyntheticBeforeInput,
     isolateCurrentSurfaces,
     iterations,
+    measureNativeSurfaceCompletion,
     profile,
     readyOnly,
     rootGroupSize,
@@ -2465,11 +2608,24 @@ const defaultAutoPromotionRow = v2OnlyP95Rows.find(
     row.surfaceName === 'v2DefaultRenderAuto' &&
     row.laneName === 'middleBlockPromoteThenTypeMs'
 )
+const defaultAutoPromotionOnlyRow = v2OnlyP95Rows.find(
+  (row) =>
+    row.surfaceName === 'v2DefaultRenderAuto' &&
+    row.laneName === 'middleBlockPromoteMs'
+)
 
 if (defaultAutoPromotionRow) {
   console.log(
     `METRIC react_huge_doc_legacy_compare_partial_dom_promotion_then_type_p95_ms=${round(
       defaultAutoPromotionRow.currentP95Ms
+    )}`
+  )
+}
+
+if (defaultAutoPromotionOnlyRow) {
+  console.log(
+    `METRIC react_huge_doc_legacy_compare_partial_dom_promotion_p95_ms=${round(
+      defaultAutoPromotionOnlyRow.currentP95Ms
     )}`
   )
 }

@@ -1,8 +1,11 @@
-import { PathApi } from 'slate'
+import { PathApi, type Range, RangeApi, type RootKey } from 'slate'
 import {
   cloneSlateViewBoundaryProjectedPoint,
+  createSlateViewBoundaryGraph,
+  getSlatePointRoot,
   getSlateViewBoundaryOwnerKey,
   getSlateViewBoundaryPointRoot,
+  rootSlatePoint,
   SlateViewBoundaryGraph,
   type SlateViewBoundaryGraphModel,
   type SlateViewBoundaryPoint,
@@ -82,6 +85,44 @@ export const createSlateViewSelection = (
       anchor,
       focus,
     }),
+  })
+}
+
+export const createMainRootSlateViewSelection = (
+  selection: Range,
+  fallbackRoot: RootKey = 'main'
+): SlateViewSelection | null => {
+  const [start, end] = RangeApi.edges(selection)
+  const startIndex = start.path[0]
+  const endIndex = end.path[0]
+  const startRoot = getSlatePointRoot(start, fallbackRoot)
+  const endRoot = getSlatePointRoot(end, fallbackRoot)
+
+  if (typeof startIndex !== 'number' || typeof endIndex !== 'number') {
+    return null
+  }
+
+  const graph =
+    startIndex === endIndex && startRoot === endRoot
+      ? createSlateViewBoundaryGraph([{ path: [startIndex], root: startRoot }])
+      : createSlateViewBoundaryGraph([
+          { path: [startIndex], root: startRoot },
+          { path: [endIndex], root: endRoot },
+        ])
+
+  return createSlateViewSelection(graph, {
+    anchor: {
+      point: rootSlatePoint(
+        selection.anchor,
+        getSlatePointRoot(selection.anchor, fallbackRoot)
+      ),
+    },
+    focus: {
+      point: rootSlatePoint(
+        selection.focus,
+        getSlatePointRoot(selection.focus, fallbackRoot)
+      ),
+    },
   })
 }
 

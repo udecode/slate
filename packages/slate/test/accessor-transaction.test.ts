@@ -68,7 +68,7 @@ const getVisibleState = (editor: ReturnType<typeof createEditor>) => {
   }
 }
 
-describe('slate public accessor + transaction seam', () => {
+describe('slate public accessor + transaction boundary', () => {
   it('read and replace are the public snapshot state path', () => {
     const editor = createEditor()
     const value = [paragraph('one')]

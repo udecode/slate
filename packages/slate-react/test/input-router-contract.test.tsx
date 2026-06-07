@@ -26,6 +26,8 @@ import {
 } from '../src/editable/runtime-keyboard-events'
 import { createReactEditor } from '../src/plugin/with-react'
 
+const DEFERRED_NATIVE_TEXT_INPUT_REPAIR_IDLE_MS = 8
+
 const cancelable = () => ({ cancel: () => {} })
 
 const RootRefProbe = ({
@@ -302,14 +304,14 @@ test('deferred native text input repair coalesces burst input for the same text 
     result.current.onDOMInput(createNativeInsertTextEvent('y'))
 
     expect(cancelAnimationFrameSpy).not.toHaveBeenCalled()
-    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 24)
+    expect(setTimeoutSpy).toHaveBeenCalledWith(
+      expect.any(Function),
+      DEFERRED_NATIVE_TEXT_INPUT_REPAIR_IDLE_MS
+    )
     expect(pendingTimeout).toBeTypeOf('function')
     expect(repairDOMInput).not.toHaveBeenCalled()
 
     flushAnimationFrame(() => pendingFrame, 12)
-    expect(repairDOMInput).not.toHaveBeenCalled()
-
-    flushAnimationFrame(() => pendingFrame, 48)
 
     expect(repairDOMInput).toHaveBeenCalledWith(
       {
@@ -684,7 +686,10 @@ test('deferred native text input repair preserves inserts across text targets af
     result.current.onDOMInput(createNativeInsertTextEvent('y'))
 
     expect(cancelAnimationFrameSpy).not.toHaveBeenCalled()
-    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 24)
+    expect(setTimeoutSpy).toHaveBeenCalledWith(
+      expect.any(Function),
+      DEFERRED_NATIVE_TEXT_INPUT_REPAIR_IDLE_MS
+    )
     expect(pendingTimeout).toBeTypeOf('function')
     expect(repairDOMInput).not.toHaveBeenCalled()
 
@@ -933,7 +938,10 @@ test('deferred native text input repair has a timer-backed idle flush', () => {
     result.current.onDOMInput(createNativeInsertTextEvent('x'))
 
     expect(repairDOMInput).not.toHaveBeenCalled()
-    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 24)
+    expect(setTimeoutSpy).toHaveBeenCalledWith(
+      expect.any(Function),
+      DEFERRED_NATIVE_TEXT_INPUT_REPAIR_IDLE_MS
+    )
 
     if (typeof pendingTimeout === 'function') {
       pendingTimeout()
@@ -1045,6 +1053,24 @@ test('plain text keydown does not import selection while native text repair is p
         ownership: 'model-owned',
       }),
       createKeyDownEvent({ key: 'b' }),
+      inputController
+    )
+  ).toBe(false)
+})
+
+test('modifier-only keydown does not import selection for no-op editor input', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  })
+
+  expect(
+    shouldApplyKeyDownSelectionPolicy(
+      createKeyDownDecision({
+        intent: null,
+        ownership: 'no-op',
+      }),
+      createKeyDownEvent({ key: 'Shift' }),
       inputController
     )
   ).toBe(false)

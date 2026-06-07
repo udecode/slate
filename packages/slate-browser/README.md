@@ -20,11 +20,13 @@ Stable package surface:
   - readiness contract for mounted examples
   - getter namespace for text/html/selection state
   - selected-text getter
+  - displayed-selection getter for native and projected selection proof
   - block-text getter and assertion helpers
   - snapshot helper for aggregated editor state
   - selection namespace for semantic selection actions and setup
   - bookmark/capture helpers backed by real Slate range refs
   - tolerant selection assertions
+  - double-highlight selection assertion
   - normalized html equality assertions
   - iframe and scoped-surface support
   - block/text locator helpers
@@ -78,6 +80,8 @@ await editor.selection.select({
 await editor.assert.text('Hello Slate Browser')
 await editor.assert.blockTexts(['Hello Slate Browser'])
 expect(await editor.get.selectedText()).toBe('Hello')
+expect((await editor.selection.displayed()).source).toBe('native')
+await editor.assert.noDoubleSelectionHighlight()
 await editor.assert.htmlContains('data-slate-string="true"')
 await editor.assert.selection({
   anchor: { path: [0, 0], offset: [0, 1] },

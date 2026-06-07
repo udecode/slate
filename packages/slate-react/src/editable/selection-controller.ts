@@ -491,6 +491,34 @@ const shouldKeepFullDocumentSelectionModelBacked = ({
   )
 }
 
+export const shouldUseModelBackedSelectAllSelection = ({
+  editor,
+  selection,
+}: {
+  editor: ReactRuntimeEditor
+  selection: Range
+}) => {
+  if (!isFullDocumentSelection(editor, selection)) {
+    return false
+  }
+
+  if (DOMCoverage.getBoundariesForRange(editor, selection).length > 0) {
+    return true
+  }
+
+  try {
+    const editorElement = ReactEditor.assertDOMNode(editor, editor)
+
+    return shouldKeepFullDocumentSelectionModelBacked({
+      editor,
+      editorElement,
+      selection,
+    })
+  } catch {
+    return false
+  }
+}
+
 export type EditableDOMSelectionSyncOptions = {
   preserveScroll?: boolean
 }
@@ -549,47 +577,6 @@ const captureScrollOffsets = (startElement: HTMLElement) => {
     if (window && scrollingElement) {
       window.scrollTo(scrollingElement.scrollLeft, scrollingElement.scrollTop)
     }
-  }
-}
-
-const collapseNativeSelectionForViewSelection = ({
-  domSelection,
-  editor,
-  selection,
-  state,
-}: {
-  domSelection: globalThis.Selection
-  editor: ReactRuntimeEditor
-  selection: Range
-  state: {
-    isUpdatingSelection: boolean
-    selectionChangeOrigin?: SelectionChangeOrigin | null
-  }
-}) => {
-  const point = RangeApi.start(selection)
-  const domRange = ReactEditor.resolveDOMRange(editor, {
-    anchor: point,
-    focus: point,
-  })
-
-  state.isUpdatingSelection = true
-  state.selectionChangeOrigin = 'programmatic-export'
-
-  try {
-    if (domRange) {
-      domSelection.setBaseAndExtent(
-        domRange.startContainer,
-        domRange.startOffset,
-        domRange.startContainer,
-        domRange.startOffset
-      )
-    } else {
-      domSelection.removeAllRanges()
-    }
-  } finally {
-    setTimeout(() => {
-      state.isUpdatingSelection = false
-    })
   }
 }
 
@@ -657,6 +644,18 @@ export const syncEditorSelectionFromDOM = ({
   })
   const selection = readRuntimeSelection(editor)
 
+  if (
+    (inputController.state.activeIntent === 'model-selection-move' ||
+      inputController.state.activeIntent === 'native-selection-move') &&
+    range &&
+    selection &&
+    RangeApi.isExpanded(selection) &&
+    RangeApi.isCollapsed(range) &&
+    !PointApi.equals(range.focus, selection.focus)
+  ) {
+    return
+  }
+
   if (range && (!selection || !RangeApi.equals(selection, range))) {
     writeSlateViewSelection(editor, null)
     editor.update((tx) => {
@@ -679,20 +678,25 @@ export const setEditableModelSelectionPreference = ({
   // Keep the input guard and the controller's selection provenance in lockstep.
   const nextSelectionSource =
     selectionSource ?? (preferModelSelection ? 'model-owned' : 'dom-current')
+  const nextReason =
+    reason ??
+    inferModelSelectionPreferenceReason({
+      preferModelSelection,
+      selectionSource: nextSelectionSource,
+    })
 
-  if (!preferModelSelection) {
+  if (
+    !preferModelSelection ||
+    nextReason === 'browser-handle' ||
+    nextReason === 'repair-induced'
+  ) {
     inputController.state.modelOwnedTextInputGuard = 0
   }
   inputController.preferModelSelectionForInputRef.current = preferModelSelection
   inputController.state.selectionSource = nextSelectionSource
   inputController.state.modelSelectionPreference = {
     preferModelSelection,
-    reason:
-      reason ??
-      inferModelSelectionPreferenceReason({
-        preferModelSelection,
-        selectionSource: nextSelectionSource,
-      }),
+    reason: nextReason,
     selectionSource: nextSelectionSource,
   }
 }
@@ -1081,6 +1085,23 @@ export const applyEditableDOMSelectionChange = ({
     return
   }
 
+  const selectionChangeOrigin = state.selectionChangeOrigin ?? 'native-user'
+
+  if (
+    readSlateViewSelection(editor) &&
+    selectionChangeOrigin !== 'native-user'
+  ) {
+    return
+  }
+
+  if (
+    selectionChangeOrigin !== 'native-user' &&
+    domSelection.isCollapsed &&
+    isEditableModelSelectionPreferred(inputController)
+  ) {
+    return
+  }
+
   if (
     activeElement !== editorElement &&
     isDOMNode(activeElement) &&
@@ -1119,7 +1140,6 @@ export const applyEditableDOMSelectionChange = ({
     anchorElement
       ?.closest('[data-slate-node="text"]')
       ?.getAttribute('data-slate-dom-sync-reason') === 'projection'
-  const selectionChangeOrigin = state.selectionChangeOrigin ?? 'native-user'
   const pendingNativeTextInputRepairPathKey =
     state.pendingNativeTextInputRepairPathKey ?? null
 
@@ -1171,6 +1191,21 @@ export const applyEditableDOMSelectionChange = ({
   }
 
   const currentSelection = readLiveSelection(editor)
+
+  if (
+    selectionChangeOrigin === 'native-user' &&
+    (state.activeIntent === 'model-selection-move' ||
+      state.activeIntent === 'native-selection-move') &&
+    currentSelection &&
+    RangeApi.isExpanded(currentSelection) &&
+    RangeApi.isRange(range) &&
+    RangeApi.isCollapsed(range) &&
+    !PointApi.equals(range.focus, currentSelection.focus) &&
+    !PointApi.equals(range.focus, currentSelection.anchor)
+  ) {
+    return
+  }
+
   const modelSelectionHasDOMCoverage =
     selectionChangeOrigin === 'programmatic-export' &&
     currentSelection &&
@@ -1187,13 +1222,6 @@ export const applyEditableDOMSelectionChange = ({
       nextSelection: range,
       selectionChangeOrigin,
     })
-
-  if (
-    readSlateViewSelection(editor) &&
-    selectionChangeOrigin !== 'native-user'
-  ) {
-    return
-  }
 
   if (
     !shouldApplyDOMSelectionChange({
@@ -1275,9 +1303,12 @@ export const syncEditableDOMSelectionToEditor = ({
   }
 }) => {
   const selection = readRuntimeSelection(editor)
+  const selectionHasDOMCoverage =
+    !!selection &&
+    DOMCoverage.getBoundariesForRange(editor, selection).length > 0
 
   if (
-    partialDOMBackedSelection ||
+    (partialDOMBackedSelection && selectionHasDOMCoverage) ||
     !selection ||
     !isSelectionInEditorView(editor, selection) ||
     shouldSkipDOMSelection(editor)
@@ -1313,19 +1344,20 @@ export const syncEditableDOMSelectionToEditor = ({
 
     const preserveScroll =
       options?.preserveScroll || shouldSkipSelectionScroll(editor)
+    const viewSelection = readSlateViewSelection(editor)
 
-    if (readSlateViewSelection(editor)) {
-      const restoreScroll = preserveScroll
-        ? captureScrollOffsets(editorElement)
-        : null
+    if (viewSelection) {
+      state.isUpdatingSelection = true
+      state.selectionChangeOrigin = 'programmatic-export'
+      domSelection.removeAllRanges()
+      const rootWindow =
+        'defaultView' in root ? root.defaultView : root.ownerDocument.defaultView
 
-      collapseNativeSelectionForViewSelection({
-        domSelection,
-        editor,
-        selection,
-        state,
+      rootWindow?.queueMicrotask(() => domSelection.removeAllRanges())
+      rootWindow?.requestAnimationFrame(() => domSelection.removeAllRanges())
+      setTimeout(() => {
+        state.isUpdatingSelection = false
       })
-      restoreScrollOffsets(restoreScroll, editorElement)
       return
     }
 
@@ -1340,6 +1372,7 @@ export const syncEditableDOMSelectionToEditor = ({
     }
 
     if (
+      selectionHasDOMCoverage &&
       applyDOMCoverageSelectionPolicy({
         domSelection,
         editor,
@@ -1371,6 +1404,10 @@ export const syncEditableDOMSelectionToEditor = ({
 
     if (!domRange) {
       return
+    }
+
+    if (viewSelection) {
+      writeSlateViewSelection(editor, null)
     }
 
     state.isUpdatingSelection = true
@@ -1405,7 +1442,7 @@ export const syncEditableDOMSelectionToEditor = ({
     } finally {
       setTimeout(() => {
         state.isUpdatingSelection = false
-      })
+      }, 80)
     }
   } catch {
     // Leave browser selection unchanged if the DOM bridge is between commits.

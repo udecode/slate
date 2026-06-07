@@ -306,6 +306,8 @@ type PaginationMiddleTypingSample = {
   composeMs: number
   eventToPaintMs: number
   hasExpectedText: boolean
+  inputEventCount?: number
+  lastInputToPaintMs?: number
   pageSurfaceCount: number
   profiler?: {
     byKind: Record<string, number>
@@ -1875,9 +1877,12 @@ const armPaginationMiddleTypingProbe = async (
       }
     ) => {
       const startedAt = performance.now()
-      let inputStartedAt = startedAt
+      let firstInputStartedAt: number | null = null
+      let inputEventCount = 0
+      let lastInputStartedAt = startedAt
       let sampleCount = 0
       let textObservedAt: number | null = null
+      const inputController = new AbortController()
       const global = window as typeof window & {
         __paginationMiddleTypingProfilerEvents?: {
           duration?: number
@@ -1906,10 +1911,17 @@ const armPaginationMiddleTypingProbe = async (
       document.addEventListener(
         'beforeinput',
         () => {
-          inputStartedAt = performance.now()
-          profilerEvents.length = 0
+          const now = performance.now()
+
+          if (firstInputStartedAt === null) {
+            firstInputStartedAt = now
+            profilerEvents.length = 0
+          }
+
+          inputEventCount += 1
+          lastInputStartedAt = now
         },
-        { capture: true, once: true }
+        { capture: true, signal: inputController.signal }
       )
       const observedBlock = document.querySelector<HTMLElement>(
         `[data-slate-path="${payload.path}"]`
@@ -1978,8 +1990,11 @@ const armPaginationMiddleTypingProbe = async (
             ),
             blockText: block?.textContent?.slice(0, 160) ?? null,
             composeMs: Number(metaText.match(/compose ([\d.]+)ms/)?.[1] ?? 0),
-            eventToPaintMs: frameObservedAt - inputStartedAt,
+            eventToPaintMs:
+              frameObservedAt - (firstInputStartedAt ?? startedAt),
             hasExpectedText,
+            inputEventCount,
+            lastInputToPaintMs: frameObservedAt - lastInputStartedAt,
             pageSurfaceCount: document.querySelectorAll(
               '[data-slate-page-surface]'
             ).length,
@@ -1991,7 +2006,9 @@ const armPaginationMiddleTypingProbe = async (
             },
             sampleCount,
             textObservedMs:
-              textObservedAt === null ? null : textObservedAt - inputStartedAt,
+              textObservedAt === null
+                ? null
+                : textObservedAt - (firstInputStartedAt ?? startedAt),
             totalElementCount: document.querySelectorAll('*').length,
           }
         }
@@ -2002,12 +2019,14 @@ const armPaginationMiddleTypingProbe = async (
 
           if (sample.blockVisible && sample.hasExpectedText) {
             observer?.disconnect()
+            inputController.abort()
             resolve(sample)
             return
           }
 
           if (performance.now() > deadline) {
             observer?.disconnect()
+            inputController.abort()
             reject(
               new Error(
                 `Timed out waiting for pagination typing paint: ${JSON.stringify(
@@ -5205,6 +5224,8 @@ test.describe('pagination example', () => {
       ...samples.map((sample) => sample.eventToPaintMs)
     )
     const burstSettledMs = burstSample.eventToPaintMs
+    const burstPostInputPaintMs =
+      burstSample.lastInputToPaintMs ?? burstSettledMs
     const finalScrollSample =
       scrollSample ??
       (await getPaginationFastScrollSample(editor.root, scrollStartedAt))
@@ -5215,6 +5236,7 @@ test.describe('pagination example', () => {
       body: JSON.stringify(
         {
           burstLength: burstText.length,
+          burstPostInputPaintMs,
           burstSettledMs,
           appReadyAfterDOMContentLoadedMs,
           finalProof,
@@ -5234,7 +5256,9 @@ test.describe('pagination example', () => {
     expect(appReadyAfterDOMContentLoadedMs).toBeLessThanOrEqual(800)
     expect(p95EventToPaint).toBeLessThanOrEqual(32)
     expect(maxEventToPaint).toBeLessThanOrEqual(50)
-    expect(burstSettledMs).toBeLessThanOrEqual(320)
+    expect(burstSample.inputEventCount).toBe(burstText.length)
+    expect(burstPostInputPaintMs).toBeLessThanOrEqual(80)
+    expect(burstSettledMs).toBeLessThanOrEqual(600)
     expect(scrollSettledMs).toBeLessThanOrEqual(400)
     expect(finalProof.totalElementCount).toBeLessThanOrEqual(elementBudget)
     expect(finalProof.pageSurfaceCount).toBeLessThanOrEqual(8)

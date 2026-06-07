@@ -14,9 +14,33 @@ type SlateBrowserHandleSelection = {
 type SlateBrowserHandleElement = HTMLElement & {
   __slateBrowserHandle?: {
     getSelection?: () => SlateBrowserHandleSelection | null
+    getViewSelection?: () => {
+      anchor: { point: { offset: number; path: number[] } }
+      focus: { point: { offset: number; path: number[] } }
+    } | null
     scrollPathIntoView?: (path: number[], align: 'center') => boolean
   }
 }
+
+type HugeDocumentKeyboardProfilerEvent = {
+  duration?: number
+  id?: string
+  kind?: string
+}
+
+type HugeDocumentKeyboardProfiler = {
+  events: HugeDocumentKeyboardProfilerEvent[]
+  reset: () => void
+  snapshot: () => HugeDocumentKeyboardProfilerEvent[]
+}
+
+type HugeDocumentKeyboardProfilerWindow = Window &
+  typeof globalThis & {
+    __HUGE_DOCUMENT_KEYDOWN_PROFILER__?: HugeDocumentKeyboardProfiler
+    __SLATE_REACT_RENDER_PROFILER__?: {
+      record: (event: HugeDocumentKeyboardProfilerEvent) => void
+    }
+  }
 
 test.setTimeout(120 * 1000)
 
@@ -138,6 +162,13 @@ const getBrowserUndoHotkey = async (editor: SlateBrowserEditorHarness) =>
       /Mac OS X/.test(navigator.userAgent) ? 'Meta+Z' : 'Control+Z'
     )
 
+const getBrowserRedoHotkey = async (editor: SlateBrowserEditorHarness) =>
+  editor.root
+    .page()
+    .evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent) ? 'Meta+Shift+Z' : 'Control+Shift+Z'
+    )
+
 const getBrowserSelectAllHotkey = async (editor: SlateBrowserEditorHarness) =>
   editor.root
     .page()
@@ -187,14 +218,58 @@ const getHugeDocumentCounts = async (editor: SlateBrowserEditorHarness) =>
   }))
 
 const getNativeSelectionSummary = async (editor: SlateBrowserEditorHarness) =>
-  editor.root.evaluate((element: HTMLElement) => {
-    const selection = element.ownerDocument.getSelection()
+  (await editor.selection.displayed()).native
 
-    return {
-      collapsed: selection?.isCollapsed ?? null,
-      rangeCount: selection?.rangeCount ?? 0,
-      textLength: selection?.toString().length ?? 0,
+const getViewSelectionSummary = async (editor: SlateBrowserEditorHarness) =>
+  (await editor.selection.displayed()).view
+
+const installHugeDocumentKeyboardProfiler = async (
+  editor: SlateBrowserEditorHarness
+) =>
+  editor.root.evaluate((element: HTMLElement) => {
+    const target = element.ownerDocument
+      .defaultView as HugeDocumentKeyboardProfilerWindow | null
+
+    if (!target) {
+      throw new Error('Missing editor window for keyboard profiler')
     }
+
+    const profiler = {
+      events: [] as HugeDocumentKeyboardProfilerEvent[],
+      reset() {
+        this.events.length = 0
+      },
+      snapshot() {
+        return this.events.slice()
+      },
+    }
+
+    target.__HUGE_DOCUMENT_KEYDOWN_PROFILER__ = profiler
+    target.__SLATE_REACT_RENDER_PROFILER__ = {
+      record(event: HugeDocumentKeyboardProfilerEvent) {
+        profiler.events.push(event)
+      },
+    }
+  })
+
+const resetHugeDocumentKeyboardProfiler = async (
+  editor: SlateBrowserEditorHarness
+) =>
+  editor.root.evaluate((element: HTMLElement) => {
+    const target = element.ownerDocument
+      .defaultView as HugeDocumentKeyboardProfilerWindow | null
+
+    target?.__HUGE_DOCUMENT_KEYDOWN_PROFILER__?.reset()
+  })
+
+const snapshotHugeDocumentKeyboardProfiler = async (
+  editor: SlateBrowserEditorHarness
+) =>
+  editor.root.evaluate((element: HTMLElement) => {
+    const target = element.ownerDocument
+      .defaultView as HugeDocumentKeyboardProfilerWindow | null
+
+    return target?.__HUGE_DOCUMENT_KEYDOWN_PROFILER__?.snapshot() ?? []
   })
 
 const selectTextBlockEndDOM = async (
@@ -298,6 +373,152 @@ const getTextBlockText = async (
 
     return (block ?? textElement)?.textContent?.replace(/\uFEFF/g, '') ?? null
   }, blockIndex)
+
+const getVirtualizedRowStackingProof = async (
+  editor: SlateBrowserEditorHarness,
+  {
+    allowGaps,
+    frameCount = 0,
+    scrollTop,
+  }: {
+    allowGaps: boolean
+    frameCount?: number
+    scrollTop: number
+  }
+) =>
+  editor.root.evaluate(
+    async (
+      element: HTMLElement,
+      {
+        allowGaps,
+        frameCount,
+        scrollTop,
+      }: { allowGaps: boolean; frameCount: number; scrollTop: number }
+    ) => {
+      element.scrollTop = scrollTop
+      element.dispatchEvent(new Event('scroll', { bubbles: true }))
+
+      for (let index = 0; index < frameCount; index += 1) {
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve())
+        })
+      }
+
+      const rootRect = element.getBoundingClientRect()
+      const rows = Array.from(
+        element.querySelectorAll<HTMLElement>(
+          '[data-slate-dom-strategy-virtual-row="true"]'
+        )
+      )
+        .map((row) => {
+          const child =
+            row.querySelector<HTMLElement>('[data-slate-node="element"]') ??
+            row
+          const rowRect = row.getBoundingClientRect()
+          const childRect = child.getBoundingClientRect()
+
+          return {
+            bottom: Math.round(childRect.bottom - rootRect.top),
+            height: Math.round(childRect.height),
+            index: Number(row.dataset.index),
+            rowBottom: Math.round(rowRect.bottom - rootRect.top),
+            rowTop: Math.round(rowRect.top - rootRect.top),
+            text: child.textContent
+              ?.replace(/\uFEFF/g, '')
+              .replace(/\s+/g, ' ')
+              .trim()
+              .slice(0, 80),
+            top: Math.round(childRect.top - rootRect.top),
+          }
+        })
+        .filter(
+          (row) =>
+            row.bottom >= -40 && row.top <= element.clientHeight + 40
+        )
+
+      const gaps: Array<{
+        gap: number
+        next: (typeof rows)[number]
+        previous: (typeof rows)[number]
+      }> = []
+      const overlaps: Array<{
+        next: (typeof rows)[number]
+        overlap: number
+        previous: (typeof rows)[number]
+      }> = []
+
+      for (let index = 1; index < rows.length; index += 1) {
+        const previous = rows[index - 1]!
+        const next = rows[index]!
+
+        if (next.top < previous.bottom - 2) {
+          overlaps.push({
+            next,
+            overlap: previous.bottom - next.top,
+            previous,
+          })
+        }
+
+        if (!allowGaps && next.rowTop > previous.rowBottom + 4) {
+          gaps.push({
+            gap: next.rowTop - previous.rowBottom,
+            next,
+            previous,
+          })
+        }
+      }
+
+      return {
+        gaps,
+        rowCount: rows.length,
+        rows,
+        scrollTop: Math.round(element.scrollTop),
+        overlaps,
+      }
+    },
+    { allowGaps, frameCount, scrollTop }
+  )
+
+const getVirtualizedScrollbarDragBufferProof = async (
+  editor: SlateBrowserEditorHarness,
+  scrollTop: number
+) =>
+  editor.root.evaluate((element: HTMLElement, targetScrollTop) => {
+    element.scrollTop = targetScrollTop
+
+    const rootRect = element.getBoundingClientRect()
+    const rows = Array.from(
+      element.querySelectorAll<HTMLElement>(
+        '[data-slate-dom-strategy-virtual-row="true"]'
+      )
+    )
+    const visibleRows = rows
+      .map((row) => {
+        const child =
+          row.querySelector<HTMLElement>('[data-slate-node="element"]') ?? row
+        const rect = child.getBoundingClientRect()
+
+        return {
+          bottom: Math.round(rect.bottom - rootRect.top),
+          index: Number(row.dataset.index),
+          text: child.textContent
+            ?.replace(/\uFEFF/g, '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 80),
+          top: Math.round(rect.top - rootRect.top),
+        }
+      })
+      .filter(
+        (row) => row.bottom >= 0 && row.top <= element.clientHeight
+      )
+
+    return {
+      mountedRowCount: rows.length,
+      scrollTop: Math.round(element.scrollTop),
+      visibleRows,
+    }
+  }, scrollTop)
 
 const selectTextBlockOffsetDOM = async (
   editor: SlateBrowserEditorHarness,
@@ -413,7 +634,7 @@ test.describe('huge document example', () => {
   })
 
   test('exposes staged DOM strategy controls and metrics', async ({ page }) => {
-    await openSmallHugeDocument(page, {
+    const editor = await openSmallHugeDocument(page, {
       blocks: 1200,
       overscan: 0,
       segment_size: 100,
@@ -422,6 +643,7 @@ test.describe('huge document example', () => {
     })
 
     await expect(page.getByLabel('DOM strategy')).toHaveValue('staged')
+    await expect(page.getByLabel('Editor height')).toHaveValue('420')
     await expect
       .poll(() =>
         page.getByTestId('huge-document-effective-strategy').textContent()
@@ -445,6 +667,24 @@ test.describe('huge document example', () => {
         )
       )
       .toBeGreaterThanOrEqual(0)
+
+    const scrollbarProof = await editor.root.evaluate((element: HTMLElement) => {
+      const style = element.ownerDocument.defaultView?.getComputedStyle(element)
+
+      return {
+        clientHeight: element.clientHeight,
+        overflowY: style?.overflowY ?? null,
+        scrollbarGutter: style?.scrollbarGutter ?? null,
+        scrollHeight: element.scrollHeight,
+      }
+    })
+
+    expect(scrollbarProof.overflowY).toBe('auto')
+    expect(scrollbarProof.scrollbarGutter).toBe('stable')
+    expect(scrollbarProof.clientHeight).toBe(420)
+    expect(scrollbarProof.scrollHeight).toBeGreaterThan(
+      scrollbarProof.clientHeight
+    )
   })
 
   test('keeps staged middle-block editing, undo, Enter, and scroll stable', async ({
@@ -558,20 +798,26 @@ test.describe('huge document example', () => {
 
       const afterDownSelection = await editor.selection.get()
       const afterDownNative = await getNativeSelectionSummary(editor)
+      const afterDownViewSelection = await getViewSelectionSummary(editor)
 
-      expect(afterDownSelection).toEqual({
-        anchor: { path: [5000, 0], offset: 3 },
-        focus: { path: [5000, 0], offset: expect.any(Number) },
+      expect(afterDownSelection?.anchor).toEqual({
+        offset: 3,
+        path: [5000, 0],
       })
-      expect(afterDownNative.collapsed).toBe(false)
-      expect(afterDownNative.textLength).toBeGreaterThan(0)
+      expect(afterDownSelection?.focus.path[0]).toBeGreaterThanOrEqual(5000)
+      expect(afterDownSelection?.focus.path[0]).toBeLessThanOrEqual(5001)
+      expect(afterDownSelection?.focus.offset).toEqual(expect.any(Number))
+      expect(
+        afterDownNative.textLength > 0 || afterDownViewSelection.markerCount > 0
+      ).toBe(true)
 
       upMs.push(await pressKeyboardWithTiming(page, 'Shift+ArrowUp', 600))
 
       const afterUpNative = await getNativeSelectionSummary(editor)
+      const afterUpViewSelection = await getViewSelectionSummary(editor)
 
-      expect(afterUpNative.collapsed).toBe(true)
       expect(afterUpNative.textLength).toBe(0)
+      expect(afterUpViewSelection.active).toBe(false)
     }
 
     await editor.assert.selection({
@@ -586,6 +832,202 @@ test.describe('huge document example', () => {
 
     expect(Math.max(...downMs)).toBeLessThan(600)
     expect(Math.max(...upMs)).toBeLessThan(600)
+  })
+
+  test('keeps staged 10k repeated Shift+ArrowDown visually projected and bounded', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium keyboard/perf proof for video-sized staged huge-document selection'
+    )
+
+    await page.setViewportSize({ height: 2106, width: 1548 })
+
+    const editor = await openSmallHugeDocument(page, {
+      blocks: 10_000,
+      content_visibility: 'none',
+      strategy: 'staged',
+      threshold: 1,
+    })
+
+    await expect
+      .poll(() =>
+        page.getByTestId('huge-document-effective-strategy').textContent()
+      )
+      .toBe('staged')
+
+    await selectTextBlockOffsetDOM(editor, 0, 3)
+
+    const downMs: number[] = []
+    const downSnapshots: Array<{
+      focusPath: number[] | null
+      markerCount: number
+      markerPaths: Array<string | null>
+      step: number
+    }> = []
+    let previousFocusIndex = 0
+
+    await page.keyboard.down('Shift')
+    try {
+      for (let index = 0; index < 24; index += 1) {
+        downMs.push(await pressKeyboardWithTiming(page, 'ArrowDown', 800))
+
+        const selection = await editor.selection.get()
+        const viewSelection = await getViewSelectionSummary(editor)
+        const focusIndex = selection?.focus.path[0]
+
+        if (typeof focusIndex === 'number') {
+          expect(focusIndex).toBeGreaterThanOrEqual(previousFocusIndex)
+          previousFocusIndex = focusIndex
+        }
+
+        if (
+          selection &&
+          (selection.anchor.offset !== selection.focus.offset ||
+            selection.anchor.path.join(',') !== selection.focus.path.join(','))
+        ) {
+          expect(viewSelection.markerCount).toBeGreaterThan(0)
+        }
+
+        downSnapshots.push({
+          focusPath: selection?.focus.path ?? null,
+          markerCount: viewSelection.markerCount,
+          markerPaths: viewSelection.markerPaths,
+          step: index,
+        })
+      }
+    } finally {
+      await page.keyboard.up('Shift')
+    }
+
+    const afterDownSelection = await editor.selection.get()
+    const afterDownNative = await getNativeSelectionSummary(editor)
+    const afterDownViewSelection = await getViewSelectionSummary(editor)
+
+    expect(afterDownSelection?.anchor).toEqual({ offset: 3, path: [0, 0] })
+    expect(afterDownSelection?.focus.path[0]).toBeGreaterThan(0)
+    expect(afterDownViewSelection.active).toBe(true)
+    expect(afterDownViewSelection.markerCount).toBeGreaterThan(1)
+    expect(afterDownViewSelection.markerPaths).toContain(
+      afterDownSelection!.focus.path.join(',')
+    )
+    expect(afterDownViewSelection.textLength).toBeGreaterThan(100)
+    expect(afterDownNative.textLength).toBe(0)
+
+    await page.keyboard.down('Shift')
+    try {
+      for (let index = 0; index < 8; index += 1) {
+        await pressKeyboardWithTiming(page, 'ArrowUp', 800)
+      }
+    } finally {
+      await page.keyboard.up('Shift')
+    }
+
+    const afterUpSelection = await editor.selection.get()
+    const afterUpViewSelection = await getViewSelectionSummary(editor)
+
+    expect(afterUpSelection?.anchor).toEqual({ offset: 3, path: [0, 0] })
+    expect(afterUpSelection?.focus.path[0]).toBeLessThan(
+      afterDownSelection!.focus.path[0]
+    )
+    expect(afterUpViewSelection.active).toBe(true)
+    expect(afterUpViewSelection.markerCount).toBeLessThan(
+      afterDownViewSelection.markerCount
+    )
+
+    await testInfo.attach('staged-repeated-vertical-selection-10k-proof', {
+      body: JSON.stringify(
+        {
+          afterDownNative,
+          afterDownSelection,
+          afterDownViewSelection,
+          afterUpSelection,
+          afterUpViewSelection,
+          downMs,
+          downSnapshots,
+        },
+        null,
+        2
+      ),
+      contentType: 'application/json',
+    })
+
+    expect(Math.max(...downMs)).toBeLessThan(800)
+  })
+
+  test('keeps staged repeated Shift+ArrowDown aligned with full DOM', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium native/full-DOM parity proof for staged vertical selection'
+    )
+
+    const collectSteps = async (strategy: 'full' | 'staged') => {
+      const editor = await openSmallHugeDocument(page, {
+        blocks: 5000,
+        editor_height: 420,
+        strategy,
+        threshold: 1,
+      })
+
+      await expect
+        .poll(() =>
+          page.getByTestId('huge-document-effective-strategy').textContent()
+        )
+        .toBe(strategy)
+
+      await selectTextBlockOffsetDOM(editor, 0, 3)
+
+      const steps: Array<{
+        nativeTextLength: number
+        selection: SlateBrowserHandleSelection | null
+        viewMarkerCount: number
+        viewMarkerPaths: Array<string | null>
+      }> = []
+
+      await page.keyboard.down('Shift')
+      try {
+        for (let index = 0; index < 14; index += 1) {
+          await page.keyboard.press('ArrowDown')
+
+          const selection = await editor.selection.get()
+          const viewSelection = await getViewSelectionSummary(editor)
+          const nativeSelection = await getNativeSelectionSummary(editor)
+
+          steps.push({
+            nativeTextLength: nativeSelection.textLength,
+            selection,
+            viewMarkerCount: viewSelection.markerCount,
+            viewMarkerPaths: viewSelection.markerPaths,
+          })
+        }
+      } finally {
+        await page.keyboard.up('Shift')
+      }
+
+      return steps
+    }
+
+    const fullSteps = await collectSteps('full')
+    const stagedSteps = await collectSteps('staged')
+
+    expect(stagedSteps.map((step) => step.selection)).toEqual(
+      fullSteps.map((step) => step.selection)
+    )
+    const finalStagedStep = stagedSteps.at(-1)!
+
+    expect(finalStagedStep.nativeTextLength).toBe(0)
+    expect(finalStagedStep.viewMarkerCount).toBeGreaterThan(1)
+    expect(finalStagedStep.viewMarkerPaths).toContain(
+      finalStagedStep.selection!.focus.path.join(',')
+    )
+
+    await testInfo.attach('staged-full-dom-vertical-selection-proof', {
+      body: JSON.stringify({ fullSteps, stagedSteps }, null, 2),
+      contentType: 'application/json',
+    })
   })
 
   test('keeps staged 10k select-all delete, typing, paste, and undo bounded', async ({
@@ -959,6 +1401,87 @@ test.describe('huge document example', () => {
     expect(afterUndoCounts.placeholderCount).toBeGreaterThan(0)
   })
 
+  test('keeps auto partial-dom collapsed typing, navigation, undo, and redo bounded', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop keyboard proof for auto partial-dom huge-document editing'
+    )
+
+    const blockIndex = 0
+    const offset = 2
+    const typeText = 'auto-lane'
+    const editor = await openSmallHugeDocument(page, {
+      blocks: 5000,
+      strategy: 'auto',
+    })
+
+    await expect
+      .poll(() =>
+        page.getByTestId('huge-document-effective-strategy').textContent()
+      )
+      .toBe('partial-dom')
+
+    await selectTextBlockOffsetDOM(editor, blockIndex, offset)
+
+    const beforeText = await getTextBlockText(editor, blockIndex)
+
+    if (!beforeText) {
+      throw new Error(`Missing text for block ${blockIndex}`)
+    }
+
+    const expectedText =
+      beforeText.slice(0, offset) + typeText + beforeText.slice(offset)
+
+    await page.keyboard.type(typeText, { delay: 0 })
+
+    await expect
+      .poll(() => getTextBlockText(editor, blockIndex))
+      .toBe(expectedText)
+    await editor.assert.selection({
+      anchor: { offset: offset + typeText.length, path: [blockIndex, 0] },
+      focus: { offset: offset + typeText.length, path: [blockIndex, 0] },
+    })
+    await editor.assert.caretVisibleInScrollableParent()
+
+    await page.keyboard.press('ArrowLeft')
+    await editor.assert.selection({
+      anchor: { offset: offset + typeText.length - 1, path: [blockIndex, 0] },
+      focus: { offset: offset + typeText.length - 1, path: [blockIndex, 0] },
+    })
+
+    await page.keyboard.press('ArrowRight')
+    await editor.assert.selection({
+      anchor: { offset: offset + typeText.length, path: [blockIndex, 0] },
+      focus: { offset: offset + typeText.length, path: [blockIndex, 0] },
+    })
+
+    const undoHotkey = await getBrowserUndoHotkey(editor)
+    const redoHotkey = await getBrowserRedoHotkey(editor)
+
+    await page.keyboard.press(undoHotkey)
+
+    await expect
+      .poll(() => getTextBlockText(editor, blockIndex))
+      .toBe(beforeText)
+    await editor.assert.selection({
+      anchor: { offset, path: [blockIndex, 0] },
+      focus: { offset, path: [blockIndex, 0] },
+    })
+
+    await page.keyboard.press(redoHotkey)
+
+    await expect
+      .poll(() => getTextBlockText(editor, blockIndex))
+      .toBe(expectedText)
+    await editor.assert.selection({
+      anchor: { offset: offset + typeText.length, path: [blockIndex, 0] },
+      focus: { offset: offset + typeText.length, path: [blockIndex, 0] },
+    })
+    await editor.assert.caretVisibleInScrollableParent()
+  })
+
   test('exposes virtualized DOM strategy controls and metrics', async ({
     page,
   }) => {
@@ -990,6 +1513,174 @@ test.describe('huge document example', () => {
     await expect(
       page.locator('[data-slate-dom-strategy-virtualizer="true"]')
     ).toBeVisible()
+  })
+
+  test('keeps virtualized browser select-all delete, typing, undo, and redo bounded', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium keyboard/select-all proof for virtualized huge-document editing'
+    )
+
+    const editor = await openSmallHugeDocument(page, {
+      blocks: 5000,
+      editor_height: 420,
+      estimated_block_size: 48,
+      overscan: 0,
+      strategy: 'virtualized',
+      threshold: 1,
+    })
+
+    await expect
+      .poll(() =>
+        page.getByTestId('huge-document-effective-strategy').textContent()
+      )
+      .toBe('virtualized')
+
+    const beforeModelBlockTexts = await editor.get.modelBlockTexts()
+    const beforeBoundary = {
+      first: beforeModelBlockTexts[0],
+      last: beforeModelBlockTexts.at(-1),
+      length: beforeModelBlockTexts.length,
+    }
+
+    expect(beforeBoundary.length).toBe(5000)
+
+    const selectAllMs = await pressKeyboardWithTiming(
+      page,
+      await getBrowserSelectAllHotkey(editor),
+      10_000
+    )
+
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: {
+        path: [beforeBoundary.length - 1, 0],
+        offset: beforeBoundary.last!.length,
+      },
+    })
+
+    const afterSelectAllCounts = await getHugeDocumentCounts(editor)
+    const afterSelectAllNative = await getNativeSelectionSummary(editor)
+    const afterSelectAllView = await getViewSelectionSummary(editor)
+
+    expect(afterSelectAllNative.textLength).toBe(0)
+    expect(afterSelectAllView.active).toBe(true)
+    expect(afterSelectAllView.markerCount).toBeGreaterThan(0)
+    expect(afterSelectAllCounts.mountedTopLevelCount).toBeLessThan(140)
+
+    const deleteMs = await pressKeyboardWithTiming(page, 'Delete', 5000)
+
+    await expect
+      .poll(async () => ({
+        selection: await editor.selection.get(),
+        texts: await editor.get.modelBlockTexts(),
+      }))
+      .toEqual({
+        selection: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 0 },
+        },
+        texts: [''],
+      })
+
+    const typeText = 'after virtualized delete'
+
+    await page.keyboard.type(typeText, { delay: 0 })
+
+    await expect
+      .poll(async () => ({
+        selection: await editor.selection.get(),
+        texts: await editor.get.modelBlockTexts(),
+      }))
+      .toEqual({
+        selection: {
+          anchor: { path: [0, 0], offset: typeText.length },
+          focus: { path: [0, 0], offset: typeText.length },
+        },
+        texts: [typeText],
+      })
+
+    const undoHotkey = await getBrowserUndoHotkey(editor)
+    const redoHotkey = await getBrowserRedoHotkey(editor)
+
+    await page.keyboard.press(undoHotkey)
+
+    await expect.poll(() => editor.get.modelBlockTexts()).toEqual([''])
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+
+    await page.keyboard.press(redoHotkey)
+
+    await expect.poll(() => editor.get.modelBlockTexts()).toEqual([typeText])
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: typeText.length },
+      focus: { path: [0, 0], offset: typeText.length },
+    })
+
+    await page.keyboard.press(undoHotkey)
+    await expect.poll(() => editor.get.modelBlockTexts()).toEqual([''])
+
+    const undoDeleteMs = await pressKeyboardWithTiming(page, undoHotkey, 15_000)
+
+    await expect
+      .poll(async () => {
+        const nextModelBlockTexts = await editor.get.modelBlockTexts()
+
+        return {
+          first: nextModelBlockTexts[0],
+          last: nextModelBlockTexts.at(-1),
+          length: nextModelBlockTexts.length,
+          selection: await editor.selection.get(),
+        }
+      })
+      .toEqual({
+        ...beforeBoundary,
+        selection: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: {
+            path: [beforeBoundary.length - 1, 0],
+            offset: beforeBoundary.last!.length,
+          },
+        },
+      })
+
+    await page.keyboard.press(redoHotkey)
+
+    await expect
+      .poll(async () => ({
+        selection: await editor.selection.get(),
+        texts: await editor.get.modelBlockTexts(),
+      }))
+      .toEqual({
+        selection: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 0 },
+        },
+        texts: [''],
+      })
+
+    await testInfo.attach('virtualized-select-all-delete-redo-proof', {
+      body: JSON.stringify(
+        {
+          afterSelectAllCounts,
+          afterSelectAllNative,
+          afterSelectAllView,
+          deleteMs,
+          selectAllMs,
+          undoDeleteMs,
+        },
+        null,
+        2
+      ),
+      contentType: 'application/json',
+    })
+
+    expect(deleteMs).toBeLessThan(5000)
+    expect(undoDeleteMs).toBeLessThan(15_000)
   })
 
   test('replaces a huge select-all range with pasted text and undo restores it', async ({
@@ -1124,6 +1815,256 @@ test.describe('huge document example', () => {
         },
       })
     await editor.assert.caretVisibleInScrollableParent()
+  })
+
+  test('keeps virtualized repeated Shift+ArrowDown and Shift+ArrowUp aligned with staged and bounded', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium keyboard/perf proof for virtualized huge-document vertical selection'
+    )
+
+    const collectShiftDownProof = async (
+      strategy: 'staged' | 'virtualized'
+    ) => {
+      const editor = await openSmallHugeDocument(page, {
+        blocks: 5000,
+        editor_height: 420,
+        estimated_block_size: 48,
+        overscan: 0,
+        strategy,
+        threshold: 1,
+      })
+
+      await expect
+        .poll(() =>
+          page.getByTestId('huge-document-effective-strategy').textContent()
+        )
+        .toBe(strategy)
+
+      const firstBlockGeometry = await editor.root.evaluate(
+        (element: HTMLElement) => {
+          const firstBlock = element.querySelector<HTMLElement>(
+            '[data-slate-node="element"]'
+          )
+          const rootRect = element.getBoundingClientRect()
+          const firstBlockRect = firstBlock?.getBoundingClientRect()
+
+          return {
+            firstLeft: Math.round(firstBlockRect?.left ?? Number.NaN),
+            firstWidth: Math.round(firstBlockRect?.width ?? Number.NaN),
+            rootLeft: Math.round(rootRect.left),
+            rootPaddingLeft:
+              element.ownerDocument.defaultView?.getComputedStyle(element)
+                .paddingLeft ?? null,
+            rootWidth: Math.round(rootRect.width),
+          }
+        }
+      )
+
+      await selectTextBlockOffsetDOM(editor, 0, 37)
+      await installHugeDocumentKeyboardProfiler(editor)
+
+      const keyMs: number[] = []
+      const downSnapshots: Array<{
+        focusKey: string | null
+        focusPath: number[] | null
+        markerCount: number
+        markerPaths: Array<string | null>
+        modelLineFallbackCount: number
+        mountedTopLevelCount: string | null
+        nativeTextLength: number
+        step: number
+      }> = []
+      const upSnapshots: Array<{
+        focusKey: string | null
+        markerCount: number
+        markerPaths: Array<string | null>
+        modelLineFallbackCount: number
+        mountedTopLevelCount: string | null
+        nativeTextLength: number
+        step: number
+      }> = []
+      let previousFocusIndex = 0
+      let afterDownNative: Awaited<
+        ReturnType<typeof getNativeSelectionSummary>
+      > | null = null
+      let afterDownSelection: Awaited<
+        ReturnType<typeof editor.selection.get>
+      > | null = null
+      let afterDownViewSelection: Awaited<
+        ReturnType<typeof getViewSelectionSummary>
+      > | null = null
+
+      await page.keyboard.down('Shift')
+      try {
+        for (let index = 0; index < 24; index += 1) {
+          await resetHugeDocumentKeyboardProfiler(editor)
+
+          keyMs.push(await pressKeyboardWithTiming(page, 'ArrowDown', 400))
+
+          const selection = await editor.selection.get()
+          const viewSelection = await getViewSelectionSummary(editor)
+          const nativeSelection = await getNativeSelectionSummary(editor)
+          const profilerEvents =
+            await snapshotHugeDocumentKeyboardProfiler(editor)
+          const modelLineFallbackEvents = profilerEvents.filter(
+            (event) =>
+              event.kind === 'runtime-time' &&
+              event.id === 'plain-vertical.resolve-model-line-target'
+          )
+          const focusIndex = selection?.focus.path[0]
+
+          expect(modelLineFallbackEvents).toHaveLength(0)
+
+          if (typeof focusIndex === 'number') {
+            expect(focusIndex).toBeGreaterThanOrEqual(previousFocusIndex)
+            previousFocusIndex = focusIndex
+          }
+
+          if (
+            selection &&
+            (selection.anchor.offset !== selection.focus.offset ||
+              selection.anchor.path.join(',') !==
+                selection.focus.path.join(','))
+          ) {
+            expect(viewSelection.active).toBe(true)
+            expect(viewSelection.markerCount).toBeGreaterThan(0)
+            expect(nativeSelection.textLength).toBe(0)
+          }
+
+          downSnapshots.push({
+            focusKey: selection
+              ? `${selection.focus.path.join(',')}:${selection.focus.offset}`
+              : null,
+            focusPath: selection?.focus.path ?? null,
+            markerCount: viewSelection.markerCount,
+            markerPaths: viewSelection.markerPaths,
+            modelLineFallbackCount: modelLineFallbackEvents.length,
+            mountedTopLevelCount: await page
+              .getByTestId('huge-document-mounted-top-level-count')
+              .textContent(),
+            nativeTextLength: nativeSelection.textLength,
+            step: index,
+          })
+        }
+
+        afterDownSelection = await editor.selection.get()
+        afterDownNative = await getNativeSelectionSummary(editor)
+        afterDownViewSelection = await getViewSelectionSummary(editor)
+
+        expect(afterDownSelection?.anchor).toEqual({
+          offset: 37,
+          path: [0, 0],
+        })
+        expect(afterDownSelection?.focus.path[0]).toBeGreaterThan(0)
+        expect(afterDownViewSelection.active).toBe(true)
+        expect(afterDownViewSelection.markerCount).toBeGreaterThan(1)
+        expect(afterDownViewSelection.markerPaths).toContain(
+          afterDownSelection!.focus.path.join(',')
+        )
+        expect(afterDownNative.textLength).toBe(0)
+
+        for (let index = 0; index < 12; index += 1) {
+          await resetHugeDocumentKeyboardProfiler(editor)
+
+          keyMs.push(await pressKeyboardWithTiming(page, 'ArrowUp', 400))
+
+          const selection = await editor.selection.get()
+          const viewSelection = await getViewSelectionSummary(editor)
+          const nativeSelection = await getNativeSelectionSummary(editor)
+          const profilerEvents =
+            await snapshotHugeDocumentKeyboardProfiler(editor)
+          const modelLineFallbackEvents = profilerEvents.filter(
+            (event) =>
+              event.kind === 'runtime-time' &&
+              event.id === 'plain-vertical.resolve-model-line-target'
+          )
+
+          expect(modelLineFallbackEvents).toHaveLength(0)
+
+          if (
+            selection &&
+            (selection.anchor.offset !== selection.focus.offset ||
+              selection.anchor.path.join(',') !==
+                selection.focus.path.join(','))
+          ) {
+            expect(viewSelection.active).toBe(true)
+            expect(viewSelection.markerCount).toBeGreaterThan(0)
+            expect(nativeSelection.textLength).toBe(0)
+          }
+
+          upSnapshots.push({
+            focusKey: selection
+              ? `${selection.focus.path.join(',')}:${selection.focus.offset}`
+              : null,
+            markerCount: viewSelection.markerCount,
+            markerPaths: viewSelection.markerPaths,
+            modelLineFallbackCount: modelLineFallbackEvents.length,
+            mountedTopLevelCount: await page
+              .getByTestId('huge-document-mounted-top-level-count')
+              .textContent(),
+            nativeTextLength: nativeSelection.textLength,
+            step: index,
+          })
+        }
+      } finally {
+        await page.keyboard.up('Shift')
+      }
+
+      if (!afterDownNative || !afterDownSelection || !afterDownViewSelection) {
+        throw new Error('Missing Shift+ArrowDown proof snapshot')
+      }
+
+      const focusSteps = downSnapshots.map((snapshot) => snapshot.focusKey)
+      const upFocusSteps = upSnapshots.map((snapshot) => snapshot.focusKey)
+      const expectedUpFocusSteps = focusSteps
+        .slice(
+          Math.max(0, focusSteps.length - 1 - upFocusSteps.length),
+          focusSteps.length - 1
+        )
+        .reverse()
+
+      expect(upFocusSteps).toEqual(expectedUpFocusSteps)
+
+      return {
+        afterDownNative,
+        afterDownSelection,
+        afterDownViewSelection,
+        downSnapshots,
+        expectedUpFocusSteps,
+        firstBlockGeometry,
+        focusSteps,
+        keyMs,
+        upFocusSteps,
+        upSnapshots,
+      }
+    }
+
+    const stagedProof = await collectShiftDownProof('staged')
+    const virtualizedProof = await collectShiftDownProof('virtualized')
+
+    expect(virtualizedProof.firstBlockGeometry).toEqual(
+      stagedProof.firstBlockGeometry
+    )
+    expect(virtualizedProof.focusSteps).toEqual(stagedProof.focusSteps)
+    expect(virtualizedProof.upFocusSteps).toEqual(stagedProof.upFocusSteps)
+
+    await testInfo.attach('virtualized-repeated-vertical-selection-proof', {
+      body: JSON.stringify(
+        {
+          stagedProof,
+          virtualizedProof,
+        },
+        null,
+        2
+      ),
+      contentType: 'application/json',
+    })
+
+    expect(Math.max(...stagedProof.keyMs)).toBeLessThan(400)
+    expect(Math.max(...virtualizedProof.keyMs)).toBeLessThan(400)
   })
 
   test('keeps virtualized middle-block typing after an earlier visible edit', async ({
@@ -1421,6 +2362,108 @@ test.describe('huge document example', () => {
     expect(proof.heightSpread).toBeGreaterThan(1)
     expect(proof.after).toBeGreaterThanOrEqual(proof.target - 16)
     expect(proof.after).toBeLessThanOrEqual(proof.target + 80)
+  })
+
+  test('keeps virtualized rows visually coherent during internal scrollbar jumps', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium proof for virtualized internal-scrollbar row stacking'
+    )
+
+    const editor = await openSmallHugeDocument(page, {
+      blocks: 10_000,
+      content_visibility: 'none',
+      editor_height: 420,
+      estimated_block_size: 48,
+      overscan: 0,
+      strategy: 'virtualized',
+      threshold: 2000,
+    })
+
+    await expect
+      .poll(() =>
+        page.getByTestId('huge-document-effective-strategy').textContent()
+      )
+      .toBe('virtualized')
+    await editor.root.scrollIntoViewIfNeeded()
+    await waitForEditorAnimationFrames(editor, 2)
+
+    const scrollTops = [
+      4000, 8000, 12_000, 24_000, 48_000, 96_000, 240_000, 120_000,
+      60_000, 30_000, 15_000, 7500,
+    ]
+    const proofs: Array<{
+      immediate: Awaited<ReturnType<typeof getVirtualizedRowStackingProof>>
+      settled: Awaited<ReturnType<typeof getVirtualizedRowStackingProof>>
+      targetScrollTop: number
+    }> = []
+
+    for (const scrollTop of scrollTops) {
+      const immediate = await getVirtualizedRowStackingProof(editor, {
+        allowGaps: true,
+        scrollTop,
+      })
+
+      expect(immediate.rowCount).toBeGreaterThan(0)
+      expect(immediate.overlaps).toEqual([])
+
+      const settled = await getVirtualizedRowStackingProof(editor, {
+        allowGaps: false,
+        frameCount: 8,
+        scrollTop,
+      })
+
+      expect(settled.rowCount).toBeGreaterThan(0)
+      expect(settled.overlaps).toEqual([])
+      expect(settled.gaps).toEqual([])
+
+      proofs.push({ immediate, settled, targetScrollTop: scrollTop })
+    }
+
+    await testInfo.attach('virtualized-scrollbar-row-stacking-proof', {
+      body: JSON.stringify(proofs, null, 2),
+      contentType: 'application/json',
+    })
+  })
+
+  test('keeps virtualized rows buffered during native scrollbar drag before React repaint', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium proof for native-scrollbar virtualized drag buffering'
+    )
+
+    const editor = await openSmallHugeDocument(page, {
+      blocks: 10_000,
+      content_visibility: 'none',
+      editor_height: 420,
+      estimated_block_size: 48,
+      overscan: 0,
+      strategy: 'virtualized',
+      threshold: 2000,
+    })
+
+    await expect
+      .poll(() =>
+        page.getByTestId('huge-document-effective-strategy').textContent()
+      )
+      .toBe('virtualized')
+    await editor.root.scrollIntoViewIfNeeded()
+    await selectTextBlockOffsetDOM(editor, 0, 10)
+
+    const proof = await getVirtualizedScrollbarDragBufferProof(editor, 4000)
+
+    expect(proof.mountedRowCount).toBeGreaterThan(0)
+    expect(proof.visibleRows.length).toBeGreaterThan(0)
+    expect(proof.visibleRows.some((row) => row.index > 10)).toBe(true)
+
+    await testInfo.attach('virtualized-scrollbar-drag-buffer-proof', {
+      body: JSON.stringify(proof, null, 2),
+      contentType: 'application/json',
+    })
   })
 
   test('keeps downward drag selection autoscroll from reversing in virtualized mode', async ({

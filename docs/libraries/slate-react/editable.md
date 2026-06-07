@@ -306,9 +306,12 @@ Product input rules belong in higher-level command layers or editor extensions. 
 ## DOM Strategy
 
 `Editable` keeps large documents DOM-bounded by default. Use
-`domStrategy="staged"` when a product needs eventual native DOM coverage for the
-whole document, or `domStrategy="full"` to render the full document surface for
-debugging.
+`domStrategy="auto"` for bounded partial-DOM rendering. Slate keeps coarse
+groups covered by model-backed boundaries and mounts a small active window
+inside the opened group; the surrounding range stays selectable and copyable
+through boundary policy until it materializes. Use `domStrategy="staged"` when a
+product needs eventual native DOM coverage for the whole document, or
+`domStrategy="full"` to render the full document surface for debugging.
 
 Use `onDOMStrategyMetrics` to wire production RUM or a Datadog dashboard. The
 callback runs after commit and reports the current document cohort, requested

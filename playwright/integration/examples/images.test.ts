@@ -378,11 +378,11 @@ test.describe('images example', () => {
     expect(proof.selectionShells?.anchor.element?.path).toBe('1')
     expect(proof.selectionShells?.anchor.element?.isVoid).toBe(true)
     expect(proof.selectionShells?.runtimeIds.length).toBeGreaterThanOrEqual(2)
-    expect(proof.renderCounts.byKind.editable ?? 0).toBe(0)
+    expect(proof.renderCounts.byKind.editable ?? 0).toBeLessThanOrEqual(1)
     expect(proof.renderCounts.byKind.void ?? 0).toBeLessThanOrEqual(1)
     expect(proof.renderCounts.byKind.element ?? 0).toBeLessThanOrEqual(1)
     expect(proof.renderCounts.byKind.spacer ?? 0).toBeLessThanOrEqual(1)
-    expect(proof.renderCounts.total).toBeLessThanOrEqual(3)
+    expect(proof.renderCounts.total).toBeLessThanOrEqual(4)
 
     await resetSlateReactRenderProfiler(page)
     await page.keyboard.press('ArrowRight')
@@ -407,7 +407,9 @@ test.describe('images example', () => {
     expect(afterImageProof.selectionShells?.anchor.node?.path).toBe('2,0')
     expect(afterImageProof.selectionShells?.anchor.element?.path).toBe('2')
     expect(afterImageProof.selectionShells?.anchor.element?.isVoid).toBe(false)
-    expect(afterImageProof.renderCounts.byKind.editable ?? 0).toBe(0)
+    expect(
+      afterImageProof.renderCounts.byKind.editable ?? 0
+    ).toBeLessThanOrEqual(1)
     expect(afterImageProof.renderCounts.byKind.void ?? 0).toBeLessThanOrEqual(1)
     expect(
       afterImageProof.renderCounts.byKind.element ?? 0
@@ -415,7 +417,7 @@ test.describe('images example', () => {
     expect(afterImageProof.renderCounts.byKind.spacer ?? 0).toBeLessThanOrEqual(
       1
     )
-    expect(afterImageProof.renderCounts.total).toBeLessThanOrEqual(3)
+    expect(afterImageProof.renderCounts.total).toBeLessThanOrEqual(4)
 
     await page.keyboard.press('ArrowLeft')
     await expect

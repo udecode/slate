@@ -14,22 +14,22 @@ export const withTest = (editor) => {
     name: 'fixture-schema',
     elements: [
       {
-        type: 'legacy-inline-flag',
+        type: 'fixture-inline-flag',
         inline: true,
         match: (element) => element.inline === true,
       },
       {
-        type: 'legacy-void-flag',
+        type: 'fixture-void-flag',
         void: 'block',
         match: (element) => element.void === true,
       },
       {
-        type: 'legacy-read-only-flag',
+        type: 'fixture-read-only-flag',
         readOnly: true,
         match: (element) => element.readOnly === true,
       },
       {
-        type: 'legacy-non-selectable-flag',
+        type: 'fixture-non-selectable-flag',
         selectable: false,
         match: (element) => element.nonSelectable === true,
       },

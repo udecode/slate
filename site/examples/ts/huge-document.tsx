@@ -6,6 +6,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 import type { Editor, Value } from 'slate'
@@ -158,15 +159,17 @@ const toDOMStrategy = (config: Config): EditableProps['domStrategy'] => {
   }
 }
 
-const toVirtualizedEditableStyle = (
-  config: Config
-): CSSProperties | undefined =>
+const hasBoundedEditableScroller = (config: Config) =>
+  config.domStrategyMode === 'staged' ||
   config.domStrategyMode === 'virtualized'
+
+const toBoundedEditableStyle = (config: Config): CSSProperties | undefined =>
+  hasBoundedEditableScroller(config)
     ? {
-        border: '1px solid #ddd',
         height: config.editorHeight,
+        outline: '1px solid #ddd',
+        scrollbarGutter: 'stable',
         overflowY: 'auto',
-        padding: 12,
       }
     : undefined
 
@@ -187,6 +190,7 @@ const HugeDocumentExample = () => {
         : getInitialValue(config.blocks)
     )
   )
+  const editorBlocksRef = useRef(config.blocks)
   const [editorVersion, setEditorVersion] = useState(0)
   const [domStrategyMetrics, setDOMStrategyMetrics] =
     useState<EditableDOMStrategyMetrics | null>(null)
@@ -197,6 +201,7 @@ const HugeDocumentExample = () => {
 
       setIsRendering(true)
       setDOMStrategyMetrics(null)
+      editorBlocksRef.current = newConfig.blocks
       void setQueryConfig(newConfig)
 
       setTimeout(() => {
@@ -210,12 +215,39 @@ const HugeDocumentExample = () => {
     [config, setQueryConfig]
   )
 
+  useEffect(() => {
+    if (editorBlocksRef.current === config.blocks) {
+      return
+    }
+
+    let replaceTimeout: ReturnType<typeof setTimeout> | undefined
+
+    const renderTimeout = setTimeout(() => {
+      setIsRendering(true)
+      setDOMStrategyMetrics(null)
+
+      replaceTimeout = setTimeout(() => {
+        const nextInitialValue = getInitialValue(config.blocks)
+
+        editorBlocksRef.current = config.blocks
+        setIsRendering(false)
+        setEditor(createEditor(config, nextInitialValue))
+        setEditorVersion((n) => n + 1)
+      })
+    })
+
+    return () => {
+      clearTimeout(renderTimeout)
+
+      if (replaceTimeout) {
+        clearTimeout(replaceTimeout)
+      }
+    }
+  }, [config])
+
   const domStrategy = useMemo(() => toDOMStrategy(config), [config])
 
-  const editableStyle = useMemo(
-    () => toVirtualizedEditableStyle(config),
-    [config]
-  )
+  const editableStyle = useMemo(() => toBoundedEditableStyle(config), [config])
 
   const renderConfig = useMemo(
     () => ({
@@ -495,27 +527,29 @@ const PerformanceControls = ({
             </>
           )}
 
-          {config.domStrategyMode === 'virtualized' && (
+          {hasBoundedEditableScroller(config) && (
             <>
-              <div className="flex flex-wrap items-center gap-2">
-                <Label htmlFor="huge-document-estimated-block-size">
-                  Estimated block size:
-                </Label>
-                <Input
-                  id="huge-document-estimated-block-size"
-                  min={1}
-                  onChange={(event) =>
-                    setConfig({
-                      virtualizedEstimatedBlockSize: Number.parseInt(
-                        event.target.value,
-                        10
-                      ),
-                    })
-                  }
-                  type="number"
-                  value={config.virtualizedEstimatedBlockSize}
-                />
-              </div>
+              {config.domStrategyMode === 'virtualized' && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label htmlFor="huge-document-estimated-block-size">
+                    Estimated block size:
+                  </Label>
+                  <Input
+                    id="huge-document-estimated-block-size"
+                    min={1}
+                    onChange={(event) =>
+                      setConfig({
+                        virtualizedEstimatedBlockSize: Number.parseInt(
+                          event.target.value,
+                          10
+                        ),
+                      })
+                    }
+                    type="number"
+                    value={config.virtualizedEstimatedBlockSize}
+                  />
+                </div>
+              )}
 
               <div className="flex flex-wrap items-center gap-2">
                 <Label htmlFor="huge-document-editor-height">

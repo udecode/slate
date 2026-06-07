@@ -11,6 +11,7 @@ export type DOMStrategyRootConfig = {
   overscan: number
   segmentSize: number
   previewChars: number
+  promotionWindowSize: number
   threshold: number
 }
 
@@ -58,11 +59,15 @@ const createSegmentPlanFromGroups = ({
   groups,
   overscan,
   promotedSegmentIndex,
+  promotedWindowStartIndex,
+  promotionWindowSize,
 }: {
   defaultActiveSegmentIndex: number
   groups: readonly SegmentRuntimeIdGroup[]
   overscan: number
   promotedSegmentIndex: number | null
+  promotedWindowStartIndex: number | null
+  promotionWindowSize: number
 }) => {
   const activeSegmentIndex = promotedSegmentIndex ?? defaultActiveSegmentIndex
   const activeStart = Math.max(0, activeSegmentIndex - overscan)
@@ -73,11 +78,41 @@ const createSegmentPlanFromGroups = ({
     segments: groups.map((group) => {
       const isActive =
         group.segmentIndex >= activeStart && group.segmentIndex <= activeEnd
+      const shouldWindowPromotedSegment =
+        promotedSegmentIndex === group.segmentIndex &&
+        promotedWindowStartIndex != null &&
+        promotionWindowSize > 0 &&
+        promotionWindowSize < group.runtimeIds.length
+      const windowOffset = shouldWindowPromotedSegment
+        ? Math.min(
+            Math.max(0, promotedWindowStartIndex - group.startIndex),
+            Math.max(0, group.runtimeIds.length - promotionWindowSize)
+          )
+        : 0
+      const mountedRuntimeIds =
+        isActive && shouldWindowPromotedSegment
+          ? group.runtimeIds.slice(
+              windowOffset,
+              windowOffset + promotionWindowSize
+            )
+          : isActive
+            ? group.runtimeIds
+            : EMPTY_RUNTIME_IDS
+      const mountedStartIndex =
+        isActive && mountedRuntimeIds.length > 0
+          ? group.startIndex + windowOffset
+          : null
+      const mountedEndIndex =
+        mountedStartIndex == null
+          ? null
+          : mountedStartIndex + mountedRuntimeIds.length - 1
 
       return {
         ...group,
         isActive,
-        mountedRuntimeIds: isActive ? group.runtimeIds : EMPTY_RUNTIME_IDS,
+        mountedEndIndex,
+        mountedRuntimeIds,
+        mountedStartIndex,
       }
     }),
   }
@@ -421,10 +456,12 @@ export const useInternalSegmentDOMStrategyRootSources = ({
   internalSegmentDOMStrategyConfig,
   promotedSegmentIndex,
   promotedSegmentOverscan,
+  promotedWindowStartIndex,
 }: {
   internalSegmentDOMStrategyConfig: DOMStrategyRootConfig | null
   promotedSegmentIndex: number | null
   promotedSegmentOverscan?: number | null
+  promotedWindowStartIndex: number | null
 }) => {
   const topLevelRuntimeIds = useRootRuntimeIds()
   const segmentRuntimeIdGroups = useMemo(
@@ -467,6 +504,9 @@ export const useInternalSegmentDOMStrategyRootSources = ({
             defaultActiveSegmentIndex: selectedSegmentIndex,
             groups: segmentRuntimeIdGroups,
             promotedSegmentIndex,
+            promotedWindowStartIndex,
+            promotionWindowSize:
+              internalSegmentDOMStrategyConfig.promotionWindowSize,
           })
         : null
     const mountedTopLevelRuntimeIds = segmentPlan
@@ -480,8 +520,8 @@ export const useInternalSegmentDOMStrategyRootSources = ({
       ? segmentPlan.segments
           .filter((segment) => segment.isActive)
           .map((segment) => ({
-            endIndex: segment.endIndex,
-            startIndex: segment.startIndex,
+            endIndex: segment.mountedEndIndex ?? segment.endIndex,
+            startIndex: segment.mountedStartIndex ?? segment.startIndex,
           }))
       : null
 
@@ -495,6 +535,7 @@ export const useInternalSegmentDOMStrategyRootSources = ({
     internalSegmentDOMStrategyConfig,
     promotedSegmentIndex,
     promotedSegmentOverscan,
+    promotedWindowStartIndex,
     segmentRuntimeIdGroups,
     selectedSegmentIndex,
     topLevelRuntimeIds,

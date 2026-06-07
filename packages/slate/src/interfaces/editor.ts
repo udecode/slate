@@ -2007,7 +2007,7 @@ export interface EditorStaticApi {
   edges: (editor: Editor, at: Location) => [Point, Point]
 
   /**
-   * Get the current operation queue through the explicit read seam.
+   * Get the current operation queue through the explicit read boundary.
    */
   getOperations: <V extends Value>(
     editor: Editor<V>,
@@ -2073,7 +2073,7 @@ export interface EditorStaticApi {
   first: (editor: Editor, at: Location) => NodeEntry
 
   /**
-   * Get the current children through the public accessor seam.
+   * Get the current children through the public accessor boundary.
    */
   getChildren: <V extends Value>(editor: Editor<V>) => V
 

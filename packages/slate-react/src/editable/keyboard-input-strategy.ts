@@ -31,6 +31,7 @@ import {
   applyContentRootNavigation,
   applyContentRootViewSelection,
 } from './content-root-navigation'
+import { shouldModelOwnPlainVerticalLargeDocumentExtension } from './dom-coverage-vertical-selection'
 import {
   isDestructiveEditableCommand,
   isEditableEditingEpochCommand,
@@ -78,6 +79,25 @@ const DEFAULT_MODEL_COMMAND_REPAIR: EditableRepairRequest = {
     reason: 'model-command',
     selectionSource: 'model-owned',
   },
+}
+
+const getOwnerlessViewSelectionRange = (
+  editor: ReactRuntimeEditor
+): Range | null => {
+  const viewSelection = readSlateViewSelection(editor)
+
+  if (
+    !viewSelection ||
+    viewSelection.anchor.owner ||
+    viewSelection.focus.owner
+  ) {
+    return null
+  }
+
+  return {
+    anchor: viewSelection.anchor.point,
+    focus: viewSelection.focus.point,
+  }
 }
 
 const isPlainTextKeyboardInput = (event: KeyboardEvent) =>
@@ -348,6 +368,44 @@ export const applyEditableKeyDown = ({
           })
         : null
 
+    const selection = readRuntimeSelection(editor)
+    const selectionRoot = getSelectionRootKey(selection)
+    const viewRoot = editor.read((state) => state.view.root())
+    const shouldHandleProjectedSelection =
+      nestedEditableTarget || selectionRoot !== viewRoot
+
+    if (shouldHandleProjectedSelection) {
+      const focusNode =
+        selection && Editor.hasPath(editor, selection.focus.path)
+          ? NodeApi.parent(editor, selection.focus.path)
+          : null
+      const isRTL = focusNode
+        ? getDirection(NodeApi.string(focusNode)) === 'rtl'
+        : false
+      const contentRootViewSelectionResult = applyContentRootViewSelection({
+        editor,
+        event,
+        getActiveContentRootOwner,
+        getContentRootOwnerViewEditor,
+        getMountedViewEditor,
+        isRTL,
+        selection,
+      })
+
+      if (contentRootViewSelectionResult.handled) {
+        return keyDownHandled({
+          focus: true,
+          forceRender: true,
+          kind: 'sync-selection',
+          selectionSourceTransition: {
+            preferModelSelection: true,
+            reason: 'model-command',
+            selectionSource: 'model-owned',
+          },
+        })
+      }
+    }
+
     if (!readOnly && isEditableEditingEpochCommand(projectedCommand)) {
       event.preventDefault()
       event.stopPropagation()
@@ -609,6 +667,30 @@ export const applyEditableKeyDown = ({
       })
     }
 
+    const largeDocumentVerticalSelection =
+      getOwnerlessViewSelectionRange(editor) ?? selection
+
+    if (
+      shouldModelOwnPlainVerticalLargeDocumentExtension({
+        domStrategyRuntime,
+        editor,
+        event: nativeEvent,
+        selection: largeDocumentVerticalSelection,
+      })
+    ) {
+      const caretMovementResult = applyEditableCaretMovement({
+        domStrategyRuntime,
+        editor,
+        event,
+        isRTL,
+        selection: largeDocumentVerticalSelection,
+      })
+
+      if (caretMovementResult.handled) {
+        return keyDownHandled(caretMovementResult.repair)
+      }
+    }
+
     const contentRootViewSelectionResult = applyContentRootViewSelection({
       editor,
       event,
@@ -621,6 +703,7 @@ export const applyEditableKeyDown = ({
 
     if (contentRootViewSelectionResult.handled) {
       return keyDownHandled({
+        focus: true,
         kind: 'sync-selection',
         selectionSourceTransition: {
           preferModelSelection: true,
@@ -646,6 +729,7 @@ export const applyEditableKeyDown = ({
     }
 
     const caretMovementResult = applyEditableCaretMovement({
+      domStrategyRuntime,
       editor,
       event,
       isRTL,

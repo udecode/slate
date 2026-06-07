@@ -16,6 +16,7 @@ import { getDOMClipboardFormatKey } from 'slate-dom/internal'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
 import {
+  createMainRootSlateViewSelection,
   isSlateViewSelectionCollapsed,
   readSlateViewSelection,
   readSlateViewSelectionHistoryEntry,
@@ -45,12 +46,14 @@ import { readRuntimeSelection } from './runtime-selection-state'
 import {
   armModelOwnedTextInputGuard,
   setEditableModelSelectionPreference,
+  shouldUseModelBackedSelectAllSelection,
 } from './selection-controller'
 import { shouldSkipSelectionFocus } from './selection-side-effect-policy'
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
 const MAIN_ROOT_KEY: RootKey = 'main'
 const DEFAULT_SLATE_CLIPBOARD_FORMAT_KEY = 'x-slate-fragment'
+const MULTILINE_TEXT_PATTERN = /[\n\r]/
 const EDITOR_TO_HISTORY_FOCUS_ROOT = new WeakMap<Editor, RootKey | null>()
 
 type ClipboardInsertDataHandler = (
@@ -657,6 +660,31 @@ const applyProjectedViewSelectionTextCommand = ({
   }
 
   const runtimeEditor = getCanonicalRuntimeEditor(editor)
+  const modelSelection = readRuntimeSelection(runtimeEditor)
+
+  if (
+    text &&
+    applyFullBlockTextReplacement(runtimeEditor, modelSelection, text)
+  ) {
+    saveSlateViewSelectionHistoryEntry(runtimeEditor, {
+      redo: null,
+      undo: viewSelection,
+    })
+    writeSlateViewSelection(editor, null)
+
+    return true
+  }
+
+  if (!text && applyFullBlockDeleteFragment(runtimeEditor, modelSelection)) {
+    saveSlateViewSelectionHistoryEntry(runtimeEditor, {
+      redo: null,
+      undo: viewSelection,
+    })
+    writeSlateViewSelection(editor, null)
+
+    return true
+  }
+
   const resolution = resolveProjectedSelectionTarget(
     runtimeEditor,
     viewSelection
@@ -728,6 +756,7 @@ const applyProjectedViewSelectionDataCommand = ({
   const { target } = resolution
   const fragment = decodeProjectedClipboardFragment(runtimeEditor, data)
   const text = data.getData('text/plain')
+  const modelSelection = readRuntimeSelection(runtimeEditor)
   const hasFragmentPayload = !!fragment && fragment.length > 0
   const hasFallbackPayload = !!text || hasFragmentPayload
   const hasInsertDataHandlers =
@@ -775,6 +804,21 @@ const applyProjectedViewSelectionDataCommand = ({
       })
       writeSlateViewSelection(editor, null)
     }
+
+    return true
+  }
+
+  if (
+    text &&
+    !hasFragmentPayload &&
+    !hasInsertDataHandlers &&
+    applyFullBlockTextReplacement(runtimeEditor, modelSelection, text)
+  ) {
+    saveSlateViewSelectionHistoryEntry(runtimeEditor, {
+      redo: null,
+      undo: viewSelection,
+    })
+    writeSlateViewSelection(editor, null)
 
     return true
   }
@@ -1493,11 +1537,57 @@ const applyFullBlockTextReplacement = (
   selection: Range | null,
   text: string
 ) => {
-  const blockPaths =
-    getFullySelectedBlockPaths(editor, selection, {
-      includeAllSiblings: true,
-      includeOnlyChild: true,
-    }) ?? getFullySelectedTopLevelBlockPaths(editor, selection)
+  if (MULTILINE_TEXT_PATTERN.test(text)) {
+    return false
+  }
+
+  const topLevelBlockPaths = getFullySelectedTopLevelBlockPaths(
+    editor,
+    selection
+  )
+
+  if (topLevelBlockPaths?.length) {
+    const marks =
+      getEditorCurrentMarks(editor) ??
+      getConsistentTextMarksInBlocks(editor, topLevelBlockPaths)
+    const replacement = createTextReplacementNode(
+      editor,
+      topLevelBlockPaths,
+      marks,
+      text
+    )
+    const root = selection?.anchor.root
+    const selectedChildren = withProjectedMutationRoot(editor, root, () =>
+      editor.read((state) => [...state.nodes.children()])
+    )
+    const nextPoint = getPointWithRoot(
+      { path: [0, 0], offset: text.length },
+      root
+    )
+    const nextSelection = { anchor: nextPoint, focus: nextPoint }
+
+    editor.update((tx) => {
+      tx.operations.replay([
+        {
+          children: selectedChildren,
+          index: 0,
+          newChildren: [replacement],
+          newSelection: nextSelection,
+          path: [],
+          ...(root ? { root } : {}),
+          selection,
+          type: 'replace_children',
+        } as Operation,
+      ])
+    })
+
+    return true
+  }
+
+  const blockPaths = getFullySelectedBlockPaths(editor, selection, {
+    includeAllSiblings: true,
+    includeOnlyChild: true,
+  })
 
   if (!blockPaths?.length) {
     return false
@@ -1577,10 +1667,7 @@ export const applyEditableCommand = ({
 
         editor.update((tx) => {
           if (selection && RangeApi.isExpanded(selection)) {
-            tx.fragment.delete({
-              at: selection,
-              ...(command.direction ? { direction: command.direction } : {}),
-            })
+            tx.fragment.delete({ at: selection })
             return
           }
 
@@ -1654,19 +1741,34 @@ export const applyEditableCommand = ({
       })
 
     case 'select':
-    case 'select-all':
-      writeSlateViewSelection(editor, null)
+    case 'select-all': {
+      let nextSelection: Range | null = null
       editor.update((tx) => {
-        tx.selection.set(
+        nextSelection =
           command.kind === 'select'
             ? command.selection
             : {
                 anchor: tx.points.start([]),
                 focus: tx.points.end([]),
               }
-        )
+        tx.selection.set(nextSelection)
       })
+      writeSlateViewSelection(
+        editor,
+        command.kind === 'select-all' &&
+          nextSelection &&
+          shouldUseModelBackedSelectAllSelection({
+            editor: editor as ReactRuntimeEditor,
+            selection: nextSelection,
+          })
+          ? createMainRootSlateViewSelection(
+              nextSelection,
+              editor.read((state) => state.view.root())
+            )
+          : null
+      )
       return true
+    }
 
     case 'move-selection':
       if (
@@ -1875,8 +1977,32 @@ export const applyEditableRepairRequest = ({
       }
 
       if (request.kind === 'sync-selection') {
-        inputController.state.selectionChangeOrigin = 'programmatic-export'
-        syncDOMSelectionToEditor()
+        const syncProgrammaticDOMSelection = () => {
+          const selection = readRuntimeSelection(editor)
+
+          if (selection) {
+            editor.update((tx) => {
+              tx.selection.set(selection)
+            })
+          }
+
+          inputController.state.isUpdatingSelection = true
+          inputController.state.selectionChangeOrigin = 'programmatic-export'
+          syncDOMSelectionToEditor()
+        }
+
+        syncProgrammaticDOMSelection()
+        globalThis.queueMicrotask?.(syncProgrammaticDOMSelection)
+        globalThis.setTimeout?.(syncProgrammaticDOMSelection)
+        globalThis.setTimeout?.(syncProgrammaticDOMSelection, 80)
+        globalThis.setTimeout?.(() => {
+          if (
+            inputController.state.selectionChangeOrigin ===
+            'programmatic-export'
+          ) {
+            inputController.state.isUpdatingSelection = false
+          }
+        }, 160)
         return
       }
 

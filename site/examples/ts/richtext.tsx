@@ -328,7 +328,7 @@ const richText = () =>
         const fragment = normalizeRichTextHtmlFragment(deserialize(parsed.body))
 
         editor.update((tx) => {
-          tx.nodes.insert(fragment)
+          tx.fragment.insert(fragment)
         })
         return true
       },

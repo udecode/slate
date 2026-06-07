@@ -104,15 +104,18 @@ describe('editor schema', () => {
     const cleanup = editor.extend(
       defineEditorExtension({
         elements: [
-          { type: 'legacy', void: true } as unknown as EditorElementSpec,
+          {
+            type: 'boolean-void-flag',
+            void: true,
+          } as unknown as EditorElementSpec,
         ],
-        name: 'legacy-boolean-void',
+        name: 'boolean-void-flag',
       })
     )
 
     assert.equal(
       editor.read((state) =>
-        state.schema.isVoid({ type: 'legacy', children: [] })
+        state.schema.isVoid({ type: 'boolean-void-flag', children: [] })
       ),
       false
     )

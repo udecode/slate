@@ -582,7 +582,11 @@ const getEmptyTopLevelTextBlockFragmentReplacement = (
 
   const [onlyFragmentNode] = fragment
 
-  if (fragment.length !== 1 || !isTextBlockElement(editor, onlyFragmentNode)) {
+  if (
+    fragment.length === 0 ||
+    !fragment.every((node) => isTextBlockElement(editor, node)) ||
+    !isTextBlockElement(editor, onlyFragmentNode)
+  ) {
     return null
   }
 
@@ -607,6 +611,15 @@ const getEmptyTopLevelTextBlockFragmentReplacement = (
     !samePoint(at.anchor, { path: blockPath.concat(0), offset: 0 })
   ) {
     return null
+  }
+
+  if (fragment.length > 1) {
+    return {
+      children: fragment.map(cloneDescendant),
+      index: blockPath[0],
+      previousChildren: [block],
+      selection: getOffsetFragmentEndSelection(fragment, blockPath[0]),
+    }
   }
 
   const clonedBlock = cloneDescendant(onlyFragmentNode)

@@ -359,7 +359,7 @@ const createMarkableVoidChildren = (): Descendant[] => [
   } as Descendant,
 ]
 
-it('above exposes the current traversal seam', () => {
+it('above exposes the current traversal API', () => {
   const editor = createEditor()
   defineElement(editor, { type: 'link', inline: true })
 
@@ -1190,7 +1190,7 @@ it('mirrors the legacy mark-read oracle rows', () => {
   assert.deepEqual(getMarks(editor), { bold: true })
 })
 
-it('positions exposes the current point-iteration seam across offset, character, word, and block units', () => {
+it('positions exposes the current point-iteration API across offset, character, word, and block units', () => {
   const editor = createEditor()
   defineElement(editor, { type: 'link', inline: true })
 
@@ -1380,7 +1380,7 @@ it('mirrors the legacy positions/all/inline-fragmentation.tsx oracle row', () =>
   ])
 })
 
-it('unhangRange exposes the current hanging-range seam', () => {
+it('unhangRange exposes the current hanging-range API', () => {
   const editor = createEditor()
 
   Editor.replace(editor, {

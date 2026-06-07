@@ -4535,9 +4535,17 @@ export const notifyListeners = (editor: Editor, change?: SnapshotChange) => {
     if (change && sourceListeners) {
       profileCoreDuration('notify-source-listeners', () => {
         for (const source of sourcesForChange) {
-          for (const listener of sourceListeners.get(source) ?? []) {
-            listener(getSnapshotForListeners(), change)
+          const listenersForSource = sourceListeners.get(source)
+
+          if (!listenersForSource || listenersForSource.size === 0) {
+            continue
           }
+
+          profileCoreDuration(`notify-source-listeners:${source}`, () => {
+            for (const listener of listenersForSource) {
+              listener(getSnapshotForListeners(), change)
+            }
+          })
         }
       })
     }

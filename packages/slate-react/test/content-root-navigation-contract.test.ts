@@ -174,6 +174,43 @@ describe('content root navigation', () => {
     expect(getMountedViewEditor).not.toHaveBeenCalled()
   })
 
+  it('does not exit a content root from the start of its last block on ArrowDown', () => {
+    const runtime = createEditorRuntime({
+      extensions: [contentRootExtension],
+      initialValue: {
+        roots: {
+          'card:body': [paragraph('First'), paragraph('Second')],
+          main: [paragraph('Before'), contentCard(), paragraph('After')],
+        },
+      },
+    })
+    const mainEditor = createEditorView(runtime, {
+      root: 'main',
+    }) as unknown as ReactRuntimeEditor
+    const bodyEditor = createEditorView(runtime, {
+      root: 'card:body',
+    }) as unknown as ReactRuntimeEditor
+    const event = keyEvent('ArrowDown')
+
+    selectPoint(bodyEditor, { path: [1, 0], offset: 0 })
+
+    const result = applyContentRootNavigation({
+      editor: bodyEditor,
+      event,
+      getMountedViewEditor: (root) =>
+        root === 'main' ? mainEditor : bodyEditor,
+      isRTL: false,
+      selection: bodyEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(false)
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    expect(bodyEditor.read((state) => state.selection.get())).toEqual({
+      anchor: { offset: 0, path: [1, 0], root: 'card:body' },
+      focus: { offset: 0, path: [1, 0], root: 'card:body' },
+    })
+  })
+
   it('moves forward from the previous sibling into the content root start', () => {
     const { bodyEditor, mainEditor } = createFixture()
     const event = keyEvent('ArrowRight')

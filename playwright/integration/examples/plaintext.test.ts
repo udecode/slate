@@ -775,13 +775,9 @@ test.describe('plaintext example', () => {
   })
 
   test('keeps Shift+ArrowRight cross-block selection on real text', async ({
-    browserName,
     page,
   }, testInfo) => {
-    test.skip(
-      browserName !== 'chromium' || testInfo.project.name === 'mobile',
-      'Desktop Chromium cross-block selection proof'
-    )
+    test.skip(testInfo.project.name === 'mobile', 'Desktop selection proof')
 
     const editor = await openExample(page, 'plaintext', {
       ready: {
@@ -809,13 +805,9 @@ test.describe('plaintext example', () => {
   })
 
   test('keeps Shift+ArrowLeft backward selection inside one paragraph', async ({
-    browserName,
     page,
   }, testInfo) => {
-    test.skip(
-      browserName !== 'chromium' || testInfo.project.name === 'mobile',
-      'Desktop Chromium backward selection proof'
-    )
+    test.skip(testInfo.project.name === 'mobile', 'Desktop selection proof')
 
     const editor = await openExample(page, 'plaintext', {
       ready: {

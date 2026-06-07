@@ -486,7 +486,7 @@ describe('core benchmark scripts contract', () => {
     assert.match(legacySource, /const comparableProductLaneNames = readyOnly/)
     assert.match(
       legacySource,
-      /const v2OnlyProductLaneNames = readyOnly \? \[\] : \['middleBlockPromoteThenTypeMs'\]/
+      /const v2OnlyProductLaneNames = readyOnly\s*\?\s*\[\]\s*:\s*\[\s*'middleBlockPromoteMs',\s*'middleBlockPromoteThenTypeMs',?\s*\]/
     )
     assert.match(legacySource, /v2OnlyP95Rows/)
     assert.match(legacySource, /REACT_HUGE_COMPARE_PRINT_JSON/)

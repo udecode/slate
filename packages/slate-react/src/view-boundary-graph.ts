@@ -26,6 +26,7 @@ export type SlateViewBoundaryOwner = SlateProjectionOwner
 export type SlateViewBoundaryGraphNodeInput = SlateProjectionGraphNodeInput
 export type SlateViewBoundaryGraphModel = SlateProjectionGraphModel
 export type SlateViewBoundaryPoint = SlateProjectedPoint
+export type SlateViewBoundaryRangeEndpoint = SlateProjectionGraphRangeEndpoint
 export type SlateViewBoundaryRangeSegment = SlateProjectionGraphRangeSegment
 export type SlateViewBoundaryRangeSegments = SlateProjectionGraphRangeSegments
 

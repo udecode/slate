@@ -1819,7 +1819,7 @@ it('insertBreak inside a list item splits the item and keeps the list wrapper', 
   })
 })
 
-it('insertSoftBreak currently aliases insertBreak on the proved block split seam', () => {
+it('insertSoftBreak splits the current block through its own command', () => {
   const editor = createEditor()
 
   Editor.replace(editor, {

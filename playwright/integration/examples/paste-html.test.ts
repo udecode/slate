@@ -488,7 +488,13 @@ test.describe('paste html example', () => {
       )
     }
 
-    await editor.assert.blockTexts(['Before', 'Heading', 'Quote', 'After'])
+    await editor.assert.modelBlockTexts([
+      'Before',
+      'Heading',
+      'Quote',
+      'code',
+      'After',
+    ])
     await expect(editor.root.locator('h1')).toHaveText('Heading')
     await expect(editor.root.locator('blockquote')).toHaveText('Quote')
     await expect(editor.root.locator('pre code')).toHaveText('code')
@@ -596,9 +602,7 @@ test.describe('paste html example', () => {
       await editor.root.press('ControlOrMeta+V')
 
       await editor.assert.blockTexts([
-        'By',
-        copiedText,
-        firstParagraphRemainder,
+        `By${copiedText}${firstParagraphRemainder}`,
         'This is an example of doing exactly that!',
         copiedText,
       ])
@@ -1363,9 +1367,7 @@ test.describe('paste html example', () => {
     await expect(editor.root.locator('ul')).toHaveCount(1)
     await expect(editor.root.locator('li')).toHaveCount(2)
     await expect(editor.root.locator('li').nth(0)).toContainText(
-      testInfo.project.name === 'webkit'
-        ? 'Line 1Some link.'
-        : 'Line 1 Some link.'
+      'Line 1 Some link.'
     )
     await expect(editor.root.locator('li').nth(1)).toContainText('Line 2.')
 
@@ -1754,7 +1756,11 @@ test.describe('paste html example', () => {
     const html = '<img alt="" src="/test/image.jpg">'
 
     await editor.selection.selectAll()
-    await page.keyboard.insertText('Before after')
+    if (testInfo.project.name === 'mobile') {
+      await editor.insertText('Before after')
+    } else {
+      await editor.type('Before after')
+    }
     await editor.selection.collapse({ path: [0, 0], offset: 'Before '.length })
 
     if (testInfo.project.name === 'mobile') {

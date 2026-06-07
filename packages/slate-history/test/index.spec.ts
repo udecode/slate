@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Editor, getEditorTransformRegistry } from 'slate/internal'
+import * as SlateHistory from '../src'
 import { History, history } from '../src'
 
 const testsDir = dirname(fileURLToPath(import.meta.url))
@@ -111,6 +112,11 @@ const getHistory = (editor: any) =>
   editor.read((state: any) => state.history.get())
 
 describe('slate-history', () => {
+  it('exposes the current history extension surface', () => {
+    assert.strictEqual(typeof SlateHistory.history, 'function')
+    assert.strictEqual('withHistory' in SlateHistory, false)
+  })
+
   runFixtureTree(resolve(testsDir, 'undo'), (module) => {
     const { input, output, run } = module
     const editor = withTest(input)

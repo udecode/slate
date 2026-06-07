@@ -4,6 +4,13 @@ import type { EditableKeyDownHandler } from '../components/editable'
 import type { MountedTopLevelRange } from '../dom-strategy/dom-strategy-commands'
 import { useOptionalSlateRuntimeContext } from '../hooks/use-slate-runtime'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
+import { recordSlateReactRender } from '../render-profiler'
+import { readSlateViewSelection } from '../view-selection'
+import { shouldModelOwnContentRootVerticalSelection } from './content-root-navigation'
+import {
+  isMountedPlainVerticalLargeDocumentMovement,
+  shouldModelOwnPlainVerticalLargeDocumentExtension,
+} from './dom-coverage-vertical-selection'
 import { prepareEditableKeyDownKernel } from './editing-kernel'
 import { useEditableKeyboardHandler } from './input-router'
 import type { EditableInputController } from './input-state'
@@ -12,6 +19,52 @@ import { Editor } from './runtime-editor-api'
 import type { EditableEventRuntimeCore } from './runtime-event-engine'
 
 const WHITESPACE_KEY_RE = /\s/
+const MAIN_ROOT_KEY = 'main'
+const MODIFIER_ONLY_KEYS = new Set([
+  'Alt',
+  'AltGraph',
+  'CapsLock',
+  'Control',
+  'Fn',
+  'FnLock',
+  'Meta',
+  'NumLock',
+  'ScrollLock',
+  'Shift',
+  'Symbol',
+  'SymbolLock',
+])
+
+const isProjectedSelectionCaptureKey = (event: KeyboardEvent<HTMLDivElement>) =>
+  event.shiftKey &&
+  (event.key === 'ArrowUp' ||
+    event.key === 'ArrowDown' ||
+    event.key === 'ArrowLeft' ||
+    event.key === 'ArrowRight')
+
+const isProjectedEditingCaptureKey = (event: KeyboardEvent<HTMLDivElement>) =>
+  !event.altKey &&
+  !event.ctrlKey &&
+  !event.metaKey &&
+  (event.key === 'Backspace' || event.key === 'Delete' || event.key === 'Enter')
+
+const measureRuntimeKeyDownPhase = <T>(id: string, run: () => T): T => {
+  if (!globalThis.__SLATE_REACT_RENDER_PROFILER__) {
+    return run()
+  }
+
+  const startedAt = performance.now()
+
+  try {
+    return run()
+  } finally {
+    recordSlateReactRender({
+      duration: performance.now() - startedAt,
+      id,
+      kind: 'runtime-time',
+    })
+  }
+}
 
 export const shouldFlushPendingNativeTextInputForKeyDown = (
   decision: ReturnType<typeof prepareEditableKeyDownKernel>,
@@ -55,6 +108,10 @@ export const shouldApplyKeyDownSelectionPolicy = (
   const hasCommandModifier = event.altKey || event.ctrlKey || event.metaKey
   const isTextShortcutBoundary =
     event.key.length === 1 && WHITESPACE_KEY_RE.test(event.key)
+
+  if (decision.intent === null && MODIFIER_ONLY_KEYS.has(event.key)) {
+    return false
+  }
 
   if (
     decision.intent !== 'text-insert' ||
@@ -148,6 +205,47 @@ export const useRuntimeKeyboardEvents = ({
   const slateRuntimeContext = useOptionalSlateRuntimeContext()
   const runKeyDownEvent = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
+      const isVerticalArrowKey =
+        event.key === 'ArrowUp' || event.key === 'ArrowDown'
+      const snapshotSelection = measureRuntimeKeyDownPhase(
+        'keydown.snapshot-selection',
+        () => Editor.getSnapshot(editor).selection
+      )
+      const modelOwnsVerticalShift = measureRuntimeKeyDownPhase(
+        'keydown.model-owns-vertical-shift',
+        () =>
+          event.shiftKey &&
+          isVerticalArrowKey &&
+          shouldModelOwnPlainVerticalLargeDocumentExtension({
+            domStrategyRuntime,
+            editor,
+            event,
+          })
+      )
+      const nativeMountedVerticalShift = measureRuntimeKeyDownPhase(
+        'keydown.native-mounted-vertical-shift',
+        () =>
+          event.shiftKey &&
+          isVerticalArrowKey &&
+          isMountedPlainVerticalLargeDocumentMovement({
+            domStrategyRuntime,
+            editor,
+            event,
+            selection: snapshotSelection,
+          })
+      )
+      const modelOwnsContentRootVerticalShift = measureRuntimeKeyDownPhase(
+        'keydown.model-owns-content-root-vertical-shift',
+        () =>
+          shouldModelOwnContentRootVerticalSelection({
+            editor,
+            event,
+            getActiveContentRootOwner:
+              slateRuntimeContext?.getActiveContentRootOwner,
+            selection: snapshotSelection,
+          })
+      )
+
       if (
         !readOnly &&
         !onKeyDown &&
@@ -155,22 +253,29 @@ export const useRuntimeKeyboardEvents = ({
         !event.altKey &&
         !event.ctrlKey &&
         !event.metaKey &&
-        isNativeVerticalKeyFastPathFullyMounted({
-          domStrategyRuntime,
-          editor,
-        }) &&
-        (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+        !modelOwnsVerticalShift &&
+        !modelOwnsContentRootVerticalShift &&
+        (nativeMountedVerticalShift ||
+          isNativeVerticalKeyFastPathFullyMounted({
+            domStrategyRuntime,
+            editor,
+          })) &&
+        isVerticalArrowKey
       ) {
         flushPendingNativeTextInput?.()
         return
       }
 
-      const decision = prepareEditableKeyDownKernel({
-        editor,
-        event,
-        inputController,
-        domStrategyRuntime,
-      })
+      const decision = measureRuntimeKeyDownPhase(
+        'keydown.prepare-kernel',
+        () =>
+          prepareEditableKeyDownKernel({
+            editor,
+            event,
+            inputController,
+            domStrategyRuntime,
+          })
+      )
 
       if (shouldFlushPendingNativeTextInputForKeyDown(decision, event)) {
         flushPendingNativeTextInput?.()
@@ -178,30 +283,46 @@ export const useRuntimeKeyboardEvents = ({
 
       inputController.state.activeIntent = decision.intent
       if (shouldApplyKeyDownSelectionPolicy(decision, event, inputController)) {
-        runtime.selection.applyKeyDownSelectionPolicy(decision)
+        measureRuntimeKeyDownPhase('keydown.apply-selection-policy', () => {
+          runtime.selection.applyKeyDownSelectionPolicy(decision)
+        })
       }
-      runtime.trace.beginKeyDownEventFrame(decision)
-      const keyDownWorkerResult = applyEditableKeyDown({
-        androidInputManagerRef: runtime.android.managerRef,
-        editor,
-        event,
-        forceRender: runtime.repair.forceRender,
-        inputController,
-        domStrategyRuntime,
-        getActiveContentRootOwner:
-          slateRuntimeContext?.getActiveContentRootOwner,
-        getContentRootOwnerViewEditor:
-          slateRuntimeContext?.getContentRootOwnerViewEditor,
-        getMountedViewEditor: slateRuntimeContext?.getMountedViewEditor,
-        onKeyDown,
-        readOnly,
-        setExplicitPartialDOMBackedSelection,
-        setComposing: runtime.composition.setComposing,
-        partialDOMBackedSelection,
+
+      measureRuntimeKeyDownPhase('keydown.trace-begin-frame', () => {
+        runtime.trace.beginKeyDownEventFrame(decision)
       })
+
+      const keyDownWorkerResult = measureRuntimeKeyDownPhase(
+        'keydown.apply-editable-keydown',
+        () =>
+          applyEditableKeyDown({
+            androidInputManagerRef: runtime.android.managerRef,
+            editor,
+            event,
+            forceRender: runtime.repair.forceRender,
+            inputController,
+            domStrategyRuntime,
+            getActiveContentRootOwner:
+              slateRuntimeContext?.getActiveContentRootOwner,
+            getContentRootOwnerViewEditor:
+              slateRuntimeContext?.getContentRootOwnerViewEditor,
+            getMountedViewEditor: slateRuntimeContext?.getMountedViewEditor,
+            onKeyDown,
+            readOnly,
+            setExplicitPartialDOMBackedSelection,
+            setComposing: runtime.composition.setComposing,
+            partialDOMBackedSelection,
+          })
+      )
+
       if (keyDownWorkerResult.repair) {
-        runtime.repair.requestEditableRepair(keyDownWorkerResult.repair)
+        const repair = keyDownWorkerResult.repair
+
+        measureRuntimeKeyDownPhase('keydown.request-repair', () => {
+          runtime.repair.requestEditableRepair(repair)
+        })
       }
+
       if (
         !readOnly &&
         !keyDownWorkerResult.handled &&
@@ -212,10 +333,12 @@ export const useRuntimeKeyboardEvents = ({
           runtime.selection.syncDOMSelectionFromRuntime()
         })
       }
-      runtime.trace.recordKeyDownTrace({
-        decision,
-        eventKey: event.key,
-        handled: keyDownWorkerResult.handled,
+      measureRuntimeKeyDownPhase('keydown.trace-record', () => {
+        runtime.trace.recordKeyDownTrace({
+          decision,
+          eventKey: event.key,
+          handled: keyDownWorkerResult.handled,
+        })
       })
     },
     [
@@ -248,15 +371,40 @@ export const useRuntimeKeyboardEvents = ({
         domStrategyRuntime,
       })
 
-      if (
-        decision.targetOwner !== 'internal-control' ||
-        decision.intent !== 'history'
-      ) {
+      const shouldCaptureProjectedSelection =
+        decision.targetOwner === 'internal-control' &&
+        isProjectedSelectionCaptureKey(event) &&
+        (() => {
+          const selection = Editor.getSnapshot(editor).selection
+
+          if (!selection) {
+            return false
+          }
+
+          const viewRoot = editor.read((state) => state.view.root())
+          const anchorRoot = selection.anchor.root ?? MAIN_ROOT_KEY
+          const focusRoot = selection.focus.root ?? MAIN_ROOT_KEY
+
+          return anchorRoot !== viewRoot || focusRoot !== viewRoot
+        })()
+      const shouldCaptureProjectedEditing =
+        decision.targetOwner === 'internal-control' &&
+        isProjectedEditingCaptureKey(event) &&
+        readSlateViewSelection(editor) !== null
+      const shouldCapture =
+        decision.targetOwner === 'internal-control' &&
+        (decision.intent === 'history' ||
+          shouldCaptureProjectedSelection ||
+          shouldCaptureProjectedEditing)
+
+      if (!shouldCapture) {
         return
       }
 
-      flushPendingNativeTextInput?.()
-      runtime.selection.applyKeyDownSelectionPolicy(decision)
+      if (decision.intent === 'history') {
+        flushPendingNativeTextInput?.()
+        runtime.selection.applyKeyDownSelectionPolicy(decision)
+      }
       runtime.trace.beginKeyDownEventFrame(decision)
       const keyDownWorkerResult = applyEditableKeyDown({
         androidInputManagerRef: runtime.android.managerRef,
@@ -276,6 +424,17 @@ export const useRuntimeKeyboardEvents = ({
         setComposing: runtime.composition.setComposing,
         partialDOMBackedSelection,
       })
+
+      if (!keyDownWorkerResult.handled) {
+        runtime.trace.recordKeyDownTrace({
+          decision,
+          eventKey: event.key,
+          handled: false,
+        })
+        return
+      }
+
+      event.stopPropagation()
       if (keyDownWorkerResult.repair) {
         runtime.repair.requestEditableRepair(keyDownWorkerResult.repair)
       }

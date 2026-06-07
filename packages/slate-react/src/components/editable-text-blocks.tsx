@@ -50,6 +50,7 @@ import {
   useVirtualizedRootPlan,
   type VirtualizedPageLayoutItem,
   type VirtualizedTopLevelLayoutItem,
+  type VirtualizedTopLevelItem,
 } from '../dom-strategy/use-virtualized-root-plan'
 import { DOMStrategyVirtualizedRangeBoundary } from '../dom-strategy/virtualized-range-boundary'
 import { useRootInteractionController } from '../editable/root-interaction-controller'
@@ -129,19 +130,10 @@ const EMPTY_DIRECT_TEXT_CHILD_NODES = Object.freeze(
 const EMPTY_DECORATIONS = Object.freeze(
   []
 ) as readonly EditableDecoration<unknown>[]
-const ROOT_GROUP_SIZE = 32
+const ROOT_GROUP_SIZE = 16
 const ROOT_GROUP_THRESHOLD = 1000
-const ROOT_GROUP_BACKGROUND_MOUNT_INITIAL_DELAY_MS = 500
-const ROOT_GROUP_BACKGROUND_MOUNT_DELAY_MS = 16
-const ROOT_GROUP_BACKGROUND_MOUNT_BATCH_SIZE = 16
 const INTERNAL_PARTIAL_DOM_SEGMENT_SIZE = 32
-const ROOT_GROUP_STYLE = {
-  contain: 'layout style paint',
-  containIntrinsicSize: '1024px',
-  contentVisibility: 'auto',
-} satisfies CSSProperties
-const ROOT_GROUP_NATIVE_SURFACE_STYLE = {} satisfies CSSProperties
-
+const INTERNAL_PARTIAL_DOM_PROMOTION_WINDOW_SIZE = 8
 const getSnapshotPathKey = (path: Path) => path.join('.')
 
 const resolveProjectionRuntimeScope = (
@@ -1285,22 +1277,48 @@ const getRootGroupPlanKey = (
   documentEpoch: number
 ) => `${documentEpoch}:${runtimeIds.join('\u001f')}`
 
-const getActiveRootGroupId = (
+const getActiveRootGroupIds = (
   groups: readonly EditableRootGroupRecord[] | null,
   selectedTopLevelIndex: number | null
 ) => {
   if (!groups || groups.length === 0) {
-    return null
+    return new Set<string>()
   }
 
   const targetIndex = selectedTopLevelIndex ?? 0
-  const targetGroup =
-    groups.find(
+  const targetGroupIndex = Math.max(
+    0,
+    groups.findIndex(
       (group) =>
         group.startIndex <= targetIndex && group.endIndex >= targetIndex
-    ) ?? groups[0]
+    )
+  )
+  const groupIds = new Set<string>()
+  const targetGroup = groups[targetGroupIndex]
 
-  return targetGroup.groupId
+  if (!targetGroup) {
+    return groupIds
+  }
+
+  groupIds.add(targetGroup.groupId)
+
+  if (targetIndex <= targetGroup.startIndex + 1) {
+    const previousGroup = groups[targetGroupIndex - 1]
+
+    if (previousGroup) {
+      groupIds.add(previousGroup.groupId)
+    }
+  }
+
+  if (targetIndex >= targetGroup.endIndex - 1) {
+    const nextGroup = groups[targetGroupIndex + 1]
+
+    if (nextGroup) {
+      groupIds.add(nextGroup.groupId)
+    }
+  }
+
+  return groupIds
 }
 
 const sameStringSet = (left: ReadonlySet<string>, right: ReadonlySet<string>) =>
@@ -1339,11 +1357,11 @@ const getRootGroupIdsForBoundary = (
 }
 
 const useMountedRootGroupIds = ({
-  activeGroupId,
+  activeGroupIds,
   groups,
   planKey,
 }: {
-  activeGroupId: string | null
+  activeGroupIds: ReadonlySet<string>
   groups: readonly EditableRootGroupRecord[] | null
   planKey: string | null
 }) => {
@@ -1357,11 +1375,6 @@ const useMountedRootGroupIds = ({
 
   const mountedGroupIds =
     mountedState.planKey === planKey ? mountedState.groupIds : new Set<string>()
-  const activeGroupIds = React.useMemo(
-    () =>
-      activeGroupId == null ? new Set<string>() : new Set([activeGroupId]),
-    [activeGroupId]
-  )
   const mountGroupIds = React.useCallback(
     (groupIds: readonly string[]) => {
       if (!planKey || groupIds.length === 0) {
@@ -1416,92 +1429,12 @@ const useMountedRootGroupIds = ({
     })
   }, [activeGroupIds, groups, planKey])
 
-  React.useEffect(() => {
-    if (!groups || !planKey) {
-      return
-    }
-
-    let cancelled = false
-    let timeoutId: ReturnType<typeof setTimeout> | null = null
-    let intervalId: ReturnType<typeof setInterval> | null = null
-
-    const mountNextGroup = () => {
-      if (cancelled) {
-        return
-      }
-
-      React.startTransition(() => {
-        setMountedState((previous) => {
-          const nextGroupIds =
-            previous.planKey === planKey
-              ? new Set(previous.groupIds)
-              : new Set<string>()
-
-          for (const groupId of activeGroupIds) {
-            nextGroupIds.add(groupId)
-          }
-
-          const nextGroups = groups
-            .filter((group) => !nextGroupIds.has(group.groupId))
-            .slice(0, ROOT_GROUP_BACKGROUND_MOUNT_BATCH_SIZE)
-
-          if (nextGroups.length === 0) {
-            if (intervalId != null) {
-              clearInterval(intervalId)
-              intervalId = null
-            }
-
-            return previous.planKey === planKey &&
-              sameStringSet(previous.groupIds, nextGroupIds)
-              ? previous
-              : { groupIds: nextGroupIds, planKey }
-          }
-
-          for (const nextGroup of nextGroups) {
-            nextGroupIds.add(nextGroup.groupId)
-          }
-
-          if (nextGroupIds.size >= groups.length && intervalId != null) {
-            clearInterval(intervalId)
-            intervalId = null
-          }
-
-          return { groupIds: nextGroupIds, planKey }
-        })
-      })
-    }
-
-    timeoutId = setTimeout(() => {
-      mountNextGroup()
-
-      if (!cancelled) {
-        intervalId = setInterval(
-          mountNextGroup,
-          ROOT_GROUP_BACKGROUND_MOUNT_DELAY_MS
-        )
-      }
-    }, ROOT_GROUP_BACKGROUND_MOUNT_INITIAL_DELAY_MS)
-
-    return () => {
-      cancelled = true
-
-      if (timeoutId != null) {
-        clearTimeout(timeoutId)
-      }
-
-      if (intervalId != null) {
-        clearInterval(intervalId)
-      }
-    }
-  }, [activeGroupIds, groups, planKey])
-
   return { activeGroupIds, mountedGroupIds, mountGroupIds }
 }
 
 const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
   endIndex,
   groupId,
-  nativeSurfaceComplete,
   placeholder,
   placeholderRef,
   renderElement,
@@ -1515,7 +1448,6 @@ const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
 }: {
   endIndex: number
   groupId: string
-  nativeSurfaceComplete: boolean
   placeholder?: ReactNode
   placeholderRef?: React.RefCallback<HTMLElement>
   renderElement?: RenderElementRenderer<TElement>
@@ -1536,18 +1468,7 @@ const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
   })
 
   return (
-    <div
-      data-slate-root-group="true"
-      data-slate-root-group-end={endIndex}
-      data-slate-root-group-id={groupId}
-      data-slate-root-group-start={startIndex}
-      data-slate-root-group-state="fresh-mounted"
-      style={
-        nativeSurfaceComplete
-          ? ROOT_GROUP_NATIVE_SURFACE_STYLE
-          : ROOT_GROUP_STYLE
-      }
-    >
+    <>
       {runtimeIds.map((runtimeId) => (
         <EditableDescendantNode
           key={runtimeId}
@@ -1562,7 +1483,7 @@ const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
           runtimeId={runtimeId}
         />
       ))}
-    </div>
+    </>
   )
 }
 
@@ -1571,7 +1492,6 @@ const EditableRootGroup = React.memo(
   (previous, next) =>
     previous.endIndex === next.endIndex &&
     previous.groupId === next.groupId &&
-    previous.nativeSurfaceComplete === next.nativeSurfaceComplete &&
     previous.placeholder === next.placeholder &&
     previous.placeholderRef === next.placeholderRef &&
     previous.renderElement === next.renderElement &&
@@ -1697,6 +1617,43 @@ const createRootGroupRenderItems = (
   flushPendingGroups()
 
   return items
+}
+
+type VirtualizedTopLevelItemGroup = {
+  groupId: string
+  items: VirtualizedTopLevelItem[]
+  start: number
+}
+
+const createVirtualizedTopLevelItemGroups = (
+  items: readonly VirtualizedTopLevelItem[]
+): VirtualizedTopLevelItemGroup[] => {
+  const groups: VirtualizedTopLevelItemGroup[] = []
+
+  for (const item of items) {
+    const currentGroup = groups.at(-1)
+    const previousItem = currentGroup?.items.at(-1)
+    const previousEnd =
+      previousItem == null ? null : previousItem.start + previousItem.size
+
+    if (
+      !currentGroup ||
+      previousItem?.index !== item.index - 1 ||
+      previousEnd !== item.start
+    ) {
+      groups.push({
+        groupId: `virtual-row-group:${item.index}:${String(item.key)}`,
+        items: [item],
+        start: item.start,
+      })
+      continue
+    }
+
+    currentGroup.items.push(item)
+    currentGroup.groupId = `virtual-row-group:${currentGroup.items[0]!.index}:${item.index}`
+  }
+
+  return groups
 }
 
 const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
@@ -1869,6 +1826,8 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   const [promotedSegmentOverscan, setPromotedSegmentOverscan] = React.useState<
     number | null
   >(null)
+  const [promotedSegmentWindowStartIndex, setPromotedSegmentWindowStartIndex] =
+    React.useState<number | null>(null)
   const [placeholderHeight, setPlaceholderHeight] = React.useState<
     number | null
   >(null)
@@ -1910,6 +1869,10 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
             overscan: Math.max(0, internalPartialDOMStrategyOverscan),
             segmentSize: Math.max(1, internalPartialDOMStrategySegmentSize),
             previewChars: Math.max(16, internalPartialDOMStrategyPreviewChars),
+            promotionWindowSize: Math.min(
+              Math.max(1, INTERNAL_PARTIAL_DOM_PROMOTION_WINDOW_SIZE),
+              Math.max(1, internalPartialDOMStrategySegmentSize)
+            ),
             threshold:
               domStrategyType === 'auto'
                 ? ROOT_GROUP_THRESHOLD
@@ -1952,12 +1915,13 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     internalSegmentDOMStrategyConfig,
     promotedSegmentIndex,
     promotedSegmentOverscan,
+    promotedWindowStartIndex: promotedSegmentWindowStartIndex,
   })
   const selectedVirtualizedTopLevelIndex = useTopLevelSelectionIndex(
     virtualizedDOMStrategyConfig != null
   )
-  const selectedVirtualizedPaths = useSelectionPaths(
-    virtualizedDOMStrategyConfig != null
+  const selectedDOMStrategyPaths = useSelectionPaths(
+    virtualizedDOMStrategyConfig != null || domStrategyType === 'staged'
   )
   const virtualizedScrollElement = React.useMemo(
     () => getVirtualizerScrollElement(domStrategyRootElement),
@@ -1976,7 +1940,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     promotedTopLevelIndex: promotedVirtualizedTopLevelIndex,
     rootElement: domStrategyRootElement,
     scrollElement: virtualizedScrollElement,
-    selectionPaths: selectedVirtualizedPaths,
+    selectionPaths: selectedDOMStrategyPaths,
     selectedTopLevelIndex: selectedVirtualizedTopLevelIndex,
     topLevelLayoutItems: virtualizedLayoutItems,
     topLevelRuntimeIds,
@@ -2018,13 +1982,18 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     [rootDocumentEpoch, rootGroups, topLevelRuntimeIds]
   )
   const selectedRootGroupIndex = useTopLevelSelectionIndex(rootGroups != null)
-  const activeRootGroupId = React.useMemo(
-    () => getActiveRootGroupId(rootGroups, selectedRootGroupIndex),
-    [rootGroups, selectedRootGroupIndex]
+  const selectedRootGroupFocusIndex = React.useMemo(() => {
+    const focusIndex = selectedDOMStrategyPaths?.[1]?.[0]
+
+    return typeof focusIndex === 'number' ? focusIndex : selectedRootGroupIndex
+  }, [selectedDOMStrategyPaths, selectedRootGroupIndex])
+  const activeRootGroupIds = React.useMemo(
+    () => getActiveRootGroupIds(rootGroups, selectedRootGroupFocusIndex),
+    [rootGroups, selectedRootGroupFocusIndex]
   )
   const { activeGroupIds, mountedGroupIds, mountGroupIds } =
     useMountedRootGroupIds({
-      activeGroupId: activeRootGroupId,
+      activeGroupIds: activeRootGroupIds,
       groups: rootGroups,
       planKey: rootGroupPlanKey,
     })
@@ -2107,7 +2076,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   const lastVirtualizedScrollPathKeyRef = React.useRef<string | null>(null)
 
   useIsomorphicLayoutEffect(() => {
-    const anchorPath = selectedVirtualizedPaths?.[0]
+    const anchorPath = selectedDOMStrategyPaths?.[0]
 
     if (!virtualizedPlan || !anchorPath) {
       lastVirtualizedScrollPathKeyRef.current = null
@@ -2140,7 +2109,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     if (virtualizedPlan.scrollToPath(anchorPath, 'center')) {
       lastVirtualizedScrollPathKeyRef.current = anchorPathKey
     }
-  }, [selectedVirtualizedPaths, virtualizedPlan])
+  }, [selectedDOMStrategyPaths, virtualizedPlan])
   const renderedRootGroups = React.useMemo(() => {
     if (!rootGroups) {
       return null
@@ -2152,8 +2121,6 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
         activeGroupIds.has(group.groupId) || mountedGroupIds.has(group.groupId),
     }))
   }, [activeGroupIds, mountedGroupIds, rootGroups])
-  const stagedNativeSurfaceComplete =
-    renderedRootGroups?.every((group) => group.isMounted) ?? false
   const domPresentMountedGroups = React.useMemo(
     () => renderedRootGroups?.filter((group) => group.isMounted) ?? null,
     [renderedRootGroups]
@@ -2210,15 +2177,22 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     [renderedRootGroups]
   )
   const handlePromoteSegment = React.useCallback(
-    (segmentIndex: number, options: { select?: boolean } = {}) => {
+    (
+      segmentIndex: number,
+      options: { select?: boolean; startIndex?: number } = {}
+    ) => {
       cancelPromotedSegmentOverscanRestoreRef.current?.()
       cancelPromotedSegmentOverscanRestoreRef.current = null
 
-      if (options.select && internalSegmentDOMStrategySize != null) {
-        const startIndex = segmentIndex * internalSegmentDOMStrategySize
+      const startIndex =
+        options.startIndex ??
+        (internalSegmentDOMStrategySize == null
+          ? null
+          : segmentIndex * internalSegmentDOMStrategySize)
 
+      if (options.select && internalSegmentDOMStrategySize != null) {
         try {
-          const start = Editor.point(editor, [startIndex], { edge: 'start' })
+          const start = Editor.point(editor, [startIndex!], { edge: 'start' })
           editor.update((tx) => {
             tx.selection.set({ anchor: start, focus: start })
           })
@@ -2233,6 +2207,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
       }
 
       setPromotedSegmentIndex(segmentIndex)
+      setPromotedSegmentWindowStartIndex(startIndex)
 
       if (internalSegmentDOMStrategyOverscan > 0) {
         setPromotedSegmentOverscan(0)
@@ -2427,6 +2402,9 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     selectedVirtualizedTopLevelIndex,
     topLevelRuntimeIds.length,
   ])
+  const virtualizedItemGroups = virtualizedPlan
+    ? createVirtualizedTopLevelItemGroups(virtualizedPlan.virtualItems)
+    : null
 
   return (
     <ProjectionContext.Provider value={projectionStore}>
@@ -2501,59 +2479,116 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
                     startIndex={range.startIndex}
                   />
                 ))}
-                {virtualizedPlan.virtualItems.map((item) => (
+                {virtualizedItemGroups!.map((group) => (
                   <div
-                    data-index={item.index}
-                    data-slate-dom-strategy-virtual-row="true"
-                    key={String(item.key)}
-                    ref={virtualizedPlan.measureElement}
+                    data-slate-dom-strategy-virtual-row-group="true"
+                    key={group.groupId}
                     style={{
                       left: 0,
-                      minHeight: item.size,
-                      pointerEvents: 'none',
                       position: 'absolute',
                       top: 0,
-                      transform: `translateY(${item.start}px)`,
+                      transform: `translateY(${group.start}px)`,
                       width: '100%',
                     }}
                   >
-                    <SlateDOMStrategyVirtualOffsetContext.Provider
-                      value={item.start}
-                    >
-                      <div style={{ pointerEvents: 'auto' }}>
-                        <EditableDescendantNode
-                          placeholder={placeholderValue}
-                          placeholderRef={placeholderRef}
-                          renderElement={renderElement}
-                          renderLeaf={renderLeaf}
-                          renderPlaceholder={renderPlaceholder}
-                          renderSegment={renderSegment}
-                          renderText={renderText}
-                          renderVoid={renderVoid}
-                          runtimeId={item.runtimeId}
-                        />
+                    {group.items.map((item) => (
+                      <div
+                        data-index={item.index}
+                        data-slate-dom-strategy-virtual-row="true"
+                        key={String(item.key)}
+                        ref={virtualizedPlan.measureElement}
+                        style={{
+                          minHeight: item.size,
+                          pointerEvents: 'none',
+                          width: '100%',
+                        }}
+                      >
+                        <SlateDOMStrategyVirtualOffsetContext.Provider
+                          value={item.start}
+                        >
+                          <div style={{ pointerEvents: 'auto' }}>
+                            <EditableDescendantNode
+                              placeholder={placeholderValue}
+                              placeholderRef={placeholderRef}
+                              renderElement={renderElement}
+                              renderLeaf={renderLeaf}
+                              renderPlaceholder={renderPlaceholder}
+                              renderSegment={renderSegment}
+                              renderText={renderText}
+                              renderVoid={renderVoid}
+                              runtimeId={item.runtimeId}
+                            />
+                          </div>
+                        </SlateDOMStrategyVirtualOffsetContext.Provider>
                       </div>
-                    </SlateDOMStrategyVirtualOffsetContext.Provider>
+                    ))}
                   </div>
                 ))}
               </div>
             ) : segmentPlan ? (
               segmentPlan.segments.map((segment) =>
                 segment.isActive ? (
-                  segment.mountedRuntimeIds.map((runtimeId) => (
-                    <EditableDescendantNode
-                      key={runtimeId}
-                      placeholder={placeholderValue}
-                      placeholderRef={placeholderRef}
-                      renderElement={renderElement}
-                      renderLeaf={renderLeaf}
-                      renderPlaceholder={renderPlaceholder}
-                      renderSegment={renderSegment}
-                      renderText={renderText}
-                      renderVoid={renderVoid}
-                      runtimeId={runtimeId}
-                    />
-                  ))
+                  <React.Fragment key={`partial-dom-${segment.segmentIndex}`}>
+                    {segment.mountedStartIndex != null &&
+                    segment.mountedStartIndex > segment.startIndex ? (
+                      <DOMStrategySegmentPlaceholder
+                        boundaryId={`partial-dom-aggressive:${segment.segmentIndex}:before`}
+                        coverageReason={
+                          domStrategyType === 'virtualized'
+                            ? 'viewport-virtualization'
+                            : 'partial-dom-aggressive'
+                        }
+                        dataSegment={`${segment.segmentIndex}:before`}
+                        endIndex={segment.mountedStartIndex - 1}
+                        onPromote={handlePromoteSegment}
+                        previewChars={
+                          internalSegmentDOMStrategyConfig!.previewChars
+                        }
+                        runtimeIds={segment.runtimeIds.slice(
+                          0,
+                          segment.mountedStartIndex - segment.startIndex
+                        )}
+                        segmentIndex={segment.segmentIndex}
+                        startIndex={segment.startIndex}
+                      />
+                    ) : null}
+                    {segment.mountedRuntimeIds.map((runtimeId) => (
+                      <EditableDescendantNode
+                        key={runtimeId}
+                        placeholder={placeholderValue}
+                        placeholderRef={placeholderRef}
+                        renderElement={renderElement}
+                        renderLeaf={renderLeaf}
+                        renderPlaceholder={renderPlaceholder}
+                        renderSegment={renderSegment}
+                        renderText={renderText}
+                        renderVoid={renderVoid}
+                        runtimeId={runtimeId}
+                      />
+                    ))}
+                    {segment.mountedEndIndex != null &&
+                    segment.mountedEndIndex < segment.endIndex ? (
+                      <DOMStrategySegmentPlaceholder
+                        boundaryId={`partial-dom-aggressive:${segment.segmentIndex}:after`}
+                        coverageReason={
+                          domStrategyType === 'virtualized'
+                            ? 'viewport-virtualization'
+                            : 'partial-dom-aggressive'
+                        }
+                        dataSegment={`${segment.segmentIndex}:after`}
+                        endIndex={segment.endIndex}
+                        onPromote={handlePromoteSegment}
+                        previewChars={
+                          internalSegmentDOMStrategyConfig!.previewChars
+                        }
+                        runtimeIds={segment.runtimeIds.slice(
+                          segment.mountedEndIndex - segment.startIndex + 1
+                        )}
+                        segmentIndex={segment.segmentIndex}
+                        startIndex={segment.mountedEndIndex + 1}
+                      />
+                    ) : null}
+                  </React.Fragment>
                 ) : (
                   <DOMStrategySegmentPlaceholder
                     coverageReason={
@@ -2580,7 +2615,6 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
                     endIndex={item.group.endIndex}
                     groupId={item.group.groupId}
                     key={item.group.groupId}
-                    nativeSurfaceComplete={stagedNativeSurfaceComplete}
                     placeholder={placeholderValue}
                     placeholderRef={placeholderRef}
                     renderElement={renderElement}

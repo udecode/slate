@@ -6,6 +6,7 @@ import type {
   SnapshotChange,
 } from 'slate'
 import { Editor } from './editable/runtime-editor-api'
+import { recordSlateReactRender } from './render-profiler'
 
 export type SlateRangeProjection<T = unknown> = {
   data?: T
@@ -151,6 +152,24 @@ const EMPTY_RUNTIME_SNAPSHOT = Object.freeze(
   []
 ) as readonly SlateProjectionSlice<unknown>[]
 const EMPTY_RUNTIME_IDS = Object.freeze([]) as readonly RuntimeId[]
+
+const profileProjectionStorePhase = <T>(id: string, run: () => T): T => {
+  if (!globalThis.__SLATE_REACT_RENDER_PROFILER__) {
+    return run()
+  }
+
+  const startedAt = performance.now()
+
+  try {
+    return run()
+  } finally {
+    recordSlateReactRender({
+      duration: performance.now() - startedAt,
+      id,
+      kind: 'runtime-time',
+    })
+  }
+}
 
 const createProjectionRefreshResult = ({
   changedRuntimeIds,
@@ -463,6 +482,18 @@ export const createSlateProjectionStore = <T>(
     sourceReadCount: 1,
   }) as SlateProjectionStoreMetrics
   let snapshot = initialBuild.snapshot
+  const sourceProfileId = options.sourceId
+    ? `projection-store.source-read:${options.sourceId}`
+    : 'projection-store.source-read'
+  const buildProfileId = options.sourceId
+    ? `projection-store.build-snapshot:${options.sourceId}`
+    : 'projection-store.build-snapshot'
+  const diffProfileId = options.sourceId
+    ? `projection-store.diff-runtime-ids:${options.sourceId}`
+    : 'projection-store.diff-runtime-ids'
+  const notifyProfileId = options.sourceId
+    ? `projection-store.notify:${options.sourceId}`
+    : 'projection-store.notify'
 
   const emitProjectionRefresh = (result: SlateProjectionRefreshResult) => {
     if (!result.didChange) {
@@ -495,12 +526,14 @@ export const createSlateProjectionStore = <T>(
     }
 
     const runtimeScope = getRuntimeScope(options.runtimeScope, context)
-    const nextBuild = buildProjectionSnapshot(
-      editor,
+    const projections = profileProjectionStorePhase(sourceProfileId, () =>
       source(context.snapshot, {
         ...context,
         runtimeScope,
       })
+    )
+    const nextBuild = profileProjectionStorePhase(buildProfileId, () =>
+      buildProjectionSnapshot(editor, projections)
     )
     const nextSnapshot = nextBuild.snapshot
     const fullFallbackCount = context.forceInvalidate || !runtimeScope ? 1 : 0
@@ -515,15 +548,17 @@ export const createSlateProjectionStore = <T>(
       sourceReadCount: metrics.sourceReadCount + 1,
     })
 
-    const changedRuntimeIds = context.forceInvalidate
-      ? Array.from(
-          new Set([
-            ...Object.keys(snapshot),
-            ...Object.keys(nextSnapshot),
-            ...runtimeListeners.keys(),
-          ])
-        )
-      : getChangedRuntimeIds(snapshot, nextSnapshot)
+    const changedRuntimeIds = profileProjectionStorePhase(diffProfileId, () =>
+      context.forceInvalidate
+        ? Array.from(
+            new Set([
+              ...Object.keys(snapshot),
+              ...Object.keys(nextSnapshot),
+              ...runtimeListeners.keys(),
+            ])
+          )
+        : getChangedRuntimeIds(snapshot, nextSnapshot)
+    )
 
     if (changedRuntimeIds.length === 0) {
       return createProjectionRefreshResult({
@@ -554,19 +589,21 @@ export const createSlateProjectionStore = <T>(
       sourceSubscriberWakeCount:
         metrics.sourceSubscriberWakeCount + sourceSubscriberWakeCount,
     })
-    listeners.forEach((listener) => {
-      listener()
-    })
-    changedRuntimeIds.forEach((runtimeId) => {
-      runtimeListeners.get(runtimeId)?.forEach((listener) => {
+    profileProjectionStorePhase(notifyProfileId, () => {
+      listeners.forEach((listener) => {
         listener()
       })
-    })
-    if (options.sourceId) {
-      sourceListeners.get(options.sourceId)?.forEach((listener) => {
-        listener()
+      changedRuntimeIds.forEach((runtimeId) => {
+        runtimeListeners.get(runtimeId)?.forEach((listener) => {
+          listener()
+        })
       })
-    }
+      if (options.sourceId) {
+        sourceListeners.get(options.sourceId)?.forEach((listener) => {
+          listener()
+        })
+      }
+    })
 
     const result = createProjectionRefreshResult({
       changedRuntimeIds,

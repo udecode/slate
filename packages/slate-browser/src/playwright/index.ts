@@ -27,6 +27,7 @@ import {
 
 const baseUrl = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3101'
 const READY_TIMEOUT_MS = 20_000
+const EXAMPLE_FONT_ROUTES = new WeakSet<Page>()
 const DEFAULT_RUNTIME_ERROR_PATTERNS = [
   'Unable to find the path for Slate node',
   'Cannot resolve a Slate node',
@@ -57,6 +58,32 @@ export type DOMSelectionLocationSnapshot = {
   anchorPath: number[] | null
   anchorText: string | null
   isCollapsed: boolean | null
+}
+
+export type SlateBrowserNativeSelectionSummary = {
+  collapsed: boolean | null
+  rangeCount: number
+  selection: SelectionSnapshot | null
+  textLength: number
+}
+
+export type SlateBrowserViewSelectionSnapshot = {
+  active: boolean
+  anchor: SelectionPoint | null
+  focus: SelectionPoint | null
+  markerCount: number
+  markerPaths: Array<string | null>
+  selection: SelectionSnapshot | null
+  textLength: number
+}
+
+export type SlateBrowserDisplayedSelectionSnapshot = {
+  displayed: SelectionSnapshot | null
+  doubleHighlighted: boolean
+  model: SelectionSnapshot | null
+  native: SlateBrowserNativeSelectionSummary
+  source: 'native' | 'none' | 'view'
+  view: SlateBrowserViewSelectionSnapshot
 }
 
 export type ClipboardPayloadSnapshot = {
@@ -2758,6 +2785,16 @@ const toPlainText = async (surface: SurfaceTarget, html: string) =>
     return container.textContent ?? ''
   }, html)
 
+const shouldUseSyntheticHtmlPaste = async (surface: SurfaceTarget) =>
+  surface.evaluate(() => {
+    const userAgent = navigator.userAgent
+
+    return (
+      userAgent.includes('AppleWebKit') &&
+      !['Chrome', 'Chromium', 'Edg/'].some((token) => userAgent.includes(token))
+    )
+  })
+
 const getBlockTexts = async (root: Locator): Promise<string[]> =>
   root.evaluate((element: HTMLElement) =>
     Array.from(
@@ -3005,6 +3042,204 @@ const getSelectedText = async (root: Locator): Promise<string> =>
     return (selection?.toString() ?? '').replace(/\uFEFF/g, '')
   })
 
+export const takeDisplayedSelectionSnapshotForRoot = async (
+  root: Locator
+): Promise<SlateBrowserDisplayedSelectionSnapshot> =>
+  root.evaluate(
+    (element: HTMLElement, { key }: { key: string }) => {
+      const handle = (element as Record<string, any>)[key]
+      const rootNode = element.getRootNode() as Document | ShadowRoot
+      const selection =
+        'getSelection' in rootNode
+          ? rootNode.getSelection()
+          : element.ownerDocument.getSelection()
+      const nativeText = (selection?.toString() ?? '').replace(/\uFEFF/g, '')
+      const viewSelection = handle?.getViewSelection?.() ?? null
+      const markers = Array.from(
+        element.querySelectorAll('[data-slate-view-selection="true"]')
+      )
+      const pointsEqual = (
+        left: SelectionPoint | null | undefined,
+        right: SelectionPoint | null | undefined
+      ) =>
+        !!left &&
+        !!right &&
+        left.offset === right.offset &&
+        left.path.length === right.path.length &&
+        left.path.every((part, index) => part === right.path[index])
+      const isExpanded = (range: SelectionSnapshot | null) =>
+        !!range && !pointsEqual(range.anchor, range.focus)
+      const getTextSegments = (owner: Element) =>
+        Array.from(
+          owner.querySelectorAll('[data-slate-string], [data-slate-zero-width]')
+        ).map((segment) => {
+          const leafNode = segment.firstChild
+          const domLength = leafNode?.textContent?.length ?? 0
+          const attr = segment.getAttribute('data-slate-length')
+          const trueLength =
+            attr == null ? domLength : Number.parseInt(attr, 10)
+
+          return {
+            segment,
+            trueLength,
+          }
+        })
+      const findZeroWidthMarker = (node: Node | null) => {
+        const markerElement =
+          node?.nodeType === 1 ? (node as Element) : node?.parentElement
+
+        return markerElement?.closest('[data-slate-zero-width]') ?? null
+      }
+      const toEditorOffset = (node: Node | null, offset: number) => {
+        const owner =
+          node?.nodeType === 1
+            ? (node as Element).closest('[data-slate-node="text"]')
+            : node?.parentElement?.closest('[data-slate-node="text"]')
+        const segment =
+          node?.nodeType === 1
+            ? (node as Element).closest(
+                '[data-slate-string], [data-slate-zero-width]'
+              )
+            : node?.parentElement?.closest(
+                '[data-slate-string], [data-slate-zero-width]'
+              )
+
+        const localOffset = findZeroWidthMarker(node) ? 0 : offset
+
+        if (!owner || !segment) {
+          return localOffset
+        }
+
+        const segments = getTextSegments(owner)
+        const segmentIndex = segments.findIndex(
+          (entry) => entry.segment === segment
+        )
+
+        if (segmentIndex <= 0) {
+          return localOffset
+        }
+
+        return (
+          segments
+            .slice(0, segmentIndex)
+            .reduce((total, entry) => total + entry.trueLength, 0) + localOffset
+        )
+      }
+      const getPath = (node: Node | null) => {
+        const owner =
+          node?.nodeType === 1
+            ? (node as Element).closest('[data-slate-node="text"]')
+            : node?.parentElement?.closest('[data-slate-node="text"]')
+
+        if (!owner || !element.contains(owner)) {
+          return null
+        }
+
+        const path = owner
+          .getAttribute('data-slate-path')
+          ?.split(',')
+          .map((part) => Number.parseInt(part, 10))
+
+        return path?.every(Number.isInteger) ? path : null
+      }
+      const takeNativeSelection = (): SelectionSnapshot | null => {
+        if (
+          !selection?.rangeCount ||
+          !selection.anchorNode ||
+          !selection.focusNode ||
+          !element.contains(selection.anchorNode) ||
+          !element.contains(selection.focusNode)
+        ) {
+          return null
+        }
+
+        const anchorPath = getPath(selection.anchorNode)
+        const focusPath = getPath(selection.focusNode)
+
+        if (!anchorPath || !focusPath) {
+          return null
+        }
+
+        return {
+          anchor: {
+            offset: toEditorOffset(
+              selection.anchorNode,
+              selection.anchorOffset
+            ),
+            path: anchorPath,
+          },
+          focus: {
+            offset: toEditorOffset(selection.focusNode, selection.focusOffset),
+            path: focusPath,
+          },
+        }
+      }
+      const toViewPoint = (pointLike: any): SelectionPoint | null => {
+        const point = pointLike?.point ?? pointLike
+
+        return Array.isArray(point?.path) && Number.isInteger(point?.offset)
+          ? { offset: point.offset, path: [...point.path] }
+          : null
+      }
+      const nativeSelection = takeNativeSelection()
+      const viewAnchor = toViewPoint(viewSelection?.anchor)
+      const viewFocus = toViewPoint(viewSelection?.focus)
+      const normalizedViewSelection =
+        viewAnchor && viewFocus
+          ? {
+              anchor: viewAnchor,
+              focus: viewFocus,
+            }
+          : null
+      const source =
+        isExpanded(nativeSelection) ||
+        (nativeSelection && !normalizedViewSelection)
+          ? 'native'
+          : normalizedViewSelection
+            ? 'view'
+            : nativeSelection
+              ? 'native'
+              : 'none'
+
+      return {
+        displayed:
+          source === 'native'
+            ? nativeSelection
+            : source === 'view'
+              ? normalizedViewSelection
+              : null,
+        doubleHighlighted: nativeText.length > 0 && markers.length > 0,
+        model: handle?.getSelection?.() ?? null,
+        native: {
+          collapsed: selection?.isCollapsed ?? null,
+          rangeCount: selection?.rangeCount ?? 0,
+          selection: nativeSelection,
+          textLength: nativeText.length,
+        },
+        source,
+        view: {
+          active: !!normalizedViewSelection,
+          anchor: viewAnchor,
+          focus: viewFocus,
+          markerCount: markers.length,
+          markerPaths: markers.map(
+            (marker) =>
+              marker
+                .closest('[data-slate-node="text"]')
+                ?.getAttribute('data-slate-path') ?? null
+          ),
+          selection: normalizedViewSelection,
+          textLength: markers.reduce(
+            (length, marker) =>
+              length + (marker.textContent ?? '').replace(/\uFEFF/g, '').length,
+            0
+          ),
+        },
+      } satisfies SlateBrowserDisplayedSelectionSnapshot
+    },
+    { key: SLATE_BROWSER_HANDLE_KEY }
+  )
+
 const readClipboardText = async (surface: SurfaceTarget) =>
   surface.evaluate(async () => navigator.clipboard.readText())
 
@@ -3044,7 +3279,10 @@ const copyPayloadThroughEvent = async (
     const event = new ClipboardEvent('copy', {
       bubbles: true,
       cancelable: true,
-      clipboardData: data,
+    })
+
+    Object.defineProperty(event, 'clipboardData', {
+      value: data,
     })
 
     element.dispatchEvent(event)
@@ -3065,7 +3303,10 @@ const cutPayloadThroughEvent = async (
     const event = new ClipboardEvent('cut', {
       bubbles: true,
       cancelable: true,
-      clipboardData: data,
+    })
+
+    Object.defineProperty(event, 'clipboardData', {
+      value: data,
     })
 
     element.dispatchEvent(event)
@@ -3780,6 +4021,7 @@ export type SlateBrowserEditorHarness = {
     blockTexts: () => Promise<string[]>
     renderedDOMShape: () => Promise<RenderedBlockDOMShapeSnapshot[]>
     selectedText: () => Promise<string>
+    displayedSelection: () => Promise<SlateBrowserDisplayedSelectionSnapshot>
     html: () => Promise<string>
     selection: () => Promise<SelectionSnapshot | null>
     domSelection: () => Promise<DOMSelectionSnapshot | null>
@@ -3800,6 +4042,7 @@ export type SlateBrowserEditorHarness = {
     unref: (bookmark: SelectionBookmark) => Promise<SelectionSnapshot | null>
     selectAll: () => Promise<void>
     get: () => Promise<SelectionSnapshot | null>
+    displayed: () => Promise<SlateBrowserDisplayedSelectionSnapshot>
     dom: () => Promise<DOMSelectionSnapshot | null>
     location: () => Promise<DOMSelectionLocationSnapshot | null>
     importDOM: () => Promise<SelectionSnapshot | null>
@@ -3837,6 +4080,7 @@ export type SlateBrowserEditorHarness = {
     focusOwner: (expected: FocusOwnerSnapshot['kind']) => Promise<void>
     kernelTrace: (expected: SlateBrowserKernelTraceExpectation) => Promise<void>
     selection: (expected: SelectionSnapshotExpectation) => Promise<void>
+    noDoubleSelectionHighlight: () => Promise<void>
     caretVisibleInScrollableParent: () => Promise<void>
     domSelection: (expected: DOMSelectionSnapshotExpectation) => Promise<void>
     domCaret: (expected: { offset: number; text: string }) => Promise<void>
@@ -4537,6 +4781,121 @@ const waitForSelectionSync = async (
               element.contains(selection.anchorNode) &&
               element.contains(selection.focusNode)
           )
+          const getNativeSelectionSnapshot = () => {
+            if (
+              !selection?.rangeCount ||
+              !selection.anchorNode ||
+              !selection.focusNode ||
+              !element.contains(selection.anchorNode) ||
+              !element.contains(selection.focusNode)
+            ) {
+              return null
+            }
+
+            const getTextSegments = (owner: Element) =>
+              Array.from(
+                owner.querySelectorAll(
+                  '[data-slate-string], [data-slate-zero-width]'
+                )
+              ).map((segment) => {
+                const leafNode = segment.firstChild
+                const domLength = leafNode?.textContent?.length ?? 0
+                const attr = segment.getAttribute('data-slate-length')
+                const trueLength =
+                  attr == null ? domLength : Number.parseInt(attr, 10)
+
+                return {
+                  segment,
+                  trueLength,
+                }
+              })
+
+            const findZeroWidthMarker = (node: Node | null) => {
+              const markerElement =
+                node?.nodeType === 1 ? (node as Element) : node?.parentElement
+
+              return markerElement?.closest('[data-slate-zero-width]') ?? null
+            }
+
+            const toEditorOffset = (node: Node | null, offset: number) => {
+              const owner =
+                node?.nodeType === 1
+                  ? (node as Element).closest('[data-slate-node="text"]')
+                  : node?.parentElement?.closest('[data-slate-node="text"]')
+              const segment =
+                node?.nodeType === 1
+                  ? (node as Element).closest(
+                      '[data-slate-string], [data-slate-zero-width]'
+                    )
+                  : node?.parentElement?.closest(
+                      '[data-slate-string], [data-slate-zero-width]'
+                    )
+
+              const localOffset = findZeroWidthMarker(node) ? 0 : offset
+
+              if (!owner || !segment) {
+                return localOffset
+              }
+
+              const segments = getTextSegments(owner)
+              const segmentIndex = segments.findIndex(
+                (entry) => entry.segment === segment
+              )
+
+              if (segmentIndex <= 0) {
+                return localOffset
+              }
+
+              return (
+                segments
+                  .slice(0, segmentIndex)
+                  .reduce((total, entry) => total + entry.trueLength, 0) +
+                localOffset
+              )
+            }
+
+            const getPath = (node: Node | null) => {
+              const owner =
+                node?.nodeType === 1
+                  ? (node as Element).closest('[data-slate-node="text"]')
+                  : node?.parentElement?.closest('[data-slate-node="text"]')
+
+              if (!owner || !element.contains(owner)) {
+                return null
+              }
+
+              const path = owner
+                .getAttribute('data-slate-path')
+                ?.split(',')
+                .map((part) => Number.parseInt(part, 10))
+
+              return path?.every(Number.isInteger) ? path : null
+            }
+
+            const anchorPath = getPath(selection.anchorNode)
+            const focusPath = getPath(selection.focusNode)
+
+            if (!anchorPath || !focusPath) {
+              return null
+            }
+
+            return {
+              anchor: {
+                offset: toEditorOffset(
+                  selection.anchorNode,
+                  selection.anchorOffset
+                ),
+                path: anchorPath,
+              },
+              focus: {
+                offset: toEditorOffset(
+                  selection.focusNode,
+                  selection.focusOffset
+                ),
+                path: focusPath,
+              },
+            }
+          }
 
           const handle = (element as Record<string, any>)[key]
           const handleSelection =
@@ -4545,11 +4904,21 @@ const waitForSelectionSync = async (
               : null
 
           if (expectedSelection) {
-            if (selectionsEqual(handleSelection, expectedSelection)) {
-              return true
+            const nativeSelection = getNativeSelectionSnapshot()
+            const modelBackedSelection =
+              element.getAttribute('data-slate-dom-strategy-selection') ===
+                'partial-dom-backed' ||
+              !!element.querySelector('[data-slate-view-selection="true"]')
+
+            if (handle?.getSelection) {
+              return (
+                selectionsEqual(handleSelection, expectedSelection) &&
+                (modelBackedSelection ||
+                  selectionsEqual(nativeSelection, expectedSelection))
+              )
             }
 
-            return !handle?.getSelection && nativeSelectionInRoot
+            return selectionsEqual(nativeSelection, expectedSelection)
           }
 
           if (nativeSelectionInRoot) {
@@ -4557,8 +4926,10 @@ const waitForSelectionSync = async (
           }
 
           return (
-            element.getAttribute('data-slate-dom-strategy-selection') ===
-              'partial-dom-backed' && !!handleSelection
+            (element.getAttribute('data-slate-dom-strategy-selection') ===
+              'partial-dom-backed' ||
+              !!element.querySelector('[data-slate-view-selection="true"]')) &&
+            !!handleSelection
           )
         },
         { expectedSelection, key: SLATE_BROWSER_HANDLE_KEY }
@@ -5197,6 +5568,8 @@ const createEditorHarness = (
       blockTexts: async () => getBlockTexts(root),
       renderedDOMShape: async () => getRenderedBlockDOMShapes(root),
       selectedText: async () => getSelectedText(root),
+      displayedSelection: async () =>
+        takeDisplayedSelectionSnapshotForRoot(root),
       html: async () => root.evaluate((el: HTMLElement) => el.innerHTML),
       selection: async () => takeSelectionSnapshotForRoot(root),
       domSelection: async () => takeDOMSelectionSnapshotForRoot(root),
@@ -5378,15 +5751,19 @@ const createEditorHarness = (
         const selectedWithHandle =
           (await waitForSelectionHandle(root)) &&
           (await selectAllWithHandle(root))
+        const expectedSelection = selectedWithHandle
+          ? await takeSelectionSnapshotForRoot(root)
+          : null
 
         if (!selectedWithHandle) {
           await harness.focus()
           await page.keyboard.press('ControlOrMeta+A')
         }
 
-        await waitForSelectionSync(root)
+        await waitForSelectionSync(root, expectedSelection ?? undefined)
       },
       get: async () => takeSelectionSnapshotForRoot(root),
+      displayed: async () => takeDisplayedSelectionSnapshotForRoot(root),
       dom: async () => takeDOMSelectionSnapshotForRoot(root),
       location: async () => takeDOMSelectionLocationSnapshotForRoot(root),
       importDOM: async () =>
@@ -5673,6 +6050,15 @@ const createEditorHarness = (
       selection: async (expected: SelectionSnapshotExpectation) => {
         await assertSelectionExpectation(root, expected)
       },
+      noDoubleSelectionHighlight: async () => {
+        await expect
+          .poll(async () => {
+            const snapshot = await takeDisplayedSelectionSnapshotForRoot(root)
+
+            return snapshot.doubleHighlighted
+          })
+          .toBe(false)
+      },
       caretVisibleInScrollableParent: async () => {
         await assertCaretVisibleInScrollableParent(root)
       },
@@ -5830,6 +6216,11 @@ const createEditorHarness = (
           const text = plainText ?? (await toPlainText(surface, html))
 
           await harness.focus()
+
+          if (await shouldUseSyntheticHtmlPaste(surface)) {
+            await pastePayloadThroughEvent(root, { html, text })
+            return
+          }
 
           try {
             await writeClipboardHtml(surface, html, text)
@@ -6542,7 +6933,29 @@ export const openExampleWithOptions = async (
   name: string,
   { query, ready, surface }: OpenExampleOptions
 ) => {
-  await page.goto(`${baseUrl}/examples/${name}${formatExampleQuery(query)}`)
+  if (!EXAMPLE_FONT_ROUTES.has(page)) {
+    EXAMPLE_FONT_ROUTES.add(page)
+    await Promise.all([
+      page.route('https://fonts.googleapis.com/**', (route) =>
+        route.fulfill({
+          body: '',
+          contentType: 'text/css',
+          status: 200,
+        })
+      ),
+      page.route('https://fonts.gstatic.com/**', (route) =>
+        route.fulfill({
+          body: '',
+          contentType: 'font/woff2',
+          status: 200,
+        })
+      ),
+    ])
+  }
+
+  await page.goto(`${baseUrl}/examples/${name}${formatExampleQuery(query)}`, {
+    waitUntil: 'commit',
+  })
   const resolvedSurface = await resolveSurface(page, surface)
   const editor = createEditorHarness(page, name, resolvedSurface, surface)
 

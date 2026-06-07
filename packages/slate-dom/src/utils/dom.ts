@@ -2,8 +2,8 @@
  * Types.
  */
 
-// COMPAT: Keep explicit aliases so Slate can talk about DOM types without
-// colliding with its own exported node/range names.
+// Keep DOM type names explicit so Slate can talk about browser nodes and
+// ranges without colliding with its own exported node/range names.
 type DOMNode = globalThis.Node
 type DOMComment = globalThis.Comment
 type DOMElement = globalThis.Element

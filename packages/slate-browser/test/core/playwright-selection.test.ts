@@ -1,7 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
-import { takeSelectionSnapshot } from '../../src/playwright'
+import {
+  takeDisplayedSelectionSnapshotForRoot,
+  takeSelectionSnapshot,
+} from '../../src/playwright'
 
 const createPage = () =>
   ({
@@ -10,6 +13,14 @@ const createPage = () =>
       arg: { key: string }
     ) => callback(arg),
   }) as Parameters<typeof takeSelectionSnapshot>[0]
+
+const createRootLocator = (root: HTMLElement) =>
+  ({
+    evaluate: async <T, A>(
+      callback: (root: HTMLElement, arg: A) => T,
+      arg: A
+    ) => callback(root, arg),
+  }) as Parameters<typeof takeDisplayedSelectionSnapshotForRoot>[0]
 
 describe('playwright selection snapshots', () => {
   beforeAll(() => {
@@ -64,5 +75,120 @@ describe('playwright selection snapshots', () => {
     await expectZeroWidthOffset(text, 1)
     await expectZeroWidthOffset(marker, 1)
     await expectZeroWidthOffset(br, 0)
+  })
+
+  test('captures the native selection as the displayed selection', async () => {
+    document.body.innerHTML = `
+      <div data-slate-editor="true">
+        <span data-slate-node="text" data-slate-path="0,0">
+          <span data-slate-leaf="true">
+            <span data-slate-string="true">hello</span>
+          </span>
+        </span>
+      </div>
+    `
+
+    const root = document.querySelector<HTMLElement>('[data-slate-editor]')!
+    const text = document.querySelector('[data-slate-string]')!.firstChild!
+    const range = document.createRange()
+    const selection = window.getSelection()!
+
+    range.setStart(text, 1)
+    range.setEnd(text, 4)
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    expect(
+      await takeDisplayedSelectionSnapshotForRoot(createRootLocator(root))
+    ).toMatchObject({
+      displayed: {
+        anchor: { offset: 1, path: [0, 0] },
+        focus: { offset: 4, path: [0, 0] },
+      },
+      doubleHighlighted: false,
+      native: {
+        textLength: 3,
+      },
+      source: 'native',
+      view: {
+        markerCount: 0,
+      },
+    })
+  })
+
+  test('captures projected view selection when native selection is not expanded', async () => {
+    document.body.innerHTML = `
+      <div data-slate-editor="true">
+        <span data-slate-node="text" data-slate-path="0,0">
+          <span data-slate-view-selection="true">hello</span>
+        </span>
+        <span data-slate-node="text" data-slate-path="1,0">
+          <span data-slate-view-selection="true">world</span>
+        </span>
+      </div>
+    `
+
+    const root = document.querySelector<HTMLElement>('[data-slate-editor]')!
+
+    ;(root as any).__slateBrowserHandle = {
+      getSelection: () => ({
+        anchor: { offset: 1, path: [0, 0] },
+        focus: { offset: 3, path: [1, 0] },
+      }),
+      getViewSelection: () => ({
+        anchor: { point: { offset: 1, path: [0, 0] } },
+        focus: { point: { offset: 3, path: [1, 0] } },
+      }),
+    }
+    window.getSelection()?.removeAllRanges()
+
+    expect(
+      await takeDisplayedSelectionSnapshotForRoot(createRootLocator(root))
+    ).toMatchObject({
+      displayed: {
+        anchor: { offset: 1, path: [0, 0] },
+        focus: { offset: 3, path: [1, 0] },
+      },
+      doubleHighlighted: false,
+      source: 'view',
+      view: {
+        markerCount: 2,
+        markerPaths: ['0,0', '1,0'],
+        textLength: 10,
+      },
+    })
+  })
+
+  test('detects native plus projected double highlight', async () => {
+    document.body.innerHTML = `
+      <div data-slate-editor="true">
+        <span data-slate-node="text" data-slate-path="0,0">
+          <span data-slate-string="true">hello</span>
+          <span data-slate-view-selection="true">hello</span>
+        </span>
+      </div>
+    `
+
+    const root = document.querySelector<HTMLElement>('[data-slate-editor]')!
+    const text = document.querySelector('[data-slate-string]')!.firstChild!
+    const range = document.createRange()
+    const selection = window.getSelection()!
+
+    range.setStart(text, 0)
+    range.setEnd(text, 5)
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    expect(
+      await takeDisplayedSelectionSnapshotForRoot(createRootLocator(root))
+    ).toMatchObject({
+      doubleHighlighted: true,
+      native: {
+        textLength: 5,
+      },
+      view: {
+        markerCount: 1,
+      },
+    })
   })
 })

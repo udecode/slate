@@ -343,7 +343,7 @@ describe('slate transaction contract', () => {
     )
   })
 
-  it('internal transaction exposes tx.apply as the transaction-owned write seam', () => {
+  it('internal transaction exposes tx.apply as the transaction-owned write boundary', () => {
     const editor = createEditor()
 
     replaceChildren(editor, [paragraph('one')])
@@ -516,7 +516,7 @@ describe('slate transaction contract', () => {
     )
   })
 
-  it('internal transaction exposes tx.setMarks as the transaction-owned marks seam', () => {
+  it('internal transaction exposes tx.setMarks as the transaction-owned marks boundary', () => {
     const editor = createEditor()
 
     Editor.replace(editor, {
@@ -538,7 +538,7 @@ describe('slate transaction contract', () => {
     assert.deepEqual(Editor.getSnapshot(editor).marks, { bold: true })
   })
 
-  it('internal transaction exposes tx.setSelection as the transaction-owned selection seam', () => {
+  it('internal transaction exposes tx.setSelection as the transaction-owned selection boundary', () => {
     const editor = createEditor()
 
     Editor.replace(editor, {

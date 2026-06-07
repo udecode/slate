@@ -7,6 +7,7 @@ import {
 import { createEditableInputController } from '../src/editable/input-state'
 import { writeCollapsedModelSelectionDOMPreference } from '../src/editable/model-selection-dom-preference'
 import {
+  applyEditableDOMSelectionChange,
   armModelOwnedTextInputGuard,
   completeEditableSelectionChangeImport,
   executeEditableSelectionExport,
@@ -23,6 +24,11 @@ import {
 } from '../src/editable/selection-controller'
 import { ReactEditor } from '../src/plugin/react-editor'
 import { createReactEditor } from '../src/plugin/with-react'
+import { createSlateProjectionGraph } from '../src/projection-graph'
+import {
+  createSlateViewSelection,
+  writeSlateViewSelection,
+} from '../src/view-selection'
 
 test('selection import executes only for import-dom policy', () => {
   let calls = 0
@@ -158,6 +164,77 @@ test('failed DOM selection export clears the updating guard', () => {
     expect(state.selectionChangeOrigin).toBe('programmatic-export')
   } finally {
     editorElement.remove()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  }
+})
+
+test('view selection export clears stale native selection ranges', () => {
+  vi.useFakeTimers()
+
+  const editor = createReactEditor()
+  const editorElement = document.createElement('div')
+  const staleText = document.createTextNode('stale native highlight')
+  const domSelection = document.getSelection()
+
+  if (!domSelection) {
+    throw new Error('Expected document selection')
+  }
+
+  editorElement.setAttribute('data-slate-editor', 'true')
+  editorElement.append(staleText)
+  document.body.append(editorElement)
+
+  const staleRange = document.createRange()
+  staleRange.setStart(staleText, 0)
+  staleRange.setEnd(staleText, staleText.textContent!.length)
+  domSelection.removeAllRanges()
+  domSelection.addRange(staleRange)
+
+  Editor.replace(editor, {
+    children: [{ type: 'paragraph', children: [{ text: 'model selection' }] }],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 'model selection'.length },
+    },
+  })
+  writeSlateViewSelection(
+    editor,
+    createSlateViewSelection(
+      createSlateProjectionGraph([{ path: [0], root: 'main' }]),
+      {
+        anchor: { point: { path: [0, 0], offset: 0 } },
+        focus: { point: { path: [0, 0], offset: 'model selection'.length } },
+      }
+    )
+  )
+
+  vi.spyOn(ReactEditor, 'findDocumentOrShadowRoot').mockReturnValue(document)
+  vi.spyOn(ReactEditor, 'assertDOMNode').mockReturnValue(editorElement)
+
+  const state = {
+    isUpdatingSelection: false,
+    selectionChangeOrigin: null,
+  }
+
+  try {
+    syncEditableDOMSelectionToEditor({
+      editor,
+      scrollSelectionIntoView: vi.fn(),
+      partialDOMBackedSelection: false,
+      state,
+    })
+
+    expect(domSelection.rangeCount).toBe(0)
+    expect(state.isUpdatingSelection).toBe(true)
+
+    vi.runOnlyPendingTimers()
+
+    expect(state.isUpdatingSelection).toBe(false)
+    expect(state.selectionChangeOrigin).toBe('programmatic-export')
+  } finally {
+    editorElement.remove()
+    domSelection.removeAllRanges()
     vi.useRealTimers()
     vi.restoreAllMocks()
   }
@@ -482,6 +559,59 @@ test('model-owned programmatic selectionchange keeps its ownership guard', () =>
   expect(inputController.preferModelSelectionForInputRef.current).toBe(true)
 })
 
+test('model-owned collapsed programmatic selectionchange skips DOM range resolution', () => {
+  const editor = createReactEditor()
+  const editorElement = document.createElement('div')
+  const textNode = document.createTextNode('abc')
+  const domSelection = document.getSelection()
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: 'programmatic-export',
+      selectionSource: 'model-owned',
+    },
+  })
+
+  if (!domSelection) {
+    throw new Error('Expected document selection')
+  }
+
+  editorElement.setAttribute('data-slate-editor', 'true')
+  editorElement.append(textNode)
+  document.body.append(editorElement)
+
+  domSelection.setBaseAndExtent(textNode, 1, textNode, 1)
+
+  vi.spyOn(ReactEditor, 'assertDOMNode').mockReturnValue(editorElement)
+  vi.spyOn(ReactEditor, 'findDocumentOrShadowRoot').mockReturnValue(document)
+  const resolveSlateRange = vi.spyOn(ReactEditor, 'resolveSlateRange')
+
+  try {
+    applyEditableDOMSelectionChange({
+      androidInputManager: null,
+      editor,
+      inputController,
+      processing: { current: false },
+      readOnly: false,
+      rerunOnDirtyNodeMap: vi.fn(),
+    })
+
+    expect(resolveSlateRange).not.toHaveBeenCalled()
+    expect(inputController.preferModelSelectionForInputRef.current).toBe(true)
+    expect(inputController.state.selectionSource).toBe('model-owned')
+  } finally {
+    domSelection.removeAllRanges()
+    editorElement.remove()
+    vi.restoreAllMocks()
+  }
+})
+
 test('model-owned browser-handle selectionchange keeps its ownership guard', () => {
   const inputController = createEditableInputController({
     preferModelSelectionForInputRef: { current: true },
@@ -769,6 +899,54 @@ test('browser-handle and repair-induced text input can keep the native fast path
       selectionSource: 'model-owned',
     })
 
+    expect(
+      shouldForceModelOwnedTextInput({
+        inputController,
+        inputType: 'insertText',
+      })
+    ).toBe(false)
+  }
+})
+
+test('browser-handle and repair-induced selection preferences clear stale model-owned text guards', () => {
+  for (const reason of ['browser-handle', 'repair-induced'] as const) {
+    const inputController = createEditableInputController({
+      preferModelSelectionForInputRef: { current: true },
+      state: {
+        activeIntent: null,
+        isComposing: false,
+        isDraggingInternally: false,
+        isUpdatingSelection: false,
+        latestElement: null,
+        pendingDOMSelectionImport: false,
+        selectionChangeOrigin: null,
+        selectionSource: 'model-owned',
+      },
+    })
+
+    setEditableModelSelectionPreference({
+      inputController,
+      preferModelSelection: true,
+      reason: 'model-command',
+      selectionSource: 'model-owned',
+    })
+    armModelOwnedTextInputGuard({ inputController })
+
+    expect(
+      shouldForceModelOwnedTextInput({
+        inputController,
+        inputType: 'insertText',
+      })
+    ).toBe(true)
+
+    setEditableModelSelectionPreference({
+      inputController,
+      preferModelSelection: true,
+      reason,
+      selectionSource: 'model-owned',
+    })
+
+    expect(inputController.state.modelOwnedTextInputGuard).toBe(0)
     expect(
       shouldForceModelOwnedTextInput({
         inputController,

@@ -49,7 +49,7 @@ type DeferredTextInputRepair = {
   target: DOMInputRepairTarget | null
 }
 
-const DEFERRED_NATIVE_TEXT_INPUT_REPAIR_IDLE_MS = 24
+const DEFERRED_NATIVE_TEXT_INPUT_REPAIR_IDLE_MS = 8
 const DEFERRED_NATIVE_TEXT_INPUT_REPAIR_MAX_MS = 120
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()

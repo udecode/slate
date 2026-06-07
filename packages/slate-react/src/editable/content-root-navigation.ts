@@ -377,28 +377,18 @@ const collapseNativeSelectionForProjectedSelection = (
   }
 
   const domSelection = document.getSelection()
-  const point = selection.anchor
-  const range = {
-    anchor: point,
-    focus: point,
-  }
-  const domRange = domApi.resolveDOMRange(range)
 
   if (!domSelection) {
     return
   }
 
-  if (!domRange) {
+  const clear = () => {
     domSelection.removeAllRanges()
-    return
   }
 
-  domSelection.setBaseAndExtent(
-    domRange.startContainer,
-    domRange.startOffset,
-    domRange.startContainer,
-    domRange.startOffset
-  )
+  clear()
+  document.defaultView?.queueMicrotask(clear)
+  document.defaultView?.requestAnimationFrame(clear)
 }
 
 const collapseModelSelectionForProjectedSelection = (
@@ -1160,7 +1150,8 @@ const getVerticalNavigationTarget = ({
     )
     const atModelBoundary =
       rootEdge && sameSlateRootPoint(point, rootEdge, currentRoot)
-    const sourceElement = sourceEditor?.api.dom.resolveDOMNode(sourceEditor)
+    const sourceElement =
+      sourceEditor?.api.dom?.resolveDOMNode?.(sourceEditor) ?? null
     const atVisualBoundary =
       !!sourceEditor &&
       !!sourceElement &&
@@ -1171,6 +1162,12 @@ const getVerticalNavigationTarget = ({
         point,
         root: currentRoot,
       })
+    const atTerminalBlock = isPointInRootTerminalBlock({
+      direction,
+      editor,
+      point,
+      root: currentRoot,
+    })
     const exitPoint =
       atModelBoundary || atVisualBoundary
         ? getExitBoundaryPoint(editor, ownerForCurrentRoot, direction)
@@ -1197,10 +1194,12 @@ const getVerticalNavigationTarget = ({
             targetRoot: ownerForCurrentRoot.ownerRoot,
           })
         : null
+    const resolvedTargetPoint =
+      targetPoint ?? (atTerminalBlock ? exitPoint : null)
 
-    return targetPoint
+    return resolvedTargetPoint
       ? {
-          point: targetPoint,
+          point: resolvedTargetPoint,
           root: ownerForCurrentRoot.ownerRoot,
         }
       : null
@@ -1638,6 +1637,30 @@ const getRootLocalVerticalModelSelectionTarget = ({
           root,
         }
       : null
+  })
+
+const isPointInRootTerminalBlock = ({
+  direction,
+  editor,
+  point,
+  root,
+}: {
+  direction: ContentRootNavigationDirection
+  editor: ContentRootNavigationEditor
+  point: Point
+  root: RootKey
+}) =>
+  editor.read((state) => {
+    const children = state.value.get().roots[root] ?? []
+    const blockIndex = point.path[0]
+
+    if (typeof blockIndex !== 'number' || children.length === 0) {
+      return false
+    }
+
+    return direction === 'forward'
+      ? blockIndex === children.length - 1
+      : blockIndex === 0
   })
 
 const getRootLocalVerticalSelectionTarget = ({
@@ -2115,6 +2138,60 @@ const getProjectedSelectionActionFromMoveCommand = ({
   }
 }
 
+export const shouldModelOwnContentRootVerticalSelection = ({
+  editor,
+  event,
+  getActiveContentRootOwner,
+  selection,
+}: {
+  editor: ReactRuntimeEditor
+  event: ReactKeyboardEvent<HTMLDivElement>
+  getActiveContentRootOwner?: (root: RootKey) => ContentRootOwner | null
+  selection: Range | null
+}) => {
+  if (
+    !selection ||
+    RangeApi.isCollapsed(selection) ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.metaKey ||
+    !event.shiftKey ||
+    (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') ||
+    !hasContentRootElementSpec(editor)
+  ) {
+    return false
+  }
+
+  const owners = findContentRootOwners(editor)
+  const currentRoot =
+    selection.focus.root ?? editor.read((state) => state.view.root())
+  const graph = createContentRootProjectionGraph(editor, owners)
+  const anchor = getInitialProjectedSelectionAnchor({
+    currentOwner: null,
+    currentRoot,
+    getActiveContentRootOwner,
+    owners,
+    selection,
+  })
+  const focusRoot = selection.focus.root ?? currentRoot
+  const projectedSelection = createSlateViewSelection(graph, {
+    anchor,
+    focus: toProjectedPoint({
+      owner: getOwnerForRoot({
+        currentRoot: focusRoot,
+        getActiveContentRootOwner,
+        owners,
+      }),
+      point: selection.focus,
+      root: focusRoot,
+    }),
+  })
+
+  return projectedSelection.segments.parts.some(
+    (segment) => segment.owner || segment.root !== currentRoot
+  )
+}
+
 const applyContentRootViewSelectionAction = ({
   editor,
   action,
@@ -2223,6 +2300,47 @@ const applyContentRootViewSelectionAction = ({
   }
 
   if (!target) {
+    if (
+      !viewSelection &&
+      selection &&
+      !RangeApi.isCollapsed(selection) &&
+      action.kind === 'move' &&
+      action.axis === 'vertical'
+    ) {
+      const anchor = getInitialProjectedSelectionAnchor({
+        currentOwner,
+        currentRoot,
+        getActiveContentRootOwner,
+        owners,
+        selection,
+      })
+      const focusRoot = selection.focus.root ?? currentRoot
+      const projectedSelection = createSlateViewSelection(graph, {
+        anchor,
+        focus: toProjectedPoint({
+          owner: getOwnerForRoot({
+            currentRoot: focusRoot,
+            getActiveContentRootOwner,
+            owners,
+          }),
+          point: selection.focus,
+          root: focusRoot,
+        }),
+      })
+      const hasProjectedPart = projectedSelection.segments.parts.some(
+        (segment) => segment.owner || segment.root !== currentRoot
+      )
+
+      if (hasProjectedPart) {
+        writeSlateViewSelection(editor, projectedSelection)
+        collapseModelSelectionForProjectedSelection(editor, selection)
+        collapseNativeSelectionForProjectedSelection(editor, selection)
+        preventDefault?.()
+
+        return { handled: true }
+      }
+    }
+
     if (viewSelection) {
       collapseModelSelectionForProjectedSelection(editor, selection)
       collapseNativeSelectionForProjectedSelection(editor, selection)

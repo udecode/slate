@@ -33,11 +33,15 @@ import {
   NODE_TO_ELEMENT,
   TRIPLE_CLICK,
 } from 'slate-dom'
+import { DOMCoverage } from 'slate-dom/internal'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
-import { writeSlateViewSelection } from '../view-selection'
+import {
+  readSlateViewSelection,
+  writeSlateViewSelection,
+} from '../view-selection'
 import { applyDOMCoverageSelectionPolicy } from './dom-coverage-selection'
 import { getInputEventTargetRanges } from './dom-input-event'
 import { createFastDOMSelectionRange } from './fast-dom-selection-range'
@@ -590,10 +594,39 @@ export const applyEditableClick = ({
 
       const range = Editor.range(editor, blockPath)
       writeSlateViewSelection(editor, null)
+      setEditableModelSelectionPreference({
+        inputController,
+        preferModelSelection: true,
+        selectionSource: 'model-owned',
+      })
       editor.update((tx) => {
         tx.selection.set(range)
       })
       return
+    }
+
+    if (IS_FIREFOX && event.detail === 1) {
+      const range = editor.api.dom.resolveEventRange(event.nativeEvent)
+      const clickedInline =
+        range && RangeApi.isCollapsed(range)
+          ? Editor.above(editor, {
+              at: range.anchor,
+              match: (n) => NodeApi.isElement(n) && Editor.isInline(editor, n),
+            })
+          : null
+
+      if (range && clickedInline) {
+        writeSlateViewSelection(editor, null)
+        setEditableModelSelectionPreference({
+          inputController,
+          preferModelSelection: true,
+          selectionSource: 'model-owned',
+        })
+        editor.update((tx) => {
+          tx.selection.set(range)
+        })
+        return
+      }
     }
 
     const start = Editor.point(editor, path, { edge: 'start' })
@@ -768,8 +801,8 @@ export const syncSelectionForBeforeInput = ({
     }
   }
 
-  // COMPAT: Most deleting forward/backward input types can derive the target
-  // from the current selection, but IME/focus cleanup can provide an expanded
+  // Most deleting forward/backward input types can derive the target from the
+  // current selection, but IME/focus cleanup can provide an expanded
   // beforeinput target range that must become the model delete range.
   let didUseBeforeInputTargetRange = false
   if (allowDOMSelectionImport) {
@@ -793,13 +826,14 @@ export const syncSelectionForBeforeInput = ({
       domSelectionBelongsToEditor &&
       targetRangeBelongsToEditor
     ) {
-      const range =
+      const resolvedRange =
         textHostRange ??
         (nodeMapDirty
           ? null
           : ReactEditor.resolveSlateRange(editor, targetRange, {
               exactMatch: false,
             }))
+      const range = resolvedRange
       const shouldUseTargetRange =
         range &&
         !(
@@ -1132,6 +1166,10 @@ export const useEditableSelectionReconciler = ({
       return
     }
 
+    const selectionHasDOMCoverage =
+      !!selection &&
+      DOMCoverage.getBoundariesForRange(editor, selection).length > 0
+
     if (
       state.pendingDOMSelectionImport &&
       containsShadowAware(
@@ -1143,7 +1181,7 @@ export const useEditableSelectionReconciler = ({
       return
     }
 
-    if (partialDOMBackedSelection) {
+    if (partialDOMBackedSelection && selectionHasDOMCoverage) {
       domSelection.removeAllRanges()
       return
     }
@@ -1151,7 +1189,7 @@ export const useEditableSelectionReconciler = ({
     const clearUpdatingSelection = () => {
       setTimeout(() => {
         state.isUpdatingSelection = false
-      })
+      }, 80)
     }
 
     const setDomSelection = (forceChange?: boolean) => {
@@ -1233,8 +1271,13 @@ export const useEditableSelectionReconciler = ({
         return
       }
 
+      if (readSlateViewSelection(editor)) {
+        return
+      }
+
       if (
         selection &&
+        selectionHasDOMCoverage &&
         applyDOMCoverageSelectionPolicy({
           domSelection,
           editor,
@@ -1309,7 +1352,10 @@ export const useEditableSelectionReconciler = ({
         if (!shouldSkipSelectionScroll(editor)) {
           scrollSelectionIntoView(editor, newDomRange)
         }
-      } else {
+        if (readSlateViewSelection(editor) && !selectionHasDOMCoverage) {
+          writeSlateViewSelection(editor, null)
+        }
+      } else if (!selection) {
         domSelection.removeAllRanges()
       }
 

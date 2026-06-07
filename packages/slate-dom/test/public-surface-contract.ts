@@ -72,7 +72,7 @@ describe('slate-dom public surface contract', () => {
       'assertSlatePoint',
       'assertSlateRange',
     ]
-    const legacyStrictMappingNames = [
+    const removedStrictMappingNames = [
       'findEventRange',
       'findPath',
       'toDOMNode',
@@ -91,7 +91,7 @@ describe('slate-dom public surface contract', () => {
       )
     }
 
-    for (const name of legacyStrictMappingNames) {
+    for (const name of removedStrictMappingNames) {
       assert.equal(
         name in editor.api.dom,
         false,

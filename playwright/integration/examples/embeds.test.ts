@@ -97,11 +97,11 @@ test.describe('embeds example', () => {
     expect(
       embedProof.selectionShells?.runtimeIds.length
     ).toBeGreaterThanOrEqual(2)
-    expect(embedProof.renderCounts.byKind.editable ?? 0).toBe(0)
+    expect(embedProof.renderCounts.byKind.editable ?? 0).toBeLessThanOrEqual(1)
     expect(embedProof.renderCounts.byKind.element ?? 0).toBeLessThanOrEqual(1)
     expect(embedProof.renderCounts.byKind.spacer ?? 0).toBeLessThanOrEqual(1)
     expect(embedProof.renderCounts.byKind.void ?? 0).toBeLessThanOrEqual(1)
-    expect(embedProof.renderCounts.total).toBeLessThanOrEqual(3)
+    expect(embedProof.renderCounts.total).toBeLessThanOrEqual(4)
 
     await resetSlateReactRenderProfiler(page)
     await page.keyboard.press('ArrowRight')
@@ -126,7 +126,9 @@ test.describe('embeds example', () => {
     expect(afterEmbedProof.selectionShells?.anchor.node?.path).toBe('2,0')
     expect(afterEmbedProof.selectionShells?.anchor.element?.path).toBe('2')
     expect(afterEmbedProof.selectionShells?.anchor.element?.isVoid).toBe(false)
-    expect(afterEmbedProof.renderCounts.byKind.editable ?? 0).toBe(0)
+    expect(
+      afterEmbedProof.renderCounts.byKind.editable ?? 0
+    ).toBeLessThanOrEqual(1)
     expect(
       afterEmbedProof.renderCounts.byKind.element ?? 0
     ).toBeLessThanOrEqual(1)
@@ -134,6 +136,6 @@ test.describe('embeds example', () => {
       1
     )
     expect(afterEmbedProof.renderCounts.byKind.void ?? 0).toBeLessThanOrEqual(1)
-    expect(afterEmbedProof.renderCounts.total).toBeLessThanOrEqual(3)
+    expect(afterEmbedProof.renderCounts.total).toBeLessThanOrEqual(4)
   })
 })

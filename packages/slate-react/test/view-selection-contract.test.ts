@@ -1,6 +1,7 @@
 import type { Point } from 'slate'
 import { describe, expect, it } from 'vitest'
 
+import { createReactEditor } from '../src/plugin/with-react'
 import {
   createSlateProjectionGraph,
   getSlateProjectionOwnerKey,
@@ -8,6 +9,7 @@ import {
 } from '../src/projection-graph'
 import {
   collapseSlateViewSelection,
+  createMainRootSlateViewSelection,
   createSlateViewSelection,
   extendSlateViewSelection,
   isSlateViewSelectionCollapsed,
@@ -16,7 +18,10 @@ import {
   subscribeSlateViewSelection,
   writeSlateViewSelection,
 } from '../src/view-selection'
-import { hasVisibleSlateViewSelectionDecoration } from '../src/view-selection-decoration'
+import {
+  createSlateViewSelectionDecorationSource,
+  hasVisibleSlateViewSelectionDecoration,
+} from '../src/view-selection-decoration'
 
 const SHARED_ROOT = 'synced-block:shared:body'
 const SEPARATE_ROOT = 'synced-block:separate:body'
@@ -96,6 +101,32 @@ describe('slate view selection', () => {
     })
 
     expect(isSlateViewSelectionCollapsed(selection)).toBe(true)
+  })
+
+  it('creates model-backed selections in the active non-main root', () => {
+    const selection = createMainRootSlateViewSelection(
+      {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 4 },
+      },
+      SHARED_ROOT
+    )
+
+    expect(selection?.anchor.point).toEqual({
+      offset: 0,
+      path: [0, 0],
+      root: SHARED_ROOT,
+    })
+    expect(selection?.focus.point).toEqual({
+      offset: 4,
+      path: [1, 0],
+      root: SHARED_ROOT,
+    })
+    expect(
+      selection?.segments.parts.map((part) => ({
+        root: part.root,
+      }))
+    ).toEqual([{ root: SHARED_ROOT }])
   })
 
   it('collapses by anchor, focus, and visible start/end with repeated-root owner identity intact', () => {
@@ -239,5 +270,38 @@ describe('slate view selection', () => {
         root: SHARED_ROOT,
       })
     ).toBe(false)
+  })
+
+  it('does not recompute view-selection decorations for model-only selection commits', () => {
+    const editor = createReactEditor({
+      initialValue: [{ type: 'paragraph', children: [{ text: 'hello' }] }],
+    })
+    const selection = createSlateViewSelection(
+      createSlateProjectionGraph([{ path: [0], root: 'main' }]),
+      {
+        anchor: { point: point(undefined, [0, 0], 0) },
+        focus: { point: point(undefined, [0, 0], 4) },
+      }
+    )
+
+    writeSlateViewSelection(editor, selection)
+
+    const source = createSlateViewSelectionDecorationSource(editor)
+    const sourceReadsBefore = source.getMetrics().sourceReadCount
+
+    editor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 2 },
+      })
+    })
+
+    expect(source.getMetrics().sourceReadCount).toBe(sourceReadsBefore)
+
+    source.refresh({ reason: 'external' })
+
+    expect(source.getMetrics().sourceReadCount).toBe(sourceReadsBefore + 1)
+
+    source.destroy()
   })
 })

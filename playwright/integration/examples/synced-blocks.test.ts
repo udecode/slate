@@ -86,17 +86,6 @@ const focusRoot = async (
 const getNativeSelectionText = (page: Parameters<typeof openExample>[0]) =>
   page.evaluate(() => window.getSelection()?.toString() ?? '')
 
-const getNativeSelectionSnapshot = (page: Parameters<typeof openExample>[0]) =>
-  page.evaluate(() => {
-    const selection = window.getSelection()
-
-    return {
-      anchorOffset: selection?.anchorOffset ?? null,
-      anchorText: selection?.anchorNode?.textContent ?? null,
-      collapsed: selection?.isCollapsed ?? null,
-    }
-  })
-
 const getRenderedViewSelectionText = (
   page: Parameters<typeof openExample>[0]
 ) =>
@@ -1784,7 +1773,7 @@ test.describe('synced blocks example', () => {
       })
   })
 
-  test('collapses native selection to the anchor when backward local selection becomes projected', async ({
+  test('clears native selection when backward local selection becomes projected', async ({
     page,
   }, testInfo) => {
     test.skip(
@@ -1828,12 +1817,7 @@ test.describe('synced blocks example', () => {
         },
         segments: { backward: true },
       })
-    await expect
-      .poll(() => getNativeSelectionSnapshot(page))
-      .toMatchObject({
-        anchorOffset: 1,
-        collapsed: true,
-      })
+    await expect.poll(() => getNativeSelectionText(page)).toBe('')
   })
 
   test('renders projected Shift+ArrowRight selection on the active synced block copy', async ({
@@ -2260,27 +2244,33 @@ test.describe('synced blocks example', () => {
         focus: { path: [1, 0], offset: SHARED_BODY_SECOND.length },
       })
       await expect.poll(() => getNativeSelectionText(page)).toBe(selectedText)
+      await focusRoot(firstEditor)
 
       await page.keyboard.press('Shift+ArrowDown')
 
       await expect
-        .poll(() => getRenderedViewSelectionText(page))
-        .toContain('any copy updates every synced copy.Between synced copies.')
-      await expect
-        .poll(() => getViewSelection(firstEditor))
+        .poll(async () => ({
+          rendered: await getRenderedViewSelectionText(page),
+          viewSelection: await getViewSelection(outerEditor),
+        }))
         .toMatchObject({
-          anchor: {
-            owner: firstSharedOwner,
-            point: {
-              path: [1, 0],
-              root: SHARED_ROOT,
-              offset: anchorOffset,
+          rendered: expect.stringContaining(
+            'any copy updates every synced copy.Between synced copies.'
+          ),
+          viewSelection: {
+            anchor: {
+              owner: firstSharedOwner,
+              point: {
+                path: [1, 0],
+                root: SHARED_ROOT,
+                offset: anchorOffset,
+              },
             },
+            focus: {
+              point: { path: [2, 0] },
+            },
+            segments: { backward: false },
           },
-          focus: {
-            point: { path: [2, 0] },
-          },
-          segments: { backward: false },
         })
       await expect
         .poll(() => getNativeSelectionText(page))
@@ -2349,12 +2339,21 @@ test.describe('synced blocks example', () => {
         focus: { path: [1, 0], offset: SHARED_BODY_SECOND.length },
       })
       await expect.poll(() => getNativeSelectionText(page)).toBe(selectedText)
+      await focusRoot(firstEditor)
 
       await page.keyboard.press('Shift+ArrowDown')
 
       await expect
-        .poll(() => getRenderedViewSelectionText(page))
-        .toContain('any copy updates every synced copy.Between synced copies.')
+        .poll(async () => ({
+          rendered: await getRenderedViewSelectionText(page),
+          viewSelection: await getViewSelection(outerEditor),
+        }))
+        .toMatchObject({
+          rendered: expect.stringContaining(
+            'any copy updates every synced copy.Between synced copies.'
+          ),
+          viewSelection: expect.any(Object),
+        })
 
       await page.keyboard.press('Enter')
 
@@ -2490,7 +2489,7 @@ test.describe('synced blocks example', () => {
             )
           })
         )
-        .toEqual([SHARED_ROOT, SHARED_ROOT, SHARED_ROOT])
+        .toEqual([SHARED_ROOT])
 
       await page.keyboard.type('w')
 

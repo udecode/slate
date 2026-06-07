@@ -1,9 +1,4 @@
-import {
-  type Descendant,
-  defineEditorExtension,
-  NodeApi,
-  RangeApi,
-} from 'slate'
+import { type Descendant, defineEditorExtension } from 'slate'
 import { jsx } from 'slate-hyperscript'
 
 import type {
@@ -410,15 +405,6 @@ const deserializeChild = (
   return values
 }
 
-const isEmptyTextBlock = (node: Descendant) =>
-  NodeApi.isElement(node) &&
-  node.children.length === 1 &&
-  NodeApi.isText(node.children[0]) &&
-  node.children[0].text === ''
-
-const hasTopLevelBlockFragment = (fragment: unknown) =>
-  Array.isArray(fragment) && fragment.some(isTopLevelBlock)
-
 const isListItemElement = (node: unknown): node is CustomElement =>
   isTopLevelBlock(node) && node.type === 'list-item'
 
@@ -631,43 +617,10 @@ const insertHtmlData = (editor: CustomEditor, data: DataTransfer) => {
   }
 
   const parsed = new DOMParser().parseFromString(html, 'text/html')
-  const fragment = deserialize(getCommentBoundedFragmentRoot(parsed.body))
-  const dropEmptyPasteTarget = hasTopLevelBlockFragment(fragment)
+  const deserialized = deserialize(getCommentBoundedFragmentRoot(parsed.body))
+  const fragment = Array.isArray(deserialized) ? deserialized : [deserialized]
   editor.update((tx) => {
-    let emptyPasteTargetPath: number[] | null = null
-    let selection = tx.selection.get()
-
-    if (dropEmptyPasteTarget && selection && RangeApi.isExpanded(selection)) {
-      tx.fragment.delete()
-      selection = tx.selection.get()
-    }
-
-    if (dropEmptyPasteTarget && selection && RangeApi.isCollapsed(selection)) {
-      const blockEntry = tx.nodes.above({
-        match: (node) => NodeApi.isElement(node) && tx.nodes.isBlock(node),
-      })
-
-      if (blockEntry) {
-        const [block, path] = blockEntry
-
-        if (isEmptyTextBlock(block as Descendant)) {
-          emptyPasteTargetPath = path
-        }
-      }
-    }
-
-    if (emptyPasteTargetPath) {
-      tx.nodes.remove({ at: emptyPasteTargetPath })
-      tx.nodes.insert(fragment, { at: emptyPasteTargetPath })
-    } else if (
-      dropEmptyPasteTarget &&
-      isEmptyTextBlock(tx.runtime.snapshot().children[0]!)
-    ) {
-      tx.nodes.insert(fragment)
-      tx.nodes.remove({ at: [0] })
-    } else {
-      tx.nodes.insert(fragment)
-    }
+    tx.fragment.insert(fragment)
   })
   return true
 }

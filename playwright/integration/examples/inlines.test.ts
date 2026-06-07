@@ -992,13 +992,11 @@ test.describe('Inlines example', () => {
 
     await expect(trailingLink).toHaveCount(1)
     await page.locator('[data-slate-editor] p').nth(1).click({ clickCount: 3 })
-    await expect
-      .poll(async () =>
-        (await editor.get.selectedText())
-          .replaceAll('\u00A0', '')
-          .replace(/\n+$/g, '')
-      )
-      .toBe(secondBlockText)
+    await editor.assert.selection({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 2], offset: 0 },
+    })
+    await editor.assert.noDoubleSelectionHighlight()
     await editor.root.press('Backspace')
 
     await expect
@@ -1030,13 +1028,11 @@ test.describe('Inlines example', () => {
 
     await expect(trailingLink).toHaveCount(1)
     await page.locator('[data-slate-editor] p').nth(1).click({ clickCount: 3 })
-    await expect
-      .poll(async () =>
-        (await editor.get.selectedText())
-          .replaceAll('\u00A0', '')
-          .replace(/\n+$/g, '')
-      )
-      .toBe(secondBlockText)
+    await editor.assert.selection({
+      anchor: { path: [1, 0], offset: 0 },
+      focus: { path: [1, 2], offset: 0 },
+    })
+    await editor.assert.noDoubleSelectionHighlight()
 
     await editor.clipboard.pasteText('replacement')
 
@@ -1410,9 +1406,14 @@ test.describe('Inlines example', () => {
       anchor: { path: [0, 1, 0], offset: 'hyper'.length },
       focus: { path: [0, 2], offset: 0 },
     })
+    await editor.assert.selection({
+      anchor: { path: [0, 1, 0], offset: 'hyper'.length },
+      focus: { path: [0, 2], offset: 0 },
+    })
+    await editor.assert.noDoubleSelectionHighlight()
     await expect
       .poll(async () =>
-        (await editor.get.selectedText()).replaceAll('\u00A0', '')
+        (await editor.get.selectedText()).replaceAll('\u00A0', '').trimEnd()
       )
       .toBe('link')
 
@@ -1428,6 +1429,7 @@ test.describe('Inlines example', () => {
       anchor: { path: [0, 1, 0], offset: 'hyper'.length },
       focus: { path: [0, 1, 0], offset: 'hyper'.length },
     })
+    await editor.assert.noDoubleSelectionHighlight()
   })
 
   test('runs generated inline cut typing gauntlet without illegal kernel transitions', async ({

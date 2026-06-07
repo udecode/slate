@@ -121,6 +121,8 @@ const shouldRefreshPreview = ({
 export const DOMStrategySegmentPlaceholder = React.memo(
   ({
     coverageReason = 'partial-dom-aggressive',
+    boundaryId: explicitBoundaryId,
+    dataSegment,
     endIndex,
     segmentIndex,
     onPromote,
@@ -132,9 +134,14 @@ export const DOMStrategySegmentPlaceholder = React.memo(
       DOMCoverageReason,
       'partial-dom-aggressive' | 'viewport-virtualization'
     >
+    boundaryId?: string
+    dataSegment?: string
     endIndex: number
     segmentIndex: number
-    onPromote?: (segmentIndex: number, options?: { select?: boolean }) => void
+    onPromote?: (
+      segmentIndex: number,
+      options?: { select?: boolean; startIndex?: number }
+    ) => void
     previewChars: number
     runtimeIds: readonly RuntimeId[]
     startIndex: number
@@ -144,7 +151,7 @@ export const DOMStrategySegmentPlaceholder = React.memo(
       () => runtimeIds.slice(0, MAX_PREVIEW_LINES),
       [runtimeIds]
     )
-    const boundaryId = `${coverageReason}:${segmentIndex}`
+    const boundaryId = explicitBoundaryId ?? `${coverageReason}:${segmentIndex}`
     const anchorRuntimeId = runtimeIds[0] ?? null
     const focusRuntimeId = runtimeIds.at(-1) ?? null
     const selectionPolicy: DOMCoverageSelectionPolicy =
@@ -252,9 +259,9 @@ export const DOMStrategySegmentPlaceholder = React.memo(
           '[data-slate-editor="true"]'
         ) as HTMLElement | null
         editorElement?.focus()
-        onPromote?.(segmentIndex, { select: true })
+        onPromote?.(segmentIndex, { select: true, startIndex })
       },
-      [editor, segmentIndex, onPromote]
+      [editor, segmentIndex, onPromote, startIndex]
     )
 
     const handleKeyDown = useCallback(
@@ -273,9 +280,9 @@ export const DOMStrategySegmentPlaceholder = React.memo(
           '[data-slate-editor="true"]'
         ) as HTMLElement | null
         editorElement?.focus()
-        onPromote?.(segmentIndex, { select: true })
+        onPromote?.(segmentIndex, { select: true, startIndex })
       },
-      [editor, segmentIndex, onPromote]
+      [editor, segmentIndex, onPromote, startIndex]
     )
 
     const firstLine = preview.lines[0]
@@ -292,7 +299,7 @@ export const DOMStrategySegmentPlaceholder = React.memo(
         data-slate-dom-coverage-edge="owner"
         data-slate-dom-strategy-kind={preview.kind}
         data-slate-dom-strategy-placeholder="true"
-        data-slate-dom-strategy-segment={String(segmentIndex)}
+        data-slate-dom-strategy-segment={dataSegment ?? String(segmentIndex)}
         onKeyDown={handleKeyDown}
         onMouseDown={handleMouseDown}
         role="button"
@@ -315,6 +322,8 @@ export const DOMStrategySegmentPlaceholder = React.memo(
   },
   (prev, next) =>
     prev.segmentIndex === next.segmentIndex &&
+    prev.boundaryId === next.boundaryId &&
+    prev.dataSegment === next.dataSegment &&
     prev.startIndex === next.startIndex &&
     prev.endIndex === next.endIndex &&
     prev.coverageReason === next.coverageReason &&

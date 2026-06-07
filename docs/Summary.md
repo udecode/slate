@@ -56,7 +56,7 @@
 ## Libraries
 
 - [Slate React](libraries/slate-react/README.md)
-  - [React Editor Setup](libraries/slate-react/with-react.md)
+  - [React Editor Setup](libraries/slate-react/react-editor-setup.md)
   - [React Editor](libraries/slate-react/react-editor.md)
   - [Hooks](libraries/slate-react/hooks.md)
   - [Slate Component](libraries/slate-react/slate.md)
@@ -66,7 +66,7 @@
   - [Event Handling](libraries/slate-react/event-handling.md)
 - [Slate Layout](libraries/slate-layout/README.md)
 - [Slate History](libraries/slate-history/README.md)
-  - [History Extension Setup](libraries/slate-history/with-history.md)
+  - [History Extension Setup](libraries/slate-history/history-extension-setup.md)
   - [History Editor API](libraries/slate-history/history-editor.md)
   - [History](libraries/slate-history/history.md)
 - [Slate Hyperscript](libraries/slate-hyperscript.md)

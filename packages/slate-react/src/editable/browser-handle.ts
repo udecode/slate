@@ -70,7 +70,11 @@ export type SlateBrowserHandle = {
   getViewSelection: () => unknown
   importDOMSelection: () => Range | null
   insertBreak: () => void
-  insertData: (payload: { html?: string | null; text?: string }) => void
+  insertData: (payload: {
+    html?: string | null
+    slateFragment?: string | null
+    text?: string | null
+  }) => void
   insertText: (text: string) => void
   redo: () => void
   resolveRangeRef: (id: string) => Range | null
@@ -97,6 +101,50 @@ export type SlateBrowserHandleElement = HTMLDivElement & {
 
 type RefBox<T> = {
   current: T
+}
+
+const createBrowserHandleDataTransfer = ({
+  html,
+  slateFragment,
+  text,
+}: {
+  html?: string | null
+  slateFragment?: string | null
+  text?: string | null
+}): DataTransfer => {
+  const records = new Map<string, string>()
+
+  if (html) {
+    records.set('text/html', html)
+  }
+  if (text) {
+    records.set('text/plain', text)
+  }
+  if (slateFragment) {
+    records.set('application/x-slate-fragment', slateFragment)
+  }
+
+  return {
+    clearData: (format?: string) => {
+      if (format) {
+        records.delete(format)
+      } else {
+        records.clear()
+      }
+    },
+    dropEffect: 'none',
+    effectAllowed: 'all',
+    files: [] as unknown as FileList,
+    getData: (format: string) => records.get(format) ?? '',
+    get types() {
+      return [...records.keys()]
+    },
+    items: [] as unknown as DataTransferItemList,
+    setData: (format: string, value: string) => {
+      records.set(format, value)
+    },
+    setDragImage: () => {},
+  } as unknown as DataTransfer
 }
 
 export const attachSlateBrowserHandle = ({
@@ -327,6 +375,7 @@ export const attachSlateBrowserHandle = ({
             preferModelSelection: false,
             selectionSource: 'dom-current',
           })
+          writeSlateViewSelection(editor, null)
           inputController.state.isUpdatingSelection = false
           inputController.state.selectionChangeOrigin = 'native-user'
           syncEditorSelectionFromDOM({
@@ -365,17 +414,12 @@ export const attachSlateBrowserHandle = ({
     insertBreak: () => {
       runCommand({ kind: 'insert-break', variant: 'paragraph' })
     },
-    insertData: ({ html, text }) => {
-      const data = new DataTransfer()
-
-      if (html) {
-        data.setData('text/html', html)
-      }
-
-      if (text) {
-        data.setData('text/plain', text)
-      }
-
+    insertData: ({ html, slateFragment, text }) => {
+      const data = createBrowserHandleDataTransfer({
+        html,
+        slateFragment,
+        text,
+      })
       runCommand({ data, kind: 'insert-data' })
     },
     insertText: (text) => {
@@ -442,6 +486,7 @@ export const attachSlateBrowserHandle = ({
       })
       inputController.state.isUpdatingSelection = true
       inputController.state.selectionChangeOrigin = 'browser-handle'
+      writeSlateViewSelection(editor, null)
       editor.update((tx) => {
         tx.selection.set(selection)
       })

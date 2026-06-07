@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
-import type { Path, Range, RootKey } from 'slate'
+import type { Descendant, Path, Range, RootKey } from 'slate'
 import { RangeApi } from 'slate'
 
 import {
@@ -9,9 +9,12 @@ import {
 } from './decoration-source'
 import { useIsomorphicLayoutEffect } from './hooks/use-isomorphic-layout-effect'
 import type { ReactRuntimeEditor } from './plugin/react-editor'
+import type { SlateSourceDirtiness } from './projection-store'
 import {
   resolveSlateViewBoundarySegmentEndpoint,
   type SlateViewBoundaryOwner,
+  type SlateViewBoundaryRangeEndpoint,
+  type SlateViewBoundaryRangeSegment,
 } from './view-boundary-graph'
 import {
   isSlateViewSelectionCollapsed,
@@ -20,6 +23,11 @@ import {
 } from './view-selection'
 
 export const SLATE_VIEW_SELECTION_DECORATION_SOURCE_ID = 'slate-view-selection'
+export const SLATE_VIEW_SELECTION_DECORATION_DIRTINESS = [
+  'node',
+  'text',
+  'external',
+] as const satisfies SlateSourceDirtiness
 
 export type SlateViewSelectionDecorationOwner = Readonly<{
   childRoot: RootKey
@@ -104,6 +112,27 @@ export const hasVisibleSlateViewSelectionDecoration = (
 const getRangeKey = (range: Range, index: number) =>
   `${SLATE_VIEW_SELECTION_DECORATION_SOURCE_ID}:${range.anchor.root ?? MAIN_ROOT_KEY}:${range.anchor.path.join('.')}:${range.anchor.offset}:${range.focus.root ?? MAIN_ROOT_KEY}:${range.focus.path.join('.')}:${range.focus.offset}:${index}`
 
+const rootPointForSegment = (
+  point: Range['anchor'],
+  root: RootKey
+): Range['anchor'] => ({
+  ...(root === MAIN_ROOT_KEY ? {} : { root }),
+  offset: point.offset,
+  path: [...point.path] as Path,
+})
+
+const resolveSlateViewSelectionDecorationEndpoint = (
+  roots: () => Readonly<Record<string, readonly Descendant[]>>,
+  segment: SlateViewBoundaryRangeSegment,
+  endpoint: SlateViewBoundaryRangeEndpoint
+) => {
+  if (endpoint.kind === 'point') {
+    return rootPointForSegment(endpoint.point, segment.root)
+  }
+
+  return resolveSlateViewBoundarySegmentEndpoint(roots(), segment, endpoint)
+}
+
 const readSlateViewSelectionDecorations = (
   editor: ReactRuntimeEditor<any>
 ): readonly SlateDecoration<SlateViewSelectionDecorationData>[] => {
@@ -113,17 +142,22 @@ const readSlateViewSelectionDecorations = (
     return EMPTY_DECORATIONS
   }
 
-  const roots = editor.read((state) => state.value.get().roots)
+  let roots: Readonly<Record<string, readonly Descendant[]>> | null = null
+  const getRoots = () => {
+    roots ??= editor.read((state) => state.value.get().roots)
+
+    return roots
+  }
   const decorations: SlateDecoration<SlateViewSelectionDecorationData>[] = []
 
   viewSelection.segments.parts.forEach((segment, index) => {
-    const anchor = resolveSlateViewBoundarySegmentEndpoint(
-      roots,
+    const anchor = resolveSlateViewSelectionDecorationEndpoint(
+      getRoots,
       segment,
       segment.start
     )
-    const focus = resolveSlateViewBoundarySegmentEndpoint(
-      roots,
+    const focus = resolveSlateViewSelectionDecorationEndpoint(
+      getRoots,
       segment,
       segment.end
     )
@@ -152,6 +186,15 @@ const readSlateViewSelectionDecorations = (
   return decorations.length === 0 ? EMPTY_DECORATIONS : decorations
 }
 
+export const createSlateViewSelectionDecorationSource = (
+  editor: ReactRuntimeEditor<any>
+): SlateDecorationSource<SlateViewSelectionDecorationData> =>
+  createDecorationSource<SlateViewSelectionDecorationData>(editor, {
+    dirtiness: SLATE_VIEW_SELECTION_DECORATION_DIRTINESS,
+    id: SLATE_VIEW_SELECTION_DECORATION_SOURCE_ID,
+    read: () => readSlateViewSelectionDecorations(editor),
+  })
+
 export const useSlateViewSelectionPresence = (editor: object) =>
   useSyncExternalStore(
     (listener) => subscribeSlateViewSelection(editor, listener),
@@ -168,11 +211,7 @@ export const useSlateViewSelectionDecorationSource = (
       return null
     }
 
-    return createDecorationSource<SlateViewSelectionDecorationData>(editor, {
-      dirtiness: ['node', 'text', 'selection', 'external'],
-      id: SLATE_VIEW_SELECTION_DECORATION_SOURCE_ID,
-      read: () => readSlateViewSelectionDecorations(editor),
-    })
+    return createSlateViewSelectionDecorationSource(editor)
   }, [editor, enabled])
 
   useEffect(() => () => source?.destroy(), [source])

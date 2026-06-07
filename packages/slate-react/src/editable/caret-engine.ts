@@ -3,8 +3,18 @@ import { type MoveUnit, type Point, type Range, RangeApi } from 'slate'
 import { Hotkeys } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
-import { writeSlateViewSelection } from '../view-selection'
-import { getPlainVerticalDOMCoverageExtension } from './dom-coverage-vertical-selection'
+import { recordSlateReactRender } from '../render-profiler'
+import {
+  createMainRootSlateViewSelection,
+  readSlateViewSelection,
+  type SlateViewSelection,
+  writeSlateViewSelection,
+} from '../view-selection'
+import {
+  getPlainVerticalDOMCoverageExtension,
+  getPlainVerticalLargeDocumentExtension,
+  shouldModelOwnPlainVerticalLargeDocumentExtension,
+} from './dom-coverage-vertical-selection'
 import type { EditableRepairRequest } from './mutation-controller'
 import { Editor } from './runtime-editor-api'
 
@@ -14,6 +24,8 @@ export type EditableCaretMovementResult = {
 }
 
 const selectionSyncRepair = (): EditableRepairRequest => ({
+  focus: true,
+  forceRender: true,
   kind: 'sync-selection',
   selectionSourceTransition: {
     preferModelSelection: true,
@@ -41,6 +53,92 @@ const getBoundarySelectionIds = (
           .map((boundary) => boundary.boundaryId)
       : []
   )
+
+const largeDocumentVerticalSelectionUpdateOptions = {
+  metadata: {
+    selection: {
+      scroll: false,
+    },
+  },
+} satisfies Parameters<ReactRuntimeEditor['update']>[1]
+
+const measureCaretPhase = <T>(id: string, run: () => T): T => {
+  if (!globalThis.__SLATE_REACT_RENDER_PROFILER__) {
+    return run()
+  }
+
+  const startedAt = performance.now()
+
+  try {
+    return run()
+  } finally {
+    recordSlateReactRender({
+      duration: performance.now() - startedAt,
+      id,
+      kind: 'runtime-time',
+    })
+  }
+}
+
+const writeMainRootViewSelection = (
+  editor: ReactRuntimeEditor,
+  selection: Range | null,
+  rootElement?: HTMLElement
+) => {
+  const viewSelection = measureCaretPhase(
+    'caret.main-root-view-selection.create',
+    () =>
+      selection && RangeApi.isExpanded(selection)
+        ? createMainRootSlateViewSelection(
+            selection,
+            editor.read((state) => state.view.root())
+          )
+        : null
+  )
+
+  measureCaretPhase('caret.main-root-view-selection.write', () => {
+    writeSlateViewSelection(editor, viewSelection)
+  })
+  measureCaretPhase('caret.main-root-view-selection.clear-native', () => {
+    clearNativeSelectionForViewSelection(viewSelection, rootElement)
+  })
+}
+
+const clearNativeSelectionForViewSelection = (
+  viewSelection: SlateViewSelection | null,
+  rootElement?: HTMLElement
+) => {
+  if (!viewSelection || !rootElement) {
+    return
+  }
+
+  const clear = () => {
+    rootElement.ownerDocument.getSelection()?.removeAllRanges()
+  }
+
+  clear()
+  rootElement.ownerDocument.defaultView?.queueMicrotask(clear)
+  rootElement.ownerDocument.defaultView?.requestAnimationFrame(clear)
+}
+
+const getOwnerlessViewSelectionRange = (
+  editor: ReactRuntimeEditor
+): Range | null => {
+  const viewSelection = readSlateViewSelection(editor)
+
+  if (
+    !viewSelection ||
+    viewSelection.anchor.owner ||
+    viewSelection.focus.owner
+  ) {
+    return null
+  }
+
+  return {
+    anchor: viewSelection.anchor.point,
+    focus: viewSelection.focus.point,
+  }
+}
 
 const restoreSelectionIfMovementEnteredBoundary = ({
   boundarySkipUnit,
@@ -168,6 +266,9 @@ const moveSelectionAndRespectBoundaries = ({
   preserveAnchorOnBoundarySkip = false,
   reverse,
   selection,
+  updateOptions,
+  writeViewSelection = false,
+  viewSelectionRootElement,
 }: {
   boundarySkipUnit?: MoveUnit
   editor: ReactRuntimeEditor
@@ -175,9 +276,12 @@ const moveSelectionAndRespectBoundaries = ({
   preserveAnchorOnBoundarySkip?: boolean
   reverse: boolean
   selection: Range | null
+  updateOptions?: Parameters<ReactRuntimeEditor['update']>[1]
+  writeViewSelection?: boolean
+  viewSelectionRootElement?: HTMLElement
 }) => {
   writeSlateViewSelection(editor, null)
-  editor.update(move)
+  editor.update(move, updateOptions)
   restoreSelectionIfMovementEnteredBoundary({
     boundarySkipUnit,
     editor,
@@ -185,6 +289,13 @@ const moveSelectionAndRespectBoundaries = ({
     previousSelection: selection,
     reverse,
   })
+  if (writeViewSelection) {
+    writeMainRootViewSelection(
+      editor,
+      editor.read((state) => state.selection.get()),
+      viewSelectionRootElement
+    )
+  }
 }
 
 export const applyEditableCaretMovement = ({
@@ -192,19 +303,72 @@ export const applyEditableCaretMovement = ({
   event,
   isRTL,
   selection,
+  domStrategyRuntime,
 }: {
+  domStrategyRuntime: unknown
   editor: ReactRuntimeEditor
   event: KeyboardEvent<HTMLDivElement>
   isRTL: boolean
   selection: Range | null
 }): EditableCaretMovementResult => {
   const { nativeEvent } = event
-  const plainVerticalDOMCoverageExtension =
-    getPlainVerticalDOMCoverageExtension({
-      editor,
-      event: nativeEvent,
-      selection,
+  const ownerlessViewSelectionRange = measureCaretPhase(
+    'caret.ownerless-view-selection-range',
+    () => getOwnerlessViewSelectionRange(editor)
+  )
+  const largeDocumentVerticalSelection =
+    ownerlessViewSelectionRange ?? selection
+  const plainVerticalLargeDocumentSelection = measureCaretPhase(
+    'caret.should-model-own-plain-vertical-large-document',
+    () =>
+      shouldModelOwnPlainVerticalLargeDocumentExtension({
+        domStrategyRuntime,
+        editor,
+        event: nativeEvent,
+        selection: largeDocumentVerticalSelection,
+      })
+  )
+  const plainVerticalLargeDocumentExtension = measureCaretPhase(
+    'caret.get-plain-vertical-large-document-extension',
+    () =>
+      getPlainVerticalLargeDocumentExtension({
+        domStrategyRuntime,
+        editor,
+        event: nativeEvent,
+        forceModelMovement: ownerlessViewSelectionRange !== null,
+        selection: largeDocumentVerticalSelection,
+      })
+  )
+
+  if (plainVerticalLargeDocumentExtension) {
+    event.preventDefault()
+    const nextSelection = {
+      anchor:
+        largeDocumentVerticalSelection?.anchor ??
+        plainVerticalLargeDocumentExtension.target,
+      focus: plainVerticalLargeDocumentExtension.target,
+    }
+    measureCaretPhase('caret.large-document-select', () => {
+      editor.update((tx) => {
+        tx.selection.set(nextSelection)
+      }, largeDocumentVerticalSelectionUpdateOptions)
     })
+    measureCaretPhase('caret.large-document-view-selection', () => {
+      writeMainRootViewSelection(editor, nextSelection, event.currentTarget)
+    })
+
+    return caretMovementHandled()
+  }
+
+  const plainVerticalDOMCoverageExtension = measureCaretPhase(
+    'caret.get-plain-vertical-dom-coverage-extension',
+    () =>
+      getPlainVerticalDOMCoverageExtension({
+        editor,
+        event: nativeEvent,
+        selection,
+      })
+  )
 
   if (plainVerticalDOMCoverageExtension) {
     event.preventDefault()
@@ -234,6 +398,11 @@ export const applyEditableCaretMovement = ({
       },
       reverse: true,
       selection,
+      updateOptions: plainVerticalLargeDocumentSelection
+        ? largeDocumentVerticalSelectionUpdateOptions
+        : undefined,
+      writeViewSelection: plainVerticalLargeDocumentSelection,
+      viewSelectionRootElement: event.currentTarget,
     })
     return caretMovementHandled()
   }
@@ -247,6 +416,11 @@ export const applyEditableCaretMovement = ({
       },
       reverse: false,
       selection,
+      updateOptions: plainVerticalLargeDocumentSelection
+        ? largeDocumentVerticalSelectionUpdateOptions
+        : undefined,
+      writeViewSelection: plainVerticalLargeDocumentSelection,
+      viewSelectionRootElement: event.currentTarget,
     })
     return caretMovementHandled()
   }
@@ -266,6 +440,11 @@ export const applyEditableCaretMovement = ({
       preserveAnchorOnBoundarySkip: true,
       reverse: true,
       selection,
+      updateOptions: plainVerticalLargeDocumentSelection
+        ? largeDocumentVerticalSelectionUpdateOptions
+        : undefined,
+      writeViewSelection: plainVerticalLargeDocumentSelection,
+      viewSelectionRootElement: event.currentTarget,
     })
     return caretMovementHandled()
   }
@@ -281,6 +460,11 @@ export const applyEditableCaretMovement = ({
       preserveAnchorOnBoundarySkip: true,
       reverse: false,
       selection,
+      updateOptions: plainVerticalLargeDocumentSelection
+        ? largeDocumentVerticalSelectionUpdateOptions
+        : undefined,
+      writeViewSelection: plainVerticalLargeDocumentSelection,
+      viewSelectionRootElement: event.currentTarget,
     })
     return caretMovementHandled()
   }

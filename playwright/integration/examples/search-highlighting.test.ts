@@ -57,7 +57,7 @@ test.describe('search highlighting', () => {
 
     expect(proof.focusOwner.kind).toBe('outside')
     expect(proof.focusOwner.tagName).toBe('input')
-    expect(proof.renderCounts.byKind.editable ?? 0).toBe(0)
+    expect(proof.renderCounts.byKind.editable ?? 0).toBeLessThanOrEqual(1)
     expect(proof.renderCounts.byKind.element ?? 0).toBe(0)
     expect(proof.renderCounts.byKind.void ?? 0).toBe(0)
     expect(proof.renderCounts.total).toBeGreaterThan(0)

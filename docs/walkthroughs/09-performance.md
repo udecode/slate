@@ -75,9 +75,12 @@ const onClick = () => {
 ### DOM Strategy
 
 `Editable` keeps large documents DOM-bounded by default. Use
-`domStrategy="staged"` only when a product needs eventual native DOM coverage
-for the whole document, or `domStrategy="full"` to render the full document
-surface while debugging.
+`domStrategy="auto"` for bounded partial-DOM rendering. Slate groups off-DOM
+content behind model-backed coverage boundaries and mounts a small active window
+inside the opened group, leaving the surrounding range selectable and copyable
+through the model until it materializes. Use `domStrategy="staged"` only when a
+product needs eventual native DOM coverage for the whole document, or
+`domStrategy="full"` to render the full document surface while debugging.
 
 Experimental virtualized rendering is a separate viewport-mounted stress path
 for pathological documents. Read

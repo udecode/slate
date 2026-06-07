@@ -23,14 +23,99 @@ const expectDOMCaretAtTextEnd = async (root: Locator, suffix: string) => {
     .poll(() =>
       root.evaluate((element: HTMLElement, expectedSuffix) => {
         const selection = element.ownerDocument.getSelection()
-        const text = selection?.anchorNode?.textContent ?? null
 
-        return Boolean(
-          selection?.isCollapsed &&
-            text?.endsWith(expectedSuffix) &&
-            selection.anchorOffset === text.length
+        if (
+          !selection?.isCollapsed ||
+          !selection.anchorNode ||
+          !element.contains(selection.anchorNode)
+        ) {
+          return false
+        }
+
+        const walker = element.ownerDocument.createTreeWalker(
+          element,
+          NodeFilter.SHOW_TEXT
         )
+        let textBeforeCaret = ''
+
+        while (walker.nextNode()) {
+          const node = walker.currentNode
+          const text = node.textContent ?? ''
+
+          if (node === selection.anchorNode) {
+            textBeforeCaret += text.slice(0, selection.anchorOffset)
+
+            return (
+              textBeforeCaret.endsWith(expectedSuffix) &&
+              text.slice(selection.anchorOffset).length === 0
+            )
+          }
+
+          textBeforeCaret += text
+        }
+
+        return false
       }, suffix)
+    )
+    .toBe(true)
+}
+
+const expectDOMCaretBetweenText = async (
+  root: Locator,
+  beforeSuffix: string,
+  afterPrefix: string
+) => {
+  await expect
+    .poll(() =>
+      root.evaluate(
+        (
+          element: HTMLElement,
+          expected: { afterPrefix: string; beforeSuffix: string }
+        ) => {
+          const selection = element.ownerDocument.getSelection()
+
+          if (
+            !selection?.isCollapsed ||
+            !selection.anchorNode ||
+            !element.contains(selection.anchorNode)
+          ) {
+            return false
+          }
+
+          const walker = element.ownerDocument.createTreeWalker(
+            element,
+            NodeFilter.SHOW_TEXT
+          )
+          let textBeforeCaret = ''
+          let textAfterCaret = ''
+          let foundAnchor = false
+
+          while (walker.nextNode()) {
+            const node = walker.currentNode
+            const text = node.textContent ?? ''
+
+            if (node === selection.anchorNode) {
+              textBeforeCaret += text.slice(0, selection.anchorOffset)
+              textAfterCaret += text.slice(selection.anchorOffset)
+              foundAnchor = true
+              continue
+            }
+
+            if (foundAnchor) {
+              textAfterCaret += text
+            } else {
+              textBeforeCaret += text
+            }
+          }
+
+          return (
+            foundAnchor &&
+            textBeforeCaret.endsWith(expected.beforeSuffix) &&
+            textAfterCaret.startsWith(expected.afterPrefix)
+          )
+        },
+        { afterPrefix, beforeSuffix }
+      )
     )
     .toBe(true)
 }
@@ -161,12 +246,52 @@ const expectDOMCaretAfterInsertedTextBeforeSuffix = async (
           }: { expectedInsertedText: string; expectedTrailingText: string }
         ) => {
           const selection = element.ownerDocument.getSelection()
-          const text = selection?.anchorNode?.textContent ?? null
 
-          return Boolean(
-            selection?.isCollapsed &&
-              text === `${expectedInsertedText}${expectedTrailingText}` &&
-              selection.anchorOffset === expectedInsertedText.length
+          if (
+            !selection?.isCollapsed ||
+            !selection.anchorNode ||
+            !element.contains(selection.anchorNode)
+          ) {
+            return false
+          }
+
+          const text = selection.anchorNode.textContent ?? ''
+
+          if (
+            text === `${expectedInsertedText}${expectedTrailingText}` &&
+            selection.anchorOffset === expectedInsertedText.length
+          ) {
+            return true
+          }
+
+          const walker = element.ownerDocument.createTreeWalker(
+            element,
+            NodeFilter.SHOW_TEXT
+          )
+          let foundAnchor = false
+          let nextText: string | null = null
+
+          while (walker.nextNode()) {
+            const node = walker.currentNode
+
+            if (foundAnchor) {
+              const value = node.textContent ?? ''
+
+              if (value.length > 0) {
+                nextText = value
+                break
+              }
+            }
+
+            if (node === selection.anchorNode) {
+              foundAnchor = true
+            }
+          }
+
+          return (
+            text === expectedInsertedText &&
+            selection.anchorOffset === text.length &&
+            !!nextText?.startsWith(expectedTrailingText)
           )
         },
         {
@@ -2366,12 +2491,9 @@ test.describe('On richtext example', () => {
   })
 
   test('keeps caret editable after browser Backspace at selected text end', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop Backspace proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -2431,12 +2553,9 @@ test.describe('On richtext example', () => {
   })
 
   test('keeps caret editable after browser Delete before trailing punctuation', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop Delete proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -2451,6 +2570,16 @@ test.describe('On richtext example', () => {
     }
     const afterFollowUpText =
       'This is editable rich text, much better than a <textarea>Z'
+    const afterFollowUpSelections = [
+      {
+        anchor: { path: [0, 5], offset: '<textarea>Z'.length },
+        focus: { path: [0, 5], offset: '<textarea>Z'.length },
+      },
+      {
+        anchor: { path: [0, 6], offset: 'Z'.length },
+        focus: { path: [0, 6], offset: 'Z'.length },
+      },
+    ]
 
     await editor.click()
     await editor.selection.select(afterDeleteSelection)
@@ -2488,11 +2617,26 @@ test.describe('On richtext example', () => {
       .toBe(afterFollowUpText)
     expect(await editor.get.modelText()).toContain(afterFollowUpText)
     await expect
-      .poll(() => editor.selection.get())
-      .toEqual({
-        anchor: { path: [0, 5], offset: '<textarea>Z'.length },
-        focus: { path: [0, 5], offset: '<textarea>Z'.length },
+      .poll(async () => {
+        const selection = await editor.selection.get()
+
+        if (
+          afterFollowUpSelections.some(
+            (expectedSelection) =>
+              selection?.anchor.offset === expectedSelection.anchor.offset &&
+              selection.focus.offset === expectedSelection.focus.offset &&
+              selection.anchor.path.join(',') ===
+                expectedSelection.anchor.path.join(',') &&
+              selection.focus.path.join(',') ===
+                expectedSelection.focus.path.join(',')
+          )
+        ) {
+          return 'expected'
+        }
+
+        return JSON.stringify(selection)
       })
+      .toBe('expected')
     await expectDOMCaretAtTextEnd(editor.root, 'Z')
     await expectVisualCaretAtEndOfFirstBlock(editor.root)
   })
@@ -2772,12 +2916,9 @@ test.describe('On richtext example', () => {
   })
 
   test('keeps caret editable after browser Backspace deletes selected range', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop Backspace proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -2821,12 +2962,9 @@ test.describe('On richtext example', () => {
   })
 
   test('keeps caret editable after browser Delete deletes selected range', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop Delete proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -2870,12 +3008,9 @@ test.describe('On richtext example', () => {
   })
 
   test('keeps selection synchronized after browser ArrowLeft and ArrowRight', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop arrow-key proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -5729,12 +5864,9 @@ test.describe('On richtext example', () => {
   })
 
   test('places a right-margin click at the multi-leaf text end', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop pointer proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -5774,12 +5906,9 @@ test.describe('On richtext example', () => {
   })
 
   test('keeps the visual caret after browser insertion before trailing punctuation', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop text input proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -5804,12 +5933,9 @@ test.describe('On richtext example', () => {
   })
 
   test('keeps the visual caret after browser insertion inside a text leaf', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName === 'firefox' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop text input proof')
 
     const editor = await openExample(page, 'richtext', {
       ready: {
@@ -5830,7 +5956,7 @@ test.describe('On richtext example', () => {
     expect(await editor.get.modelText()).toContain(
       'This is editable rich Otext, much better than a <textarea>!'
     )
-    await editor.assert.domCaret({ offset: 2, text: ' Otext, ' })
+    await expectDOMCaretBetweenText(editor.root, ' O', 'text, ')
   })
 
   test('undoes inserted text', async ({ browserName, page }, testInfo) => {
