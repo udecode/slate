@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
   assertSlateBrowserFirstPartyParityContracts,
-  SLATE_BROWSER_FIRST_LEGACY_PARITY_FAMILIES,
+  SLATE_BROWSER_FIRST_PARTY_PARITY_FAMILIES,
   SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY,
 } from '../../src/core'
 import {
@@ -134,9 +134,9 @@ describe('scenario helpers', () => {
     ).toThrow(/registered more than once/)
   })
 
-  test('locks the first legacy parity slice into a fast contract guard', () => {
+  test('locks the first-party parity slice into a fast contract guard', () => {
     const result = assertSlateBrowserFirstPartyParityContracts()
-    const parityFamilies = SLATE_BROWSER_FIRST_LEGACY_PARITY_FAMILIES.map(
+    const parityFamilies = SLATE_BROWSER_FIRST_PARTY_PARITY_FAMILIES.map(
       (family) => family.family
     )
 

@@ -127,6 +127,15 @@ export const getDeferredNativeTextInputRepairPathKey = ({
   return selection.anchor.path.join(',')
 }
 
+export const shouldFlushPendingNativeTextInputBeforeDOMBeforeInput = ({
+  pendingNativeTextInputRepairPathKey,
+}: {
+  inputType: string
+  pendingNativeTextInputRepairPathKey: string | null | undefined
+}) => {
+  return !!pendingNativeTextInputRepairPathKey
+}
+
 export const useRuntimeBeforeInputEvents = ({
   androidInputManagerRef,
   applyInputRules,
@@ -166,7 +175,7 @@ export const useRuntimeBeforeInputEvents = ({
     inputType: string
     rootElement: HTMLElement
     selection: Range | null
-  }) => void
+  }) => boolean
   readOnly: boolean
   repair: EditableEventRuntime['repair']
   selection: EditableEventRuntime['selection']
@@ -176,7 +185,15 @@ export const useRuntimeBeforeInputEvents = ({
   const slateRuntimeContext = useOptionalSlateRuntimeContext()
   const handleDOMBeforeInput = useCallback(
     (event: InputEvent) => {
-      if (event.inputType !== 'insertText') {
+      const shouldFlushPendingTextInput =
+        deferNativeTextInputRepair &&
+        shouldFlushPendingNativeTextInputBeforeDOMBeforeInput({
+          inputType: event.inputType,
+          pendingNativeTextInputRepairPathKey:
+            inputController.state.pendingNativeTextInputRepairPathKey,
+        })
+
+      if (shouldFlushPendingTextInput) {
         flushPendingNativeTextInput?.()
       }
 
@@ -492,20 +509,19 @@ export const useRuntimeBeforeInputEvents = ({
           event.preventDefault()
         }
 
-        if (
+        const queuedPendingNativeTextRepair =
           deferNativeTextInputRepair &&
           native &&
           type === 'insertText' &&
           typeof data === 'string' &&
           data.length > 0
-        ) {
-          queuePendingNativeTextInput?.({
-            data,
-            inputType: type,
-            rootElement: el,
-            selection: currentSelection,
-          })
-        }
+            ? (queuePendingNativeTextInput?.({
+                data,
+                inputType: type,
+                rootElement: el,
+                selection: currentSelection,
+              }) ?? false)
+            : false
 
         const request = didRepairNonNativeDOMTextInput
           ? null
@@ -528,6 +544,7 @@ export const useRuntimeBeforeInputEvents = ({
             type === 'insertText' &&
             typeof data === 'string' &&
             data.length > 0 &&
+            queuedPendingNativeTextRepair &&
             request.kind === 'repair-caret-after-text-insert'
 
           if (!shouldDeferNativeTextRepair) {

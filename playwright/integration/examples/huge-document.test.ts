@@ -318,25 +318,10 @@ const selectTextBlockEndDOM = async (
 const waitForTextBlockMaterialized = async (
   editor: SlateBrowserEditorHarness,
   blockIndex: number
-) => {
-  await editor.page.waitForFunction(
-    (index) => {
-      const root = document.querySelector('[data-slate-editor="true"]')
-      const handle = (root as SlateBrowserHandleElement | null)
-        ?.__slateBrowserHandle
-
-      handle?.scrollPathIntoView?.([index, 0], 'center')
-
-      const materialized = !!root?.querySelector(
-        `[data-slate-node="text"][data-slate-path="${index},0"]`
-      )
-
-      return materialized
-    },
-    blockIndex,
-    { timeout: hugeDocumentReadyTimeout }
-  )
-}
+) =>
+  editor.dom.waitForTextPath([blockIndex, 0], {
+    timeoutMs: hugeDocumentReadyTimeout,
+  })
 
 const waitForEditorAnimationFrames = async (
   editor: SlateBrowserEditorHarness,
@@ -412,8 +397,7 @@ const getVirtualizedRowStackingProof = async (
       )
         .map((row) => {
           const child =
-            row.querySelector<HTMLElement>('[data-slate-node="element"]') ??
-            row
+            row.querySelector<HTMLElement>('[data-slate-node="element"]') ?? row
           const rowRect = row.getBoundingClientRect()
           const childRect = child.getBoundingClientRect()
 
@@ -432,8 +416,7 @@ const getVirtualizedRowStackingProof = async (
           }
         })
         .filter(
-          (row) =>
-            row.bottom >= -40 && row.top <= element.clientHeight + 40
+          (row) => row.bottom >= -40 && row.top <= element.clientHeight + 40
         )
 
       const gaps: Array<{
@@ -481,19 +464,35 @@ const getVirtualizedRowStackingProof = async (
 
 const getVirtualizedScrollbarDragBufferProof = async (
   editor: SlateBrowserEditorHarness,
-  scrollTop: number
+  scrollTop: number,
+  side: 'left' | 'right' = 'right'
 ) =>
-  editor.root.evaluate((element: HTMLElement, targetScrollTop) => {
-    element.scrollTop = targetScrollTop
+  editor.root.evaluate(
+    (element: HTMLElement, { side, targetScrollTop }) => {
+      const initialRect = element.getBoundingClientRect()
+      const pointerX =
+        side === 'left' ? initialRect.left + 2 : initialRect.right - 2
+      const pointerY =
+        initialRect.top + Math.min(24, Math.max(1, element.clientHeight / 2))
 
-    const rootRect = element.getBoundingClientRect()
-    const rows = Array.from(
-      element.querySelectorAll<HTMLElement>(
-        '[data-slate-dom-strategy-virtual-row="true"]'
+      element.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          bubbles: true,
+          clientX: pointerX,
+          clientY: pointerY,
+          pointerId: 1,
+          pointerType: 'mouse',
+        })
       )
-    )
-    const visibleRows = rows
-      .map((row) => {
+      element.scrollTop = targetScrollTop
+
+      const rootRect = element.getBoundingClientRect()
+      const rows = Array.from(
+        element.querySelectorAll<HTMLElement>(
+          '[data-slate-dom-strategy-virtual-row="true"]'
+        )
+      )
+      const rowRects = rows.map((row) => {
         const child =
           row.querySelector<HTMLElement>('[data-slate-node="element"]') ?? row
         const rect = child.getBoundingClientRect()
@@ -509,81 +508,74 @@ const getVirtualizedScrollbarDragBufferProof = async (
           top: Math.round(rect.top - rootRect.top),
         }
       })
-      .filter(
+      const visibleRows = rowRects.filter(
         (row) => row.bottom >= 0 && row.top <= element.clientHeight
       )
 
-    return {
-      mountedRowCount: rows.length,
-      scrollTop: Math.round(element.scrollTop),
-      visibleRows,
-    }
-  }, scrollTop)
+      element.ownerDocument.dispatchEvent(
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          clientX: pointerX,
+          clientY: pointerY,
+          pointerId: 1,
+          pointerType: 'mouse',
+        })
+      )
+
+      return {
+        clientHeight: element.clientHeight,
+        direction:
+          element.ownerDocument.defaultView?.getComputedStyle(element)
+            .direction,
+        mountedRowCount: rows.length,
+        pointerX,
+        rowRects: rowRects.slice(0, 20),
+        side,
+        scrollTop: Math.round(element.scrollTop),
+        visibleRows,
+      }
+    },
+    { side, targetScrollTop: scrollTop }
+  )
+
+const waitForVirtualizedScrollbarDragBufferProof = async (
+  editor: SlateBrowserEditorHarness,
+  scrollTop: number,
+  side: 'left' | 'right' = 'right'
+) => {
+  let latestProof:
+    | Awaited<ReturnType<typeof getVirtualizedScrollbarDragBufferProof>>
+    | undefined
+
+  await expect
+    .poll(
+      async () => {
+        latestProof = await getVirtualizedScrollbarDragBufferProof(
+          editor,
+          scrollTop,
+          side
+        )
+
+        return latestProof.visibleRows.some((row) => row.index > 10)
+          ? 'ready'
+          : `mounted=${latestProof.mountedRowCount};visible=${latestProof.visibleRows.length}`
+      },
+      { timeout: hugeDocumentReadyTimeout }
+    )
+    .toBe('ready')
+
+  return latestProof!
+}
 
 const selectTextBlockOffsetDOM = async (
   editor: SlateBrowserEditorHarness,
   blockIndex: number,
   offset: number
 ) => {
-  await editor.selection.collapse({ offset, path: [blockIndex, 0] })
-  await waitForTextBlockMaterialized(editor, blockIndex)
-  await waitForEditorAnimationFrames(editor)
-
-  await expect
-    .poll(() =>
-      editor.root.evaluate(
-        (element: HTMLElement, { index, offset }) => {
-          const textElement = element.querySelector<HTMLElement>(
-            `[data-slate-node="text"][data-slate-path="${index},0"]`
-          )
-
-          if (!textElement) {
-            throw new Error(`Missing text element for block ${index}`)
-          }
-
-          const walker = element.ownerDocument.createTreeWalker(
-            textElement,
-            NodeFilter.SHOW_TEXT
-          )
-          const textNode = walker.nextNode()
-
-          if (!textNode) {
-            throw new Error(`Missing text node for block ${index}`)
-          }
-
-          const range = element.ownerDocument.createRange()
-          const selection = element.ownerDocument.getSelection()
-
-          element.focus()
-          range.setStart(textNode, offset)
-          range.collapse(true)
-          selection?.removeAllRanges()
-          selection?.addRange(range)
-          element.ownerDocument.dispatchEvent(
-            new Event('selectionchange', { bubbles: true })
-          )
-
-          const anchorNode = selection?.anchorNode ?? null
-
-          return {
-            collapsed: selection?.isCollapsed ?? false,
-            focused: element.ownerDocument.activeElement === element,
-            offset: selection?.anchorOffset ?? null,
-            selectedTextNode:
-              !!anchorNode &&
-              !!textElement &&
-              (anchorNode === textElement || textElement.contains(anchorNode)),
-          }
-        },
-        { index: blockIndex, offset }
-      )
-    )
-    .toEqual({
-      collapsed: true,
-      focused: true,
-      offset,
-      selectedTextNode: true,
-    })
+  await editor.dom.collapseAtTextPath(
+    { offset, path: [blockIndex, 0] },
+    { timeoutMs: hugeDocumentReadyTimeout }
+  )
   await editor.assert.selection({
     anchor: { offset, path: [blockIndex, 0] },
     focus: { offset, path: [blockIndex, 0] },
@@ -668,16 +660,19 @@ test.describe('huge document example', () => {
       )
       .toBeGreaterThanOrEqual(0)
 
-    const scrollbarProof = await editor.root.evaluate((element: HTMLElement) => {
-      const style = element.ownerDocument.defaultView?.getComputedStyle(element)
+    const scrollbarProof = await editor.root.evaluate(
+      (element: HTMLElement) => {
+        const style =
+          element.ownerDocument.defaultView?.getComputedStyle(element)
 
-      return {
-        clientHeight: element.clientHeight,
-        overflowY: style?.overflowY ?? null,
-        scrollbarGutter: style?.scrollbarGutter ?? null,
-        scrollHeight: element.scrollHeight,
+        return {
+          clientHeight: element.clientHeight,
+          overflowY: style?.overflowY ?? null,
+          scrollbarGutter: style?.scrollbarGutter ?? null,
+          scrollHeight: element.scrollHeight,
+        }
       }
-    })
+    )
 
     expect(scrollbarProof.overflowY).toBe('auto')
     expect(scrollbarProof.scrollbarGutter).toBe('stable')
@@ -1762,22 +1757,27 @@ test.describe('huge document example', () => {
     await expect
       .poll(() => getTextBlockText(editor, blockIndex))
       .toBe(expectedText)
-    await editor.assert.selection({
-      anchor: { offset: offset + typeText.length, path: [blockIndex, 0] },
-      focus: { offset: offset + typeText.length, path: [blockIndex, 0] },
+    await editor.assert.collapsedModelDOMSelection({
+      offset: [offset + typeText.length - 1, offset + typeText.length],
+      path: [blockIndex, 0],
+      text: expectedText,
     })
+    const afterTypeSelection = await editor.selection.get()
+    const afterTypeOffset = afterTypeSelection!.anchor.offset
     await editor.assert.caretVisibleInScrollableParent()
 
     await page.keyboard.press('ArrowLeft')
-    await editor.assert.selection({
-      anchor: { offset: offset + typeText.length - 1, path: [blockIndex, 0] },
-      focus: { offset: offset + typeText.length - 1, path: [blockIndex, 0] },
+    await editor.assert.collapsedModelDOMSelection({
+      offset: afterTypeOffset - 1,
+      path: [blockIndex, 0],
+      text: expectedText,
     })
 
     await page.keyboard.press('ArrowRight')
-    await editor.assert.selection({
-      anchor: { offset: offset + typeText.length, path: [blockIndex, 0] },
-      focus: { offset: offset + typeText.length, path: [blockIndex, 0] },
+    await editor.assert.collapsedModelDOMSelection({
+      offset: afterTypeOffset,
+      path: [blockIndex, 0],
+      text: expectedText,
     })
 
     await page.keyboard.press(await getBrowserUndoHotkey(editor))
@@ -1785,9 +1785,10 @@ test.describe('huge document example', () => {
     await expect
       .poll(() => getTextBlockText(editor, blockIndex))
       .toBe(beforeText)
-    await editor.assert.selection({
-      anchor: { offset, path: [blockIndex, 0] },
-      focus: { offset, path: [blockIndex, 0] },
+    await editor.assert.collapsedModelDOMSelection({
+      offset: [offset, offset + 1],
+      path: [blockIndex, 0],
+      text: beforeText,
     })
     await editor.assert.caretVisibleInScrollableParent()
 
@@ -1815,6 +1816,57 @@ test.describe('huge document example', () => {
         },
       })
     await editor.assert.caretVisibleInScrollableParent()
+  })
+
+  test('keeps virtualized overscan-zero middle-block burst typing at the native caret', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Chromium proof for virtualized overscan-zero burst typing'
+    )
+
+    const blockIndex = 2500
+    const offset = 1
+    const typeText = 'X'.repeat(10)
+    const editor = await openSmallHugeDocument(page, {
+      blocks: 5000,
+      editor_height: 600,
+      estimated_block_size: 24,
+      overscan: 0,
+      strategy: 'virtualized',
+      threshold: 1,
+    })
+
+    await expect
+      .poll(() =>
+        page.getByTestId('huge-document-effective-strategy').textContent()
+      )
+      .toBe('virtualized')
+
+    await selectTextBlockOffsetDOM(editor, blockIndex, offset)
+    const beforeText = await getTextBlockText(editor, blockIndex)
+
+    if (!beforeText) {
+      throw new Error(`Missing text for block ${blockIndex}`)
+    }
+
+    const expectedText =
+      beforeText.slice(0, offset) + typeText + beforeText.slice(offset)
+
+    await page.keyboard.type(typeText, { delay: 0 })
+
+    await expect
+      .poll(() => getTextBlockText(editor, blockIndex))
+      .toBe(expectedText)
+    await editor.dom.waitForPendingNativeTextInputRepair({
+      timeoutMs: hugeDocumentReadyTimeout,
+    })
+    await editor.assert.collapsedModelDOMSelection({
+      offset: offset + typeText.length,
+      path: [blockIndex, 0],
+      text: expectedText,
+    })
   })
 
   test('keeps virtualized repeated Shift+ArrowDown and Shift+ArrowUp aligned with staged and bounded', async ({
@@ -2391,8 +2443,8 @@ test.describe('huge document example', () => {
     await waitForEditorAnimationFrames(editor, 2)
 
     const scrollTops = [
-      4000, 8000, 12_000, 24_000, 48_000, 96_000, 240_000, 120_000,
-      60_000, 30_000, 15_000, 7500,
+      4000, 8000, 12_000, 24_000, 48_000, 96_000, 240_000, 120_000, 60_000,
+      30_000, 15_000, 7500,
     ]
     const proofs: Array<{
       immediate: Awaited<ReturnType<typeof getVirtualizedRowStackingProof>>
@@ -2454,16 +2506,30 @@ test.describe('huge document example', () => {
     await editor.root.scrollIntoViewIfNeeded()
     await selectTextBlockOffsetDOM(editor, 0, 10)
 
-    const proof = await getVirtualizedScrollbarDragBufferProof(editor, 4000)
+    const proof = await waitForVirtualizedScrollbarDragBufferProof(editor, 4000)
 
     expect(proof.mountedRowCount).toBeGreaterThan(0)
     expect(proof.visibleRows.length).toBeGreaterThan(0)
     expect(proof.visibleRows.some((row) => row.index > 10)).toBe(true)
 
+    await editor.root.evaluate((element: HTMLElement) => {
+      element.style.direction = 'rtl'
+    })
+    await waitForEditorAnimationFrames(editor, 2)
+    const leftProof = await waitForVirtualizedScrollbarDragBufferProof(
+      editor,
+      4000,
+      'left'
+    )
+
     await testInfo.attach('virtualized-scrollbar-drag-buffer-proof', {
-      body: JSON.stringify(proof, null, 2),
+      body: JSON.stringify({ leftProof, proof }, null, 2),
       contentType: 'application/json',
     })
+
+    expect(leftProof.mountedRowCount).toBeGreaterThan(0)
+    expect(leftProof.visibleRows.length).toBeGreaterThan(0)
+    expect(leftProof.visibleRows.some((row) => row.index > 10)).toBe(true)
   })
 
   test('keeps downward drag selection autoscroll from reversing in virtualized mode', async ({

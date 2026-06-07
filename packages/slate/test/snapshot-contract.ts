@@ -2205,6 +2205,64 @@ it('publishes selection-only dirtiness without touched runtime ids', () => {
   )
 })
 
+it('keeps small top-level expanded selection impact precise', () => {
+  const editor = createEditor()
+  const changes: SnapshotChange[] = []
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 12 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block ${index}` }],
+    })),
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  const initialSnapshot = Editor.getSnapshot(editor)
+  const runtimeId = (path: string) => initialSnapshot.index.pathToId[path]
+
+  Editor.subscribe(editor, (_snapshot, change) => {
+    if (change) {
+      changes.push(change)
+    }
+  })
+
+  editor.update(() => {
+    Editor.select(editor, {
+      anchor: { path: [2, 0], offset: 0 },
+      focus: { path: [6, 0], offset: 'block 6'.length },
+    })
+  })
+
+  assert.equal(changes.length, 1)
+  assert.deepEqual(changes[0]?.classes, ['selection'])
+  assert.deepEqual(changes[0]?.selectionImpactRuntimeIds, [
+    runtimeId('0.0'),
+    runtimeId('0'),
+    runtimeId('2.0'),
+    runtimeId('2'),
+    runtimeId('6.0'),
+    runtimeId('6'),
+    runtimeId('3'),
+    runtimeId('3.0'),
+    runtimeId('4'),
+    runtimeId('4.0'),
+    runtimeId('5'),
+    runtimeId('5.0'),
+  ])
+  assert.deepEqual(
+    changes[0]?.affectedSelectionRuntimeIds,
+    changes[0]?.selectionImpactRuntimeIds
+  )
+  assert.deepEqual(
+    changes[0]?.decorationImpactRuntimeIds,
+    changes[0]?.selectionImpactRuntimeIds
+  )
+})
+
 it('does not rebuild root snapshots for selection-only subscriber commits', () => {
   const editor = createEditor()
   const profiledIds: string[] = []

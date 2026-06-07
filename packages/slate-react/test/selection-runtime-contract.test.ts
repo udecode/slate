@@ -4,6 +4,10 @@ import {
   createEditableInputControllerState,
 } from '../src/editable/input-controller'
 import {
+  shouldPreserveDOMRepairQueueDuringSelectionChange,
+  shouldRepairPendingNativeTextInputDuringSelectionChange,
+} from '../src/editable/runtime-selection-engine'
+import {
   isTextInputSelectionHandledByCaretRepair,
   shouldExportModelSelectionToDOM,
   shouldSyncModelSelectionAfterCommit,
@@ -338,6 +342,67 @@ describe('selection runtime', () => {
     )
 
     expect(syncCalls).toBe(0)
+  })
+
+  test('preserves pending native text insert repair through selectionchange', () => {
+    expect(
+      shouldPreserveDOMRepairQueueDuringSelectionChange({
+        activeIntent: 'text-insert',
+        modelSelectionPreferred: false,
+        pendingNativeTextInputRepairPathKey: '2500,0',
+        selectionChangeOrigin: 'native-user',
+      })
+    ).toBe(true)
+
+    expect(
+      shouldPreserveDOMRepairQueueDuringSelectionChange({
+        activeIntent: 'text-insert',
+        modelSelectionPreferred: false,
+        pendingNativeTextInputRepairPathKey: null,
+        selectionChangeOrigin: 'native-user',
+      })
+    ).toBe(false)
+
+    expect(
+      shouldPreserveDOMRepairQueueDuringSelectionChange({
+        activeIntent: 'text-insert',
+        modelSelectionPreferred: true,
+        pendingNativeTextInputRepairPathKey: null,
+        selectionChangeOrigin: 'native-user',
+      })
+    ).toBe(true)
+
+    expect(
+      shouldPreserveDOMRepairQueueDuringSelectionChange({
+        activeIntent: 'text-insert',
+        modelSelectionPreferred: false,
+        pendingNativeTextInputRepairPathKey: '2500,0',
+        selectionChangeOrigin: 'programmatic-export',
+      })
+    ).toBe(false)
+  })
+
+  test('repairs pending native text insert during model-owned selectionchange', () => {
+    expect(
+      shouldRepairPendingNativeTextInputDuringSelectionChange({
+        activeIntent: 'text-insert',
+        pendingNativeTextInputRepairPathKey: '2500,0',
+      })
+    ).toBe(true)
+
+    expect(
+      shouldRepairPendingNativeTextInputDuringSelectionChange({
+        activeIntent: 'text-insert',
+        pendingNativeTextInputRepairPathKey: null,
+      })
+    ).toBe(false)
+
+    expect(
+      shouldRepairPendingNativeTextInputDuringSelectionChange({
+        activeIntent: 'history',
+        pendingNativeTextInputRepairPathKey: '2500,0',
+      })
+    ).toBe(false)
   })
 
   test('does not notify DOM export listener for synced text-only selection commits', () => {

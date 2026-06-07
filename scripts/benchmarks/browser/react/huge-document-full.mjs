@@ -362,6 +362,8 @@ const browserLaneRows = (artifact) =>
   Object.entries(artifact?.surfaces ?? {}).flatMap(([surfaceName, surface]) =>
     Object.entries(surface.lanes ?? {}).map(([laneName, lane]) => ({
       domNodesP95: p95(lane.domTags?.domNodeCount),
+      editorElementsP95: p95(lane.domTags?.editorElementCount),
+      editorTextNodesP95: p95(lane.domTags?.editorTextNodeCount),
       burstToPaintP95Ms: p95(lane.burstToPaintMs),
       burstToPaintPerOpP95Ms: p95(lane.burstToPaintPerOpMs),
       clickToPaintP95Ms: p95(lane.clickToPaintMs),
@@ -398,7 +400,7 @@ const browserLaneRows = (artifact) =>
       modelTypeToReadyP95Ms: p95(lane.modelTypeToReadyMs),
       selectionReadyP95Ms: p95(lane.selectReadyMs),
       selectToPaintP95Ms: p95(lane.selectMs),
-      selectThenTypeToPaintP95Ms: p95(lane.selectThenTypeToPaintMs),
+      interactionSequenceToPaintP95Ms: p95(lane.interactionSequenceToPaintMs),
       selectorDispatchP95Ms: p95(
         lane.profiler?.['runtime-time:selector-dispatch']?.durationMs
       ),
@@ -431,11 +433,35 @@ const summarizeBrowserTrace = (artifact) => {
       ),
     ])
   )
+  const editorElementsP95BySurface = Object.fromEntries(
+    Object.entries(artifact?.surfaces ?? {}).map(([surfaceName, surface]) => [
+      surfaceName,
+      maxFinite(
+        Object.values(surface.lanes ?? {}).map((lane) =>
+          p95(lane.domTags?.editorElementCount)
+        )
+      ),
+    ])
+  )
+  const editorTextNodesP95BySurface = Object.fromEntries(
+    Object.entries(artifact?.surfaces ?? {}).map(([surfaceName, surface]) => [
+      surfaceName,
+      maxFinite(
+        Object.values(surface.lanes ?? {}).map((lane) =>
+          p95(lane.domTags?.editorTextNodeCount)
+        )
+      ),
+    ])
+  )
 
   return {
     blocks: artifact?.meta?.blocks ?? null,
     domNodesP95: maxFinite(lanes.map((lane) => lane.domNodesP95)),
     domNodesP95BySurface,
+    editorElementsP95: maxFinite(lanes.map((lane) => lane.editorElementsP95)),
+    editorElementsP95BySurface,
+    editorTextNodesP95: maxFinite(lanes.map((lane) => lane.editorTextNodesP95)),
+    editorTextNodesP95BySurface,
     burstToPaintP95Ms: maxFinite(lanes.map((lane) => lane.burstToPaintP95Ms)),
     burstToPaintPerOpP95Ms: maxFinite(
       lanes.map((lane) => lane.burstToPaintPerOpP95Ms)
@@ -641,7 +667,18 @@ const metricBudgetRows = (stepResults) => {
   })
   add({
     budget: 400,
-    metric: 'virtualizedDomNodesP95',
+    metric: 'virtualizedEditorElementsP95',
+    value:
+      byId['react-huge-document-virtualized-type-to-paint']?.summary
+        ?.editorElementsP95,
+  })
+  add({
+    budget: 1500,
+    metric: 'virtualizedDocumentDomNodesP95',
+    diagnostic: true,
+    owner: 'browser-chrome-dom-budget',
+    reason:
+      'Full-document DOM includes page/app shell; virtualizedEditorElementsP95 is the strict editor-owned DOM budget.',
     value:
       byId['react-huge-document-virtualized-type-to-paint']?.summary
         ?.domNodesP95,
@@ -915,14 +952,15 @@ const steps = [
   },
   {
     artifactPath: browserTraceArtifactPath(
-      'stagedDomPresent,stagedContentVisibility'
+      'stagedActiveDOMGroup,stagedContentVisibility'
     ),
     command: 'bun run bench:react:huge-document:browser-trace:local',
     env: {
       SLATE_BROWSER_TRACE_BLOCKS: blocks,
       SLATE_BROWSER_TRACE_ITERATIONS: traceIterations,
       SLATE_BROWSER_TRACE_SKIP_BUILD: 1,
-      SLATE_BROWSER_TRACE_SURFACES: 'stagedDomPresent,stagedContentVisibility',
+      SLATE_BROWSER_TRACE_SURFACES:
+        'stagedActiveDOMGroup,stagedContentVisibility',
       SLATE_BROWSER_TRACE_TYPE_OPS: typeOps,
     },
     id: 'react-huge-document-staged-diagnostic-trace',
@@ -1068,6 +1106,12 @@ const summary = {
     virtualizedDomNodesP95:
       byId['react-huge-document-virtualized-type-to-paint']?.summary
         ?.domNodesP95 ?? null,
+    virtualizedEditorElementsP95:
+      byId['react-huge-document-virtualized-type-to-paint']?.summary
+        ?.editorElementsP95 ?? null,
+    virtualizedEditorTextNodesP95:
+      byId['react-huge-document-virtualized-type-to-paint']?.summary
+        ?.editorTextNodesP95 ?? null,
     burstToPaintP95Ms: maxFinite(
       [
         byId['react-huge-document-browser-trace']?.summary?.burstToPaintP95Ms,
@@ -1491,6 +1535,16 @@ console.log(
 console.log(
   `METRIC react_huge_doc_full_virtualized_dom_nodes_p95=${round(
     summary.metrics.virtualizedDomNodesP95 ?? 0
+  )}`
+)
+console.log(
+  `METRIC react_huge_doc_full_virtualized_editor_elements_p95=${round(
+    summary.metrics.virtualizedEditorElementsP95 ?? 0
+  )}`
+)
+console.log(
+  `METRIC react_huge_doc_full_virtualized_editor_text_nodes_p95=${round(
+    summary.metrics.virtualizedEditorTextNodesP95 ?? 0
   )}`
 )
 console.log(

@@ -518,6 +518,56 @@ test.describe('On richtext example', () => {
     )
   })
 
+  test('keeps a backward click caret after typing in the same text node', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop click caret proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+    await page.keyboard.insertText('abcdef')
+    await editor.assert.blockTexts(['abcdef'])
+
+    const clickPoint = await editor.root.evaluate((element: HTMLElement) => {
+      const textHost = element.querySelector<HTMLElement>(
+        '[data-slate-node="text"][data-slate-path="0,0"]'
+      )
+      const walker = textHost
+        ? element.ownerDocument.createTreeWalker(textHost, NodeFilter.SHOW_TEXT)
+        : null
+      const textNode = walker?.nextNode() ?? null
+
+      if (!textNode) {
+        throw new Error('Missing first text node')
+      }
+
+      const range = element.ownerDocument.createRange()
+
+      range.setStart(textNode, 2)
+      range.setEnd(textNode, 3)
+
+      const rect = range.getBoundingClientRect()
+
+      return {
+        x: rect.left,
+        y: rect.top + rect.height / 2,
+      }
+    })
+
+    await page.mouse.click(clickPoint.x, clickPoint.y)
+    await page.keyboard.insertText('X')
+
+    await editor.assert.blockTexts(['abXcdef'])
+    await editor.assert.domCaret({ offset: 3, text: 'abXcdef' })
+  })
+
   test('normalizes select-all Backspace to one empty paragraph', async ({
     page,
   }, testInfo) => {

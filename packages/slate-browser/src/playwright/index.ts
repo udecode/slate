@@ -467,6 +467,11 @@ export type SelectionCaptureOptions = {
   affinity?: RangeRefAffinity
 }
 
+export type SlateBrowserDOMPathOptions = {
+  align?: 'center' | 'end' | 'nearest' | 'start'
+  timeoutMs?: number
+}
+
 export type SlateBrowserDragTextRangeOptions = {
   endOffset: number
   startOffset: number
@@ -487,6 +492,12 @@ export type DOMSelectionSnapshotExpectation = {
   anchorOffset: OffsetExpectation
   focusNodeText: string | null
   focusOffset: OffsetExpectation
+}
+
+export type CollapsedModelDOMSelectionExpectation = {
+  offset: OffsetExpectation
+  path: number[]
+  text: string
 }
 
 export type HtmlNormalizationOptions = {
@@ -3883,6 +3894,191 @@ const waitForHandleSelection = async (
     .toBe(true)
 }
 
+const scrollTextPathIntoViewAndCheckMaterialized = async (
+  root: Locator,
+  path: number[],
+  options: SlateBrowserDOMPathOptions = {}
+) =>
+  root.evaluate(
+    (
+      element: HTMLElement,
+      {
+        align,
+        key,
+        path,
+      }: {
+        align: SlateBrowserDOMPathOptions['align']
+        key: string
+        path: number[]
+      }
+    ) => {
+      const handle = (element as Record<string, any>)[key]
+
+      handle?.scrollPathIntoView?.(path, align ?? 'center')
+
+      return !!element.querySelector(
+        `[data-slate-node="text"][data-slate-path="${path.join(',')}"]`
+      )
+    },
+    { align: options.align, key: SLATE_BROWSER_HANDLE_KEY, path }
+  )
+
+const waitForTextPathMaterialized = async (
+  root: Locator,
+  path: number[],
+  options: SlateBrowserDOMPathOptions = {}
+) => {
+  await expect
+    .poll(
+      () => scrollTextPathIntoViewAndCheckMaterialized(root, path, options),
+      {
+        timeout: options.timeoutMs ?? READY_TIMEOUT_MS,
+      }
+    )
+    .toBe(true)
+}
+
+const collapseDOMAtTextPath = async (
+  root: Locator,
+  point: SelectionPoint,
+  options: SlateBrowserDOMPathOptions = {}
+) => {
+  const selection = { anchor: point, focus: point }
+
+  if (
+    !(await scrollTextPathIntoViewAndCheckMaterialized(
+      root,
+      point.path,
+      options
+    )) &&
+    !(await setSelectionWithHandle(root, selection))
+  ) {
+    await setSelection(root, selection)
+  }
+
+  await waitForTextPathMaterialized(root, point.path, options)
+
+  if (!(await setSelectionWithHandle(root, selection))) {
+    await setSelection(root, selection)
+  }
+
+  await root.evaluate((element: HTMLElement) => {
+    element.focus({ preventScroll: true })
+  })
+
+  if (!(await setDOMSelection(root, selection))) {
+    throw new Error(`Missing DOM text node for ${point.path.join('.')}`)
+  }
+
+  await root.evaluate(
+    (element: HTMLElement, { key }: { key: string }) => {
+      const rootNode = element.getRootNode() as Document | ShadowRoot
+
+      element.ownerDocument.dispatchEvent(
+        new Event('selectionchange', { bubbles: true })
+      )
+
+      if (rootNode instanceof ShadowRoot) {
+        rootNode.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+      }
+
+      const handle = (element as Record<string, any>)[key]
+
+      handle?.importDOMSelection?.()
+    },
+    { key: SLATE_BROWSER_HANDLE_KEY }
+  )
+  await waitForHandleSelection(root, selection)
+  await waitForSelectionRange(root)
+}
+
+const waitForPendingNativeTextInputRepair = async (
+  root: Locator,
+  { timeoutMs = READY_TIMEOUT_MS }: { timeoutMs?: number } = {}
+) => {
+  let actual: {
+    clearSettled: boolean | null
+    domRaw: {
+      anchorNodeText: string | null
+      anchorOffset: number
+      focusNodeText: string | null
+      focusOffset: number
+    } | null
+    domResolved: SelectionSnapshot | null
+    inputState: unknown
+    kernelTrace: unknown[]
+    repairTrace: unknown[]
+    model: SelectionSnapshot | null
+    pendingPath: string | null
+  } | null = null
+
+  try {
+    await expect
+      .poll(
+        async () => {
+          actual = await root.evaluate(
+            (element: HTMLElement, { key }: { key: string }) => {
+              const handle = (element as Record<string, any>)[key]
+              const clearSettled =
+                handle?.clearSettledPendingNativeTextInputRepair?.() ?? null
+              const state = handle?.getInputState?.() as
+                | { pendingNativeTextInputRepairPathKey?: string | null }
+                | null
+                | undefined
+              const kernelTrace = handle?.getKernelTrace?.() ?? []
+              const root = element.getRootNode() as Document | ShadowRoot
+              const selection =
+                'getSelection' in root ? root.getSelection() : null
+
+              return {
+                clearSettled,
+                domRaw:
+                  selection && selection.rangeCount > 0
+                    ? {
+                        anchorNodeText:
+                          selection.anchorNode?.textContent?.replace(
+                            /\uFEFF/g,
+                            ''
+                          ) ?? null,
+                        anchorOffset: selection.anchorOffset,
+                        focusNodeText:
+                          selection.focusNode?.textContent?.replace(
+                            /\uFEFF/g,
+                            ''
+                          ) ?? null,
+                        focusOffset: selection.focusOffset,
+                      }
+                    : null,
+                domResolved: handle?.getDOMSelection?.() ?? null,
+                inputState: state ?? null,
+                kernelTrace: kernelTrace.slice(-8),
+                model: handle?.getSelection?.() ?? null,
+                pendingPath: state?.pendingNativeTextInputRepairPathKey ?? null,
+                repairTrace: kernelTrace
+                  .filter(
+                    (entry: { eventFamily?: unknown }) =>
+                      entry?.eventFamily === 'repair'
+                  )
+                  .slice(-8),
+              }
+            },
+            { key: SLATE_BROWSER_HANDLE_KEY }
+          )
+
+          return actual.pendingPath
+        },
+        { timeout: timeoutMs }
+      )
+      .toBe(null)
+  } catch {
+    throw new Error(
+      `Expected pending native text input repair to settle but received ${JSON.stringify(
+        actual
+      )}`
+    )
+  }
+}
+
 const matchesOffsetExpectation = (
   expected: OffsetExpectation,
   actual: number
@@ -3919,6 +4115,13 @@ const matchesSelectionExpectation = (
   )
 }
 
+const pathsEqual = (left: readonly number[], right: readonly number[]) =>
+  left.length === right.length &&
+  left.every((segment, index) => segment === right[index])
+
+const normalizeDOMSelectionText = (value: string | null | undefined) =>
+  value?.replace(/\uFEFF/g, '') ?? null
+
 const matchesDOMSelectionExpectation = (
   actual: DOMSelectionSnapshot | null,
   expected: DOMSelectionSnapshotExpectation
@@ -3933,6 +4136,98 @@ const matchesDOMSelectionExpectation = (
     matchesOffsetExpectation(expected.anchorOffset, actual.anchorOffset) &&
     matchesOffsetExpectation(expected.focusOffset, actual.focusOffset)
   )
+}
+
+const assertCollapsedModelDOMSelectionExpectation = async (
+  root: Locator,
+  expected: CollapsedModelDOMSelectionExpectation
+) => {
+  let actual: {
+    dom: DOMSelectionSnapshot | null
+    domResolved: SelectionSnapshot | null
+    inputState: unknown
+    kernelTrace: unknown[]
+    model: SelectionSnapshot | null
+  } | null = null
+
+  try {
+    await expect
+      .poll(async () => {
+        const [model, dom, domResolved, inputState, kernelTrace] =
+          await Promise.all([
+            takeSelectionSnapshotForRoot(root),
+            takeDOMSelectionSnapshotForRoot(root),
+            takeResolvedDOMSelectionSnapshotForRoot(root),
+            root.evaluate(
+              (element: HTMLElement, { key }: { key: string }) => {
+                const handle = (element as Record<string, any>)[key]
+
+                return handle?.getInputState?.() ?? null
+              },
+              { key: SLATE_BROWSER_HANDLE_KEY }
+            ),
+            root.evaluate(
+              (element: HTMLElement, { key }: { key: string }) => {
+                const handle = (element as Record<string, any>)[key]
+
+                return handle?.getKernelTrace?.()?.slice(-8) ?? []
+              },
+              { key: SLATE_BROWSER_HANDLE_KEY }
+            ),
+          ])
+
+        actual = { dom, domResolved, inputState, kernelTrace, model }
+
+        if (!model || !dom) {
+          return false
+        }
+
+        const modelCollapsed =
+          pathsEqual(model.anchor.path, model.focus.path) &&
+          model.anchor.offset === model.focus.offset
+        const domCollapsed = dom.anchorOffset === dom.focusOffset
+        const modelAtPath =
+          pathsEqual(model.anchor.path, expected.path) &&
+          pathsEqual(model.focus.path, expected.path)
+        const domText =
+          normalizeDOMSelectionText(dom.anchorNodeText) === expected.text &&
+          normalizeDOMSelectionText(dom.focusNodeText) === expected.text
+        const rawSameOffset =
+          model.anchor.offset === dom.anchorOffset &&
+          model.focus.offset === dom.focusOffset
+        const resolvedDOMCollapsed =
+          !!domResolved &&
+          pathsEqual(domResolved.anchor.path, domResolved.focus.path) &&
+          domResolved.anchor.offset === domResolved.focus.offset
+        const resolvedDOMAtPath =
+          !!domResolved &&
+          pathsEqual(domResolved.anchor.path, expected.path) &&
+          pathsEqual(domResolved.focus.path, expected.path)
+        const resolvedSameOffset =
+          !!domResolved &&
+          model.anchor.offset === domResolved.anchor.offset &&
+          model.focus.offset === domResolved.focus.offset
+        const sameOffset = domResolved
+          ? resolvedDOMCollapsed && resolvedDOMAtPath && resolvedSameOffset
+          : rawSameOffset
+
+        return (
+          modelCollapsed &&
+          domCollapsed &&
+          modelAtPath &&
+          domText &&
+          sameOffset &&
+          matchesOffsetExpectation(expected.offset, model.anchor.offset)
+        )
+      })
+      .toBe(true)
+  } catch {
+    throw new Error(
+      `Expected collapsed Slate/DOM selection ${JSON.stringify(
+        expected
+      )} but received ${JSON.stringify(actual)}`
+    )
+  }
 }
 
 const assertSelectionExpectation = async (
@@ -4027,6 +4322,7 @@ export type SlateBrowserEditorHarness = {
     domSelection: () => Promise<DOMSelectionSnapshot | null>
     focusOwner: () => Promise<FocusOwnerSnapshot>
     kernelTrace: () => Promise<SlateBrowserKernelTraceEntry[]>
+    history: () => Promise<unknown>
     lastCommit: () => Promise<unknown | null>
     placeholderShape: (selector?: string) => Promise<PlaceholderShape | null>
   }
@@ -4047,6 +4343,19 @@ export type SlateBrowserEditorHarness = {
     location: () => Promise<DOMSelectionLocationSnapshot | null>
     importDOM: () => Promise<SelectionSnapshot | null>
     rect: () => Promise<SelectionRectSnapshot | null>
+  }
+  dom: {
+    collapseAtTextPath: (
+      point: SelectionPoint,
+      options?: SlateBrowserDOMPathOptions
+    ) => Promise<void>
+    waitForPendingNativeTextInputRepair: (options?: {
+      timeoutMs?: number
+    }) => Promise<void>
+    waitForTextPath: (
+      path: number[],
+      options?: SlateBrowserDOMPathOptions
+    ) => Promise<void>
   }
   locator: {
     block: (path: number[]) => Locator
@@ -4080,6 +4389,9 @@ export type SlateBrowserEditorHarness = {
     focusOwner: (expected: FocusOwnerSnapshot['kind']) => Promise<void>
     kernelTrace: (expected: SlateBrowserKernelTraceExpectation) => Promise<void>
     selection: (expected: SelectionSnapshotExpectation) => Promise<void>
+    collapsedModelDOMSelection: (
+      expected: CollapsedModelDOMSelectionExpectation
+    ) => Promise<void>
     noDoubleSelectionHighlight: () => Promise<void>
     caretVisibleInScrollableParent: () => Promise<void>
     domSelection: (expected: DOMSelectionSnapshotExpectation) => Promise<void>
@@ -4448,6 +4760,32 @@ const takeDOMSelectionSnapshotForRoot = async (
       focusOffset: selection.focusOffset,
     }
   })
+
+const takeResolvedDOMSelectionSnapshotForRoot = async (
+  root: Locator
+): Promise<SelectionSnapshot | null> =>
+  root.evaluate(
+    (element: HTMLElement, { key }: { key: string }) => {
+      const handle = (element as Record<string, any>)[key]
+      const selection = handle?.getDOMSelection?.()
+
+      if (!selection) {
+        return null
+      }
+
+      return {
+        anchor: {
+          offset: selection.anchor.offset,
+          path: [...selection.anchor.path],
+        },
+        focus: {
+          offset: selection.focus.offset,
+          path: [...selection.focus.path],
+        },
+      }
+    },
+    { key: SLATE_BROWSER_HANDLE_KEY }
+  )
 
 const takeDOMSelectionLocationSnapshotForRoot = async (
   root: Locator
@@ -4987,12 +5325,16 @@ const waitForSelectionRange = async (root: Locator) => {
     .poll(() =>
       root.evaluate((element: HTMLElement) => {
         const rootNode = element.getRootNode() as Document | ShadowRoot
-        const selection =
+        const rootSelection =
           'getSelection' in rootNode
             ? rootNode.getSelection()
             : element.ownerDocument.getSelection()
+        const documentSelection = element.ownerDocument.getSelection()
 
-        return (selection?.rangeCount ?? 0) > 0
+        return (
+          (rootSelection?.rangeCount ?? 0) > 0 ||
+          (documentSelection?.rangeCount ?? 0) > 0
+        )
       })
     )
     .toBe(true)
@@ -5199,105 +5541,128 @@ const setSelection = async (root: Locator, selection: SelectionSnapshot) => {
 }
 
 const setDOMSelection = async (root: Locator, selection: SelectionSnapshot) => {
-  await root.evaluate((element: HTMLElement, nextSelection) => {
-    const selectionPointToDOMPoint = (point: SelectionPoint) => {
-      const textElements = Array.from(
-        element.querySelectorAll('[data-slate-node="text"]')
-      ).filter((node) => node.closest('[data-slate-editor="true"]') === element)
-      const textElement =
-        textElements.find(
+  return root.evaluate(
+    (element: HTMLElement, payload) => {
+      const { key, selection: nextSelection } = payload
+      const handle = (element as Record<string, any>)[key]
+
+      if (handle?.setNativeDOMSelection?.(nextSelection)) {
+        return true
+      }
+
+      const selectionPointToDOMPoint = (point: SelectionPoint) => {
+        const textElements = Array.from(
+          element.querySelectorAll('[data-slate-node="text"]')
+        ).filter(
+          (node) => node.closest('[data-slate-editor="true"]') === element
+        )
+        const textElement = textElements.find(
           (node) =>
             node.getAttribute('data-slate-path') === point.path.join(',')
-        ) ?? textElements[point.path.at(-1) ?? 0]
-      const stringElements = Array.from(
-        textElement?.querySelectorAll(
-          '[data-slate-string], [data-slate-zero-width]'
-        ) ?? []
-      )
-      let start = 0
-      let lastTextNode: Node | null = null
-      let lastTextLength = 0
+        )
 
-      for (const stringElement of stringElements) {
-        const textNode =
-          Array.from(stringElement.childNodes).find(
-            (node) => node.nodeType === Node.TEXT_NODE
-          ) ?? null
-
-        if (!textNode) {
-          continue
+        if (!textElement) {
+          return null
         }
 
-        const length = textNode.textContent?.length ?? 0
-        const attr = stringElement.getAttribute('data-slate-length')
-        const trueLength = attr == null ? length : Number.parseInt(attr, 10)
-        const end = start + trueLength
+        const stringElements = Array.from(
+          textElement?.querySelectorAll(
+            '[data-slate-string], [data-slate-zero-width]'
+          ) ?? []
+        )
+        let start = 0
+        let lastTextNode: Node | null = null
+        let lastTextLength = 0
 
-        lastTextNode = textNode
-        lastTextLength = length
+        for (const stringElement of stringElements) {
+          const textNode =
+            Array.from(stringElement.childNodes).find(
+              (node) => node.nodeType === Node.TEXT_NODE
+            ) ?? null
 
-        if (
-          stringElement.hasAttribute('data-slate-zero-width') &&
-          point.offset === start &&
-          length <= 1
-        ) {
+          if (!textNode) {
+            continue
+          }
+
+          const length = textNode.textContent?.length ?? 0
+          const attr = stringElement.getAttribute('data-slate-length')
+          const trueLength = attr == null ? length : Number.parseInt(attr, 10)
+          const end = start + trueLength
+
+          lastTextNode = textNode
+          lastTextLength = length
+
+          if (
+            stringElement.hasAttribute('data-slate-zero-width') &&
+            point.offset === start &&
+            length <= 1
+          ) {
+            return {
+              node: textNode,
+              offset: length,
+            }
+          }
+
+          if (point.offset <= end) {
+            return {
+              node: textNode,
+              offset: Math.min(length, Math.max(0, point.offset - start)),
+            }
+          }
+
+          start = end
+        }
+
+        if (lastTextNode) {
           return {
-            node: textNode,
-            offset: length,
+            node: lastTextNode,
+            offset: lastTextLength,
           }
         }
 
-        if (point.offset <= end) {
-          return {
-            node: textNode,
-            offset: Math.min(length, Math.max(0, point.offset - start)),
-          }
-        }
-
-        start = end
-      }
-
-      if (lastTextNode) {
         return {
-          node: lastTextNode,
-          offset: lastTextLength,
+          node: textElement,
+          offset: textElement.childNodes.length,
         }
       }
 
-      if (!textElement) {
-        throw new Error(`Missing DOM text node for ${point.path.join('.')}`)
+      const anchor = selectionPointToDOMPoint(nextSelection.anchor)
+      const focus = selectionPointToDOMPoint(nextSelection.focus)
+
+      if (!anchor || !focus) {
+        return false
       }
 
-      return {
-        node: textElement,
-        offset: textElement.childNodes.length,
+      const range = element.ownerDocument.createRange()
+
+      range.setStart(anchor.node, anchor.offset)
+      range.setEnd(focus.node, focus.offset)
+
+      const rootNode = element.getRootNode() as Document | ShadowRoot
+      const domSelection =
+        'getSelection' in rootNode
+          ? rootNode.getSelection()
+          : element.ownerDocument.getSelection()
+
+      if (!domSelection) {
+        return false
       }
-    }
 
-    const anchor = selectionPointToDOMPoint(nextSelection.anchor)
-    const focus = selectionPointToDOMPoint(nextSelection.focus)
-    const range = element.ownerDocument.createRange()
+      element.focus()
+      domSelection.removeAllRanges()
+      domSelection.addRange(range)
+      element.ownerDocument.dispatchEvent(
+        new Event('selectionchange', { bubbles: true })
+      )
 
-    range.setStart(anchor.node, anchor.offset)
-    range.setEnd(focus.node, focus.offset)
+      if (rootNode instanceof ShadowRoot) {
+        rootNode.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+      }
 
-    const rootNode = element.getRootNode() as Document | ShadowRoot
-    const domSelection =
-      'getSelection' in rootNode
-        ? rootNode.getSelection()
-        : element.ownerDocument.getSelection()
-
-    element.focus()
-    domSelection?.removeAllRanges()
-    domSelection?.addRange(range)
-    element.ownerDocument.dispatchEvent(
-      new Event('selectionchange', { bubbles: true })
-    )
-
-    if (rootNode instanceof ShadowRoot) {
-      rootNode.dispatchEvent(new Event('selectionchange', { bubbles: true }))
-    }
-  }, selection)
+      return domSelection.rangeCount > 0
+    },
+    { key: SLATE_BROWSER_HANDLE_KEY, selection }
+  )
 }
 
 const hasExpandedSelection = (selection: SelectionSnapshot | null) =>
@@ -5583,6 +5948,15 @@ const createEditorHarness = (
           },
           { key: SLATE_BROWSER_HANDLE_KEY }
         ) as Promise<SlateBrowserKernelTraceEntry[]>,
+      history: async () =>
+        root.evaluate(
+          (element: HTMLElement, { key }: { key: string }) => {
+            const handle = (element as Record<string, any>)[key]
+
+            return handle?.getHistory ? handle.getHistory() : null
+          },
+          { key: SLATE_BROWSER_HANDLE_KEY }
+        ),
       lastCommit: async () =>
         root.evaluate(
           (element: HTMLElement, { key }: { key: string }) => {
@@ -5665,7 +6039,11 @@ const createEditorHarness = (
       },
       selectDOM: async (selection: SelectionSnapshot) => {
         await page.waitForTimeout(0)
-        await setDOMSelection(root, selection)
+        if (!(await setDOMSelection(root, selection))) {
+          throw new Error(
+            `Missing DOM text node for ${selection.anchor.path.join('.')} or ${selection.focus.path.join('.')}`
+          )
+        }
         await root.evaluate((element: HTMLElement) => {
           const rootNode = element.getRootNode() as Document | ShadowRoot
 
@@ -5709,7 +6087,11 @@ const createEditorHarness = (
           if (!(await handleSelectionMatches(root, selection))) {
             await setSelectionWithHandle(root, selection)
             await page.waitForTimeout(0)
-            await setDOMSelection(root, selection)
+            if (!(await setDOMSelection(root, selection))) {
+              throw new Error(
+                `Missing DOM text node for ${selection.anchor.path.join('.')} or ${selection.focus.path.join('.')}`
+              )
+            }
             await root.evaluate(
               (element: HTMLElement, { key }: { key: string }) => {
                 const handle = (element as Record<string, any>)[key]
@@ -5783,6 +6165,17 @@ const createEditorHarness = (
         ),
       rect: async () => getSelectionRect(root),
     },
+    dom: {
+      collapseAtTextPath: async (point, options) => {
+        await collapseDOMAtTextPath(root, point, options)
+      },
+      waitForPendingNativeTextInputRepair: async (options) => {
+        await waitForPendingNativeTextInputRepair(root, options)
+      },
+      waitForTextPath: async (path, options) => {
+        await waitForTextPathMaterialized(root, path, options)
+      },
+    },
     locator: {
       block: (path: number[]) => locateBlock(root, path),
       text: (path: number[]) => locateText(root, path),
@@ -5799,6 +6192,7 @@ const createEditorHarness = (
       domSelection: await harness.get.domSelection(),
       focusOwner: await harness.get.focusOwner(),
       kernelTrace: await harness.get.kernelTrace(),
+      history: await harness.get.history(),
       lastCommit: await harness.get.lastCommit(),
       placeholderShape: await harness.get.placeholderShape(),
     }),
@@ -6049,6 +6443,11 @@ const createEditorHarness = (
       },
       selection: async (expected: SelectionSnapshotExpectation) => {
         await assertSelectionExpectation(root, expected)
+      },
+      collapsedModelDOMSelection: async (
+        expected: CollapsedModelDOMSelectionExpectation
+      ) => {
+        await assertCollapsedModelDOMSelectionExpectation(root, expected)
       },
       noDoubleSelectionHighlight: async () => {
         await expect

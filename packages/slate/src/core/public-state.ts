@@ -3661,6 +3661,64 @@ const getIndexedRuntimeId = (
     : index.pathToId[key]
 }
 
+const SMALL_SELECTION_TOP_LEVEL_FAST_PATH_LIMIT = 128
+
+const getSimpleTopLevelSelectionShellPaths = (
+  selection: Selection,
+  index: RuntimeIndexLike
+): Path[] | null => {
+  if (!selection || RangeApi.isCollapsed(selection)) {
+    return null
+  }
+
+  const [start, end] = RangeApi.edges(selection)
+  const startIndex = start.path[0]
+  const endIndex = end.path[0]
+
+  if (
+    typeof startIndex !== 'number' ||
+    typeof endIndex !== 'number' ||
+    Math.abs(endIndex - startIndex) >=
+      SMALL_SELECTION_TOP_LEVEL_FAST_PATH_LIMIT ||
+    start.path.length !== 2 ||
+    end.path.length !== 2 ||
+    start.path[1] !== 0 ||
+    end.path[1] !== 0
+  ) {
+    return null
+  }
+
+  const paths: Path[] = []
+
+  for (
+    let topLevelIndex = startIndex;
+    topLevelIndex <= endIndex;
+    topLevelIndex++
+  ) {
+    const blockPath = [topLevelIndex]
+    const textPath = [topLevelIndex, 0]
+
+    if (
+      !getIndexedRuntimeId(index, blockPath) ||
+      !getIndexedRuntimeId(index, textPath) ||
+      getIndexedRuntimeId(index, [topLevelIndex, 1]) ||
+      getIndexedRuntimeId(index, [topLevelIndex, 0, 0])
+    ) {
+      return null
+    }
+
+    if (RangeApi.includes(selection, blockPath)) {
+      paths.push(blockPath)
+    }
+
+    if (RangeApi.includes(selection, textPath)) {
+      paths.push(textPath)
+    }
+  }
+
+  return paths
+}
+
 const buildSparseRuntimeIndexForPaths = (
   editor: Editor,
   paths: readonly Path[],
@@ -4160,6 +4218,17 @@ const getSelectionShellPaths = (
   }
 
   if (RangeApi.isCollapsed(selection)) {
+    return uniqPaths(paths)
+  }
+
+  const simpleTopLevelPaths = getSimpleTopLevelSelectionShellPaths(
+    selection,
+    index
+  )
+
+  if (simpleTopLevelPaths) {
+    paths.push(...simpleTopLevelPaths)
+
     return uniqPaths(paths)
   }
 

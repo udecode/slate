@@ -15,7 +15,7 @@ scripts/benchmarks/
     current/       # headless current-only lanes
     compare/       # headless current-vs-legacy lanes
   shared/          # helper code used by multiple lanes
-  slate/           # compatibility wrappers for issue-shaped or legacy command names
+  slate/           # issue-shaped benchmark entrypoints
 ```
 
 ## What Goes Where
@@ -59,8 +59,8 @@ Current live compare owners:
 
 ### `slate/`
 
-Use only for compatibility wrappers where a kept public command name or issue
-lane should stay stable.
+Use only for issue-shaped benchmark entrypoints whose command name is the
+benchmark contract.
 
 Current live example:
 

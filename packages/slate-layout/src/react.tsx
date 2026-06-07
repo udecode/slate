@@ -503,7 +503,10 @@ const createPagedEditableTopLevelLayoutItems = ({
   geometry: ReturnType<typeof getSlatePageLayoutGeometry>
   pages: readonly SlatePageLayoutPage[]
 }) => {
-  const items = new Map<number, { end: number; start: number }>()
+  const items = new Map<
+    number,
+    { end: number; left: number; right: number; start: number }
+  >()
 
   for (const fragment of fragments) {
     const page = pages[fragment.pageIndex] ?? pages[0]
@@ -511,6 +514,8 @@ const createPagedEditableTopLevelLayoutItems = ({
       left: 0,
       top: page ? page.index * page.height : 0,
     }
+    const left = placement.left + (page?.content.left ?? 0)
+    const right = left + (page?.content.width ?? 0)
 
     const start = placement.top + fragment.top
     const end = start + fragment.height
@@ -521,9 +526,11 @@ const createPagedEditableTopLevelLayoutItems = ({
       current
         ? {
             end: Math.max(current.end, end),
+            left: Math.min(current.left, left),
+            right: Math.max(current.right, right),
             start: Math.min(current.start, start),
           }
-        : { end, start }
+        : { end, left, right, start }
     )
   }
 
@@ -531,8 +538,10 @@ const createPagedEditableTopLevelLayoutItems = ({
     .sort(([left], [right]) => left - right)
     .map(([index, item]) => ({
       index,
+      left: item.left,
       size: Math.max(1, item.end - item.start),
       start: item.start,
+      width: Math.max(1, item.right - item.left),
     }))
 }
 

@@ -63,9 +63,10 @@ const getVisibleState = (editor: SlateEditor) => {
 
 const write = (
   editor: SlateEditor,
-  fn: Parameters<SlateEditor['update']>[0]
+  fn: Parameters<SlateEditor['update']>[0],
+  options?: Parameters<SlateEditor['update']>[1]
 ) => {
-  editor.update(fn)
+  editor.update(fn, options)
 }
 
 describe('slate-history contract', () => {
@@ -127,6 +128,176 @@ describe('slate-history contract', () => {
     assert.deepEqual(getVisibleState(editor), before)
   })
 
+  it('undoes a deferred native text burst to the original insertion offset', () => {
+    const editor = historyTestEditor()
+
+    replace(editor, [paragraph('Condico uredo ante arca umbra.')], null)
+
+    write(
+      editor,
+      (tx) => {
+        for (let offset = 1; offset <= 10; offset++) {
+          tx.selection.set({
+            anchor: { path: [0, 0], offset },
+            focus: { path: [0, 0], offset },
+          })
+        }
+
+        tx.text.insert('XXXXXXXXXX', {
+          at: { path: [0, 0], offset: 1 },
+        })
+        tx.selection.set({
+          anchor: { path: [0, 0], offset: 11 },
+          focus: { path: [0, 0], offset: 11 },
+        })
+        tx.selection.set({
+          anchor: { path: [0, 0], offset: 10 },
+          focus: { path: [0, 0], offset: 10 },
+        })
+        tx.selection.set({
+          anchor: { path: [0, 0], offset: 11 },
+          focus: { path: [0, 0], offset: 11 },
+        })
+      },
+      {
+        metadata: { origin: { kind: 'native-text-input' } },
+      }
+    )
+    undo(editor)
+
+    assert.deepEqual(getVisibleState(editor), {
+      children: [paragraph('Condico uredo ante arca umbra.')],
+      selection: {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      },
+    })
+  })
+
+  it('undoes a stale native text burst selection to the inserted offset', () => {
+    const editor = historyTestEditor()
+
+    replace(editor, [paragraph('Condico uredo ante arca umbra.')], {
+      anchor: { path: [0, 0], offset: 5 },
+      focus: { path: [0, 0], offset: 5 },
+    })
+
+    write(
+      editor,
+      (tx) => {
+        tx.operations.replay([
+          {
+            offset: 1,
+            path: [0, 0],
+            text: 'XXXXXXXXXX',
+            type: 'insert_text',
+          },
+          {
+            newProperties: {
+              anchor: { path: [0, 0], offset: 11 },
+              focus: { path: [0, 0], offset: 11 },
+            },
+            properties: {
+              anchor: { path: [0, 0], offset: 15 },
+              focus: { path: [0, 0], offset: 15 },
+            },
+            type: 'set_selection',
+          },
+        ])
+      },
+      {
+        metadata: { origin: { kind: 'native-text-input' } },
+      }
+    )
+    undo(editor)
+
+    assert.deepEqual(getVisibleState(editor), {
+      children: [paragraph('Condico uredo ante arca umbra.')],
+      selection: {
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      },
+    })
+
+    redo(editor)
+
+    assert.deepEqual(getVisibleState(editor), {
+      children: [paragraph('CXXXXXXXXXXondico uredo ante arca umbra.')],
+      selection: {
+        anchor: { path: [0, 0], offset: 11 },
+        focus: { path: [0, 0], offset: 11 },
+      },
+    })
+  })
+
+  it('restores pre-insert selection for non-native long text inserts before the caret', () => {
+    const editor = historyTestEditor()
+
+    replace(editor, [paragraph('Condico uredo ante arca umbra.')], {
+      anchor: { path: [0, 0], offset: 5 },
+      focus: { path: [0, 0], offset: 5 },
+    })
+
+    write(editor, (tx) => {
+      tx.operations.replay([
+        {
+          offset: 1,
+          path: [0, 0],
+          text: 'XXXXXXXXXX',
+          type: 'insert_text',
+        },
+        {
+          newProperties: {
+            anchor: { path: [0, 0], offset: 11 },
+            focus: { path: [0, 0], offset: 11 },
+          },
+          properties: {
+            anchor: { path: [0, 0], offset: 15 },
+            focus: { path: [0, 0], offset: 15 },
+          },
+          type: 'set_selection',
+        },
+      ])
+    })
+    undo(editor)
+
+    assert.deepEqual(getVisibleState(editor), {
+      children: [paragraph('Condico uredo ante arca umbra.')],
+      selection: {
+        anchor: { path: [0, 0], offset: 5 },
+        focus: { path: [0, 0], offset: 5 },
+      },
+    })
+  })
+
+  it('restores leading selection ops for non-native long text inserts before the caret', () => {
+    const editor = historyTestEditor()
+
+    replace(editor, [paragraph('Condico uredo ante arca umbra.')], {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+
+    write(editor, (tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 3 },
+      })
+      tx.text.insert('XYZ', {
+        at: { path: [0, 0], offset: 1 },
+      })
+    })
+    undo(editor)
+
+    assert.deepEqual(getVisibleState(editor), {
+      children: [paragraph('Condico uredo ante arca umbra.')],
+      selection: {
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 3 },
+      },
+    })
+  })
+
   it('does not merge adjacent text history batches across roots', () => {
     const editor = createEditor({
       extensions: [history()],
@@ -172,6 +343,166 @@ describe('slate-history contract', () => {
         },
       }
     )
+  })
+
+  it('does not merge view-local text history batches across roots', () => {
+    const runtime = createEditorRuntime({
+      extensions: [history()],
+      initialValue: {
+        roots: {
+          footer: [paragraph('f')],
+          header: [paragraph('h')],
+          main: [paragraph('m')],
+        },
+      },
+    })
+    const headerEditor = createEditorView(runtime, { root: 'header' })
+    const mainEditor = createEditorView(runtime, { root: 'main' })
+    const footerEditor = createEditorView(runtime, { root: 'footer' })
+
+    write(headerEditor, (tx) => {
+      tx.selection.set({
+        anchor: { offset: 1, path: [0, 0] },
+        focus: { offset: 1, path: [0, 0] },
+      })
+      tx.text.insert('1')
+    })
+    write(mainEditor, (tx) => {
+      tx.selection.set({
+        anchor: { offset: 1, path: [0, 0] },
+        focus: { offset: 1, path: [0, 0] },
+      })
+      tx.text.insert('1')
+    })
+    write(footerEditor, (tx) => {
+      tx.selection.set({
+        anchor: { offset: 1, path: [0, 0] },
+        focus: { offset: 1, path: [0, 0] },
+      })
+      tx.text.insert('1')
+    })
+    write(headerEditor, (tx) => {
+      tx.selection.set({
+        anchor: { offset: 2, path: [0, 0] },
+        focus: { offset: 2, path: [0, 0] },
+      })
+      tx.text.insert('2')
+    })
+    write(mainEditor, (tx) => {
+      tx.selection.set({
+        anchor: { offset: 2, path: [0, 0] },
+        focus: { offset: 2, path: [0, 0] },
+      })
+      tx.text.insert('2')
+    })
+
+    assert.equal(getHistory(runtime).undos.length, 5)
+
+    undo(headerEditor)
+    assert.deepEqual(
+      runtime.read((state) => state.value.get()),
+      {
+        roots: {
+          footer: [paragraph('f1')],
+          header: [paragraph('h12')],
+          main: [paragraph('m1')],
+        },
+      }
+    )
+  })
+
+  it('does not let explicit merge metadata merge text batches across roots', () => {
+    const editor = createEditor({
+      extensions: [history()],
+      initialValue: {
+        roots: {
+          footer: [paragraph('f')],
+          header: [paragraph('h')],
+          main: [paragraph('m')],
+        },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.text.insert('1', {
+        at: { offset: 1, path: [0, 0], root: 'footer' },
+      })
+    })
+    editor.update(
+      (tx) => {
+        tx.text.insert('2', {
+          at: { offset: 1, path: [0, 0], root: 'header' },
+        })
+      },
+      { metadata: { history: { mode: 'merge' } } }
+    )
+
+    assert.equal(getHistory(editor).undos.length, 2)
+  })
+
+  it('lets explicit merge metadata merge same-root non-text batches', () => {
+    const editor = historyTestEditor()
+
+    replace(editor, [paragraph('alpha')], null)
+    const before = getVisibleState(editor)
+
+    write(editor, (tx) => {
+      tx.nodes.insert(paragraph('beta'), { at: [1] })
+    })
+    editor.update(
+      (tx) => {
+        tx.nodes.insert(paragraph('gamma'), { at: [2] })
+      },
+      { metadata: { history: { mode: 'merge' } } }
+    )
+
+    assert.equal(getHistory(editor).undos.length, 1)
+    assert.deepEqual(Editor.getSnapshot(editor).children, [
+      paragraph('alpha'),
+      paragraph('beta'),
+      paragraph('gamma'),
+    ])
+
+    undo(editor)
+
+    assert.deepEqual(getVisibleState(editor), before)
+  })
+
+  it('does not let native merge metadata merge same-node caret jumps', () => {
+    const editor = historyTestEditor()
+
+    replace(editor, [paragraph('abcd')], {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
+
+    editor.update(
+      (tx) => {
+        tx.text.insert('X', {
+          at: { offset: 1, path: [0, 0] },
+        })
+      },
+      { metadata: { origin: { kind: 'native-text-input' } } }
+    )
+    editor.update(
+      (tx) => {
+        tx.text.insert('Y', {
+          at: { offset: 4, path: [0, 0] },
+        })
+      },
+      {
+        metadata: {
+          history: { mode: 'merge' },
+          origin: { kind: 'native-text-input' },
+        },
+      }
+    )
+
+    assert.equal(getHistory(editor).undos.length, 2)
+
+    undo(editor)
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [paragraph('aXbcd')])
   })
 
   it('does not restore a main selection into a non-main root undo batch', () => {

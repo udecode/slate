@@ -100,6 +100,27 @@ export const shouldFlushPendingNativeTextInputForKeyDown = (
   )
 }
 
+export const shouldFlushPendingNativeTextInputBeforeKeyDown = (
+  inputController: EditableInputController,
+  event: KeyboardEvent<HTMLDivElement>
+) => {
+  if (!inputController.state.pendingNativeTextInputRepairPathKey) {
+    return false
+  }
+
+  if (MODIFIER_ONLY_KEYS.has(event.key)) {
+    return false
+  }
+
+  const hasCommandModifier = event.altKey || event.ctrlKey || event.metaKey
+  const isPlainTextContinuation =
+    event.key.length === 1 &&
+    !hasCommandModifier &&
+    !WHITESPACE_KEY_RE.test(event.key)
+
+  return !isPlainTextContinuation
+}
+
 export const shouldApplyKeyDownSelectionPolicy = (
   decision: ReturnType<typeof prepareEditableKeyDownKernel>,
   event: KeyboardEvent<HTMLDivElement>,
@@ -205,6 +226,12 @@ export const useRuntimeKeyboardEvents = ({
   const slateRuntimeContext = useOptionalSlateRuntimeContext()
   const runKeyDownEvent = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
+      if (
+        shouldFlushPendingNativeTextInputBeforeKeyDown(inputController, event)
+      ) {
+        flushPendingNativeTextInput?.()
+      }
+
       const isVerticalArrowKey =
         event.key === 'ArrowUp' || event.key === 'ArrowDown'
       const snapshotSelection = measureRuntimeKeyDownPhase(

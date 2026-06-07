@@ -24,8 +24,10 @@ Stable package surface:
   - block-text getter and assertion helpers
   - snapshot helper for aggregated editor state
   - selection namespace for semantic selection actions and setup
+  - DOM namespace for mounted text-path readiness and native caret setup
   - bookmark/capture helpers backed by real Slate range refs
   - tolerant selection assertions
+  - collapsed model/native DOM selection agreement assertions
   - double-highlight selection assertion
   - normalized html equality assertions
   - iframe and scoped-surface support
@@ -76,6 +78,8 @@ await editor.selection.select({
   anchor: { path: [0, 0], offset: 0 },
   focus: { path: [0, 0], offset: 5 },
 })
+await editor.dom.waitForTextPath([0, 0])
+await editor.dom.collapseAtTextPath({ path: [0, 0], offset: 5 })
 
 await editor.assert.text('Hello Slate Browser')
 await editor.assert.blockTexts(['Hello Slate Browser'])
@@ -86,6 +90,11 @@ await editor.assert.htmlContains('data-slate-string="true"')
 await editor.assert.selection({
   anchor: { path: [0, 0], offset: [0, 1] },
   focus: { path: [0, 0], offset: [4, 5] },
+})
+await editor.assert.collapsedModelDOMSelection({
+  offset: [4, 5],
+  path: [0, 0],
+  text: 'Hello Slate Browser',
 })
 await editor.assert.htmlEquals(
   '<div data-slate-node="element"><span data-slate-node="text"><span data-slate-leaf="true"><span data-slate-string="true">Hello Slate Browser</span></span></span></div>',

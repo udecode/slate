@@ -27,7 +27,10 @@ const materializationTimeoutMs = Number(
 const headless = process.env.SLATE_BROWSER_TRACE_HEADLESS !== '0'
 const skipBuild = process.env.SLATE_BROWSER_TRACE_SKIP_BUILD === '1'
 const selectedSurfaces = new Set(
-  (process.env.SLATE_BROWSER_TRACE_SURFACES || 'defaultAuto,stagedDomPresent')
+  (
+    process.env.SLATE_BROWSER_TRACE_SURFACES ||
+    'defaultAuto,stagedActiveDOMGroup'
+  )
     .split(',')
     .map((surface) => surface.trim())
     .filter(Boolean)
@@ -59,8 +62,8 @@ const surfaces = [
     path: `/examples/huge-document?blocks=${blocks}&content_visibility=none&strict=false&strategy=auto`,
   },
   {
-    key: 'stagedDomPresent',
-    label: 'v2 staged DOM-present',
+    key: 'stagedActiveDOMGroup',
+    label: 'v2 staged active DOM group',
     path: `/examples/huge-document?blocks=${blocks}&content_visibility=none&strict=false&strategy=staged`,
   },
   {
@@ -322,7 +325,7 @@ const waitForNativeSurface = async (page) => {
 
   await page
     .waitForFunction(
-      (expectedBlocks) => {
+      ({ expectedBlocks }) => {
         const root = document.querySelector('[data-slate-editor="true"]')
 
         if (!root) {
@@ -344,10 +347,12 @@ const waitForNativeSurface = async (page) => {
           'huge-document-mounted-top-level-count'
         )
 
-        if (
+        const bounded =
           effectiveStrategy === 'partial-dom' ||
-          effectiveStrategy === 'virtualized'
-        ) {
+          effectiveStrategy === 'virtualized' ||
+          effectiveStrategy === 'staged'
+
+        if (bounded) {
           return mountedTopLevelCount > 0
         }
 
@@ -356,7 +361,7 @@ const waitForNativeSurface = async (page) => {
           expectedBlocks
         )
       },
-      blocks,
+      { expectedBlocks: blocks },
       { timeout: nativeSurfaceTimeoutMs }
     )
     .then(() => true)
@@ -364,31 +369,41 @@ const waitForNativeSurface = async (page) => {
 
   const end = await nextPaint(page)
   const domTags = await getMemoryAndDomTags(page)
-  const state = await page.evaluate((expectedBlocks) => {
-    const root = document.querySelector('[data-slate-editor="true"]')
-    const readText = (testId) =>
-      document.querySelector(`[data-test-id="${testId}"]`)?.textContent ?? null
-    const readNumber = (testId) => {
-      const value = Number(readText(testId) ?? 0)
+  const state = await page.evaluate(
+    ({ expectedBlocks }) => {
+      const root = document.querySelector('[data-slate-editor="true"]')
+      const readText = (testId) =>
+        document.querySelector(`[data-test-id="${testId}"]`)?.textContent ??
+        null
+      const readNumber = (testId) => {
+        const value = Number(readText(testId) ?? 0)
 
-      return Number.isFinite(value) ? value : 0
-    }
-    const effectiveStrategy = readText('huge-document-effective-strategy')
-    const editorTextNodeCount =
-      root?.querySelectorAll('[data-slate-node="text"]').length ?? 0
-    const bounded =
-      effectiveStrategy === 'partial-dom' || effectiveStrategy === 'virtualized'
+        return Number.isFinite(value) ? value : 0
+      }
+      const effectiveStrategy = readText('huge-document-effective-strategy')
+      const editorTextNodeCount =
+        root?.querySelectorAll('[data-slate-node="text"]').length ?? 0
+      const bounded =
+        effectiveStrategy === 'partial-dom' ||
+        effectiveStrategy === 'virtualized' ||
+        effectiveStrategy === 'staged'
 
-    return {
-      bounded,
-      complete: !bounded && editorTextNodeCount >= expectedBlocks,
-      editorTextNodeCount,
-      effectiveStrategy,
-      mountedTopLevelCount: readNumber('huge-document-mounted-top-level-count'),
-      pendingTopLevelCount: readNumber('huge-document-pending-top-level-count'),
-      requestedStrategy: readText('huge-document-requested-strategy'),
-    }
-  }, blocks)
+      return {
+        bounded,
+        complete: !bounded && editorTextNodeCount >= expectedBlocks,
+        editorTextNodeCount,
+        effectiveStrategy,
+        mountedTopLevelCount: readNumber(
+          'huge-document-mounted-top-level-count'
+        ),
+        pendingTopLevelCount: readNumber(
+          'huge-document-pending-top-level-count'
+        ),
+        requestedStrategy: readText('huge-document-requested-strategy'),
+      }
+    },
+    { expectedBlocks: blocks }
+  )
 
   return {
     bounded: state.bounded,
@@ -1041,7 +1056,7 @@ const measureInteraction = async (page, lane, context) => {
     modelTypeToReadyMs: modelReadyTime - typeStart,
     selectReadyMs: selectTiming.readyTime - combinedStart,
     selectMs: selectPaint - combinedStart,
-    selectThenTypeToPaintMs: paintTime - combinedStart,
+    interactionSequenceToPaintMs: paintTime - combinedStart,
     burstToPaintMs: paintTime - typeStart,
     profiler: summarizeProfilerEvents(trace?.profilerEvents),
     typeToPaintMs,
@@ -1115,7 +1130,10 @@ const summarizeLane = (samples) => ({
   modelTypeToReadyMs: summarizeMetric(samples, 'modelTypeToReadyMs'),
   selectReadyMs: summarizeMetric(samples, 'selectReadyMs'),
   selectMs: summarizeMetric(samples, 'selectMs'),
-  selectThenTypeToPaintMs: summarizeMetric(samples, 'selectThenTypeToPaintMs'),
+  interactionSequenceToPaintMs: summarizeMetric(
+    samples,
+    'interactionSequenceToPaintMs'
+  ),
   typeToPaintMs: summarizeMetric(samples, 'typeToPaintMs'),
   typeToUpdateMs: summarizeMetric(samples, 'typeToUpdateMs'),
 })
@@ -1232,7 +1250,7 @@ const run = async () => {
 
       for (const [laneKey, lane] of Object.entries(surface.lanes)) {
         console.log(
-          `${laneKey}: selectionReadyMs p95=${lane.selectReadyMs.p95}, selectToPaintMs p95=${lane.selectMs.p95}, materializedSelectionReadyMs p95=${lane.materializedSelectReadyMs.p95}, materializedSelectToPaintMs p95=${lane.materializedSelectMs.p95}, clickToSelectionReadyMs p95=${lane.clickToSelectionReadyMs.p95}, clickToPaintMs p95=${lane.clickToPaintMs.p95}, selectThenTypeToPaintMs p95=${lane.selectThenTypeToPaintMs.p95}, typeToPaintMs p95=${lane.typeToPaintMs.p95}, modelTypeToReadyMs p95=${lane.modelTypeToReadyMs.p95}, modelTypeToPaintMs p95=${lane.modelTypeToPaintMs.p95}, burstToPaintMs p95=${lane.burstToPaintMs.p95}, burstToPaintPerOpMs p95=${lane.burstToPaintPerOpMs.p95}, modelBurstToPaintPerOpMs p95=${lane.modelBurstToPaintPerOpMs.p95}, longTaskMaxMs p95=${lane.longTaskMaxMs.p95}, domNodes p95=${lane.domTags.domNodeCount.p95}, heapMB p95=${round(lane.domTags.jsHeapUsedMB.p95)}`
+          `${laneKey}: selectionReadyMs p95=${lane.selectReadyMs.p95}, selectToPaintMs p95=${lane.selectMs.p95}, materializedSelectionReadyMs p95=${lane.materializedSelectReadyMs.p95}, materializedSelectToPaintMs p95=${lane.materializedSelectMs.p95}, clickToSelectionReadyMs p95=${lane.clickToSelectionReadyMs.p95}, clickToPaintMs p95=${lane.clickToPaintMs.p95}, interactionSequenceToPaintMs p95=${lane.interactionSequenceToPaintMs.p95}, typeToPaintMs p95=${lane.typeToPaintMs.p95}, modelTypeToReadyMs p95=${lane.modelTypeToReadyMs.p95}, modelTypeToPaintMs p95=${lane.modelTypeToPaintMs.p95}, burstToPaintMs p95=${lane.burstToPaintMs.p95}, burstToPaintPerOpMs p95=${lane.burstToPaintPerOpMs.p95}, modelBurstToPaintPerOpMs p95=${lane.modelBurstToPaintPerOpMs.p95}, longTaskMaxMs p95=${lane.longTaskMaxMs.p95}, domNodes p95=${lane.domTags.domNodeCount.p95}, heapMB p95=${round(lane.domTags.jsHeapUsedMB.p95)}`
         )
       }
     }
@@ -1694,7 +1712,7 @@ const run = async () => {
       )}`
     )
     printSurfaceMetrics('defaultAuto', 'react_huge_doc_auto')
-    printSurfaceMetrics('stagedDomPresent', 'react_huge_doc_staged')
+    printSurfaceMetrics('stagedActiveDOMGroup', 'react_huge_doc_staged')
     printSurfaceMetrics('stagedDefault', 'react_huge_doc_staged_default')
     printSurfaceMetrics(
       'stagedContentVisibility',

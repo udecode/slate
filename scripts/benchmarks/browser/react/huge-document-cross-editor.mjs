@@ -408,6 +408,102 @@ const selectSlateBlock = async (blockIndex, offset = 0) => {
   root?.focus()
 }
 
+const waitForTypingSurface = async (surface, blockIndex) => {
+  if (!surface.startsWith('slate')) {
+    await globalThis.__CROSS_EDITOR_HUGE__.nextPaint()
+    return
+  }
+
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    const root = document.querySelector('[data-slate-editor="true"]')
+    const element = root?.__slateBrowserHandle?.getElementByPath?.([
+      blockIndex,
+      0,
+    ])
+
+    if (element?.isConnected) {
+      if (root instanceof HTMLElement) {
+        root.focus({ preventScroll: true })
+      }
+      return
+    }
+
+    await globalThis.__CROSS_EDITOR_HUGE__.nextPaint()
+  }
+
+  throw new Error(
+    surface + ' text path [' + blockIndex + ',0] was not mounted before typing'
+  )
+}
+
+const selectTypingSurface = async (surface, blockIndex, offset) => {
+  if (!surface.startsWith('slate')) {
+    return
+  }
+
+  const root = document.querySelector('[data-slate-editor="true"]')
+  const handle = root?.__slateBrowserHandle
+  const textElement = root?.querySelector(
+    '[data-slate-node="text"][data-slate-path="' + blockIndex + ',0"]'
+  )
+
+  if (!(root instanceof HTMLElement) || !(textElement instanceof HTMLElement)) {
+    throw new Error(
+      surface + ' text path [' + blockIndex + ',0] was not mounted for typing'
+    )
+  }
+
+  const selection = {
+    anchor: { offset, path: [blockIndex, 0] },
+    focus: { offset, path: [blockIndex, 0] },
+  }
+
+  if (handle?.setNativeDOMSelection?.(selection)) {
+    handle.importDOMSelection?.()
+    await globalThis.__CROSS_EDITOR_HUGE__.nextPaint()
+    return
+  }
+
+  const walker = document.createTreeWalker(textElement, NodeFilter.SHOW_TEXT)
+  const textNode = walker.nextNode()
+
+  if (!textNode) {
+    throw new Error(
+      surface + ' text path [' + blockIndex + ',0] has no text node'
+    )
+  }
+
+  const nativeSelection = document.getSelection()
+  const range = document.createRange()
+
+  root.focus({ preventScroll: true })
+  range.setStart(textNode, offset)
+  range.collapse(true)
+  nativeSelection?.removeAllRanges()
+  nativeSelection?.addRange(range)
+  document.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+  await globalThis.__CROSS_EDITOR_HUGE__.nextPaint()
+}
+
+const waitForPendingTextInputRepair = async (surface) => {
+  if (!surface.startsWith('slate')) {
+    return
+  }
+
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const root = document.querySelector('[data-slate-editor="true"]')
+    const inputState = root?.__slateBrowserHandle?.getInputState?.()
+
+    if (!inputState?.pendingNativeTextInputRepairPathKey) {
+      return
+    }
+
+    await globalThis.__CROSS_EDITOR_HUGE__.nextPaint()
+  }
+
+  throw new Error(surface + ' still had pending native text repair after typing')
+}
+
 const blockText = (surface, blockIndex) => {
   if (surface.startsWith('slate')) {
     return state.slateEditor.read(
@@ -474,17 +570,17 @@ const modelSelectionTextLength = (surface) => {
 const visibleEditor = () => app.firstElementChild
 
 globalThis.__CROSS_EDITOR_HUGE__ = {
-  async assertTyped(surface, blockIndex) {
+  async assertTyped(surface, blockIndex, expectedCount = typeOps) {
     const text = blockText(surface, blockIndex)
     const typedCount = this.typedCount(surface, blockIndex)
 
-    if (typedCount !== typeOps) {
+    if (typedCount !== expectedCount) {
       throw new Error(
         surface +
           ' typed count mismatch at block ' +
           blockIndex +
-          ': expected ' +
-          typeOps +
+          ': expected count ' +
+          expectedCount +
           ', got ' +
           typedCount +
           ' in ' +
@@ -586,7 +682,10 @@ globalThis.__CROSS_EDITOR_HUGE__ = {
   selectedTextLength(surface) {
     return modelSelectionTextLength(surface)
   },
+  selectTypingSurface,
   typeText,
+  waitForPendingTextInputRepair,
+  waitForTypingSurface,
 }
 
 globalThis.__CROSS_EDITOR_TRACE__ = {
@@ -1061,6 +1160,15 @@ const measureSurface = async ({ page, surface }) => {
             blockIndex,
             1
           )
+          await globalThis.__CROSS_EDITOR_HUGE__.waitForTypingSurface(
+            selectedSurface,
+            blockIndex
+          )
+          await globalThis.__CROSS_EDITOR_HUGE__.selectTypingSurface(
+            selectedSurface,
+            blockIndex,
+            1
+          )
         },
         { blockIndex: lane.blockIndex, selectedSurface: surface }
       )
@@ -1204,6 +1312,15 @@ const measureSurface = async ({ page, surface }) => {
             blockIndex,
             1
           )
+          await globalThis.__CROSS_EDITOR_HUGE__.waitForTypingSurface(
+            selectedSurface,
+            blockIndex
+          )
+          await globalThis.__CROSS_EDITOR_HUGE__.selectTypingSurface(
+            selectedSurface,
+            blockIndex,
+            1
+          )
         },
         { blockIndex: lane.blockIndex, selectedSurface: surface }
       )
@@ -1218,6 +1335,15 @@ const measureSurface = async ({ page, surface }) => {
         }
       }
       await resetCrossEditorTrace(page)
+      const typedCountBefore = await page.evaluate(
+        ({ blockIndex, selectedSurface }) =>
+          globalThis.__CROSS_EDITOR_HUGE__.typedCount(
+            selectedSurface,
+            blockIndex
+          ),
+        { blockIndex: lane.blockIndex, selectedSurface: surface }
+      )
+      const expectedTypedCount = typedCountBefore + typeOps
       const typeStart = await page.evaluate(() => performance.now())
       await page.keyboard.type('X'.repeat(typeOps))
       const typeCommandReady = await page.evaluate(() => performance.now())
@@ -1238,13 +1364,47 @@ const measureSurface = async ({ page, surface }) => {
             })
           }
 
+          const root = document.querySelector('[data-slate-editor="true"]')
+          const handle = root?.__slateBrowserHandle
+          const debugState = selectedSurface.startsWith('slate')
+            ? {
+                activeElement:
+                  document.activeElement instanceof Element
+                    ? {
+                        dataSlateEditor:
+                          document.activeElement.getAttribute(
+                            'data-slate-editor'
+                          ),
+                        dataSlateNode:
+                          document.activeElement.getAttribute(
+                            'data-slate-node'
+                          ),
+                        tagName: document.activeElement.tagName,
+                      }
+                    : null,
+                blockText: handle?.getBlockText?.(blockIndex) ?? null,
+                focusedRoot: document.activeElement === root,
+                inputState: handle?.getInputState?.() ?? null,
+                mountedText: !!handle?.getElementByPath?.([blockIndex, 0]),
+                nativeSelection:
+                  document
+                    .getSelection()
+                    ?.toString()
+                    .replace(/\uFEFF/g, '') ?? '',
+                selection: handle?.getSelection?.() ?? null,
+                viewSelection: handle?.getViewSelection?.() ?? null,
+              }
+            : null
+
           throw new Error(
-            `${selectedSurface} typed text was not visible after 300 frames`
+            selectedSurface +
+              ' typed text was not visible after 300 frames: ' +
+              JSON.stringify(debugState)
           )
         },
         {
           blockIndex: lane.blockIndex,
-          expected: typeOps,
+          expected: expectedTypedCount,
           selectedSurface: surface,
         }
       )
@@ -1254,14 +1414,24 @@ const measureSurface = async ({ page, surface }) => {
       const typeTrace = await readCrossEditorTrace(page)
       const typeLongTaskMaxMs = await readCrossEditorLongTaskMax(page)
       await page.evaluate(
-        async ({ blockIndex, selectedSurface }) => {
+        async ({ blockIndex, expectedTypedCount, selectedSurface }) => {
           await globalThis.__CROSS_EDITOR_HUGE__.assertTyped(
             selectedSurface,
-            blockIndex
+            blockIndex,
+            expectedTypedCount
           )
         },
-        { blockIndex: lane.blockIndex, selectedSurface: surface }
+        {
+          blockIndex: lane.blockIndex,
+          expectedTypedCount,
+          selectedSurface: surface,
+        }
       )
+      await page.evaluate(async (selectedSurface) => {
+        await globalThis.__CROSS_EDITOR_HUGE__.waitForPendingTextInputRepair(
+          selectedSurface
+        )
+      }, surface)
       const snapshot = await page.evaluate((selectedSurface) => {
         return globalThis.__CROSS_EDITOR_HUGE__.snapshot(selectedSurface)
       }, surface)

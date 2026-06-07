@@ -108,6 +108,108 @@ const MAIN_ROOT_KEY: RootKey = 'main'
 const getSelectionRootKey = (selection: Range | null): RootKey =>
   (selection?.anchor.root ?? selection?.focus.root ?? MAIN_ROOT_KEY) as RootKey
 
+const getTargetElement = (target: EventTarget | null) =>
+  isDOMElement(target)
+    ? target
+    : isDOMText(target)
+      ? target.parentElement
+      : null
+
+const getNestedEditableRootKey = (
+  editor: ReactRuntimeEditor,
+  target: EventTarget | null
+): RootKey | null => {
+  const targetElement = getTargetElement(target)
+  const targetEditor = targetElement?.closest('[data-slate-editor="true"]')
+
+  if (!(targetEditor instanceof HTMLElement)) {
+    return null
+  }
+
+  let editorElement: HTMLElement
+
+  try {
+    editorElement = ReactEditor.assertDOMNode(editor, editor)
+  } catch {
+    return null
+  }
+
+  if (targetEditor === editorElement || !editorElement.contains(targetEditor)) {
+    return null
+  }
+
+  return (
+    (targetEditor.getAttribute('data-slate-root') as RootKey | null) ?? null
+  )
+}
+
+const qualifySelectionRoot = (
+  selection: Range | null,
+  root: RootKey | null
+): Range | null => {
+  if (!selection || !root || root === MAIN_ROOT_KEY) {
+    return selection
+  }
+
+  return {
+    anchor: { ...selection.anchor, root: selection.anchor.root ?? root },
+    focus: { ...selection.focus, root: selection.focus.root ?? root },
+  }
+}
+
+const readNestedEditableDOMSelection = (
+  nestedEditor: ReactRuntimeEditor
+): Range | null => {
+  let root: Document | ShadowRoot
+
+  try {
+    root = ReactEditor.findDocumentOrShadowRoot(nestedEditor)
+  } catch {
+    return null
+  }
+
+  const domSelection = getSelection(root)
+
+  if (!domSelection || domSelection.rangeCount === 0) {
+    return null
+  }
+
+  if (
+    !ReactEditor.hasSelectableTarget(nestedEditor, domSelection.anchorNode) ||
+    !ReactEditor.hasSelectableTarget(nestedEditor, domSelection.focusNode)
+  ) {
+    return null
+  }
+
+  return ReactEditor.resolveSlateRange(nestedEditor, domSelection, {
+    exactMatch: false,
+  })
+}
+
+const getNestedEditableSelectionContext = ({
+  editor,
+  getMountedViewEditor,
+  target,
+}: {
+  editor: ReactRuntimeEditor
+  getMountedViewEditor?: (root: RootKey) => ReactRuntimeEditor | null
+  target: EventTarget | null
+}) => {
+  const root = getNestedEditableRootKey(editor, target)
+  const nestedEditor = root ? (getMountedViewEditor?.(root) ?? null) : null
+  const rawSelection = nestedEditor
+    ? (readNestedEditableDOMSelection(nestedEditor) ??
+      readRuntimeSelection(nestedEditor))
+    : null
+
+  return {
+    editor: nestedEditor,
+    rawSelection,
+    root,
+    selection: qualifySelectionRoot(rawSelection, root),
+  }
+}
+
 const isReadOnlyNativeEditingKey = (nativeEvent: KeyboardEvent) => {
   if (Hotkeys.isUndo(nativeEvent) || Hotkeys.isRedo(nativeEvent)) {
     return true
@@ -360,24 +462,34 @@ export const applyEditableKeyDown = ({
         return false
       }
     })()
+    const nestedSelectionContext = nestedEditableTarget
+      ? getNestedEditableSelectionContext({
+          editor,
+          getMountedViewEditor,
+          target: event.target,
+        })
+      : null
+    const selection =
+      nestedSelectionContext?.selection ?? readRuntimeSelection(editor)
     const projectedCommand =
       nestedEditableTarget && readSlateViewSelection(editor)
         ? getEditableCommandFromKeyDown({
             event,
-            selection: readRuntimeSelection(editor),
+            selection,
           })
         : null
 
-    const selection = readRuntimeSelection(editor)
     const selectionRoot = getSelectionRootKey(selection)
     const viewRoot = editor.read((state) => state.view.root())
     const shouldHandleProjectedSelection =
       nestedEditableTarget || selectionRoot !== viewRoot
 
     if (shouldHandleProjectedSelection) {
+      const focusEditor = nestedSelectionContext?.editor ?? editor
+      const focusSelection = nestedSelectionContext?.rawSelection ?? selection
       const focusNode =
-        selection && Editor.hasPath(editor, selection.focus.path)
-          ? NodeApi.parent(editor, selection.focus.path)
+        focusSelection && Editor.hasPath(focusEditor, focusSelection.focus.path)
+          ? NodeApi.parent(focusEditor, focusSelection.focus.path)
           : null
       const isRTL = focusNode
         ? getDirection(NodeApi.string(focusNode)) === 'rtl'

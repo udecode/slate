@@ -27,6 +27,32 @@ export type RuntimeSelectionChangeHandler = (() => void) & {
   flush: () => void
 }
 
+export const shouldPreserveDOMRepairQueueDuringSelectionChange = ({
+  activeIntent,
+  modelSelectionPreferred,
+  pendingNativeTextInputRepairPathKey,
+  selectionChangeOrigin,
+}: {
+  activeIntent: EditableInputController['state']['activeIntent']
+  modelSelectionPreferred: boolean
+  pendingNativeTextInputRepairPathKey?: string | null
+  selectionChangeOrigin: EditableInputController['state']['selectionChangeOrigin']
+}) =>
+  (selectionChangeOrigin === 'native-user' &&
+    activeIntent === 'history' &&
+    modelSelectionPreferred) ||
+  (selectionChangeOrigin === 'native-user' &&
+    activeIntent === 'text-insert' &&
+    (modelSelectionPreferred || !!pendingNativeTextInputRepairPathKey))
+
+export const shouldRepairPendingNativeTextInputDuringSelectionChange = ({
+  activeIntent,
+  pendingNativeTextInputRepairPathKey,
+}: {
+  activeIntent: EditableInputController['state']['activeIntent']
+  pendingNativeTextInputRepairPathKey?: string | null
+}) => activeIntent === 'text-insert' && !!pendingNativeTextInputRepairPathKey
+
 export const createRuntimeSelectionChangeHandler = ({
   androidInputManagerRef,
   domRepairQueueRef,
@@ -75,12 +101,17 @@ export const createRuntimeSelectionChangeHandler = ({
       selectionSource: selectionSourceBefore,
       targetOwner: 'editor',
     })
-    const preserveModelOwnedHistorySelection =
-      selectionChangeOrigin === 'native-user' &&
-      inputController.state.activeIntent === 'history' &&
-      isEditableModelSelectionPreferred(inputController)
+    const preserveDOMRepairQueue =
+      shouldPreserveDOMRepairQueueDuringSelectionChange({
+        activeIntent: inputController.state.activeIntent,
+        modelSelectionPreferred:
+          isEditableModelSelectionPreferred(inputController),
+        pendingNativeTextInputRepairPathKey:
+          inputController.state.pendingNativeTextInputRepairPathKey,
+        selectionChangeOrigin,
+      })
 
-    if (!preserveModelOwnedHistorySelection) {
+    if (!preserveDOMRepairQueue) {
       domRepairQueueRef.current?.cancelBefore(frame.id)
     }
 
@@ -93,6 +124,22 @@ export const createRuntimeSelectionChangeHandler = ({
         readOnly,
         rerunOnDirtyNodeMap: onDOMSelectionChange,
       })
+
+      const shouldRepairPendingNativeTextInput =
+        shouldRepairPendingNativeTextInputDuringSelectionChange({
+          activeIntent: inputController.state.activeIntent,
+          pendingNativeTextInputRepairPathKey:
+            inputController.state.pendingNativeTextInputRepairPathKey,
+        })
+
+      if (
+        inputController.state
+          .pendingNativeTextInputRepairSuppressedDOMSelection ||
+        shouldRepairPendingNativeTextInput
+      ) {
+        inputController.state.pendingNativeTextInputRepairSuppressedDOMSelection = false
+        domRepairQueueRef.current?.repairCaretAfterModelTextInsert()
+      }
 
       const selectionSourceAfter = inputController.state.selectionSource
 

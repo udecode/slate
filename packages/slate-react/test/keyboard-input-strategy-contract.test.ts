@@ -3,6 +3,7 @@ import {
   createEditorRuntime,
   createEditorView,
   type Descendant,
+  defineEditorExtension,
 } from 'slate'
 import { Hotkeys } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
@@ -40,10 +41,15 @@ const keyEvent = (
 
 const reactKeyEvent = (nativeEvent: KeyboardEvent) =>
   ({
+    altKey: nativeEvent.altKey,
+    ctrlKey: nativeEvent.ctrlKey,
     isDefaultPrevented: () => false,
     isPropagationStopped: () => false,
+    key: nativeEvent.key,
+    metaKey: nativeEvent.metaKey,
     nativeEvent,
     preventDefault: vi.fn(),
+    shiftKey: nativeEvent.shiftKey,
     stopPropagation: vi.fn(),
     target: null,
   }) as any
@@ -52,6 +58,24 @@ const paragraph = (text: string) =>
   ({
     type: 'paragraph',
     children: [{ text }],
+  }) satisfies Descendant
+
+const contentRootExtension = defineEditorExtension({
+  name: 'keyboard-content-root-test',
+  elements: [
+    {
+      type: 'content-card',
+      contentRoot: { slot: 'body' },
+      void: 'editable-island',
+    },
+  ],
+})
+
+const contentCard = (bodyRoot = 'card:body') =>
+  ({
+    type: 'content-card',
+    childRoots: { body: bodyRoot },
+    children: [{ text: '' }],
   }) satisfies Descendant
 
 const domRect = ({
@@ -628,6 +652,207 @@ describe('keyboard input strategy', () => {
       root.remove()
       assertDOMNode.mockRestore()
       hasEditableTarget.mockRestore()
+    }
+  })
+
+  it('uses the nested editable selection when promoting a child-root Shift+Arrow move', () => {
+    const runtime = createEditorRuntime({
+      extensions: [contentRootExtension],
+      initialValue: {
+        roots: {
+          'card:body': [paragraph('Shared mission statement')],
+          main: [paragraph('p1'), contentCard(), paragraph('p2')],
+        },
+      },
+    })
+    const mainEditor = createEditorView(runtime, {
+      root: 'main',
+    }) as ReactEditorType
+    const bodyEditor = createEditorView(runtime, {
+      root: 'card:body',
+    }) as ReactEditorType
+    const owner = {
+      childRoot: 'card:body',
+      ownerPath: [1],
+      ownerRoot: 'main',
+    }
+    const root = document.createElement('div')
+    const nested = document.createElement('div')
+    const event = reactKeyEvent(keyEvent('ArrowLeft', { shiftKey: true }))
+    const assertDOMNode = vi
+      .spyOn(ReactEditor, 'assertDOMNode')
+      .mockReturnValue(root)
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(false)
+    const getMountedViewEditor = vi.fn((root: string) =>
+      root === 'card:body' ? bodyEditor : null
+    )
+
+    root.dataset.slateEditor = 'true'
+    root.dataset.slateRoot = 'main'
+    nested.dataset.slateEditor = 'true'
+    nested.dataset.slateRoot = 'card:body'
+    root.append(nested)
+    document.body.append(root)
+    event.target = nested
+
+    mainEditor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 1, root: 'card:body' },
+        focus: { path: [0, 0], offset: 1, root: 'card:body' },
+      })
+    })
+    bodyEditor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+    })
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor: mainEditor,
+        event,
+        forceRender: vi.fn(),
+        getActiveContentRootOwner: (root) =>
+          root === 'card:body' ? owner : null,
+        getContentRootOwnerViewEditor: (candidate) =>
+          candidate.childRoot === 'card:body' ? bodyEditor : null,
+        getMountedViewEditor,
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: null,
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(readSlateViewSelection(mainEditor)).toMatchObject({
+        anchor: {
+          owner,
+          point: { path: [0, 0], root: 'card:body', offset: 1 },
+        },
+        focus: { point: { path: [0, 0], offset: 'p1'.length - 1 } },
+        segments: { backward: true },
+      })
+      expect(event.preventDefault).toHaveBeenCalled()
+    } finally {
+      root.remove()
+      assertDOMNode.mockRestore()
+      hasEditableTarget.mockRestore()
+    }
+  })
+
+  it('uses the nested DOM selection when child-root selection import is stale', () => {
+    const runtime = createEditorRuntime({
+      extensions: [contentRootExtension],
+      initialValue: {
+        roots: {
+          'card:body': [paragraph('Shared mission statement')],
+          main: [paragraph('p1'), contentCard(), paragraph('p2')],
+        },
+      },
+    })
+    const mainEditor = createEditorView(runtime, {
+      root: 'main',
+    }) as ReactEditorType
+    const bodyEditor = createEditorView(runtime, {
+      root: 'card:body',
+    }) as ReactEditorType
+    const owner = {
+      childRoot: 'card:body',
+      ownerPath: [1],
+      ownerRoot: 'main',
+    }
+    const root = document.createElement('div')
+    const nested = document.createElement('div')
+    const nativeText = document.createTextNode('Shared mission statement')
+    const event = reactKeyEvent(keyEvent('ArrowLeft', { shiftKey: true }))
+    const assertDOMNode = vi
+      .spyOn(ReactEditor, 'assertDOMNode')
+      .mockReturnValue(root)
+    const findDocumentOrShadowRoot = vi
+      .spyOn(ReactEditor, 'findDocumentOrShadowRoot')
+      .mockReturnValue(document)
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(false)
+    const hasSelectableTarget = vi
+      .spyOn(ReactEditor, 'hasSelectableTarget')
+      .mockReturnValue(true)
+    const resolveSlateRange = vi
+      .spyOn(ReactEditor, 'resolveSlateRange')
+      .mockReturnValue({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+    const getMountedViewEditor = vi.fn((root: string) =>
+      root === 'card:body' ? bodyEditor : null
+    )
+
+    root.dataset.slateEditor = 'true'
+    root.dataset.slateRoot = 'main'
+    nested.dataset.slateEditor = 'true'
+    nested.dataset.slateRoot = 'card:body'
+    nested.append(nativeText)
+    root.append(nested)
+    document.body.append(root)
+    event.target = nativeText
+
+    mainEditor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 1, root: 'card:body' },
+        focus: { path: [0, 0], offset: 1, root: 'card:body' },
+      })
+    })
+    bodyEditor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: 1 },
+        focus: { path: [0, 0], offset: 1 },
+      })
+    })
+    document.getSelection()?.setBaseAndExtent(nativeText, 1, nativeText, 0)
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor: mainEditor,
+        event,
+        forceRender: vi.fn(),
+        getActiveContentRootOwner: (root) =>
+          root === 'card:body' ? owner : null,
+        getContentRootOwnerViewEditor: (candidate) =>
+          candidate.childRoot === 'card:body' ? bodyEditor : null,
+        getMountedViewEditor,
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: null,
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(readSlateViewSelection(mainEditor)).toMatchObject({
+        anchor: {
+          owner,
+          point: { path: [0, 0], root: 'card:body', offset: 1 },
+        },
+        focus: { point: { path: [0, 0], offset: 'p1'.length - 1 } },
+        segments: { backward: true },
+      })
+      expect(event.preventDefault).toHaveBeenCalled()
+    } finally {
+      document.getSelection()?.removeAllRanges()
+      root.remove()
+      assertDOMNode.mockRestore()
+      findDocumentOrShadowRoot.mockRestore()
+      hasEditableTarget.mockRestore()
+      hasSelectableTarget.mockRestore()
+      resolveSlateRange.mockRestore()
     }
   })
 

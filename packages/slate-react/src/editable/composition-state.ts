@@ -132,7 +132,6 @@ export const commitChromeCompositionEndFallback = ({
   }
 
   const target = editor.read((state) => state.selection.get())
-
   // Ensure we insert text with the marks the user was actually seeing
   if (placeholderMarks !== undefined) {
     EDITOR_TO_USER_MARKS.set(

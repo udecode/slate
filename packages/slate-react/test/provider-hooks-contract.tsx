@@ -1150,7 +1150,7 @@ describe('slate-react provider hooks contract', () => {
     }
   })
 
-  test('Editable keeps large DOM-present root groups stable across local edits and parent rerenders', async () => {
+  test('Editable keeps large staged root groups stable across local edits and parent rerenders', async () => {
     const value = Array.from({ length: 1001 }, (_value, index) => ({
       type: 'block',
       children: [{ text: `line ${index}` }],
@@ -1207,7 +1207,7 @@ describe('slate-react provider hooks contract', () => {
     }
   })
 
-  test('Editable can explicitly use DOM-present dom-strategy grouping', () => {
+  test('Editable can explicitly use staged dom-strategy grouping', () => {
     const value = Array.from({ length: 1001 }, (_value, index) => ({
       type: 'block',
       children: [{ text: `line ${index}` }],

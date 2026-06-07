@@ -70,6 +70,7 @@ export type EditableInputControllerState = {
   modelOwnedTextInputGuard?: number
   outsideFocusBoundarySettleUntil: number
   pendingDOMSelectionImport: boolean
+  pendingNativeTextInputRepairSuppressedDOMSelection?: boolean
   pendingNativeTextInputRepairOffset?: number | null
   pendingNativeTextInputRepairPathKey?: string | null
   repairInducedSelectionOriginVersion?: number
@@ -93,6 +94,7 @@ export const createEditableInputControllerState =
     modelOwnedTextInputGuard: 0,
     outsideFocusBoundarySettleUntil: 0,
     pendingDOMSelectionImport: false,
+    pendingNativeTextInputRepairSuppressedDOMSelection: false,
     pendingNativeTextInputRepairOffset: null,
     pendingNativeTextInputRepairPathKey: null,
     repairInducedSelectionOriginVersion: 0,

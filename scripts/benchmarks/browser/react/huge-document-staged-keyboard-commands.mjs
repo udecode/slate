@@ -70,8 +70,8 @@ const surfaces = [
     path: `/examples/huge-document?blocks=${blocks}&strict=false&strategy=staged`,
   },
   {
-    key: 'stagedDomPresent',
-    label: 'v2 staged DOM-present',
+    key: 'stagedActiveDOMGroup',
+    label: 'v2 staged active DOM group',
     fullPath: `/examples/huge-document?blocks=${blocks}&content_visibility=none&strict=false&strategy=full`,
     path: `/examples/huge-document?blocks=${blocks}&content_visibility=none&strict=false&strategy=staged`,
   },

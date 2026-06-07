@@ -536,7 +536,7 @@ describe('core benchmark scripts contract', () => {
     )
     assert.match(
       source,
-      /artifactPath: browserTraceArtifactPath\(\s*'stagedDomPresent,stagedContentVisibility'\s*\)/
+      /artifactPath: browserTraceArtifactPath\(\s*'stagedActiveDOMGroup,stagedContentVisibility'\s*\)/
     )
     assert.match(
       source,

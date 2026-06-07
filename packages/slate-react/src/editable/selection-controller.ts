@@ -45,6 +45,7 @@ import type { EditableSelectionPolicy } from './editing-kernel'
 import { createFastDOMSelectionRange } from './fast-dom-selection-range'
 import type {
   EditableInputController,
+  InputIntent,
   ModelSelectionPreferenceReason,
   SelectionChangeOrigin,
   SelectionSource,
@@ -874,18 +875,63 @@ export const completeEditableSelectionChangeImport = ({
 }
 
 export const getPendingNativeTextInputRepairSelectionChangePolicy = ({
+  activeIntent,
+  currentSelection,
+  domSelectionTextBacked = true,
   pendingNativeTextInputRepairDOMOffset,
   pendingNativeTextInputRepairOffset,
   pendingNativeTextInputRepairPathKey,
   range,
   selectionChangeOrigin,
 }: {
+  activeIntent?: InputIntent | null
+  currentSelection?: Range | null
+  domSelectionTextBacked?: boolean
   pendingNativeTextInputRepairDOMOffset?: number | null
   pendingNativeTextInputRepairOffset?: number | null
   pendingNativeTextInputRepairPathKey: string | null
   range: Range | null
   selectionChangeOrigin: SelectionChangeOrigin
 }): 'allow' | 'clear-and-allow' | 'suppress' => {
+  if (
+    selectionChangeOrigin === 'native-user' &&
+    activeIntent === 'text-insert' &&
+    range &&
+    RangeApi.isCollapsed(range) &&
+    pendingNativeTextInputRepairPathKey &&
+    range.anchor.path.join(',') === pendingNativeTextInputRepairPathKey &&
+    !domSelectionTextBacked
+  ) {
+    return 'suppress'
+  }
+
+  if (
+    selectionChangeOrigin === 'native-user' &&
+    activeIntent === 'text-insert' &&
+    range &&
+    RangeApi.isCollapsed(range) &&
+    currentSelection &&
+    RangeApi.isCollapsed(currentSelection) &&
+    pendingNativeTextInputRepairPathKey &&
+    range.anchor.path.join(',') === currentSelection.anchor.path.join(',') &&
+    range.anchor.path.join(',') === pendingNativeTextInputRepairPathKey &&
+    range.anchor.offset < currentSelection.anchor.offset
+  ) {
+    return 'suppress'
+  }
+
+  if (
+    pendingNativeTextInputRepairPathKey &&
+    range &&
+    RangeApi.isCollapsed(range) &&
+    range.anchor.path.join(',') === pendingNativeTextInputRepairPathKey &&
+    pendingNativeTextInputRepairOffset != null &&
+    pendingNativeTextInputRepairDOMOffset != null &&
+    pendingNativeTextInputRepairDOMOffset === pendingNativeTextInputRepairOffset
+  ) {
+    return 'clear-and-allow'
+  }
+
   if (
     selectionChangeOrigin !== 'native-user' ||
     !pendingNativeTextInputRepairPathKey
@@ -1027,6 +1073,8 @@ export const applyEditableDOMSelectionChange = ({
   }
 
   const state = inputController.state
+  state.pendingNativeTextInputRepairSuppressedDOMSelection = false
+
   if (
     (!IS_ANDROID && ReactEditor.isComposing(editor)) ||
     state.isDraggingInternally ||
@@ -1168,8 +1216,12 @@ export const applyEditableDOMSelectionChange = ({
     return
   }
 
+  const currentSelection = readLiveSelection(editor)
   const pendingRepairSelectionChangePolicy =
     getPendingNativeTextInputRepairSelectionChangePolicy({
+      activeIntent: state.activeIntent,
+      currentSelection,
+      domSelectionTextBacked: isDOMText(anchorNode) && isDOMText(focusNode),
       pendingNativeTextInputRepairDOMOffset:
         domSelection.isCollapsed && isDOMText(anchorNode)
           ? domSelection.anchorOffset
@@ -1182,6 +1234,9 @@ export const applyEditableDOMSelectionChange = ({
     })
 
   if (pendingRepairSelectionChangePolicy === 'suppress') {
+    if (pendingNativeTextInputRepairPathKey) {
+      state.pendingNativeTextInputRepairSuppressedDOMSelection = true
+    }
     return
   }
 
@@ -1189,8 +1244,6 @@ export const applyEditableDOMSelectionChange = ({
     state.pendingNativeTextInputRepairOffset = null
     state.pendingNativeTextInputRepairPathKey = null
   }
-
-  const currentSelection = readLiveSelection(editor)
 
   if (
     selectionChangeOrigin === 'native-user' &&
@@ -1351,7 +1404,9 @@ export const syncEditableDOMSelectionToEditor = ({
       state.selectionChangeOrigin = 'programmatic-export'
       domSelection.removeAllRanges()
       const rootWindow =
-        'defaultView' in root ? root.defaultView : root.ownerDocument.defaultView
+        'defaultView' in root
+          ? root.defaultView
+          : root.ownerDocument.defaultView
 
       rootWindow?.queueMicrotask(() => domSelection.removeAllRanges())
       rootWindow?.requestAnimationFrame(() => domSelection.removeAllRanges())

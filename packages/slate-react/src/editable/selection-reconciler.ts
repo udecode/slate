@@ -907,10 +907,19 @@ export const syncSelectionForBeforeInput = ({
       pendingNativeTextInputRepairOffset != null &&
       pendingNativeTextInputRepairDOMOffset !==
         pendingNativeTextInputRepairOffset
+    const staleBackwardTextInputDOMSelection =
+      pendingNativeTextInputRepairOwnsSelection &&
+      !!range &&
+      RangeApi.isCollapsed(range) &&
+      !!nextSelection &&
+      RangeApi.isCollapsed(nextSelection) &&
+      PathApi.equals(range.anchor.path, nextSelection.anchor.path) &&
+      range.anchor.offset < nextSelection.anchor.offset
 
     if (
       pendingNativeTextInputRepairOwnsDifferentPath ||
-      pendingNativeTextInputRepairOwnsDifferentOffset
+      pendingNativeTextInputRepairOwnsDifferentOffset ||
+      staleBackwardTextInputDOMSelection
     ) {
       nextNative = false
     } else if (

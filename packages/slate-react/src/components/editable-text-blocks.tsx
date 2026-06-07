@@ -49,8 +49,8 @@ import {
   getVirtualizerScrollElement,
   useVirtualizedRootPlan,
   type VirtualizedPageLayoutItem,
-  type VirtualizedTopLevelLayoutItem,
   type VirtualizedTopLevelItem,
+  type VirtualizedTopLevelLayoutItem,
 } from '../dom-strategy/use-virtualized-root-plan'
 import { DOMStrategyVirtualizedRangeBoundary } from '../dom-strategy/virtualized-range-boundary'
 import { useRootInteractionController } from '../editable/root-interaction-controller'
@@ -2485,43 +2485,63 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
                     key={group.groupId}
                     style={{
                       left: 0,
+                      pointerEvents: 'none',
                       position: 'absolute',
                       top: 0,
                       transform: `translateY(${group.start}px)`,
                       width: '100%',
                     }}
                   >
-                    {group.items.map((item) => (
-                      <div
-                        data-index={item.index}
-                        data-slate-dom-strategy-virtual-row="true"
-                        key={String(item.key)}
-                        ref={virtualizedPlan.measureElement}
-                        style={{
-                          minHeight: item.size,
-                          pointerEvents: 'none',
-                          width: '100%',
-                        }}
-                      >
-                        <SlateDOMStrategyVirtualOffsetContext.Provider
-                          value={item.start}
+                    {group.items.map((item) => {
+                      const hasInlineBounds =
+                        typeof item.left === 'number' &&
+                        typeof item.width === 'number'
+
+                      return (
+                        <div
+                          data-index={item.index}
+                          data-slate-dom-strategy-virtual-row="true"
+                          key={String(item.key)}
+                          ref={virtualizedPlan.measureElement}
+                          style={{
+                            minHeight: item.size,
+                            pointerEvents: 'none',
+                            position: 'relative',
+                            width: '100%',
+                          }}
                         >
-                          <div style={{ pointerEvents: 'auto' }}>
-                            <EditableDescendantNode
-                              placeholder={placeholderValue}
-                              placeholderRef={placeholderRef}
-                              renderElement={renderElement}
-                              renderLeaf={renderLeaf}
-                              renderPlaceholder={renderPlaceholder}
-                              renderSegment={renderSegment}
-                              renderText={renderText}
-                              renderVoid={renderVoid}
-                              runtimeId={item.runtimeId}
-                            />
-                          </div>
-                        </SlateDOMStrategyVirtualOffsetContext.Provider>
-                      </div>
-                    ))}
+                          <SlateDOMStrategyVirtualOffsetContext.Provider
+                            value={item.start}
+                          >
+                            <div
+                              style={{
+                                marginLeft: hasInlineBounds
+                                  ? item.left
+                                  : undefined,
+                                minHeight: item.size,
+                                pointerEvents: 'auto',
+                                position: hasInlineBounds
+                                  ? 'static'
+                                  : 'relative',
+                                width: hasInlineBounds ? item.width : '100%',
+                              }}
+                            >
+                              <EditableDescendantNode
+                                placeholder={placeholderValue}
+                                placeholderRef={placeholderRef}
+                                renderElement={renderElement}
+                                renderLeaf={renderLeaf}
+                                renderPlaceholder={renderPlaceholder}
+                                renderSegment={renderSegment}
+                                renderText={renderText}
+                                renderVoid={renderVoid}
+                                runtimeId={item.runtimeId}
+                              />
+                            </div>
+                          </SlateDOMStrategyVirtualOffsetContext.Provider>
+                        </div>
+                      )
+                    })}
                   </div>
                 ))}
               </div>

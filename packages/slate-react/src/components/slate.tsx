@@ -55,10 +55,7 @@ import { ProjectionContext } from '../projection-context'
 import { recordSlateReactRender } from '../render-profiler'
 import { REACT_MAJOR_VERSION } from '../utils/environment'
 import { setSlateViewSelectionStoreKey } from '../view-selection'
-import {
-  useSlateViewSelectionDecorationSource,
-  useSlateViewSelectionPresence,
-} from '../view-selection-decoration'
+import { useSlateViewSelectionDecorationSource } from '../view-selection-decoration'
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
 
@@ -235,10 +232,9 @@ const SlateRuntimeView = <
     onValueChange,
     root: viewRoot,
   })
-  const hasViewSelection = useSlateViewSelectionPresence(reactEditor)
   const viewSelectionDecorationSource = useSlateViewSelectionDecorationSource(
     reactEditor,
-    hasViewSelection
+    true
   )
   const projectionContextValue = useMemo(() => {
     const sources = viewSelectionDecorationSource
@@ -755,10 +751,9 @@ const SlateSingleEditor = <
 
   const [isFocused, setIsFocused] = useState(ReactEditor.isFocused(reactEditor))
   const [focusVersion, setFocusVersion] = useState(0)
-  const hasViewSelection = useSlateViewSelectionPresence(reactEditor)
   const viewSelectionDecorationSource = useSlateViewSelectionDecorationSource(
     reactEditor,
-    hasViewSelection
+    true
   )
   const projectionContextValue = useMemo(() => {
     const sources = viewSelectionDecorationSource

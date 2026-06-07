@@ -9,7 +9,7 @@ export type SlateBrowserOperationFamilyContract = Omit<
   'plugin'
 >
 
-export type SlateBrowserFirstLegacyParityFamily = {
+export type SlateBrowserFirstPartyParityFamily = {
   assertions: readonly string[]
   family: string
   routes: readonly string[]
@@ -198,7 +198,7 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
   },
 ] satisfies readonly SlateBrowserOperationFamilyContract[]
 
-export const SLATE_BROWSER_FIRST_LEGACY_PARITY_FAMILIES = [
+export const SLATE_BROWSER_FIRST_PARTY_PARITY_FAMILIES = [
   {
     assertions: [
       'model selection lands on the next inline void from both sides',
@@ -239,7 +239,7 @@ export const SLATE_BROWSER_FIRST_LEGACY_PARITY_FAMILIES = [
     family: 'table-cell-boundary-navigation',
     routes: ['tables'],
   },
-] satisfies readonly SlateBrowserFirstLegacyParityFamily[]
+] satisfies readonly SlateBrowserFirstPartyParityFamily[]
 
 const rowsByFamily = (families: readonly string[]) =>
   SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS.filter((contract) =>
@@ -333,19 +333,19 @@ export const assertSlateBrowserFirstPartyParityContracts =
       }
     }
 
-    for (const parityFamily of SLATE_BROWSER_FIRST_LEGACY_PARITY_FAMILIES) {
+    for (const parityFamily of SLATE_BROWSER_FIRST_PARTY_PARITY_FAMILIES) {
       const row = registry.rowByFamily.get(parityFamily.family)
 
       if (!row) {
         throw new Error(
-          `First legacy parity family "${parityFamily.family}" is not registered.`
+          `First-party parity family "${parityFamily.family}" is not registered.`
         )
       }
 
       for (const route of parityFamily.routes) {
         if (!row.routes.includes(route)) {
           throw new Error(
-            `First legacy parity family "${parityFamily.family}" is missing route "${route}".`
+            `First-party parity family "${parityFamily.family}" is missing route "${route}".`
           )
         }
       }
@@ -353,7 +353,7 @@ export const assertSlateBrowserFirstPartyParityContracts =
       for (const assertion of parityFamily.assertions) {
         if (!row.assertions.includes(assertion)) {
           throw new Error(
-            `First legacy parity family "${parityFamily.family}" is missing assertion "${assertion}".`
+            `First-party parity family "${parityFamily.family}" is missing assertion "${assertion}".`
           )
         }
       }
@@ -362,7 +362,7 @@ export const assertSlateBrowserFirstPartyParityContracts =
     return {
       operationFamilyCount:
         SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS.length,
-      parityFamilies: SLATE_BROWSER_FIRST_LEGACY_PARITY_FAMILIES.map(
+      parityFamilies: SLATE_BROWSER_FIRST_PARTY_PARITY_FAMILIES.map(
         (family) => family.family
       ),
       registryRowCount: registry.rows.length,

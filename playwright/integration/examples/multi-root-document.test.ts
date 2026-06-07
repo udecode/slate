@@ -652,6 +652,11 @@ test.describe('multi-root document example', () => {
     )
     await expect(header).toBeFocused()
 
+    const historyBeforeUndo = (await bodyEditor.get.history()) as {
+      undos: unknown[]
+    }
+    expect(historyBeforeUndo.undos).toHaveLength(5)
+
     for (let index = 0; index < 5; index++) {
       await page.getByRole('button', { name: 'Undo document change' }).click()
     }
@@ -662,6 +667,10 @@ test.describe('multi-root document example', () => {
     await expect(main).not.toContainText('B2')
     await expect(footer).not.toContainText('F1')
     await expect(header).toBeFocused()
+    const historyAfterUndo = (await bodyEditor.get.history()) as {
+      undos: unknown[]
+    }
+    expect(historyAfterUndo.undos).toHaveLength(0)
     expect(pageErrors).toEqual([])
   })
 

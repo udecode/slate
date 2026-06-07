@@ -865,6 +865,13 @@ test('mutation and repair authority has an explicit remaining inventory', () => 
         rationale:
           'Runtime repair engine owns the root repair request application bridge.',
       },
+      'packages/slate-react/src/editable/runtime-selection-engine.ts': {
+        count: 1,
+        next: 'central-owner',
+        owner: 'Runtime selection engine',
+        rationale:
+          'Runtime selection engine owns selectionchange-triggered pending native text repair.',
+      },
     }
   )
 })

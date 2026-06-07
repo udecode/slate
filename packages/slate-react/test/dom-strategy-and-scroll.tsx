@@ -982,7 +982,7 @@ test('Editable reports domStrategy metrics for experimental virtualized surfaces
   expect(latest.editableDescendantCount).toBeGreaterThanOrEqual(0)
 })
 
-test('Editable reports domStrategy metrics for staged DOM-present surfaces', async () => {
+test('Editable reports domStrategy metrics for staged active DOM group surfaces', async () => {
   const editor = createReactEditor()
   const recordedMetrics: EditableDOMStrategyMetrics[] = []
 

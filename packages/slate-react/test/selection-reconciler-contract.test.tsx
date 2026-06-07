@@ -214,6 +214,71 @@ test('beforeinput imports same-path native selection when pending repair owns a 
   }
 })
 
+test('beforeinput imports backward native text caret when no pending repair owns it', () => {
+  const editor = createReactEditor()
+  const root = document.createElement('div')
+  const textHost = document.createElement('span')
+  const string = document.createElement('span')
+  const text = document.createTextNode('oXXXne')
+  const domSelection = document.getSelection()
+
+  if (!domSelection) {
+    throw new Error('Expected document selection')
+  }
+
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-path', '0,0')
+  string.setAttribute('data-slate-string', 'true')
+  string.append(text)
+  textHost.append(string)
+  root.append(textHost)
+  document.body.append(root)
+
+  Editor.replace(editor, {
+    children: [{ type: 'paragraph', children: [{ text: 'oXXXne' }] }],
+    selection: {
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    },
+  })
+
+  const modelSelection = Editor.getSelection(editor)
+
+  try {
+    domSelection.removeAllRanges()
+    domSelection.setBaseAndExtent(text, 3, text, 3)
+    vi.spyOn(ReactEditor, 'hasSelectableTarget').mockReturnValue(true)
+
+    const result = syncSelectionForBeforeInput({
+      allowDOMSelectionImport: true,
+      data: 'X',
+      editor,
+      editorElement: root,
+      event: { getTargetRanges: () => [] } as unknown as InputEvent,
+      inputType: 'insertText',
+      isCompositionChange: false,
+      native: true,
+      preferModelSelectionForInput: false,
+      root: document,
+      selection: modelSelection,
+    })
+
+    expect(result.native).toBe(false)
+    expect(result.selection).toEqual({
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    })
+    expect(Editor.getSelection(editor)).toEqual({
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    })
+  } finally {
+    root.remove()
+    domSelection.removeAllRanges()
+    vi.restoreAllMocks()
+  }
+})
+
 test('beforeinput ignores text host target ranges while the node map is dirty', () => {
   const editor = createReactEditor()
   const root = document.createElement('div')

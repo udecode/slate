@@ -44,7 +44,7 @@ type CancelableCallback = {
 
 type DeferredTextInputRepair = {
   pathKey: string | null
-  repair: () => void
+  repair: () => boolean
   source: 'beforeinput' | 'input'
   target: DOMInputRepairTarget | null
 }
@@ -92,6 +92,30 @@ const getCoalescedDeferredTextInputRepairTarget = ({
     return target
   }
 
+  if (previousRepair.target.insert) {
+    const expectedText = applyTextInsert(previousRepair.target.text, {
+      offset: previousRepair.target.selectionOffset,
+      text: data,
+    })
+    const selectionInsidePendingInsert =
+      target.selectionOffset >=
+        previousRepair.target.selectionOffset - data.length &&
+      target.selectionOffset <= previousRepair.target.selectionOffset
+
+    if (selectionInsidePendingInsert && target.text === expectedText) {
+      return {
+        ...target,
+        insert: {
+          offset: previousRepair.target.insert.offset,
+          text: previousRepair.target.insert.text + data,
+        },
+        preferCapturedInsert: true,
+        selectionOffset: previousRepair.target.selectionOffset + data.length,
+        text: expectedText,
+      }
+    }
+  }
+
   const selectionAdvance =
     target.selectionOffset - previousRepair.target.selectionOffset
 
@@ -136,8 +160,8 @@ const isDeferredTextInputContinuationSelection = ({
   selectionOffset: number
 }) =>
   previousTarget.insert &&
-  (selectionOffset === previousTarget.insert.offset ||
-    selectionOffset === previousTarget.selectionOffset)
+  selectionOffset >= previousTarget.insert.offset &&
+  selectionOffset <= previousTarget.selectionOffset
 
 const shouldReplacePreviousDeferredTextInputRepair = ({
   pathKey,
@@ -243,16 +267,20 @@ const createDOMInputRepair = ({
   target: DOMInputRepairTarget | null
 }) => {
   return () => {
-    if (rootElement.isConnected) {
-      repairDOMInput(
-        {
-          data,
-          inputType,
-          target,
-        },
-        rootElement
-      )
+    if (!rootElement.isConnected) {
+      return false
     }
+
+    repairDOMInput(
+      {
+        data,
+        inputType,
+        target,
+      },
+      rootElement
+    )
+
+    return true
   }
 }
 
@@ -275,6 +303,58 @@ export type RepairDOMInput = (
   },
   rootElement: HTMLElement
 ) => void
+
+export const repairPendingNativeTextInputModelSelection = ({
+  editor,
+  expectedTarget,
+  inputController,
+}: {
+  editor: ReactRuntimeEditor
+  expectedTarget?: DOMInputRepairTarget | null
+  inputController?: EditableInputController
+}) => {
+  const pathKey = inputController?.state.pendingNativeTextInputRepairPathKey
+  const offset = inputController?.state.pendingNativeTextInputRepairOffset
+
+  if (!pathKey || offset == null) {
+    return false
+  }
+
+  if (
+    expectedTarget &&
+    (expectedTarget.path.join(',') !== pathKey ||
+      expectedTarget.selectionOffset !== offset ||
+      readRuntimeText(editor, expectedTarget.path)?.text !==
+        expectedTarget.text)
+  ) {
+    return false
+  }
+
+  const selection = readRuntimeSelection(editor)
+
+  if (
+    !selection ||
+    !RangeApi.isCollapsed(selection) ||
+    selection.anchor.path.join(',') !== pathKey
+  ) {
+    return false
+  }
+
+  if (selection.anchor.offset === offset) {
+    return true
+  }
+
+  const path = [...selection.anchor.path]
+
+  editor.update((tx) => {
+    tx.selection.set({
+      anchor: { path, offset },
+      focus: { path, offset },
+    })
+  })
+
+  return true
+}
 
 export type HandleEditablePaste = (
   event: ClipboardEvent<HTMLDivElement>
@@ -786,6 +866,76 @@ export const useEditableDOMInputHandler = ({
     typeof setTimeout
   > | null>(null)
   const deferredTextInputRepairsRef = useRef<DeferredTextInputRepair[]>([])
+  const clearSettledPendingNativeTextInputRepair = useCallback(() => {
+    if (!inputController) {
+      return
+    }
+
+    const pathKey = inputController.state.pendingNativeTextInputRepairPathKey
+    const offset = inputController.state.pendingNativeTextInputRepairOffset
+
+    if (!pathKey || offset == null) {
+      return
+    }
+
+    const selection = readRuntimeSelection(editor)
+
+    if (
+      !selection ||
+      !RangeApi.isCollapsed(selection) ||
+      selection.anchor.path.join(',') !== pathKey ||
+      selection.anchor.offset !== offset
+    ) {
+      return
+    }
+
+    let domSelection: Selection | null = null
+
+    try {
+      domSelection = getSelection(ReactEditor.findDocumentOrShadowRoot(editor))
+    } catch {
+      return
+    }
+
+    if (!domSelection || domSelection.rangeCount === 0) {
+      return
+    }
+
+    const domRange = ReactEditor.resolveSlateRange(editor, domSelection, {
+      exactMatch: false,
+    })
+
+    if (
+      !domRange ||
+      !RangeApi.isCollapsed(domRange) ||
+      domRange.anchor.path.join(',') !== pathKey ||
+      domRange.anchor.offset !== offset
+    ) {
+      return
+    }
+
+    const anchorNode = domSelection.anchorNode
+    const anchorElement = isDOMText(anchorNode)
+      ? anchorNode.parentElement
+      : isDOMElement(anchorNode)
+        ? anchorNode
+        : null
+    const textHost = anchorElement?.closest('[data-slate-node="text"]')
+    const slateText = readRuntimeText(editor, domRange.anchor.path)?.text
+    const domText = textHost?.textContent?.replace(/\uFEFF/g, '') ?? null
+
+    if (
+      !textHost ||
+      textHost.getAttribute('data-slate-path') !== pathKey ||
+      slateText == null ||
+      domText !== slateText
+    ) {
+      return
+    }
+
+    inputController.state.pendingNativeTextInputRepairOffset = null
+    inputController.state.pendingNativeTextInputRepairPathKey = null
+  }, [editor, inputController])
   const flushDeferredTextInputRepairs = useCallback(() => {
     if (deferredTextInputRepairFrameRef.current !== null) {
       cancelAnimationFrame(deferredTextInputRepairFrameRef.current)
@@ -802,14 +952,43 @@ export const useEditableDOMInputHandler = ({
 
     deferredTextInputRepairsRef.current = []
 
-    for (const { repair } of repairs) {
-      repair()
+    let repairedPendingNativeTextInputTarget: DOMInputRepairTarget | null = null
+
+    for (const { repair, target } of repairs) {
+      if (
+        repair() &&
+        target &&
+        inputController?.state.pendingNativeTextInputRepairPathKey ===
+          target.path.join(',') &&
+        inputController.state.pendingNativeTextInputRepairOffset ===
+          target.selectionOffset &&
+        readRuntimeText(editor, target.path)?.text === target.text
+      ) {
+        repairedPendingNativeTextInputTarget = target
+      }
     }
-    if (inputController) {
+
+    const repairedPendingNativeTextInputSelection =
+      repairedPendingNativeTextInputTarget
+        ? repairPendingNativeTextInputModelSelection({
+            editor,
+            expectedTarget: repairedPendingNativeTextInputTarget,
+            inputController,
+          })
+        : false
+
+    if (
+      inputController &&
+      (repairs.length === 0 || !repairedPendingNativeTextInputSelection)
+    ) {
       inputController.state.pendingNativeTextInputRepairOffset = null
       inputController.state.pendingNativeTextInputRepairPathKey = null
+    } else if (repairedPendingNativeTextInputSelection) {
+      queueMicrotask(clearSettledPendingNativeTextInputRepair)
+      requestAnimationFrame(clearSettledPendingNativeTextInputRepair)
+      setTimeout(clearSettledPendingNativeTextInputRepair, 25)
     }
-  }, [inputController])
+  }, [clearSettledPendingNativeTextInputRepair, editor, inputController])
   const scheduleDeferredTextInputRepairs = useCallback(() => {
     const scheduledAt = now()
 
@@ -866,7 +1045,7 @@ export const useEditableDOMInputHandler = ({
         inputType !== 'insertText' ||
         data.length === 0
       ) {
-        return
+        return false
       }
 
       const previousRepair = deferredTextInputRepairsRef.current.at(-1)
@@ -880,7 +1059,7 @@ export const useEditableDOMInputHandler = ({
       const pathKey = target?.path.join(',') ?? null
 
       if (!target || !pathKey) {
-        return
+        return false
       }
 
       const repair = createDOMInputRepair({
@@ -918,6 +1097,7 @@ export const useEditableDOMInputHandler = ({
       }
 
       scheduleDeferredTextInputRepairs()
+      return true
     },
     [
       deferNativeTextInputRepair,
@@ -1006,7 +1186,7 @@ export const useEditableDOMInputHandler = ({
         nativeInput.inputType === 'insertText' &&
         typeof nativeInput.data === 'string'
       ) {
-        const pathKey = target?.path.join(',') ?? null
+        let pathKey = target?.path.join(',') ?? null
 
         if ((inputController?.state.modelOwnedTextInputGuard ?? 0) > 0) {
           if (inputController) {
@@ -1022,12 +1202,30 @@ export const useEditableDOMInputHandler = ({
         }
 
         const previousRepair = deferredTextInputRepairsRef.current.at(-1)
-        const coalescedTarget = getCoalescedDeferredTextInputRepairTarget({
+        let coalescedTarget = getCoalescedDeferredTextInputRepairTarget({
           data: nativeInput.data,
           pathKey,
           previousRepair,
           target,
         })
+
+        if (
+          previousRepair &&
+          pathKey &&
+          previousRepair.pathKey === pathKey &&
+          target &&
+          !coalescedTarget
+        ) {
+          flushDeferredTextInputRepairs()
+          target = getDOMInputRepairTarget(editor, rootElement, nativeInput)
+          pathKey = target?.path.join(',') ?? null
+          coalescedTarget = getCoalescedDeferredTextInputRepairTarget({
+            data: nativeInput.data,
+            pathKey,
+            previousRepair: undefined,
+            target,
+          })
+        }
 
         if (pathKey && inputController) {
           inputController.state.pendingNativeTextInputRepairOffset =

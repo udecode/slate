@@ -136,7 +136,7 @@ describe('slate-react DOM capability contract', () => {
     expect(onValueChange).not.toHaveBeenCalled()
   })
 
-  test('DOM-present selection export uses direct endpoints for common model selections', async () => {
+  test('native DOM selection export uses direct endpoints for common model selections', async () => {
     const initialValue = [
       { type: 'block', children: [{ text: 'alpha' }] },
       { type: 'block', children: [{ text: 'bravo' }] },

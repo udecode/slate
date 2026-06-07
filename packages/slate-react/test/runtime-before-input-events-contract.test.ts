@@ -1,5 +1,8 @@
 import type { Range } from 'slate'
-import { getDeferredNativeTextInputRepairPathKey } from '../src/editable/runtime-before-input-events'
+import {
+  getDeferredNativeTextInputRepairPathKey,
+  shouldFlushPendingNativeTextInputBeforeDOMBeforeInput,
+} from '../src/editable/runtime-before-input-events'
 
 const collapsedSelection: Range = {
   anchor: { offset: 1, path: [2500, 0] },
@@ -69,4 +72,34 @@ test('deferred native text input path is only for collapsed native insertText', 
       selection: expandedSelection,
     })
   ).toBe(null)
+})
+
+test('same-burst insertText beforeinput flushes deferred native text repair', () => {
+  expect(
+    shouldFlushPendingNativeTextInputBeforeDOMBeforeInput({
+      inputType: 'insertText',
+      pendingNativeTextInputRepairPathKey: '2500,0',
+    })
+  ).toBe(true)
+})
+
+test('beforeinput flushes deferred native text repair boundaries', () => {
+  expect(
+    shouldFlushPendingNativeTextInputBeforeDOMBeforeInput({
+      inputType: 'insertParagraph',
+      pendingNativeTextInputRepairPathKey: '2500,0',
+    })
+  ).toBe(true)
+  expect(
+    shouldFlushPendingNativeTextInputBeforeDOMBeforeInput({
+      inputType: 'deleteContentBackward',
+      pendingNativeTextInputRepairPathKey: '2500,0',
+    })
+  ).toBe(true)
+  expect(
+    shouldFlushPendingNativeTextInputBeforeDOMBeforeInput({
+      inputType: 'insertParagraph',
+      pendingNativeTextInputRepairPathKey: null,
+    })
+  ).toBe(false)
 })

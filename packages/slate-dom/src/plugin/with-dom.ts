@@ -261,8 +261,7 @@ export const installDOM = <
             case 'split_node':
             case 'insert_text':
             case 'remove_text': {
-              // FIXME: Rename to something like IS_DOM_EDITOR_DESYNCED
-              // to better reflect reality, see #5792
+              // The DOM mapping is out of sync until render refreshes it.
               IS_NODE_MAP_DIRTY.set(e, true)
             }
           }

@@ -1,10 +1,10 @@
 export {
   assertSlateBrowserFirstPartyParityContracts,
-  SLATE_BROWSER_FIRST_LEGACY_PARITY_FAMILIES,
   SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS,
+  SLATE_BROWSER_FIRST_PARTY_PARITY_FAMILIES,
   SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY,
-  type SlateBrowserFirstLegacyParityFamily,
   type SlateBrowserFirstPartyParityContractResult,
+  type SlateBrowserFirstPartyParityFamily,
   type SlateBrowserOperationFamilyContract,
 } from './first-party-browser-contracts'
 export {

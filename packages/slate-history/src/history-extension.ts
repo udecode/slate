@@ -251,7 +251,7 @@ const applyUndo = <V extends Value>(editor: Editor<V>) => {
 
   runHistoricUpdate(editor, batch, (tx) => {
     const inverseOps = batch.operations.map(OperationApi.inverse).reverse()
-    const operations = filterHistoricSelectionOperations(inverseOps, root)
+    const operations = filterHistoricUndoOperations(inverseOps, root)
 
     applyStatePatches(editor, batch.statePatches, 'undo')
     replayHistoricOperations(editor, operations)
@@ -350,7 +350,8 @@ export const history = <const TEnabled extends boolean | undefined = undefined>(
               change?.selectionBefore ?? null,
               getEditorSelectionRoot(editor),
               committedOps,
-              committedStatePatches
+              committedStatePatches,
+              change.metadata
             )
 
             if (!preparedBatch) {
@@ -363,7 +364,11 @@ export const history = <const TEnabled extends boolean | undefined = undefined>(
               } else if (change?.metadata.history?.mode === 'push') {
                 merge = false
               } else if (change?.metadata.history?.mode === 'merge') {
-                merge = true
+                merge = shouldMergeExplicitBatch(
+                  preparedBatch.operations,
+                  lastBatch,
+                  change.metadata
+                )
               } else if (change?.tags.includes('history-push')) {
                 merge = false
               } else if (change?.tags.includes('history-merge')) {
@@ -534,6 +539,70 @@ const shouldMergeBatch = (
     : false
 }
 
+const shouldMergeExplicitBatch = (
+  operations: readonly Operation[],
+  previousBatch: Batch,
+  metadata: SnapshotChange['metadata']
+): boolean => {
+  if (shouldMergeBatch(operations, previousBatch)) {
+    return true
+  }
+
+  const saveableOperations = operations.filter(shouldSave)
+  const previousSaveableOperations = previousBatch.operations.filter(shouldSave)
+
+  if (
+    saveableOperations.length === 0 ||
+    previousSaveableOperations.length === 0 ||
+    previousBatch.statePatches.length > 0
+  ) {
+    return false
+  }
+
+  const allSaveableOperations = [
+    ...previousSaveableOperations,
+    ...saveableOperations,
+  ]
+  const firstOperation = allSaveableOperations[0]!
+  const root = getOperationRoot(firstOperation)
+  const allOperationsShareRoot = allSaveableOperations.every(
+    (operation) => getOperationRoot(operation) === root
+  )
+
+  if (!allOperationsShareRoot) {
+    return false
+  }
+
+  if (metadata.origin?.kind !== 'native-text-input') {
+    return true
+  }
+
+  if (
+    firstOperation.type !== 'insert_text' &&
+    firstOperation.type !== 'remove_text'
+  ) {
+    return false
+  }
+
+  const path = firstOperation.path
+
+  const allOperationsShareTextPath = allSaveableOperations.every(
+    (operation) =>
+      (operation.type === 'insert_text' || operation.type === 'remove_text') &&
+      getOperationRoot(operation) === root &&
+      PathApi.equals(operation.path, path)
+  )
+
+  if (!allOperationsShareTextPath) {
+    return false
+  }
+
+  return allSaveableOperations.every(
+    (operation, index) =>
+      index === 0 || shouldMerge(operation, allSaveableOperations[index - 1])
+  )
+}
+
 const shouldSave = (op: Operation): boolean => {
   if (op.type === 'set_selection') {
     return false
@@ -656,6 +725,14 @@ const filterHistoricSelectionOperations = <V extends Value>(
     (operation) =>
       operation.type !== 'set_selection' ||
       getOperationRootOrMain(operation) === root
+  )
+
+const filterHistoricUndoOperations = <V extends Value>(
+  operations: readonly Operation<V>[],
+  root: string
+) =>
+  filterHistoricSelectionOperations(operations, root).filter(
+    (operation) => operation.type !== 'set_selection'
   )
 
 const shouldPreserveHistoricDOMSelection = <V extends Value>(
@@ -783,11 +860,206 @@ const applySelectionPatch = (
   return next
 }
 
+const getCollapsedRangePoint = (range: Range | null) =>
+  range && RangeApi.isCollapsed(range) ? range.anchor : null
+
+const getPointRoot = (
+  point: Range['anchor'],
+  fallbackRoot: string | undefined
+): string => point.root ?? fallbackRoot ?? MAIN_ROOT_KEY
+
+const isPointOnTextInsert = <V extends Value>(
+  point: Range['anchor'],
+  root: string | undefined,
+  operation: Extract<Operation<V>, { type: 'insert_text' }>
+) =>
+  getPointRoot(point, root) === getOperationRoot(operation) &&
+  PathApi.equals(point.path, operation.path)
+
+const createCollapsedRangeAtTextInsert = <V extends Value>(
+  operation: Extract<Operation<V>, { type: 'insert_text' }>
+): Range => {
+  const root = getOperationRoot(operation)
+  const point = {
+    offset: operation.offset,
+    path: [...operation.path],
+    ...(root === MAIN_ROOT_KEY ? {} : { root }),
+  }
+
+  return {
+    anchor: point,
+    focus: point,
+  }
+}
+
+const selectionTracksTextBurstEnd = <V extends Value>({
+  firstSaveableIndex,
+  operations,
+  selectionBefore,
+  selectionBeforeRoot,
+}: {
+  firstSaveableIndex: number
+  operations: readonly Operation<V>[]
+  selectionBefore: Range | null
+  selectionBeforeRoot: string | undefined
+}): boolean => {
+  const firstSaveable = operations[firstSaveableIndex]
+
+  if (firstSaveable?.type !== 'insert_text') {
+    return false
+  }
+
+  let currentSelection = transformRange(
+    selectionBefore,
+    firstSaveable,
+    selectionBeforeRoot
+  )
+  let currentSelectionRoot = currentSelection
+    ? (getRangeRoot(currentSelection) ?? selectionBeforeRoot)
+    : undefined
+
+  for (const operation of operations.slice(firstSaveableIndex + 1)) {
+    if (operation.type !== 'set_selection') {
+      return false
+    }
+
+    currentSelection = applySelectionPatch(
+      currentSelection,
+      operation.newProperties,
+      operation.root
+    )
+    currentSelectionRoot = currentSelection
+      ? (getRangeRoot(currentSelection) ??
+        operation.root ??
+        currentSelectionRoot)
+      : undefined
+  }
+
+  const point = getCollapsedRangePoint(currentSelection)
+
+  return Boolean(
+    point &&
+      isPointOnTextInsert(point, currentSelectionRoot, firstSaveable) &&
+      point.offset === firstSaveable.offset + firstSaveable.text.length
+  )
+}
+
+const getTextBurstSelectionBefore = <V extends Value>({
+  firstSaveableIndex,
+  isNativeTextInput,
+  operations,
+  selectionBefore,
+  selectionBeforeRoot,
+}: {
+  firstSaveableIndex: number
+  isNativeTextInput: boolean
+  operations: readonly Operation<V>[]
+  selectionBefore: Range | null
+  selectionBeforeRoot: string | undefined
+}): { root: string | undefined; selection: Range } | null => {
+  const firstSaveable = operations[firstSaveableIndex]
+
+  if (firstSaveable?.type !== 'insert_text' || firstSaveable.text.length <= 1) {
+    return null
+  }
+
+  const insertRoot = getOperationRoot(firstSaveable)
+  const insertStart = firstSaveable.offset
+  const insertEnd = insertStart + firstSaveable.text.length
+  const selectionPoint = getCollapsedRangePoint(selectionBefore)
+
+  if (
+    firstSaveableIndex === 0 &&
+    isNativeTextInput &&
+    selectionPoint &&
+    isPointOnTextInsert(selectionPoint, selectionBeforeRoot, firstSaveable) &&
+    selectionPoint.offset >= insertStart &&
+    selectionPoint.offset <= insertEnd &&
+    selectionTracksTextBurstEnd({
+      firstSaveableIndex,
+      operations,
+      selectionBefore,
+      selectionBeforeRoot,
+    })
+  ) {
+    return {
+      root: insertRoot,
+      selection: createCollapsedRangeAtTextInsert(firstSaveable),
+    }
+  }
+
+  if (firstSaveableIndex === 0) {
+    return null
+  }
+
+  if (!isNativeTextInput) {
+    return null
+  }
+
+  let currentSelection = cloneRange(selectionBefore)
+  let currentSelectionRoot = selectionBeforeRoot
+  let previousOffset = insertStart
+
+  for (let index = 0; index < firstSaveableIndex; index++) {
+    const operation = operations[index]!
+
+    if (operation.type !== 'set_selection') {
+      return null
+    }
+
+    currentSelection = applySelectionPatch(
+      currentSelection,
+      operation.newProperties,
+      operation.root
+    )
+    currentSelectionRoot = currentSelection
+      ? (getRangeRoot(currentSelection) ??
+        operation.root ??
+        currentSelectionRoot)
+      : undefined
+
+    const point = getCollapsedRangePoint(currentSelection)
+    const pointRoot = point
+      ? (point.root ?? currentSelectionRoot ?? MAIN_ROOT_KEY)
+      : undefined
+
+    if (
+      !point ||
+      pointRoot !== insertRoot ||
+      !PathApi.equals(point.path, firstSaveable.path) ||
+      point.offset < insertStart ||
+      point.offset > insertEnd ||
+      point.offset < previousOffset
+    ) {
+      return null
+    }
+
+    previousOffset = point.offset
+  }
+
+  if (
+    !selectionTracksTextBurstEnd({
+      firstSaveableIndex,
+      operations,
+      selectionBefore: currentSelection,
+      selectionBeforeRoot: currentSelectionRoot,
+    })
+  ) {
+    return null
+  }
+
+  return {
+    root: insertRoot,
+    selection: createCollapsedRangeAtTextInsert(firstSaveable),
+  }
+}
+
 const prepareHistoryBatch = <V extends Value>(
   selectionBefore: Range | null,
   selectionBeforeRoot: string | undefined,
   operations: readonly Operation<V>[],
-  statePatches: readonly EditorStatePatch[]
+  statePatches: readonly EditorStatePatch[],
+  metadata: SnapshotChange['metadata']
 ): Batch<V> | null => {
   const firstSaveableIndex = operations.findIndex(shouldSave)
   const getBatchSelectionBeforeRoot = (selection: Range | null) =>
@@ -823,6 +1095,21 @@ const prepareHistoryBatch = <V extends Value>(
   let batchSelectionBefore = cloneRange(selectionBefore)
   let batchSelectionBeforeRoot =
     getBatchSelectionBeforeRoot(batchSelectionBefore)
+  const textBurstSelectionBefore = getTextBurstSelectionBefore({
+    firstSaveableIndex,
+    isNativeTextInput: metadata.origin?.kind === 'native-text-input',
+    operations,
+    selectionBefore,
+    selectionBeforeRoot,
+  })
+
+  if (textBurstSelectionBefore) {
+    return createBatch(
+      [...operations.slice(firstSaveableIndex)],
+      textBurstSelectionBefore.selection,
+      textBurstSelectionBefore.root
+    )
+  }
 
   for (let index = 0; index < firstSaveableIndex; index++) {
     const operation = operations[index]!

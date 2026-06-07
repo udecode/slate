@@ -623,7 +623,7 @@ describe('DOM coverage native bridge', () => {
     }
   })
 
-  test('copy over a pending DOM-present root group materializes the coverage boundary and writes model data', () => {
+  test('copy over a pending staged root group materializes the coverage boundary and writes model data', () => {
     const editor = createStagedSelectionEditor()
     const root = mountEditorRoot(editor)
     const clipboard = new FakeDataTransfer()
@@ -658,7 +658,7 @@ describe('DOM coverage native bridge', () => {
     }
   })
 
-  test('paste over a pending DOM-present root group materializes before mutating the model', () => {
+  test('paste over a pending staged root group materializes before mutating the model', () => {
     const editor = createStagedSelectionEditor()
     const root = mountEditorRoot(editor)
     const clipboard = new FakeDataTransfer()

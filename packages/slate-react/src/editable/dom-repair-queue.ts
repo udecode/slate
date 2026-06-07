@@ -201,6 +201,26 @@ export const createDOMRepairQueue = ({
   syncDOMSelectionToEditor: () => void
 }): DOMRepairQueue => {
   const frameState = createDOMRepairFrameState()
+  let queue: DOMRepairQueue
+
+  const scheduleTextInsertCaretRepair = ({
+    delays = [],
+    immediate = true,
+  }: {
+    delays?: number[]
+    immediate?: boolean
+  } = {}) => {
+    const repair = () => queue.repairCaretAfterModelTextInsert()
+
+    if (immediate) {
+      repair()
+    }
+
+    for (const delay of delays) {
+      setTimeout(repair, delay)
+    }
+  }
+
   const armRepairInducedSelectionOriginGuard = () => {
     const repairOriginVersion =
       (inputController.state.repairInducedSelectionOriginVersion ?? 0) + 1
@@ -219,7 +239,7 @@ export const createDOMRepairQueue = ({
     }, REPAIR_INDUCED_SELECTION_ORIGIN_GUARD_MS)
   }
 
-  return {
+  queue = {
     beginFrame(frameId) {
       beginDOMRepairFrame(frameState, frameId)
     },
@@ -272,15 +292,22 @@ export const createDOMRepairQueue = ({
       const liveDOMTextHost = textHost
       const liveDOMPath = path
       const liveDOMSelectionOffset = selectionOffset
+      const liveDOMTextHostText = textHostText
 
       if (nativeInput.target) {
         path = nativeInput.target.path
+        const liveDOMTextHostMatchesTarget =
+          liveDOMPath && PathApi.equals(liveDOMPath, path)
+            ? true
+            : liveDOMTextHost?.getAttribute('data-slate-path') ===
+              path.join(',')
         slateNode = readRuntimeText(editor, path)
         textHost =
           getSlateNodeElementByPath(editor, path) ??
-          (liveDOMPath && PathApi.equals(liveDOMPath, path)
-            ? liveDOMTextHost
-            : null)
+          (liveDOMTextHostMatchesTarget ? liveDOMTextHost : null) ??
+          rootElement.querySelector<HTMLElement>(
+            `[data-slate-node="text"][data-slate-path="${path.join(',')}"]`
+          )
         selectionOffset = nativeInput.target.selectionOffset
         textHostText = nativeInput.target.text
       }
@@ -319,15 +346,69 @@ export const createDOMRepairQueue = ({
         textHostText != null
       ) {
         if (textHostText === slateNode.text) {
+          const currentSelection = readRuntimeSelection(editor)
+          const liveDOMSelectionBelongsToRepairPath = nativeInput.target
+            ? textHost === liveDOMTextHost ||
+              (!!liveDOMPath &&
+                PathApi.equals(liveDOMPath, nativeInput.target.path))
+            : textHost === liveDOMTextHost
+          const shouldRepairSyncedTextCaret =
+            liveDOMSelectionBelongsToRepairPath &&
+            currentSelection &&
+            RangeApi.isCollapsed(currentSelection) &&
+            PathApi.equals(currentSelection.anchor.path, path) &&
+            liveDOMSelectionOffset !== currentSelection.anchor.offset
+          const shouldArmVirtualizedSyncedTextCaretRepair =
+            liveDOMSelectionBelongsToRepairPath &&
+            textHost &&
+            isInsideVirtualizedDOM(textHost) &&
+            currentSelection &&
+            RangeApi.isCollapsed(currentSelection) &&
+            PathApi.equals(currentSelection.anchor.path, path)
+
+          if (
+            shouldRepairSyncedTextCaret ||
+            shouldArmVirtualizedSyncedTextCaretRepair
+          ) {
+            if (shouldArmVirtualizedSyncedTextCaretRepair) {
+              setEditableModelSelectionPreference({
+                inputController,
+                preferModelSelection: true,
+                reason: 'repair-induced',
+                selectionSource: 'model-owned',
+              })
+              armModelOwnedTextInputGuard({ inputController })
+            }
+            scheduleTextInsertCaretRepair({
+              delays: shouldArmVirtualizedSyncedTextCaretRepair
+                ? [25, 100]
+                : [],
+            })
+          }
           return
         }
 
+        const currentSelection = readRuntimeSelection(editor)
+        const targetInsert = nativeInput.target?.insert
+        const shouldPreferCurrentModelInsert =
+          !!nativeInput.target?.preferCapturedInsert &&
+          !!targetInsert &&
+          currentSelection &&
+          RangeApi.isCollapsed(currentSelection) &&
+          PathApi.equals(currentSelection.anchor.path, path) &&
+          targetInsert.offset < currentSelection.anchor.offset &&
+          applyTextInsert(slateNode.text, {
+            offset: currentSelection.anchor.offset,
+            text: inputText,
+          }) === textHostText
         const insert = getDOMTextRepairInsert({
           inputText,
           preferCapturedInsert: nativeInput.target?.preferCapturedInsert,
           selectionOffset,
           slateText: slateNode.text,
-          targetInsert: nativeInput.target?.insert,
+          targetInsert: shouldPreferCurrentModelInsert
+            ? { offset: currentSelection.anchor.offset, text: inputText }
+            : targetInsert,
           textHostText,
         })
 
@@ -335,7 +416,6 @@ export const createDOMRepairQueue = ({
           return
         }
         const nextOffset = insert.offset + insert.text.length
-        const currentSelection = readRuntimeSelection(editor)
         const expandedReplacementRange =
           currentSelection &&
           RangeApi.isExpanded(currentSelection) &&
@@ -366,17 +446,46 @@ export const createDOMRepairQueue = ({
           !!nativeInput.target &&
           !!liveDOMPath &&
           PathApi.equals(liveDOMPath, nativeInput.target.path)
+        const targetTextHostStillOwnsPathlessDOMSelection =
+          !!nativeInput.target &&
+          !!liveDOMTextHost &&
+          liveDOMTextHost.getAttribute('data-slate-path') ===
+            nativeInput.target.path.join(',')
+        const targetVirtualizedRow = textHost?.closest(
+          '[data-slate-dom-strategy-virtual-row]'
+        )
+        const targetVirtualizedRowStillOwnsPathlessDOMSelection =
+          !!nativeInput.target &&
+          !liveDOMPath &&
+          !!targetVirtualizedRow &&
+          !!anchorNode &&
+          (anchorNode === targetVirtualizedRow ||
+            targetVirtualizedRow.contains(anchorNode))
+        const targetPathlessDOMSelectionBelongsToTarget =
+          targetTextHostStillOwnsPathlessDOMSelection ||
+          targetVirtualizedRowStillOwnsPathlessDOMSelection
+        const targetInsertStillOwnsSamePathDOMSelection =
+          !!nativeInput.target?.insert &&
+          targetPathStillOwnsDOMSelection &&
+          liveDOMTextHostText === nativeInput.target.text
         const capturedInsertStillOwnsDOMSelection =
           !!nativeInput.target?.preferCapturedInsert &&
           targetStillOwnsDOMSelection
+        const targetInsertStillOwnsPathlessEditorSelection =
+          !!nativeInput.target?.insert &&
+          !liveDOMPath &&
+          targetPathlessDOMSelectionBelongsToTarget
         const capturedInsertStillOwnsVirtualizedPath =
           !!nativeInput.target?.preferCapturedInsert &&
           !!textHost &&
           isInsideVirtualizedDOM(textHost) &&
-          targetPathStillOwnsDOMSelection
+          (targetPathStillOwnsDOMSelection ||
+            (!liveDOMPath && targetPathlessDOMSelectionBelongsToTarget))
         const shouldMoveSelection =
           shouldReplaceExpandedSelection ||
+          targetInsertStillOwnsSamePathDOMSelection ||
           capturedInsertStillOwnsDOMSelection ||
+          targetInsertStillOwnsPathlessEditorSelection ||
           capturedInsertStillOwnsVirtualizedPath ||
           !nativeInput.target ||
           targetStillOwnsDOMSelection
@@ -387,11 +496,13 @@ export const createDOMRepairQueue = ({
             isInsideVirtualizedDOM(textHost) &&
             targetStillOwnsDOMSelection
           )
+        const shouldArmVirtualizedTextInsertCaretRepair =
+          shouldMoveSelection && !!textHost && isInsideVirtualizedDOM(textHost)
 
         if (shouldMoveSelection) {
           armRepairInducedSelectionOriginGuard()
           if (textHost && isInsideVirtualizedDOM(textHost)) {
-            if (targetPathStillOwnsDOMSelection) {
+            if (targetStillOwnsDOMSelection) {
               setEditableModelSelectionPreference({
                 inputController,
                 preferModelSelection: false,
@@ -428,7 +539,9 @@ export const createDOMRepairQueue = ({
         )
 
         if (shouldRepairCaretAfterTextInsert) {
-          this.repairCaretAfterModelTextInsert()
+          scheduleTextInsertCaretRepair()
+        } else if (shouldArmVirtualizedTextInsertCaretRepair) {
+          scheduleTextInsertCaretRepair({ delays: [25, 100], immediate: false })
         }
       }
     },
@@ -446,7 +559,14 @@ export const createDOMRepairQueue = ({
     repairCaretAfterModelOperation(
       kind: 'repair-caret' | 'repair-caret-after-text-insert' = 'repair-caret'
     ) {
-      const frameId = getCurrentEditableEventFrame(editor)?.id ?? null
+      const currentFrameId = getCurrentEditableEventFrame(editor)?.id ?? null
+      const hasPendingTextInsertRepair =
+        inputController.state.pendingNativeTextInputRepairPathKey != null &&
+        inputController.state.pendingNativeTextInputRepairOffset != null
+      const frameId =
+        kind === 'repair-caret-after-text-insert' && hasPendingTextInsertRepair
+          ? null
+          : currentFrameId
 
       if (frameId !== null) {
         beginDOMRepairFrame(frameState, frameId)
@@ -519,8 +639,59 @@ export const createDOMRepairQueue = ({
           return scrollCurrentDOMSelectionIntoView()
         }
 
-        const { path, offset: slateOffset } = selection.anchor
-        const textHost = getSlateNodeElementByPath(editor, path)
+        const { path } = selection.anchor
+        let slateOffset = selection.anchor.offset
+        const pendingTextInputRepairPathKey =
+          inputController.state.pendingNativeTextInputRepairPathKey
+        const pendingTextInputRepairOffset =
+          inputController.state.pendingNativeTextInputRepairOffset
+        const pendingTextInsertRepairTargetsSelection =
+          kind === 'repair-caret-after-text-insert' &&
+          pendingTextInputRepairPathKey === path.join(',') &&
+          pendingTextInputRepairOffset != null
+
+        if (pendingTextInsertRepairTargetsSelection) {
+          slateOffset = pendingTextInputRepairOffset
+
+          if (selection.anchor.offset !== slateOffset) {
+            editor.update((tx) => {
+              tx.selection.set({
+                anchor: { path, offset: slateOffset },
+                focus: { path, offset: slateOffset },
+              })
+            })
+          }
+        }
+
+        let textHost = getSlateNodeElementByPath(editor, path)
+
+        if (!textHost) {
+          let root: Document | ShadowRoot
+
+          try {
+            root = ReactEditor.findDocumentOrShadowRoot(editor)
+          } catch {
+            return false
+          }
+
+          const domSelection = getSelection(root)
+          const anchorNode = domSelection?.anchorNode ?? null
+          const anchorElement = isDOMText(anchorNode)
+            ? anchorNode.parentElement
+            : isDOMElement(anchorNode)
+              ? anchorNode
+              : null
+          const selectedTextHost = anchorElement?.closest(
+            '[data-slate-node="text"]'
+          )
+
+          if (
+            selectedTextHost instanceof HTMLElement &&
+            selectedTextHost.getAttribute('data-slate-path') === path.join(',')
+          ) {
+            textHost = selectedTextHost
+          }
+        }
 
         if (!textHost) {
           if (kind === 'repair-caret-after-text-insert') {
@@ -542,11 +713,32 @@ export const createDOMRepairQueue = ({
         const isProjectedTextHost =
           textHost.getAttribute('data-slate-dom-sync-reason') === 'projection'
         const isVirtualizedTextHost = isInsideVirtualizedDOM(textHost)
+        const isVirtualizedTextInsertRepair =
+          kind === 'repair-caret-after-text-insert' && isVirtualizedTextHost
+        const pendingTextInsertRepairMatches =
+          pendingTextInputRepairPathKey === path.join(',') &&
+          pendingTextInputRepairOffset === slateOffset
+
+        if (
+          isVirtualizedTextInsertRepair &&
+          hasPendingTextInsertRepair &&
+          !pendingTextInsertRepairMatches
+        ) {
+          return false
+        }
+
         const shouldScrollTextHost =
           kind !== 'repair-caret-after-text-insert' || !isVirtualizedTextHost
         const shouldReleaseTextInsertSelectionToDOM =
           !isVirtualizedTextHost && !isProjectedTextHost
-        const root = ReactEditor.findDocumentOrShadowRoot(editor)
+        let root: Document | ShadowRoot
+
+        try {
+          root = ReactEditor.findDocumentOrShadowRoot(editor)
+        } catch {
+          return false
+        }
+
         const domSelection = getSelection(root)
 
         if (!domSelection) {
@@ -588,6 +780,15 @@ export const createDOMRepairQueue = ({
             domRange.setEnd(domNode, domOffset)
 
             armRepairInducedSelectionOriginGuard()
+            if (isVirtualizedTextInsertRepair) {
+              setEditableModelSelectionPreference({
+                inputController,
+                preferModelSelection: true,
+                reason: 'repair-induced',
+                selectionSource: 'model-owned',
+              })
+              armModelOwnedTextInputGuard({ inputController })
+            }
             domSelection.setBaseAndExtent(
               domNode,
               domOffset,
@@ -604,17 +805,30 @@ export const createDOMRepairQueue = ({
               domSelection.removeAllRanges()
               domSelection.addRange(domRange)
             }
+            if (
+              kind === 'repair-caret-after-text-insert' &&
+              pendingTextInsertRepairMatches &&
+              domSelection.anchorNode === domNode &&
+              domSelection.anchorOffset === domOffset &&
+              domSelection.focusNode === domNode &&
+              domSelection.focusOffset === domOffset
+            ) {
+              inputController.state.pendingNativeTextInputRepairOffset = null
+              inputController.state.pendingNativeTextInputRepairPathKey = null
+              textInsertRepairCompleted = true
+            }
             if (shouldScrollTextHost && !shouldSkipSelectionScroll(editor)) {
               scrollSelectionIntoView(editor, domRange)
             }
-            if (kind === 'repair-caret-after-text-insert') {
-              if (shouldReleaseTextInsertSelectionToDOM) {
-                setEditableModelSelectionPreference({
-                  inputController,
-                  preferModelSelection: false,
-                  selectionSource: 'dom-current',
-                })
-              }
+            if (
+              kind === 'repair-caret-after-text-insert' &&
+              shouldReleaseTextInsertSelectionToDOM
+            ) {
+              setEditableModelSelectionPreference({
+                inputController,
+                preferModelSelection: false,
+                selectionSource: 'dom-current',
+              })
               textInsertRepairCompleted = true
             }
             return true
@@ -683,4 +897,6 @@ export const createDOMRepairQueue = ({
       })
     },
   }
+
+  return queue
 }

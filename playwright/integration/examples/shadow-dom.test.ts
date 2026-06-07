@@ -142,6 +142,38 @@ test.describe('shadow-dom example', () => {
     assertNoIllegalKernelTransitions(result)
   })
 
+  test('sets the native caret through slate-browser DOM helpers inside shadow DOM', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+    test.skip(
+      browserName === 'webkit',
+      'WebKit drops programmatic native ranges inside nested shadow DOM'
+    )
+
+    const outerShadow = page.locator('[data-cy="outer-shadow-root"]')
+    const innerShadow = outerShadow.locator('> div')
+    const textbox = innerShadow.getByRole('textbox')
+    const editor = createSlateBrowserEditorHarness(page, 'shadow-dom', textbox)
+    const offset = 4
+    const text = ' DOM'
+
+    await expect(textbox).toHaveCount(1)
+    await editor.dom.collapseAtTextPath({ path: [0, 0], offset })
+    await page.keyboard.type(text, { delay: 0 })
+
+    await expect
+      .poll(() => editor.get.text())
+      .toBe(`This${text} Editor is rendered within a nested Shadow DOM.`)
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: offset + text.length },
+      focus: { path: [0, 0], offset: offset + text.length },
+    })
+  })
+
   test('keeps shadow DOM ArrowLeft movement model-owned inside the shadow root', async ({
     page,
   }, testInfo) => {

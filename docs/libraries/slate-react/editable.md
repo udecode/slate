@@ -332,7 +332,7 @@ effective strategy, degradation mode, native surface completion, boundary count,
 visible DOM count, editable descendant count, custom renderer flag, browser,
 mobile/desktop, IME state, and release version. Virtualized and partial-DOM
 metrics are bounded-surface rows. `staged-warmup` metrics are staged
-materialization rows. Do not mix either bucket with complete DOM-present rows.
+materialization rows. Do not mix either bucket with complete full-DOM rows.
 
 ## DOM Coverage Boundaries
 

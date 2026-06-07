@@ -738,7 +738,7 @@ test('pending native repair selectionchange policy suppresses stale same-path of
       range: samePendingPathSelection,
       selectionChangeOrigin: 'native-user',
     })
-  ).toBe('allow')
+  ).toBe('clear-and-allow')
   expect(
     getPendingNativeTextInputRepairSelectionChangePolicy({
       pendingNativeTextInputRepairDOMOffset: 1,
@@ -748,6 +748,118 @@ test('pending native repair selectionchange policy suppresses stale same-path of
       selectionChangeOrigin: 'native-user',
     })
   ).toBe('suppress')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      activeIntent: 'text-insert',
+      currentSelection: {
+        anchor: { path: [0, 0], offset: 7 },
+        focus: { path: [0, 0], offset: 7 },
+      },
+      pendingNativeTextInputRepairDOMOffset: 6,
+      pendingNativeTextInputRepairOffset: 6,
+      pendingNativeTextInputRepairPathKey: '0,0',
+      range: {
+        anchor: { path: [0, 0], offset: 6 },
+        focus: { path: [0, 0], offset: 6 },
+      },
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('suppress')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      activeIntent: 'text-insert',
+      currentSelection: {
+        anchor: { path: [2500, 0], offset: 1 },
+        focus: { path: [2500, 0], offset: 1 },
+      },
+      domSelectionTextBacked: false,
+      pendingNativeTextInputRepairPathKey: '0,0',
+      range: {
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      },
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('clear-and-allow')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      activeIntent: 'text-insert',
+      currentSelection: {
+        anchor: { path: [2500, 0], offset: 1 },
+        focus: { path: [2500, 0], offset: 1 },
+      },
+      domSelectionTextBacked: false,
+      pendingNativeTextInputRepairPathKey: '0,0',
+      range: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('suppress')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      activeIntent: 'text-insert',
+      currentSelection: {
+        anchor: { path: [0, 0], offset: 7 },
+        focus: { path: [0, 0], offset: 7 },
+      },
+      pendingNativeTextInputRepairDOMOffset: 8,
+      pendingNativeTextInputRepairOffset: 8,
+      pendingNativeTextInputRepairPathKey: '0,0',
+      range: {
+        anchor: { path: [0, 0], offset: 8 },
+        focus: { path: [0, 0], offset: 8 },
+      },
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('clear-and-allow')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      activeIntent: 'text-insert',
+      currentSelection: {
+        anchor: { path: [0, 0], offset: 7 },
+        focus: { path: [0, 0], offset: 7 },
+      },
+      pendingNativeTextInputRepairPathKey: null,
+      range: {
+        anchor: { path: [0, 0], offset: 6 },
+        focus: { path: [0, 0], offset: 6 },
+      },
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('allow')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      activeIntent: 'text-insert',
+      currentSelection: {
+        anchor: { path: [0, 0], offset: 7 },
+        focus: { path: [0, 0], offset: 7 },
+      },
+      pendingNativeTextInputRepairPathKey: null,
+      range: {
+        anchor: { path: [0, 0], offset: 8 },
+        focus: { path: [0, 0], offset: 8 },
+      },
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('allow')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      activeIntent: 'text-insert',
+      currentSelection: {
+        anchor: { path: [2500, 0], offset: 1 },
+        focus: { path: [2500, 0], offset: 1 },
+      },
+      domSelectionTextBacked: false,
+      pendingNativeTextInputRepairPathKey: null,
+      range: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('allow')
   expect(
     getPendingNativeTextInputRepairSelectionChangePolicy({
       pendingNativeTextInputRepairPathKey: '0,0',

@@ -5,6 +5,7 @@ import {
   type Range as VirtualRange,
 } from '@tanstack/react-virtual'
 import React from 'react'
+import { flushSync } from 'react-dom'
 import type { Path, RuntimeId } from 'slate'
 
 import type { MountedTopLevelRange } from './dom-strategy-commands'
@@ -18,15 +19,19 @@ export type DOMStrategyVirtualizedConfig = {
 export type VirtualizedTopLevelItem = {
   index: number
   key: VirtualItem['key']
+  left?: number
   runtimeId: RuntimeId
   size: number
   start: number
+  width?: number
 }
 
 export type VirtualizedTopLevelLayoutItem = {
   index: number
+  left?: number
   size: number
   start: number
+  width?: number
 }
 
 export type VirtualizedPageLayoutItem = {
@@ -54,6 +59,7 @@ const SCROLLABLE_OVERFLOW_PATTERN = /(auto|scroll|overlay)/
 // commits the next virtual range. Keep a bounded row buffer so that one paint
 // behind does not expose a blank editor.
 const TOP_LEVEL_NATIVE_SCROLLBAR_DRAG_OVERSCAN = 96
+const SCROLLBAR_POINTER_HIT_SLOP = 24
 
 const parseCSSPixels = (value: string | null | undefined) => {
   if (!value || value === 'auto' || value === 'none') {
@@ -87,6 +93,24 @@ const getElementViewportHeight = (
   const maxHeight = parseCSSPixels(style?.maxHeight)
 
   return maxHeight > 0 ? maxHeight : fallback
+}
+
+const isVerticalScrollbarPointer = (
+  event: PointerEvent,
+  element: HTMLElement
+) => {
+  const rect = element.getBoundingClientRect()
+  const style = element.ownerDocument.defaultView?.getComputedStyle(element)
+  const borderLeftWidth = parseCSSPixels(style?.borderLeftWidth)
+  const scrollbarWidth = Math.max(0, element.offsetWidth - element.clientWidth)
+  const gutterSize = Math.max(scrollbarWidth, SCROLLBAR_POINTER_HIT_SLOP)
+  const scrollbarOnLeft =
+    element.clientLeft > borderLeftWidth + 1 ||
+    (scrollbarWidth === 0 && style?.direction === 'rtl')
+  const scrollbarStart = scrollbarOnLeft ? rect.left : rect.right - gutterSize
+  const scrollbarEnd = scrollbarOnLeft ? rect.left + gutterSize : rect.right
+
+  return event.clientX >= scrollbarStart && event.clientX <= scrollbarEnd
 }
 
 export const canUseElementAsVirtualizerScrollRoot = (
@@ -375,9 +399,61 @@ export const useVirtualizedRootPlan = ({
     (index: number) => virtualizerSizeByIndex.get(index) ?? estimatedBlockSize,
     [estimatedBlockSize, virtualizerSizeByIndex]
   )
+  const [
+    nativeScrollbarDragOverscanActive,
+    setNativeScrollbarDragOverscanActive,
+  ] = React.useState(false)
+  React.useEffect(() => {
+    if (!scrollElement || hasPageLayoutItems) {
+      return
+    }
+
+    const activateNativeScrollbarDragOverscan = (event: PointerEvent) => {
+      if (!isVerticalScrollbarPointer(event, scrollElement)) {
+        return
+      }
+
+      flushSync(() => {
+        setNativeScrollbarDragOverscanActive(true)
+      })
+    }
+    const deactivateNativeScrollbarDragOverscan = () => {
+      setNativeScrollbarDragOverscanActive(false)
+    }
+
+    scrollElement.addEventListener(
+      'pointerdown',
+      activateNativeScrollbarDragOverscan
+    )
+    scrollElement.ownerDocument.addEventListener(
+      'pointerup',
+      deactivateNativeScrollbarDragOverscan
+    )
+    scrollElement.ownerDocument.addEventListener(
+      'pointercancel',
+      deactivateNativeScrollbarDragOverscan
+    )
+
+    return () => {
+      scrollElement.removeEventListener(
+        'pointerdown',
+        activateNativeScrollbarDragOverscan
+      )
+      scrollElement.ownerDocument.removeEventListener(
+        'pointerup',
+        deactivateNativeScrollbarDragOverscan
+      )
+      scrollElement.ownerDocument.removeEventListener(
+        'pointercancel',
+        deactivateNativeScrollbarDragOverscan
+      )
+    }
+  }, [hasPageLayoutItems, scrollElement])
   const effectiveOverscan = hasPageLayoutItems
     ? configuredOverscan
-    : Math.max(configuredOverscan, TOP_LEVEL_NATIVE_SCROLLBAR_DRAG_OVERSCAN)
+    : nativeScrollbarDragOverscanActive
+      ? Math.max(configuredOverscan, TOP_LEVEL_NATIVE_SCROLLBAR_DRAG_OVERSCAN)
+      : configuredOverscan
   const selectedEndpointIndexes = React.useMemo(
     () =>
       selectionPaths
@@ -487,15 +563,14 @@ export const useVirtualizedRootPlan = ({
         return {
           index,
           key: topLevelRuntimeIds[index] ?? index,
+          left: layoutItem?.left,
           runtimeId: topLevelRuntimeIds[index]!,
-          size:
-            layoutItem?.size ??
-            virtualizerItem?.size ??
-            estimatedBlockSize,
+          size: layoutItem?.size ?? virtualizerItem?.size ?? estimatedBlockSize,
           start:
             layoutItem?.start ??
             virtualizerItem?.start ??
             index * estimatedBlockSize,
+          width: layoutItem?.width,
         }
       })
       .filter((item) => item.runtimeId)
@@ -527,9 +602,11 @@ export const useVirtualizedRootPlan = ({
     virtualItemsByIndex.set(index, {
       index,
       key: runtimeId,
+      left: layoutItem?.left,
       runtimeId,
       size: layoutItem?.size ?? estimatedBlockSize,
       start: layoutItem?.start ?? index * estimatedBlockSize,
+      width: layoutItem?.width,
     })
   }
 

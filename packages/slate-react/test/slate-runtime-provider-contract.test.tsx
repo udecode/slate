@@ -317,7 +317,7 @@ describe('SlateRuntime provider contract', () => {
     expect(headerValues.at(-1)).toBe('header!')
   })
 
-  test('Slate editor legacy value callbacks ignore sibling root edits', async () => {
+  test('Slate editor value callbacks ignore sibling root edits', async () => {
     const editor = createReactEditor({ initialValue: initialValue() })
     let headerEditor!: ReturnType<typeof useSlateRootEditor>
     const onChange = vi.fn()
@@ -347,7 +347,7 @@ describe('SlateRuntime provider contract', () => {
     expect(onValueChange).not.toHaveBeenCalled()
   })
 
-  test('Slate editor legacy selection callbacks ignore sibling root selection and marks', async () => {
+  test('Slate editor selection callbacks ignore sibling root selection and marks', async () => {
     const editor = createReactEditor({ initialValue: initialValue() })
     let headerEditor!: ReturnType<typeof useSlateRootEditor>
     const onChange = vi.fn()
