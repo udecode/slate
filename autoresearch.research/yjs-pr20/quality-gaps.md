@@ -15,7 +15,6 @@
 | Remote cursor rendering is underpowered. | `slate-plan` | React package exposes range hooks only; y-prosemirror and old slate-yjs ship render/decorate helpers. | Plan a first-party React cursor decoration/rendering API with tests for caret, range, data, local-user filtering, blur cleanup, and field names. |
 | Collaboration proof lacks a named release gate. | `slate-ar-gate` | Browser suite has the needed oracles but no single release gate definition. | Gate command bundle: `bun test ./packages/slate-yjs/test`, `bun --filter @slate/yjs typecheck`, and focused Playwright Yjs collaboration greps for reconnect, undo/redo, awareness, and selection. |
 | Operation encoder exhaustiveness is not explicit enough. | `slate-patch` | `applySlateOperationToYjs` covers the current union but has no visible `never` assertion or operation coverage table. | Add failing-first contract, then an exhaustive guard that fails when Slate adds an operation without a Yjs decision. |
-| Public examples are fixture-heavy and not provider-realistic. | `slate-plan` | The current demo hand-rolls local networking and undo group UI for deterministic proof. | Plan a copy-paste provider-backed example separate from the four-peer test matrix. |
 
 ## Rejected Candidates
 

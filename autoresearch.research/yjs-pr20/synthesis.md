@@ -37,14 +37,9 @@ The current package is not a scaffold. It has operation-family contract tests an
    Impact: future operation additions can become an accidental no-op or unreviewed fallback path. This is a correctness guard gap, not a known user bug.
    Route: `slate-patch`.
 
-5. Public examples are fixture-heavy and not provider-realistic.
-   Evidence: the current demo hand-rolls local networking and undo group UI for deterministic proof.
-   Impact: users need a minimal provider-backed example showing `createYjsExtension`, awareness, remote cursor rendering, connection status, reconnect, cleanup, and history keys without the test harness machinery.
-   Route: `slate-plan`.
-
 ## Quality-Gap Translation
 
-The accepted routes are recorded in `quality-gaps.md`: `slate-plan` owns provider lifecycle API, React cursor rendering API, and the provider-backed example; `slate-ar-gate` owns the named release proof bundle; `slate-patch` owns the operation encoder exhaustiveness guard. No `slate-ar-perf` route is accepted in this round because no perf metric or trace implicated Yjs collaboration.
+The accepted routes are recorded in `quality-gaps.md`: `slate-plan` owns provider lifecycle API and React cursor rendering API; `slate-ar-gate` owns the named release proof bundle; `slate-patch` owns the operation encoder exhaustiveness guard. No `slate-ar-perf` route is accepted in this round because no perf metric or trace implicated Yjs collaboration.
 
 ## Confidence And Gaps
 

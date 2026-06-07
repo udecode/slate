@@ -1,7 +1,7 @@
 # Research Tasks: Perfect @slate/yjs collaboration API, DX, correctness, offline/reconnect, undo/redo, awareness, selection, examples, and test coverage; route each accepted gap to slate-patch, slate-plan, slate-ar-gate, or slate-ar-perf.
 
 ## queued
-- Run routed follow-ups: `slate-plan` for provider lifecycle/cursor rendering/provider-backed example.
+- Run routed follow-ups: `slate-plan` for provider lifecycle and cursor rendering.
 - Run routed follow-up: `slate-ar-gate` for named Yjs release proof.
 - Run routed follow-up: `slate-patch` for operation encoder exhaustiveness.
 - Run routed follow-up: `slate-patch` for stable Yjs offline replace Playwright failure.
