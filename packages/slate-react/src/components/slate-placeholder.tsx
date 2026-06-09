@@ -61,7 +61,7 @@ export const getSlatePlaceholderStyle = (
 })
 
 export const SlatePlaceholder = ({
-  as = 'div',
+  as = 'span',
   children,
   dir,
   ref,

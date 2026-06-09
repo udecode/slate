@@ -337,6 +337,46 @@ const getYjsNodeIf = (root: Y.XmlElement, path: number[]) => {
   }
 }
 
+const materializeEmptyYjsText = (
+  root: Y.XmlElement,
+  path: number[]
+): Y.XmlText | null => {
+  const index = path.at(-1)
+
+  if (index !== 0) {
+    return null
+  }
+
+  const parentPath = path.slice(0, -1)
+  const parent = parentPath.length === 0 ? root : getYjsNodeIf(root, parentPath)
+
+  if (!(parent instanceof Y.XmlElement)) {
+    return null
+  }
+  if (getYjsVisibleChildren(root, parent).length > 0) {
+    return null
+  }
+
+  const text = createYjsText('', {})
+
+  insertYjsChild(root, parent, 0, text)
+
+  return text
+}
+
+const getYjsTextForInsert = (root: Y.XmlElement, path: number[]) => {
+  const target = getYjsNodeIf(root, path)
+
+  if (target instanceof Y.XmlText) {
+    return target
+  }
+  if (target) {
+    return target
+  }
+
+  return materializeEmptyYjsText(root, path)
+}
+
 const isEmptyYjsText = (node: Y.XmlElement | Y.XmlText) =>
   node instanceof Y.XmlText && getYjsTextContent(node).length === 0
 
@@ -410,7 +450,7 @@ export const applySlateOperationToYjs = (
 
   switch (operation.type) {
     case 'insert_text': {
-      const text = getYjsNode(root, operation.path)
+      const text = getYjsTextForInsert(root, operation.path)
 
       if (!(text instanceof Y.XmlText)) {
         throw new Error('insert_text target is not a Y.XmlText.')

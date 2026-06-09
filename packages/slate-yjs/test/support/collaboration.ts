@@ -9,12 +9,22 @@ import type {
   YjsAwarenessChange,
   YjsAwarenessLike,
   YjsProviderLike,
+  YjsState,
+  YjsTx,
 } from '../../src/core/types'
 
 export type Peer = {
   cleanup: () => void
   doc: Y.Doc
   editor: ReturnType<typeof createEditor>
+}
+
+type YjsStateView = {
+  yjs: YjsState
+}
+
+type YjsTxView = {
+  yjs: YjsTx
 }
 
 export class FakeAwareness implements YjsAwarenessLike {
@@ -199,11 +209,11 @@ export const getVisibleYjsNodeAt = (
 ): Y.XmlElement | Y.XmlText => getYjsNode(getYjsState(peer).root(), path)
 
 export const getYjsState = (peer: Peer) =>
-  peer.editor.read((state) => (state as any).yjs)
+  peer.editor.read((state) => (state as YjsStateView).yjs)
 
-export const runYjsUpdate = (peer: Peer, fn: (tx: any) => void) => {
+export const runYjsUpdate = (peer: Peer, fn: (tx: YjsTx) => void) => {
   peer.editor.update((tx) => {
-    fn((tx as any).yjs)
+    fn((tx as YjsTxView).yjs)
   })
 }
 
@@ -235,7 +245,7 @@ export const assertNoRootSnapshot = (peer: Peer) => {
 }
 
 export const assertPeerTexts = (peers: Peer[], expected: string[]) => {
-  for (const peer of peers) {
-    assert.deepEqual(getParagraphTexts(peer), expected)
+  for (const [index, peer] of peers.entries()) {
+    assert.deepEqual(getParagraphTexts(peer), expected, `peer ${index}`)
   }
 }

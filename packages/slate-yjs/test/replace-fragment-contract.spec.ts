@@ -1,21 +1,25 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { createEditor, type Descendant, type Operation } from 'slate'
-import { Editor } from 'slate/internal'
-import * as Y from 'yjs'
-
-import { createYjsExtension } from '../src'
-
-type Peer = {
-  doc: Y.Doc
-  editor: ReturnType<typeof createEditor>
-}
+import type { Descendant, Operation } from 'slate'
+import {
+  assertNoRootSnapshot,
+  assertPeerTexts,
+  createSeededYjsPeers,
+  createYjsPeer,
+  getParagraphTexts,
+  getYjsNodeAt,
+  getYjsState,
+  type Peer,
+  runYjsUpdate,
+  syncConnectedPeers,
+} from './support/collaboration'
 
 const clientIds = {
   a: 1,
   b: 2,
   c: 3,
 } as const
+const numericClientIds: Record<string, number> = { ...clientIds }
 
 const paragraph = (text: string): Descendant => ({
   type: 'paragraph',
@@ -35,114 +39,28 @@ const createPeer = (
   clientId: keyof typeof clientIds,
   seedUpdate?: Uint8Array,
   children = initialValue()
-): Peer => {
-  const editor = createEditor()
-
-  Editor.replace(editor, {
+): Peer =>
+  createYjsPeer({
     children,
-    selection: null,
-    marks: null,
+    clientId,
+    numericClientId: clientIds[clientId],
+    seedUpdate,
   })
-
-  const doc = new Y.Doc()
-
-  doc.clientID = clientIds[clientId]
-
-  if (seedUpdate) {
-    Y.applyUpdate(doc, seedUpdate)
-  }
-
-  editor.extend(createYjsExtension({ clientId, doc, rootName: 'slate' }))
-
-  return { doc, editor }
-}
 
 const createPeers = (ids: Array<keyof typeof clientIds>) => {
-  const [firstClientId, ...remainingClientIds] = ids
-
-  if (!firstClientId) {
-    return []
-  }
-
-  const firstPeer = createPeer(firstClientId)
-  const seedUpdate = Y.encodeStateAsUpdate(firstPeer.doc)
-
-  return [
-    firstPeer,
-    ...remainingClientIds.map((clientId) => createPeer(clientId, seedUpdate)),
-  ]
-}
-
-const yjsState = (peer: Peer) => peer.editor.read((state) => (state as any).yjs)
-
-const yjsUpdate = (peer: Peer, fn: (tx: any) => void) => {
-  peer.editor.update((tx) => {
-    fn((tx as any).yjs)
+  return createSeededYjsPeers({
+    children: initialValue(),
+    clientIds: ids,
+    numericClientIds,
   })
 }
 
-const paragraphTexts = (peer: Peer) =>
-  Editor.getSnapshot(peer.editor).children.map((_, index) =>
-    Editor.string(peer.editor, [index])
-  )
-
-const yjsNodeAt = (peer: Peer, path: number[]): Y.XmlElement | Y.XmlText => {
-  let current: Y.XmlElement | Y.XmlText = yjsState(peer).root()
-
-  for (const index of path) {
-    if (current instanceof Y.XmlText) {
-      throw new Error(`Cannot descend into Y.XmlText at ${path.join('.')}`)
-    }
-
-    const child = current
-      .toArray()
-      .filter(
-        (value): value is Y.XmlElement | Y.XmlText =>
-          value instanceof Y.XmlElement || value instanceof Y.XmlText
-      )[index]
-
-    if (!child) {
-      throw new Error(`No Yjs node at ${path.join('.')}`)
-    }
-
-    current = child
-  }
-
-  return current
-}
-
-const assertNoRootSnapshot = (peer: Peer) => {
-  assert.equal(
-    yjsState(peer)
-      .trace()
-      .some((entry: { mode: string }) => entry.mode === 'root-snapshot'),
-    false
-  )
-}
-
-const syncConnected = (peers: Peer[]) => {
-  for (const source of peers) {
-    if (!yjsState(source).connected()) {
-      continue
-    }
-
-    const update = Y.encodeStateAsUpdate(source.doc)
-
-    for (const target of peers) {
-      if (source === target || !yjsState(target).connected()) {
-        continue
-      }
-
-      Y.applyUpdate(target.doc, update, source)
-    }
-  }
-}
-
-const assertAllTexts = (peers: Peer[], expected: string[]) => {
-  for (const peer of peers) {
-    assert.deepEqual(paragraphTexts(peer), expected)
-  }
-}
+const yjsState = getYjsState
+const yjsUpdate = runYjsUpdate
+const paragraphTexts = getParagraphTexts
+const yjsNodeAt = getYjsNodeAt
+const syncConnected = syncConnectedPeers
+const assertAllTexts = assertPeerTexts
 
 const replaceAlphaWithFragment = (peer: Peer) => {
   const operation: Operation = {

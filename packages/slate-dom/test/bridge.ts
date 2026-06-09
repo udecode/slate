@@ -270,6 +270,67 @@ describe('slate-dom bridge', () => {
     })
   })
 
+  it('resolves Slate points by runtime id before stale mounted DOM paths', () => {
+    withDom(({ document }) => {
+      const editor = createEditor({ extensions: [dom()] })
+
+      Editor.replace(editor, {
+        children: [
+          { type: 'paragraph', children: [{ text: 'first' }] },
+          { type: 'paragraph', children: [{ text: 'target' }] },
+        ] satisfies Descendant[],
+      })
+      seedNodeMaps(
+        editor,
+        editor.read((state) =>
+          state.runtime
+            .snapshot()
+            .children.map(
+              (_, index) => state.nodes.get([index])[0] as Descendant
+            )
+        )
+      )
+
+      const root = mountEditorRoot(editor, document)
+      const owner = document.createElement('span')
+      const leaf = document.createElement('span')
+      const string = document.createElement('span')
+      const domText = document.createTextNode('target')
+      const targetRuntimeId = Editor.getRuntimeId(editor, [1, 0])
+
+      expect(targetRuntimeId).toBeTruthy()
+      owner.setAttribute('data-slate-node', 'text')
+      owner.setAttribute('data-slate-path', '0,0')
+      owner.setAttribute('data-slate-runtime-id', targetRuntimeId!)
+      leaf.setAttribute('data-slate-leaf', 'true')
+      string.setAttribute('data-slate-string', 'true')
+
+      string.appendChild(domText)
+      leaf.appendChild(string)
+      owner.appendChild(leaf)
+      root.appendChild(owner)
+
+      editor.update((tx) => {
+        tx.nodes.insert(
+          { type: 'paragraph', children: [{ text: 'inserted' }] } as never,
+          { at: [0] }
+        )
+      })
+
+      expect(Editor.getPathByRuntimeId(editor, targetRuntimeId!)).toEqual([
+        2, 0,
+      ])
+      expect(
+        editor.api.dom.assertSlatePoint([domText, 3], {
+          exactMatch: false,
+        })
+      ).toEqual<Point>({
+        path: [2, 0],
+        offset: 3,
+      })
+    })
+  })
+
   it('does not resolve path-tagged DOM nodes outside the editor', () => {
     withDom(({ document }) => {
       const editor = createParagraphEditor()

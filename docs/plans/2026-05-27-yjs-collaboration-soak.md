@@ -2,15 +2,17 @@
 
 ## Goal
 
-Use `dev-browser` against the local `yjs-collaboration` example to simulate
-normal multi-user collaborative editing for about two hours. Record runtime
-errors, convergence failures, stale presence, and suspicious user-visible state.
+Use the formal Yjs collaboration soak runner against the local
+`yjs-collaboration` example to simulate normal multi-user collaborative
+editing. Record runtime errors, convergence failures, stale presence, and
+suspicious user-visible state.
 
 ## Scope
 
-- Browser: persistent debug Chrome at `http://127.0.0.1:9222`.
+- Browser: Playwright-launched Chromium by default, or persistent debug Chrome
+  when `SOAK_LAUNCH=0`.
 - Target: `http://127.0.0.1:3100/examples/yjs-collaboration`.
-- Duration: about 2 hours.
+- Duration: defaults to 3 hours; override with `SOAK_MS`.
 - Frequency: low-frequency edits so this resembles human collaboration rather
   than a stress fuzzer.
 - No code fixes in this pass.
@@ -26,9 +28,10 @@ errors, convergence failures, stale presence, and suspicious user-visible state.
 
 ## Recording
 
-- Harness script: `.tmp/yjs-collab-soak/soak-runner.mjs`
-- Log: `.tmp/yjs-collab-soak/soak.log`
-- Summary: `.tmp/yjs-collab-soak/summary.json`
+- Command: `bun test:yjs-collaboration-soak`
+- Harness script: `scripts/proof/yjs-collaboration-soak.mjs`
+- Log: `test-results/yjs-collaboration-soak/<run_id>/events.jsonl`
+- Summary: `test-results/yjs-collaboration-soak/<run_id>/summary.md`
 
 ## Status
 

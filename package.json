@@ -71,6 +71,7 @@
     "test:mobile-device-proof": "bun ./scripts/proof/mobile-device-proof.mjs",
     "test:mobile-device-proof:raw": "SLATE_BROWSER_RAW_MOBILE_REQUIRED=1 bun ./scripts/proof/mobile-device-proof.mjs",
     "test:persistent-soak": "bun build:next && bun ./scripts/proof/persistent-browser-soak.mjs",
+    "test:yjs-collaboration-soak": "bun ./scripts/proof/yjs-collaboration-soak.mjs",
     "test:release-discipline": "bun test ./packages/slate/test/public-surface-contract.ts ./packages/slate/test/public-field-hard-cut-contract.ts ./packages/slate/test/escape-hatch-inventory-contract.ts ./packages/slate/test/write-boundary-contract.ts ./packages/slate/test/leaf-lifecycle-contract.ts ./packages/slate/test/selection-rebase-contract.ts ./packages/slate/test/compat-alias-hard-cut-contract.ts ./packages/slate/test/migration-backbone-contract.ts ./packages/slate/test/core-benchmark-scripts-contract.ts ./packages/slate/test/release-scripts-contract.ts ./packages/slate-react/test/rendered-dom-shape-contract.tsx --bail 1",
     "test:release-proof": "bun test:release-discipline && bun --filter slate-browser test:proof && bun test:mobile-device-proof && bun test:persistent-soak",
     "test:slate-browser": "bun --filter slate-browser test",

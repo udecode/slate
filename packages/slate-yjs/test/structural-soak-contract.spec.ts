@@ -32,6 +32,13 @@ const appendTexts: Record<PeerId, string> = {
   d: ' Eve',
 }
 
+const replacementTexts: Record<PeerId, string> = {
+  a: 'Ada canonical snapshot.',
+  b: 'Lin canonical snapshot.',
+  c: 'Ken canonical snapshot.',
+  d: 'Eve canonical snapshot.',
+}
+
 const paragraph = (text: string): Descendant => ({
   children: [{ text }],
   type: 'paragraph',
@@ -205,6 +212,91 @@ const assertNoNestedParagraphs = (peers: readonly Peer[]) => {
   }
 }
 
+const hasElementDescendantInsideParagraph = (
+  node: Descendant,
+  insideParagraph = false
+): boolean => {
+  if (!hasChildren(node)) {
+    return false
+  }
+
+  if (insideParagraph) {
+    return true
+  }
+
+  const isParagraph = 'type' in node && node.type === 'paragraph'
+
+  return node.children.some((child) =>
+    hasElementDescendantInsideParagraph(child, isParagraph)
+  )
+}
+
+const assertNoElementDescendantsInsideParagraphs = (peers: readonly Peer[]) => {
+  for (const peer of peers) {
+    const value = editorValueOf(peer)
+    const yjsValue = readSlateValueFromYjs(getYjsState(peer).root())
+
+    assert.equal(
+      value.some((node) => hasElementDescendantInsideParagraph(node)),
+      false,
+      JSON.stringify(value)
+    )
+    assert.equal(
+      yjsValue.some((node) => hasElementDescendantInsideParagraph(node)),
+      false,
+      JSON.stringify(yjsValue)
+    )
+  }
+}
+
+const getNodeAtPath = (
+  children: readonly Descendant[],
+  path: readonly number[]
+): Descendant | null => {
+  let current: { children: readonly Descendant[] } | Descendant = { children }
+
+  for (const index of path) {
+    if (!hasChildren(current)) {
+      return null
+    }
+
+    const child = current.children[index]
+
+    if (!child) {
+      return null
+    }
+
+    current = child
+  }
+
+  return current as Descendant
+}
+
+const assertSelectionsTargetText = (peers: readonly Peer[]) => {
+  for (const peer of peers) {
+    const selection = peer.editor.read((state) => state.selection.get()) as {
+      anchor: { path: number[] }
+      focus: { path: number[] }
+    } | null
+
+    if (!selection) {
+      continue
+    }
+
+    const value = editorValueOf(peer)
+
+    for (const point of [selection.anchor, selection.focus]) {
+      const node = getNodeAtPath(value, point.path)
+
+      assert.equal(
+        !!node && isText(node),
+        true,
+        JSON.stringify({ selection, value })
+      )
+    }
+  }
+}
+
 const sync = (peers: Record<PeerId, Peer>) => {
   const peerList = allPeers(peers)
 
@@ -323,6 +415,29 @@ const removeSecondBlock = (peer: Peer) => {
   })
 }
 
+const replaceDocument = (peer: Peer, peerId: PeerId) => {
+  const children = editorValueOf(peer)
+  const text = replacementTexts[peerId]
+
+  peer.editor.update((tx) => {
+    tx.operations.replay([
+      {
+        children,
+        index: 0,
+        newChildren: [paragraph(text)],
+        newSelection: {
+          anchor: { path: [0, 0], offset: text.length },
+          focus: { path: [0, 0], offset: text.length },
+        },
+        path: [],
+        root: 'main',
+        selection: null,
+        type: 'replace_children',
+      },
+    ])
+  })
+}
+
 const wrapFirstBlock = (peer: Peer) => {
   peer.editor.update((tx) => {
     tx.selection.clear()
@@ -396,6 +511,22 @@ const deleteFirstFragment = (peer: Peer) => {
       focus: { path: entry.path, offset: length },
     })
     tx.fragment.delete()
+  })
+}
+
+const deleteBackwardFromFirstBlockEnd = (peer: Peer) => {
+  const entry = firstBlockTextEntry(peer, 'last')
+
+  if (!entry || entry.text.length === 0) {
+    return
+  }
+
+  peer.editor.update((tx) => {
+    tx.selection.set({
+      anchor: { path: entry.path, offset: entry.text.length },
+      focus: { path: entry.path, offset: entry.text.length },
+    })
+    tx.text.deleteBackward({ unit: 'character' })
   })
 }
 
@@ -494,6 +625,172 @@ describe('@slate/yjs structural soak contract', () => {
     setConnected(peers, 'd', true)
 
     assertPeerParagraphTexts(allPeers(peers), ['Hello wo'])
+  })
+
+  it('keeps structural edits from projecting block placeholders inside paragraphs', () => {
+    const peers = createAwarePeers()
+
+    runCommand(peers, 'a', splitFirstText)
+    runCommand(peers, 'c', deleteFirstFragment)
+    runCommand(peers, 'c', (peer) => {
+      peer.editor.update((tx) => {
+        tx.nodes.set({ role: 'title' } as never, { at: [0] })
+      })
+    })
+    reconcilePeer(peers.d)
+    runCommand(peers, 'd', deleteBackwardFromFirstBlockEnd)
+    setConnected(peers, 'a', true)
+    runCommand(peers, 'c', removeSecondBlock)
+
+    assertNoElementDescendantsInsideParagraphs(allPeers(peers))
+    assertSelectionsTargetText(allPeers(peers))
+  })
+
+  it('keeps random-control seed 85 from missing Yjs nodes', () => {
+    const peers = createAwarePeers()
+
+    runCommand(peers, 'b', reconcilePeer)
+    runCommand(peers, 'a', moveFirstBlockDown)
+    runCommand(peers, 'a', mergeSecondBlock)
+    runCommand(peers, 'd', replaceDocument)
+    runCommand(peers, 'c', moveFirstBlockAfterSecond)
+    setConnected(peers, 'b', true)
+    runCommand(peers, 'c', moveFirstBlockDown)
+    runCommand(peers, 'b', splitFirstText)
+    runCommand(peers, 'c', unsetFirstBlockRole)
+
+    assert.doesNotThrow(() => {
+      runCommand(peers, 'd', appendText)
+    })
+    assertNoElementDescendantsInsideParagraphs(allPeers(peers))
+    assertSelectionsTargetText(allPeers(peers))
+  })
+
+  it('keeps offline structural mix seed 108 from nesting paragraphs', () => {
+    const peers = createAwarePeers()
+
+    setConnected(peers, 'b', false)
+    runCommand(peers, 'b', wrapFirstBlock)
+    runCommand(peers, 'd', wrapFirstBlock)
+    runCommand(peers, 'b', moveFirstBlockDown)
+    runCommand(peers, 'c', deleteBackwardFromFirstBlockEnd)
+    runCommand(peers, 'b', unsetFirstBlockRole)
+    runCommand(peers, 'c', liftFirstWrappedBlock)
+    runCommand(peers, 'b', mergeSecondBlock)
+    runCommand(peers, 'd', insertExclamation)
+
+    assertNoElementDescendantsInsideParagraphs(allPeers(peers))
+    assertSelectionsTargetText(allPeers(peers))
+  })
+
+  it('keeps structural mix seed 42 selections on text leaves', () => {
+    const peers = createAwarePeers()
+
+    setConnected(peers, 'b', false)
+    runCommand(peers, 'b', wrapFirstBlock)
+    runCommand(peers, 'c', splitFirstText)
+    runCommand(peers, 'b', moveFirstBlockDown)
+
+    assertNoElementDescendantsInsideParagraphs(allPeers(peers))
+    assertSelectionsTargetText(allPeers(peers))
+  })
+
+  it('keeps random-control seed 42 disconnected remove selections on text leaves', () => {
+    const peers = createAwarePeers()
+
+    runCommand(peers, 'b', insertExclamation)
+    runCommand(peers, 'c', wrapFirstBlock)
+    runCommand(peers, 'b', appendText)
+    runCommand(peers, 'b', splitFirstText)
+    reconcilePeer(peers.d)
+    runCommand(peers, 'd', moveFirstBlockAfterSecond)
+    runCommand(peers, 'c', removeSecondBlock)
+    runCommand(peers, 'c', insertExclamation)
+    setConnected(peers, 'a', true)
+    setConnected(peers, 'd', false)
+    runCommand(peers, 'c', mergeSecondBlock)
+    runCommand(peers, 'c', unwrapFirstBlock)
+    runCommand(peers, 'd', removeSecondBlock)
+
+    assertNoElementDescendantsInsideParagraphs(allPeers(peers))
+    assertSelectionsTargetText(allPeers(peers))
+  })
+
+  it('keeps structural mix seed 43 selections on text leaves', () => {
+    const peers = createAwarePeers()
+
+    setConnected(peers, 'b', false)
+    runCommand(peers, 'b', (peer, peerId) => {
+      const entry = firstBlockTextEntry(peer, 'last')
+
+      if (!entry) {
+        return
+      }
+
+      peer.editor.update((tx) => {
+        tx.selection.set({
+          anchor: { path: entry.path, offset: entry.text.length },
+          focus: { path: entry.path, offset: entry.text.length },
+        })
+        tx.fragment.insert([{ text: `${peerId} fragment` }])
+      })
+    })
+    runCommand(peers, 'a', splitFirstText)
+    runCommand(peers, 'b', wrapFirstBlock)
+    runCommand(peers, 'd', liftFirstWrappedBlock)
+    runCommand(peers, 'b', wrapFirstBlock)
+    runCommand(peers, 'c', appendText)
+    runCommand(peers, 'b', moveFirstBlockDown)
+
+    assertNoElementDescendantsInsideParagraphs(allPeers(peers))
+    assertSelectionsTargetText(allPeers(peers))
+  })
+
+  it('keeps structural mix seed 46 selections on text leaves', () => {
+    const peers = createAwarePeers()
+
+    setConnected(peers, 'b', false)
+    runCommand(peers, 'b', (peer) => {
+      peer.editor.update((tx) => {
+        tx.nodes.set({ role: 'title' } as never, { at: [0] })
+      })
+    })
+    runCommand(peers, 'a', mergeSecondBlock)
+    runCommand(peers, 'b', wrapFirstBlock)
+    runCommand(peers, 'a', insertExclamation)
+    runCommand(peers, 'b', mergeSecondBlock)
+
+    assertNoElementDescendantsInsideParagraphs(allPeers(peers))
+    assertSelectionsTargetText(allPeers(peers))
+  })
+
+  it('keeps structural mix seed 49 selections on text leaves', () => {
+    const peers = createAwarePeers()
+
+    setConnected(peers, 'b', false)
+    runCommand(peers, 'b', mergeSecondBlock)
+    runCommand(peers, 'c', moveFirstBlockAfterSecond)
+    runCommand(peers, 'b', wrapFirstBlock)
+    runCommand(peers, 'a', moveFirstBlockAfterSecond)
+    runCommand(peers, 'b', unsetFirstBlockRole)
+
+    assertNoElementDescendantsInsideParagraphs(allPeers(peers))
+    assertSelectionsTargetText(allPeers(peers))
+  })
+
+  it('keeps structural mix seed 55 selections on text leaves', () => {
+    const peers = createAwarePeers()
+
+    setConnected(peers, 'b', false)
+    runCommand(peers, 'b', wrapFirstBlock)
+    runCommand(peers, 'a', moveFirstBlockAfterSecond)
+    runCommand(peers, 'b', wrapFirstBlock)
+    runCommand(peers, 'a', insertExclamation)
+    runCommand(peers, 'b', mergeSecondBlock)
+    runCommand(peers, 'c', mergeSecondBlock)
+
+    assertNoElementDescendantsInsideParagraphs(allPeers(peers))
+    assertSelectionsTargetText(allPeers(peers))
   })
 
   it('elides stale move_node source paths after concurrent structural removal', () => {

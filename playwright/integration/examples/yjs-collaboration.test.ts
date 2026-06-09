@@ -103,6 +103,14 @@ const expectNoPeerNestedParagraphs = async (page: Page) => {
   }
 }
 
+const expectNoPeerInvalidParagraphDescendants = async (page: Page) => {
+  for (const peer of ['a', 'b', 'c', 'd'] as const) {
+    await expect(
+      peerTextbox(page, peer).locator('p p, p div, p blockquote')
+    ).toHaveCount(0)
+  }
+}
+
 const watchStructuralBrowserErrors = (page: Page) => {
   const errors: string[] = []
 
@@ -1531,6 +1539,125 @@ test.describe('yjs collaboration example', () => {
     expect(errors).toEqual([])
   })
 
+  test('keeps structural edits from rendering placeholder divs inside paragraphs', async ({
+    page,
+  }) => {
+    const errors = watchStructuralBrowserErrors(page)
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await runPeerActions(
+      page,
+      [
+        ['a', 'split-node'],
+        ['c', 'delete-fragment'],
+        ['c', 'set-node'],
+        ['d', 'reconcile'],
+        ['c', 'redo'],
+        ['d', 'delete-backward'],
+        ['a', 'connect'],
+        ['c', 'remove-node'],
+      ],
+      { errors }
+    )
+
+    await expectAllPeerTextboxesAlive(page)
+    await expectNoPeerInvalidParagraphDescendants(page)
+    expect(errors).toEqual([])
+  })
+
+  test('keeps random-control seed 85 from missing Yjs nodes', async ({
+    page,
+  }) => {
+    const errors = watchStructuralBrowserErrors(page)
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await runPeerActions(
+      page,
+      [
+        ['b', 'reconcile'],
+        ['a', 'move-down'],
+        ['a', 'merge-node'],
+        ['d', 'replace'],
+        ['c', 'move'],
+        ['b', 'connect'],
+        ['c', 'move-down'],
+        ['b', 'split-node'],
+        ['c', 'unset-node'],
+        ['d', 'append'],
+      ],
+      { errors }
+    )
+
+    await expectAllPeerTextboxesAlive(page)
+    await expectNoPeerInvalidParagraphDescendants(page)
+    expect(errors).toEqual([])
+  })
+
+  test('keeps offline structural mix seed 108 from nesting paragraphs', async ({
+    page,
+  }) => {
+    const errors = watchStructuralBrowserErrors(page)
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await runPeerActions(
+      page,
+      [
+        ['b', 'disconnect'],
+        ['b', 'wrap-node'],
+        ['d', 'wrap-node'],
+        ['b', 'move-down'],
+        ['c', 'delete-backward'],
+        ['b', 'unset-node'],
+        ['c', 'lift'],
+        ['b', 'merge-node'],
+        ['d', 'insert-text'],
+      ],
+      { errors }
+    )
+
+    await expectAllPeerTextboxesAlive(page)
+    await expectNoPeerInvalidParagraphDescendants(page)
+    expect(errors).toEqual([])
+  })
+
+  test('keeps structural mix seed 42 from leaf-path crashes', async ({
+    page,
+  }) => {
+    const errors = watchStructuralBrowserErrors(page)
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await runPeerActions(
+      page,
+      [
+        ['b', 'disconnect'],
+        ['b', 'wrap-node'],
+        ['c', 'split-node'],
+        ['b', 'move-down'],
+      ],
+      { errors }
+    )
+
+    await expectAllPeerTextboxesAlive(page)
+    await expectNoPeerInvalidParagraphDescendants(page)
+    expect(errors).toEqual([])
+  })
+
   test('keeps offline structural mix seed 16 from losing root text boundaries', async ({
     page,
   }) => {
@@ -1642,6 +1769,7 @@ test.describe('yjs collaboration example', () => {
         ['d', 'disconnect'],
         ['c', 'merge-node'],
         ['c', 'unwrap'],
+        ['d', 'remove-node'],
       ],
       { errors }
     )
@@ -1658,6 +1786,121 @@ test.describe('yjs collaboration example', () => {
       .toEqual(['Hello world!! Lin!'])
     await runPeerActions(page, [['d', 'connect']], { errors })
     await expectAllPeerTopLevelBlockTexts(page, ['Hello wo'])
+    expect(errors).toEqual([])
+  })
+
+  test('keeps structural mix seed 43 from leaf-path crashes', async ({
+    page,
+  }) => {
+    const errors = watchStructuralBrowserErrors(page)
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await runPeerActions(
+      page,
+      [
+        ['b', 'disconnect'],
+        ['b', 'insert-fragment'],
+        ['a', 'split-node'],
+        ['b', 'wrap-node'],
+        ['d', 'lift'],
+        ['b', 'wrap-node'],
+        ['c', 'append'],
+        ['b', 'move-down'],
+      ],
+      { errors }
+    )
+
+    await expectAllPeerTextboxesAlive(page)
+    await expectNoPeerInvalidParagraphDescendants(page)
+    expect(errors).toEqual([])
+  })
+
+  test('keeps structural mix seed 46 from leaf-path crashes', async ({
+    page,
+  }) => {
+    const errors = watchStructuralBrowserErrors(page)
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await runPeerActions(
+      page,
+      [
+        ['b', 'disconnect'],
+        ['b', 'set-node'],
+        ['a', 'merge-node'],
+        ['b', 'wrap-node'],
+        ['a', 'insert-text'],
+        ['b', 'merge-node'],
+      ],
+      { errors }
+    )
+
+    await expectAllPeerTextboxesAlive(page)
+    await expectNoPeerInvalidParagraphDescendants(page)
+    expect(errors).toEqual([])
+  })
+
+  test('keeps structural mix seed 49 from leaf-path crashes', async ({
+    page,
+  }) => {
+    const errors = watchStructuralBrowserErrors(page)
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await runPeerActions(
+      page,
+      [
+        ['b', 'disconnect'],
+        ['b', 'merge-node'],
+        ['c', 'move'],
+        ['b', 'wrap-node'],
+        ['a', 'move'],
+        ['b', 'unset-node'],
+      ],
+      { errors }
+    )
+
+    await expectAllPeerTextboxesAlive(page)
+    await expectNoPeerInvalidParagraphDescendants(page)
+    expect(errors).toEqual([])
+  })
+
+  test('keeps structural mix seed 55 block quote from leaf-path crashes', async ({
+    page,
+  }) => {
+    const errors = watchStructuralBrowserErrors(page)
+
+    await openExample(page, 'yjs-collaboration', {
+      ready: { editor: 'visible' },
+      surface: { scope: '#yjs-peer-a-editor-surface' },
+    })
+
+    await runPeerActions(
+      page,
+      [
+        ['b', 'disconnect'],
+        ['b', 'wrap-node'],
+        ['a', 'move'],
+        ['b', 'wrap-node'],
+        ['a', 'insert-text'],
+        ['b', 'merge-node'],
+        ['c', 'merge-node'],
+      ],
+      { errors }
+    )
+
+    await expectAllPeerTextboxesAlive(page)
+    await expectNoPeerInvalidParagraphDescendants(page)
     expect(errors).toEqual([])
   })
 

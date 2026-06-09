@@ -5,7 +5,6 @@ import type {
   EditorSnapshot,
   Element,
   Operation,
-  Path,
   Range,
 } from 'slate'
 import { createEditor, NodeApi, OperationApi } from 'slate'
@@ -22,24 +21,47 @@ import {
   getYjsNode,
   getYjsParent,
   getYjsTextContent,
-  getYjsVisibleChildren,
   readSlateValueFromYjs,
   removeYjsChild,
   replaceYjsChildren,
   SPLIT_UNDO_TEXT_ATTRIBUTE,
 } from './document'
 import {
+  removeRejectedYjsOperationsFromHistory,
+  removeRejectedYjsOperationsFromHistoryAfterCommit,
+} from './history'
+import {
   applySlateOperationToYjs,
   isNoopSlateOperationForYjs,
 } from './operations'
+import {
+  connectedFromYjsProviderStatus,
+  isPromiseLike,
+  normalizeYjsProviderStatus,
+  normalizeYjsProviderSynced,
+  readYjsProviderStatus,
+  readYjsProviderSynced,
+} from './provider'
+import {
+  appendElementText,
+  clearSplitUndoTextAttribute,
+  findSplitUndoTextRepairs,
+  getTrailingSplitUndoText,
+  getVisibleText,
+  getYjsNodeIf,
+  isSplitHistory,
+  nextPath,
+  type PendingTextSplitHistory,
+  pathsEqual,
+  SPLIT_HISTORY_META,
+  type SplitHistory,
+} from './split-history'
 import type {
   YjsAwarenessChange,
   YjsAwarenessLike,
   YjsExtensionOptions,
   YjsProviderLike,
   YjsProviderStatus,
-  YjsProviderStatusPayload,
-  YjsProviderSyncedPayload,
   YjsRemoteCursor,
   YjsState,
   YjsTraceEntry,
@@ -49,98 +71,6 @@ import {
   createYjsUndoManagerAdapter,
   type YjsUndoManagerStackItem,
 } from './undo-manager-adapter'
-
-type SplitHistory = {
-  absorbedRemoteSplit?: boolean
-  elementPath: Path
-  elementPosition: number
-  elementProperties: Record<string, unknown>
-  rightText: string
-  textPath: Path
-  textProperties: Record<string, unknown>
-  undoneWhileDisconnected?: boolean
-}
-
-type PendingTextSplitHistory = Omit<
-  SplitHistory,
-  'elementPosition' | 'elementProperties'
->
-
-type HistoryBatchLike = {
-  operations?: Operation[]
-  statePatches?: unknown[]
-}
-
-type HistoryLike = {
-  redos?: HistoryBatchLike[]
-  undos?: HistoryBatchLike[]
-}
-
-const SPLIT_HISTORY_META = 'slate-yjs:split-history'
-
-const operationsEqual = (a: Operation, b: Operation | undefined) =>
-  !!b && JSON.stringify(a) === JSON.stringify(b)
-
-const normalizeProviderStatus = (
-  value: YjsProviderStatusPayload | unknown
-): YjsProviderStatus | null => {
-  if (typeof value === 'string') {
-    return value
-  }
-
-  if (
-    value &&
-    typeof value === 'object' &&
-    'status' in value &&
-    typeof value.status === 'string'
-  ) {
-    return value.status
-  }
-
-  return null
-}
-
-const normalizeProviderSynced = (
-  value: YjsProviderSyncedPayload | unknown
-): boolean | null => {
-  if (typeof value === 'boolean') {
-    return value
-  }
-
-  if (
-    value &&
-    typeof value === 'object' &&
-    'state' in value &&
-    typeof value.state === 'boolean'
-  ) {
-    return value.state
-  }
-
-  if (
-    value &&
-    typeof value === 'object' &&
-    'synced' in value &&
-    typeof value.synced === 'boolean'
-  ) {
-    return value.synced
-  }
-
-  return null
-}
-
-const readProviderStatus = (provider: YjsProviderLike | undefined) =>
-  normalizeProviderStatus(provider?.status)
-
-const readProviderSynced = (provider: YjsProviderLike | undefined) =>
-  normalizeProviderSynced(provider?.synced)
-
-const isPromiseLike = (value: unknown): value is PromiseLike<unknown> =>
-  Boolean(
-    value &&
-      (typeof value === 'object' || typeof value === 'function') &&
-      'then' in value &&
-      typeof value.then === 'function'
-  )
 
 const remoteImportOptions = {
   metadata: {
@@ -206,9 +136,9 @@ export class YjsController {
     this.awarenessSelectionField =
       options.awarenessSelectionField ?? 'selection'
     this.autoSendSelection = options.autoSendSelection ?? true
-    this.providerStatusValue = readProviderStatus(this.provider)
-    this.providerSyncedValue = readProviderSynced(this.provider)
-    this.connected = this.connectedFromProviderStatus(
+    this.providerStatusValue = readYjsProviderStatus(this.provider)
+    this.providerSyncedValue = readYjsProviderSynced(this.provider)
+    this.connected = connectedFromYjsProviderStatus(
       this.providerStatusValue,
       this.connected
     )
@@ -216,7 +146,7 @@ export class YjsController {
       this.updateAwarenessRevision()
     }
     this.providerStatusObserver = (payload) => {
-      const status = normalizeProviderStatus(payload)
+      const status = normalizeYjsProviderStatus(payload)
 
       if (status) {
         this.updateProviderStatus(status)
@@ -224,7 +154,8 @@ export class YjsController {
     }
     this.providerSyncedObserver = (payload) => {
       const synced =
-        normalizeProviderSynced(payload) ?? readProviderSynced(this.provider)
+        normalizeYjsProviderSynced(payload) ??
+        readYjsProviderSynced(this.provider)
 
       if (synced !== null) {
         this.updateProviderSynced(synced)
@@ -313,13 +244,13 @@ export class YjsController {
     }
 
     if (this.shouldRejectUnsafeProviderCommit()) {
-      this.removeRejectedOperationsFromHistory(operations)
+      removeRejectedYjsOperationsFromHistory(this.editor, operations)
       this.replaceEditorValue(
         this.readChildrenBeforeOperations(operations),
         commit.selectionBefore as Range | null
       )
-      this.removeRejectedOperationsFromHistory(operations)
-      this.removeRejectedOperationsFromHistoryAfterCommit(operations)
+      removeRejectedYjsOperationsFromHistory(this.editor, operations)
+      removeRejectedYjsOperationsFromHistoryAfterCommit(this.editor, operations)
 
       return
     }
@@ -328,15 +259,35 @@ export class YjsController {
     }
 
     const splitHistory = this.createSplitHistory(operations)
+    const rejectedLocalOperations: Operation[] = []
 
     this.undoManager.stopCapturing()
     this.doc.transact(() => {
       for (const operation of operations) {
-        this.applyOperation(operation)
+        const trace = this.applyOperation(operation)
+
+        if (this.shouldImportAfterLocalFallback(trace)) {
+          rejectedLocalOperations.push(operation)
+        }
       }
     }, this.localOrigin)
     this.storeSplitHistory(splitHistory)
     this.undoManager.stopCapturing()
+
+    if (rejectedLocalOperations.length > 0) {
+      this.replaceEditorValue(
+        readSlateValueFromYjs(this.root),
+        snapshot.selection
+      )
+      removeRejectedYjsOperationsFromHistory(
+        this.editor,
+        rejectedLocalOperations
+      )
+      removeRejectedYjsOperationsFromHistoryAfterCommit(
+        this.editor,
+        rejectedLocalOperations
+      )
+    }
 
     if (shouldSendSelection) {
       this.sendSelection(snapshot.selection)
@@ -463,28 +414,13 @@ export class YjsController {
   }
 
   private updateConnectedFromProviderStatus(status: YjsProviderStatus) {
-    const connected = this.connectedFromProviderStatus(status, this.connected)
+    const connected = connectedFromYjsProviderStatus(status, this.connected)
 
     this.setConnected(connected)
   }
 
-  private connectedFromProviderStatus(
-    status: YjsProviderStatus | null,
-    fallback: boolean
-  ) {
-    if (status === 'connected') {
-      return true
-    }
-
-    if (status === 'connecting' || status === 'disconnected') {
-      return false
-    }
-
-    return fallback
-  }
-
   private syncProviderLifecycleStatus(fallbackConnected: boolean) {
-    const status = readProviderStatus(this.provider)
+    const status = readYjsProviderStatus(this.provider)
 
     if (status) {
       if (!fallbackConnected && status === 'connected') {
@@ -588,89 +524,6 @@ export class YjsController {
     }
 
     this.importFromYjs()
-  }
-
-  private removeRejectedOperationsFromHistory(
-    operations: readonly Operation[]
-  ) {
-    const history = this.readHistory()
-
-    if (!history) {
-      return
-    }
-
-    this.removeRejectedOperationsFromHistoryStack(history.undos, operations)
-    this.removeRejectedOperationsFromHistoryStack(history.redos, operations)
-  }
-
-  private removeRejectedOperationsFromHistoryAfterCommit(
-    operations: readonly Operation[]
-  ) {
-    const remove = () => {
-      this.removeRejectedOperationsFromHistory(operations)
-    }
-
-    if (typeof queueMicrotask === 'function') {
-      queueMicrotask(remove)
-    } else {
-      void Promise.resolve().then(remove)
-    }
-  }
-
-  private readHistory(): HistoryLike | null {
-    return this.editor.read((state) => {
-      const history = (state as any).history
-
-      if (!history) {
-        return null
-      }
-
-      return {
-        redos: history.redos?.(),
-        undos: history.undos?.(),
-      }
-    })
-  }
-
-  private removeRejectedOperationsFromHistoryStack(
-    stack: HistoryBatchLike[] | undefined,
-    operations: readonly Operation[]
-  ) {
-    if (!stack || operations.length === 0) {
-      return
-    }
-
-    for (let batchIndex = stack.length - 1; batchIndex >= 0; batchIndex -= 1) {
-      const batch = stack[batchIndex]
-      const batchOperations = batch?.operations
-
-      if (!Array.isArray(batchOperations)) {
-        throw new Error('Cannot remove rejected Yjs operations from history.')
-      }
-
-      if (batchOperations.length < operations.length) {
-        continue
-      }
-
-      const start = batchOperations.length - operations.length
-
-      if (
-        operations.every((operation, index) =>
-          operationsEqual(operation, batchOperations[start + index])
-        )
-      ) {
-        batchOperations.splice(start, operations.length)
-
-        if (
-          batchOperations.length === 0 &&
-          (batch.statePatches?.length ?? 0) === 0
-        ) {
-          stack.splice(batchIndex, 1)
-        }
-
-        return
-      }
-    }
   }
 
   private shouldDeferProviderSeed() {
@@ -889,7 +742,7 @@ export class YjsController {
     const trace = applySlateOperationToYjs(this.root, operation)
 
     if (!trace) {
-      return
+      return null
     }
 
     this.traceEntries.push(trace)
@@ -897,6 +750,15 @@ export class YjsController {
     if (trace.mode === 'unsupported') {
       throw new Error(`Unsupported Yjs operation: ${operation.type}`)
     }
+
+    return trace
+  }
+
+  private shouldImportAfterLocalFallback(trace: YjsTraceEntry | null) {
+    return (
+      trace?.mode === 'traceable-fallback' &&
+      trace.fallback === 'incompatible-structural-merge-elided'
+    )
   }
 
   private createSplitHistory(
@@ -1249,187 +1111,3 @@ export class YjsController {
     }
   }
 }
-
-const appendTextContent = (
-  target: Y.XmlText,
-  source: Y.XmlText,
-  extraAttributes: Record<string, unknown> = {}
-) => {
-  let offset = getYjsLength(target)
-  let insertedText = ''
-
-  for (const delta of source.toDelta()) {
-    if (typeof delta.insert !== 'string' || delta.insert.length === 0) {
-      continue
-    }
-
-    target.insert(offset, delta.insert, {
-      ...(delta.attributes ?? {}),
-      ...extraAttributes,
-    })
-    offset += delta.insert.length
-    insertedText += delta.insert
-  }
-
-  return insertedText
-}
-
-const appendElementText = (
-  root: Y.XmlElement,
-  target: Y.XmlText,
-  element: Y.XmlElement,
-  extraAttributes: Record<string, unknown> = {}
-) => {
-  let insertedText = ''
-
-  for (const child of getYjsVisibleChildren(root, element)) {
-    if (child instanceof Y.XmlText) {
-      insertedText += appendTextContent(target, child, extraAttributes)
-    } else {
-      insertedText += appendElementText(root, target, child, extraAttributes)
-    }
-  }
-
-  return insertedText
-}
-
-const findLastVisibleText = (
-  root: Y.XmlElement,
-  node: Y.XmlElement | Y.XmlText
-): Y.XmlText | null => {
-  if (node instanceof Y.XmlText) {
-    return node
-  }
-
-  const children = getYjsVisibleChildren(root, node)
-
-  for (let index = children.length - 1; index >= 0; index--) {
-    const child = children[index]
-    const text = child ? findLastVisibleText(root, child) : null
-
-    if (text) {
-      return text
-    }
-  }
-
-  return null
-}
-
-const getTrailingSplitUndoText = (text: Y.XmlText) => {
-  let offset = getYjsLength(text)
-  let value = ''
-
-  for (const delta of [...text.toDelta()].reverse()) {
-    if (typeof delta.insert !== 'string' || delta.insert.length === 0) {
-      return value ? { length: value.length, offset, value } : null
-    }
-
-    if (delta.attributes?.[SPLIT_UNDO_TEXT_ATTRIBUTE] === true) {
-      offset -= delta.insert.length
-      value = delta.insert + value
-      continue
-    }
-
-    break
-  }
-
-  return value ? { length: value.length, offset, value } : null
-}
-
-const clearSplitUndoTextAttribute = (
-  text: Y.XmlText,
-  offset: number,
-  length: number
-) => {
-  text.format(offset, length, {
-    [SPLIT_UNDO_TEXT_ATTRIBUTE]: null,
-  } as unknown as Record<string, never>)
-}
-
-const getVisibleText = (
-  root: Y.XmlElement,
-  node: Y.XmlElement | Y.XmlText
-): string => {
-  if (node instanceof Y.XmlText) {
-    return getYjsTextContent(node)
-  }
-
-  return getYjsVisibleChildren(root, node)
-    .map((child) => getVisibleText(root, child))
-    .join('')
-}
-
-const findSplitUndoTextRepairs = (root: Y.XmlElement) => {
-  const repairs: Array<{
-    hasRemoteSplitBoundary: boolean
-    length: number
-    offset: number
-    text: Y.XmlText
-  }> = []
-
-  const visit = (parent: Y.XmlElement) => {
-    const children = getYjsVisibleChildren(root, parent)
-
-    for (let index = 0; index < children.length; index++) {
-      const left = children[index]
-
-      if (!(left instanceof Y.XmlElement)) {
-        continue
-      }
-
-      const leftText = findLastVisibleText(root, left)
-      const right = children[index + 1]
-      const trailing = leftText ? getTrailingSplitUndoText(leftText) : null
-
-      if (leftText && trailing) {
-        repairs.push({
-          hasRemoteSplitBoundary: right
-            ? getVisibleText(root, right).startsWith(trailing.value)
-            : false,
-          length: trailing.length,
-          offset: trailing.offset,
-          text: leftText,
-        })
-      }
-    }
-
-    for (const child of children) {
-      if (child instanceof Y.XmlElement) {
-        visit(child)
-      }
-    }
-  }
-
-  visit(root)
-
-  return repairs
-}
-
-const isSplitHistory = (value: unknown): value is SplitHistory =>
-  typeof value === 'object' &&
-  value !== null &&
-  Array.isArray((value as SplitHistory).elementPath) &&
-  Array.isArray((value as SplitHistory).textPath) &&
-  typeof (value as SplitHistory).rightText === 'string' &&
-  typeof (value as SplitHistory).elementPosition === 'number'
-
-const nextPath = (path: Path) => {
-  const index = path.at(-1)
-
-  if (index === undefined) {
-    throw new Error('Cannot get a next path for the root.')
-  }
-
-  return [...path.slice(0, -1), index + 1]
-}
-
-const getYjsNodeIf = (root: Y.XmlElement, path: Path) => {
-  try {
-    return getYjsNode(root, path)
-  } catch {
-    return null
-  }
-}
-
-const pathsEqual = (a: Path, b: Path) =>
-  a.length === b.length && a.every((part, index) => part === b[index])
