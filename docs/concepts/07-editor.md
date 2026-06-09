@@ -45,9 +45,11 @@ should use narrow state groups like `state.value`, `state.selection`, and
 extension-owned state.
 
 ```javascript
-const unsubscribe = editor.subscribe((nextSnapshot, commit) => {
-  if (commit?.childrenChanged) {
-    saveDocument(nextSnapshot.children)
+const unsubscribe = editor.subscribe((_snapshot, commit) => {
+  if (commit?.childrenChanged || commit?.dirtyStateKeys.length) {
+    const documentValue = editor.read((state) => state.value.get())
+
+    saveDocument(documentValue)
   }
 })
 ```
@@ -88,6 +90,8 @@ editor.update((tx) => {
 
 Bookmarks are local runtime anchors. Store shared document state as document
 values, operations, and commits.
+Use [Document State](14-document-state.md) for values that need to persist with
+the document.
 
 ## Extending The Editor
 
@@ -102,12 +106,12 @@ const tables = defineEditorExtension({
   name: 'tables',
   state: {
     table(state) {
-      return {
-        rowCount() {
-          return state.value.get().length
-        },
-      }
-    },
+        return {
+          rowCount() {
+            return state.nodes.children().length
+          },
+        }
+      },
   },
   tx: {
     table(tx) {
@@ -118,7 +122,7 @@ const tables = defineEditorExtension({
               type: 'paragraph',
               children: [{ text }],
             },
-            { at: [tx.value.get().length] }
+            { at: [tx.nodes.children().length] }
           )
         },
       }

@@ -182,6 +182,42 @@ test.describe('shadow-dom example', () => {
     )
   })
 
+  test('deletes RTL text with Backspace inside shadow DOM', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const outerShadow = page.locator('[data-cy="outer-shadow-root"]')
+    const innerShadow = outerShadow.locator('> div')
+    const textbox = innerShadow.getByRole('textbox')
+    const editor = createSlateBrowserEditorHarness(page, 'shadow-dom', textbox)
+    const rtlText = 'שלום'
+
+    await editor.selection.selectAll()
+    await editor.deleteFragment()
+    await editor.focus()
+    await typeShadowText({
+      browserName,
+      page,
+      projectName: testInfo.project.name,
+      textbox,
+      text: rtlText,
+    })
+    await editor.assert.text(rtlText)
+
+    await editor.selection.collapse({ path: [0, 0], offset: rtlText.length })
+    await editor.press('Backspace')
+
+    await editor.assert.text('שלו')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: rtlText.length - 1 },
+      focus: { path: [0, 0], offset: rtlText.length - 1 },
+    })
+  })
+
   test('user can type add a new line in editor inside shadow DOM', async ({
     browserName,
     page,

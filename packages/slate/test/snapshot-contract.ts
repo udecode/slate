@@ -423,6 +423,47 @@ it('withoutNormalizing suppresses custom normalization until manual normalize', 
   assert.equal(runs > 0, true)
 })
 
+it('withoutNormalizing normalizes split dirty paths instead of the full document', () => {
+  const editor = createEditor()
+  const originalNormalizeNode = getEditorRuntime(editor).normalizeNode
+  const normalizedTopLevelPaths: number[] = []
+
+  getEditorRuntime(editor).normalizeNode = (entry, options) => {
+    const [, path] = entry
+
+    if (path.length === 1) {
+      normalizedTopLevelPaths.push(path[0]!)
+    }
+
+    originalNormalizeNode(entry, options)
+  }
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 256 }, (_value, index) => ({
+      type: 'paragraph',
+      children: [{ text: `line ${index}` }],
+    })),
+    selection: {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 2 },
+    },
+    marks: null,
+  })
+
+  normalizedTopLevelPaths.length = 0
+
+  editor.update((tx) => {
+    tx.break.insert()
+  })
+
+  assert.equal(normalizedTopLevelPaths.includes(200), false)
+  assert.ok(normalizedTopLevelPaths.some((path) => path <= 1))
+  assert.deepEqual(
+    getBlockTexts(Editor.getSnapshot(editor).children).slice(0, 3),
+    ['li', 'ne 0', 'line 1']
+  )
+})
+
 it('mirrors the legacy transforms/normalization/split_node-and-insert_node.tsx oracle row', () => {
   const editor = createEditor()
   defineElement(editor, { type: 'inline', inline: true })
@@ -945,6 +986,53 @@ it('normalizeNode inserts spacer text around inline-only children', () => {
   ])
 })
 
+it('insertNodes keeps an inline node in the selected empty paragraph', () => {
+  const editor = createEditor()
+
+  defineElement(editor, { type: 'link', inline: true })
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: '' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ text: 'after' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  Editor.insertNodes(editor, {
+    type: 'link',
+    children: [{ text: 'example' }],
+  })
+
+  assert.deepEqual(Editor.getSnapshot(editor).children, [
+    {
+      type: 'paragraph',
+      children: [
+        { text: '' },
+        {
+          type: 'link',
+          children: [{ text: 'example' }],
+        },
+        { text: '' },
+      ],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: 'after' }],
+    },
+  ])
+})
+
 it('normalizeNode removes a stray top-level text child after insertNodes', () => {
   const editor = createEditor()
 
@@ -1279,6 +1367,135 @@ it('insertBreak splits the current top-level block and moves selection into the 
   })
 })
 
+it('insertBreak replaces the next soft break with a block split', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha\nbeta' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 'alpha'.length },
+      focus: { path: [0, 0], offset: 'alpha'.length },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    Editor.insertBreak(editor)
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'paragraph',
+      children: [{ text: 'alpha' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: 'beta' }],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
+  })
+})
+
+it('insertBreak repeatedly splits trailing empty blocks and moves selection to the document end', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 5 },
+      focus: { path: [0, 0], offset: 5 },
+    },
+    marks: null,
+  })
+
+  editor.update((tx) => {
+    tx.break.insert()
+    tx.break.insert()
+    tx.break.insert()
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'paragraph',
+      children: [{ text: 'alpha' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: '' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: '' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: '' }],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [3, 0], offset: 0 },
+    focus: { path: [3, 0], offset: 0 },
+  })
+})
+
+it('insertBreak from an empty selectable block void creates a trailing block', () => {
+  const editor = createEditor()
+
+  defineElement(editor, { type: 'thematic-break', void: 'block' })
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'thematic-break',
+        children: [{ text: '' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    Editor.insertBreak(editor)
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'thematic-break',
+      children: [{ text: '' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: '' }],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
+  })
+})
+
 it('insertBreak after marked text moves selection into the new block', () => {
   const editor = createEditor()
 
@@ -1315,6 +1532,139 @@ it('insertBreak after marked text moves selection into the new block', () => {
   assert.deepEqual(snapshot.selection, {
     anchor: { path: [1, 0], offset: 0 },
     focus: { path: [1, 0], offset: 0 },
+  })
+})
+
+it('insertBreak before marked text moves the marked leaf into the new block', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'plain ' }, { bold: true, text: 'marked' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 1], offset: 0 },
+      focus: { path: [0, 1], offset: 0 },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    Editor.insertBreak(editor)
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'paragraph',
+      children: [{ text: 'plain ' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ bold: true, text: 'marked' }],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
+  })
+})
+
+it('insertBreak at the start of text opens a blank block before the text', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: '🙂or🙁' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    Editor.insertBreak(editor)
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'paragraph',
+      children: [{ text: '' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: '🙂or🙁' }],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
+  })
+})
+
+it('insertBreak before an inline at block start opens a blank block before the inline', () => {
+  const editor = createEditor()
+
+  defineElement(editor, { type: 'link', inline: true })
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: '' },
+          {
+            type: 'link',
+            children: [{ text: 'link' }],
+          },
+          { text: ' after' },
+        ],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 1, 0], offset: 0 },
+      focus: { path: [0, 1, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    Editor.insertBreak(editor)
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'paragraph',
+      children: [{ text: '' }],
+    },
+    {
+      type: 'paragraph',
+      children: [
+        { text: '' },
+        {
+          type: 'link',
+          children: [{ text: 'link' }],
+        },
+        { text: ' after' },
+      ],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [1, 1, 0], offset: 0 },
+    focus: { path: [1, 1, 0], offset: 0 },
   })
 })
 
@@ -1366,6 +1716,57 @@ it('insertBreak inside a nested block splits the nested block without splitting 
   assert.deepEqual(snapshot.selection, {
     anchor: { path: [0, 1, 0], offset: 0 },
     focus: { path: [0, 1, 0], offset: 0 },
+  })
+})
+
+it('deleteBackward removes a trailing empty nested block line', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'code-block',
+        language: 'javascript',
+        children: [
+          {
+            type: 'code-line',
+            children: [{ text: '// Add the initial value.' }],
+          },
+          {
+            type: 'code-line',
+            children: [{ text: '' }],
+          },
+        ],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 1, 0], offset: 0 },
+      focus: { path: [0, 1, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    Editor.deleteBackward(editor)
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'code-block',
+      language: 'javascript',
+      children: [
+        {
+          type: 'code-line',
+          children: [{ text: '// Add the initial value.' }],
+        },
+      ],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [0, 0, 0], offset: '// Add the initial value.'.length },
+    focus: { path: [0, 0, 0], offset: '// Add the initial value.'.length },
   })
 })
 
@@ -1620,6 +2021,41 @@ it('publishes one path-stable snapshot for batched text commits', () => {
   assert.equal(after.index, before.index)
 })
 
+it('reuses snapshot indexes for selection-only listener snapshots', () => {
+  const editor = createEditor()
+  const snapshots: ReturnType<typeof Editor.getSnapshot>[] = []
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+  })
+
+  const before = Editor.getSnapshot(editor)
+
+  Editor.subscribe(editor, (snapshot) => {
+    snapshots.push(snapshot)
+  })
+
+  Editor.select(editor, {
+    anchor: { path: [1, 0], offset: 2 },
+    focus: { path: [1, 0], offset: 2 },
+  })
+
+  const after = snapshots.at(-1)!
+
+  assert.equal(snapshots.length, 1)
+  assert.equal(after.index, before.index)
+  assert.deepEqual(after.selection, {
+    anchor: { path: [1, 0], offset: 2 },
+    focus: { path: [1, 0], offset: 2 },
+  })
+  assert.equal(after.children, before.children)
+  assert.equal(after.version, before.version + 1)
+})
+
 it('publishes touched runtime ids for collapsed insert_text operations', () => {
   const editor = createEditor()
   const changes: SnapshotChange[] = []
@@ -1767,6 +2203,119 @@ it('publishes selection-only dirtiness without touched runtime ids', () => {
     changes[0]?.decorationImpactRuntimeIds,
     changes[0]?.selectionImpactRuntimeIds
   )
+})
+
+it('does not rebuild root snapshots for selection-only subscriber commits', () => {
+  const editor = createEditor()
+  const profiledIds: string[] = []
+  const previousProfiler = (
+    globalThis as typeof globalThis & {
+      __SLATE_REACT_RENDER_PROFILER__?: unknown
+    }
+  ).__SLATE_REACT_RENDER_PROFILER__
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  Editor.subscribe(editor, () => {})
+
+  try {
+    ;(
+      globalThis as typeof globalThis & {
+        __SLATE_REACT_RENDER_PROFILER__?: {
+          record?: (event: { id: string; kind: string }) => void
+        }
+      }
+    ).__SLATE_REACT_RENDER_PROFILER__ = {
+      record(event) {
+        if (event.kind === 'core-time') {
+          profiledIds.push(event.id)
+        }
+      },
+    }
+
+    editor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [1, 0], offset: 1 },
+        focus: { path: [1, 0], offset: 1 },
+      })
+    })
+  } finally {
+    ;(
+      globalThis as typeof globalThis & {
+        __SLATE_REACT_RENDER_PROFILER__?: unknown
+      }
+    ).__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+  }
+
+  assert.ok(profiledIds.includes('build-change'))
+  assert.equal(profiledIds.includes('next-snapshot'), false)
+})
+
+it('does not materialize listener snapshots for irrelevant source subscribers', () => {
+  const editor = createEditor()
+  const profiledIds: string[] = []
+  const sourceCalls: string[] = []
+  const previousProfiler = (
+    globalThis as typeof globalThis & {
+      __SLATE_REACT_RENDER_PROFILER__?: unknown
+    }
+  ).__SLATE_REACT_RENDER_PROFILER__
+
+  Editor.replace(editor, {
+    children: createChildren(),
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  const unsubscribe = Editor.subscribeSource(editor, 'text', () => {
+    sourceCalls.push('text')
+  })
+
+  try {
+    ;(
+      globalThis as typeof globalThis & {
+        __SLATE_REACT_RENDER_PROFILER__?: {
+          record?: (event: { id: string; kind: string }) => void
+        }
+      }
+    ).__SLATE_REACT_RENDER_PROFILER__ = {
+      record(event) {
+        if (event.kind === 'core-time') {
+          profiledIds.push(event.id)
+        }
+      },
+    }
+
+    editor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [1, 0], offset: 1 },
+        focus: { path: [1, 0], offset: 1 },
+      })
+    })
+  } finally {
+    unsubscribe()
+    ;(
+      globalThis as typeof globalThis & {
+        __SLATE_REACT_RENDER_PROFILER__?: unknown
+      }
+    ).__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+  }
+
+  assert.deepEqual(sourceCalls, [])
+  assert.ok(profiledIds.includes('notify-listeners'))
+  assert.ok(profiledIds.includes('notify-commit-listeners'))
+  assert.equal(profiledIds.includes('listener-snapshot'), false)
+  assert.equal(profiledIds.includes('notify-source-listeners'), false)
 })
 
 it('routes selection-only commits through source subscribers only', () => {

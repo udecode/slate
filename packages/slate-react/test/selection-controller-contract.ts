@@ -5,15 +5,19 @@ import {
   isNestedEditableDOMTarget,
 } from '../src/editable/input-controller'
 import { createEditableInputController } from '../src/editable/input-state'
+import { writeCollapsedModelSelectionDOMPreference } from '../src/editable/model-selection-dom-preference'
 import {
+  armModelOwnedTextInputGuard,
   completeEditableSelectionChangeImport,
   executeEditableSelectionExport,
   executeEditableSelectionImport,
+  getPendingNativeTextInputRepairSelectionChangePolicy,
   isEditableModelSelectionPreferredForInput,
   isSelectionInEditorView,
   prepareEditableSelectionChangeImport,
   setEditableModelSelectionPreference,
   shouldApplyDOMSelectionChange,
+  shouldForceModelOwnedTextInput,
   shouldImportChangedExpandedDOMSelection,
   syncEditableDOMSelectionToEditor,
 } from '../src/editable/selection-controller'
@@ -197,6 +201,76 @@ test('model selection export is owned by the matching root view only', () => {
 
   expect(resolveDOMRange).not.toHaveBeenCalled()
   vi.restoreAllMocks()
+})
+
+test('model selection export preserves preferred collapsed DOM point', () => {
+  vi.useFakeTimers()
+
+  const editor = createReactEditor()
+  const editorElement = document.createElement('div')
+  const firstLine = document.createTextNode('first line')
+  const secondLine = document.createTextNode('second line')
+  const domSelection = document.getSelection()
+  const selection = {
+    anchor: { path: [0, 0], offset: firstLine.textContent!.length },
+    focus: { path: [0, 0], offset: firstLine.textContent!.length },
+  }
+
+  if (!domSelection) {
+    throw new Error('Expected document selection')
+  }
+
+  editorElement.setAttribute('data-slate-editor', 'true')
+  editorElement.append(firstLine, secondLine)
+  document.body.append(editorElement)
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: `${firstLine.textContent}${secondLine.textContent}` },
+        ],
+      },
+    ],
+    selection,
+  })
+
+  vi.spyOn(ReactEditor, 'findDocumentOrShadowRoot').mockReturnValue(document)
+  vi.spyOn(ReactEditor, 'assertDOMNode').mockReturnValue(editorElement)
+  vi.spyOn(ReactEditor, 'resolveDOMRange').mockImplementation(() => {
+    const fallbackRange = document.createRange()
+
+    fallbackRange.setStart(firstLine, firstLine.textContent!.length)
+    fallbackRange.setEnd(firstLine, firstLine.textContent!.length)
+
+    return fallbackRange
+  })
+
+  writeCollapsedModelSelectionDOMPreference(editor, selection, {
+    node: secondLine,
+    offset: 0,
+  })
+
+  try {
+    syncEditableDOMSelectionToEditor({
+      editor,
+      scrollSelectionIntoView: vi.fn(),
+      partialDOMBackedSelection: false,
+      state: {
+        isUpdatingSelection: false,
+        outsideFocusBoundarySettleUntil: 0,
+        selectionChangeOrigin: null,
+      },
+    })
+
+    expect(domSelection.anchorNode).toBe(secondLine)
+    expect(domSelection.anchorOffset).toBe(0)
+  } finally {
+    editorElement.remove()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  }
 })
 
 test('native editor-owned selectionchange clears model preference before DOM import', () => {
@@ -457,6 +531,31 @@ test('repair-induced selectionchange clears its origin after model repair', () =
   expect(inputController.state.selectionSource).toBe('model-owned')
 })
 
+test('repair-induced text input selectionchange can keep DOM-current ownership', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: 'repair-induced',
+      selectionSource: 'dom-current',
+    },
+  })
+
+  completeEditableSelectionChangeImport({
+    inputController,
+    selectionChangeOrigin: 'repair-induced',
+  })
+
+  expect(inputController.state.selectionChangeOrigin).toBe(null)
+  expect(inputController.preferModelSelectionForInputRef.current).toBe(false)
+  expect(inputController.state.selectionSource).toBe('dom-current')
+})
+
 test('native selectionchange clears its origin after import handling', () => {
   const inputController = createEditableInputController({
     preferModelSelectionForInputRef: { current: false },
@@ -480,42 +579,102 @@ test('native selectionchange clears its origin after import handling', () => {
   expect(inputController.state.selectionChangeOrigin).toBe(null)
 })
 
-test('native insertText ignores stale repair and programmatic model preference', () => {
-  for (const reason of ['programmatic-export', 'repair-induced'] as const) {
-    const inputController = createEditableInputController({
-      preferModelSelectionForInputRef: { current: true },
-      state: {
-        activeIntent: null,
-        isComposing: false,
-        isDraggingInternally: false,
-        isUpdatingSelection: false,
-        latestElement: null,
-        pendingDOMSelectionImport: false,
-        selectionChangeOrigin: reason,
-        selectionSource: 'model-owned',
-      },
-    })
-
-    setEditableModelSelectionPreference({
-      inputController,
-      preferModelSelection: true,
-      reason,
-      selectionSource: 'model-owned',
-    })
-
-    expect(
-      isEditableModelSelectionPreferredForInput({
-        inputController,
-        inputType: 'insertText',
-      })
-    ).toBe(false)
-    expect(
-      isEditableModelSelectionPreferredForInput({
-        inputController,
-        inputType: 'deleteContentBackward',
-      })
-    ).toBe(true)
+test('pending native repair selectionchange policy suppresses stale same-path offsets and allows deliberate selections', () => {
+  const samePendingPathSelection = {
+    anchor: { path: [0, 0], offset: 1 },
+    focus: { path: [0, 0], offset: 1 },
   }
+  const otherPathClickSelection = {
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
+  }
+  const samePathExpandedSelection = {
+    anchor: { path: [0, 0], offset: 0 },
+    focus: { path: [0, 0], offset: 2 },
+  }
+
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      pendingNativeTextInputRepairPathKey: '0,0',
+      range: null,
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('suppress')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      pendingNativeTextInputRepairDOMOffset: 1,
+      pendingNativeTextInputRepairOffset: 1,
+      pendingNativeTextInputRepairPathKey: '0,0',
+      range: samePendingPathSelection,
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('allow')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      pendingNativeTextInputRepairDOMOffset: 1,
+      pendingNativeTextInputRepairOffset: 2,
+      pendingNativeTextInputRepairPathKey: '0,0',
+      range: samePendingPathSelection,
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('suppress')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      pendingNativeTextInputRepairPathKey: '0,0',
+      range: otherPathClickSelection,
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('clear-and-allow')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      pendingNativeTextInputRepairPathKey: '0,0',
+      range: samePathExpandedSelection,
+      selectionChangeOrigin: 'native-user',
+    })
+  ).toBe('clear-and-allow')
+  expect(
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      pendingNativeTextInputRepairPathKey: '0,0',
+      range: otherPathClickSelection,
+      selectionChangeOrigin: 'programmatic-export',
+    })
+  ).toBe('allow')
+})
+
+test('native insertText ignores stale programmatic model preference', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: 'programmatic-export',
+      selectionSource: 'model-owned',
+    },
+  })
+
+  setEditableModelSelectionPreference({
+    inputController,
+    preferModelSelection: true,
+    reason: 'programmatic-export',
+    selectionSource: 'model-owned',
+  })
+
+  expect(
+    isEditableModelSelectionPreferredForInput({
+      inputController,
+      inputType: 'insertText',
+    })
+  ).toBe(false)
+  expect(
+    isEditableModelSelectionPreferredForInput({
+      inputController,
+      inputType: 'deleteContentBackward',
+    })
+  ).toBe(true)
 })
 
 test('native insertText preserves explicit model-owned input guards', () => {
@@ -553,5 +712,68 @@ test('native insertText preserves explicit model-owned input guards', () => {
         inputType: 'insertText',
       })
     ).toBe(true)
+  }
+})
+
+test('model-command text input forces model ownership', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: null,
+      selectionSource: 'model-owned',
+    },
+  })
+
+  setEditableModelSelectionPreference({
+    inputController,
+    preferModelSelection: true,
+    reason: 'model-command',
+    selectionSource: 'model-owned',
+  })
+  armModelOwnedTextInputGuard({ inputController })
+
+  expect(
+    shouldForceModelOwnedTextInput({
+      inputController,
+      inputType: 'insertText',
+    })
+  ).toBe(true)
+})
+
+test('browser-handle and repair-induced text input can keep the native fast path', () => {
+  for (const reason of ['browser-handle', 'repair-induced'] as const) {
+    const inputController = createEditableInputController({
+      preferModelSelectionForInputRef: { current: true },
+      state: {
+        activeIntent: null,
+        isComposing: false,
+        isDraggingInternally: false,
+        isUpdatingSelection: false,
+        latestElement: null,
+        pendingDOMSelectionImport: false,
+        selectionChangeOrigin: null,
+        selectionSource: 'model-owned',
+      },
+    })
+
+    setEditableModelSelectionPreference({
+      inputController,
+      preferModelSelection: true,
+      reason,
+      selectionSource: 'model-owned',
+    })
+
+    expect(
+      shouldForceModelOwnedTextInput({
+        inputController,
+        inputType: 'insertText',
+      })
+    ).toBe(false)
   }
 })

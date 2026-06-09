@@ -10,10 +10,67 @@ import type { EditableInputController } from './input-state'
 import { applyEditableKeyDown } from './keyboard-input-strategy'
 import type { EditableEventRuntimeCore } from './runtime-event-engine'
 
+const WHITESPACE_KEY_RE = /\s/
+
+export const shouldFlushPendingNativeTextInputForKeyDown = (
+  decision: ReturnType<typeof prepareEditableKeyDownKernel>,
+  event: KeyboardEvent<HTMLDivElement>
+) => {
+  const hasCommandModifier = event.altKey || event.ctrlKey || event.metaKey
+  const isTextShortcutBoundary =
+    event.key.length === 1 && WHITESPACE_KEY_RE.test(event.key)
+  const isModelMutationBoundary =
+    decision.intent === 'delete' ||
+    decision.intent === 'format' ||
+    decision.intent === 'insert-break' ||
+    decision.intent === 'model-selection-move'
+
+  if (decision.intent === 'composition') {
+    return false
+  }
+
+  if (decision.intent === 'text-insert' && !hasCommandModifier) {
+    return isTextShortcutBoundary
+  }
+
+  if (decision.targetOwner === 'internal-control') {
+    return decision.intent === 'history'
+  }
+
+  return (
+    isModelMutationBoundary ||
+    decision.shouldForceDOMImport ||
+    decision.intent === 'history' ||
+    decision.intent === 'native-selection-move' ||
+    (hasCommandModifier && decision.targetOwner === 'editor')
+  )
+}
+
+export const shouldApplyKeyDownSelectionPolicy = (
+  decision: ReturnType<typeof prepareEditableKeyDownKernel>,
+  event: KeyboardEvent<HTMLDivElement>,
+  inputController: EditableInputController
+) => {
+  const hasCommandModifier = event.altKey || event.ctrlKey || event.metaKey
+  const isTextShortcutBoundary =
+    event.key.length === 1 && WHITESPACE_KEY_RE.test(event.key)
+
+  if (
+    decision.intent !== 'text-insert' ||
+    (!inputController.state.pendingNativeTextInputRepairPathKey &&
+      (inputController.state.modelOwnedTextInputGuard ?? 0) === 0)
+  ) {
+    return true
+  }
+
+  return hasCommandModifier || isTextShortcutBoundary || event.key.length !== 1
+}
+
 export const useRuntimeKeyboardEvents = ({
   editor,
   inputController,
   domStrategyRuntime,
+  flushPendingNativeTextInput,
   onKeyDown,
   readOnly,
   runtime,
@@ -27,6 +84,7 @@ export const useRuntimeKeyboardEvents = ({
     mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
     mountedTopLevelRanges?: readonly MountedTopLevelRange[]
   } | null
+  flushPendingNativeTextInput?: () => void
   onKeyDown?: EditableKeyDownHandler
   readOnly: boolean
   runtime: EditableEventRuntimeCore
@@ -42,8 +100,15 @@ export const useRuntimeKeyboardEvents = ({
         inputController,
         domStrategyRuntime,
       })
+
+      if (shouldFlushPendingNativeTextInputForKeyDown(decision, event)) {
+        flushPendingNativeTextInput?.()
+      }
+
       inputController.state.activeIntent = decision.intent
-      runtime.selection.applyKeyDownSelectionPolicy(decision)
+      if (shouldApplyKeyDownSelectionPolicy(decision, event, inputController)) {
+        runtime.selection.applyKeyDownSelectionPolicy(decision)
+      }
       runtime.trace.beginKeyDownEventFrame(decision)
       const keyDownWorkerResult = applyEditableKeyDown({
         androidInputManagerRef: runtime.android.managerRef,
@@ -84,6 +149,7 @@ export const useRuntimeKeyboardEvents = ({
     },
     [
       editor,
+      flushPendingNativeTextInput,
       inputController,
       domStrategyRuntime,
       onKeyDown,
@@ -118,6 +184,7 @@ export const useRuntimeKeyboardEvents = ({
         return
       }
 
+      flushPendingNativeTextInput?.()
       runtime.selection.applyKeyDownSelectionPolicy(decision)
       runtime.trace.beginKeyDownEventFrame(decision)
       const keyDownWorkerResult = applyEditableKeyDown({
@@ -149,6 +216,7 @@ export const useRuntimeKeyboardEvents = ({
     },
     [
       editor,
+      flushPendingNativeTextInput,
       inputController,
       domStrategyRuntime,
       onKeyDown,

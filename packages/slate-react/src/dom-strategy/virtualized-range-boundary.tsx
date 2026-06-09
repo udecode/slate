@@ -24,7 +24,7 @@ export const DOMStrategyVirtualizedRangeBoundary = React.memo(
       () => ({
         anchor: { type: 'placeholder' as const },
         boundaryId,
-        copyPolicy: 'include-model' as const,
+        copyPolicy: 'model' as const,
         coveredPathRanges: [
           {
             anchor: [startIndex] as Path,
@@ -35,7 +35,7 @@ export const DOMStrategyVirtualizedRangeBoundary = React.memo(
           anchorRuntimeId && focusRuntimeId
             ? [{ anchor: anchorRuntimeId, focus: focusRuntimeId }]
             : [],
-        findPolicy: 'not-native-until-mounted' as const,
+        findPolicy: 'native' as const,
         ownerPath: [] as Path,
         ownerRuntimeId: null,
         reason: 'viewport-virtualization' as const,

@@ -258,6 +258,7 @@ describe('primitive method runtime contract', () => {
       {
         offset: 0,
         path: [0, 0],
+        root: 'main',
         text: 'U',
         type: 'insert_text',
       },
@@ -304,6 +305,47 @@ describe('primitive method runtime contract', () => {
     assert.deepEqual(Editor.getSelection(editor), {
       anchor: { path: [1, 1], offset: 4 },
       focus: { path: [1, 1], offset: 4 },
+    })
+  })
+
+  it('insertText inherits consistent marks from a replaced selected range', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [
+            { text: 'hello ' },
+            { bold: true, text: 'bold' },
+            { text: ' text' },
+          ],
+        },
+      ],
+      marks: null,
+      selection: {
+        anchor: { path: [0, 1], offset: 0 },
+        focus: { path: [0, 1], offset: 4 },
+      },
+    })
+
+    editor.update((tx) => {
+      tx.text.insert('strong')
+    })
+
+    assert.deepEqual(Editor.getChildren(editor), [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'hello ' },
+          { bold: true, text: 'strong' },
+          { text: ' text' },
+        ],
+      },
+    ])
+    assert.deepEqual(Editor.getSelection(editor), {
+      anchor: { path: [0, 1], offset: 6 },
+      focus: { path: [0, 1], offset: 6 },
     })
   })
 

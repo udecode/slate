@@ -61,6 +61,16 @@ describe('playwright IME helpers', () => {
     active.addEventListener('compositionend', (event) => {
       events.push(event.type)
     })
+    active.addEventListener('beforeinput', (event) => {
+      events.push(
+        `${event.type}:${(event as InputEvent).inputType}:${(event as InputEvent).data}`
+      )
+    })
+    active.addEventListener('input', (event) => {
+      events.push(
+        `${event.type}:${(event as InputEvent).inputType}:${(event as InputEvent).data}`
+      )
+    })
 
     active.focus()
     range.setStart(text, 1)
@@ -76,6 +86,48 @@ describe('playwright IME helpers', () => {
     expect(events).toEqual([
       'compositionstart',
       'compositionupdate',
+      'beforeinput:insertFromComposition:é',
+      'input:insertFromComposition:é',
+      'compositionend',
+    ])
+  })
+
+  test('does not mutate DOM when synthetic composition beforeinput is handled', async () => {
+    document.body.innerHTML = '<div contenteditable="true">hello</div>'
+
+    const active = document.querySelector('div')!
+    const text = active.firstChild as Text
+    const range = document.createRange()
+    const selection = window.getSelection()!
+    const events: string[] = []
+
+    active.addEventListener('beforeinput', (event) => {
+      const inputEvent = event as InputEvent
+      events.push(`${event.type}:${inputEvent.inputType}:${inputEvent.data}`)
+      event.preventDefault()
+    })
+    active.addEventListener('input', (event) => {
+      events.push(
+        `${event.type}:${(event as InputEvent).inputType}:${(event as InputEvent).data}`
+      )
+    })
+    active.addEventListener('compositionend', (event) => {
+      events.push(event.type)
+    })
+
+    active.focus()
+    range.setStart(text, 1)
+    range.setEnd(text, 4)
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    await composeText(createPage(), createSurface(), ['é'], 'é', {
+      transport: 'synthetic',
+    })
+
+    expect(active.textContent).toBe('hello')
+    expect(events).toEqual([
+      'beforeinput:insertFromComposition:é',
       'compositionend',
     ])
   })

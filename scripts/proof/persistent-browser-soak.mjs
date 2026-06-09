@@ -91,7 +91,7 @@ const startServer = async () => {
     )
   }
 
-  const server = spawn('bun', ['serve:playwright'], {
+  const server = spawn('node', ['./scripts/serve-playwright.mjs'], {
     cwd: repoRoot,
     env: { ...process.env, PORT: port },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -103,6 +103,35 @@ const startServer = async () => {
   await waitForUrl(`${baseUrl}/examples/richtext`)
 
   return server
+}
+
+const stopServer = async (server) => {
+  if (!server || server.exitCode !== null || server.signalCode !== null) {
+    return
+  }
+
+  const exit = new Promise((resolveExit) => {
+    server.once('exit', resolveExit)
+  })
+
+  server.kill()
+
+  if (
+    (await Promise.race([
+      exit,
+      new Promise((resolveTimeout) =>
+        setTimeout(() => resolveTimeout('timeout'), 2000)
+      ),
+    ])) !== 'timeout'
+  ) {
+    return
+  }
+
+  server.kill('SIGKILL')
+  await Promise.race([
+    exit,
+    new Promise((resolveTimeout) => setTimeout(resolveTimeout, 1000)),
+  ])
 }
 
 const createWarmIterationOverride = () => ({
@@ -393,7 +422,7 @@ try {
   throw error
 } finally {
   await context?.close()
-  server?.kill()
+  await stopServer(server)
 
   if (shouldRemoveProfile) {
     rmSync(userDataDir, { force: true, recursive: true })

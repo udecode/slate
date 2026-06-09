@@ -69,6 +69,41 @@ export const composeText = async (
             })
           )
         }
+        const createInputEvent = (
+          type: 'beforeinput' | 'input',
+          inputType: string,
+          data: string
+        ) => {
+          if (typeof InputEvent === 'function') {
+            return new InputEvent(type, {
+              bubbles: true,
+              cancelable: type === 'beforeinput',
+              data,
+              inputType,
+            })
+          }
+
+          const event = new Event(type, {
+            bubbles: true,
+            cancelable: type === 'beforeinput',
+          }) as InputEvent
+          Object.defineProperties(event, {
+            data: { value: data },
+            inputType: { value: inputType },
+          })
+
+          return event
+        }
+        const dispatchInputEvent = (
+          type: 'beforeinput' | 'input',
+          inputType: string,
+          data: string
+        ) => {
+          const event = createInputEvent(type, inputType, data)
+          active.dispatchEvent(event)
+
+          return event
+        }
 
         dispatchCompositionEvent('compositionstart', composedSteps[0] ?? '')
 
@@ -76,15 +111,25 @@ export const composeText = async (
           dispatchCompositionEvent('compositionupdate', text)
         })
 
-        range.deleteContents()
+        const beforeInputEvent = dispatchInputEvent(
+          'beforeinput',
+          'insertFromComposition',
+          finalText
+        )
 
-        const textNode = document.createTextNode(finalText)
+        if (!beforeInputEvent.defaultPrevented) {
+          range.deleteContents()
 
-        range.insertNode(textNode)
-        range.setStart(textNode, finalText.length)
-        range.setEnd(textNode, finalText.length)
-        selection.removeAllRanges()
-        selection.addRange(range)
+          const textNode = document.createTextNode(finalText)
+
+          range.insertNode(textNode)
+          range.setStart(textNode, finalText.length)
+          range.setEnd(textNode, finalText.length)
+          selection.removeAllRanges()
+          selection.addRange(range)
+
+          dispatchInputEvent('input', 'insertFromComposition', finalText)
+        }
 
         dispatchCompositionEvent('compositionend', finalText)
       },

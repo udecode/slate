@@ -72,7 +72,7 @@ export const addMark: EditorStaticApi['addMark'] = (editor, key, value) => {
     { key, type: 'add_mark', value },
     (command) => {
       applyAddMark(editor, command.key, command.value)
-      return { handled: true }
+      return true
     },
     { implicitUpdate: true }
   )

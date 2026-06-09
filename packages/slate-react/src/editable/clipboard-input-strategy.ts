@@ -11,6 +11,11 @@ import {
 import { DOMCoverage } from 'slate-dom/internal'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
+import {
+  isSlateViewSelectionCollapsed,
+  readSlateViewSelection,
+  writeSlateViewSelection,
+} from '../view-selection'
 import type { EditableCommand } from './editing-kernel'
 import {
   type EditableRepairRequest,
@@ -18,6 +23,7 @@ import {
 } from './input-controller'
 import { applyEditableCommand } from './mutation-controller'
 import { writeProjectedViewSelectionClipboardData } from './projected-clipboard'
+import { resolveProjectedSelectionTarget } from './projected-selection-target'
 import { Editor } from './runtime-editor-api'
 import { readRuntimeNode } from './runtime-live-state'
 import { readRuntimeSelection } from './runtime-selection-state'
@@ -69,6 +75,9 @@ const isClipboardEventHandled = ({
 
   return event.isDefaultPrevented() || event.isPropagationStopped()
 }
+
+const hasClipboardFiles = (data: DataTransfer | null | undefined) =>
+  !!data?.files && data.files.length > 0
 
 const isDragEventHandled = ({
   event,
@@ -249,22 +258,35 @@ export const applyEditableCut = ({
     !isClipboardEventTargetInput({ event })
   ) {
     event.preventDefault()
-    if (writeProjectedViewSelectionClipboardData(editor, clipboardData)) {
-      const command: EditableCommand = { kind: 'delete-fragment' }
+    const viewSelection = readSlateViewSelection(editor)
 
-      applyEditableCommand({ command, editor })
-      return clipboardResult({
-        command,
-        repair: {
-          focus: true,
-          kind: 'repair-caret',
-          selectionSourceTransition: {
-            preferModelSelection: true,
-            reason: 'model-command',
-            selectionSource: 'model-owned',
+    if (viewSelection && !isSlateViewSelectionCollapsed(viewSelection)) {
+      const resolution = resolveProjectedSelectionTarget(editor, viewSelection)
+
+      if (resolution.kind === 'ambiguous') {
+        return clipboardResult({ command: null })
+      }
+      if (resolution.kind === 'stale') {
+        writeSlateViewSelection(editor, null)
+      } else if (
+        writeProjectedViewSelectionClipboardData(editor, clipboardData)
+      ) {
+        const command: EditableCommand = { kind: 'delete-fragment' }
+
+        applyEditableCommand({ command, editor })
+        return clipboardResult({
+          command,
+          repair: {
+            focus: true,
+            kind: 'repair-caret',
+            selectionSourceTransition: {
+              preferModelSelection: true,
+              reason: 'model-command',
+              selectionSource: 'model-owned',
+            },
           },
-        },
-      })
+        })
+      }
     }
 
     editor.api.clipboard.writeSelection(clipboardData)
@@ -287,6 +309,7 @@ export const applyEditableCut = ({
           RangeApi.start(selection)
         )
         applyEditableCommand({ command, editor })
+        writeSlateViewSelection(editor, null)
         const collapsePoint = collapsePointRef.unref()
         const shouldRemoveEmptyInline =
           inlinePath &&
@@ -611,6 +634,7 @@ export const applyEditablePaste = ({
   if (
     canHandlePaste &&
     (!HAS_BEFORE_INPUT_SUPPORT ||
+      hasClipboardFiles(event.clipboardData) ||
       isPlainTextOnlyPaste(event.nativeEvent) ||
       IS_WEBKIT)
   ) {

@@ -1,6 +1,7 @@
 # Slate Component
 
-`Slate` provides a React context for one editor. Render it above `Editable`, toolbars, sidebars, and any component that needs editor state.
+`Slate` provides a React context for one editor. Render it above `Editable`,
+toolbars, sidebars, and any component that needs editor state.
 
 ```tsx
 <Slate editor={editor} onChange={handleChange}>
@@ -12,13 +13,17 @@
 ## Props
 
 ```typescript
-type SlateProps = {
+type SlateBaseProps = {
   annotationStore?: SlateAnnotationStore | null
   children: React.ReactNode
   decorationSources?: readonly SlateDecorationSource[] | null
-  editor: ReactEditor
   onChange?: (value: Descendant[], change: SlateChange) => void
+  readOnly?: boolean
 }
+
+type SlateProps =
+  | (SlateBaseProps & { editor: ReactEditor; root?: never })
+  | (SlateBaseProps & { editor?: never; root: string })
 
 type SlateChange = {
   commit: EditorCommit
@@ -32,6 +37,10 @@ type SlateChange = {
   valueChanged: boolean
 }
 ```
+
+Pass `editor` for the top-level provider. Use the `root`-only form only inside
+an existing Slate runtime, when a nested provider should bind its callbacks and
+context to another root.
 
 ### `editor`
 
@@ -68,7 +77,9 @@ Render `Editable` and any editor UI inside the provider.
 
 ### `onChange`
 
-Use `onChange` when you need to hear about every committed editor change. It fires for document changes, selection changes, marks changes, and operation replay.
+Use `onChange` when React UI needs current-root value, selection, or marks
+changes. Use `editor.subscribe(...)` for state-field changes, operation replay,
+and persistence services.
 
 ```tsx
 <Slate
@@ -79,7 +90,7 @@ Use `onChange` when you need to hear about every committed editor change. It fir
     }
 
     if (change.valueChanged) {
-      localStorage.setItem('content', JSON.stringify(value))
+      updateCurrentRootPreview(value)
     }
   }}
 >
@@ -89,9 +100,12 @@ Use `onChange` when you need to hear about every committed editor change. It fir
 
 Use `editor.subscribe(...)` for low-level commit subscribers that do not belong in React render props.
 
-### Saving Value Changes
+### Saving Provider Root Changes
 
-Use `onChange` and `change.valueChanged` when you only need committed document-value changes.
+Use `onChange` and `change.valueChanged` when you only need committed changes
+for the provider root's block array. For `<Slate editor={editor}>`, that is
+`main`. This is the single-root shortcut, not the full document persistence
+path.
 
 ```tsx
 <Slate
@@ -99,12 +113,35 @@ Use `onChange` and `change.valueChanged` when you only need committed document-v
   onChange={(value, change) => {
     if (!change.valueChanged) return
 
-    localStorage.setItem('content', JSON.stringify(value))
+    localStorage.setItem('slate.children', JSON.stringify(value))
   }}
 >
   <Editable />
 </Slate>
 ```
+
+The `value` argument is a root value, not the full persisted document. Use
+`editor.subscribe(...)` and `editor.read((state) => state.value.get())` when
+you need named roots or persistent state fields.
+
+```tsx
+useEffect(() => {
+  return editor.subscribe((_snapshot, commit) => {
+    if (!commit) return
+
+    if (!commit.childrenChanged && commit.dirtyStateKeys.length === 0) {
+      return
+    }
+
+    const documentValue = editor.read((state) => state.value.get())
+
+    localStorage.setItem('slate.document', JSON.stringify(documentValue))
+  })
+}, [editor])
+```
+
+See [Document State](../../concepts/14-document-state.md) for the full
+persistence shape.
 
 ### Selection Changes
 

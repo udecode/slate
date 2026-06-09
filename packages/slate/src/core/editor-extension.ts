@@ -68,7 +68,7 @@ type TransformMiddleware<
     TEditor,
     TransformMiddlewareArgs<TEditor, TKey>
   >
-) => EditorCommandResult | void
+) => EditorCommandResult
 
 const EXTENSION_STATE = new WeakMap<Editor, ExtensionState>()
 
@@ -103,7 +103,7 @@ const resolveLatestExtensionEntries = (
   const entries = new Map<string, EditorExtension<Editor, any> | null>()
 
   for (const extension of extensions) {
-    assertNoLegacySlots(extension)
+    assertNoUnsupportedSlots(extension)
 
     if (!extension.name) {
       throw new Error('Editor extension must have a name.')
@@ -176,8 +176,8 @@ export const isEditorExtensionInstalled = (
 ) =>
   getExtensionState(editor).records.get(extension.name)?.extension === extension
 
-const assertNoLegacySlots = (extension: EditorExtension<Editor, any>) => {
-  const legacyMethods = (extension as unknown as { methods?: unknown }).methods
+const assertNoUnsupportedSlots = (extension: EditorExtension<Editor, any>) => {
+  const methods = (extension as unknown as { methods?: unknown }).methods
   const publicCommands = (extension as unknown as { commands?: unknown })
     .commands
   const commitListeners = (
@@ -188,7 +188,7 @@ const assertNoLegacySlots = (extension: EditorExtension<Editor, any>) => {
   ).operationMiddlewares
   const register = (extension as unknown as { register?: unknown }).register
 
-  if (legacyMethods !== undefined) {
+  if (methods !== undefined) {
     throw new Error(
       `Editor extension "${extension.name}" cannot use methods. Add state or tx groups instead.`
     )
@@ -219,7 +219,7 @@ const assertNoLegacySlots = (extension: EditorExtension<Editor, any>) => {
   }
 }
 
-const assertNoLegacySetupOutput = (
+const assertNoUnsupportedSetupOutput = (
   extensionName: string,
   slots: EditorExtensionSetupOutput<Editor>
 ) => {
@@ -282,18 +282,6 @@ const createRuntimeState = <TValue>(
           : value
     },
   }
-}
-
-const resolveTransformResult = (
-  result: EditorCommandResult | void,
-  delegated: boolean,
-  nextResult: EditorCommandResult
-): EditorCommandResult => {
-  if (result) {
-    return result
-  }
-
-  return delegated ? nextResult : { handled: true }
 }
 
 const hasExtensionNamed = (
@@ -439,7 +427,7 @@ const registerExtensionSlots = <TEditor extends Editor>(
   } satisfies EditorExtensionSetupContext<TEditor, any>
 
   const registerSlots = (slots: EditorExtensionSetupOutput<TEditor>) => {
-    assertNoLegacySetupOutput(
+    assertNoUnsupportedSetupOutput(
       extension.name,
       slots as EditorExtensionSetupOutput<Editor>
     )
@@ -460,7 +448,7 @@ const registerExtensionSlots = <TEditor extends Editor>(
           (context, next) => {
             const { type: _type, ...commandArgs } = context.command
             let delegated = false
-            let nextResult: EditorCommandResult = { handled: false }
+            let nextResult: EditorCommandResult = false
 
             const runNext = (
               overrides: Partial<
@@ -492,7 +480,13 @@ const registerExtensionSlots = <TEditor extends Editor>(
               ),
             })
 
-            return resolveTransformResult(result, delegated, nextResult)
+            if (typeof result !== 'boolean') {
+              throw new Error(
+                'Transform middleware must return true, false, or next(...).'
+              )
+            }
+
+            return result
           }
         )
       )

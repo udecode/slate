@@ -68,7 +68,6 @@ test.describe('example query controls', () => {
         accordion_open: true,
         collapsible_open: true,
         copy: 'exclude',
-        find: 'native',
         selection: 'materialize',
         tab: 'details',
       },
@@ -91,9 +90,6 @@ test.describe('example query controls', () => {
     await expect(page.getByTestId('hidden-content-copy-policy')).toContainText(
       'exclude'
     )
-    await expect(page.getByTestId('hidden-content-find-policy')).toContainText(
-      'native'
-    )
   })
 
   test('stores huge-document perf controls in the URL', async ({ page }) => {
@@ -101,6 +97,7 @@ test.describe('example query controls', () => {
       query: {
         blocks: 120,
         content_visibility: 'none',
+        strategy: 'staged',
         strict: false,
       },
       ready: {

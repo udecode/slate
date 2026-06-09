@@ -1,3 +1,5 @@
-# Autoresearch Ideas: Perfect @slate/yjs collaboration API, DX, correctness, offline/reconnect, undo/redo, awareness, selection, examples, and test coverage; route each accepted gap to slate-patch, slate-plan, slate-ar-gate, or slate-ar-perf.
+# Autoresearch Ideas: react-huge-document-full
 
-- Add promising research-backed ideas here when they are not tried immediately.
+- Baseline the current behavior for: react-huge-document-full
+- Reserve one packet for a distant-scout lane before repeating the same near-neighbor tweak.
+- If a promotion-grade packet has no decision row, log it as benchmark coverage work rather than a candidate regression.

@@ -22,14 +22,6 @@ type HiddenBoundaryState = {
   outerHidden: boolean
 }
 
-const HiddenBoundaryContext = React.createContext<HiddenBoundaryState>({
-  deepHidden: true,
-  footerHidden: true,
-  headerHidden: true,
-  innerHidden: true,
-  outerHidden: true,
-})
-
 const hiddenBoundaryQueryParsers = {
   deepHidden: parseAsBoolean.withDefault(true),
   footerHidden: parseAsBoolean.withDefault(true),
@@ -126,11 +118,21 @@ const DomCoverageBoundariesExample = () => {
   })
   const [copyPreview, setCopyPreview] = useState('')
   const [traceTick, setTraceTick] = useState(0)
+  const hiddenBoundaries = useMemo(
+    () => ({
+      deepHidden,
+      footerHidden,
+      headerHidden,
+      innerHidden,
+      outerHidden,
+    }),
+    [deepHidden, footerHidden, headerHidden, innerHidden, outerHidden]
+  )
   const toggleHiddenBoundary = useCallback(
     (key: keyof HiddenBoundaryState) => {
-      void setHiddenBoundaryControls((state) => ({ [key]: !state[key] }))
+      void setHiddenBoundaryControls({ [key]: !hiddenBoundaries[key] })
     },
-    [setHiddenBoundaryControls]
+    [hiddenBoundaries, setHiddenBoundaryControls]
   )
 
   const refreshTrace = useCallback(() => {
@@ -197,16 +199,11 @@ const DomCoverageBoundariesExample = () => {
       ].join('\n\n')
     )
   }, [editor])
-
-  const hiddenBoundaries = useMemo(
-    () => ({
-      deepHidden,
-      footerHidden,
-      headerHidden,
-      innerHidden,
-      outerHidden,
-    }),
-    [deepHidden, footerHidden, headerHidden, innerHidden, outerHidden]
+  const renderElement = useCallback(
+    (props: RenderElementProps) => (
+      <Element {...props} hiddenBoundaries={hiddenBoundaries} />
+    ),
+    [hiddenBoundaries]
   )
 
   const boundaries = DOMCoverage.getBoundaries(editor)
@@ -264,17 +261,15 @@ const DomCoverageBoundariesExample = () => {
       </div>
 
       <div className="slate-dom-coverage-editor-wrap">
-        <HiddenBoundaryContext.Provider value={hiddenBoundaries}>
-          <Slate editor={editor}>
-            <Editable
-              autoFocus
-              className="slate-dom-coverage-editor"
-              placeholder="Try toggles, selection, and copy"
-              renderElement={Element}
-              spellCheck
-            />
-          </Slate>
-        </HiddenBoundaryContext.Provider>
+        <Slate editor={editor}>
+          <Editable
+            autoFocus
+            className="slate-dom-coverage-editor"
+            placeholder="Try toggles, selection, and copy"
+            renderElement={renderElement}
+            spellCheck
+          />
+        </Slate>
       </div>
 
       <pre className="slate-dom-coverage-debug">
@@ -300,23 +295,29 @@ const DomCoverageBoundariesExample = () => {
   )
 }
 
-const Element = ({ children, element, slots }: RenderElementProps) => {
+const Element = ({
+  children,
+  element,
+  hiddenBoundaries,
+  slots,
+}: RenderElementProps & { hiddenBoundaries: HiddenBoundaryState }) => {
   const { deepHidden, footerHidden, headerHidden, innerHidden, outerHidden } =
-    React.useContext(HiddenBoundaryContext)
+    hiddenBoundaries
   const childNodes = React.Children.toArray(children)
 
   switch (element.type) {
     case 'header':
       return (
-        <slots.unstableBoundary
+        <slots.contentBoundary
           boundaryId="hidden-header"
           mounted={!headerHidden}
+          renderPlaceholder={() => (
+            <CoveragePlaceholder label="Hidden header placeholder">
+              Header hidden
+            </CoveragePlaceholder>
+          )}
           scope={{ type: 'self' }}
-        >
-          <CoveragePlaceholder label="Hidden header placeholder">
-            Header hidden
-          </CoveragePlaceholder>
-        </slots.unstableBoundary>
+        />
       )
     case 'section':
       return (
@@ -325,15 +326,16 @@ const Element = ({ children, element, slots }: RenderElementProps) => {
             Outer section
           </div>
           {childNodes[0]}
-          <slots.unstableBoundary
+          <slots.contentBoundary
             boundaryId="outer-section-body"
             mounted={!outerHidden}
+            renderPlaceholder={() => (
+              <CoveragePlaceholder label="Collapsed outer section body">
+                Outer body collapsed
+              </CoveragePlaceholder>
+            )}
             scope={{ from: 1, to: childNodes.length - 1, type: 'children' }}
-          >
-            <CoveragePlaceholder label="Collapsed outer section body">
-              Outer body collapsed
-            </CoveragePlaceholder>
-          </slots.unstableBoundary>
+          />
         </EditableElement>
       )
     case 'nested-section':
@@ -343,15 +345,16 @@ const Element = ({ children, element, slots }: RenderElementProps) => {
             Nested section
           </div>
           {childNodes[0]}
-          <slots.unstableBoundary
+          <slots.contentBoundary
             boundaryId="nested-section-body"
             mounted={!innerHidden}
+            renderPlaceholder={() => (
+              <CoveragePlaceholder label="Collapsed nested section body">
+                Nested body collapsed
+              </CoveragePlaceholder>
+            )}
             scope={{ from: 1, to: childNodes.length - 1, type: 'children' }}
-          >
-            <CoveragePlaceholder label="Collapsed nested section body">
-              Nested body collapsed
-            </CoveragePlaceholder>
-          </slots.unstableBoundary>
+          />
         </EditableElement>
       )
     case 'deep-section':
@@ -361,15 +364,16 @@ const Element = ({ children, element, slots }: RenderElementProps) => {
             Deep section
           </div>
           {childNodes[0]}
-          <slots.unstableBoundary
+          <slots.contentBoundary
             boundaryId="deep-section-body"
             mounted={!deepHidden}
+            renderPlaceholder={() => (
+              <CoveragePlaceholder label="Collapsed deep section body">
+                Deep body collapsed
+              </CoveragePlaceholder>
+            )}
             scope={{ from: 1, to: childNodes.length - 1, type: 'children' }}
-          >
-            <CoveragePlaceholder label="Collapsed deep section body">
-              Deep body collapsed
-            </CoveragePlaceholder>
-          </slots.unstableBoundary>
+          />
         </EditableElement>
       )
     case 'bulleted-list':
@@ -378,15 +382,16 @@ const Element = ({ children, element, slots }: RenderElementProps) => {
       return <li>{children}</li>
     case 'footer':
       return (
-        <slots.unstableBoundary
+        <slots.contentBoundary
           boundaryId="hidden-footer"
           mounted={!footerHidden}
+          renderPlaceholder={() => (
+            <CoveragePlaceholder label="Hidden footer placeholder">
+              Footer hidden
+            </CoveragePlaceholder>
+          )}
           scope={{ type: 'self' }}
-        >
-          <CoveragePlaceholder label="Hidden footer placeholder">
-            Footer hidden
-          </CoveragePlaceholder>
-        </slots.unstableBoundary>
+        />
       )
     default:
       return <EditableElement>{children}</EditableElement>

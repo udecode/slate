@@ -16,6 +16,28 @@ test.describe('table example', () => {
     await expect(page.getByRole('textbox').locator('table')).toHaveCount(1)
   })
 
+  test('keeps table direction stable when typing RTL text in one cell', async ({
+    page,
+  }) => {
+    const editor = await openExample(page, 'tables', {
+      ready: { editor: 'visible' },
+    })
+    const table = editor.root.locator('table').first()
+    const readDirection = () =>
+      table.evaluate((element) => ({
+        computedDirection: getComputedStyle(element).direction,
+        dir: element.getAttribute('dir'),
+        styleDirection: (element as HTMLElement).style.direction,
+      }))
+    const initialDirection = await readDirection()
+
+    await editor.selection.collapse({ path: [1, 1, 0, 0], offset: 0 })
+    await editor.root.type('?שלום')
+
+    await expect(table).toContainText('?שלום')
+    await expect.poll(readDirection).toEqual(initialDirection)
+  })
+
   test('keeps Backspace from crossing table-cell start', async ({ page }) => {
     const editor = await openExample(page, 'tables', {
       ready: { editor: 'visible' },
@@ -147,6 +169,31 @@ test.describe('table example', () => {
     })
   })
 
+  test('dragging within a table cell selects that cell text', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop drag selection proof'
+    )
+
+    const editor = await openExample(page, 'tables', {
+      ready: { editor: 'visible' },
+    })
+
+    await editor.selection.dragTextRange({
+      endOffset: 'Human'.length,
+      startOffset: 0,
+      text: 'Human',
+    })
+
+    await expect.poll(() => editor.get.selectedText()).toBe('Human')
+    await editor.assert.selection({
+      anchor: { path: [1, 0, 1, 0], offset: 0 },
+      focus: { path: [1, 0, 1, 0], offset: 'Human'.length },
+    })
+  })
+
   test('dragging from a table cell toward trailing text does not select the intro paragraph', async ({
     page,
   }) => {
@@ -203,6 +250,28 @@ test.describe('table example', () => {
     await editor.assert.selection({
       anchor: { path: [1, 0, 1, 0], offset: 2 },
       focus: { path: [1, 0, 1, 0], offset: 2 },
+    })
+  })
+
+  test('keeps Enter stable inside an empty table cell', async ({ page }) => {
+    const editor = await openExample(page, 'tables', {
+      ready: { editor: 'visible' },
+    })
+
+    await editor.selection.collapse({ path: [1, 0, 0, 0], offset: 0 })
+    await editor.root.press('Enter')
+
+    await expect(editor.root.locator('table')).toHaveCount(1)
+    await editor.assert.selection({
+      anchor: { path: [1, 0, 0, 0], offset: 0 },
+      focus: { path: [1, 0, 0, 0], offset: 0 },
+    })
+
+    await editor.root.type('X')
+    await expect(editor.root.locator('td').first()).toHaveText('X')
+    await editor.assert.selection({
+      anchor: { path: [1, 0, 0, 0], offset: 1 },
+      focus: { path: [1, 0, 0, 0], offset: 1 },
     })
   })
 
@@ -272,5 +341,81 @@ test.describe('table example', () => {
     expect(proof.selectionShells?.anchor.element?.isVoid).toBe(false)
     expect(proof.renderCounts.byKind.editable ?? 0).toBeLessThanOrEqual(1)
     expect(proof.renderCounts.total).toBeLessThanOrEqual(1)
+  })
+
+  test('moves between table cells with Tab and Shift+Tab', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop Tab navigation proof'
+    )
+
+    const editor = await openExample(page, 'tables', {
+      ready: { editor: 'visible' },
+    })
+
+    await editor.selection.collapse({ path: [1, 0, 1, 0], offset: 0 })
+    await editor.root.press('Tab')
+    await editor.assert.selection({
+      anchor: { path: [1, 0, 2, 0], offset: 0 },
+      focus: { path: [1, 0, 2, 0], offset: 0 },
+    })
+
+    await editor.root.press('Shift+Tab')
+    await editor.assert.selection({
+      anchor: { path: [1, 0, 1, 0], offset: 0 },
+      focus: { path: [1, 0, 1, 0], offset: 0 },
+    })
+  })
+
+  test('does not prevent Tab at table boundaries', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop Tab navigation proof'
+    )
+
+    const editor = await openExample(page, 'tables', {
+      ready: { editor: 'visible' },
+    })
+    await page.evaluate(() => {
+      document.addEventListener(
+        'keydown',
+        (event) => {
+          if (event.key !== 'Tab') {
+            return
+          }
+
+          window.setTimeout(() => {
+            document.documentElement.dataset.lastTabDefaultPrevented = String(
+              event.defaultPrevented
+            )
+          }, 0)
+        },
+        { capture: true }
+      )
+    })
+    const resetTabProbe = () =>
+      page.evaluate(() => {
+        delete document.documentElement.dataset.lastTabDefaultPrevented
+      })
+    const lastTabDefaultPrevented = () =>
+      page.evaluate(
+        () => document.documentElement.dataset.lastTabDefaultPrevented ?? null
+      )
+
+    await editor.selection.collapse({ path: [1, 2, 3, 0], offset: 1 })
+    await resetTabProbe()
+
+    await editor.root.press('Tab')
+    await expect.poll(lastTabDefaultPrevented).toBe('false')
+
+    await editor.selection.collapse({ path: [1, 0, 0, 0], offset: 0 })
+    await resetTabProbe()
+
+    await editor.root.press('Shift+Tab')
+    await expect.poll(lastTabDefaultPrevented).toBe('false')
   })
 })

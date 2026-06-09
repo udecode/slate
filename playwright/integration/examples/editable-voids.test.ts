@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, type Locator, test } from '@playwright/test'
 import {
   assertNoIllegalKernelTransitions,
   createSlateBrowserDropDataGauntlet,
@@ -44,6 +44,34 @@ test.describe('editable voids', () => {
     expect(after).not.toBe(null)
     expect(Math.abs(after!.left - before!.left)).toBeLessThanOrEqual(24)
   }
+  const getViewSelection = (root: Locator) =>
+    root.evaluate((element: HTMLElement) => {
+      const handle = (
+        element as HTMLElement & {
+          __slateBrowserHandle?: {
+            getViewSelection?: () => unknown
+          }
+        }
+      ).__slateBrowserHandle
+
+      return handle?.getViewSelection?.() ?? null
+    })
+  const setViewSelection = (root: Locator, selection: unknown) =>
+    root.evaluate((element: HTMLElement, nextSelection) => {
+      const handle = (
+        element as HTMLElement & {
+          __slateBrowserHandle?: {
+            setViewSelection?: (selection: unknown) => void
+          }
+        }
+      ).__slateBrowserHandle
+
+      if (!handle?.setViewSelection) {
+        throw new Error('This editor surface does not expose setViewSelection')
+      }
+
+      handle.setViewSelection(nextSelection)
+    }, selection)
 
   test.beforeEach(async ({ page }) => {
     await page.goto('/examples/editable-voids', {
@@ -374,6 +402,54 @@ test.describe('editable voids', () => {
       .poll(() => childRoot.get.modelText())
       .toContain('Child This is editable')
     await expect(childEditor).toContainText('Child This is editable')
+  })
+
+  test('Backspace in the first child-root block preserves the editable void', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop Backspace proof')
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const childEditor = page
+      .locator('[aria-label="Editable void rich content"]')
+      .first()
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-outer',
+      outerEditor
+    )
+    const childRoot = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-child-root',
+      childEditor
+    )
+
+    await childRoot.selection.select({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 4], offset: 1 },
+    })
+    await childEditor.evaluate((element: HTMLElement) => element.focus())
+    await page.keyboard.press('Backspace')
+
+    await expect(page.locator('.slate-editable-voids-card')).toHaveCount(1)
+    await expect
+      .poll(() => outer.get.modelText())
+      .toContain(
+        'In addition to nodes that contain editable text, you can insert void nodes'
+      )
+    await expect
+      .poll(() => childRoot.get.modelText())
+      .not.toContain(
+        'This is editable rich text, much better than a <textarea>!'
+      )
+    await expect
+      .poll(() => childRoot.get.modelText())
+      .toContain(
+        "Since it's rich text, it can live in a same-runtime child root"
+      )
+    await expect
+      .poll(() => childRoot.get.modelText())
+      .toContain('A wise quote.')
   })
 
   test('keeps same-runtime child root focused inside editable void', async ({
@@ -783,6 +859,129 @@ test.describe('editable voids', () => {
       })
   })
 
+  test('extends keyboard selection from editable void child root into outer siblings', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Desktop projected selection proof uses Chromium keyboard events'
+    )
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const childEditor = page
+      .locator('[aria-label="Editable void rich content"]')
+      .first()
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-outer',
+      outerEditor
+    )
+    const childRoot = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-child-root',
+      childEditor
+    )
+    const beforeVoidText =
+      'In addition to nodes that contain editable text, you can insert void nodes, which can also contain editable elements, inputs, or rich same-runtime child roots.'
+    const childRootOwner = {
+      childRoot: 'editable-void:initial:body',
+      ownerPath: [1],
+      ownerRoot: 'main',
+    }
+
+    await outer.selection.collapse({ path: [2, 0], offset: 0 })
+    await outer.insertText('After editable void.')
+
+    await childRoot.selection.collapse({ path: [0, 0], offset: 0 })
+    await childEditor.evaluate((element: HTMLElement) => {
+      element.focus()
+    })
+    await page.keyboard.press('Shift+ArrowLeft')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: childRootOwner,
+          point: {
+            path: [0, 0],
+            root: 'editable-void:initial:body',
+            offset: 0,
+          },
+        },
+        focus: { point: { path: [0, 0], offset: beforeVoidText.length - 1 } },
+        segments: { backward: true },
+      })
+
+    await setViewSelection(outerEditor, null)
+    await childRoot.selection.collapse({ path: [0, 0], offset: 0 })
+    await childEditor.evaluate((element: HTMLElement) => {
+      element.focus()
+    })
+    await page.keyboard.press('Shift+ArrowUp')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: childRootOwner,
+          point: {
+            path: [0, 0],
+            root: 'editable-void:initial:body',
+            offset: 0,
+          },
+        },
+        focus: { point: { path: [0, 0] } },
+        segments: { backward: true },
+      })
+
+    await setViewSelection(outerEditor, null)
+    await childRoot.selection.collapse({
+      path: [2, 0],
+      offset: 'A wise quote.'.length,
+    })
+    await childEditor.evaluate((element: HTMLElement) => {
+      element.focus()
+    })
+    await page.keyboard.press('Shift+ArrowRight')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: childRootOwner,
+          point: {
+            path: [2, 0],
+            root: 'editable-void:initial:body',
+            offset: 'A wise quote.'.length,
+          },
+        },
+        focus: { point: { path: [2, 0], offset: 1 } },
+        segments: { backward: false },
+      })
+
+    await setViewSelection(outerEditor, null)
+    await childRoot.selection.collapse({
+      path: [2, 0],
+      offset: 'A wise quote.'.length,
+    })
+    await childEditor.evaluate((element: HTMLElement) => {
+      element.focus()
+    })
+    await page.keyboard.press('Shift+ArrowDown')
+    await expect
+      .poll(() => getViewSelection(outerEditor))
+      .toMatchObject({
+        anchor: {
+          owner: childRootOwner,
+          point: {
+            path: [2, 0],
+            root: 'editable-void:initial:body',
+            offset: 'A wise quote.'.length,
+          },
+        },
+        focus: { point: { path: [2, 0] } },
+        segments: { backward: false },
+      })
+  })
+
   test('unfocuses editable void child root when clicking outside it', async ({
     page,
   }, testInfo) => {
@@ -912,9 +1111,7 @@ test.describe('editable voids', () => {
         .poll(() => outer.get.modelText())
         .not.toContain('Hello World')
 
-      await outerEditor.evaluate((element: HTMLElement) => {
-        element.focus()
-      })
+      await outer.focus()
       await outer.selection.select(outerSelection)
       await page.keyboard.type('Outer ')
 
@@ -990,9 +1187,7 @@ test.describe('editable voids', () => {
         .poll(() => outer.get.modelText())
         .not.toContain('Dropped World')
 
-      await outerEditor.evaluate((element: HTMLElement) => {
-        element.focus()
-      })
+      await outer.focus()
       await outer.selection.select(outerSelection)
       await page.keyboard.type('Outer ')
 

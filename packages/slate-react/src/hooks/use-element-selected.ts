@@ -32,6 +32,7 @@ export const useElementSelected = ({
       if (mode === 'collapsed' && !RangeApi.isCollapsed(selection)) return false
       const selectedPath =
         path ??
+        (runtimeId ? Editor.getPathByRuntimeId(editor, runtimeId) : null) ??
         contextPath ??
         (element ? ReactEditor.resolvePath(editor, element) : null)
       if (!selectedPath) return false
@@ -40,7 +41,7 @@ export const useElementSelected = ({
       const range = Editor.range(editor, selectedPath)
       return !!RangeApi.intersection(range, selection)
     },
-    [contextPath, element, mode, path]
+    [contextPath, element, mode, path, runtimeId]
   )
 
   const shouldUpdate = useCallback(

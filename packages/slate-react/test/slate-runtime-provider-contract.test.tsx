@@ -1332,7 +1332,7 @@ describe('SlateRuntime provider contract', () => {
     expect(screen.getByTestId('main-focused')).toHaveTextContent('false')
   })
 
-  test('legacy Slate provider tracks focus per nested root view', async () => {
+  test('single-editor Slate provider tracks focus per nested root view', async () => {
     const editor = createReactEditor({ initialValue: initialValue() })
     let headerEditor!: ReturnType<typeof useEditor>
 

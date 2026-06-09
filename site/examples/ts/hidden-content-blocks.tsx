@@ -7,7 +7,6 @@ import {
 } from 'slate'
 import type {
   DOMCoverageCopyPolicy,
-  DOMCoverageFindPolicy,
   DOMCoverageSelectionPolicy,
 } from 'slate-dom/internal'
 import {
@@ -47,7 +46,6 @@ type HiddenBlocksState = {
   activeTab: 'details' | 'overview'
   collapsibleOpen: boolean
   copyPolicy: DOMCoverageCopyPolicy
-  findPolicy: DOMCoverageFindPolicy
   selectionPolicy: DOMCoverageSelectionPolicy
   setAccordionOpen: (value: boolean) => void
   setActiveTab: (value: 'details' | 'overview') => void
@@ -57,33 +55,24 @@ type HiddenBlocksState = {
 const tabOptions = ['overview', 'details'] as const
 
 const selectionPolicyOptions = [
-  'boundary',
-  'model-backed',
+  'skip',
+  'model',
   'materialize',
 ] as const satisfies readonly DOMCoverageSelectionPolicy[]
 const copyPolicyOptions = [
-  'include-model',
-  'summary-only',
+  'model',
+  'summary',
   'exclude',
   'materialize',
 ] as const satisfies readonly DOMCoverageCopyPolicy[]
-const findPolicyOptions = [
-  'not-native-until-mounted',
-  'native',
-  'custom',
-] as const satisfies readonly DOMCoverageFindPolicy[]
 
 const hiddenContentQueryParsers = {
   accordionOpen: parseAsBoolean.withDefault(false),
   activeTab: parseAsStringLiteral(tabOptions).withDefault('overview'),
   collapsibleOpen: parseAsBoolean.withDefault(false),
-  copyPolicy:
-    parseAsStringLiteral(copyPolicyOptions).withDefault('include-model'),
-  findPolicy: parseAsStringLiteral(findPolicyOptions).withDefault(
-    'not-native-until-mounted'
-  ),
+  copyPolicy: parseAsStringLiteral(copyPolicyOptions).withDefault('model'),
   selectionPolicy: parseAsStringLiteral(selectionPolicyOptions).withDefault(
-    'boundary'
+    'skip'
   ),
 }
 
@@ -92,7 +81,6 @@ const hiddenContentUrlKeys = {
   activeTab: 'tab',
   collapsibleOpen: 'collapsible_open',
   copyPolicy: 'copy',
-  findPolicy: 'find',
   selectionPolicy: 'selection',
 }
 
@@ -100,9 +88,8 @@ const HiddenBlocksContext = React.createContext<HiddenBlocksState>({
   accordionOpen: false,
   activeTab: 'overview',
   collapsibleOpen: false,
-  copyPolicy: 'include-model',
-  findPolicy: 'not-native-until-mounted',
-  selectionPolicy: 'boundary',
+  copyPolicy: 'model',
+  selectionPolicy: 'skip',
   setAccordionOpen: () => {},
   setActiveTab: () => {},
   setCollapsibleOpen: () => {},
@@ -193,14 +180,7 @@ const HiddenContentBlocksExample = () => {
     ] as SlateElement[],
   })
   const [
-    {
-      accordionOpen,
-      activeTab,
-      collapsibleOpen,
-      copyPolicy,
-      findPolicy,
-      selectionPolicy,
-    },
+    { accordionOpen, activeTab, collapsibleOpen, copyPolicy, selectionPolicy },
     setHiddenContentControls,
   ] = useQueryStates(hiddenContentQueryParsers, {
     ...replaceQueryOptions,
@@ -240,19 +220,12 @@ const HiddenContentBlocksExample = () => {
     },
     [setHiddenContentControls]
   )
-  const setFindPolicy = useCallback(
-    (value: DOMCoverageFindPolicy) => {
-      void setHiddenContentControls({ findPolicy: value })
-    },
-    [setHiddenContentControls]
-  )
   const state = useMemo(
     () => ({
       accordionOpen,
       activeTab,
       collapsibleOpen,
       copyPolicy,
-      findPolicy,
       selectionPolicy,
       setAccordionOpen,
       setActiveTab,
@@ -263,7 +236,6 @@ const HiddenContentBlocksExample = () => {
       activeTab,
       collapsibleOpen,
       copyPolicy,
-      findPolicy,
       setAccordionOpen,
       setActiveTab,
       setCollapsibleOpen,
@@ -359,13 +331,6 @@ const HiddenContentBlocksExample = () => {
               testId="policy-copy"
               value={copyPolicy}
             />
-            <PolicyControls
-              label="Find"
-              onChange={setFindPolicy}
-              options={findPolicyOptions}
-              testId="policy-find"
-              value={findPolicy}
-            />
           </CardContent>
         </Card>
 
@@ -416,12 +381,6 @@ const HiddenContentBlocksExample = () => {
               {copyPolicy}
             </output>
           </Badge>
-          <Badge variant="outline">
-            find:{' '}
-            <output data-test-id="hidden-content-find-policy">
-              {findPolicy}
-            </output>
-          </Badge>
         </div>
       </div>
     </HiddenBlocksContext.Provider>
@@ -448,7 +407,6 @@ const Element = ({ children, element, slots }: RenderElementProps) => {
     setActiveTab,
     setCollapsibleOpen,
     copyPolicy,
-    findPolicy,
     selectionPolicy,
   } = React.useContext(HiddenBlocksContext)
   const childNodes = React.Children.toArray(children)
@@ -476,7 +434,6 @@ const Element = ({ children, element, slots }: RenderElementProps) => {
               <AccordionContent forceMount>
                 <slots.contentBoundary
                   copyPolicy={copyPolicy}
-                  findPolicy={findPolicy}
                   mounted={accordionOpen}
                   onMaterialize={() => setAccordionOpen(true)}
                   scope={{
@@ -510,7 +467,6 @@ const Element = ({ children, element, slots }: RenderElementProps) => {
             <CollapsibleContent forceMount>
               <slots.contentBoundary
                 copyPolicy={copyPolicy}
-                findPolicy={findPolicy}
                 mounted={collapsibleOpen}
                 onMaterialize={() => setCollapsibleOpen(true)}
                 scope={{ from: 0, to: childNodes.length - 1, type: 'children' }}
@@ -564,9 +520,12 @@ const Element = ({ children, element, slots }: RenderElementProps) => {
                   ) : (
                     <slots.contentBoundary
                       copyPolicy={copyPolicy}
-                      findPolicy={findPolicy}
                       mounted={false}
-                      onMaterialize={() => setActiveTab(tab)}
+                      onMaterialize={({ rangeRole, reason }) => {
+                        if (reason !== 'selection' || rangeRole === 'focus') {
+                          setActiveTab(tab)
+                        }
+                      }}
                       scope={{ from: index, type: 'children' }}
                       selectionPolicy={selectionPolicy}
                     />

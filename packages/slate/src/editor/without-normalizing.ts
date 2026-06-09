@@ -20,17 +20,14 @@ export const withoutNormalizing: EditorStaticApi['withoutNormalizing'] = (
   } finally {
     setNormalizing(editor, value)
   }
+
   const latestOperation =
     getLatestContentOperation(editor, operationCount) ??
     getLatestOperation(editor)
-  const didSingleTextOperation =
-    getOperationCount(editor) === operationCount + 1 &&
-    (latestOperation?.type === 'insert_text' ||
-      latestOperation?.type === 'remove_text')
 
   normalize(editor, {
     explicit: false,
-    force: !didSingleTextOperation,
+    force: latestOperation == null,
     operation: latestOperation,
   })
 }

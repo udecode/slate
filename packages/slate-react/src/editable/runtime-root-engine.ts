@@ -7,13 +7,13 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { Range, RuntimeId } from 'slate'
+import type { Range } from 'slate'
 import { type DOMRange, IS_READ_ONLY } from 'slate-dom'
 import type {
   EditableDOMBeforeInputHandler,
+  EditableDOMStrategyRuntime,
   EditableKeyDownHandler,
 } from '../components/editable'
-import type { MountedTopLevelRange } from '../dom-strategy/dom-strategy-commands'
 import { isSelectionPartialDOMBacked } from '../dom-strategy/dom-strategy-commands'
 import { useFlushDeferredSelectorsOnRender } from '../hooks/use-editor-selector'
 import { useTrackUserInput } from '../hooks/use-track-user-input'
@@ -94,6 +94,7 @@ type EditableRootEventBindings = Pick<
 export const useEditableRootRuntime = ({
   autoFocus,
   callbacks,
+  deferNativeTextInputRepair,
   editor,
   forwardedRef,
   domStrategyRuntime,
@@ -104,13 +105,10 @@ export const useEditableRootRuntime = ({
 }: {
   autoFocus?: boolean
   callbacks: EditableRootCallbackProps
+  deferNativeTextInputRepair?: boolean
   editor: ReactRuntimeEditor
   forwardedRef?: ForwardedRef<HTMLDivElement>
-  domStrategyRuntime: {
-    type: 'staged' | 'partial-dom' | 'virtualized'
-    mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
-    mountedTopLevelRanges?: readonly MountedTopLevelRange[]
-  } | null
+  domStrategyRuntime: EditableDOMStrategyRuntime | null
   onDOMBeforeInput?: EditableDOMBeforeInputHandler
   onKeyDown?: EditableKeyDownHandler
   readOnly: boolean
@@ -283,9 +281,15 @@ export const useEditableRootRuntime = ({
         selectionImportController.syncDOMSelectionFromRuntime()
         selectionImportController.flushSelectionChange()
       },
+      isPartialDOMBackedSelection,
       syncDOMSelectionToEditor,
     }),
-    [inputController, selectionImportController, syncDOMSelectionToEditor]
+    [
+      inputController,
+      isPartialDOMBackedSelection,
+      selectionImportController,
+      syncDOMSelectionToEditor,
+    ]
   )
   const applyInputRules = useCallback(() => false, [])
 
@@ -296,6 +300,7 @@ export const useEditableRootRuntime = ({
     browserHandleRangeRefs,
     callbacks,
     deferredOperations,
+    deferNativeTextInputRepair,
     editor,
     handledDOMBeforeInputRef,
     inputController,

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-"/Users/felixfeng/.nvm/versions/node/v24.11.1/bin/node" "/Users/felixfeng/.codex/plugins/cache/thegreencedar-autoresearch/codex-autoresearch/2.0.2/scripts/autoresearch.mjs" quality-gap --cwd . --research-slug "yjs-pr21"
+# This recipe command is responsible for printing METRIC lines.
+cd '/Users/zbeyens/git/plate-2/.tmp/slate-v2' && HUGE_DOC_FULL_LEGACY_REPO=../../../slate HUGE_DOC_FULL_BLOCKS=5000 HUGE_DOC_FULL_ITERATIONS=5 HUGE_DOC_FULL_TRACE_ITERATIONS=5 HUGE_DOC_FULL_TYPE_OPS=10 bun run bench:react:huge-document:full:local

@@ -1,7 +1,6 @@
 import { type ReactNode, useCallback, useMemo, useRef } from 'react'
 import type { Operation, Path, RuntimeId, SnapshotChange } from 'slate'
 import { NodeApi } from 'slate'
-import { createSegmentPlan } from '../dom-strategy/create-segment-plan'
 import { getSelectionRoot } from '../hooks/root-selection-cache'
 import { useEditor } from '../hooks/use-editor'
 import { useEditorSelector } from '../hooks/use-editor-selector'
@@ -13,6 +12,75 @@ export type DOMStrategyRootConfig = {
   segmentSize: number
   previewChars: number
   threshold: number
+}
+
+const EMPTY_RUNTIME_IDS: readonly RuntimeId[] = []
+
+type SegmentRuntimeIdGroup = {
+  endIndex: number
+  runtimeIds: readonly RuntimeId[]
+  segmentIndex: number
+  startIndex: number
+}
+
+const createSegmentRuntimeIdGroups = ({
+  segmentSize,
+  topLevelRuntimeIds,
+}: {
+  segmentSize: number
+  topLevelRuntimeIds: readonly RuntimeId[]
+}) => {
+  const groups: SegmentRuntimeIdGroup[] = []
+
+  for (
+    let startIndex = 0, segmentIndex = 0;
+    startIndex < topLevelRuntimeIds.length;
+    startIndex += segmentSize, segmentIndex += 1
+  ) {
+    const endIndex = Math.min(
+      topLevelRuntimeIds.length - 1,
+      startIndex + segmentSize - 1
+    )
+
+    groups.push({
+      endIndex,
+      runtimeIds: topLevelRuntimeIds.slice(startIndex, endIndex + 1),
+      segmentIndex,
+      startIndex,
+    })
+  }
+
+  return groups
+}
+
+const createSegmentPlanFromGroups = ({
+  defaultActiveSegmentIndex,
+  groups,
+  overscan,
+  promotedSegmentIndex,
+}: {
+  defaultActiveSegmentIndex: number
+  groups: readonly SegmentRuntimeIdGroup[]
+  overscan: number
+  promotedSegmentIndex: number | null
+}) => {
+  const activeSegmentIndex = promotedSegmentIndex ?? defaultActiveSegmentIndex
+  const activeStart = Math.max(0, activeSegmentIndex - overscan)
+  const activeEnd = activeSegmentIndex + overscan
+
+  return {
+    activeSegmentIndex,
+    segments: groups.map((group) => {
+      const isActive =
+        group.segmentIndex >= activeStart && group.segmentIndex <= activeEnd
+
+      return {
+        ...group,
+        isActive,
+        mountedRuntimeIds: isActive ? group.runtimeIds : EMPTY_RUNTIME_IDS,
+      }
+    }),
+  }
 }
 
 const isTextOperation = (operation: Operation | undefined) =>
@@ -50,6 +118,16 @@ const isSelectionChangeForRoot = (root: string, change: SnapshotChange) =>
   (getSelectionRoot(change.selectionBefore) === root ||
     getSelectionRoot(change.selectionAfter) === root)
 
+const getSelectionPathKey = (selection: SnapshotChange['selectionAfter']) =>
+  selection
+    ? `${getSelectionRoot(selection)}:${selection.anchor.path.join('.')}:${selection.focus.path.join('.')}`
+    : 'null'
+
+const isSelectionPathChangeForRoot = (root: string, change: SnapshotChange) =>
+  isSelectionChangeForRoot(root, change) &&
+  getSelectionPathKey(change.selectionBefore) !==
+    getSelectionPathKey(change.selectionAfter)
+
 const topLevelRangesIncludeIndex = (
   ranges: readonly (readonly [number, number])[] | null | undefined,
   index: number
@@ -86,7 +164,7 @@ const shouldUpdateSelectedTopLevelIndex = (
 
   return change
     ? change.fullDocumentChanged ||
-        isSelectionChangeForRoot(root, change) ||
+        isSelectionPathChangeForRoot(root, change) ||
         ((change.rootRuntimeIdsChanged || change.topLevelOrderChanged) &&
           (hasOperationForRoot(root, changedOperations) ?? true))
     : hasNoOperations(changedOperations) ||
@@ -342,16 +420,31 @@ export const useEditableRootCommitWakeup = () => {
 export const useInternalSegmentDOMStrategyRootSources = ({
   internalSegmentDOMStrategyConfig,
   promotedSegmentIndex,
+  promotedSegmentOverscan,
 }: {
   internalSegmentDOMStrategyConfig: DOMStrategyRootConfig | null
   promotedSegmentIndex: number | null
+  promotedSegmentOverscan?: number | null
 }) => {
   const topLevelRuntimeIds = useRootRuntimeIds()
+  const segmentRuntimeIdGroups = useMemo(
+    () =>
+      internalSegmentDOMStrategyConfig &&
+      topLevelRuntimeIds.length >= internalSegmentDOMStrategyConfig.threshold
+        ? createSegmentRuntimeIdGroups({
+            segmentSize: internalSegmentDOMStrategyConfig.segmentSize,
+            topLevelRuntimeIds,
+          })
+        : null,
+    [internalSegmentDOMStrategyConfig, topLevelRuntimeIds]
+  )
   const selectedTopLevelIndex = useTopLevelSelectionIndex(
-    internalSegmentDOMStrategyConfig != null
+    segmentRuntimeIdGroups != null
   )
   const selectedSegmentIndex =
-    internalSegmentDOMStrategyConfig && selectedTopLevelIndex != null
+    internalSegmentDOMStrategyConfig &&
+    segmentRuntimeIdGroups &&
+    selectedTopLevelIndex != null
       ? Math.floor(
           selectedTopLevelIndex / internalSegmentDOMStrategyConfig.segmentSize
         )
@@ -366,14 +459,14 @@ export const useInternalSegmentDOMStrategyRootSources = ({
     })
 
     const segmentPlan =
-      internalSegmentDOMStrategyConfig &&
-      topLevelRuntimeIds.length >= internalSegmentDOMStrategyConfig.threshold
-        ? createSegmentPlan({
-            overscan: internalSegmentDOMStrategyConfig.overscan,
+      internalSegmentDOMStrategyConfig && segmentRuntimeIdGroups
+        ? createSegmentPlanFromGroups({
+            overscan:
+              promotedSegmentOverscan ??
+              internalSegmentDOMStrategyConfig.overscan,
             defaultActiveSegmentIndex: selectedSegmentIndex,
-            segmentSize: internalSegmentDOMStrategyConfig.segmentSize,
+            groups: segmentRuntimeIdGroups,
             promotedSegmentIndex,
-            topLevelRuntimeIds,
           })
         : null
     const mountedTopLevelRuntimeIds = segmentPlan
@@ -401,6 +494,8 @@ export const useInternalSegmentDOMStrategyRootSources = ({
   }, [
     internalSegmentDOMStrategyConfig,
     promotedSegmentIndex,
+    promotedSegmentOverscan,
+    segmentRuntimeIdGroups,
     selectedSegmentIndex,
     topLevelRuntimeIds,
   ])

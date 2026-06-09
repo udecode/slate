@@ -188,6 +188,22 @@ describe('slate transaction contract', () => {
     })
   })
 
+  it('reads one document root without materializing the serializable value', () => {
+    const editor = createEditor()
+
+    replaceChildren(editor, [paragraph('main')])
+    editor.update((tx) => {
+      tx.roots.create('header', [paragraph('header')])
+    })
+
+    const root = editor.read((state) => state.value.root('header'))
+    const value = editor.read((state) => state.value.get())
+
+    assert.deepEqual(root, [paragraph('header')])
+    assert.deepEqual(value.roots.header, [paragraph('header')])
+    assert.notEqual(root, value.roots.header)
+  })
+
   it('applyBatch matches manual transaction for structural insert, move, and set batches', () => {
     const children = [paragraph('zero'), paragraph('one')]
     const batchEditor = createEditor()
@@ -1115,6 +1131,115 @@ describe('slate transaction contract', () => {
     })
   })
 
+  it('moves word selection across formatted middle sibling text leaves', () => {
+    const forward = createEditor()
+
+    replaceChildren(forward, [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'foo ' },
+          { bold: true, text: 'bar' },
+          { text: ' baz' },
+        ],
+      },
+    ])
+    selectEditor(forward, {
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    })
+
+    forward.update((tx) => {
+      tx.selection.move({ unit: 'word' })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(forward).selection, {
+      anchor: { path: [0, 1], offset: 3 },
+      focus: { path: [0, 1], offset: 3 },
+    })
+
+    const backward = createEditor()
+
+    replaceChildren(backward, [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'foo ' },
+          { bold: true, text: 'bar' },
+          { text: ' baz' },
+        ],
+      },
+    ])
+    selectEditor(backward, {
+      anchor: { path: [0, 2], offset: 1 },
+      focus: { path: [0, 2], offset: 1 },
+    })
+
+    backward.update((tx) => {
+      tx.selection.move({ reverse: true, unit: 'word' })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(backward).selection, {
+      anchor: { path: [0, 1], offset: 0 },
+      focus: { path: [0, 1], offset: 0 },
+    })
+  })
+
+  it('moves word selection through padded formatted leaves in both directions', () => {
+    const editor = createEditor()
+
+    replaceChildren(editor, [
+      {
+        type: 'paragraph',
+        children: [
+          { text: '  123 ' },
+          { bold: true, text: 'ab' },
+          { text: 'c 456  ' },
+          { bold: true, text: 'de' },
+          { text: 'f  ' },
+        ],
+      },
+    ])
+    selectEditor(editor, {
+      anchor: { path: [0, 4], offset: 3 },
+      focus: { path: [0, 4], offset: 3 },
+    })
+
+    for (const point of [
+      { path: [0, 3], offset: 0 },
+      { path: [0, 2], offset: 2 },
+      { path: [0, 1], offset: 0 },
+      { path: [0, 0], offset: 2 },
+      { path: [0, 0], offset: 0 },
+    ]) {
+      editor.update((tx) => {
+        tx.selection.move({ reverse: true, unit: 'word' })
+      })
+
+      assert.deepEqual(Editor.getSnapshot(editor).selection, {
+        anchor: point,
+        focus: point,
+      })
+    }
+
+    for (const point of [
+      { path: [0, 0], offset: 5 },
+      { path: [0, 2], offset: 1 },
+      { path: [0, 2], offset: 5 },
+      { path: [0, 4], offset: 1 },
+      { path: [0, 4], offset: 3 },
+    ]) {
+      editor.update((tx) => {
+        tx.selection.move({ unit: 'word' })
+      })
+
+      assert.deepEqual(Editor.getSnapshot(editor).selection, {
+        anchor: point,
+        focus: point,
+      })
+    }
+  })
+
   it('routes mark commands through command middleware and preserves mark commit metadata', () => {
     const editor = createEditor()
     const seenCommands: unknown[] = []
@@ -1286,6 +1411,49 @@ describe('slate transaction contract', () => {
       Editor.getExtensionRegistry(editor).commands.get('insert_text')?.length,
       0
     )
+  })
+
+  it('lets boolean false decline a command without stopping propagation', () => {
+    const editor = createEditor()
+    const seenCommands: string[] = []
+
+    replaceChildren(editor, [paragraph('one')])
+    selectEditor(editor, {
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    })
+
+    const unsubscribeDecline = Editor.registerCommand(
+      editor,
+      'insert_text',
+      (context) => {
+        seenCommands.push(`decline:${context.command.text}`)
+        return false
+      },
+      { priority: 2 }
+    )
+    const unsubscribeOverride = Editor.registerCommand(
+      editor,
+      'insert_text',
+      (context, next) => {
+        seenCommands.push(`override:${context.command.text}`)
+        return next({
+          ...context.command,
+          text: '?',
+        })
+      },
+      { priority: 1 }
+    )
+
+    editor.update(() => {
+      Editor.insertText(editor, '!')
+    })
+
+    unsubscribeDecline()
+    unsubscribeOverride()
+
+    assert.deepEqual(seenCommands, ['decline:!', 'override:!'])
+    assert.equal(Editor.string(editor, [0]), 'one?')
   })
 
   it('exposes stable extension registry slots beyond commands', () => {

@@ -66,14 +66,22 @@ export const createPagedEditablePageMountPlan = ({
   pages: readonly SlatePageLayoutPage[]
 }): PagedEditablePageMountPlan => {
   const itemIndexesByTopLevelIndex = new Map<number, number[]>()
+  const fragmentsByPageIndex = new Map<number, PageFragmentIndex[]>()
   const pageArrayIndexByPageIndex = new Map(
     pages.map((page, index) => [page.index, index] as const)
   )
+
+  for (const fragment of fragments) {
+    const pageFragments = fragmentsByPageIndex.get(fragment.pageIndex) ?? []
+
+    pageFragments.push(fragment)
+    fragmentsByPageIndex.set(fragment.pageIndex, pageFragments)
+  }
+
   const groups = getPageMountGroups(pages, mode)
   const items = groups.map<PagedEditablePageMountItem>((pageIndexes, index) => {
-    const pageIndexSet = new Set(pageIndexes)
-    const itemFragments = fragments.filter((fragment) =>
-      pageIndexSet.has(fragment.pageIndex)
+    const itemFragments = pageIndexes.flatMap(
+      (pageIndex) => fragmentsByPageIndex.get(pageIndex) ?? []
     )
     const topLevelIndexes = [
       ...new Set(itemFragments.map((fragment) => fragment.blockIndex)),
@@ -190,17 +198,18 @@ export const getPagedEditableVisiblePageMountItems = (
     viewport: PagedEditablePageMountViewport | null
   }
 ): readonly PagedEditablePageMountItem[] => {
-  if (!virtualizes || !viewport) {
+  if (!virtualizes) {
     return plan.items
   }
 
   const firstPageHeight = pages[0]?.height ?? 1024
   const pageStride = firstPageHeight + gap
   const overscanSize = overscan * pageStride
+  const effectiveViewport = viewport ?? { bottom: firstPageHeight, top: 0 }
 
   return plan.items.filter(
     (item) =>
-      item.start + item.size >= viewport.top - overscanSize &&
-      item.start <= viewport.bottom + overscanSize
+      item.start + item.size >= effectiveViewport.top - overscanSize &&
+      item.start <= effectiveViewport.bottom + overscanSize
   )
 }

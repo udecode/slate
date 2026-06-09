@@ -48,6 +48,64 @@ const readNativeSelection = async (
     }
   }, rootId)
 
+const clickTextOffset = async (
+  page: Parameters<typeof openExample>[0],
+  {
+    offset,
+    rootId,
+    text,
+  }: {
+    offset: number
+    rootId: string
+    text: string
+  }
+) => {
+  const point = await page.evaluate(
+    ({ offset, rootId, text }) => {
+      const root = document.getElementById(rootId)
+
+      if (!root) {
+        throw new Error(`Cannot find root "${rootId}"`)
+      }
+
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!node.nodeValue?.includes(text)) {
+          continue
+        }
+
+        const textNode = node as Text
+        const range = document.createRange()
+
+        if (offset > 0) {
+          range.setStart(textNode, offset - 1)
+          range.setEnd(textNode, offset)
+        } else {
+          range.setStart(textNode, 0)
+          range.setEnd(textNode, Math.min(1, textNode.length))
+        }
+
+        const rects = Array.from(range.getClientRects())
+        const rect =
+          offset > 0
+            ? (rects.at(-1) ?? range.getBoundingClientRect())
+            : (rects[0] ?? range.getBoundingClientRect())
+
+        return {
+          x: offset > 0 ? rect.right + 1 : rect.left,
+          y: rect.top + rect.height / 2,
+        }
+      }
+
+      throw new Error(`Cannot find text "${text}" in root "${rootId}"`)
+    },
+    { offset, rootId, text }
+  )
+
+  await page.mouse.click(point.x, point.y)
+}
+
 test.describe('multi-root document example', () => {
   test('edits header, body, footer, and document title through one runtime', async ({
     page,
@@ -311,7 +369,9 @@ test.describe('multi-root document example', () => {
 
   test("keyboard undo keeps typing in the preserved focused root after undoing another root's batch", async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop hardware undo proof')
+
     await openExample(page, 'multi-root-document', {
       ready: {
         editor: 'visible',
@@ -331,20 +391,21 @@ test.describe('multi-root document example', () => {
     ))
       ? 'Meta+Z'
       : 'Control+Z'
-    const headerBox = await header.boundingBox()
-    const mainBox = await main.boundingBox()
-
-    if (!headerBox || !mainBox) {
-      throw new Error('Multi-root editors are not visible')
-    }
-
-    await page.mouse.click(headerBox.x + headerBox.width - 16, headerBox.y + 24)
+    await clickTextOffset(page, {
+      offset: headerText.length,
+      rootId: 'multi-root-header',
+      text: headerText,
+    })
     await expect(header).toBeFocused()
     await page.keyboard.insertText('p')
     await expect(header).toContainText(`${headerText}p`)
     await expect(commitStatus).toContainText('roots:header')
 
-    await page.mouse.click(mainBox.x + mainBox.width - 16, mainBox.y + 24)
+    await clickTextOffset(page, {
+      offset: bodyText.length,
+      rootId: 'multi-root-main',
+      text: bodyText,
+    })
     await expect(main).toBeFocused()
     await page.keyboard.insertText('poke')
     await expect(main).toContainText(`${bodyText}poke`)
@@ -373,7 +434,7 @@ test.describe('multi-root document example', () => {
         text: bodyText,
       })
 
-    await page.keyboard.insertText('x')
+    await page.keyboard.press('x')
 
     await expect(main).toContainText(`${bodyText}x`)
     await expect(header).not.toContainText('x')
@@ -382,7 +443,9 @@ test.describe('multi-root document example', () => {
 
   test('keyboard undo from footer keeps body DOM and model rooted across repeated undo', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop hardware undo proof')
+
     await openExample(page, 'multi-root-document', {
       ready: {
         editor: 'visible',
@@ -401,14 +464,11 @@ test.describe('multi-root document example', () => {
     ))
       ? 'Meta+Z'
       : 'Control+Z'
-    const mainBox = await main.boundingBox()
-    const footerBox = await footer.boundingBox()
-
-    if (!mainBox || !footerBox) {
-      throw new Error('Multi-root editors are not visible')
-    }
-
-    await page.mouse.click(mainBox.x + mainBox.width - 16, mainBox.y + 24)
+    await clickTextOffset(page, {
+      offset: bodyText.length,
+      rootId: 'multi-root-main',
+      text: bodyText,
+    })
     await expect(main).toBeFocused()
     await page.keyboard.insertText('pok')
     await expect(main).toContainText(`${bodyText}pok`)
@@ -416,7 +476,11 @@ test.describe('multi-root document example', () => {
       `main:${bodyText}pok`
     )
 
-    await page.mouse.click(footerBox.x + footerBox.width - 16, footerBox.y + 24)
+    await clickTextOffset(page, {
+      offset: footerText.length,
+      rootId: 'multi-root-footer',
+      text: footerText,
+    })
     await expect(footer).toBeFocused()
     await page.keyboard.insertText('pok')
     await expect(footer).toContainText(`${footerText}pok`)
@@ -700,6 +764,60 @@ test.describe('multi-root document example', () => {
     await expect(main).not.toContainText('Surface caret ')
   })
 
+  test('dragging from blank header editor space does not start a projected selection', async ({
+    page,
+  }) => {
+    const pageErrors: Error[] = []
+    page.on('pageerror', (error) => pageErrors.push(error))
+
+    const bodyEditor = await openExample(page, 'multi-root-document', {
+      ready: {
+        editor: 'visible',
+      },
+      surface: {
+        scope: '#multi-root-main-surface',
+      },
+    })
+
+    const header = page.locator('#multi-root-header')
+    const headerBox = await header.boundingBox()
+
+    if (!headerBox) {
+      throw new Error('Header editor is not visible')
+    }
+
+    await bodyEditor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 4 },
+    })
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe('The ')
+
+    await page.mouse.move(
+      headerBox.x + headerBox.width - 8,
+      headerBox.y + headerBox.height - 8
+    )
+    await page.mouse.down()
+    await page.mouse.move(
+      headerBox.x + headerBox.width - 4,
+      headerBox.y + headerBox.height + 48,
+      { steps: 8 }
+    )
+    await page.mouse.up()
+
+    await expect
+      .poll(() => page.locator('[data-slate-view-selection="true"]').count())
+      .toBe(0)
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe('')
+    await expect
+      .poll(() => readNativeSelection(page, 'multi-root-header'))
+      .toMatchObject({ insideRoot: false })
+    expect(pageErrors).toEqual([])
+  })
+
   test('moves the native caret into body text after typing in header', async ({
     page,
   }) => {
@@ -850,7 +968,16 @@ test.describe('multi-root document example', () => {
     await page.mouse.click(headerBox.x + 230, headerBox.y + 24)
     await expect(header).toBeFocused()
 
-    await page.mouse.click(mainBox.x + mainBox.width - 16, mainBox.y + 96)
+    const lastBodyBox = await main.getByText(lastBodyText).boundingBox()
+
+    if (!lastBodyBox) {
+      throw new Error('Last body paragraph is not visible')
+    }
+
+    await page.mouse.click(
+      mainBox.x + mainBox.width - 16,
+      lastBodyBox.y + lastBodyBox.height / 2
+    )
     await expect(main).toBeFocused()
     await expect
       .poll(() => readNativeSelection(page, 'multi-root-main'))

@@ -220,7 +220,7 @@ defineEditorExtension({
     return {
       commands: [
         {
-          handler: () => ({ handled: false }),
+          handler: () => false,
           type: 'insert_text',
         },
       ],
@@ -253,7 +253,7 @@ defineEditorExtension<CustomEditor>()({
   // @ts-expect-error raw Slate extensions do not expose public command slots
   commands: [
     {
-      handler: () => ({ handled: false }),
+      handler: () => false,
       type: 'insert_text',
     },
   ],
@@ -298,7 +298,7 @@ defineEditorExtension<CustomEditor>()({
       // @ts-expect-error transform middleware gets tx, not separate state
       context.state
 
-      context.next({ text: context.text })
+      return context.next({ text: context.text })
     },
   },
 })

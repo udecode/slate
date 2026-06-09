@@ -150,6 +150,11 @@ export type EditorStateValueApi<V extends Value = Value> = {
   get: () => EditorDocumentValue<V>
   lastCommit: () => EditorCommit<V> | null
   operations: (startIndex?: number) => readonly Operation<V>[]
+  /**
+   * Reads one document root without cloning the serializable document value.
+   * Treat the returned nodes as read-only live state.
+   */
+  root: (root: RootKey) => readonly Descendant[]
 }
 
 export type EditorTransactionValueApi<V extends Value = Value> =
@@ -611,6 +616,7 @@ export interface BaseEditor<
   ) => EditorApiValueFromExtension<TExtension>
   read: <T>(fn: (state: EditorStateView<V, TExtensions>) => T) => T
   subscribe: (listener: SnapshotListener<any>) => () => void
+  subscribeCommit: (listener: CommitListener<any>) => () => void
   update: BivariantMethod<
     [
       fn: (
@@ -629,7 +635,13 @@ export type EditorRuntime<
   TExtensions extends readonly unknown[] = readonly [],
 > = Pick<
   BaseEditor<V, TExtensions>,
-  'api' | 'extend' | 'getApi' | 'read' | 'subscribe' | 'update'
+  | 'api'
+  | 'extend'
+  | 'getApi'
+  | 'read'
+  | 'subscribe'
+  | 'subscribeCommit'
+  | 'update'
 > & {
   editor: Editor<V, TExtensions>
 }
@@ -933,7 +945,7 @@ export type EditorTransformMiddlewareMap<
       TEditor,
       EditorTransformMiddlewareArgs<ValueOf<TEditor>>[K]
     >
-  ) => EditorCommandResult | void
+  ) => EditorCommandResult
 }
 
 type EmptyQueryMiddlewareArgs = Record<never, never>
@@ -1209,6 +1221,10 @@ export type SnapshotListener<V extends Value = Value> = (
   change?: SnapshotChange<V>
 ) => void
 
+export type CommitListener<V extends Value = Value> = (
+  change: SnapshotChange<V>
+) => void
+
 export type EditorCommitSource =
   | 'commit'
   | 'selection'
@@ -1290,9 +1306,7 @@ export type EditorCommandContext<
   editor: TEditor
 }
 
-export type EditorCommandResult = {
-  handled: boolean
-}
+export type EditorCommandResult = boolean
 
 export type EditorCommandNext<TCommand extends EditorCommand> = (
   command?: TCommand
@@ -1304,7 +1318,7 @@ export type EditorCommandHandler<
 > = (
   context: EditorCommandContext<TCommand, TEditor>,
   next: EditorCommandNext<TCommand>
-) => EditorCommandResult | void
+) => EditorCommandResult
 
 export type EditorOperationContext<TEditor extends BaseEditor<any> = Editor> = {
   editor: TEditor
@@ -1439,7 +1453,7 @@ export type EditorClipboardInsertDataContext<
   TEditor extends BaseEditor<any> = Editor,
 > = {
   editor: TEditor
-  next: () => boolean | void
+  next: () => boolean
   state: EditorStateView<ValueOf<TEditor>>
 }
 
@@ -1449,7 +1463,7 @@ export type EditorClipboardMiddlewareMap<
   insertData?: (
     data: DataTransfer,
     context: EditorClipboardInsertDataContext<TEditor>
-  ) => boolean | void
+  ) => boolean
 }
 
 export type EditorExtensionRuntimeState<TValue> = {
@@ -1810,6 +1824,7 @@ export interface EditorElementReadOnlyOptions {
 }
 
 export interface EditorFragmentDeletionOptions {
+  at?: Location
   direction?: TextDirection
 }
 
@@ -2354,23 +2369,6 @@ export interface EditorStaticApi {
   rangeRefs: (editor: Editor) => Set<RangeRef>
 
   /**
-   * Define a typed internal command token.
-   */
-  defineCommand: <TCommand extends EditorCommand>(
-    type: TCommand['type']
-  ) => EditorCommandDefinition<TCommand>
-
-  /**
-   * Register a command middleware handler for the editor.
-   */
-  registerCommand: <TCommand extends EditorCommand>(
-    editor: Editor,
-    command: EditorCommandReference<TCommand>,
-    handler: EditorCommandHandler<TCommand>,
-    options?: EditorCommandOptions
-  ) => () => void
-
-  /**
    * Register an extension capability value.
    */
   registerCapability: (
@@ -2469,6 +2467,11 @@ export interface EditorStaticApi {
     listener: SnapshotListener<V>
   ) => () => void
 
+  subscribeCommit: <V extends Value>(
+    editor: Editor<V>,
+    listener: CommitListener<V>
+  ) => () => void
+
   subscribeSource: <V extends Value>(
     editor: Editor<V>,
     source: EditorCommitSource,
@@ -2516,11 +2519,44 @@ export interface EditorStaticApi {
   ) => boolean
 }
 
+export interface InternalEditorStaticApi extends EditorStaticApi {
+  /**
+   * Define a typed internal command token.
+   */
+  defineCommand: <TCommand extends EditorCommand>(
+    type: TCommand['type']
+  ) => EditorCommandDefinition<TCommand>
+
+  /**
+   * Register a command middleware handler for the editor.
+   */
+  registerCommand: <TCommand extends EditorCommand>(
+    editor: Editor,
+    command: EditorCommandReference<TCommand>,
+    handler: EditorCommandHandler<TCommand>,
+    options?: EditorCommandOptions
+  ) => () => void
+}
+
 const getImplicitSelectionRoot = (editor: Editor) =>
   getCurrentSelection(editor) ? getCurrentSelectionRoot(editor) : undefined
 
 const getWriteRoot = (editor: Editor, at: Location | undefined) =>
   at === undefined ? getImplicitSelectionRoot(editor) : getLocationRoot(at)
+
+const isPathLocation = (value: Location | undefined): value is Path =>
+  Array.isArray(value) && value.every((segment) => Number.isInteger(segment))
+
+const runRootedInternalWrite = <T>(
+  editor: Editor,
+  fn: () => T,
+  root?: string
+): T =>
+  root
+    ? withEditorOperationRoot(editor, root, () =>
+        withEditorOperationRootChildren(editor, root, fn)
+      )
+    : fn()
 
 const runInternalEditorWrite = <T>(
   editor: Editor,
@@ -2528,11 +2564,7 @@ const runInternalEditorWrite = <T>(
   root?: string
 ): T => {
   const runRooted = <TReturn>(callback: () => TReturn) =>
-    root
-      ? withEditorOperationRoot(editor, root, () =>
-          withEditorOperationRootChildren(editor, root, callback)
-        )
-      : callback()
+    runRootedInternalWrite(editor, callback, root)
 
   if (isInTransaction(editor)) {
     return runRooted(fn)
@@ -2551,6 +2583,33 @@ const runInternalEditorWrite = <T>(
   return result
 }
 
+const runInternalEditorWriteSkipNormalize = <T>(
+  editor: Editor,
+  fn: () => T,
+  root?: string
+): T => {
+  if (isInTransaction(editor)) {
+    return runRootedInternalWrite(editor, fn, root)
+  }
+
+  let result!: T
+
+  runRootedInternalWrite(
+    editor,
+    () => {
+      editor.update(
+        () => {
+          result = fn()
+        },
+        { skipNormalize: true }
+      )
+    },
+    root
+  )
+
+  return result
+}
+
 const isEditorView = (editor: Editor): editor is EditorView =>
   (editor as { runtime?: EditorRuntime }).runtime?.editor !== undefined
 
@@ -2565,7 +2624,7 @@ const replaceEditorSnapshot = (editor: Editor, input: SnapshotInput) => {
   replaceSnapshot(editor, input)
 }
 
-const InternalEditor: EditorStaticApi = {
+const InternalEditor: InternalEditorStaticApi = {
   above(editor, options) {
     return getEditorRuntime(editor).above(options)
   },
@@ -2869,6 +2928,14 @@ const InternalEditor: EditorStaticApi = {
   },
 
   moveNodes(editor, options) {
+    if (isPathLocation(options.at) && options.at.length === 1) {
+      return runInternalEditorWriteSkipNormalize(
+        editor,
+        () => getEditorTransformRegistry(editor).moveNodes(options),
+        getWriteRoot(editor, options.at)
+      )
+    }
+
     runInternalEditorWrite(
       editor,
       () => getEditorTransformRegistry(editor).moveNodes(options),
@@ -2978,6 +3045,18 @@ const InternalEditor: EditorStaticApi = {
   },
 
   removeNodes(editor, options) {
+    if (
+      isPathLocation(options?.at) &&
+      options.at.length === 1 &&
+      getEditorRuntime(editor).getChildren().length > 1
+    ) {
+      return runInternalEditorWriteSkipNormalize(
+        editor,
+        () => getEditorTransformRegistry(editor).removeNodes(options),
+        getWriteRoot(editor, options.at)
+      )
+    }
+
     runInternalEditorWrite(
       editor,
       () => getEditorTransformRegistry(editor).removeNodes(options),
@@ -3071,6 +3150,10 @@ const InternalEditor: EditorStaticApi = {
     return editor.subscribe(listener)
   },
 
+  subscribeCommit(editor, listener) {
+    return editor.subscribeCommit(listener)
+  },
+
   subscribeSource(editor, source, listener) {
     return getEditorRuntime(editor).subscribeSource(source, listener)
   },
@@ -3100,7 +3183,9 @@ const InternalEditor: EditorStaticApi = {
   },
 }
 
-export { InternalEditor as Editor }
+const Editor: EditorStaticApi = InternalEditor
+
+export { Editor, InternalEditor }
 
 /**
  * A helper type for narrowing matched nodes with a predicate.

@@ -15,6 +15,30 @@ const legacyReactComparePath = fileURLToPath(
     import.meta.url
   )
 )
+const hugeDocumentFullPath = fileURLToPath(
+  new URL(
+    '../../../scripts/benchmarks/browser/react/huge-document-full.mjs',
+    import.meta.url
+  )
+)
+const hugeDocumentBrowserTracePath = fileURLToPath(
+  new URL(
+    '../../../scripts/benchmarks/browser/react/huge-document-browser-trace.mjs',
+    import.meta.url
+  )
+)
+const hugeDocumentCrossEditorPath = fileURLToPath(
+  new URL(
+    '../../../scripts/benchmarks/browser/react/huge-document-cross-editor.mjs',
+    import.meta.url
+  )
+)
+const hugeDocumentOverlaysPath = fileURLToPath(
+  new URL(
+    '../../../scripts/benchmarks/browser/react/huge-document-overlays.tsx',
+    import.meta.url
+  )
+)
 const activeTypingBreakdownPath = fileURLToPath(
   new URL(
     '../../../scripts/benchmarks/browser/react/active-typing-breakdown.tsx',
@@ -443,6 +467,325 @@ describe('core benchmark scripts contract', () => {
     assert.ok(
       getSelectionSource.indexOf('Editor.getSelection') <
         getSelectionSource.indexOf('Editor.getSnapshot')
+    )
+  })
+
+  it('keeps full huge-document core budget evidence separate from legacy ratios', () => {
+    const source = readFileSync(hugeDocumentFullPath, 'utf8')
+    const legacySource = readFileSync(legacyReactComparePath, 'utf8')
+    const overlaysSource = readFileSync(hugeDocumentOverlaysPath, 'utf8')
+    const activeTypingSource = readFileSync(activeTypingBreakdownPath, 'utf8')
+
+    assert.match(source, /const coreIterations = Number\(/)
+    assert.match(source, /HUGE_DOC_FULL_CORE_ITERATIONS/)
+    assert.match(
+      source,
+      /HUGE_DOC_FULL_OVERLAY_ISLAND_SIZE \|\| \(smoke \? 10 : 32\)/
+    )
+    assert.match(legacySource, /REACT_HUGE_COMPARE_ISLAND_SIZE \|\| 32/)
+    assert.match(legacySource, /const comparableProductLaneNames = readyOnly/)
+    assert.match(
+      legacySource,
+      /const v2OnlyProductLaneNames = readyOnly \? \[\] : \['middleBlockPromoteThenTypeMs'\]/
+    )
+    assert.match(legacySource, /v2OnlyP95Rows/)
+    assert.match(legacySource, /REACT_HUGE_COMPARE_PRINT_JSON/)
+    assert.match(
+      legacySource,
+      /const printHugeDocumentSummary = \(summary\) =>/
+    )
+    assert.match(
+      legacySource,
+      /react_huge_doc_legacy_compare_partial_dom_promotion_then_type_p95_ms/
+    )
+    assert.match(legacySource, /`chunk-\$\{chunkSize\}`/)
+    assert.match(legacySource, /`segment-\$\{segmentSize\}`/)
+    assert.match(legacySource, /`radius-\$\{overscan\}`/)
+    assert.match(legacySource, /`dispose-\$\{disposeDelayMs\}`/)
+    assert.match(legacySource, /readyOnly \? 'ready-only' : 'full-run'/)
+    assert.match(
+      legacySource,
+      /includeSyntheticBeforeInput\s*\?\s*'synthetic-beforeinput'\s*:\s*'native-beforeinput'/
+    )
+    assert.match(overlaysSource, /REACT_HUGE_DOC_ISLAND_SIZE \|\| 32/)
+    assert.match(
+      activeTypingSource,
+      /REACT_ACTIVE_TYPING_BREAKDOWN_ISLAND_SIZE \|\| 32/
+    )
+    assert.match(source, /CORE_HUGE_BENCH_ITERATIONS: coreIterations/)
+    assert.match(source, /const coreBudgetRatio = \(budgetRows\) =>/)
+    assert.match(source, /HUGE_DOC_FULL_STRICT_BUDGET/)
+    assert.match(source, /const failedBudgetRows = \(budgetRows\) =>/)
+    assert.match(source, /budgetFailureCount: budgetFailures\.length/)
+    assert.match(source, /const comparableProductLanes = \[/)
+    assert.match(
+      source,
+      /const v2OnlyProductLanes = \['middleBlockPromoteThenTypeMs'\]/
+    )
+    assert.match(source, /partialDOMPromotionThenTypeP95Ms/)
+    assert.match(source, /legacyComparePartialDOMPromotionThenTypeP95Ms/)
+    assert.match(source, /existsSync,\s*rmSync/)
+    assert.match(source, /const browserTraceArtifactPath = \(surfaces\) =>/)
+    assert.match(
+      source,
+      /rmSync\(step\.artifactPath,\s*\{\s*force:\s*true\s*\}\)/
+    )
+    assert.match(
+      source,
+      /artifactPath: browserTraceArtifactPath\('defaultAuto'\)/
+    )
+    assert.match(
+      source,
+      /artifactPath: browserTraceArtifactPath\(\s*'stagedDomPresent,stagedContentVisibility'\s*\)/
+    )
+    assert.match(
+      source,
+      /artifactPath: browserTraceArtifactPath\('virtualized'\)/
+    )
+    assert.match(source, /react-huge-document-staged-diagnostic-trace/)
+    assert.match(source, /stagedDiagnosticBurstToPaintPerOpP95Ms/)
+    assert.match(
+      source,
+      /if \(!smoke\) \{\s*add\(\{\s*budget: 1\.5,\s*metric: 'legacyCompareWorstP95Ratio'/
+    )
+    assert.match(
+      source,
+      /middleBlockTypeMs:\s*\{\s*budget:\s*5,\s*stat:\s*'p75'\s*\}/
+    )
+    assert.match(
+      source,
+      /selectAllMs:\s*\{\s*budget:\s*5,\s*stat:\s*'p75'\s*\}/
+    )
+    assert.match(
+      source,
+      /startBlockTypeMs:\s*\{\s*budget:\s*5,\s*stat:\s*'p75'\s*\}/
+    )
+    assert.match(source, /rawP95Ms: lane\.currentP95Ms/)
+    assert.match(source, /overBudgetSampleCount: sampleCountAbove/)
+    assert.match(source, /selectToPaintP95Ms/)
+    assert.match(source, /selectionReadyP95Ms/)
+    assert.match(source, /browserTraceSelectToPaintP95Ms/)
+    assert.match(source, /browserTraceSelectionReadyP95Ms/)
+    assert.match(source, /browserTraceMaterializedSelectToPaintP95Ms/)
+    assert.match(source, /browserTraceMaterializedSelectionReadyP95Ms/)
+    assert.match(source, /virtualizedSelectToPaintP95Ms/)
+    assert.match(source, /virtualizedSelectionReadyP95Ms/)
+    assert.match(source, /virtualizedMaterializedSelectToPaintP95Ms/)
+    assert.match(source, /virtualizedMaterializedSelectionReadyP95Ms/)
+    assert.match(source, /react_huge_doc_full_select_to_paint_p95_ms/)
+    assert.match(source, /react_huge_doc_full_selection_ready_p95_ms/)
+    assert.match(
+      source,
+      /react_huge_doc_full_materialized_select_to_paint_p95_ms/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_materialized_selection_ready_p95_ms/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_virtualized_select_to_paint_p95_ms/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_virtualized_selection_ready_p95_ms/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_virtualized_materialized_select_to_paint_p95_ms/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_virtualized_materialized_selection_ready_p95_ms/
+    )
+    assert.match(source, /partialDOMPromotionSteadyP75Ms/)
+    assert.match(source, /metric: 'partialDOMPromotionSteadyP75Ms'/)
+    assert.match(source, /metric: 'partialDOMPromotionSteadyP95Ms'/)
+    assert.match(
+      source,
+      /react_huge_doc_full_partial_dom_promotion_steady_p75_ms/
+    )
+    assert.match(source, /browserTraceBurstToPaintPerOpP95Ms/)
+    assert.match(source, /browserTraceModelTypeToPaintP95Ms/)
+    assert.match(source, /browserTraceModelTypeToReadyP95Ms/)
+    assert.match(source, /browserTraceModelBurstToPaintPerOpP95Ms/)
+    assert.match(source, /browserTraceCoreNotifyListenersP95Ms/)
+    assert.match(source, /browserTraceSelectorDispatchP95Ms/)
+    assert.match(source, /virtualizedBurstToPaintPerOpP95Ms/)
+    assert.match(source, /virtualizedModelTypeToPaintP95Ms/)
+    assert.match(source, /virtualizedModelTypeToReadyP95Ms/)
+    assert.match(source, /virtualizedModelBurstToPaintPerOpP95Ms/)
+    assert.match(source, /virtualizedCoreNotifyListenersP95Ms/)
+    assert.match(source, /virtualizedSelectorDispatchP95Ms/)
+    assert.match(source, /react_huge_doc_full_burst_to_paint_per_op_p95_ms/)
+    assert.match(source, /react_huge_doc_full_model_type_to_paint_p95_ms/)
+    assert.match(source, /react_huge_doc_full_model_type_to_ready_p95_ms/)
+    assert.match(
+      source,
+      /react_huge_doc_full_model_burst_to_paint_per_op_p95_ms/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_virtualized_model_type_to_paint_p95_ms/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_virtualized_model_type_to_ready_p95_ms/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_virtualized_model_burst_to_paint_per_op_p95_ms/
+    )
+    assert.match(source, /react_huge_doc_full_core_notify_listeners_p95_ms/)
+    assert.match(source, /react_huge_doc_full_core_notify_listeners_count_p95/)
+    assert.match(
+      source,
+      /react_huge_doc_full_core_notify_commit_listeners_p95_ms/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_core_notify_extension_commit_listeners_p95_ms/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_core_notify_snapshot_listeners_p95_ms/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_core_notify_source_listeners_p95_ms/
+    )
+    assert.match(source, /react_huge_doc_full_core_listener_snapshot_p95_ms/)
+    assert.match(source, /react_huge_doc_full_selector_dispatch_p95_ms/)
+    assert.match(source, /react_huge_doc_full_selector_dispatch_count_p95/)
+    assert.match(source, /react_huge_doc_full_selector_check_count_p95/)
+    assert.match(source, /react_huge_doc_full_selector_notify_count_p95/)
+    assert.match(source, /react_huge_doc_full_selector_subscription_count_p95/)
+    assert.match(source, /react_huge_doc_full_budget_failure_count/)
+    assert.match(source, /react_huge_doc_full_core_worst_budget_ratio/)
+    assert.match(source, /react_huge_doc_full_virtualized_dom_nodes_p95/)
+    assert.match(source, /strictBudget && budgetFailures\.length > 0/)
+  })
+
+  it('keeps huge-document burst typing normalized per operation', () => {
+    const source = readFileSync(hugeDocumentBrowserTracePath, 'utf8')
+
+    assert.match(
+      source,
+      /burstToPaintPerOpMs:\s*\(paintTime - typeStart\) \/ typeText\.length/
+    )
+    assert.match(source, /burstToPaintPerOpMs: summarizeMetric/)
+    assert.match(source, /modelTypeToPaintMs: summarizeMetric/)
+    assert.match(source, /modelTypeToReadyMs: summarizeMetric/)
+    assert.match(source, /modelBurstToPaintPerOpMs: summarizeMetric/)
+    assert.match(source, /react_huge_doc_model_type_to_paint_p95_ms/)
+    assert.match(source, /react_huge_doc_model_type_to_ready_p95_ms/)
+    assert.match(source, /react_huge_doc_model_burst_to_paint_per_op_p95_ms/)
+    assert.match(source, /\$\{prefix\}_model_type_to_paint_p95_ms/)
+    assert.match(source, /\$\{prefix\}_model_type_to_ready_p95_ms/)
+    assert.match(source, /\$\{prefix\}_model_burst_to_paint_per_op_p95_ms/)
+    assert.match(source, /selectReadyMs: summarizeMetric/)
+    assert.match(source, /materializedSelectReadyMs: summarizeMetric/)
+    assert.match(source, /react_huge_doc_selection_ready_p95_ms/)
+    assert.match(source, /\$\{prefix\}_selection_ready_p95_ms/)
+    assert.match(source, /materializedSelectMs: summarizeMetric/)
+    assert.match(source, /react_huge_doc_materialized_select_to_paint_p95_ms/)
+    assert.match(source, /react_huge_doc_materialized_selection_ready_p95_ms/)
+    assert.match(source, /\$\{prefix\}_materialized_select_to_paint_p95_ms/)
+    assert.match(source, /\$\{prefix\}_materialized_selection_ready_p95_ms/)
+    assert.match(source, /react_huge_doc_core_notify_listeners_p95_ms/)
+    assert.match(source, /react_huge_doc_core_notify_listeners_count_p95/)
+    assert.match(source, /react_huge_doc_core_notify_commit_listeners_p95_ms/)
+    assert.match(
+      source,
+      /react_huge_doc_core_notify_extension_commit_listeners_p95_ms/
+    )
+    assert.match(source, /react_huge_doc_core_notify_snapshot_listeners_p95_ms/)
+    assert.match(source, /react_huge_doc_core_notify_source_listeners_p95_ms/)
+    assert.match(source, /react_huge_doc_core_listener_snapshot_p95_ms/)
+    assert.match(source, /react_huge_doc_selector_dispatch_p95_ms/)
+    assert.match(source, /react_huge_doc_selector_dispatch_count_p95/)
+    assert.match(source, /react_huge_doc_selector_check_count_p95/)
+    assert.match(source, /react_huge_doc_selector_notify_count_p95/)
+    assert.match(source, /react_huge_doc_selector_subscription_count_p95/)
+    assert.match(source, /\$\{prefix\}_core_notify_listeners_p95_ms/)
+    assert.match(source, /\$\{prefix\}_core_notify_listeners_count_p95/)
+    assert.match(source, /\$\{prefix\}_core_notify_commit_listeners_p95_ms/)
+    assert.match(
+      source,
+      /\$\{prefix\}_core_notify_extension_commit_listeners_p95_ms/
+    )
+    assert.match(source, /\$\{prefix\}_core_notify_snapshot_listeners_p95_ms/)
+    assert.match(source, /\$\{prefix\}_core_notify_source_listeners_p95_ms/)
+    assert.match(source, /\$\{prefix\}_core_listener_snapshot_p95_ms/)
+    assert.match(source, /\$\{prefix\}_selector_dispatch_p95_ms/)
+    assert.match(source, /\$\{prefix\}_selector_dispatch_count_p95/)
+    assert.match(source, /\$\{prefix\}_selector_check_count_p95/)
+    assert.match(source, /\$\{prefix\}_selector_notify_count_p95/)
+    assert.match(source, /\$\{prefix\}_selector_subscription_count_p95/)
+    assert.match(source, /selector:selector-dispatch-checks/)
+    assert.match(source, /selector:selector-dispatch-notifies/)
+    assert.match(source, /selector:selector-dispatch-subscriptions/)
+    assert.match(
+      source,
+      /const key = event\.id \? `\$\{event\.kind\}:\$\{event\.id\}` : event\.kind/
+    )
+    assert.match(
+      source,
+      /root\.__slateBrowserHandle\?\.importDOMSelection\?\.\(\)/
+    )
+    assert.match(source, /inputState\?\.preferModelSelection === false/)
+    assert.match(source, /handle\?\.getInputState\?\.\(\) \?\? null/)
+    assert.match(source, /react_huge_doc_burst_to_paint_per_op_p95_ms/)
+  })
+
+  it('exposes the huge-document cross-editor browser benchmark as a guarded local command', () => {
+    const source = readFileSync(hugeDocumentCrossEditorPath, 'utf8')
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
+      scripts: Record<string, string>
+    }
+
+    assert.equal(
+      packageJson.scripts['bench:react:huge-document:cross-editor:local'],
+      'bun ./scripts/benchmarks/browser/react/huge-document-cross-editor.mjs'
+    )
+    assert.match(
+      source,
+      /tmp\/slate-react-huge-document-cross-editor-benchmark\.json/
+    )
+    assert.match(source, /CROSS_EDITOR_HUGE_PROSEMIRROR_REPO/)
+    assert.match(source, /CROSS_EDITOR_HUGE_LEXICAL_REPO/)
+    assert.match(source, /prosemirrorTransform/)
+    assert.match(source, /'slateAuto,slateVirtualized,prosemirror,lexical'/)
+    assert.match(source, /createReactEditor/)
+    assert.match(source, /Missing external editor build outputs/)
+    assert.match(
+      source,
+      /burstToPaintPerOpMs:\s*\(typePaint - typeStart\) \/ typeOps/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_cross_editor_\$\{surface\}_burst_to_paint_per_op_p95_ms/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_cross_editor_\$\{surface\}_type_to_paint_p95_ms/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_cross_editor_\$\{surface\}_select_to_paint_p95_ms/
+    )
+    assert.match(source, /materializedSelectToPaintMs/)
+    assert.match(
+      source,
+      /react_huge_doc_cross_editor_\$\{surface\}_materialized_select_to_paint_p95_ms/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_cross_editor_\$\{surface\}_dom_nodes_p95/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_cross_editor_\$\{surface\}_long_task_max_p95_ms/
     )
   })
 

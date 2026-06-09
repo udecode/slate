@@ -118,6 +118,10 @@ const editor = useSlateEditor<CustomValue>({ initialValue })`),
             return true
           }
 
+          if (preventLeadingCodeBlockBackspace(editor, event)) {
+            return true
+          }
+
           const isTab = isHotkey('tab', event)
           const isShiftTab = isHotkey('shift+tab', event)
 
@@ -391,6 +395,50 @@ type EditorPoint = {
 type EditorRange = {
   anchor: EditorPoint
   focus: EditorPoint
+}
+
+const preventLeadingCodeBlockBackspace = (
+  editor: CustomEditor,
+  event: React.KeyboardEvent
+) => {
+  if (!isHotkey('backspace', event)) {
+    return false
+  }
+
+  const snapshot = editor.read((state) => ({
+    children: state.runtime.snapshot().children,
+    selection: state.selection.get(),
+  }))
+  const selection = snapshot.selection
+
+  if (
+    !selection ||
+    !isSamePoint(selection.anchor, selection.focus) ||
+    selection.anchor.offset !== 0
+  ) {
+    return false
+  }
+
+  const codeLinePath = getCodeLinePath(snapshot.children, selection.anchor.path)
+
+  if (!codeLinePath || codeLinePath.at(-1) !== 0) {
+    return false
+  }
+
+  const codeBlockPath = codeLinePath.slice(0, -1)
+  const codeBlock = getDescendant(snapshot.children, codeBlockPath)
+
+  if (
+    !codeBlock ||
+    !NodeApi.isElement(codeBlock) ||
+    codeBlock.type !== CodeBlockType
+  ) {
+    return false
+  }
+
+  event.preventDefault()
+
+  return true
 }
 
 const updateSelectedCodeLines = (

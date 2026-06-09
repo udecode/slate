@@ -49,6 +49,35 @@ describe('slate-dom hotkeys', () => {
     expect(
       Hotkeys.isDeleteForward(event({ key: 'Delete', shiftKey: true }))
     ).toBe(true)
+    expect(
+      isHotkey(
+        ['ctrl+delete', 'ctrl+d'],
+        { platform: 'apple' },
+        event({ ctrlKey: true, key: 'd' })
+      )
+    ).toBe(true)
+    expect(
+      isHotkey(
+        ['ctrl+backspace', 'ctrl+h'],
+        { platform: 'apple' },
+        event({ ctrlKey: true, key: 'h' })
+      )
+    ).toBe(true)
+    expect(
+      isHotkey(
+        ['cmd+shift?+delete', 'ctrl+k'],
+        { platform: 'apple' },
+        event({ ctrlKey: true, key: 'k' })
+      )
+    ).toBe(true)
+  })
+
+  test('treats numpad Enter as a split-block Enter key', () => {
+    const numpadEnter = event({ code: 'NumpadEnter', key: 'Enter' })
+
+    expect(Hotkeys.isSplitBlock(numpadEnter)).toBe(true)
+    expect(isHotkey('enter', numpadEnter)).toBe(true)
+    expect(isHotkey('return', numpadEnter)).toBe(true)
   })
 
   test('matches Slate-owned word selection extension hotkeys', () => {
@@ -74,6 +103,25 @@ describe('slate-dom hotkeys', () => {
         'opt+shift+right',
         { platform: 'apple' },
         event({ altKey: true, key: 'ArrowRight', shiftKey: true })
+      )
+    ).toBe(true)
+  })
+
+  test('matches Slate-owned line boundary movement hotkeys', () => {
+    expect(Hotkeys.isMoveLineBackward(event({ key: 'Home' }))).toBe(true)
+    expect(Hotkeys.isMoveLineForward(event({ key: 'End' }))).toBe(true)
+    expect(
+      isHotkey(
+        ['opt+up', 'ctrl+a'],
+        { platform: 'apple' },
+        event({ ctrlKey: true, key: 'a' })
+      )
+    ).toBe(true)
+    expect(
+      isHotkey(
+        ['opt+down', 'ctrl+e'],
+        { platform: 'apple' },
+        event({ ctrlKey: true, key: 'e' })
       )
     ).toBe(true)
   })

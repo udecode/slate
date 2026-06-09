@@ -21,7 +21,10 @@ import {
   getSlatePointRoot,
   getSlateRootBoundaryPoint,
   getSlateViewBoundaryPointRoot,
+  resolveSlateViewBoundarySegmentEndpoint,
   rootSlatePoint,
+  SlateViewBoundaryGraph,
+  type SlateViewBoundaryGraphModel,
   type SlateViewBoundaryGraphNodeInput,
   type SlateViewBoundaryPoint,
   sameSlateRootPoint,
@@ -29,8 +32,10 @@ import {
 import {
   createSlateViewSelection,
   readSlateViewSelection,
+  type SlateViewSelection,
   writeSlateViewSelection,
 } from '../view-selection'
+import type { EditableCommand } from './editable-command-types'
 import { Editor, getEditorExtensionRegistry } from './runtime-editor-api'
 
 type ContentRootNavigationDirection = 'backward' | 'forward'
@@ -60,6 +65,8 @@ type ContentRootViewSelectionAction =
       direction: ContentRootNavigationDirection
       kind: 'document-boundary'
     }
+
+type SelectionMoveCommand = Extract<EditableCommand, { kind: 'move-selection' }>
 
 export type ContentRootOwner = {
   childRoot: RootKey
@@ -201,6 +208,19 @@ const isKnownContentRootOwner = (
 
 const getContentRootOwnerKey = (owner: ContentRootOwner) =>
   `${owner.ownerRoot}\u0000${owner.ownerPath.join('.')}\u0000${owner.childRoot}`
+
+const isSameContentRootOwner = (
+  left: ContentRootOwner | null | undefined,
+  right: ContentRootOwner | null | undefined
+) =>
+  (!left && !right) ||
+  Boolean(
+    left &&
+      right &&
+      left.childRoot === right.childRoot &&
+      left.ownerRoot === right.ownerRoot &&
+      PathApi.equals(left.ownerPath, right.ownerPath)
+  )
 
 const getOwnerForCurrentViewEditor = ({
   editor,
@@ -348,7 +368,14 @@ const collapseNativeSelectionForProjectedSelection = (
     return
   }
 
-  const { document } = domApi.getWindow()
+  let document: Document
+
+  try {
+    document = domApi.getWindow().document
+  } catch {
+    return
+  }
+
   const domSelection = document.getSelection()
   const point = selection.anchor
   const range = {
@@ -606,6 +633,26 @@ const getDocumentDirection = ({
   return null
 }
 
+const getWordDirection = ({
+  event,
+  isRTL,
+}: {
+  event: ReactKeyboardEvent<HTMLDivElement>
+  isRTL: boolean
+}): ContentRootNavigationDirection | null => {
+  const { nativeEvent } = event
+
+  if (Hotkeys.isMoveWordBackward(nativeEvent)) {
+    return isRTL ? 'forward' : 'backward'
+  }
+
+  if (Hotkeys.isMoveWordForward(nativeEvent)) {
+    return isRTL ? 'backward' : 'forward'
+  }
+
+  return null
+}
+
 const isPlainContentRootEvent = (event: ReactKeyboardEvent<HTMLDivElement>) =>
   !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey
 
@@ -634,6 +681,12 @@ const getContentRootNavigationAction = ({
 
   if (isEnterIntoContentRoot(event)) {
     return { kind: 'enter' }
+  }
+
+  const wordDirection = getWordDirection({ event, isRTL })
+
+  if (wordDirection) {
+    return { axis: 'word', direction: wordDirection, kind: 'move' }
   }
 
   const direction = getDocumentDirection({ event, isRTL })
@@ -720,7 +773,8 @@ const getProjectedPointViewEditor = ({
     editor,
     getMountedViewEditor,
     root,
-  })
+  }) ??
+  (editor as ReactRuntimeEditor)
 
 const hasUsableRect = (rect: DOMRect | null): rect is DOMRect =>
   !!rect &&
@@ -1296,10 +1350,11 @@ const getRootLocalHorizontalSelectionTarget = ({
   sourceEditor: ReactRuntimeEditor
   unit?: 'line' | 'word'
 }): ContentRootNavigationTarget | null => {
+  const rootedPoint = rootSlatePoint(point, root)
   const nextPoint = sourceEditor.read((state) =>
     direction === 'forward'
-      ? Editor.after(sourceEditor, point, unit ? { unit } : undefined)
-      : Editor.before(sourceEditor, point, unit ? { unit } : undefined)
+      ? Editor.after(sourceEditor, rootedPoint, unit ? { unit } : undefined)
+      : Editor.before(sourceEditor, rootedPoint, unit ? { unit } : undefined)
   )
 
   if (!nextPoint || getSlatePointRoot(nextPoint, root) !== root) {
@@ -1362,6 +1417,155 @@ const advanceHorizontalBoundarySelectionTarget = ({
         ...(target.owner ? { owner: target.owner } : {}),
       }
     : target
+}
+
+const advanceVerticalBoundarySelectionTarget = ({
+  action,
+  anchorSelection,
+  currentOwner,
+  currentRoot,
+  editor,
+  getContentRootOwnerViewEditor,
+  getMountedViewEditor,
+  owners,
+  selection,
+  target,
+}: {
+  action: Extract<ContentRootViewSelectionAction, { kind: 'move' }>
+  anchorSelection: SlateViewSelection
+  currentOwner?: ContentRootOwner | null
+  currentRoot: RootKey
+  editor: ContentRootNavigationEditor
+  getContentRootOwnerViewEditor?: (
+    owner: ContentRootOwner
+  ) => ReactRuntimeEditor | null
+  getMountedViewEditor?: (root: RootKey) => ReactRuntimeEditor | null
+  owners: ContentRootOwner[]
+  selection: Range | null
+  target: ContentRootNavigationTarget
+}): ContentRootNavigationTarget => {
+  if (action.axis !== 'vertical') {
+    return target
+  }
+
+  const currentRootOwner = isKnownContentRootOwner(owners, currentOwner)
+    ? currentOwner
+    : owners.find((owner) => owner.childRoot === currentRoot)
+  const fallbackPoint = currentRootOwner
+    ? getExitBoundaryPoint(editor, currentRootOwner, action.direction)
+    : target.owner
+      ? getRootBoundaryNavigationTarget({
+          direction: action.direction,
+          editor,
+          owner: target.owner,
+        })?.point
+      : null
+
+  if (
+    !fallbackPoint ||
+    !sameSlateRootPoint(target.point, fallbackPoint, target.root)
+  ) {
+    return target
+  }
+
+  const hasVisiblePart = (
+    predicate: (
+      segment: SlateViewSelection['segments']['parts'][number]
+    ) => boolean
+  ) =>
+    editor.read((state) => {
+      const roots = state.value.get().roots
+
+      return anchorSelection.segments.parts.some((segment) => {
+        if (!predicate(segment)) {
+          return false
+        }
+
+        const anchor = resolveSlateViewBoundarySegmentEndpoint(
+          roots,
+          segment,
+          segment.start
+        )
+        const focus = resolveSlateViewBoundarySegmentEndpoint(
+          roots,
+          segment,
+          segment.end
+        )
+
+        return !!anchor && !!focus && !RangeApi.isCollapsed({ anchor, focus })
+      })
+    })
+  const hasAnyVisiblePart = hasVisiblePart(() => true)
+  const hasVisibleTargetPart = hasVisiblePart(
+    (segment) =>
+      segment.root === target.root &&
+      isSameContentRootOwner(segment.owner, target.owner)
+  )
+  const shouldAdvance =
+    !hasAnyVisiblePart || (!!currentRootOwner && !hasVisibleTargetPart)
+
+  if (!shouldAdvance) {
+    return target
+  }
+
+  const sourceEditor = getProjectedPointViewEditor({
+    editor,
+    getContentRootOwnerViewEditor,
+    getMountedViewEditor,
+    owner: target.owner,
+    root: target.root,
+  })
+
+  if (!sourceEditor) {
+    return target
+  }
+
+  const lineTarget = getRootLocalHorizontalSelectionTarget({
+    direction: action.direction,
+    point: target.point,
+    root: target.root,
+    sourceEditor,
+    unit: 'line',
+  })
+
+  return lineTarget && lineTarget.root === target.root
+    ? {
+        ...lineTarget,
+        ...(target.owner ? { owner: target.owner } : {}),
+      }
+    : target
+}
+
+const getInitialProjectedSelectionAnchor = ({
+  currentOwner,
+  currentRoot,
+  getActiveContentRootOwner,
+  owners,
+  selection,
+}: {
+  currentOwner?: ContentRootOwner | null
+  currentRoot: RootKey
+  getActiveContentRootOwner?: (root: RootKey) => ContentRootOwner | null
+  owners: readonly ContentRootOwner[]
+  selection: Range
+}): SlateViewBoundaryPoint => {
+  const point = selection.anchor
+  const root = getSlatePointRoot(point, currentRoot)
+  const owner =
+    isKnownContentRootOwner(owners, currentOwner) &&
+    currentOwner.childRoot === root
+      ? currentOwner
+      : getOwnerForRoot({
+          currentRoot: root,
+          getActiveContentRootOwner,
+          owners,
+        })
+
+  return toProjectedPoint({
+    owner,
+    point,
+    root,
+  })
 }
 
 const getTextPointAtPreferredOffset = (
@@ -1496,9 +1700,110 @@ const getRootLocalVerticalSelectionTarget = ({
   }
 }
 
+const getProjectedGraphVerticalSelectionTarget = ({
+  direction,
+  editor,
+  graph,
+  viewSelection,
+}: {
+  direction: ContentRootNavigationDirection
+  editor: ContentRootNavigationEditor
+  graph: SlateViewBoundaryGraphModel
+  viewSelection: SlateViewSelection
+}): ContentRootNavigationTarget | null => {
+  const focusNode = SlateViewBoundaryGraph.resolvePointNode(
+    graph,
+    viewSelection.focus
+  )
+  const targetNode =
+    focusNode &&
+    (direction === 'forward'
+      ? SlateViewBoundaryGraph.nextNode(graph, focusNode)
+      : SlateViewBoundaryGraph.previousNode(graph, focusNode))
+
+  if (!targetNode) {
+    return null
+  }
+
+  const point = editor.read((state) => {
+    const node = getSlateDescendantAtPath(
+      state.value.get().roots[targetNode.root] ?? [],
+      targetNode.path
+    )
+
+    return node
+      ? getTextPointAtPreferredOffset(
+          node,
+          [...targetNode.path],
+          viewSelection.focus.point.offset
+        )
+      : null
+  })
+
+  return point
+    ? {
+        ...(targetNode.owner ? { owner: targetNode.owner } : {}),
+        point: rootSlatePoint(point, targetNode.root),
+        root: targetNode.root,
+      }
+    : null
+}
+
+const getProjectedGraphTerminalLineTarget = ({
+  direction,
+  editor,
+  getContentRootOwnerViewEditor,
+  getMountedViewEditor,
+  viewSelection,
+}: {
+  direction: ContentRootNavigationDirection
+  editor: ContentRootNavigationEditor
+  getContentRootOwnerViewEditor?: (
+    owner: ContentRootOwner
+  ) => ReactRuntimeEditor | null
+  getMountedViewEditor?: (root: RootKey) => ReactRuntimeEditor | null
+  viewSelection: SlateViewSelection
+}): ContentRootNavigationTarget | null => {
+  const focus = viewSelection.focus
+  const root = getSlateViewBoundaryPointRoot(focus)
+  const sourceEditor = getProjectedPointViewEditor({
+    editor,
+    getContentRootOwnerViewEditor,
+    getMountedViewEditor,
+    owner: focus.owner,
+    root,
+  })
+
+  if (!sourceEditor) {
+    return null
+  }
+
+  const lineTarget = getRootLocalHorizontalSelectionTarget({
+    direction,
+    point: focus.point,
+    root,
+    sourceEditor,
+    unit: 'line',
+  })
+
+  if (
+    !lineTarget ||
+    lineTarget.root !== root ||
+    sameSlateRootPoint(lineTarget.point, focus.point, root)
+  ) {
+    return null
+  }
+
+  return {
+    ...lineTarget,
+    ...(focus.owner ? { owner: focus.owner } : {}),
+  }
+}
+
 const getContentRootMovementTarget = ({
   action,
   allowRootLocalMovement,
+  advanceBoundaryTarget,
   currentRoot,
   currentOwner,
   editor,
@@ -1510,6 +1815,7 @@ const getContentRootMovementTarget = ({
 }: {
   action: Extract<ContentRootViewSelectionAction, { kind: 'move' }>
   allowRootLocalMovement: boolean
+  advanceBoundaryTarget: boolean
   currentOwner?: ContentRootOwner | null
   currentRoot: RootKey
   editor: ContentRootNavigationEditor
@@ -1549,13 +1855,15 @@ const getContentRootMovementTarget = ({
         : null
 
   if (boundaryTarget) {
-    return advanceHorizontalBoundarySelectionTarget({
-      action,
-      editor,
-      getContentRootOwnerViewEditor,
-      getMountedViewEditor,
-      target: boundaryTarget,
-    })
+    return advanceBoundaryTarget
+      ? advanceHorizontalBoundarySelectionTarget({
+          action,
+          editor,
+          getContentRootOwnerViewEditor,
+          getMountedViewEditor,
+          target: boundaryTarget,
+        })
+      : boundaryTarget
   }
 
   if (!allowRootLocalMovement) {
@@ -1676,26 +1984,16 @@ export const getContentRootNavigationTarget = ({
     })
   }
 
-  const { direction } = action
-
-  if (action.axis === 'vertical') {
-    return getVerticalNavigationTarget({
-      currentRoot,
-      direction,
-      editor,
-      getActiveContentRootOwner: getCurrentRootOwner,
-      getContentRootOwnerViewEditor,
-      getMountedViewEditor,
-      owners,
-      point,
-    })
-  }
-
-  return getHorizontalNavigationTarget({
+  return getContentRootMovementTarget({
+    action,
+    allowRootLocalMovement: false,
+    advanceBoundaryTarget: action.axis === 'word',
+    currentOwner: currentViewOwner,
     currentRoot,
-    direction,
     editor,
     getActiveContentRootOwner: getCurrentRootOwner,
+    getContentRootOwnerViewEditor,
+    getMountedViewEditor,
     owners,
     point,
   })
@@ -1791,27 +2089,51 @@ const getProjectedSelectionAction = ({
   return null
 }
 
-export const applyContentRootViewSelection = ({
+const getProjectedSelectionActionFromMoveCommand = ({
+  command,
+  isRTL,
+}: {
+  command: SelectionMoveCommand
+  isRTL: boolean
+}): ContentRootViewSelectionAction | null => {
+  if (!command.extend) {
+    return null
+  }
+
+  const direction = command.reverse
+    ? isRTL
+      ? 'forward'
+      : 'backward'
+    : isRTL
+      ? 'backward'
+      : 'forward'
+
+  return {
+    axis: command.axis === 'line' ? 'vertical' : command.axis,
+    direction,
+    kind: 'move',
+  }
+}
+
+const applyContentRootViewSelectionAction = ({
   editor,
-  event,
+  action,
   getActiveContentRootOwner,
   getContentRootOwnerViewEditor,
   getMountedViewEditor,
-  isRTL,
+  preventDefault,
   selection,
 }: {
   editor: ReactRuntimeEditor
-  event: ReactKeyboardEvent<HTMLDivElement>
+  action: ContentRootViewSelectionAction | null
   getActiveContentRootOwner?: (root: RootKey) => ContentRootOwner | null
   getContentRootOwnerViewEditor?: (
     owner: ContentRootOwner
   ) => ReactRuntimeEditor | null
   getMountedViewEditor?: (root: RootKey) => ReactRuntimeEditor | null
-  isRTL: boolean
+  preventDefault?: () => void
   selection: Range | null
 }): ContentRootNavigationResult => {
-  const action = getProjectedSelectionAction({ event, isRTL })
-
   if (!action || !hasContentRootElementSpec(editor)) {
     return { handled: false }
   }
@@ -1852,7 +2174,8 @@ export const applyContentRootViewSelection = ({
       ? currentOwner
       : (getActiveContentRootOwner?.(root) ?? null)
 
-  const target =
+  const graph = createContentRootProjectionGraph(editor, owners)
+  let target =
     action.kind === 'document-boundary'
       ? getDocumentBoundaryNavigationTarget({
           currentRoot,
@@ -1864,6 +2187,7 @@ export const applyContentRootViewSelection = ({
       : getContentRootMovementTarget({
           action,
           allowRootLocalMovement: Boolean(viewSelection),
+          advanceBoundaryTarget: true,
           currentOwner,
           currentRoot,
           editor,
@@ -1874,30 +2198,74 @@ export const applyContentRootViewSelection = ({
           point,
         })
 
+  if (
+    !target &&
+    viewSelection &&
+    action.kind === 'move' &&
+    action.axis === 'vertical'
+  ) {
+    target = getProjectedGraphVerticalSelectionTarget({
+      direction: action.direction,
+      editor,
+      graph,
+      viewSelection,
+    })
+
+    if (!target) {
+      target = getProjectedGraphTerminalLineTarget({
+        direction: action.direction,
+        editor,
+        getContentRootOwnerViewEditor,
+        getMountedViewEditor,
+        viewSelection,
+      })
+    }
+  }
+
   if (!target) {
+    if (viewSelection) {
+      collapseModelSelectionForProjectedSelection(editor, selection)
+      collapseNativeSelectionForProjectedSelection(editor, selection)
+      preventDefault?.()
+
+      return { handled: true }
+    }
+
     return { handled: false }
   }
 
-  const graph = createContentRootProjectionGraph(editor, owners)
   const anchor =
     viewSelection?.anchor ??
-    toProjectedPoint({
-      owner:
-        isKnownContentRootOwner(owners, currentOwner) &&
-        currentOwner.childRoot === selectionAnchorRoot
-          ? currentOwner
-          : getOwnerForRoot({
-              currentRoot: selectionAnchorRoot,
-              getActiveContentRootOwner,
-              owners,
-            }),
-      point: selection!.anchor,
-      root: selectionAnchorRoot,
+    getInitialProjectedSelectionAnchor({
+      currentOwner,
+      currentRoot,
+      getActiveContentRootOwner,
+      owners,
+      selection: selection!,
     })
+  let projectedSelection = createSlateViewSelection(graph, {
+    anchor,
+    focus: toProjectedPoint({
+      owner: target.owner,
+      point: target.point,
+      root: target.root,
+    }),
+  })
 
-  writeSlateViewSelection(
-    editor,
-    createSlateViewSelection(graph, {
+  if (action.kind === 'move') {
+    target = advanceVerticalBoundarySelectionTarget({
+      action,
+      anchorSelection: projectedSelection,
+      currentOwner,
+      currentRoot,
+      editor,
+      getContentRootOwnerViewEditor,
+      getMountedViewEditor,
+      owners,
+      selection,
+      target,
+    })
+    projectedSelection = createSlateViewSelection(graph, {
       anchor,
       focus: toProjectedPoint({
         owner: target.owner,
@@ -1905,17 +2273,76 @@ export const applyContentRootViewSelection = ({
         root: target.root,
       }),
     })
-  )
+  }
+
+  writeSlateViewSelection(editor, projectedSelection)
   collapseModelSelectionForProjectedSelection(editor, selection)
   collapseNativeSelectionForProjectedSelection(editor, selection)
 
-  event.preventDefault()
+  preventDefault?.()
 
   return {
     handled: true,
     target,
   }
 }
+
+export const applyContentRootSelectionMoveCommand = ({
+  command,
+  editor,
+  getActiveContentRootOwner,
+  getContentRootOwnerViewEditor,
+  getMountedViewEditor,
+  isRTL = false,
+  selection,
+}: {
+  command: SelectionMoveCommand
+  editor: ReactRuntimeEditor
+  getActiveContentRootOwner?: (root: RootKey) => ContentRootOwner | null
+  getContentRootOwnerViewEditor?: (
+    owner: ContentRootOwner
+  ) => ReactRuntimeEditor | null
+  getMountedViewEditor?: (root: RootKey) => ReactRuntimeEditor | null
+  isRTL?: boolean
+  selection: Range | null
+}): ContentRootNavigationResult =>
+  applyContentRootViewSelectionAction({
+    action: getProjectedSelectionActionFromMoveCommand({ command, isRTL }),
+    editor,
+    getActiveContentRootOwner,
+    getContentRootOwnerViewEditor,
+    getMountedViewEditor,
+    selection,
+  })
+
+export const applyContentRootViewSelection = ({
+  editor,
+  event,
+  getActiveContentRootOwner,
+  getContentRootOwnerViewEditor,
+  getMountedViewEditor,
+  isRTL,
+  selection,
+}: {
+  editor: ReactRuntimeEditor
+  event: ReactKeyboardEvent<HTMLDivElement>
+  getActiveContentRootOwner?: (root: RootKey) => ContentRootOwner | null
+  getContentRootOwnerViewEditor?: (
+    owner: ContentRootOwner
+  ) => ReactRuntimeEditor | null
+  getMountedViewEditor?: (root: RootKey) => ReactRuntimeEditor | null
+  isRTL: boolean
+  selection: Range | null
+}): ContentRootNavigationResult =>
+  applyContentRootViewSelectionAction({
+    action: getProjectedSelectionAction({ event, isRTL }),
+    editor,
+    getActiveContentRootOwner,
+    getContentRootOwnerViewEditor,
+    getMountedViewEditor,
+    preventDefault: () => event.preventDefault(),
+    selection,
+  })
 
 export const applyContentRootNavigation = ({
   editor,

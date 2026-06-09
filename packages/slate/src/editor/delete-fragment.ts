@@ -5,6 +5,7 @@ import type { EditorStaticApi } from '../interfaces/editor'
 import { RangeApi } from '../interfaces/range'
 
 type DeleteFragmentCommand = {
+  at: NonNullable<Parameters<EditorStaticApi['deleteFragment']>[1]>['at']
   direction: NonNullable<
     Parameters<EditorStaticApi['deleteFragment']>[1]
   >['direction']
@@ -13,10 +14,10 @@ type DeleteFragmentCommand = {
 
 const applyDeleteFragment: EditorStaticApi['deleteFragment'] = (
   editor,
-  { direction = 'forward' } = {}
+  { at, direction = 'forward' } = {}
 ) => {
   runEditorTransaction(editor, (tx) => {
-    const selection = tx.resolveTarget()
+    const selection = tx.resolveTarget({ at })
 
     if (
       selection &&
@@ -24,6 +25,7 @@ const applyDeleteFragment: EditorStaticApi['deleteFragment'] = (
       RangeApi.isExpanded(selection)
     ) {
       getEditorTransformRegistry(editor).delete({
+        at: selection,
         reverse: direction === 'backward',
       })
     }
@@ -32,14 +34,17 @@ const applyDeleteFragment: EditorStaticApi['deleteFragment'] = (
 
 export const deleteFragment: EditorStaticApi['deleteFragment'] = (
   editor,
-  { direction = 'forward' } = {}
+  { at, direction = 'forward' } = {}
 ) => {
   executeCommand<DeleteFragmentCommand>(
     editor,
-    { direction, type: 'delete_fragment' },
+    { at, direction, type: 'delete_fragment' },
     (command) => {
-      applyDeleteFragment(editor, { direction: command.direction })
-      return { handled: true }
+      applyDeleteFragment(editor, {
+        at: command.at,
+        direction: command.direction,
+      })
+      return true
     }
   )
 }

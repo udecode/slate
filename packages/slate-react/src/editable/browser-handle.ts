@@ -6,6 +6,7 @@ import {
   RangeApi,
   type RuntimeId,
 } from 'slate'
+import type { EditableDOMStrategyScrollAlign } from '../components/editable'
 import {
   didSyncTextPathToDOM,
   getSlateNodeElementByPath,
@@ -56,7 +57,10 @@ export type SlateBrowserHandle = {
   deleteFragment: () => void
   focus: () => void
   getKernelTrace: () => unknown[]
+  getInputState: () => unknown
   getLastCommit: () => unknown
+  getBlockText: (index: number) => string | null
+  getBlockTexts: () => string[]
   getElementByPath: (path: Path) => HTMLElement | null
   getPathByRuntimeId: (runtimeId: RuntimeId) => Path | null
   getProjectedNativeAffordanceMatrix: () => unknown
@@ -72,6 +76,10 @@ export type SlateBrowserHandle = {
   resolveRangeRef: (id: string) => Range | null
   selectAll: () => void
   selectRange: (selection: Range) => void
+  scrollPathIntoView: (
+    path: Path,
+    align?: EditableDOMStrategyScrollAlign
+  ) => boolean
   setViewSelection: (
     selection: {
       anchor: SlateViewBoundaryPoint
@@ -99,7 +107,9 @@ export const attachSlateBrowserHandle = ({
   inputController,
   applyInputRules,
   forceRender,
+  flushPendingNativeTextInput,
   isPartialDOMBackedSelection,
+  scrollPathIntoView,
   setExplicitPartialDOMBackedSelection,
 }: {
   applyInputRules?: (input: {
@@ -115,7 +125,12 @@ export const attachSlateBrowserHandle = ({
   element: SlateBrowserHandleElement
   inputController: EditableInputController
   forceRender: () => void
+  flushPendingNativeTextInput?: () => void
   isPartialDOMBackedSelection: (selection: Range | null) => boolean
+  scrollPathIntoView?: (
+    path: Path,
+    align?: EditableDOMStrategyScrollAlign
+  ) => boolean
   setExplicitPartialDOMBackedSelection: (nextValue: boolean) => void
 }) => {
   const getCurrentHandleElement = () =>
@@ -139,6 +154,7 @@ export const attachSlateBrowserHandle = ({
     const previousIsUpdatingSelection =
       inputController.state.isUpdatingSelection
 
+    flushPendingNativeTextInput?.()
     setEditableModelSelectionPreference({
       inputController,
       preferModelSelection: true,
@@ -159,12 +175,23 @@ export const attachSlateBrowserHandle = ({
     })
 
     applyEditableCommand({ command, editor })
+    const selectionAfter = readRuntimeSelection(editor)
+    const partialDOMBackedSelection =
+      isPartialDOMBackedSelection(selectionAfter)
+
+    if (partialDOMBackedSelection) {
+      setEditableModelSelectionPreference({
+        inputController,
+        preferModelSelection: true,
+        reason: 'partial-dom-backed',
+        selectionSource: 'partial-dom-backed',
+      })
+    }
+    setExplicitPartialDOMBackedSelection(partialDOMBackedSelection)
     syncEditableDOMSelectionToEditor({
       editor,
       scrollSelectionIntoView: () => {},
-      partialDOMBackedSelection: isPartialDOMBackedSelection(
-        readRuntimeSelection(editor)
-      ),
+      partialDOMBackedSelection,
       state: inputController.state,
     })
     refocusHandleElement()
@@ -178,9 +205,11 @@ export const attachSlateBrowserHandle = ({
         ownership: 'model-owned',
         repair: null,
         selectionChangeOrigin: 'browser-handle',
-        selectionAfter: readRuntimeSelection(editor),
+        selectionAfter,
         selectionBefore,
-        selectionSource: 'model-owned',
+        selectionSource: partialDOMBackedSelection
+          ? 'partial-dom-backed'
+          : 'model-owned',
         stateAfter: 'model-owned',
         stateBefore: 'model-owned',
         targetOwner: 'editor',
@@ -258,9 +287,37 @@ export const attachSlateBrowserHandle = ({
           }
         : null
     },
+    getInputState: () => ({
+      activeIntent: inputController.state.activeIntent,
+      modelOwnedTextInputGuard:
+        inputController.state.modelOwnedTextInputGuard ?? 0,
+      modelSelectionPreference: inputController.state.modelSelectionPreference,
+      pendingNativeTextInputRepairOffset:
+        inputController.state.pendingNativeTextInputRepairOffset ?? null,
+      pendingNativeTextInputRepairPathKey:
+        inputController.state.pendingNativeTextInputRepairPathKey ?? null,
+      preferModelSelection:
+        inputController.preferModelSelectionForInputRef.current,
+      selectionChangeOrigin: inputController.state.selectionChangeOrigin,
+      selectionSource: inputController.state.selectionSource,
+    }),
+    getBlockText: (index) => {
+      const snapshot = Editor.getSnapshot(editor)
+
+      if (index < 0 || index >= snapshot.children.length) {
+        return null
+      }
+
+      return Editor.string(editor, [index])
+    },
+    getBlockTexts: () =>
+      Editor.getSnapshot(editor).children.map((_child, index) =>
+        Editor.string(editor, [index])
+      ),
     getText: () => Editor.string(editor, []),
     getViewSelection: () => readSlateViewSelection(editor),
     importDOMSelection: () => {
+      flushPendingNativeTextInput?.()
       const selectionBefore = readRuntimeSelection(editor)
 
       executeEditableSelectionImport({
@@ -270,6 +327,8 @@ export const attachSlateBrowserHandle = ({
             preferModelSelection: false,
             selectionSource: 'dom-current',
           })
+          inputController.state.isUpdatingSelection = false
+          inputController.state.selectionChangeOrigin = 'native-user'
           syncEditorSelectionFromDOM({
             editor,
             ignoreModelSelectionPreference: true,
@@ -371,8 +430,10 @@ export const attachSlateBrowserHandle = ({
       runCommand({ kind: 'select-all' })
     },
     selectRange: (selection) => {
+      flushPendingNativeTextInput?.()
       const previousIsUpdatingSelection =
         inputController.state.isUpdatingSelection
+      const partialDOMBackedSelection = isPartialDOMBackedSelection(selection)
       setEditableModelSelectionPreference({
         inputController,
         preferModelSelection: true,
@@ -384,15 +445,16 @@ export const attachSlateBrowserHandle = ({
       editor.update((tx) => {
         tx.selection.set(selection)
       })
-      setExplicitPartialDOMBackedSelection(
-        isPartialDOMBackedSelection(selection)
-      )
-      refocusHandleElement()
+      setExplicitPartialDOMBackedSelection(partialDOMBackedSelection)
+      if (partialDOMBackedSelection) {
+        scrollPathIntoView?.(RangeApi.start(selection).path, 'center')
+      }
+      editor.api.dom.focus()
       const syncDOMSelection = () => {
         syncEditableDOMSelectionToEditor({
           editor,
           scrollSelectionIntoView: () => {},
-          partialDOMBackedSelection: isPartialDOMBackedSelection(selection),
+          partialDOMBackedSelection,
           state: inputController.state,
         })
       }
@@ -407,6 +469,8 @@ export const attachSlateBrowserHandle = ({
         }
       })
     },
+    scrollPathIntoView: (path, align = 'center') =>
+      scrollPathIntoView?.(path, align) ?? false,
     setViewSelection: (selection) => {
       writeSlateViewSelection(
         editor,

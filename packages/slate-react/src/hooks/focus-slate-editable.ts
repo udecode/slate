@@ -1,6 +1,8 @@
-import type { Node } from 'slate'
-import { IS_FOCUSED } from 'slate-dom'
+import { type Node, RangeApi } from 'slate'
+import { getSelection, IS_FOCUSED } from 'slate-dom'
 
+import { readModelSelectionDOMPreference } from '../editable/model-selection-dom-preference'
+import { readRuntimeSelection } from '../editable/runtime-selection-state'
 import { readSlateViewSelection } from '../view-selection'
 import { scheduleSlateReactFocus } from './focus-scheduler'
 
@@ -12,6 +14,61 @@ type SlateEditableFocusEditor = {
     }
   }
 } & Node
+
+const syncPreferredModelSelectionToDOM = (
+  editor: SlateEditableFocusEditor,
+  element: HTMLElement
+) => {
+  try {
+    const selection = readRuntimeSelection(
+      editor as Parameters<typeof readRuntimeSelection>[0]
+    )
+
+    if (!selection) {
+      return false
+    }
+
+    const domRange = readModelSelectionDOMPreference({
+      editor,
+      editorElement: element,
+      selection,
+    })
+
+    if (!domRange) {
+      return false
+    }
+
+    const root = element.getRootNode() as Document | ShadowRoot
+    const domSelection = getSelection(root)
+
+    if (!domSelection) {
+      return false
+    }
+
+    IS_FOCUSED.set(editor as Parameters<typeof IS_FOCUSED.set>[0], true)
+    element.focus({ preventScroll: true })
+
+    if (RangeApi.isBackward(selection)) {
+      domSelection.setBaseAndExtent(
+        domRange.endContainer,
+        domRange.endOffset,
+        domRange.startContainer,
+        domRange.startOffset
+      )
+    } else {
+      domSelection.setBaseAndExtent(
+        domRange.startContainer,
+        domRange.startOffset,
+        domRange.endContainer,
+        domRange.endOffset
+      )
+    }
+
+    return true
+  } catch {
+    return false
+  }
+}
 
 export const focusSlateEditable = (editor: SlateEditableFocusEditor) => {
   let element: HTMLElement | null = null
@@ -31,11 +88,17 @@ export const focusSlateEditable = (editor: SlateEditableFocusEditor) => {
     return
   }
 
+  if (element && syncPreferredModelSelectionToDOM(editor, element)) {
+    return
+  }
+
   editor.api.dom.focus()
 
   if (element && element.ownerDocument.activeElement !== element) {
     element.focus({ preventScroll: true })
-    editor.api.dom.focus()
+    if (!syncPreferredModelSelectionToDOM(editor, element)) {
+      editor.api.dom.focus()
+    }
   }
 }
 

@@ -307,6 +307,13 @@ const richText = () =>
           return next()
         }
 
+        if (
+          data.getData('application/x-slate-fragment') ||
+          html.includes('data-slate-fragment=')
+        ) {
+          return next()
+        }
+
         const hasPlainText = Array.from(data.types).includes('text/plain')
         const text = hasPlainText ? data.getData('text/plain') : ''
 

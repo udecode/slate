@@ -137,7 +137,7 @@ test('Editable domStrategy partial-DOMs far segments without mounting editable d
   expect(
     DOMCoverage.getBoundary(editor, 'partial-dom-aggressive:1')
   ).toMatchObject({
-    copyPolicy: 'include-model',
+    copyPolicy: 'model',
     coveredPathRanges: [{ anchor: [2], focus: [3] }],
     coveredRuntimeRanges: [
       {
@@ -145,11 +145,11 @@ test('Editable domStrategy partial-DOMs far segments without mounting editable d
         focus: getRuntimeId(editor, [3]),
       },
     ],
-    findPolicy: 'not-native-until-mounted',
+    findPolicy: 'native',
     ownerPath: [],
     ownerRuntimeId: null,
     reason: 'partial-dom-aggressive',
-    selectionPolicy: 'model-backed',
+    selectionPolicy: 'model',
     state: 'virtualized',
   })
   expect(
@@ -157,7 +157,7 @@ test('Editable domStrategy partial-DOMs far segments without mounting editable d
   ).toMatchObject({
     coveredPathRanges: [{ anchor: [4], focus: [5] }],
     reason: 'partial-dom-aggressive',
-    selectionPolicy: 'model-backed',
+    selectionPolicy: 'model',
     state: 'virtualized',
   })
   expect(
@@ -167,6 +167,48 @@ test('Editable domStrategy partial-DOMs far segments without mounting editable d
       )
       ?.getAttribute('data-slate-dom-coverage-boundary')
   ).toBe('partial-dom-aggressive:1')
+})
+
+test('Editable domStrategy partial-DOM defaults to smaller promotion segments', async () => {
+  const editor = createReactEditor()
+  const metrics: EditableDOMStrategyMetrics[] = []
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 120 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      domStrategy={{
+        overscan: 0,
+        type: 'partial-dom',
+        threshold: 1,
+      }}
+      editor={editor}
+      id="dom-strategy-partial-dom-default-segment-size"
+      onDOMStrategyMetrics={(metric) => {
+        metrics.push(metric)
+      }}
+    />
+  )
+
+  await waitFor(() => expect(metrics.length).toBeGreaterThan(0))
+
+  expect(metrics.at(-1)).toMatchObject({
+    segmentSize: 32,
+  })
+  expect(
+    rendered.container.querySelectorAll('[data-slate-node="text"]').length
+  ).toBe(32)
+  expect(
+    rendered.container.querySelectorAll(
+      '[data-slate-dom-strategy-placeholder="true"]'
+    ).length
+  ).toBe(3)
 })
 
 test('Editable domStrategy partial-DOM updates coverage when the hidden tail runtime changes', async () => {
@@ -370,8 +412,8 @@ test('Editable domStrategy experimental virtualized mode uses viewport DOM cover
   )
 
   expect(initialVirtualizedBoundary).toMatchObject({
-    copyPolicy: 'include-model',
-    findPolicy: 'not-native-until-mounted',
+    copyPolicy: 'model',
+    findPolicy: 'native',
     reason: 'viewport-virtualization',
     selectionPolicy: 'materialize',
     state: 'virtualized',
@@ -650,7 +692,7 @@ test('Editable domStrategy experimental virtualized mode keeps broad selections 
   expect(
     DOMCoverage.getBoundariesForRange(editor, Editor.range(editor, []))
       .filter((boundary) => boundary.reason === 'viewport-virtualization')
-      .every((boundary) => boundary.copyPolicy === 'include-model')
+      .every((boundary) => boundary.copyPolicy === 'model')
   ).toBe(true)
 })
 
@@ -745,16 +787,75 @@ test('Editable reports domStrategy metrics for staged DOM-present surfaces', asy
     documentSize: 1001,
     effectiveStrategy: 'staged',
     mountedGroupCount: 1,
-    mountedTopLevelCount: 16,
+    mountedTopLevelCount: 32,
     nativeSurfaceComplete: false,
-    pendingGroupCount: 62,
-    pendingTopLevelCount: 985,
+    pendingGroupCount: 31,
+    pendingTopLevelCount: 969,
     requestedStrategy: 'staged',
   })
   expect(latest.domStrategyStagedBoundaryCount).toBeGreaterThan(0)
   expect(latest.domCoverageBoundaryElementCount).toBeGreaterThan(0)
   expect(latest.domNodeCount).toBeGreaterThan(0)
   expect(latest.editableDescendantCount).toBeGreaterThan(0)
+})
+
+test('Editable auto keeps large documents DOM-bounded instead of staged background mounting', async () => {
+  const editor = createReactEditor()
+  const recordedMetrics: EditableDOMStrategyMetrics[] = []
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 1001 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      domStrategy="auto"
+      editor={editor}
+      id="dom-strategy-auto-bounded"
+      onDOMStrategyMetrics={(metric) => {
+        recordedMetrics.push(metric)
+      }}
+    />
+  )
+
+  await waitFor(() => expect(recordedMetrics.length).toBeGreaterThan(0))
+
+  const latest = recordedMetrics.at(-1)!
+
+  expect(latest).toMatchObject({
+    cohort: 'medium',
+    degradationMode: 'partial-dom',
+    documentSize: 1001,
+    effectiveStrategy: 'partial-dom',
+    mountedGroupCount: 1,
+    mountedTopLevelCount: 32,
+    nativeSurfaceComplete: false,
+    pendingTopLevelCount: 969,
+    requestedStrategy: 'auto',
+    segmentSize: 32,
+  })
+  expect(latest.aggressiveDomCoverageBoundaryCount).toBeGreaterThan(0)
+  expect(latest.domStrategyStagedBoundaryCount).toBe(0)
+  expect(
+    rendered.container.querySelectorAll('[data-slate-node="text"]').length
+  ).toBe(32)
+  expect(
+    rendered.container.querySelectorAll(
+      '[data-slate-dom-strategy-placeholder="true"]'
+    ).length
+  ).toBeGreaterThan(0)
+
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 750))
+  })
+
+  expect(
+    rendered.container.querySelectorAll('[data-slate-node="text"]').length
+  ).toBe(32)
 })
 
 test('Editable reports domStrategy degradation mode for plain and internal partial DOM surfaces', async () => {
@@ -1082,6 +1183,146 @@ test('Editable disables DOM text sync when projections affect the text node', as
   highlightSource.destroy()
 })
 
+test('Editable treats native-updated projected text as synced without rewriting DOM', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha beta' }],
+      },
+    ],
+    selection: null,
+  })
+
+  const highlightSource = createDecorationSource(editor, {
+    id: 'highlight-alpha',
+    read: () => [
+      {
+        key: 'highlight-alpha',
+        range: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 5 },
+        },
+      },
+    ],
+  })
+
+  const rendered = render(
+    <Slate decorationSources={[highlightSource]} editor={editor}>
+      <Editable
+        domStrategy={{
+          overscan: 0,
+          textSync: {
+            projections: 'range-transform',
+            renderLeaf: 'text-invariant',
+          },
+          type: 'partial-dom',
+          segmentSize: 2,
+          threshold: 1,
+        }}
+        id="dom-strategy-native-projected-dom-sync"
+      />
+    </Slate>
+  )
+  const textElement = rendered.container.querySelector(
+    '[data-slate-node="text"]'
+  )
+  const firstString = rendered.container.querySelector('[data-slate-string]')
+
+  expect(textElement?.getAttribute('data-slate-dom-sync-reason')).toBe(
+    'projection'
+  )
+  expect(textElement?.getAttribute('data-slate-projected-dom-sync')).toBe(
+    'true'
+  )
+  expect(firstString?.textContent).toBe('alpha')
+
+  if (!firstString) {
+    throw new Error('Expected a projected Slate string.')
+  }
+
+  firstString.textContent = 'alpha!'
+
+  await act(async () => {
+    editor.update((tx) => {
+      tx.text.insert('!', { at: { path: [0, 0], offset: 5 } })
+    })
+  })
+
+  expect(didSyncTextPathToDOM(editor, [0, 0])).toBe(true)
+  expect(firstString.textContent).toBe('alpha!')
+
+  highlightSource.destroy()
+})
+
+test('Editable syncs projected leaf strings for Slate-owned text input', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'alpha beta' }],
+      },
+    ],
+    selection: null,
+  })
+
+  const highlightSource = createDecorationSource(editor, {
+    id: 'highlight-alpha',
+    read: () => [
+      {
+        key: 'highlight-alpha',
+        range: {
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 5 },
+        },
+      },
+    ],
+  })
+
+  const rendered = render(
+    <Slate decorationSources={[highlightSource]} editor={editor}>
+      <Editable
+        domStrategy={{
+          overscan: 0,
+          textSync: {
+            projections: 'range-transform',
+            renderLeaf: 'text-invariant',
+          },
+          type: 'partial-dom',
+          segmentSize: 2,
+          threshold: 1,
+        }}
+        id="dom-strategy-projected-range-dom-sync"
+      />
+    </Slate>
+  )
+
+  expect(
+    [...rendered.container.querySelectorAll('[data-slate-string]')].map(
+      (element) => element.textContent
+    )
+  ).toEqual(['alpha', ' beta'])
+
+  await act(async () => {
+    editor.update((tx) => {
+      tx.text.insert('!', { at: { path: [0, 0], offset: 5 } })
+    })
+  })
+
+  expect(didSyncTextPathToDOM(editor, [0, 0])).toBe(true)
+  expect(
+    [...rendered.container.querySelectorAll('[data-slate-string]')].map(
+      (element) => element.textContent
+    )
+  ).toEqual(['alpha!', ' beta'])
+
+  highlightSource.destroy()
+})
+
 test('Editable disables DOM text sync for empty zero-width text', async () => {
   const editor = createReactEditor()
 
@@ -1243,8 +1484,8 @@ test('Editable staged full-document replacement removes stale far DOM immediatel
     />
   )
 
-  expect(rendered.container.textContent).toContain('line 15')
-  expect(rendered.container.textContent).not.toContain('line 16')
+  expect(rendered.container.textContent).toContain('line 31')
+  expect(rendered.container.textContent).not.toContain('line 32')
   expect(
     rendered.container.querySelector(
       '[data-slate-dom-strategy-placeholder="true"]'
@@ -1327,8 +1568,8 @@ test('Editable staged full-document replacement resets staged coverage without s
 
   expect(Editor.string(editor, [])).toContain('fresh line 1000')
   expect(rendered.container.textContent).toContain('fresh line 0')
-  expect(rendered.container.textContent).toContain('fresh line 15')
-  expect(rendered.container.textContent).not.toContain('fresh line 16')
+  expect(rendered.container.textContent).toContain('fresh line 31')
+  expect(rendered.container.textContent).not.toContain('fresh line 32')
   expect(rendered.container.textContent).not.toContain('fresh line 1000')
   expect(rendered.container.textContent).not.toContain('old line 1000')
   expect(
@@ -1341,14 +1582,14 @@ test('Editable staged full-document replacement resets staged coverage without s
 
   expect(boundary).toMatchObject({
     copyPolicy: 'materialize',
-    findPolicy: 'not-native-until-mounted',
+    findPolicy: 'native',
     ownerPath: [],
     ownerRuntimeId: null,
     reason: 'rendering-staged',
     selectionPolicy: 'materialize',
     state: 'pending-mount',
   })
-  expect(boundary?.coveredPathRanges).toEqual([{ anchor: [16], focus: [1000] }])
+  expect(boundary?.coveredPathRanges).toEqual([{ anchor: [32], focus: [1000] }])
 })
 
 test('Editable staged stages far root groups without partial-DOM placeholders', async () => {
@@ -1371,8 +1612,8 @@ test('Editable staged stages far root groups without partial-DOM placeholders', 
   )
 
   expect(rendered.container.textContent).toContain('line 0')
-  expect(rendered.container.textContent).toContain('line 15')
-  expect(rendered.container.textContent).not.toContain('line 16')
+  expect(rendered.container.textContent).toContain('line 31')
+  expect(rendered.container.textContent).not.toContain('line 32')
   expect(
     rendered.container.querySelector(
       '[data-slate-dom-strategy-placeholder="true"]'
@@ -1419,14 +1660,14 @@ test('Editable staged registers pending root groups as DOM coverage boundaries',
 
   expect(boundary).toMatchObject({
     copyPolicy: 'materialize',
-    findPolicy: 'not-native-until-mounted',
+    findPolicy: 'native',
     ownerPath: [],
     ownerRuntimeId: null,
     reason: 'rendering-staged',
     selectionPolicy: 'materialize',
     state: 'pending-mount',
   })
-  expect(boundary?.coveredPathRanges).toEqual([{ anchor: [16], focus: [1000] }])
+  expect(boundary?.coveredPathRanges).toEqual([{ anchor: [32], focus: [1000] }])
 
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 750))
@@ -1485,7 +1726,7 @@ test('Editable staged selection export consults DOM coverage before raw DOM look
           focus: getRuntimeId(editor, [1]),
         },
       ],
-      findPolicy: 'not-native-until-mounted',
+      findPolicy: 'native',
       ownerPath: [],
       ownerRuntimeId: null,
       reason: 'rendering-staged',
@@ -1646,7 +1887,7 @@ test('Editable domStrategy promotes a partial-DOM segment on mouse down', async 
     DOMCoverage.getBoundary(editor, 'partial-dom-aggressive:2')
   ).toMatchObject({
     reason: 'partial-dom-aggressive',
-    selectionPolicy: 'model-backed',
+    selectionPolicy: 'model',
     state: 'virtualized',
   })
   expect(
@@ -1656,6 +1897,186 @@ test('Editable domStrategy promotes a partial-DOM segment on mouse down', async 
     anchor: { offset: 0, path: [2, 0] },
     focus: { offset: 0, path: [2, 0] },
   })
+})
+
+test('Editable domStrategy mounts only the target partial-DOM segment during the promotion frame', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 8 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      domStrategy={{
+        overscan: 1,
+        type: 'partial-dom',
+        segmentSize: 2,
+        threshold: 1,
+      }}
+      editor={editor}
+      id="dom-strategy-fast-promotion"
+    />
+  )
+
+  const targetPartialDOMPlaceholder = rendered.container.querySelector(
+    '[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="2"]'
+  )
+
+  expect(targetPartialDOMPlaceholder).toBeTruthy()
+
+  await act(async () => {
+    targetPartialDOMPlaceholder!.dispatchEvent(
+      new window.MouseEvent('mousedown', {
+        bubbles: true,
+      })
+    )
+  })
+
+  expect(
+    rendered.container.querySelector(
+      '[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="2"]'
+    )
+  ).toBe(null)
+  expect(
+    rendered.container.querySelectorAll('[data-slate-node="text"]').length
+  ).toBe(2)
+  expect(Editor.getSnapshot(editor).selection).toEqual({
+    anchor: { offset: 0, path: [4, 0] },
+    focus: { offset: 0, path: [4, 0] },
+  })
+
+  await act(async () => {
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 150))
+  })
+
+  expect(
+    rendered.container.querySelectorAll('[data-slate-node="text"]').length
+  ).toBe(6)
+})
+
+test('Editable domStrategy promotes partial-DOM segments without a second root-plan pass', async () => {
+  const editor = createReactEditor()
+  const counter = createSlateReactRenderCounter()
+  const previousProfiler = globalThis.__SLATE_REACT_RENDER_PROFILER__
+  let rendered: ReturnType<typeof render> | null = null
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 8 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  globalThis.__SLATE_REACT_RENDER_PROFILER__ = counter.profiler
+
+  try {
+    rendered = render(
+      <TestEditorSurface
+        domStrategy={{
+          overscan: 1,
+          type: 'partial-dom',
+          segmentSize: 2,
+          threshold: 1,
+        }}
+        editor={editor}
+        id="dom-strategy-single-pass-promotion"
+      />
+    )
+
+    const targetPartialDOMPlaceholder = rendered.container.querySelector(
+      '[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="2"]'
+    )
+
+    expect(targetPartialDOMPlaceholder).toBeTruthy()
+    counter.reset()
+
+    await act(async () => {
+      targetPartialDOMPlaceholder!.dispatchEvent(
+        new window.MouseEvent('mousedown', {
+          bubbles: true,
+        })
+      )
+    })
+
+    expect(Editor.getSnapshot(editor).selection).toEqual({
+      anchor: { offset: 0, path: [4, 0] },
+      focus: { offset: 0, path: [4, 0] },
+    })
+    expect(
+      rendered.container.querySelectorAll('[data-slate-node="text"]').length
+    ).toBe(2)
+    expect(
+      counter
+        .snapshot()
+        .events.filter(
+          (event) =>
+            event.kind === 'root-plan' &&
+            event.id === 'dom-strategy-root-sources'
+        )
+    ).toHaveLength(1)
+  } finally {
+    rendered?.unmount()
+    globalThis.__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+  }
+})
+
+test('Editable domStrategy keeps model inserts stable after partial-DOM promotion', async () => {
+  const editor = createReactEditor()
+  const blockIndex = 2496
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 5000 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `block-${index + 1}` }],
+    })),
+    selection: null,
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      domStrategy={{
+        overscan: 0,
+        type: 'partial-dom',
+        threshold: 1,
+      }}
+      editor={editor}
+      id="dom-strategy-promotion-model-insert"
+    />
+  )
+  const targetPartialDOMPlaceholder = rendered.container.querySelector(
+    '[data-slate-dom-strategy-placeholder="true"][data-slate-dom-strategy-segment="78"]'
+  )
+
+  expect(targetPartialDOMPlaceholder).toBeTruthy()
+
+  await act(async () => {
+    targetPartialDOMPlaceholder!.dispatchEvent(
+      new window.MouseEvent('mousedown', {
+        bubbles: true,
+      })
+    )
+  })
+
+  expect(Editor.getSnapshot(editor).selection).toEqual({
+    anchor: { offset: 0, path: [blockIndex, 0] },
+    focus: { offset: 0, path: [blockIndex, 0] },
+  })
+
+  for (let index = 0; index < 10; index += 1) {
+    await act(async () => {
+      editor.update((tx) => {
+        tx.text.insert('X', { at: { path: [blockIndex, 0], offset: index } })
+      })
+    })
+  }
+
+  expect(Editor.string(editor, [blockIndex]).match(/X/g) ?? []).toHaveLength(10)
 })
 
 test('Editable domStrategy partial-DOM focus does not activate or change model selection', async () => {

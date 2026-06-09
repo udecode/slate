@@ -101,6 +101,8 @@ anchor.unref()
 
 Comment bodies, permissions, resolved state, and audit events belong to the app
 or collaboration service. The Slate document value owns document content.
+Use [Document State](../../concepts/14-document-state.md) for document metadata
+and settings that should persist with the document.
 
 ```tsx
 const comments = useCommentChannel()

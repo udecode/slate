@@ -148,7 +148,7 @@ const registerSectionBodyBoundary = (editor: DOMTestEditor) =>
   DOMCoverage.registerBoundary(editor, {
     boundaryId: 'section-body',
     anchor: { type: 'summary-slot', runtimeId: getRuntimeId(editor, [0, 0]) },
-    copyPolicy: 'include-model',
+    copyPolicy: 'model',
     coveredPathRanges: [{ anchor: [0, 1], focus: [0, 1] }],
     coveredRuntimeRanges: [
       {
@@ -156,11 +156,11 @@ const registerSectionBodyBoundary = (editor: DOMTestEditor) =>
         focus: getRuntimeId(editor, [0, 1]),
       },
     ],
-    findPolicy: 'not-native-until-mounted',
+    findPolicy: 'native',
     ownerPath: [0],
     ownerRuntimeId: getRuntimeId(editor, [0]),
     reason: 'app-collapse',
-    selectionPolicy: 'boundary',
+    selectionPolicy: 'skip',
     state: 'intentionally-hidden',
     version: 1,
   })
@@ -169,10 +169,10 @@ const registerNestedParagraphBoundary = (editor: DOMTestEditor) =>
   DOMCoverage.registerBoundary(editor, {
     boundaryId: 'nested-paragraph',
     anchor: { type: 'placeholder', runtimeId: getRuntimeId(editor, [0, 1]) },
-    copyPolicy: 'summary-only',
+    copyPolicy: 'summary',
     coveredPathRanges: [{ anchor: [0, 1, 0], focus: [0, 1, 0] }],
     coveredRuntimeRanges: [],
-    findPolicy: 'not-native-until-mounted',
+    findPolicy: 'native',
     ownerPath: [0, 1],
     ownerRuntimeId: getRuntimeId(editor, [0, 1]),
     reason: 'app-collapse',
@@ -233,11 +233,11 @@ describe('DOM coverage boundaries', () => {
       copyPolicy: 'exclude',
       coveredPathRanges: [{ anchor: [0], focus: [0] }],
       coveredRuntimeRanges: [],
-      findPolicy: 'not-native-until-mounted',
+      findPolicy: 'native',
       ownerPath: [0],
       ownerRuntimeId: getRuntimeId(editor, [0]),
       reason: 'app-hidden',
-      selectionPolicy: 'boundary',
+      selectionPolicy: 'skip',
       state: 'intentionally-hidden',
       version: 1,
     })
@@ -247,11 +247,11 @@ describe('DOM coverage boundaries', () => {
       copyPolicy: 'exclude',
       coveredPathRanges: [{ anchor: [2], focus: [2] }],
       coveredRuntimeRanges: [],
-      findPolicy: 'not-native-until-mounted',
+      findPolicy: 'native',
       ownerPath: [2],
       ownerRuntimeId: getRuntimeId(editor, [2]),
       reason: 'app-hidden',
-      selectionPolicy: 'boundary',
+      selectionPolicy: 'skip',
       state: 'intentionally-hidden',
       version: 1,
     })
@@ -359,8 +359,8 @@ describe('DOM coverage boundaries', () => {
       DOMCoverage.getBoundaryForPoint(editor, { path: [0, 1, 0], offset: 0 })
     ).toMatchObject({
       boundaryId: 'section-body',
-      copyPolicy: 'include-model',
-      selectionPolicy: 'boundary',
+      copyPolicy: 'model',
+      selectionPolicy: 'skip',
     })
 
     expect(
@@ -660,7 +660,7 @@ describe('DOM coverage boundaries', () => {
     DOMCoverage.registerBoundary(editor, {
       boundaryId: 'merged-section-body',
       anchor: { type: 'placeholder', runtimeId: getRuntimeId(editor, [1, 1]) },
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       coveredPathRanges: [{ anchor: [1, 1], focus: [1, 1] }],
       coveredRuntimeRanges: [
         {
@@ -668,11 +668,11 @@ describe('DOM coverage boundaries', () => {
           focus: getRuntimeId(editor, [1, 1]),
         },
       ],
-      findPolicy: 'not-native-until-mounted',
+      findPolicy: 'native',
       ownerPath: [1],
       ownerRuntimeId: getRuntimeId(editor, [1]),
       reason: 'app-collapse',
-      selectionPolicy: 'boundary',
+      selectionPolicy: 'skip',
       state: 'intentionally-hidden',
       version: 1,
     })
@@ -702,14 +702,14 @@ describe('DOM coverage boundaries', () => {
       DOMCoverage.registerBoundary(editor, {
         boundaryId: `hidden-${index}`,
         anchor: { type: 'placeholder', runtimeId: getRuntimeId(editor, path) },
-        copyPolicy: 'include-model',
+        copyPolicy: 'model',
         coveredPathRanges: [{ anchor: path, focus: path }],
         coveredRuntimeRanges: [],
-        findPolicy: 'not-native-until-mounted',
+        findPolicy: 'native',
         ownerPath: path,
         ownerRuntimeId: getRuntimeId(editor, path),
         reason: 'app-collapse',
-        selectionPolicy: 'boundary',
+        selectionPolicy: 'skip',
         state: 'intentionally-hidden',
         version: 1,
       })
@@ -732,14 +732,14 @@ describe('DOM coverage boundaries', () => {
     DOMCoverage.registerBoundary(editor, {
       boundaryId: 'hidden-200',
       anchor: { type: 'placeholder', runtimeId: getRuntimeId(editor, [200]) },
-      copyPolicy: 'include-model',
+      copyPolicy: 'model',
       coveredPathRanges: [{ anchor: [200, 0], focus: [200, 0] }],
       coveredRuntimeRanges: [],
-      findPolicy: 'not-native-until-mounted',
+      findPolicy: 'native',
       ownerPath: [200],
       ownerRuntimeId: getRuntimeId(editor, [200]),
       reason: 'viewport-virtualization',
-      selectionPolicy: 'boundary',
+      selectionPolicy: 'skip',
       state: 'virtualized',
       version: 1,
     })

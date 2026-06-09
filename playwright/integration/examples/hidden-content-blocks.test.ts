@@ -29,7 +29,15 @@ const dragTextRange = async (
         }
       }
 
-      const pointFor = ({ offset, text }: { offset: number; text: string }) => {
+      const pointFor = ({
+        edge,
+        offset,
+        text,
+      }: {
+        edge: 'end' | 'start'
+        offset: number
+        text: string
+      }) => {
         const node = textNodes.find((textNode) =>
           textNode.nodeValue?.includes(text)
         )
@@ -40,20 +48,29 @@ const dragTextRange = async (
 
         const range = document.createRange()
 
-        range.setStart(node, offset)
-        range.collapse(true)
+        if (edge === 'end' && offset > 0) {
+          range.setStart(node, offset - 1)
+          range.setEnd(node, offset)
+        } else {
+          range.setStart(node, offset)
+          range.setEnd(node, Math.min(offset + 1, node.length))
+        }
 
-        const rect = range.getBoundingClientRect()
+        const rects = Array.from(range.getClientRects())
+        const rect =
+          edge === 'end'
+            ? (rects.at(-1) ?? range.getBoundingClientRect())
+            : (rects[0] ?? range.getBoundingClientRect())
 
         return {
-          x: rect.left,
+          x: edge === 'end' ? rect.right - 1 : rect.left,
           y: rect.top + rect.height / 2,
         }
       }
 
       return {
-        end: pointFor(end),
-        start: pointFor(start),
+        end: pointFor({ ...end, edge: 'end' }),
+        start: pointFor({ ...start, edge: 'start' }),
       }
     },
     { end, start }
@@ -206,10 +223,7 @@ test.describe('hidden content blocks example', () => {
 
     await expect(
       page.getByTestId('hidden-content-selection-policy')
-    ).toContainText('boundary')
-    await expect(page.getByTestId('hidden-content-find-policy')).toContainText(
-      'not-native-until-mounted'
-    )
+    ).toContainText('skip')
 
     const intro = 'Intro visible before hidden blocks.'
     await editor.selection.collapse({ offset: intro.length, path: [0, 0] })
@@ -248,10 +262,10 @@ test.describe('hidden content blocks example', () => {
     await expect(editor.root).toContainText('Overview tab visible text')
     await expect(editor.root).not.toContainText('Details tab hidden text')
 
-    await page.getByTestId('policy-selection-model-backed').click()
+    await page.getByTestId('policy-selection-model').click()
     await expect(
       page.getByTestId('hidden-content-selection-policy')
-    ).toContainText('model-backed')
+    ).toContainText('model')
     await editor.selection.collapse({
       offset: overview.length,
       path: [2, 0, 0],
@@ -269,10 +283,6 @@ test.describe('hidden content blocks example', () => {
       'inactive'
     )
 
-    await page.getByTestId('policy-find-native').click()
-    await expect(page.getByTestId('hidden-content-find-policy')).toContainText(
-      'native'
-    )
     await page.getByTestId('policy-selection-materialize').click()
     await expect(
       page.getByTestId('hidden-content-selection-policy')
@@ -295,6 +305,312 @@ test.describe('hidden content blocks example', () => {
     )
     await expect(editor.root).not.toContainText('Overview tab visible text')
     await expect(editor.root).toContainText('Details tab hidden text')
+  })
+
+  test('materializes inactive tab keyboard selection matrix forward', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+    page.on('pageerror', (error) => pageErrors.push(error.message))
+
+    const editor = await openExample(page, 'hidden-content-blocks', {
+      query: { selection: 'materialize' },
+      ready: {
+        editor: 'visible',
+        text: /Overview tab visible text/,
+      },
+    })
+
+    const overview = 'Overview tab visible text'
+
+    await editor.selection.collapse({
+      offset: overview.length,
+      path: [2, 0, 0],
+    })
+    await page.keyboard.press('ArrowRight')
+    await editor.assert.selection({
+      anchor: { offset: 0, path: [2, 1, 0] },
+      focus: { offset: 0, path: [2, 1, 0] },
+    })
+    await expect(page.getByTestId('tab-overview')).toHaveAttribute(
+      'data-state',
+      'inactive'
+    )
+    await expect(page.getByTestId('tab-details')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+
+    await page.getByTestId('tab-overview').click()
+    await expect(page.getByTestId('tab-overview')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+    await editor.selection.collapse({
+      offset: overview.length,
+      path: [2, 0, 0],
+    })
+    await page.keyboard.press('Shift+ArrowRight')
+    await editor.assert.selection({
+      anchor: { offset: overview.length, path: [2, 0, 0] },
+      focus: { offset: 0, path: [2, 1, 0] },
+    })
+    await expect(page.getByTestId('tab-details')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+
+    await page.keyboard.press('Shift+ArrowRight')
+    await editor.assert.selection({
+      anchor: { offset: overview.length, path: [2, 0, 0] },
+      focus: { offset: 1, path: [2, 1, 0] },
+    })
+    await expect(page.getByTestId('tab-overview')).toHaveAttribute(
+      'data-state',
+      'inactive'
+    )
+    await expect(page.getByTestId('tab-details')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe('D')
+    await expect.poll(() => pageErrors).toEqual([])
+  })
+
+  test('does not cycle inactive tabs when extending a spanning materialized selection', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+    page.on('pageerror', (error) => pageErrors.push(error.message))
+
+    const editor = await openExample(page, 'hidden-content-blocks', {
+      query: {
+        accordion_open: true,
+        collapsible_open: true,
+        selection: 'materialize',
+      },
+      ready: {
+        editor: 'visible',
+        text: /Overview tab visible text/,
+      },
+    })
+
+    const beta = 'Accordion secret beta'
+    const overview = 'Overview tab visible text'
+
+    await editor.selection.select({
+      anchor: { offset: beta.length, path: [1, 1, 0] },
+      focus: { offset: overview.length, path: [2, 0, 0] },
+    })
+    await expect(page.getByTestId('tab-overview')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+
+    await page.keyboard.press('Shift+ArrowRight')
+    await editor.assert.selection({
+      anchor: { offset: beta.length, path: [1, 1, 0] },
+      focus: { offset: 0, path: [2, 1, 0] },
+    })
+    await expect(page.getByTestId('tab-details')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+
+    await page.keyboard.press('Shift+ArrowRight')
+    await editor.assert.selection({
+      anchor: { offset: beta.length, path: [1, 1, 0] },
+      focus: { offset: 1, path: [2, 1, 0] },
+    })
+    await expect(page.getByTestId('tab-overview')).toHaveAttribute(
+      'data-state',
+      'inactive'
+    )
+    await expect(page.getByTestId('tab-details')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe('D')
+    await expect.poll(() => pageErrors).toEqual([])
+  })
+
+  test('materializes inactive tab keyboard selection matrix backward', async ({
+    page,
+  }) => {
+    const pageErrors: string[] = []
+    page.on('pageerror', (error) => pageErrors.push(error.message))
+
+    const editor = await openExample(page, 'hidden-content-blocks', {
+      query: { selection: 'materialize', tab: 'details' },
+      ready: {
+        editor: 'visible',
+        text: /Details tab hidden text/,
+      },
+    })
+
+    await editor.selection.collapse({
+      offset: 0,
+      path: [2, 1, 0],
+    })
+    await page.keyboard.press('ArrowLeft')
+    await editor.assert.selection({
+      anchor: { offset: 'Overview tab visible text'.length, path: [2, 0, 0] },
+      focus: { offset: 'Overview tab visible text'.length, path: [2, 0, 0] },
+    })
+    await expect(page.getByTestId('tab-overview')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+    await expect(page.getByTestId('tab-details')).toHaveAttribute(
+      'data-state',
+      'inactive'
+    )
+
+    await page.getByTestId('tab-details').click()
+    await expect(page.getByTestId('tab-details')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+    await editor.selection.collapse({
+      offset: 0,
+      path: [2, 1, 0],
+    })
+    await page.keyboard.press('Shift+ArrowLeft')
+    await editor.assert.selection({
+      anchor: { offset: 0, path: [2, 1, 0] },
+      focus: { offset: 'Overview tab visible text'.length, path: [2, 0, 0] },
+    })
+    await expect(page.getByTestId('tab-overview')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+
+    await page.keyboard.press('Shift+ArrowLeft')
+    await editor.assert.selection({
+      anchor: { offset: 0, path: [2, 1, 0] },
+      focus: {
+        offset: 'Overview tab visible text'.length - 1,
+        path: [2, 0, 0],
+      },
+    })
+    await expect(page.getByTestId('tab-overview')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
+    await expect(page.getByTestId('tab-details')).toHaveAttribute(
+      'data-state',
+      'inactive'
+    )
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe('t')
+    await expect.poll(() => pageErrors).toEqual([])
+  })
+
+  test('materializes hidden block keyboard selection matrix vertically', async ({
+    page,
+  }, testInfo) => {
+    const pageErrors: string[] = []
+    page.on('pageerror', (error) => pageErrors.push(error.message))
+    const pureBlockBoundarySelectionText =
+      testInfo.project.name === 'firefox' ? '' : '\n'
+
+    let editor = await openExample(page, 'hidden-content-blocks', {
+      query: { selection: 'materialize' },
+      ready: {
+        editor: 'visible',
+        text: /Intro visible before hidden blocks/,
+      },
+    })
+
+    const intro = 'Intro visible before hidden blocks.'
+
+    await editor.selection.collapse({
+      offset: 'Intro visible before '.length,
+      path: [0, 0],
+    })
+    await page.keyboard.press('Shift+ArrowDown')
+    await editor.assert.selection({
+      anchor: { offset: 'Intro visible before '.length, path: [0, 0] },
+      focus: { offset: 0, path: [1, 0, 0] },
+    })
+    await expect(editor.root).toContainText('Accordion secret alpha')
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe('hidden blocks.\n')
+
+    editor = await openExample(page, 'hidden-content-blocks', {
+      query: { selection: 'materialize' },
+      ready: {
+        editor: 'visible',
+        text: /Intro visible before hidden blocks/,
+      },
+    })
+
+    await editor.selection.collapse({
+      offset: intro.length,
+      path: [0, 0],
+    })
+    await page.keyboard.press('Shift+ArrowDown')
+    await editor.assert.selection({
+      anchor: { offset: intro.length, path: [0, 0] },
+      focus: { offset: 0, path: [1, 0, 0] },
+    })
+    await expect(editor.root).toContainText('Accordion secret alpha')
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe(pureBlockBoundarySelectionText)
+
+    editor = await openExample(page, 'hidden-content-blocks', {
+      query: { selection: 'materialize', tab: 'details' },
+      ready: {
+        editor: 'visible',
+        text: /Details tab hidden text/,
+      },
+    })
+
+    const details = 'Details tab hidden text'
+
+    await editor.selection.collapse({
+      offset: details.length,
+      path: [2, 1, 0],
+    })
+    await page.keyboard.press('Shift+ArrowDown')
+    await editor.assert.selection({
+      anchor: { offset: details.length, path: [2, 1, 0] },
+      focus: { offset: 0, path: [3, 0, 0] },
+    })
+    await expect(editor.root).toContainText('Collapsible hidden note')
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe(pureBlockBoundarySelectionText)
+
+    editor = await openExample(page, 'hidden-content-blocks', {
+      query: { selection: 'materialize' },
+      ready: {
+        editor: 'visible',
+        text: /Outro visible after hidden blocks/,
+      },
+    })
+
+    const outroStart = { offset: 0, path: [4, 0] }
+    const collapsibleEnd = 'Collapsible hidden note'.length
+
+    await editor.selection.collapse(outroStart)
+    await page.keyboard.press('Shift+ArrowUp')
+    await editor.assert.selection({
+      anchor: outroStart,
+      focus: { offset: collapsibleEnd, path: [3, 0, 0] },
+    })
+    await expect(editor.root).toContainText('Collapsible hidden note')
+    await expect
+      .poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+      .toBe(pureBlockBoundarySelectionText)
+    await expect.poll(() => pageErrors).toEqual([])
   })
 
   test('keeps shifted boundary navigation out of shadcn chrome selection', async ({
@@ -358,7 +674,9 @@ test.describe('hidden content blocks example', () => {
 
   test('preserves the unselected active tab suffix when deleting across visible hidden content', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop mouse drag proof')
+
     const editor = await openExample(page, 'hidden-content-blocks', {
       query: { accordion_open: true },
       ready: {
@@ -403,7 +721,9 @@ test.describe('hidden content blocks example', () => {
 
   test('preserves the unselected second tab suffix when deleting across visible hidden content', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop mouse drag proof')
+
     const editor = await openExample(page, 'hidden-content-blocks', {
       query: { accordion_open: true, tab: 'details' },
       ready: {

@@ -148,14 +148,12 @@ export const DOMStrategySegmentPlaceholder = React.memo(
     const anchorRuntimeId = runtimeIds[0] ?? null
     const focusRuntimeId = runtimeIds.at(-1) ?? null
     const selectionPolicy: DOMCoverageSelectionPolicy =
-      coverageReason === 'viewport-virtualization'
-        ? 'materialize'
-        : 'model-backed'
+      coverageReason === 'viewport-virtualization' ? 'materialize' : 'model'
     const boundary = React.useMemo(
       () => ({
         anchor: { type: 'placeholder' as const },
         boundaryId,
-        copyPolicy: 'include-model' as const,
+        copyPolicy: 'model' as const,
         coveredPathRanges: [
           {
             anchor: [startIndex] as Path,
@@ -166,7 +164,7 @@ export const DOMStrategySegmentPlaceholder = React.memo(
           anchorRuntimeId && focusRuntimeId
             ? [{ anchor: anchorRuntimeId, focus: focusRuntimeId }]
             : [],
-        findPolicy: 'not-native-until-mounted' as const,
+        findPolicy: 'native' as const,
         ownerPath: [] as Path,
         ownerRuntimeId: null,
         reason: coverageReason,
@@ -236,7 +234,9 @@ export const DOMStrategySegmentPlaceholder = React.memo(
       [endIndex, startIndex]
     )
     const preview = useEditorSelector(selectPreview, sameSegmentPreview, {
+      includeRootOrderChanges: true,
       profileId: 'dom-strategy-partial-dom-preview',
+      runtimeIds: previewRuntimeIds,
       shouldUpdate: shouldUpdatePreview,
     })
 
@@ -248,13 +248,11 @@ export const DOMStrategySegmentPlaceholder = React.memo(
           return
         }
 
-        onPromote?.(segmentIndex, { select: true })
         const editorElement = event.currentTarget.closest(
           '[data-slate-editor="true"]'
         ) as HTMLElement | null
-        requestAnimationFrame(() => {
-          editorElement?.focus()
-        })
+        editorElement?.focus()
+        onPromote?.(segmentIndex, { select: true })
       },
       [editor, segmentIndex, onPromote]
     )
@@ -271,13 +269,11 @@ export const DOMStrategySegmentPlaceholder = React.memo(
           return
         }
 
-        onPromote?.(segmentIndex, { select: true })
         const editorElement = event.currentTarget.closest(
           '[data-slate-editor="true"]'
         ) as HTMLElement | null
-        requestAnimationFrame(() => {
-          editorElement?.focus()
-        })
+        editorElement?.focus()
+        onPromote?.(segmentIndex, { select: true })
       },
       [editor, segmentIndex, onPromote]
     )

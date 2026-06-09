@@ -10,6 +10,7 @@ import {
   applyContentRootNavigation,
   applyContentRootViewSelection,
   createContentRootProjectionGraph,
+  findContentRootOwners,
 } from '../src/editable/content-root-navigation'
 import type { ReactRuntimeEditor } from '../src/plugin/react-editor'
 import {
@@ -200,6 +201,29 @@ describe('content root navigation', () => {
     expect(focusEditor).toHaveBeenCalledWith(bodyEditor)
   })
 
+  it('moves word forward from the previous sibling into the content root first word boundary', () => {
+    const { bodyEditor, mainEditor } = createFixture()
+    const event = keyEvent('ArrowRight', { ctrlKey: true })
+
+    selectPoint(mainEditor, { path: [0, 0], offset: 'Before'.length })
+
+    const result = applyContentRootNavigation({
+      editor: mainEditor,
+      event,
+      getMountedViewEditor: (root) =>
+        root === 'card:body' ? bodyEditor : mainEditor,
+      isRTL: false,
+      selection: mainEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(true)
+    expect(event.preventDefault).toHaveBeenCalled()
+    expect(bodyEditor.read((state) => state.selection.get())).toEqual({
+      anchor: { path: [0, 0], offset: 'Inside'.length, root: 'card:body' },
+      focus: { path: [0, 0], offset: 'Inside'.length, root: 'card:body' },
+    })
+  })
+
   it('moves backward from the next sibling into the content root end', () => {
     const { bodyEditor, mainEditor } = createFixture()
     const event = keyEvent('ArrowLeft')
@@ -219,6 +243,56 @@ describe('content root navigation', () => {
     expect(bodyEditor.read((state) => state.selection.get())).toEqual({
       anchor: { path: [0, 0], offset: 'Inside'.length, root: 'card:body' },
       focus: { path: [0, 0], offset: 'Inside'.length, root: 'card:body' },
+    })
+  })
+
+  it('moves word backward from the next sibling into the content root previous word boundary', () => {
+    const { bodyEditor, mainEditor } = createFixture()
+    const event = keyEvent('ArrowLeft', { ctrlKey: true })
+
+    selectPoint(mainEditor, { path: [2, 0], offset: 0 })
+
+    const result = applyContentRootNavigation({
+      editor: mainEditor,
+      event,
+      getMountedViewEditor: (root) =>
+        root === 'card:body' ? bodyEditor : mainEditor,
+      isRTL: false,
+      selection: mainEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(true)
+    expect(event.preventDefault).toHaveBeenCalled()
+    expect(bodyEditor.read((state) => state.selection.get())).toEqual({
+      anchor: { path: [0, 0], offset: 0, root: 'card:body' },
+      focus: { path: [0, 0], offset: 0, root: 'card:body' },
+    })
+  })
+
+  it('moves word forward from the content root end into the next owner word boundary', () => {
+    const { bodyEditor, mainEditor } = createFixture()
+    const event = keyEvent('ArrowRight', { ctrlKey: true })
+
+    selectPoint(bodyEditor, {
+      path: [0, 0],
+      offset: 'Inside'.length,
+      root: 'card:body',
+    })
+
+    const result = applyContentRootNavigation({
+      editor: bodyEditor,
+      event,
+      getMountedViewEditor: (root) =>
+        root === 'main' ? mainEditor : bodyEditor,
+      isRTL: false,
+      selection: bodyEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(true)
+    expect(event.preventDefault).toHaveBeenCalled()
+    expect(mainEditor.read((state) => state.selection.get())).toEqual({
+      anchor: { path: [2, 0], offset: 'After'.length },
+      focus: { path: [2, 0], offset: 'After'.length },
     })
   })
 
@@ -431,6 +505,43 @@ describe('content root navigation', () => {
     })
   })
 
+  it('keeps the real anchor when promoting a backward selection into a content root', () => {
+    const { bodyEditor, mainEditor } = createFixture()
+    const event = keyEvent('ArrowRight', { shiftKey: true })
+
+    mainEditor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [2, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 'Before'.length },
+      })
+    })
+
+    const result = applyContentRootViewSelection({
+      editor: mainEditor,
+      event,
+      getContentRootOwnerViewEditor: (candidate) =>
+        candidate.ownerPath[0] === 1 ? bodyEditor : null,
+      getMountedViewEditor: (root) =>
+        root === 'card:body' ? bodyEditor : mainEditor,
+      isRTL: false,
+      selection: mainEditor.read((state) => state.selection.get()),
+    })
+
+    expect(result.handled).toBe(true)
+    expect(event.preventDefault).toHaveBeenCalled()
+    expect(readSlateViewSelection(mainEditor)).toMatchObject({
+      anchor: { point: { path: [2, 0], offset: 0 } },
+      focus: {
+        owner: {
+          childRoot: 'card:body',
+          ownerPath: [1],
+          ownerRoot: 'main',
+        },
+        point: { path: [0, 0], root: 'card:body', offset: 1 },
+      },
+    })
+  })
+
   it('extends a projected selection to the content-root block end with command-shift-right', () => {
     const { bodyEditor, mainEditor } = createFixture()
     const event = keyEvent('ArrowRight', { metaKey: true, shiftKey: true })
@@ -534,6 +645,83 @@ describe('content root navigation', () => {
     ).toEqual([
       { ownerPath: null, root: 'main' },
       { ownerPath: [0, 1], root: 'card:body' },
+    ])
+  })
+
+  it('orders nested content roots inside content roots as visible sibling blocks', () => {
+    const runtime = createEditorRuntime({
+      extensions: [contentRootExtension],
+      initialValue: {
+        roots: {
+          'card:body': [
+            section([
+              paragraph('Inside before'),
+              contentCard('nested:body'),
+              paragraph('Inside after'),
+            ]),
+          ],
+          main: [paragraph('Before'), contentCard(), paragraph('After')],
+          'nested:body': [paragraph('Deep')],
+        },
+      },
+    })
+    const mainEditor = createEditorView(runtime, {
+      root: 'main',
+    }) as unknown as ReactRuntimeEditor
+    const owners = findContentRootOwners(mainEditor)
+    const cardOwner = owners.find((owner) => owner.childRoot === 'card:body')!
+    const nestedOwner = owners.find(
+      (owner) => owner.childRoot === 'nested:body'
+    )!
+    const graph = createContentRootProjectionGraph(mainEditor, owners)
+    const selectionIntoNested = createSlateViewSelection(graph, {
+      anchor: { point: { path: [0, 0], offset: 'Before'.length } },
+      focus: {
+        owner: nestedOwner,
+        point: {
+          path: [0, 0],
+          root: 'nested:body',
+          offset: 'Deep'.length,
+        },
+      },
+    })
+    const selectionOutOfNested = createSlateViewSelection(graph, {
+      anchor: {
+        owner: nestedOwner,
+        point: {
+          path: [0, 0],
+          root: 'nested:body',
+          offset: 'Deep'.length,
+        },
+      },
+      focus: { point: { path: [2, 0], offset: 0 } },
+    })
+    const summarizeParts = (selection: typeof selectionIntoNested) =>
+      selection.segments.parts.map((part) => ({
+        ownerPath: part.owner?.ownerPath ?? null,
+        ownerRoot: part.owner?.ownerRoot ?? null,
+        root: part.root,
+      }))
+
+    expect(cardOwner).toMatchObject({
+      childRoot: 'card:body',
+      ownerPath: [1],
+      ownerRoot: 'main',
+    })
+    expect(nestedOwner).toMatchObject({
+      childRoot: 'nested:body',
+      ownerPath: [0, 1],
+      ownerRoot: 'card:body',
+    })
+    expect(summarizeParts(selectionIntoNested)).toEqual([
+      { ownerPath: null, ownerRoot: null, root: 'main' },
+      { ownerPath: [1], ownerRoot: 'main', root: 'card:body' },
+      { ownerPath: [0, 1], ownerRoot: 'card:body', root: 'nested:body' },
+    ])
+    expect(summarizeParts(selectionOutOfNested)).toEqual([
+      { ownerPath: [0, 1], ownerRoot: 'card:body', root: 'nested:body' },
+      { ownerPath: [1], ownerRoot: 'main', root: 'card:body' },
+      { ownerPath: null, ownerRoot: null, root: 'main' },
     ])
   })
 })

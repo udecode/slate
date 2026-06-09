@@ -17,7 +17,10 @@ import {
   applyEditableDrop,
   applyEditablePaste,
 } from '../src/editable/clipboard-input-strategy'
-import type { ReactRuntimeEditor } from '../src/plugin/react-editor'
+import {
+  ReactEditor,
+  type ReactRuntimeEditor,
+} from '../src/plugin/react-editor'
 
 class FakeDataTransfer {
   private readonly data = new Map<string, string>()
@@ -125,7 +128,7 @@ const createHiddenSelectionEditor = () => {
   DOMCoverage.registerBoundary(editor, {
     anchor: { runtimeId: getRuntimeId(editor, [0, 0]), type: 'summary-slot' },
     boundaryId: 'section-body',
-    copyPolicy: 'include-model',
+    copyPolicy: 'model',
     coveredPathRanges: [{ anchor: [0, 1], focus: [0, 1] }],
     coveredRuntimeRanges: [
       {
@@ -133,11 +136,11 @@ const createHiddenSelectionEditor = () => {
         focus: getRuntimeId(editor, [0, 1]),
       },
     ],
-    findPolicy: 'not-native-until-mounted',
+    findPolicy: 'native',
     ownerPath: [0],
     ownerRuntimeId: getRuntimeId(editor, [0]),
     reason: 'app-collapse',
-    selectionPolicy: 'boundary',
+    selectionPolicy: 'skip',
     state: 'intentionally-hidden',
     version: 1,
   })
@@ -176,7 +179,7 @@ const createStagedSelectionEditor = () => {
         focus: getRuntimeId(editor, [1]),
       },
     ],
-    findPolicy: 'not-native-until-mounted',
+    findPolicy: 'native',
     ownerPath: [],
     ownerRuntimeId: null,
     reason: 'rendering-staged',
@@ -289,6 +292,112 @@ describe('DOM coverage native bridge', () => {
       expect(dataTransfer.getData('text/plain')).toBe('Hidden alpha')
       expect(dataTransfer.getData('text/html')).toContain('Hidden alpha')
     } finally {
+      cleanupEditorRoot(editor, root)
+    }
+  })
+
+  test('drop inserts plain text data at the resolved event range', () => {
+    const editor = createReactEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Original text' }],
+        },
+      ],
+      selection: {
+        anchor: { offset: 0, path: [0, 0] },
+        focus: { offset: 0, path: [0, 0] },
+      },
+    })
+
+    const root = mountEditorRoot(editor)
+    const dataTransfer = new FakeDataTransfer()
+    const event = createDragEvent(root, dataTransfer)
+    const resolveEventRange = jest
+      .spyOn(ReactEditor, 'resolveEventRange')
+      .mockReturnValue({
+        anchor: { offset: 0, path: [0, 0] },
+        focus: { offset: 0, path: [0, 0] },
+      })
+
+    dataTransfer.setData('text/plain', 'Dropped text')
+
+    try {
+      const result = applyEditableDrop({
+        editor,
+        event,
+        readOnly: false,
+        state: { isDraggingInternally: false },
+      })
+
+      expect(event.preventDefault).toHaveBeenCalled()
+      expect(result.command).toMatchObject({ kind: 'insert-data' })
+      expect(Editor.string(editor, [])).toBe('Dropped textOriginal text')
+      expect(Editor.getSnapshot(editor).selection).toEqual({
+        anchor: { offset: 'Dropped text'.length, path: [0, 0] },
+        focus: { offset: 'Dropped text'.length, path: [0, 0] },
+      })
+    } finally {
+      resolveEventRange.mockRestore()
+      cleanupEditorRoot(editor, root)
+    }
+  })
+
+  test('repeated external plain text drops preserve earlier inserted text', () => {
+    const editor = createReactEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Original text' }],
+        },
+      ],
+      selection: {
+        anchor: { offset: 0, path: [0, 0] },
+        focus: { offset: 0, path: [0, 0] },
+      },
+    })
+
+    const root = mountEditorRoot(editor)
+    const resolveEventRange = jest
+      .spyOn(ReactEditor, 'resolveEventRange')
+      .mockReturnValueOnce({
+        anchor: { offset: 0, path: [0, 0] },
+        focus: { offset: 0, path: [0, 0] },
+      })
+      .mockReturnValueOnce({
+        anchor: { offset: 'First '.length, path: [0, 0] },
+        focus: { offset: 'First '.length, path: [0, 0] },
+      })
+
+    try {
+      for (const text of ['First ', 'Second ']) {
+        const dataTransfer = new FakeDataTransfer()
+        const event = createDragEvent(root, dataTransfer)
+
+        dataTransfer.setData('text/plain', text)
+
+        const result = applyEditableDrop({
+          editor,
+          event,
+          readOnly: false,
+          state: { isDraggingInternally: false },
+        })
+
+        expect(event.preventDefault).toHaveBeenCalled()
+        expect(result.command).toMatchObject({ kind: 'insert-data' })
+      }
+
+      expect(Editor.string(editor, [])).toBe('First Second Original text')
+      expect(Editor.getSnapshot(editor).selection).toEqual({
+        anchor: { offset: 'First Second '.length, path: [0, 0] },
+        focus: { offset: 'First Second '.length, path: [0, 0] },
+      })
+    } finally {
+      resolveEventRange.mockRestore()
       cleanupEditorRoot(editor, root)
     }
   })

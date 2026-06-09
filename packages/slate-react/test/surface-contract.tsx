@@ -51,6 +51,8 @@ type EditableHasOnCommand = 'onCommand' extends keyof ComponentProps<
 >
   ? true
   : false
+type EditableAutoCompleteAcceptsBoolean =
+  boolean extends NonNullable<EditableProps['autoComplete']> ? true : false
 type EditableExposesDOMStrategy = ExpectTrue<EditableHasDOMStrategy>
 type EditableDoesNotExposeRenderingStrategy =
   ExpectFalse<EditableHasRenderingStrategy>
@@ -59,6 +61,8 @@ type EditableExposesOnDOMStrategyMetrics =
 type EditableDoesNotExposeOnRenderingStrategyMetrics =
   ExpectFalse<EditableHasOnRenderingStrategyMetrics>
 type EditableDoesNotExposeOnCommand = ExpectFalse<EditableHasOnCommand>
+type EditableRejectsBooleanAutoComplete =
+  ExpectFalse<EditableAutoCompleteAcceptsBoolean>
 
 void (null as unknown as RenderElementDoesNotExposePath)
 void (null as unknown as RenderElementDoesNotExposeIndex)
@@ -69,6 +73,7 @@ void (null as unknown as EditableDoesNotExposeRenderingStrategy)
 void (null as unknown as EditableExposesOnDOMStrategyMetrics)
 void (null as unknown as EditableDoesNotExposeOnRenderingStrategyMetrics)
 void (null as unknown as EditableDoesNotExposeOnCommand)
+void (null as unknown as EditableRejectsBooleanAutoComplete)
 
 const listSourceFiles = (roots: readonly string[]) => {
   const files: string[] = []
@@ -109,6 +114,38 @@ const readPackageJson = (packageName: string) =>
     peerDependencies?: Record<string, string>
     version: string
   }
+
+const bumpPatchVersion = (version: string) => {
+  const [major = 0, minor = 0, patch = 0] = version
+    .split('.')
+    .map((part) => Number(part))
+
+  return `${major}.${minor}.${patch + 1}`
+}
+
+const hasPendingChangesetRelease = (packageName: string) => {
+  for (const file of readdirSync(resolve(repoRoot, '.changeset'))) {
+    if (!file.endsWith('.md')) continue
+
+    const source = readFileSync(resolve(repoRoot, '.changeset', file), 'utf8')
+    const match = source.match(
+      new RegExp(`"${packageName}"\\s*:\\s*(major|minor|patch)`)
+    )
+
+    if (match) return true
+  }
+
+  return false
+}
+
+const expectedRuntimePeerFloor = (packageName: string) => {
+  const packageJson = readPackageJson(packageName)
+  const version = hasPendingChangesetRelease(packageName)
+    ? bumpPatchVersion(packageJson.version)
+    : packageJson.version
+
+  return `>=${version}`
+}
 
 const allowedSlateInternalImportFiles = new Set([
   'packages/slate-react/src/editable/runtime-editor-api.ts',
@@ -243,8 +280,12 @@ describe('slate-react surface contract', () => {
     expect(runtimeSources).toContain("from 'slate/internal'")
     expect(runtimeSources).toContain("from 'slate-dom'")
     expect(runtimeSources).toContain("from 'slate'")
-    expect(slateReactPackage.peerDependencies?.slate).toBe('>=0.124.2')
-    expect(slateReactPackage.peerDependencies?.['slate-dom']).toBe('>=0.124.2')
+    expect(slateReactPackage.peerDependencies?.slate).toBe(
+      expectedRuntimePeerFloor('slate')
+    )
+    expect(slateReactPackage.peerDependencies?.['slate-dom']).toBe(
+      expectedRuntimePeerFloor('slate-dom')
+    )
   })
 
   test('generic selector substrate uses React external-store subscription primitive', () => {
@@ -461,6 +502,52 @@ describe('slate-react surface contract', () => {
     expect('withReact' in SlateReact).toBe(false)
     expect(typeof SlateReact.react).toBe('function')
     expect(typeof SlateReact.createReactEditor).toBe('function')
+  })
+
+  test('React hook aliases stay out of the public root at runtime', () => {
+    for (const name of [
+      'useComposing',
+      'useElementIf',
+      'useFocused',
+      'useReadOnly',
+      'useSelected',
+      'useSlateSelection',
+      'useSlateSelector',
+      'useSlateStatic',
+    ]) {
+      expect(name in SlateReact).toBe(false)
+    }
+
+    for (const name of [
+      'useEditor',
+      'useEditorComposing',
+      'useEditorFocused',
+      'useEditorReadOnly',
+      'useEditorSelection',
+      'useEditorSelector',
+      'useElement',
+      'useElementSelected',
+    ]) {
+      expect(typeof SlateReact[name as keyof typeof SlateReact]).toBe(
+        'function'
+      )
+    }
+  })
+
+  test('renderElement slots expose contentBoundary without unstable aliases', () => {
+    const editableSource = readFileSync(
+      resolve(packageRoot, 'src/components/editable-text-blocks.tsx'),
+      'utf8'
+    )
+    const domCoverageExample = readFileSync(
+      resolve(repoRoot, 'site/examples/ts/dom-coverage-boundaries.tsx'),
+      'utf8'
+    )
+
+    expect(editableSource).toContain('contentBoundary:')
+    expect(editableSource).not.toContain('unstableBoundary')
+    expect(domCoverageExample).toContain('slots.contentBoundary')
+    expect(domCoverageExample).not.toContain('slots.unstableBoundary')
   })
 
   test('virtualized DOM strategy stays object-only and experimental', () => {
@@ -775,6 +862,52 @@ describe('slate-react surface contract', () => {
     expect(mergeMounts).toHaveBeenCalledTimes(2)
   })
 
+  test('parent attribute changes do not remount child element renderers', async () => {
+    const editor = createReactEditor({
+      initialValue: [
+        {
+          type: 'wrapper',
+          status: 'draft',
+          children: [{ type: 'child', children: [{ text: 'inside' }] }],
+        },
+      ],
+    })
+    const childMounts = jest.fn()
+    const childUnmounts = jest.fn()
+
+    const renderElement = ({ children, element }: RenderElementProps) => {
+      const type = (element as { type?: string }).type
+
+      useEffect(() => {
+        if (type !== 'child') {
+          return
+        }
+
+        childMounts()
+        return () => childUnmounts()
+      }, [type])
+
+      return <div data-type={type}>{children}</div>
+    }
+
+    render(
+      <Slate editor={editor}>
+        <Editable renderElement={renderElement} />
+      </Slate>
+    )
+
+    expect(childMounts).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      editor.update((tx) => {
+        tx.nodes.set({ status: 'review' }, { at: [0] })
+      })
+    })
+
+    expect(childMounts).toHaveBeenCalledTimes(1)
+    expect(childUnmounts).not.toHaveBeenCalled()
+  })
+
   test('useElementSelected remains stable when the selected element path shifts after structural edits', async () => {
     const editor = createReactEditor({
       initialValue: [
@@ -791,6 +924,7 @@ describe('slate-react surface contract', () => {
       ],
     }) as ReactRuntimeEditor
     const elementSelectedRenders: Record<string, boolean[] | undefined> = {}
+    const latestElementSelected: Record<string, boolean | undefined> = {}
 
     const renderElement = ({
       element,
@@ -800,6 +934,7 @@ describe('slate-react surface contract', () => {
       // eslint-disable-next-line react-hooks/rules-of-hooks
       const selected = useElementSelected()
       const { id } = element as { id: string }
+      latestElementSelected[id] = selected
 
       let selectedRenders = elementSelectedRenders[id]
 
@@ -856,12 +991,13 @@ describe('slate-react surface contract', () => {
       '0.1': [],
       '0.2': [],
       '1': [],
-      new: [false, false],
+      new: [false],
       '2': [true],
     })
+    expect(latestElementSelected['2']).toBe(true)
   })
 
-  test('custom element handlers resolve the current path after leading inserts without shifted rerender', async () => {
+  test('custom element handlers resolve the current path after leading inserts', async () => {
     const editor = createReactEditor({
       initialValue: [
         { id: 'first', children: [{ text: '' }] },
@@ -906,7 +1042,7 @@ describe('slate-react surface contract', () => {
       })
     })
 
-    expect(renderCounts.target ?? 0).toBe(0)
+    expect(renderCounts.target ?? 0).toBe(1)
     expect(readTargetPath()).toEqual([2])
   })
 

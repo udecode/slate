@@ -9,8 +9,10 @@ import {
   PointApi,
   type Range,
   RangeApi,
+  type RangeRef,
   type RootKey,
 } from 'slate'
+import { getDOMClipboardFormatKey } from 'slate-dom/internal'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
 import {
@@ -20,6 +22,7 @@ import {
   saveSlateViewSelectionHistoryEntry,
   writeSlateViewSelection,
 } from '../view-selection'
+import { applyContentRootSelectionMoveCommand } from './content-root-navigation'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import {
   type EditableCommand,
@@ -30,15 +33,30 @@ import type {
   EditableInputController,
   EditableSelectionSourceTransition,
 } from './input-state'
-import { createProjectedSelectionTarget } from './projected-selection-target'
-import { Editor, type Editor as RuntimeEditor } from './runtime-editor-api'
+import { resolveProjectedSelectionTarget } from './projected-selection-target'
+import {
+  Editor,
+  getEditorCurrentMarks,
+  getEditorExtensionRegistry,
+  type Editor as RuntimeEditor,
+  withOperationRootChildren,
+} from './runtime-editor-api'
 import { readRuntimeSelection } from './runtime-selection-state'
-import { setEditableModelSelectionPreference } from './selection-controller'
+import {
+  armModelOwnedTextInputGuard,
+  setEditableModelSelectionPreference,
+} from './selection-controller'
 import { shouldSkipSelectionFocus } from './selection-side-effect-policy'
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
 const MAIN_ROOT_KEY: RootKey = 'main'
+const DEFAULT_SLATE_CLIPBOARD_FORMAT_KEY = 'x-slate-fragment'
 const EDITOR_TO_HISTORY_FOCUS_ROOT = new WeakMap<Editor, RootKey | null>()
+
+type ClipboardInsertDataHandler = (
+  editor: RuntimeEditor,
+  data: DataTransfer
+) => boolean
 
 const profileEditableMutationDuration = <T>(
   id: string,
@@ -196,10 +214,13 @@ export const applyModelOwnedDeleteIntent = ({
   editor: Editor
   unit?: 'block' | 'line' | 'word'
 }) => {
+  const selection = readRuntimeSelection(editor)
+
   if (
     direction === 'backward' &&
     unit == null &&
-    applyBackspaceAfterBlockVoid(editor, readRuntimeSelection(editor))
+    (applyBackspaceAtLeadingInlineVoidBlockBoundary(editor, selection) ||
+      applyBackspaceAfterBlockVoid(editor, selection))
   ) {
     return
   }
@@ -288,6 +309,340 @@ const advancePointByText = (point: Point, text: string): Point => ({
   path: [...point.path],
 })
 
+const getCanonicalRuntimeEditor = (editor: RuntimeEditor): RuntimeEditor =>
+  ((editor as { runtime?: { editor?: RuntimeEditor } }).runtime?.editor ??
+    editor) as RuntimeEditor
+
+const withProjectedMutationRoot = <T>(
+  editor: RuntimeEditor,
+  root: RootKey | undefined,
+  fn: () => T
+): T => {
+  if (!root) {
+    return fn()
+  }
+
+  const rootPoint = { offset: 0, path: [0, 0], root }
+
+  return withOperationRootChildren(
+    editor,
+    {
+      newProperties: null,
+      properties: { anchor: rootPoint, focus: rootPoint },
+      root,
+      type: 'set_selection',
+    } as Operation,
+    fn
+  )
+}
+
+const getProjectedClipboardFragmentData = (
+  editor: RuntimeEditor,
+  data: DataTransfer
+) => {
+  const clipboardFormatKey = getDOMClipboardFormatKey(editor)
+  const clipboardFragment = data.getData(`application/${clipboardFormatKey}`)
+
+  if (clipboardFragment) {
+    return clipboardFragment
+  }
+
+  const html = data.getData('text/html')
+  const DOMParser = globalThis.DOMParser
+
+  if (!html || typeof DOMParser !== 'function') {
+    return ''
+  }
+
+  const document = new DOMParser().parseFromString(html, 'text/html')
+  const htmlFragment = document.querySelector('[data-slate-fragment]')
+
+  if (!htmlFragment) {
+    return ''
+  }
+
+  const htmlFragmentData =
+    htmlFragment.getAttribute('data-slate-fragment') ?? ''
+
+  if (!htmlFragmentData) {
+    return ''
+  }
+
+  const fragmentFormat =
+    htmlFragment.getAttribute('data-slate-fragment-format') ?? undefined
+
+  if (fragmentFormat) {
+    return fragmentFormat === clipboardFormatKey ? htmlFragmentData : ''
+  }
+
+  return clipboardFormatKey === DEFAULT_SLATE_CLIPBOARD_FORMAT_KEY
+    ? htmlFragmentData
+    : ''
+}
+
+const decodeProjectedClipboardFragment = (
+  editor: RuntimeEditor,
+  data: DataTransfer
+): Descendant[] | null => {
+  const fragment = getProjectedClipboardFragmentData(editor, data)
+
+  if (!fragment || typeof globalThis.atob !== 'function') {
+    return null
+  }
+
+  try {
+    const decoded = decodeURIComponent(globalThis.atob(fragment))
+    const parsed = JSON.parse(decoded)
+
+    return Array.isArray(parsed) ? (parsed as Descendant[]) : null
+  } catch {
+    return null
+  }
+}
+
+const getProjectedClipboardInsertDataHandlers = (editor: RuntimeEditor) =>
+  (getEditorExtensionRegistry(editor).capabilities.get(
+    'clipboard.insertData'
+  ) as ClipboardInsertDataHandler[] | undefined) ?? []
+
+const applyProjectedClipboardInsertDataHandlers = (
+  editor: RuntimeEditor,
+  data: DataTransfer
+) => {
+  for (const handler of getProjectedClipboardInsertDataHandlers(editor)) {
+    if (handler(editor, data)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+const deleteProjectedRangeRefs = (
+  tx: { text: { delete: (options: { at: Range }) => void } },
+  rangeRefs: RangeRef[]
+) => {
+  const ranges = rangeRefs
+    .map((rangeRef) => rangeRef.unref())
+    .filter((range): range is Range => !!range)
+
+  for (const range of ranges.reverse()) {
+    if (!RangeApi.isCollapsed(range)) {
+      tx.text.delete({ at: range })
+    }
+  }
+}
+
+const hasActiveMarks = (marks: Record<string, unknown> | null) =>
+  !!marks && Object.keys(marks).length > 0
+
+const isUnmarkedTextNode = (node: Node) =>
+  NodeApi.isText(node) && Object.keys(node).length === 1
+
+const getTextNodeMarks = (node: Node) => {
+  if (!NodeApi.isText(node)) {
+    return null
+  }
+
+  const { text: _text, ...marks } = node
+
+  return Object.keys(marks).length > 0 ? marks : null
+}
+
+const getTextNodeMarksKey = (marks: Record<string, unknown> | null) =>
+  marks === null
+    ? ''
+    : JSON.stringify(
+        Object.keys(marks)
+          .sort()
+          .map((key) => [key, marks[key]])
+      )
+
+const getConsistentTextMarksInBlocks = (
+  editor: RuntimeEditor,
+  blockPaths: Path[]
+) =>
+  editor.read((state) => {
+    let firstMarks: Record<string, unknown> | null = null
+    let firstMarksKey: string | null = null
+    let sawText = false
+
+    for (const blockPath of blockPaths) {
+      const [block] = state.nodes.get(blockPath)
+
+      for (const [node] of NodeApi.texts(block)) {
+        if (node.text.length === 0) {
+          continue
+        }
+
+        const marks = getTextNodeMarks(node)
+        const marksKey = getTextNodeMarksKey(marks)
+
+        if (!sawText) {
+          sawText = true
+          firstMarks = marks
+          firstMarksKey = marksKey
+          continue
+        }
+
+        if (marksKey !== firstMarksKey) {
+          return null
+        }
+      }
+    }
+
+    return sawText ? firstMarks : null
+  })
+
+const createTextReplacementNode = (
+  editor: RuntimeEditor,
+  blockPaths: Path[],
+  marks: Record<string, unknown> | null,
+  text: string
+): Descendant => {
+  const children = [marks ? { ...marks, text } : { text }]
+
+  if (blockPaths.length !== 1) {
+    return {
+      ...createDefaultParagraph(),
+      children,
+    } as Descendant
+  }
+
+  return editor.read((state) => {
+    const [block] = state.nodes.get(blockPaths[0]!)
+    const { schema } = state
+
+    if (
+      NodeApi.isElement(block) &&
+      !STRUCTURAL_TEXT_REPLACEMENT_BLOCK_TYPES.has(
+        typeof block.type === 'string' ? block.type : ''
+      ) &&
+      !schema.isInline(block) &&
+      !schema.isVoid(block) &&
+      block.children.every(
+        (child) =>
+          NodeApi.isText(child) ||
+          (NodeApi.isElement(child) && schema.isInline(child))
+      )
+    ) {
+      return {
+        ...block,
+        children,
+      } as Descendant
+    }
+
+    return {
+      ...createDefaultParagraph(),
+      children,
+    } as Descendant
+  })
+}
+
+const isPlainTextLeafStart = ({
+  editor,
+  selection,
+}: {
+  editor: Editor
+  selection: Range
+}) =>
+  editor.read((state) => {
+    const { path } = selection.anchor
+
+    if (path.length < 2 || selection.anchor.offset !== 0) {
+      return false
+    }
+
+    const [node] = state.nodes.get(path)
+
+    if (!isUnmarkedTextNode(node)) {
+      return false
+    }
+
+    const [block] = state.nodes.get([path[0]!])
+    const targetRelativePath = path.slice(1)
+    let previousTextNode: Node | null = null
+
+    for (const [textNode, textPath] of NodeApi.texts(block)) {
+      if (PathApi.equals(textPath, targetRelativePath)) {
+        return previousTextNode === null || isUnmarkedTextNode(previousTextNode)
+      }
+
+      previousTextNode = textNode
+    }
+
+    return false
+  })
+
+const canUseExplicitCollapsedTextInsert = ({
+  editor,
+  marks,
+  selection,
+}: {
+  editor: Editor
+  marks: Record<string, unknown> | null
+  selection: Range
+}) => {
+  if (hasActiveMarks(marks)) {
+    return false
+  }
+  if (marks == null) {
+    return true
+  }
+
+  return editor.read((state) => {
+    const [node] = state.nodes.get(selection.anchor.path)
+
+    return isUnmarkedTextNode(node)
+  })
+}
+
+const canUseCachedCollapsedTextInsert = ({
+  editor,
+  selection,
+}: {
+  editor: Editor
+  selection: Range
+}) => {
+  const marks = getEditorCurrentMarks(editor)
+
+  if (hasActiveMarks(marks)) {
+    return false
+  }
+
+  const unmarkedTextNode = editor.read((state) => {
+    const [node] = state.nodes.get(selection.anchor.path)
+
+    return isUnmarkedTextNode(node)
+  })
+
+  if (!unmarkedTextNode) {
+    return false
+  }
+
+  if (marks !== null || selection.anchor.offset > 0) {
+    return true
+  }
+
+  if (isPlainTextLeafStart({ editor, selection })) {
+    return true
+  }
+
+  return canUseExplicitCollapsedTextInsert({
+    editor,
+    marks: profileEditableMutationDuration('model-text-input-read-marks', () =>
+      editor.read((state) => state.marks.get())
+    ),
+    selection,
+  })
+}
+
+const releaseProjectedRangeRefs = (rangeRefs: RangeRef[]) => {
+  for (const rangeRef of rangeRefs) {
+    rangeRef.unref()
+  }
+}
+
 const applyProjectedViewSelectionTextCommand = ({
   editor,
   text,
@@ -301,14 +656,23 @@ const applyProjectedViewSelectionTextCommand = ({
     return false
   }
 
-  const target = createProjectedSelectionTarget(editor, viewSelection)
+  const runtimeEditor = getCanonicalRuntimeEditor(editor)
+  const resolution = resolveProjectedSelectionTarget(
+    runtimeEditor,
+    viewSelection
+  )
 
-  if (!target) {
+  if (resolution.kind === 'ambiguous') {
+    return true
+  }
+  if (resolution.kind === 'stale') {
     writeSlateViewSelection(editor, null)
     return false
   }
 
-  editor.update((tx) => {
+  const { target } = resolution
+
+  runtimeEditor.update((tx) => {
     for (const range of [...target.ranges].reverse()) {
       if (!RangeApi.isCollapsed(range)) {
         tx.text.delete({ at: range })
@@ -325,7 +689,209 @@ const applyProjectedViewSelectionTextCommand = ({
 
     tx.selection.set({ anchor: selectionPoint, focus: selectionPoint })
   })
-  saveSlateViewSelectionHistoryEntry(editor, {
+  saveSlateViewSelectionHistoryEntry(runtimeEditor, {
+    redo: null,
+    undo: viewSelection,
+  })
+  writeSlateViewSelection(editor, null)
+
+  return true
+}
+
+const applyProjectedViewSelectionDataCommand = ({
+  data,
+  editor,
+}: {
+  data: DataTransfer
+  editor: RuntimeEditor
+}) => {
+  const viewSelection = readSlateViewSelection(editor)
+
+  if (!viewSelection || isSlateViewSelectionCollapsed(viewSelection)) {
+    return false
+  }
+
+  const runtimeEditor = getCanonicalRuntimeEditor(editor)
+  const resolution = resolveProjectedSelectionTarget(
+    runtimeEditor,
+    viewSelection
+  )
+
+  if (resolution.kind === 'ambiguous') {
+    return true
+  }
+  if (resolution.kind === 'stale') {
+    writeSlateViewSelection(editor, null)
+    return false
+  }
+
+  const { target } = resolution
+  const fragment = decodeProjectedClipboardFragment(runtimeEditor, data)
+  const text = data.getData('text/plain')
+  const hasFragmentPayload = !!fragment && fragment.length > 0
+  const hasFallbackPayload = !!text || hasFragmentPayload
+  const hasInsertDataHandlers =
+    getProjectedClipboardInsertDataHandlers(runtimeEditor).length > 0
+  let handled = false
+
+  if (!hasFallbackPayload && !hasInsertDataHandlers) {
+    return true
+  }
+
+  if (!hasFallbackPayload) {
+    const previousSelection = runtimeEditor.read((state) =>
+      state.selection.get()
+    )
+
+    runtimeEditor.update((tx) => {
+      const rangeRefs = target.ranges.map((range) =>
+        Editor.rangeRef(runtimeEditor, range, { affinity: 'inward' })
+      )
+
+      try {
+        tx.selection.set({ anchor: target.start, focus: target.start })
+        handled = withProjectedMutationRoot(
+          runtimeEditor,
+          target.start.root,
+          () => applyProjectedClipboardInsertDataHandlers(runtimeEditor, data)
+        )
+
+        if (handled) {
+          deleteProjectedRangeRefs(tx, rangeRefs)
+        } else {
+          releaseProjectedRangeRefs(rangeRefs)
+          tx.selection.set(previousSelection)
+        }
+      } catch (error) {
+        releaseProjectedRangeRefs(rangeRefs)
+        throw error
+      }
+    })
+
+    if (handled) {
+      saveSlateViewSelectionHistoryEntry(runtimeEditor, {
+        redo: null,
+        undo: viewSelection,
+      })
+      writeSlateViewSelection(editor, null)
+    }
+
+    return true
+  }
+
+  runtimeEditor.update((tx) => {
+    const rangeRefs = target.ranges.map((range) =>
+      Editor.rangeRef(runtimeEditor, range, { affinity: 'inward' })
+    )
+
+    try {
+      tx.selection.set({ anchor: target.start, focus: target.start })
+      handled = withProjectedMutationRoot(
+        runtimeEditor,
+        target.start.root,
+        () => applyProjectedClipboardInsertDataHandlers(runtimeEditor, data)
+      )
+
+      if (handled) {
+        deleteProjectedRangeRefs(tx, rangeRefs)
+        return
+      }
+
+      deleteProjectedRangeRefs(tx, rangeRefs)
+      if (hasFragmentPayload) {
+        withProjectedMutationRoot(runtimeEditor, target.start.root, () => {
+          tx.fragment.insert(fragment)
+        })
+      } else {
+        withProjectedMutationRoot(runtimeEditor, target.start.root, () => {
+          ;(
+            runtimeEditor.api as {
+              clipboard: { insertTextData: (data: DataTransfer) => boolean }
+            }
+          ).clipboard.insertTextData(data)
+        })
+      }
+    } catch (error) {
+      releaseProjectedRangeRefs(rangeRefs)
+      throw error
+    }
+  })
+  saveSlateViewSelectionHistoryEntry(runtimeEditor, {
+    redo: null,
+    undo: viewSelection,
+  })
+  writeSlateViewSelection(editor, null)
+
+  return true
+}
+
+const applyProjectedViewSelectionLineBreakCommand = ({
+  editor,
+  kind,
+}: {
+  editor: RuntimeEditor
+  kind: 'open-line' | 'paragraph' | 'soft'
+}) => {
+  const viewSelection = readSlateViewSelection(editor)
+
+  if (!viewSelection || isSlateViewSelectionCollapsed(viewSelection)) {
+    return false
+  }
+
+  const runtimeEditor = getCanonicalRuntimeEditor(editor)
+  const resolution = resolveProjectedSelectionTarget(
+    runtimeEditor,
+    viewSelection
+  )
+
+  if (resolution.kind === 'ambiguous') {
+    return true
+  }
+  if (resolution.kind === 'stale') {
+    writeSlateViewSelection(editor, null)
+    return false
+  }
+
+  const { target } = resolution
+
+  runtimeEditor.update((tx) => {
+    for (const range of [...target.ranges].reverse()) {
+      if (!RangeApi.isCollapsed(range)) {
+        tx.text.delete({ at: range })
+      }
+    }
+
+    tx.selection.set({ anchor: target.start, focus: target.start })
+
+    withProjectedMutationRoot(runtimeEditor, target.start.root, () => {
+      if (kind !== 'open-line') {
+        if (kind === 'paragraph') {
+          tx.break.insert()
+          return
+        }
+
+        tx.break.insertSoft()
+        return
+      }
+
+      const blockEntry = tx.nodes.above({
+        at: target.start,
+        match: (node) => NodeApi.isElement(node) && tx.nodes.isBlock(node),
+      })
+
+      if (!blockEntry) {
+        tx.break.insert()
+        return
+      }
+
+      const [, blockPath] = blockEntry
+      const insertionPoint = { path: blockPath.concat(0), offset: 0 }
+
+      tx.nodes.insert(createDefaultParagraph(), { at: blockPath })
+      tx.selection.set({ anchor: insertionPoint, focus: insertionPoint })
+    })
+  })
+  saveSlateViewSelectionHistoryEntry(runtimeEditor, {
     redo: null,
     undo: viewSelection,
   })
@@ -338,6 +904,53 @@ const createRange = (anchor: Point, focus: Point): Range => ({
   anchor: clonePoint(anchor),
   focus: clonePoint(focus),
 })
+
+type SelectionMoveCommand = Extract<EditableCommand, { kind: 'move-selection' }>
+
+const getSelectionMoveUnit = (
+  command: SelectionMoveCommand
+): 'line' | 'word' | undefined =>
+  command.axis === 'line' || command.axis === 'word' ? command.axis : undefined
+
+const applyRootLocalSelectionMoveCommand = ({
+  command,
+  editor,
+}: {
+  command: SelectionMoveCommand
+  editor: RuntimeEditor
+}) => {
+  const selection = readRuntimeSelection(editor)
+
+  if (!selection) {
+    return false
+  }
+
+  writeSlateViewSelection(editor, null)
+  editor.update((tx) => {
+    if (command.extend) {
+      tx.selection.move({
+        edge: 'focus',
+        reverse: command.reverse,
+        unit: getSelectionMoveUnit(command),
+      })
+      return
+    }
+
+    if (RangeApi.isCollapsed(selection)) {
+      tx.selection.move({
+        reverse: command.reverse,
+        unit: getSelectionMoveUnit(command),
+      })
+      return
+    }
+
+    tx.selection.collapse({
+      edge: command.reverse ? 'start' : 'end',
+    })
+  })
+
+  return true
+}
 
 export const applyModelOwnedTransposeCharacterIntent = ({
   editor,
@@ -413,6 +1026,15 @@ const createDefaultParagraph = (): Descendant =>
     type: 'paragraph',
     children: [{ text: '' }],
   }) as Descendant
+
+const STRUCTURAL_TEXT_REPLACEMENT_BLOCK_TYPES = new Set([
+  'bulleted-list',
+  'code-block',
+  'numbered-list',
+  'table',
+  'table-cell',
+  'table-row',
+])
 
 const isBlockVoid = (editor: RuntimeEditor, node: Node) =>
   NodeApi.isElement(node) &&
@@ -493,6 +1115,148 @@ const applyBackspaceAfterBlockVoid = (
   return true
 }
 
+const getPointWithRoot = (point: Point, root: RootKey | undefined): Point =>
+  root === undefined ? point : { ...point, root }
+
+const applyBackspaceAtLeadingInlineVoidBlockBoundary = (
+  editor: RuntimeEditor,
+  selection: Range | null
+) => {
+  if (!selection || RangeApi.isExpanded(selection)) {
+    return false
+  }
+
+  const point = selection.anchor
+
+  if (point.offset !== 0) {
+    return false
+  }
+
+  const target = editor.read((state) => {
+    const isInlineVoidAt = (location: Path | Point) => {
+      if (PathApi.isPath(location)) {
+        if (!state.nodes.hasPath(location)) {
+          return false
+        }
+
+        const [node] = state.nodes.get(location)
+
+        return (
+          NodeApi.isElement(node) &&
+          Editor.isInline(editor, node) &&
+          Editor.isVoid(editor, node)
+        )
+      }
+
+      return !!Editor.above(editor, {
+        at: location,
+        match: (node) =>
+          NodeApi.isElement(node) &&
+          Editor.isInline(editor, node) &&
+          Editor.isVoid(editor, node),
+        mode: 'lowest',
+        voids: true,
+      })
+    }
+    const block = Editor.above(editor, {
+      at: point,
+      match: (node) => NodeApi.isElement(node) && Editor.isBlock(editor, node),
+      mode: 'lowest',
+      voids: true,
+    })
+
+    if (!block) {
+      return null
+    }
+
+    const [, blockPath] = block
+
+    if (blockPath.length !== 1 || !PathApi.hasPrevious(blockPath)) {
+      return null
+    }
+
+    const [blockNode] = block
+    const previousBlockPath = PathApi.previous(blockPath)
+    const [previousBlockNode] = state.nodes.get(previousBlockPath)
+
+    if (
+      !NodeApi.isElement(blockNode) ||
+      !NodeApi.isElement(previousBlockNode) ||
+      !Editor.isBlock(editor, previousBlockNode)
+    ) {
+      return null
+    }
+
+    const blockStart = getPointWithRoot(
+      Editor.point(editor, blockPath, { edge: 'start' }),
+      point.root
+    )
+
+    if (!PointApi.equals(point, blockStart)) {
+      return null
+    }
+
+    const nextSiblingPath = PathApi.next(point.path)
+
+    if (
+      !isInlineVoidAt(point) &&
+      (!Editor.hasPath(editor, nextSiblingPath) ||
+        !isInlineVoidAt(nextSiblingPath))
+    ) {
+      return null
+    }
+
+    const firstChild = blockNode.children[0]
+    const sourceChildIndex =
+      point.path.length === blockPath.length + 1 &&
+      point.path.at(-1) === 0 &&
+      NodeApi.isText(firstChild) &&
+      firstChild.text === ''
+        ? 1
+        : 0
+    const moveCount = blockNode.children.length - sourceChildIndex
+
+    return {
+      blockStart,
+      blockPath,
+      insertPath: [...previousBlockPath, previousBlockNode.children.length],
+      moveCount,
+      previousBlockEnd: getPointWithRoot(
+        Editor.point(editor, previousBlockPath, { edge: 'end' }),
+        point.root
+      ),
+      sourcePath: [...blockPath, sourceChildIndex],
+    }
+  })
+
+  if (!target) {
+    return false
+  }
+
+  editor.update((tx) => {
+    const insertIndex = target.insertPath.at(-1)!
+    const insertParentPath = target.insertPath.slice(0, -1)
+
+    for (let index = 0; index < target.moveCount; index++) {
+      tx.nodes.move({
+        at: target.sourcePath,
+        to: [...insertParentPath, insertIndex + index],
+        voids: true,
+      })
+    }
+    tx.nodes.remove({
+      at: target.blockPath,
+      voids: true,
+    })
+    tx.selection.set({
+      anchor: target.previousBlockEnd,
+      focus: target.previousBlockEnd,
+    })
+  })
+
+  return true
+}
+
 const applyParagraphBreakAfterSelectedBlockVoid = (
   editor: RuntimeEditor,
   selection: Range | null
@@ -516,7 +1280,14 @@ const applyParagraphBreakAfterSelectedBlockVoid = (
 
 const getFullySelectedBlockPaths = (
   editor: RuntimeEditor,
-  selection: Range | null
+  selection: Range | null,
+  {
+    includeAllSiblings = false,
+    includeOnlyChild = false,
+  }: {
+    includeAllSiblings?: boolean
+    includeOnlyChild?: boolean
+  } = {}
 ): Path[] | null => {
   if (!selection || RangeApi.isCollapsed(selection)) {
     return null
@@ -547,13 +1318,45 @@ const getFullySelectedBlockPaths = (
     return null
   }
 
+  if (PathApi.equals(blockPath, endBlockPath)) {
+    if (
+      !PointApi.equals(end, Editor.point(editor, blockPath, { edge: 'end' }))
+    ) {
+      return null
+    }
+
+    const parentPath = PathApi.parent(blockPath)
+    const parentChildCount = editor.read((state) => {
+      if (parentPath.length === 0) {
+        return state.nodes.children().length
+      }
+
+      const [parentNode] = state.nodes.get(parentPath)
+
+      return NodeApi.isAncestor(parentNode) &&
+        'children' in parentNode &&
+        Array.isArray(parentNode.children)
+        ? parentNode.children.length
+        : 0
+    })
+
+    return parentChildCount > 1 || includeOnlyChild ? [blockPath] : null
+  }
+
   if (PointApi.equals(end, Editor.point(editor, blockPath, { edge: 'end' }))) {
     return [blockPath]
   }
 
-  if (
-    !PointApi.equals(end, Editor.point(editor, endBlockPath, { edge: 'start' }))
-  ) {
+  const endsAtEndBlockStart = PointApi.equals(
+    end,
+    Editor.point(editor, endBlockPath, { edge: 'start' })
+  )
+  const endsAtEndBlockEnd = PointApi.equals(
+    end,
+    Editor.point(editor, endBlockPath, { edge: 'end' })
+  )
+
+  if (!endsAtEndBlockStart && !endsAtEndBlockEnd) {
     return null
   }
 
@@ -566,13 +1369,60 @@ const getFullySelectedBlockPaths = (
 
   const paths: Path[] = []
   let path = blockPath
+  const stopPath = endsAtEndBlockEnd ? PathApi.next(endBlockPath) : endBlockPath
 
-  while (!PathApi.equals(path, endBlockPath)) {
+  while (!PathApi.equals(path, stopPath)) {
     paths.push(path)
     path = PathApi.next(path)
   }
 
-  return paths
+  const parentPath = PathApi.parent(blockPath)
+  const parentChildCount = editor.read((state) => {
+    if (parentPath.length === 0) {
+      return state.nodes.children().length
+    }
+
+    const [parentNode] = state.nodes.get(parentPath)
+
+    return NodeApi.isAncestor(parentNode) &&
+      'children' in parentNode &&
+      Array.isArray(parentNode.children)
+      ? parentNode.children.length
+      : 0
+  })
+
+  return paths.length < parentChildCount || includeAllSiblings ? paths : null
+}
+
+const getFullySelectedTopLevelBlockPaths = (
+  editor: RuntimeEditor,
+  selection: Range | null
+): Path[] | null => {
+  if (!selection || RangeApi.isCollapsed(selection)) {
+    return null
+  }
+
+  const childCount = editor.read((state) => state.nodes.children().length)
+
+  if (childCount === 0) {
+    return null
+  }
+
+  const [start, end] = RangeApi.edges(selection)
+  const firstPath = [0]
+  const lastPath = [childCount - 1]
+
+  if (
+    !PointApi.equals(start, Editor.point(editor, firstPath, { edge: 'start' }))
+  ) {
+    return null
+  }
+
+  if (!PointApi.equals(end, Editor.point(editor, lastPath, { edge: 'end' }))) {
+    return null
+  }
+
+  return Array.from({ length: childCount }, (_, index) => [index])
 }
 
 const applyFullBlockDeleteFragment = (
@@ -581,14 +1431,80 @@ const applyFullBlockDeleteFragment = (
 ) => {
   const blockPaths = getFullySelectedBlockPaths(editor, selection)
 
-  if (!blockPaths) {
+  if (blockPaths) {
+    editor.update((tx) => {
+      for (const blockPath of [...blockPaths].reverse()) {
+        tx.nodes.remove({ at: blockPath })
+      }
+    })
+
+    return true
+  }
+
+  const topLevelBlockPaths = getFullySelectedTopLevelBlockPaths(
+    editor,
+    selection
+  )
+
+  if (!topLevelBlockPaths) {
     return false
   }
+
+  const marks = getConsistentTextMarksInBlocks(editor, topLevelBlockPaths)
+  const selectionPoint = getPointWithRoot(
+    { path: [0, 0], offset: 0 },
+    selection?.anchor.root
+  )
+  const paragraph = {
+    ...createDefaultParagraph(),
+    children: [marks ? { ...marks, text: '' } : { text: '' }],
+  } as Descendant
+
+  editor.update((tx) => {
+    for (const blockPath of [...topLevelBlockPaths].reverse()) {
+      tx.nodes.remove({ at: blockPath })
+    }
+    tx.nodes.insert(paragraph, { at: [0] })
+    tx.selection.set({ anchor: selectionPoint, focus: selectionPoint })
+    if (marks) {
+      for (const [key, value] of Object.entries(marks)) {
+        tx.marks.add(key, value)
+      }
+    }
+  })
+
+  return true
+}
+
+const applyFullBlockTextReplacement = (
+  editor: RuntimeEditor,
+  selection: Range | null,
+  text: string
+) => {
+  const blockPaths =
+    getFullySelectedBlockPaths(editor, selection, {
+      includeAllSiblings: true,
+      includeOnlyChild: true,
+    }) ?? getFullySelectedTopLevelBlockPaths(editor, selection)
+
+  if (!blockPaths?.length) {
+    return false
+  }
+
+  const insertionPath = [...blockPaths[0]!]
+  const marks =
+    getEditorCurrentMarks(editor) ??
+    getConsistentTextMarksInBlocks(editor, blockPaths)
+  const nextPoint = { path: insertionPath.concat(0), offset: text.length }
+  const replacement = createTextReplacementNode(editor, blockPaths, marks, text)
 
   editor.update((tx) => {
     for (const blockPath of [...blockPaths].reverse()) {
       tx.nodes.remove({ at: blockPath })
     }
+
+    tx.nodes.insert(replacement, { at: insertionPath })
+    tx.selection.set({ anchor: nextPoint, focus: nextPoint })
   })
 
   return true
@@ -636,21 +1552,32 @@ export const applyEditableCommand = ({
         return true
       }
 
-      if (
-        applyFullBlockDeleteFragment(
-          editor,
-          command.selection ?? readRuntimeSelection(editor)
-        )
-      ) {
+      {
+        const selection = command.selection ?? readRuntimeSelection(editor)
+
+        if (applyFullBlockDeleteFragment(editor, selection)) {
+          return true
+        }
+
+        if (selection && RangeApi.isCollapsed(selection)) {
+          return true
+        }
+
+        editor.update((tx) => {
+          if (selection && RangeApi.isExpanded(selection)) {
+            tx.fragment.delete({
+              at: selection,
+              ...(command.direction ? { direction: command.direction } : {}),
+            })
+            return
+          }
+
+          tx.fragment.delete(
+            command.direction ? { direction: command.direction } : undefined
+          )
+        })
         return true
       }
-
-      editor.update((tx) => {
-        tx.fragment.delete(
-          command.direction ? { direction: command.direction } : undefined
-        )
-      })
-      return true
 
     case 'history':
       return applyModelOwnedHistoryIntent({
@@ -659,6 +1586,15 @@ export const applyEditableCommand = ({
       })
 
     case 'insert-break':
+      if (
+        applyProjectedViewSelectionLineBreakCommand({
+          editor,
+          kind: command.variant,
+        })
+      ) {
+        return true
+      }
+
       applyModelOwnedLineBreak({
         editor,
         kind: command.variant,
@@ -666,10 +1602,19 @@ export const applyEditableCommand = ({
       return true
 
     case 'insert-data':
+      if (
+        applyProjectedViewSelectionDataCommand({
+          data: command.data,
+          editor,
+        })
+      ) {
+        return true
+      }
+
       editor.update(() => {
         ;(
           editor.api as {
-            clipboard: { insertData: (data: DataTransfer) => void }
+            clipboard: { insertData: (data: DataTransfer) => boolean }
           }
         ).clipboard.insertData(command.data)
       })
@@ -712,6 +1657,18 @@ export const applyEditableCommand = ({
       return true
 
     case 'move-selection':
+      if (
+        applyContentRootSelectionMoveCommand({
+          command,
+          editor: editor as ReactRuntimeEditor,
+          selection: readRuntimeSelection(editor),
+        }).handled
+      ) {
+        return true
+      }
+
+      return applyRootLocalSelectionMoveCommand({ command, editor })
+
     case 'set-block':
     case 'toggle-mark':
       return false
@@ -724,11 +1681,11 @@ export const applyModelOwnedDataTransferInput = ({
 }: {
   data: DataTransfer
   editor: ReactRuntimeEditor
-}) => {
-  editor.update(() => {
-    editor.api.clipboard.insertData(data)
+}) =>
+  applyEditableCommand({
+    command: { data, kind: 'insert-data' },
+    editor,
   })
-}
 
 export type EditableRepairRequest =
   | {
@@ -771,7 +1728,14 @@ export const applyModelOwnedTextInput = ({
   inputType: string
   selection?: Range | null
 }): EditableRepairRequest => {
-  if (applyProjectedViewSelectionTextCommand({ editor, text: data })) {
+  const hasExplicitTargetSelection =
+    !!selection &&
+    (RangeApi.isExpanded(selection) || inputType !== 'insertText')
+
+  if (
+    !hasExplicitTargetSelection &&
+    applyProjectedViewSelectionTextCommand({ editor, text: data })
+  ) {
     if (inputType === 'insertText') {
       return {
         forceRender: ReactEditor.isComposing(editor as ReactRuntimeEditor),
@@ -791,9 +1755,7 @@ export const applyModelOwnedTextInput = ({
     inputType === 'insertText' &&
     selection &&
     RangeApi.isCollapsed(selection) &&
-    !profileEditableMutationDuration('model-text-input-read-marks', () =>
-      editor.read((state) => state.marks.get())
-    )
+    canUseCachedCollapsedTextInsert({ editor, selection })
 
   if (canUseSyncedCollapsedTarget) {
     profileEditableMutationDuration(
@@ -808,13 +1770,15 @@ export const applyModelOwnedTextInput = ({
     (RangeApi.isExpanded(selection) || inputType !== 'insertText')
   ) {
     writeSlateViewSelection(editor, null)
-    profileEditableMutationDuration(
-      'model-text-input-insert-at-target-selection',
-      () =>
-        editor.update((tx) => {
-          tx.text.insert(data, { at: selection })
-        })
-    )
+    if (!applyFullBlockTextReplacement(editor, selection, data)) {
+      profileEditableMutationDuration(
+        'model-text-input-insert-at-target-selection',
+        () =>
+          editor.update((tx) => {
+            tx.text.insert(data, { at: selection })
+          })
+      )
+    }
   } else {
     profileEditableMutationDuration('model-text-input-apply-command', () =>
       applyEditableCommand({
@@ -870,8 +1834,20 @@ export const applyEditableRepairRequest = ({
           inputController,
           preferModelSelection:
             request.selectionSourceTransition.preferModelSelection,
+          reason:
+            request.selectionSourceTransition.reason === 'native-selection-move'
+              ? 'native-selection'
+              : request.selectionSourceTransition.reason === 'unknown-selection'
+                ? 'unknown'
+                : request.selectionSourceTransition.reason,
           selectionSource: request.selectionSourceTransition.selectionSource,
         })
+        if (
+          request.selectionSourceTransition.preferModelSelection &&
+          request.selectionSourceTransition.reason === 'model-command'
+        ) {
+          armModelOwnedTextInputGuard({ inputController })
+        }
       }
 
       if (

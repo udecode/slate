@@ -61,6 +61,7 @@ export type DOMSelectionLocationSnapshot = {
 
 export type ClipboardPayloadSnapshot = {
   html: string | null
+  slateFragment?: string | null
   text: string
   types: string[]
 }
@@ -437,6 +438,14 @@ export type SelectionBookmark = {
 
 export type SelectionCaptureOptions = {
   affinity?: RangeRefAffinity
+}
+
+export type SlateBrowserDragTextRangeOptions = {
+  endOffset: number
+  startOffset: number
+  steps?: number
+  text: string
+  textNodeIndex?: number
 }
 
 export type OffsetExpectation = number | readonly [number, number]
@@ -3042,6 +3051,28 @@ const copyPayloadThroughEvent = async (
 
     return {
       html: data.getData('text/html') || null,
+      slateFragment: data.getData('application/x-slate-fragment') || null,
+      text: data.getData('text/plain'),
+      types: Array.from(data.types),
+    }
+  })
+
+const cutPayloadThroughEvent = async (
+  root: Locator
+): Promise<ClipboardPayloadSnapshot> =>
+  root.evaluate((element: HTMLElement) => {
+    const data = new DataTransfer()
+    const event = new ClipboardEvent('cut', {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: data,
+    })
+
+    element.dispatchEvent(event)
+
+    return {
+      html: data.getData('text/html') || null,
+      slateFragment: data.getData('application/x-slate-fragment') || null,
       text: data.getData('text/plain'),
       types: Array.from(data.types),
     }
@@ -3049,18 +3080,29 @@ const copyPayloadThroughEvent = async (
 
 const pastePayloadThroughEvent = async (
   root: Locator,
-  payload: { html?: string | null; text: string }
+  payload: { html?: string | null; slateFragment?: string | null; text: string }
 ) =>
   root.evaluate(
-    (
+    async (
       element: HTMLElement,
-      nextPayload: { html?: string | null; key: string; text: string }
+      nextPayload: {
+        html?: string | null
+        key: string
+        slateFragment?: string | null
+        text: string
+      }
     ) => {
       const beforeText = element.textContent
+      const handle = (element as Record<string, any>)[nextPayload.key]
+      const beforeModelText =
+        typeof handle?.getText === 'function' ? handle.getText() : null
       const data = new DataTransfer()
 
       if (nextPayload.html) {
         data.setData('text/html', nextPayload.html)
+      }
+      if (nextPayload.slateFragment) {
+        data.setData('application/x-slate-fragment', nextPayload.slateFragment)
       }
       data.setData('text/plain', nextPayload.text)
 
@@ -3073,17 +3115,24 @@ const pastePayloadThroughEvent = async (
         value: data,
       })
 
-      element.dispatchEvent(event)
+      const wasNotCanceled = element.dispatchEvent(event)
+      await new Promise((resolve) => setTimeout(resolve, 0))
 
-      if (element.textContent === beforeText) {
-        const handle = (element as Record<string, any>)[nextPayload.key]
-
+      if (
+        wasNotCanceled &&
+        !event.defaultPrevented &&
+        element.textContent === beforeText &&
+        (beforeModelText == null ||
+          typeof handle?.getText !== 'function' ||
+          handle.getText() === beforeModelText)
+      ) {
         if (!handle?.insertData) {
           throw new Error('This editor surface does not expose insertData')
         }
 
         handle.insertData({
           html: nextPayload.html ?? undefined,
+          slateFragment: nextPayload.slateFragment ?? undefined,
           text: nextPayload.text,
         })
       }
@@ -3093,12 +3142,17 @@ const pastePayloadThroughEvent = async (
 
 const insertDataThroughHandle = async (
   root: Locator,
-  payload: { html?: string | null; text: string }
+  payload: { html?: string | null; slateFragment?: string | null; text: string }
 ) =>
   root.evaluate(
     (
       element: HTMLElement,
-      nextPayload: { html?: string | null; key: string; text: string }
+      nextPayload: {
+        html?: string | null
+        key: string
+        slateFragment?: string | null
+        text: string
+      }
     ) => {
       const handle = (element as Record<string, any>)[nextPayload.key]
 
@@ -3108,6 +3162,7 @@ const insertDataThroughHandle = async (
 
       handle.insertData({
         html: nextPayload.html ?? undefined,
+        slateFragment: nextPayload.slateFragment ?? undefined,
         text: nextPayload.text,
       })
     },
@@ -3531,46 +3586,50 @@ const unrefSelectionBookmark = async (
     }
   )
 
+const handleSelectionMatches = async (
+  root: Locator,
+  expected: SelectionSnapshot
+): Promise<boolean> =>
+  root.evaluate(
+    (
+      element: HTMLElement,
+      { key, selection }: { key: string; selection: SelectionSnapshot }
+    ) => {
+      const handle = (element as Record<string, any>)[key]
+
+      if (!handle) {
+        return false
+      }
+
+      const current = handle.getSelection()
+
+      if (!current) {
+        return false
+      }
+
+      const samePath = (left: number[], right: number[]) =>
+        left.length === right.length &&
+        left.every((segment, index) => segment === right[index])
+
+      return (
+        samePath(current.anchor.path, selection.anchor.path) &&
+        samePath(current.focus.path, selection.focus.path) &&
+        current.anchor.offset === selection.anchor.offset &&
+        current.focus.offset === selection.focus.offset
+      )
+    },
+    {
+      key: SLATE_BROWSER_HANDLE_KEY,
+      selection: expected,
+    }
+  )
+
 const waitForHandleSelection = async (
   root: Locator,
   expected: SelectionSnapshot
 ) => {
   await expect
-    .poll(async () =>
-      root.evaluate(
-        (
-          element: HTMLElement,
-          { key, selection }: { key: string; selection: SelectionSnapshot }
-        ) => {
-          const handle = (element as Record<string, any>)[key]
-
-          if (!handle) {
-            return false
-          }
-
-          const current = handle.getSelection()
-
-          if (!current) {
-            return false
-          }
-
-          const samePath = (left: number[], right: number[]) =>
-            left.length === right.length &&
-            left.every((segment, index) => segment === right[index])
-
-          return (
-            samePath(current.anchor.path, selection.anchor.path) &&
-            samePath(current.focus.path, selection.focus.path) &&
-            current.anchor.offset === selection.anchor.offset &&
-            current.focus.offset === selection.focus.offset
-          )
-        },
-        {
-          key: SLATE_BROWSER_HANDLE_KEY,
-          selection: expected,
-        }
-      )
-    )
+    .poll(async () => handleSelectionMatches(root, expected))
     .toBe(true)
 }
 
@@ -3721,6 +3780,7 @@ export type SlateBrowserEditorHarness = {
   selection: {
     select: (selection: SelectionSnapshot) => Promise<void>
     selectDOM: (selection: SelectionSnapshot) => Promise<void>
+    dragTextRange: (options: SlateBrowserDragTextRangeOptions) => Promise<void>
     collapse: (point: SelectionPoint) => Promise<void>
     capture: (options?: SelectionCaptureOptions) => Promise<SelectionBookmark>
     bookmark: (options?: SelectionCaptureOptions) => Promise<SelectionBookmark>
@@ -3781,9 +3841,15 @@ export type SlateBrowserEditorHarness = {
   clipboard: {
     copy: () => Promise<void>
     copyEventPayload: () => Promise<ClipboardPayloadSnapshot>
+    cutEventPayload: () => Promise<ClipboardPayloadSnapshot>
     copyPayload: () => Promise<ClipboardPayloadSnapshot>
     readText: () => Promise<string>
     readHtml: () => Promise<string | null>
+    pasteEventPayload: (payload: {
+      html?: string | null
+      slateFragment?: string | null
+      text: string
+    }) => Promise<void>
     pasteText: (text: string) => Promise<void>
     pasteHtml: (html: string, plainText?: string) => Promise<void>
     assert: {
@@ -4415,7 +4481,7 @@ const setSelection = async (root: Locator, selection: SelectionSnapshot) => {
   await root.evaluate((element: HTMLElement, expected) => {
     const textNodes = Array.from(
       element.querySelectorAll('[data-slate-node="text"]')
-    )
+    ).filter((node) => node.closest('[data-slate-editor="true"]') === element)
 
     const comparePoint = (
       left: SelectionPoint,
@@ -4531,10 +4597,11 @@ const setDOMSelection = async (root: Locator, selection: SelectionSnapshot) => {
     const selectionPointToDOMPoint = (point: SelectionPoint) => {
       const textElements = Array.from(
         element.querySelectorAll('[data-slate-node="text"]')
-      )
+      ).filter((node) => node.closest('[data-slate-editor="true"]') === element)
       const textElement =
-        element.querySelector(
-          `[data-slate-node="text"][data-slate-path="${point.path.join(',')}"]`
+        textElements.find(
+          (node) =>
+            node.getAttribute('data-slate-path') === point.path.join(',')
         ) ?? textElements[point.path.at(-1) ?? 0]
       const stringElements = Array.from(
         textElement?.querySelectorAll(
@@ -4562,6 +4629,17 @@ const setDOMSelection = async (root: Locator, selection: SelectionSnapshot) => {
 
         lastTextNode = textNode
         lastTextLength = length
+
+        if (
+          stringElement.hasAttribute('data-slate-zero-width') &&
+          point.offset === start &&
+          length <= 1
+        ) {
+          return {
+            node: textNode,
+            offset: length,
+          }
+        }
 
         if (point.offset <= end) {
           return {
@@ -4603,9 +4681,9 @@ const setDOMSelection = async (root: Locator, selection: SelectionSnapshot) => {
         ? rootNode.getSelection()
         : element.ownerDocument.getSelection()
 
+    element.focus()
     domSelection?.removeAllRanges()
     domSelection?.addRange(range)
-    element.focus()
     element.ownerDocument.dispatchEvent(
       new Event('selectionchange', { bubbles: true })
     )
@@ -4668,6 +4746,76 @@ const dragTextSelection = async (
   await page.mouse.move(box.x + Math.min(box.width - 5, endXOffset), y, {
     steps: step.steps ?? 12,
   })
+  await page.mouse.up()
+}
+
+const dragTextRange = async (
+  root: Locator,
+  {
+    endOffset,
+    startOffset,
+    steps = 16,
+    text,
+    textNodeIndex = 0,
+  }: SlateBrowserDragTextRangeOptions
+) => {
+  const points = await root.evaluate(
+    (
+      element,
+      {
+        endOffset,
+        startOffset,
+        text,
+        textNodeIndex,
+      }: Required<Omit<SlateBrowserDragTextRangeOptions, 'steps'>>
+    ) => {
+      if (startOffset > endOffset) {
+        throw new Error('dragTextRange expects startOffset <= endOffset')
+      }
+
+      const ownerDocument = element.ownerDocument
+      const walker = ownerDocument.createTreeWalker(
+        element,
+        NodeFilter.SHOW_TEXT
+      )
+      const matches: Node[] = []
+
+      while (walker.nextNode()) {
+        if (walker.currentNode.textContent === text) {
+          matches.push(walker.currentNode)
+        }
+      }
+
+      const textNode = matches[textNodeIndex]
+
+      if (!textNode) {
+        throw new Error(`Text node not found for drag range: ${text}`)
+      }
+
+      const range = ownerDocument.createRange()
+
+      range.setStart(textNode, startOffset)
+      range.setEnd(textNode, endOffset)
+
+      const rect = range.getClientRects()[0] ?? range.getBoundingClientRect()
+
+      if (!rect || rect.width <= 0 || rect.height <= 0) {
+        throw new Error('Text range has no selectable rect')
+      }
+
+      return {
+        endX: Math.max(rect.left + 1, rect.right - 1),
+        startX: rect.left + 1,
+        y: rect.top + rect.height / 2,
+      }
+    },
+    { endOffset, startOffset, text, textNodeIndex }
+  )
+  const page = root.page()
+
+  await page.mouse.move(points.startX, points.y)
+  await page.mouse.down()
+  await page.mouse.move(points.endX, points.y, { steps })
   await page.mouse.up()
 }
 
@@ -4875,6 +5023,7 @@ const createEditorHarness = (
         await harness.assert.selection(selection)
       },
       selectDOM: async (selection: SelectionSnapshot) => {
+        await page.waitForTimeout(0)
         await setDOMSelection(root, selection)
         await root.evaluate((element: HTMLElement) => {
           const rootNode = element.getRootNode() as Document | ShadowRoot
@@ -4891,9 +5040,53 @@ const createEditorHarness = (
         })
         await waitForSelectionRange(root)
         if (await waitForSelectionHandle(root)) {
-          await setSelectionWithHandle(root, selection)
+          await root.evaluate(
+            (element: HTMLElement, { key }: { key: string }) => {
+              const handle = (element as Record<string, any>)[key]
+
+              if (!handle?.importDOMSelection) {
+                return
+              }
+
+              handle.importDOMSelection()
+            },
+            { key: SLATE_BROWSER_HANDLE_KEY }
+          )
+          await page.waitForTimeout(0)
+          await root.evaluate(
+            (element: HTMLElement, { key }: { key: string }) => {
+              const handle = (element as Record<string, any>)[key]
+
+              if (!handle?.importDOMSelection) {
+                return
+              }
+
+              handle.importDOMSelection()
+            },
+            { key: SLATE_BROWSER_HANDLE_KEY }
+          )
+          if (!(await handleSelectionMatches(root, selection))) {
+            await setSelectionWithHandle(root, selection)
+            await page.waitForTimeout(0)
+            await setDOMSelection(root, selection)
+            await root.evaluate(
+              (element: HTMLElement, { key }: { key: string }) => {
+                const handle = (element as Record<string, any>)[key]
+
+                if (!handle?.importDOMSelection) {
+                  return
+                }
+
+                handle.importDOMSelection()
+              },
+              { key: SLATE_BROWSER_HANDLE_KEY }
+            )
+          }
           await waitForHandleSelection(root, selection)
         }
+      },
+      dragTextRange: async (options: SlateBrowserDragTextRangeOptions) => {
+        await dragTextRange(root, options)
       },
       collapse: async (point: SelectionPoint) => {
         await harness.selection.select({
@@ -5268,6 +5461,7 @@ const createEditorHarness = (
       readHtml: async () =>
         withExclusiveClipboardAccess(async () => readClipboardHtml(surface)),
       copyEventPayload: async () => copyPayloadThroughEvent(root),
+      cutEventPayload: async () => cutPayloadThroughEvent(root),
       copyPayload: async () =>
         withExclusiveClipboardAccess(async () => {
           await root.press('ControlOrMeta+C')
@@ -5303,6 +5497,13 @@ const createEditorHarness = (
             types,
           }
         }),
+      pasteEventPayload: async (payload: {
+        html?: string | null
+        slateFragment?: string | null
+        text: string
+      }) => {
+        await pastePayloadThroughEvent(root, payload)
+      },
       pasteText: async (text: string) => {
         await withExclusiveClipboardAccess(async () => {
           const beforeSelectedText = await harness.get.selectedText()
@@ -5725,12 +5926,14 @@ const createEditorHarness = (
                 break
               case 'assertLocatorText': {
                 const locator = page.locator(step.selector).first()
+                const getText = async () =>
+                  ((await locator.textContent()) ?? '').replace(/\uFEFF/g, '')
 
                 if (step.text !== undefined) {
-                  await expect(locator).toHaveText(step.text)
+                  await expect.poll(getText).toBe(step.text)
                 }
                 if (step.contains !== undefined) {
-                  await expect(locator).toContainText(step.contains)
+                  await expect.poll(getText).toContain(step.contains)
                 }
                 break
               }

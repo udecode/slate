@@ -3,6 +3,7 @@ import { useCallback, useMemo, useRef } from 'react'
 import {
   type Element,
   type LeafPosition,
+  type Path,
   type Range,
   RangeApi,
   type RuntimeId,
@@ -64,6 +65,8 @@ export interface RenderLeafProps<TText extends Text = any> {
   text: TText
   attributes: {
     'data-slate-leaf': true
+    'data-slate-leaf-end'?: number
+    'data-slate-leaf-start'?: number
   }
   /**
    * The position of the leaf within the Text node, only present when the text node is split by decorations.
@@ -89,12 +92,10 @@ export interface RenderTextProps {
 
 export type EditableDOMRootProps = {
   children?: React.ReactNode
-  domStrategyRuntime?: {
-    mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
-    mountedTopLevelRanges?: readonly MountedTopLevelRange[]
-    type: 'staged' | 'partial-dom' | 'virtualized'
-  } | null
+  deferNativeTextInputRepair?: boolean
+  domStrategyRuntime?: EditableDOMStrategyRuntime | null
   domStrategyMetrics?: EditableDOMStrategyMetricsBase | null
+  ignoreBlankEditableRootClicks?: boolean
   onDOMBeforeInput?: EditableDOMBeforeInputHandler
   onKeyDown?: EditableKeyDownHandler
   onDOMStrategyMetrics?: (metrics: EditableDOMStrategyMetrics) => void
@@ -106,6 +107,15 @@ export type EditableDOMRootProps = {
   as?: React.ElementType
   disableDefaultStyles?: boolean
 } & Omit<React.ComponentPropsWithRef<'div'>, 'children' | 'onKeyDown'>
+
+export type EditableDOMStrategyScrollAlign = 'auto' | 'center' | 'end' | 'start'
+
+export type EditableDOMStrategyRuntime = {
+  mountedTopLevelRuntimeIds: ReadonlySet<RuntimeId> | null
+  mountedTopLevelRanges?: readonly MountedTopLevelRange[]
+  scrollToPath?: (path: Path, align?: EditableDOMStrategyScrollAlign) => boolean
+  type: 'staged' | 'partial-dom' | 'virtualized'
+}
 
 export type EditableDOMStrategyCohort =
   | 'normal'
@@ -264,8 +274,10 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
   const {
     autoFocus,
     children: customChildren,
+    deferNativeTextInputRepair = false,
     domStrategyRuntime = null,
     domStrategyMetrics = null,
+    ignoreBlankEditableRootClicks = false,
     onKeyDown: propsOnKeyDown,
     onDOMBeforeInput: propsOnDOMBeforeInput,
     onDOMStrategyMetrics,
@@ -293,6 +305,7 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     callbacks: attributes,
     editor,
     forwardedRef,
+    deferNativeTextInputRepair,
     domStrategyRuntime,
     onDOMBeforeInput: propsOnDOMBeforeInput,
     onKeyDown: propsOnKeyDown,
@@ -312,6 +325,8 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     editor,
     getLastSelectionForRoot,
     getMountedViewEditor,
+    ignoreBlankEditableRootClicks:
+      ignoreBlankEditableRootClicks || domStrategyRuntime !== null,
     root: editorRoot,
     selection: 'restore',
     selectionBridge: rootInteractionSelectionBridge,

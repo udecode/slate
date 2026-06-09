@@ -755,6 +755,16 @@ export const applySlateOperationToYjs = (
         throw new Error('move_node destination is missing an index.')
       }
 
+      const newParentChildren = getYjsVisibleChildren(root, newParent)
+
+      if (
+        newIndex === 0 &&
+        newParentChildren.length === 1 &&
+        isEmptyYjsText(newParentChildren[0]!)
+      ) {
+        removeYjsChild(root, newParent, 0)
+      }
+
       if (newIndex === 0 && getYjsLength(newParent) === 0) {
         setVirtualYjsMove(root, target, newParent)
 

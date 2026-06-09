@@ -14,3 +14,7 @@ coverage
 .DS_Store
 .clawpatch/
 **/next-env.d.ts
+
+# Autoresearch session state
+/autoresearch.*
+/autoresearch.research/

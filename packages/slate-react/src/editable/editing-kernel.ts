@@ -15,6 +15,7 @@ import {
 } from 'slate'
 import { Hotkeys } from 'slate-dom'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
+import { readSlateViewSelection } from '../view-selection'
 import { getInputEventData, isDataTransferInput } from './dom-input-event'
 import type { EditableCommand } from './editable-command-types'
 import {
@@ -1176,6 +1177,10 @@ export const prepareEditableKeyDownKernel = ({
     : ReactEditor.hasEditableTarget(editor, event.target)
       ? 'editor'
       : 'unknown'
+  const shouldPreserveProjectedViewSelection =
+    !internalTarget &&
+    intent !== 'composition' &&
+    readSlateViewSelection(editor) !== null
   const ownership: EditableOwnership =
     intent === 'internal-control'
       ? 'app-owned'
@@ -1193,7 +1198,8 @@ export const prepareEditableKeyDownKernel = ({
     intent === 'insert-break' ||
     intent === 'model-selection-move'
   const shouldPreserveModelSelection =
-    shouldForceDOMImport && hasAuthoritativeModelSelection({ inputController })
+    (shouldForceDOMImport || intent === 'text-insert') &&
+    hasAuthoritativeModelSelection({ inputController })
   const shouldApplyForcedDOMImport =
     shouldForceDOMImport && !shouldPreserveModelSelection
 
@@ -1208,7 +1214,7 @@ export const prepareEditableKeyDownKernel = ({
       ? { kind: 'none', reason: 'internal-control' }
       : intent === 'composition'
         ? { kind: 'none', reason: 'not-requested' }
-        : shouldPreserveModelSelection
+        : shouldPreserveProjectedViewSelection || shouldPreserveModelSelection
           ? { kind: 'preserve-model', reason: 'model-owned' }
           : {
               kind: 'import-dom',
@@ -1217,7 +1223,8 @@ export const prepareEditableKeyDownKernel = ({
                 : 'native-selection',
             },
     selectionSourceTransition:
-      intent === 'native-selection-move'
+      intent === 'native-selection-move' &&
+      !shouldPreserveProjectedViewSelection
         ? {
             preferModelSelection: false,
             reason: 'native-selection-move',
@@ -1261,6 +1268,13 @@ export const prepareEditableBeforeInputKernel = ({
         : intent
           ? 'model-owned'
           : 'no-op'
+  const shouldPreserveProjectedViewSelection =
+    targetOwner !== 'internal-control' &&
+    ownership === 'model-owned' &&
+    readSlateViewSelection(editor) !== null
+  const shouldPreserveModelSelection =
+    ownership === 'model-owned' &&
+    hasAuthoritativeModelSelection({ inputController })
 
   return {
     command: getEditableCommandFromBeforeInput({
@@ -1275,9 +1289,11 @@ export const prepareEditableBeforeInputKernel = ({
     selectionPolicy:
       targetOwner === 'internal-control'
         ? { kind: 'none', reason: 'internal-control' }
-        : ownership === 'model-owned'
-          ? { kind: 'import-dom', reason: 'unknown-selection' }
-          : { kind: 'none', reason: 'not-requested' },
+        : shouldPreserveProjectedViewSelection || shouldPreserveModelSelection
+          ? { kind: 'preserve-model', reason: 'model-owned' }
+          : ownership === 'model-owned'
+            ? { kind: 'import-dom', reason: 'unknown-selection' }
+            : { kind: 'none', reason: 'not-requested' },
     selectionSourceTransition: null,
     stateBefore: mapSelectionSourceToKernelState(
       inputController.state.selectionSource

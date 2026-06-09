@@ -1,5 +1,6 @@
 import type { RefObject } from 'react'
 import type { Range } from 'slate'
+import type { EditableDOMStrategyScrollAlign } from '../components/editable'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import {
@@ -27,9 +28,11 @@ export const useRuntimeBrowserHandle = ({
   browserHandleRangeRefs,
   editor,
   forceRender,
+  flushPendingNativeTextInput,
   inputController,
   isPartialDOMBackedSelection,
   rootRef,
+  scrollPathIntoView,
   setExplicitPartialDOMBackedSelection,
 }: {
   applyInputRules: DeferredInputRule
@@ -39,9 +42,14 @@ export const useRuntimeBrowserHandle = ({
   >
   editor: ReactRuntimeEditor
   forceRender: () => void
+  flushPendingNativeTextInput?: () => void
   inputController: EditableInputController
   isPartialDOMBackedSelection: (selection: Range | null) => boolean
   rootRef: RefObject<HTMLDivElement | null>
+  scrollPathIntoView?: (
+    path: Range['anchor']['path'],
+    align?: EditableDOMStrategyScrollAlign
+  ) => boolean
   setExplicitPartialDOMBackedSelection: (nextValue: boolean) => void
 }) => {
   useIsomorphicLayoutEffect(() => {
@@ -57,7 +65,9 @@ export const useRuntimeBrowserHandle = ({
       inputController,
       applyInputRules,
       forceRender,
+      flushPendingNativeTextInput,
       isPartialDOMBackedSelection,
+      scrollPathIntoView,
       setExplicitPartialDOMBackedSelection,
     })
   }, [
@@ -66,9 +76,11 @@ export const useRuntimeBrowserHandle = ({
     browserHandleRangeRefs,
     editor,
     forceRender,
+    flushPendingNativeTextInput,
     inputController,
     isPartialDOMBackedSelection,
     rootRef,
+    scrollPathIntoView,
     setExplicitPartialDOMBackedSelection,
   ])
 }

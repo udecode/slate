@@ -168,7 +168,39 @@ const haveSameTextProps = (left: Text, right: Text) => {
 const cloneDescendant = <T extends Descendant>(node: T): T =>
   structuredClone(node)
 
-const pushBlockChild = (children: Descendant[], child: Descendant) => {
+const getPointAfterInlineVoid = (
+  editor: Editor,
+  children: Descendant[],
+  point: { offset: number; path: Path }
+) => {
+  const childIndex = point.path[0]
+  const child = childIndex == null ? undefined : children[childIndex]
+
+  if (
+    childIndex == null ||
+    child == null ||
+    !NodeApi.isElement(child) ||
+    !getEditorSchema(editor).isInline(child) ||
+    !getEditorSchema(editor).isVoid(child)
+  ) {
+    return point
+  }
+
+  const nextIndex = childIndex + 1
+  const next = children[nextIndex]
+
+  if (next == null || !NodeApi.isText(next)) {
+    children.splice(nextIndex, 0, { text: '' })
+  }
+
+  return { offset: 0, path: [nextIndex] }
+}
+
+const pushBlockChild = (
+  editor: Editor,
+  children: Descendant[],
+  child: Descendant
+) => {
   if (NodeApi.isText(child)) {
     const previous = children.at(-1)
 
@@ -188,10 +220,24 @@ const pushBlockChild = (children: Descendant[], child: Descendant) => {
     return { offset: child.text.length, path: [children.length - 1] }
   }
 
+  const schema = getEditorSchema(editor)
+
+  if (schema.isInline(child)) {
+    const previous = children.at(-1)
+
+    if (!previous || !NodeApi.isText(previous)) {
+      children.push({ text: '' })
+    }
+  }
+
   const nextChild = cloneDescendant(child)
   const index = children.length
 
   children.push(nextChild)
+
+  if (schema.isInline(child)) {
+    children.push({ text: '' })
+  }
 
   const [lastNode, lastPath] = NodeApi.last(nextChild, [])
 
@@ -215,7 +261,6 @@ const getSingleEmptyBlockFragmentReplacement = (
 
   const editorChildren = Editor.getChildren(editor)
   const [onlyEditorNode] = editorChildren
-  const [onlyFragmentNode] = fragment
 
   if (
     editorChildren.length !== 1 ||
@@ -227,38 +272,32 @@ const getSingleEmptyBlockFragmentReplacement = (
     return null
   }
 
-  if (fragment.length === 1 && isTextBlockElement(editor, onlyFragmentNode)) {
-    const children = [
-      {
-        ...onlyEditorNode,
-        children: onlyFragmentNode.children,
-      },
-    ] as Value
+  if (fragment.every((node) => isTextBlockElement(editor, node))) {
+    const [firstFragmentNode, ...tailFragmentNodes] = fragment
 
-    return {
-      children,
-      previousChildren: editorChildren,
-      selection: getBlockChildrenEndSelection([0], onlyFragmentNode.children),
+    if (!isTextBlockElement(editor, firstFragmentNode)) {
+      return null
     }
-  }
 
-  if (
-    fragment.length > 1 &&
-    fragment.every((node) => isTextBlockElement(editor, node))
-  ) {
-    const [firstFragmentBlock, ...tailBlocks] = fragment as Element[]
-    const children = [
-      {
-        ...onlyEditorNode,
-        children: firstFragmentBlock.children.map(cloneDescendant),
-      },
-      ...tailBlocks.map(cloneDescendant),
-    ] as Value
+    if (fragment.length === 1) {
+      return null
+    }
+
+    const firstBlock = {
+      ...onlyEditorNode,
+      children: firstFragmentNode.children.map(cloneDescendant),
+    }
 
     return {
-      children,
+      children: [
+        firstBlock,
+        ...tailFragmentNodes.map(cloneDescendant),
+      ] as Value,
       previousChildren: editorChildren,
-      selection: getFragmentEndSelection(children),
+      selection:
+        fragment.length === 1
+          ? getBlockChildrenEndSelection([0], firstFragmentNode.children)
+          : getFragmentEndSelection(fragment),
     }
   }
 
@@ -395,11 +434,11 @@ const getSingleTextBlockFragmentReplacement = (
     const children: Descendant[] = []
 
     for (const child of block.children.slice(0, textIndex)) {
-      pushBlockChild(children, child)
+      pushBlockChild(editor, children, child)
     }
 
     if (before) {
-      pushBlockChild(children, { ...targetChild, text: before })
+      pushBlockChild(editor, children, { ...targetChild, text: before })
     }
 
     let insertedEnd:
@@ -410,22 +449,24 @@ const getSingleTextBlockFragmentReplacement = (
       | undefined
 
     for (const child of fragmentChildren) {
-      insertedEnd = pushBlockChild(children, child)
+      insertedEnd = pushBlockChild(editor, children, child)
     }
 
     if (after) {
-      pushBlockChild(children, { ...targetChild, text: after })
+      pushBlockChild(editor, children, { ...targetChild, text: after })
     }
 
     for (const child of block.children.slice(textIndex + 1)) {
-      pushBlockChild(children, child)
+      pushBlockChild(editor, children, child)
     }
 
     if (children.length === 0) {
       children.push({ ...targetChild, text: '' })
     }
 
-    const selectionPoint = insertedEnd ?? { offset: 0, path: [textIndex] }
+    const selectionPoint = insertedEnd
+      ? getPointAfterInlineVoid(editor, children, insertedEnd)
+      : { offset: 0, path: [textIndex] }
 
     return {
       newChildren: children,
@@ -473,11 +514,11 @@ const getSingleTextBlockFragmentReplacement = (
   const children: Descendant[] = []
 
   for (const child of block.children.slice(0, textIndex)) {
-    pushBlockChild(children, child)
+    pushBlockChild(editor, children, child)
   }
 
   if (before) {
-    pushBlockChild(children, {
+    pushBlockChild(editor, children, {
       ...targetChild,
       children: [{ ...targetText, text: before }],
     })
@@ -491,30 +532,94 @@ const getSingleTextBlockFragmentReplacement = (
     | undefined
 
   for (const child of fragmentChildren) {
-    insertedEnd = pushBlockChild(children, child)
+    insertedEnd = pushBlockChild(editor, children, child)
   }
 
   if (after) {
-    pushBlockChild(children, {
+    pushBlockChild(editor, children, {
       ...targetChild,
       children: [{ ...targetText, text: after }],
     })
   }
 
   for (const child of block.children.slice(textIndex + 1)) {
-    pushBlockChild(children, child)
+    pushBlockChild(editor, children, child)
   }
 
   if (children.length === 0) {
     children.push({ ...targetChild, children: [{ ...targetText, text: '' }] })
   }
 
-  const selectionPoint = insertedEnd ?? { offset: 0, path: [textIndex] }
+  const selectionPoint = insertedEnd
+    ? getPointAfterInlineVoid(editor, children, insertedEnd)
+    : { offset: 0, path: [textIndex] }
 
   return {
     newChildren: children,
     path: blockPath,
     previousChildren: block.children as Descendant[],
+    selection: {
+      anchor: {
+        path: blockPath.concat(selectionPoint.path),
+        offset: selectionPoint.offset,
+      },
+      focus: {
+        path: blockPath.concat(selectionPoint.path),
+        offset: selectionPoint.offset,
+      },
+    },
+  }
+}
+
+const getEmptyTopLevelTextBlockFragmentReplacement = (
+  editor: Editor,
+  at: Range,
+  fragment: Descendant[]
+) => {
+  if (!RangeApi.isCollapsed(at)) {
+    return null
+  }
+
+  const [onlyFragmentNode] = fragment
+
+  if (fragment.length !== 1 || !isTextBlockElement(editor, onlyFragmentNode)) {
+    return null
+  }
+
+  const blockMatch = Editor.above(editor, {
+    at,
+    match: (node) => NodeApi.isElement(node) && Editor.isBlock(editor, node),
+  })
+
+  if (!blockMatch) {
+    return null
+  }
+
+  const [block, blockPath] = blockMatch
+
+  if (
+    blockPath.length !== 1 ||
+    !NodeApi.isElement(block) ||
+    !isTextBlockElement(editor, block) ||
+    block.children.length !== 1 ||
+    !NodeApi.isText(block.children[0]) ||
+    block.children[0].text !== '' ||
+    !samePoint(at.anchor, { path: blockPath.concat(0), offset: 0 })
+  ) {
+    return null
+  }
+
+  const clonedBlock = cloneDescendant(onlyFragmentNode)
+  const selectionPoint = getPointAfterInlineVoid(
+    editor,
+    clonedBlock.children as Descendant[],
+    getFragmentEndSelection(clonedBlock.children as Descendant[]).anchor
+  )
+
+  return {
+    children: [clonedBlock],
+    index: blockPath[0],
+    previousChildren: [block],
     selection: {
       anchor: {
         path: blockPath.concat(selectionPoint.path),
@@ -602,15 +707,15 @@ const getTopLevelTextBlockFragmentReplacement = (
   const lastChildren: Descendant[] = []
 
   for (const child of block.children.slice(0, textIndex)) {
-    pushBlockChild(firstChildren, child)
+    pushBlockChild(editor, firstChildren, child)
   }
 
   if (before) {
-    pushBlockChild(firstChildren, { ...targetText, text: before })
+    pushBlockChild(editor, firstChildren, { ...targetText, text: before })
   }
 
   for (const child of firstFragmentBlock.children) {
-    pushBlockChild(firstChildren, child)
+    pushBlockChild(editor, firstChildren, child)
   }
 
   if (firstChildren.length === 0) {
@@ -625,15 +730,15 @@ const getTopLevelTextBlockFragmentReplacement = (
     | undefined
 
   for (const child of lastFragmentBlock.children) {
-    insertedEnd = pushBlockChild(lastChildren, child)
+    insertedEnd = pushBlockChild(editor, lastChildren, child)
   }
 
   if (after) {
-    pushBlockChild(lastChildren, { ...targetText, text: after })
+    pushBlockChild(editor, lastChildren, { ...targetText, text: after })
   }
 
   for (const child of block.children.slice(textIndex + 1)) {
-    pushBlockChild(lastChildren, child)
+    pushBlockChild(editor, lastChildren, child)
   }
 
   if (lastChildren.length === 0) {
@@ -649,7 +754,9 @@ const getTopLevelTextBlockFragmentReplacement = (
     ...block,
     children: lastChildren,
   }
-  const selectionPoint = insertedEnd ?? { offset: 0, path: [0] }
+  const selectionPoint = insertedEnd
+    ? getPointAfterInlineVoid(editor, lastChildren, insertedEnd)
+    : { offset: 0, path: [0] }
   const selection = {
     anchor: {
       path: [blockIndex + fragment.length - 1].concat(selectionPoint.path),
@@ -743,11 +850,11 @@ const getTopLevelStructuralBlockFragmentReplacement = (
   const afterChildren: Descendant[] = []
 
   for (const child of block.children.slice(0, textIndex)) {
-    pushBlockChild(beforeChildren, child)
+    pushBlockChild(editor, beforeChildren, child)
   }
 
   if (before) {
-    pushBlockChild(beforeChildren, { ...targetText, text: before })
+    pushBlockChild(editor, beforeChildren, { ...targetText, text: before })
   }
 
   if (beforeChildren.length > 0) {
@@ -761,11 +868,11 @@ const getTopLevelStructuralBlockFragmentReplacement = (
   }
 
   if (after) {
-    pushBlockChild(afterChildren, { ...targetText, text: after })
+    pushBlockChild(editor, afterChildren, { ...targetText, text: after })
   }
 
   for (const child of block.children.slice(textIndex + 1)) {
-    pushBlockChild(afterChildren, child)
+    pushBlockChild(editor, afterChildren, child)
   }
 
   if (afterChildren.length > 0) {
@@ -887,11 +994,14 @@ const getNestedTextBlockFragmentReplacement = (
     | undefined
 
   for (const child of block.children.slice(0, textIndex)) {
-    pushBlockChild(beforeTargetChildren, child)
+    pushBlockChild(editor, beforeTargetChildren, child)
   }
 
   if (beforeText) {
-    pushBlockChild(beforeTargetChildren, { ...targetText, text: beforeText })
+    pushBlockChild(editor, beforeTargetChildren, {
+      ...targetText,
+      text: beforeText,
+    })
   }
 
   const firstFragmentNode = fragment[0]
@@ -918,15 +1028,18 @@ const getNestedTextBlockFragmentReplacement = (
         | undefined
 
       for (const child of onlyFragmentChild.children) {
-        insertedEnd = pushBlockChild(mergedChildren, child)
+        insertedEnd = pushBlockChild(editor, mergedChildren, child)
       }
 
       if (afterText) {
-        pushBlockChild(mergedChildren, { ...targetText, text: afterText })
+        pushBlockChild(editor, mergedChildren, {
+          ...targetText,
+          text: afterText,
+        })
       }
 
       for (const child of block.children.slice(textIndex + 1)) {
-        pushBlockChild(mergedChildren, child)
+        pushBlockChild(editor, mergedChildren, child)
       }
 
       if (mergedChildren.length === 0) {
@@ -934,8 +1047,9 @@ const getNestedTextBlockFragmentReplacement = (
       }
 
       const mergedBlockIndex = headContainerChildren.length
-      const selectionPoint =
-        insertedEnd ?? getTextChildrenEndPoint(mergedChildren)
+      const selectionPoint = insertedEnd
+        ? getPointAfterInlineVoid(editor, mergedChildren, insertedEnd)
+        : getTextChildrenEndPoint(mergedChildren)
       const nextParentChildren = [
         ...headContainerChildren,
         createTextBlock(block, mergedChildren),
@@ -995,7 +1109,7 @@ const getNestedTextBlockFragmentReplacement = (
     fragmentIndex = 1
   } else if (isTextBlockElement(editor, firstFragmentNode)) {
     for (const child of firstFragmentNode.children) {
-      pushBlockChild(beforeTargetChildren, child)
+      pushBlockChild(editor, beforeTargetChildren, child)
     }
 
     const insertedEnd = getTextChildrenEndPoint(beforeTargetChildren)
@@ -1033,13 +1147,13 @@ const getNestedTextBlockFragmentReplacement = (
       const children: Descendant[] = []
 
       for (const child of fragmentNode.children) {
-        pushBlockChild(children, child)
+        pushBlockChild(editor, children, child)
       }
 
       const insertedEnd = getTextChildrenEndPoint(children)
 
       if (fragmentNode === fragment.at(-1) && afterText) {
-        pushBlockChild(children, { ...targetText, text: afterText })
+        pushBlockChild(editor, children, { ...targetText, text: afterText })
       }
 
       middleBlocks.push(createTextBlock(fragmentNode, children))
@@ -1076,11 +1190,14 @@ const getNestedTextBlockFragmentReplacement = (
     const tailFirstChildren: Descendant[] = []
 
     if (afterText) {
-      pushBlockChild(tailFirstChildren, { ...targetText, text: afterText })
+      pushBlockChild(editor, tailFirstChildren, {
+        ...targetText,
+        text: afterText,
+      })
     }
 
     for (const child of block.children.slice(textIndex + 1)) {
-      pushBlockChild(tailFirstChildren, child)
+      pushBlockChild(editor, tailFirstChildren, child)
     }
 
     if (tailFirstChildren.length > 0) {
@@ -1123,10 +1240,53 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
 ) => {
   runEditorTransaction(editor, (tx) => {
     const operationCount = getOperationCount(editor)
+    let usedReplaceChildrenFastPath = false
+    const applyReplaceChildren = (
+      operation: Parameters<typeof tx.apply>[0]
+    ) => {
+      usedReplaceChildrenFastPath = true
+      tx.apply(operation)
+    }
+
+    if (!fragment.length) {
+      return
+    }
+
+    const { hanging = false, voids = false } = options
+    let fastAt = tx.resolveTarget({ at: options.at })
+
+    if (!fastAt && options.at === undefined && tx.getModelSelection() == null) {
+      fastAt = getDefaultInsertLocation(editor)
+    }
+
+    if (!fastAt) {
+      return
+    }
+
+    if (LocationApi.isRange(fastAt)) {
+      if (!hanging) {
+        fastAt = Editor.unhangRange(editor, fastAt, { voids })
+      }
+
+      const topLevelStructuralBlockReplacement =
+        getTopLevelStructuralBlockFragmentReplacement(editor, fastAt, fragment)
+
+      if (topLevelStructuralBlockReplacement) {
+        applyReplaceChildren({
+          children: topLevelStructuralBlockReplacement.previousChildren,
+          index: topLevelStructuralBlockReplacement.index,
+          newChildren: topLevelStructuralBlockReplacement.children,
+          newSelection: topLevelStructuralBlockReplacement.selection,
+          path: [],
+          selection: tx.getModelSelection(),
+          type: 'replace_children',
+        })
+        return
+      }
+    }
 
     Editor.withoutNormalizing(editor, () => {
       const transforms = getEditorTransformRegistry(editor)
-      const { hanging = false, voids = false } = options
       const { batchDirty = true } = options
       let at = tx.resolveTarget({ at: options.at })
 
@@ -1147,45 +1307,15 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
           at = Editor.unhangRange(editor, at, { voids })
         }
 
-        if (isFullDocumentRange(editor, at)) {
-          const editorChildren = Editor.getChildren(editor)
-          const [onlyEditorNode] = editorChildren
-          const [onlyFragmentNode] = fragment
+        const topLevelStructuralBlockReplacement =
+          getTopLevelStructuralBlockFragmentReplacement(editor, at, fragment)
 
-          if (
-            editorChildren.length === 1 &&
-            fragment.length === 1 &&
-            isTextBlockElement(editor, onlyEditorNode) &&
-            isTextBlockElement(editor, onlyFragmentNode)
-          ) {
-            const children = [
-              {
-                ...onlyEditorNode,
-                children: onlyFragmentNode.children,
-              },
-            ] as Value
-            const selection = getBlockChildrenEndSelection(
-              [0],
-              onlyFragmentNode.children
-            )
-
-            tx.apply({
-              children: editorChildren,
-              index: 0,
-              newChildren: children,
-              newSelection: selection,
-              path: [],
-              selection: tx.getModelSelection(),
-              type: 'replace_children',
-            })
-            return
-          }
-
-          tx.apply({
-            children: editorChildren,
-            index: 0,
-            newChildren: fragment as Value,
-            newSelection: getFragmentEndSelection(fragment),
+        if (topLevelStructuralBlockReplacement) {
+          applyReplaceChildren({
+            children: topLevelStructuralBlockReplacement.previousChildren,
+            index: topLevelStructuralBlockReplacement.index,
+            newChildren: topLevelStructuralBlockReplacement.children,
+            newSelection: topLevelStructuralBlockReplacement.selection,
             path: [],
             selection: tx.getModelSelection(),
             type: 'replace_children',
@@ -1200,11 +1330,27 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         )
 
         if (replacement) {
-          tx.apply({
+          applyReplaceChildren({
             children: replacement.previousChildren,
             index: 0,
             newChildren: replacement.children,
             newSelection: replacement.selection,
+            path: [],
+            selection: tx.getModelSelection(),
+            type: 'replace_children',
+          })
+          return
+        }
+
+        const emptyTextBlockReplacement =
+          getEmptyTopLevelTextBlockFragmentReplacement(editor, at, fragment)
+
+        if (emptyTextBlockReplacement) {
+          applyReplaceChildren({
+            children: emptyTextBlockReplacement.previousChildren,
+            index: emptyTextBlockReplacement.index,
+            newChildren: emptyTextBlockReplacement.children,
+            newSelection: emptyTextBlockReplacement.selection,
             path: [],
             selection: tx.getModelSelection(),
             type: 'replace_children',
@@ -1219,7 +1365,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         )
 
         if (textBlockReplacement) {
-          tx.apply({
+          applyReplaceChildren({
             children: textBlockReplacement.previousChildren,
             index: 0,
             newChildren: textBlockReplacement.newChildren,
@@ -1231,11 +1377,26 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
           return
         }
 
+        if (isFullDocumentRange(editor, at)) {
+          const editorChildren = Editor.getChildren(editor)
+
+          applyReplaceChildren({
+            children: editorChildren,
+            index: 0,
+            newChildren: fragment as Value,
+            newSelection: getFragmentEndSelection(fragment),
+            path: [],
+            selection: tx.getModelSelection(),
+            type: 'replace_children',
+          })
+          return
+        }
+
         const topLevelTextBlockReplacement =
           getTopLevelTextBlockFragmentReplacement(editor, at, fragment)
 
         if (topLevelTextBlockReplacement) {
-          tx.apply({
+          applyReplaceChildren({
             children: topLevelTextBlockReplacement.previousChildren,
             index: topLevelTextBlockReplacement.index,
             newChildren: topLevelTextBlockReplacement.children,
@@ -1247,27 +1408,11 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
           return
         }
 
-        const topLevelStructuralBlockReplacement =
-          getTopLevelStructuralBlockFragmentReplacement(editor, at, fragment)
-
-        if (topLevelStructuralBlockReplacement) {
-          tx.apply({
-            children: topLevelStructuralBlockReplacement.previousChildren,
-            index: topLevelStructuralBlockReplacement.index,
-            newChildren: topLevelStructuralBlockReplacement.children,
-            newSelection: topLevelStructuralBlockReplacement.selection,
-            path: [],
-            selection: tx.getModelSelection(),
-            type: 'replace_children',
-          })
-          return
-        }
-
         const nestedTextBlockReplacement =
           getNestedTextBlockFragmentReplacement(editor, at, fragment)
 
         if (nestedTextBlockReplacement) {
-          tx.apply({
+          applyReplaceChildren({
             children: nestedTextBlockReplacement.previousChildren,
             index: nestedTextBlockReplacement.index,
             newChildren: nestedTextBlockReplacement.children,
@@ -1286,7 +1431,7 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
         )
 
         if (topLevelBlockReplacement) {
-          tx.apply({
+          applyReplaceChildren({
             children: topLevelBlockReplacement.previousChildren,
             index: topLevelBlockReplacement.index,
             newChildren: topLevelBlockReplacement.children,
@@ -1558,7 +1703,10 @@ const applyInsertFragment: TextMutationMethods['insertFragment'] = (
       endRef.unref()
     })
 
-    if (getOperationCount(editor) > operationCount) {
+    if (
+      !usedReplaceChildrenFastPath &&
+      getOperationCount(editor) > operationCount
+    ) {
       Editor.normalize(editor)
     }
   })
@@ -1574,7 +1722,7 @@ export const insertFragment: TextMutationMethods['insertFragment'] = (
     { fragment, options, type: 'insert_fragment' },
     (command) => {
       applyInsertFragment(editor, command.fragment, command.options)
-      return { handled: true }
+      return true
     }
   )
 }

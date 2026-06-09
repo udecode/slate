@@ -34,7 +34,10 @@ import {
 } from '../hooks/use-editor-selector'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { SlateAnnotationStoreContext } from '../hooks/use-slate-annotations'
-import { syncTextOperationsToDOM } from '../hooks/use-slate-node-ref'
+import {
+  syncSlateNodePathBindingsToDOM,
+  syncTextOperationsToDOM,
+} from '../hooks/use-slate-node-ref'
 import {
   createReactRuntimeViewEditor,
   createSlateViewEffectQueue,
@@ -87,6 +90,11 @@ const isSelectionEqual = (a: BaseSelection, b: BaseSelection) => {
 const getOperationRoot = (operation: Operation): RootKey =>
   ((operation as { root?: RootKey }).root ?? 'main') as RootKey
 
+const getMainRootOperations = (operations: readonly Operation[]) =>
+  operations.every((operation) => getOperationRoot(operation) === 'main')
+    ? operations
+    : operations.filter((operation) => getOperationRoot(operation) === 'main')
+
 type RuntimeContentRootOwner = SlateContentRootOwner & {
   ownerPath: Path
 }
@@ -96,6 +104,11 @@ const getContentRootOwnerKey = (owner: RuntimeContentRootOwner) =>
 
 const isTextOperation = (operation: Operation) =>
   operation.type === 'insert_text' || operation.type === 'remove_text'
+
+const getTextOperations = (operations: readonly Operation[]) =>
+  operations.every(isTextOperation)
+    ? operations
+    : operations.filter(isTextOperation)
 
 const isRootValueChanged = (root: RootKey, commit: EditorCommit) =>
   commit.childrenChanged &&
@@ -448,6 +461,7 @@ const SlateSingleEditor = <
         getApi: editor.getApi,
         read: editor.read,
         subscribe: editor.subscribe,
+        subscribeCommit: editor.subscribeCommit,
         update: editor.update,
       }) as SlateRuntimeValue<V, TExtensions>,
     [editor]
@@ -574,7 +588,11 @@ const SlateSingleEditor = <
   )
   const syncMountedRootTextOperationsToDOM = useCallback(
     (operations: readonly Operation[]) => {
-      const textOperations = operations.filter(isTextOperation)
+      if (mountedViewEditorsRef.current.size === 0) {
+        return { syncedTextOperationCount: 0, textOperationCount: 0 }
+      }
+
+      const textOperations = getTextOperations(operations)
 
       if (textOperations.length === 0) {
         return { syncedTextOperationCount: 0, textOperationCount: 0 }
@@ -616,60 +634,60 @@ const SlateSingleEditor = <
     },
     []
   )
-
   useIsomorphicLayoutEffect(() => {
     const maybeBatchUpdates =
       REACT_MAJOR_VERSION < 18
         ? ReactDOM.unstable_batchedUpdates
         : (callback: () => void) => callback()
 
-    const onContextChange: Parameters<typeof editor.subscribe>[0] = (
-      snapshot,
+    const onContextChange: Parameters<typeof editor.subscribeCommit>[0] = (
       commit
     ) => {
-      lastSelectionCacheRef.current.record(snapshot.selection)
+      lastSelectionCacheRef.current.record(commit.selectionAfter)
 
-      let currentOperations: readonly Operation[] = []
-      const nextOperations = commit
-        ? [...commit.operations]
-        : editor.read((state) => {
-            currentOperations = state.value.operations()
-            return currentOperations.slice(lastOperationCountRef.current)
-          })
+      const nextOperations = commit.operations
 
       lastSelectionCacheRef.current.recordOperations(nextOperations)
 
-      lastOperationCountRef.current = commit
-        ? editor.read((state) => state.value.operations().length)
-        : currentOperations.length
-      lastCommitVersionRef.current = commit
-        ? commit.version
-        : lastCommitVersionRef.current
+      lastOperationCountRef.current += nextOperations.length
+      lastCommitVersionRef.current = commit.version
 
       maybeBatchUpdates(() => {
         profileRuntimeDuration('focused-state', () => {
           setIsFocused(ReactEditor.isFocused(reactEditor))
         })
-        const mainOperations = nextOperations.filter(
-          (operation) => getOperationRoot(operation) === 'main'
-        )
+        const mainOperations = getMainRootOperations(nextOperations)
         const textSync = profileRuntimeDuration('dom-text-sync', () =>
           syncTextOperationsToDOM(reactEditor, mainOperations)
         )
         const rootTextSync = profileRuntimeDuration('dom-root-text-sync', () =>
           syncMountedRootTextOperationsToDOM(nextOperations)
         )
+        if (
+          commit &&
+          (commit.fullDocumentChanged ||
+            commit.rootRuntimeIdsChanged ||
+            commit.structureChanged ||
+            commit.topLevelOrderChanged)
+        ) {
+          profileRuntimeDuration('dom-path-sync', () =>
+            syncSlateNodePathBindingsToDOM(reactEditor)
+          )
+        }
         const hasUnsyncedTextOperation =
           textSync.textOperationCount > textSync.syncedTextOperationCount ||
           rootTextSync.textOperationCount >
             rootTextSync.syncedTextOperationCount
 
         profileRuntimeDuration('change-callbacks', () => {
-          if (!commit) {
+          if (
+            !onChangeRef.current &&
+            !onSelectionChangeRef.current &&
+            !onValueChangeRef.current
+          ) {
             return
           }
 
-          const value = snapshot.children as V
           const valueChanged = isRootValueChanged('main', commit)
           const selectionChanged = isRootSelectionChanged('main', commit)
           const marksChanged = isRootMarksChanged('main', commit)
@@ -678,6 +696,11 @@ const SlateSingleEditor = <
             return
           }
 
+          const snapshot = profileRuntimeDuration(
+            'change-callbacks-snapshot',
+            () => Editor.getSnapshot(editor)
+          )
+          const value = snapshot.children as V
           const change: SlateChange<V> = {
             commit: commit as EditorCommit<V>,
             marksChanged,
@@ -714,11 +737,11 @@ const SlateSingleEditor = <
       })
     }
 
-    const unsubscribe = editor.subscribe(onContextChange)
+    const unsubscribe = editor.subscribeCommit(onContextChange)
     const latestCommit = Editor.getLastCommit(editor)
 
     if (latestCommit && latestCommit.version > lastCommitVersionRef.current) {
-      onContextChange(Editor.getSnapshot(editor), latestCommit)
+      onContextChange(latestCommit)
     }
 
     return unsubscribe

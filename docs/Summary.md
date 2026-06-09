@@ -27,10 +27,13 @@
 - [Serializing](concepts/10-serializing.md)
 - [Normalizing](concepts/11-normalizing.md)
 - [TypeScript](concepts/12-typescript.md)
+- [Roots](concepts/13-roots.md)
+- [Document State](concepts/14-document-state.md)
 
 ## API
 
 - [Transforms](api/transforms.md)
+- [Debug Value Scrubbing](api/scrubber.md)
 - [Node Types](api/nodes/README.md)
   - [Editor](api/nodes/editor.md)
   - [Element](api/nodes/element.md)
@@ -53,13 +56,18 @@
 ## Libraries
 
 - [Slate React](libraries/slate-react/README.md)
+  - [React Editor Setup](libraries/slate-react/with-react.md)
   - [React Editor](libraries/slate-react/react-editor.md)
   - [Hooks](libraries/slate-react/hooks.md)
   - [Slate Component](libraries/slate-react/slate.md)
   - [Editable Component](libraries/slate-react/editable.md)
+  - [DOM Coverage Boundaries](libraries/slate-react/dom-coverage-boundaries.md)
   - [Experimental Virtualized Rendering](libraries/slate-react/experimental-virtualized-rendering.md)
   - [Event Handling](libraries/slate-react/event-handling.md)
+- [Slate Layout](libraries/slate-layout/README.md)
 - [Slate History](libraries/slate-history/README.md)
+  - [History Extension Setup](libraries/slate-history/with-history.md)
+  - [History Editor API](libraries/slate-history/history-editor.md)
   - [History](libraries/slate-history/history.md)
 - [Slate Hyperscript](libraries/slate-hyperscript.md)
 
@@ -67,5 +75,4 @@
 
 - [Resources](general/resources.md)
 - [Contributing](general/contributing.md)
-- [Changelog (historical)](general/changelog.md)
 - [FAQ](general/faq.md)

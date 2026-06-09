@@ -135,7 +135,7 @@ describe('DOM coverage private boundary harness', () => {
     await waitFor(() => {
       expect(DOMCoverage.getBoundary(editor, 'section-body')).toMatchObject({
         boundaryId: 'section-body',
-        copyPolicy: 'include-model',
+        copyPolicy: 'model',
         coveredPathRanges: [{ anchor: [0, 1], focus: [0, 1] }],
       })
     })
@@ -406,7 +406,7 @@ describe('DOM coverage private boundary harness', () => {
     expect(materialized).toEqual([`${boundaryId}:selection:Hidden header`])
   })
 
-  test('renderElement slots expose one unstable boundary adapter for child ranges and self coverage', async () => {
+  test('renderElement slots expose contentBoundary for child ranges and self coverage', async () => {
     const editor = createReactEditor()
 
     Editor.replace(editor, {
@@ -417,29 +417,29 @@ describe('DOM coverage private boundary harness', () => {
     const rendered = render(
       <Slate editor={editor}>
         <Editable
-          id="dom-coverage-unstable-boundary-slot"
+          id="dom-coverage-content-boundary-slot"
           renderElement={({ children, element, slots }) => {
             if (element.type === 'header') {
               return (
-                <slots.unstableBoundary
+                <slots.contentBoundary
                   boundaryId="slot-hidden-header"
                   mounted={false}
                   scope={{ type: 'self' }}
                 >
                   Header hidden by slot
-                </slots.unstableBoundary>
+                </slots.contentBoundary>
               )
             }
 
             if (element.type === 'footer') {
               return (
-                <slots.unstableBoundary
+                <slots.contentBoundary
                   boundaryId="slot-hidden-footer"
                   mounted={false}
                   scope={{ type: 'self' }}
                 >
                   Footer hidden by slot
-                </slots.unstableBoundary>
+                </slots.contentBoundary>
               )
             }
 
@@ -480,7 +480,7 @@ describe('DOM coverage private boundary harness', () => {
     const rendered = render(
       <Slate editor={editor}>
         <Editable
-          id="dom-coverage-unstable-boundary-slot-range"
+          id="dom-coverage-content-boundary-slot-range"
           renderElement={({ children, element, slots }) => {
             if (element.type === 'section') {
               const childNodes = React.Children.toArray(children)
@@ -488,13 +488,13 @@ describe('DOM coverage private boundary harness', () => {
               return (
                 <EditableElement>
                   {childNodes[0]}
-                  <slots.unstableBoundary
+                  <slots.contentBoundary
                     boundaryId="slot-section-body"
                     mounted={false}
                     scope={{ from: 1, type: 'children' }}
                   >
                     Body hidden by slot
-                  </slots.unstableBoundary>
+                  </slots.contentBoundary>
                 </EditableElement>
               )
             }
@@ -509,7 +509,7 @@ describe('DOM coverage private boundary harness', () => {
       expect(
         DOMCoverage.getBoundary(editor, 'slot-section-body')
       ).toMatchObject({
-        copyPolicy: 'include-model',
+        copyPolicy: 'model',
         coveredPathRanges: [{ anchor: [0, 1], focus: [0, 1] }],
       })
     })
@@ -518,6 +518,66 @@ describe('DOM coverage private boundary harness', () => {
     expect(rendered.container.textContent).toContain('Body hidden by slot')
     expect(rendered.container.textContent).toContain('Visible beta')
     expect(rendered.container.textContent).not.toContain('Hidden alpha')
+  })
+
+  test('renderElement slots render child ranges without materializing all children', () => {
+    const editor = createReactEditor()
+    const children = Array.from({ length: 500 }, (_, index) => ({
+      type: 'item',
+      children: [{ text: `Row ${index + 1}` }],
+    }))
+    let renderedItemCount = 0
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'section',
+          children,
+        },
+      ],
+      selection: null,
+    })
+
+    const rendered = render(
+      <Slate editor={editor}>
+        <Editable
+          id="dom-coverage-lazy-child-range-slot"
+          renderElement={(props) => {
+            if (props.element.type === 'section') {
+              return (
+                <EditableElement>
+                  <props.slots.contentBoundary
+                    boundaryId="lazy-child-range-before"
+                    mounted={false}
+                    renderPlaceholder={() => null}
+                    scope={{ from: 0, to: 249, type: 'children' }}
+                  />
+                  {props.slots.children({ from: 250, to: 251 })}
+                  <props.slots.contentBoundary
+                    boundaryId="lazy-child-range-after"
+                    mounted={false}
+                    renderPlaceholder={() => null}
+                    scope={{ from: 252, to: 499, type: 'children' }}
+                  />
+                </EditableElement>
+              )
+            }
+
+            if (props.element.type === 'item') {
+              renderedItemCount++
+            }
+
+            return <EditableElement>{props.children}</EditableElement>
+          }}
+        />
+      </Slate>
+    )
+
+    expect(renderedItemCount).toBe(2)
+    expect(rendered.container.textContent).toContain('Row 251')
+    expect(rendered.container.textContent).toContain('Row 252')
+    expect(rendered.container.textContent).not.toContain('Row 1')
+    expect(rendered.container.textContent).not.toContain('Row 500')
   })
 
   test('BoundaryRange does not leak duplicate boundaries in StrictMode', async () => {

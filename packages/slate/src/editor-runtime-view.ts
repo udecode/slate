@@ -752,6 +752,7 @@ const createViewRuntime = <V extends Value>(
           change
         )
       }),
+    subscribeCommit: (listener) => baseRuntime.subscribeCommit(listener),
     subscribeSource: (source, listener) =>
       baseRuntime.subscribeSource(source, (_snapshot, change) => {
         listener(
@@ -809,6 +810,7 @@ export const createEditorRuntime = <
     getApi: editor.getApi,
     read: editor.read,
     subscribe: editor.subscribe,
+    subscribeCommit: editor.subscribeCommit,
     update: editor.update,
   })
 }
@@ -854,6 +856,7 @@ export const createEditorView = <
     root: viewState.root,
     runtime,
     subscribe: viewRuntime.subscribe,
+    subscribeCommit: viewRuntime.subscribeCommit,
     update: (
       fn: (
         transaction: EditorUpdateTransaction<V, TExtensions>,

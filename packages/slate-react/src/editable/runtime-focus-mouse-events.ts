@@ -1,4 +1,5 @@
 import { type FocusEvent, type MouseEvent, useCallback, useRef } from 'react'
+import { isDOMNode } from 'slate-dom'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { prepareEditableFocusMouseKernel } from './editing-kernel'
 import {
@@ -26,6 +27,7 @@ type MouseHandler = (event: MouseEvent<HTMLDivElement>) => boolean | void
 
 export const useRuntimeFocusMouseEvents = ({
   editor,
+  flushPendingNativeTextInput,
   inputController,
   onBlur,
   onClick,
@@ -39,6 +41,7 @@ export const useRuntimeFocusMouseEvents = ({
   trace,
 }: {
   editor: ReactRuntimeEditor
+  flushPendingNativeTextInput?: () => void
   inputController: EditableInputController
   onBlur?: FocusHandler
   onClick?: MouseHandler
@@ -69,6 +72,7 @@ export const useRuntimeFocusMouseEvents = ({
 
   const handleBlur = useCallback(
     (event: FocusEvent<HTMLDivElement>) => {
+      flushPendingNativeTextInput?.()
       const decision = prepareEditableFocusMouseKernel({
         editor,
         event,
@@ -95,9 +99,29 @@ export const useRuntimeFocusMouseEvents = ({
         readOnly,
         state,
       })
+
+      const relatedTarget = event.relatedTarget
+      const movingWithinEditor =
+        relatedTarget != null &&
+        isDOMNode(relatedTarget) &&
+        ReactEditor.hasDOMNode(editor, relatedTarget)
+
+      if (
+        !readOnly &&
+        ReactEditor.hasEditableTarget(editor, event.target) &&
+        !movingWithinEditor
+      ) {
+        setEditableModelSelectionPreference({
+          inputController,
+          preferModelSelection: true,
+          reason: 'model-command',
+          selectionSource: 'model-owned',
+        })
+      }
     },
     [
       editor,
+      flushPendingNativeTextInput,
       inputController,
       onBlur,
       readOnly,
@@ -163,8 +187,12 @@ export const useRuntimeFocusMouseEvents = ({
         event.target === editorElement &&
         !nativePointerFocusRef.current
       ) {
+        const syncProgrammaticFocusSelection = () => syncDOMSelectionToEditor()
+
         nativeInternalFocusRef.current = false
-        syncDOMSelectionToEditor()
+        syncProgrammaticFocusSelection()
+        queueMicrotask(syncProgrammaticFocusSelection)
+        setTimeout(syncProgrammaticFocusSelection)
       }
     },
     [
@@ -216,6 +244,7 @@ export const useRuntimeFocusMouseEvents = ({
 
   const handleMouseDown = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
+      flushPendingNativeTextInput?.()
       const decision = prepareEditableFocusMouseKernel({
         editor,
         event,
@@ -235,7 +264,14 @@ export const useRuntimeFocusMouseEvents = ({
         onMouseDown,
       })
     },
-    [editor, inputController, markNativePointerFocus, onMouseDown, trace]
+    [
+      editor,
+      flushPendingNativeTextInput,
+      inputController,
+      markNativePointerFocus,
+      onMouseDown,
+      trace,
+    ]
   )
   const onRuntimeMouseDown = useEditableMouseHandler({
     handleMouse: handleMouseDown,

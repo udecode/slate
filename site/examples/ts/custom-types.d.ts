@@ -178,10 +178,14 @@ export type CustomElementType = CustomElement['type']
 export type CustomValue = CustomElement[]
 
 export type CustomText = {
+  backgroundColor?: string
   bold?: boolean
+  color?: string
   italic?: boolean
   code?: boolean
   fontSize?: string
+  subscript?: boolean
+  superscript?: boolean
   underline?: boolean
   strikethrough?: boolean
   // MARKDOWN PREVIEW SPECIFIC LEAF

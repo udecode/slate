@@ -4,6 +4,7 @@ import { Hotkeys } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { writeSlateViewSelection } from '../view-selection'
+import { getPlainVerticalDOMCoverageExtension } from './dom-coverage-vertical-selection'
 import type { EditableRepairRequest } from './mutation-controller'
 import { Editor } from './runtime-editor-api'
 
@@ -36,7 +37,7 @@ const getBoundarySelectionIds = (
   new Set(
     selection
       ? DOMCoverage.getBoundariesForRange(editor, selection)
-          .filter((boundary) => boundary.selectionPolicy === 'boundary')
+          .filter((boundary) => boundary.selectionPolicy === 'skip')
           .map((boundary) => boundary.boundaryId)
       : []
   )
@@ -70,11 +71,11 @@ const restoreSelectionIfMovementEnteredBoundary = ({
     nextSelection.focus
   )
   const enteredBoundary =
-    focusedBoundary?.selectionPolicy === 'boundary'
+    focusedBoundary?.selectionPolicy === 'skip'
       ? focusedBoundary
       : DOMCoverage.getBoundariesForRange(editor, nextSelection).find(
           (boundary) =>
-            boundary.selectionPolicy === 'boundary' &&
+            boundary.selectionPolicy === 'skip' &&
             !previousBoundaryIds.has(boundary.boundaryId)
         )
 
@@ -137,7 +138,7 @@ const getPointPastBoundarySkip = ({
 
     const boundary = DOMCoverage.getBoundaryForPoint(editor, next)
 
-    if (boundary?.selectionPolicy !== 'boundary') {
+    if (boundary?.selectionPolicy !== 'skip') {
       return next
     }
 
@@ -198,6 +199,28 @@ export const applyEditableCaretMovement = ({
   selection: Range | null
 }): EditableCaretMovementResult => {
   const { nativeEvent } = event
+  const plainVerticalDOMCoverageExtension =
+    getPlainVerticalDOMCoverageExtension({
+      editor,
+      event: nativeEvent,
+      selection,
+    })
+
+  if (plainVerticalDOMCoverageExtension) {
+    event.preventDefault()
+    moveSelectionAndRespectBoundaries({
+      editor,
+      move: (tx) => {
+        tx.selection.set({
+          anchor: selection?.anchor ?? plainVerticalDOMCoverageExtension.target,
+          focus: plainVerticalDOMCoverageExtension.target,
+        })
+      },
+      reverse: plainVerticalDOMCoverageExtension.reverse,
+      selection,
+    })
+    return caretMovementHandled()
+  }
 
   // COMPAT: Certain browsers don't handle the selection updates properly.
   // In Chrome, the selection isn't properly extended. In Firefox, the

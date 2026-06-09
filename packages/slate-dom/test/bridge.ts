@@ -565,6 +565,752 @@ describe('slate-dom bridge', () => {
     })
   })
 
+  it('resolves right-edge event ranges before wrapped whitespace without collapsed caret rects', () => {
+    withDom(({ document, window }) => {
+      const editor = createParagraphEditor('alpha beta gamma')
+      const root = mountEditorRoot(editor, document)
+      const owner = document.createElement('span')
+      const leaf = document.createElement('span')
+      const string = document.createElement('span')
+      const domText = document.createTextNode('alpha beta gamma')
+      const originalGetBoundingClientRect =
+        window.Range.prototype.getBoundingClientRect
+      const originalGetClientRects = window.Range.prototype.getClientRects
+
+      const createRect = ({
+        height,
+        left,
+        top,
+        width,
+      }: {
+        height: number
+        left: number
+        top: number
+        width: number
+      }) =>
+        ({
+          bottom: top + height,
+          height,
+          left,
+          right: left + width,
+          top,
+          width,
+          x: left,
+          y: top,
+          toJSON: () => ({}),
+        }) as DOMRect
+
+      leaf.setAttribute('data-slate-leaf', 'true')
+      string.setAttribute('data-slate-string', 'true')
+      string.appendChild(domText)
+      leaf.appendChild(string)
+      owner.appendChild(leaf)
+      root.appendChild(owner)
+      bindTextOwner(editor, [0, 0], owner)
+      string.getBoundingClientRect = () =>
+        createRect({ height: 30, left: 0, top: 0, width: 100 })
+      string.getClientRects = () =>
+        [
+          createRect({ height: 10, left: 0, top: 0, width: 100 }),
+          createRect({ height: 10, left: 0, top: 20, width: 60 }),
+        ] as unknown as DOMRectList
+
+      window.Range.prototype.getBoundingClientRect = function () {
+        const offset = this.startOffset
+        const isSecondLine = offset >= 11
+        const left = isSecondLine ? (offset - 11) * 10 : offset * 10
+
+        if (this.collapsed) {
+          return createRect({
+            height: 0,
+            left,
+            top: isSecondLine ? 20 : 0,
+            width: 0,
+          })
+        }
+
+        if (offset === 10) {
+          return createRect({
+            height: 10,
+            left: 100,
+            top: 0,
+            width: 0,
+          })
+        }
+
+        return createRect({
+          height: 10,
+          left,
+          top: isSecondLine ? 20 : 0,
+          width: Math.max(1, this.endOffset - offset) * 10,
+        })
+      }
+      window.Range.prototype.getClientRects = function () {
+        const rect = this.getBoundingClientRect()
+
+        return (rect.width > 0 || rect.height > 0
+          ? [rect]
+          : []) as unknown as DOMRectList
+      }
+
+      try {
+        const caretRange = document.createRange()
+        caretRange.setStart(domText, 11)
+        caretRange.collapse(true)
+        ;(document as any).caretRangeFromPoint = () => caretRange
+
+        expect(
+          editor.api.dom.assertEventRange({
+            clientX: 140,
+            clientY: 5,
+            target: string,
+          })
+        ).toEqual({
+          anchor: { path: [0, 0], offset: 10 },
+          focus: { path: [0, 0], offset: 10 },
+        })
+      } finally {
+        window.Range.prototype.getBoundingClientRect =
+          originalGetBoundingClientRect
+        window.Range.prototype.getClientRects = originalGetClientRects
+      }
+    })
+  })
+
+  it('resolves right-edge event ranges before wrapped whitespace split across strings', () => {
+    withDom(({ document, window }) => {
+      const editor = createParagraphEditor('wrap next')
+      const root = mountEditorRoot(editor, document)
+      const owner = document.createElement('span')
+      const firstLeaf = document.createElement('span')
+      const secondLeaf = document.createElement('span')
+      const firstString = document.createElement('span')
+      const secondString = document.createElement('span')
+      const firstText = document.createTextNode('wrap ')
+      const secondText = document.createTextNode('next')
+      const originalGetBoundingClientRect =
+        window.Range.prototype.getBoundingClientRect
+      const originalGetClientRects = window.Range.prototype.getClientRects
+
+      const createRect = ({
+        height,
+        left,
+        top,
+        width,
+      }: {
+        height: number
+        left: number
+        top: number
+        width: number
+      }) =>
+        ({
+          bottom: top + height,
+          height,
+          left,
+          right: left + width,
+          top,
+          width,
+          x: left,
+          y: top,
+          toJSON: () => ({}),
+        }) as DOMRect
+
+      firstLeaf.setAttribute('data-slate-leaf', 'true')
+      secondLeaf.setAttribute('data-slate-leaf', 'true')
+      firstString.setAttribute('data-slate-string', 'true')
+      secondString.setAttribute('data-slate-string', 'true')
+      firstString.appendChild(firstText)
+      secondString.appendChild(secondText)
+      firstLeaf.appendChild(firstString)
+      secondLeaf.appendChild(secondString)
+      owner.append(firstLeaf, secondLeaf)
+      root.appendChild(owner)
+      bindTextOwner(editor, [0, 0], owner)
+      firstString.getBoundingClientRect = () =>
+        createRect({ height: 10, left: 0, top: 0, width: 50 })
+      firstString.getClientRects = () =>
+        [
+          createRect({ height: 10, left: 0, top: 0, width: 50 }),
+        ] as unknown as DOMRectList
+
+      window.Range.prototype.getBoundingClientRect = function () {
+        if (this.collapsed) {
+          return createRect({ height: 0, left: 0, top: 0, width: 0 })
+        }
+
+        return this.startContainer === secondText
+          ? createRect({ height: 10, left: 0, top: 20, width: 10 })
+          : createRect({
+              height: 10,
+              left: this.startOffset === 4 ? 50 : this.startOffset * 10,
+              top: 0,
+              width: this.startOffset === 4 ? 0 : 10,
+            })
+      }
+      window.Range.prototype.getClientRects = function () {
+        const rect = this.getBoundingClientRect()
+
+        return (rect.width > 0 || rect.height > 0
+          ? [rect]
+          : []) as unknown as DOMRectList
+      }
+
+      try {
+        const caretRange = document.createRange()
+        caretRange.setStart(firstText, 5)
+        caretRange.collapse(true)
+        ;(document as any).caretRangeFromPoint = () => caretRange
+
+        expect(
+          editor.api.dom.assertEventRange({
+            clientX: 90,
+            clientY: 5,
+            target: firstString,
+          })
+        ).toEqual({
+          anchor: { path: [0, 0], offset: 4 },
+          focus: { path: [0, 0], offset: 4 },
+        })
+      } finally {
+        window.Range.prototype.getBoundingClientRect =
+          originalGetBoundingClientRect
+        window.Range.prototype.getClientRects = originalGetClientRects
+      }
+    })
+  })
+
+  it('resolves right-edge event ranges before wrapped whitespace split across text hosts', () => {
+    withDom(({ document, window }) => {
+      const editor = createEditor({ extensions: [dom()] })
+
+      Editor.replace(editor, {
+        children: [
+          {
+            type: 'paragraph',
+            children: [{ text: 'wrap ' }, { bold: true, text: 'next' }],
+          },
+        ] satisfies Descendant[],
+      })
+      seedNodeMaps(
+        editor,
+        editor.read((state) =>
+          state.runtime
+            .snapshot()
+            .children.map(
+              (_, index) => state.nodes.get([index])[0] as Descendant
+            )
+        )
+      )
+
+      const root = mountEditorRoot(editor, document)
+      const firstOwner = document.createElement('span')
+      const secondOwner = document.createElement('span')
+      const firstLeaf = document.createElement('span')
+      const secondLeaf = document.createElement('span')
+      const firstString = document.createElement('span')
+      const secondString = document.createElement('span')
+      const firstText = document.createTextNode('wrap ')
+      const secondText = document.createTextNode('next')
+      const originalGetBoundingClientRect =
+        window.Range.prototype.getBoundingClientRect
+      const originalGetClientRects = window.Range.prototype.getClientRects
+
+      const createRect = ({
+        height,
+        left,
+        top,
+        width,
+      }: {
+        height: number
+        left: number
+        top: number
+        width: number
+      }) =>
+        ({
+          bottom: top + height,
+          height,
+          left,
+          right: left + width,
+          top,
+          width,
+          x: left,
+          y: top,
+          toJSON: () => ({}),
+        }) as DOMRect
+
+      firstLeaf.setAttribute('data-slate-leaf', 'true')
+      secondLeaf.setAttribute('data-slate-leaf', 'true')
+      firstString.setAttribute('data-slate-string', 'true')
+      secondString.setAttribute('data-slate-string', 'true')
+      firstString.appendChild(firstText)
+      secondString.appendChild(secondText)
+      firstLeaf.appendChild(firstString)
+      secondLeaf.appendChild(secondString)
+      firstOwner.appendChild(firstLeaf)
+      secondOwner.appendChild(secondLeaf)
+      root.append(firstOwner, secondOwner)
+      bindTextOwner(editor, [0, 0], firstOwner)
+      bindTextOwner(editor, [0, 1], secondOwner)
+      firstString.getBoundingClientRect = () =>
+        createRect({ height: 10, left: 0, top: 0, width: 50 })
+      firstString.getClientRects = () =>
+        [
+          createRect({ height: 10, left: 0, top: 0, width: 50 }),
+        ] as unknown as DOMRectList
+
+      window.Range.prototype.getBoundingClientRect = function () {
+        if (this.collapsed) {
+          return createRect({ height: 0, left: 0, top: 0, width: 0 })
+        }
+
+        return this.startContainer === secondText
+          ? createRect({ height: 10, left: 0, top: 20, width: 10 })
+          : createRect({
+              height: 10,
+              left: this.startOffset === 4 ? 50 : this.startOffset * 10,
+              top: 0,
+              width: this.startOffset === 4 ? 0 : 10,
+            })
+      }
+      window.Range.prototype.getClientRects = function () {
+        const rect = this.getBoundingClientRect()
+
+        return (rect.width > 0 || rect.height > 0
+          ? [rect]
+          : []) as unknown as DOMRectList
+      }
+
+      try {
+        const caretRange = document.createRange()
+        caretRange.setStart(firstText, 5)
+        caretRange.collapse(true)
+        ;(document as any).caretRangeFromPoint = () => caretRange
+
+        expect(
+          editor.api.dom.assertEventRange({
+            clientX: 90,
+            clientY: 5,
+            target: firstString,
+          })
+        ).toEqual({
+          anchor: { path: [0, 0], offset: 4 },
+          focus: { path: [0, 0], offset: 4 },
+        })
+      } finally {
+        window.Range.prototype.getBoundingClientRect =
+          originalGetBoundingClientRect
+        window.Range.prototype.getClientRects = originalGetClientRects
+      }
+    })
+  })
+
+  it('resolves stretched-line event ranges before zero-width wrapped whitespace', () => {
+    withDom(({ document, window }) => {
+      const editor = createParagraphEditor('wrap next')
+      const root = mountEditorRoot(editor, document)
+      const owner = document.createElement('span')
+      const leaf = document.createElement('span')
+      const string = document.createElement('span')
+      const domText = document.createTextNode('wrap next')
+      const originalGetBoundingClientRect =
+        window.Range.prototype.getBoundingClientRect
+      const originalGetClientRects = window.Range.prototype.getClientRects
+
+      const createRect = ({
+        height,
+        left,
+        top,
+        width,
+      }: {
+        height: number
+        left: number
+        top: number
+        width: number
+      }) =>
+        ({
+          bottom: top + height,
+          height,
+          left,
+          right: left + width,
+          top,
+          width,
+          x: left,
+          y: top,
+          toJSON: () => ({}),
+        }) as DOMRect
+
+      leaf.setAttribute('data-slate-leaf', 'true')
+      string.setAttribute('data-slate-string', 'true')
+      string.appendChild(domText)
+      leaf.appendChild(string)
+      owner.appendChild(leaf)
+      root.appendChild(owner)
+      bindTextOwner(editor, [0, 0], owner)
+      string.getBoundingClientRect = () =>
+        createRect({ height: 10, left: 0, top: 0, width: 150 })
+      string.getClientRects = () =>
+        [
+          createRect({ height: 10, left: 0, top: 0, width: 150 }),
+        ] as unknown as DOMRectList
+
+      window.Range.prototype.getBoundingClientRect = function () {
+        if (this.collapsed) {
+          return createRect({ height: 0, left: 0, top: 0, width: 0 })
+        }
+
+        if (this.startOffset === 4) {
+          return createRect({ height: 10, left: 90, top: 0, width: 0 })
+        }
+
+        return this.startOffset >= 5
+          ? createRect({ height: 10, left: 0, top: 20, width: 10 })
+          : createRect({
+              height: 10,
+              left: this.startOffset * 20,
+              top: 0,
+              width: 20,
+            })
+      }
+      window.Range.prototype.getClientRects = function () {
+        const rect = this.getBoundingClientRect()
+
+        return (rect.width > 0 || rect.height > 0
+          ? [rect]
+          : []) as unknown as DOMRectList
+      }
+
+      try {
+        const caretRange = document.createRange()
+        caretRange.setStart(domText, 5)
+        caretRange.collapse(true)
+        ;(document as any).caretRangeFromPoint = () => caretRange
+
+        expect(
+          editor.api.dom.assertEventRange({
+            clientX: 126,
+            clientY: 5,
+            target: string,
+          })
+        ).toEqual({
+          anchor: { path: [0, 0], offset: 4 },
+          focus: { path: [0, 0], offset: 4 },
+        })
+      } finally {
+        window.Range.prototype.getBoundingClientRect =
+          originalGetBoundingClientRect
+        window.Range.prototype.getClientRects = originalGetClientRects
+      }
+    })
+  })
+
+  it('does not back up right-edge event ranges for visible whitespace', () => {
+    for (const { collapsedCaretTop, text } of [
+      { collapsedCaretTop: 0, text: 'alpha beta ' },
+      { collapsedCaretTop: 20, text: 'alpha beta\u00a0' },
+    ]) {
+      withDom(({ document, window }) => {
+        const editor = createParagraphEditor(text)
+        const root = mountEditorRoot(editor, document)
+        const owner = document.createElement('span')
+        const leaf = document.createElement('span')
+        const string = document.createElement('span')
+        const domText = document.createTextNode(text)
+        const originalGetBoundingClientRect =
+          window.Range.prototype.getBoundingClientRect
+        const originalGetClientRects = window.Range.prototype.getClientRects
+
+        const createRect = ({
+          height,
+          left,
+          top,
+          width,
+        }: {
+          height: number
+          left: number
+          top: number
+          width: number
+        }) =>
+          ({
+            bottom: top + height,
+            height,
+            left,
+            right: left + width,
+            top,
+            width,
+            x: left,
+            y: top,
+            toJSON: () => ({}),
+          }) as DOMRect
+
+        leaf.setAttribute('data-slate-leaf', 'true')
+        string.setAttribute('data-slate-string', 'true')
+        string.appendChild(domText)
+        leaf.appendChild(string)
+        owner.appendChild(leaf)
+        root.appendChild(owner)
+        bindTextOwner(editor, [0, 0], owner)
+        string.getBoundingClientRect = () =>
+          createRect({ height: 10, left: 0, top: 0, width: text.length * 10 })
+        string.getClientRects = () =>
+          [
+            createRect({
+              height: 10,
+              left: 0,
+              top: 0,
+              width: text.length * 10,
+            }),
+          ] as unknown as DOMRectList
+
+        window.Range.prototype.getBoundingClientRect = function () {
+          const offset = this.startOffset
+
+          if (this.collapsed && offset === text.length) {
+            return createRect({
+              height: 10,
+              left: collapsedCaretTop === 0 ? text.length * 10 : 0,
+              top: collapsedCaretTop,
+              width: 0,
+            })
+          }
+
+          return createRect({
+            height: 10,
+            left: offset * 10,
+            top: 0,
+            width: this.collapsed
+              ? 0
+              : Math.max(1, this.endOffset - offset) * 10,
+          })
+        }
+        window.Range.prototype.getClientRects = function () {
+          return [this.getBoundingClientRect()] as unknown as DOMRectList
+        }
+
+        try {
+          const caretRange = document.createRange()
+          caretRange.setStart(domText, text.length)
+          caretRange.collapse(true)
+          ;(document as any).caretRangeFromPoint = () => caretRange
+
+          expect(
+            editor.api.dom.assertEventRange({
+              clientX: text.length * 10 + 40,
+              clientY: 5,
+              target: string,
+            })
+          ).toEqual({
+            anchor: { path: [0, 0], offset: text.length },
+            focus: { path: [0, 0], offset: text.length },
+          })
+        } finally {
+          window.Range.prototype.getBoundingClientRect =
+            originalGetBoundingClientRect
+          window.Range.prototype.getClientRects = originalGetClientRects
+        }
+      })
+    }
+  })
+
+  it('keeps right-edge event ranges after visible spaces before wrapped content', () => {
+    withDom(({ document, window }) => {
+      const editor = createParagraphEditor('alpha beta gamma')
+      const root = mountEditorRoot(editor, document)
+      const owner = document.createElement('span')
+      const leaf = document.createElement('span')
+      const string = document.createElement('span')
+      const domText = document.createTextNode('alpha beta gamma')
+      const originalGetBoundingClientRect =
+        window.Range.prototype.getBoundingClientRect
+      const originalGetClientRects = window.Range.prototype.getClientRects
+
+      const createRect = ({
+        height,
+        left,
+        top,
+        width,
+      }: {
+        height: number
+        left: number
+        top: number
+        width: number
+      }) =>
+        ({
+          bottom: top + height,
+          height,
+          left,
+          right: left + width,
+          top,
+          width,
+          x: left,
+          y: top,
+          toJSON: () => ({}),
+        }) as DOMRect
+
+      leaf.setAttribute('data-slate-leaf', 'true')
+      string.setAttribute('data-slate-string', 'true')
+      string.appendChild(domText)
+      leaf.appendChild(string)
+      owner.appendChild(leaf)
+      root.appendChild(owner)
+      bindTextOwner(editor, [0, 0], owner)
+      string.getBoundingClientRect = () =>
+        createRect({ height: 30, left: 0, top: 0, width: 110 })
+      string.getClientRects = () =>
+        [
+          createRect({ height: 10, left: 0, top: 0, width: 110 }),
+          createRect({ height: 10, left: 0, top: 20, width: 50 }),
+        ] as unknown as DOMRectList
+
+      window.Range.prototype.getBoundingClientRect = function () {
+        const offset = this.startOffset
+
+        if (this.collapsed && offset === 11) {
+          return createRect({ height: 10, left: 110, top: 0, width: 0 })
+        }
+
+        const isSecondLine = offset >= 11
+        const left = isSecondLine ? (offset - 11) * 10 : offset * 10
+
+        return createRect({
+          height: 10,
+          left,
+          top: isSecondLine ? 20 : 0,
+          width: this.collapsed ? 0 : Math.max(1, this.endOffset - offset) * 10,
+        })
+      }
+      window.Range.prototype.getClientRects = function () {
+        return [this.getBoundingClientRect()] as unknown as DOMRectList
+      }
+
+      try {
+        const caretRange = document.createRange()
+        caretRange.setStart(domText, 11)
+        caretRange.collapse(true)
+        ;(document as any).caretRangeFromPoint = () => caretRange
+
+        expect(
+          editor.api.dom.assertEventRange({
+            clientX: 140,
+            clientY: 5,
+            target: string,
+          })
+        ).toEqual({
+          anchor: { path: [0, 0], offset: 11 },
+          focus: { path: [0, 0], offset: 11 },
+        })
+      } finally {
+        window.Range.prototype.getBoundingClientRect =
+          originalGetBoundingClientRect
+        window.Range.prototype.getClientRects = originalGetClientRects
+      }
+    })
+  })
+
+  it('maps RTL event-range physical line edges to logical offsets', () => {
+    withDom(({ document, window }) => {
+      const editor = createParagraphEditor('אבג')
+      const root = mountEditorRoot(editor, document)
+      const owner = document.createElement('span')
+      const leaf = document.createElement('span')
+      const string = document.createElement('span')
+      const domText = document.createTextNode('אבג')
+      const originalGetBoundingClientRect =
+        window.Range.prototype.getBoundingClientRect
+      const originalGetClientRects = window.Range.prototype.getClientRects
+
+      const createRect = ({
+        height,
+        left,
+        top,
+        width,
+      }: {
+        height: number
+        left: number
+        top: number
+        width: number
+      }) =>
+        ({
+          bottom: top + height,
+          height,
+          left,
+          right: left + width,
+          top,
+          width,
+          x: left,
+          y: top,
+          toJSON: () => ({}),
+        }) as DOMRect
+
+      owner.style.direction = 'rtl'
+      leaf.setAttribute('data-slate-leaf', 'true')
+      string.setAttribute('data-slate-string', 'true')
+      string.appendChild(domText)
+      leaf.appendChild(string)
+      owner.appendChild(leaf)
+      root.appendChild(owner)
+      bindTextOwner(editor, [0, 0], owner)
+      string.getBoundingClientRect = () =>
+        createRect({ height: 10, left: 0, top: 0, width: 30 })
+      string.getClientRects = () =>
+        [
+          createRect({ height: 10, left: 0, top: 0, width: 30 }),
+        ] as unknown as DOMRectList
+
+      window.Range.prototype.getBoundingClientRect = function () {
+        const offset = this.startOffset
+        const left = offset === 0 ? 20 : offset === 1 ? 10 : 0
+
+        return createRect({
+          height: 10,
+          left,
+          top: 0,
+          width: this.collapsed ? 0 : 10,
+        })
+      }
+      window.Range.prototype.getClientRects = function () {
+        return [this.getBoundingClientRect()] as unknown as DOMRectList
+      }
+
+      try {
+        const rightCaretRange = document.createRange()
+        rightCaretRange.setStart(domText, 3)
+        rightCaretRange.collapse(true)
+        ;(document as any).caretRangeFromPoint = () => rightCaretRange
+
+        expect(
+          editor.api.dom.assertEventRange({
+            clientX: 40,
+            clientY: 5,
+            target: string,
+          })
+        ).toEqual({
+          anchor: { path: [0, 0], offset: 0 },
+          focus: { path: [0, 0], offset: 0 },
+        })
+
+        const leftCaretRange = document.createRange()
+        leftCaretRange.setStart(domText, 0)
+        leftCaretRange.collapse(true)
+        ;(document as any).caretRangeFromPoint = () => leftCaretRange
+
+        expect(
+          editor.api.dom.assertEventRange({
+            clientX: -10,
+            clientY: 5,
+            target: string,
+          })
+        ).toEqual({
+          anchor: { path: [0, 0], offset: 3 },
+          focus: { path: [0, 0], offset: 3 },
+        })
+      } finally {
+        window.Range.prototype.getBoundingClientRect =
+          originalGetBoundingClientRect
+        window.Range.prototype.getClientRects = originalGetClientRects
+      }
+    })
+  })
+
   it('treats editor-owned unmapped DOM targets as non-void instead of throwing', () => {
     withDom(({ document }) => {
       const editor = createParagraphEditor()
@@ -732,6 +1478,58 @@ describe('slate-dom bridge', () => {
         anchor: { path: [0, 0], offset: 2 },
         focus: { path: [0, 0], offset: 6 },
       })
+    })
+  })
+
+  it('does not double count projected leaf offsets when importing DOM points', () => {
+    withDom(({ document }) => {
+      const editor = createParagraphEditor()
+      const root = mountEditorRoot(editor, document)
+
+      const owner = document.createElement('span')
+      const firstLeaf = document.createElement('span')
+      const middleLeaf = document.createElement('span')
+      const lastLeaf = document.createElement('span')
+      const first = document.createElement('span')
+      const middle = document.createElement('span')
+      const last = document.createElement('span')
+      const firstText = document.createTextNode('a')
+      const middleText = document.createTextNode('lph')
+      const lastText = document.createTextNode('a beta')
+
+      firstLeaf.setAttribute('data-slate-leaf', 'true')
+      firstLeaf.setAttribute('data-slate-leaf-start', '0')
+      firstLeaf.setAttribute('data-slate-leaf-end', '1')
+      middleLeaf.setAttribute('data-slate-leaf', 'true')
+      middleLeaf.setAttribute('data-slate-leaf-start', '1')
+      middleLeaf.setAttribute('data-slate-leaf-end', '4')
+      lastLeaf.setAttribute('data-slate-leaf', 'true')
+      lastLeaf.setAttribute('data-slate-leaf-start', '4')
+      lastLeaf.setAttribute('data-slate-leaf-end', '10')
+      first.setAttribute('data-slate-string', 'true')
+      middle.setAttribute('data-slate-string', 'true')
+      last.setAttribute('data-slate-string', 'true')
+
+      first.appendChild(firstText)
+      middle.appendChild(middleText)
+      last.appendChild(lastText)
+      firstLeaf.appendChild(first)
+      middleLeaf.appendChild(middle)
+      lastLeaf.appendChild(last)
+      owner.append(firstLeaf, middleLeaf, lastLeaf)
+      root.appendChild(owner)
+      bindTextOwner(editor, [0, 0], owner)
+
+      expect(
+        editor.api.dom.assertSlatePoint([middleText, 1], {
+          exactMatch: false,
+        })
+      ).toEqual({ path: [0, 0], offset: 2 })
+      expect(
+        editor.api.dom.assertSlatePoint([lastText, 2], {
+          exactMatch: false,
+        })
+      ).toEqual({ path: [0, 0], offset: 6 })
     })
   })
 

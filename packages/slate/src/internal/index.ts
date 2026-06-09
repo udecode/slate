@@ -1,3 +1,9 @@
+import {
+  type Editor as EditorType,
+  InternalEditor,
+  type Value,
+} from '../interfaces/editor'
+
 export {
   defineCommand,
   executeCommand,
@@ -14,6 +20,7 @@ export {
 export {
   applyOperation,
   applyStatePatches,
+  getCurrentMarks as getEditorCurrentMarks,
   getCurrentSelectionRoot as getEditorSelectionRoot,
   getEditorOperationRoot,
   getLiveNode as getEditorLiveNode,
@@ -32,10 +39,23 @@ export {
   getEditorTransformRegistry,
   setEditorTransformRegistry,
 } from '../core/transform-registry'
-export { Editor } from '../interfaces/editor'
 export { formatDebugValue } from '../utils/format-debug-value'
 export {
   getOperationRoot,
   getRangeRoot,
   MAIN_ROOT_KEY,
 } from './root-location'
+
+const Editor = InternalEditor
+
+export interface Editor<
+  V extends Value = any,
+  TExtensions extends readonly unknown[] = readonly [],
+> extends EditorType<V, TExtensions> {}
+
+export type SlateEditor<
+  V extends Value = any,
+  TExtensions extends readonly unknown[] = readonly [],
+> = EditorType<V, TExtensions>
+
+export { Editor }

@@ -26,14 +26,16 @@ const HOTKEYS = {
   extendWordBackward: 'ctrl+shift+left',
   extendWordForward: 'ctrl+shift+right',
   italic: 'mod+i',
+  moveLineBackward: 'home',
+  moveLineForward: 'end',
   insertSoftBreak: 'shift+enter',
   splitBlock: 'enter',
   undo: 'mod+z',
 }
 
 const APPLE_HOTKEYS = {
-  moveLineBackward: 'opt+up',
-  moveLineForward: 'opt+down',
+  moveLineBackward: ['opt+up', 'ctrl+a'],
+  moveLineForward: ['opt+down', 'ctrl+e'],
   moveWordBackward: 'opt+left',
   moveWordForward: 'opt+right',
   deleteBackward: ['ctrl+backspace', 'ctrl+h'],

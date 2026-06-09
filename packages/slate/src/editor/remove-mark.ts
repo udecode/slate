@@ -65,7 +65,7 @@ export const removeMark: EditorStaticApi['removeMark'] = (editor, key) => {
     { key, type: 'remove_mark' },
     (command) => {
       applyRemoveMark(editor, command.key)
-      return { handled: true }
+      return true
     },
     { implicitUpdate: true }
   )

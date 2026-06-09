@@ -230,4 +230,44 @@ describe('commit metadata contract', () => {
     assert.equal(commit.topLevelOrderChanged, true)
     assert.equal(commit.fullDocumentChanged, true)
   })
+
+  it('keeps top-level split impact scoped to shifted top-level runtime ids', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [
+        paragraph('one'),
+        {
+          type: 'table',
+          children: Array.from({ length: 10 }, (_value, index) => ({
+            type: 'table-row',
+            children: [{ text: `row ${index}` }],
+          })),
+        },
+      ],
+      selection: {
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 3 },
+      },
+    })
+
+    const before = Editor.getSnapshot(editor)
+    const tableRuntimeId = before.index.pathToId['1']
+    const tableRowRuntimeId = before.index.pathToId['1.0']
+    const unsubscribe = Editor.subscribe(editor, () => {})
+
+    assert(tableRuntimeId)
+    assert(tableRowRuntimeId)
+
+    Editor.insertBreak(editor)
+    unsubscribe()
+
+    const commit = Editor.getLastCommit(editor)
+
+    assert(commit)
+    assert.equal(commit.topLevelOrderChanged, true)
+    assert.equal(commit.rootRuntimeIdsChanged, true)
+    assert(commit.nodeImpactRuntimeIds?.includes(tableRuntimeId))
+    assert(!commit.nodeImpactRuntimeIds?.includes(tableRowRuntimeId))
+  })
 })

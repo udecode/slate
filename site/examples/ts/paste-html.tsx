@@ -242,15 +242,32 @@ const Leaf = ({ attributes, children, leaf }: RenderLeafProps<CustomText>) => {
   if (leaf.strikethrough) {
     children = <del>{children}</del>
   }
+  if (leaf.superscript) {
+    children = <sup>{children}</sup>
+  }
+  if (leaf.subscript) {
+    children = <sub>{children}</sub>
+  }
 
   return <span {...attributes}>{children}</span>
 }
 
 const FontSizeText = ({ attributes, children, text }: RenderTextProps) => {
+  const backgroundColor =
+    typeof text.backgroundColor === 'string' ? text.backgroundColor : undefined
+  const color = typeof text.color === 'string' ? text.color : undefined
   const fontSize = typeof text.fontSize === 'string' ? text.fontSize : undefined
+  const style =
+    backgroundColor || color || fontSize
+      ? {
+          backgroundColor,
+          color,
+          fontSize,
+        }
+      : undefined
 
   return (
-    <span {...attributes} style={fontSize ? { fontSize } : undefined}>
+    <span {...attributes} style={style}>
       {children}
     </span>
   )

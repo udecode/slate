@@ -1,21 +1,68 @@
 # Saving to a Database
 
-Now that you've learned the basics of how to add functionality to the Slate editor, you might be wondering how you'd go about saving the content you've been editing, such that you can come back to your app later and have it load.
+Slate documents are JSON. Save the full document value when you need more than
+the main editor body, such as named roots, content roots, document titles, page
+settings, or other persistent state fields.
 
-We'll add the logic that saves Slate content and loads it again later.
+This walkthrough uses Local Storage, but the same shape is what you send to
+your database.
 
-Let's start with a basic editor:
+## Save The Full Document
 
-```jsx
-const initialValue = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'A line of text in a paragraph.' }],
+Create the editor from the saved value, then persist the full document value
+after committed document or state-field changes.
+
+```tsx
+import { useEffect, useState } from 'react'
+import { defineStateField } from 'slate'
+import { Editable, Slate, useSlateEditor } from 'slate-react'
+
+const STORAGE_KEY = 'slate.document'
+
+const documentTitle = defineStateField({
+  key: 'document.title',
+  initial: () => 'Untitled',
+  persist: true,
+})
+
+const fallbackValue = {
+  roots: {
+    main: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'A line of text in a paragraph.' }],
+      },
+    ],
   },
-]
+  state: {
+    [documentTitle.key]: 'Untitled',
+  },
+}
 
 const App = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
+  const [initialValue] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEY)
+
+    return saved ? JSON.parse(saved) : fallbackValue
+  })
+  const editor = useSlateEditor({
+    extensions: [documentTitle],
+    initialValue,
+  })
+
+  useEffect(() => {
+    return editor.subscribe((_snapshot, commit) => {
+      if (!commit) return
+
+      if (!commit.childrenChanged && commit.dirtyStateKeys.length === 0) {
+        return
+      }
+
+      const documentValue = editor.read((state) => state.value.get())
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(documentValue))
+    })
+  }, [editor])
 
   return (
     <Slate editor={editor}>
@@ -25,143 +72,146 @@ const App = () => {
 }
 ```
 
-That will render a basic Slate editor on your page, and when you type things will change. But if you refresh the page, everything will be reverted back to its original value—nothing saves!
+`state.value.get()` returns the persisted document value:
 
-What we need to do is save the changes you make somewhere. For this example, we'll just be using [Local Storage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage), but it will give you an idea for where you'd need to add your own database hooks.
+```ts
+type EditorDocumentValue = {
+  roots: Record<string, Descendant[]>
+  state?: Record<string, unknown>
+}
+```
 
-Use `onChange` to save committed document changes:
+That shape includes `roots.main`, every named root, and persistent state fields.
+It omits state fields declared with `persist: false`.
 
-```jsx
-const initialValue = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'A line of text in a paragraph.' }],
+## Single-Root Shortcut
+
+The first argument to `<Slate onChange>` is the provider root's block array.
+For `<Slate editor={editor}>`, that is `main`. You can save that value directly
+for a tiny single-root editor with no persistent state fields.
+
+```tsx
+<Slate
+  editor={editor}
+  onChange={(value, change) => {
+    if (!change.valueChanged) return
+
+    localStorage.setItem('slate.children', JSON.stringify(value))
+  }}
+>
+  <Editable />
+</Slate>
+```
+
+Use the full document value once the editor owns named roots, content roots, or
+state fields.
+
+## Load Named Roots
+
+Pass `initialValue.roots` when the saved document owns more than `main`.
+
+```tsx
+const editor = useSlateEditor({
+  initialValue: {
+    roots: {
+      header: [{ type: 'paragraph', children: [{ text: 'Draft' }] }],
+      main: [{ type: 'paragraph', children: [{ text: 'Body' }] }],
+      footer: [{ type: 'paragraph', children: [{ text: 'Internal' }] }],
+    },
   },
-]
-
-const App = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
-
-  return (
-    <Slate
-      editor={editor}
-      onChange={(value, change) => {
-        if (!change.valueChanged) return
-
-        const content = JSON.stringify(value)
-        localStorage.setItem('content', content)
-      }}
-    >
-      <Editable />
-    </Slate>
-  )
-}
+})
 ```
 
-Now whenever you edit the page, if you look in Local Storage, you should see the `content` value changing.
+Render each root with `Editable root`.
 
-But... if you refresh the page, everything is still reset. That's because we need to make sure the initial value is pulled from that same Local Storage location, like so:
-
-```jsx
-const App = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
-  // Update the initial content to be pulled from Local Storage if it exists.
-  const [initialValue] = useState(() => {
-    const savedContent = localStorage.getItem('content')
-
-    return savedContent
-      ? JSON.parse(savedContent)
-      : [
-          {
-            type: 'paragraph',
-            children: [{ text: 'A line of text in a paragraph.' }],
-          },
-        ]
-  })
-
-  return (
-    <Slate
-      editor={editor}
-      onChange={(value, change) => {
-        if (!change.valueChanged) return
-
-        const content = JSON.stringify(value)
-        localStorage.setItem('content', content)
-      }}
-    >
-      <Editable />
-    </Slate>
-  )
-}
+```tsx
+<Slate editor={editor}>
+  <Editable aria-label="Header" root="header" />
+  <Editable aria-label="Body" />
+  <Editable aria-label="Footer" root="footer" />
+</Slate>
 ```
 
-Now you should be able to save changes across refreshes!
+See [Roots](../concepts/13-roots.md) for content roots and root rendering.
 
-Success—you've got JSON in your database.
+## Replace Saved Content
 
-But what if you want something other than JSON? Well, you'd need to serialize your value differently. For example, if you want to save your content as plain text instead of JSON, we can write some logic to serialize and deserialize plain text values:
+Create a new editor with `initialValue: nextDocument` when the user switches to
+a different saved document. That is the clean path for arbitrary persisted
+state fields.
 
-```jsx
-// Import the `Node` helper interface from Slate.
-import { NodeApi } from 'slate'
-
-// Define a serializing function that takes a value and returns a string.
-const serialize = value => {
-  return (
-    value
-      // Return the string content of each paragraph in the value's children.
-      .map(n => NodeApi.string(n))
-      // Join them all with line breaks denoting paragraphs.
-      .join('\n')
-  )
-}
-
-// Define a deserializing function that takes a string and returns a value.
-const deserialize = string => {
-  // Return a value array of children derived by splitting the string.
-  return string.split('\n').map(line => {
-    return {
-      children: [{ text: line }],
-    }
-  })
-}
-
-const App = () => {
-  const [editor] = useState(() => createReactEditor({ initialValue }))
-  // Use our deserializing function to read the data from Local Storage.
-  const [initialValue] = useState(() =>
-    deserialize(localStorage.getItem('content') || '')
-  )
-
-  return (
-    <Slate
-      editor={editor}
-      onChange={(value, change) => {
-        if (!change.valueChanged) return
-
-        localStorage.setItem('content', serialize(value))
-      }}
-    >
-      <Editable />
-    </Slate>
-  )
-}
-```
-
-That works! Now you're working with plain text.
-
-You can emulate this strategy for any format you like. You can serialize to HTML, to Markdown, or even to your own custom JSON format that is tailored to your use case.
-
-> 🤖 Note that even though you _can_ serialize your content however you like, there are tradeoffs. The serialization process has a cost itself, and certain formats may be harder to work with than others. In general we recommend writing your own format only if your use case has a specific need for it. Otherwise, you're often better leaving the data in the format Slate uses.
-
-If you want to update the editor's content in response to events from outside of Slate, replace the editor value through an explicit editor API.
+Use `editor.update` for targeted in-place replacement when the app owns the
+schema and can reconcile every root and every persistent state field.
 
 ```tsx
 editor.update((tx) => {
   tx.value.replace({
-    children: nextValue,
+    children: nextDocument.roots.main,
     marks: null,
     selection: null,
   })
 })
 ```
+
+`tx.value.replace` replaces the active root snapshot. For an in-place multi-root
+replacement, create, replace, or delete named roots with `tx.roots`, and set or
+reset every persistent state field your app registered with `tx.setField`. This
+example assumes your app registered `documentTitle` and `pageSettings` fields.
+
+```tsx
+editor.update((tx) => {
+  const nextRoots = nextDocument.roots
+
+  tx.value.replace({
+    children: nextRoots.main ?? [],
+    marks: null,
+    selection: null,
+  })
+
+  const currentRoots = tx.value.get().roots
+
+  for (const root of Object.keys(currentRoots)) {
+    if (root !== 'main' && !Object.hasOwn(nextRoots, root)) {
+      tx.roots.delete(root)
+    }
+  }
+
+  for (const [root, children] of Object.entries(nextRoots)) {
+    if (root === 'main') continue
+
+    if (Object.hasOwn(currentRoots, root)) {
+      tx.roots.replace(root, children)
+    } else {
+      tx.roots.create(root, children)
+    }
+  }
+
+  tx.setField(
+    documentTitle,
+    nextDocument.state?.[documentTitle.key] ?? 'Untitled'
+  )
+  tx.setField(
+    pageSettings,
+    nextDocument.state?.[pageSettings.key] ?? defaultPageSettings
+  )
+})
+```
+
+Do not leave registered persistent fields out of the reconciliation. Missing
+fields should be reset to your app defaults, otherwise the next save can mix
+metadata from two documents.
+
+## Store Comments Separately
+
+Comment bodies, permissions, resolved state, and audit events belong to your
+app or collaboration service. The Slate document can store lightweight ids when
+comments need to travel with copied content, but the thread data should stay in
+the comment store.
+
+Use [Annotations](../libraries/slate-react/annotations.md) to render comment
+anchors from that external store.
+
+You now have the persistence contract: save `state.value.get()` for the whole
+document, use `value` from `onChange` only for single-root shortcuts, and keep
+external app data outside the Slate document unless it is part of the document
+model.

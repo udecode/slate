@@ -37,7 +37,7 @@ export const deleteBackward: WithEditorFirstArg<
     { direction: 'backward', type: 'delete', unit },
     (command) => {
       applyDelete(editor, command)
-      return { handled: true }
+      return true
     }
   )
 }

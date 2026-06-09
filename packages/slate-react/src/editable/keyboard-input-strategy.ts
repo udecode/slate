@@ -10,11 +10,14 @@ import {
   type RootKey,
 } from 'slate'
 import {
+  getSelection,
   HAS_BEFORE_INPUT_SUPPORT,
   Hotkeys,
   IS_CHROME,
   IS_IOS,
   IS_WEBKIT,
+  isDOMElement,
+  isDOMText,
 } from 'slate-dom'
 import type { EditableKeyDownHandler } from '../components/editable'
 import { isSelectAllHotkey } from '../dom-strategy/dom-strategy-commands'
@@ -22,6 +25,7 @@ import type { AndroidInputManager } from '../hooks/android-input-manager/android
 import { scheduleSlateReactFocus } from '../hooks/focus-scheduler'
 import { focusSlateEditable } from '../hooks/focus-slate-editable'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
+import { readSlateViewSelection } from '../view-selection'
 import { applyEditableCaretMovement } from './caret-engine'
 import {
   applyContentRootNavigation,
@@ -29,6 +33,7 @@ import {
 } from './content-root-navigation'
 import {
   isDestructiveEditableCommand,
+  isEditableEditingEpochCommand,
   markEditableEditingEpochCommandHandled,
 } from './editing-epoch-kernel'
 import { getEditableCommandFromKeyDown } from './editing-kernel'
@@ -74,6 +79,9 @@ const DEFAULT_MODEL_COMMAND_REPAIR: EditableRepairRequest = {
     selectionSource: 'model-owned',
   },
 }
+
+const isPlainTextKeyboardInput = (event: KeyboardEvent) =>
+  event.key.length === 1 && !event.altKey && !event.ctrlKey && !event.metaKey
 
 const MAIN_ROOT_KEY: RootKey = 'main'
 
@@ -176,6 +184,64 @@ const isPartialDOMStrategyRuntime = (domStrategyRuntime: unknown) =>
 
 const getSelectionRoot = (selection: Range | null) => selection?.anchor.root
 
+const isCollapsedSelectionBackedByEditableTextDOM = ({
+  editor,
+  inputController,
+  selection,
+}: {
+  editor: ReactRuntimeEditor
+  inputController: EditableInputController
+  selection: Range | null
+}) => {
+  if (!selection || !RangeApi.isCollapsed(selection)) {
+    return false
+  }
+
+  let root: Document | ShadowRoot
+
+  try {
+    root = ReactEditor.findDocumentOrShadowRoot(editor)
+  } catch {
+    return false
+  }
+
+  const domSelection = getSelection(root)
+  const anchorNode = domSelection?.anchorNode ?? null
+  const focusNode = domSelection?.focusNode ?? null
+
+  if (
+    !domSelection?.isCollapsed ||
+    !ReactEditor.hasSelectableTarget(editor, anchorNode) ||
+    !ReactEditor.hasSelectableTarget(editor, focusNode)
+  ) {
+    return false
+  }
+
+  const anchorElement = isDOMText(anchorNode)
+    ? anchorNode.parentElement
+    : isDOMElement(anchorNode)
+      ? anchorNode
+      : null
+  const textHost = anchorElement?.closest('[data-slate-node="text"]')
+  const textHostPath = textHost?.getAttribute('data-slate-path')
+  const domOffset = isDOMText(anchorNode) ? domSelection.anchorOffset : null
+  const pendingNativeTextInputRepairPathKey =
+    inputController.state?.pendingNativeTextInputRepairPathKey ?? null
+
+  if (
+    pendingNativeTextInputRepairPathKey &&
+    textHostPath === pendingNativeTextInputRepairPathKey &&
+    selection.anchor.path.join(',') === pendingNativeTextInputRepairPathKey
+  ) {
+    return true
+  }
+
+  return (
+    textHostPath === selection.anchor.path.join(',') &&
+    domOffset === selection.anchor.offset
+  )
+}
+
 export const shouldDeferBackspaceToNativeInput = ({
   isIOS = IS_IOS,
   language = typeof navigator === 'undefined' ? '' : navigator.language,
@@ -263,6 +329,32 @@ export const applyEditableKeyDown = ({
 }): EditableKeyDownResult => {
   if (isInteractiveInternalTarget(editor, event.target)) {
     const { nativeEvent } = event
+    const nestedEditableTarget = (() => {
+      try {
+        return isNestedEditableDOMTarget(
+          ReactEditor.assertDOMNode(editor, editor),
+          event.target
+        )
+      } catch {
+        return false
+      }
+    })()
+    const projectedCommand =
+      nestedEditableTarget && readSlateViewSelection(editor)
+        ? getEditableCommandFromKeyDown({
+            event,
+            selection: readRuntimeSelection(editor),
+          })
+        : null
+
+    if (!readOnly && isEditableEditingEpochCommand(projectedCommand)) {
+      event.preventDefault()
+      event.stopPropagation()
+      applyEditableCommand({ command: projectedCommand, editor })
+      markEditableEditingEpochCommandHandled(editor, projectedCommand)
+
+      return keyDownHandled(DEFAULT_MODEL_COMMAND_REPAIR)
+    }
 
     if (!readOnly && Hotkeys.isRedo(nativeEvent)) {
       event.preventDefault()
@@ -397,6 +489,16 @@ export const applyEditableKeyDown = ({
 
     if (isSelectAllHotkey(nativeEvent)) {
       event.preventDefault()
+      const previousIsUpdatingSelection =
+        inputController.state.isUpdatingSelection
+      setEditableModelSelectionPreference({
+        inputController,
+        preferModelSelection: true,
+        reason: 'model-command',
+        selectionSource: 'model-owned',
+      })
+      inputController.state.isUpdatingSelection = true
+      inputController.state.selectionChangeOrigin = 'programmatic-export'
       applyEditableCommand({ command: { kind: 'select-all' }, editor })
       const partialDOMStrategyRuntime =
         isPartialDOMStrategyRuntime(domStrategyRuntime)
@@ -409,6 +511,14 @@ export const applyEditableKeyDown = ({
       }
       setExplicitPartialDOMBackedSelection(partialDOMStrategyRuntime)
       forceRender()
+      setTimeout(() => {
+        if (
+          inputController.state.selectionChangeOrigin === 'programmatic-export'
+        ) {
+          inputController.state.isUpdatingSelection =
+            previousIsUpdatingSelection
+        }
+      })
       return keyDownHandled()
     }
 
@@ -467,6 +577,11 @@ export const applyEditableKeyDown = ({
     if (
       isPartialDOMStrategyRuntime(domStrategyRuntime) &&
       partialDOMBackedSelection &&
+      !isCollapsedSelectionBackedByEditableTextDOM({
+        editor,
+        inputController,
+        selection,
+      }) &&
       selection &&
       nativeEvent.key.length === 1 &&
       !nativeEvent.altKey &&
@@ -482,7 +597,15 @@ export const applyEditableKeyDown = ({
         },
         editor,
       })
-      return keyDownHandled()
+      return keyDownHandled({
+        focus: true,
+        kind: 'repair-caret-after-text-insert',
+        selectionSourceTransition: {
+          preferModelSelection: true,
+          reason: 'model-command',
+          selectionSource: 'model-owned',
+        },
+      })
     }
 
     const contentRootViewSelectionResult = applyContentRootViewSelection({
@@ -564,6 +687,7 @@ export const applyEditableKeyDown = ({
     if (keyDownCommand?.kind === 'insert-break') {
       event.preventDefault()
       applyEditableCommand({ command: keyDownCommand, editor })
+      markEditableEditingEpochCommandHandled(editor, keyDownCommand)
 
       return keyDownHandled({
         focus: true,
@@ -618,6 +742,24 @@ export const applyEditableKeyDown = ({
         event,
         selection,
       })
+
+      if (
+        selection &&
+        RangeApi.isExpanded(selection) &&
+        isPlainTextKeyboardInput(nativeEvent) &&
+        !ReactEditor.isComposing(editor)
+      ) {
+        event.preventDefault()
+        applyEditableCommand({
+          command: {
+            inputType: 'insertText',
+            kind: 'insert-text',
+            text: nativeEvent.key,
+          },
+          editor,
+        })
+        return keyDownHandled(DEFAULT_MODEL_COMMAND_REPAIR)
+      }
 
       // We don't have a core behavior for these, but they change the
       // DOM if we don't prevent them, so we have to.

@@ -84,7 +84,7 @@ The returned slots are the same raw Slate slots as top-level `state`, `tx`,
 const tables = defineEditorExtension({
   name: 'tables',
   peerDependencies: ['collaboration'],
-  conflicts: ['legacy-tables'],
+  conflicts: ['grid-tables'],
   options: {
     navigation: 'cell-boundary',
   },
@@ -208,7 +208,7 @@ const table = defineEditorExtension({
           const start = editor.read(state => state.points.start(cellPath))
 
           if (PointApi.equals(selection.anchor, start)) {
-            return
+            return true
           }
         }
       }
@@ -227,7 +227,7 @@ const table = defineEditorExtension({
         )
 
         if (cell) {
-          return
+          return true
         }
       }
 
@@ -278,6 +278,9 @@ Specs can describe behavior such as `inline`, `void`, `atom`, `isolating`,
 `keyboardSelectable`, `readOnly`, `selectable`, and `markableVoid`.
 `void: 'editable-island'` keeps the element void for rendering policy while
 allowing Slate cursor projection to enter its text children.
+`contentRoot: { slot }` declares that the element owns an editable child root
+stored at `element.childRoots[slot]`. See [Roots](13-roots.md#content-roots)
+for rendering and root ownership.
 
 `properties` are descriptors for extension-owned element fields. A descriptor
 can provide a default and equality function. Defaults are read through

@@ -375,28 +375,8 @@ export const useVirtualizedRootPlan = ({
       return [selectedTopLevelIndex, promotedTopLevelIndex]
     }
 
-    const pathIndexes =
-      selectionPaths?.flatMap(
-        (path) => createPageItemIndexesForPath(pageLayoutItems, path) ?? []
-      ) ?? []
-
-    if (pathIndexes.length > 0) {
-      return [...new Set(pathIndexes)]
-    }
-
-    return [selectedTopLevelIndex, promotedTopLevelIndex].flatMap((index) =>
-      typeof index === 'number'
-        ? (pageItemIndexesByTopLevelIndex.get(index) ?? [])
-        : []
-    )
-  }, [
-    hasPageLayoutItems,
-    pageLayoutItems,
-    pageItemIndexesByTopLevelIndex,
-    promotedTopLevelIndex,
-    selectionPaths,
-    selectedTopLevelIndex,
-  ])
+    return []
+  }, [hasPageLayoutItems, promotedTopLevelIndex, selectedTopLevelIndex])
   const rangeExtractor = React.useMemo(
     () =>
       createRetainedRangeExtractor({

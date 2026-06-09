@@ -43,17 +43,15 @@ export const useElementPath = (): Path | null => {
         return true
       }
 
-      if (change.nodeImpactRuntimeIds === null) {
-        return true
-      }
-
-      return change.nodeImpactRuntimeIds.includes(runtimeId)
+      return false
     },
     [runtimeId]
   )
 
   return useEditorSelector(selector, samePath, {
     profileId: 'element-path',
+    runtimeEventSource: 'path',
+    runtimeId,
     shouldUpdate,
   })
 }

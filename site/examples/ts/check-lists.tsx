@@ -109,12 +109,12 @@ const checklist = () =>
                 }
               )
               tx.selection.set(start)
-              return
+              return true
             }
           }
         }
 
-        next()
+        return next()
       },
     },
   })

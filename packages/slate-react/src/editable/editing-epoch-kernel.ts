@@ -12,7 +12,7 @@ import type {
   SelectionSource,
 } from './input-state'
 
-export type EditableEditingEpochKind = 'destructive'
+export type EditableEditingEpochKind = 'destructive' | 'model-command'
 
 export type EditableEditingEpoch = {
   active: boolean
@@ -52,6 +52,11 @@ type DestructiveEditableCommand = Extract<
   { kind: 'delete' } | { kind: 'delete-both' } | { kind: 'delete-fragment' }
 >
 
+type EditableEditingEpochCommand = Extract<
+  EditableCommand,
+  DestructiveEditableCommand | { kind: 'insert-break' }
+>
+
 const EDITOR_TO_CURRENT_EDITING_EPOCH = new WeakMap<
   Editor,
   EditableEditingEpoch
@@ -71,6 +76,16 @@ export const isDestructiveEditableCommand = (
     command.kind === 'delete-fragment'
   )
 }
+
+export const isEditableEditingEpochCommand = (
+  command: EditableCommand | null
+): command is EditableEditingEpochCommand =>
+  isDestructiveEditableCommand(command) || command?.kind === 'insert-break'
+
+const getEditableEditingEpochKind = (
+  command: EditableCommand | null
+): EditableEditingEpochKind =>
+  isDestructiveEditableCommand(command) ? 'destructive' : 'model-command'
 
 const nextEditingEpochId = (editor: Editor) => {
   const id = EDITOR_TO_NEXT_EDITING_EPOCH_ID.get(editor) ?? 1
@@ -94,7 +109,7 @@ export const beginEditableEditingEpoch = (
     command: input.command,
     handledCommand: null,
     id: nextEditingEpochId(editor),
-    kind: 'destructive',
+    kind: getEditableEditingEpochKind(input.command),
     modelSelectionBefore: input.modelSelectionBefore ?? null,
     ownership: input.ownership,
     rootEventFamily: input.rootEventFamily,
@@ -132,7 +147,7 @@ const canTraceJoinEditableEditingEpoch = (
     return false
   }
 
-  if (!isDestructiveEditableCommand(epoch.command)) {
+  if (!isEditableEditingEpochCommand(epoch.command)) {
     return false
   }
 
@@ -142,7 +157,7 @@ const canTraceJoinEditableEditingEpoch = (
 
   if (
     trace.eventFamily === 'beforeinput' &&
-    isDestructiveEditableCommand(trace.command)
+    areEditableEditingEpochCommandsEquivalent(epoch.command, trace.command)
   ) {
     return true
   }
@@ -162,19 +177,23 @@ const canTraceJoinEditableEditingEpoch = (
   )
 }
 
-const areDestructiveEditableCommandsEquivalent = (
+const areEditableEditingEpochCommandsEquivalent = (
   left: EditableCommand | null,
   right: EditableCommand | null
 ) => {
   if (
-    !isDestructiveEditableCommand(left) ||
-    !isDestructiveEditableCommand(right)
+    !isEditableEditingEpochCommand(left) ||
+    !isEditableEditingEpochCommand(right)
   ) {
     return false
   }
 
   if (left.kind !== right.kind) {
     return false
+  }
+
+  if (left.kind === 'insert-break' && right.kind === 'insert-break') {
+    return left.variant === right.variant
   }
 
   if (left.kind === 'delete' && right.kind === 'delete') {
@@ -194,7 +213,7 @@ export const markEditableEditingEpochCommandHandled = (
   editor: Editor,
   command: EditableCommand | null
 ) => {
-  if (!isDestructiveEditableCommand(command)) {
+  if (!isEditableEditingEpochCommand(command)) {
     return
   }
 
@@ -225,15 +244,28 @@ export const shouldSkipDuplicateEditableEditingEpochCommand = (
 
   return Boolean(
     epoch?.active &&
-      areDestructiveEditableCommandsEquivalent(epoch.handledCommand, command)
+      areEditableEditingEpochCommandsEquivalent(epoch.handledCommand, command)
   )
+}
+
+export const completeDuplicateEditableEditingEpochCommand = (
+  editor: Editor,
+  command: EditableCommand | null
+) => {
+  if (!shouldSkipDuplicateEditableEditingEpochCommand(editor, command)) {
+    return false
+  }
+
+  endEditableEditingEpoch(editor)
+
+  return true
 }
 
 export const beginOrJoinEditableEditingEpoch = (
   editor: Editor,
   input: EditableEditingEpochInput
 ): EditableEditingEpoch | null => {
-  if (!isDestructiveEditableCommand(input.command)) {
+  if (!isEditableEditingEpochCommand(input.command)) {
     return null
   }
 

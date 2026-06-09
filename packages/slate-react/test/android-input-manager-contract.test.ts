@@ -50,7 +50,7 @@ describe('Android input manager transform middleware flush policy', () => {
           name: 'insert-text-transform',
           transforms: {
             insertText({ next }) {
-              next()
+              return next()
             },
           },
         }),
@@ -85,7 +85,7 @@ describe('Android input manager transform middleware flush policy', () => {
           name: 'insert-text-transform',
           transforms: {
             insertText({ next }) {
-              next()
+              return next()
             },
           },
         }),
@@ -108,7 +108,7 @@ describe('Android input manager transform middleware flush policy', () => {
           name: 'insert-break-transform',
           transforms: {
             insertBreak({ next }) {
-              next()
+              return next()
             },
           },
         }),

@@ -15,6 +15,7 @@ import {
   type Value,
 } from 'slate'
 import {
+  applyOperation,
   applyStatePatches,
   executeCommand,
   getEditorOperationRoot,
@@ -161,8 +162,59 @@ const runHistoricUpdate = <V extends Value>(
           }
         : {}),
     },
+    skipNormalize: true,
     tag: 'historic',
   })
+}
+
+const replayHistoricOperations = <V extends Value>(
+  editor: Editor<V>,
+  operations: readonly Operation<V>[]
+) => {
+  for (const operation of compactHistoricTextOperations(operations)) {
+    applyOperation(editor, operation)
+  }
+}
+
+const compactHistoricTextOperations = <V extends Value>(
+  operations: readonly Operation<V>[]
+): Operation<V>[] => {
+  const compacted: Operation<V>[] = []
+
+  for (const operation of operations) {
+    const previous = compacted.at(-1)
+
+    if (
+      previous?.type === 'insert_text' &&
+      operation.type === 'insert_text' &&
+      getOperationRoot(previous) === getOperationRoot(operation) &&
+      PathApi.equals(previous.path, operation.path) &&
+      operation.offset === previous.offset + previous.text.length
+    ) {
+      previous.text += operation.text
+      continue
+    }
+
+    if (
+      previous?.type === 'remove_text' &&
+      operation.type === 'remove_text' &&
+      getOperationRoot(previous) === getOperationRoot(operation) &&
+      PathApi.equals(previous.path, operation.path) &&
+      operation.offset + operation.text.length === previous.offset
+    ) {
+      previous.offset = operation.offset
+      previous.text = operation.text + previous.text
+      continue
+    }
+
+    compacted.push(
+      operation.type === 'insert_text' || operation.type === 'remove_text'
+        ? ({ ...operation, path: [...operation.path] } as Operation<V>)
+        : operation
+    )
+  }
+
+  return compacted
 }
 
 const applyRedo = <V extends Value>(editor: Editor<V>) => {
@@ -181,7 +233,7 @@ const applyRedo = <V extends Value>(editor: Editor<V>) => {
       restoreHistoricSelection(tx, batch, root)
     }
     applyStatePatches(editor, batch.statePatches, 'redo')
-    tx.operations.replay(operations)
+    replayHistoricOperations(editor, operations)
   })
 
   history.redos.pop()
@@ -202,7 +254,7 @@ const applyUndo = <V extends Value>(editor: Editor<V>) => {
     const operations = filterHistoricSelectionOperations(inverseOps, root)
 
     applyStatePatches(editor, batch.statePatches, 'undo')
-    tx.operations.replay(operations)
+    replayHistoricOperations(editor, operations)
     if (shouldRestoreHistoricSelection(root, batch)) {
       restoreHistoricSelection(tx, batch, root)
     }
@@ -234,13 +286,13 @@ export const history = <const TEnabled extends boolean | undefined = undefined>(
           redo() {
             executeCommand(editor, { type: 'history_redo' }, () => {
               applyRedo(editor)
-              return { handled: true }
+              return true
             })
           },
           undo() {
             executeCommand(editor, { type: 'history_undo' }, () => {
               applyUndo(editor)
-              return { handled: true }
+              return true
             })
           },
         }
@@ -319,10 +371,7 @@ export const history = <const TEnabled extends boolean | undefined = undefined>(
               } else if (preparedBatch.statePatches.length > 0) {
                 merge = false
               } else {
-                merge = shouldMergeBatch(
-                  preparedBatch.operations,
-                  lastBatch.operations
-                )
+                merge = shouldMergeBatch(preparedBatch.operations, lastBatch)
               }
             }
 
@@ -381,12 +430,72 @@ const shouldMerge = (op: Operation, prev: Operation | undefined): boolean => {
   return false
 }
 
+const shouldMergeSelectedReplacementFollowup = (
+  operation: Operation,
+  previousBatch: Batch,
+  previousSaveableOperations: readonly Operation[]
+): boolean => {
+  if (
+    operation.type !== 'insert_text' ||
+    previousBatch.statePatches.length > 0 ||
+    !previousBatch.selectionBefore ||
+    RangeApi.isCollapsed(previousBatch.selectionBefore)
+  ) {
+    return false
+  }
+
+  const previousOperation = previousSaveableOperations.at(-1)
+
+  if (
+    previousOperation?.type !== 'insert_text' ||
+    !shouldMerge(operation, previousOperation)
+  ) {
+    return false
+  }
+
+  const previousRoot = getOperationRoot(previousOperation)
+  const previousBatchSingleRoot = previousSaveableOperations.every(
+    (previous) => getOperationRoot(previous) === previousRoot
+  )
+  const previousBatchDeletedSelection = previousSaveableOperations
+    .slice(0, -1)
+    .some(
+      (previous) =>
+        previous.type === 'remove_text' ||
+        previous.type === 'remove_node' ||
+        previous.type === 'merge_node'
+    )
+
+  return previousBatchSingleRoot && previousBatchDeletedSelection
+}
+
+const shouldMergeSetNodeBatch = (
+  operation: Operation,
+  previousSaveableOperations: readonly Operation[]
+): boolean => {
+  if (operation.type !== 'set_node') {
+    return false
+  }
+
+  const previousRoot = getOperationRoot(operation)
+
+  return (
+    previousSaveableOperations.length > 0 &&
+    previousSaveableOperations.every(
+      (previous) =>
+        previous.type === 'set_node' &&
+        getOperationRoot(previous) === previousRoot &&
+        PathApi.equals(previous.path, operation.path)
+    )
+  )
+}
+
 const shouldMergeBatch = (
   operations: readonly Operation[],
-  previousOperations: readonly Operation[]
+  previousBatch: Batch
 ): boolean => {
   const saveableOperations = operations.filter(shouldSave)
-  const previousSaveableOperations = previousOperations.filter(shouldSave)
+  const previousSaveableOperations = previousBatch.operations.filter(shouldSave)
   const previousOperation = previousSaveableOperations.at(-1)
   const previousRoot = previousOperation
     ? getOperationRoot(previousOperation)
@@ -398,10 +507,30 @@ const shouldMergeBatch = (
         operation.type === previousOperation.type &&
         getOperationRoot(operation) === previousRoot
     )
+  const previousBatchIsSingleTextPath =
+    previousOperation != null &&
+    (previousOperation.type === 'insert_text' ||
+      previousOperation.type === 'remove_text') &&
+    previousSaveableOperations.every(
+      (operation) =>
+        (operation.type === 'insert_text' ||
+          operation.type === 'remove_text') &&
+        getOperationRoot(operation) === previousRoot &&
+        PathApi.equals(operation.path, previousOperation.path)
+    )
 
   return saveableOperations.length === 1
-    ? previousBatchIsTextOnly &&
-        shouldMerge(saveableOperations[0]!, previousOperation)
+    ? shouldMergeSelectedReplacementFollowup(
+        saveableOperations[0]!,
+        previousBatch,
+        previousSaveableOperations
+      ) ||
+        shouldMergeSetNodeBatch(
+          saveableOperations[0]!,
+          previousSaveableOperations
+        ) ||
+        ((previousBatchIsTextOnly || previousBatchIsSingleTextPath) &&
+          shouldMerge(saveableOperations[0]!, previousOperation))
     : false
 }
 

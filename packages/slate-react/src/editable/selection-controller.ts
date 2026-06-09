@@ -2,6 +2,7 @@ import type { RefObject } from 'react'
 import {
   type Descendant,
   NodeApi,
+  type Path,
   PathApi,
   type Point,
   PointApi,
@@ -27,10 +28,7 @@ import {
 } from 'slate-dom'
 import { DOMCoverage } from 'slate-dom/internal'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
-import {
-  getSlateNodeElementByPath,
-  getSlateNodePathFromDOMElement,
-} from '../hooks/use-slate-node-ref'
+import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import {
   createSlateViewSelection,
@@ -44,6 +42,7 @@ import {
 } from './content-root-navigation'
 import { applyDOMCoverageSelectionPolicy } from './dom-coverage-selection'
 import type { EditableSelectionPolicy } from './editing-kernel'
+import { createFastDOMSelectionRange } from './fast-dom-selection-range'
 import type {
   EditableInputController,
   ModelSelectionPreferenceReason,
@@ -51,6 +50,7 @@ import type {
   SelectionSource,
 } from './input-state'
 import { isEditableOutsideFocusBoundarySettling } from './input-state'
+import { readModelSelectionDOMPreference } from './model-selection-dom-preference'
 import {
   readLiveSelection,
   readRuntimeSelection,
@@ -66,6 +66,7 @@ export type EditableSelectionController = {
 
 const MODEL_BACKED_FULL_DOCUMENT_CHILD_THRESHOLD = 1000
 const MAIN_ROOT_KEY = 'main'
+const MODEL_OWNED_TEXT_INPUT_GUARD_MS = 100
 
 const isNestedEditableDOMTarget = (
   editorElement: HTMLElement,
@@ -108,6 +109,16 @@ type ProjectedDOMSelectionEndpoint = {
 const getDOMElementForNode = (node: globalThis.Node | null) =>
   isDOMElement(node) ? node : isDOMText(node) ? node.parentElement : null
 
+const parseContentRootOwnerPath = (value: string | null): Path | null => {
+  if (!value) {
+    return null
+  }
+
+  const path = value.split(',').map((part) => Number.parseInt(part, 10))
+
+  return path.every(Number.isFinite) ? (path as Path) : null
+}
+
 const getDOMEditorElementForNode = (
   node: globalThis.Node | null
 ): HTMLElement | null => {
@@ -143,16 +154,28 @@ const getContentRootOwnerFromDOMEndpoint = ({
 
   const element = getDOMElementForNode(node)
   const slotElement = element?.closest('[data-slate-content-root-slot]')
+  const slotOwnerPath =
+    slotElement instanceof HTMLElement
+      ? parseContentRootOwnerPath(
+          slotElement.getAttribute('data-slate-content-root-owner-path')
+        )
+      : null
+  const slotOwnerRoot =
+    slotElement instanceof HTMLElement
+      ? slotElement.getAttribute('data-slate-content-root-owner-root')
+      : null
   const ownerElement = slotElement?.parentElement?.closest(
     '[data-slate-node="element"][data-slate-path]'
   )
   const ownerEditorElement = ownerElement?.closest('[data-slate-editor="true"]')
   const ownerPath =
-    ownerElement instanceof HTMLElement
+    slotOwnerPath ??
+    (ownerElement instanceof HTMLElement
       ? getSlateNodePathFromDOMElement(ownerElement)
-      : null
-  const ownerRoot =
-    ownerEditorElement?.getAttribute('data-slate-root') ?? MAIN_ROOT_KEY
+      : null)
+  const ownerRoot = (slotOwnerRoot ??
+    ownerEditorElement?.getAttribute('data-slate-root') ??
+    MAIN_ROOT_KEY) as RootKey
 
   return ownerPath
     ? {
@@ -430,51 +453,6 @@ export const executeEditableSelectionExport = ({
   return true
 }
 
-const getDOMPointForSlateTextPoint = (
-  editor: ReactRuntimeEditor,
-  point: Point
-): { node: globalThis.Node; offset: number } | null => {
-  const textHost = getSlateNodeElementByPath(editor, point.path)
-
-  if (!textHost) {
-    return null
-  }
-
-  const strings = Array.from(
-    textHost.querySelectorAll('[data-slate-string], [data-slate-zero-width]')
-  )
-  let offset = 0
-
-  for (const string of strings) {
-    const textNode = Array.from(string.childNodes).find(isDOMText)
-    const lengthAttribute = string.getAttribute('data-slate-length')
-    const length =
-      lengthAttribute == null
-        ? (textNode?.textContent?.length ?? string.textContent?.length ?? 0)
-        : Number.parseInt(lengthAttribute, 10)
-    const nextOffset = offset + (Number.isFinite(length) ? length : 0)
-
-    if (point.offset <= nextOffset) {
-      const zeroWidthOffset =
-        textNode?.textContent?.startsWith('\uFEFF') ||
-        string.textContent === '\uFEFF'
-          ? 1
-          : 0
-
-      return {
-        node: textNode ?? string,
-        offset: string.hasAttribute('data-slate-zero-width')
-          ? zeroWidthOffset
-          : Math.max(0, Math.min(point.offset - offset, length)),
-      }
-    }
-
-    offset = nextOffset
-  }
-
-  return null
-}
-
 const isFullDocumentSelection = (
   editor: ReactRuntimeEditor,
   selection: Range
@@ -511,6 +489,67 @@ const shouldKeepFullDocumentSelectionModelBacked = ({
         MODEL_BACKED_FULL_DOCUMENT_CHILD_THRESHOLD) &&
     isFullDocumentSelection(editor, selection)
   )
+}
+
+export type EditableDOMSelectionSyncOptions = {
+  preserveScroll?: boolean
+}
+
+const getComposedParentElement = (element: HTMLElement) => {
+  if (element.parentElement) {
+    return element.parentElement
+  }
+
+  const window = element.ownerDocument.defaultView
+
+  if (!window) {
+    return null
+  }
+
+  const ShadowRootConstructor = window.ShadowRoot
+  const root = element.getRootNode()
+
+  if (ShadowRootConstructor && root instanceof ShadowRootConstructor) {
+    const { host } = root
+
+    return host instanceof window.HTMLElement ? host : null
+  }
+
+  return null
+}
+
+const captureScrollOffsets = (startElement: HTMLElement) => {
+  const elements: Array<{
+    element: HTMLElement
+    scrollLeft: number
+    scrollTop: number
+  }> = []
+
+  for (
+    let element: HTMLElement | null = startElement;
+    element;
+    element = getComposedParentElement(element)
+  ) {
+    elements.push({
+      element,
+      scrollLeft: element.scrollLeft,
+      scrollTop: element.scrollTop,
+    })
+  }
+
+  const window = startElement.ownerDocument.defaultView
+  const scrollingElement = startElement.ownerDocument.scrollingElement
+
+  return () => {
+    for (const { element, scrollLeft, scrollTop } of elements) {
+      element.scrollLeft = scrollLeft
+      element.scrollTop = scrollTop
+    }
+
+    if (window && scrollingElement) {
+      window.scrollTo(scrollingElement.scrollLeft, scrollingElement.scrollTop)
+    }
+  }
 }
 
 const collapseNativeSelectionForViewSelection = ({
@@ -554,67 +593,18 @@ const collapseNativeSelectionForViewSelection = ({
   }
 }
 
-const createDOMSelectionRangeFromEndpoints = ({
-  editorElement,
-  end,
-  start,
-}: {
+const restoreScrollOffsets = (
+  restoreScroll: (() => void) | null,
   editorElement: HTMLElement
-  end: { node: globalThis.Node; offset: number }
-  start: { node: globalThis.Node; offset: number }
-}) => {
-  const range = editorElement.ownerDocument.createRange()
-
-  range.setStart(start.node, start.offset)
-  range.setEnd(end.node, end.offset)
-
-  return range
-}
-
-const isSamePath = (left: readonly number[], right: readonly number[]) =>
-  left.length === right.length &&
-  left.every((part, index) => part === right[index])
-
-const createFastDOMSelectionRange = ({
-  editor,
-  editorElement,
-  selection,
-}: {
-  editor: ReactRuntimeEditor
-  editorElement: HTMLElement
-  selection: Range
-}): DOMRange | null => {
-  if (isFullDocumentSelection(editor, selection)) {
-    return createDOMSelectionRangeFromEndpoints({
-      editorElement,
-      end: {
-        node: editorElement,
-        offset: editorElement.childNodes.length,
-      },
-      start: {
-        node: editorElement,
-        offset: 0,
-      },
-    })
+) => {
+  if (!restoreScroll) {
+    return
   }
 
-  const [start, end] = RangeApi.edges(selection)
-
-  if (!isSamePath(start.path, end.path)) {
-    return null
-  }
-
-  const startDOMPoint = getDOMPointForSlateTextPoint(editor, start)
-  const endDOMPoint = getDOMPointForSlateTextPoint(editor, end)
-
-  if (!startDOMPoint || !endDOMPoint) {
-    return null
-  }
-
-  return createDOMSelectionRangeFromEndpoints({
-    editorElement,
-    end: endDOMPoint,
-    start: startDOMPoint,
+  restoreScroll()
+  queueMicrotask(restoreScroll)
+  editorElement.ownerDocument.defaultView?.requestAnimationFrame(() => {
+    restoreScroll()
   })
 }
 
@@ -690,6 +680,9 @@ export const setEditableModelSelectionPreference = ({
   const nextSelectionSource =
     selectionSource ?? (preferModelSelection ? 'model-owned' : 'dom-current')
 
+  if (!preferModelSelection) {
+    inputController.state.modelOwnedTextInputGuard = 0
+  }
   inputController.preferModelSelectionForInputRef.current = preferModelSelection
   inputController.state.selectionSource = nextSelectionSource
   inputController.state.modelSelectionPreference = {
@@ -761,6 +754,41 @@ export const isEditableModelSelectionPreferredForInput = ({
     preference.reason === 'model-command' ||
     preference.reason === 'partial-dom-backed'
   )
+}
+
+export const shouldForceModelOwnedTextInput = ({
+  inputController,
+  inputType,
+}: {
+  inputController: EditableInputController
+  inputType: string
+}) => {
+  if (inputType !== 'insertText') {
+    return false
+  }
+
+  return (
+    isEditableModelSelectionPreferred(inputController) &&
+    (inputController.state.modelOwnedTextInputGuard ?? 0) > 0
+  )
+}
+
+export const armModelOwnedTextInputGuard = ({
+  inputController,
+}: {
+  inputController: EditableInputController
+}) => {
+  const nextGuard = (inputController.state.modelOwnedTextInputGuard ?? 0) + 1
+
+  inputController.state.modelOwnedTextInputGuard = nextGuard
+
+  const clearGuard = () => {
+    if (inputController.state.modelOwnedTextInputGuard === nextGuard) {
+      inputController.state.modelOwnedTextInputGuard = 0
+    }
+  }
+
+  setTimeout(clearGuard, MODEL_OWNED_TEXT_INPUT_GUARD_MS)
 }
 
 export const shouldImportChangedExpandedDOMSelection = ({
@@ -839,6 +867,48 @@ export const completeEditableSelectionChangeImport = ({
   }
 
   inputController.state.selectionChangeOrigin = null
+}
+
+export const getPendingNativeTextInputRepairSelectionChangePolicy = ({
+  pendingNativeTextInputRepairDOMOffset,
+  pendingNativeTextInputRepairOffset,
+  pendingNativeTextInputRepairPathKey,
+  range,
+  selectionChangeOrigin,
+}: {
+  pendingNativeTextInputRepairDOMOffset?: number | null
+  pendingNativeTextInputRepairOffset?: number | null
+  pendingNativeTextInputRepairPathKey: string | null
+  range: Range | null
+  selectionChangeOrigin: SelectionChangeOrigin
+}): 'allow' | 'clear-and-allow' | 'suppress' => {
+  if (
+    selectionChangeOrigin !== 'native-user' ||
+    !pendingNativeTextInputRepairPathKey
+  ) {
+    return 'allow'
+  }
+
+  if (!range) {
+    return 'suppress'
+  }
+
+  if (
+    !RangeApi.isCollapsed(range) ||
+    range.anchor.path.join(',') !== pendingNativeTextInputRepairPathKey
+  ) {
+    return 'clear-and-allow'
+  }
+
+  if (
+    pendingNativeTextInputRepairOffset != null &&
+    pendingNativeTextInputRepairDOMOffset != null &&
+    pendingNativeTextInputRepairDOMOffset !== pendingNativeTextInputRepairOffset
+  ) {
+    return 'suppress'
+  }
+
+  return 'allow'
 }
 
 export const resolveEditableImplicitTarget = ({
@@ -1040,7 +1110,18 @@ export const applyEditableDOMSelectionChange = ({
         exactMatch: false,
       })
     : null
+  const anchorElement = isDOMText(anchorNode)
+    ? anchorNode.parentElement
+    : isDOMElement(anchorNode)
+      ? anchorNode
+      : null
+  const projectedTextSelection =
+    anchorElement
+      ?.closest('[data-slate-node="text"]')
+      ?.getAttribute('data-slate-dom-sync-reason') === 'projection'
   const selectionChangeOrigin = state.selectionChangeOrigin ?? 'native-user'
+  const pendingNativeTextInputRepairPathKey =
+    state.pendingNativeTextInputRepairPathKey ?? null
 
   if (
     selectionChangeOrigin === 'native-user' &&
@@ -1055,6 +1136,38 @@ export const applyEditableDOMSelectionChange = ({
     isEditableModelSelectionPreferred(inputController)
   ) {
     return
+  }
+
+  if (
+    selectionChangeOrigin === 'native-user' &&
+    projectedTextSelection &&
+    RangeApi.isRange(range) &&
+    RangeApi.isCollapsed(range) &&
+    (state.modelOwnedTextInputGuard ?? 0) > 0
+  ) {
+    return
+  }
+
+  const pendingRepairSelectionChangePolicy =
+    getPendingNativeTextInputRepairSelectionChangePolicy({
+      pendingNativeTextInputRepairDOMOffset:
+        domSelection.isCollapsed && isDOMText(anchorNode)
+          ? domSelection.anchorOffset
+          : null,
+      pendingNativeTextInputRepairOffset:
+        state.pendingNativeTextInputRepairOffset ?? null,
+      pendingNativeTextInputRepairPathKey,
+      range,
+      selectionChangeOrigin,
+    })
+
+  if (pendingRepairSelectionChangePolicy === 'suppress') {
+    return
+  }
+
+  if (pendingRepairSelectionChangePolicy === 'clear-and-allow') {
+    state.pendingNativeTextInputRepairOffset = null
+    state.pendingNativeTextInputRepairPathKey = null
   }
 
   const currentSelection = readLiveSelection(editor)
@@ -1143,11 +1256,13 @@ export const applyEditableDOMSelectionChange = ({
 
 export const syncEditableDOMSelectionToEditor = ({
   editor,
+  options,
   scrollSelectionIntoView,
   partialDOMBackedSelection,
   state,
 }: {
   editor: ReactRuntimeEditor
+  options?: EditableDOMSelectionSyncOptions
   scrollSelectionIntoView: (
     editor: ReactRuntimeEditor,
     domRange: DOMRange
@@ -1196,13 +1311,21 @@ export const syncEditableDOMSelectionToEditor = ({
       return
     }
 
+    const preserveScroll =
+      options?.preserveScroll || shouldSkipSelectionScroll(editor)
+
     if (readSlateViewSelection(editor)) {
+      const restoreScroll = preserveScroll
+        ? captureScrollOffsets(editorElement)
+        : null
+
       collapseNativeSelectionForViewSelection({
         domSelection,
         editor,
         selection,
         state,
       })
+      restoreScrollOffsets(restoreScroll, editorElement)
       return
     }
 
@@ -1234,11 +1357,17 @@ export const syncEditableDOMSelectionToEditor = ({
     }
 
     const domRange =
+      readModelSelectionDOMPreference({
+        editor,
+        editorElement,
+        selection,
+      }) ??
       createFastDOMSelectionRange({
         editor,
         editorElement,
         selection,
-      }) ?? ReactEditor.resolveDOMRange(editor, selection)
+      }) ??
+      ReactEditor.resolveDOMRange(editor, selection)
 
     if (!domRange) {
       return
@@ -1248,6 +1377,10 @@ export const syncEditableDOMSelectionToEditor = ({
     state.selectionChangeOrigin = 'programmatic-export'
 
     try {
+      const restoreScroll = preserveScroll
+        ? captureScrollOffsets(editorElement)
+        : null
+
       if (RangeApi.isBackward(selection)) {
         domSelection.setBaseAndExtent(
           domRange.endContainer,
@@ -1264,7 +1397,9 @@ export const syncEditableDOMSelectionToEditor = ({
         )
       }
 
-      if (!shouldSkipSelectionScroll(editor)) {
+      restoreScrollOffsets(restoreScroll, editorElement)
+
+      if (!preserveScroll) {
         scrollSelectionIntoView(editor, domRange)
       }
     } finally {

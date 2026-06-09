@@ -34,8 +34,11 @@ export interface EditorSelectorOptions<
   TEditor extends Editor<any> = Editor<any>,
 > {
   deferred?: boolean
+  includeRootOrderChanges?: boolean
   profileId?: string
+  runtimeEventSource?: 'node' | 'path' | 'render'
   runtimeId?: RuntimeId | null
+  runtimeIds?: readonly RuntimeId[] | null
   shouldUpdate?: (
     operations?: readonly Operation<ValueOf<TEditor>>[],
     change?: SnapshotChange<ValueOf<TEditor>>
@@ -65,6 +68,11 @@ const getSelectorProfileId = (
   runtimeId: RuntimeId | null | undefined,
   phase: 'check' | 'notify'
 ) => `selector-${profileId ?? (runtimeId ? 'runtime' : 'global')}-${phase}`
+
+const isTextRenderOperation = (operation: Operation) =>
+  operation.type === 'insert_text' ||
+  operation.type === 'remove_text' ||
+  operation.type === 'set_selection'
 
 const scheduleMicrotask =
   typeof queueMicrotask === 'function'
@@ -109,8 +117,11 @@ export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
   equalityFn: (a: T | null, b: T) => boolean = refEquality,
   {
     deferred,
+    includeRootOrderChanges,
     profileId,
+    runtimeEventSource,
     runtimeId,
+    runtimeIds,
     shouldUpdate,
   }: EditorSelectorOptions<TEditor> = {}
 ): T {
@@ -157,8 +168,11 @@ export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
   useIsomorphicLayoutEffect(() => {
     const unsubscribe = addEventListener(updateWithOperations, {
       deferred,
+      includeRootOrderChanges,
       profileId,
+      runtimeEventSource,
       runtimeId,
+      runtimeIds,
       shouldUpdate: shouldUpdate ? shouldUpdateWithEditor : undefined,
     })
     update()
@@ -169,7 +183,10 @@ export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
     updateWithOperations,
     deferred,
     profileId,
+    runtimeEventSource,
     runtimeId,
+    runtimeIds,
+    includeRootOrderChanges,
     shouldUpdate,
     shouldUpdateWithEditor,
   ])
@@ -213,6 +230,11 @@ export function useEditorState<T, TEditor extends Editor<any> = Editor<any>>(
 export function useEditorSelectorContext() {
   const eventListeners = useRef(new Set<Callback>())
   const runtimeEventListeners = useRef(new Map<RuntimeId, Set<Callback>>())
+  const runtimePathEventListeners = useRef(new Map<RuntimeId, Set<Callback>>())
+  const runtimeRenderEventListeners = useRef(
+    new Map<RuntimeId, Set<Callback>>()
+  )
+  const rootOrderRuntimeEventListeners = useRef(new Set<Callback>())
   const deferredEventListeners = useRef(
     new Map<Callback, DeferredCallbackPayload>()
   )
@@ -241,21 +263,35 @@ export function useEditorSelectorContext() {
         listener(operations, change)
       })
 
-      const affectedRuntimeIds =
-        change?.affectedNodeRuntimeIds ?? change?.nodeImpactRuntimeIds
-      const shouldSkipRuntimeFanout = Boolean(
+      const shouldRouteRootOrderRuntimeListeners = Boolean(
         change &&
-          affectedRuntimeIds == null &&
-          !change.selectionChanged &&
-          !change.fullDocumentChanged &&
-          (change.rootRuntimeIdsChanged || change.topLevelOrderChanged)
+          (change.fullDocumentChanged ||
+            change.rootRuntimeIdsChanged ||
+            change.structureChanged ||
+            change.topLevelOrderChanged)
+      )
+      const affectedRuntimeIds = change?.fullDocumentChanged
+        ? change.affectedNodeRuntimeIds
+        : change?.nodeImpactRuntimeIds
+      const shouldRoutePathRuntimeListeners = Boolean(
+        !change ||
+          change.fullDocumentChanged ||
+          change.rootRuntimeIdsChanged ||
+          change.structureChanged ||
+          change.topLevelOrderChanged
+      )
+      const syncedTextOnlyChange = Boolean(
+        change?.textChanged &&
+          operations &&
+          operations.length > 0 &&
+          operations.every(isTextRenderOperation)
+      )
+      const shouldRouteRenderRuntimeListeners = Boolean(
+        !change || !syncedTextOnlyChange
       )
       const runtimeCallbacks = new Set<Callback>()
 
-      if (shouldSkipRuntimeFanout) {
-        // Root-level selectors rebuild the mounted runtime-id list for these
-        // commits. Notifying every stale mounted node would only add fanout.
-      } else if (!change || affectedRuntimeIds == null) {
+      if (!change || affectedRuntimeIds == null) {
         runtimeEventListeners.current.forEach((listeners) => {
           listeners.forEach((listener) => {
             runtimeCallbacks.add(listener)
@@ -267,6 +303,45 @@ export function useEditorSelectorContext() {
             runtimeCallbacks.add(listener)
           })
         }
+      }
+      if (shouldRoutePathRuntimeListeners) {
+        if (!change || affectedRuntimeIds == null) {
+          runtimePathEventListeners.current.forEach((listeners) => {
+            listeners.forEach((listener) => {
+              runtimeCallbacks.add(listener)
+            })
+          })
+        } else {
+          for (const runtimeId of affectedRuntimeIds) {
+            runtimePathEventListeners.current
+              .get(runtimeId)
+              ?.forEach((listener) => {
+                runtimeCallbacks.add(listener)
+              })
+          }
+        }
+      }
+      if (shouldRouteRenderRuntimeListeners) {
+        if (!change || affectedRuntimeIds == null) {
+          runtimeRenderEventListeners.current.forEach((listeners) => {
+            listeners.forEach((listener) => {
+              runtimeCallbacks.add(listener)
+            })
+          })
+        } else {
+          for (const runtimeId of affectedRuntimeIds) {
+            runtimeRenderEventListeners.current
+              .get(runtimeId)
+              ?.forEach((listener) => {
+                runtimeCallbacks.add(listener)
+              })
+          }
+        }
+      }
+      if (shouldRouteRootOrderRuntimeListeners) {
+        rootOrderRuntimeEventListeners.current.forEach((listener) => {
+          runtimeCallbacks.add(listener)
+        })
       }
 
       runtimeCallbacks.forEach((listener) => {
@@ -285,19 +360,30 @@ export function useEditorSelectorContext() {
       callbackProp: Callback,
       {
         deferred = false,
+        includeRootOrderChanges = false,
         profileId,
+        runtimeEventSource = 'node',
         runtimeId = null,
+        runtimeIds = null,
         shouldUpdate,
       }: EditorSelectorOptions = {}
     ) => {
+      const subscribedRuntimeIds =
+        runtimeIds && runtimeIds.length > 0
+          ? Array.from(new Set(runtimeIds))
+          : runtimeId
+            ? [runtimeId]
+            : null
+      const profileRuntimeId =
+        subscribedRuntimeIds?.length === 1 ? subscribedRuntimeIds[0] : runtimeId
       const shouldNotify = (
         operations?: readonly Operation[],
         change?: SnapshotChange
       ) => {
         recordSlateReactRender({
-          id: getSelectorProfileId(profileId, runtimeId, 'check'),
+          id: getSelectorProfileId(profileId, profileRuntimeId, 'check'),
           kind: 'selector',
-          runtimeId,
+          runtimeId: profileRuntimeId,
         })
 
         return shouldUpdate ? shouldUpdate(operations, change) : true
@@ -314,9 +400,9 @@ export function useEditorSelectorContext() {
         ? (operations?: readonly Operation[], change?: SnapshotChange) => {
             if (shouldNotify(operations, change)) {
               recordSlateReactRender({
-                id: getSelectorProfileId(profileId, runtimeId, 'notify'),
+                id: getSelectorProfileId(profileId, profileRuntimeId, 'notify'),
                 kind: 'selector',
-                runtimeId,
+                runtimeId: profileRuntimeId,
               })
               queueDeferredCallback(
                 deferredEventListeners.current,
@@ -329,38 +415,59 @@ export function useEditorSelectorContext() {
         : (operations?: readonly Operation[], change?: SnapshotChange) => {
             if (shouldNotify(operations, change)) {
               recordSlateReactRender({
-                id: getSelectorProfileId(profileId, runtimeId, 'notify'),
+                id: getSelectorProfileId(profileId, profileRuntimeId, 'notify'),
                 kind: 'selector',
-                runtimeId,
+                runtimeId: profileRuntimeId,
               })
               callbackProp(operations, change)
             }
           }
 
       recordSlateReactRender({
-        id: runtimeId
+        id: subscribedRuntimeIds
           ? 'selector-subscription-runtime'
           : deferred
             ? 'selector-subscription-deferred'
             : 'selector-subscription-global',
         kind: 'selector',
-        runtimeId,
+        runtimeId: profileRuntimeId,
       })
 
-      if (runtimeId) {
-        const listeners =
-          runtimeEventListeners.current.get(runtimeId) ?? new Set<Callback>()
-        listeners.add(callback)
-        runtimeEventListeners.current.set(runtimeId, listeners)
+      if (subscribedRuntimeIds) {
+        const listenerMap =
+          runtimeEventSource === 'path'
+            ? runtimePathEventListeners.current
+            : runtimeEventSource === 'render'
+              ? runtimeRenderEventListeners.current
+              : runtimeEventListeners.current
+        const listenerSets: Set<Callback>[] = []
+
+        subscribedRuntimeIds.forEach((subscribedRuntimeId) => {
+          const listeners =
+            listenerMap.get(subscribedRuntimeId) ?? new Set<Callback>()
+
+          listeners.add(callback)
+          listenerMap.set(subscribedRuntimeId, listeners)
+          listenerSets.push(listeners)
+        })
+
+        if (includeRootOrderChanges) {
+          rootOrderRuntimeEventListeners.current.add(callback)
+        }
 
         return () => {
           isSubscribed = false
           deferredEventListeners.current.delete(queuedCallback)
-          listeners.delete(callback)
+          subscribedRuntimeIds.forEach((subscribedRuntimeId, index) => {
+            const listeners = listenerSets[index]
 
-          if (listeners.size === 0) {
-            runtimeEventListeners.current.delete(runtimeId)
-          }
+            listeners.delete(callback)
+
+            if (listeners.size === 0) {
+              listenerMap.delete(subscribedRuntimeId)
+            }
+          })
+          rootOrderRuntimeEventListeners.current.delete(callback)
         }
       }
 

@@ -19,3 +19,4 @@ export const SlateContentRootOwnerContext = createContext<{
 export const SlateDOMTextSyncContext = createContext<DOMTextSyncOptions | null>(
   null
 )
+export const SlateDOMStrategyVirtualOffsetContext = createContext(0)

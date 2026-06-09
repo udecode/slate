@@ -52,6 +52,31 @@ const matchingText = useEditorState(
 )
 ```
 
+#### `useStateFieldValue<T>(field, options?): T`
+
+Subscribe to one `defineStateField` value.
+
+```tsx
+const title = useStateFieldValue(documentTitle)
+```
+
+The hook only re-renders when that field key appears in
+`change.dirtyStateKeys`. Use it for document title, page settings, spellcheck,
+and other document state controls.
+
+#### `useSetStateField<T>(field): (value, options?) => void`
+
+Create a setter for one `defineStateField` value.
+
+```tsx
+const setTitle = useSetStateField(documentTitle)
+
+setTitle('Q3 Launch Brief')
+```
+
+The setter writes through `editor.update` and preserves DOM selection by
+default. Pass update options when the app needs a tag or collaboration metadata.
+
 #### `useEditorSelector<T>(selector, equalityFn?, options?): T`
 
 Subscribe to a low-level derived editor value.

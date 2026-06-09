@@ -24,7 +24,14 @@ import {
   useDecorationSelector,
   useSlateProjections,
 } from '../src'
+import {
+  createEditableInputController,
+  createEditableInputControllerState,
+  type EditableRepairRequest,
+} from '../src/editable/input-controller'
+import { useProjectionDOMRepairBridge } from '../src/editable/projection-repair-bridge'
 import { ProjectionContext } from '../src/projection-context'
+import type { SlateProjectionRefreshListener } from '../src/projection-store'
 
 type SegmentLike = {
   end: number
@@ -132,6 +139,64 @@ const findTextRangesByText = (
   })
 
 describe('slate-react projections and selection contract', () => {
+  test('projection refresh bridge forces a render before exporting projection selection', () => {
+    const inputController = createEditableInputController({
+      preferModelSelectionForInputRef: { current: false },
+      state: createEditableInputControllerState(),
+    })
+    const requests: EditableRepairRequest[] = []
+    let refreshListener: SlateProjectionRefreshListener | null = null
+    const store = {
+      getSnapshot: () => ({}),
+      subscribe: () => () => {},
+      subscribeProjectionRefresh: (
+        listener: SlateProjectionRefreshListener
+      ) => {
+        refreshListener = listener
+        return () => {
+          refreshListener = null
+        }
+      },
+    }
+    const Harness = () => {
+      useProjectionDOMRepairBridge({
+        inputController,
+        requestEditableRepair: (request) => {
+          requests.push(request)
+        },
+      })
+
+      return null
+    }
+
+    render(
+      <ProjectionContext.Provider value={store}>
+        <Harness />
+      </ProjectionContext.Provider>
+    )
+
+    act(() => {
+      refreshListener?.({
+        changedRuntimeIds: ['runtime:a'],
+        didChange: true,
+        reason: 'external',
+        requiresDOMSelectionExport: true,
+      })
+    })
+
+    expect(requests).toEqual([
+      {
+        forceRender: true,
+        kind: 'force-render',
+        selectionSourceTransition: {
+          preferModelSelection: true,
+          reason: 'projection-refresh',
+          selectionSource: 'model-owned',
+        },
+      },
+    ])
+  })
+
   test('registers product-noun decoration sources without a projectionStore prop', () => {
     const editor = createEditor()
 
@@ -1009,6 +1074,94 @@ describe('slate-react projections and selection contract', () => {
     expect(store.getMetrics().recomputeCount).toBe(1)
 
     store.destroy()
+  })
+
+  test('passes resolved runtime scope into projection source reads', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ children: [{ text: 'A' }] }, { children: [{ text: 'B' }] }],
+      selection: null,
+    })
+
+    const snapshot = Editor.getSnapshot(editor)
+    const firstRuntimeId = snapshot.index.pathToId['0.0']
+    const secondRuntimeId = snapshot.index.pathToId['1.0']
+
+    if (!firstRuntimeId || !secondRuntimeId) {
+      throw new Error('Expected runtime ids for scoped projection read proof')
+    }
+
+    let runtimeScope = [firstRuntimeId] as readonly string[]
+    const sourceScopes: (readonly string[] | null)[] = []
+    const store = createDecorationSource(editor, {
+      id: 'scoped-source',
+      read: ({ runtimeScope: readRuntimeScope, snapshot: nextSnapshot }) => {
+        sourceScopes.push(readRuntimeScope)
+
+        return (readRuntimeScope ?? []).map((runtimeId) => {
+          const path = nextSnapshot.index.idToPath[runtimeId]
+          const text = NodeApi.get(
+            { children: nextSnapshot.children } as never,
+            path
+          ) as { text: string }
+
+          return {
+            key: runtimeId,
+            range: {
+              anchor: { path, offset: 0 },
+              focus: { path, offset: text.text.length },
+            },
+          }
+        })
+      },
+      runtimeScope: () => runtimeScope,
+    })
+
+    expect(sourceScopes).toEqual([[firstRuntimeId]])
+    expect(store.getSnapshot()[firstRuntimeId]).toHaveLength(1)
+    expect(store.getSnapshot()[secondRuntimeId]).toBeUndefined()
+
+    runtimeScope = [secondRuntimeId]
+    store.refresh({ reason: 'external' })
+
+    expect(sourceScopes).toEqual([[firstRuntimeId], [secondRuntimeId]])
+    expect(store.getSnapshot()[firstRuntimeId]).toBeUndefined()
+    expect(store.getSnapshot()[secondRuntimeId]).toHaveLength(1)
+
+    store.destroy()
+  })
+
+  test('Editable decorate walks only the scoped runtime subtree', () => {
+    const editor = createEditor()
+
+    Editor.replace(editor, {
+      children: [{ children: [{ text: 'A' }] }, { children: [{ text: 'B' }] }],
+      selection: null,
+    })
+
+    const firstBlockRuntimeId = Editor.getSnapshot(editor).index.pathToId['0']
+
+    if (!firstBlockRuntimeId) {
+      throw new Error('Expected block runtime id for scoped decorate proof')
+    }
+
+    const decoratedPaths = new Set<string>()
+
+    render(
+      <Slate editor={editor}>
+        <Editable
+          decorate={([, path]) => {
+            decoratedPaths.add(path.join('.'))
+
+            return []
+          }}
+          decorateRuntimeScope={() => [firstBlockRuntimeId]}
+        />
+      </Slate>
+    )
+
+    expect([...decoratedPaths].sort()).toEqual(['0', '0.0'])
   })
 
   test('projection stores receive editor changes through the source bus', async () => {

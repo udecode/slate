@@ -62,6 +62,51 @@ describe('selection reconciler', () => {
     }
   })
 
+  it('keeps native text insertion when the model selection is preferred but not forced', () => {
+    const editor = createTextEditor()
+    const selection = Editor.getSelection(editor)
+
+    const result = syncSelectionForBeforeInput({
+      allowDOMSelectionImport: true,
+      data: 'x',
+      editor: editor as ReactRuntimeEditor,
+      editorElement: {} as HTMLElement,
+      event: { getTargetRanges: () => [] } as unknown as InputEvent,
+      inputType: 'insertText',
+      isCompositionChange: false,
+      native: true,
+      preferModelSelectionForInput: true,
+      root: createRootWithoutSelection(),
+      selection,
+    })
+
+    assert.deepEqual(result.selection, selection)
+    assert.equal(result.native, true)
+  })
+
+  it('forces model-owned text insertion during structural command repair windows', () => {
+    const editor = createTextEditor()
+    const selection = Editor.getSelection(editor)
+
+    const result = syncSelectionForBeforeInput({
+      allowDOMSelectionImport: true,
+      data: 'x',
+      editor: editor as ReactRuntimeEditor,
+      editorElement: {} as HTMLElement,
+      event: { getTargetRanges: () => [] } as unknown as InputEvent,
+      forceModelOwnedTextInput: true,
+      inputType: 'insertText',
+      isCompositionChange: false,
+      native: true,
+      preferModelSelectionForInput: true,
+      root: createRootWithoutSelection(),
+      selection,
+    })
+
+    assert.deepEqual(result.selection, selection)
+    assert.equal(result.native, false)
+  })
+
   it('imports expanded delete target ranges from blur-time IME cleanup events', () => {
     const editor = createTextEditor()
     const selection = Editor.getSelection(editor)
@@ -95,6 +140,45 @@ describe('selection reconciler', () => {
 
       assert.deepEqual(result.selection, targetSlateRange)
       assert.deepEqual(Editor.getSelection(editor), targetSlateRange)
+    } finally {
+      ReactEditor.hasSelectableTarget = originalHasSelectableTarget
+      ReactEditor.resolveSlateRange = originalResolveSlateRange
+    }
+  })
+
+  it('does not import target ranges while preserving model-owned selection', () => {
+    const editor = createTextEditor()
+    const selection = Editor.getSelection(editor)
+    const targetRange = {} as StaticRange
+    const targetSlateRange = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 3 },
+    }
+    const originalHasSelectableTarget = ReactEditor.hasSelectableTarget
+    const originalResolveSlateRange = ReactEditor.resolveSlateRange
+
+    try {
+      ReactEditor.hasSelectableTarget = () => true
+      ReactEditor.resolveSlateRange = () => targetSlateRange
+
+      const result = syncSelectionForBeforeInput({
+        allowDOMSelectionImport: false,
+        data: null,
+        editor: editor as ReactRuntimeEditor,
+        editorElement: {} as HTMLElement,
+        event: {
+          getTargetRanges: () => [targetRange],
+        } as unknown as InputEvent,
+        inputType: 'deleteContentBackward',
+        isCompositionChange: false,
+        native: false,
+        preferModelSelectionForInput: true,
+        root: createRootWithoutSelection(),
+        selection,
+      })
+
+      assert.deepEqual(result.selection, selection)
+      assert.deepEqual(Editor.getSelection(editor), selection)
     } finally {
       ReactEditor.hasSelectableTarget = originalHasSelectableTarget
       ReactEditor.resolveSlateRange = originalResolveSlateRange

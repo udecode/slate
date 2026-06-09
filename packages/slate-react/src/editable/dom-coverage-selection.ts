@@ -8,6 +8,31 @@ type DOMRangeProjection = {
   domRange: globalThis.Range
 }
 
+type BoundaryRangeRole = 'anchor' | 'focus' | 'interior'
+
+const getBoundaryRangeRole = (
+  editor: ReactRuntimeEditor,
+  boundaryId: string,
+  selection: SlateRange
+): BoundaryRangeRole => {
+  const focusBoundary = DOMCoverage.getBoundaryForPoint(editor, selection.focus)
+
+  if (focusBoundary?.boundaryId === boundaryId) {
+    return 'focus'
+  }
+
+  const anchorBoundary = DOMCoverage.getBoundaryForPoint(
+    editor,
+    selection.anchor
+  )
+
+  if (anchorBoundary?.boundaryId === boundaryId) {
+    return 'anchor'
+  }
+
+  return 'interior'
+}
+
 const hasAnchorSideVisibleText = (
   editor: ReactRuntimeEditor,
   selection: SlateRange
@@ -146,6 +171,11 @@ export const applyDOMCoverageSelectionPolicy = ({
         'selection',
         {
           range: selection,
+          rangeRole: getBoundaryRangeRole(
+            editor,
+            boundary.boundaryId,
+            selection
+          ),
         }
       )
     }

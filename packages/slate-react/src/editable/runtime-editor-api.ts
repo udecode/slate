@@ -7,6 +7,7 @@ import {
 
 export {
   Editor,
+  getEditorCurrentMarks,
   getEditorExtensionRegistry,
   getEditorLiveNode,
   getEditorLiveSelection,

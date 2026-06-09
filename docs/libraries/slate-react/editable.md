@@ -39,6 +39,7 @@ type EditableProps = {
   ) => React.ReactNode
   renderText?: (props: RenderTextProps) => React.ReactNode
   renderVoid?: (props: RenderVoidProps) => React.ReactNode
+  root?: RootKey
   scrollSelectionIntoView?: (editor: Editor, domRange: globalThis.Range) => void
   spellCheck?: boolean
   style?: React.CSSProperties
@@ -259,10 +260,10 @@ const markdown = defineEditorExtension({
         if (selection) {
           tx.nodes.set({ type: 'code' })
         }
-        return
+        return true
       }
 
-      next()
+      return next()
     },
   },
 })
@@ -304,7 +305,10 @@ Product input rules belong in higher-level command layers or editor extensions. 
 
 ## DOM Strategy
 
-`Editable` applies safe staged rendering automatically. Use `domStrategy="staged"` to lock that behavior explicitly, or `domStrategy="full"` to render the full document surface for debugging.
+`Editable` keeps large documents DOM-bounded by default. Use
+`domStrategy="staged"` when a product needs eventual native DOM coverage for the
+whole document, or `domStrategy="full"` to render the full document surface for
+debugging.
 
 Use `onDOMStrategyMetrics` to wire production RUM or a Datadog dashboard. The
 callback runs after commit and reports the current document cohort, requested
@@ -313,7 +317,7 @@ coverage boundary counts, visible DOM node count, and editable descendant count.
 
 ```tsx
 <Editable
-  domStrategy="staged"
+  domStrategy="auto"
   onDOMStrategyMetrics={metrics => {
     datadogRum.addAction('slate.dom_strategy.surface', metrics)
   }}
@@ -323,9 +327,9 @@ coverage boundary counts, visible DOM node count, and editable descendant count.
 Track dashboards by interaction name, cohort, document size, requested strategy,
 effective strategy, degradation mode, native surface completion, boundary count,
 visible DOM count, editable descendant count, custom renderer flag, browser,
-mobile/desktop, IME state, and release version. Virtualized, partial-DOM, and
-`staged-warmup` metrics are degraded-mode signals; do not mix them with complete
-DOM-present default rows.
+mobile/desktop, IME state, and release version. Virtualized and partial-DOM
+metrics are bounded-surface rows. `staged-warmup` metrics are staged
+materialization rows. Do not mix either bucket with complete DOM-present rows.
 
 ## DOM Coverage Boundaries
 
@@ -340,33 +344,34 @@ const renderElement = ({ children, element, slots }) => {
     return (
       <EditableElement>
         {React.Children.toArray(children)[0]}
-        <slots.contentBoundary
-          mounted={!element.collapsed}
-          onMaterialize={() => openSection(element.id)}
-          renderPlaceholder={({ materialize }) => (
+        {slots.contentBoundary({
+          mounted: !element.collapsed,
+          onMaterialize: () => openSection(element.id),
+          renderPlaceholder: ({ materialize }) => (
             <button onClick={materialize} type="button">
               Show section
             </button>
-          )}
-          scope={{ from: 1, type: 'children' }}
-          selectionPolicy="materialize"
-        />
+          ),
+          scope: { from: 1, type: 'children' },
+          selectionPolicy: 'materialize',
+        })}
       </EditableElement>
     )
   }
 
   if (element.type === 'hidden-header') {
     return (
-      <slots.contentBoundary
-        boundaryId="hidden-header"
-        copyPolicy="exclude"
-        mounted={!element.hidden}
-        reason="app-hidden"
-        scope={{ type: 'self' }}
-        selectionPolicy="boundary"
-      >
-        <button type="button">Show header</button>
-      </slots.contentBoundary>
+      <EditableElement>
+        {slots.contentBoundary({
+          boundaryId: 'hidden-header',
+          children: <button type="button">Show header</button>,
+          copyPolicy: 'exclude',
+          mounted: !element.hidden,
+          reason: 'app-hidden',
+          scope: { type: 'self' },
+          selectionPolicy: 'skip',
+        })}
+      </EditableElement>
     )
   }
 
@@ -376,17 +381,37 @@ const renderElement = ({ children, element, slots }) => {
 
 Boundary content is model-present but DOM-incomplete while `mounted` is `false`.
 Slate maps selection, copy, paste, and DOM point import through the boundary
-registry instead of resolving missing descendants with raw DOM lookups. Hidden
-text is not available to native browser find or screen-reader traversal until
-the boundary is mounted. Copy behavior follows `copyPolicy`; collapsed document
-sections usually use `include-model`, while app-hidden headers and footers
-usually use `exclude`.
+registry instead of resolving missing descendants with raw DOM lookups.
 
-`boundaryId` is optional. Slate derives a stable editor-local boundary id from
-the rendered element and scope, while explicit ids are still useful for tests
-and diagnostics. Use `onMaterialize({ boundary, reason, range })` when a hidden
-surface should open itself before Slate moves selection into it. The callback is
-local UI state plumbing; document content remains in the Slate value.
+Use the dedicated [DOM Coverage Boundaries](./dom-coverage-boundaries.md) page
+for `selectionPolicy`, `copyPolicy`, `findPolicy`, and `onMaterialize`.
+
+## Multiple Roots
+
+Pass `root` when one editor renders a named document root.
+
+```tsx
+<Slate editor={editor}>
+  <Editable aria-label="Header" root="header" />
+  <Editable aria-label="Body" />
+  <Editable aria-label="Footer" root="footer" />
+</Slate>
+```
+
+Use `slots.contentRoot(slot)` from `renderElement` when an element owns an
+editable child root, such as a synced block body.
+
+```tsx
+const SyncedBlock = ({ attributes, element, slots }) => (
+  <section {...attributes}>
+    <header>Synced block</header>
+    {slots.contentRoot('body', { ariaLabel: 'Synced block body' })}
+  </section>
+)
+```
+
+See [Roots](../../concepts/13-roots.md) for the value shape, `tx.roots`, root
+chrome, and content-root ownership.
 
 ## Styling
 

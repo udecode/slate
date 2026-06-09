@@ -1,13 +1,15 @@
-import { type Descendant, NodeApi, RangeApi } from 'slate'
+import { type Descendant, NodeApi, type Range, RangeApi } from 'slate'
 import { getDOMClipboardFormatKey } from 'slate-dom/internal'
 
+import { resolveSlateViewBoundarySegmentEndpoint } from '../view-boundary-graph'
 import {
   isSlateViewSelectionCollapsed,
   readSlateViewSelection,
+  type SlateViewSelection,
 } from '../view-selection'
-import { createProjectedSelectionTarget } from './projected-selection-target'
 import type { Editor as RuntimeEditor } from './runtime-editor-api'
 
+const DEFAULT_SLATE_CLIPBOARD_FORMAT_KEY = 'x-slate-fragment'
 const SLATE_FRAGMENT_FORMAT_ATTRIBUTE = 'data-slate-fragment-format'
 
 const escapeHtmlText = (text: string) =>
@@ -22,6 +24,52 @@ const getFragmentText = (fragment: readonly Descendant[]) =>
 const encodeClipboardFragment = (fragment: readonly Descendant[]) =>
   globalThis.btoa(encodeURIComponent(JSON.stringify(fragment)))
 
+const getCanonicalRuntimeEditor = (editor: RuntimeEditor): RuntimeEditor =>
+  ((editor as { runtime?: { editor?: RuntimeEditor } }).runtime?.editor ??
+    editor) as RuntimeEditor
+
+const getProjectedClipboardFormatKey = (editor: RuntimeEditor) => {
+  const viewEditorKey = getDOMClipboardFormatKey(editor)
+
+  return viewEditorKey === DEFAULT_SLATE_CLIPBOARD_FORMAT_KEY
+    ? getDOMClipboardFormatKey(getCanonicalRuntimeEditor(editor))
+    : viewEditorKey
+}
+
+const getProjectedViewSelectionClipboardRanges = (
+  editor: RuntimeEditor,
+  viewSelection: SlateViewSelection
+): Range[] | null =>
+  editor.read((state) => {
+    const roots = state.value.get().roots
+    const ranges: Range[] = []
+
+    for (const segment of viewSelection.segments.parts) {
+      const anchor = resolveSlateViewBoundarySegmentEndpoint(
+        roots,
+        segment,
+        segment.start
+      )
+      const focus = resolveSlateViewBoundarySegmentEndpoint(
+        roots,
+        segment,
+        segment.end
+      )
+
+      if (!anchor || !focus) {
+        return null
+      }
+
+      const range = { anchor, focus }
+
+      if (!RangeApi.isCollapsed(range)) {
+        ranges.push(range)
+      }
+    }
+
+    return ranges
+  })
+
 export const getProjectedViewSelectionFragment = (
   editor: RuntimeEditor
 ): Descendant[] | null => {
@@ -31,16 +79,14 @@ export const getProjectedViewSelectionFragment = (
     return null
   }
 
-  const target = createProjectedSelectionTarget(editor, viewSelection)
+  const ranges = getProjectedViewSelectionClipboardRanges(editor, viewSelection)
 
-  if (!target) {
+  if (!ranges) {
     return null
   }
 
   return editor.read((state) =>
-    target.ranges.flatMap((range) =>
-      RangeApi.isCollapsed(range) ? [] : state.fragment.get({ at: range })
-    )
+    ranges.flatMap((range) => state.fragment.get({ at: range }))
   )
 }
 
@@ -56,7 +102,7 @@ export const writeProjectedViewSelectionClipboardData = (
 
   const encoded = encodeClipboardFragment(fragment)
   const text = getFragmentText(fragment)
-  const clipboardFormatKey = getDOMClipboardFormatKey(editor)
+  const clipboardFormatKey = getProjectedClipboardFormatKey(editor)
   const escapedClipboardFormatKey = escapeHtmlAttribute(clipboardFormatKey)
 
   data.setData(`application/${clipboardFormatKey}`, encoded)

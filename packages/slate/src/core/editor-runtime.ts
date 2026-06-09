@@ -11,6 +11,7 @@ import type {
   Text,
 } from '../interfaces'
 import type {
+  CommitListener,
   Editor,
   EditorAboveOptions,
   EditorCommit,
@@ -115,6 +116,7 @@ export type InternalEditorSnapshotRuntime<V extends Value = Value> = {
 export type InternalEditorTransactionRuntime<V extends Value = Value> = {
   read: <T>(fn: (state: EditorStateView<V>) => T) => T
   subscribe: (listener: SnapshotListener<V>) => () => void
+  subscribeCommit: (listener: CommitListener<V>) => () => void
   subscribeSource: (
     source: EditorCommitSource,
     listener: SnapshotListener<V>

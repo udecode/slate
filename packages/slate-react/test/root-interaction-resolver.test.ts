@@ -54,6 +54,7 @@ describe('root interaction resolver', () => {
         selection: 'restore',
       })
     ).toEqual({
+      fallbackSelection: 'end',
       selection: 'restore',
       type: 'focus-root',
     })
@@ -73,12 +74,31 @@ describe('root interaction resolver', () => {
         selection: 'restore',
       })
     ).toEqual({
+      fallbackSelection: 'end',
       selection: 'restore',
       type: 'focus-root',
     })
   })
 
-  test('places caret at root end for editable root surface clicks without coordinates', () => {
+  test('carries root chrome fallback selection into mouseup focus action', () => {
+    expect(
+      resolveRootInteractionMouseUp({
+        eventRange: null,
+        pendingAction: {
+          fallbackSelection: 'end',
+          preventDefault: true,
+          type: 'activate-root',
+        },
+        selection: 'restore',
+      })
+    ).toEqual({
+      fallbackSelection: 'end',
+      selection: 'restore',
+      type: 'focus-root',
+    })
+  })
+
+  test('restores selection for editable root surface clicks without coordinates', () => {
     const editable = document.createElement('div')
 
     editable.dataset.slateEditor = 'true'
@@ -104,12 +124,13 @@ describe('root interaction resolver', () => {
         selection: 'restore',
       })
     ).toEqual({
-      selection: 'end',
+      fallbackSelection: 'end',
+      selection: 'restore',
       type: 'focus-root',
     })
   })
 
-  test('keeps editable root padding clicks at root end even when browser coordinates resolve stale text', () => {
+  test('keeps editable root padding clicks on restore even when browser coordinates resolve stale text', () => {
     expect(
       resolveRootInteractionMouseUp({
         eventRange: {
@@ -123,7 +144,8 @@ describe('root interaction resolver', () => {
         selection: 'restore',
       })
     ).toEqual({
-      selection: 'end',
+      fallbackSelection: 'end',
+      selection: 'restore',
       type: 'focus-root',
     })
   })

@@ -1,9 +1,4 @@
-import type {
-  EditorSnapshot,
-  Range,
-  RuntimeId,
-  Editor as SlateEditor,
-} from 'slate'
+import type { Range, RuntimeId, Editor as SlateEditor } from 'slate'
 import { RangeApi } from 'slate'
 
 import {
@@ -12,6 +7,7 @@ import {
   type SlateProjectionRefreshListener,
   type SlateProjectionRefreshResult,
   type SlateProjectionSlice,
+  type SlateProjectionSourceReadContext,
   type SlateProjectionStoreMetrics,
   type SlateProjectionStoreOptions,
   type SlateProjectionStoreRefreshOptions,
@@ -27,10 +23,10 @@ export type SlateRangeDecoration<T = unknown> =
       range: Range
     }
 
-export type SlateDecorationSourceReadContext = {
-  editor: SlateEditor
-  snapshot: EditorSnapshot
-}
+export type SlateDecorationSourceReadContext =
+  SlateProjectionSourceReadContext & {
+    editor: SlateEditor
+  }
 
 export type SlateDecorationSourceOptions<T = unknown> = Omit<
   SlateProjectionStoreOptions,
@@ -180,7 +176,7 @@ export const createDecorationSource = <T = unknown>(
 ): SlateDecorationSource<T> => {
   const store = createSlateProjectionStore<T>(
     editor,
-    (snapshot) => options.read({ editor, snapshot }),
+    (snapshot, context) => options.read({ ...context, editor, snapshot }),
     {
       dirtiness: options.dirtiness,
       runtimeScope: options.runtimeScope,

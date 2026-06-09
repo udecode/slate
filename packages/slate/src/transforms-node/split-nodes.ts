@@ -5,12 +5,44 @@ import { node as getNode } from '../editor/node'
 import { nodes as getNodes } from '../editor/nodes'
 import { LocationApi } from '../interfaces'
 import { Editor } from '../interfaces/editor'
-import { NodeApi } from '../interfaces/node'
+import { type Node, NodeApi } from '../interfaces/node'
 import { type Path, PathApi } from '../interfaces/path'
 import type { Point } from '../interfaces/point'
 import type { PointRef } from '../interfaces/point-ref'
 import { type Range, RangeApi } from '../interfaces/range'
 import type { NodeMutationMethods } from '../interfaces/transforms/node'
+
+const now = () => globalThis.performance?.now?.() ?? Date.now()
+
+const profileSplitNodesDuration = <T>(id: string, callback: () => T): T => {
+  const profiler = (
+    globalThis as typeof globalThis & {
+      __SLATE_REACT_RENDER_PROFILER__?: {
+        record?: (event: {
+          duration: number
+          id: string
+          kind: 'core-time'
+        }) => void
+      }
+    }
+  ).__SLATE_REACT_RENDER_PROFILER__
+
+  if (!profiler) {
+    return callback()
+  }
+
+  const start = now()
+
+  try {
+    return callback()
+  } finally {
+    profiler.record?.({
+      duration: now() - start,
+      id,
+      kind: 'core-time',
+    })
+  }
+}
 
 const deleteRange = (editor: Editor, range: Range): Point | null => {
   if (RangeApi.isCollapsed(range)) {
@@ -51,154 +83,265 @@ const getTextEndForwardPoint = (
   return Editor.point(editor, nextPath, { edge: 'start' })
 }
 
+const isTextStartSplit = (node: Node, point: Point, path: Path) =>
+  NodeApi.isText(node) && PathApi.equals(path, point.path) && point.offset === 0
+
+const isInlineStartSplit = (
+  editor: Editor,
+  node: Node,
+  point: Point,
+  path: Path
+) =>
+  NodeApi.isElement(node) &&
+  getEditorSchema(editor).isInline(node) &&
+  Editor.isStart(editor, point, path)
+
+const ensureStartPointAfterHighestSplit = (
+  editor: Editor,
+  path: Path
+): Point | null => {
+  if (!NodeApi.has(editor, path)) {
+    return null
+  }
+
+  const [node, textPath] = NodeApi.first(editor, path)
+
+  if (NodeApi.isText(node)) {
+    return { path: textPath, offset: 0 }
+  }
+
+  if (NodeApi.isElement(node) && node.children.length === 0) {
+    const point = { path: textPath.concat(0), offset: 0 }
+
+    applyOperation(editor, {
+      type: 'insert_node',
+      path: point.path,
+      node: { text: '' },
+    })
+
+    return point
+  }
+
+  return null
+}
+
 export const splitNodes: NodeMutationMethods['splitNodes'] = (
   editor,
   options = {}
 ) => {
   runEditorTransaction(editor, (tx) => {
-    Editor.withoutNormalizing(editor, () => {
-      const transforms = getEditorTransformRegistry(editor)
-      const { mode = 'lowest', voids = false } = options
-      let { match, height = 0, always = false } = options
-      let at = tx.resolveTarget({ at: options.at })
+    profileSplitNodesDuration('split-nodes-without-normalizing', () => {
+      Editor.withoutNormalizing(editor, () => {
+        const transforms = getEditorTransformRegistry(editor)
+        const { mode = 'lowest', voids = false } = options
+        let { match, height = 0, always = false } = options
+        let at = profileSplitNodesDuration('split-nodes-resolve-target', () =>
+          tx.resolveTarget({ at: options.at })
+        )
 
-      if (!at) {
-        return
-      }
-
-      if (match == null) {
-        match = (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n)
-      }
-
-      if (LocationApi.isRange(at)) {
-        at = deleteRange(editor, at)
         if (!at) {
           return
         }
-      }
 
-      if (LocationApi.isPath(at)) {
-        if (at.length === 0) {
-          throw new Error('Cannot split the editor root.')
+        if (match == null) {
+          match = (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n)
         }
 
-        if (options.position != null) {
-          const path = at
-          const [node] = getNode(editor, path)
-
-          applyOperation(editor, {
-            type: 'split_node',
-            path,
-            position: options.position,
-            properties: NodeApi.extractProps(node),
-          })
-
-          return
+        if (LocationApi.isRange(at)) {
+          at = deleteRange(editor, at)
+          if (!at) {
+            return
+          }
         }
 
-        const path = at
-        const point = Editor.point(editor, path)
-        const [parent] = Editor.parent(editor, path)
+        let targetWasPath = false
 
-        match = (n) => n === parent
-        height = point.path.length - path.length + 1
-        at = point
-        always = true
-      }
+        if (LocationApi.isPath(at)) {
+          targetWasPath = true
 
-      if (!LocationApi.isPoint(at)) {
-        return
-      }
-
-      const beforeRef = Editor.pointRef(editor, at, {
-        affinity: 'backward',
-      })
-      let afterRef: PointRef | undefined
-
-      try {
-        const [highest] = getNodes(editor, { at, match, mode, voids })
-
-        if (!highest) {
-          return
-        }
-
-        const voidMatch = Editor.void(editor, { at, mode: 'highest' })
-
-        if (!voids && voidMatch) {
-          const [voidNode, voidPath] = voidMatch
-
-          if (getEditorSchema(editor).isInline(voidNode)) {
-            let after = Editor.after(editor, voidPath)
-
-            if (!after) {
-              const text = { text: '' }
-              const afterPath = PathApi.next(voidPath)
-              transforms.insertNodes(text, { at: afterPath, voids })
-              after = Editor.point(editor, afterPath)!
-            }
-
-            at = after
-            always = true
+          if (at.length === 0) {
+            throw new Error('Cannot split the editor root.')
           }
 
-          const siblingHeight = at.path.length - voidPath.length
-          height = siblingHeight + 1
-          always = true
-        }
+          if (options.position != null) {
+            const path = at
+            const [node] = getNode(editor, path)
 
-        const depth = at.path.length - height
-        const [, highestPath] = highest
-        const textEndForwardPoint = always
-          ? getTextEndForwardPoint(editor, at, highestPath)
-          : null
-        afterRef = Editor.pointRef(editor, textEndForwardPoint ?? at, {
-          affinity: 'forward',
-        })
-        const lowestPath = at.path.slice(0, depth)
-        let position = height === 0 ? at.offset : at.path[depth]!
-
-        for (const [node, path] of Editor.levels(editor, {
-          at: lowestPath,
-          reverse: true,
-          voids,
-        })) {
-          let split = false
-
-          if (
-            path.length < highestPath.length ||
-            path.length === 0 ||
-            (!voids && NodeApi.isElement(node) && Editor.isVoid(editor, node))
-          ) {
-            break
-          }
-
-          const point = beforeRef.current!
-          const isEnd = Editor.isEnd(editor, point, path)
-
-          if (textEndForwardPoint && PathApi.equals(path, at.path)) {
-            split = false
-          } else if (always || !Editor.isEdge(editor, point, path)) {
-            split = true
             applyOperation(editor, {
               type: 'split_node',
               path,
-              position,
+              position: options.position,
               properties: NodeApi.extractProps(node),
             })
+
+            return
           }
 
-          position = path.at(-1)! + (split || isEnd ? 1 : 0)
+          const path = at
+          const point = profileSplitNodesDuration(
+            'split-nodes-path-point',
+            () => Editor.point(editor, path)
+          )
+          const [parent] = profileSplitNodesDuration(
+            'split-nodes-path-parent',
+            () => Editor.parent(editor, path)
+          )
+
+          match = (n) => n === parent
+          height = point.path.length - path.length + 1
+          at = point
+          always = true
         }
 
-        if (options.at == null) {
-          const point =
-            afterRef.current || Editor.point(editor, [], { edge: 'end' })
-          transforms.select(point)
+        if (!LocationApi.isPoint(at)) {
+          return
         }
-      } finally {
-        beforeRef.unref()
-        afterRef?.unref()
-      }
+
+        let splitPoint: Point = at
+        const beforeRef = profileSplitNodesDuration(
+          'split-nodes-before-point-ref',
+          () =>
+            Editor.pointRef(editor, splitPoint, {
+              affinity: 'backward',
+            })
+        )
+        let afterRef: PointRef | undefined
+
+        try {
+          const [highest] = profileSplitNodesDuration(
+            'split-nodes-find-highest',
+            () =>
+              getNodes(editor, {
+                at: splitPoint,
+                match,
+                mode,
+                voids,
+              })
+          )
+
+          if (!highest) {
+            return
+          }
+
+          const voidMatch = profileSplitNodesDuration(
+            'split-nodes-void-match',
+            () =>
+              Editor.void(editor, {
+                at: splitPoint,
+                mode: 'highest',
+              })
+          )
+
+          if (!voids && voidMatch) {
+            const [voidNode, voidPath] = voidMatch
+
+            if (getEditorSchema(editor).isInline(voidNode)) {
+              let after = Editor.after(editor, voidPath)
+
+              if (!after) {
+                const text = { text: '' }
+                const afterPath = PathApi.next(voidPath)
+                transforms.insertNodes(text, { at: afterPath, voids })
+                after = Editor.point(editor, afterPath)!
+              }
+
+              splitPoint = after
+              always = true
+            }
+
+            const siblingHeight = splitPoint.path.length - voidPath.length
+            height = siblingHeight + 1
+            always = true
+          }
+
+          const depth = splitPoint.path.length - height
+          const [, highestPath] = highest
+          const textEndForwardPoint = always
+            ? profileSplitNodesDuration(
+                'split-nodes-text-end-forward-point',
+                () => getTextEndForwardPoint(editor, splitPoint, highestPath)
+              )
+            : null
+          afterRef = profileSplitNodesDuration(
+            'split-nodes-after-point-ref',
+            () =>
+              Editor.pointRef(editor, textEndForwardPoint ?? splitPoint, {
+                affinity: 'forward',
+              })
+          )
+          const lowestPath = splitPoint.path.slice(0, depth)
+          let rightHighestPath: Path | null = null
+          let position =
+            height === 0 ? splitPoint.offset : splitPoint.path[depth]!
+
+          profileSplitNodesDuration('split-nodes-levels-loop', () => {
+            for (const [node, path] of Editor.levels(editor, {
+              at: lowestPath,
+              reverse: true,
+              voids,
+            })) {
+              let split = false
+
+              if (
+                path.length < highestPath.length ||
+                path.length === 0 ||
+                (!voids &&
+                  NodeApi.isElement(node) &&
+                  Editor.isVoid(editor, node))
+              ) {
+                break
+              }
+
+              const point = beforeRef.current!
+              const isEnd = Editor.isEnd(editor, point, path)
+
+              if (
+                (textEndForwardPoint &&
+                  PathApi.equals(path, splitPoint.path)) ||
+                (always &&
+                  (isTextStartSplit(node, splitPoint, path) ||
+                    (!targetWasPath &&
+                      isInlineStartSplit(editor, node, splitPoint, path))))
+              ) {
+                split = false
+              } else if (always || !Editor.isEdge(editor, point, path)) {
+                split = true
+                applyOperation(editor, {
+                  type: 'split_node',
+                  path,
+                  position,
+                  properties: NodeApi.extractProps(node),
+                })
+
+                if (always && PathApi.equals(path, highestPath)) {
+                  rightHighestPath = PathApi.next(path)
+                }
+              }
+
+              position = path.at(-1)! + (split || isEnd ? 1 : 0)
+            }
+          })
+
+          if (options.at == null) {
+            profileSplitNodesDuration('split-nodes-select-after', () => {
+              const rightHighestPoint =
+                rightHighestPath === null
+                  ? null
+                  : ensureStartPointAfterHighestSplit(editor, rightHighestPath)
+              const point =
+                rightHighestPoint ||
+                afterRef?.current ||
+                Editor.point(editor, [], { edge: 'end' })
+              transforms.select(point)
+            })
+          }
+        } finally {
+          profileSplitNodesDuration('split-nodes-unref', () => {
+            beforeRef.unref()
+            afterRef?.unref()
+          })
+        }
+      })
     })
   })
 }

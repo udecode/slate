@@ -5,6 +5,7 @@ import type {
   DOMCoverageBoundary,
   DOMCoverageCopyPolicy,
   DOMCoverageFindPolicy,
+  DOMCoverageMaterializeRangeRole,
   DOMCoverageMaterializeReason,
   DOMCoverageReason,
   DOMCoverageSelectionPolicy,
@@ -31,6 +32,7 @@ type DOMCoverageBoundaryBaseProps = {
 export type DOMCoverageBoundaryMaterializePayload = {
   boundary: DOMCoverageBoundary
   range?: SlateRange
+  rangeRole?: DOMCoverageMaterializeRangeRole
   reason: DOMCoverageMaterializeReason
 }
 
@@ -43,13 +45,13 @@ export const DOMCoverageBoundaryRange = ({
   boundaryId,
   children,
   content,
-  copyPolicy = 'include-model',
-  findPolicy = 'not-native-until-mounted',
+  copyPolicy = 'model',
+  findPolicy = 'native',
   from,
   hidden = true,
   onMaterialize,
   reason = 'app-collapse',
-  selectionPolicy = 'boundary',
+  selectionPolicy = 'skip',
   to = from,
 }: DOMCoverageBoundaryRangeProps) => {
   const editor = useEditor()
@@ -112,6 +114,7 @@ export const DOMCoverageBoundaryRange = ({
         onMaterialize({
           boundary: targetBoundary,
           range: options.range,
+          rangeRole: options.rangeRole,
           reason: materializeReason,
         })
 
@@ -142,11 +145,11 @@ export const DOMCoverageSelfBoundary = ({
   children,
   content,
   copyPolicy = 'exclude',
-  findPolicy = 'not-native-until-mounted',
+  findPolicy = 'native',
   hidden = true,
   onMaterialize,
   reason = 'app-hidden',
-  selectionPolicy = 'boundary',
+  selectionPolicy = 'skip',
 }: DOMCoverageSelfBoundaryProps) => {
   const editor = useEditor()
   const ownerPath = useContext(ElementPathContext)
@@ -194,6 +197,7 @@ export const DOMCoverageSelfBoundary = ({
         onMaterialize({
           boundary: targetBoundary,
           range: options.range,
+          rangeRole: options.rangeRole,
           reason: materializeReason,
         })
 

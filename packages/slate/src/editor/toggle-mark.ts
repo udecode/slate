@@ -53,7 +53,7 @@ export const toggleMark: EditorStaticApi['toggleMark'] = (
     { key, type: 'toggle_mark', value },
     (command) => {
       applyToggleMark(editor, command.key, command.value)
-      return { handled: true }
+      return true
     },
     { implicitUpdate: true }
   )

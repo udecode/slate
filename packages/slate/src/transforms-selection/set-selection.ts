@@ -27,7 +27,7 @@ export const executeSetSelectionCommand = (
 ) =>
   executeCommand<SetSelectionCommand>(editor, command, (nextCommand) => {
     applySetSelectionCommand(editor, nextCommand)
-    return { handled: true }
+    return true
   })
 
 export const setSelection: SelectionMutationMethods['setSelection'] = (

@@ -10,28 +10,60 @@ export const removeNodes: NodeMutationMethods['removeNodes'] = (
   editor,
   options = {}
 ) => {
+  if (
+    options.at !== undefined &&
+    LocationApi.isPath(options.at) &&
+    options.at.length > 0
+  ) {
+    const [node] = getNode(editor, options.at)
+    const pathMatch = options.match ?? matchPath(editor, options.at)
+
+    if (pathMatch(node, options.at)) {
+      applyOperation(editor, {
+        type: 'remove_node',
+        path: options.at,
+        node: node as Descendant,
+      })
+    }
+
+    return
+  }
+
   runEditorTransaction(editor, (tx) => {
+    const { hanging = false, voids = false, mode = 'lowest' } = options
+    let { match } = options
+    let at = tx.resolveTarget({ at: options.at })
+
+    if (!at) {
+      return
+    }
+
+    if (LocationApi.isPath(at) && at.length === 0) {
+      throw new Error('Cannot remove the editor root.')
+    }
+
+    if (!hanging && LocationApi.isRange(at)) {
+      at = Editor.unhangRange(editor, at, { voids })
+    }
+
+    if (LocationApi.isPath(at)) {
+      const [node] = getNode(editor, at)
+      const pathMatch = match ?? matchPath(editor, at)
+
+      if (pathMatch(node, at)) {
+        applyOperation(editor, {
+          type: 'remove_node',
+          path: at,
+          node: node as Descendant,
+        })
+      }
+
+      return
+    }
+
     Editor.withoutNormalizing(editor, () => {
-      const { hanging = false, voids = false, mode = 'lowest' } = options
-      let { match } = options
-      let at = tx.resolveTarget({ at: options.at })
-
-      if (!at) {
-        return
-      }
-
-      if (LocationApi.isPath(at) && at.length === 0) {
-        throw new Error('Cannot remove the editor root.')
-      }
-
       if (match == null) {
-        match = LocationApi.isPath(at)
-          ? matchPath(editor, at)
-          : (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n)
-      }
-
-      if (!hanging && LocationApi.isRange(at)) {
-        at = Editor.unhangRange(editor, at, { voids })
+        match = (n) => NodeApi.isElement(n) && Editor.isBlock(editor, n)
       }
 
       const depths = getNodes(editor, { at, match, mode, voids })

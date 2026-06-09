@@ -247,6 +247,98 @@ describe('createSlatePageLayout', () => {
     ])
   })
 
+  it('lets Pretext callers estimate selected cold blocks', () => {
+    Reflect.set(globalThis, 'OffscreenCanvas', TestOffscreenCanvas)
+    const settings = { margins: 96, preset: 'a4' } as const
+    const page = createSlatePage(settings)
+    const output = pretextPageLayoutEngine({
+      estimateBlock: ({ blockIndex }) => blockIndex === 0,
+    }).compose({
+      blocks: [
+        {
+          element: {
+            type: 'paragraph',
+            children: [{ text: 'abcdefghij' }],
+          },
+          lineHeight: 24,
+          path: [0],
+          runs: [
+            {
+              id: '0.0:0-10',
+              path: [0, 0],
+              range: { end: 10, start: 0 },
+              text: 'abcdefghij',
+              textStyle: {
+                font: '400 16px Arial',
+                letterSpacing: 0,
+              },
+            },
+          ],
+          spacingAfter: 12,
+          text: 'abcdefghij',
+          textStyle: {
+            font: '400 16px Arial',
+            letterSpacing: 0,
+          },
+        },
+      ],
+      page,
+      settings,
+      version: 1,
+    })
+    const line = output.fragments[0]!.lines[0]!
+
+    expect(line.width).toBe(80)
+    expect(line.runs![0]!.width).toBe(80)
+  })
+
+  it('keeps hard line breaks when estimating cold Pretext blocks', () => {
+    Reflect.set(globalThis, 'OffscreenCanvas', TestOffscreenCanvas)
+    const settings = { margins: 96, preset: 'a4' } as const
+    const page = createSlatePage(settings)
+    const output = pretextPageLayoutEngine({
+      estimateBlock: () => true,
+    }).compose({
+      blocks: [
+        {
+          element: {
+            type: 'code-block',
+            children: [{ text: 'alpha\nbeta\ngamma' }],
+          },
+          lineHeight: 24,
+          path: [0],
+          runs: [
+            {
+              id: '0.0:0-16',
+              path: [0, 0],
+              range: { end: 16, start: 0 },
+              text: 'alpha\nbeta\ngamma',
+              textStyle: {
+                font: '400 16px monospace',
+                letterSpacing: 0,
+              },
+            },
+          ],
+          spacingAfter: 12,
+          text: 'alpha\nbeta\ngamma',
+          textStyle: {
+            font: '400 16px monospace',
+            letterSpacing: 0,
+          },
+        },
+      ],
+      page,
+      settings,
+      version: 1,
+    })
+
+    expect(output.fragments[0]!.lines.map((line) => line.text)).toEqual([
+      'alpha',
+      'beta',
+      'gamma',
+    ])
+  })
+
   it('projects collapsed rich-inline whitespace at style boundaries', () => {
     Reflect.set(globalThis, 'OffscreenCanvas', TestOffscreenCanvas)
     const editor = createEditor({
@@ -290,6 +382,27 @@ describe('createSlatePageLayout', () => {
     expect(snapshot.settings).toEqual({ margins: 72, preset: 'letter' })
     expect(snapshot.page.width).toBe(816)
     expect(snapshot.blocks[0]!.text).toBe('Generic layout call site.')
+
+    layout.destroy()
+  })
+
+  it('accepts a caller-supplied engine in the generic layout API', () => {
+    const editor = createEditor({
+      initialValue: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Estimated generic layout call site.' }],
+        },
+      ],
+    })
+    const layout = createSlateLayout(editor, () => ({
+      engine: createEstimatedPageLayoutEngine(),
+      page: { margins: 72, preset: 'letter' },
+    }))
+    const snapshot = layout.getSnapshot()
+
+    expect(snapshot.measurementProfile.engine.id).toBe('estimated')
+    expect(snapshot.blocks[0]!.text).toBe('Estimated generic layout call site.')
 
     layout.destroy()
   })
@@ -504,6 +617,44 @@ describe('createSlatePageLayout', () => {
     }
 
     expect(layout.getMetrics().composeCount).toBeGreaterThan(composeCount)
+
+    layout.destroy()
+  })
+
+  it('coalesces deferred text refreshes for text commits that mark children dirty', async () => {
+    const editor = createEditor({
+      extensions: [pageSettings],
+      initialValue: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Burst paragraph.' }],
+        },
+      ],
+    })
+    const layout = createSlatePageLayout(editor, () => ({
+      engine: createEstimatedPageLayoutEngine(),
+      page: pageSettings,
+      textChangeRefresh: { delayMs: 25, maxDelayMs: 100, mode: 'deferred' },
+    }))
+    const composeCount = layout.getMetrics().composeCount
+
+    for (const text of ['a', 'b', 'c', 'd']) {
+      editor.update((tx) => {
+        tx.text.insert(text, {
+          at: {
+            path: [0, 0],
+            offset: editor.read((state) => state.text.string([0]).length),
+          },
+        })
+      })
+    }
+
+    expect(layout.getMetrics().composeCount).toBe(composeCount)
+
+    await wait(80)
+
+    expect(layout.getMetrics().composeCount).toBe(composeCount + 1)
+    expect(layout.getSnapshot().blocks[0]?.text).toBe('Burst paragraph.abcd')
 
     layout.destroy()
   })
@@ -1057,6 +1208,106 @@ describe('createSlatePageLayout', () => {
         ],
       }),
     ])
+    expect(layout.getFragments([0, 2, 0])).toEqual([
+      expect.objectContaining({
+        pageIndex: 1,
+        units: [
+          expect.objectContaining({
+            path: [0, 2],
+          }),
+        ],
+      }),
+    ])
+    expect(
+      layout
+        .getFragments([0])
+        .map((fragment) => fragment.units?.map((unit) => unit.path))
+    ).toEqual([
+      [
+        [0, 0],
+        [0, 1],
+      ],
+      [
+        [0, 2],
+        [0, 3],
+      ],
+    ])
+
+    layout.destroy()
+  })
+
+  it('does not recursively extract text or default cell boxes for provider-owned unit blocks', () => {
+    const rows = Array.from({ length: 500 }, (_, rowIndex) => ({
+      type: 'table-row',
+      children: Array.from({ length: 3 }, (_, cellIndex) => ({
+        type: 'table-cell',
+        children: [{ text: `Row ${rowIndex + 1} cell ${cellIndex + 1}` }],
+      })),
+    }))
+    let textStyleCalls = 0
+    const editor = createEditor({
+      initialValue: [
+        {
+          type: 'table',
+          children: rows,
+        },
+      ],
+    })
+    const page = { margins: 96, preset: 'a4' } as const
+    const layout = createSlatePageLayout(editor, () => ({
+      engine: createEstimatedPageLayoutEngine(),
+      nodeLayout({ element, path, pageSettings }) {
+        if (element.type !== 'table') {
+          return { type: 'text' }
+        }
+
+        const pageRect = createSlatePage(pageSettings)
+
+        return {
+          boxes: [
+            {
+              kind: 'table',
+              path,
+              rect: {
+                height: rows.length * 36,
+                left: 0,
+                top: 0,
+                width: pageRect.content.width,
+              },
+              split: 'row',
+            },
+          ],
+          type: 'units',
+          units: rows.map((_, rowIndex) => ({
+            key: `row-${rowIndex}`,
+            kind: 'table-row',
+            path: [...path, rowIndex],
+            rect: {
+              height: 36,
+              left: 0,
+              top: rowIndex * 36,
+              width: pageRect.content.width,
+            },
+            split: 'avoid',
+          })),
+        }
+      },
+      page,
+      typography: {
+        text() {
+          textStyleCalls++
+
+          return {}
+        },
+      },
+    }))
+    const block = layout.getSnapshot().blocks[0]!
+
+    expect(textStyleCalls).toBeLessThanOrEqual(1)
+    expect(block.runs).toEqual([])
+    expect(block.text).toBe('')
+    expect(block.boxes).toHaveLength(1)
+    expect(block.units).toHaveLength(500)
 
     layout.destroy()
   })
@@ -1708,7 +1959,7 @@ describe('PagedEditable page mount plan', () => {
     ])
   })
 
-  it('does not filter page surfaces before a virtualization viewport is known', () => {
+  it('mounts an initial virtualized page window before the viewport is known', () => {
     const settings = { margins: 96, preset: 'a4' } as const
     const pages = [
       createSlatePage(settings, 0),
@@ -1739,7 +1990,16 @@ describe('PagedEditable page mount plan', () => {
         virtualizes: true,
         viewport: null,
       }).map((item) => item.index)
-    ).toEqual([0, 1, 2, 3])
+    ).toEqual([0])
+    expect(
+      getPagedEditableVisiblePageMountItems(plan, {
+        gap: 24,
+        overscan: 1,
+        pages,
+        virtualizes: true,
+        viewport: null,
+      }).map((item) => item.index)
+    ).toEqual([0, 1])
     expect(
       getPagedEditableVisiblePageMountItems(plan, {
         gap: 24,

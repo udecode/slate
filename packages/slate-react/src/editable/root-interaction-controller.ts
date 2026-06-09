@@ -2,20 +2,23 @@ import {
   type MouseEvent,
   type MouseEventHandler,
   useCallback,
+  useEffect,
   useRef,
 } from 'react'
 import {
   type BaseSelection,
+  type Path,
   PathApi,
   type Point,
   type Range,
   RangeApi,
   type RootKey,
+  TextApi,
 } from 'slate'
 
 import { scheduleSlateReactFocus } from '../hooks/focus-scheduler'
 import {
-  focusSlateEditable,
+  type focusSlateEditable,
   focusSlateEditableAfterEventFrame,
 } from '../hooks/focus-slate-editable'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
@@ -30,6 +33,8 @@ import {
   createContentRootProjectionGraph,
   findContentRootOwners,
 } from './content-root-navigation'
+import type { EditableDOMSelectionSyncOptions } from './input-controller'
+import { writeCollapsedModelSelectionDOMPreference } from './model-selection-dom-preference'
 import {
   isRootInteractionEditableFocused,
   type RootInteractionFocusSelection,
@@ -40,9 +45,19 @@ import {
   resolveRootInteractionMouseUp,
   resolveRootInteractionTarget,
 } from './root-interaction-resolver'
+import {
+  getEditableRootSlateStringCoordinatePlacement,
+  getSlateStringDocumentOffset,
+  getSlateStringEdgeOffset,
+  getSlateStringPlacementDOMPoint,
+  type SlateStringCoordinatePlacement,
+  type SlateStringPlacementDOMPoint,
+} from './slate-string-coordinate-placement'
 
 type SlateFocusableEditor = Parameters<typeof focusSlateEditable>[0]
 const MAIN_ROOT_KEY: RootKey = 'main'
+const NATIVE_EDITABLE_TEXT_TARGET =
+  '[data-slate-string], [data-slate-zero-width], [data-slate-leaf], [data-slate-node="text"]'
 
 export type RootInteractionEditor = ReactRuntimeEditor &
   SlateFocusableEditor & {
@@ -60,12 +75,16 @@ export type RootInteractionControllerOptions = {
   editor: RootInteractionEditor
   getLastSelectionForRoot: (root: RootKey) => BaseSelection
   getMountedViewEditor: (root: RootKey) => RootInteractionEditor | null
+  ignoreBlankEditableRootClicks?: boolean
   root: RootKey
   selection: RootInteractionSelectionMode
   selectionBridge?: {
     beforeModelSelection: () => void
     importDOMSelection: () => void
-    syncDOMSelectionToEditor: () => void
+    isPartialDOMBackedSelection: (selection: Range | null) => boolean
+    syncDOMSelectionToEditor: (
+      options?: EditableDOMSelectionSyncOptions
+    ) => void
   }
 }
 
@@ -80,6 +99,8 @@ type PendingRootInteraction = {
   clientX: number
   clientY: number
   coordinateDragSelection: boolean
+  currentRange: Range | null
+  placementDOMPoint: SlateStringPlacementDOMPoint | null
   preventNativeSelection: boolean
   startRange: Range | null
 }
@@ -98,7 +119,34 @@ type PendingProjectedDrag = {
   endpoint: RootInteractionDragEndpoint
 }
 
+type PendingDragAutoScroll = {
+  animationFrame: number | null
+  clientX: number
+  clientY: number
+  currentRange: Range
+  editor: RootInteractionEditor
+  releaseCleanup: (() => void) | null
+  root: RootKey
+  rootElement: HTMLElement
+  selectionBridge?: RootInteractionControllerOptions['selectionBridge']
+  startRange: Range
+}
+
+type PendingDragAutoScrollRef = {
+  current: PendingDragAutoScroll | null
+}
+
 let pendingProjectedDrag: PendingProjectedDrag | null = null
+
+const DRAG_AUTOSCROLL_EDGE_SIZE = 48
+const DRAG_AUTOSCROLL_MAX_DELTA = 28
+const SCROLLABLE_OVERFLOW_PATTERN = /(auto|scroll|overlay)/
+
+const clampDragAutoScrollCoordinate = (
+  value: number,
+  min: number,
+  max: number
+) => Math.min(Math.max(value, min), Math.max(min, max - 1))
 
 const withInteractionRangeRoot = (range: Range, root: RootKey): Range => {
   if (root === MAIN_ROOT_KEY) {
@@ -136,11 +184,50 @@ const hasExpandedDOMSelectionInTarget = (target: HTMLElement) => {
   )
 }
 
+const isPointInsideDOMSelection = ({
+  clientX,
+  clientY,
+  target,
+}: {
+  clientX: number
+  clientY: number
+  target: HTMLElement
+}) => {
+  const rootNode = target.getRootNode() as Document | ShadowRoot
+  const selection =
+    'getSelection' in rootNode
+      ? rootNode.getSelection()
+      : target.ownerDocument.getSelection()
+
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    return false
+  }
+
+  for (let index = 0; index < selection.rangeCount; index++) {
+    const range = selection.getRangeAt(index)
+
+    for (const rect of Array.from(range.getClientRects())) {
+      if (
+        clientX >= rect.left &&
+        clientX <= rect.right &&
+        clientY >= rect.top &&
+        clientY <= rect.bottom
+      ) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
 const ignoreInteraction = (): PendingRootInteraction => ({
   action: { type: 'ignore' },
   clientX: 0,
   clientY: 0,
   coordinateDragSelection: false,
+  currentRange: null,
+  placementDOMPoint: null,
   preventNativeSelection: false,
   startRange: null,
 })
@@ -159,12 +246,200 @@ const mouseEventTargetToElement = (
   return null
 }
 
+const getComposedParentElement = (element: HTMLElement) => {
+  if (element.parentElement) {
+    return element.parentElement
+  }
+
+  const window = element.ownerDocument.defaultView
+
+  if (!window) {
+    return null
+  }
+
+  const ShadowRootConstructor = window.ShadowRoot
+  const root = element.getRootNode()
+
+  if (ShadowRootConstructor && root instanceof ShadowRootConstructor) {
+    const { host } = root
+
+    return host instanceof window.HTMLElement ? host : null
+  }
+
+  return null
+}
+
+export const canScrollY = (element: HTMLElement) => {
+  const style = element.ownerDocument.defaultView?.getComputedStyle(element)
+  const overflowY = style?.overflowY ?? ''
+
+  return (
+    SCROLLABLE_OVERFLOW_PATTERN.test(overflowY) &&
+    element.scrollHeight > element.clientHeight
+  )
+}
+
+const getDragAutoScrollDelta = ({
+  clientY,
+  rect,
+}: {
+  clientY: number
+  rect: Pick<DOMRect, 'bottom' | 'top'>
+}) => {
+  const topDistance = clientY - rect.top
+  const bottomDistance = rect.bottom - clientY
+
+  if (
+    topDistance < DRAG_AUTOSCROLL_EDGE_SIZE &&
+    topDistance >= -DRAG_AUTOSCROLL_EDGE_SIZE
+  ) {
+    const intensity = 1 - Math.max(0, topDistance) / DRAG_AUTOSCROLL_EDGE_SIZE
+
+    return -Math.max(1, Math.ceil(intensity * DRAG_AUTOSCROLL_MAX_DELTA))
+  }
+
+  if (
+    bottomDistance < DRAG_AUTOSCROLL_EDGE_SIZE &&
+    bottomDistance >= -DRAG_AUTOSCROLL_EDGE_SIZE
+  ) {
+    const intensity =
+      1 - Math.max(0, bottomDistance) / DRAG_AUTOSCROLL_EDGE_SIZE
+
+    return Math.max(1, Math.ceil(intensity * DRAG_AUTOSCROLL_MAX_DELTA))
+  }
+
+  return 0
+}
+
+export const getDragAutoScrollTarget = ({
+  clientX,
+  clientY,
+  rootElement,
+}: {
+  clientX: number
+  clientY: number
+  rootElement: HTMLElement
+}): null | {
+  clientX: number
+  clientY: number
+  delta: number
+  scroll: () => boolean
+} => {
+  for (
+    let parent: HTMLElement | null = rootElement;
+    parent;
+    parent = getComposedParentElement(parent)
+  ) {
+    if (!canScrollY(parent)) {
+      continue
+    }
+
+    const rect = parent.getBoundingClientRect()
+
+    if (
+      clientX < rect.left ||
+      clientX > rect.right ||
+      clientY < rect.top - DRAG_AUTOSCROLL_EDGE_SIZE ||
+      clientY > rect.bottom + DRAG_AUTOSCROLL_EDGE_SIZE
+    ) {
+      continue
+    }
+
+    const delta = getDragAutoScrollDelta({ clientY, rect })
+
+    if (delta === 0) {
+      continue
+    }
+
+    const maxScrollTop = parent.scrollHeight - parent.clientHeight
+    const canMove =
+      delta < 0 ? parent.scrollTop > 0 : parent.scrollTop < maxScrollTop
+
+    if (!canMove) {
+      continue
+    }
+
+    return {
+      clientX: clampDragAutoScrollCoordinate(clientX, rect.left, rect.right),
+      clientY: clampDragAutoScrollCoordinate(clientY, rect.top, rect.bottom),
+      delta,
+      scroll: () => {
+        const previousScrollTop = parent.scrollTop
+
+        parent.scrollTop += delta
+
+        return parent.scrollTop !== previousScrollTop
+      },
+    }
+  }
+
+  const window = rootElement.ownerDocument.defaultView
+  const scrollingElement = rootElement.ownerDocument.scrollingElement
+
+  if (!window || !scrollingElement) {
+    return null
+  }
+
+  if (
+    clientX < 0 ||
+    clientX > window.innerWidth ||
+    clientY < -DRAG_AUTOSCROLL_EDGE_SIZE ||
+    clientY > window.innerHeight + DRAG_AUTOSCROLL_EDGE_SIZE ||
+    scrollingElement.scrollHeight <= scrollingElement.clientHeight
+  ) {
+    return null
+  }
+
+  const delta = getDragAutoScrollDelta({
+    clientY,
+    rect: { bottom: window.innerHeight, top: 0 },
+  })
+
+  if (delta === 0) {
+    return null
+  }
+
+  const maxScrollTop =
+    scrollingElement.scrollHeight - scrollingElement.clientHeight
+  const canMove =
+    delta < 0
+      ? scrollingElement.scrollTop > 0
+      : scrollingElement.scrollTop < maxScrollTop
+
+  if (!canMove) {
+    return null
+  }
+
+  return {
+    clientX: clampDragAutoScrollCoordinate(clientX, 0, window.innerWidth),
+    clientY: clampDragAutoScrollCoordinate(clientY, 0, window.innerHeight),
+    delta,
+    scroll: () => {
+      const previousScrollTop = scrollingElement.scrollTop
+
+      window.scrollBy(0, delta)
+
+      return scrollingElement.scrollTop !== previousScrollTop
+    },
+  }
+}
+
 const getEditableRootFromTarget = (target: EventTarget | null): RootKey => {
   const element = mouseEventTargetToElement(target)
   const editableRoot = element?.closest('[data-slate-editor="true"]')
 
   return (editableRoot?.getAttribute('data-slate-root') ??
     MAIN_ROOT_KEY) as RootKey
+}
+
+const parseContentRootOwnerPath = (value: string | null): Path | null => {
+  if (!value) {
+    return null
+  }
+
+  const path = value.split(',').map((part) => Number.parseInt(part, 10))
+
+  return path.every(Number.isFinite) ? (path as Path) : null
 }
 
 const getContentRootOwnerFromTarget = ({
@@ -180,16 +455,28 @@ const getContentRootOwnerFromTarget = ({
 
   const element = mouseEventTargetToElement(target)
   const slotElement = element?.closest('[data-slate-content-root-slot]')
+  const slotOwnerPath =
+    slotElement instanceof HTMLElement
+      ? parseContentRootOwnerPath(
+          slotElement.getAttribute('data-slate-content-root-owner-path')
+        )
+      : null
+  const slotOwnerRoot =
+    slotElement instanceof HTMLElement
+      ? slotElement.getAttribute('data-slate-content-root-owner-root')
+      : null
   const ownerElement = slotElement?.parentElement?.closest(
     '[data-slate-node="element"][data-slate-path]'
   )
   const ownerEditorElement = ownerElement?.closest('[data-slate-editor="true"]')
   const ownerPath =
-    ownerElement instanceof HTMLElement
+    slotOwnerPath ??
+    (ownerElement instanceof HTMLElement
       ? getSlateNodePathFromDOMElement(ownerElement)
-      : null
-  const ownerRoot =
-    ownerEditorElement?.getAttribute('data-slate-root') ?? MAIN_ROOT_KEY
+      : null)
+  const ownerRoot = (slotOwnerRoot ??
+    ownerEditorElement?.getAttribute('data-slate-root') ??
+    MAIN_ROOT_KEY) as RootKey
 
   return ownerPath
     ? {
@@ -376,14 +663,19 @@ const resolveProjectedDragEndpoint = ({
   editor,
   event,
   getMountedViewEditor,
+  range: resolvedRange,
+  root: resolvedRoot,
 }: {
   editor: RootInteractionEditor
   event: MouseEvent<HTMLElement>
   getMountedViewEditor: (root: RootKey) => RootInteractionEditor | null
+  range?: Range | null
+  root?: RootKey
 }): RootInteractionDragEndpoint | null => {
-  const targetRoot = getEditableRootFromTarget(event.target)
+  const targetRoot = resolvedRoot ?? getEditableRootFromTarget(event.target)
   const targetEditor = getMountedViewEditor(targetRoot) ?? editor
-  const range = targetEditor.api.dom.resolveEventRange(event.nativeEvent)
+  const range =
+    resolvedRange ?? targetEditor.api.dom.resolveEventRange(event.nativeEvent)
 
   if (!range) {
     return null
@@ -412,6 +704,51 @@ const resolveProjectedDragEndpoint = ({
       target: event.target,
     }),
     point,
+    root: targetRoot,
+  }
+}
+
+const resolveExistingSelectionProjectedDragEndpoint = ({
+  editor,
+  event,
+  getMountedViewEditor,
+}: {
+  editor: RootInteractionEditor
+  event: MouseEvent<HTMLElement>
+  getMountedViewEditor: (root: RootKey) => RootInteractionEditor | null
+}): RootInteractionDragEndpoint | null => {
+  const element = mouseEventTargetToElement(event.target)
+  const editableRoot = element?.closest<HTMLElement>(
+    '[data-slate-editor="true"]'
+  )
+
+  if (
+    !editableRoot ||
+    !hasExpandedDOMSelectionInTarget(editableRoot) ||
+    !isPointInsideDOMSelection({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      target: editableRoot,
+    })
+  ) {
+    return null
+  }
+
+  const targetRoot = getEditableRootFromTarget(event.target)
+  const targetEditor = getMountedViewEditor(targetRoot) ?? editor
+  const selection = targetEditor.read((state) => state.selection.get())
+
+  if (!selection || !RangeApi.isExpanded(selection)) {
+    return null
+  }
+
+  return {
+    isDOMCoverageBoundary: isDOMCoverageBoundaryTarget(event.target),
+    owner: getContentRootOwnerFromTarget({
+      childRoot: targetRoot,
+      target: event.target,
+    }),
+    point: toRootedPoint(RangeApi.start(selection), targetRoot),
     root: targetRoot,
   }
 }
@@ -518,77 +855,108 @@ const applyModelProjectedDragSelection = ({
   return true
 }
 
-const shouldPlaceFocusedNativeEditableFromCoordinates = (
+const getEditableRootChromeCoordinatePlacement = ({
+  editor,
+  event,
+  includeInsideString = false,
+}: {
+  editor: RootInteractionEditor
   event: MouseEvent<HTMLElement>
-) => {
+  includeInsideString?: boolean
+}): SlateStringCoordinatePlacement => {
   const element = mouseEventTargetToElement(event.target)
-  const textHost = element?.closest('[data-slate-node="text"]')
-
-  if (!textHost) {
-    return false
-  }
-
-  return shouldPlaceNearSlateStringFromCoordinates({
-    event,
-    strings: Array.from(
-      textHost.querySelectorAll<HTMLElement>(
-        '[data-slate-string], [data-slate-zero-width]'
-      )
-    ),
-  })
-}
-
-const shouldPlaceEditableRootChromeFromCoordinates = (
-  event: MouseEvent<HTMLElement>
-) => {
-  const element = mouseEventTargetToElement(event.target)
-  const editableRoot = element?.closest<HTMLElement>(
+  const targetEditableRoot = element?.closest<HTMLElement>(
     '[data-slate-editor="true"]'
   )
+  const currentTargetEditableRoot = event.currentTarget.matches(
+    '[data-slate-editor="true"]'
+  )
+    ? event.currentTarget
+    : event.currentTarget.querySelector<HTMLElement>(
+        '[data-slate-editor="true"]'
+      )
+  let mountedEditableRoot: HTMLElement | null = null
 
-  if (!editableRoot || !event.currentTarget.contains(editableRoot)) {
-    return false
+  try {
+    const mountedElement = editor.api.dom.resolveDOMNode(editor)
+
+    mountedEditableRoot =
+      mountedElement instanceof HTMLElement ? mountedElement : null
+  } catch {
+    mountedEditableRoot = null
   }
 
-  return shouldPlaceNearSlateStringFromCoordinates({
-    event,
-    strings: Array.from(
-      editableRoot.querySelectorAll<HTMLElement>(
-        '[data-slate-string], [data-slate-zero-width]'
-      )
-    ),
+  const editableRoot =
+    targetEditableRoot && event.currentTarget.contains(targetEditableRoot)
+      ? targetEditableRoot
+      : (mountedEditableRoot ?? currentTargetEditableRoot)
+
+  if (!editableRoot) {
+    return null
+  }
+
+  return getEditableRootSlateStringCoordinatePlacement({
+    editableRoot,
+    event: event.nativeEvent,
+    includeInsideString,
+    target: includeInsideString ? element : null,
   })
 }
 
-const shouldPlaceNearSlateStringFromCoordinates = ({
-  event,
-  strings,
+const resolveSlateStringPlacementRange = ({
+  editor,
+  placement,
 }: {
-  event: MouseEvent<HTMLElement>
-  strings: HTMLElement[]
-}) => {
-  const nearestString = strings
-    .map((string) => {
-      const rect = string.getBoundingClientRect()
-      const verticalDistance =
-        event.clientY < rect.top
-          ? rect.top - event.clientY
-          : event.clientY > rect.bottom
-            ? event.clientY - rect.bottom
-            : 0
+  editor: RootInteractionEditor
+  placement: NonNullable<SlateStringCoordinatePlacement>
+}): Range | null => {
+  const textHost = placement.string.closest<HTMLElement>(
+    '[data-slate-node="text"]'
+  )
+  const path =
+    textHost instanceof HTMLElement
+      ? getSlateNodePathFromDOMElement(textHost)
+      : null
+  const offset = textHost
+    ? placement.offset == null
+      ? getSlateStringEdgeOffset({
+          edge: placement.edge,
+          rect: placement.rect,
+          string: placement.string,
+          textHost,
+        })
+      : getSlateStringDocumentOffset({
+          offset: placement.offset,
+          string: placement.string,
+          textHost,
+        })
+    : null
 
-      return { rect, verticalDistance }
-    })
-    .sort((left, right) => left.verticalDistance - right.verticalDistance)[0]
-
-  if (!nearestString || nearestString.verticalDistance > 16) {
-    return false
+  if (!path || offset == null) {
+    return null
   }
 
-  return (
-    event.clientX < nearestString.rect.left - 4 ||
-    event.clientX > nearestString.rect.right + 4
-  )
+  const node = editor.read((state) => {
+    if (!state.nodes.hasPath(path)) {
+      return null
+    }
+
+    return state.nodes.get(path)[0]
+  })
+
+  if (!node) {
+    return null
+  }
+
+  const safeOffset = TextApi.isText(node)
+    ? Math.max(0, Math.min(offset, node.text.length))
+    : offset
+  const point = { path, offset: safeOffset }
+
+  return {
+    anchor: point,
+    focus: point,
+  }
 }
 
 const hasPointerMoved = (
@@ -608,6 +976,40 @@ const createDragSelectionRange = ({
   anchor: RangeApi.start(startRange),
   focus: RangeApi.end(endRange),
 })
+
+const isRegressiveDragSelectionRange = ({
+  currentRange,
+  delta,
+  nextRange,
+  startRange,
+}: {
+  currentRange: Range
+  delta: number
+  nextRange: Range
+  startRange: Range
+}) => {
+  const startPoint = RangeApi.start(startRange)
+  const currentFocus = currentRange.focus
+  const nextFocus = nextRange.focus
+  const currentProgress = comparePoints(currentFocus, startPoint)
+  const nextProgress = comparePoints(nextFocus, startPoint)
+
+  if (delta > 0) {
+    return (
+      nextProgress < 0 ||
+      (currentProgress > 0 && comparePoints(nextFocus, currentFocus) < 0)
+    )
+  }
+
+  if (delta < 0) {
+    return (
+      nextProgress > 0 ||
+      (currentProgress < 0 && comparePoints(nextFocus, currentFocus) > 0)
+    )
+  }
+
+  return false
+}
 
 const canApplyCoordinateDragSelection = (
   pendingInteraction: PendingRootInteraction
@@ -643,6 +1045,8 @@ const applyProjectedDragSelectionFromEvent = ({
         clientX: projectedDrag.clientX,
         clientY: projectedDrag.clientY,
         coordinateDragSelection: false,
+        currentRange: null,
+        placementDOMPoint: null,
         preventNativeSelection: false,
         startRange: null,
       },
@@ -662,30 +1066,34 @@ const applyProjectedDragSelectionFromEvent = ({
     return false
   }
 
-  if (
-    !(
-      (shouldUseViewProjectedDragSelection({
-        anchor: projectedDrag.endpoint,
-        editor: projectedDrag.editor,
-        focus,
-      }) &&
-        applyProjectedDragSelection({
-          anchor: projectedDrag.endpoint,
-          editor: projectedDrag.editor,
-          focus,
-        })) ||
-      (shouldUseModelProjectedDragSelection({
-        anchor: projectedDrag.endpoint,
-        focus,
-      }) &&
-        applyModelProjectedDragSelection({
-          anchor: projectedDrag.endpoint,
-          editor: projectedDrag.editor,
-          focus,
-          selectionBridge,
-        }))
-    )
-  ) {
+  const shouldUseView = shouldUseViewProjectedDragSelection({
+    anchor: projectedDrag.endpoint,
+    editor: projectedDrag.editor,
+    focus,
+  })
+  const appliedView =
+    shouldUseView &&
+    applyProjectedDragSelection({
+      anchor: projectedDrag.endpoint,
+      editor: projectedDrag.editor,
+      focus,
+    })
+  const shouldUseModel =
+    !appliedView &&
+    shouldUseModelProjectedDragSelection({
+      anchor: projectedDrag.endpoint,
+      focus,
+    })
+  const appliedModel =
+    shouldUseModel &&
+    applyModelProjectedDragSelection({
+      anchor: projectedDrag.endpoint,
+      editor: projectedDrag.editor,
+      focus,
+      selectionBridge,
+    })
+
+  if (!(appliedView || appliedModel)) {
     return false
   }
 
@@ -706,12 +1114,217 @@ const applyModelDragSelection = ({
   root: RootKey
   selectionBridge?: RootInteractionControllerOptions['selectionBridge']
 }) => {
+  const rootedRange = withInteractionRangeRoot(range, root)
+  const useViewSelection =
+    selectionBridge?.isPartialDOMBackedSelection(rootedRange) ?? false
+
   selectionBridge?.beforeModelSelection()
-  writeSlateViewSelection(editor, null)
-  editor.update((tx) => {
-    tx.selection.set(withInteractionRangeRoot(range, root))
+  writeSlateViewSelection(
+    editor,
+    useViewSelection
+      ? createSlateViewSelection(
+          createContentRootProjectionGraph(
+            editor,
+            findContentRootOwners(editor)
+          ),
+          {
+            anchor: { point: rootedRange.anchor },
+            focus: { point: rootedRange.focus },
+          }
+        )
+      : null
+  )
+  editor.update(
+    (tx) => {
+      tx.selection.set(rootedRange)
+    },
+    {
+      metadata: {
+        selection: {
+          scroll: false,
+        },
+      },
+    }
+  )
+  selectionBridge?.syncDOMSelectionToEditor({ preserveScroll: true })
+}
+
+const stopDragAutoScroll = (ref: PendingDragAutoScrollRef) => {
+  const state = ref.current
+
+  if (state && state.animationFrame !== null) {
+    state.rootElement.ownerDocument.defaultView?.cancelAnimationFrame(
+      state.animationFrame
+    )
+  }
+
+  state?.releaseCleanup?.()
+  ref.current = null
+}
+
+const attachDragAutoScrollReleaseListeners = (
+  ref: PendingDragAutoScrollRef,
+  rootElement: HTMLElement
+) => {
+  const document = rootElement.ownerDocument
+  const window = document.defaultView
+  const stop = () => {
+    stopDragAutoScroll(ref)
+  }
+
+  document.addEventListener('mouseup', stop, true)
+  document.addEventListener('pointerup', stop, true)
+  document.addEventListener('dragend', stop, true)
+  window?.addEventListener('blur', stop, true)
+
+  return () => {
+    document.removeEventListener('mouseup', stop, true)
+    document.removeEventListener('pointerup', stop, true)
+    document.removeEventListener('dragend', stop, true)
+    window?.removeEventListener('blur', stop, true)
+  }
+}
+
+const resolveDragAutoScrollEventRange = ({
+  clientX,
+  clientY,
+  editor,
+  rootElement,
+}: {
+  clientX: number
+  clientY: number
+  editor: RootInteractionEditor
+  rootElement: HTMLElement
+}) => {
+  const targetAtPoint = rootElement.ownerDocument.elementFromPoint(
+    clientX,
+    clientY
+  )
+  let target: EventTarget = rootElement
+
+  if (targetAtPoint) {
+    try {
+      if (editor.api.dom.hasDOMNode(targetAtPoint)) {
+        target = targetAtPoint
+      }
+    } catch {
+      target = rootElement
+    }
+  }
+
+  return editor.api.dom.resolveEventRange({
+    clientX,
+    clientY,
+    target,
+  } as unknown as Event)
+}
+
+export const applyDragAutoScrollFrame = (state: PendingDragAutoScroll) => {
+  const target = getDragAutoScrollTarget({
+    clientX: state.clientX,
+    clientY: state.clientY,
+    rootElement: state.rootElement,
   })
-  selectionBridge?.syncDOMSelectionToEditor()
+
+  if (!target?.scroll()) {
+    return false
+  }
+
+  const eventRange = resolveDragAutoScrollEventRange({
+    clientX: target.clientX,
+    clientY: target.clientY,
+    editor: state.editor,
+    rootElement: state.rootElement,
+  })
+
+  if (!eventRange) {
+    return false
+  }
+
+  const nextRange = createDragSelectionRange({
+    endRange: eventRange,
+    startRange: state.startRange,
+  })
+
+  if (
+    isRegressiveDragSelectionRange({
+      currentRange: state.currentRange,
+      delta: target.delta,
+      nextRange,
+      startRange: state.startRange,
+    })
+  ) {
+    return true
+  }
+
+  applyModelDragSelection({
+    editor: state.editor,
+    range: nextRange,
+    root: state.root,
+    selectionBridge: state.selectionBridge,
+  })
+  state.currentRange = nextRange
+
+  return true
+}
+
+const scheduleDragAutoScroll = (ref: PendingDragAutoScrollRef) => {
+  const state = ref.current
+  const window = state?.rootElement.ownerDocument.defaultView
+
+  if (!state || !window || state.animationFrame !== null) {
+    return
+  }
+
+  state.animationFrame = window.requestAnimationFrame(() => {
+    const latest = ref.current
+
+    if (!latest) {
+      return
+    }
+
+    latest.animationFrame = null
+
+    if (applyDragAutoScrollFrame(latest)) {
+      scheduleDragAutoScroll(ref)
+    } else {
+      stopDragAutoScroll(ref)
+    }
+  })
+}
+
+const updateDragAutoScroll = (
+  ref: PendingDragAutoScrollRef,
+  state: Omit<PendingDragAutoScroll, 'animationFrame' | 'releaseCleanup'>
+) => {
+  if (
+    !getDragAutoScrollTarget({
+      clientX: state.clientX,
+      clientY: state.clientY,
+      rootElement: state.rootElement,
+    })
+  ) {
+    stopDragAutoScroll(ref)
+    return
+  }
+
+  const animationFrame = ref.current?.animationFrame ?? null
+  let releaseCleanup = ref.current?.releaseCleanup ?? null
+
+  if (ref.current?.rootElement !== state.rootElement) {
+    releaseCleanup?.()
+    releaseCleanup = attachDragAutoScrollReleaseListeners(
+      ref,
+      state.rootElement
+    )
+  }
+
+  ref.current = {
+    ...state,
+    animationFrame,
+    releaseCleanup,
+  }
+  scheduleDragAutoScroll(ref)
 }
 
 export const useRootInteractionController = ({
@@ -719,6 +1332,7 @@ export const useRootInteractionController = ({
   editor,
   getLastSelectionForRoot,
   getMountedViewEditor,
+  ignoreBlankEditableRootClicks = false,
   root,
   selection,
   selectionBridge,
@@ -726,29 +1340,59 @@ export const useRootInteractionController = ({
   const pendingInteractionRef = useRef<PendingRootInteraction>(
     ignoreInteraction()
   )
+  const pendingDragAutoScrollRef = useRef<PendingDragAutoScroll | null>(null)
+
+  useEffect(
+    () => () => {
+      stopDragAutoScroll(pendingDragAutoScrollRef)
+    },
+    []
+  )
 
   const focusRoot = useCallback(
     ({
+      fallbackSelection,
       forceSelection = false,
       selection: selectionPreference = selection,
     }: {
+      fallbackSelection?: RootInteractionFocusSelection
       forceSelection?: boolean
       selection?: RootInteractionFocusSelection
     } = {}) => {
       const focusEditor = getMountedViewEditor(root) ?? editor
+      const currentSelection = focusEditor.read((state) =>
+        state.selection.get()
+      )
       const getEndSelection = (): Range => {
         const point = focusEditor.read((state) => state.points.end([]))
 
         return { anchor: point, focus: point }
       }
-      const focusSelection =
+      let focusSelection =
         selectionPreference === 'end'
           ? getEndSelection()
           : selectionPreference === 'restore' &&
-              (forceSelection ||
-                !focusEditor.read((state) => state.selection.get()))
-            ? (getLastSelectionForRoot(root) ?? getEndSelection())
+              (forceSelection || !currentSelection)
+            ? getLastSelectionForRoot(root)
             : null
+
+      if (
+        selectionPreference === 'restore' &&
+        !focusSelection &&
+        !currentSelection &&
+        fallbackSelection === 'end'
+      ) {
+        focusSelection = getEndSelection()
+      }
+
+      if (
+        selectionPreference === 'restore' &&
+        !focusSelection &&
+        !currentSelection
+      ) {
+        return
+      }
+
       const applyFocusSelection = () => {
         if (!focusSelection) {
           return false
@@ -776,13 +1420,20 @@ export const useRootInteractionController = ({
   )
 
   const applyInteractionAction = useCallback(
-    (action: RootInteractionMouseUpAction) => {
+    (
+      action: RootInteractionMouseUpAction,
+      options: {
+        placementDOMPoint?: SlateStringPlacementDOMPoint | null
+      } = {}
+    ) => {
       if (action.type === 'ignore') {
         return
       }
       const focusEditor = getMountedViewEditor(root) ?? editor
 
       if (action.type === 'set-selection') {
+        const range = withInteractionRangeRoot(action.range, root)
+
         selectionBridge?.beforeModelSelection()
         try {
           focusEditor.api.dom
@@ -792,10 +1443,15 @@ export const useRootInteractionController = ({
           // The regular focus path below handles temporarily unmounted roots.
         }
         writeSlateViewSelection(focusEditor, null)
+        writeCollapsedModelSelectionDOMPreference(
+          focusEditor,
+          range,
+          options.placementDOMPoint ?? null
+        )
         focusEditor.update((tx) => {
-          tx.selection.set(withInteractionRangeRoot(action.range, root))
+          tx.selection.set(range)
         })
-        focusSlateEditable(focusEditor)
+        focusSlateEditableAfterEventFrame(focusEditor)
         selectionBridge?.syncDOMSelectionToEditor()
         scheduleSlateReactFocus(() => {
           selectionBridge?.syncDOMSelectionToEditor()
@@ -804,6 +1460,7 @@ export const useRootInteractionController = ({
       }
 
       focusRoot({
+        fallbackSelection: action.fallbackSelection,
         forceSelection: action.selection === 'restore',
         selection: action.selection,
       })
@@ -816,6 +1473,8 @@ export const useRootInteractionController = ({
       if (disabled || event.defaultPrevented) {
         return
       }
+
+      stopDragAutoScroll(pendingDragAutoScrollRef)
 
       const target = resolveRootInteractionTarget({
         currentTarget: event.currentTarget,
@@ -831,42 +1490,144 @@ export const useRootInteractionController = ({
           : undefined,
         target,
       })
-      const placeRootChromeFromCoordinates =
-        action.type === 'activate-root' &&
-        shouldPlaceEditableRootChromeFromCoordinates(event)
-      const placeFocusedNativeEditableFromCoordinates =
-        action.type === 'ignore' &&
+      const nativeEditableTextTarget =
         target.kind === 'native-editable' &&
-        shouldPlaceFocusedNativeEditableFromCoordinates(event)
-      const preventNativeSelection =
-        action.type === 'place-native-editable' ||
-        placeRootChromeFromCoordinates ||
-        placeFocusedNativeEditableFromCoordinates
+        !!target.target.closest(NATIVE_EDITABLE_TEXT_TARGET)
+      const nativeEditableMultiClick =
+        nativeEditableTextTarget && event.detail > 1
+
+      if (nativeEditableMultiClick) {
+        action = { type: 'ignore' }
+      }
+
+      const shouldResolveRootChromeFromCoordinates =
+        !nativeEditableMultiClick &&
+        (action.type === 'place-editable-root' ||
+          target.kind === 'editable-root' ||
+          target.kind === 'native-editable' ||
+          target.kind === 'root-chrome')
+      const rootChromeCoordinatePlacement =
+        shouldResolveRootChromeFromCoordinates
+          ? getEditableRootChromeCoordinatePlacement({
+              editor,
+              event,
+              includeInsideString: target.kind === 'native-editable',
+            })
+          : null
+      const rootEdgeCoordinatePlacement =
+        rootChromeCoordinatePlacement?.source === 'root-edge'
+      const placeRootChromeFromCoordinates =
+        rootChromeCoordinatePlacement !== null
+      const nativeEditableChromeTarget =
+        target.kind === 'native-editable' &&
+        !target.target.closest(NATIVE_EDITABLE_TEXT_TARGET)
+      const focusedNativeEditableCoordinateTarget =
+        !nativeEditableMultiClick &&
+        ignoreBlankEditableRootClicks &&
+        action.type === 'ignore' &&
+        target.kind === 'native-editable'
+      const ignoreBlankNativeEditableClick =
+        focusedNativeEditableCoordinateTarget &&
+        (!placeRootChromeFromCoordinates || rootEdgeCoordinatePlacement)
+      const rootChromeSelfTarget =
+        target.kind === 'root-chrome' && target.target === event.currentTarget
+      const coordinatePlacementOwnsMouseDown =
+        placeRootChromeFromCoordinates &&
+        !rootEdgeCoordinatePlacement &&
+        (action.type !== 'ignore' ||
+          focusedNativeEditableCoordinateTarget ||
+          nativeEditableChromeTarget ||
+          target.kind === 'editable-root' ||
+          (target.kind === 'root-chrome' && !rootChromeSelfTarget))
+      const coordinateDragRootChromePlacement =
+        coordinatePlacementOwnsMouseDown && !rootEdgeCoordinatePlacement
+      const ignoreBlankEditableRootClick =
+        ignoreBlankEditableRootClicks &&
+        target.kind === 'editable-root' &&
+        (action.type === 'place-editable-root' || action.type === 'ignore') &&
+        (!placeRootChromeFromCoordinates || rootEdgeCoordinatePlacement)
+      const ignoreBlankRootChromeClick =
+        ignoreBlankEditableRootClicks &&
+        action.type === 'activate-root' &&
+        target.kind === 'root-chrome' &&
+        (!placeRootChromeFromCoordinates || rootEdgeCoordinatePlacement)
+      const ignoreBlankNativeEditableChromeClick =
+        ignoreBlankEditableRootClicks &&
+        nativeEditableChromeTarget &&
+        (!placeRootChromeFromCoordinates || rootEdgeCoordinatePlacement)
 
       if (
+        ignoreBlankEditableRootClick ||
+        ignoreBlankNativeEditableClick ||
+        ignoreBlankRootChromeClick ||
+        ignoreBlankNativeEditableChromeClick
+      ) {
+        action = { type: 'ignore' }
+      } else if (
         action.type === 'place-native-editable' ||
-        placeFocusedNativeEditableFromCoordinates
+        coordinateDragRootChromePlacement
       ) {
         action = { type: 'place-native-editable' }
       }
 
-      const focusEditor = getMountedViewEditor(root) ?? editor
-      const startRange =
+      const preventNativeSelection =
         action.type === 'place-native-editable' ||
-        placeRootChromeFromCoordinates
+        coordinatePlacementOwnsMouseDown ||
+        ignoreBlankEditableRootClick ||
+        ignoreBlankNativeEditableClick ||
+        ignoreBlankRootChromeClick ||
+        ignoreBlankNativeEditableChromeClick
+
+      const focusEditor = getMountedViewEditor(root) ?? editor
+      const startRange = rootChromeCoordinatePlacement
+        ? (resolveSlateStringPlacementRange({
+            editor: focusEditor,
+            placement: rootChromeCoordinatePlacement,
+          }) ?? focusEditor.api.dom.resolveEventRange(event.nativeEvent))
+        : action.type === 'place-native-editable'
           ? focusEditor.api.dom.resolveEventRange(event.nativeEvent)
           : null
-      const projectedDragEndpoint = resolveProjectedDragEndpoint({
-        editor,
-        event,
-        getMountedViewEditor,
-      })
+      const placementDOMPoint = rootChromeCoordinatePlacement
+        ? getSlateStringPlacementDOMPoint(rootChromeCoordinatePlacement)
+        : null
+
+      if (ignoreBlankEditableRootClick && !startRange) {
+        action = { type: 'ignore' }
+      }
+
+      const existingSelectionProjectedDragEndpoint = nativeEditableTextTarget
+        ? resolveExistingSelectionProjectedDragEndpoint({
+            editor,
+            event,
+            getMountedViewEditor,
+          })
+        : null
+      const projectedDragEndpoint =
+        nativeEditableMultiClick ||
+        ignoreBlankEditableRootClick ||
+        ignoreBlankNativeEditableClick ||
+        ignoreBlankRootChromeClick ||
+        rootEdgeCoordinatePlacement
+          ? null
+          : (existingSelectionProjectedDragEndpoint ??
+            resolveProjectedDragEndpoint({
+              editor,
+              event,
+              getMountedViewEditor,
+              range: rootChromeCoordinatePlacement ? startRange : undefined,
+              root: rootChromeCoordinatePlacement ? root : undefined,
+            }))
+
+      const projectedDragEditor = projectedDragEndpoint?.owner
+        ? (getMountedViewEditor(projectedDragEndpoint.owner.ownerRoot) ??
+          editor)
+        : editor
 
       pendingProjectedDrag = projectedDragEndpoint
         ? {
             clientX: event.clientX,
             clientY: event.clientY,
-            editor,
+            editor: projectedDragEditor,
             endpoint: projectedDragEndpoint,
           }
         : null
@@ -875,12 +1636,18 @@ export const useRootInteractionController = ({
         action,
         clientX: event.clientX,
         clientY: event.clientY,
-        coordinateDragSelection: placeRootChromeFromCoordinates,
+        coordinateDragSelection: coordinateDragRootChromePlacement,
+        currentRange: startRange,
+        placementDOMPoint,
         preventNativeSelection,
         startRange,
       }
 
       if (action.type === 'ignore') {
+        if (preventNativeSelection) {
+          event.preventDefault()
+        }
+
         return
       }
 
@@ -897,10 +1664,13 @@ export const useRootInteractionController = ({
 
       if (action.type === 'place-native-editable') {
         if (startRange) {
-          applyInteractionAction({
-            range: startRange,
-            type: 'set-selection',
-          })
+          applyInteractionAction(
+            {
+              range: startRange,
+              type: 'set-selection',
+            },
+            { placementDOMPoint }
+          )
         }
         return
       }
@@ -920,6 +1690,7 @@ export const useRootInteractionController = ({
       disabled,
       editor,
       getMountedViewEditor,
+      ignoreBlankEditableRootClicks,
       root,
       selection,
     ]
@@ -932,6 +1703,7 @@ export const useRootInteractionController = ({
 
       if (event.buttons === 0) {
         pendingProjectedDrag = null
+        stopDragAutoScroll(pendingDragAutoScrollRef)
         return
       }
 
@@ -944,10 +1716,12 @@ export const useRootInteractionController = ({
           selectionBridge,
         })
       ) {
+        stopDragAutoScroll(pendingDragAutoScrollRef)
         return
       }
 
       if (disabled || !canApplyCoordinateDragSelection(pendingInteraction)) {
+        stopDragAutoScroll(pendingDragAutoScrollRef)
         return
       }
 
@@ -957,20 +1731,49 @@ export const useRootInteractionController = ({
       )
 
       if (
-        eventRange &&
         pendingInteraction.startRange &&
         hasPointerMoved(pendingInteraction, event)
       ) {
         event.preventDefault()
-        applyModelDragSelection({
-          editor: focusEditor,
-          range: createDragSelectionRange({
+
+        if (eventRange) {
+          const nextRange = createDragSelectionRange({
             endRange: eventRange,
             startRange: pendingInteraction.startRange,
-          }),
+          })
+          const currentRange =
+            pendingInteraction.currentRange ?? pendingInteraction.startRange
+          const regressiveRange = isRegressiveDragSelectionRange({
+            currentRange,
+            delta: event.clientY - pendingInteraction.clientY,
+            nextRange,
+            startRange: pendingInteraction.startRange,
+          })
+
+          if (!regressiveRange) {
+            applyModelDragSelection({
+              editor: focusEditor,
+              range: nextRange,
+              root,
+              selectionBridge,
+            })
+            pendingInteraction.currentRange = nextRange
+          }
+        }
+
+        updateDragAutoScroll(pendingDragAutoScrollRef, {
+          clientX: event.clientX,
+          clientY: event.clientY,
+          currentRange:
+            pendingInteraction.currentRange ?? pendingInteraction.startRange,
+          editor: focusEditor,
           root,
+          rootElement: event.currentTarget,
           selectionBridge,
+          startRange: pendingInteraction.startRange,
         })
+      } else {
+        stopDragAutoScroll(pendingDragAutoScrollRef)
       }
     },
     [disabled, editor, getMountedViewEditor, root, selectionBridge]
@@ -980,6 +1783,7 @@ export const useRootInteractionController = ({
     (event) => {
       const pendingInteraction = pendingInteractionRef.current
       pendingInteractionRef.current = ignoreInteraction()
+      stopDragAutoScroll(pendingDragAutoScrollRef)
       const { action: pendingAction } = pendingInteraction
       const projectedDrag = pendingProjectedDrag
       pendingProjectedDrag = null
@@ -1035,13 +1839,35 @@ export const useRootInteractionController = ({
         pendingInteraction.startRange &&
         pointerMoved
       ) {
+        const nextRange = createDragSelectionRange({
+          endRange: eventRange,
+          startRange: pendingInteraction.startRange,
+        })
+        const currentRange =
+          pendingInteraction.currentRange ?? pendingInteraction.startRange
+        const regressiveRange = isRegressiveDragSelectionRange({
+          currentRange,
+          delta: event.clientY - pendingInteraction.clientY,
+          nextRange,
+          startRange: pendingInteraction.startRange,
+        })
+
+        if (regressiveRange) {
+          return
+        }
+
         applyInteractionAction({
-          range: createDragSelectionRange({
-            endRange: eventRange,
-            startRange: pendingInteraction.startRange,
-          }),
+          range: nextRange,
           type: 'set-selection',
         })
+        return
+      }
+
+      if (
+        canApplyCoordinateDragSelection(pendingInteraction) &&
+        pendingInteraction.startRange &&
+        pointerMoved
+      ) {
         return
       }
 
@@ -1050,10 +1876,37 @@ export const useRootInteractionController = ({
         pendingInteraction.startRange &&
         !pointerMoved
       ) {
-        applyInteractionAction({
-          range: pendingInteraction.startRange,
-          type: 'set-selection',
-        })
+        applyInteractionAction(
+          {
+            range: pendingInteraction.startRange,
+            type: 'set-selection',
+          },
+          { placementDOMPoint: pendingInteraction.placementDOMPoint }
+        )
+        return
+      }
+
+      if (
+        (pendingAction.type === 'activate-root' ||
+          pendingAction.type === 'place-editable-root') &&
+        pendingInteraction.startRange &&
+        !pointerMoved
+      ) {
+        applyInteractionAction(
+          {
+            range: pendingInteraction.startRange,
+            type: 'set-selection',
+          },
+          { placementDOMPoint: pendingInteraction.placementDOMPoint }
+        )
+        return
+      }
+
+      if (
+        pendingAction.type === 'place-editable-root' &&
+        !pendingInteraction.startRange &&
+        pointerMoved
+      ) {
         return
       }
 

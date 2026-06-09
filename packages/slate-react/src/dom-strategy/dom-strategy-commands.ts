@@ -66,16 +66,33 @@ export const isSelectionPartialDOMBacked = (
   return false
 }
 
-export const isSelectAllHotkey = ({
-  altKey,
-  ctrlKey,
-  key,
-  metaKey,
-  shiftKey,
-}: {
-  altKey: boolean
-  ctrlKey: boolean
-  key: string
-  metaKey: boolean
-  shiftKey: boolean
-}) => !altKey && !shiftKey && (ctrlKey || metaKey) && key.toLowerCase() === 'a'
+type SelectAllHotkeyPlatform = 'apple' | 'other'
+
+const APPLE_USER_AGENT_PATTERN = /Mac OS X/
+
+const getSelectAllHotkeyPlatform = (): SelectAllHotkeyPlatform =>
+  typeof navigator !== 'undefined' &&
+  APPLE_USER_AGENT_PATTERN.test(navigator.userAgent)
+    ? 'apple'
+    : 'other'
+
+export const isSelectAllHotkey = (
+  {
+    altKey,
+    ctrlKey,
+    key,
+    metaKey,
+    shiftKey,
+  }: {
+    altKey: boolean
+    ctrlKey: boolean
+    key: string
+    metaKey: boolean
+    shiftKey: boolean
+  },
+  platform: SelectAllHotkeyPlatform = getSelectAllHotkeyPlatform()
+) =>
+  !altKey &&
+  !shiftKey &&
+  key.toLowerCase() === 'a' &&
+  (platform === 'apple' ? metaKey && !ctrlKey : ctrlKey && !metaKey)
