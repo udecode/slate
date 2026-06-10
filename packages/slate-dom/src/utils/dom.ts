@@ -70,7 +70,9 @@ export const isDOMElement = (value: any): value is DOMElement => {
 
 export const isDOMNode = (value: any): value is DOMNode => {
   const window = getDefaultView(value)
-  return !!window && value instanceof window.Node
+  const Node = window?.Node
+
+  return typeof Node === 'function' && value instanceof Node
 }
 
 /**
@@ -79,7 +81,9 @@ export const isDOMNode = (value: any): value is DOMNode => {
 
 export const isDOMSelection = (value: any): value is DOMSelection => {
   const window = value?.anchorNode && getDefaultView(value.anchorNode)
-  return !!window && value instanceof window.Selection
+  const Selection = window?.Selection
+
+  return typeof Selection === 'function' && value instanceof Selection
 }
 
 /**

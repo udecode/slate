@@ -73,6 +73,12 @@ export type EditableInputControllerState = {
   pendingNativeTextInputRepairSuppressedDOMSelection?: boolean
   pendingNativeTextInputRepairOffset?: number | null
   pendingNativeTextInputRepairPathKey?: string | null
+  recentTextInputRepairEcho?: {
+    expiresAt: number
+    pathKey: string
+    selectionOffset: number
+    text: string
+  } | null
   repairInducedSelectionOriginVersion?: number
   selectionChangeOrigin: SelectionChangeOrigin | null
   selectionSource: SelectionSource
@@ -97,6 +103,7 @@ export const createEditableInputControllerState =
     pendingNativeTextInputRepairSuppressedDOMSelection: false,
     pendingNativeTextInputRepairOffset: null,
     pendingNativeTextInputRepairPathKey: null,
+    recentTextInputRepairEcho: null,
     repairInducedSelectionOriginVersion: 0,
     selectionChangeOrigin: null,
     selectionSource: 'unknown',
@@ -104,6 +111,17 @@ export const createEditableInputControllerState =
 
 export const getEditableInputTimestamp = () =>
   globalThis.performance?.now?.() ?? Date.now()
+
+export const clearExpiredTextInputRepairEcho = (
+  inputController: EditableInputController,
+  timestamp = getEditableInputTimestamp()
+) => {
+  const recentEcho = inputController.state.recentTextInputRepairEcho
+
+  if (recentEcho && timestamp > recentEcho.expiresAt) {
+    inputController.state.recentTextInputRepairEcho = null
+  }
+}
 
 export const isEditableOutsideFocusBoundarySettling = (
   state: Pick<EditableInputControllerState, 'outsideFocusBoundarySettleUntil'>

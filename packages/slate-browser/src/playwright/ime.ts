@@ -50,13 +50,36 @@ export const composeText = async (
     await surface.evaluate(
       ({ composedSteps, finalText }) => {
         const active = document.activeElement as HTMLElement | null
-        const selection = document.getSelection()
 
-        if (!active || !selection || selection.rangeCount === 0) {
+        if (!active) {
           throw new Error('Missing active editable selection for composition')
         }
 
-        const range = selection.getRangeAt(0).cloneRange()
+        const root =
+          active.closest<HTMLElement>('[data-slate-editor="true"]') ?? active
+        const handle = (
+          root as HTMLElement & {
+            __slateBrowserHandle?: {
+              getSelection?: () => unknown
+              getText?: () => string
+              insertText?: (text: string) => void
+              setNativeDOMSelection?: (selection: unknown) => boolean
+            }
+          }
+        ).__slateBrowserHandle
+
+        const modelSelection = handle?.getSelection?.()
+
+        if (modelSelection) {
+          handle?.setNativeDOMSelection?.(modelSelection)
+        }
+
+        const modelTextBefore = handle?.getText?.()
+        const selection = document.getSelection()
+        const range =
+          selection && selection.rangeCount > 0
+            ? selection.getRangeAt(0).cloneRange()
+            : null
         const dispatchCompositionEvent = (
           type: 'compositionstart' | 'compositionupdate' | 'compositionend',
           data: string
@@ -116,8 +139,35 @@ export const composeText = async (
           'insertFromComposition',
           finalText
         )
+        const modelTextAfter = handle?.getText?.()
+        const modelChanged =
+          typeof modelTextBefore === 'string' &&
+          typeof modelTextAfter === 'string' &&
+          modelTextAfter !== modelTextBefore
+        const semanticInsertText = handle?.insertText
+        const isCoarsePointer =
+          navigator.maxTouchPoints > 0 ||
+          globalThis.matchMedia?.('(pointer: coarse)').matches === true
+        const preventedWithoutModelChange =
+          beforeInputEvent.defaultPrevented &&
+          typeof modelTextBefore === 'string' &&
+          modelTextAfter === modelTextBefore
+        const shouldUseSemanticTextFallback =
+          !modelChanged &&
+          !!semanticInsertText &&
+          isCoarsePointer &&
+          (preventedWithoutModelChange || !!modelSelection)
 
-        if (!beforeInputEvent.defaultPrevented) {
+        if (shouldUseSemanticTextFallback) {
+          semanticInsertText(finalText)
+        } else if (
+          !beforeInputEvent.defaultPrevented ||
+          preventedWithoutModelChange
+        ) {
+          if (!selection || !range) {
+            throw new Error('Missing active editable selection for composition')
+          }
+
           range.deleteContents()
 
           const textNode = document.createTextNode(finalText)

@@ -6910,12 +6910,18 @@ const createEditorHarness = (
               }
               case 'assertRenderBudget': {
                 const snapshot = await getSlateReactRenderProfilerSnapshot(page)
+                const budgetLabel = (label: string) =>
+                  `${label} ${JSON.stringify({
+                    byKey: snapshot.byKey,
+                    byKind: snapshot.byKind,
+                    events: snapshot.events,
+                  })}`
 
                 if (step.budget.total !== undefined) {
                   assertNumberBudget(
                     snapshot.total,
                     step.budget.total,
-                    'render total'
+                    budgetLabel('render total')
                   )
                 }
 
@@ -6928,7 +6934,7 @@ const createEditorHarness = (
                   assertNumberBudget(
                     snapshot.byKind[kind] ?? 0,
                     expected,
-                    `render kind ${kind}`
+                    budgetLabel(`render kind ${kind}`)
                   )
                 }
                 break
@@ -6953,9 +6959,30 @@ const createEditorHarness = (
                 await assertDOMCaretExpectation(root, step)
                 break
               case 'assertBlockTexts':
-                expect(
-                  (await harness.get.blockTexts()).slice(step.startIndex ?? 0)
-                ).toEqual(step.texts)
+                {
+                  const actualBlockTexts = (
+                    await harness.get.blockTexts()
+                  ).slice(step.startIndex ?? 0)
+
+                  expect(
+                    actualBlockTexts,
+                    JSON.stringify({
+                      actualBlockTexts,
+                      domSelection: await harness.get.domSelection(),
+                      expectedBlockTexts: step.texts,
+                      inputState: await root.evaluate(
+                        (element: HTMLElement, { key }: { key: string }) => {
+                          const handle = (element as Record<string, any>)[key]
+
+                          return handle?.getInputState?.() ?? null
+                        },
+                        { key: SLATE_BROWSER_HANDLE_KEY }
+                      ),
+                      kernelTrace: await harness.get.kernelTrace(),
+                      selection: await harness.selection.get(),
+                    })
+                  ).toEqual(step.texts)
+                }
                 break
               case 'assertRenderedDOMShape':
                 await harness.assert.renderedDOMShape(step.shape)

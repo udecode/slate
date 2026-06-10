@@ -129,6 +129,72 @@ const printHugeDocumentSummary = (summary) => {
   console.log(`Wrote ${summary.artifactPaths.run}`)
 }
 
+const resourceSummaryLaneNames = [
+  'readyMs',
+  'middleBlockPromoteMs',
+  'middleBlockPromoteThenTypeMs',
+  'middleBlockSelectMs',
+  'middleBlockTypeAfterSelectMs',
+  'middleBlockSelectThenTypeMs',
+  'middleBlockTypeMs',
+]
+const resourceSummaryTraceKeys = [
+  'dom-node-count',
+  'editable-descendant-count',
+  'partial-dom-count',
+  'root-group-mounted-count',
+  'root-group-pending-count',
+  'slate-element-count',
+  'slate-text-count',
+  'dom-strategy-dom-node-count',
+  'dom-strategy-editable-descendant-count',
+  'dom-strategy-mounted-group-count',
+  'dom-strategy-mounted-top-level-count',
+  'dom-strategy-pending-group-count',
+  'dom-strategy-pending-top-level-count',
+  'dom-strategy-segment-size',
+]
+
+const pickResourceMetricSummary = (metric) =>
+  metric
+    ? {
+        mean: metric.mean,
+        median: metric.median,
+        p95: metric.p95,
+      }
+    : null
+
+const createLaneResourceSummary = (lane) => {
+  if (!lane?.traceTags) {
+    return null
+  }
+
+  const summary = Object.fromEntries(
+    resourceSummaryTraceKeys
+      .map((key) => [key, pickResourceMetricSummary(lane.traceTags[key])])
+      .filter(([, value]) => value)
+  )
+
+  return Object.keys(summary).length > 0 ? summary : null
+}
+
+const createResourceSummaryBySurface = (surfaces) =>
+  Object.fromEntries(
+    Object.entries(surfaces)
+      .map(([surfaceName, surface]) => [
+        surfaceName,
+        Object.fromEntries(
+          resourceSummaryLaneNames
+            .map((laneName) => [
+              laneName,
+              createLaneResourceSummary(surface?.[laneName]),
+            ])
+            .filter(([, value]) => value)
+        ),
+      ])
+      .filter(([, summary]) => Object.keys(summary).length > 0)
+  )
+
 const logProgress = (message) => {
   if (progressEnabled) {
     console.error(`[huge-document-compare] ${message}`)
@@ -436,6 +502,25 @@ const summarize = (samples) => {
   }
 }
 
+const summarizeNumericRecords = (records) => {
+  const keys = new Set()
+
+  for (const record of records) {
+    for (const [key, value] of Object.entries(record ?? {})) {
+      if (typeof value === 'number') {
+        keys.add(key)
+      }
+    }
+  }
+
+  return Object.fromEntries(
+    [...keys].sort().map((key) => [
+      key,
+      summarize(records.map((record) => record?.[key] ?? 0)),
+    ])
+  )
+}
+
 const createChildren = () =>
   Array.from({ length: blocks }, (_, index) => ({
     type: index % 100 === 0 ? 'heading-one' : 'paragraph',
@@ -694,6 +779,44 @@ const createBenchEditor = ({ chunking }) => {
   return editor
 }
 
+const countElements = (root, selector) => root.querySelectorAll(selector).length
+
+const measureLegacyReadySurfaceWeights = (container) => {
+  const root = getEditableRoot(container)
+  const domNodeCount = root.querySelectorAll('*').length + 1
+  const slateElementCount = countElements(root, '[data-slate-node="element"]')
+  const slateTextCount = countElements(root, '[data-slate-node="text"]')
+  const slateLeafCount = countElements(root, '[data-slate-leaf]')
+  const rootGroupCount = countElements(root, '[data-slate-root-group="true"]')
+  const mountedRootGroupCount = countElements(
+    root,
+    '[data-slate-root-group-state="mounted"], [data-slate-root-group-state="fresh-mounted"]'
+  )
+  const pendingRootGroupCount = countElements(
+    root,
+    '[data-slate-root-group-state="pending-mount"]'
+  )
+  const partialDOMCount = countElements(
+    root,
+    '[data-slate-dom-strategy-placeholder="true"]'
+  )
+  const mountedEditableDescendantCount = slateElementCount + slateTextCount
+
+  return {
+    'dom-node-count': domNodeCount,
+    'dom-nodes-per-block': domNodeCount / blocks,
+    'editable-descendant-count': mountedEditableDescendantCount,
+    'editable-descendants-per-block': mountedEditableDescendantCount / blocks,
+    'partial-dom-count': partialDOMCount,
+    'root-group-count': rootGroupCount,
+    'root-group-mounted-count': mountedRootGroupCount,
+    'root-group-pending-count': pendingRootGroupCount,
+    'slate-element-count': slateElementCount,
+    'slate-leaf-count': slateLeafCount,
+    'slate-text-count': slateTextCount,
+  }
+}
+
 const mount = async ({ chunking }) => {
   const editor = createBenchEditor({ chunking })
   const initialValue = createChildren()
@@ -728,22 +851,33 @@ const dispose = async ({ dom, restoreGlobals, root }) => {
 
 const measureLane = async (setup, run) => {
   const samples = []
+  const traceTags = []
 
   for (let iteration = 0; iteration < iterations + 1; iteration += 1) {
     const context = await setup()
     await settleBenchmark()
     const start = now()
-    await run(context)
+    const metrics = await run(context)
     const duration = now() - start
     await dispose(context)
     await settleBenchmark()
 
     if (iteration > 0) {
       samples.push(duration)
+      if (metrics && typeof metrics === 'object') {
+        traceTags.push(metrics)
+      }
     }
   }
 
-  return summarize(samples)
+  const summary = summarize(samples)
+
+  return {
+    ...summary,
+    ...(traceTags.length > 0
+      ? { traceTags: summarizeNumericRecords(traceTags) }
+      : {}),
+  }
 }
 
 const measurePreparedLane = async (setup, prepare, run) => {
@@ -777,7 +911,7 @@ const measureReady = async ({ chunking }) =>
 
       return { container, dom, editor, initialValue, restoreGlobals, root }
     },
-    async ({ editor, initialValue, root }) => {
+    async ({ container, editor, initialValue, root }) => {
       await act(async () => {
         root.render(
           React.createElement(
@@ -787,6 +921,8 @@ const measureReady = async ({ chunking }) =>
           )
         )
       })
+      await Promise.resolve()
+      return measureLegacyReadySurfaceWeights(container)
     }
   )
 
@@ -1137,23 +1273,25 @@ const summarizeProfiles = (profiles) => {
   }
 }
 
-const summarizeNumericRecords = (records) => {
-  const keys = new Set()
+const toTraceKey = (key) =>
+  'dom-strategy-' + key.replace(/[A-Z]/g, (match) => '-' + match.toLowerCase())
 
-  for (const record of records) {
-    for (const [key, value] of Object.entries(record ?? {})) {
-      if (typeof value === 'number') {
-        keys.add(key)
-      }
+const collectDOMStrategyTraceTags = (metrics) => {
+  if (!metrics || typeof metrics !== 'object') {
+    return {}
+  }
+
+  const tags = {}
+
+  for (const [key, value] of Object.entries(metrics)) {
+    if (typeof value === 'number') {
+      tags[toTraceKey(key)] = value
+    } else if (typeof value === 'boolean') {
+      tags[toTraceKey(key)] = value ? 1 : 0
     }
   }
 
-  return Object.fromEntries(
-    [...keys].sort().map((key) => [
-      key,
-      summarize(records.map((record) => record?.[key] ?? 0)),
-    ])
-  )
+  return tags
 }
 
 const getRootGroupCount = () => Math.ceil(blocks / rootGroupSize)
@@ -1416,9 +1554,14 @@ const selectedSurfaceDefinitions =
       )
     : surfaceDefinitions
 
-const createEditableProps = ({ domStrategy, renderElement }) => ({
+const createEditableProps = ({
+  domStrategy,
+  onDOMStrategyMetrics,
+  renderElement,
+}) => ({
   id: 'v2-huge-compare',
   domStrategy,
+  onDOMStrategyMetrics,
   renderElement,
 })
 
@@ -1430,6 +1573,7 @@ const mount = async ({ domStrategy, renderElement }) => {
   })
   const { container, dom, restoreGlobals } = createDom()
   const root = createRoot(container)
+  let latestDOMStrategyMetrics = null
 
   await act(async () => {
     root.render(
@@ -1438,13 +1582,26 @@ const mount = async ({ domStrategy, renderElement }) => {
         { editor },
         React.createElement(
           Editable,
-          createEditableProps({ domStrategy, renderElement })
+          createEditableProps({
+            domStrategy,
+            onDOMStrategyMetrics: (metrics) => {
+              latestDOMStrategyMetrics = metrics
+            },
+            renderElement,
+          })
         )
       )
     )
   })
 
-  return { container, dom, editor, restoreGlobals, root }
+  return {
+    container,
+    dom,
+    editor,
+    getDOMStrategyMetrics: () => latestDOMStrategyMetrics,
+    restoreGlobals,
+    root,
+  }
 }
 
 const createModelOnlyContext = () => {
@@ -1492,14 +1649,22 @@ const measureLane = async (setup, run) => {
       const metrics = await run(context)
       const duration = now() - start
       const profile = counter?.snapshot()
+      const domStrategyTraceTags =
+        typeof context.getDOMStrategyMetrics === 'function'
+          ? collectDOMStrategyTraceTags(context.getDOMStrategyMetrics())
+          : {}
       await dispose(context)
       await settleBenchmark()
       forceBenchmarkGC()
 
       if (iteration > 0) {
         samples.push(duration)
-        if (metrics && typeof metrics === 'object') {
-          traceTags.push(metrics)
+        const laneTraceTags =
+          metrics && typeof metrics === 'object'
+            ? { ...domStrategyTraceTags, ...metrics }
+            : domStrategyTraceTags
+        if (Object.keys(laneTraceTags).length > 0) {
+          traceTags.push(laneTraceTags)
         }
         if (profile) {
           profiles.push(profile)
@@ -1524,6 +1689,7 @@ const measureLane = async (setup, run) => {
 const measurePreparedLane = async (setup, prepare, run) => {
   const samples = []
   const profiles = []
+  const traceTags = []
 
   for (let iteration = 0; iteration < iterations + 1; iteration += 1) {
     const counter = profileEnabled ? createProfilerCounter() : null
@@ -1543,12 +1709,19 @@ const measurePreparedLane = async (setup, prepare, run) => {
       await run(context)
       const duration = now() - start
       const profile = counter?.snapshot()
+      const domStrategyTraceTags =
+        typeof context.getDOMStrategyMetrics === 'function'
+          ? collectDOMStrategyTraceTags(context.getDOMStrategyMetrics())
+          : {}
       await dispose(context)
       await settleBenchmark()
       forceBenchmarkGC()
 
       if (iteration > 0) {
         samples.push(duration)
+        if (Object.keys(domStrategyTraceTags).length > 0) {
+          traceTags.push(domStrategyTraceTags)
+        }
         if (profile) {
           profiles.push(profile)
         }
@@ -1563,9 +1736,17 @@ const measurePreparedLane = async (setup, prepare, run) => {
   return profileEnabled
     ? {
         ...summary,
+        ...(traceTags.length > 0
+          ? { traceTags: summarizeNumericRecords(traceTags) }
+          : {}),
         profile: summarizeProfiles(profiles),
       }
-    : summary
+    : {
+        ...summary,
+        ...(traceTags.length > 0
+          ? { traceTags: summarizeNumericRecords(traceTags) }
+          : {}),
+      }
 }
 
 const measureModelOnlyLane = async (setup, run) => {
@@ -1621,10 +1802,21 @@ const measureReady = async ({ domStrategy, renderElement }) =>
       })
       const { container, dom, restoreGlobals } = createDom()
       const root = createRoot(container)
+      let latestDOMStrategyMetrics = null
 
-      return { container, dom, editor, restoreGlobals, root }
+      return {
+        container,
+        dom,
+        editor,
+        getDOMStrategyMetrics: () => latestDOMStrategyMetrics,
+        onDOMStrategyMetrics: (metrics) => {
+          latestDOMStrategyMetrics = metrics
+        },
+        restoreGlobals,
+        root,
+      }
     },
-    async ({ container, editor, root }) => {
+    async ({ container, editor, onDOMStrategyMetrics, root }) => {
       await act(async () => {
         root.render(
           React.createElement(
@@ -1632,11 +1824,16 @@ const measureReady = async ({ domStrategy, renderElement }) =>
             { editor },
             React.createElement(
               Editable,
-              createEditableProps({ domStrategy, renderElement })
+              createEditableProps({
+                domStrategy,
+                onDOMStrategyMetrics,
+                renderElement,
+              })
             )
           )
         )
       })
+      await Promise.resolve()
       return recordReadySurfaceWeight(container)
     }
   )
@@ -2432,6 +2629,7 @@ if (compareMode === 'current-only') {
       typeOps,
     },
     surfaces: current.surfaces,
+    resourceSummaryBySurface: createResourceSummaryBySurface(current.surfaces),
   }
 
   await writeHugeDocumentArtifact({
@@ -2575,6 +2773,10 @@ const summary = {
     legacyChunkOn,
     ...current.surfaces,
   },
+  resourceSummaryBySurface: createResourceSummaryBySurface({
+    legacyChunkOn,
+    ...current.surfaces,
+  }),
   deltaMeanMsBySurface,
   v2OnlyLaneNames: v2OnlyProductLaneNames,
   v2OnlyP95Rows,

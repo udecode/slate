@@ -656,6 +656,155 @@ test('deferred native text input repair coalesces stale in-range DOM input selec
   }
 })
 
+test('deferred native text input repair prefers the repaired runtime caret when native selection lags', () => {
+  const editor = createReactEditor()
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  })
+  const root = document.createElement('div')
+  const repairDOMInput = vi.fn()
+  let pendingFrame: FrameRequestCallback | null = null
+  const requestAnimationFrameSpy = vi
+    .spyOn(window, 'requestAnimationFrame')
+    .mockImplementation((callback) => {
+      pendingFrame = callback
+
+      return 1
+    })
+  const setTimeoutSpy = vi
+    .spyOn(window, 'setTimeout')
+    .mockImplementation(() => 1)
+  const text = appendTextHost(root, '0,0')
+
+  text.nodeValue = 'fAThis'
+  inputController.state.recentTextInputRepairEcho = {
+    expiresAt: performance.now() + 1000,
+    pathKey: '0,0',
+    selectionOffset: 1,
+    text: 'AThis',
+  }
+  Editor.replace(editor, {
+    children: [{ type: 'paragraph', children: [{ text: 'AThis' }] }],
+    selection: {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    },
+  })
+  document.body.append(root)
+
+  try {
+    const { result } = renderHook(() =>
+      useEditableDOMInputHandler({
+        deferNativeTextInputRepair: true,
+        editor,
+        inputController,
+        readOnly: false,
+        repairDOMInput,
+        rootRef: { current: root },
+      })
+    )
+
+    selectTextOffset(text, 1)
+    result.current.onDOMInput(createNativeInsertTextEvent('f'))
+    flushAnimationFrame(() => pendingFrame, performance.now() + 48)
+
+    expect(repairDOMInput).toHaveBeenCalledWith(
+      {
+        data: 'f',
+        inputType: 'insertText',
+        target: {
+          insert: { offset: 1, text: 'f' },
+          path: [0, 0],
+          preferCapturedInsert: true,
+          selectionOffset: 2,
+          text: 'AfThis',
+        },
+      },
+      root
+    )
+  } finally {
+    requestAnimationFrameSpy.mockRestore()
+    setTimeoutSpy.mockRestore()
+    root.remove()
+  }
+})
+
+test('deferred native text input repair keeps a same-node native user caret over a live repair echo', () => {
+  const editor = createReactEditor()
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  })
+  const root = document.createElement('div')
+  const repairDOMInput = vi.fn()
+  let pendingFrame: FrameRequestCallback | null = null
+  const requestAnimationFrameSpy = vi
+    .spyOn(window, 'requestAnimationFrame')
+    .mockImplementation((callback) => {
+      pendingFrame = callback
+
+      return 1
+    })
+  const setTimeoutSpy = vi
+    .spyOn(window, 'setTimeout')
+    .mockImplementation(() => 1)
+  const text = appendTextHost(root, '0,0')
+
+  text.nodeValue = 'Bxeta!'
+  inputController.state.recentTextInputRepairEcho = {
+    expiresAt: performance.now() + 1000,
+    pathKey: '0,0',
+    selectionOffset: 5,
+    text: 'Beta!',
+  }
+  inputController.state.selectionSource = 'dom-current'
+  inputController.state.selectionChangeOrigin = 'native-user'
+  Editor.replace(editor, {
+    children: [{ type: 'paragraph', children: [{ text: 'Beta!' }] }],
+    selection: {
+      anchor: { path: [0, 0], offset: 5 },
+      focus: { path: [0, 0], offset: 5 },
+    },
+  })
+  document.body.append(root)
+
+  try {
+    const { result } = renderHook(() =>
+      useEditableDOMInputHandler({
+        deferNativeTextInputRepair: true,
+        editor,
+        inputController,
+        readOnly: false,
+        repairDOMInput,
+        rootRef: { current: root },
+      })
+    )
+
+    selectTextOffset(text, 2)
+    result.current.onDOMInput(createNativeInsertTextEvent('x'))
+    flushAnimationFrame(() => pendingFrame, performance.now() + 48)
+
+    expect(repairDOMInput).toHaveBeenCalledWith(
+      {
+        data: 'x',
+        inputType: 'insertText',
+        target: {
+          insert: { offset: 1, text: 'x' },
+          path: [0, 0],
+          selectionOffset: 2,
+          text: 'Bxeta!',
+        },
+      },
+      root
+    )
+  } finally {
+    requestAnimationFrameSpy.mockRestore()
+    setTimeoutSpy.mockRestore()
+    root.remove()
+  }
+})
+
 test('deferred native text input repair keeps a beforeinput-only burst character', () => {
   const editor = createReactEditor()
   const inputController = createEditableInputController({
@@ -935,6 +1084,114 @@ test('deferred native text input repair splits deeply stale DOM input selections
     )
     expect(inputController.state.pendingNativeTextInputRepairOffset).toBeNull()
     expect(inputController.state.pendingNativeTextInputRepairPathKey).toBeNull()
+  } finally {
+    requestAnimationFrameSpy.mockRestore()
+    setTimeoutSpy.mockRestore()
+    root.remove()
+  }
+})
+
+test('deferred native text input repair retargets from repaired runtime caret after flushing a stale burst', () => {
+  const editor = createReactEditor()
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  })
+  const root = document.createElement('div')
+  const repairDOMInput = vi.fn(({ target }) => {
+    if (target?.insert) {
+      editor.update((tx) => {
+        tx.text.insert(target.insert.text, {
+          at: { offset: target.insert.offset, path: target.path },
+        })
+      })
+    }
+  })
+  let pendingFrame: FrameRequestCallback | null = null
+  const requestAnimationFrameSpy = vi
+    .spyOn(window, 'requestAnimationFrame')
+    .mockImplementation((callback) => {
+      pendingFrame = callback
+
+      return 1
+    })
+  const setTimeoutSpy = vi
+    .spyOn(window, 'setTimeout')
+    .mockImplementation(() => 1)
+  const text = appendTextHost(root, '0,0')
+
+  text.nodeValue = 'abc'
+  Editor.replace(editor, {
+    children: [{ type: 'paragraph', children: [{ text: 'abc' }] }],
+    selection: {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    },
+  })
+  document.body.append(root)
+
+  try {
+    const startedAt = performance.now()
+    const { result } = renderHook(() =>
+      useEditableDOMInputHandler({
+        deferNativeTextInputRepair: true,
+        editor,
+        inputController,
+        readOnly: false,
+        repairDOMInput,
+        rootRef: { current: root },
+      })
+    )
+
+    expect(
+      result.current.queuePendingNativeTextInput({
+        data: 'X',
+        inputType: 'insertText',
+        rootElement: root,
+        selection: {
+          anchor: { path: [0, 0], offset: 1 },
+          focus: { path: [0, 0], offset: 1 },
+        },
+      })
+    ).toBe(true)
+    expect(inputController.state.pendingNativeTextInputRepairOffset).toBe(2)
+
+    text.nodeValue = 'aYXbc'
+    selectTextOffset(text, 2)
+    result.current.onDOMInput(createNativeInsertTextEvent('Y'))
+    flushAnimationFrame(() => pendingFrame, startedAt + 48)
+
+    expect(repairDOMInput).toHaveBeenNthCalledWith(
+      1,
+      {
+        data: 'X',
+        inputType: 'insertText',
+        target: {
+          insert: { offset: 1, text: 'X' },
+          path: [0, 0],
+          preferCapturedInsert: true,
+          selectionOffset: 2,
+          text: 'aXbc',
+        },
+      },
+      root
+    )
+    expect(repairDOMInput).toHaveBeenNthCalledWith(
+      2,
+      {
+        data: 'Y',
+        inputType: 'insertText',
+        target: {
+          insert: { offset: 2, text: 'Y' },
+          path: [0, 0],
+          preferCapturedInsert: true,
+          selectionOffset: 3,
+          text: 'aXYbc',
+        },
+      },
+      root
+    )
+    expect(repairDOMInput).toHaveBeenCalledTimes(2)
   } finally {
     requestAnimationFrameSpy.mockRestore()
     setTimeoutSpy.mockRestore()
@@ -1868,6 +2125,50 @@ test('native input repair prefers a valid DOM text target over stale runtime sel
   }
 })
 
+test('native input repair keeps a fresh DOM path over a stale preferred runtime repair target', () => {
+  const editor = createReactEditor()
+  const root = document.createElement('div')
+  const firstText = appendTextHost(root, '0,0')
+  const secondText = appendTextHost(root, '1,0')
+
+  firstText.nodeValue = 'a'
+  secondText.nodeValue = 'yb'
+  Editor.replace(editor, {
+    children: [
+      { type: 'paragraph', children: [{ text: 'a' }] },
+      { type: 'paragraph', children: [{ text: 'b' }] },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    },
+  })
+  document.body.append(root)
+
+  try {
+    selectTextOffset(secondText, 1)
+
+    expect(
+      getDOMInputRepairTarget(
+        editor,
+        root,
+        {
+          data: 'y',
+          inputType: 'insertText',
+        },
+        { preferRuntimeSelection: true }
+      )
+    ).toEqual({
+      insert: { offset: 0, text: 'y' },
+      path: [1, 0],
+      selectionOffset: 1,
+      text: 'yb',
+    })
+  } finally {
+    root.remove()
+  }
+})
+
 test('read-only input capture does not schedule model-owning DOM input repair', () => {
   const editor = createReactEditor()
   const inputController = createEditableInputController({
@@ -2080,7 +2381,7 @@ test('react input repair does not replay text after flushing deferred beforeinpu
         kind: 'repair-caret',
         selectionSourceTransition: {
           preferModelSelection: true,
-          reason: 'repair-induced',
+          reason: 'model-command',
           selectionSource: 'model-owned',
         },
       },

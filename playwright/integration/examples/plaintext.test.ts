@@ -237,7 +237,9 @@ test.describe('plaintext example', () => {
   }, testInfo) => {
     test.skip(testInfo.project.name === 'mobile', 'Desktop Enter key proof')
 
-    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page, {
+      patterns: [''],
+    })
 
     try {
       const editor = await openExample(page, 'plaintext', {
@@ -884,36 +886,34 @@ test.describe('plaintext example', () => {
       'Desktop WebKit hard-line-delete proof'
     )
 
-    const consoleErrors: string[] = []
-    const pageErrors: string[] = []
-    page.on('console', (message) => {
-      if (message.type() === 'error') {
-        consoleErrors.push(message.text())
-      }
-    })
-    page.on('pageerror', (error) => pageErrors.push(error.message))
-
-    const editor = await openExample(page, 'plaintext', {
-      ready: {
-        editor: 'visible',
-      },
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page, {
+      patterns: [''],
     })
 
-    await editor.selection.selectAll()
-    await page.keyboard.insertText('foobar')
-    await page.keyboard.press('Enter')
-    await page.keyboard.insertText('baz')
-    await editor.assert.blockTexts(['foobar', 'baz'])
+    try {
+      const editor = await openExample(page, 'plaintext', {
+        ready: {
+          editor: 'visible',
+        },
+      })
 
-    await page.keyboard.press('Meta+Backspace')
+      await editor.selection.selectAll()
+      await page.keyboard.insertText('foobar')
+      await page.keyboard.press('Enter')
+      await page.keyboard.insertText('baz')
+      await editor.assert.blockTexts(['foobar', 'baz'])
 
-    await editor.assert.blockTexts(['foobar', ''])
-    await editor.assert.selection({
-      anchor: { path: [1, 0], offset: 0 },
-      focus: { path: [1, 0], offset: 0 },
-    })
-    expect(pageErrors).toEqual([])
-    expect(consoleErrors).toEqual([])
+      await page.keyboard.press('Meta+Backspace')
+
+      await editor.assert.blockTexts(['foobar', ''])
+      await editor.assert.selection({
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: 0 },
+      })
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
   })
 
   test('applies deleteSoftLineBackward target ranges exactly', async ({

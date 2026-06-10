@@ -341,15 +341,14 @@ test.describe('hidden content blocks example', () => {
       'active'
     )
 
-    await page.getByTestId('tab-overview').click()
-    await expect(page.getByTestId('tab-overview')).toHaveAttribute(
-      'data-state',
-      'active'
-    )
     await editor.selection.collapse({
       offset: overview.length,
       path: [2, 0, 0],
     })
+    await expect(page.getByTestId('tab-overview')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
     await page.keyboard.press('Shift+ArrowRight')
     await editor.assert.selection({
       anchor: { offset: overview.length, path: [2, 0, 0] },
@@ -470,15 +469,14 @@ test.describe('hidden content blocks example', () => {
       'inactive'
     )
 
-    await page.getByTestId('tab-details').click()
-    await expect(page.getByTestId('tab-details')).toHaveAttribute(
-      'data-state',
-      'active'
-    )
     await editor.selection.collapse({
       offset: 0,
       path: [2, 1, 0],
     })
+    await expect(page.getByTestId('tab-details')).toHaveAttribute(
+      'data-state',
+      'active'
+    )
     await page.keyboard.press('Shift+ArrowLeft')
     await editor.assert.selection({
       anchor: { offset: 0, path: [2, 1, 0] },

@@ -449,6 +449,8 @@ export const attachSlateBrowserHandle = ({
         inputController.state.pendingNativeTextInputRepairPathKey ?? null,
       preferModelSelection:
         inputController.preferModelSelectionForInputRef.current,
+      recentTextInputRepairEcho:
+        inputController.state.recentTextInputRepairEcho ?? null,
       selectionChangeOrigin: inputController.state.selectionChangeOrigin,
       selectionSource: inputController.state.selectionSource,
     }),

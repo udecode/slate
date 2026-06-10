@@ -1,5 +1,10 @@
 import { faker } from '@faker-js/faker'
-import { parseAsBoolean, parseAsStringLiteral, useQueryStates } from 'nuqs'
+import {
+  parseAsBoolean,
+  parseAsString,
+  parseAsStringLiteral,
+  useQueryStates,
+} from 'nuqs'
 import React, {
   type CSSProperties,
   StrictMode,
@@ -42,6 +47,7 @@ const SUPPORTS_LOAF_TIMING =
 interface Config {
   blocks: number
   contentVisibilityMode: 'none' | 'element'
+  documentSeed: string
   editorHeight: number
   domStrategyMode: 'auto' | 'full' | 'staged' | 'virtualized'
   domStrategyOverscan: number
@@ -85,6 +91,7 @@ const hugeDocumentQueryParsers = {
   contentVisibilityMode: parseAsStringLiteral(
     contentVisibilityModeOptions
   ).withDefault('none'),
+  documentSeed: parseAsString.withDefault('default'),
   domStrategyMode: parseAsStringLiteral(domStrategyModeOptions)
     .withDefault('virtualized')
     .withOptions({ clearOnDefault: false }),
@@ -98,6 +105,7 @@ const hugeDocumentQueryParsers = {
 
 const hugeDocumentUrlKeys = {
   contentVisibilityMode: 'content_visibility',
+  documentSeed: 'seed',
   domStrategyMode: 'strategy',
   domStrategyOverscan: 'overscan',
   domStrategyThreshold: 'threshold',
@@ -107,30 +115,50 @@ const hugeDocumentUrlKeys = {
   virtualizedEstimatedBlockSize: 'estimated_block_size',
 }
 
-const cachedInitialValue: Value = []
+const cachedInitialValueBySeed = new Map<string, Value>()
 
-const getInitialValue = (blocks: number) => {
-  if (cachedInitialValue.length >= blocks) {
-    return cachedInitialValue.slice(0, blocks)
-  }
+const getNumericDocumentSeed = (seed: string) =>
+  seed === 'default'
+    ? 1
+    : Array.from(seed).reduce(
+        (value, character) =>
+          (Math.imul(value, 31) + character.charCodeAt(0)) >>> 0,
+        0
+      )
 
-  faker.seed(1)
+const generateInitialValue = (blocks: number, seed: string) => {
+  const initialValue: Value = []
+  faker.seed(getNumericDocumentSeed(seed))
 
-  for (let i = cachedInitialValue.length; i < blocks; i++) {
+  for (let i = 0; i < blocks; i++) {
     if (i % 100 === 0) {
-      cachedInitialValue.push({
+      initialValue.push({
         type: 'heading-one',
         children: [{ text: faker.lorem.sentence() }],
       })
     } else {
-      cachedInitialValue.push({
+      initialValue.push({
         type: 'paragraph',
         children: [{ text: faker.lorem.paragraph() }],
       })
     }
   }
 
-  return cachedInitialValue.slice()
+  return initialValue
+}
+
+const getInitialValue = (blocks: number, seed: string) => {
+  const cachedInitialValue = cachedInitialValueBySeed.get(seed)
+
+  if (cachedInitialValue && cachedInitialValue.length >= blocks) {
+    return cachedInitialValue.slice(0, blocks)
+  }
+
+  const initialValue = generateInitialValue(blocks, seed)
+
+  cachedInitialValueBySeed.set(seed, initialValue)
+
+  return initialValue.slice()
 }
 
 const fallbackInitialValue: Value = [
@@ -187,10 +215,12 @@ const HugeDocumentExample = () => {
       config,
       typeof window === 'undefined'
         ? fallbackInitialValue
-        : getInitialValue(config.blocks)
+        : getInitialValue(config.blocks, config.documentSeed)
     )
   )
-  const editorBlocksRef = useRef(config.blocks)
+  const editorInitialValueKeyRef = useRef(
+    `${config.documentSeed}:${config.blocks}`
+  )
   const [editorVersion, setEditorVersion] = useState(0)
   const [domStrategyMetrics, setDOMStrategyMetrics] =
     useState<EditableDOMStrategyMetrics | null>(null)
@@ -201,11 +231,14 @@ const HugeDocumentExample = () => {
 
       setIsRendering(true)
       setDOMStrategyMetrics(null)
-      editorBlocksRef.current = newConfig.blocks
+      editorInitialValueKeyRef.current = `${newConfig.documentSeed}:${newConfig.blocks}`
       void setQueryConfig(newConfig)
 
       setTimeout(() => {
-        const nextInitialValue = getInitialValue(newConfig.blocks)
+        const nextInitialValue = getInitialValue(
+          newConfig.blocks,
+          newConfig.documentSeed
+        )
 
         setIsRendering(false)
         setEditor(createEditor(newConfig, nextInitialValue))
@@ -216,7 +249,9 @@ const HugeDocumentExample = () => {
   )
 
   useEffect(() => {
-    if (editorBlocksRef.current === config.blocks) {
+    const initialValueKey = `${config.documentSeed}:${config.blocks}`
+
+    if (editorInitialValueKeyRef.current === initialValueKey) {
       return
     }
 
@@ -227,9 +262,12 @@ const HugeDocumentExample = () => {
       setDOMStrategyMetrics(null)
 
       replaceTimeout = setTimeout(() => {
-        const nextInitialValue = getInitialValue(config.blocks)
+        const nextInitialValue = getInitialValue(
+          config.blocks,
+          config.documentSeed
+        )
 
-        editorBlocksRef.current = config.blocks
+        editorInitialValueKeyRef.current = initialValueKey
         setIsRendering(false)
         setEditor(createEditor(config, nextInitialValue))
         setEditorVersion((n) => n + 1)

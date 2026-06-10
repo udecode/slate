@@ -223,6 +223,20 @@ const getNativeSelectionSummary = async (editor: SlateBrowserEditorHarness) =>
 const getViewSelectionSummary = async (editor: SlateBrowserEditorHarness) =>
   (await editor.selection.displayed()).view
 
+const editorSelectionProof = async (editor: SlateBrowserEditorHarness) => {
+  const selection = await editor.selection.get()
+  const nativeSelection = await getNativeSelectionSummary(editor)
+  const viewSelection = await getViewSelectionSummary(editor)
+
+  return {
+    hasVisibleSelection:
+      nativeSelection.textLength > 0 || viewSelection.markerCount > 0,
+    nativeSelection,
+    selection,
+    viewSelection,
+  }
+}
+
 const installHugeDocumentKeyboardProfiler = async (
   editor: SlateBrowserEditorHarness
 ) =>
@@ -625,6 +639,58 @@ test.describe('huge document example', () => {
     await expect(page.locator('[data-slate-chunk]')).toHaveCount(0)
   })
 
+  test('keeps seeded content deterministic when block count grows', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium',
+      'Seeded generation is browser-independent'
+    )
+
+    const blockIndex = 100
+    const seed = 'growth-cache-contract'
+    const editor = await openSmallHugeDocument(page, {
+      blocks: 2,
+      seed,
+      strategy: 'full',
+    })
+
+    await page.getByLabel('Blocks').selectOption('1000')
+    await expect(page.getByLabel('Blocks')).toHaveValue('1000')
+    await expect
+      .poll(async () => (await getTextBlockText(editor, blockIndex)) ?? '', {
+        timeout: hugeDocumentReadyTimeout,
+      })
+      .toMatch(/\S/)
+
+    const grownText = await getTextBlockText(editor, blockIndex)
+
+    if (!grownText) {
+      throw new Error(`Missing grown text for block ${blockIndex}`)
+    }
+
+    const freshPage = await page.context().newPage()
+
+    try {
+      const freshEditor = await openSmallHugeDocument(freshPage, {
+        blocks: 1000,
+        seed,
+        strategy: 'full',
+      })
+
+      await expect
+        .poll(
+          async () => (await getTextBlockText(freshEditor, blockIndex)) ?? '',
+          {
+            timeout: hugeDocumentReadyTimeout,
+          }
+        )
+        .toBe(grownText)
+    } finally {
+      await freshPage.close()
+    }
+  })
+
   test('exposes staged DOM strategy controls and metrics', async ({ page }) => {
     const editor = await openSmallHugeDocument(page, {
       blocks: 1200,
@@ -827,6 +893,74 @@ test.describe('huge document example', () => {
 
     expect(Math.max(...downMs)).toBeLessThan(600)
     expect(Math.max(...upMs)).toBeLessThan(600)
+  })
+
+  test('keeps staged and virtualized Shift+ArrowUp and Shift+ArrowDown selection coherent across browsers', async ({
+    page,
+  }, testInfo) => {
+    const strategies = ['staged', 'virtualized'] as const
+    const proofs: Array<{
+      down: Awaited<ReturnType<typeof editorSelectionProof>>
+      strategy: (typeof strategies)[number]
+      up: Awaited<ReturnType<typeof editorSelectionProof>>
+    }> = []
+
+    for (const strategy of strategies) {
+      const editor = await openSmallHugeDocument(page, {
+        blocks: 5000,
+        editor_height: 420,
+        estimated_block_size: 48,
+        overscan: 0,
+        strategy,
+        threshold: 1,
+      })
+
+      await expect
+        .poll(() =>
+          page.getByTestId('huge-document-effective-strategy').textContent()
+        )
+        .toBe(strategy)
+
+      await selectTextBlockOffsetDOM(editor, 4, 12)
+      await page.keyboard.press('Shift+ArrowUp')
+
+      const up = await editorSelectionProof(editor)
+
+      expect(up.selection?.anchor).toEqual({
+        offset: 12,
+        path: [4, 0],
+      })
+      expect(up.selection?.focus).not.toEqual({
+        offset: 12,
+        path: [4, 0],
+      })
+      expect(up.hasVisibleSelection).toBe(true)
+
+      await selectTextBlockOffsetDOM(editor, 0, 12)
+      await page.keyboard.press('Shift+ArrowDown')
+
+      const down = await editorSelectionProof(editor)
+
+      expect(down.selection?.anchor).toEqual({
+        offset: 12,
+        path: [0, 0],
+      })
+      expect(down.selection?.focus).not.toEqual({
+        offset: 12,
+        path: [0, 0],
+      })
+      expect(down.hasVisibleSelection).toBe(true)
+
+      proofs.push({ down, strategy, up })
+    }
+
+    await testInfo.attach(
+      'huge-document-cross-browser-vertical-selection-proof',
+      {
+        body: JSON.stringify(proofs, null, 2),
+        contentType: 'application/json',
+      }
+    )
   })
 
   test('keeps staged 10k repeated Shift+ArrowDown visually projected and bounded', async ({

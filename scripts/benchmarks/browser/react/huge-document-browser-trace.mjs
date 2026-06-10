@@ -792,27 +792,140 @@ const syncDOMSelection = async (page, blockIndex, offset) =>
     { index: blockIndex, offset }
   )
 
-const waitForDOMSelectionPath = async (page, blockIndex, offset) => {
-  await page.waitForFunction(
+const getDOMSelectionPathDiagnostics = async (page, blockIndex, offset) =>
+  page.evaluate(
     ({ index, offset }) => {
       const root = document.querySelector('[data-slate-editor="true"]')
       const selection = document.getSelection()
-      const textElement = selection?.anchorNode?.parentElement?.closest(
-        '[data-slate-node="text"]'
+      const textElements = Array.from(
+        root?.querySelectorAll('[data-slate-node="text"]') ?? []
+      )
+      const getClosestTextElement = (node) =>
+        node instanceof Element
+          ? node.closest('[data-slate-node="text"]')
+          : node?.parentElement?.closest('[data-slate-node="text"]')
+      const anchorTextElement = getClosestTextElement(selection?.anchorNode)
+      const focusTextElement = getClosestTextElement(selection?.focusNode)
+      const activeElement = document.activeElement
+      const scrollParent = root
+        ? Array.from(document.querySelectorAll('*')).find(
+            (element) =>
+              element instanceof HTMLElement &&
+              element.contains(root) &&
+              element.scrollHeight > element.clientHeight
+          )
+        : null
+      const targetElement = root?.querySelector(
+        `[data-slate-node="text"][data-slate-path="${index},0"]`
       )
 
-      const inputState = root?.__slateBrowserHandle?.getInputState?.() ?? null
-
-      return (
-        textElement?.getAttribute('data-slate-path') === `${index},0` &&
-        selection?.anchorOffset === offset &&
-        inputState?.preferModelSelection === false &&
-        inputState?.selectionSource === 'dom-current'
-      )
+      return {
+        activeElement:
+          activeElement instanceof HTMLElement
+            ? {
+                ariaLabel: activeElement.getAttribute('aria-label'),
+                contentEditable: activeElement.contentEditable,
+                dataSlateEditor:
+                  activeElement.getAttribute('data-slate-editor'),
+                tagName: activeElement.tagName,
+              }
+            : null,
+        anchorOffset: selection?.anchorOffset ?? null,
+        anchorTextPath:
+          anchorTextElement?.getAttribute('data-slate-path') ?? null,
+        exactPathExists: !!targetElement,
+        focusOffset: selection?.focusOffset ?? null,
+        focusTextPath:
+          focusTextElement?.getAttribute('data-slate-path') ?? null,
+        handleInputState: root?.__slateBrowserHandle?.getInputState?.() ?? null,
+        handleSelection: root?.__slateBrowserHandle?.getSelection?.() ?? null,
+        mountedTextPaths: textElements
+          .slice(0, 30)
+          .map((element) => element.getAttribute('data-slate-path')),
+        nativeText: selection?.toString() ?? null,
+        requestedOffset: offset,
+        requestedPath: `${index},0`,
+        rootTextCount: textElements.length,
+        scrollParent:
+          scrollParent instanceof HTMLElement
+            ? {
+                clientHeight: scrollParent.clientHeight,
+                scrollHeight: scrollParent.scrollHeight,
+                scrollTop: scrollParent.scrollTop,
+                tagName: scrollParent.tagName,
+              }
+            : null,
+        selectionRangeCount: selection?.rangeCount ?? 0,
+        targetRect:
+          targetElement instanceof HTMLElement
+            ? {
+                bottom: targetElement.getBoundingClientRect().bottom,
+                top: targetElement.getBoundingClientRect().top,
+              }
+            : null,
+      }
     },
-    { index: blockIndex, offset },
-    { timeout: 5000 }
+    { index: blockIndex, offset }
   )
+
+const waitForDOMSelectionPath = async (
+  page,
+  blockIndex,
+  offset,
+  context,
+  phase
+) => {
+  await page
+    .waitForFunction(
+      ({ index, offset }) => {
+        const root = document.querySelector('[data-slate-editor="true"]')
+        const selection = document.getSelection()
+        const textElement = selection?.anchorNode?.parentElement?.closest(
+          '[data-slate-node="text"]'
+        )
+        const handleSelection =
+          root?.__slateBrowserHandle?.getSelection?.() ?? null
+        const inputState = root?.__slateBrowserHandle?.getInputState?.() ?? null
+        const anchorPath = handleSelection?.anchor?.path ?? null
+        const focusPath = handleSelection?.focus?.path ?? null
+        const pathMatches = (path) =>
+          Array.isArray(path) &&
+          path.length === 2 &&
+          path[0] === index &&
+          path[1] === 0
+        const acceptsNativeSelection =
+          inputState?.preferModelSelection === false &&
+          inputState?.selectionSource === 'dom-current'
+        const acceptsRepairBackedModelSelection =
+          inputState?.preferModelSelection === true &&
+          inputState?.selectionSource === 'model-owned' &&
+          inputState?.modelSelectionPreference?.reason === 'repair-induced'
+
+        return (
+          textElement?.getAttribute('data-slate-path') === `${index},0` &&
+          selection?.anchorOffset === offset &&
+          selection?.focusOffset === offset &&
+          pathMatches(anchorPath) &&
+          pathMatches(focusPath) &&
+          handleSelection?.anchor?.offset === offset &&
+          handleSelection?.focus?.offset === offset &&
+          (acceptsNativeSelection || acceptsRepairBackedModelSelection)
+        )
+      },
+      { index: blockIndex, offset },
+      { timeout: nativeSurfaceTimeoutMs }
+    )
+    .catch(async (error) => {
+      const diagnostics = await getDOMSelectionPathDiagnostics(
+        page,
+        blockIndex,
+        offset
+      )
+
+      throw new Error(
+        `DOM selection sync timed out for ${context.surfaceKey}/${context.laneKey}/iteration-${context.iteration}/${phase} at block ${blockIndex} offset ${offset}: ${error.message}; diagnostics=${JSON.stringify(diagnostics)}`
+      )
+    })
 }
 
 const selectCollapsed = async (page, blockIndex, offset, context) => {
@@ -821,10 +934,22 @@ const selectCollapsed = async (page, blockIndex, offset, context) => {
   await nextPaint(page)
   await waitForMaterializedText(page, blockIndex, context)
   await syncDOMSelection(page, blockIndex, offset)
-  await waitForDOMSelectionPath(page, blockIndex, offset)
+  await waitForDOMSelectionPath(
+    page,
+    blockIndex,
+    offset,
+    context,
+    'before-paint'
+  )
   const readyTime = await page.evaluate(() => performance.now())
   await nextPaint(page)
-  await waitForDOMSelectionPath(page, blockIndex, offset)
+  await waitForDOMSelectionPath(
+    page,
+    blockIndex,
+    offset,
+    context,
+    'after-paint'
+  )
 
   return { readyTime }
 }

@@ -11,10 +11,12 @@ import { recordSlateReactRender } from '../render-profiler'
 import { completeDuplicateEditableEditingEpochCommand } from './editing-epoch-kernel'
 import { prepareEditableBeforeInputKernel } from './editing-kernel'
 import {
+  armModelOwnedTextInputGuard,
   getNestedEditableDOMSelectionRoot,
   isEditableModelSelectionPreferredForInput,
   isNestedEditableDOMTarget,
   isSelectionInEditorView,
+  setEditableModelSelectionPreference,
   shouldForceModelOwnedTextInput,
 } from './input-controller'
 import {
@@ -22,7 +24,10 @@ import {
   useEditableDOMBeforeInputHandler,
   useEditableReactBeforeInputHandler,
 } from './input-router'
-import type { EditableInputController } from './input-state'
+import {
+  clearExpiredTextInputRepairEcho,
+  type EditableInputController,
+} from './input-state'
 import {
   applyModelOwnedBeforeInputOperation,
   applyModelOwnedNativeHistoryEvent,
@@ -322,6 +327,7 @@ export const useRuntimeBeforeInputEvents = ({
           native: initialNative,
           shouldAbortForCompositionChange,
         } = beforeInputDecision
+        clearExpiredTextInputRepairEcho(inputController, now())
         const selectionRoot =
           getSelectionRoot(currentSelection) ??
           getNestedEditableDOMSelectionRoot(el)
@@ -472,6 +478,13 @@ export const useRuntimeBeforeInputEvents = ({
                 },
                 el
               )
+              setEditableModelSelectionPreference({
+                inputController,
+                preferModelSelection: true,
+                reason: 'model-command',
+                selectionSource: 'model-owned',
+              })
+              armModelOwnedTextInputGuard({ inputController })
               didRepairNonNativeDOMTextInput = true
               currentSelection = readLiveSelection(editor)
             }

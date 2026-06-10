@@ -484,6 +484,12 @@ describe('core benchmark scripts contract', () => {
     )
     assert.match(legacySource, /REACT_HUGE_COMPARE_ISLAND_SIZE \|\| 32/)
     assert.match(legacySource, /const comparableProductLaneNames = readyOnly/)
+    assert.match(legacySource, /const createResourceSummaryBySurface =/)
+    assert.match(legacySource, /resourceSummaryBySurface/)
+    assert.match(legacySource, /const measureLegacyReadySurfaceWeights =/)
+    assert.match(legacySource, /'dom-strategy-dom-node-count'/)
+    assert.match(legacySource, /'dom-node-count'/)
+    assert.match(legacySource, /'root-group-mounted-count'/)
     assert.match(
       legacySource,
       /const v2OnlyProductLaneNames = readyOnly\s*\?\s*\[\]\s*:\s*\[\s*'middleBlockPromoteMs',\s*'middleBlockPromoteThenTypeMs',?\s*\]/
@@ -733,7 +739,15 @@ describe('core benchmark scripts contract', () => {
       source,
       /root\.__slateBrowserHandle\?\.importDOMSelection\?\.\(\)/
     )
-    assert.match(source, /inputState\?\.preferModelSelection === false/)
+    assert.match(source, /root\?\.__slateBrowserHandle\?\.getSelection\?\.\(\)/)
+    assert.match(source, /pathMatches\(anchorPath\)/)
+    assert.match(source, /handleSelection\?\.anchor\?\.offset === offset/)
+    assert.match(source, /acceptsNativeSelection/)
+    assert.match(source, /acceptsRepairBackedModelSelection/)
+    assert.match(
+      source,
+      /inputState\?\.modelSelectionPreference\?\.reason === 'repair-induced'/
+    )
     assert.match(source, /handle\?\.getInputState\?\.\(\) \?\? null/)
     assert.match(source, /react_huge_doc_burst_to_paint_per_op_p95_ms/)
   })

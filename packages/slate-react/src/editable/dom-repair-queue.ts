@@ -93,6 +93,9 @@ const applyTextInsert = (
 ) => text.slice(0, insert.offset) + insert.text + text.slice(insert.offset)
 
 const REPAIR_INDUCED_SELECTION_ORIGIN_GUARD_MS = 150
+const TEXT_INPUT_REPAIR_ECHO_GUARD_MS = 120
+
+const now = () => globalThis.performance?.now?.() ?? Date.now()
 
 const getDOMTextRepairInsert = ({
   inputText,
@@ -686,10 +689,10 @@ export const createDOMRepairQueue = ({
           )
 
           if (
-            selectedTextHost instanceof HTMLElement &&
+            isDOMElement(selectedTextHost) &&
             selectedTextHost.getAttribute('data-slate-path') === path.join(',')
           ) {
-            textHost = selectedTextHost
+            textHost = selectedTextHost as HTMLElement
           }
         }
 
@@ -824,6 +827,16 @@ export const createDOMRepairQueue = ({
               kind === 'repair-caret-after-text-insert' &&
               shouldReleaseTextInsertSelectionToDOM
             ) {
+              const repairedText = readRuntimeText(editor, path)?.text ?? null
+
+              if (repairedText != null) {
+                inputController.state.recentTextInputRepairEcho = {
+                  expiresAt: now() + TEXT_INPUT_REPAIR_ECHO_GUARD_MS,
+                  pathKey: path.join(','),
+                  selectionOffset: slateOffset,
+                  text: repairedText,
+                }
+              }
               setEditableModelSelectionPreference({
                 inputController,
                 preferModelSelection: false,

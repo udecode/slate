@@ -714,18 +714,33 @@ test.describe('multi-root document example', () => {
     const header = page.locator('#multi-root-header')
     const main = page.locator('#multi-root-main')
     const headerEditor = bodyEditor.rootAt('#multi-root-header')
+    const headerText = 'Confidential quarterly plan'
+    const headerTextWithTail = `${headerText} Tail`
 
     await focusRootByLabel(page, 'Header editor', headerEditor)
     await page.keyboard.press('End')
     await page.keyboard.insertText(' Tail')
-    await expect(header).toContainText('quarterly plan Tail')
+    await expect(header).toContainText(headerTextWithTail)
 
     await focusRootByLabel(page, 'Body editor', bodyEditor)
 
     await focusRootByLabel(page, 'Header editor', headerEditor)
+    await headerEditor.assert.selection({
+      anchor: { path: [0, 0], offset: headerTextWithTail.length },
+      focus: { path: [0, 0], offset: headerTextWithTail.length },
+    })
+    await expect
+      .poll(() => readNativeSelection(page, 'multi-root-header'))
+      .toMatchObject({
+        activeElementId: 'multi-root-header',
+        anchorOffset: headerTextWithTail.length,
+        focusOffset: headerTextWithTail.length,
+        insideRoot: true,
+        text: headerTextWithTail,
+      })
     await page.keyboard.insertText(' Again')
 
-    await expect(header).toContainText('quarterly plan Tail Again')
+    await expect(header).toContainText(`${headerTextWithTail} Again`)
     await expect(main).not.toContainText('Again')
   })
 

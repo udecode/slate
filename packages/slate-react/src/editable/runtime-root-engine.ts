@@ -229,6 +229,7 @@ export const useEditableRootRuntime = ({
   })
 
   androidInputManagerRef.current = useRuntimeAndroidEngine({
+    inputController,
     node: rootRef,
     onDOMSelectionChange,
     receivedUserInput,

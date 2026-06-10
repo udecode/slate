@@ -557,6 +557,59 @@ const getRuntimeDOMInputRepairTarget = ({
   }
 }
 
+const shouldPreferRuntimeTextInputRepairTarget = ({
+  editor,
+  inputController,
+  nativeInput,
+}: {
+  editor: ReactRuntimeEditor
+  inputController?: EditableInputController
+  nativeInput: { data: string | null; inputType: string }
+}) => {
+  if (
+    nativeInput.inputType !== 'insertText' ||
+    typeof nativeInput.data !== 'string' ||
+    nativeInput.data.length === 0 ||
+    !inputController
+  ) {
+    return false
+  }
+
+  if (
+    inputController.state.selectionSource === 'dom-current' &&
+    inputController.state.selectionChangeOrigin === 'native-user'
+  ) {
+    return false
+  }
+
+  const selection = readRuntimeSelection(editor)
+
+  if (!selection || !RangeApi.isCollapsed(selection)) {
+    return false
+  }
+
+  const pathKey = selection.anchor.path.join(',')
+  const text = readRuntimeText(editor, selection.anchor.path)?.text
+
+  if (text == null) {
+    return false
+  }
+
+  const pendingRepairMatches =
+    inputController.state.pendingNativeTextInputRepairPathKey === pathKey &&
+    inputController.state.pendingNativeTextInputRepairOffset ===
+      selection.anchor.offset
+  const recentEcho = inputController.state.recentTextInputRepairEcho
+  const recentEchoMatches =
+    !!recentEcho &&
+    now() <= recentEcho.expiresAt &&
+    recentEcho.pathKey === pathKey &&
+    recentEcho.selectionOffset === selection.anchor.offset &&
+    recentEcho.text === text
+
+  return pendingRepairMatches || recentEchoMatches
+}
+
 export const getDOMInputRepairTarget = (
   editor: ReactRuntimeEditor,
   rootElement: HTMLElement,
@@ -592,6 +645,13 @@ export const getDOMInputRepairTarget = (
     : null
   const text = textHost?.textContent?.replace(/\uFEFF/g, '') ?? null
 
+  const canUseDOMTarget =
+    !!path &&
+    !!textHost &&
+    selectionOffset != null &&
+    text != null &&
+    rootElement.contains(textHost)
+
   if (options.preferRuntimeSelection) {
     const runtimeTarget = getRuntimeDOMInputRepairTarget({
       editor,
@@ -600,17 +660,20 @@ export const getDOMInputRepairTarget = (
       selection: runtimeSelection,
     })
 
-    if (runtimeTarget) {
+    if (
+      runtimeTarget &&
+      (!canUseDOMTarget || runtimeTarget.path.join(',') === path?.join(','))
+    ) {
       return runtimeTarget
     }
   }
 
   if (
+    canUseDOMTarget &&
     path &&
     textHost &&
     selectionOffset != null &&
-    text != null &&
-    rootElement.contains(textHost)
+    text != null
   ) {
     const targetPath = [...path] as Path
     const insert = getDOMInputRepairInsert({
@@ -955,8 +1018,10 @@ export const useEditableDOMInputHandler = ({
     let repairedPendingNativeTextInputTarget: DOMInputRepairTarget | null = null
 
     for (const { repair, target } of repairs) {
+      const didRepair = repair()
+
       if (
-        repair() &&
+        didRepair &&
         target &&
         inputController?.state.pendingNativeTextInputRepairPathKey ===
           target.path.join(',') &&
@@ -1176,9 +1241,16 @@ export const useEditableDOMInputHandler = ({
 
       onHandledDOMInput?.(event)
       const rootElement = rootRef.current
+      let preferRuntimeRepairTarget = shouldPreferRuntimeTextInputRepairTarget({
+        editor,
+        inputController,
+        nativeInput,
+      })
       let target =
         nativeInput.inputType === 'insertText'
-          ? getDOMInputRepairTarget(editor, rootElement, nativeInput)
+          ? getDOMInputRepairTarget(editor, rootElement, nativeInput, {
+              preferRuntimeSelection: preferRuntimeRepairTarget,
+            })
           : null
 
       if (
@@ -1187,7 +1259,6 @@ export const useEditableDOMInputHandler = ({
         typeof nativeInput.data === 'string'
       ) {
         let pathKey = target?.path.join(',') ?? null
-
         if ((inputController?.state.modelOwnedTextInputGuard ?? 0) > 0) {
           if (inputController) {
             inputController.state.pendingNativeTextInputRepairOffset = null
@@ -1217,7 +1288,14 @@ export const useEditableDOMInputHandler = ({
           !coalescedTarget
         ) {
           flushDeferredTextInputRepairs()
-          target = getDOMInputRepairTarget(editor, rootElement, nativeInput)
+          preferRuntimeRepairTarget = shouldPreferRuntimeTextInputRepairTarget({
+            editor,
+            inputController,
+            nativeInput,
+          })
+          target = getDOMInputRepairTarget(editor, rootElement, nativeInput, {
+            preferRuntimeSelection: preferRuntimeRepairTarget,
+          })
           pathKey = target?.path.join(',') ?? null
           coalescedTarget = getCoalescedDeferredTextInputRepairTarget({
             data: nativeInput.data,

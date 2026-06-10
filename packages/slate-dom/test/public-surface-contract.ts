@@ -30,6 +30,19 @@ describe('slate-dom public surface contract', () => {
     assert.equal(typeof SlateDOM.dom, 'function')
   })
 
+  it('treats nodes from torn down DOM views as non-DOM values', () => {
+    const tornDownTextNode = {
+      nodeType: 3,
+      ownerDocument: {
+        defaultView: {},
+      },
+    }
+
+    assert.doesNotThrow(() => SlateDOM.isDOMNode(tornDownTextNode))
+    assert.equal(SlateDOM.isDOMNode(tornDownTextNode), false)
+    assert.equal(SlateDOM.isDOMText(tornDownTextNode), false)
+  })
+
   it('exposes nullable resolver methods without try-style aliases', () => {
     const editor = createEditor({ extensions: [SlateDOM.dom()] })
     const resolverNames = [
