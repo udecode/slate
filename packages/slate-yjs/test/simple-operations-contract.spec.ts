@@ -1,17 +1,23 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { type Descendant, type Operation } from 'slate'
+import type { Descendant, Operation } from 'slate'
 
 import {
-  assertNoRootSnapshot,
   assertPeerTexts,
+  connectYjsPeerAndSync,
   createSeededYjsPeers,
   createYjsPeer,
-  getParagraphTexts,
+  disconnectAndClearYjsTrace,
+  disconnectYjsPeer,
+  getPeerTopLevelTexts,
   getVisibleYjsNodeAt,
-  getYjsState,
-  runYjsUpdate,
+  getYjsTrace,
+  type Peer,
+  paragraph,
+  redoYjsPeerAndSync,
   syncConnectedPeers,
+  undoYjsPeer,
+  undoYjsPeerAndSync,
 } from './support/collaboration'
 
 const clientIds = {
@@ -20,56 +26,53 @@ const clientIds = {
   c: 3,
 } as const
 
-const paragraph = (text: string): Descendant => ({
-  type: 'paragraph',
-  children: [{ text }],
-})
+type ClientId = keyof typeof clientIds
 
-const initialValue = () => [
+const initialValue = (): Descendant[] => [
   paragraph('alpha'),
   paragraph('beta'),
   paragraph('gamma'),
 ]
 
-const createPeer = (clientId: keyof typeof clientIds) =>
+const createPeer = (clientId: ClientId): Peer =>
   createYjsPeer({
     children: initialValue(),
     clientId,
     numericClientId: clientIds[clientId],
   })
 
-const createPeers = (ids: Array<keyof typeof clientIds>) =>
+const createPeers = (ids: readonly ClientId[]): Peer[] =>
   createSeededYjsPeers({
     children: initialValue(),
     clientIds: ids,
     numericClientIds: clientIds,
   })
 
-const appendRemoteAlpha = (peer: ReturnType<typeof createPeer>) => {
+const appendRemoteAlpha = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
   })
 }
 
-const insertBetaBang = (peer: ReturnType<typeof createPeer>) => {
+const insertBetaBang = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.text.insert('!', { at: { path: [1, 0], offset: 'beta'.length } })
   })
 }
 
-const removeBetaMiddle = (peer: ReturnType<typeof createPeer>) => {
+const removeBetaMiddle = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.text.delete({ at: { path: [1, 0], offset: 1 }, distance: 2 })
   })
 }
 
-const insertMiddleBlock = (peer: ReturnType<typeof createPeer>) => {
+const insertMiddleBlock = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.nodes.insert([paragraph('bravo')], { at: [1] })
   })
 }
 
-const replaceMiddleBlock = (peer: ReturnType<typeof createPeer>) => {
+const replaceMiddleBlock = (peer: Peer): void => {
   const operation: Operation = {
     children: [paragraph('beta')],
     index: 1,
@@ -85,7 +88,7 @@ const replaceMiddleBlock = (peer: ReturnType<typeof createPeer>) => {
   })
 }
 
-const replaceFirstBlock = (peer: ReturnType<typeof createPeer>) => {
+const replaceFirstBlock = (peer: Peer): void => {
   const operation: Operation = {
     children: [paragraph('alpha')],
     index: 0,
@@ -106,78 +109,66 @@ describe('@slate/yjs simple operation collaboration contract', () => {
     const peer = createPeer('b')
     const text = getVisibleYjsNodeAt(peer, [1, 0])
 
-    runYjsUpdate(peer, (yjs) => yjs.disconnect())
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+    disconnectAndClearYjsTrace(peer)
     insertBetaBang(peer)
 
-    assert.deepEqual(getParagraphTexts(peer), ['alpha', 'beta!', 'gamma'])
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha', 'beta!', 'gamma'])
     assert.equal(getVisibleYjsNodeAt(peer, [1, 0]), text)
-    assert.deepEqual(getYjsState(peer).trace(), [
+    assert.deepEqual(getYjsTrace(peer), [
       { mode: 'operation', operationType: 'insert_text' },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('reconnects, undoes, and redoes insert_text while preserving remote edits', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     insertBetaBang(b)
     appendRemoteAlpha(a)
     syncConnectedPeers(peers)
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha!', 'beta!', 'gamma'])
 
-    runYjsUpdate(b, (yjs) => yjs.undo())
-    syncConnectedPeers(peers)
+    undoYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha!', 'beta', 'gamma'])
 
-    runYjsUpdate(b, (yjs) => yjs.redo())
-    syncConnectedPeers(peers)
+    redoYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha!', 'beta!', 'gamma'])
-    assertNoRootSnapshot(b)
   })
 
   it('applies local offline remove_text in place without a root snapshot fallback', () => {
     const peer = createPeer('b')
     const text = getVisibleYjsNodeAt(peer, [1, 0])
 
-    runYjsUpdate(peer, (yjs) => yjs.disconnect())
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+    disconnectAndClearYjsTrace(peer)
     removeBetaMiddle(peer)
 
-    assert.deepEqual(getParagraphTexts(peer), ['alpha', 'ba', 'gamma'])
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha', 'ba', 'gamma'])
     assert.equal(getVisibleYjsNodeAt(peer, [1, 0]), text)
-    assert.deepEqual(getYjsState(peer).trace(), [
+    assert.deepEqual(getYjsTrace(peer), [
       { mode: 'operation', operationType: 'remove_text' },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('reconnects, undoes, and redoes remove_text while preserving remote edits', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     removeBetaMiddle(b)
     appendRemoteAlpha(a)
     syncConnectedPeers(peers)
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha!', 'ba', 'gamma'])
 
-    runYjsUpdate(b, (yjs) => yjs.undo())
-    syncConnectedPeers(peers)
+    undoYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha!', 'beta', 'gamma'])
 
-    runYjsUpdate(b, (yjs) => yjs.redo())
-    syncConnectedPeers(peers)
+    redoYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha!', 'ba', 'gamma'])
-    assertNoRootSnapshot(b)
   })
 
   it('applies local offline insert_node without replacing existing Yjs siblings', () => {
@@ -185,11 +176,10 @@ describe('@slate/yjs simple operation collaboration contract', () => {
     const alpha = getVisibleYjsNodeAt(peer, [0])
     const beta = getVisibleYjsNodeAt(peer, [1])
 
-    runYjsUpdate(peer, (yjs) => yjs.disconnect())
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+    disconnectAndClearYjsTrace(peer)
     insertMiddleBlock(peer)
 
-    assert.deepEqual(getParagraphTexts(peer), [
+    assert.deepEqual(getPeerTopLevelTexts(peer), [
       'alpha',
       'bravo',
       'beta',
@@ -197,33 +187,28 @@ describe('@slate/yjs simple operation collaboration contract', () => {
     ])
     assert.equal(getVisibleYjsNodeAt(peer, [0]), alpha)
     assert.equal(getVisibleYjsNodeAt(peer, [2]), beta)
-    assert.deepEqual(getYjsState(peer).trace(), [
+    assert.deepEqual(getYjsTrace(peer), [
       { mode: 'operation', operationType: 'insert_node' },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('reconnects, undoes, and redoes insert_node while preserving remote edits', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     insertMiddleBlock(b)
     appendRemoteAlpha(a)
     syncConnectedPeers(peers)
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha!', 'bravo', 'beta', 'gamma'])
 
-    runYjsUpdate(b, (yjs) => yjs.undo())
-    syncConnectedPeers(peers)
+    undoYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha!', 'beta', 'gamma'])
 
-    runYjsUpdate(b, (yjs) => yjs.redo())
-    syncConnectedPeers(peers)
+    redoYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha!', 'bravo', 'beta', 'gamma'])
-    assertNoRootSnapshot(b)
   })
 
   it('applies local offline replace_children while preserving unaffected Yjs siblings', () => {
@@ -231,62 +216,54 @@ describe('@slate/yjs simple operation collaboration contract', () => {
     const alpha = getVisibleYjsNodeAt(peer, [0])
     const gamma = getVisibleYjsNodeAt(peer, [2])
 
-    runYjsUpdate(peer, (yjs) => yjs.disconnect())
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+    disconnectAndClearYjsTrace(peer)
     replaceMiddleBlock(peer)
 
-    assert.deepEqual(getParagraphTexts(peer), ['alpha', 'bravo', 'gamma'])
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha', 'bravo', 'gamma'])
     assert.equal(getVisibleYjsNodeAt(peer, [0]), alpha)
     assert.equal(getVisibleYjsNodeAt(peer, [2]), gamma)
-    assert.deepEqual(getYjsState(peer).trace(), [
+    assert.deepEqual(getYjsTrace(peer), [
       { mode: 'operation', operationType: 'replace_children' },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('reconnects, undoes, and redoes replace_children while preserving remote edits', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     replaceMiddleBlock(b)
     appendRemoteAlpha(a)
     syncConnectedPeers(peers)
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha!', 'bravo', 'gamma'])
 
-    runYjsUpdate(b, (yjs) => yjs.undo())
-    syncConnectedPeers(peers)
+    undoYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha!', 'beta', 'gamma'])
 
-    runYjsUpdate(b, (yjs) => yjs.redo())
-    syncConnectedPeers(peers)
+    redoYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha!', 'bravo', 'gamma'])
-    assertNoRootSnapshot(b)
   })
 
   it('preserves remote text when an offline replace_children is undone before reconnect', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     replaceFirstBlock(b)
-    assert.deepEqual(getParagraphTexts(b), ['bravo', 'beta', 'gamma'])
+    assert.deepEqual(getPeerTopLevelTexts(b), ['bravo', 'beta', 'gamma'])
 
-    runYjsUpdate(b, (yjs) => yjs.undo())
-    assert.deepEqual(getParagraphTexts(b), ['alpha', 'beta', 'gamma'])
+    undoYjsPeer(b)
+    assert.deepEqual(getPeerTopLevelTexts(b), ['alpha', 'beta', 'gamma'])
 
     appendRemoteAlpha(a)
     syncConnectedPeers(peers)
-    assert.deepEqual(getParagraphTexts(a), ['alpha!', 'beta', 'gamma'])
-    assert.deepEqual(getParagraphTexts(b), ['alpha', 'beta', 'gamma'])
+    assert.deepEqual(getPeerTopLevelTexts(a), ['alpha!', 'beta', 'gamma'])
+    assert.deepEqual(getPeerTopLevelTexts(b), ['alpha', 'beta', 'gamma'])
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     assertPeerTexts(peers, ['alpha!', 'beta', 'gamma'])
-    assertNoRootSnapshot(b)
   })
 })

@@ -366,12 +366,12 @@ export const createDOMRepairQueue = ({
           !!nativeInput.target &&
           !!liveDOMPath &&
           PathApi.equals(liveDOMPath, nativeInput.target.path)
-        const capturedInsertStillOwnsDOMSelection =
+        const capturedInsertStillOwnsDOMTarget =
           !!nativeInput.target?.preferCapturedInsert &&
-          targetStillOwnsDOMSelection
+          targetPathStillOwnsDOMSelection
         const shouldMoveSelection =
           shouldReplaceExpandedSelection ||
-          capturedInsertStillOwnsDOMSelection ||
+          capturedInsertStillOwnsDOMTarget ||
           !nativeInput.target ||
           targetStillOwnsDOMSelection
         const shouldRepairCaretAfterTextInsert =

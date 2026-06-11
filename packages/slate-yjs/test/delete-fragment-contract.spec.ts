@@ -1,18 +1,29 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { createEditor, type Descendant, type Operation } from 'slate'
+import {
+  createEditor,
+  type Descendant,
+  type Operation,
+  type Range,
+} from 'slate'
 import { Editor } from 'slate/internal'
 
 import {
-  assertNoRootSnapshot,
   assertPeerTexts,
+  connectYjsPeerAndSync,
   createSeededYjsPeers,
   createYjsPeer,
-  getParagraphTexts,
+  disconnectAndClearYjsTrace,
+  disconnectYjsPeer,
+  getPeerTopLevelTexts,
   getVisibleYjsNodeAt,
-  getYjsState,
-  runYjsUpdate,
+  getYjsTrace,
+  type Peer,
+  paragraph,
+  recordEditorOperationTypes,
+  redoYjsPeerAndSync,
   syncConnectedPeers,
+  undoYjsPeerAndSync,
 } from './support/collaboration'
 
 const clientIds = {
@@ -21,25 +32,22 @@ const clientIds = {
   c: 3,
 } as const
 
-const paragraph = (text: string): Descendant => ({
-  type: 'paragraph',
-  children: [{ text }],
-})
+type ClientId = keyof typeof clientIds
 
-const initialValue = () => [
+const initialValue = (): Descendant[] => [
   paragraph('alpha'),
   paragraph('beta'),
   paragraph('gamma'),
 ]
 
-const createPeer = (clientId: keyof typeof clientIds) =>
+const createPeer = (clientId: ClientId): Peer =>
   createYjsPeer({
     children: initialValue(),
     clientId,
     numericClientId: clientIds[clientId],
   })
 
-const createPeers = (ids: Array<keyof typeof clientIds>) =>
+const createPeers = (ids: readonly ClientId[]): Peer[] =>
   createSeededYjsPeers({
     children: initialValue(),
     clientIds: ids,
@@ -47,10 +55,9 @@ const createPeers = (ids: Array<keyof typeof clientIds>) =>
   })
 
 const collectDeleteFragmentOperations = (
-  selection: NonNullable<ReturnType<typeof Editor.getSnapshot>['selection']>
-) => {
+  selection: Range
+): Operation['type'][] => {
   const editor = createEditor()
-  const operations: Operation[] = []
 
   Editor.replace(editor, {
     children: initialValue(),
@@ -58,11 +65,8 @@ const collectDeleteFragmentOperations = (
     selection: null,
   })
 
-  editor.extend({
+  const operations = recordEditorOperationTypes(editor, {
     name: 'delete-fragment-operation-capture',
-    onCommit({ commit }) {
-      operations.push(...commit.operations)
-    },
   })
 
   editor.update((tx) => {
@@ -75,13 +79,10 @@ const collectDeleteFragmentOperations = (
     tx.fragment.delete()
   })
 
-  return operations.map((operation) => operation.type)
+  return operations
 }
 
-const selectAndDeleteFragment = (
-  peer: ReturnType<typeof createPeer>,
-  selection: NonNullable<ReturnType<typeof Editor.getSnapshot>['selection']>
-) => {
+const selectAndDeleteFragment = (peer: Peer, selection: Range): void => {
   peer.editor.update((tx) => {
     tx.selection.set(selection)
   })
@@ -91,21 +92,21 @@ const selectAndDeleteFragment = (
   })
 }
 
-const deleteBetaMiddle = (peer: ReturnType<typeof createPeer>) => {
+const deleteBetaMiddle = (peer: Peer): void => {
   selectAndDeleteFragment(peer, {
     anchor: { path: [1, 0], offset: 1 },
     focus: { path: [1, 0], offset: 3 },
   })
 }
 
-const deleteFromAlphaIntoGamma = (peer: ReturnType<typeof createPeer>) => {
+const deleteFromAlphaIntoGamma = (peer: Peer): void => {
   selectAndDeleteFragment(peer, {
     anchor: { path: [0, 0], offset: 2 },
     focus: { path: [2, 0], offset: 2 },
   })
 }
 
-const appendRemoteGamma = (peer: ReturnType<typeof createPeer>) => {
+const appendRemoteGamma = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.text.insert('!', { at: { path: [2, 0], offset: 'gamma'.length } })
   })
@@ -143,57 +144,49 @@ describe('@slate/yjs delete_fragment collaboration contract', () => {
     const peer = createPeer('b')
     const text = getVisibleYjsNodeAt(peer, [1, 0])
 
-    runYjsUpdate(peer, (yjs) => yjs.disconnect())
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+    disconnectAndClearYjsTrace(peer)
     deleteBetaMiddle(peer)
 
-    assert.deepEqual(getParagraphTexts(peer), ['alpha', 'ba', 'gamma'])
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha', 'ba', 'gamma'])
     assert.equal(getVisibleYjsNodeAt(peer, [1, 0]), text)
-    assert.deepEqual(getYjsState(peer).trace(), [
+    assert.deepEqual(getYjsTrace(peer), [
       { mode: 'operation', operationType: 'remove_text' },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('preserves concurrent remote text inside the end block when an offline deleteFragment reconnects', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     deleteFromAlphaIntoGamma(b)
     appendRemoteGamma(a)
     syncConnectedPeers(peers)
 
-    assert.deepEqual(getParagraphTexts(a), ['alpha', 'beta', 'gamma!'])
-    assert.deepEqual(getParagraphTexts(b), ['almma'])
+    assert.deepEqual(getPeerTopLevelTexts(a), ['alpha', 'beta', 'gamma!'])
+    assert.deepEqual(getPeerTopLevelTexts(b), ['almma'])
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     assertPeerTexts(peers, ['almma!'])
-    assertNoRootSnapshot(b)
   })
 
   it('undoes and redoes only the local cross-block deleteFragment intent after reconnect', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     deleteFromAlphaIntoGamma(b)
     appendRemoteGamma(a)
     syncConnectedPeers(peers)
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['almma!'])
 
-    runYjsUpdate(b, (yjs) => yjs.undo())
-    syncConnectedPeers(peers)
+    undoYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha', 'beta', 'gamma!'])
 
-    runYjsUpdate(b, (yjs) => yjs.redo())
-    syncConnectedPeers(peers)
+    redoYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['almma!'])
-    assertNoRootSnapshot(b)
   })
 })

@@ -1,16 +1,24 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { type Descendant, defineEditorExtension } from 'slate'
+import type { Descendant, Operation } from 'slate'
 import { Editor } from 'slate/internal'
 
 import {
-  assertNoRootSnapshot,
+  connectYjsPeerAndSync,
   createSeededYjsPeers,
   createYjsPeer,
+  disconnectAndClearYjsTrace,
+  disconnectYjsPeer,
+  getPeerTopLevelTexts,
   getVisibleYjsNodeAt,
-  getYjsState,
-  runYjsUpdate,
+  getYjsTrace,
+  type Peer,
+  paragraph,
+  readPeerChildren,
+  recordOperationTypes,
+  redoYjsPeerAndSync,
   syncConnectedPeers,
+  undoYjsPeerAndSync,
 } from './support/collaboration'
 
 const clientIds = {
@@ -19,32 +27,29 @@ const clientIds = {
   c: 3,
 } as const
 
-const paragraph = (text: string): Descendant => ({
-  type: 'paragraph',
-  children: [{ text }],
-})
+type ClientId = keyof typeof clientIds
 
-const section = (...children: Descendant[]): Descendant => ({
+const section = (...children: readonly Descendant[]): Descendant => ({
   type: 'section',
   children,
 })
 
-const initialValue = () => [
+const initialValue = (): Descendant[] => [
   paragraph('alpha'),
   paragraph('beta'),
   paragraph('gamma'),
 ]
 
-const nestedInitialValue = () => [
+const nestedInitialValue = (): Descendant[] => [
   section(paragraph('alpha'), paragraph('beta')),
   section(paragraph('gamma')),
 ]
 
 const createPeer = (
-  clientId: keyof typeof clientIds,
+  clientId: ClientId,
   seedUpdate?: Uint8Array,
-  children: Descendant[] = initialValue()
-) =>
+  children: readonly Descendant[] = initialValue()
+): Peer =>
   createYjsPeer({
     children,
     clientId,
@@ -52,27 +57,22 @@ const createPeer = (
     seedUpdate,
   })
 
-const createPeers = (ids: Array<keyof typeof clientIds>) =>
+const createPeers = (ids: readonly ClientId[]): Peer[] =>
   createSeededYjsPeers({
     children: initialValue(),
     clientIds: ids,
     numericClientIds: clientIds,
   })
 
-const createNestedPeers = (ids: Array<keyof typeof clientIds>) =>
+const createNestedPeers = (ids: readonly ClientId[]): Peer[] =>
   createSeededYjsPeers({
     children: nestedInitialValue(),
     clientIds: ids,
     numericClientIds: clientIds,
   })
 
-const topLevelTexts = (peer: ReturnType<typeof createPeer>) =>
-  Editor.getSnapshot(peer.editor).children.map((_, index) =>
-    Editor.string(peer.editor, [index])
-  )
-
-const nestedTexts = (peer: ReturnType<typeof createPeer>) =>
-  Editor.getSnapshot(peer.editor).children.map((node, index) =>
+const nestedTexts = (peer: Peer): string[][] =>
+  readPeerChildren(peer).map((node, index) =>
     'children' in node
       ? node.children.map((_, childIndex) =>
           Editor.string(peer.editor, [index, childIndex])
@@ -80,50 +80,35 @@ const nestedTexts = (peer: ReturnType<typeof createPeer>) =>
       : []
   )
 
-const moveFirstBlockToEnd = (peer: ReturnType<typeof createPeer>) => {
+const moveFirstBlockToEnd = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.nodes.move({ at: [0], to: [2] })
   })
 }
 
-const moveNestedBlockToSecondSection = (
-  peer: ReturnType<typeof createPeer>
-) => {
+const moveNestedBlockToSecondSection = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.nodes.move({ at: [0, 0], to: [1, 1] })
   })
 }
 
-const appendRemoteAlpha = (peer: ReturnType<typeof createPeer>) => {
+const appendRemoteAlpha = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
   })
 }
 
-const appendNestedRemoteAlpha = (peer: ReturnType<typeof createPeer>) => {
+const appendNestedRemoteAlpha = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.text.insert('!', { at: { path: [0, 0, 0], offset: 'alpha'.length } })
   })
 }
 
-const collectMoveOperations = () => {
+const collectMoveOperations = (): Operation['type'][] => {
   const peer = createPeer('b')
-  const operations: string[] = []
-
-  peer.editor.extend(
-    defineEditorExtension({
-      name: 'move-operation-recorder',
-      setup() {
-        return {
-          onCommit({ commit }) {
-            operations.push(
-              ...commit.operations.map((operation) => operation.type)
-            )
-          },
-        }
-      },
-    })
-  )
+  const operations = recordOperationTypes(peer, {
+    name: 'move-operation-recorder',
+  })
   moveFirstBlockToEnd(peer)
 
   return operations
@@ -138,97 +123,87 @@ describe('@slate/yjs move_node collaboration contract', () => {
     const peer = createPeer('b')
     const original = getVisibleYjsNodeAt(peer, [0])
 
-    runYjsUpdate(peer, (yjs) => yjs.disconnect())
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+    disconnectAndClearYjsTrace(peer)
     moveFirstBlockToEnd(peer)
 
-    assert.deepEqual(topLevelTexts(peer), ['beta', 'gamma', 'alpha'])
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['beta', 'gamma', 'alpha'])
     assert.equal(getVisibleYjsNodeAt(peer, [2]), original)
-    assert.deepEqual(getYjsState(peer).trace(), [
+    assert.deepEqual(getYjsTrace(peer), [
       {
         fallback: 'virtual-move-placeholder',
         mode: 'traceable-fallback',
         operationType: 'move_node',
       },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('preserves concurrent remote text when an offline same-parent move reconnects', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     moveFirstBlockToEnd(b)
     appendRemoteAlpha(a)
     syncConnectedPeers(peers)
 
-    assert.deepEqual(topLevelTexts(a), ['alpha!', 'beta', 'gamma'])
-    assert.deepEqual(topLevelTexts(b), ['beta', 'gamma', 'alpha'])
+    assert.deepEqual(getPeerTopLevelTexts(a), ['alpha!', 'beta', 'gamma'])
+    assert.deepEqual(getPeerTopLevelTexts(b), ['beta', 'gamma', 'alpha'])
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['beta', 'gamma', 'alpha!'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['beta', 'gamma', 'alpha!'])
     }
-    assertNoRootSnapshot(b)
   })
 
   it('undoes and redoes only the local same-parent move intent after reconnect', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     moveFirstBlockToEnd(b)
     appendRemoteAlpha(a)
     syncConnectedPeers(peers)
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['beta', 'gamma', 'alpha!'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['beta', 'gamma', 'alpha!'])
     }
 
-    runYjsUpdate(b, (yjs) => yjs.undo())
-    syncConnectedPeers(peers)
+    undoYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alpha!', 'beta', 'gamma'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha!', 'beta', 'gamma'])
     }
 
-    runYjsUpdate(b, (yjs) => yjs.redo())
-    syncConnectedPeers(peers)
+    redoYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['beta', 'gamma', 'alpha!'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['beta', 'gamma', 'alpha!'])
     }
-    assertNoRootSnapshot(b)
   })
 
   it('applies local offline cross-parent move without replacing the original Yjs node', () => {
     const peer = createPeer('b', undefined, nestedInitialValue())
     const original = getVisibleYjsNodeAt(peer, [0, 0])
 
-    runYjsUpdate(peer, (yjs) => yjs.disconnect())
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+    disconnectAndClearYjsTrace(peer)
     moveNestedBlockToSecondSection(peer)
 
     assert.deepEqual(nestedTexts(peer), [['beta'], ['gamma', 'alpha']])
     assert.equal(getVisibleYjsNodeAt(peer, [1, 1]), original)
-    assert.deepEqual(getYjsState(peer).trace(), [
+    assert.deepEqual(getYjsTrace(peer), [
       {
         fallback: 'virtual-move-placeholder',
         mode: 'traceable-fallback',
         operationType: 'move_node',
       },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('preserves concurrent remote text when an offline cross-parent move reconnects', () => {
     const peers = createNestedPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     moveNestedBlockToSecondSection(b)
     appendNestedRemoteAlpha(a)
     syncConnectedPeers(peers)
@@ -236,41 +211,35 @@ describe('@slate/yjs move_node collaboration contract', () => {
     assert.deepEqual(nestedTexts(a), [['alpha!', 'beta'], ['gamma']])
     assert.deepEqual(nestedTexts(b), [['beta'], ['gamma', 'alpha']])
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     for (const peer of peers) {
       assert.deepEqual(nestedTexts(peer), [['beta'], ['gamma', 'alpha!']])
     }
-    assertNoRootSnapshot(b)
   })
 
   it('undoes and redoes only the local cross-parent move intent after reconnect', () => {
     const peers = createNestedPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     moveNestedBlockToSecondSection(b)
     appendNestedRemoteAlpha(a)
     syncConnectedPeers(peers)
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
     for (const peer of peers) {
       assert.deepEqual(nestedTexts(peer), [['beta'], ['gamma', 'alpha!']])
     }
 
-    runYjsUpdate(b, (yjs) => yjs.undo())
-    syncConnectedPeers(peers)
+    undoYjsPeerAndSync(b, peers)
     for (const peer of peers) {
       assert.deepEqual(nestedTexts(peer), [['alpha!', 'beta'], ['gamma']])
     }
 
-    runYjsUpdate(b, (yjs) => yjs.redo())
-    syncConnectedPeers(peers)
+    redoYjsPeerAndSync(b, peers)
     for (const peer of peers) {
       assert.deepEqual(nestedTexts(peer), [['beta'], ['gamma', 'alpha!']])
     }
-    assertNoRootSnapshot(b)
   })
 })

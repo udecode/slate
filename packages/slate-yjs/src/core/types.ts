@@ -2,19 +2,27 @@ import type { Range, Value } from 'slate'
 import type * as Y from 'yjs'
 
 export type YjsAwarenessChange = {
-  added: number[]
-  removed: number[]
-  updated: number[]
+  readonly added: readonly number[]
+  readonly removed: readonly number[]
+  readonly updated: readonly number[]
 }
 
+export type YjsAwarenessState = Readonly<Record<string, unknown>>
+
 export type YjsAwarenessLike = {
-  clientID?: number
-  doc?: { clientID: number }
-  getLocalState: () => Record<string, unknown> | null
-  getStates: () => Map<number, Record<string, unknown>>
-  off?: (event: 'change', handler: (event: YjsAwarenessChange) => void) => void
-  on?: (event: 'change', handler: (event: YjsAwarenessChange) => void) => void
-  setLocalStateField: (field: string, value: unknown) => void
+  readonly clientID?: number
+  readonly doc?: { readonly clientID: number }
+  readonly getLocalState: () => YjsAwarenessState | null
+  readonly getStates: () => ReadonlyMap<number, YjsAwarenessState>
+  readonly off?: (
+    event: 'change',
+    handler: (event: YjsAwarenessChange) => void
+  ) => void
+  readonly on?: (
+    event: 'change',
+    handler: (event: YjsAwarenessChange) => void
+  ) => void
+  readonly setLocalStateField: (field: string, value: unknown) => void
 }
 
 export type YjsProviderStatus =
@@ -26,47 +34,63 @@ export type YjsProviderStatus =
 export type YjsProviderStatusPayload =
   | YjsProviderStatus
   | {
-      status: YjsProviderStatus
+      readonly status: YjsProviderStatus
     }
 
 export type YjsProviderSyncedPayload =
   | boolean
   | {
-      state: boolean
+      readonly state: boolean
     }
   | {
-      synced: boolean
+      readonly synced: boolean
     }
 
 export type YjsProviderEvent = 'status' | 'sync' | 'synced'
 
+export type YjsProviderStatusHandler = (
+  status: YjsProviderStatusPayload
+) => void
+
+export type YjsProviderSyncedHandler = (
+  synced: YjsProviderSyncedPayload
+) => void
+
 export type YjsProviderEventHandler =
-  | ((status: YjsProviderStatusPayload) => void)
-  | ((synced: YjsProviderSyncedPayload) => void)
+  | YjsProviderStatusHandler
+  | YjsProviderSyncedHandler
 
 export type YjsProviderLike = {
-  awareness?: YjsAwarenessLike
-  connect?: () => Promise<unknown> | unknown
-  destroy?: () => void
-  disconnect?: () => Promise<unknown> | unknown
-  doc?: Y.Doc
-  off?: (event: YjsProviderEvent, handler: YjsProviderEventHandler) => void
-  on?: (event: YjsProviderEvent, handler: YjsProviderEventHandler) => void
+  readonly awareness?: YjsAwarenessLike
+  readonly connect?: () => Promise<unknown> | unknown
+  readonly destroy?: () => void
+  readonly disconnect?: () => Promise<unknown> | unknown
+  readonly doc?: Y.Doc
+  readonly off?: (
+    event: YjsProviderEvent,
+    handler: YjsProviderEventHandler
+  ) => void
+  readonly on?: (
+    event: YjsProviderEvent,
+    handler: YjsProviderEventHandler
+  ) => void
   status?: YjsProviderStatus
   synced?: boolean
 }
 
 export type YjsAwarenessSelection = {
-  anchor: unknown
-  focus: unknown
+  readonly anchor: unknown
+  readonly focus: unknown
 }
 
+export type YjsRemoteCursorData = Readonly<Record<string, unknown>>
+
 export type YjsRemoteCursor<
-  TCursorData extends Record<string, unknown> = Record<string, unknown>,
+  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
 > = {
-  clientId: number
-  selection: Range | null
-  data?: TCursorData
+  readonly clientId: number
+  readonly selection: Range | null
+  readonly data?: TCursorData
 }
 
 export type YjsTraceMode =
@@ -74,66 +98,80 @@ export type YjsTraceMode =
   | 'remote-reconcile'
   | 'seed'
   | 'traceable-fallback'
-  | 'unsupported'
+
+export type YjsTraceFallback =
+  | 'empty-text-merge-elided'
+  | 'incompatible-structural-merge-elided'
+  | 'missing-move-destination-elided'
+  | 'missing-move-source-elided'
+  | 'replace-children-virtual-removal'
+  | 'replace-fragment-scoped-replace-identity-risk'
+  | 'text-merge-preserve-yjs-boundary'
+  | 'virtual-merge-ref'
+  | 'virtual-move-parent-remove'
+  | 'virtual-move-placeholder'
+  | 'virtual-move-ref'
+  | 'virtual-unwrap-ref'
+  | 'virtual-unwrap-wrapper-remove'
 
 export type YjsTraceEntry = {
-  fallback?: string
-  mode: YjsTraceMode
-  operationType?: string
+  readonly fallback?: YjsTraceFallback
+  readonly mode: YjsTraceMode
+  readonly operationType?: string
 }
 
 export type YjsExtensionOptions = {
-  autoSendSelection?: boolean
-  awareness?: YjsAwarenessLike
-  awarenessDataField?: string
-  awarenessSelectionField?: string
-  clientId?: number | string
-  destroyProviderOnUnmount?: boolean
-  doc?: Y.Doc
-  provider?: YjsProviderLike
-  rootName?: string
-  seedProviderOnSync?: boolean
+  readonly autoSendSelection?: boolean
+  readonly awareness?: YjsAwarenessLike
+  readonly awarenessDataField?: string
+  readonly awarenessSelectionField?: string
+  readonly clientId?: number | string
+  readonly destroyProviderOnUnmount?: boolean
+  readonly doc?: Y.Doc
+  readonly provider?: YjsProviderLike
+  readonly rootName?: string
+  readonly seedProviderOnSync?: boolean
 }
 
 export type YjsState = {
-  awarenessRevision: () => number
-  clientId: () => number | string
-  connected: () => boolean
-  doc: () => Y.Doc
-  paused: () => boolean
-  providerRevision: () => number
-  providerStatus: () => YjsProviderStatus | null
-  providerSynced: () => boolean | null
-  remoteCursor: <
-    TCursorData extends Record<string, unknown> = Record<string, unknown>,
+  readonly awarenessRevision: () => number
+  readonly clientId: () => number | string
+  readonly connected: () => boolean
+  readonly doc: () => Y.Doc
+  readonly paused: () => boolean
+  readonly providerRevision: () => number
+  readonly providerStatus: () => YjsProviderStatus | null
+  readonly providerSynced: () => boolean | null
+  readonly remoteCursor: <
+    TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
   >(
     clientId: number
   ) => YjsRemoteCursor<TCursorData> | null
-  remoteCursors: <
-    TCursorData extends Record<string, unknown> = Record<string, unknown>,
-  >() => YjsRemoteCursor<TCursorData>[]
-  root: () => Y.XmlElement
-  subscribeAwareness: (listener: () => void) => () => void
-  subscribeProvider: (listener: () => void) => () => void
-  trace: () => readonly YjsTraceEntry[]
+  readonly remoteCursors: <
+    TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
+  >() => readonly YjsRemoteCursor<TCursorData>[]
+  readonly root: () => Y.XmlElement
+  readonly subscribeAwareness: (listener: () => void) => () => void
+  readonly subscribeProvider: (listener: () => void) => () => void
+  readonly trace: () => readonly YjsTraceEntry[]
 }
 
 export type YjsTx = {
-  clearSelection: () => void
-  clearTrace: () => void
-  connect: () => void
-  disconnect: () => void
-  pause: () => void
-  reconcile: () => void
-  reconnect: () => void
-  redo: () => void
-  resume: () => void
-  sendCursorData: (data: Record<string, unknown> | null) => void
-  sendSelection: (
+  readonly clearSelection: () => void
+  readonly clearTrace: () => void
+  readonly connect: () => void
+  readonly disconnect: () => void
+  readonly pause: () => void
+  readonly reconcile: () => void
+  readonly reconnect: () => void
+  readonly redo: () => void
+  readonly resume: () => void
+  readonly sendCursorData: (data: YjsRemoteCursorData | null) => void
+  readonly sendSelection: (
     range?: Range | null,
-    data?: Record<string, unknown> | null
+    data?: YjsRemoteCursorData | null
   ) => void
-  undo: () => void
+  readonly undo: () => void
 }
 
 declare module 'slate' {

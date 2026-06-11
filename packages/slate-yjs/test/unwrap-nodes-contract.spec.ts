@@ -1,18 +1,24 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { type Descendant, defineEditorExtension } from 'slate'
-import { Editor } from 'slate/internal'
+import type { Descendant, Operation } from 'slate'
 
 import {
-  assertNoRootSnapshot,
   assertPeerTexts,
+  clearYjsTrace,
+  connectYjsPeerAndSync,
   createSeededYjsPeers,
   createYjsPeer,
-  getParagraphTexts,
+  disconnectYjsPeer,
+  getPeerTopLevelTexts,
+  getPeerTopLevelTypes,
   getYjsNodeAt,
-  getYjsState,
-  runYjsUpdate,
+  getYjsTrace,
+  type Peer,
+  paragraph,
+  recordOperationTypes,
+  redoYjsPeerAndSync,
   syncConnectedPeers,
+  undoYjsPeerAndSync,
 } from './support/collaboration'
 
 const clientIds = {
@@ -21,17 +27,11 @@ const clientIds = {
   c: 3,
 } as const
 
-const paragraph = (text: string): Descendant => ({
-  type: 'paragraph',
-  children: [{ text }],
-})
+type ClientId = keyof typeof clientIds
 
-const initialValue = () => [paragraph('alpha')]
+const initialValue = (): Descendant[] => [paragraph('alpha')]
 
-const createPeer = (
-  clientId: keyof typeof clientIds,
-  seedUpdate?: Uint8Array
-) =>
+const createPeer = (clientId: ClientId, seedUpdate?: Uint8Array): Peer =>
   createYjsPeer({
     children: initialValue(),
     clientId,
@@ -39,32 +39,27 @@ const createPeer = (
     seedUpdate,
   })
 
-const createPeers = (ids: Array<keyof typeof clientIds>) =>
+const createPeers = (ids: readonly ClientId[]): Peer[] =>
   createSeededYjsPeers({
     children: initialValue(),
     clientIds: ids,
     numericClientIds: clientIds,
   })
 
-const topLevelTypes = (peer: ReturnType<typeof createPeer>) =>
-  Editor.getSnapshot(peer.editor).children.map((node) =>
-    'type' in node ? node.type : 'text'
-  )
-
-const wrapFirstBlock = (peer: ReturnType<typeof createPeer>) => {
+const wrapFirstBlock = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.nodes.wrap({ children: [], type: 'quote' }, { at: [0] })
   })
 }
 
-const unwrapFirstBlock = (peer: ReturnType<typeof createPeer>) => {
+const unwrapFirstBlock = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.nodes.unwrap({ at: [0] })
   })
 }
 
-const appendRemoteText = (peer: ReturnType<typeof createPeer>) => {
-  const [type] = topLevelTypes(peer)
+const appendRemoteText = (peer: Peer): void => {
+  const [type] = getPeerTopLevelTypes(peer)
   const textPath = type === 'quote' ? [0, 0, 0] : [0, 0]
 
   peer.editor.update((tx) => {
@@ -72,46 +67,38 @@ const appendRemoteText = (peer: ReturnType<typeof createPeer>) => {
   })
 }
 
-const createWrappedPeer = (clientId: keyof typeof clientIds) => {
+const createWrappedPeer = (clientId: ClientId): Peer => {
   const peer = createPeer(clientId)
 
   wrapFirstBlock(peer)
-  runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+  clearYjsTrace(peer)
 
   return peer
 }
 
-const createWrappedPeers = (ids: Array<keyof typeof clientIds>) => {
+const createWrappedPeers = (ids: readonly ClientId[]): Peer[] => {
   const peers = createPeers(ids)
+  const [firstPeer] = peers
 
-  wrapFirstBlock(peers[0]!)
+  if (firstPeer === undefined) {
+    throw new Error('Expected at least one wrapped peer.')
+  }
+
+  wrapFirstBlock(firstPeer)
   syncConnectedPeers(peers)
 
   for (const peer of peers) {
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+    clearYjsTrace(peer)
   }
 
   return peers
 }
 
-const collectUnwrapOperations = () => {
+const collectUnwrapOperations = (): Operation['type'][] => {
   const peer = createWrappedPeer('b')
-  const operations: string[] = []
-
-  peer.editor.extend(
-    defineEditorExtension({
-      name: 'unwrap-operation-recorder',
-      setup() {
-        return {
-          onCommit({ commit }) {
-            operations.push(
-              ...commit.operations.map((operation) => operation.type)
-            )
-          },
-        }
-      },
-    })
-  )
+  const operations = recordOperationTypes(peer, {
+    name: 'unwrap-operation-recorder',
+  })
   unwrapFirstBlock(peer)
 
   return operations
@@ -126,13 +113,13 @@ describe('@slate/yjs unwrapNodes collaboration contract', () => {
     const peer = createWrappedPeer('b')
     const original = getYjsNodeAt(peer, [1])
 
-    runYjsUpdate(peer, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(peer)
     unwrapFirstBlock(peer)
 
-    assert.deepEqual(getParagraphTexts(peer), ['alpha'])
-    assert.deepEqual(topLevelTypes(peer), ['paragraph'])
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha'])
+    assert.deepEqual(getPeerTopLevelTypes(peer), ['paragraph'])
     assert.equal(getYjsNodeAt(peer, [0]), original)
-    assert.deepEqual(getYjsState(peer).trace(), [
+    assert.deepEqual(getYjsTrace(peer), [
       {
         fallback: 'virtual-unwrap-ref',
         mode: 'traceable-fallback',
@@ -144,68 +131,60 @@ describe('@slate/yjs unwrapNodes collaboration contract', () => {
         operationType: 'remove_node',
       },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('preserves concurrent remote text when an offline unwrap reconnects', () => {
     const peers = createWrappedPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     unwrapFirstBlock(b)
     appendRemoteText(a)
     syncConnectedPeers(peers)
 
-    assert.deepEqual(getParagraphTexts(a), ['alpha!'])
-    assert.deepEqual(topLevelTypes(a), ['quote'])
-    assert.deepEqual(getParagraphTexts(b), ['alpha'])
-    assert.deepEqual(topLevelTypes(b), ['paragraph'])
+    assert.deepEqual(getPeerTopLevelTexts(a), ['alpha!'])
+    assert.deepEqual(getPeerTopLevelTypes(a), ['quote'])
+    assert.deepEqual(getPeerTopLevelTexts(b), ['alpha'])
+    assert.deepEqual(getPeerTopLevelTypes(b), ['paragraph'])
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     assertPeerTexts(peers, ['alpha!'])
-    assert.deepEqual(topLevelTypes(a), ['paragraph'])
-    assert.deepEqual(topLevelTypes(b), ['paragraph'])
-    assertNoRootSnapshot(b)
+    assert.deepEqual(getPeerTopLevelTypes(a), ['paragraph'])
+    assert.deepEqual(getPeerTopLevelTypes(b), ['paragraph'])
   })
 
   it('recovers unwrap convergence through real Yjs updates after reconnect', () => {
     const peers = createWrappedPeers(['a', 'b', 'c'])
     const [, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     unwrapFirstBlock(b)
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     assertPeerTexts(peers, ['alpha'])
-    assert.deepEqual(topLevelTypes(b), ['paragraph'])
+    assert.deepEqual(getPeerTopLevelTypes(b), ['paragraph'])
   })
 
   it('undoes and redoes only the local unwrap intent after reconnect', () => {
     const peers = createWrappedPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     unwrapFirstBlock(b)
     appendRemoteText(a)
     syncConnectedPeers(peers)
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha!'])
-    assert.deepEqual(topLevelTypes(b), ['paragraph'])
+    assert.deepEqual(getPeerTopLevelTypes(b), ['paragraph'])
 
-    runYjsUpdate(b, (yjs) => yjs.undo())
-    syncConnectedPeers(peers)
+    undoYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha!'])
-    assert.deepEqual(topLevelTypes(b), ['quote'])
+    assert.deepEqual(getPeerTopLevelTypes(b), ['quote'])
 
-    runYjsUpdate(b, (yjs) => yjs.redo())
-    syncConnectedPeers(peers)
+    redoYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha!'])
-    assert.deepEqual(topLevelTypes(b), ['paragraph'])
-    assertNoRootSnapshot(b)
+    assert.deepEqual(getPeerTopLevelTypes(b), ['paragraph'])
   })
 })

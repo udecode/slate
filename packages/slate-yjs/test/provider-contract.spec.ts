@@ -1,139 +1,52 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { createEditor, type Descendant, type Range } from 'slate'
+import {
+  createEditor,
+  type Descendant,
+  type Range,
+  type Editor as SlateEditor,
+} from 'slate'
 import { Editor } from 'slate/internal'
 import { history } from 'slate-history'
 import * as Y from 'yjs'
 
 import { createYjsExtension } from '../src'
-import type {
-  YjsExtensionOptions,
-  YjsProviderEvent,
-  YjsProviderEventHandler,
-  YjsProviderLike,
-  YjsProviderStatus,
-  YjsProviderStatusPayload,
-  YjsProviderSyncedPayload,
-} from '../src/core/types'
+import {
+  connectedFromYjsProviderStatus,
+  normalizeYjsProviderStatus,
+  normalizeYjsProviderSynced,
+} from '../src/core/provider'
+import type { YjsExtensionOptions, YjsProviderStatus } from '../src/core/types'
 import {
   createYjsPeer,
-  FakeAwareness,
-  getYjsState,
+  FakeProvider,
+  getHistoryUndoCount,
+  getYjsProviderStatus,
+  getYjsProviderSynced,
+  isYjsPeerConnected,
+  paragraph,
+  readEditorYjsState,
+  runEditorYjsUpdate,
   runYjsUpdate,
+  undoEditorHistory,
 } from './support/collaboration'
 
-const paragraph = (text: string): Descendant => ({
-  type: 'paragraph',
-  children: [{ text }],
-})
+type Cleanup = () => void
 
-const initialValue = () => [paragraph('alpha'), paragraph('beta')]
+type ProviderEditor = {
+  readonly cleanup: Cleanup
+  readonly editor: SlateEditor
+}
+
+const initialValue = (): Descendant[] => [paragraph('alpha'), paragraph('beta')]
 
 const selection = (): Range => ({
   anchor: { path: [0, 0], offset: 1 },
   focus: { path: [0, 0], offset: 3 },
 })
 
-class FakeProvider implements YjsProviderLike {
-  readonly awareness = new FakeAwareness(12)
-  readonly doc = new Y.Doc()
-
-  readonly calls: string[] = []
-
-  status: YjsProviderStatus = 'disconnected'
-  synced = false
-
-  private readonly statusListeners = new Set<
-    (status: YjsProviderStatusPayload) => void
-  >()
-  private readonly syncedListeners = new Set<
-    (synced: YjsProviderSyncedPayload) => void
-  >()
-  private readonly syncListeners = new Set<
-    (synced: YjsProviderSyncedPayload) => void
-  >()
-
-  connect() {
-    this.calls.push('connect')
-    this.emitStatus('connected')
-  }
-
-  destroy() {
-    this.calls.push('destroy')
-  }
-
-  disconnect() {
-    this.calls.push('disconnect')
-    this.emitStatus('disconnected')
-  }
-
-  emitStatus(status: YjsProviderStatusPayload) {
-    this.status = typeof status === 'string' ? status : status.status
-
-    for (const listener of this.statusListeners) {
-      listener(status)
-    }
-  }
-
-  emitSynced(synced: boolean) {
-    this.synced = synced
-
-    for (const listener of this.syncedListeners) {
-      listener(synced)
-    }
-  }
-
-  emitSyncedState(synced: boolean) {
-    this.synced = synced
-
-    for (const listener of this.syncedListeners) {
-      listener({ state: synced })
-    }
-  }
-
-  emitSync(synced: boolean) {
-    this.synced = synced
-
-    for (const listener of this.syncListeners) {
-      listener(synced)
-    }
-  }
-
-  off(event: YjsProviderEvent, handler: YjsProviderEventHandler) {
-    if (event === 'status') {
-      this.statusListeners.delete(
-        handler as (status: YjsProviderStatusPayload) => void
-      )
-    } else if (event === 'sync') {
-      this.syncListeners.delete(
-        handler as (synced: YjsProviderSyncedPayload) => void
-      )
-    } else {
-      this.syncedListeners.delete(
-        handler as (synced: YjsProviderSyncedPayload) => void
-      )
-    }
-  }
-
-  on(event: YjsProviderEvent, handler: YjsProviderEventHandler) {
-    if (event === 'status') {
-      this.statusListeners.add(
-        handler as (status: YjsProviderStatusPayload) => void
-      )
-    } else if (event === 'sync') {
-      this.syncListeners.add(
-        handler as (synced: YjsProviderSyncedPayload) => void
-      )
-    } else {
-      this.syncedListeners.add(
-        handler as (synced: YjsProviderSyncedPayload) => void
-      )
-    }
-  }
-}
-
 class DeferredConnectProvider extends FakeProvider {
-  override connect() {
+  override connect(): void {
     this.calls.push('connect')
   }
 }
@@ -141,7 +54,7 @@ class DeferredConnectProvider extends FakeProvider {
 class AsyncDisconnectProvider extends FakeProvider {
   resolveDisconnect: (() => void) | null = null
 
-  override disconnect() {
+  override disconnect(): Promise<void> {
     this.calls.push('disconnect')
 
     return new Promise<void>((resolve) => {
@@ -154,24 +67,24 @@ class AsyncDisconnectProvider extends FakeProvider {
 }
 
 class StatusOnlyProvider extends FakeProvider {
-  override connect() {
+  override connect(): void {
     this.calls.push('connect')
     this.status = 'connected'
   }
 
-  override disconnect() {
+  override disconnect(): void {
     this.calls.push('disconnect')
     this.status = 'disconnected'
   }
 }
 
 class FireAndForgetDisconnectProvider extends FakeProvider {
-  override disconnect() {
+  override disconnect(): void {
     this.calls.push('disconnect')
   }
 }
 
-const createYjsUpdate = (children: Descendant[]) => {
+const createYjsUpdate = (children: readonly Descendant[]): Uint8Array => {
   const doc = new Y.Doc()
 
   createEditor({
@@ -182,24 +95,36 @@ const createYjsUpdate = (children: Descendant[]) => {
         rootName: 'slate',
       }),
     ],
-    initialValue: children,
+    initialValue: [...children],
   })
 
   return Y.encodeStateAsUpdate(doc)
 }
 
-const seedProviderDoc = (
+const applyProviderDoc = (
   provider: FakeProvider,
-  children: Descendant[] = initialValue()
-) => {
+  children: readonly Descendant[]
+): void => {
   Y.applyUpdate(provider.doc, createYjsUpdate(children))
-  provider.synced = true
 }
 
-const createProviderEditor = (
+const seedProviderDoc = (
   provider: FakeProvider,
-  options: Partial<YjsExtensionOptions> = {}
-) => {
+  children: readonly Descendant[] = initialValue()
+): void => {
+  applyProviderDoc(provider, children)
+  provider.emitSync(true)
+}
+
+const insertFirstBlockTextAtEnd = (editor: SlateEditor, text = '!'): void => {
+  editor.update((tx) => {
+    tx.text.insert(text, {
+      at: { path: [0, 0], offset: Editor.string(editor, [0]).length },
+    })
+  })
+}
+
+const createInitialEditor = (): SlateEditor => {
   const editor = createEditor()
 
   Editor.replace(editor, {
@@ -207,6 +132,15 @@ const createProviderEditor = (
     marks: null,
     selection: null,
   })
+
+  return editor
+}
+
+const createProviderEditor = (
+  provider: FakeProvider,
+  options: Partial<YjsExtensionOptions> = {}
+): ProviderEditor => {
+  const editor = createInitialEditor()
 
   const cleanup = editor.extend(
     createYjsExtension({
@@ -223,15 +157,9 @@ const createProviderEditor = (
 const createProviderEditorWithHistory = (
   provider: FakeProvider,
   order: 'history-first' | 'yjs-first'
-) => {
-  const editor = createEditor()
-  const cleanups: (() => void)[] = []
-
-  Editor.replace(editor, {
-    children: initialValue(),
-    marks: null,
-    selection: null,
-  })
+): ProviderEditor => {
+  const editor = createInitialEditor()
+  const cleanups: Cleanup[] = []
 
   if (order === 'history-first') {
     cleanups.push(editor.extend(history()))
@@ -252,7 +180,7 @@ const createProviderEditorWithHistory = (
   }
 
   return {
-    cleanup: () => {
+    cleanup: (): void => {
       for (const cleanup of [...cleanups].reverse()) {
         cleanup()
       }
@@ -262,37 +190,66 @@ const createProviderEditorWithHistory = (
 }
 
 describe('@slate/yjs provider contract', () => {
+  it('passes provider string statuses through', () => {
+    assert.equal(normalizeYjsProviderStatus('connected'), 'connected')
+    assert.equal(
+      normalizeYjsProviderStatus({ status: 'disconnected' }),
+      'disconnected'
+    )
+    assert.equal(normalizeYjsProviderStatus('open'), 'open')
+    assert.equal(normalizeYjsProviderStatus({ status: 'stale' }), 'stale')
+  })
+
+  it('normalizes only boolean provider synced payloads', () => {
+    assert.equal(normalizeYjsProviderSynced(true), true)
+    assert.equal(normalizeYjsProviderSynced({ state: false }), false)
+    assert.equal(normalizeYjsProviderSynced({ synced: true }), true)
+    assert.equal(normalizeYjsProviderSynced('true'), null)
+    assert.equal(normalizeYjsProviderSynced({ state: 'false' }), null)
+    assert.equal(normalizeYjsProviderSynced({ synced: 1 }), null)
+  })
+
+  it('derives connection state from provider status with null fallback only', () => {
+    assert.equal(connectedFromYjsProviderStatus('connected', false), true)
+    assert.equal(connectedFromYjsProviderStatus('connecting', true), false)
+    assert.equal(connectedFromYjsProviderStatus('disconnected', true), false)
+    assert.equal(connectedFromYjsProviderStatus('open', true), true)
+    assert.equal(connectedFromYjsProviderStatus('open', false), false)
+    assert.equal(connectedFromYjsProviderStatus(null, true), true)
+    assert.equal(connectedFromYjsProviderStatus(null, false), false)
+  })
+
   it('returns nullable provider state without a provider', () => {
     const peer = createYjsPeer({
       children: initialValue(),
       clientId: 'a',
     })
 
-    assert.equal(getYjsState(peer).providerStatus(), null)
-    assert.equal(getYjsState(peer).providerSynced(), null)
+    assert.equal(getYjsProviderStatus(peer), null)
+    assert.equal(getYjsProviderSynced(peer), null)
 
     runYjsUpdate(peer, (yjs) => {
       yjs.disconnect()
-      assert.equal(getYjsState(peer).connected(), false)
+      assert.equal(isYjsPeerConnected(peer), false)
       yjs.reconnect()
     })
 
-    assert.equal(getYjsState(peer).connected(), true)
+    assert.equal(isYjsPeerConnected(peer), true)
   })
 
   it('uses provider doc and awareness as additive defaults', () => {
     const provider = new FakeProvider()
     seedProviderDoc(provider)
     const { cleanup, editor } = createProviderEditor(provider)
-    const yjs = editor.read((state) => (state as any).yjs)
+    const yjs = readEditorYjsState(editor)
 
     assert.equal(yjs.doc(), provider.doc)
     assert.equal(yjs.providerStatus(), 'disconnected')
     assert.equal(yjs.providerSynced(), true)
     assert.equal(yjs.connected(), false)
 
-    editor.update((tx) => {
-      ;(tx as any).yjs.sendSelection(selection(), { name: 'Provider peer' })
+    runEditorYjsUpdate(editor, (yjs) => {
+      yjs.sendSelection(selection(), { name: 'Provider peer' })
     })
 
     assert.deepEqual(provider.awareness.getLocalState()?.data, {
@@ -305,7 +262,7 @@ describe('@slate/yjs provider contract', () => {
   it('subscribes to provider status and provider-reported sync changes', () => {
     const provider = new FakeProvider()
     const { cleanup, editor } = createProviderEditor(provider)
-    const yjs = editor.read((state) => (state as any).yjs)
+    const yjs = readEditorYjsState(editor)
     const seen: [YjsProviderStatus | null, boolean | null][] = []
     const unsubscribe = yjs.subscribeProvider(() => {
       seen.push([yjs.providerStatus(), yjs.providerSynced()])
@@ -337,7 +294,7 @@ describe('@slate/yjs provider contract', () => {
 
     assert.equal(root.length, 0)
 
-    Y.applyUpdate(provider.doc, createYjsUpdate([paragraph('remote')]))
+    applyProviderDoc(provider, [paragraph('remote')])
 
     assert.equal(Editor.string(editor, [0]), 'remote')
 
@@ -354,8 +311,8 @@ describe('@slate/yjs provider contract', () => {
     const { cleanup, editor } = createProviderEditor(provider)
     const root = provider.doc.get('slate', Y.XmlElement)
 
-    editor.update((tx) => {
-      ;(tx as any).yjs.reconcile()
+    runEditorYjsUpdate(editor, (yjs) => {
+      yjs.reconcile()
     })
 
     assert.equal(Editor.string(editor, [0]), 'alpha')
@@ -372,21 +329,13 @@ describe('@slate/yjs provider contract', () => {
         order
       )
 
-      editor.update((tx) => {
-        tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
-      })
+      insertFirstBlockTextAtEnd(editor)
       await Promise.resolve()
 
       assert.equal(Editor.string(editor, [0]), 'alpha', order)
-      assert.equal(
-        editor.read((state) => (state as any).history.undos().length),
-        0,
-        order
-      )
+      assert.equal(getHistoryUndoCount(editor), 0, order)
 
-      editor.update((tx) => {
-        ;(tx as any).history.undo()
-      })
+      undoEditorHistory(editor)
 
       assert.equal(Editor.string(editor, [0]), 'alpha', order)
 
@@ -399,14 +348,12 @@ describe('@slate/yjs provider contract', () => {
     const { cleanup, editor } = createProviderEditor(provider)
     const root = provider.doc.get('slate', Y.XmlElement)
 
-    Y.applyUpdate(provider.doc, createYjsUpdate([paragraph('remote')]))
+    applyProviderDoc(provider, [paragraph('remote')])
 
     assert.equal(Editor.string(editor, [0]), 'remote')
     assert.equal(root.length, 1)
 
-    editor.update((tx) => {
-      tx.text.insert('!', { at: { path: [0, 0], offset: 'remote'.length } })
-    })
+    insertFirstBlockTextAtEnd(editor)
 
     assert.equal(Editor.string(editor, [0]), 'remote!')
 
@@ -429,9 +376,7 @@ describe('@slate/yjs provider contract', () => {
     assert.equal(Editor.string(editor, [0]), 'alpha')
     assert.equal(root.length, 2)
 
-    editor.update((tx) => {
-      tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
-    })
+    insertFirstBlockTextAtEnd(editor)
 
     assert.equal(Editor.string(editor, [0]), 'alpha!')
     assert.equal(root.length, 2)
@@ -451,9 +396,7 @@ describe('@slate/yjs provider contract', () => {
     assert.equal(Editor.string(editor, [0]), 'alpha')
     assert.equal(root.length, 0)
 
-    editor.update((tx) => {
-      tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
-    })
+    insertFirstBlockTextAtEnd(editor)
 
     assert.equal(Editor.string(editor, [0]), 'alpha')
     assert.equal(root.length, 0)
@@ -468,9 +411,7 @@ describe('@slate/yjs provider contract', () => {
 
     assert.equal(root.length, 0)
     assert.doesNotThrow(() => {
-      editor.update((tx) => {
-        tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
-      })
+      insertFirstBlockTextAtEnd(editor)
     })
     assert.equal(Editor.string(editor, [0]), 'alpha')
     assert.equal(root.length, 0)
@@ -480,9 +421,7 @@ describe('@slate/yjs provider contract', () => {
     assert.equal(Editor.string(editor, [0]), 'alpha')
     assert.equal(root.length, 2)
 
-    editor.update((tx) => {
-      tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
-    })
+    insertFirstBlockTextAtEnd(editor)
 
     assert.equal(Editor.string(editor, [0]), 'alpha!')
     assert.equal(root.length, 2)
@@ -495,14 +434,12 @@ describe('@slate/yjs provider contract', () => {
     const { cleanup, editor } = createProviderEditor(provider)
     const root = provider.doc.get('slate', Y.XmlElement)
 
-    editor.update((tx) => {
-      tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
-    })
+    insertFirstBlockTextAtEnd(editor)
 
     assert.equal(Editor.string(editor, [0]), 'alpha')
     assert.equal(root.length, 0)
 
-    Y.applyUpdate(provider.doc, createYjsUpdate([paragraph('remote')]))
+    applyProviderDoc(provider, [paragraph('remote')])
 
     assert.equal(Editor.string(editor, [0]), 'remote')
     assert.equal(root.length, 1)
@@ -516,16 +453,13 @@ describe('@slate/yjs provider contract', () => {
   })
 
   it('does not seed provider docs with unknown sync state by default', () => {
-    const provider = new FakeProvider()
-    delete (provider as Partial<FakeProvider>).synced
+    const provider = new FakeProvider({ exposeSynced: false })
     const { cleanup, editor } = createProviderEditor(provider)
     const root = provider.doc.get('slate', Y.XmlElement)
 
     assert.equal(root.length, 0)
 
-    editor.update((tx) => {
-      tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
-    })
+    insertFirstBlockTextAtEnd(editor)
 
     assert.equal(Editor.string(editor, [0]), 'alpha')
     assert.equal(root.length, 0)
@@ -534,8 +468,7 @@ describe('@slate/yjs provider contract', () => {
   })
 
   it('does not seed provider docs with unknown sync state when explicitly requested', () => {
-    const provider = new FakeProvider()
-    delete (provider as Partial<FakeProvider>).synced
+    const provider = new FakeProvider({ exposeSynced: false })
     const { cleanup, editor } = createProviderEditor(provider, {
       seedProviderOnSync: true,
     })
@@ -543,9 +476,7 @@ describe('@slate/yjs provider contract', () => {
 
     assert.equal(root.length, 0)
 
-    editor.update((tx) => {
-      tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
-    })
+    insertFirstBlockTextAtEnd(editor)
 
     assert.equal(Editor.string(editor, [0]), 'alpha')
     assert.equal(root.length, 0)
@@ -568,9 +499,7 @@ describe('@slate/yjs provider contract', () => {
 
     assert.equal(root.length, 0)
 
-    editor.update((tx) => {
-      tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
-    })
+    insertFirstBlockTextAtEnd(editor)
 
     assert.equal(Editor.string(editor, [0]), 'alpha')
     assert.equal(root.length, 0)
@@ -584,9 +513,8 @@ describe('@slate/yjs provider contract', () => {
   })
 
   it('sync-gates explicit docs even when providers do not expose a doc property', () => {
-    const provider = new FakeProvider()
-    const doc = provider.doc
-    delete (provider as Partial<FakeProvider>).doc
+    const doc = new Y.Doc()
+    const provider = new FakeProvider({ doc, exposeDoc: false })
     const { cleanup, editor } = createProviderEditor(provider, {
       doc,
       seedProviderOnSync: true,
@@ -595,9 +523,7 @@ describe('@slate/yjs provider contract', () => {
 
     assert.equal(root.length, 0)
 
-    editor.update((tx) => {
-      tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
-    })
+    insertFirstBlockTextAtEnd(editor)
 
     assert.equal(Editor.string(editor, [0]), 'alpha')
     assert.equal(root.length, 0)
@@ -623,14 +549,12 @@ describe('@slate/yjs provider contract', () => {
     assert.equal(Editor.string(editor, [0]), 'alpha')
     assert.equal(root.length, 2)
 
-    editor.update((tx) => {
-      tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
-    })
+    insertFirstBlockTextAtEnd(editor)
 
     assert.equal(Editor.string(editor, [0]), 'alpha!')
 
-    editor.update((tx) => {
-      ;(tx as any).yjs.undo()
+    runEditorYjsUpdate(editor, (yjs) => {
+      yjs.undo()
     })
 
     assert.equal(Editor.string(editor, [0]), 'alpha')
@@ -639,14 +563,13 @@ describe('@slate/yjs provider contract', () => {
   })
 
   it('uses provider status events as the remote cursor visibility gate', () => {
-    const provider = new FakeProvider()
-    provider.status = 'connected'
+    const provider = new FakeProvider({ status: 'connected' })
     seedProviderDoc(provider)
     const { cleanup, editor } = createProviderEditor(provider)
-    const yjs = editor.read((state) => (state as any).yjs)
+    const yjs = readEditorYjsState(editor)
 
-    editor.update((tx) => {
-      ;(tx as any).yjs.sendSelection(selection(), { name: 'Remote peer' })
+    runEditorYjsUpdate(editor, (yjs) => {
+      yjs.sendSelection(selection(), { name: 'Remote peer' })
     })
     provider.awareness.setRemoteState(88, {
       data: { name: 'Remote peer' },
@@ -673,10 +596,10 @@ describe('@slate/yjs provider contract', () => {
     const provider = new DeferredConnectProvider()
     seedProviderDoc(provider)
     const { cleanup, editor } = createProviderEditor(provider)
-    const yjs = editor.read((state) => (state as any).yjs)
+    const yjs = readEditorYjsState(editor)
 
-    editor.update((tx) => {
-      ;(tx as any).yjs.sendSelection(selection(), { name: 'Remote peer' })
+    runEditorYjsUpdate(editor, (yjs) => {
+      yjs.sendSelection(selection(), { name: 'Remote peer' })
     })
     provider.awareness.setRemoteState(88, {
       data: { name: 'Remote peer' },
@@ -686,8 +609,8 @@ describe('@slate/yjs provider contract', () => {
     assert.equal(yjs.connected(), false)
     assert.deepEqual(yjs.remoteCursors(), [])
 
-    editor.update((tx) => {
-      ;(tx as any).yjs.connect()
+    runEditorYjsUpdate(editor, (yjs) => {
+      yjs.connect()
     })
 
     assert.deepEqual(provider.calls, ['connect'])
@@ -707,21 +630,21 @@ describe('@slate/yjs provider contract', () => {
     const provider = new StatusOnlyProvider()
     seedProviderDoc(provider)
     const { cleanup, editor } = createProviderEditor(provider)
-    const yjs = editor.read((state) => (state as any).yjs)
+    const yjs = readEditorYjsState(editor)
 
     assert.equal(yjs.providerStatus(), 'disconnected')
     assert.equal(yjs.connected(), false)
 
-    editor.update((tx) => {
-      ;(tx as any).yjs.connect()
+    runEditorYjsUpdate(editor, (yjs) => {
+      yjs.connect()
     })
 
     assert.deepEqual(provider.calls, ['connect'])
     assert.equal(yjs.providerStatus(), 'connected')
     assert.equal(yjs.connected(), true)
 
-    editor.update((tx) => {
-      ;(tx as any).yjs.disconnect()
+    runEditorYjsUpdate(editor, (yjs) => {
+      yjs.disconnect()
     })
 
     assert.deepEqual(provider.calls, ['connect', 'disconnect'])
@@ -732,16 +655,17 @@ describe('@slate/yjs provider contract', () => {
   })
 
   it('keeps local disconnect authoritative while provider status is stale', () => {
-    const provider = new FireAndForgetDisconnectProvider()
-    provider.status = 'connected'
+    const provider = new FireAndForgetDisconnectProvider({
+      status: 'connected',
+    })
     seedProviderDoc(provider)
     const { cleanup, editor } = createProviderEditor(provider)
-    const yjs = editor.read((state) => (state as any).yjs)
+    const yjs = readEditorYjsState(editor)
 
     assert.equal(yjs.connected(), true)
 
-    editor.update((tx) => {
-      ;(tx as any).yjs.disconnect()
+    runEditorYjsUpdate(editor, (yjs) => {
+      yjs.disconnect()
     })
 
     assert.deepEqual(provider.calls, ['disconnect'])
@@ -755,19 +679,13 @@ describe('@slate/yjs provider contract', () => {
     const provider = new FakeProvider()
     const { cleanup, editor } = createProviderEditor(provider)
 
-    editor.update((tx) => {
-      ;(tx as any).yjs.reconnect()
+    runEditorYjsUpdate(editor, (yjs) => {
+      yjs.reconnect()
     })
 
     assert.deepEqual(provider.calls, ['disconnect', 'connect'])
-    assert.equal(
-      editor.read((state) => (state as any).yjs.connected()),
-      true
-    )
-    assert.equal(
-      editor.read((state) => (state as any).yjs.providerStatus()),
-      'connected'
-    )
+    assert.equal(readEditorYjsState(editor).connected(), true)
+    assert.equal(readEditorYjsState(editor).providerStatus(), 'connected')
 
     cleanup()
   })
@@ -776,8 +694,8 @@ describe('@slate/yjs provider contract', () => {
     const provider = new AsyncDisconnectProvider()
     const { cleanup, editor } = createProviderEditor(provider)
 
-    editor.update((tx) => {
-      ;(tx as any).yjs.reconnect()
+    runEditorYjsUpdate(editor, (yjs) => {
+      yjs.reconnect()
     })
 
     assert.deepEqual(provider.calls, ['disconnect'])
@@ -794,12 +712,12 @@ describe('@slate/yjs provider contract', () => {
     const provider = new FakeProvider()
     const { cleanup, editor } = createProviderEditor(provider)
 
-    editor.update((tx) => {
-      ;(tx as any).yjs.pause()
-      ;(tx as any).yjs.disconnect()
+    runEditorYjsUpdate(editor, (yjs) => {
+      yjs.pause()
+      yjs.disconnect()
     })
 
-    const yjs = editor.read((state) => (state as any).yjs)
+    const yjs = readEditorYjsState(editor)
 
     assert.equal(yjs.paused(), true)
     assert.equal(yjs.connected(), false)
@@ -813,14 +731,12 @@ describe('@slate/yjs provider contract', () => {
     seedProviderDoc(provider)
     const { cleanup, editor } = createProviderEditor(provider)
     let notifications = 0
-    const unsubscribe = editor
-      .read((state) => (state as any).yjs)
-      .subscribeProvider(() => {
-        notifications += 1
-      })
+    const unsubscribe = readEditorYjsState(editor).subscribeProvider(() => {
+      notifications += 1
+    })
 
-    editor.update((tx) => {
-      ;(tx as any).yjs.sendSelection(selection(), { name: 'Provider peer' })
+    runEditorYjsUpdate(editor, (yjs) => {
+      yjs.sendSelection(selection(), { name: 'Provider peer' })
     })
 
     cleanup()
@@ -857,8 +773,7 @@ describe('@slate/yjs provider contract', () => {
   })
 
   it('destroys providers only when explicitly owned by the editor', () => {
-    const provider = new FakeProvider()
-    provider.synced = true
+    const provider = new FakeProvider({ synced: true })
     const { cleanup } = createProviderEditor(provider, {
       destroyProviderOnUnmount: true,
     })

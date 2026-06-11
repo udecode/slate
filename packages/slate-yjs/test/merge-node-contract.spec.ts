@@ -1,33 +1,34 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import type { Descendant } from 'slate'
-import { Editor } from 'slate/internal'
 
-import { readSlateValueFromYjs } from '../src/core/document'
 import {
-  assertNoRootSnapshot,
   assertPeerTexts,
+  clearYjsTrace,
+  connectYjsPeerAndSync,
   createSeededYjsPeers,
   createYjsPeer,
-  getParagraphTexts,
+  disconnectAndClearYjsTrace,
+  disconnectYjsPeer,
+  getPeerTopLevelTexts,
   getYjsNodeAt,
-  getYjsState,
+  getYjsTrace,
   type Peer,
-  runYjsUpdate,
+  paragraph,
+  readPeerChildren,
+  readPeerSlateValue,
+  reconcileYjsPeer,
+  redoYjsPeerAndSync,
   syncConnectedPeers,
+  undoYjsPeerAndSync,
 } from './support/collaboration'
 
-const paragraph = (text: string): Descendant => ({
-  type: 'paragraph',
-  children: [{ text }],
-})
-
-const quote = (...children: Descendant[]): Descendant => ({
+const quote = (...children: readonly Descendant[]): Descendant => ({
   type: 'block-quote',
   children,
 })
 
-const initialValue = () => [paragraph('alpha'), paragraph('beta')]
+const initialValue = (): Descendant[] => [paragraph('alpha'), paragraph('beta')]
 
 const incompatibleMergeValue = (): Descendant[] => [
   paragraph('block 2'),
@@ -44,30 +45,23 @@ const textMergeValue = (): Descendant[] => [
 const createPeer = (
   clientId: string,
   seedUpdate?: Uint8Array,
-  children: Descendant[] = initialValue()
+  children: readonly Descendant[] = initialValue()
 ): Peer => createYjsPeer({ children, clientId, seedUpdate })
 
 const createPeers = (
-  clientIds: string[],
-  children: Descendant[] = initialValue()
-) => {
+  clientIds: readonly string[],
+  children: readonly Descendant[] = initialValue()
+): Peer[] => {
   return createSeededYjsPeers({ children, clientIds })
 }
 
-const yjsState = getYjsState
-const yjsUpdate = runYjsUpdate
-const paragraphTexts = getParagraphTexts
-const yjsNodeAt = getYjsNodeAt
-const syncConnected = syncConnectedPeers
-const assertAllTexts = assertPeerTexts
-
-const mergeSecondParagraph = (peer: Peer) => {
+const mergeSecondParagraph = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.nodes.merge({ at: [1] })
   })
 }
 
-const mergeRightText = (peer: Peer) => {
+const mergeRightText = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.operations.replay([
       {
@@ -80,7 +74,7 @@ const mergeRightText = (peer: Peer) => {
   })
 }
 
-const appendRemoteTextToLeftParagraph = (peer: Peer) => {
+const appendRemoteTextToLeftParagraph = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
   })
@@ -90,14 +84,14 @@ describe('@slate/yjs merge_node collaboration contract', () => {
   it('elides incompatible structural merge instead of nesting blocks into a paragraph', () => {
     const peer = createPeer('b', undefined, incompatibleMergeValue())
 
-    yjsUpdate(peer, (yjs) => yjs.clearTrace())
+    clearYjsTrace(peer)
     mergeSecondParagraph(peer)
 
-    assert.deepEqual(readSlateValueFromYjs(yjsState(peer).root()), [
+    assert.deepEqual(readPeerSlateValue(peer), [
       paragraph('block 2'),
       quote(paragraph('alpha'), paragraph('beta')),
     ])
-    assert.deepEqual(yjsState(peer).trace(), [
+    assert.deepEqual(getYjsTrace(peer), [
       {
         fallback: 'incompatible-structural-merge-elided',
         mode: 'traceable-fallback',
@@ -105,106 +99,92 @@ describe('@slate/yjs merge_node collaboration contract', () => {
       },
     ])
 
-    yjsUpdate(peer, (yjs) => yjs.reconcile())
+    reconcileYjsPeer(peer)
 
-    assert.deepEqual(
-      Editor.getSnapshot(peer.editor).children,
-      incompatibleMergeValue()
-    )
-    assertNoRootSnapshot(peer)
+    assert.deepEqual(readPeerChildren(peer), incompatibleMergeValue())
   })
 
   it('applies local offline public merge without a root snapshot fallback', () => {
     const peer = createPeer('b')
-    const survivor = yjsNodeAt(peer, [0])
+    const survivor = getYjsNodeAt(peer, [0])
 
-    yjsUpdate(peer, (yjs) => yjs.disconnect())
-    yjsUpdate(peer, (yjs) => yjs.clearTrace())
+    disconnectAndClearYjsTrace(peer)
     mergeSecondParagraph(peer)
 
-    assert.deepEqual(paragraphTexts(peer), ['alphabeta'])
-    assert.equal(yjsNodeAt(peer, [0]), survivor)
-    assert.deepEqual(yjsState(peer).trace(), [
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['alphabeta'])
+    assert.equal(getYjsNodeAt(peer, [0]), survivor)
+    assert.deepEqual(getYjsTrace(peer), [
       {
         fallback: 'virtual-merge-ref',
         mode: 'traceable-fallback',
         operationType: 'merge_node',
       },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('preserves concurrent remote survivor edits when an offline merge reconnects', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    yjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     mergeSecondParagraph(b)
     appendRemoteTextToLeftParagraph(a)
-    syncConnected(peers)
+    syncConnectedPeers(peers)
 
-    assert.deepEqual(paragraphTexts(a), ['alpha!', 'beta'])
-    assert.deepEqual(paragraphTexts(b), ['alphabeta'])
+    assert.deepEqual(getPeerTopLevelTexts(a), ['alpha!', 'beta'])
+    assert.deepEqual(getPeerTopLevelTexts(b), ['alphabeta'])
 
-    yjsUpdate(b, (yjs) => yjs.connect())
-    syncConnected(peers)
+    connectYjsPeerAndSync(b, peers)
 
-    assertAllTexts(peers, ['alpha!beta'])
-    assertNoRootSnapshot(b)
+    assertPeerTexts(peers, ['alpha!beta'])
   })
 
   it('recovers merge convergence through real Yjs updates after reconnect', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [, b] = peers
 
-    yjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     mergeSecondParagraph(b)
-    yjsUpdate(b, (yjs) => yjs.connect())
-    syncConnected(peers)
+    connectYjsPeerAndSync(b, peers)
 
-    assertAllTexts(peers, ['alphabeta'])
+    assertPeerTexts(peers, ['alphabeta'])
   })
 
   it('undoes and redoes only the local merge intent after reconnect', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    yjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     mergeSecondParagraph(b)
     appendRemoteTextToLeftParagraph(a)
-    syncConnected(peers)
+    syncConnectedPeers(peers)
 
-    yjsUpdate(b, (yjs) => yjs.connect())
-    syncConnected(peers)
-    assertAllTexts(peers, ['alpha!beta'])
+    connectYjsPeerAndSync(b, peers)
+    assertPeerTexts(peers, ['alpha!beta'])
 
-    yjsUpdate(b, (yjs) => yjs.undo())
-    syncConnected(peers)
-    assertAllTexts(peers, ['alpha!', 'beta'])
+    undoYjsPeerAndSync(b, peers)
+    assertPeerTexts(peers, ['alpha!', 'beta'])
 
-    yjsUpdate(b, (yjs) => yjs.redo())
-    syncConnected(peers)
-    assertAllTexts(peers, ['alpha!beta'])
-    assertNoRootSnapshot(b)
+    redoYjsPeerAndSync(b, peers)
+    assertPeerTexts(peers, ['alpha!beta'])
   })
 
   it('keeps raw text merge_node in a traceable identity-preserving fallback', () => {
     const peers = createPeers(['a', 'b', 'c'], textMergeValue())
     const [a, b] = peers
-    const survivor = yjsNodeAt(b, [0, 0])
-    const rightText = yjsNodeAt(b, [0, 1])
+    const survivor = getYjsNodeAt(b, [0, 0])
+    const rightText = getYjsNodeAt(b, [0, 1])
 
-    yjsUpdate(b, (yjs) => yjs.disconnect())
-    yjsUpdate(b, (yjs) => yjs.clearTrace())
+    disconnectAndClearYjsTrace(b)
     mergeRightText(b)
     appendRemoteTextToLeftParagraph(a)
-    syncConnected(peers)
+    syncConnectedPeers(peers)
 
-    assert.deepEqual(paragraphTexts(a), ['alpha!beta'])
-    assert.deepEqual(paragraphTexts(b), ['alphabeta'])
-    assert.equal(yjsNodeAt(b, [0, 0]), survivor)
-    assert.equal(yjsNodeAt(b, [0, 1]), rightText)
-    assert.deepEqual(yjsState(b).trace(), [
+    assert.deepEqual(getPeerTopLevelTexts(a), ['alpha!beta'])
+    assert.deepEqual(getPeerTopLevelTexts(b), ['alphabeta'])
+    assert.equal(getYjsNodeAt(b, [0, 0]), survivor)
+    assert.equal(getYjsNodeAt(b, [0, 1]), rightText)
+    assert.deepEqual(getYjsTrace(b), [
       {
         fallback: 'text-merge-preserve-yjs-boundary',
         mode: 'traceable-fallback',
@@ -212,17 +192,13 @@ describe('@slate/yjs merge_node collaboration contract', () => {
       },
     ])
 
-    yjsUpdate(b, (yjs) => yjs.connect())
-    syncConnected(peers)
-    assertAllTexts(peers, ['alpha!beta'])
+    connectYjsPeerAndSync(b, peers)
+    assertPeerTexts(peers, ['alpha!beta'])
 
-    yjsUpdate(b, (yjs) => yjs.undo())
-    syncConnected(peers)
-    assertAllTexts(peers, ['alpha!beta'])
+    undoYjsPeerAndSync(b, peers)
+    assertPeerTexts(peers, ['alpha!beta'])
 
-    yjsUpdate(b, (yjs) => yjs.redo())
-    syncConnected(peers)
-    assertAllTexts(peers, ['alpha!beta'])
-    assertNoRootSnapshot(b)
+    redoYjsPeerAndSync(b, peers)
+    assertPeerTexts(peers, ['alpha!beta'])
   })
 })

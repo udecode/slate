@@ -4,15 +4,9 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import React, { act, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Descendant, Editor, Range } from 'slate'
-import type * as Y from 'yjs'
+import type { SlateDecorationSource } from 'slate-react'
 
-import type {
-  YjsProviderEvent,
-  YjsProviderEventHandler,
-  YjsProviderLike,
-  YjsProviderStatus,
-  YjsRemoteCursorDecorationData,
-} from '../src'
+import type { YjsRemoteCursorDecorationData } from '../src'
 import {
   useYjsProviderStatus,
   useYjsProviderSynced,
@@ -22,8 +16,11 @@ import {
 import {
   createYjsPeer,
   FakeAwareness,
+  FakeProvider,
   type Peer,
+  paragraph,
   runYjsUpdate,
+  setEditorDomApi,
 } from './support/collaboration'
 
 const shouldUnregisterHappyDOM = !GlobalRegistrator.isRegistered
@@ -41,23 +38,40 @@ after(() => {
   }
 })
 
-const paragraph = (text: string): Descendant => ({
-  type: 'paragraph',
-  children: [{ text }],
-})
-
-const initialValue = () => [
+const initialValue = (): Descendant[] => [
   paragraph('alpha'),
   paragraph('beta'),
   paragraph('gamma'),
 ]
 
-const selection = (path = [0, 0], offset = 1): Range => ({
+const selection = (
+  path: Range['anchor']['path'] = [0, 0],
+  offset = 1
+): Range => ({
   anchor: { path, offset },
   focus: { path, offset: offset + 2 },
 })
 
-const render = (element: React.ReactNode) => {
+type CursorData = {
+  readonly color: string
+  readonly name: string
+}
+
+type LabelDecorationData = {
+  readonly clientId: number
+  readonly label: string
+}
+
+type RenderedView = {
+  readonly container: HTMLDivElement
+  readonly unmount: () => void
+}
+
+type EditorProbeProps = {
+  readonly editor: Editor
+}
+
+const render = (element: React.ReactNode): RenderedView => {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -82,7 +96,7 @@ const sendRemoteSelection = (
   awareness: FakeAwareness,
   range: Range,
   clientId = 101
-) => {
+): void => {
   runYjsUpdate(peer, (yjs) => {
     yjs.sendSelection(range)
     awareness.setRemoteState(clientId, {
@@ -92,60 +106,21 @@ const sendRemoteSelection = (
   })
 }
 
-class FakeProvider implements YjsProviderLike {
-  awareness = new FakeAwareness(7)
-  doc?: Y.Doc
-  status: YjsProviderStatus = 'connecting'
-  synced = false
-
-  private readonly statusListeners = new Set<
-    (status: YjsProviderStatus) => void
-  >()
-  private readonly syncedListeners = new Set<(synced: boolean) => void>()
-
-  emitStatus(status: YjsProviderStatus) {
-    this.status = status
-    for (const listener of this.statusListeners) {
-      listener(status)
-    }
-  }
-
-  emitSynced(synced: boolean) {
-    this.synced = synced
-    for (const listener of this.syncedListeners) {
-      listener(synced)
-    }
-  }
-
-  off(event: YjsProviderEvent, handler: YjsProviderEventHandler) {
-    if (event === 'status') {
-      this.statusListeners.delete(
-        handler as (status: YjsProviderStatus) => void
-      )
-    } else {
-      this.syncedListeners.delete(handler as (synced: boolean) => void)
-    }
-  }
-
-  on(event: YjsProviderEvent, handler: YjsProviderEventHandler) {
-    if (event === 'status') {
-      this.statusListeners.add(handler as (status: YjsProviderStatus) => void)
-    } else {
-      this.syncedListeners.add(handler as (synced: boolean) => void)
-    }
-  }
-}
-
 describe('@slate/yjs react contract', () => {
   it('rerenders provider status hooks from provider lifecycle events', () => {
-    const provider = new FakeProvider()
+    const provider = new FakeProvider({
+      awarenessClientId: 7,
+      status: 'connecting',
+    })
     const peer = createYjsPeer({
       children: initialValue(),
       clientId: 'a',
       provider,
     })
 
-    const ProviderProbe = ({ editor }: { editor: Editor }) => {
+    const ProviderProbe = ({
+      editor,
+    }: EditorProbeProps): React.ReactElement => {
       const status = useYjsProviderStatus(editor)
       const synced = useYjsProviderSynced(editor)
 
@@ -182,18 +157,19 @@ describe('@slate/yjs react contract', () => {
       clientId: 'b',
       numericClientId: 2,
     })
-    ;(peer.editor as any).api = {
-      ...(peer.editor as any).api,
-      dom: {
-        isFocused: () => true,
-      },
-    }
-    let source: ReturnType<typeof useYjsRemoteCursorDecorationSource> | null =
-      null
+
+    setEditorDomApi(peer.editor, { isFocused: () => true })
+
+    let source: SlateDecorationSource<
+      YjsRemoteCursorDecorationData<CursorData>
+    > | null = null
     let lastRefreshRequiresDOMSelectionExport: boolean | null = null
 
-    const DecorationProbe = ({ editor }: { editor: Editor }) => {
-      const cursorSource = useYjsRemoteCursorDecorationSource(editor)
+    const DecorationProbe = ({
+      editor,
+    }: EditorProbeProps): React.ReactElement | null => {
+      const cursorSource =
+        useYjsRemoteCursorDecorationSource<CursorData>(editor)
 
       useEffect(() => {
         source = cursorSource
@@ -215,25 +191,16 @@ describe('@slate/yjs react contract', () => {
 
     assert.ok(source)
     const slices = Object.values(source.getSnapshot()).flat()
+    const [slice] = slices
 
     assert.equal(lastRefreshRequiresDOMSelectionExport, true)
     assert.equal(slices.length, 1)
-    assert.equal(
-      (
-        slices[0]?.data as
-          | YjsRemoteCursorDecorationData<{ color: string; name: string }>
-          | undefined
-      )?.clientId,
-      101
-    )
-    assert.deepEqual(
-      (
-        slices[0]?.data as
-          | YjsRemoteCursorDecorationData<{ color: string; name: string }>
-          | undefined
-      )?.data,
-      { color: 'tomato', name: 'Ada' }
-    )
+    assert.ok(slice)
+
+    const data = slice.data
+
+    assert.equal(data.clientId, 101)
+    assert.deepEqual(data.data, { color: 'tomato', name: 'Ada' })
 
     view.unmount()
     peer.cleanup()
@@ -247,19 +214,16 @@ describe('@slate/yjs react contract', () => {
       clientId: 'd',
       numericClientId: 4,
     })
-    let source: ReturnType<
-      typeof useYjsRemoteCursorDecorationSource<
-        { color: string; name: string },
-        { clientId: number; label: string }
-      >
-    > | null = null
+    let source: SlateDecorationSource<LabelDecorationData> | null = null
     let setLabel: ((label: string) => void) | null = null
 
-    const DecorationProbe = ({ editor }: { editor: Editor }) => {
+    const DecorationProbe = ({
+      editor,
+    }: EditorProbeProps): React.ReactElement | null => {
       const [label, updateLabel] = React.useState('Ada')
       const cursorSource = useYjsRemoteCursorDecorationSource<
-        { color: string; name: string },
-        { clientId: number; label: string }
+        CursorData,
+        LabelDecorationData
       >(editor, {
         decorate: (cursor) => ({ clientId: cursor.clientId, label }),
         deps: [label],
@@ -306,25 +270,11 @@ describe('@slate/yjs react contract', () => {
       clientId: 'c',
       numericClientId: 3,
     })
-    let rect = {
-      bottom: 40,
-      height: 20,
-      left: 10,
-      right: 30,
-      top: 20,
-      width: 20,
-      x: 10,
-      y: 20,
-    } as DOMRect
+    let rect = new DOMRect(10, 20, 20, 20)
 
-    ;(peer.editor as any).api = {
-      ...(peer.editor as any).api,
-      dom: {
-        resolveRangeRect: () => rect,
-      },
-    }
+    setEditorDomApi(peer.editor, { resolveRangeRect: () => rect })
 
-    const OverlayProbe = ({ editor }: { editor: Editor }) => {
+    const OverlayProbe = ({ editor }: EditorProbeProps): React.ReactElement => {
       const [positions] = useYjsRemoteCursorOverlayPositions(editor)
 
       return (
@@ -345,18 +295,44 @@ describe('@slate/yjs react contract', () => {
     assert.equal(view.container.textContent, '101:10')
 
     act(() => {
-      rect = {
-        ...rect,
-        left: 25,
-        right: 45,
-        x: 25,
-      }
+      rect = new DOMRect(25, 20, 20, 20)
       peer.editor.update((tx) => {
         tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
       })
     })
 
     assert.equal(view.container.textContent, '101:25')
+
+    view.unmount()
+    peer.cleanup()
+  })
+
+  it('ignores malformed remote cursor overlay rectangles', () => {
+    const awareness = new FakeAwareness(6)
+    const peer = createYjsPeer({
+      awareness,
+      children: initialValue(),
+      clientId: 'f',
+      numericClientId: 6,
+    })
+
+    setEditorDomApi(peer.editor, {
+      resolveRangeRect: () => ({ x: 10 }),
+    })
+
+    const OverlayProbe = ({ editor }: EditorProbeProps): React.ReactElement => {
+      const [positions] = useYjsRemoteCursorOverlayPositions(editor)
+
+      return <output>{String(positions[0]?.rect === null)}</output>
+    }
+
+    const view = render(<OverlayProbe editor={peer.editor} />)
+
+    act(() => {
+      sendRemoteSelection(peer, awareness, selection([1, 0], 1))
+    })
+
+    assert.equal(view.container.textContent, 'true')
 
     view.unmount()
     peer.cleanup()
@@ -372,14 +348,9 @@ describe('@slate/yjs react contract', () => {
     })
     let setLabel: ((label: string) => void) | null = null
 
-    ;(peer.editor as any).api = {
-      ...(peer.editor as any).api,
-      dom: {
-        resolveRangeRect: () => null,
-      },
-    }
+    setEditorDomApi(peer.editor, { resolveRangeRect: () => null })
 
-    const OverlayProbe = ({ editor }: { editor: Editor }) => {
+    const OverlayProbe = ({ editor }: EditorProbeProps): React.ReactElement => {
       const [label, updateLabel] = React.useState('Ada')
       const [positions] = useYjsRemoteCursorOverlayPositions<
         { color: string; name: string },

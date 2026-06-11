@@ -3,7 +3,9 @@ import { defineEditorExtension } from 'slate'
 import { YjsController } from './controller'
 import type { YjsExtensionOptions } from './types'
 
-export const createYjsExtension = (options: YjsExtensionOptions = {}) =>
+export const createYjsExtension = (
+  options: YjsExtensionOptions = {}
+): ReturnType<typeof defineEditorExtension> =>
   defineEditorExtension({
     name: 'yjs',
     setup(context) {
@@ -12,10 +14,10 @@ export const createYjsExtension = (options: YjsExtensionOptions = {}) =>
       controller.seed()
 
       return {
-        cleanup() {
+        cleanup(): void {
           controller.destroy()
         },
-        onCommit({ commit, snapshot }) {
+        onCommit({ commit, snapshot }): void {
           controller.handleCommit(commit, snapshot)
         },
         state: {

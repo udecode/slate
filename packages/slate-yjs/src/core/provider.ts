@@ -1,71 +1,61 @@
-import type {
-  YjsProviderLike,
-  YjsProviderStatus,
-  YjsProviderStatusPayload,
-  YjsProviderSyncedPayload,
-} from './types'
+import { isRecord } from './record'
+import type { YjsProviderLike, YjsProviderStatus } from './types'
+
+const isYjsProviderStatus = (value: unknown): value is YjsProviderStatus =>
+  typeof value === 'string'
+
+const readBooleanProperty = (
+  record: Readonly<Record<string, unknown>>,
+  key: string
+): boolean | null => {
+  const value = record[key]
+
+  return typeof value === 'boolean' ? value : null
+}
 
 export const normalizeYjsProviderStatus = (
-  value: YjsProviderStatusPayload | unknown
+  value: unknown
 ): YjsProviderStatus | null => {
-  if (typeof value === 'string') {
+  if (isYjsProviderStatus(value)) {
     return value
   }
 
-  if (
-    value &&
-    typeof value === 'object' &&
-    'status' in value &&
-    typeof value.status === 'string'
-  ) {
+  if (isRecord(value) && isYjsProviderStatus(value.status)) {
     return value.status
   }
 
   return null
 }
 
-export const normalizeYjsProviderSynced = (
-  value: YjsProviderSyncedPayload | unknown
-): boolean | null => {
+export const normalizeYjsProviderSynced = (value: unknown): boolean | null => {
   if (typeof value === 'boolean') {
     return value
   }
 
-  if (
-    value &&
-    typeof value === 'object' &&
-    'state' in value &&
-    typeof value.state === 'boolean'
-  ) {
-    return value.state
+  if (!isRecord(value)) {
+    return null
   }
 
-  if (
-    value &&
-    typeof value === 'object' &&
-    'synced' in value &&
-    typeof value.synced === 'boolean'
-  ) {
-    return value.synced
-  }
-
-  return null
+  return (
+    readBooleanProperty(value, 'state') ?? readBooleanProperty(value, 'synced')
+  )
 }
 
-export const readYjsProviderStatus = (provider: YjsProviderLike | undefined) =>
-  normalizeYjsProviderStatus(provider?.status)
+export const readYjsProviderStatus = (
+  provider: YjsProviderLike | undefined
+): YjsProviderStatus | null => normalizeYjsProviderStatus(provider?.status)
 
-export const readYjsProviderSynced = (provider: YjsProviderLike | undefined) =>
-  normalizeYjsProviderSynced(provider?.synced)
+export const readYjsProviderSynced = (
+  provider: YjsProviderLike | undefined
+): boolean | null => normalizeYjsProviderSynced(provider?.synced)
 
 export const connectedFromYjsProviderStatus = (
   status: YjsProviderStatus | null,
   fallback: boolean
-) => {
+): boolean => {
   if (status === 'connected') {
     return true
   }
-
   if (status === 'connecting' || status === 'disconnected') {
     return false
   }
@@ -74,9 +64,7 @@ export const connectedFromYjsProviderStatus = (
 }
 
 export const isPromiseLike = (value: unknown): value is PromiseLike<unknown> =>
-  Boolean(
-    value &&
-      (typeof value === 'object' || typeof value === 'function') &&
-      'then' in value &&
-      typeof value.then === 'function'
-  )
+  value !== null &&
+  (typeof value === 'object' || typeof value === 'function') &&
+  'then' in value &&
+  typeof value.then === 'function'

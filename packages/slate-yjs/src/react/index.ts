@@ -7,172 +7,223 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import type { Editor, EditorCoreStateView, Range } from 'slate'
+import type { Editor, Range } from 'slate'
 import {
   createRangeDecorationSource,
   type SlateDecorationSource,
 } from 'slate-react'
 
-import type { YjsProviderStatus, YjsRemoteCursor, YjsState } from '../core'
+import type {
+  YjsProviderStatus,
+  YjsRemoteCursor,
+  YjsRemoteCursorData,
+  YjsState,
+} from '../core'
+import { getEditorYjsState } from '../core/editor-yjs'
+import { pathsEqual } from '../core/path'
+import { isRecord } from '../core/record'
 
-type YjsStateView = EditorCoreStateView & {
-  yjs: YjsState
-}
-
-type YjsDOMRangeResolver = Editor & {
-  api?: {
-    dom?: {
-      isFocused?: () => boolean
-      resolveRangeRect?: (range: Range) => DOMRect | null
-    }
-  }
+type YjsDOMApi = {
+  readonly isFocused?: () => boolean
+  readonly resolveRangeRect?: (range: Range) => unknown
 }
 
 export type YjsRemoteCursorDecorationData<
-  TCursorData extends Record<string, unknown> = Record<string, unknown>,
+  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
 > = {
-  clientId: number
-  cursor: YjsRemoteCursor<TCursorData>
-  data?: TCursorData
+  readonly clientId: number
+  readonly cursor: YjsRemoteCursor<TCursorData>
+  readonly data?: TCursorData
 }
 
 export type UseYjsRemoteCursorDecorationSourceOptions<
-  TCursorData extends Record<string, unknown> = Record<string, unknown>,
+  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
   TDecorationData = YjsRemoteCursorDecorationData<TCursorData>,
 > = {
-  decorate?: (cursor: YjsRemoteCursor<TCursorData>) => TDecorationData
+  readonly decorate?: (cursor: YjsRemoteCursor<TCursorData>) => TDecorationData
   /** Values that should recompute decoration data when decorate closes over React state. */
-  deps?: readonly unknown[]
-  id?: string
+  readonly deps?: readonly unknown[]
+  readonly id?: string
 }
 
 export type YjsRemoteCursorOverlayPosition<
-  TCursorData extends Record<string, unknown> = Record<string, unknown>,
+  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
   TPositionData = YjsRemoteCursorDecorationData<TCursorData>,
 > = {
-  clientId: number
-  cursor: YjsRemoteCursor<TCursorData>
-  data: TPositionData
-  range: Range
-  rect: DOMRect | null
+  readonly clientId: number
+  readonly cursor: YjsRemoteCursor<TCursorData>
+  readonly data: TPositionData
+  readonly range: Range
+  readonly rect: DOMRect | null
 }
 
 export type UseYjsRemoteCursorOverlayPositionsOptions<
-  TCursorData extends Record<string, unknown> = Record<string, unknown>,
+  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
   TPositionData = YjsRemoteCursorDecorationData<TCursorData>,
 > = {
-  data?: (cursor: YjsRemoteCursor<TCursorData>) => TPositionData
+  readonly data?: (cursor: YjsRemoteCursor<TCursorData>) => TPositionData
   /** Values that should recompute overlay data when data closes over React state. */
-  deps?: readonly unknown[]
+  readonly deps?: readonly unknown[]
+}
+
+type YjsRemoteCursorRange<
+  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
+> = {
+  readonly cursor: YjsRemoteCursor<TCursorData>
+  readonly range: Range
 }
 
 const DEFAULT_CURSOR_DECORATION_SOURCE_ID = 'yjs-remote-cursors'
+const DOM_RECT_FIELDS = [
+  'bottom',
+  'height',
+  'left',
+  'right',
+  'top',
+  'width',
+  'x',
+  'y',
+] as const
+const EMPTY_DEPS: readonly unknown[] = []
 
 const useIsomorphicLayoutEffect =
   typeof window === 'undefined' ? useEffect : useLayoutEffect
 
-const readYjsState = <T>(editor: Editor, selector: (state: YjsState) => T) =>
-  editor.read((state) => selector((state as YjsStateView).yjs))
+const readYjsState = <T>(editor: Editor, selector: (state: YjsState) => T): T =>
+  editor.read((state) => selector(getEditorYjsState(state)))
 
-const createCursorData = <
-  TCursorData extends Record<string, unknown> = Record<string, unknown>,
->(
-  cursor: YjsRemoteCursor<TCursorData>
-): YjsRemoteCursorDecorationData<TCursorData> => {
-  const data: YjsRemoteCursorDecorationData<TCursorData> = {
-    clientId: cursor.clientId,
-    cursor,
-  }
+const useYjsRevision = (
+  editor: Editor,
+  subscribe: (state: YjsState, listener: () => void) => () => void,
+  getSnapshot: (editor: Editor) => number
+): number =>
+  useSyncExternalStore(
+    (listener) => readYjsState(editor, (state) => subscribe(state, listener)),
+    () => getSnapshot(editor),
+    () => getSnapshot(editor)
+  )
 
-  if (cursor.data !== undefined) {
-    data.data = cursor.data
-  }
+const useYjsAwarenessValue = <T>(
+  editor: Editor,
+  selector: (state: YjsState) => T
+): T => {
+  useYjsAwarenessRevision(editor)
 
-  return data
+  return readYjsState(editor, selector)
 }
 
-const resolveCursorRect = (editor: Editor, range: Range) => {
-  const resolveRangeRect = (editor as YjsDOMRangeResolver).api?.dom
-    ?.resolveRangeRect
+const useYjsProviderValue = <T>(
+  editor: Editor,
+  selector: (state: YjsState) => T
+): T => {
+  useYjsProviderRevision(editor)
 
-  if (!resolveRangeRect) {
+  return readYjsState(editor, selector)
+}
+
+const createCursorData = <
+  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
+>(
+  cursor: YjsRemoteCursor<TCursorData>
+): YjsRemoteCursorDecorationData<TCursorData> => ({
+  clientId: cursor.clientId,
+  cursor,
+  ...(cursor.data === undefined ? {} : { data: cursor.data }),
+})
+
+const createDefaultCursorData = <
+  TCursorData extends YjsRemoteCursorData,
+  TData,
+>(
+  cursor: YjsRemoteCursor<TCursorData>
+): TData => createCursorData(cursor) as TData
+
+const isYjsDOMApi = (value: unknown): value is YjsDOMApi =>
+  isRecord(value) &&
+  (value.isFocused === undefined || typeof value.isFocused === 'function') &&
+  (value.resolveRangeRect === undefined ||
+    typeof value.resolveRangeRect === 'function')
+
+const isDOMRectLike = (value: unknown): value is DOMRect =>
+  isRecord(value) &&
+  DOM_RECT_FIELDS.every((field) => typeof value[field] === 'number')
+
+const getYjsDOMApi = (editor: Editor): YjsDOMApi | undefined => {
+  const api = isRecord(editor) ? editor.api : undefined
+
+  if (!isRecord(api)) {
+    return undefined
+  }
+
+  return isYjsDOMApi(api.dom) ? api.dom : undefined
+}
+
+const resolveCursorRect = (editor: Editor, range: Range): DOMRect | null => {
+  const resolveRangeRect = getYjsDOMApi(editor)?.resolveRangeRect
+
+  if (resolveRangeRect === undefined) {
     return null
   }
 
   try {
-    return resolveRangeRect(range)
+    const rect = resolveRangeRect(range)
+
+    return isDOMRectLike(rect) ? rect : null
   } catch {
     return null
   }
 }
 
-const isEditorFocused = (editor: Editor) =>
-  Boolean((editor as YjsDOMRangeResolver).api?.dom?.isFocused?.())
+const isEditorFocused = (editor: Editor): boolean =>
+  getYjsDOMApi(editor)?.isFocused?.() === true
 
-const pointsEqual = (a: Range['anchor'], b: Range['anchor']) =>
-  a.offset === b.offset &&
-  a.path.length === b.path.length &&
-  a.path.every((part, index) => part === b.path[index])
+const pointsEqual = (a: Range['anchor'], b: Range['anchor']): boolean =>
+  a.offset === b.offset && pathsEqual(a.path, b.path)
 
-const rangesEqual = (a: Range, b: Range) =>
+const rangesEqual = (a: Range, b: Range): boolean =>
   pointsEqual(a.anchor, b.anchor) && pointsEqual(a.focus, b.focus)
 
-const rectsEqual = (a: DOMRect | null, b: DOMRect | null) => {
+const rectsEqual = (a: DOMRect | null, b: DOMRect | null): boolean => {
   if (a === b) {
     return true
   }
-  if (!a || !b) {
+  if (a === null || b === null) {
     return false
   }
 
-  return (
-    a.bottom === b.bottom &&
-    a.height === b.height &&
-    a.left === b.left &&
-    a.right === b.right &&
-    a.top === b.top &&
-    a.width === b.width &&
-    a.x === b.x &&
-    a.y === b.y
-  )
+  return DOM_RECT_FIELDS.every((field) => a[field] === b[field])
 }
 
-const shallowEqual = (a: unknown, b: unknown) => {
+const shallowEqual = (a: unknown, b: unknown): boolean => {
   if (Object.is(a, b)) {
     return true
   }
-  if (
-    typeof a !== 'object' ||
-    a === null ||
-    typeof b !== 'object' ||
-    b === null
-  ) {
+  if (!isRecord(a) || !isRecord(b)) {
     return false
   }
 
-  const aRecord = a as Record<string, unknown>
-  const bRecord = b as Record<string, unknown>
-  const aKeys = Object.keys(aRecord)
+  const aKeys = Object.keys(a)
+  const bKeys = Object.keys(b)
 
   return (
-    aKeys.length === Object.keys(bRecord).length &&
-    aKeys.every((key) => Object.is(aRecord[key], bRecord[key]))
+    aKeys.length === bKeys.length &&
+    aKeys.every((key) => Object.is(a[key], b[key]))
   )
 }
 
 const overlayPositionsEqual = <
-  TCursorData extends Record<string, unknown>,
+  TCursorData extends YjsRemoteCursorData,
   TPositionData,
 >(
   a: readonly YjsRemoteCursorOverlayPosition<TCursorData, TPositionData>[],
   b: readonly YjsRemoteCursorOverlayPosition<TCursorData, TPositionData>[]
-) =>
+): boolean =>
   a.length === b.length &&
   a.every((position, index) => {
     const next = b[index]
 
     return (
-      !!next &&
+      next !== undefined &&
       position.clientId === next.clientId &&
       rangesEqual(position.range, next.range) &&
       rectsEqual(position.rect, next.rect) &&
@@ -180,41 +231,55 @@ const overlayPositionsEqual = <
     )
   })
 
+const getRemoteCursorRange = <
+  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
+>(
+  cursor: YjsRemoteCursor<TCursorData>
+): YjsRemoteCursorRange<TCursorData> | null => {
+  const range = cursor.selection
+
+  return range === null ? null : { cursor, range }
+}
+
+const readYjsRemoteCursorRanges = <
+  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
+>(
+  editor: Editor
+): readonly YjsRemoteCursorRange<TCursorData>[] =>
+  readYjsState(editor, (state) =>
+    state.remoteCursors<TCursorData>().flatMap((cursor) => {
+      const range = getRemoteCursorRange(cursor)
+
+      return range === null ? [] : [range]
+    })
+  )
+
 const readYjsRemoteCursorOverlayPositions = <
-  TCursorData extends Record<string, unknown> = Record<string, unknown>,
+  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
   TPositionData = YjsRemoteCursorDecorationData<TCursorData>,
 >(
   editor: Editor,
   options: UseYjsRemoteCursorOverlayPositionsOptions<TCursorData, TPositionData>
-): YjsRemoteCursorOverlayPosition<TCursorData, TPositionData>[] =>
-  readYjsState(editor, (state) =>
-    state.remoteCursors<TCursorData>().flatMap((cursor) => {
-      const range = cursor.selection
+): readonly YjsRemoteCursorOverlayPosition<TCursorData, TPositionData>[] =>
+  readYjsRemoteCursorRanges<TCursorData>(editor).map(({ cursor, range }) => {
+    const data =
+      options.data === undefined
+        ? createDefaultCursorData<TCursorData, TPositionData>(cursor)
+        : options.data(cursor)
 
-      if (!range) {
-        return []
-      }
+    return {
+      clientId: cursor.clientId,
+      cursor,
+      data,
+      range,
+      rect: resolveCursorRect(editor, range),
+    }
+  })
 
-      const data = options.data
-        ? options.data(cursor)
-        : (createCursorData(cursor) as TPositionData)
-
-      return [
-        {
-          clientId: cursor.clientId,
-          cursor,
-          data,
-          range,
-          rect: resolveCursorRect(editor, range),
-        },
-      ]
-    })
-  )
-
-export const getYjsAwarenessRevision = (editor: Editor) =>
+export const getYjsAwarenessRevision = (editor: Editor): number =>
   readYjsState(editor, (state) => state.awarenessRevision())
 
-export const getYjsProviderRevision = (editor: Editor) =>
+export const getYjsProviderRevision = (editor: Editor): number =>
   readYjsState(editor, (state) => state.providerRevision())
 
 export const getYjsProviderStatus = (
@@ -225,56 +290,48 @@ export const getYjsProviderStatus = (
 export const getYjsProviderSynced = (editor: Editor): boolean | null =>
   readYjsState(editor, (state) => state.providerSynced())
 
-export function useYjsAwarenessRevision(editor: Editor) {
-  return useSyncExternalStore(
-    (listener) =>
-      readYjsState(editor, (state) => state.subscribeAwareness(listener)),
-    () => getYjsAwarenessRevision(editor),
-    () => getYjsAwarenessRevision(editor)
+export function useYjsAwarenessRevision(editor: Editor): number {
+  return useYjsRevision(
+    editor,
+    (state, listener) => state.subscribeAwareness(listener),
+    getYjsAwarenessRevision
   )
 }
 
-export function useYjsProviderRevision(editor: Editor) {
-  return useSyncExternalStore(
-    (listener) =>
-      readYjsState(editor, (state) => state.subscribeProvider(listener)),
-    () => getYjsProviderRevision(editor),
-    () => getYjsProviderRevision(editor)
+export function useYjsProviderRevision(editor: Editor): number {
+  return useYjsRevision(
+    editor,
+    (state, listener) => state.subscribeProvider(listener),
+    getYjsProviderRevision
   )
 }
 
 export function useYjsProviderStatus(editor: Editor): YjsProviderStatus | null {
-  useYjsProviderRevision(editor)
-
-  return getYjsProviderStatus(editor)
+  return useYjsProviderValue(editor, (state) => state.providerStatus())
 }
 
 export function useYjsProviderSynced(editor: Editor): boolean | null {
-  useYjsProviderRevision(editor)
-
-  return getYjsProviderSynced(editor)
+  return useYjsProviderValue(editor, (state) => state.providerSynced())
 }
 
 export function useYjsRemoteCursor<
-  TCursorData extends Record<string, unknown> = Record<string, unknown>,
+  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
 >(editor: Editor, clientId: number): YjsRemoteCursor<TCursorData> | null {
-  useYjsAwarenessRevision(editor)
-
-  return readYjsState(editor, (state) =>
+  return useYjsAwarenessValue(editor, (state) =>
     state.remoteCursor<TCursorData>(clientId)
   )
 }
 
 export function useYjsRemoteCursors<
-  TCursorData extends Record<string, unknown> = Record<string, unknown>,
->(editor: Editor): YjsRemoteCursor<TCursorData>[] {
-  useYjsAwarenessRevision(editor)
-
-  return readYjsState(editor, (state) => state.remoteCursors<TCursorData>())
+  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
+>(editor: Editor): readonly YjsRemoteCursor<TCursorData>[] {
+  return useYjsAwarenessValue(editor, (state) =>
+    state.remoteCursors<TCursorData>()
+  )
 }
 
 export function useYjsRemoteCursorDecorationSource<
-  TCursorData extends Record<string, unknown> = Record<string, unknown>,
+  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
   TDecorationData = YjsRemoteCursorDecorationData<TCursorData>,
 >(
   editor: Editor,
@@ -284,7 +341,7 @@ export function useYjsRemoteCursorDecorationSource<
   > = {}
 ): SlateDecorationSource<TDecorationData> {
   const awarenessRevision = useYjsAwarenessRevision(editor)
-  const decorateRefreshDeps = options.deps ?? []
+  const decorateRefreshDeps = options.deps ?? EMPTY_DEPS
   const optionsRef = useRef(options)
   const id = options.id ?? DEFAULT_CURSOR_DECORATION_SOURCE_ID
   optionsRef.current = options
@@ -294,27 +351,22 @@ export function useYjsRemoteCursorDecorationSource<
       createRangeDecorationSource<TDecorationData>(editor, {
         id,
         read: () =>
-          readYjsState(editor, (state) =>
-            state.remoteCursors<TCursorData>().flatMap((cursor) => {
-              const range = cursor.selection
-
-              if (!range) {
-                return []
-              }
-
+          readYjsRemoteCursorRanges<TCursorData>(editor).map(
+            ({ cursor, range }) => {
               const decorate = optionsRef.current.decorate
-              const data = decorate
-                ? decorate(cursor)
-                : (createCursorData(cursor) as TDecorationData)
+              const data =
+                decorate === undefined
+                  ? createDefaultCursorData<TCursorData, TDecorationData>(
+                      cursor
+                    )
+                  : decorate(cursor)
 
-              return [
-                {
-                  data,
-                  key: `${id}:${cursor.clientId}`,
-                  range,
-                },
-              ]
-            })
+              return {
+                data,
+                key: `${id}:${cursor.clientId}`,
+                range,
+              }
+            }
           ),
       }),
     [editor, id]
@@ -334,7 +386,7 @@ export function useYjsRemoteCursorDecorationSource<
 }
 
 export function useYjsRemoteCursorOverlayPositions<
-  TCursorData extends Record<string, unknown> = Record<string, unknown>,
+  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
   TPositionData = YjsRemoteCursorDecorationData<TCursorData>,
 >(
   editor: Editor,
@@ -347,7 +399,7 @@ export function useYjsRemoteCursorOverlayPositions<
   () => void,
 ] {
   const awarenessRevision = useYjsAwarenessRevision(editor)
-  const dataRefreshDeps = options.deps ?? []
+  const dataRefreshDeps = options.deps ?? EMPTY_DEPS
   const animationFrameRef = useRef<number | null>(null)
   const optionsRef = useRef(options)
   optionsRef.current = options
@@ -379,7 +431,10 @@ export function useYjsRemoteCursorOverlayPositions<
   const refreshAfterEditorLayout = useCallback(() => {
     refresh()
 
-    if (typeof window === 'undefined' || !window.requestAnimationFrame) {
+    if (
+      typeof window === 'undefined' ||
+      typeof window.requestAnimationFrame !== 'function'
+    ) {
       return
     }
 
@@ -419,5 +474,5 @@ export function useYjsRemoteCursorOverlayPositions<
     }
   }, [refresh])
 
-  return [positions, refresh] as const
+  return [positions, refresh]
 }

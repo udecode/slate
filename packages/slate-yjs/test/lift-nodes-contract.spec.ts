@@ -1,16 +1,22 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { type Descendant, defineEditorExtension } from 'slate'
-import { Editor } from 'slate/internal'
+import type { Descendant, Operation } from 'slate'
 
 import {
-  assertNoRootSnapshot,
+  connectYjsPeerAndSync,
   createSeededYjsPeers,
   createYjsPeer,
+  disconnectAndClearYjsTrace,
+  disconnectYjsPeer,
+  getPeerTopLevelTexts,
   getVisibleYjsNodeAt,
-  getYjsState,
-  runYjsUpdate,
+  getYjsTrace,
+  type Peer,
+  paragraph,
+  recordOperationTypes,
+  redoYjsPeerAndSync,
   syncConnectedPeers,
+  undoYjsPeerAndSync,
 } from './support/collaboration'
 
 const clientIds = {
@@ -19,33 +25,30 @@ const clientIds = {
   c: 3,
 } as const
 
-const paragraph = (text: string): Descendant => ({
-  type: 'paragraph',
-  children: [{ text }],
-})
+type ClientId = keyof typeof clientIds
 
-const section = (...children: Descendant[]): Descendant => ({
+const section = (...children: readonly Descendant[]): Descendant => ({
   type: 'section',
   children,
 })
 
-const initialValue = () => [
+const initialValue = (): Descendant[] => [
   section(paragraph('alpha'), paragraph('beta')),
   paragraph('gamma'),
 ]
 
-const onlyChildValue = () => [section(paragraph('alpha'))]
+const onlyChildValue = (): Descendant[] => [section(paragraph('alpha'))]
 
-const tripleChildValue = () => [
+const tripleChildValue = (): Descendant[] => [
   section(paragraph('alpha'), paragraph('beta'), paragraph('gamma')),
   paragraph('delta'),
 ]
 
 const createPeer = (
-  clientId: keyof typeof clientIds,
+  clientId: ClientId,
   seedUpdate?: Uint8Array,
-  children: Descendant[] = initialValue()
-) =>
+  children: readonly Descendant[] = initialValue()
+): Peer =>
   createYjsPeer({
     children,
     clientId,
@@ -54,73 +57,53 @@ const createPeer = (
   })
 
 const createPeers = (
-  ids: Array<keyof typeof clientIds>,
-  children: Descendant[] = initialValue()
-) =>
+  ids: readonly ClientId[],
+  children: readonly Descendant[] = initialValue()
+): Peer[] =>
   createSeededYjsPeers({
     children,
     clientIds: ids,
     numericClientIds: clientIds,
   })
 
-const topLevelTexts = (peer: ReturnType<typeof createPeer>) =>
-  Editor.getSnapshot(peer.editor).children.map((_, index) =>
-    Editor.string(peer.editor, [index])
-  )
-
-const liftFirstNestedBlock = (peer: ReturnType<typeof createPeer>) => {
+const liftFirstNestedBlock = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.nodes.lift({ at: [0, 0] })
   })
 }
 
-const liftOnlyNestedBlock = liftFirstNestedBlock
-
-const liftLastNestedBlock = (peer: ReturnType<typeof createPeer>) => {
+const liftLastNestedBlock = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.nodes.lift({ at: [0, 1] })
   })
 }
 
-const liftMiddleNestedBlock = (peer: ReturnType<typeof createPeer>) => {
+const liftMiddleNestedBlock = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.nodes.lift({ at: [0, 1] })
   })
 }
 
-const appendNestedAlpha = (peer: ReturnType<typeof createPeer>) => {
+const appendNestedAlpha = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.text.insert('!', { at: { path: [0, 0, 0], offset: 'alpha'.length } })
   })
 }
 
-const appendNestedBeta = (peer: ReturnType<typeof createPeer>) => {
+const appendNestedBeta = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.text.insert('!', { at: { path: [0, 1, 0], offset: 'beta'.length } })
   })
 }
 
 const collectLiftOperations = (
-  lift: (peer: ReturnType<typeof createPeer>) => void = liftFirstNestedBlock,
-  children: Descendant[] = initialValue()
-) => {
+  lift: (peer: Peer) => void = liftFirstNestedBlock,
+  children: readonly Descendant[] = initialValue()
+): Operation['type'][] => {
   const peer = createPeer('b', undefined, children)
-  const operations: string[] = []
-
-  peer.editor.extend(
-    defineEditorExtension({
-      name: 'lift-operation-recorder',
-      setup() {
-        return {
-          onCommit({ commit }) {
-            operations.push(
-              ...commit.operations.map((operation) => operation.type)
-            )
-          },
-        }
-      },
-    })
-  )
+  const operations = recordOperationTypes(peer, {
+    name: 'lift-operation-recorder',
+  })
   lift(peer)
 
   return operations
@@ -133,7 +116,7 @@ describe('@slate/yjs liftNodes collaboration contract', () => {
 
   it('characterizes only-child public liftNodes as move_node then remove_node', () => {
     assert.deepEqual(
-      collectLiftOperations(liftOnlyNestedBlock, onlyChildValue()),
+      collectLiftOperations(liftFirstNestedBlock, onlyChildValue()),
       ['move_node', 'remove_node']
     )
   })
@@ -149,54 +132,49 @@ describe('@slate/yjs liftNodes collaboration contract', () => {
     const peer = createPeer('b')
     const original = getVisibleYjsNodeAt(peer, [0, 0])
 
-    runYjsUpdate(peer, (yjs) => yjs.disconnect())
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+    disconnectAndClearYjsTrace(peer)
     liftFirstNestedBlock(peer)
 
-    assert.deepEqual(topLevelTexts(peer), ['alpha', 'beta', 'gamma'])
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha', 'beta', 'gamma'])
     assert.equal(getVisibleYjsNodeAt(peer, [0]), original)
-    assert.deepEqual(getYjsState(peer).trace(), [
+    assert.deepEqual(getYjsTrace(peer), [
       {
         fallback: 'virtual-move-placeholder',
         mode: 'traceable-fallback',
         operationType: 'move_node',
       },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('preserves concurrent remote text when an offline first-child lift reconnects', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     liftFirstNestedBlock(b)
     appendNestedAlpha(a)
     syncConnectedPeers(peers)
 
-    assert.deepEqual(topLevelTexts(a), ['alpha!beta', 'gamma'])
-    assert.deepEqual(topLevelTexts(b), ['alpha', 'beta', 'gamma'])
+    assert.deepEqual(getPeerTopLevelTexts(a), ['alpha!beta', 'gamma'])
+    assert.deepEqual(getPeerTopLevelTexts(b), ['alpha', 'beta', 'gamma'])
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alpha!', 'beta', 'gamma'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha!', 'beta', 'gamma'])
     }
-    assertNoRootSnapshot(b)
   })
 
   it('recovers first-child lift convergence through real Yjs updates after reconnect', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     liftFirstNestedBlock(b)
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alpha', 'beta', 'gamma'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha', 'beta', 'gamma'])
     }
   })
 
@@ -204,42 +182,37 @@ describe('@slate/yjs liftNodes collaboration contract', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     liftFirstNestedBlock(b)
     appendNestedAlpha(a)
     syncConnectedPeers(peers)
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alpha!', 'beta', 'gamma'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha!', 'beta', 'gamma'])
     }
 
-    runYjsUpdate(b, (yjs) => yjs.undo())
-    syncConnectedPeers(peers)
+    undoYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alpha!beta', 'gamma'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha!beta', 'gamma'])
     }
 
-    runYjsUpdate(b, (yjs) => yjs.redo())
-    syncConnectedPeers(peers)
+    redoYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alpha!', 'beta', 'gamma'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha!', 'beta', 'gamma'])
     }
-    assertNoRootSnapshot(b)
   })
 
   it('applies local offline only-child lift without replacing the original Yjs node', () => {
     const peer = createPeer('b', undefined, onlyChildValue())
     const original = getVisibleYjsNodeAt(peer, [0, 0])
 
-    runYjsUpdate(peer, (yjs) => yjs.disconnect())
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
-    liftOnlyNestedBlock(peer)
+    disconnectAndClearYjsTrace(peer)
+    liftFirstNestedBlock(peer)
 
-    assert.deepEqual(topLevelTexts(peer), ['alpha'])
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha'])
     assert.equal(getVisibleYjsNodeAt(peer, [0]), original)
-    assert.deepEqual(getYjsState(peer).trace(), [
+    assert.deepEqual(getYjsTrace(peer), [
       {
         fallback: 'virtual-move-placeholder',
         mode: 'traceable-fallback',
@@ -251,41 +224,37 @@ describe('@slate/yjs liftNodes collaboration contract', () => {
         operationType: 'remove_node',
       },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('preserves concurrent remote text when an offline only-child lift reconnects', () => {
     const peers = createPeers(['a', 'b', 'c'], onlyChildValue())
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
-    liftOnlyNestedBlock(b)
+    disconnectYjsPeer(b)
+    liftFirstNestedBlock(b)
     appendNestedAlpha(a)
     syncConnectedPeers(peers)
 
-    assert.deepEqual(topLevelTexts(a), ['alpha!'])
-    assert.deepEqual(topLevelTexts(b), ['alpha'])
+    assert.deepEqual(getPeerTopLevelTexts(a), ['alpha!'])
+    assert.deepEqual(getPeerTopLevelTexts(b), ['alpha'])
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alpha!'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha!'])
     }
-    assertNoRootSnapshot(b)
   })
 
   it('recovers only-child lift convergence through real Yjs updates after reconnect', () => {
     const peers = createPeers(['a', 'b', 'c'], onlyChildValue())
     const [, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
-    liftOnlyNestedBlock(b)
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    disconnectYjsPeer(b)
+    liftFirstNestedBlock(b)
+    connectYjsPeerAndSync(b, peers)
 
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alpha'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha'])
     }
   })
 
@@ -293,83 +262,74 @@ describe('@slate/yjs liftNodes collaboration contract', () => {
     const peers = createPeers(['a', 'b', 'c'], onlyChildValue())
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
-    liftOnlyNestedBlock(b)
+    disconnectYjsPeer(b)
+    liftFirstNestedBlock(b)
     appendNestedAlpha(a)
     syncConnectedPeers(peers)
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alpha!'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha!'])
     }
 
-    runYjsUpdate(b, (yjs) => yjs.undo())
-    syncConnectedPeers(peers)
+    undoYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alpha!'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha!'])
     }
 
-    runYjsUpdate(b, (yjs) => yjs.redo())
-    syncConnectedPeers(peers)
+    redoYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alpha!'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha!'])
     }
-    assertNoRootSnapshot(b)
   })
 
   it('applies local offline last-child lift without replacing the original Yjs node', () => {
     const peer = createPeer('b')
     const original = getVisibleYjsNodeAt(peer, [0, 1])
 
-    runYjsUpdate(peer, (yjs) => yjs.disconnect())
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+    disconnectAndClearYjsTrace(peer)
     liftLastNestedBlock(peer)
 
-    assert.deepEqual(topLevelTexts(peer), ['alpha', 'beta', 'gamma'])
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha', 'beta', 'gamma'])
     assert.equal(getVisibleYjsNodeAt(peer, [1]), original)
-    assert.deepEqual(getYjsState(peer).trace(), [
+    assert.deepEqual(getYjsTrace(peer), [
       {
         fallback: 'virtual-move-placeholder',
         mode: 'traceable-fallback',
         operationType: 'move_node',
       },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('preserves concurrent remote text when an offline last-child lift reconnects', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     liftLastNestedBlock(b)
     appendNestedBeta(a)
     syncConnectedPeers(peers)
 
-    assert.deepEqual(topLevelTexts(a), ['alphabeta!', 'gamma'])
-    assert.deepEqual(topLevelTexts(b), ['alpha', 'beta', 'gamma'])
+    assert.deepEqual(getPeerTopLevelTexts(a), ['alphabeta!', 'gamma'])
+    assert.deepEqual(getPeerTopLevelTexts(b), ['alpha', 'beta', 'gamma'])
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alpha', 'beta!', 'gamma'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha', 'beta!', 'gamma'])
     }
-    assertNoRootSnapshot(b)
   })
 
   it('recovers last-child lift convergence through real Yjs updates after reconnect', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     liftLastNestedBlock(b)
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alpha', 'beta', 'gamma'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha', 'beta', 'gamma'])
     }
   })
 
@@ -377,42 +337,42 @@ describe('@slate/yjs liftNodes collaboration contract', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     liftLastNestedBlock(b)
     appendNestedBeta(a)
     syncConnectedPeers(peers)
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alpha', 'beta!', 'gamma'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha', 'beta!', 'gamma'])
     }
 
-    runYjsUpdate(b, (yjs) => yjs.undo())
-    syncConnectedPeers(peers)
+    undoYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alphabeta!', 'gamma'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alphabeta!', 'gamma'])
     }
 
-    runYjsUpdate(b, (yjs) => yjs.redo())
-    syncConnectedPeers(peers)
+    redoYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alpha', 'beta!', 'gamma'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha', 'beta!', 'gamma'])
     }
-    assertNoRootSnapshot(b)
   })
 
   it('applies local offline middle-child lift through split_node and move_node', () => {
     const peer = createPeer('b', undefined, tripleChildValue())
     const original = getVisibleYjsNodeAt(peer, [0, 1])
 
-    runYjsUpdate(peer, (yjs) => yjs.disconnect())
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+    disconnectAndClearYjsTrace(peer)
     liftMiddleNestedBlock(peer)
 
-    assert.deepEqual(topLevelTexts(peer), ['alpha', 'beta', 'gamma', 'delta'])
+    assert.deepEqual(getPeerTopLevelTexts(peer), [
+      'alpha',
+      'beta',
+      'gamma',
+      'delta',
+    ])
     assert.equal(getVisibleYjsNodeAt(peer, [1]), original)
-    assert.deepEqual(getYjsState(peer).trace(), [
+    assert.deepEqual(getYjsTrace(peer), [
       { mode: 'operation', operationType: 'split_node' },
       {
         fallback: 'virtual-move-placeholder',
@@ -420,46 +380,52 @@ describe('@slate/yjs liftNodes collaboration contract', () => {
         operationType: 'move_node',
       },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('preserves concurrent remote text when an offline middle-child lift reconnects', () => {
     const peers = createPeers(['a', 'b', 'c'], tripleChildValue())
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     liftMiddleNestedBlock(b)
     appendNestedBeta(a)
     syncConnectedPeers(peers)
 
-    assert.deepEqual(topLevelTexts(a), ['alphabeta!gamma', 'delta'])
-    assert.deepEqual(topLevelTexts(b), ['alpha', 'beta', 'gamma', 'delta'])
+    assert.deepEqual(getPeerTopLevelTexts(a), ['alphabeta!gamma', 'delta'])
+    assert.deepEqual(getPeerTopLevelTexts(b), [
+      'alpha',
+      'beta',
+      'gamma',
+      'delta',
+    ])
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), [
+      assert.deepEqual(getPeerTopLevelTexts(peer), [
         'alpha',
         'beta!',
         'gamma',
         'delta',
       ])
     }
-    assertNoRootSnapshot(b)
   })
 
   it('recovers middle-child lift convergence through real Yjs updates after reconnect', () => {
     const peers = createPeers(['a', 'b', 'c'], tripleChildValue())
     const [, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     liftMiddleNestedBlock(b)
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alpha', 'beta', 'gamma', 'delta'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), [
+        'alpha',
+        'beta',
+        'gamma',
+        'delta',
+      ])
     }
   })
 
@@ -467,15 +433,14 @@ describe('@slate/yjs liftNodes collaboration contract', () => {
     const peers = createPeers(['a', 'b', 'c'], tripleChildValue())
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     liftMiddleNestedBlock(b)
     appendNestedBeta(a)
     syncConnectedPeers(peers)
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), [
+      assert.deepEqual(getPeerTopLevelTexts(peer), [
         'alpha',
         'beta!',
         'gamma',
@@ -483,22 +448,19 @@ describe('@slate/yjs liftNodes collaboration contract', () => {
       ])
     }
 
-    runYjsUpdate(b, (yjs) => yjs.undo())
-    syncConnectedPeers(peers)
+    undoYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), ['alphabeta!gamma', 'delta'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['alphabeta!gamma', 'delta'])
     }
 
-    runYjsUpdate(b, (yjs) => yjs.redo())
-    syncConnectedPeers(peers)
+    redoYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(topLevelTexts(peer), [
+      assert.deepEqual(getPeerTopLevelTexts(peer), [
         'alpha',
         'beta!',
         'gamma',
         'delta',
       ])
     }
-    assertNoRootSnapshot(b)
   })
 })

@@ -1,71 +1,79 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import type { Descendant, Operation } from 'slate'
-import { Editor } from 'slate/internal'
+import type { Descendant, Operation, Path } from 'slate'
 import * as Y from 'yjs'
 
-import { readSlateValueFromYjs } from '../src/core/document'
 import { applySlateOperationToYjs } from '../src/core/operations'
 import type { Peer } from './support/collaboration'
 import {
   createSeededYjsPeers,
   createYjsPeer,
   FakeAwareness,
-  getYjsState,
+  getPeerTopLevelTexts,
+  getYjsRoot,
+  isYjsPeerConnected,
+  paragraph,
+  readPeerChildren,
+  readPeerSlateValue,
+  reconcileYjsPeer,
+  redoYjsPeer,
   runYjsUpdate,
   syncConnectedPeers,
+  undoYjsPeer,
 } from './support/collaboration'
 
-type PeerId = 'a' | 'b' | 'c' | 'd'
+const peerIds = ['a', 'b', 'c', 'd'] as const
 
-const clientIds: Record<PeerId, number> = {
+type PeerId = (typeof peerIds)[number]
+type SoakPeers = Record<PeerId, Peer>
+
+const clientIds: Readonly<Record<PeerId, number>> = {
   a: 101,
   b: 202,
   c: 303,
   d: 404,
 }
 
-const appendTexts: Record<PeerId, string> = {
+const appendTexts: Readonly<Record<PeerId, string>> = {
   a: ' Ada',
   b: ' Lin',
   c: ' Ken',
   d: ' Eve',
 }
 
-const fragmentTexts: Record<PeerId, string> = {
+const fragmentTexts: Readonly<Record<PeerId, string>> = {
   a: 'Ada fragment',
   b: 'Lin fragment',
   c: 'Ken fragment',
   d: 'Eve fragment',
 }
 
-const replacementTexts: Record<PeerId, string> = {
+const replacementTexts: Readonly<Record<PeerId, string>> = {
   a: 'Ada canonical snapshot.',
   b: 'Lin canonical snapshot.',
   c: 'Ken canonical snapshot.',
   d: 'Eve canonical snapshot.',
 }
 
-const paragraph = (text: string): Descendant => ({
-  children: [{ text }],
-  type: 'paragraph',
-})
+const initialValue = (): Descendant[] => [paragraph('Hello world!')]
 
-const initialValue = () => [paragraph('Hello world!')]
-
-const createPeers = () => {
+const createPeers = (): SoakPeers => {
   const peers = createSeededYjsPeers({
     children: initialValue(),
-    clientIds: ['a', 'b', 'c', 'd'],
+    clientIds: [...peerIds],
     numericClientIds: clientIds,
   })
 
-  return Object.fromEntries(
-    (['a', 'b', 'c', 'd'] as const).map((id, index) => [id, peers[index]!])
-  ) as Record<PeerId, Peer>
+  const [a, b, c, d] = peers
+
+  if (!a || !b || !c || !d) {
+    throw new Error('Expected four structural soak peers.')
+  }
+
+  return { a, b, c, d }
 }
 
-const createAwarePeers = () => {
+const createAwarePeers = (): SoakPeers => {
   const first = createYjsPeer({
     awareness: new FakeAwareness(clientIds.a),
     children: initialValue(),
@@ -101,15 +109,15 @@ const createAwarePeers = () => {
   return peers
 }
 
-const allPeers = (peers: Record<PeerId, Peer>) =>
-  ['a', 'b', 'c', 'd'].map((id) => peers[id as PeerId])
+const allPeers = (peers: Readonly<Record<PeerId, Peer>>): Peer[] =>
+  peerIds.map((id) => peers[id])
 
-const editorValueOf = (peer: Peer) =>
-  Editor.getSnapshot(peer.editor).children as Descendant[]
+const editorValueOf = (peer: Peer): readonly Descendant[] =>
+  readPeerChildren(peer)
 
 type TextEntry = {
-  path: number[]
-  text: string
+  readonly path: Path
+  readonly text: string
 }
 
 const isText = (node: Descendant): node is Descendant & { text: string } =>
@@ -122,7 +130,7 @@ const hasChildren = (
 
 const findTextEntryInNode = (
   node: Descendant,
-  path: number[],
+  path: Path,
   direction: 'first' | 'last'
 ): TextEntry | null => {
   if (isText(node)) {
@@ -140,13 +148,13 @@ const findTextEntryInNode = (
   for (let index = start; index !== end; index += step) {
     const child = node.children[index]
 
-    if (!child) {
+    if (child === undefined) {
       continue
     }
 
     const entry = findTextEntryInNode(child, [...path, index], direction)
 
-    if (entry) {
+    if (entry !== null) {
       return entry
     }
   }
@@ -154,30 +162,30 @@ const findTextEntryInNode = (
   return null
 }
 
-const firstBlockTextEntry = (peer: Peer, direction: 'first' | 'last') => {
+const firstBlockTextEntry = (
+  peer: Peer,
+  direction: 'first' | 'last'
+): TextEntry | null => {
   const [block] = editorValueOf(peer)
 
-  return block ? findTextEntryInNode(block, [0], direction) : null
+  return block === undefined ? null : findTextEntryInNode(block, [0], direction)
 }
 
-const topLevelCount = (peer: Peer) => editorValueOf(peer).length
+const topLevelCount = (peer: Peer): number => editorValueOf(peer).length
 
-const paragraphTextsOf = (peer: Peer) =>
-  editorValueOf(peer).map((_, index) => Editor.string(peer.editor, [index]))
-
-const assertPeerParagraphTexts = (
+const assertPeerTopLevelTexts = (
   peers: readonly Peer[],
   expected: readonly string[]
-) => {
+): void => {
   for (const peer of peers) {
-    assert.deepEqual(paragraphTextsOf(peer), expected)
+    assert.deepEqual(getPeerTopLevelTexts(peer), expected)
   }
 }
 
 const assertFirstParagraphTextChildren = (
   peers: readonly Peer[],
   expected: readonly string[]
-) => {
+): void => {
   for (const peer of peers) {
     const [firstBlock] = editorValueOf(peer)
 
@@ -189,19 +197,19 @@ const assertFirstParagraphTextChildren = (
       JSON.stringify(editorValueOf(peer))
     )
     assert.deepEqual(
-      readSlateValueFromYjs(getYjsState(peer).root())[0]?.children.map(
-        (child) => child.text
-      ),
+      readPeerSlateValue(peer)[0]?.children.map((child) => child.text),
       expected
     )
   }
 }
 
-const firstBlockIsQuote = (peer: Peer) => {
+const firstBlockIsQuote = (peer: Peer): boolean => {
   const [firstBlock] = editorValueOf(peer)
 
   return (
-    !!firstBlock && 'type' in firstBlock && firstBlock.type === 'block-quote'
+    firstBlock !== undefined &&
+    'type' in firstBlock &&
+    firstBlock.type === 'block-quote'
   )
 }
 
@@ -224,7 +232,7 @@ const hasNestedParagraph = (
   )
 }
 
-const assertNoNestedParagraphs = (peers: readonly Peer[]) => {
+const assertNoNestedParagraphs = (peers: readonly Peer[]): void => {
   for (const peer of peers) {
     const value = editorValueOf(peer)
 
@@ -234,9 +242,7 @@ const assertNoNestedParagraphs = (peers: readonly Peer[]) => {
       JSON.stringify(value)
     )
     assert.equal(
-      readSlateValueFromYjs(getYjsState(peer).root()).some((node) =>
-        hasNestedParagraph(node)
-      ),
+      readPeerSlateValue(peer).some((node) => hasNestedParagraph(node)),
       false
     )
   }
@@ -261,10 +267,12 @@ const hasElementDescendantInsideParagraph = (
   )
 }
 
-const assertNoElementDescendantsInsideParagraphs = (peers: readonly Peer[]) => {
+const assertNoElementDescendantsInsideParagraphs = (
+  peers: readonly Peer[]
+): void => {
   for (const peer of peers) {
     const value = editorValueOf(peer)
-    const yjsValue = readSlateValueFromYjs(getYjsState(peer).root())
+    const yjsValue = readPeerSlateValue(peer)
 
     assert.equal(
       value.some((node) => hasElementDescendantInsideParagraph(node)),
@@ -283,7 +291,8 @@ const getNodeAtPath = (
   children: readonly Descendant[],
   path: readonly number[]
 ): Descendant | null => {
-  let current: { children: readonly Descendant[] } | Descendant = { children }
+  const root = { children }
+  let current: typeof root | Descendant = root
 
   for (const index of path) {
     if (!hasChildren(current)) {
@@ -292,24 +301,21 @@ const getNodeAtPath = (
 
     const child = current.children[index]
 
-    if (!child) {
+    if (child === undefined) {
       return null
     }
 
     current = child
   }
 
-  return current as Descendant
+  return current === root ? null : current
 }
 
-const assertSelectionsTargetText = (peers: readonly Peer[]) => {
+const assertSelectionsTargetText = (peers: readonly Peer[]): void => {
   for (const peer of peers) {
-    const selection = peer.editor.read((state) => state.selection.get()) as {
-      anchor: { path: number[] }
-      focus: { path: number[] }
-    } | null
+    const selection = peer.editor.read((state) => state.selection.get())
 
-    if (!selection) {
+    if (selection === null) {
       continue
     }
 
@@ -319,7 +325,7 @@ const assertSelectionsTargetText = (peers: readonly Peer[]) => {
       const node = getNodeAtPath(value, point.path)
 
       assert.equal(
-        !!node && isText(node),
+        node !== null && isText(node),
         true,
         JSON.stringify({ selection, value })
       )
@@ -327,44 +333,44 @@ const assertSelectionsTargetText = (peers: readonly Peer[]) => {
   }
 }
 
-const sync = (peers: Record<PeerId, Peer>) => {
+const sync = (peers: Readonly<Record<PeerId, Peer>>): void => {
   const peerList = allPeers(peers)
 
   syncConnectedPeers(peerList)
 
   for (const peer of peerList) {
-    if (!getYjsState(peer).connected()) {
+    if (!isYjsPeerConnected(peer)) {
       continue
     }
 
-    runYjsUpdate(peer, (yjs) => yjs.reconcile())
+    reconcileYjsPeer(peer)
   }
 }
 
 const runCommand = (
-  peers: Record<PeerId, Peer>,
+  peers: Readonly<Record<PeerId, Peer>>,
   peerId: PeerId,
   command: (peer: Peer, peerId: PeerId) => void
-) => {
+): void => {
   command(peers[peerId], peerId)
   sync(peers)
 }
 
 const runIncrementalCommand = (
-  peers: Record<PeerId, Peer>,
+  peers: Readonly<Record<PeerId, Peer>>,
   peerId: PeerId,
   command: (peer: Peer, peerId: PeerId) => void
-) => {
+): void => {
   const source = peers[peerId]
   const stateVector = Y.encodeStateVector(source.doc)
 
   command(source, peerId)
 
-  if (getYjsState(source).connected()) {
+  if (isYjsPeerConnected(source)) {
     const update = Y.encodeStateAsUpdate(source.doc, stateVector)
 
     for (const target of allPeers(peers)) {
-      if (source === target || !getYjsState(target).connected()) {
+      if (source === target || !isYjsPeerConnected(target)) {
         continue
       }
 
@@ -373,29 +379,35 @@ const runIncrementalCommand = (
   }
 
   for (const peer of allPeers(peers)) {
-    if (!getYjsState(peer).connected()) {
+    if (!isYjsPeerConnected(peer)) {
       continue
     }
 
-    runYjsUpdate(peer, (yjs) => yjs.reconcile())
+    reconcileYjsPeer(peer)
   }
 }
 
 const setConnected = (
-  peers: Record<PeerId, Peer>,
+  peers: Readonly<Record<PeerId, Peer>>,
   peerId: PeerId,
   connected: boolean
-) => {
+): void => {
   runYjsUpdate(peers[peerId], (yjs) =>
     connected ? yjs.connect() : yjs.disconnect()
   )
   sync(peers)
 }
 
-const appendText = (peer: Peer, peerId: PeerId) => {
+const connectAll = (peers: Readonly<Record<PeerId, Peer>>): void => {
+  for (const peerId of peerIds) {
+    setConnected(peers, peerId, true)
+  }
+}
+
+const appendText = (peer: Peer, peerId: PeerId): void => {
   const entry = firstBlockTextEntry(peer, 'last')
 
-  if (!entry) {
+  if (entry === null) {
     return
   }
 
@@ -406,7 +418,7 @@ const appendText = (peer: Peer, peerId: PeerId) => {
   })
 }
 
-const splitFirstText = (peer: Peer) => {
+const splitFirstText = (peer: Peer): void => {
   const entry = firstBlockTextEntry(peer, 'first')
 
   if (!entry || entry.text.length < 2) {
@@ -424,7 +436,7 @@ const splitFirstText = (peer: Peer) => {
   })
 }
 
-const ensureTopLevelCount = (peer: Peer, count: number) => {
+const ensureTopLevelCount = (peer: Peer, count: number): void => {
   const current = topLevelCount(peer)
 
   if (current >= count) {
@@ -438,7 +450,7 @@ const ensureTopLevelCount = (peer: Peer, count: number) => {
   })
 }
 
-const moveFirstBlockDown = (peer: Peer) => {
+const moveFirstBlockDown = (peer: Peer): void => {
   ensureTopLevelCount(peer, 2)
 
   peer.editor.update((tx) => {
@@ -446,7 +458,7 @@ const moveFirstBlockDown = (peer: Peer) => {
   })
 }
 
-const moveFirstBlockAfterSecond = (peer: Peer) => {
+const moveFirstBlockAfterSecond = (peer: Peer): void => {
   if (topLevelCount(peer) < 2) {
     return
   }
@@ -456,7 +468,7 @@ const moveFirstBlockAfterSecond = (peer: Peer) => {
   })
 }
 
-const mergeSecondBlock = (peer: Peer) => {
+const mergeSecondBlock = (peer: Peer): void => {
   if (topLevelCount(peer) < 2) {
     return
   }
@@ -466,7 +478,7 @@ const mergeSecondBlock = (peer: Peer) => {
   })
 }
 
-const removeSecondBlock = (peer: Peer) => {
+const removeSecondBlock = (peer: Peer): void => {
   if (topLevelCount(peer) < 2) {
     return
   }
@@ -476,7 +488,7 @@ const removeSecondBlock = (peer: Peer) => {
   })
 }
 
-const replaceDocument = (peer: Peer, peerId: PeerId) => {
+const replaceDocument = (peer: Peer, peerId: PeerId): void => {
   const children = editorValueOf(peer)
   const text = replacementTexts[peerId]
 
@@ -499,7 +511,7 @@ const replaceDocument = (peer: Peer, peerId: PeerId) => {
   })
 }
 
-const wrapFirstBlock = (peer: Peer) => {
+const wrapFirstBlock = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.selection.clear()
     tx.nodes.wrap({ children: [], type: 'block-quote' }, { at: [0] })
@@ -507,7 +519,7 @@ const wrapFirstBlock = (peer: Peer) => {
   })
 }
 
-const unwrapFirstBlock = (peer: Peer) => {
+const unwrapFirstBlock = (peer: Peer): void => {
   if (!firstBlockIsQuote(peer)) {
     return
   }
@@ -517,7 +529,7 @@ const unwrapFirstBlock = (peer: Peer) => {
   })
 }
 
-const liftFirstWrappedBlock = (peer: Peer) => {
+const liftFirstWrappedBlock = (peer: Peer): void => {
   if (!firstBlockIsQuote(peer)) {
     return
   }
@@ -527,7 +539,7 @@ const liftFirstWrappedBlock = (peer: Peer) => {
   })
 }
 
-const unsetFirstBlockRole = (peer: Peer) => {
+const unsetFirstBlockRole = (peer: Peer): void => {
   const [firstBlock] = editorValueOf(peer)
 
   if (!firstBlock || !('role' in firstBlock)) {
@@ -535,20 +547,20 @@ const unsetFirstBlockRole = (peer: Peer) => {
   }
 
   peer.editor.update((tx) => {
-    tx.nodes.unset('role' as never, { at: [0] })
+    tx.nodes.unset('role', { at: [0] })
   })
 }
 
-const setFirstBlockRole = (peer: Peer) => {
+const setFirstBlockRole = (peer: Peer): void => {
   peer.editor.update((tx) => {
-    tx.nodes.set({ role: 'title' } as never, { at: [0] })
+    tx.nodes.set({ role: 'title' }, { at: [0] })
   })
 }
 
-const insertExclamation = (peer: Peer) => {
+const insertExclamation = (peer: Peer): void => {
   const entry = firstBlockTextEntry(peer, 'last')
 
-  if (!entry) {
+  if (entry === null) {
     return
   }
 
@@ -559,10 +571,10 @@ const insertExclamation = (peer: Peer) => {
   })
 }
 
-const insertPeerFragment = (peer: Peer, peerId: PeerId) => {
+const insertPeerFragment = (peer: Peer, peerId: PeerId): void => {
   const entry = firstBlockTextEntry(peer, 'last')
 
-  if (!entry) {
+  if (entry === null) {
     return
   }
 
@@ -575,10 +587,10 @@ const insertPeerFragment = (peer: Peer, peerId: PeerId) => {
   })
 }
 
-const deleteFirstFragment = (peer: Peer) => {
+const deleteFirstFragment = (peer: Peer): void => {
   const entry = firstBlockTextEntry(peer, 'first')
 
-  if (!entry) {
+  if (entry === null) {
     return
   }
 
@@ -597,7 +609,7 @@ const deleteFirstFragment = (peer: Peer) => {
   })
 }
 
-const deleteBackwardFromFirstBlockEnd = (peer: Peer) => {
+const deleteBackwardFromFirstBlockEnd = (peer: Peer): void => {
   const entry = firstBlockTextEntry(peer, 'last')
 
   if (!entry || entry.text.length === 0) {
@@ -613,22 +625,22 @@ const deleteBackwardFromFirstBlockEnd = (peer: Peer) => {
   })
 }
 
-const reconcilePeer = (peer: Peer) => {
-  runYjsUpdate(peer, (yjs) => yjs.reconcile())
+const reconcilePeer = (peer: Peer): void => {
+  reconcileYjsPeer(peer)
 }
 
-const undoPeer = (peer: Peer) => {
-  runYjsUpdate(peer, (yjs) => yjs.undo())
+const undoPeer = (peer: Peer): void => {
+  undoYjsPeer(peer)
 }
 
-const redoPeer = (peer: Peer) => {
-  runYjsUpdate(peer, (yjs) => yjs.redo())
+const redoPeer = (peer: Peer): void => {
+  redoYjsPeer(peer)
 }
 
-const toggleFirstBlockBold = (peer: Peer) => {
+const toggleFirstBlockBold = (peer: Peer): void => {
   const entry = firstBlockTextEntry(peer, 'first')
 
-  if (!entry) {
+  if (entry === null) {
     return
   }
 
@@ -643,7 +655,7 @@ const toggleFirstBlockBold = (peer: Peer) => {
   })
 }
 
-const assertDocumentHasTextBoundary = (peers: readonly Peer[]) => {
+const assertDocumentHasTextBoundary = (peers: readonly Peer[]): void => {
   for (const peer of peers) {
     const value = editorValueOf(peer)
 
@@ -685,12 +697,12 @@ describe('@slate/yjs structural soak contract', () => {
     runCommand(peers, 'b', unwrapFirstBlock)
 
     assertNoNestedParagraphs(allPeers(peers))
-    assertPeerParagraphTexts([peers.a], ['Hello world!', 'block 2'])
-    assertPeerParagraphTexts([peers.b, peers.c, peers.d], ['Hello world!'])
+    assertPeerTopLevelTexts([peers.a], ['Hello world!', 'block 2'])
+    assertPeerTopLevelTexts([peers.b, peers.c, peers.d], ['Hello world!'])
 
     setConnected(peers, 'a', true)
 
-    assertPeerParagraphTexts(allPeers(peers), ['Hello world!', 'block 2'])
+    assertPeerTopLevelTexts(allPeers(peers), ['Hello world!', 'block 2'])
   })
 
   it('exports selection after structural unwrap only when the Yjs target is text', () => {
@@ -728,15 +740,15 @@ describe('@slate/yjs structural soak contract', () => {
       runCommand(peers, 'c', unwrapFirstBlock)
     })
     assertNoNestedParagraphs(allPeers(peers))
-    assertPeerParagraphTexts(
+    assertPeerTopLevelTexts(
       [peers.a, peers.b, peers.c],
       ['Hello wo', 'rld!! Lin!']
     )
-    assertPeerParagraphTexts([peers.d], ['Hello world!! Lin!'])
+    assertPeerTopLevelTexts([peers.d], ['Hello world!! Lin!'])
 
     setConnected(peers, 'd', true)
 
-    assertPeerParagraphTexts(allPeers(peers), ['Hello wo', 'rld!! Lin!'])
+    assertPeerTopLevelTexts(allPeers(peers), ['Hello wo', 'rld!! Lin!'])
   })
 
   it('keeps remote wrap after lift from duplicating the wrapped block', () => {
@@ -746,7 +758,7 @@ describe('@slate/yjs structural soak contract', () => {
     runCommand(peers, 'c', liftFirstWrappedBlock)
     runCommand(peers, 'a', wrapFirstBlock)
 
-    assertPeerParagraphTexts(allPeers(peers), ['Hello world!'])
+    assertPeerTopLevelTexts(allPeers(peers), ['Hello world!'])
     assertNoElementDescendantsInsideParagraphs(allPeers(peers))
   })
 
@@ -755,14 +767,10 @@ describe('@slate/yjs structural soak contract', () => {
 
     runCommand(peers, 'b', wrapFirstBlock)
     runCommand(peers, 'c', moveFirstBlockDown)
-    runCommand(peers, 'd', (peer) => {
-      peer.editor.update((tx) => {
-        tx.nodes.set({ role: 'title' } as never, { at: [0] })
-      })
-    })
+    runCommand(peers, 'd', setFirstBlockRole)
     runCommand(peers, 'a', moveFirstBlockDown)
 
-    assertPeerParagraphTexts(allPeers(peers), ['Hello world!', 'block 2'])
+    assertPeerTopLevelTexts(allPeers(peers), ['Hello world!', 'block 2'])
     assertNoElementDescendantsInsideParagraphs(allPeers(peers))
   })
 
@@ -783,13 +791,10 @@ describe('@slate/yjs structural soak contract', () => {
     runCommand(peers, 'c', unsetFirstBlockRole)
     runCommand(peers, 'd', deleteFirstFragment)
     runCommand(peers, 'd', mergeSecondBlock)
-    setConnected(peers, 'a', true)
-    setConnected(peers, 'b', true)
-    setConnected(peers, 'c', true)
-    setConnected(peers, 'd', true)
+    connectAll(peers)
     runCommand(peers, 'a', reconcilePeer)
 
-    assertPeerParagraphTexts(allPeers(peers), ['!Ken fragmenHello '])
+    assertPeerTopLevelTexts(allPeers(peers), ['!Ken fragmenHello '])
   })
 
   it('keeps offline structural mix seed 99 from retaining a zero-width prefix', () => {
@@ -804,14 +809,10 @@ describe('@slate/yjs structural soak contract', () => {
     runCommand(peers, 'd', splitFirstText)
     runCommand(peers, 'b', mergeSecondBlock)
     runCommand(peers, 'c', splitFirstText)
-    setConnected(peers, 'b', true)
-    setConnected(peers, 'a', true)
-    setConnected(peers, 'b', true)
-    setConnected(peers, 'c', true)
-    setConnected(peers, 'd', true)
+    connectAll(peers)
     runCommand(peers, 'a', reconcilePeer)
 
-    assertPeerParagraphTexts(allPeers(peers), [
+    assertPeerTopLevelTexts(allPeers(peers), [
       'block 2',
       'llo',
       '  Ken',
@@ -837,13 +838,10 @@ describe('@slate/yjs structural soak contract', () => {
     runCommand(peers, 'a', setFirstBlockRole)
     runCommand(peers, 'c', replaceDocument)
     runCommand(peers, 'c', unsetFirstBlockRole)
-    setConnected(peers, 'a', true)
-    setConnected(peers, 'b', true)
-    setConnected(peers, 'c', true)
-    setConnected(peers, 'd', true)
+    connectAll(peers)
     runCommand(peers, 'a', reconcilePeer)
 
-    assertPeerParagraphTexts(allPeers(peers), ['Ken canonical snapshot.'])
+    assertPeerTopLevelTexts(allPeers(peers), ['Ken canonical snapshot.'])
   })
 
   it('keeps random-control seed 131 empty trailing block converged', () => {
@@ -863,13 +861,10 @@ describe('@slate/yjs structural soak contract', () => {
     runCommand(peers, 'a', toggleFirstBlockBold)
     runCommand(peers, 'b', mergeSecondBlock)
     runCommand(peers, 'b', splitFirstText)
-    setConnected(peers, 'a', true)
-    setConnected(peers, 'b', true)
-    setConnected(peers, 'c', true)
-    setConnected(peers, 'd', true)
+    connectAll(peers)
     runCommand(peers, 'a', reconcilePeer)
 
-    assertPeerParagraphTexts(allPeers(peers), ['n', ' canonical snapshot.K'])
+    assertPeerTopLevelTexts(allPeers(peers), ['n', ' canonical snapshot.K'])
   })
 
   it('keeps structural edits from projecting block placeholders inside paragraphs', () => {
@@ -877,11 +872,7 @@ describe('@slate/yjs structural soak contract', () => {
 
     runCommand(peers, 'a', splitFirstText)
     runCommand(peers, 'c', deleteFirstFragment)
-    runCommand(peers, 'c', (peer) => {
-      peer.editor.update((tx) => {
-        tx.nodes.set({ role: 'title' } as never, { at: [0] })
-      })
-    })
+    runCommand(peers, 'c', setFirstBlockRole)
     reconcilePeer(peers.d)
     runCommand(peers, 'd', deleteBackwardFromFirstBlockEnd)
     setConnected(peers, 'a', true)
@@ -968,7 +959,7 @@ describe('@slate/yjs structural soak contract', () => {
     runCommand(peers, 'b', (peer, peerId) => {
       const entry = firstBlockTextEntry(peer, 'last')
 
-      if (!entry) {
+      if (entry === null) {
         return
       }
 
@@ -995,11 +986,7 @@ describe('@slate/yjs structural soak contract', () => {
     const peers = createAwarePeers()
 
     setConnected(peers, 'b', false)
-    runCommand(peers, 'b', (peer) => {
-      peer.editor.update((tx) => {
-        tx.nodes.set({ role: 'title' } as never, { at: [0] })
-      })
-    })
+    runCommand(peers, 'b', setFirstBlockRole)
     runCommand(peers, 'a', mergeSecondBlock)
     runCommand(peers, 'b', wrapFirstBlock)
     runCommand(peers, 'a', insertExclamation)
@@ -1047,14 +1034,11 @@ describe('@slate/yjs structural soak contract', () => {
       type: 'move_node',
     }
 
-    assert.deepEqual(
-      applySlateOperationToYjs(getYjsState(peer).root(), operation),
-      {
-        fallback: 'missing-move-source-elided',
-        mode: 'traceable-fallback',
-        operationType: 'move_node',
-      }
-    )
+    assert.deepEqual(applySlateOperationToYjs(getYjsRoot(peer), operation), {
+      fallback: 'missing-move-source-elided',
+      mode: 'traceable-fallback',
+      operationType: 'move_node',
+    })
   })
 
   it('keeps offline structural mix seed 16 from losing root text boundaries', () => {
@@ -1073,7 +1057,7 @@ describe('@slate/yjs structural soak contract', () => {
 
     assertNoNestedParagraphs(allPeers(peers))
     assertDocumentHasTextBoundary(allPeers(peers))
-    assertPeerParagraphTexts(allPeers(peers), ['', 'l', 'o ', '', 'world!'])
+    assertPeerTopLevelTexts(allPeers(peers), ['', 'l', 'o ', '', 'world!'])
   })
 
   it('keeps remote wrap and unwrap from dropping split-merge text prefixes', () => {
@@ -1088,25 +1072,16 @@ describe('@slate/yjs structural soak contract', () => {
     runIncrementalCommand(peers, 'c', splitFirstText)
     runIncrementalCommand(peers, 'd', mergeSecondBlock)
 
-    assertPeerParagraphTexts(allPeers(peers), [
-      'Hello  Ada! Ada Ada!',
-      'world!',
-    ])
+    assertPeerTopLevelTexts(allPeers(peers), ['Hello  Ada! Ada Ada!', 'world!'])
 
     runIncrementalCommand(peers, 'a', wrapFirstBlock)
 
-    assertPeerParagraphTexts(allPeers(peers), [
-      'Hello  Ada! Ada Ada!',
-      'world!',
-    ])
+    assertPeerTopLevelTexts(allPeers(peers), ['Hello  Ada! Ada Ada!', 'world!'])
     assertNoElementDescendantsInsideParagraphs(allPeers(peers))
 
     runIncrementalCommand(peers, 'b', unwrapFirstBlock)
 
-    assertPeerParagraphTexts(allPeers(peers), [
-      'Hello  Ada! Ada Ada!',
-      'world!',
-    ])
+    assertPeerTopLevelTexts(allPeers(peers), ['Hello  Ada! Ada Ada!', 'world!'])
     assertNoElementDescendantsInsideParagraphs(allPeers(peers))
   })
 })

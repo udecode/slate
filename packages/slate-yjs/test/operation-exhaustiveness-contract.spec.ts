@@ -5,6 +5,10 @@ import * as Y from 'yjs'
 
 import { applySlateOperationToYjs } from '../src/core/operations'
 
+// The encoder still needs a runtime guard for operation types newer than this package.
+const futureSlateOperation = (type: string): Operation =>
+  ({ type }) as unknown as Operation
+
 describe('@slate/yjs operation encoder exhaustiveness contract', () => {
   it('treats selection operations as document-content no-ops', () => {
     const doc = new Y.Doc()
@@ -24,9 +28,7 @@ describe('@slate/yjs operation encoder exhaustiveness contract', () => {
   it('rejects a future Slate operation instead of silently skipping it', () => {
     const doc = new Y.Doc()
     const root = doc.get('slate', Y.XmlElement)
-    const operation = {
-      type: 'future_operation',
-    } as unknown as Operation
+    const operation = futureSlateOperation('future_operation')
 
     assert.throws(
       () => applySlateOperationToYjs(root, operation),

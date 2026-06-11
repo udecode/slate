@@ -9,10 +9,13 @@ import {
   yjsRelativeRangeToSlateRange,
 } from '../src'
 import {
+  clearYjsTrace,
   createSeededYjsPeers,
   createYjsPeer,
-  getYjsState,
-  runYjsUpdate,
+  getYjsRoot,
+  getYjsTrace,
+  type Peer,
+  paragraph,
   syncConnectedPeers,
 } from './support/collaboration'
 
@@ -22,46 +25,41 @@ const clientIds = {
   c: 3,
 } as const
 
-const paragraph = (text: string): Descendant => ({
-  type: 'paragraph',
-  children: [{ text }],
-})
+type ClientId = keyof typeof clientIds
 
-const initialValue = () => [
+const initialValue = (): Descendant[] => [
   paragraph('alpha'),
   paragraph('beta'),
   paragraph('gamma'),
 ]
 
-const createPeer = (clientId: keyof typeof clientIds) =>
+const createPeer = (clientId: ClientId): Peer =>
   createYjsPeer({
     children: initialValue(),
     clientId,
     numericClientId: clientIds[clientId],
   })
 
-const createPeers = (ids: Array<keyof typeof clientIds>) =>
+const createPeers = (ids: readonly ClientId[]): Peer[] =>
   createSeededYjsPeers({
     children: initialValue(),
     clientIds: ids,
     numericClientIds: clientIds,
   })
 
-const root = (peer: ReturnType<typeof createPeer>) => getYjsState(peer).root()
-
-const moveFirstBlockToEnd = (peer: ReturnType<typeof createPeer>) => {
+const moveFirstBlockToEnd = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.nodes.move({ at: [0], to: [2] })
   })
 }
 
-const insertInsideAlpha = (peer: ReturnType<typeof createPeer>) => {
+const insertInsideAlpha = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.text.insert('!', { at: { path: [0, 0], offset: 2 } })
   })
 }
 
-const removeFirstBlock = (peer: ReturnType<typeof createPeer>) => {
+const removeFirstBlock = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.nodes.remove({ at: [0] })
   })
@@ -71,11 +69,38 @@ describe('@slate/yjs selection relative-position contract', () => {
   it('round trips a Slate point through a Yjs relative position', () => {
     const peer = createPeer('b')
     const point = { path: [0, 0], offset: 3 }
-    const relative = slatePointToYjsRelativePosition(root(peer), point)
+    const relative = slatePointToYjsRelativePosition(getYjsRoot(peer), point)
 
     assert.deepEqual(
-      yjsRelativePositionToSlatePoint(root(peer), relative),
+      yjsRelativePositionToSlatePoint(getYjsRoot(peer), relative),
       point
+    )
+  })
+
+  it('clamps Slate point offsets to text bounds before storing relative positions', () => {
+    const peer = createPeer('b')
+    const beforeStart = slatePointToYjsRelativePosition(getYjsRoot(peer), {
+      path: [0, 0],
+      offset: -10,
+    })
+    const afterEnd = slatePointToYjsRelativePosition(getYjsRoot(peer), {
+      path: [0, 0],
+      offset: 99,
+    })
+
+    assert.deepEqual(
+      yjsRelativePositionToSlatePoint(getYjsRoot(peer), beforeStart),
+      {
+        path: [0, 0],
+        offset: 0,
+      }
+    )
+    assert.deepEqual(
+      yjsRelativePositionToSlatePoint(getYjsRoot(peer), afterEnd),
+      {
+        path: [0, 0],
+        offset: 'alpha'.length,
+      }
     )
   })
 
@@ -85,15 +110,18 @@ describe('@slate/yjs selection relative-position contract', () => {
       anchor: { path: [1, 0], offset: 4 },
       focus: { path: [0, 0], offset: 1 },
     }
-    const relative = slateRangeToYjsRelativeRange(root(peer), range)
+    const relative = slateRangeToYjsRelativeRange(getYjsRoot(peer), range)
 
-    assert.deepEqual(yjsRelativeRangeToSlateRange(root(peer), relative), range)
+    assert.deepEqual(
+      yjsRelativeRangeToSlateRange(getYjsRoot(peer), relative),
+      range
+    )
   })
 
   it('rebases a stored point across a concurrent text insert', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
-    const relative = slatePointToYjsRelativePosition(root(b), {
+    const relative = slatePointToYjsRelativePosition(getYjsRoot(b), {
       path: [0, 0],
       offset: 3,
     })
@@ -101,7 +129,7 @@ describe('@slate/yjs selection relative-position contract', () => {
     insertInsideAlpha(a)
     syncConnectedPeers(peers)
 
-    assert.deepEqual(yjsRelativePositionToSlatePoint(root(b), relative), {
+    assert.deepEqual(yjsRelativePositionToSlatePoint(getYjsRoot(b), relative), {
       path: [0, 0],
       offset: 4,
     })
@@ -109,40 +137,46 @@ describe('@slate/yjs selection relative-position contract', () => {
 
   it('resolves a stored point through virtual moved-node identity', () => {
     const peer = createPeer('b')
-    const relative = slatePointToYjsRelativePosition(root(peer), {
+    const relative = slatePointToYjsRelativePosition(getYjsRoot(peer), {
       path: [0, 0],
       offset: 2,
     })
 
     moveFirstBlockToEnd(peer)
 
-    assert.deepEqual(yjsRelativePositionToSlatePoint(root(peer), relative), {
-      path: [2, 0],
-      offset: 2,
-    })
+    assert.deepEqual(
+      yjsRelativePositionToSlatePoint(getYjsRoot(peer), relative),
+      {
+        path: [2, 0],
+        offset: 2,
+      }
+    )
   })
 
   it('returns null when the relative position target is no longer visible', () => {
     const peer = createPeer('b')
-    const relative = slatePointToYjsRelativePosition(root(peer), {
+    const relative = slatePointToYjsRelativePosition(getYjsRoot(peer), {
       path: [0, 0],
       offset: 2,
     })
 
     removeFirstBlock(peer)
 
-    assert.equal(yjsRelativePositionToSlatePoint(root(peer), relative), null)
+    assert.equal(
+      yjsRelativePositionToSlatePoint(getYjsRoot(peer), relative),
+      null
+    )
   })
 
   it('does not record selection-only conversions in the Yjs operation trace', () => {
     const peer = createPeer('b')
 
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
-    slateRangeToYjsRelativeRange(root(peer), {
+    clearYjsTrace(peer)
+    slateRangeToYjsRelativeRange(getYjsRoot(peer), {
       anchor: { path: [0, 0], offset: 1 },
       focus: { path: [1, 0], offset: 2 },
     })
 
-    assert.deepEqual(getYjsState(peer).trace(), [])
+    assert.deepEqual(getYjsTrace(peer), [])
   })
 })

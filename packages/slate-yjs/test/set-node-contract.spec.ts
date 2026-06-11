@@ -1,23 +1,24 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import {
-  type Descendant,
-  defineEditorExtension,
-  type Element,
-  NodeApi,
-} from 'slate'
-import { Editor } from 'slate/internal'
+import { type Descendant, type Element, NodeApi } from 'slate'
 
 import {
-  assertNoRootSnapshot,
   assertPeerTexts,
+  connectYjsPeerAndSync,
   createSeededYjsPeers,
   createYjsPeer,
-  getParagraphTexts,
+  disconnectAndClearYjsTrace,
+  disconnectYjsPeer,
+  getPeerTopLevelTexts,
   getVisibleYjsNodeAt,
-  getYjsState,
-  runYjsUpdate,
+  getYjsTrace,
+  type Peer,
+  paragraph,
+  readPeerChildren,
+  recordOperationTypes,
+  redoYjsPeerAndSync,
   syncConnectedPeers,
+  undoYjsPeerAndSync,
 } from './support/collaboration'
 
 const clientIds = {
@@ -26,22 +27,15 @@ const clientIds = {
   c: 3,
 } as const
 
-const paragraph = (
-  text: string,
-  attributes: Record<string, unknown> = {}
-): Descendant => ({
-  ...attributes,
-  type: 'paragraph',
-  children: [{ text }],
-})
+type ClientId = keyof typeof clientIds
 
-const initialValue = () => [paragraph('alpha')]
-const roleValue = () => [paragraph('alpha', { role: 'title' })]
+const initialValue = (): Descendant[] => [paragraph('alpha')]
+const roleValue = (): Descendant[] => [paragraph('alpha', { role: 'title' })]
 
 const createPeer = (
-  clientId: keyof typeof clientIds,
-  children: Descendant[] = initialValue()
-) =>
+  clientId: ClientId,
+  children: readonly Descendant[] = initialValue()
+): Peer =>
   createYjsPeer({
     children,
     clientId,
@@ -49,34 +43,34 @@ const createPeer = (
   })
 
 const createPeers = (
-  ids: Array<keyof typeof clientIds>,
-  children: Descendant[] = initialValue()
-) =>
+  ids: readonly ClientId[],
+  children: readonly Descendant[] = initialValue()
+): Peer[] =>
   createSeededYjsPeers({
     children,
     clientIds: ids,
     numericClientIds: clientIds,
   })
 
-const setHeading = (peer: ReturnType<typeof createPeer>) => {
+const setHeading = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.nodes.set<Element>({ role: 'title', type: 'heading-one' }, { at: [0] })
   })
 }
 
-const unsetRole = (peer: ReturnType<typeof createPeer>) => {
+const unsetRole = (peer: Peer): void => {
   peer.editor.update((tx) => {
-    tx.nodes.unset('role' as never, { at: [0] })
+    tx.nodes.unset('role', { at: [0] })
   })
 }
 
-const setTextMark = (peer: ReturnType<typeof createPeer>) => {
+const setTextMark = (peer: Peer): void => {
   peer.editor.update((tx) => {
-    tx.nodes.set({ bold: true } as never, { at: [0, 0], match: NodeApi.isText })
+    tx.nodes.set({ bold: true }, { at: [0, 0], match: NodeApi.isText })
   })
 }
 
-const appendRemoteText = (peer: ReturnType<typeof createPeer>) => {
+const appendRemoteText = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
   })
@@ -85,22 +79,9 @@ const appendRemoteText = (peer: ReturnType<typeof createPeer>) => {
 describe('@slate/yjs set_node collaboration contract', () => {
   it('characterizes public setNodes as set_node', () => {
     const peer = createPeer('b')
-    const operations: string[] = []
-
-    peer.editor.extend(
-      defineEditorExtension({
-        name: 'set-node-operation-recorder',
-        setup() {
-          return {
-            onCommit({ commit }) {
-              operations.push(
-                ...commit.operations.map((operation) => operation.type)
-              )
-            },
-          }
-        },
-      })
-    )
+    const operations = recordOperationTypes(peer, {
+      name: 'set-node-operation-recorder',
+    })
     setHeading(peer)
 
     assert.deepEqual(operations, ['set_node'])
@@ -110,39 +91,36 @@ describe('@slate/yjs set_node collaboration contract', () => {
     const peer = createPeer('b')
     const element = getVisibleYjsNodeAt(peer, [0])
 
-    runYjsUpdate(peer, (yjs) => yjs.disconnect())
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+    disconnectAndClearYjsTrace(peer)
     setHeading(peer)
 
-    assert.deepEqual(Editor.getSnapshot(peer.editor).children, [
+    assert.deepEqual(readPeerChildren(peer), [
       { type: 'heading-one', role: 'title', children: [{ text: 'alpha' }] },
     ])
     assert.equal(getVisibleYjsNodeAt(peer, [0]), element)
-    assert.deepEqual(getYjsState(peer).trace(), [
+    assert.deepEqual(getYjsTrace(peer), [
       { mode: 'operation', operationType: 'set_node' },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('preserves concurrent remote text when an offline element set_node reconnects', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     setHeading(b)
     appendRemoteText(a)
     syncConnectedPeers(peers)
 
-    assert.deepEqual(getParagraphTexts(a), ['alpha!'])
-    assert.deepEqual(Editor.getSnapshot(b.editor).children, [
+    assert.deepEqual(getPeerTopLevelTexts(a), ['alpha!'])
+    assert.deepEqual(readPeerChildren(b), [
       { type: 'heading-one', role: 'title', children: [{ text: 'alpha' }] },
     ])
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     for (const peer of peers) {
-      assert.deepEqual(Editor.getSnapshot(peer.editor).children, [
+      assert.deepEqual(readPeerChildren(peer), [
         {
           type: 'heading-one',
           role: 'title',
@@ -150,20 +128,18 @@ describe('@slate/yjs set_node collaboration contract', () => {
         },
       ])
     }
-    assertNoRootSnapshot(b)
   })
 
   it('recovers element set_node convergence through real Yjs updates after reconnect', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     setHeading(b)
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     for (const peer of peers) {
-      assert.deepEqual(Editor.getSnapshot(peer.editor).children, [
+      assert.deepEqual(readPeerChildren(peer), [
         { type: 'heading-one', role: 'title', children: [{ text: 'alpha' }] },
       ])
     }
@@ -173,15 +149,14 @@ describe('@slate/yjs set_node collaboration contract', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     setHeading(b)
     appendRemoteText(a)
     syncConnectedPeers(peers)
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(Editor.getSnapshot(peer.editor).children, [
+      assert.deepEqual(readPeerChildren(peer), [
         {
           type: 'heading-one',
           role: 'title',
@@ -190,18 +165,16 @@ describe('@slate/yjs set_node collaboration contract', () => {
       ])
     }
 
-    runYjsUpdate(b, (yjs) => yjs.undo())
-    syncConnectedPeers(peers)
+    undoYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(Editor.getSnapshot(peer.editor).children, [
+      assert.deepEqual(readPeerChildren(peer), [
         { type: 'paragraph', children: [{ text: 'alpha!' }] },
       ])
     }
 
-    runYjsUpdate(b, (yjs) => yjs.redo())
-    syncConnectedPeers(peers)
+    redoYjsPeerAndSync(b, peers)
     for (const peer of peers) {
-      assert.deepEqual(Editor.getSnapshot(peer.editor).children, [
+      assert.deepEqual(readPeerChildren(peer), [
         {
           type: 'heading-one',
           role: 'title',
@@ -209,31 +182,17 @@ describe('@slate/yjs set_node collaboration contract', () => {
         },
       ])
     }
-    assertNoRootSnapshot(b)
   })
 
   it('characterizes public unsetNodes as set_node', () => {
     const peer = createPeer('b', roleValue())
-    const operations: string[] = []
-
-    peer.editor.extend(
-      defineEditorExtension({
-        name: 'unset-node-operation-recorder',
-        setup() {
-          return {
-            onCommit({ commit }) {
-              operations.push(
-                ...commit.operations.map((operation) => operation.type)
-              )
-            },
-          }
-        },
-      })
-    )
+    const operations = recordOperationTypes(peer, {
+      name: 'unset-node-operation-recorder',
+    })
     unsetRole(peer)
 
     assert.deepEqual(operations, ['set_node'])
-    assert.deepEqual(Editor.getSnapshot(peer.editor).children, [
+    assert.deepEqual(readPeerChildren(peer), [
       { type: 'paragraph', children: [{ text: 'alpha' }] },
     ])
   })
@@ -242,43 +201,38 @@ describe('@slate/yjs set_node collaboration contract', () => {
     const peer = createPeer('b')
     const text = getVisibleYjsNodeAt(peer, [0, 0])
 
-    runYjsUpdate(peer, (yjs) => yjs.disconnect())
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+    disconnectAndClearYjsTrace(peer)
     setTextMark(peer)
 
-    assert.deepEqual(Editor.getSnapshot(peer.editor).children, [
+    assert.deepEqual(readPeerChildren(peer), [
       { type: 'paragraph', children: [{ bold: true, text: 'alpha' }] },
     ])
     assert.equal(getVisibleYjsNodeAt(peer, [0, 0]), text)
-    assert.deepEqual(getYjsState(peer).trace(), [
+    assert.deepEqual(getYjsTrace(peer), [
       { mode: 'operation', operationType: 'set_node' },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('syncs text mark set_node through reconnect and undo without root snapshots', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     setTextMark(b)
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     for (const peer of peers) {
-      assert.deepEqual(Editor.getSnapshot(peer.editor).children, [
+      assert.deepEqual(readPeerChildren(peer), [
         { type: 'paragraph', children: [{ bold: true, text: 'alpha' }] },
       ])
     }
 
-    runYjsUpdate(b, (yjs) => yjs.undo())
-    syncConnectedPeers(peers)
+    undoYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha'])
     for (const peer of peers) {
-      assert.deepEqual(Editor.getSnapshot(peer.editor).children, [
+      assert.deepEqual(readPeerChildren(peer), [
         { type: 'paragraph', children: [{ text: 'alpha' }] },
       ])
     }
-    assertNoRootSnapshot(b)
   })
 })

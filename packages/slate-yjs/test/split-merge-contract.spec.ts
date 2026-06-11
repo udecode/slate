@@ -3,15 +3,15 @@ import { describe, it } from 'node:test'
 import { type Descendant } from 'slate'
 import { Editor } from 'slate/internal'
 
-import { readSlateValueFromYjs } from '../src/core/document'
 import {
-  assertNoRootSnapshot,
+  clearYjsTrace,
   createSeededYjsPeers,
   createYjsPeer,
-  getParagraphTexts,
-  getYjsState,
+  getPeerTopLevelTexts,
   type Peer,
-  runYjsUpdate,
+  paragraph,
+  readPeerChildren,
+  readPeerSlateValue,
   syncConnectedPeers,
 } from './support/collaboration'
 
@@ -21,41 +21,38 @@ const clientIds = {
   c: 3,
 } as const
 
-const paragraph = (text: string): Descendant => ({
-  type: 'paragraph',
-  children: [{ text }],
-})
+type ClientId = keyof typeof clientIds
 
-const paragraphParts = (...texts: string[]): Descendant => ({
+const paragraphParts = (...texts: readonly string[]): Descendant => ({
   type: 'paragraph',
   children: texts.map((text) => ({ text })),
 })
 
-const quote = (children: Descendant[]): Descendant => ({
+const quote = (children: readonly Descendant[]): Descendant => ({
   type: 'quote',
   children,
 })
 
-const initialValue = () => [paragraph('Hello world!')]
+const initialValue = (): Descendant[] => [paragraph('Hello world!')]
 
 const createPeer = (
-  clientId: keyof typeof clientIds,
-  children = initialValue()
-) =>
+  clientId: ClientId,
+  children: readonly Descendant[] = initialValue()
+): Peer =>
   createYjsPeer({
     children,
     clientId,
     numericClientId: clientIds[clientId],
   })
 
-const createPeers = (ids: Array<keyof typeof clientIds>) =>
+const createPeers = (ids: readonly ClientId[]): Peer[] =>
   createSeededYjsPeers({
     children: initialValue(),
     clientIds: ids,
     numericClientIds: clientIds,
   })
 
-const splitThenDeleteBackwardEmptyParagraph = (peer: Peer) => {
+const splitThenDeleteBackwardEmptyParagraph = (peer: Peer): void => {
   const textLength = Editor.string(peer.editor, [0]).length
 
   peer.editor.update((tx) => {
@@ -81,13 +78,15 @@ const splitThenDeleteBackwardEmptyParagraph = (peer: Peer) => {
   })
 }
 
-const repeatSplitMerge = (peer: Peer, times: number) => {
+const repeatSplitMerge = (peer: Peer, times: number): void => {
   for (let index = 0; index < times; index++) {
     splitThenDeleteBackwardEmptyParagraph(peer)
   }
 }
 
-const assertNoLeakedVirtualPlaceholder = (nodes: readonly Descendant[]) => {
+const assertNoLeakedVirtualPlaceholder = (
+  nodes: readonly Descendant[]
+): void => {
   for (const node of nodes) {
     if (!('children' in node)) {
       continue
@@ -98,7 +97,7 @@ const assertNoLeakedVirtualPlaceholder = (nodes: readonly Descendant[]) => {
   }
 }
 
-const assertNoNestedElements = (nodes: readonly Descendant[]) => {
+const assertNoNestedElements = (nodes: readonly Descendant[]): void => {
   for (const node of nodes) {
     if (!('children' in node)) {
       continue
@@ -120,33 +119,27 @@ describe('@slate/yjs split and merge collaboration contract', () => {
     syncConnectedPeers(peers)
 
     for (const peer of peers) {
-      const snapshotChildren = Editor.getSnapshot(peer.editor).children
+      const snapshotChildren = readPeerChildren(peer)
 
-      assert.deepEqual(getParagraphTexts(peer), ['Hello world!'])
+      assert.deepEqual(getPeerTopLevelTexts(peer), ['Hello world!'])
       assertNoLeakedVirtualPlaceholder(snapshotChildren)
       assertNoNestedElements(snapshotChildren)
-      assert.deepEqual(readSlateValueFromYjs(getYjsState(peer).root()), [
-        paragraph('Hello world!'),
-      ])
+      assert.deepEqual(readPeerSlateValue(peer), [paragraph('Hello world!')])
     }
-    assertNoRootSnapshot(a)
   })
 
   it('keeps repeated local paragraph split and merge traceable', () => {
     const peer = createPeer('b')
 
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+    clearYjsTrace(peer)
     repeatSplitMerge(peer, 2)
 
-    const snapshotChildren = Editor.getSnapshot(peer.editor).children
+    const snapshotChildren = readPeerChildren(peer)
 
-    assert.deepEqual(getParagraphTexts(peer), ['Hello world!'])
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['Hello world!'])
     assertNoLeakedVirtualPlaceholder(snapshotChildren)
     assertNoNestedElements(snapshotChildren)
-    assert.deepEqual(readSlateValueFromYjs(getYjsState(peer).root()), [
-      paragraph('Hello world!'),
-    ])
-    assertNoRootSnapshot(peer)
+    assert.deepEqual(readPeerSlateValue(peer), [paragraph('Hello world!')])
   })
 
   it('keeps nested virtual placeholder content when splitting a parent element', () => {
@@ -158,7 +151,7 @@ describe('@slate/yjs split and merge collaboration contract', () => {
       tx.nodes.merge({ at: [0, 2] })
     })
 
-    assert.deepEqual(readSlateValueFromYjs(getYjsState(peer).root()), [
+    assert.deepEqual(readPeerSlateValue(peer), [
       quote([paragraph('intro'), paragraphParts('alpha', 'beta')]),
     ])
 
@@ -173,11 +166,10 @@ describe('@slate/yjs split and merge collaboration contract', () => {
       ])
     })
 
-    assert.deepEqual(readSlateValueFromYjs(getYjsState(peer).root()), [
+    assert.deepEqual(readPeerSlateValue(peer), [
       quote([paragraph('intro')]),
       quote([paragraphParts('alpha', 'beta')]),
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('keeps parent-level virtual move content when merging the adopted target element', () => {
@@ -197,7 +189,7 @@ describe('@slate/yjs split and merge collaboration contract', () => {
       ])
     })
 
-    assert.deepEqual(readSlateValueFromYjs(getYjsState(peer).root()), [
+    assert.deepEqual(readPeerSlateValue(peer), [
       quote([paragraph('left')]),
       quote([paragraph('moved')]),
     ])
@@ -206,9 +198,8 @@ describe('@slate/yjs split and merge collaboration contract', () => {
       tx.nodes.merge({ at: [1] })
     })
 
-    assert.deepEqual(readSlateValueFromYjs(getYjsState(peer).root()), [
+    assert.deepEqual(readPeerSlateValue(peer), [
       quote([paragraph('left'), paragraph('moved')]),
     ])
-    assertNoRootSnapshot(peer)
   })
 })

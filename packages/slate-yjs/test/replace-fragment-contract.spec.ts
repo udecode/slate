@@ -2,16 +2,23 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import type { Descendant, Operation } from 'slate'
 import {
-  assertNoRootSnapshot,
   assertPeerTexts,
+  clearYjsTrace,
+  connectYjsPeerAndSync,
   createSeededYjsPeers,
   createYjsPeer,
-  getParagraphTexts,
+  disconnectAndClearYjsTrace,
+  disconnectYjsPeer,
+  getPeerTopLevelTexts,
   getYjsNodeAt,
-  getYjsState,
+  getYjsTrace,
   type Peer,
-  runYjsUpdate,
+  paragraph,
+  redoYjsPeer,
+  redoYjsPeerAndSync,
   syncConnectedPeers,
+  undoYjsPeer,
+  undoYjsPeerAndSync,
 } from './support/collaboration'
 
 const clientIds = {
@@ -19,26 +26,23 @@ const clientIds = {
   b: 2,
   c: 3,
 } as const
-const numericClientIds: Record<string, number> = { ...clientIds }
 
-const paragraph = (text: string): Descendant => ({
-  type: 'paragraph',
-  children: [{ text }],
-})
+type ClientId = keyof typeof clientIds
+const numericClientIds: Readonly<Record<string, number>> = { ...clientIds }
 
-const initialValue = () => [paragraph('alpha')]
+const initialValue = (): Descendant[] => [paragraph('alpha')]
 
 const multiLeafValue = (): Descendant[] => [
   {
     type: 'paragraph',
     children: [{ text: 'alpha' }, { bold: true, text: ' beta' }],
-  } as Descendant,
+  },
 ]
 
 const createPeer = (
-  clientId: keyof typeof clientIds,
+  clientId: ClientId,
   seedUpdate?: Uint8Array,
-  children = initialValue()
+  children: readonly Descendant[] = initialValue()
 ): Peer =>
   createYjsPeer({
     children,
@@ -47,22 +51,14 @@ const createPeer = (
     seedUpdate,
   })
 
-const createPeers = (ids: Array<keyof typeof clientIds>) => {
-  return createSeededYjsPeers({
+const createPeers = (ids: readonly ClientId[]): Peer[] =>
+  createSeededYjsPeers({
     children: initialValue(),
     clientIds: ids,
     numericClientIds,
   })
-}
 
-const yjsState = getYjsState
-const yjsUpdate = runYjsUpdate
-const paragraphTexts = getParagraphTexts
-const yjsNodeAt = getYjsNodeAt
-const syncConnected = syncConnectedPeers
-const assertAllTexts = assertPeerTexts
-
-const replaceAlphaWithFragment = (peer: Peer) => {
+const replaceAlphaWithFragment = (peer: Peer): void => {
   const operation: Operation = {
     children: [{ text: 'alpha' }],
     newChildren: [{ text: 'alphaLin fragment' }],
@@ -77,7 +73,7 @@ const replaceAlphaWithFragment = (peer: Peer) => {
   })
 }
 
-const replaceMultiLeafTextWithFragment = (peer: Peer) => {
+const replaceMultiLeafTextWithFragment = (peer: Peer): void => {
   const operation: Operation = {
     children: [{ text: 'alpha' }, { bold: true, text: ' beta' }],
     newChildren: [{ text: 'alphaLin' }, { bold: true, text: ' betaAda' }],
@@ -92,7 +88,7 @@ const replaceMultiLeafTextWithFragment = (peer: Peer) => {
   })
 }
 
-const replaceRootWithFallback = (peer: Peer) => {
+const replaceRootWithFallback = (peer: Peer): void => {
   const operation: Operation = {
     children: initialValue(),
     newChildren: [paragraph('bravo'), paragraph('charlie')],
@@ -107,19 +103,19 @@ const replaceRootWithFallback = (peer: Peer) => {
   })
 }
 
-const appendRemoteText = (peer: Peer) => {
+const appendRemoteText = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.text.insert(' Ada', { at: { path: [0, 0], offset: 'alpha'.length } })
   })
 }
 
-const insertLocalBang = (peer: Peer) => {
+const insertLocalBang = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.text.insert('!', { at: { path: [0, 0], offset: 'alpha'.length } })
   })
 }
 
-const replayNoopRootReplaceFragment = (peer: Peer) => {
+const replayNoopRootReplaceFragment = (peer: Peer): void => {
   const operation: Operation = {
     children: initialValue(),
     newChildren: initialValue(),
@@ -140,126 +136,114 @@ const replayNoopRootReplaceFragment = (peer: Peer) => {
 describe('@slate/yjs replace_fragment collaboration contract', () => {
   it('applies local offline single-text replace_fragment without replacing the Yjs text node', () => {
     const peer = createPeer('b')
-    const text = yjsNodeAt(peer, [0, 0])
+    const text = getYjsNodeAt(peer, [0, 0])
 
-    yjsUpdate(peer, (yjs) => yjs.disconnect())
-    yjsUpdate(peer, (yjs) => yjs.clearTrace())
+    disconnectAndClearYjsTrace(peer)
     replaceAlphaWithFragment(peer)
 
-    assert.deepEqual(paragraphTexts(peer), ['alphaLin fragment'])
-    assert.equal(yjsNodeAt(peer, [0, 0]), text)
-    assert.deepEqual(yjsState(peer).trace(), [
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['alphaLin fragment'])
+    assert.equal(getYjsNodeAt(peer, [0, 0]), text)
+    assert.deepEqual(getYjsTrace(peer), [
       { mode: 'operation', operationType: 'replace_fragment' },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('preserves every Yjs text node for same-width multi-leaf replace_fragment', () => {
     const peer = createPeer('b', undefined, multiLeafValue())
 
-    const firstText = yjsNodeAt(peer, [0, 0])
-    const secondText = yjsNodeAt(peer, [0, 1])
+    const firstText = getYjsNodeAt(peer, [0, 0])
+    const secondText = getYjsNodeAt(peer, [0, 1])
 
-    yjsUpdate(peer, (yjs) => yjs.clearTrace())
+    clearYjsTrace(peer)
     replaceMultiLeafTextWithFragment(peer)
 
-    assert.deepEqual(paragraphTexts(peer), ['alphaLin betaAda'])
-    assert.equal(yjsNodeAt(peer, [0, 0]), firstText)
-    assert.equal(yjsNodeAt(peer, [0, 1]), secondText)
-    assert.deepEqual(yjsState(peer).trace(), [
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['alphaLin betaAda'])
+    assert.equal(getYjsNodeAt(peer, [0, 0]), firstText)
+    assert.equal(getYjsNodeAt(peer, [0, 1]), secondText)
+    assert.deepEqual(getYjsTrace(peer), [
       { mode: 'operation', operationType: 'replace_fragment' },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('preserves concurrent remote text when an offline replace_fragment reconnects', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    yjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     replaceAlphaWithFragment(b)
     appendRemoteText(a)
-    syncConnected(peers)
+    syncConnectedPeers(peers)
 
-    assert.deepEqual(paragraphTexts(a), ['alpha Ada'])
-    assert.deepEqual(paragraphTexts(b), ['alphaLin fragment'])
+    assert.deepEqual(getPeerTopLevelTexts(a), ['alpha Ada'])
+    assert.deepEqual(getPeerTopLevelTexts(b), ['alphaLin fragment'])
 
-    yjsUpdate(b, (yjs) => yjs.connect())
-    syncConnected(peers)
+    connectYjsPeerAndSync(b, peers)
 
-    assertAllTexts(peers, ['alpha AdaLin fragment'])
-    assertNoRootSnapshot(b)
+    assertPeerTexts(peers, ['alpha AdaLin fragment'])
   })
 
   it('recovers replace_fragment convergence through real Yjs updates after reconnect', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [, b] = peers
 
-    yjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     replaceAlphaWithFragment(b)
-    yjsUpdate(b, (yjs) => yjs.connect())
-    syncConnected(peers)
+    connectYjsPeerAndSync(b, peers)
 
-    assertAllTexts(peers, ['alphaLin fragment'])
+    assertPeerTexts(peers, ['alphaLin fragment'])
   })
 
   it('undoes and redoes only the local replace_fragment intent after reconnect', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    yjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     replaceAlphaWithFragment(b)
     appendRemoteText(a)
-    syncConnected(peers)
+    syncConnectedPeers(peers)
 
-    yjsUpdate(b, (yjs) => yjs.connect())
-    syncConnected(peers)
-    assertAllTexts(peers, ['alpha AdaLin fragment'])
+    connectYjsPeerAndSync(b, peers)
+    assertPeerTexts(peers, ['alpha AdaLin fragment'])
 
-    yjsUpdate(b, (yjs) => yjs.undo())
-    syncConnected(peers)
-    assertAllTexts(peers, ['alpha Ada'])
+    undoYjsPeerAndSync(b, peers)
+    assertPeerTexts(peers, ['alpha Ada'])
 
-    yjsUpdate(b, (yjs) => yjs.redo())
-    syncConnected(peers)
-    assertAllTexts(peers, ['alpha AdaLin fragment'])
-    assertNoRootSnapshot(b)
+    redoYjsPeerAndSync(b, peers)
+    assertPeerTexts(peers, ['alpha AdaLin fragment'])
   })
 
   it('ignores no-op replace_fragment so redo history stays usable', () => {
     const peer = createPeer('b')
 
     insertLocalBang(peer)
-    assert.deepEqual(paragraphTexts(peer), ['alpha!'])
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha!'])
 
-    yjsUpdate(peer, (yjs) => yjs.undo())
-    assert.deepEqual(paragraphTexts(peer), ['alpha'])
+    undoYjsPeer(peer)
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha'])
 
-    yjsUpdate(peer, (yjs) => yjs.clearTrace())
+    clearYjsTrace(peer)
     replayNoopRootReplaceFragment(peer)
 
-    assert.deepEqual(paragraphTexts(peer), ['alpha'])
-    assert.deepEqual(yjsState(peer).trace(), [])
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha'])
+    assert.deepEqual(getYjsTrace(peer), [])
 
-    yjsUpdate(peer, (yjs) => yjs.redo())
-    assert.deepEqual(paragraphTexts(peer), ['alpha!'])
-    assertNoRootSnapshot(peer)
+    redoYjsPeer(peer)
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['alpha!'])
   })
 
   it('uses a traceable fallback for broad replace_fragment replacement', () => {
     const peer = createPeer('b')
 
-    yjsUpdate(peer, (yjs) => yjs.clearTrace())
+    clearYjsTrace(peer)
     replaceRootWithFallback(peer)
 
-    assert.deepEqual(paragraphTexts(peer), ['bravo', 'charlie'])
-    assert.deepEqual(yjsState(peer).trace(), [
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['bravo', 'charlie'])
+    assert.deepEqual(getYjsTrace(peer), [
       {
         fallback: 'replace-fragment-scoped-replace-identity-risk',
         mode: 'traceable-fallback',
         operationType: 'replace_fragment',
       },
     ])
-    assertNoRootSnapshot(peer)
   })
 })

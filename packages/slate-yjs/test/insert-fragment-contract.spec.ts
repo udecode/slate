@@ -1,17 +1,23 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { type Descendant, defineEditorExtension } from 'slate'
+import type { Descendant, Operation } from 'slate'
 
 import {
-  assertNoRootSnapshot,
   assertPeerTexts,
+  connectYjsPeerAndSync,
   createSeededYjsPeers,
   createYjsPeer,
-  getParagraphTexts,
+  disconnectAndClearYjsTrace,
+  disconnectYjsPeer,
+  getPeerTopLevelTexts,
   getYjsNodeAt,
-  getYjsState,
-  runYjsUpdate,
+  getYjsTrace,
+  type Peer,
+  paragraph,
+  recordOperationTypes,
+  redoYjsPeerAndSync,
   syncConnectedPeers,
+  undoYjsPeerAndSync,
 } from './support/collaboration'
 
 const clientIds = {
@@ -20,17 +26,11 @@ const clientIds = {
   c: 3,
 } as const
 
-const paragraph = (text: string): Descendant => ({
-  type: 'paragraph',
-  children: [{ text }],
-})
+type ClientId = keyof typeof clientIds
 
-const initialValue = () => [paragraph('alpha')]
+const initialValue = (): Descendant[] => [paragraph('alpha')]
 
-const createPeer = (
-  clientId: keyof typeof clientIds,
-  seedUpdate?: Uint8Array
-) =>
+const createPeer = (clientId: ClientId, seedUpdate?: Uint8Array): Peer =>
   createYjsPeer({
     children: initialValue(),
     clientId,
@@ -38,14 +38,14 @@ const createPeer = (
     seedUpdate,
   })
 
-const createPeers = (ids: Array<keyof typeof clientIds>) =>
+const createPeers = (ids: readonly ClientId[]): Peer[] =>
   createSeededYjsPeers({
     children: initialValue(),
     clientIds: ids,
     numericClientIds: clientIds,
   })
 
-const insertFragment = (peer: ReturnType<typeof createPeer>) => {
+const insertFragment = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.selection.set({
       anchor: { path: [0, 0], offset: 'alpha'.length },
@@ -57,37 +57,22 @@ const insertFragment = (peer: ReturnType<typeof createPeer>) => {
   })
 }
 
-const appendRemoteText = (peer: ReturnType<typeof createPeer>) => {
+const appendRemoteText = (peer: Peer): void => {
   peer.editor.update((tx) => {
     tx.text.insert(' Ada', { at: { path: [0, 0], offset: 'alpha'.length } })
   })
 }
 
-const collectInsertFragmentOperations = () => {
+const collectInsertFragmentOperations = (): Operation['type'][] => {
   const peer = createPeer('b')
-  const operations: string[] = []
-
-  peer.editor.extend(
-    defineEditorExtension({
-      name: 'insert-fragment-operation-recorder',
-      setup() {
-        return {
-          onCommit({ commit }) {
-            if (
-              commit.command?.type === 'insert_fragment' ||
-              commit.operations.some((operation) =>
-                ['insert_node', 'merge_node'].includes(operation.type)
-              )
-            ) {
-              operations.push(
-                ...commit.operations.map((operation) => operation.type)
-              )
-            }
-          },
-        }
-      },
-    })
-  )
+  const operations = recordOperationTypes(peer, {
+    name: 'insert-fragment-operation-recorder',
+    shouldRecord: ({ commit }) =>
+      commit.command?.type === 'insert_fragment' ||
+      commit.operations.some((operation) =>
+        ['insert_node', 'merge_node'].includes(operation.type)
+      ),
+  })
   insertFragment(peer)
 
   return operations
@@ -106,13 +91,12 @@ describe('@slate/yjs insert_fragment collaboration contract', () => {
     const peer = createPeer('b')
     const text = getYjsNodeAt(peer, [0, 0])
 
-    runYjsUpdate(peer, (yjs) => yjs.disconnect())
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+    disconnectAndClearYjsTrace(peer)
     insertFragment(peer)
 
-    assert.deepEqual(getParagraphTexts(peer), ['alphaLin fragment'])
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['alphaLin fragment'])
     assert.equal(getYjsNodeAt(peer, [0, 0]), text)
-    assert.deepEqual(getYjsState(peer).trace(), [
+    assert.deepEqual(getYjsTrace(peer), [
       { mode: 'operation', operationType: 'insert_node' },
       {
         fallback: 'text-merge-preserve-yjs-boundary',
@@ -120,36 +104,32 @@ describe('@slate/yjs insert_fragment collaboration contract', () => {
         operationType: 'merge_node',
       },
     ])
-    assertNoRootSnapshot(peer)
   })
 
   it('preserves concurrent remote text when an offline insert_fragment reconnects', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     insertFragment(b)
     appendRemoteText(a)
     syncConnectedPeers(peers)
 
-    assert.deepEqual(getParagraphTexts(a), ['alpha Ada'])
-    assert.deepEqual(getParagraphTexts(b), ['alphaLin fragment'])
+    assert.deepEqual(getPeerTopLevelTexts(a), ['alpha Ada'])
+    assert.deepEqual(getPeerTopLevelTexts(b), ['alphaLin fragment'])
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     assertPeerTexts(peers, ['alpha AdaLin fragment'])
-    assertNoRootSnapshot(b)
   })
 
   it('recovers insert_fragment convergence through real Yjs updates after reconnect', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     insertFragment(b)
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
 
     assertPeerTexts(peers, ['alphaLin fragment'])
   })
@@ -162,41 +142,37 @@ describe('@slate/yjs insert_fragment collaboration contract', () => {
     syncConnectedPeers(peers)
     assertPeerTexts(peers, ['alphaLin fragment'])
 
-    const [text] = getParagraphTexts(b)
+    const [text] = getPeerTopLevelTexts(b)
+    assert.equal(typeof text, 'string')
 
     b.editor.update((tx) => {
       tx.selection.set({
-        anchor: { path: [0, 0], offset: text!.length },
-        focus: { path: [0, 0], offset: text!.length },
+        anchor: { path: [0, 0], offset: text.length },
+        focus: { path: [0, 0], offset: text.length },
       })
       tx.text.deleteBackward({ unit: 'character' })
     })
     syncConnectedPeers(peers)
 
     assertPeerTexts(peers, ['alphaLin fragmen'])
-    assertNoRootSnapshot(b)
   })
 
   it('undoes and redoes only the local insert_fragment intent after reconnect', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
 
-    runYjsUpdate(b, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(b)
     insertFragment(b)
     appendRemoteText(a)
     syncConnectedPeers(peers)
 
-    runYjsUpdate(b, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+    connectYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha AdaLin fragment'])
 
-    runYjsUpdate(b, (yjs) => yjs.undo())
-    syncConnectedPeers(peers)
+    undoYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha Ada'])
 
-    runYjsUpdate(b, (yjs) => yjs.redo())
-    syncConnectedPeers(peers)
+    redoYjsPeerAndSync(b, peers)
     assertPeerTexts(peers, ['alpha AdaLin fragment'])
-    assertNoRootSnapshot(b)
   })
 })

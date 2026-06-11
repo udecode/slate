@@ -1,8 +1,11 @@
 import type { Range } from 'slate'
 import * as Y from 'yjs'
 
+import { isRecord } from './record'
 import {
   slateRangeToYjsRelativeRange,
+  type YjsRelativeRange,
+  yjsRelativeRangesEqual,
   yjsRelativeRangeToSlateRange,
 } from './selection'
 import type { YjsAwarenessSelection } from './types'
@@ -28,10 +31,10 @@ export const readYjsAwarenessSelection = (
   }
 
   try {
-    return yjsRelativeRangeToSlateRange(root, {
-      anchor: Y.createRelativePositionFromJSON(value.anchor),
-      focus: Y.createRelativePositionFromJSON(value.focus),
-    })
+    return yjsRelativeRangeToSlateRange(
+      root,
+      readYjsAwarenessRelativeRange(value)
+    )
   } catch {
     return null
   }
@@ -40,7 +43,7 @@ export const readYjsAwarenessSelection = (
 export const yjsAwarenessSelectionsEqual = (
   a: unknown,
   b: YjsAwarenessSelection | null
-) => {
+): boolean => {
   if (a === b) {
     return true
   }
@@ -52,25 +55,23 @@ export const yjsAwarenessSelectionsEqual = (
   }
 
   try {
-    return (
-      Y.compareRelativePositions(
-        Y.createRelativePositionFromJSON(a.anchor),
-        Y.createRelativePositionFromJSON(b.anchor)
-      ) &&
-      Y.compareRelativePositions(
-        Y.createRelativePositionFromJSON(a.focus),
-        Y.createRelativePositionFromJSON(b.focus)
-      )
-    )
+    const left = readYjsAwarenessRelativeRange(a)
+    const right = readYjsAwarenessRelativeRange(b)
+
+    return yjsRelativeRangesEqual(left, right)
   } catch {
     return false
   }
 }
 
+const readYjsAwarenessRelativeRange = (
+  value: YjsAwarenessSelection
+): YjsRelativeRange => ({
+  anchor: Y.createRelativePositionFromJSON(value.anchor),
+  focus: Y.createRelativePositionFromJSON(value.focus),
+})
+
 const isYjsAwarenessSelection = (
   value: unknown
 ): value is YjsAwarenessSelection =>
-  typeof value === 'object' &&
-  value !== null &&
-  'anchor' in value &&
-  'focus' in value
+  isRecord(value) && 'anchor' in value && 'focus' in value

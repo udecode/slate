@@ -1,22 +1,29 @@
 import type * as Y from 'yjs'
 
+import { isRecord } from './record'
+
 export const SUPPORTED_YJS_UNDO_MANAGER_VERSION = '13.6.30'
 
 export type YjsUndoManagerStackItem = {
-  meta: Map<unknown, unknown>
+  readonly meta: Map<unknown, unknown>
 }
 
-type YjsUndoManagerWithStacks = Y.UndoManager & {
-  redoStack: YjsUndoManagerStackItem[]
-  undoStack: YjsUndoManagerStackItem[]
+export type YjsUndoManagerAdapter = {
+  readonly moveRedoToUndo: (item: YjsUndoManagerStackItem) => void
+  readonly moveUndoToRedo: (item: YjsUndoManagerStackItem) => void
+  readonly peekRedo: () => YjsUndoManagerStackItem | null
+  readonly peekUndo: () => YjsUndoManagerStackItem | null
+  readonly redoDepth: () => number
+  readonly storeUndoMeta: (key: unknown, value: unknown) => void
 }
 
 const isStackItem = (value: unknown): value is YjsUndoManagerStackItem =>
-  typeof value === 'object' &&
-  value !== null &&
-  (value as YjsUndoManagerStackItem).meta instanceof Map
+  isRecord(value) && value.meta instanceof Map
 
-const assertStack = (value: unknown, name: string) => {
+const assertStack = (
+  value: unknown,
+  name: string
+): YjsUndoManagerStackItem[] => {
   if (!Array.isArray(value) || value.some((item) => !isStackItem(item))) {
     throw new Error(
       `Unsupported Yjs UndoManager ${name} contract. @slate/yjs pins yjs@${SUPPORTED_YJS_UNDO_MANAGER_VERSION}.`
@@ -26,30 +33,50 @@ const assertStack = (value: unknown, name: string) => {
   return value
 }
 
-export const createYjsUndoManagerAdapter = (undoManager: Y.UndoManager) => {
-  const manager = undoManager as YjsUndoManagerWithStacks
-  const undo = () => assertStack(manager.undoStack, 'undo')
-  const redo = () => assertStack(manager.redoStack, 'redo')
+const readUndoManagerStack = (
+  undoManager: Y.UndoManager,
+  name: 'redo' | 'undo'
+): YjsUndoManagerStackItem[] => {
+  const stack = isRecord(undoManager)
+    ? name === 'undo'
+      ? undoManager.undoStack
+      : undoManager.redoStack
+    : undefined
+
+  return assertStack(stack, name)
+}
+
+const popExpectedStackItem = (
+  stack: YjsUndoManagerStackItem[],
+  item: YjsUndoManagerStackItem,
+  message: string
+): void => {
+  const popped = stack.pop()
+
+  if (popped !== item) {
+    throw new Error(message)
+  }
+}
+
+export const createYjsUndoManagerAdapter = (
+  undoManager: Y.UndoManager
+): YjsUndoManagerAdapter => {
+  const undo = (): YjsUndoManagerStackItem[] =>
+    readUndoManagerStack(undoManager, 'undo')
+  const redo = (): YjsUndoManagerStackItem[] =>
+    readUndoManagerStack(undoManager, 'redo')
 
   return {
     moveRedoToUndo(item: YjsUndoManagerStackItem) {
       const stack = redo()
-      const popped = stack.pop()
 
-      if (popped !== item) {
-        throw new Error('Cannot move a non-top redo item.')
-      }
-
+      popExpectedStackItem(stack, item, 'Cannot move a non-top redo item.')
       undo().push(item)
     },
     moveUndoToRedo(item: YjsUndoManagerStackItem) {
       const stack = undo()
-      const popped = stack.pop()
 
-      if (popped !== item) {
-        throw new Error('Cannot move a non-top undo item.')
-      }
-
+      popExpectedStackItem(stack, item, 'Cannot move a non-top undo item.')
       redo().push(item)
     },
     peekRedo() {

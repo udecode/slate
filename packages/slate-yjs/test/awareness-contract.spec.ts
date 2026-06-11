@@ -3,29 +3,40 @@ import { describe, it } from 'node:test'
 import type { Descendant, Range } from 'slate'
 
 import {
+  clearYjsTrace,
+  connectYjsPeer,
   createYjsPeer,
+  disconnectYjsPeer,
   FakeAwareness,
-  getYjsState,
+  getYjsAwarenessRevision,
+  getYjsRemoteCursors,
+  getYjsTrace,
+  type Peer,
+  paragraph,
   runYjsUpdate,
+  subscribeYjsAwareness,
 } from './support/collaboration'
 
-const paragraph = (text: string): Descendant => ({
-  type: 'paragraph',
-  children: [{ text }],
-})
+type AwarePeer = {
+  readonly awareness: FakeAwareness
+  readonly peer: Peer
+}
 
-const initialValue = () => [
+const initialValue = (): Descendant[] => [
   paragraph('alpha'),
   paragraph('beta'),
   paragraph('gamma'),
 ]
 
-const selection = (path = [0, 0], offset = 2): Range => ({
+const selection = (
+  path: Range['anchor']['path'] = [0, 0],
+  offset = 2
+): Range => ({
   anchor: { path, offset },
   focus: { path, offset },
 })
 
-const createAwarePeer = () => {
+const createAwarePeer = (): AwarePeer => {
   const awareness = new FakeAwareness(2)
   const peer = createYjsPeer({
     awareness,
@@ -38,11 +49,11 @@ const createAwarePeer = () => {
 }
 
 const sendRemoteSelection = (
-  peer: ReturnType<typeof createAwarePeer>['peer'],
+  peer: Peer,
   awareness: FakeAwareness,
   range: Range,
   clientId = 101
-) => {
+): void => {
   runYjsUpdate(peer, (yjs) => {
     yjs.sendSelection(range)
     awareness.setRemoteState(clientId, {
@@ -63,8 +74,8 @@ describe('@slate/yjs awareness contract', () => {
     })
 
     assert.deepEqual(awareness.getLocalState()?.data, { name: 'B' })
-    assert.deepEqual(getYjsState(peer).trace(), [])
-    assert.deepEqual(getYjsState(peer).remoteCursors(), [])
+    assert.deepEqual(getYjsTrace(peer), [])
+    assert.deepEqual(getYjsRemoteCursors(peer), [])
   })
 
   it('projects remote awareness selections to Slate ranges', () => {
@@ -73,7 +84,7 @@ describe('@slate/yjs awareness contract', () => {
 
     sendRemoteSelection(peer, awareness, range)
 
-    assert.deepEqual(getYjsState(peer).remoteCursors(), [
+    assert.deepEqual(getYjsRemoteCursors(peer), [
       {
         clientId: 101,
         data: { name: 'Ada' },
@@ -82,11 +93,33 @@ describe('@slate/yjs awareness contract', () => {
     ])
   })
 
+  it('ignores non-record remote cursor data', () => {
+    const { awareness, peer } = createAwarePeer()
+    const range = selection([1, 0], 3)
+
+    runYjsUpdate(peer, (yjs) => {
+      yjs.sendSelection(range)
+      awareness.setRemoteState(101, {
+        data: null,
+        selection: awareness.getLocalState()?.selection,
+      })
+      awareness.setRemoteState(102, {
+        data: ['Ada'],
+        selection: awareness.getLocalState()?.selection,
+      })
+    })
+
+    assert.deepEqual(getYjsRemoteCursors(peer), [
+      { clientId: 101, selection: range },
+      { clientId: 102, selection: range },
+    ])
+  })
+
   it('auto-publishes local selection commits without document operations', () => {
     const { awareness, peer } = createAwarePeer()
     const range = selection([0, 0], 1)
 
-    runYjsUpdate(peer, (yjs) => yjs.clearTrace())
+    clearYjsTrace(peer)
     peer.editor.update((tx) => {
       tx.selection.set(range)
     })
@@ -94,36 +127,36 @@ describe('@slate/yjs awareness contract', () => {
       selection: awareness.getLocalState()?.selection,
     })
 
-    assert.deepEqual(getYjsState(peer).trace(), [])
-    assert.deepEqual(getYjsState(peer).remoteCursors()[0]?.selection, range)
+    assert.deepEqual(getYjsTrace(peer), [])
+    assert.deepEqual(getYjsRemoteCursors(peer)[0]?.selection, range)
   })
 
   it('does not expose remote cursors while disconnected', () => {
     const { awareness, peer } = createAwarePeer()
 
     sendRemoteSelection(peer, awareness, selection())
-    runYjsUpdate(peer, (yjs) => yjs.disconnect())
+    disconnectYjsPeer(peer)
 
-    assert.deepEqual(getYjsState(peer).remoteCursors(), [])
+    assert.deepEqual(getYjsRemoteCursors(peer), [])
 
-    runYjsUpdate(peer, (yjs) => yjs.connect())
+    connectYjsPeer(peer)
 
-    assert.equal(getYjsState(peer).remoteCursors().length, 1)
+    assert.equal(getYjsRemoteCursors(peer).length, 1)
   })
 
   it('increments awareness revision on remote changes', () => {
     const { awareness, peer } = createAwarePeer()
-    const before = getYjsState(peer).awarenessRevision()
+    const before = getYjsAwarenessRevision(peer)
 
     sendRemoteSelection(peer, awareness, selection())
 
-    assert.equal(getYjsState(peer).awarenessRevision() > before, true)
+    assert.equal(getYjsAwarenessRevision(peer) > before, true)
   })
 
   it('notifies awareness subscribers on remote changes', () => {
     const { awareness, peer } = createAwarePeer()
     let notifications = 0
-    const unsubscribe = getYjsState(peer).subscribeAwareness(() => {
+    const unsubscribe = subscribeYjsAwareness(peer, () => {
       notifications += 1
     })
 
@@ -143,7 +176,7 @@ describe('@slate/yjs awareness contract', () => {
       tx.nodes.move({ at: [0], to: [2] })
     })
 
-    assert.deepEqual(getYjsState(peer).remoteCursors()[0]?.selection, {
+    assert.deepEqual(getYjsRemoteCursors(peer)[0]?.selection, {
       anchor: { path: [2, 0], offset: 2 },
       focus: { path: [2, 0], offset: 2 },
     })

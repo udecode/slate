@@ -4,26 +4,30 @@ import * as Y from 'yjs'
 import { getYjsLength, getYjsNode, getYjsVisiblePath } from './document'
 
 export type YjsRelativeRange = {
-  anchor: Y.RelativePosition
-  focus: Y.RelativePosition
+  readonly anchor: Y.RelativePosition
+  readonly focus: Y.RelativePosition
 }
+
+const clampTextOffset = (offset: number, length: number): number =>
+  Math.max(0, Math.min(offset, length))
 
 export const slatePointToYjsRelativePosition = (
   root: Y.XmlElement,
   point: Point
-) => {
+): Y.RelativePosition => {
   const target = getYjsNode(root, point.path)
 
   if (!(target instanceof Y.XmlText)) {
     throw new Error('Slate point does not target a Y.XmlText.')
   }
 
-  const offset = Math.max(0, Math.min(point.offset, getYjsLength(target)))
+  const length = getYjsLength(target)
+  const offset = clampTextOffset(point.offset, length)
 
   return Y.createRelativePositionFromTypeIndex(
     target,
     offset,
-    offset === getYjsLength(target) ? -1 : 0
+    offset === length ? -1 : 0
   )
 }
 
@@ -31,7 +35,7 @@ export const yjsRelativePositionToSlatePoint = (
   root: Y.XmlElement,
   position: Y.RelativePosition
 ): Point | null => {
-  if (!root.doc) {
+  if (root.doc === null) {
     throw new Error('Yjs root must be attached to a Y.Doc.')
   }
 
@@ -40,19 +44,19 @@ export const yjsRelativePositionToSlatePoint = (
     root.doc
   )
 
-  if (!absolute || !(absolute.type instanceof Y.XmlText)) {
+  if (absolute === null || !(absolute.type instanceof Y.XmlText)) {
     return null
   }
 
   const path = getYjsVisiblePath(root, absolute.type)
 
-  if (!path) {
+  if (path === null) {
     return null
   }
 
   return {
     path,
-    offset: Math.max(0, Math.min(absolute.index, getYjsLength(absolute.type))),
+    offset: clampTextOffset(absolute.index, getYjsLength(absolute.type)),
   }
 }
 
@@ -64,6 +68,13 @@ export const slateRangeToYjsRelativeRange = (
   focus: slatePointToYjsRelativePosition(root, range.focus),
 })
 
+export const yjsRelativeRangesEqual = (
+  a: YjsRelativeRange,
+  b: YjsRelativeRange
+): boolean =>
+  Y.compareRelativePositions(a.anchor, b.anchor) &&
+  Y.compareRelativePositions(a.focus, b.focus)
+
 export const yjsRelativeRangeToSlateRange = (
   root: Y.XmlElement,
   range: YjsRelativeRange
@@ -71,7 +82,7 @@ export const yjsRelativeRangeToSlateRange = (
   const anchor = yjsRelativePositionToSlatePoint(root, range.anchor)
   const focus = yjsRelativePositionToSlatePoint(root, range.focus)
 
-  if (!anchor || !focus) {
+  if (anchor === null || focus === null) {
     return null
   }
 
