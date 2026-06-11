@@ -431,8 +431,8 @@ const PerformanceControls = ({
     if (!SUPPORTS_LOAF_TIMING) return
 
     let afterOperation = false
-    const unsubscribe = editor.subscribe((_snapshot, change) => {
-      if (change?.operations.length) {
+    const unsubscribe = editor.subscribeCommit((change) => {
+      if (change.operations.length) {
         afterOperation = true
       }
     })

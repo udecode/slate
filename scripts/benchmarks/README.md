@@ -1,6 +1,6 @@
 # Slate Benchmarks
 
-This is the canonical benchmark home for `/Users/zbeyens/git/slate-v2`.
+This is the canonical benchmark home for `/Users/zbeyens/git/plate-2/.tmp/slate-v2`.
 
 If you add a benchmark and it does not live here, you are making the repo
 worse.
@@ -84,7 +84,7 @@ The folder already tells you it is a benchmark.
 
 ## Command Rules
 
-Public command names in `/Users/zbeyens/git/slate-v2/package.json` stay stable.
+Public command names in `/Users/zbeyens/git/plate-2/.tmp/slate-v2/package.json` stay stable.
 
 That means:
 
@@ -98,8 +98,8 @@ This folder is the implementation.
 
 Use the helpers in `shared/` instead of re-copying boilerplate:
 
-- [shared/stats.mjs](/Users/zbeyens/git/slate-v2/scripts/benchmarks/shared/stats.mjs)
-- [shared/repo-compare.mjs](/Users/zbeyens/git/slate-v2/scripts/benchmarks/shared/repo-compare.mjs)
+- [shared/stats.mjs](/Users/zbeyens/git/plate-2/.tmp/slate-v2/scripts/benchmarks/shared/stats.mjs)
+- [shared/repo-compare.mjs](/Users/zbeyens/git/plate-2/.tmp/slate-v2/scripts/benchmarks/shared/repo-compare.mjs)
 
 If a new lane needs the same setup a second time, extract it.
 Do not copy another private helper block and call it “temporary”.
@@ -133,7 +133,7 @@ The artifact name should stay stable unless the lane meaning changes.
 
 ## How To Run
 
-From `/Users/zbeyens/git/slate-v2`:
+From `/Users/zbeyens/git/plate-2/.tmp/slate-v2`:
 
 ```bash
 bun run bench:slate:6038:local

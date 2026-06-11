@@ -1801,8 +1801,25 @@ export const useRootInteractionController = ({
       }
 
       if (pendingAction.type === 'ignore') {
-        if (!disabled && hasExpandedDOMSelectionInTarget(event.currentTarget)) {
+        const target = resolveRootInteractionTarget({
+          currentTarget: event.currentTarget,
+          target: event.target,
+        })
+        const nativeEditableTextTarget =
+          target.kind === 'native-editable' &&
+          !!target.target.closest(NATIVE_EDITABLE_TEXT_TARGET)
+
+        if (
+          !disabled &&
+          (nativeEditableTextTarget ||
+            hasExpandedDOMSelectionInTarget(event.currentTarget))
+        ) {
           selectionBridge?.importDOMSelection()
+          if (nativeEditableTextTarget) {
+            scheduleSlateReactFocus(() => {
+              selectionBridge?.importDOMSelection()
+            })
+          }
         }
 
         return

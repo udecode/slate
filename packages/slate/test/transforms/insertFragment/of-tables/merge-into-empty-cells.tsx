@@ -33,7 +33,8 @@ export const input = (
     </block>
   </editor>
 )
-// TODO: paste "2" into second cell instead of creating new one?
+// Deferred table-merge policy: decide whether the second source cell merges
+// into the empty second target cell or remains a new sibling cell.
 export const output = (
   <editor>
     <block>

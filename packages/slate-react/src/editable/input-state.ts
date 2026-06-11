@@ -1,4 +1,5 @@
 import type { RefObject } from 'react'
+import type { Range } from 'slate'
 import type { DOMElement } from 'slate-dom'
 
 export type InputIntent =
@@ -62,6 +63,8 @@ export type EditableSelectionSourceTransition = {
 
 export type EditableInputControllerState = {
   activeIntent: InputIntent | null
+  draggedBlock: boolean
+  draggedRange: Range | null
   isComposing: boolean
   isDraggingInternally: boolean
   isUpdatingSelection: boolean
@@ -92,6 +95,8 @@ export type EditableInputController = {
 export const createEditableInputControllerState =
   (): EditableInputControllerState => ({
     activeIntent: null,
+    draggedBlock: false,
+    draggedRange: null,
     isComposing: false,
     isDraggingInternally: false,
     isUpdatingSelection: false,

@@ -288,12 +288,7 @@ test.describe('comment mode example', () => {
 
   test('keeps comment sidebar, inline review slices, and widget panel in sync', async ({
     page,
-  }, testInfo) => {
-    test.skip(
-      testInfo.project.name !== 'chromium',
-      'This exact-range workflow uses programmatic selection; pointer selection is covered cross-browser above'
-    )
-
+  }) => {
     await openExample(page, 'comment-mode', {
       ready: {
         editor: 'visible',

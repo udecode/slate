@@ -1263,9 +1263,14 @@ export const applyEditableDOMSelectionChange = ({
     selectionChangeOrigin === 'programmatic-export' &&
     currentSelection &&
     DOMCoverage.getBoundariesForRange(editor, currentSelection).length > 0
+  const modelSelectionIsFullDocument =
+    selectionChangeOrigin === 'programmatic-export' &&
+    currentSelection &&
+    isFullDocumentSelection(editor, currentSelection)
   const shouldImportChangedExpandedSelection =
     domSelectionBelongsToEditor &&
     !modelSelectionHasDOMCoverage &&
+    !modelSelectionIsFullDocument &&
     !(
       state.isUpdatingSelection &&
       selectionChangeOrigin === 'programmatic-export'

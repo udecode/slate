@@ -32,7 +32,8 @@ export const input = (
     </block>
   </editor>
 )
-// TODO: paste "Existing 2" before / after "New 2" in second cell?
+// Deferred table-merge policy: decide whether the second source cell merges
+// into the existing second target cell or remains a new sibling cell.
 export const output = (
   <editor>
     <block>

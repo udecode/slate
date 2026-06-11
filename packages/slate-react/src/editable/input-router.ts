@@ -387,6 +387,8 @@ export type HandleEditableKeyboard = (
 ) => void
 
 export type EditableDragLifecycleState = {
+  draggedBlock: boolean
+  draggedRange: Range | null
   isDraggingInternally: boolean
 }
 
@@ -789,6 +791,8 @@ export const attachEditableGlobalDragLifecycleListeners = ({
   // initiates an operation that causes the originally dragged element to
   // unmount, that element will not emit a dragend event. (2024/06/21)
   const stoppedDragging = () => {
+    state.draggedBlock = false
+    state.draggedRange = null
     state.isDraggingInternally = false
   }
   targetDocument.addEventListener('dragend', stoppedDragging)

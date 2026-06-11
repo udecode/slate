@@ -140,7 +140,7 @@ bun lint
 
 To run integrations with [Playwright](https://playwright.dev/), either:
 
-- run `bun dev` and then `bun playwright` in a separate session
+- run `bun dev` and then `bun run playwright` in a separate session
 - or run `bun test:integration-local`
 
 The local integration command manages its own exported-site server, so it does

@@ -41,8 +41,8 @@ export const input = (
     </block>
   </editor>
 )
-// TODO: surely this is the wrong behavior.
-// ideally, paragraph with "2" goes into second cell
+// Deferred table-merge policy: decide whether the nested paragraph with "2"
+// merges into the second target cell or remains nested in the first.
 export const output = (
   <editor>
     <block>

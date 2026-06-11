@@ -1,5 +1,6 @@
 import { expect, type Page, test } from '@playwright/test'
 import {
+  attachPageScreenshot,
   openExample,
   type SlateBrowserEditorHarness,
 } from 'slate-browser/playwright'
@@ -641,12 +642,7 @@ test.describe('huge document example', () => {
 
   test('keeps seeded content deterministic when block count grows', async ({
     page,
-  }, testInfo) => {
-    test.skip(
-      testInfo.project.name !== 'chromium',
-      'Seeded generation is browser-independent'
-    )
-
+  }) => {
     const blockIndex = 100
     const seed = 'growth-cache-contract'
     const editor = await openSmallHugeDocument(page, {
@@ -871,6 +867,7 @@ test.describe('huge document example', () => {
       expect(
         afterDownNative.textLength > 0 || afterDownViewSelection.markerCount > 0
       ).toBe(true)
+      await editor.assert.noDoubleSelectionHighlight()
 
       upMs.push(await pressKeyboardWithTiming(page, 'Shift+ArrowUp', 600))
 
@@ -935,6 +932,7 @@ test.describe('huge document example', () => {
         path: [4, 0],
       })
       expect(up.hasVisibleSelection).toBe(true)
+      await editor.assert.noDoubleSelectionHighlight()
 
       await selectTextBlockOffsetDOM(editor, 0, 12)
       await page.keyboard.press('Shift+ArrowDown')
@@ -950,6 +948,7 @@ test.describe('huge document example', () => {
         path: [0, 0],
       })
       expect(down.hasVisibleSelection).toBe(true)
+      await editor.assert.noDoubleSelectionHighlight()
 
       proofs.push({ down, strategy, up })
     }
@@ -1043,6 +1042,12 @@ test.describe('huge document example', () => {
     )
     expect(afterDownViewSelection.textLength).toBeGreaterThan(100)
     expect(afterDownNative.textLength).toBe(0)
+    await editor.assert.noDoubleSelectionHighlight()
+    await attachPageScreenshot(
+      page,
+      testInfo,
+      'staged-repeated-shift-down-projected-selection.png'
+    )
 
     await page.keyboard.down('Shift')
     try {
@@ -1063,6 +1068,12 @@ test.describe('huge document example', () => {
     expect(afterUpViewSelection.active).toBe(true)
     expect(afterUpViewSelection.markerCount).toBeLessThan(
       afterDownViewSelection.markerCount
+    )
+    await editor.assert.noDoubleSelectionHighlight()
+    await attachPageScreenshot(
+      page,
+      testInfo,
+      'staged-repeated-shift-up-projected-selection.png'
     )
 
     await testInfo.attach('staged-repeated-vertical-selection-10k-proof', {
@@ -1134,6 +1145,10 @@ test.describe('huge document example', () => {
         }
       } finally {
         await page.keyboard.up('Shift')
+      }
+
+      if (strategy === 'staged') {
+        await editor.assert.noDoubleSelectionHighlight()
       }
 
       return steps
@@ -1698,6 +1713,7 @@ test.describe('huge document example', () => {
     expect(afterSelectAllView.active).toBe(true)
     expect(afterSelectAllView.markerCount).toBeGreaterThan(0)
     expect(afterSelectAllCounts.mountedTopLevelCount).toBeLessThan(140)
+    await editor.assert.noDoubleSelectionHighlight()
 
     const deleteMs = await pressKeyboardWithTiming(page, 'Delete', 5000)
 
@@ -2151,6 +2167,12 @@ test.describe('huge document example', () => {
           afterDownSelection!.focus.path.join(',')
         )
         expect(afterDownNative.textLength).toBe(0)
+        await editor.assert.noDoubleSelectionHighlight()
+        await attachPageScreenshot(
+          page,
+          testInfo,
+          `${strategy}-repeated-shift-down-projected-selection.png`
+        )
 
         for (let index = 0; index < 12; index += 1) {
           await resetHugeDocumentKeyboardProfiler(editor)

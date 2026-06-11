@@ -223,6 +223,53 @@ describe('scenario helpers', () => {
     }
   })
 
+  test('builds slate-browser before public-export Playwright integration', () => {
+    const packageJsonPath = fileURLToPath(
+      new URL('../../../../package.json', import.meta.url)
+    )
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const scripts = packageJson.scripts
+
+    expect(scripts.playwright).toContain('bun --filter slate-browser build')
+    expect(scripts['test:integration']).toContain('bun run playwright')
+    expect(scripts['test:integration-local']).toContain('bun run playwright')
+    expect(scripts['test:stress']).toContain('bun --filter slate-browser build')
+    expect(scripts['test:stress']).toContain('playwright test')
+    expect(scripts['test:stress:replay']).toContain(
+      'bun --filter slate-browser build'
+    )
+    expect(scripts['test:stress:replay']).toContain('playwright test')
+  })
+
+  test('keeps generic HTML assertion exact instead of substring-only', () => {
+    const sourcePath = fileURLToPath(
+      new URL('../../src/playwright/index.ts', import.meta.url)
+    )
+    const source = readFileSync(sourcePath, 'utf8')
+
+    expect(source).toContain('html: async (')
+    expect(source).toContain('expectedHtml: string')
+    expect(source).toContain('await harness.assert.htmlEquals(expectedHtml')
+    expect(source).toContain('htmlContains: async (expectedFragment: string)')
+  })
+
+  test('exposes blur-caret proof as a first-party Playwright assertion', () => {
+    const sourcePath = fileURLToPath(
+      new URL('../../src/playwright/index.ts', import.meta.url)
+    )
+    const readmePath = fileURLToPath(
+      new URL('../../README.md', import.meta.url)
+    )
+    const source = readFileSync(sourcePath, 'utf8')
+    const readme = readFileSync(readmePath, 'utf8')
+
+    expect(source).toContain('noVisibleCaretInRoot: () => Promise<void>')
+    expect(source).toContain('await assertNoVisibleCaretInRoot(root)')
+    expect(readme).toContain('editor.assert.noVisibleCaretInRoot()')
+  })
+
   test('summarizes reduction candidates without serializing step functions', () => {
     const steps: SlateBrowserScenarioStep[] = [
       {

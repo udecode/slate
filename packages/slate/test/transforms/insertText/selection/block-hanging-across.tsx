@@ -24,8 +24,7 @@ export const output = (
   <editor>
     <block>
       a<cursor />
-      three
     </block>
+    <block>three</block>
   </editor>
 )
-export const skip = true

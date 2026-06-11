@@ -6,6 +6,7 @@ import {
 } from 'react'
 import {
   NodeApi,
+  type Path,
   PathApi,
   type Point,
   type Range,
@@ -527,6 +528,69 @@ const preferModelSelectionForVoidTarget = ({
   return true
 }
 
+export const selectEditableVoidPath = ({
+  editor,
+  inputController,
+  path,
+}: {
+  editor: ReactRuntimeEditor
+  inputController: EditableInputController
+  path: Path
+}) => {
+  if (!Editor.hasPath(editor, path)) {
+    return null
+  }
+
+  const [node] = editor.read((state) => state.nodes.get(path))
+
+  if (!NodeApi.isElement(node) || !Editor.isVoid(editor, node)) {
+    return null
+  }
+
+  setEditableModelSelectionPreference({
+    inputController,
+    preferModelSelection: true,
+    reason: 'programmatic-export',
+    selectionSource: 'model-owned',
+  })
+  inputController.state.selectionChangeOrigin = 'programmatic-export'
+
+  const start = Editor.point(editor, path, { edge: 'start' })
+  const range = Editor.range(editor, start)
+
+  ReactEditor.focus(editor)
+  writeSlateViewSelection(editor, null)
+  editor.update((tx) => {
+    tx.selection.set(range)
+  })
+
+  return path
+}
+
+export const selectEditableVoidTarget = ({
+  editor,
+  inputController,
+  target,
+}: {
+  editor: ReactRuntimeEditor
+  inputController: EditableInputController
+  target: EventTarget | null
+}) => {
+  const voidTarget = isDOMNode(target)
+    ? resolveEditableVoidClickTarget(editor, target)
+    : null
+
+  if (voidTarget) {
+    return selectEditableVoidPath({
+      editor,
+      inputController,
+      path: voidTarget.path,
+    })
+  }
+
+  return null
+}
+
 export const applyEditableClick = ({
   editor,
   event,
@@ -554,9 +618,6 @@ export const applyEditableClick = ({
     return
   }
 
-  const voidTarget = isDOMNode(event.target)
-    ? resolveEditableVoidClickTarget(editor, event.target)
-    : null
   const voidTargetOwnsSelection = preferModelSelectionForVoidTarget({
     editor,
     inputController,
@@ -573,7 +634,9 @@ export const applyEditableClick = ({
 
   if (!isReactEventHandled({ event, handler: onClick })) {
     const target =
-      voidTarget ?? resolveEditableClickTarget(editor, event.target)
+      (isDOMNode(event.target)
+        ? resolveEditableVoidClickTarget(editor, event.target)
+        : null) ?? resolveEditableClickTarget(editor, event.target)
 
     if (!target) {
       return
@@ -665,30 +728,18 @@ export const applyEditableMouseDown = ({
       selectionSource: 'app-owned',
     })
     onMouseDown?.(event)
-    return
+    return null
   }
 
-  const voidTarget = isDOMNode(event.target)
-    ? resolveEditableVoidClickTarget(editor, event.target)
-    : null
-  const voidTargetOwnsSelection = preferModelSelectionForVoidTarget({
+  const selectedVoidTarget = selectEditableVoidTarget({
     editor,
     inputController,
     target: event.target,
   })
 
-  if (voidTargetOwnsSelection && voidTarget) {
-    const start = Editor.point(editor, voidTarget.path, { edge: 'start' })
-    const range = Editor.range(editor, start)
-
-    ReactEditor.focus(editor)
-    writeSlateViewSelection(editor, null)
-    editor.update((tx) => {
-      tx.selection.set(range)
-    })
-  }
-
-  if (!voidTargetOwnsSelection) {
+  if (selectedVoidTarget) {
+    event.preventDefault()
+  } else {
     setEditableModelSelectionPreference({
       inputController,
       preferModelSelection: false,
@@ -697,6 +748,7 @@ export const applyEditableMouseDown = ({
     inputController.state.selectionChangeOrigin = 'native-user'
   }
   onMouseDown?.(event)
+  return selectedVoidTarget
 }
 
 export const syncSelectionForBeforeInput = ({

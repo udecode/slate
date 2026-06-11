@@ -441,25 +441,33 @@ export const insertDOMData = <V extends Value>(
   return insertDOMFragmentData(editor, data) || insertDOMTextData(editor, data)
 }
 
-export const insertDOMFragmentData = <V extends Value>(
+export const readDOMFragmentData = <V extends Value>(
   editor: DOMEditor<V>,
   data: DataTransfer
-): boolean => {
+): DescendantIn<V>[] | null => {
   const clipboardFormatKey = getDOMClipboardFormatKey(editor)
   const fragment =
     data.getData(`application/${clipboardFormatKey}`) ||
     getSlateFragmentAttribute(data, clipboardFormatKey)
 
   if (fragment) {
-    const parsed = decodeClipboardFragment(editor, fragment)
+    return decodeClipboardFragment(editor, fragment)
+  }
 
-    if (!parsed) {
-      return false
-    }
+  return null
+}
 
+export const insertDOMFragmentData = <V extends Value>(
+  editor: DOMEditor<V>,
+  data: DataTransfer
+): boolean => {
+  const parsed = readDOMFragmentData(editor, data)
+
+  if (parsed) {
     getEditorTransformRegistry(editor).insertFragment(parsed)
     return true
   }
+
   return false
 }
 

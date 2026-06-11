@@ -1100,6 +1100,58 @@ describe('projected editable commands', () => {
     expect(readSlateViewSelection(editor)).toBe(null)
   })
 
+  it('keeps model-owned history undo from normalizing the outer command transaction', () => {
+    const blockCount = 128
+    const initialValue = Array.from({ length: blockCount }, (_, index) =>
+      paragraph(`block-${index}`)
+    )
+    const runtime = createEditorRuntime({
+      extensions: [history(), dom()],
+      initialValue,
+    })
+    const editor = createEditorView(runtime) as unknown as ReactRuntimeEditor
+    const selection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: {
+        path: [blockCount - 1, 0],
+        offset: `block-${blockCount - 1}`.length,
+      },
+    }
+
+    applyEditableCommand({
+      command: { kind: 'delete-fragment', selection },
+      editor,
+    })
+
+    const events: { id?: string | null }[] = []
+    const target = globalThis as typeof globalThis & {
+      __SLATE_REACT_RENDER_PROFILER__?: {
+        record: (event: { id?: string | null }) => void
+      }
+    }
+    const previousProfiler = target.__SLATE_REACT_RENDER_PROFILER__
+    target.__SLATE_REACT_RENDER_PROFILER__ = {
+      record(event) {
+        events.push(event)
+      },
+    }
+
+    try {
+      expect(applyModelOwnedHistoryIntent({ direction: 'undo', editor })).toBe(
+        true
+      )
+    } finally {
+      target.__SLATE_REACT_RENDER_PROFILER__ = previousProfiler
+    }
+
+    expect(events.map((event) => event.id)).not.toContain(
+      'transaction-normalize'
+    )
+    expect(editor.read((state) => state.value.get().roots.main)).toEqual(
+      initialValue
+    )
+  })
+
   it('does not type into ambiguous projected selections across repeated content-root owners', () => {
     const { editor, graph } = createRepeatedRootFixture()
 

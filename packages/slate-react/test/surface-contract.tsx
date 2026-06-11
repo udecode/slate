@@ -635,10 +635,9 @@ describe('slate-react surface contract', () => {
     expect(docs).not.toMatch(/\buseMemo\b/)
   })
 
-  test('hotkey examples use raw Editable keydown props instead of registered key commands', () => {
+  test('app-owned hotkey examples use raw Editable keydown props instead of registered key commands', () => {
     for (const file of [
       'site/examples/ts/iframe.tsx',
-      'site/examples/ts/images.tsx',
       'site/examples/ts/richtext.tsx',
     ]) {
       const source = readFileSync(resolve(repoRoot, file), 'utf8')
@@ -646,6 +645,14 @@ describe('slate-react surface contract', () => {
       expect(source).toMatch(/\bonKeyDown=/)
       expect(source).not.toMatch(/\beditableKeyCommands\b/)
     }
+
+    const images = readFileSync(
+      resolve(repoRoot, 'site/examples/ts/images.tsx'),
+      'utf8'
+    )
+
+    expect(images).not.toMatch(/\bonKeyDown=/)
+    expect(images).not.toMatch(/\beditableKeyCommands\b/)
   })
 
   test('examples route transform-equivalent model behavior through extensions', () => {
@@ -1046,7 +1053,7 @@ describe('slate-react surface contract', () => {
     expect(readTargetPath()).toEqual([2])
   })
 
-  test('renderVoid receives content-only props and runtime owns block void spacer', () => {
+  test('renderVoid receives content-only props and runtime owns block void shell', () => {
     const editor = createReactEditor({
       initialValue: [
         { type: 'image', url: 'about:blank', children: [{ text: '' }] },
@@ -1091,6 +1098,7 @@ describe('slate-react surface contract', () => {
     expect('children' in (renderVoidProps as object)).toBe(false)
     expect('attributes' in (renderVoidProps as object)).toBe(false)
     expect(voidElement).toBeTruthy()
+    expect(voidElement?.getAttribute('draggable')).toBe('true')
     expect(image).toBeTruthy()
     expect(image?.parentElement?.getAttribute('contenteditable')).toBe('false')
     expect(spacer?.querySelector('[data-slate-zero-width]')).toBeTruthy()
@@ -1130,6 +1138,11 @@ describe('slate-react surface contract', () => {
     const spacer = rendered.container.querySelector('[data-slate-spacer]')
 
     expect(card?.parentElement?.getAttribute('contenteditable')).toBe('false')
+    expect(
+      card
+        ?.closest('[data-slate-node="element"][data-slate-void="true"]')
+        ?.getAttribute('draggable')
+    ).toBe('true')
     expect(card?.querySelector('[contenteditable="false"]')?.textContent).toBe(
       'Controls'
     )
@@ -1191,6 +1204,7 @@ describe('slate-react surface contract', () => {
     expect('focused' in (renderVoidProps as object)).toBe(false)
     expect('children' in (renderVoidProps as object)).toBe(false)
     expect('attributes' in (renderVoidProps as object)).toBe(false)
+    expect(mention?.getAttribute('draggable')).toBe('true')
     expect(mention?.querySelector('[data-cy="visible-mention"]')).toBeTruthy()
     expect(mention?.querySelector('[data-slate-zero-width]')).toBeTruthy()
   })

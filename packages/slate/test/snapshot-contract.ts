@@ -1496,6 +1496,47 @@ it('insertBreak from an empty selectable block void creates a trailing block', (
   })
 })
 
+it('insertSoftBreak from an empty selectable block void creates a trailing block', () => {
+  const editor = createEditor()
+
+  defineElement(editor, { type: 'thematic-break', void: 'block' })
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'thematic-break',
+        children: [{ text: '' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    },
+    marks: null,
+  })
+
+  editor.update(() => {
+    Editor.insertSoftBreak(editor)
+  })
+
+  const snapshot = Editor.getSnapshot(editor)
+
+  assert.deepEqual(snapshot.children, [
+    {
+      type: 'thematic-break',
+      children: [{ text: '' }],
+    },
+    {
+      type: 'paragraph',
+      children: [{ text: '' }],
+    },
+  ])
+  assert.deepEqual(snapshot.selection, {
+    anchor: { path: [1, 0], offset: 0 },
+    focus: { path: [1, 0], offset: 0 },
+  })
+})
+
 it('insertBreak after marked text moves selection into the new block', () => {
   const editor = createEditor()
 
@@ -2698,6 +2739,38 @@ it('state marks return the current text leaf marks for a collapsed selection', (
       focus: { path: [0, 0], offset: 2 },
     },
     marks: null,
+  })
+
+  assert.deepEqual(getMarks(editor), { bold: true })
+})
+
+it('state marks are direction-independent for expanded marked selections', () => {
+  const editor = createEditor()
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [
+          { text: 'al', bold: true },
+          { text: 'pha', bold: true },
+        ],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 1], offset: 3 },
+    },
+    marks: null,
+  })
+
+  assert.deepEqual(getMarks(editor), { bold: true })
+
+  editor.update((tx) => {
+    tx.selection.set({
+      anchor: { path: [0, 1], offset: 3 },
+      focus: { path: [0, 0], offset: 0 },
+    })
   })
 
   assert.deepEqual(getMarks(editor), { bold: true })

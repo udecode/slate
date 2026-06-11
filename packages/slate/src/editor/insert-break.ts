@@ -2,8 +2,8 @@ import { executeCommand } from '../core/command-registry'
 import { getEditorTransformRegistry } from '../core/transform-registry'
 import type { EditorStaticApi } from '../interfaces/editor'
 import { Editor } from '../interfaces/editor'
-import { PathApi } from '../interfaces/path'
 import { RangeApi } from '../interfaces/range'
+import { insertParagraphAfterSelectedBlockVoid } from './block-void-break'
 
 type InsertBreakCommand = {
   type: 'insert_break'
@@ -40,30 +40,8 @@ const applyInsertBreak: EditorStaticApi['insertBreak'] = (editor) => {
     transforms.delete({ at: softBreakRange, hanging: true })
   }
 
-  if (selection && RangeApi.isCollapsed(selection)) {
-    const voidEntry = Editor.void(editor, {
-      at: selection.anchor,
-      mode: 'highest',
-    })
-
-    if (voidEntry) {
-      const [voidNode, voidPath] = voidEntry
-
-      if (!Editor.isInline(editor, voidNode)) {
-        transforms.insertNodes(
-          {
-            type: 'paragraph',
-            children: [{ text: '' }],
-          },
-          {
-            at: PathApi.next(voidPath),
-            select: true,
-            voids: true,
-          }
-        )
-        return
-      }
-    }
+  if (selection && insertParagraphAfterSelectedBlockVoid(editor)) {
+    return
   }
 
   transforms.splitNodes({ always: true })

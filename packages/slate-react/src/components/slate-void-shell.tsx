@@ -36,7 +36,7 @@ export const SlateVoidShell = ({
   recordSlateReactRender({ kind: 'void' })
 
   return (
-    <SlateElement isVoid style={{ position: 'relative' }}>
+    <SlateElement draggable isVoid style={{ position: 'relative' }}>
       <div contentEditable={false}>{content}</div>
       <SlateSpacer>{children}</SlateSpacer>
     </SlateElement>
@@ -55,7 +55,7 @@ export const SlateInlineVoidShell = ({
   recordSlateReactRender({ kind: 'void' })
 
   return (
-    <SlateElement as="span" contentEditable={false} isInline isVoid>
+    <SlateElement as="span" contentEditable={false} draggable isInline isVoid>
       {anchorBeforeContent ? children : null}
       <span contentEditable={false}>{content}</span>
       {anchorBeforeContent ? null : children}

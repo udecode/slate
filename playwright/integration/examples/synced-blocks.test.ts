@@ -644,6 +644,7 @@ test.describe('synced blocks example', () => {
           backward: false,
         },
       })
+    await outer.assert.noDoubleSelectionHighlight()
 
     await outer.press('ArrowDown')
 
@@ -685,6 +686,7 @@ test.describe('synced blocks example', () => {
           backward: true,
         },
       })
+    await outer.assert.noDoubleSelectionHighlight()
   })
 
   test('extends Shift+Arrow through synced blocks like sibling blocks', async ({
@@ -1958,6 +1960,7 @@ test.describe('synced blocks example', () => {
       })
     await expect.poll(() => getRenderedViewSelectionText(page)).toBe('1S')
     await expect.poll(() => getNativeSelectionText(page)).toBe('')
+    await outer.assert.noDoubleSelectionHighlight()
 
     await outer.press('Shift+ArrowRight')
     await expect
@@ -2923,6 +2926,7 @@ test.describe('synced blocks example', () => {
     await expect.poll(() => getViewSelection(outerEditor)).not.toBe(null)
     await expect.poll(() => getRenderedViewSelectionText(page)).toContain('p1')
     await expect.poll(() => getNativeSelectionText(page)).toBe('')
+    await outer.assert.noDoubleSelectionHighlight()
   })
 
   test('clicking outside a synced block moves focus back to the outer editor', async ({

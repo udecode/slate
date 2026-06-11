@@ -100,6 +100,49 @@ test.describe('Inlines example', () => {
       .toBe(selectedText)
   })
 
+  test('wraps backward selected text as one link', async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const url = 'https://example.com/backward-link'
+    const beforeSelectedText = 'In addition to block nodes, you can create '
+    const selectedText = 'inline nodes'
+
+    page.once('dialog', async (dialog) => {
+      expect(dialog.type()).toBe('prompt')
+      await dialog.accept(url)
+    })
+    await editor.selection.selectDOM({
+      anchor: {
+        path: [0, 0],
+        offset: beforeSelectedText.length + selectedText.length,
+      },
+      focus: { path: [0, 0], offset: beforeSelectedText.length },
+    })
+    await page.getByRole('button', { exact: true, name: 'Link' }).click()
+
+    const link = editor.root.locator(
+      'a[href="https://example.com/backward-link"]'
+    )
+
+    await expect(link).toHaveCount(1)
+    await expect(link).toHaveText(selectedText)
+    await expect
+      .poll(async () =>
+        (await editor.get.selectedText()).replaceAll('\u00A0', ' ')
+      )
+      .toBe(selectedText)
+    await editor.assert.noDoubleSelectionHighlight()
+  })
+
   test('collapses after auto-linking selected text with a typed URL', async ({
     page,
   }, testInfo) => {

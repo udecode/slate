@@ -733,6 +733,59 @@ test.describe('On richtext example', () => {
     await expect(editor.root.locator('strong')).toHaveText(['Bold', 'Next'])
   })
 
+  test('keeps an empty soft-break line caret measurable and editable', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop soft-break caret geometry proof'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    try {
+      await editor.click()
+      await page.keyboard.press('ControlOrMeta+A')
+      await page.keyboard.press('Backspace')
+      await page.keyboard.type('alpha')
+      await editor.root.press('Shift+Enter')
+
+      await editor.assert.blockTexts(['alpha', ''])
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [1, 0], offset: 0 },
+          focus: { path: [1, 0], offset: 0 },
+        })
+
+      const caretRect = await editor.selection.rect()
+      const editorRect = await editor.root.boundingBox()
+
+      if (!caretRect || !editorRect) {
+        throw new Error('Missing soft-break caret or editor rect')
+      }
+
+      expect(caretRect.height).toBeGreaterThan(0)
+      expect(caretRect.y).toBeGreaterThan(editorRect.y)
+      expect(caretRect.y).toBeLessThan(editorRect.y + editorRect.height)
+      expect(caretRect.x).toBeGreaterThanOrEqual(editorRect.x)
+      expect(caretRect.x).toBeLessThanOrEqual(editorRect.x + editorRect.width)
+      runtimeErrors.assertNone()
+
+      await page.keyboard.type('beta')
+
+      await editor.assert.blockTexts(['alpha', 'beta'])
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
   test('keeps active bold when Enter creates a new paragraph', async ({
     page,
   }, testInfo) => {
@@ -1882,11 +1935,11 @@ test.describe('On richtext example', () => {
     await page.evaluate(() => {
       document.getElementById('outside-focus-target')?.remove()
 
-      const button = document.createElement('button')
-      button.id = 'outside-focus-target'
-      button.type = 'button'
-      button.textContent = 'outside'
-      document.body.append(button)
+      const input = document.createElement('input')
+      input.id = 'outside-focus-target'
+      input.type = 'text'
+      input.value = 'outside'
+      document.body.append(input)
     })
 
     await editor.selection.select(selection)
@@ -1894,6 +1947,57 @@ test.describe('On richtext example', () => {
 
     await expect(page.locator('#outside-focus-target')).toBeFocused()
     await expect.poll(() => editor.selection.get()).toEqual(selection)
+  })
+
+  test('hides the visible caret after tabbing out of the editor', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop Tab-away proof')
+    test.skip(
+      testInfo.project.name === 'webkit',
+      'WebKit does not move Tab focus to the injected input in Playwright'
+    )
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.root.evaluate((element: HTMLElement) => {
+      document.getElementById('tab-away-target')?.remove()
+
+      const input = document.createElement('input')
+      input.id = 'tab-away-target'
+      input.type = 'text'
+      input.value = 'outside'
+      element.insertAdjacentElement('afterend', input)
+    })
+
+    await editor.selection.select({
+      anchor: { path: [0, 0], offset: 4 },
+      focus: { path: [0, 0], offset: 4 },
+    })
+    await editor.focus()
+    await editor.assert.focusOwner('editor')
+    await editor.assert.caretVisibleInScrollableParent()
+
+    await page.keyboard.press('Tab')
+
+    await expect(page.locator('#tab-away-target')).toBeFocused()
+    await editor.assert.focusOwner('outside')
+    await editor.assert.noVisibleCaretInRoot()
+    await expect
+      .poll(() => editor.selection.get())
+      .toEqual({
+        anchor: { path: [0, 0], offset: 4 },
+        focus: { path: [0, 0], offset: 4 },
+      })
+
+    await editor.focus()
+    await page.keyboard.insertText('!')
+
+    await expect.poll(() => editor.get.modelText()).toContain('This! is')
   })
 
   for (const scrollTarget of ['root', 'parent'] as const) {
@@ -2005,6 +2109,75 @@ test.describe('On richtext example', () => {
     for (let i = 1; i < samples.length; i++) {
       expect(samples[i]).toBeGreaterThanOrEqual(samples[i - 1] - 2)
     }
+  })
+
+  test('does not scroll to top when refocusing a scrollable editor', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop focus scroll proof')
+
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await page.evaluate(() => {
+      document.getElementById('outside-focus-target')?.remove()
+
+      const input = document.createElement('input')
+      input.id = 'outside-focus-target'
+      input.type = 'text'
+      input.value = 'outside'
+      document.body.append(input)
+    })
+    await editor.root.evaluate((element: HTMLElement) => {
+      element.style.display = 'block'
+      element.style.maxHeight = '120px'
+      element.style.overflowY = 'auto'
+      element.style.scrollBehavior = 'auto'
+    })
+    await editor.selection.select({
+      anchor: { path: [0, 6], offset: 1 },
+      focus: { path: [0, 6], offset: 1 },
+    })
+
+    for (let i = 0; i < 18; i++) {
+      await page.keyboard.insertText(`Line ${i}`)
+      await page.keyboard.press('Enter')
+    }
+
+    const blockTexts = await editor.get.modelBlockTexts()
+    const lastBlockIndex = blockTexts.length - 1
+    const lastBlockText = blockTexts[lastBlockIndex] ?? ''
+    const bottomSelection = {
+      anchor: { path: [lastBlockIndex, 0], offset: lastBlockText.length },
+      focus: { path: [lastBlockIndex, 0], offset: lastBlockText.length },
+    }
+
+    await editor.selection.select(bottomSelection)
+    await editor.root.evaluate((element: HTMLElement) => {
+      element.scrollTop = element.scrollHeight - element.clientHeight
+    })
+    const beforeFocusScrollTop = await editor.root.evaluate(
+      (element: HTMLElement) => Math.round(element.scrollTop)
+    )
+
+    await page.locator('#outside-focus-target').click()
+    await expect
+      .poll(() => page.evaluate(() => document.activeElement?.id ?? null))
+      .toBe('outside-focus-target')
+    await editor.focus()
+    await editor.assert.caretVisibleInScrollableParent()
+
+    const afterFocusScrollTop = await editor.root.evaluate(
+      (element: HTMLElement) => Math.round(element.scrollTop)
+    )
+
+    expect(beforeFocusScrollTop).toBeGreaterThan(0)
+    expect(afterFocusScrollTop).toBeGreaterThanOrEqual(
+      Math.round(beforeFocusScrollTop * 0.75)
+    )
   })
 
   test('resolves ambiguous browser insertion at a mark boundary', async ({
@@ -4386,6 +4559,83 @@ test.describe('On richtext example', () => {
       await editor.click()
       await page.keyboard.type('Z')
       await expect.poll(() => editor.get.modelText()).toContain('Z')
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('repairs cursor movement after the native selection range is cleared', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop null native-selection proof'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'richtext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    try {
+      await editor.selection.selectDOM({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+      await editor.assert.selection({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+
+      await editor.root.evaluate((element: HTMLElement) => {
+        const selection = element.ownerDocument.getSelection()
+
+        if (!selection) {
+          throw new Error('Missing browser selection')
+        }
+
+        selection.removeAllRanges()
+        element.ownerDocument.dispatchEvent(
+          new Event('selectionchange', { bubbles: true })
+        )
+      })
+
+      await expect
+        .poll(() =>
+          editor.root.evaluate(
+            (element: HTMLElement) =>
+              element.ownerDocument.getSelection()?.rangeCount ?? -1
+          )
+        )
+        .toBe(0)
+      runtimeErrors.assertNone()
+
+      await page.keyboard.press('ArrowRight')
+
+      runtimeErrors.assertNone()
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [0, 0], offset: 1 },
+          focus: { path: [0, 0], offset: 1 },
+        })
+      await editor.assert.domCaret({
+        offset: 1,
+        text: 'This is editable ',
+      })
+
+      await page.keyboard.type('Z')
+
+      runtimeErrors.assertNone()
+      await expect.poll(() => editor.get.modelText()).toContain('TZhis')
+      await expect
+        .poll(() => editor.selection.get())
+        .toEqual({
+          anchor: { path: [0, 0], offset: 2 },
+          focus: { path: [0, 0], offset: 2 },
+        })
     } finally {
       runtimeErrors.stop()
     }

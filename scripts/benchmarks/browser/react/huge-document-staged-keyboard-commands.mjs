@@ -168,21 +168,27 @@ const installTraceObserver = async (page) => {
     }
 
     const trace = {
+      kernelTraceStart: 0,
       longAnimationFrames: [],
       longTasks: [],
       profilerEvents: [],
       reset() {
+        this.kernelTraceStart =
+          document
+            .querySelector('[data-slate-editor="true"]')
+            ?.__slateBrowserHandle?.getKernelTrace?.().length ?? 0
         this.longAnimationFrames.length = 0
         this.longTasks.length = 0
         this.profilerEvents.length = 0
       },
       snapshot() {
+        const kernelTrace =
+          document
+            .querySelector('[data-slate-editor="true"]')
+            ?.__slateBrowserHandle?.getKernelTrace?.() ?? []
+
         return {
-          kernelTrace:
-            document
-              .querySelector('[data-slate-editor="true"]')
-              ?.__slateBrowserHandle?.getKernelTrace?.()
-              .slice(-20) ?? [],
+          kernelTrace: kernelTrace.slice(this.kernelTraceStart),
           longAnimationFrames: this.longAnimationFrames.slice(),
           longTasks: this.longTasks.slice(),
           profilerEvents: this.profilerEvents.slice(),
@@ -672,6 +678,21 @@ const summarizeProfilerEvents = (events = []) => {
       .slice(0, 12)
   )
 }
+
+const summarizeProfilerEventSequence = (events = []) =>
+  events
+    .filter(
+      (event) => event.kind === 'core-time' || event.kind === 'runtime-time'
+    )
+    .map((event) => ({
+      durationMs:
+        typeof event.duration === 'number' && Number.isFinite(event.duration)
+          ? Math.round(event.duration * 10) / 10
+          : 0,
+      id: event.id ?? null,
+      kind: event.kind,
+    }))
+    .filter((event) => event.durationMs > 0 || event.id)
 
 const assertSelectionPoint = (selection, path, offset, context) => {
   const samePoint = (point) =>
@@ -1240,15 +1261,30 @@ const measureSelectAllDelete = async (page, surface) => {
           deleteTiming.trace?.profilerEvents
         ),
         selectAllCommandMs: selectAll.commandMs,
+        selectAllKernelTrace: summarizeKernelTrace(selectAll.trace),
         selectAllLongAnimationFrameMaxMs: selectAll.longAnimationFrameMaxMs,
         selectAllLongTaskMaxMs: selectAll.longTaskMaxMs,
         selectAllPaintMs: selectAll.paintMs,
+        selectAllProfilerSummary: summarizeProfilerEvents(
+          selectAll.trace?.profilerEvents
+        ),
         undoDeleteCommandMs: undoDelete.commandMs,
+        undoDeleteKernelTrace: summarizeKernelTrace(undoDelete.trace),
         undoDeleteLongAnimationFrameMaxMs: undoDelete.longAnimationFrameMaxMs,
         undoDeleteLongTaskMaxMs: undoDelete.longTaskMaxMs,
         undoDeletePaintMs: undoDelete.paintMs,
+        undoDeleteProfilerEvents: summarizeProfilerEventSequence(
+          undoDelete.trace?.profilerEvents
+        ),
+        undoDeleteProfilerSummary: summarizeProfilerEvents(
+          undoDelete.trace?.profilerEvents
+        ),
         undoTypeCommandMs: undoType.commandMs,
+        undoTypeKernelTrace: summarizeKernelTrace(undoType.trace),
         undoTypePaintMs: undoType.paintMs,
+        undoTypeProfilerSummary: summarizeProfilerEvents(
+          undoType.trace?.profilerEvents
+        ),
       })
     }
   }

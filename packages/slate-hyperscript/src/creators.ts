@@ -22,7 +22,7 @@ import {
 } from './tokens'
 
 /**
- * Resolve the descedants of a node by normalizing the children that can be
+ * Resolve the descendants of a node by normalizing the children that can be
  * passed into a hyperscript creator function.
  */
 
@@ -46,17 +46,17 @@ const resolveDescendants = (children: any[]): Descendant[] => {
     }
 
     if (TextApi.isText(normalizedChild)) {
-      const c = normalizedChild // HACK: fix typescript complaining
+      const textChild = normalizedChild
 
       if (
         TextApi.isText(prev) &&
         STRINGS.has(prev) &&
-        STRINGS.has(c) &&
-        TextApi.equals(prev, c, { loose: true })
+        STRINGS.has(textChild) &&
+        TextApi.equals(prev, textChild, { loose: true })
       ) {
-        prev.text += c.text
+        prev.text += textChild.text
       } else {
-        nodes.push(c)
+        nodes.push(textChild)
       }
     } else if (ElementApi.isElement(normalizedChild)) {
       nodes.push(normalizedChild)

@@ -21,6 +21,7 @@ Stable package surface:
   - getter namespace for text/html/selection state
   - selected-text getter
   - displayed-selection getter for native and projected selection proof
+  - screenshot attachment helper for visual proof artifacts
   - block-text getter and assertion helpers
   - snapshot helper for aggregated editor state
   - selection namespace for semantic selection actions and setup
@@ -63,7 +64,7 @@ Use the `ready` contract for maintained callsites and examples.
 Example:
 
 ```ts
-import { openExample } from 'slate-browser/playwright'
+import { attachPageScreenshot, openExample } from 'slate-browser/playwright'
 
 const editor = await openExample(page, 'placeholder', {
   ready: {
@@ -86,6 +87,7 @@ await editor.assert.blockTexts(['Hello Slate Browser'])
 expect(await editor.get.selectedText()).toBe('Hello')
 expect((await editor.selection.displayed()).source).toBe('native')
 await editor.assert.noDoubleSelectionHighlight()
+await attachPageScreenshot(page, testInfo, 'selection-proof.png')
 await editor.assert.htmlContains('data-slate-string="true"')
 await editor.assert.selection({
   anchor: { path: [0, 0], offset: [0, 1] },
@@ -106,6 +108,11 @@ expect(snapshot.selection).not.toBeNull()
 
 const secondBlock = editor.locator.block([1])
 await secondBlock.click({ clickCount: 3 })
+await editor.selection.doubleClickDragTextRange({
+  doubleClickOffset: 'This is edit'.length,
+  endOffset: 'This is editable plain'.length,
+  text: 'This is editable plain text, just like a <textarea>!',
+})
 
 const bookmark = await editor.selection.capture({ affinity: 'inward' })
 await editor.selection.restore(bookmark)
@@ -115,6 +122,10 @@ await editor.clipboard.pasteText('more')
 await editor.clipboard.copy()
 expect(await editor.clipboard.readText()).toContain('more')
 ```
+
+For Tab-away or blur proof, use `editor.assert.noVisibleCaretInRoot()` after
+focus leaves the editor. It asserts the editor no longer owns a paintable
+focused caret even if the browser keeps a stale DOM range.
 
 Root commands:
 

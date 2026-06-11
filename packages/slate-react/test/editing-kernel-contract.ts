@@ -236,6 +236,64 @@ test('beforeinput and keydown commands resolve through typed definitions', () =>
   ).toContain('beforeinput')
 })
 
+test('document boundary keydown commands are model-owned selection moves', () => {
+  const startCommand = getEditableCommandFromKeyDown({
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: true,
+        key: 'Home',
+        metaKey: false,
+        shiftKey: false,
+      },
+    } as any,
+    selection: null,
+  })
+  const extendEndCommand = getEditableCommandFromKeyDown({
+    event: {
+      nativeEvent: {
+        altKey: false,
+        ctrlKey: true,
+        key: 'End',
+        metaKey: false,
+        shiftKey: true,
+      },
+    } as any,
+    selection: null,
+  })
+
+  expect(startCommand).toEqual({
+    axis: 'document',
+    kind: 'move-selection',
+    reverse: true,
+  })
+  expect(extendEndCommand).toEqual({
+    axis: 'document',
+    extend: true,
+    kind: 'move-selection',
+  })
+  expect(getEditableCommandDefinition(startCommand)?.modelOwned).toBe(true)
+})
+
+test('document boundary keyboard intent uses model selection ownership', () => {
+  expect(
+    classifyKeyboardIntent({
+      editor: createEditor() as any,
+      event: {
+        nativeEvent: {
+          altKey: false,
+          ctrlKey: true,
+          key: 'Home',
+          metaKey: false,
+          shiftKey: false,
+        },
+        target: null,
+      } as any,
+      domStrategyRuntime: null,
+    })
+  ).toBe('model-selection-move')
+})
+
 test('beforeinput data transfer commands preserve the browser payload', () => {
   class DataTransfer {}
 
@@ -350,6 +408,24 @@ test('movement ownership trace records model-owned horizontal reason', () => {
     ownership: 'model-owned',
     reason: 'model-horizontal-inline-void',
     reverse: null,
+  })
+})
+
+test('movement ownership trace records model-owned document reason', () => {
+  expect(
+    getEditableMovementOwnershipTrace({
+      command: { axis: 'document', kind: 'move-selection', reverse: true },
+      intent: 'model-selection-move',
+      key: 'Home',
+      ownership: 'model-owned',
+    })
+  ).toEqual({
+    axis: 'document',
+    extend: false,
+    key: 'Home',
+    ownership: 'model-owned',
+    reason: 'model-document-boundary',
+    reverse: true,
   })
 })
 

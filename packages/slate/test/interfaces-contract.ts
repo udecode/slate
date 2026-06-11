@@ -134,6 +134,66 @@ describe('slate interfaces contract', () => {
     )
   })
 
+  it('normalizes range edges and intersections by document order', () => {
+    const backwardRange = {
+      anchor: { path: [0, 0], offset: 8 },
+      focus: { path: [0, 0], offset: 2 },
+    }
+    const overlapRange = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 5 },
+    }
+
+    assert.deepEqual(RangeApi.edges(backwardRange), [
+      { path: [0, 0], offset: 2 },
+      { path: [0, 0], offset: 8 },
+    ])
+    assert.deepEqual(RangeApi.edges(backwardRange, { reverse: true }), [
+      { path: [0, 0], offset: 8 },
+      { path: [0, 0], offset: 2 },
+    ])
+    assert.deepEqual(RangeApi.start(backwardRange), {
+      path: [0, 0],
+      offset: 2,
+    })
+    assert.deepEqual(RangeApi.end(backwardRange), {
+      path: [0, 0],
+      offset: 8,
+    })
+    assert.deepEqual(RangeApi.intersection(backwardRange, overlapRange), {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 5 },
+    })
+  })
+
+  it('distinguishes intersecting ranges from fully surrounded ranges', () => {
+    const selection = {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 8 },
+    }
+    const backwardSelection = {
+      anchor: { path: [0, 0], offset: 8 },
+      focus: { path: [0, 0], offset: 2 },
+    }
+    const endpointOnlyRange = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 4 },
+    }
+    const interiorRange = {
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 6 },
+    }
+
+    assert.equal(RangeApi.includes(selection, endpointOnlyRange), true)
+    assert.equal(RangeApi.surrounds(selection, endpointOnlyRange), false)
+    assert.equal(RangeApi.surrounds(selection, interiorRange), true)
+    assert.equal(RangeApi.surrounds(backwardSelection, interiorRange), true)
+    assert.equal(
+      RangeApi.surrounds(backwardSelection, endpointOnlyRange),
+      false
+    )
+  })
+
   it('keeps point and range comparisons root-aware', () => {
     const mainPoint = { path: [0, 0], offset: 1 }
     const explicitMainPoint = { path: [0, 0], offset: 1, root: 'main' }

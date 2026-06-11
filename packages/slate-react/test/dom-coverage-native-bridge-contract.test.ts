@@ -13,6 +13,7 @@ import { createReactEditor } from '../src'
 import {
   applyEditableCopy,
   applyEditableCut,
+  applyEditableDragOver,
   applyEditableDragStart,
   applyEditableDrop,
   applyEditablePaste,
@@ -24,6 +25,9 @@ import {
 
 class FakeDataTransfer {
   private readonly data = new Map<string, string>()
+
+  dropEffect = 'none'
+  effectAllowed = 'none'
 
   get types() {
     return Array.from(this.data.keys())
@@ -289,8 +293,33 @@ describe('DOM coverage native bridge', () => {
       })
 
       expect(state.isDraggingInternally).toBe(true)
+      expect(dataTransfer.effectAllowed).toBe('move')
       expect(dataTransfer.getData('text/plain')).toBe('Hidden alpha')
       expect(dataTransfer.getData('text/html')).toContain('Hidden alpha')
+    } finally {
+      cleanupEditorRoot(editor, root)
+    }
+  })
+
+  test('internal dragover advertises a move drop effect', () => {
+    const editor = createHiddenSelectionEditor()
+    const root = mountEditorRoot(editor)
+    const target = mountVisibleDragTarget(root)
+    const dataTransfer = new FakeDataTransfer()
+    const event = createDragEvent(target, dataTransfer)
+
+    try {
+      applyEditableDragOver({
+        editor,
+        event,
+        state: {
+          draggedBlock: false,
+          draggedRange: null,
+          isDraggingInternally: true,
+        },
+      })
+
+      expect(dataTransfer.dropEffect).toBe('move')
     } finally {
       cleanupEditorRoot(editor, root)
     }

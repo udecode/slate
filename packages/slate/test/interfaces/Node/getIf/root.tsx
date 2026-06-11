@@ -1,6 +1,5 @@
 /** @jsx jsx  */
 
-import { cloneDeep } from 'lodash'
 import { NodeApi } from 'slate'
 
 export const input = (
@@ -13,5 +12,4 @@ export const input = (
 export const test = (value) => {
   return NodeApi.getIf(value, [])
 }
-export const skip = true // TODO: see https://github.com/ianstormtaylor/slate/pull/4188
-export const output = cloneDeep(input)
+export const output = input

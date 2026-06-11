@@ -184,8 +184,8 @@ Verification evidence:
 - `bun --filter slate-react test -- dom-repair-policy-contract input-router-contract native-input-strategy-contract provider-hooks-contract`: passed, 4 files / 58 tests.
 - `bun --filter slate-react typecheck`: passed.
 - `bun lint:fix`: passed, no fixes applied on final run.
-- `PLAYWRIGHT_BASE_URL=http://localhost:3100 PLAYWRIGHT_RETRIES=0 PLAYWRIGHT_WORKERS=1 bunx playwright test playwright/integration/examples/pagination.test.ts --project=chromium --grep "middle-document typing|fast burst typing|staged burst typing" --reporter=line`: passed, 3 tests.
-- `PLAYWRIGHT_BASE_URL=http://localhost:3100 PLAYWRIGHT_RETRIES=0 PLAYWRIGHT_WORKERS=1 bunx playwright test playwright/integration/examples/pagination.test.ts --project=chromium --grep "staged burst typing" --reporter=json`: passed with staged metrics: burst length 46, settle 169.6 ms, p95 event-to-paint 8.2 ms, max event-to-paint 8.2 ms, p95 compose 2.9 ms.
+- `PLAYWRIGHT_BASE_URL=http://localhost:3100 PLAYWRIGHT_RETRIES=0 PLAYWRIGHT_WORKERS=1 bun run playwright playwright/integration/examples/pagination.test.ts --project=chromium --grep "middle-document typing|fast burst typing|staged burst typing" --reporter=line`: passed, 3 tests.
+- `PLAYWRIGHT_BASE_URL=http://localhost:3100 PLAYWRIGHT_RETRIES=0 PLAYWRIGHT_WORKERS=1 bun run playwright playwright/integration/examples/pagination.test.ts --project=chromium --grep "staged burst typing" --reporter=json`: passed with staged metrics: burst length 46, settle 169.6 ms, p95 event-to-paint 8.2 ms, max event-to-paint 8.2 ms, p95 compose 2.9 ms.
 
 Open risks:
 None for the staged 15-page target. The longer-term risk is sustained typing

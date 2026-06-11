@@ -3,6 +3,7 @@ import { useCallback, useMemo, useRef } from 'react'
 import {
   type Element,
   type LeafPosition,
+  NodeApi,
   type Path,
   type Range,
   RangeApi,
@@ -23,6 +24,7 @@ import type {
   InputIntent,
 } from '../editable/input-controller'
 import { useRootInteractionController } from '../editable/root-interaction-controller'
+import { Editor } from '../editable/runtime-editor-api'
 import { useEditableRootRuntime } from '../editable/runtime-root-engine'
 import { readLiveSelection } from '../editable/runtime-selection-state'
 import { useEditor } from '../hooks/use-editor'
@@ -232,6 +234,153 @@ const areEditableDOMStrategyMetricsEqual = (
   left.viewportVirtualizationBoundaryCount ===
     right.viewportVirtualizationBoundaryCount
 
+type DropCursorRect = {
+  height: number
+  left: number
+  top: number
+  width: number
+}
+
+const DROP_CURSOR_THICKNESS = 2
+
+const getDropCursorTargetElement = (target: EventTarget | null) => {
+  if (!isDOMNode(target)) {
+    return null
+  }
+
+  return target.nodeType === 1 ? (target as HTMLElement) : target.parentElement
+}
+
+const getEditableDropCursorRect = ({
+  editor,
+  event,
+  rootElement,
+}: {
+  editor: ReactRuntimeEditor
+  event: React.DragEvent<HTMLDivElement>
+  rootElement: HTMLElement
+}): DropCursorRect | null => {
+  const targetElement = getDropCursorTargetElement(event.nativeEvent.target)
+
+  if (!targetElement) {
+    return null
+  }
+
+  const voidElement = targetElement.closest<HTMLElement>(
+    '[data-slate-node][data-slate-void="true"]'
+  )
+  const slateNode = editor.api.dom.resolveSlateNode(
+    voidElement ?? targetElement
+  )
+  const isVoidTarget =
+    !!voidElement ||
+    (!!slateNode &&
+      NodeApi.isElement(slateNode) &&
+      Editor.isVoid(editor, slateNode))
+
+  if (!isVoidTarget) {
+    return null
+  }
+
+  const targetRect =
+    voidElement?.getBoundingClientRect() ??
+    (slateNode
+      ? editor.api.dom.resolveDOMNode(slateNode)?.getBoundingClientRect()
+      : null) ??
+    targetElement.getBoundingClientRect()
+  const rootRect = rootElement.getBoundingClientRect()
+
+  if (targetRect.width <= 0 || targetRect.height <= 0) {
+    return null
+  }
+
+  // DOMRects are viewport-space after CSS transforms; absolute children need
+  // root-local CSS pixels so the root transform is not applied twice.
+  const rawScaleX =
+    rootElement.offsetWidth > 0 ? rootRect.width / rootElement.offsetWidth : 1
+  const rawScaleY =
+    rootElement.offsetHeight > 0
+      ? rootRect.height / rootElement.offsetHeight
+      : 1
+  const scaleX = Number.isFinite(rawScaleX) && rawScaleX > 0 ? rawScaleX : 1
+  const scaleY = Number.isFinite(rawScaleY) && rawScaleY > 0 ? rawScaleY : 1
+  const localX = (value: number) => (value - rootRect.left) / scaleX
+  const localY = (value: number) => (value - rootRect.top) / scaleY
+
+  const isInlineVoid =
+    voidElement?.getAttribute('data-slate-inline') === 'true' ||
+    (!!slateNode &&
+      NodeApi.isElement(slateNode) &&
+      Editor.isInline(editor, slateNode))
+
+  if (!isInlineVoid) {
+    const isBefore =
+      event.nativeEvent.clientY - targetRect.top <
+      targetRect.bottom - event.nativeEvent.clientY
+
+    const thickness = DROP_CURSOR_THICKNESS / scaleY
+
+    return {
+      height: thickness,
+      left: localX(targetRect.left),
+      top:
+        localY(isBefore ? targetRect.top : targetRect.bottom) - thickness / 2,
+      width: targetRect.width / scaleX,
+    }
+  }
+
+  const isBefore =
+    event.nativeEvent.clientX - targetRect.left <
+    targetRect.right - event.nativeEvent.clientX
+  const thickness = DROP_CURSOR_THICKNESS / scaleX
+
+  return {
+    height: targetRect.height / scaleY,
+    left: localX(isBefore ? targetRect.left : targetRect.right) - thickness / 2,
+    top: localY(targetRect.top),
+    width: thickness,
+  }
+}
+
+const clearEditableDropCursor = (rootElement: HTMLElement) => {
+  rootElement.querySelector('[data-slate-drop-cursor]')?.remove()
+}
+
+const updateEditableDropCursor = (
+  rootElement: HTMLElement,
+  rect: DropCursorRect | null
+) => {
+  if (!rect) {
+    clearEditableDropCursor(rootElement)
+    return
+  }
+
+  let cursor = rootElement.querySelector<HTMLElement>(
+    '[data-slate-drop-cursor]'
+  )
+
+  if (!cursor) {
+    cursor = rootElement.ownerDocument.createElement('span')
+    cursor.setAttribute('aria-hidden', 'true')
+    cursor.setAttribute('contenteditable', 'false')
+    cursor.setAttribute('data-slate-drop-cursor', 'true')
+    cursor.setAttribute('data-slate-root-chrome-ignore', 'true')
+    rootElement.appendChild(cursor)
+  }
+
+  cursor.style.background = '#2563eb'
+  cursor.style.borderRadius = `${DROP_CURSOR_THICKNESS}px`
+  cursor.style.display = 'block'
+  cursor.style.height = `${rect.height}px`
+  cursor.style.left = `${rect.left}px`
+  cursor.style.margin = '0'
+  cursor.style.pointerEvents = 'none'
+  cursor.style.position = 'absolute'
+  cursor.style.top = `${rect.top}px`
+  cursor.style.width = `${rect.width}px`
+  cursor.style.zIndex = '2'
+}
+
 export type EditableHandlerResult = boolean | EditableRepairRequest | void
 
 export type EditableInputEventContext = {
@@ -286,6 +435,7 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
     style: userStyle = {},
     as: Component = 'div',
     disableDefaultStyles = false,
+    onDragLeave: propsOnDragLeave,
     onFocusCapture: propsOnFocusCapture,
     onMouseDownCapture: propsOnMouseDownCapture,
     onMouseMoveCapture: propsOnMouseMoveCapture,
@@ -338,6 +488,42 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
   } = rootInteraction
   const { onMouseDownCapture: onRuntimeMouseDownCapture } =
     editableEventBindings
+  const editableEventBindingsWithDropCursor = useMemo(
+    () => ({
+      ...editableEventBindings,
+      onDragEnd: (event: React.DragEvent<HTMLDivElement>) => {
+        editableEventBindings.onDragEnd?.(event)
+        clearEditableDropCursor(event.currentTarget)
+      },
+      onDragLeave: (event: React.DragEvent<HTMLDivElement>) => {
+        const relatedTarget = event.relatedTarget
+
+        if (
+          !isDOMNode(relatedTarget) ||
+          !event.currentTarget.contains(relatedTarget)
+        ) {
+          clearEditableDropCursor(event.currentTarget)
+        }
+        propsOnDragLeave?.(event)
+      },
+      onDragOver: (event: React.DragEvent<HTMLDivElement>) => {
+        editableEventBindings.onDragOver?.(event)
+        updateEditableDropCursor(
+          event.currentTarget,
+          getEditableDropCursorRect({
+            editor,
+            event,
+            rootElement: event.currentTarget,
+          })
+        )
+      },
+      onDrop: (event: React.DragEvent<HTMLDivElement>) => {
+        editableEventBindings.onDrop?.(event)
+        clearEditableDropCursor(event.currentTarget)
+      },
+    }),
+    [editableEventBindings, editor, propsOnDragLeave]
+  )
   const lastDOMStrategyMetricsRef = useRef<EditableDOMStrategyMetrics | null>(
     null
   )
@@ -443,7 +629,7 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
             data-slate-editor
             data-slate-node="value"
             data-slate-root={editorRoot}
-            {...editableEventBindings}
+            {...editableEventBindingsWithDropCursor}
             {...rootInteractionEventBindings}
             // COMPAT: Certain browsers don't support the `beforeinput` event, so we'd
             // have to use hacks to make these replacement-based features work.

@@ -7,6 +7,7 @@ import {
   type Frame,
   type Locator,
   type Page,
+  type TestInfo,
 } from '@playwright/test'
 
 import type { PlaceholderShape } from '../browser/zero-width'
@@ -34,6 +35,41 @@ const DEFAULT_RUNTIME_ERROR_PATTERNS = [
   'Cannot resolve a DOM point',
   'Cannot resolve a DOM range',
 ]
+const JPEG_SCREENSHOT_EXTENSION_RE = /\.(?:jpe?g)$/i
+
+export type SlateBrowserPageScreenshotOptions = Omit<
+  NonNullable<Parameters<Page['screenshot']>[0]>,
+  'path'
+>
+
+const getScreenshotContentType = (
+  name: string,
+  options: SlateBrowserPageScreenshotOptions
+) => {
+  const type =
+    options.type ?? (JPEG_SCREENSHOT_EXTENSION_RE.test(name) ? 'jpeg' : 'png')
+
+  return type === 'jpeg' ? 'image/jpeg' : 'image/png'
+}
+
+/**
+ * Capture a Playwright page screenshot into the current test output directory
+ * and attach it to the test report.
+ */
+export const attachPageScreenshot = async (
+  page: Page,
+  testInfo: TestInfo,
+  name: string,
+  options: SlateBrowserPageScreenshotOptions = {}
+) => {
+  const path = testInfo.outputPath(name)
+  const contentType = getScreenshotContentType(name, options)
+
+  await page.screenshot({ ...options, path })
+  await testInfo.attach(name, { contentType, path })
+
+  return path
+}
 
 export type SlateBrowserRuntimeErrorRecorder = {
   assertNone: () => void
@@ -475,6 +511,15 @@ export type SlateBrowserDOMPathOptions = {
 export type SlateBrowserDragTextRangeOptions = {
   endOffset: number
   startOffset: number
+  steps?: number
+  text: string
+  textNodeIndex?: number
+}
+
+export type SlateBrowserDoubleClickDragTextRangeOptions = {
+  doubleClickOffset: number
+  endOffset: number
+  gestureDelayMs?: number
   steps?: number
   text: string
   textNodeIndex?: number
@@ -2582,6 +2627,8 @@ const isIgnoredRuntimeError = (text: string) =>
   (NEXT_DATA_ACCESS_CONTROL_ERROR.test(text) &&
     text.includes('due to access control checks.')) ||
   (text.includes("Permission policy 'Fullscreen' check failed") &&
+    text.includes('https://player.vimeo.com')) ||
+  (text.includes('error loading dynamically imported module') &&
     text.includes('https://player.vimeo.com'))
 
 export const recordSlateBrowserRuntimeErrors = (
@@ -4330,6 +4377,9 @@ export type SlateBrowserEditorHarness = {
     select: (selection: SelectionSnapshot) => Promise<void>
     selectDOM: (selection: SelectionSnapshot) => Promise<void>
     dragTextRange: (options: SlateBrowserDragTextRangeOptions) => Promise<void>
+    doubleClickDragTextRange: (
+      options: SlateBrowserDoubleClickDragTextRangeOptions
+    ) => Promise<void>
     collapse: (point: SelectionPoint) => Promise<void>
     capture: (options?: SelectionCaptureOptions) => Promise<SelectionBookmark>
     bookmark: (options?: SelectionCaptureOptions) => Promise<SelectionBookmark>
@@ -4380,7 +4430,10 @@ export type SlateBrowserEditorHarness = {
     modelBlockText: (index: number, text: string | null) => Promise<void>
     modelBlockTexts: (texts: string[]) => Promise<void>
     blockTexts: (texts: string[]) => Promise<void>
-    html: (expectedFragment: string) => Promise<void>
+    html: (
+      expectedHtml: string,
+      options?: HtmlNormalizationOptions
+    ) => Promise<void>
     htmlContains: (expectedFragment: string) => Promise<void>
     htmlEquals: (
       expectedHtml: string,
@@ -4394,6 +4447,7 @@ export type SlateBrowserEditorHarness = {
     ) => Promise<void>
     noDoubleSelectionHighlight: () => Promise<void>
     caretVisibleInScrollableParent: () => Promise<void>
+    noVisibleCaretInRoot: () => Promise<void>
     domSelection: (expected: DOMSelectionSnapshotExpectation) => Promise<void>
     domCaret: (expected: { offset: number; text: string }) => Promise<void>
     domSelectionTarget: (
@@ -4464,12 +4518,14 @@ export type SlateBrowserSelectionContractExpectation = {
 
 export type CaretVisibilitySnapshot = {
   activeElementTestId: string | null
+  activeElementTagName: string | null
   anchorInRoot: boolean
   anchorNodeText: string | null
   focusInRoot: boolean
   hasSelection: boolean
   parentRect: { bottom: number; top: number } | null
   rangeCount: number
+  rootContainsActiveElement: boolean
   scrollParentTagName: string | null
   textHostText: string | null
   visible: boolean
@@ -4509,20 +4565,23 @@ const takeCaretVisibilitySnapshot = async (
 ): Promise<CaretVisibilitySnapshot> =>
   root.evaluate((element: HTMLElement) => {
     const selection = element.ownerDocument.getSelection()
+    const activeElement = element.ownerDocument.activeElement
     const anchorInRoot =
       !!selection?.anchorNode && element.contains(selection.anchorNode)
     const focusInRoot =
       !!selection?.focusNode && element.contains(selection.focusNode)
     const base = {
       activeElementTestId:
-        (element.ownerDocument.activeElement as HTMLElement | null)?.dataset
-          ?.testId ?? null,
+        (activeElement as HTMLElement | null)?.dataset?.testId ?? null,
+      activeElementTagName: activeElement?.tagName?.toLowerCase() ?? null,
       anchorInRoot,
       anchorNodeText: selection?.anchorNode?.textContent ?? null,
       focusInRoot,
       hasSelection: !!selection,
       parentRect: null,
       rangeCount: selection?.rangeCount ?? 0,
+      rootContainsActiveElement:
+        !!activeElement && element.contains(activeElement),
       scrollParentTagName: null,
       textHostText: null,
       visible: false,
@@ -4580,6 +4639,8 @@ const takeCaretVisibilitySnapshot = async (
     const visible =
       anchorInRoot &&
       focusInRoot &&
+      !!activeElement &&
+      element.contains(activeElement) &&
       visibleRect.top >= parentRect.top - 1 &&
       visibleRect.bottom <= parentRect.bottom + 1
 
@@ -4625,6 +4686,36 @@ const assertCaretVisibleInScrollableParent = async (root: Locator) => {
   }
 }
 
+const assertNoVisibleCaretInRoot = async (root: Locator) => {
+  let lastSnapshot: CaretVisibilitySnapshot | null = null
+
+  try {
+    await expect
+      .poll(async () => {
+        lastSnapshot = await takeCaretVisibilitySnapshot(root)
+
+        return {
+          rootContainsActiveElement: lastSnapshot.rootContainsActiveElement,
+          visible: lastSnapshot.visible,
+        }
+      })
+      .toEqual({
+        rootContainsActiveElement: false,
+        visible: false,
+      })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+
+    throw new Error(
+      `${message}\nLast caret visibility snapshot: ${JSON.stringify(
+        lastSnapshot,
+        null,
+        2
+      )}`
+    )
+  }
+}
+
 export const assertSlateBrowserCaretVisibleInScrollableParent = async (
   editor: SlateBrowserEditorHarness
 ) => {
@@ -4652,13 +4743,62 @@ const getSelectionRect = async (
       return null
     }
 
-    const rect = selection.getRangeAt(0).getBoundingClientRect()
+    const range = selection.getRangeAt(0)
+    const rect = range.getBoundingClientRect()
+    const clientRect = Array.from(range.getClientRects()).find(
+      (candidate) => candidate.width > 0 || candidate.height > 0
+    )
+    const usableRect =
+      clientRect ??
+      (rect.width > 0 || rect.height > 0 ? rect : null) ??
+      (() => {
+        if (!range.collapsed) {
+          return null
+        }
+
+        const start =
+          range.startContainer.nodeType === Node.ELEMENT_NODE
+            ? (range.startContainer as Element)
+            : range.startContainer.parentElement
+
+        if (!start) {
+          return null
+        }
+
+        const nearestSlateRectOwner = start.closest(
+          [
+            '[data-slate-string]',
+            '[data-slate-zero-width]',
+            '[data-slate-leaf]',
+            '[data-slate-node="text"]',
+            '[data-slate-node="element"]',
+          ].join(',')
+        )
+
+        let current: Element | null = nearestSlateRectOwner
+
+        while (current && element.contains(current)) {
+          const fallbackRect = current.getBoundingClientRect()
+
+          if (fallbackRect.width > 0 || fallbackRect.height > 0) {
+            return fallbackRect
+          }
+
+          current = current.parentElement
+        }
+
+        return null
+      })()
+
+    if (!usableRect) {
+      return null
+    }
 
     return {
-      x: rect.x,
-      y: rect.y,
-      width: rect.width,
-      height: rect.height,
+      x: usableRect.x,
+      y: usableRect.y,
+      width: usableRect.width,
+      height: usableRect.height,
     }
   })
 
@@ -5790,6 +5930,120 @@ const dragTextRange = async (
   await page.mouse.up()
 }
 
+const doubleClickDragTextRange = async (
+  root: Locator,
+  {
+    doubleClickOffset,
+    endOffset,
+    gestureDelayMs = 35,
+    steps = 16,
+    text,
+    textNodeIndex = 0,
+  }: SlateBrowserDoubleClickDragTextRangeOptions
+) => {
+  const points = await root.evaluate(
+    (
+      element,
+      {
+        doubleClickOffset,
+        endOffset,
+        text,
+        textNodeIndex,
+      }: Required<
+        Pick<
+          SlateBrowserDoubleClickDragTextRangeOptions,
+          'doubleClickOffset' | 'endOffset' | 'text' | 'textNodeIndex'
+        >
+      >
+    ) => {
+      const ownerDocument = element.ownerDocument
+      const walker = ownerDocument.createTreeWalker(
+        element,
+        NodeFilter.SHOW_TEXT
+      )
+      const matches: Node[] = []
+
+      while (walker.nextNode()) {
+        if (walker.currentNode.textContent === text) {
+          matches.push(walker.currentNode)
+        }
+      }
+
+      const textNode = matches[textNodeIndex]
+
+      if (!textNode) {
+        throw new Error(`Text node not found for double-click drag: ${text}`)
+      }
+
+      const textLength = textNode.textContent?.length ?? 0
+
+      if (textLength === 0) {
+        throw new Error('Cannot double-click drag an empty text node')
+      }
+
+      const clampOffset = (offset: number) =>
+        Math.max(0, Math.min(offset, textLength))
+      const pointAt = (
+        offset: number,
+        affinity: 'anchor' | 'end' | 'start'
+      ) => {
+        const safeOffset = clampOffset(offset)
+        const probeStart =
+          affinity === 'end'
+            ? Math.max(0, Math.min(safeOffset - 1, textLength - 1))
+            : Math.max(0, Math.min(safeOffset, textLength - 1))
+        const probeEnd = Math.min(textLength, probeStart + 1)
+        const range = ownerDocument.createRange()
+
+        range.setStart(textNode, probeStart)
+        range.setEnd(textNode, probeEnd)
+
+        const rect = range.getClientRects()[0] ?? range.getBoundingClientRect()
+
+        if (!rect || rect.width <= 0 || rect.height <= 0) {
+          throw new Error(
+            `Text offset has no selectable rect: ${text} @ ${offset}`
+          )
+        }
+
+        const x =
+          affinity === 'anchor'
+            ? rect.left + rect.width / 2
+            : affinity === 'end'
+              ? Math.max(rect.left + 1, rect.right - 1)
+              : rect.left + 1
+
+        return {
+          x,
+          y: rect.top + rect.height / 2,
+        }
+      }
+      const forward = endOffset >= doubleClickOffset
+
+      textNode.parentElement?.scrollIntoView({
+        block: 'center',
+        inline: 'nearest',
+      })
+
+      return {
+        end: pointAt(endOffset, forward ? 'end' : 'start'),
+        start: pointAt(doubleClickOffset, 'anchor'),
+      }
+    },
+    { doubleClickOffset, endOffset, text, textNodeIndex }
+  )
+  const page = root.page()
+
+  await page.mouse.move(points.start.x, points.start.y)
+  await page.mouse.down()
+  await page.mouse.up()
+  await page.waitForTimeout(gestureDelayMs)
+  await page.mouse.down({ clickCount: 2 })
+  await page.waitForTimeout(gestureDelayMs)
+  await page.mouse.move(points.end.x, points.end.y, { steps })
+  await page.mouse.up({ clickCount: 2 })
+}
+
 const waitForReady = async (
   editor: SlateBrowserEditorHarness,
   surface: SurfaceTarget,
@@ -6111,6 +6365,11 @@ const createEditorHarness = (
       dragTextRange: async (options: SlateBrowserDragTextRangeOptions) => {
         await dragTextRange(root, options)
       },
+      doubleClickDragTextRange: async (
+        options: SlateBrowserDoubleClickDragTextRangeOptions
+      ) => {
+        await doubleClickDragTextRange(root, options)
+      },
       collapse: async (point: SelectionPoint) => {
         await harness.selection.select({
           anchor: point,
@@ -6396,8 +6655,11 @@ const createEditorHarness = (
       blockTexts: async (texts: string[]) => {
         await expect.poll(() => getBlockTexts(root)).toEqual(texts)
       },
-      html: async (expectedFragment: string) => {
-        await harness.assert.htmlContains(expectedFragment)
+      html: async (
+        expectedHtml: string,
+        options: HtmlNormalizationOptions = {}
+      ) => {
+        await harness.assert.htmlEquals(expectedHtml, options)
       },
       htmlContains: async (expectedFragment: string) => {
         await expect
@@ -6460,6 +6722,9 @@ const createEditorHarness = (
       },
       caretVisibleInScrollableParent: async () => {
         await assertCaretVisibleInScrollableParent(root)
+      },
+      noVisibleCaretInRoot: async () => {
+        await assertNoVisibleCaretInRoot(root)
       },
       domSelection: async (expected: DOMSelectionSnapshotExpectation) => {
         await assertDOMSelectionExpectation(root, expected)
@@ -7379,7 +7644,19 @@ export const openExampleWithOptions = async (
     ])
   }
 
-  await page.goto(`${baseUrl}/examples/${name}${formatExampleQuery(query)}`, {
+  const examplePath = `/examples/${name}`
+  const exampleUrl = `${baseUrl}${examplePath}${formatExampleQuery(query)}`
+  const currentUrl = page.url()
+  const currentPath =
+    currentUrl && currentUrl !== 'about:blank'
+      ? new URL(currentUrl).pathname
+      : null
+
+  if (query && currentPath === examplePath) {
+    await page.goto('about:blank', { waitUntil: 'commit' })
+  }
+
+  await page.goto(exampleUrl, {
     waitUntil: 'commit',
   })
   const resolvedSurface = await resolveSurface(page, surface)

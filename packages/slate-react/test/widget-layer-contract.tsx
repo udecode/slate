@@ -284,6 +284,48 @@ describe('slate-react widget layer contract', () => {
     store.destroy()
   })
 
+  test('widget stores subscribe to commits without forcing snapshot subscribers', () => {
+    const editor = createEditor()
+    const originalSubscribe = editor.subscribe
+    const originalSubscribeCommit = editor.subscribeCommit
+    let commitSubscriptions = 0
+    let snapshotSubscriptions = 0
+
+    Editor.replace(editor, {
+      children: createChildren(),
+      selection: null,
+    })
+
+    Object.defineProperties(editor, {
+      subscribe: {
+        value: ((...args) => {
+          snapshotSubscriptions += 1
+          return originalSubscribe(...args)
+        }) satisfies typeof editor.subscribe,
+      },
+      subscribeCommit: {
+        value: ((...args) => {
+          commitSubscriptions += 1
+          return originalSubscribeCommit(...args)
+        }) satisfies typeof editor.subscribeCommit,
+      },
+    })
+
+    const store = createSlateWidgetStore(editor, () => [
+      {
+        anchor: {
+          type: 'selection' as const,
+        },
+        id: 'toolbar-widget',
+      },
+    ])
+
+    expect(commitSubscriptions).toBe(1)
+    expect(snapshotSubscriptions).toBe(0)
+
+    store.destroy()
+  })
+
   test('node widgets stay attached by runtime id through structural moves', async () => {
     const editor = createEditor()
     let notifications = 0

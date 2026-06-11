@@ -57,6 +57,41 @@ export {
   syncEditorSelectionFromDOM,
 } from './selection-controller'
 
+type DocumentBoundaryKeyboardEvent = Pick<
+  KeyboardEvent,
+  'altKey' | 'ctrlKey' | 'key' | 'metaKey' | 'shiftKey'
+>
+
+export const getDocumentBoundaryKeyboardMove = (
+  event: DocumentBoundaryKeyboardEvent
+): { extend: boolean; reverse: boolean } | null => {
+  if (event.altKey) {
+    return null
+  }
+
+  if (event.ctrlKey && !event.metaKey) {
+    if (event.key === 'Home') {
+      return { extend: event.shiftKey, reverse: true }
+    }
+
+    if (event.key === 'End') {
+      return { extend: event.shiftKey, reverse: false }
+    }
+  }
+
+  if (event.metaKey && !event.ctrlKey) {
+    if (event.key === 'ArrowUp') {
+      return { extend: event.shiftKey, reverse: true }
+    }
+
+    if (event.key === 'ArrowDown') {
+      return { extend: event.shiftKey, reverse: false }
+    }
+  }
+
+  return null
+}
+
 export const isNestedEditableDOMTarget = (
   editorElement: HTMLElement,
   target: EventTarget | null
@@ -251,6 +286,7 @@ export const classifyKeyboardIntent = ({
     Hotkeys.isMoveLineForward(nativeEvent) ||
     Hotkeys.isExtendLineBackward(nativeEvent) ||
     Hotkeys.isExtendLineForward(nativeEvent) ||
+    getDocumentBoundaryKeyboardMove(nativeEvent) ||
     shouldModelOwnPlainVerticalLargeDocumentExtension({
       domStrategyRuntime,
       editor,

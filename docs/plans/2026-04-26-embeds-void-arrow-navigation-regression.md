@@ -21,7 +21,7 @@ Restore keyboard navigation in `/examples/embeds` so ArrowRight from the end of 
 ## Verification
 
 - `bun test ./packages/slate/test/query-contract.ts --bail 1`
-- `PLAYWRIGHT_BASE_URL=http://localhost:3100 bunx playwright test ./playwright/integration/examples/embeds.test.ts --project=chromium --workers=1 --retries=0`
+- `PLAYWRIGHT_BASE_URL=http://localhost:3100 bun run playwright ./playwright/integration/examples/embeds.test.ts --project=chromium --workers=1 --retries=0`
 - `bunx turbo build --filter=./packages/slate --force`
 - `bunx turbo typecheck --filter=./packages/slate --force`
 - `bun run typecheck:root`

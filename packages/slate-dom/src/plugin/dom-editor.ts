@@ -54,6 +54,7 @@ import {
   insertDOMData,
   insertDOMFragmentData,
   insertDOMTextData,
+  readDOMFragmentData,
   writeDOMSelectionData,
 } from './dom-clipboard-runtime'
 import { DOMCoverage } from './dom-coverage'
@@ -63,6 +64,80 @@ import { DOMCoverage } from './dom-coverage'
  */
 
 const CSS_BREAK_WHITESPACE_PATTERN = /^[\t\n\f\r ]+$/
+
+const eventCarriesBlockFragment = <V extends Value>(
+  editor: DOMEditor<V>,
+  event: DragEvent | ClipboardEvent
+) => {
+  const data =
+    'dataTransfer' in event ? event.dataTransfer : event.clipboardData
+
+  if (!data) {
+    return false
+  }
+
+  const fragment = readDOMFragmentData(editor, data)
+
+  return (
+    fragment?.some(
+      (node) => NodeApi.isElement(node) && !Editor.isInline(editor, node)
+    ) ?? false
+  )
+}
+
+const resolveBlockFragmentDropRange = <V extends Value>(
+  editor: DOMEditor<V>,
+  {
+    path,
+    target,
+    y,
+  }: {
+    path: Path | null
+    target: EventTarget | null
+    y: number
+  }
+) => {
+  if (!path || !isDOMNode(target)) {
+    return null
+  }
+
+  const targetNode = NodeApi.get(editor, path)
+  const blockMatch =
+    NodeApi.isElement(targetNode) && Editor.isBlock(editor, targetNode)
+      ? ([targetNode, path] as const)
+      : Editor.above(editor, {
+          at: path,
+          match: (node) =>
+            NodeApi.isElement(node) && Editor.isBlock(editor, node),
+        })
+
+  if (!blockMatch) {
+    return null
+  }
+
+  const [block, blockPath] = blockMatch
+
+  if (!NodeApi.isElement(block) || Editor.isVoid(editor, block)) {
+    return null
+  }
+
+  const blockElement = DOMEditor.resolveDOMNode(editor, block)
+
+  if (!blockElement) {
+    return null
+  }
+
+  const rect = blockElement.getBoundingClientRect()
+  const isBefore = y - rect.top < rect.bottom - y
+  const edge = Editor.point(editor, blockPath, {
+    edge: isBefore ? 'start' : 'end',
+  })
+  const point = isBefore
+    ? (Editor.before(editor, edge) ?? edge)
+    : (Editor.after(editor, edge) ?? edge)
+
+  return Editor.range(editor, point)
+}
 
 export interface DOMEditor<V extends Value = Value> extends SlateEditor<V> {
   dom: DOMEditorCapability
@@ -1501,6 +1576,23 @@ export const DOMEditor: DOMEditorInterface = {
       if (point) {
         const range = Editor.range(editor, point)
         return range
+      }
+    }
+
+    if (
+      eventCarriesBlockFragment(
+        editor,
+        resolvedEvent as DragEvent | ClipboardEvent
+      )
+    ) {
+      const blockFragmentRange = resolveBlockFragmentDropRange(editor, {
+        path,
+        target,
+        y,
+      })
+
+      if (blockFragmentRange) {
+        return blockFragmentRange
       }
     }
 

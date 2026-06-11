@@ -20,7 +20,8 @@ export const input = (
     </block>
   </editor>
 )
-// TODO: this cursor placement seems off
+// Current policy: the inserted inline owns the collapsed cursor and is followed
+// by the normal trailing spacer text node.
 export const output = (
   <editor>
     <block>

@@ -109,25 +109,35 @@ export const applyModelOwnedHistoryIntent = ({
     return false
   }
 
-  editor.update((tx) => {
-    const history = (
-      tx as {
-        history?: {
-          redo?: () => void
-          undo?: () => void
-        }
-      }
-    ).history
-    const fn = history?.[direction]
+  const previousViewSelection = readSlateViewSelection(editor)
 
-    if (typeof fn !== 'function') {
-      throw new Error(`Editor history API does not expose ${direction}.`)
-    }
-
-    fn()
-  })
-  EDITOR_TO_HISTORY_FOCUS_ROOT.set(editor, focusRoot)
   writeSlateViewSelection(editor, viewSelectionAfterHistory ?? null)
+  try {
+    editor.update(
+      (tx) => {
+        const history = (
+          tx as {
+            history?: {
+              redo?: () => void
+              undo?: () => void
+            }
+          }
+        ).history
+        const fn = history?.[direction]
+
+        if (typeof fn !== 'function') {
+          throw new Error(`Editor history API does not expose ${direction}.`)
+        }
+
+        fn()
+      },
+      { skipNormalize: true }
+    )
+  } catch (error) {
+    writeSlateViewSelection(editor, previousViewSelection)
+    throw error
+  }
+  EDITOR_TO_HISTORY_FOCUS_ROOT.set(editor, focusRoot)
   return true
 }
 
@@ -971,6 +981,17 @@ const applyRootLocalSelectionMoveCommand = ({
 
   writeSlateViewSelection(editor, null)
   editor.update((tx) => {
+    if (command.axis === 'document') {
+      const point = command.reverse ? tx.points.start([]) : tx.points.end([])
+
+      tx.selection.set(
+        command.extend
+          ? createRange(selection.anchor, point)
+          : createRange(point, point)
+      )
+      return
+    }
+
     if (command.extend) {
       tx.selection.move({
         edge: 'focus',

@@ -340,7 +340,7 @@ export const createSlateWidgetStore = <
     commitSnapshot(nextSnapshot)
   }
 
-  const unsubscribeEditor = editor.subscribe((snapshotValue, change) => {
+  const unsubscribeEditor = editor.subscribeCommit((change) => {
     if (destroyed) {
       return
     }

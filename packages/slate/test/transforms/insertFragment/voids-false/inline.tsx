@@ -20,7 +20,8 @@ export const input = (
     </block>
   </editor>
 )
-// TODO: argument to made that fragment should go into the inline
+// Current policy: insertion inside a void inline is ignored unless voids are
+// explicitly enabled.
 export const output = (
   <editor>
     <block>

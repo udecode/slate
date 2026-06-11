@@ -15,6 +15,7 @@ import {
   getPlainVerticalLargeDocumentExtension,
   shouldModelOwnPlainVerticalLargeDocumentExtension,
 } from './dom-coverage-vertical-selection'
+import { getDocumentBoundaryKeyboardMove } from './input-controller'
 import type { EditableRepairRequest } from './mutation-controller'
 import { Editor } from './runtime-editor-api'
 
@@ -381,6 +382,30 @@ export const applyEditableCaretMovement = ({
         })
       },
       reverse: plainVerticalDOMCoverageExtension.reverse,
+      selection,
+    })
+    return caretMovementHandled()
+  }
+
+  const documentBoundaryMove = getDocumentBoundaryKeyboardMove(nativeEvent)
+
+  if (documentBoundaryMove) {
+    event.preventDefault()
+    moveSelectionAndRespectBoundaries({
+      editor,
+      move: (tx) => {
+        const point = documentBoundaryMove.reverse
+          ? tx.points.start([])
+          : tx.points.end([])
+
+        tx.selection.set(
+          documentBoundaryMove.extend
+            ? { anchor: selection?.anchor ?? point, focus: point }
+            : { anchor: point, focus: point }
+        )
+      },
+      preserveAnchorOnBoundarySkip: documentBoundaryMove.extend,
+      reverse: documentBoundaryMove.reverse,
       selection,
     })
     return caretMovementHandled()

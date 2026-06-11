@@ -119,6 +119,330 @@ test.describe('plaintext example', () => {
       .toBe(true)
   })
 
+  test('pastes at the clicked caret after Shift state is released', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop modifier/click proof'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'plaintext', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+      const initialText = 'alpha beta gamma'
+      const selectedText = 'beta'
+      const selectionStart = initialText.indexOf(selectedText)
+      const selectionEnd = selectionStart + selectedText.length
+      const clickOffset = initialText.indexOf('gamma')
+      const pastedText = 'PASTE'
+
+      await editor.selection.selectAll()
+      await page.keyboard.insertText(initialText)
+      await editor.selection.selectDOM({
+        anchor: { path: [0, 0], offset: selectionStart },
+        focus: { path: [0, 0], offset: selectionEnd },
+      })
+      await expect.poll(() => editor.get.selectedText()).toBe(selectedText)
+
+      await page.keyboard.down('Shift')
+      await page.keyboard.press('ArrowRight')
+      await page.keyboard.up('Shift')
+      await editor.root.evaluate((element: HTMLElement) => {
+        element.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            bubbles: true,
+            cancelable: true,
+            code: 'ShiftLeft',
+            key: 'Shift',
+            shiftKey: true,
+          })
+        )
+      })
+
+      const clickPoint = await editor.root.evaluate(
+        (element: HTMLElement, offset: number) => {
+          const ownerDocument = element.ownerDocument
+          const walker = ownerDocument.createTreeWalker(
+            element,
+            NodeFilter.SHOW_TEXT
+          )
+          let remaining = offset
+
+          while (walker.nextNode()) {
+            const textNode = walker.currentNode as Text
+            const length = textNode.textContent?.length ?? 0
+
+            if (remaining <= length) {
+              const start = Math.max(0, Math.min(remaining, length - 1))
+              const end = Math.min(length, start + 1)
+              const range = ownerDocument.createRange()
+
+              range.setStart(textNode, start)
+              range.setEnd(textNode, end)
+
+              const rect =
+                range.getClientRects()[0] ?? range.getBoundingClientRect()
+
+              if (!rect || rect.width <= 0 || rect.height <= 0) {
+                throw new Error('Missing click target text rect')
+              }
+
+              return {
+                x: rect.left + 1,
+                y: rect.top + rect.height / 2,
+              }
+            }
+
+            remaining -= length
+          }
+
+          throw new Error('Missing click target text node')
+        },
+        clickOffset
+      )
+
+      await page.mouse.click(clickPoint.x, clickPoint.y)
+      await expect.poll(() => editor.get.selectedText()).toBe('')
+      await expect
+        .poll(async () => {
+          const selection = await editor.get.selection()
+
+          if (!selection) {
+            return false
+          }
+
+          return (
+            JSON.stringify(selection.anchor.path) === JSON.stringify([0, 0]) &&
+            JSON.stringify(selection.anchor) === JSON.stringify(selection.focus)
+          )
+        })
+        .toBe(true)
+
+      const clickedSelection = await editor.get.selection()
+      const insertOffset = clickedSelection?.anchor.offset
+
+      expect(insertOffset).toBeGreaterThanOrEqual(clickOffset)
+      expect(insertOffset).toBeLessThanOrEqual(clickOffset + 1)
+
+      await editor.clipboard.pasteText(pastedText)
+
+      const safeInsertOffset = insertOffset!
+      const expectedText = `${initialText.slice(
+        0,
+        safeInsertOffset
+      )}${pastedText}${initialText.slice(safeInsertOffset)}`
+
+      await editor.assert.blockTexts([expectedText])
+      await editor.assert.selection({
+        anchor: { path: [0, 0], offset: safeInsertOffset + pastedText.length },
+        focus: { path: [0, 0], offset: safeInsertOffset + pastedText.length },
+      })
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('extends a double-click word selection while dragging', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop double-click drag selection proof'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'plaintext', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+      const text = 'This is editable plain text, just like a <textarea>!'
+
+      await editor.selection.doubleClickDragTextRange({
+        doubleClickOffset: 'This is edit'.length,
+        endOffset: 'This is editable plain'.length,
+        text,
+      })
+
+      await expect.poll(() => editor.get.selectedText()).toContain('plain')
+      const selectedText = await editor.get.selectedText()
+      const nativeSelectedText = await page.evaluate(
+        () => window.getSelection()?.toString() ?? ''
+      )
+
+      expect(selectedText).not.toBe('editable')
+      expect(selectedText.startsWith('editable plain')).toBe(true)
+      expect(nativeSelectedText).toBe(selectedText)
+      await editor.assert.selection({
+        anchor: { path: [0, 0], offset: 'This is '.length },
+        focus: {
+          path: [0, 0],
+          offset: 'This is '.length + selectedText.length,
+        },
+      })
+      await editor.assert.noDoubleSelectionHighlight()
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('stays interactive after dragging selected plain text', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop selected-text drag/drop stability proof'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'plaintext', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+      const initialText = 'This is editable plain text, just like a <textarea>!'
+      const movedText = 'editableThis is  plain text, just like a <textarea>!'
+      const selectionStart = 'This is '.length
+      const selectionEnd = selectionStart + 'editable'.length
+
+      await editor.selection.selectDOM({
+        anchor: { path: [0, 0], offset: selectionStart },
+        focus: { path: [0, 0], offset: selectionEnd },
+      })
+      await expect.poll(() => editor.get.selectedText()).toBe('editable')
+
+      const payload = await editor.root.evaluate(
+        (
+          element: HTMLElement,
+          {
+            dragOffset,
+            dropOffset,
+          }: {
+            dragOffset: number
+            dropOffset: number
+          }
+        ) => {
+          const pointForOffset = (offset: number) => {
+            const walker = element.ownerDocument.createTreeWalker(
+              element,
+              NodeFilter.SHOW_TEXT
+            )
+            let remaining = offset
+
+            while (walker.nextNode()) {
+              const node = walker.currentNode
+              const length = node.textContent?.length ?? 0
+
+              if (remaining <= length) {
+                const range = element.ownerDocument.createRange()
+
+                range.setStart(node, remaining)
+                range.collapse(true)
+
+                const rect = range.getBoundingClientRect()
+
+                return {
+                  x: rect.left,
+                  y: rect.top + rect.height / 2,
+                }
+              }
+
+              remaining -= length
+            }
+
+            throw new Error('Missing drag/drop text point')
+          }
+          const dragPoint = pointForOffset(dragOffset)
+          const dropPoint = pointForOffset(dropOffset)
+          const dragTarget =
+            element.ownerDocument.elementFromPoint(dragPoint.x, dragPoint.y) ??
+            element
+          const dropTarget =
+            element.ownerDocument.elementFromPoint(dropPoint.x, dropPoint.y) ??
+            element
+          const data = new DataTransfer()
+
+          dragTarget.dispatchEvent(
+            new DragEvent('dragstart', {
+              bubbles: true,
+              cancelable: true,
+              clientX: dragPoint.x,
+              clientY: dragPoint.y,
+              dataTransfer: data,
+            })
+          )
+          dropTarget.dispatchEvent(
+            new DragEvent('dragover', {
+              bubbles: true,
+              cancelable: true,
+              clientX: dropPoint.x,
+              clientY: dropPoint.y,
+              dataTransfer: data,
+            })
+          )
+          dropTarget.dispatchEvent(
+            new DragEvent('drop', {
+              bubbles: true,
+              cancelable: true,
+              clientX: dropPoint.x,
+              clientY: dropPoint.y,
+              dataTransfer: data,
+            })
+          )
+          dragTarget.dispatchEvent(
+            new DragEvent('dragend', {
+              bubbles: true,
+              cancelable: true,
+              clientX: dropPoint.x,
+              clientY: dropPoint.y,
+              dataTransfer: data,
+            })
+          )
+
+          return {
+            text: data.getData('text/plain'),
+            types: [...data.types],
+          }
+        },
+        {
+          dragOffset: selectionStart + 1,
+          dropOffset: initialText.indexOf('text'),
+        }
+      )
+
+      expect(payload.types).toContain('application/x-slate-fragment')
+      expect(payload.text).toBe('editable')
+
+      await editor.selection.collapse({
+        path: [0, 0],
+        offset: initialText.length,
+      })
+      await page.keyboard.insertText(' still interactive')
+
+      await editor.assert.text(`${movedText} still interactive`)
+      await editor.assert.selection({
+        anchor: { path: [0, 0], offset: movedText.length + 18 },
+        focus: { path: [0, 0], offset: movedText.length + 18 },
+      })
+      await editor.assert.noDoubleSelectionHighlight()
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
   test('replaces a multi-paragraph selection with typed text', async ({
     page,
   }, testInfo) => {
@@ -451,6 +775,55 @@ test.describe('plaintext example', () => {
       anchor: { path: [0, 0], offset: selectionStart },
       focus: { path: [0, 0], offset: selectionStart },
     })
+  })
+
+  test('copies a visually wrapped long paragraph without hard-wrap newlines', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop clipboard proof')
+    test.skip(
+      testInfo.project.name === 'webkit',
+      'WebKit blocks privileged clipboard reads in Playwright'
+    )
+
+    const editor = await openExample(page, 'plaintext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const longText = [
+      'Firefox should copy this visually wrapped paragraph as one logical line',
+      'without adding layout-wrap newlines to the clipboard payload',
+      'or to the text that is pasted back into the editor.',
+    ].join(' ')
+
+    await editor.root.evaluate((element: HTMLElement) => {
+      element.style.maxWidth = '220px'
+      element.style.width = '220px'
+      element.style.whiteSpace = 'pre-wrap'
+    })
+    await editor.selectAll()
+    await page.keyboard.insertText(longText)
+    await editor.assert.blockTexts([longText])
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: longText.length },
+    })
+    await expect.poll(() => editor.get.selectedText()).toBe(longText)
+
+    await editor.root.press('ControlOrMeta+C')
+
+    const copiedText = await editor.clipboard.readText()
+
+    expect(copiedText).toBe(longText)
+    expect(copiedText).not.toContain('\n')
+
+    await editor.selectAll()
+    await editor.root.press('Backspace')
+    await editor.root.press('ControlOrMeta+V')
+
+    await editor.assert.blockTexts([longText])
   })
 
   test('selects all plain text through a trailing empty line', async ({

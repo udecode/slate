@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import {
   installSlateReactRenderProfiler,
   openExample,
+  recordSlateBrowserRuntimeErrors,
   resetSlateReactRenderProfiler,
   takeSlateBrowserRenderStateSnapshot,
 } from 'slate-browser/playwright'
@@ -273,6 +274,30 @@ test.describe('table example', () => {
       anchor: { path: [1, 0, 0, 0], offset: 1 },
       focus: { path: [1, 0, 0, 0], offset: 1 },
     })
+  })
+
+  test('pastes plain text into an empty table cell without throwing', async ({
+    page,
+  }) => {
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'tables', {
+      ready: { editor: 'visible' },
+    })
+
+    try {
+      await editor.selection.collapse({ path: [1, 0, 0, 0], offset: 0 })
+      await editor.clipboard.pasteText('Pasted')
+
+      await expect(editor.root.locator('table')).toHaveCount(1)
+      await expect(editor.root.locator('td').first()).toHaveText('Pasted')
+      await editor.assert.selection({
+        anchor: { path: [1, 0, 0, 0], offset: 'Pasted'.length },
+        focus: { path: [1, 0, 0, 0], offset: 'Pasted'.length },
+      })
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
   })
 
   test('moves right from an empty cell to the start of the next cell', async ({

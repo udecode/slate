@@ -1,11 +1,12 @@
 import { type KeyboardEvent, useCallback, useMemo } from 'react'
-import type { Operation, RootKey } from 'slate'
+import type { EditorUpdateOptions, Operation, RootKey } from 'slate'
 import { resolveHistoryFocusEditor } from '../editable/history-focus'
 import {
   getHistoryDirectionFromNativeEvent,
   type HistoryDirection,
 } from '../editable/history-keyboard'
 import {
+  readSlateViewSelection,
   readSlateViewSelectionHistoryEntry,
   writeSlateViewSelection,
 } from '../view-selection'
@@ -148,9 +149,11 @@ const selectHistoryAvailability = (state: unknown): HistoryAvailability => {
   }
 }
 
-const getHistoryUpdateOptions = (focus: SlateHistoryFocusPolicy) =>
-  focus === 'preserve-dom'
-    ? ({
+const getHistoryUpdateOptions = (
+  focus: SlateHistoryFocusPolicy
+): EditorUpdateOptions => ({
+  ...(focus === 'preserve-dom'
+    ? {
         metadata: {
           selection: {
             dom: 'preserve',
@@ -158,8 +161,10 @@ const getHistoryUpdateOptions = (focus: SlateHistoryFocusPolicy) =>
             scroll: false,
           },
         },
-      } as const)
-    : undefined
+      }
+    : null),
+  skipNormalize: true,
+})
 
 export function useSlateHistory({
   focusPolicy = 'restore-root',
@@ -196,15 +201,28 @@ export function useSlateHistory({
         editor,
         direction
       )
+      const previousViewSelection = readSlateViewSelection(editor)
+      let applied = false
 
-      editor.update((tx) => {
-        if (!hasHistoryCommands(tx)) {
-          return
-        }
-
-        tx.history[direction]()
-      }, getHistoryUpdateOptions(focusPolicy))
       writeSlateViewSelection(editor, viewSelectionAfterHistory ?? null)
+      try {
+        editor.update((tx) => {
+          if (!hasHistoryCommands(tx)) {
+            return
+          }
+
+          tx.history[direction]()
+          applied = true
+        }, getHistoryUpdateOptions(focusPolicy))
+      } catch (error) {
+        writeSlateViewSelection(editor, previousViewSelection)
+        throw error
+      }
+
+      if (!applied) {
+        writeSlateViewSelection(editor, previousViewSelection)
+        return
+      }
 
       if (focusPolicy === 'restore-root') {
         scheduleSlateReactFocus(() => {

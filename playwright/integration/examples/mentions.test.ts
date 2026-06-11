@@ -929,6 +929,165 @@ test.describe('mentions example', () => {
       .toBe('!')
   })
 
+  test('drag-selects across leading inline mentions atomically', async ({
+    browserName,
+    page,
+  }, testInfo) => {
+    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
+      return
+    }
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'mentions', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+      const beforeFirstMentionText = 'Try mentioning characters, like '
+
+      await editor.selection.select({
+        anchor: { path: [1, 0], offset: 0 },
+        focus: { path: [1, 0], offset: beforeFirstMentionText.length },
+      })
+      await editor.deleteFragment()
+
+      const firstMention = page.locator('[data-cy="mention-R2-D2"]').first()
+      const secondMention = page
+        .locator('[data-cy="mention-Mace-Windu"]')
+        .first()
+      const firstBox = await firstMention.boundingBox()
+      const secondBox = await secondMention.boundingBox()
+
+      if (!firstBox || !secondBox) {
+        throw new Error('Missing mention boxes for leading inline drag proof')
+      }
+
+      const y = firstBox.y + firstBox.height / 2
+
+      await page.mouse.move(firstBox.x + 2, y)
+      await page.mouse.down()
+      await page.mouse.move(secondBox.x + secondBox.width - 2, y, {
+        steps: 12,
+      })
+      await page.mouse.up()
+
+      runtimeErrors.assertNone()
+      await expect
+        .poll(async () =>
+          (await editor.get.selectedText()).replaceAll('\u00A0', ' ')
+        )
+        .toBe('@R2-D2 or @Mace Windu')
+      await editor.assert.noDoubleSelectionHighlight()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
+  test('shows a drop cursor when dragging over an inline mention void', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop dragover visual proof'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'mentions', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+
+      await page.waitForLoadState('networkidle')
+      await expect(
+        page.locator('[data-cy="mention-R2-D2"]').first()
+      ).toBeVisible()
+      await expect
+        .poll(() => editor.get.modelText())
+        .toContain('Try mentioning characters, like  or !')
+
+      const mention = page.locator('[data-cy="mention-R2-D2"]').first()
+      const cursor = editor.root.locator('[data-slate-drop-cursor]')
+      const dispatchMentionDrag = async (horizontalEdge: 'left' | 'right') =>
+        mention.evaluate((element, edge) => {
+          const rect = element.getBoundingClientRect()
+          const data = new DataTransfer()
+          const clientX = edge === 'left' ? rect.left + 1 : rect.right - 1
+
+          data.setData('text/plain', 'dragged text')
+          element.dispatchEvent(
+            new DragEvent('dragover', {
+              bubbles: true,
+              cancelable: true,
+              clientX,
+              clientY: rect.top + rect.height / 2,
+              dataTransfer: data,
+            })
+          )
+        }, horizontalEdge)
+
+      await dispatchMentionDrag('left')
+      await expect(cursor).toBeVisible()
+
+      const leftCursorBox = await cursor.boundingBox()
+      const voidBox = await mention.evaluate((element) => {
+        const rect = element
+          .closest('[data-slate-node][data-slate-void="true"]')
+          ?.getBoundingClientRect()
+
+        if (!rect) {
+          return null
+        }
+
+        return {
+          height: rect.height,
+          width: rect.width,
+          x: rect.x,
+          y: rect.y,
+        }
+      })
+
+      if (!leftCursorBox || !voidBox) {
+        throw new Error('Expected inline mention drop cursor and void boxes')
+      }
+
+      expect(leftCursorBox.x).toBeLessThan(voidBox.x + 3)
+      expect(leftCursorBox.height).toBeGreaterThan(voidBox.height * 0.8)
+
+      await dispatchMentionDrag('right')
+
+      const rightCursorBox = await cursor.boundingBox()
+
+      if (!rightCursorBox) {
+        throw new Error(
+          'Expected inline mention drop cursor after right dragover'
+        )
+      }
+
+      expect(rightCursorBox.x).toBeGreaterThan(voidBox.x + voidBox.width - 3)
+      expect(rightCursorBox.height).toBeGreaterThan(voidBox.height * 0.8)
+
+      await mention.evaluate((element) => {
+        element.dispatchEvent(
+          new DragEvent('dragend', {
+            bubbles: true,
+            cancelable: true,
+            dataTransfer: new DataTransfer(),
+          })
+        )
+      })
+
+      await expect(cursor).toHaveCount(0)
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
+  })
+
   test('typing two spaces after an inline mention does not insert a dot', async ({
     browserName,
     page,

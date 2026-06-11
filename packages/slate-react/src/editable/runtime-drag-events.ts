@@ -85,9 +85,10 @@ export const useRuntimeDragEvents = ({
         editor,
         event,
         onDragOver,
+        state,
       })
     },
-    [editor, inputController, onDragOver, trace]
+    [editor, inputController, onDragOver, state, trace]
   )
   const onRuntimeDragOver = useEditableDragHandler({
     handleDrag: handleDragOver,

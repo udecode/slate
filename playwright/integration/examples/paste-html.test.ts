@@ -819,6 +819,59 @@ test.describe('paste html example', () => {
     await expect(combined.locator('u')).toHaveText('Bold Italic Underline')
   })
 
+  test('keeps rich paste after a stale Shift tab-switch shortcut', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop modifier paste proof'
+    )
+
+    const editor = await openExample(page, 'paste-html', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const text = 'Bold\nItalic\nunderline\nBold Italic Underline'
+
+    await editor.selection.selectAll()
+    await editor.root.evaluate((element: HTMLElement) => {
+      element.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          bubbles: true,
+          cancelable: true,
+          code: 'BracketLeft',
+          key: '[',
+          metaKey: true,
+          shiftKey: true,
+        })
+      )
+    })
+
+    await editor.clipboard.pasteHtml(GOOGLE_DOCS_BIU_HTML, text)
+
+    const paragraphs = editor.root.locator('p')
+    const bold = paragraphs
+      .filter({ hasText: /^Bold$/ })
+      .locator('span[style*="font-size"]')
+    const italic = paragraphs
+      .filter({ hasText: /^Italic$/ })
+      .locator('span[style*="font-size"]')
+    const underline = paragraphs
+      .filter({ hasText: /^underline$/ })
+      .locator('span[style*="font-size"]')
+    const combined = paragraphs
+      .filter({ hasText: /^Bold Italic Underline$/ })
+      .locator('span[style*="font-size"]')
+
+    await expect(bold.locator('strong')).toHaveText('Bold')
+    await expect(italic.locator('em')).toHaveText('Italic')
+    await expect(underline.locator('u')).toHaveText('underline')
+    await expect(combined.locator('strong')).toHaveText('Bold Italic Underline')
+    await expect(combined.locator('em')).toHaveText('Bold Italic Underline')
+    await expect(combined.locator('u')).toHaveText('Bold Italic Underline')
+  })
+
   test('preserves Google Docs list marks across soft line breaks', async ({
     page,
   }, testInfo) => {

@@ -2123,6 +2123,13 @@ const getProjectedSelectionActionFromMoveCommand = ({
     return null
   }
 
+  if (command.axis === 'document') {
+    return {
+      direction: command.reverse ? 'backward' : 'forward',
+      kind: 'document-boundary',
+    }
+  }
+
   const direction = command.reverse
     ? isRTL
       ? 'forward'
