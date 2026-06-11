@@ -9,6 +9,7 @@ const VIRTUAL_CHILD_ID_ATTRIBUTE = 'slate:yjs-virtual-child-id'
 const VIRTUAL_PLACEHOLDER_ATTRIBUTE = 'slate:yjs-virtual-placeholder'
 
 let nextNodeId = 0
+const nodeIdScope = Math.random().toString(36).slice(2)
 
 export const getYjsLength = (node: Y.XmlElement | Y.XmlText) =>
   (node as unknown as { length: number }).length
@@ -203,6 +204,38 @@ export const readSlateValueFromYjs = (root: Y.XmlElement): Descendant[] => {
   return children.length > 0
     ? children
     : [{ children: [{ text: '' }], type: 'paragraph' }]
+}
+
+export const removeRedundantEmptyYjsTextNodes = (root: Y.XmlElement) => {
+  const visit = (parent: Y.XmlElement) => {
+    for (const child of getRawYjsChildren(parent)) {
+      if (child instanceof Y.XmlElement) {
+        visit(child)
+      }
+    }
+
+    const visibleSlots = getYjsVisibleChildSlots(root, parent)
+
+    if (visibleSlots.length <= 1) {
+      return
+    }
+
+    for (let index = visibleSlots.length - 1; index >= 0; index--) {
+      const slot = visibleSlots[index]!
+      const child = slot.node
+
+      if (
+        slot.rawIndex >= 0 &&
+        child instanceof Y.XmlText &&
+        getYjsTextContent(child).length === 0 &&
+        Object.keys(getAttributes(child)).length === 0
+      ) {
+        parent.delete(slot.rawIndex, 1)
+      }
+    }
+  }
+
+  visit(root)
 }
 
 const getUniformTextAttributes = (node: Y.XmlText) => {
@@ -405,8 +438,11 @@ export const insertYjsChild = (
 }
 
 export const setVirtualYjsUnwrapMove = (
+  root: Y.XmlElement,
   target: Y.XmlElement | Y.XmlText,
-  wrapper: Y.XmlElement
+  wrapper: Y.XmlElement,
+  wrapperParent: Y.XmlElement,
+  wrapperIndex: number
 ) => {
   const nodeId = target.getAttribute(NODE_ID_ATTRIBUTE)
 
@@ -419,7 +455,17 @@ export const setVirtualYjsUnwrapMove = (
 
   removeAttribute(target, HIDDEN_ATTRIBUTE)
   removeAttribute(wrapper, VIRTUAL_CHILD_ID_ATTRIBUTE)
-  wrapper.setAttribute(HIDDEN_ATTRIBUTE, true as never)
+
+  if (getRawYjsChildren(wrapper).length === 0) {
+    wrapper.setAttribute(HIDDEN_ATTRIBUTE, true as never)
+  } else {
+    insertYjsChild(
+      root,
+      wrapperParent,
+      wrapperIndex,
+      createVirtualYjsMovePlaceholder(target)
+    )
+  }
 }
 
 export const isVirtualYjsChild = (
@@ -434,6 +480,32 @@ export const isVirtualYjsChild = (
   )
 }
 
+export const removeYjsVirtualPlaceholderChild = (
+  root: Y.XmlElement,
+  parent: Y.XmlElement,
+  index: number,
+  target: Y.XmlElement | Y.XmlText
+) => {
+  const visibleSlot = getYjsVisibleChildSlots(root, parent)[index]
+
+  if (!visibleSlot || visibleSlot.rawIndex < 0 || visibleSlot.node !== target) {
+    return false
+  }
+
+  const rawChild = getRawYjsChildren(parent)[visibleSlot.rawIndex]
+
+  if (
+    !(rawChild instanceof Y.XmlElement) ||
+    !isVirtualYjsPlaceholder(rawChild)
+  ) {
+    return false
+  }
+
+  parent.delete(visibleSlot.rawIndex, 1)
+
+  return true
+}
+
 export const removeYjsChild = (
   root: Y.XmlElement,
   parent: Y.XmlElement,
@@ -442,10 +514,23 @@ export const removeYjsChild = (
 ): 'hidden' | 'hidden-parent' | 'visible' => {
   const visibleSlot = getYjsVisibleChildSlots(root, parent)[index]
   const rawChildren = getRawYjsChildren(parent)
+  const hiddenIndex = rawChildren.findIndex(
+    (child) => isHiddenYjsNode(child) && matchesSlateNode(child, slateNode)
+  )
 
   if (visibleSlot) {
     if (visibleSlot.rawIndex === -1) {
       throw new Error('Cannot remove a virtual Yjs child from its parent.')
+    }
+
+    if (
+      slateNode &&
+      !matchesSlateNode(visibleSlot.node, slateNode) &&
+      hiddenIndex !== -1
+    ) {
+      parent.delete(hiddenIndex, 1)
+
+      return 'hidden'
     }
 
     if (
@@ -461,10 +546,6 @@ export const removeYjsChild = (
 
     return 'visible'
   }
-
-  const hiddenIndex = rawChildren.findIndex(
-    (child) => isHiddenYjsNode(child) && matchesSlateNode(child, slateNode)
-  )
 
   if (hiddenIndex === -1) {
     throw new Error('No Yjs child to remove at the requested visible path.')
@@ -510,7 +591,8 @@ const ensureYjsNodeId = (node: Y.XmlElement | Y.XmlText) => {
     return currentId
   }
 
-  const nextId = `slate-yjs-${++nextNodeId}`
+  const scope = node.doc ? String(node.doc.clientID) : nodeIdScope
+  const nextId = `slate-yjs-${scope}-${++nextNodeId}`
 
   node.setAttribute(NODE_ID_ATTRIBUTE, nextId)
 

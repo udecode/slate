@@ -22,6 +22,7 @@ import {
   getYjsParent,
   getYjsTextContent,
   readSlateValueFromYjs,
+  removeRedundantEmptyYjsTextNodes,
   removeYjsChild,
   replaceYjsChildren,
   SPLIT_UNDO_TEXT_ATTRIBUTE,
@@ -92,6 +93,7 @@ export class YjsController {
   private readonly destroyProviderOnUnmount: boolean
   private readonly doc: Y.Doc
   private readonly editor: Editor
+  private readonly canonicalizeOrigin = {}
   private readonly historyOrigin = {}
   private readonly localOrigin = {}
   private readonly seedOrigin = {}
@@ -168,6 +170,7 @@ export class YjsController {
     this.observer = (_events, transaction) => {
       if (
         transaction.origin === this.localOrigin ||
+        transaction.origin === this.canonicalizeOrigin ||
         transaction.origin === this.seedOrigin ||
         this.paused
       ) {
@@ -979,6 +982,10 @@ export class YjsController {
     if (options.repairRemoteSplitAfterOfflineUndo ?? true) {
       this.repairRemoteSplitAfterOfflineUndo()
     }
+
+    this.doc.transact(() => {
+      removeRedundantEmptyYjsTextNodes(this.root)
+    }, this.canonicalizeOrigin)
 
     const children = readSlateValueFromYjs(this.root)
 

@@ -16,12 +16,15 @@ const baseUrl =
 const TARGET_URL =
   process.env.SOAK_URL ??
   `${baseUrl.replace(/\/$/, '')}/examples/yjs-collaboration`
+const IS_HOCUSPOCUS_TARGET = TARGET_URL.includes('/examples/yjs-hocuspocus')
 const CDP = process.env.SOAK_CDP ?? 'http://127.0.0.1:9222'
 const DURATION_MS = Number(process.env.SOAK_MS ?? 3 * 60 * 60 * 1000)
 const ACTION_DELAY_MS = Number(process.env.SOAK_ACTION_DELAY_MS ?? 1000)
 const REPORT_EVERY_MS = Number(process.env.SOAK_REPORT_EVERY_MS ?? 60 * 1000)
 const RUN_ID =
   process.env.SOAK_RUN_ID ?? new Date().toISOString().replace(/[:.]/g, '-')
+const TRACE_SCENARIO = process.env.SOAK_TRACE_SCENARIO
+const TRACE_SNAPSHOTS = process.env.SOAK_TRACE_SNAPSHOTS === '1'
 const OUTPUT_ROOT =
   process.env.SOAK_OUTPUT_ROOT ?? 'test-results/yjs-collaboration-soak'
 const OUT_DIR = path.resolve(repoRoot, OUTPUT_ROOT, RUN_ID)
@@ -205,17 +208,38 @@ async function getExistingPage(browser) {
   const pages = context.pages()
   return (
     pages.find((candidate) =>
-      candidate.url().includes('/examples/yjs-collaboration')
+      ['/examples/yjs-collaboration', '/examples/yjs-hocuspocus'].some(
+        (pathname) => candidate.url().includes(pathname)
+      )
     ) ??
     pages.find((candidate) => !candidate.isClosed()) ??
     (await context.newPage())
   )
 }
 
+function scenarioUrl(reason) {
+  if (!IS_HOCUSPOCUS_TARGET) {
+    return TARGET_URL
+  }
+
+  const url = new URL(TARGET_URL)
+  const slug = String(reason)
+    .replace(/[^a-z0-9_.:-]/gi, '-')
+    .slice(0, 80)
+
+  url.searchParams.set(
+    'room',
+    `codex-hocuspocus-soak-${RUN_ID}-${metrics.hardResets}-${slug}`
+  )
+
+  return url.toString()
+}
+
 async function navigate(reason) {
   metrics.hardResets += 1
-  write({ type: 'navigate', reason, url: TARGET_URL })
-  await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' })
+  const url = scenarioUrl(reason)
+  write({ type: 'navigate', reason, url })
+  await page.goto(url, { waitUntil: 'domcontentloaded' })
   await page.locator('[data-test-id="yjs-peer-a-append"]').waitFor({
     timeout: 30_000,
   })
@@ -248,6 +272,7 @@ async function click(peer, action, scenario) {
   metrics.actions += 1
   write({ type: 'action', peer, action, scenario })
   await sleep(ACTION_DELAY_MS)
+  await traceSnapshot(scenario, `${peer}:${action}`)
   return true
 }
 
@@ -260,6 +285,7 @@ async function connectAll(scenario) {
 
 async function snapshot() {
   return await page.evaluate(() => {
+    const normalizeSlateText = (text) => text?.replaceAll('\uFEFF', '') ?? ''
     const roots = Array.from(
       document.querySelectorAll('[contenteditable="true"]')
     )
@@ -271,13 +297,13 @@ async function snapshot() {
           .length,
         path: el.getAttribute('data-slate-path'),
         tag: el.tagName,
-        text: el.textContent,
+        text: normalizeSlateText(el.textContent),
       }))
 
       return {
         blocks,
         index,
-        text: root.textContent,
+        text: normalizeSlateText(root.textContent),
       }
     })
 
@@ -305,6 +331,24 @@ function blockTexts(snap) {
 
 function sameJson(left, right) {
   return JSON.stringify(left) === JSON.stringify(right)
+}
+
+async function traceSnapshot(scenario, label) {
+  if (!TRACE_SNAPSHOTS) {
+    return
+  }
+  if (TRACE_SCENARIO && TRACE_SCENARIO !== scenario) {
+    return
+  }
+
+  const snap = await snapshot()
+
+  write({
+    type: 'snapshot',
+    label,
+    scenario,
+    texts: blockTexts(snap),
+  })
 }
 
 async function checkShape(scenario, label) {

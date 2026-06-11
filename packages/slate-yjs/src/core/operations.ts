@@ -15,6 +15,7 @@ import {
   insertYjsChild,
   isVirtualYjsChild,
   removeYjsChild,
+  removeYjsVirtualPlaceholderChild,
   setVirtualYjsMove,
   setVirtualYjsUnwrapMove,
 } from './document'
@@ -377,8 +378,118 @@ const getYjsTextForInsert = (root: Y.XmlElement, path: number[]) => {
   return materializeEmptyYjsText(root, path)
 }
 
+const resolveYjsTextPoint = (
+  root: Y.XmlElement,
+  path: number[],
+  offset: number
+) => {
+  const target = getYjsNode(root, path)
+
+  if (!(target instanceof Y.XmlText)) {
+    return target
+  }
+
+  const { index, parent } = getYjsParent(root, path)
+  const children = getYjsVisibleChildren(root, parent)
+  let remainingOffset = offset
+
+  for (let childIndex = index; childIndex < children.length; childIndex++) {
+    const child = children[childIndex]
+
+    if (!(child instanceof Y.XmlText)) {
+      break
+    }
+
+    const length = getYjsLength(child)
+
+    if (remainingOffset <= length) {
+      return { childIndex, offset: remainingOffset, parent, text: child }
+    }
+
+    remainingOffset -= length
+  }
+
+  return null
+}
+
+const deleteYjsTextRange = (
+  root: Y.XmlElement,
+  path: number[],
+  offset: number,
+  length: number
+) => {
+  const point = resolveYjsTextPoint(root, path, offset)
+
+  if (!point) {
+    return
+  }
+
+  if (point instanceof Y.XmlText || point instanceof Y.XmlElement) {
+    throw new Error('remove_text target is not a Y.XmlText.')
+  }
+
+  let childIndex = point.childIndex
+  let deleteOffset = point.offset
+  let remainingLength = length
+
+  while (remainingLength > 0) {
+    const child = getYjsVisibleChildren(root, point.parent)[childIndex]
+
+    if (!(child instanceof Y.XmlText)) {
+      break
+    }
+
+    const availableLength = getYjsLength(child) - deleteOffset
+    const deleteLength = Math.min(availableLength, remainingLength)
+    let removedEmptyText = false
+
+    if (deleteLength > 0) {
+      child.delete(deleteOffset, deleteLength)
+      remainingLength -= deleteLength
+      removedEmptyText = removeRedundantEmptyYjsText(
+        root,
+        point.parent,
+        childIndex,
+        child
+      )
+    }
+
+    if (remainingLength > 0) {
+      if (!removedEmptyText) {
+        childIndex++
+      }
+      deleteOffset = 0
+    }
+  }
+}
+
 const isEmptyYjsText = (node: Y.XmlElement | Y.XmlText) =>
   node instanceof Y.XmlText && getYjsTextContent(node).length === 0
+
+const hasYjsAttributes = (node: Y.XmlElement | Y.XmlText) =>
+  Object.keys(
+    (
+      node as unknown as { getAttributes(): Record<string, unknown> }
+    ).getAttributes()
+  ).length > 0
+
+const removeRedundantEmptyYjsText = (
+  root: Y.XmlElement,
+  parent: Y.XmlElement,
+  index: number,
+  text: Y.XmlText
+) => {
+  if (getYjsTextContent(text).length > 0 || hasYjsAttributes(text)) {
+    return false
+  }
+  if (getYjsVisibleChildren(root, parent).length <= 1) {
+    return false
+  }
+
+  removeYjsChild(root, parent, index)
+
+  return true
+}
 
 const getYjsElementType = (element: Y.XmlElement) =>
   String(element.getAttribute(SLATE_TYPE_ATTRIBUTE) ?? element.nodeName)
@@ -461,13 +572,12 @@ export const applySlateOperationToYjs = (
       return { mode: 'operation', operationType: operation.type }
     }
     case 'remove_text': {
-      const text = getYjsNode(root, operation.path)
-
-      if (!(text instanceof Y.XmlText)) {
-        throw new Error('remove_text target is not a Y.XmlText.')
-      }
-
-      text.delete(operation.offset, operation.text.length)
+      deleteYjsTextRange(
+        root,
+        operation.path,
+        operation.offset,
+        operation.text.length
+      )
 
       return { mode: 'operation', operationType: operation.type }
     }
@@ -606,6 +716,7 @@ export const applySlateOperationToYjs = (
           )
         }
 
+        removeYjsVirtualPlaceholderChild(root, parent, index, target)
         hideYjsNode(target)
 
         return {
@@ -711,6 +822,7 @@ export const applySlateOperationToYjs = (
     }
     case 'move_node': {
       const target = getYjsNodeIf(root, operation.path)
+      const sourceIndex = operation.path.at(-1)
 
       if (!target) {
         return {
@@ -735,7 +847,18 @@ export const applySlateOperationToYjs = (
         isVirtualYjsChild(target, sourceParent) &&
         pathsEqual(operation.newPath, sourceParentPath)
       ) {
-        setVirtualYjsUnwrapMove(target, sourceParent)
+        const { index: wrapperIndex, parent: wrapperParent } = getYjsParent(
+          root,
+          sourceParentPath
+        )
+
+        setVirtualYjsUnwrapMove(
+          root,
+          target,
+          sourceParent,
+          wrapperParent,
+          wrapperIndex
+        )
 
         return {
           fallback: 'virtual-unwrap-ref',
@@ -755,18 +878,43 @@ export const applySlateOperationToYjs = (
         throw new Error('move_node destination is missing an index.')
       }
 
+      if (
+        sourceParent instanceof Y.XmlElement &&
+        sourceParent === newParent &&
+        sourceIndex !== undefined
+      ) {
+        removeYjsVirtualPlaceholderChild(
+          root,
+          sourceParent,
+          sourceIndex,
+          target
+        )
+      }
+      const insertionIndex = newIndex
       const newParentChildren = getYjsVisibleChildren(root, newParent)
 
       if (
-        newIndex === 0 &&
+        insertionIndex === 0 &&
         newParentChildren.length === 1 &&
         isEmptyYjsText(newParentChildren[0]!)
       ) {
         removeYjsChild(root, newParent, 0)
       }
 
-      if (newIndex === 0 && getYjsLength(newParent) === 0) {
+      if (insertionIndex === 0 && getYjsLength(newParent) === 0) {
         setVirtualYjsMove(root, target, newParent)
+        if (
+          sourceParent instanceof Y.XmlElement &&
+          sourceParent !== newParent &&
+          sourceIndex !== undefined
+        ) {
+          removeYjsVirtualPlaceholderChild(
+            root,
+            sourceParent,
+            sourceIndex,
+            target
+          )
+        }
 
         return {
           fallback: 'virtual-move-ref',
@@ -778,9 +926,21 @@ export const applySlateOperationToYjs = (
       insertYjsChild(
         root,
         newParent,
-        newIndex,
+        insertionIndex,
         createVirtualYjsMovePlaceholder(target)
       )
+      if (
+        sourceParent instanceof Y.XmlElement &&
+        sourceParent !== newParent &&
+        sourceIndex !== undefined
+      ) {
+        removeYjsVirtualPlaceholderChild(
+          root,
+          sourceParent,
+          sourceIndex,
+          target
+        )
+      }
 
       return {
         fallback: 'virtual-move-placeholder',

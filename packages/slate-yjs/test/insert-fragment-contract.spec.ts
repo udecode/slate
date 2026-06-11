@@ -154,6 +154,29 @@ describe('@slate/yjs insert_fragment collaboration contract', () => {
     assertPeerTexts(peers, ['alphaLin fragment'])
   })
 
+  it('broadcasts remove_text at the end of a preserved insert_fragment text boundary', () => {
+    const peers = createPeers(['a', 'b', 'c'])
+    const [, b] = peers
+
+    insertFragment(b)
+    syncConnectedPeers(peers)
+    assertPeerTexts(peers, ['alphaLin fragment'])
+
+    const [text] = getParagraphTexts(b)
+
+    b.editor.update((tx) => {
+      tx.selection.set({
+        anchor: { path: [0, 0], offset: text!.length },
+        focus: { path: [0, 0], offset: text!.length },
+      })
+      tx.text.deleteBackward({ unit: 'character' })
+    })
+    syncConnectedPeers(peers)
+
+    assertPeerTexts(peers, ['alphaLin fragmen'])
+    assertNoRootSnapshot(b)
+  })
+
   it('undoes and redoes only the local insert_fragment intent after reconnect', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers

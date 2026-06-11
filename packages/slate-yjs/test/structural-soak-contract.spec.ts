@@ -32,6 +32,13 @@ const appendTexts: Record<PeerId, string> = {
   d: ' Eve',
 }
 
+const fragmentTexts: Record<PeerId, string> = {
+  a: 'Ada fragment',
+  b: 'Lin fragment',
+  c: 'Ken fragment',
+  d: 'Eve fragment',
+}
+
 const replacementTexts: Record<PeerId, string> = {
   a: 'Ada canonical snapshot.',
   b: 'Lin canonical snapshot.',
@@ -164,6 +171,29 @@ const assertPeerParagraphTexts = (
 ) => {
   for (const peer of peers) {
     assert.deepEqual(paragraphTextsOf(peer), expected)
+  }
+}
+
+const assertFirstParagraphTextChildren = (
+  peers: readonly Peer[],
+  expected: readonly string[]
+) => {
+  for (const peer of peers) {
+    const [firstBlock] = editorValueOf(peer)
+
+    assert.deepEqual(
+      hasChildren(firstBlock)
+        ? firstBlock.children.map((child) => child.text)
+        : [],
+      expected,
+      JSON.stringify(editorValueOf(peer))
+    )
+    assert.deepEqual(
+      readSlateValueFromYjs(getYjsState(peer).root())[0]?.children.map(
+        (child) => child.text
+      ),
+      expected
+    )
   }
 }
 
@@ -318,6 +348,37 @@ const runCommand = (
 ) => {
   command(peers[peerId], peerId)
   sync(peers)
+}
+
+const runIncrementalCommand = (
+  peers: Record<PeerId, Peer>,
+  peerId: PeerId,
+  command: (peer: Peer, peerId: PeerId) => void
+) => {
+  const source = peers[peerId]
+  const stateVector = Y.encodeStateVector(source.doc)
+
+  command(source, peerId)
+
+  if (getYjsState(source).connected()) {
+    const update = Y.encodeStateAsUpdate(source.doc, stateVector)
+
+    for (const target of allPeers(peers)) {
+      if (source === target || !getYjsState(target).connected()) {
+        continue
+      }
+
+      Y.applyUpdate(target.doc, update, source)
+    }
+  }
+
+  for (const peer of allPeers(peers)) {
+    if (!getYjsState(peer).connected()) {
+      continue
+    }
+
+    runYjsUpdate(peer, (yjs) => yjs.reconcile())
+  }
 }
 
 const setConnected = (
@@ -478,6 +539,12 @@ const unsetFirstBlockRole = (peer: Peer) => {
   })
 }
 
+const setFirstBlockRole = (peer: Peer) => {
+  peer.editor.update((tx) => {
+    tx.nodes.set({ role: 'title' } as never, { at: [0] })
+  })
+}
+
 const insertExclamation = (peer: Peer) => {
   const entry = firstBlockTextEntry(peer, 'last')
 
@@ -489,6 +556,22 @@ const insertExclamation = (peer: Peer) => {
     tx.text.insert('!', {
       at: { path: entry.path, offset: entry.text.length },
     })
+  })
+}
+
+const insertPeerFragment = (peer: Peer, peerId: PeerId) => {
+  const entry = firstBlockTextEntry(peer, 'last')
+
+  if (!entry) {
+    return
+  }
+
+  peer.editor.update((tx) => {
+    tx.selection.set({
+      anchor: { path: entry.path, offset: entry.text.length },
+      focus: { path: entry.path, offset: entry.text.length },
+    })
+    tx.fragment.insert([{ text: fragmentTexts[peerId] }])
   })
 }
 
@@ -532,6 +615,32 @@ const deleteBackwardFromFirstBlockEnd = (peer: Peer) => {
 
 const reconcilePeer = (peer: Peer) => {
   runYjsUpdate(peer, (yjs) => yjs.reconcile())
+}
+
+const undoPeer = (peer: Peer) => {
+  runYjsUpdate(peer, (yjs) => yjs.undo())
+}
+
+const redoPeer = (peer: Peer) => {
+  runYjsUpdate(peer, (yjs) => yjs.redo())
+}
+
+const toggleFirstBlockBold = (peer: Peer) => {
+  const entry = firstBlockTextEntry(peer, 'first')
+
+  if (!entry) {
+    return
+  }
+
+  const length = Math.min(5, entry.text.length)
+
+  peer.editor.update((tx) => {
+    tx.selection.set({
+      anchor: { path: entry.path, offset: 0 },
+      focus: { path: entry.path, offset: length },
+    })
+    tx.marks.toggle('bold')
+  })
 }
 
 const assertDocumentHasTextBoundary = (peers: readonly Peer[]) => {
@@ -619,12 +728,148 @@ describe('@slate/yjs structural soak contract', () => {
       runCommand(peers, 'c', unwrapFirstBlock)
     })
     assertNoNestedParagraphs(allPeers(peers))
-    assertPeerParagraphTexts([peers.a, peers.b, peers.c], ['Hello wo'])
+    assertPeerParagraphTexts(
+      [peers.a, peers.b, peers.c],
+      ['Hello wo', 'rld!! Lin!']
+    )
     assertPeerParagraphTexts([peers.d], ['Hello world!! Lin!'])
 
     setConnected(peers, 'd', true)
 
-    assertPeerParagraphTexts(allPeers(peers), ['Hello wo'])
+    assertPeerParagraphTexts(allPeers(peers), ['Hello wo', 'rld!! Lin!'])
+  })
+
+  it('keeps remote wrap after lift from duplicating the wrapped block', () => {
+    const peers = createAwarePeers()
+
+    runCommand(peers, 'd', wrapFirstBlock)
+    runCommand(peers, 'c', liftFirstWrappedBlock)
+    runCommand(peers, 'a', wrapFirstBlock)
+
+    assertPeerParagraphTexts(allPeers(peers), ['Hello world!'])
+    assertNoElementDescendantsInsideParagraphs(allPeers(peers))
+  })
+
+  it('keeps repeated root moves from duplicating a virtual placeholder block', () => {
+    const peers = createAwarePeers()
+
+    runCommand(peers, 'b', wrapFirstBlock)
+    runCommand(peers, 'c', moveFirstBlockDown)
+    runCommand(peers, 'd', (peer) => {
+      peer.editor.update((tx) => {
+        tx.nodes.set({ role: 'title' } as never, { at: [0] })
+      })
+    })
+    runCommand(peers, 'a', moveFirstBlockDown)
+
+    assertPeerParagraphTexts(allPeers(peers), ['Hello world!', 'block 2'])
+    assertNoElementDescendantsInsideParagraphs(allPeers(peers))
+  })
+
+  it('keeps random-control seed 75 empty trailing block converged', () => {
+    const peers = createAwarePeers()
+
+    runCommand(peers, 'b', insertExclamation)
+    runCommand(peers, 'a', deleteBackwardFromFirstBlockEnd)
+    runCommand(peers, 'b', undoPeer)
+    runCommand(peers, 'c', insertPeerFragment)
+    setConnected(peers, 'c', false)
+    runCommand(peers, 'd', splitFirstText)
+    runCommand(peers, 'd', unwrapFirstBlock)
+    runCommand(peers, 'a', moveFirstBlockAfterSecond)
+    runCommand(peers, 'a', deleteBackwardFromFirstBlockEnd)
+    runCommand(peers, 'd', mergeSecondBlock)
+    runCommand(peers, 'b', redoPeer)
+    runCommand(peers, 'c', unsetFirstBlockRole)
+    runCommand(peers, 'd', deleteFirstFragment)
+    runCommand(peers, 'd', mergeSecondBlock)
+    setConnected(peers, 'a', true)
+    setConnected(peers, 'b', true)
+    setConnected(peers, 'c', true)
+    setConnected(peers, 'd', true)
+    runCommand(peers, 'a', reconcilePeer)
+
+    assertPeerParagraphTexts(allPeers(peers), ['!Ken fragmenHello '])
+  })
+
+  it('keeps offline structural mix seed 99 from retaining a zero-width prefix', () => {
+    const peers = createAwarePeers()
+
+    setConnected(peers, 'b', false)
+    runCommand(peers, 'b', deleteFirstFragment)
+    runCommand(peers, 'c', splitFirstText)
+    runCommand(peers, 'b', moveFirstBlockDown)
+    runCommand(peers, 'c', appendText)
+    runCommand(peers, 'b', moveFirstBlockDown)
+    runCommand(peers, 'd', splitFirstText)
+    runCommand(peers, 'b', mergeSecondBlock)
+    runCommand(peers, 'c', splitFirstText)
+    setConnected(peers, 'b', true)
+    setConnected(peers, 'a', true)
+    setConnected(peers, 'b', true)
+    setConnected(peers, 'c', true)
+    setConnected(peers, 'd', true)
+    runCommand(peers, 'a', reconcilePeer)
+
+    assertPeerParagraphTexts(allPeers(peers), [
+      'block 2',
+      'llo',
+      '  Ken',
+      'world!',
+    ])
+    assertFirstParagraphTextChildren(allPeers(peers), ['block 2'])
+  })
+
+  it('keeps random-control seed 116 empty trailing block converged', () => {
+    const peers = createAwarePeers()
+
+    runCommand(peers, 'b', moveFirstBlockDown)
+    runCommand(peers, 'a', reconcilePeer)
+    runCommand(peers, 'c', insertPeerFragment)
+    setConnected(peers, 'b', true)
+    runCommand(peers, 'c', unwrapFirstBlock)
+    runCommand(peers, 'b', mergeSecondBlock)
+    runCommand(peers, 'd', liftFirstWrappedBlock)
+    runCommand(peers, 'b', setFirstBlockRole)
+    runCommand(peers, 'b', insertExclamation)
+    runCommand(peers, 'a', replaceDocument)
+    runCommand(peers, 'c', removeSecondBlock)
+    runCommand(peers, 'a', setFirstBlockRole)
+    runCommand(peers, 'c', replaceDocument)
+    runCommand(peers, 'c', unsetFirstBlockRole)
+    setConnected(peers, 'a', true)
+    setConnected(peers, 'b', true)
+    setConnected(peers, 'c', true)
+    setConnected(peers, 'd', true)
+    runCommand(peers, 'a', reconcilePeer)
+
+    assertPeerParagraphTexts(allPeers(peers), ['Ken canonical snapshot.'])
+  })
+
+  it('keeps random-control seed 131 empty trailing block converged', () => {
+    const peers = createAwarePeers()
+
+    runCommand(peers, 'b', mergeSecondBlock)
+    runCommand(peers, 'c', replaceDocument)
+    runCommand(peers, 'c', setFirstBlockRole)
+    runCommand(peers, 'd', toggleFirstBlockBold)
+    runCommand(peers, 'a', splitFirstText)
+    runCommand(peers, 'a', deleteBackwardFromFirstBlockEnd)
+    runCommand(peers, 'c', setFirstBlockRole)
+    runCommand(peers, 'd', setFirstBlockRole)
+    runCommand(peers, 'd', liftFirstWrappedBlock)
+    runCommand(peers, 'b', moveFirstBlockDown)
+    runCommand(peers, 'a', unwrapFirstBlock)
+    runCommand(peers, 'a', toggleFirstBlockBold)
+    runCommand(peers, 'b', mergeSecondBlock)
+    runCommand(peers, 'b', splitFirstText)
+    setConnected(peers, 'a', true)
+    setConnected(peers, 'b', true)
+    setConnected(peers, 'c', true)
+    setConnected(peers, 'd', true)
+    runCommand(peers, 'a', reconcilePeer)
+
+    assertPeerParagraphTexts(allPeers(peers), ['n', ' canonical snapshot.K'])
   })
 
   it('keeps structural edits from projecting block placeholders inside paragraphs', () => {
@@ -829,5 +1074,39 @@ describe('@slate/yjs structural soak contract', () => {
     assertNoNestedParagraphs(allPeers(peers))
     assertDocumentHasTextBoundary(allPeers(peers))
     assertPeerParagraphTexts(allPeers(peers), ['', 'l', 'o ', '', 'world!'])
+  })
+
+  it('keeps remote wrap and unwrap from dropping split-merge text prefixes', () => {
+    const peers = createAwarePeers()
+
+    runIncrementalCommand(peers, 'b', splitFirstText)
+    runIncrementalCommand(peers, 'a', appendText)
+    runIncrementalCommand(peers, 'c', insertExclamation)
+    runIncrementalCommand(peers, 'a', appendText)
+    runIncrementalCommand(peers, 'a', appendText)
+    runIncrementalCommand(peers, 'b', insertExclamation)
+    runIncrementalCommand(peers, 'c', splitFirstText)
+    runIncrementalCommand(peers, 'd', mergeSecondBlock)
+
+    assertPeerParagraphTexts(allPeers(peers), [
+      'Hello  Ada! Ada Ada!',
+      'world!',
+    ])
+
+    runIncrementalCommand(peers, 'a', wrapFirstBlock)
+
+    assertPeerParagraphTexts(allPeers(peers), [
+      'Hello  Ada! Ada Ada!',
+      'world!',
+    ])
+    assertNoElementDescendantsInsideParagraphs(allPeers(peers))
+
+    runIncrementalCommand(peers, 'b', unwrapFirstBlock)
+
+    assertPeerParagraphTexts(allPeers(peers), [
+      'Hello  Ada! Ada Ada!',
+      'world!',
+    ])
+    assertNoElementDescendantsInsideParagraphs(allPeers(peers))
   })
 })

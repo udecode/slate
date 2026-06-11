@@ -43,6 +43,7 @@ export const EXAMPLE_NAMES_AND_PATHS = [
   ['Synced Blocks', 'synced-blocks', { badge: 'new' }],
   ['Tables', 'tables'],
   ['Yjs Collaboration', 'yjs-collaboration', { badge: 'new' }],
+  ['Yjs Hocuspocus', 'yjs-hocuspocus', { badge: 'new' }],
 ] as const satisfies readonly ExampleDefinition[]
 
 export const HIDDEN_EXAMPLES = [
