@@ -1204,7 +1204,7 @@ describe('slate-react surface contract', () => {
     expect('focused' in (renderVoidProps as object)).toBe(false)
     expect('children' in (renderVoidProps as object)).toBe(false)
     expect('attributes' in (renderVoidProps as object)).toBe(false)
-    expect(mention?.getAttribute('draggable')).toBe('true')
+    expect(mention?.hasAttribute('draggable')).toBe(false)
     expect(mention?.querySelector('[data-cy="visible-mention"]')).toBeTruthy()
     expect(mention?.querySelector('[data-slate-zero-width]')).toBeTruthy()
   })

@@ -149,6 +149,86 @@ test('Editable domStrategy virtualized mode uses page layout items as the retain
   ).toBe(null)
 })
 
+test('Editable domStrategy virtualized mode retains expanded selection endpoints outside the visible page window', async () => {
+  const editor = createReactEditor()
+
+  Editor.replace(editor, {
+    children: Array.from({ length: 8 }, (_, index) => ({
+      type: 'paragraph',
+      children: [{ text: `endpoint-block-${index + 1}` }],
+    })),
+    selection: {
+      anchor: { offset: 0, path: [0, 0] },
+      focus: { offset: 0, path: [6, 0] },
+    },
+  })
+
+  const rendered = render(
+    <TestEditorSurface
+      domStrategy={{
+        estimatedBlockSize: 20,
+        overscan: 0,
+        threshold: 1,
+        type: 'virtualized',
+      }}
+      editor={editor}
+      id="dom-strategy-expanded-selection-retention"
+      layout={createPageVirtualizedLayout(8, { visiblePageIndexes: [1] })}
+      style={{ height: 100, overflowY: 'auto' }}
+    />
+  )
+
+  await waitFor(() =>
+    expect(
+      rendered.container.querySelector(
+        '[data-slate-dom-strategy-virtualizer="true"]'
+      )
+    ).toBeTruthy()
+  )
+  await waitFor(() =>
+    expect(
+      rendered.container.querySelector(
+        '[data-slate-dom-strategy-virtual-row="true"][data-index="0"]'
+      )
+    ).toBeTruthy()
+  )
+  expect(
+    rendered.container.querySelector(
+      '[data-slate-dom-strategy-virtual-row="true"][data-index="1"]'
+    )
+  ).toBe(null)
+  expect(
+    rendered.container.querySelector(
+      '[data-slate-dom-strategy-virtual-row="true"][data-index="2"]'
+    )
+  ).toBeTruthy()
+  expect(
+    rendered.container.querySelector(
+      '[data-slate-dom-strategy-virtual-row="true"][data-index="3"]'
+    )
+  ).toBeTruthy()
+  expect(
+    rendered.container.querySelector(
+      '[data-slate-dom-strategy-virtual-row="true"][data-index="6"]'
+    )
+  ).toBeTruthy()
+  expect(
+    rendered.container.querySelector(
+      '[data-slate-dom-strategy-virtual-row="true"][data-index="7"]'
+    )
+  ).toBe(null)
+  expect(
+    rendered.container.querySelector(
+      '[data-slate-dom-strategy-virtual-row="true"][data-index="4"]'
+    )
+  ).toBe(null)
+  expect(
+    rendered.container.querySelector(
+      '[data-slate-dom-strategy-virtual-row="true"][data-index="5"]'
+    )
+  ).toBe(null)
+})
+
 test('Editable domStrategy virtualized mode maps a selected split-table row path to its page item', () => {
   const pageItems =
     createSplitTableVirtualizedLayout().getVirtualizedPageItems()

@@ -24,19 +24,28 @@ export type EditableCaretMovementResult = {
   repair?: EditableRepairRequest | null
 }
 
-const selectionSyncRepair = (): EditableRepairRequest => ({
+const selectionSyncRepair = ({
+  forceRender = true,
+  syncDOMSelection = true,
+}: {
+  forceRender?: boolean
+  syncDOMSelection?: boolean
+} = {}): EditableRepairRequest => ({
   focus: true,
-  forceRender: true,
+  forceRender,
   kind: 'sync-selection',
   selectionSourceTransition: {
     preferModelSelection: true,
     reason: 'model-command',
     selectionSource: 'model-owned',
   },
+  syncDOMSelection,
 })
 
-const caretMovementHandled = (): EditableCaretMovementResult => {
-  return { handled: true, repair: selectionSyncRepair() }
+const caretMovementHandled = (
+  options?: Parameters<typeof selectionSyncRepair>[0]
+): EditableCaretMovementResult => {
+  return { handled: true, repair: selectionSyncRepair(options) }
 }
 
 const caretMovementUnhandled = (): EditableCaretMovementResult => ({
@@ -358,7 +367,10 @@ export const applyEditableCaretMovement = ({
       writeMainRootViewSelection(editor, nextSelection, event.currentTarget)
     })
 
-    return caretMovementHandled()
+    return caretMovementHandled({
+      forceRender: false,
+      syncDOMSelection: false,
+    })
   }
 
   const plainVerticalDOMCoverageExtension = measureCaretPhase(

@@ -534,9 +534,20 @@ export const EditableDOMRoot = (props: EditableDOMRootProps) => {
         propsOnFocusCapture?.(event)
       },
       onMouseDownCapture: (event: React.MouseEvent<HTMLDivElement>) => {
-        onRuntimeMouseDownCapture?.(event)
         activateRootView()
-        onRootMouseDownCapture(event)
+        const voidTarget = getDropCursorTargetElement(event.target)?.closest(
+          '[data-slate-node][data-slate-void="true"]'
+        )
+        const inlineVoidTarget =
+          voidTarget?.getAttribute('data-slate-inline') === 'true'
+
+        if (inlineVoidTarget) {
+          onRootMouseDownCapture(event)
+          onRuntimeMouseDownCapture?.(event)
+        } else {
+          onRuntimeMouseDownCapture?.(event)
+          onRootMouseDownCapture(event)
+        }
         propsOnMouseDownCapture?.(event)
       },
       onMouseMoveCapture: (event: React.MouseEvent<HTMLDivElement>) => {

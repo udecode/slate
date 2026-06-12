@@ -395,10 +395,20 @@ const browserLaneRows = (artifact) =>
       longTaskMaxP95Ms: p95(lane.longTaskMaxMs),
       materializedSelectionReadyP95Ms: p95(lane.materializedSelectReadyMs),
       materializedSelectToPaintP95Ms: p95(lane.materializedSelectMs),
+      materializedSelectMaterializationFramesP95: p95(
+        lane.materializedSelectMaterializationFrames
+      ),
+      materializedSelectMaterializationScrollDeltaP95: p95(
+        lane.materializedSelectMaterializationScrollDelta
+      ),
       modelBurstToPaintPerOpP95Ms: p95(lane.modelBurstToPaintPerOpMs),
       modelTypeToPaintP95Ms: p95(lane.modelTypeToPaintMs),
       modelTypeToReadyP95Ms: p95(lane.modelTypeToReadyMs),
       selectionReadyP95Ms: p95(lane.selectReadyMs),
+      selectMaterializationFramesP95: p95(lane.selectMaterializationFrames),
+      selectMaterializationScrollDeltaP95: p95(
+        lane.selectMaterializationScrollDelta
+      ),
       selectToPaintP95Ms: p95(lane.selectMs),
       interactionSequenceToPaintP95Ms: p95(lane.interactionSequenceToPaintMs),
       selectorDispatchP95Ms: p95(
@@ -500,6 +510,12 @@ const summarizeBrowserTrace = (artifact) => {
     materializedSelectToPaintP95Ms: maxFinite(
       lanes.map((lane) => lane.materializedSelectToPaintP95Ms)
     ),
+    materializedSelectMaterializationFramesP95: maxFinite(
+      lanes.map((lane) => lane.materializedSelectMaterializationFramesP95)
+    ),
+    materializedSelectMaterializationScrollDeltaP95: maxFinite(
+      lanes.map((lane) => lane.materializedSelectMaterializationScrollDeltaP95)
+    ),
     modelBurstToPaintPerOpP95Ms: maxFinite(
       lanes.map((lane) => lane.modelBurstToPaintPerOpP95Ms)
     ),
@@ -511,6 +527,12 @@ const summarizeBrowserTrace = (artifact) => {
     ),
     selectionReadyP95Ms: maxFinite(
       lanes.map((lane) => lane.selectionReadyP95Ms)
+    ),
+    selectMaterializationFramesP95: maxFinite(
+      lanes.map((lane) => lane.selectMaterializationFramesP95)
+    ),
+    selectMaterializationScrollDeltaP95: maxFinite(
+      lanes.map((lane) => lane.selectMaterializationScrollDeltaP95)
     ),
     selectToPaintP95Ms: maxFinite(lanes.map((lane) => lane.selectToPaintP95Ms)),
     selectorDispatchP95Ms: maxFinite(
@@ -1242,6 +1264,22 @@ const summary = {
           ?.materializedSelectToPaintP95Ms,
       ].filter(Number.isFinite)
     ),
+    materializedSelectMaterializationFramesP95: maxFinite(
+      [
+        byId['react-huge-document-browser-trace']?.summary
+          ?.materializedSelectMaterializationFramesP95,
+        byId['react-huge-document-virtualized-type-to-paint']?.summary
+          ?.materializedSelectMaterializationFramesP95,
+      ].filter(Number.isFinite)
+    ),
+    materializedSelectMaterializationScrollDeltaP95: maxFinite(
+      [
+        byId['react-huge-document-browser-trace']?.summary
+          ?.materializedSelectMaterializationScrollDeltaP95,
+        byId['react-huge-document-virtualized-type-to-paint']?.summary
+          ?.materializedSelectMaterializationScrollDeltaP95,
+      ].filter(Number.isFinite)
+    ),
     modelBurstToPaintPerOpP95Ms: maxFinite(
       [
         byId['react-huge-document-browser-trace']?.summary
@@ -1271,6 +1309,22 @@ const summary = {
         byId['react-huge-document-browser-trace']?.summary?.selectionReadyP95Ms,
         byId['react-huge-document-virtualized-type-to-paint']?.summary
           ?.selectionReadyP95Ms,
+      ].filter(Number.isFinite)
+    ),
+    selectMaterializationFramesP95: maxFinite(
+      [
+        byId['react-huge-document-browser-trace']?.summary
+          ?.selectMaterializationFramesP95,
+        byId['react-huge-document-virtualized-type-to-paint']?.summary
+          ?.selectMaterializationFramesP95,
+      ].filter(Number.isFinite)
+    ),
+    selectMaterializationScrollDeltaP95: maxFinite(
+      [
+        byId['react-huge-document-browser-trace']?.summary
+          ?.selectMaterializationScrollDeltaP95,
+        byId['react-huge-document-virtualized-type-to-paint']?.summary
+          ?.selectMaterializationScrollDeltaP95,
       ].filter(Number.isFinite)
     ),
     selectToPaintP95Ms: maxFinite(
@@ -1351,6 +1405,18 @@ const summary = {
     virtualizedMaterializedSelectionReadyP95Ms:
       byId['react-huge-document-virtualized-type-to-paint']?.summary
         ?.materializedSelectionReadyP95Ms ?? null,
+    virtualizedSelectMaterializationFramesP95:
+      byId['react-huge-document-virtualized-type-to-paint']?.summary
+        ?.selectMaterializationFramesP95 ?? null,
+    virtualizedSelectMaterializationScrollDeltaP95:
+      byId['react-huge-document-virtualized-type-to-paint']?.summary
+        ?.selectMaterializationScrollDeltaP95 ?? null,
+    virtualizedMaterializedSelectMaterializationFramesP95:
+      byId['react-huge-document-virtualized-type-to-paint']?.summary
+        ?.materializedSelectMaterializationFramesP95 ?? null,
+    virtualizedMaterializedSelectMaterializationScrollDeltaP95:
+      byId['react-huge-document-virtualized-type-to-paint']?.summary
+        ?.materializedSelectMaterializationScrollDeltaP95 ?? null,
   },
   steps: stepResults.map((step) => ({
     artifactPath: step.artifactPath,
@@ -1420,6 +1486,26 @@ console.log(
 console.log(
   `METRIC react_huge_doc_full_materialized_selection_ready_p95_ms=${round(
     summary.metrics.materializedSelectionReadyP95Ms ?? 0
+  )}`
+)
+console.log(
+  `METRIC react_huge_doc_full_select_materialization_frames_p95=${round(
+    summary.metrics.selectMaterializationFramesP95 ?? 0
+  )}`
+)
+console.log(
+  `METRIC react_huge_doc_full_select_materialization_scroll_delta_p95_px=${round(
+    summary.metrics.selectMaterializationScrollDeltaP95 ?? 0
+  )}`
+)
+console.log(
+  `METRIC react_huge_doc_full_materialized_select_materialization_frames_p95=${round(
+    summary.metrics.materializedSelectMaterializationFramesP95 ?? 0
+  )}`
+)
+console.log(
+  `METRIC react_huge_doc_full_materialized_select_materialization_scroll_delta_p95_px=${round(
+    summary.metrics.materializedSelectMaterializationScrollDeltaP95 ?? 0
   )}`
 )
 console.log(
@@ -1495,6 +1581,27 @@ console.log(
 console.log(
   `METRIC react_huge_doc_full_virtualized_materialized_selection_ready_p95_ms=${round(
     summary.metrics.virtualizedMaterializedSelectionReadyP95Ms ?? 0
+  )}`
+)
+console.log(
+  `METRIC react_huge_doc_full_virtualized_select_materialization_frames_p95=${round(
+    summary.metrics.virtualizedSelectMaterializationFramesP95 ?? 0
+  )}`
+)
+console.log(
+  `METRIC react_huge_doc_full_virtualized_select_materialization_scroll_delta_p95_px=${round(
+    summary.metrics.virtualizedSelectMaterializationScrollDeltaP95 ?? 0
+  )}`
+)
+console.log(
+  `METRIC react_huge_doc_full_virtualized_materialized_select_materialization_frames_p95=${round(
+    summary.metrics.virtualizedMaterializedSelectMaterializationFramesP95 ?? 0
+  )}`
+)
+console.log(
+  `METRIC react_huge_doc_full_virtualized_materialized_select_materialization_scroll_delta_p95_px=${round(
+    summary.metrics
+      .virtualizedMaterializedSelectMaterializationScrollDeltaP95 ?? 0
   )}`
 )
 console.log(

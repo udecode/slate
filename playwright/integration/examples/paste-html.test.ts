@@ -165,7 +165,7 @@ test.describe('paste html example', () => {
 
   test('pasted bold text uses <strong>', async ({ page }) => {
     await pasteHtml(page, '<strong>Hello Bold</strong>')
-    expect(await page.locator('strong').textContent()).toContain('Hello')
+    await expect(page.locator('strong')).toContainText('Hello')
   })
 
   test('keeps inline HTML marks bounded to their source text', async ({
@@ -366,7 +366,7 @@ test.describe('paste html example', () => {
       })
       return
     }
-    expect(await editor.get.selection()).not.toBe(null)
+    await expect.poll(() => editor.get.selection()).not.toBe(null)
 
     if (testInfo.project.name === 'mobile') {
       await editor.insertText('!')
@@ -377,7 +377,7 @@ test.describe('paste html example', () => {
     await editor.assert.text('Hello Bold!')
     await expect(editor.root.locator('strong')).toHaveText('Hello Bold!')
     if (testInfo.project.name !== 'mobile') {
-      expect(await editor.get.selection()).not.toBe(null)
+      await expect.poll(() => editor.get.selection()).not.toBe(null)
     }
   })
 
@@ -513,14 +513,14 @@ test.describe('paste html example', () => {
 
     await editor.selection.selectAll()
     await editor.insertText('hello')
-    expect(await editor.get.modelText()).toBe('hello')
+    await expect.poll(() => editor.get.modelText()).toBe('hello')
 
     await editor.selection.selectAll()
     const beforeTraceLength = (await editor.get.kernelTrace()).length
     await editor.clipboard.pasteHtml('<strong>hello</strong>', 'hello')
     const pasteTrace = (await editor.get.kernelTrace()).slice(beforeTraceLength)
 
-    expect(await editor.get.modelText()).toBe('hello')
+    await expect.poll(() => editor.get.modelText()).toBe('hello')
     await expect(editor.root.locator('strong')).toHaveText('hello')
     expect(
       pasteTrace.some(
@@ -561,10 +561,9 @@ test.describe('paste html example', () => {
     await editor.root.press('Enter')
     await editor.type('x')
 
-    const blockTexts = await editor.get.blockTexts()
-
-    expect(blockTexts).toEqual(['a', 'x', 'b'])
-    expect(blockTexts.join('\n')).toBe('a\nx\nb')
+    await expect.poll(() => editor.get.blockTexts()).toEqual(['a', 'x', 'b'])
+    await editor.assert.modelBlockTexts(['a', 'x', 'b'])
+    expect((await editor.get.blockTexts()).join('\n')).toBe('a\nx\nb')
   })
 
   test('pastes copied rendered Slate content as an internal fragment before HTML import', async ({
@@ -1824,7 +1823,9 @@ test.describe('paste html example', () => {
 
     await expect(editor.root.locator('img')).toHaveCount(1)
     await expect(editor.root.locator('p img')).toHaveCount(0)
-    expect((await editor.get.blockTexts()).join('')).toBe('Before after')
+    await expect
+      .poll(async () => (await editor.get.blockTexts()).join(''))
+      .toBe('Before after')
   })
 
   test('imports Google Docs table HTML with cell paragraphs', async ({

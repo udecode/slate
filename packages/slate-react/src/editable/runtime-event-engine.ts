@@ -32,6 +32,7 @@ import type { useRuntimeKernelTraceEngine } from './runtime-kernel-trace'
 import { useRuntimeKeyboardEvents } from './runtime-keyboard-events'
 import type { RuntimeSelectionImportController } from './runtime-selection-engine'
 import { useRuntimeTargetBridge } from './runtime-target-bridge'
+import type { EditableDOMSelectionSyncOptions } from './selection-controller'
 
 type ApplyInputRules = ({
   data,
@@ -156,7 +157,7 @@ export const useEditableEventRuntime = ({
   setExplicitPartialDOMBackedSelection: (nextValue: boolean) => void
   partialDOMBackedSelection: boolean
   state: EditableInputControllerState
-  syncDOMSelectionToEditor: () => void
+  syncDOMSelectionToEditor: (options?: EditableDOMSelectionSyncOptions) => void
   trace: EditableKernelTraceRuntime
 }): EditableEventRuntime => {
   const runtime = useMemo(
@@ -190,6 +191,7 @@ export const useEditableEventRuntime = ({
     readOnly,
     repair: runtime.repair,
     rootRef,
+    syncDOMSelectionToEditor,
     trace: runtime.trace,
     onInput: callbacks.onInput as
       | ((event: ReactInputEvent<HTMLDivElement>) => boolean | void)

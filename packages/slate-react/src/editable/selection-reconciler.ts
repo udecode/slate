@@ -591,6 +591,73 @@ export const selectEditableVoidTarget = ({
   return null
 }
 
+const exportTripleClickSelectionToDOM = ({
+  editor,
+  inputController,
+  range,
+}: {
+  editor: ReactRuntimeEditor
+  inputController: EditableInputController
+  range: Range
+}) => {
+  const editorElement = EDITOR_TO_ELEMENT.get(editor)
+
+  if (!editorElement) {
+    return
+  }
+
+  const domRange = ReactEditor.resolveDOMRange(editor, range)
+
+  if (!domRange) {
+    return
+  }
+
+  const root = editorElement.getRootNode() as Document | ShadowRoot
+  const domSelection = getSelection(root)
+
+  if (!domSelection) {
+    return
+  }
+
+  inputController.state.isUpdatingSelection = true
+  inputController.state.selectionChangeOrigin = 'programmatic-export'
+
+  try {
+    if (RangeApi.isBackward(range)) {
+      domSelection.setBaseAndExtent(
+        domRange.endContainer,
+        domRange.endOffset,
+        domRange.startContainer,
+        domRange.startOffset
+      )
+    } else {
+      domSelection.setBaseAndExtent(
+        domRange.startContainer,
+        domRange.startOffset,
+        domRange.endContainer,
+        domRange.endOffset
+      )
+    }
+  } catch {
+    domSelection.removeAllRanges()
+    domSelection.addRange(domRange)
+  }
+
+  editorElement.ownerDocument.dispatchEvent(
+    new Event('selectionchange', { bubbles: true })
+  )
+  const rootWindow = getDefaultView(editorElement)
+  const resetUpdatingSelection = () => {
+    inputController.state.isUpdatingSelection = false
+  }
+
+  if (rootWindow) {
+    rootWindow.setTimeout(resetUpdatingSelection)
+  } else {
+    setTimeout(resetUpdatingSelection)
+  }
+}
+
 export const applyEditableClick = ({
   editor,
   event,
@@ -665,6 +732,7 @@ export const applyEditableClick = ({
       editor.update((tx) => {
         tx.selection.set(range)
       })
+      exportTripleClickSelectionToDOM({ editor, inputController, range })
       return
     }
 
@@ -740,6 +808,7 @@ export const applyEditableMouseDown = ({
   if (selectedVoidTarget) {
     event.preventDefault()
   } else {
+    inputController.state.modelOwnedTextInputGuard = 0
     setEditableModelSelectionPreference({
       inputController,
       preferModelSelection: false,

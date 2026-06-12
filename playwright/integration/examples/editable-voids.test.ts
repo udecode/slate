@@ -99,7 +99,7 @@ test.describe('editable voids', () => {
 
   test('make sure you can edit editable void', async ({ page }) => {
     await page.locator(input).fill('Typing')
-    expect(await page.locator(input).inputValue()).toBe('Typing')
+    await expect(page.locator(input)).toHaveValue('Typing')
   })
 
   test('undo from a new editable void input removes the inserted void block', async ({
@@ -246,9 +246,10 @@ test.describe('editable voids', () => {
   test('runs generated internal-control gauntlet without illegal kernel transitions', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'webkit') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'webkit',
+      'WebKit event routing differs'
+    )
 
     const editor = await openExample(page, 'editable-voids', {
       ready: {
@@ -286,9 +287,10 @@ test.describe('editable voids', () => {
   test('keeps ArrowLeft inside editable void input native-owned', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop editable-void keyboard proof'
+    )
 
     const outerEditor = page.locator('[data-slate-editor="true"]').first()
     const inputElement = page.locator(input)
@@ -495,18 +497,16 @@ test.describe('editable voids', () => {
         anchor: { path: [0, 0], offset: 'Child '.length },
         focus: { path: [0, 0], offset: 'Child '.length },
       })
-    if (testInfo.project.name === 'mobile') {
-      return
+    if (testInfo.project.name !== 'mobile') {
+      await expect
+        .poll(() => childRoot.selection.dom())
+        .toEqual({
+          anchorNodeText: 'Child This is editable ',
+          anchorOffset: 'Child '.length,
+          focusNodeText: 'Child This is editable ',
+          focusOffset: 'Child '.length,
+        })
     }
-
-    await expect
-      .poll(() => childRoot.selection.dom())
-      .toEqual({
-        anchorNodeText: 'Child This is editable ',
-        anchorOffset: 'Child '.length,
-        focusNodeText: 'Child This is editable ',
-        focusOffset: 'Child '.length,
-      })
   })
 
   test('keeps same-runtime child-root caret usable after real mouse clicks', async ({

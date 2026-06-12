@@ -20,11 +20,13 @@ import {
   getOperationDirtiness,
   getSnapshot,
   getSnapshotVersion,
+  hasCachedFullRootReplaceSnapshotIndex,
   hasListeners,
   incrementVersion,
   isInTransaction,
   markTransactionChanged,
   notifyListeners,
+  profileCoreDuration,
   runEditorTransaction,
   setCurrentMarks,
   transformImplicitTarget,
@@ -115,33 +117,57 @@ export const apply = (editor: Editor, op: Operation) => {
     return
   }
 
-  for (const ref of Editor.pathRefs(editor)) {
-    PathRefApi.transform(ref, op)
-  }
+  const profileReplaceChildrenPhase = <T>(id: string, callback: () => T): T =>
+    op.type === 'replace_children'
+      ? profileCoreDuration(`apply-replace_children:${id}`, callback)
+      : callback()
 
-  for (const ref of Editor.pointRefs(editor)) {
-    PointRefApi.transform(ref, op)
-  }
+  profileReplaceChildrenPhase('path-refs', () => {
+    for (const ref of Editor.pathRefs(editor)) {
+      PathRefApi.transform(ref, op)
+    }
+  })
 
-  for (const ref of allRangeRefs(editor)) {
-    RangeRefApi.transform(ref, op)
-  }
+  profileReplaceChildrenPhase('point-refs', () => {
+    for (const ref of Editor.pointRefs(editor)) {
+      PointRefApi.transform(ref, op)
+    }
+  })
 
-  transformBookmarks(editor, op)
-  transformImplicitTarget(editor, op)
+  profileReplaceChildrenPhase('range-refs', () => {
+    for (const ref of allRangeRefs(editor)) {
+      RangeRefApi.transform(ref, op)
+    }
+  })
+
+  profileReplaceChildrenPhase('bookmarks', () => transformBookmarks(editor, op))
+  profileReplaceChildrenPhase('implicit-target', () =>
+    transformImplicitTarget(editor, op)
+  )
 
   // update dirty paths
   if (!isBatchingDirtyPaths(editor)) {
-    const transform = PathApi.operationCanTransformPath(op)
-      ? (p: Path) => PathApi.transform(p, op)
-      : undefined
-    updateDirtyPaths(editor, Editor.getDirtyPaths(editor, op), transform, {
-      root: getOperationRoot(op),
+    profileReplaceChildrenPhase('dirty-paths', () => {
+      const cachedFullRootReplace = hasCachedFullRootReplaceSnapshotIndex(op)
+      const transform = cachedFullRootReplace
+        ? () => null
+        : PathApi.operationCanTransformPath(op)
+          ? (p: Path) => PathApi.transform(p, op)
+          : undefined
+      const dirtyPaths = cachedFullRootReplace
+        ? [op.path]
+        : Editor.getDirtyPaths(editor, op)
+
+      updateDirtyPaths(editor, dirtyPaths, transform, {
+        root: getOperationRoot(op),
+      })
     })
   }
 
-  withOperationRootChildren(editor, op, () => transform(editor, op))
-  appendOperation(editor, op)
+  profileReplaceChildrenPhase('transform', () =>
+    withOperationRootChildren(editor, op, () => transform(editor, op))
+  )
+  profileReplaceChildrenPhase('append', () => appendOperation(editor, op))
 
   // Clear any formats applied to the cursor if the selection changes.
   if (op.type === 'set_selection' && !isInTransaction(editor)) {

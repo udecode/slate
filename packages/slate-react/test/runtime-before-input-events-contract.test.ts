@@ -1,7 +1,14 @@
+import { readFileSync } from 'node:fs'
 import type { Range } from 'slate'
+import {
+  createEditableInputController,
+  createEditableInputControllerState,
+  setEditableModelSelectionPreference,
+} from '../src/editable/input-controller'
 import {
   getDeferredNativeTextInputRepairPathKey,
   shouldFlushPendingNativeTextInputBeforeDOMBeforeInput,
+  shouldFlushSelectionChangeBeforeDOMBeforeInput,
 } from '../src/editable/runtime-before-input-events'
 
 const collapsedSelection: Range = {
@@ -13,6 +20,15 @@ const expandedSelection: Range = {
   anchor: { offset: 1, path: [2500, 0] },
   focus: { offset: 3, path: [2500, 0] },
 }
+
+test('beforeinput trace keeps an outer event handler duration bucket', () => {
+  const source = readFileSync(
+    'src/editable/runtime-before-input-events.ts',
+    'utf8'
+  )
+
+  expect(source).toContain("profileBeforeInputDuration('beforeinput-total'")
+})
 
 test('deferred native text input publishes its repair path before DOM input', () => {
   expect(
@@ -102,4 +118,53 @@ test('beforeinput flushes deferred native text repair boundaries', () => {
       pendingNativeTextInputRepairPathKey: null,
     })
   ).toBe(false)
+})
+
+test('beforeinput skips pending DOM selection flush for model-preferred insertText', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  })
+
+  setEditableModelSelectionPreference({
+    inputController,
+    preferModelSelection: true,
+    reason: 'model-command',
+    selectionSource: 'model-owned',
+  })
+
+  expect(
+    shouldFlushSelectionChangeBeforeDOMBeforeInput({
+      inputController,
+      inputType: 'insertText',
+    })
+  ).toBe(false)
+})
+
+test('beforeinput still flushes pending DOM selection for native-owned input', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  })
+
+  expect(
+    shouldFlushSelectionChangeBeforeDOMBeforeInput({
+      inputController,
+      inputType: 'insertText',
+    })
+  ).toBe(true)
+
+  setEditableModelSelectionPreference({
+    inputController,
+    preferModelSelection: false,
+    reason: 'native-selection',
+    selectionSource: 'dom-current',
+  })
+
+  expect(
+    shouldFlushSelectionChangeBeforeDOMBeforeInput({
+      inputController,
+      inputType: 'insertText',
+    })
+  ).toBe(true)
 })

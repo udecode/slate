@@ -91,7 +91,7 @@ test.describe('document state example', () => {
     await expect(editor.root).not.toBeFocused()
     await expect.poll(() => editor.selection.get()).toEqual(bodyStartSelection)
 
-    await editor.root.focus()
+    await editor.focus()
 
     await expect(editor.root).toBeFocused()
     await expect.poll(() => editor.selection.get()).toEqual(bodyStartSelection)
@@ -237,7 +237,7 @@ test.describe('document state example', () => {
       )
     }, focusMutationPrefix)
 
-    await editor.root.focus()
+    await editor.focus()
 
     await expect(editor.root).toBeFocused()
     await expect(editor.root).toContainText(
@@ -396,7 +396,7 @@ test.describe('document state example', () => {
     await expect(titleInput).toHaveValue('Q2 Planning Brief')
     await expect(editor.root).not.toContainText('nodes.p')
     await expect(editor.root).not.toBeFocused()
-    expect(await editor.get.modelText()).not.toContain('nodes.p')
+    await expect.poll(() => editor.get.modelText()).not.toContain('nodes.p')
     await expect(commitStatus).toContainText('ops:remove_text')
     await expect(commitStatus).toContainText('tags:historic')
     await expect(page.locator('body')).not.toContainText('Could not set focus')

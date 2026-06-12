@@ -1,8 +1,10 @@
 import debounce from 'lodash/debounce'
 import throttle from 'lodash/throttle'
 import type { RefObject } from 'react'
+import { RangeApi } from 'slate'
+import { getSelection } from 'slate-dom'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
-import type { ReactRuntimeEditor } from '../plugin/react-editor'
+import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import type { DOMRepairQueue } from './dom-repair-queue'
 import {
   beginEditableEventFrame,
@@ -12,6 +14,7 @@ import {
   recordEditableKernelTrace,
 } from './editing-kernel'
 import type { EditableInputController } from './input-state'
+import { Editor } from './runtime-editor-api'
 import { readLiveSelection } from './runtime-selection-state'
 import {
   applyEditableDOMSelectionChange,
@@ -25,6 +28,20 @@ import {
 export type RuntimeSelectionChangeHandler = (() => void) & {
   cancel: () => void
   flush: () => void
+}
+
+export const cancelRuntimeSelectionChangeFlush = ({
+  inputController,
+  onDOMSelectionChange,
+  scheduleOnDOMSelectionChange,
+}: {
+  inputController: EditableInputController
+  onDOMSelectionChange: RuntimeSelectionChangeHandler
+  scheduleOnDOMSelectionChange: RuntimeSelectionChangeHandler
+}) => {
+  scheduleOnDOMSelectionChange.cancel()
+  onDOMSelectionChange.cancel()
+  inputController.state.pendingDOMSelectionImport = false
 }
 
 export const shouldPreserveDOMRepairQueueDuringSelectionChange = ({
@@ -52,6 +69,46 @@ export const shouldRepairPendingNativeTextInputDuringSelectionChange = ({
   activeIntent: EditableInputController['state']['activeIntent']
   pendingNativeTextInputRepairPathKey?: string | null
 }) => activeIntent === 'text-insert' && !!pendingNativeTextInputRepairPathKey
+
+const shouldCancelStaleCompositionSelectionChangeFlush = ({
+  editor,
+  inputController,
+}: {
+  editor: ReactRuntimeEditor
+  inputController: EditableInputController
+}) => {
+  if (inputController.state.activeIntent !== 'composition') {
+    return false
+  }
+
+  if ((inputController.state.modelOwnedTextInputGuard ?? 0) === 0) {
+    return false
+  }
+
+  const modelSelection = Editor.getSelection(editor)
+
+  if (!modelSelection || !RangeApi.isCollapsed(modelSelection)) {
+    return false
+  }
+
+  const root = ReactEditor.findDocumentOrShadowRoot(editor)
+  const domSelection = getSelection(root)
+
+  if (!domSelection?.isCollapsed) {
+    return false
+  }
+
+  const range = ReactEditor.resolveSlateRange(editor, domSelection, {
+    exactMatch: false,
+  })
+
+  return (
+    RangeApi.isRange(range) &&
+    RangeApi.isCollapsed(range) &&
+    range.anchor.path.join(',') === modelSelection.anchor.path.join(',') &&
+    range.anchor.offset < modelSelection.anchor.offset
+  )
+}
 
 export const createRuntimeSelectionChangeHandler = ({
   androidInputManagerRef,
@@ -178,6 +235,16 @@ export const createRuntimeSelectionChangeScheduler = (
 ): RuntimeSelectionChangeHandler =>
   debounce(onDOMSelectionChange, 0) as RuntimeSelectionChangeHandler
 
+export const shouldFlushSelectionChangeAfterKeyDownPolicy = ({
+  decision,
+  inputController,
+}: {
+  decision: EditableKeyDownKernelDecision
+  inputController: EditableInputController
+}) =>
+  decision.selectionPolicy.kind !== 'preserve-model' ||
+  !isEditableModelSelectionPreferred(inputController)
+
 export const createRuntimeSelectionImportController = ({
   editor,
   inputController,
@@ -212,6 +279,29 @@ export const createRuntimeSelectionImportController = ({
       })
     }
 
+    if (
+      shouldCancelStaleCompositionSelectionChangeFlush({
+        editor,
+        inputController,
+      })
+    ) {
+      cancelRuntimeSelectionChangeFlush({
+        inputController,
+        onDOMSelectionChange,
+        scheduleOnDOMSelectionChange,
+      })
+      return
+    }
+
+    if (
+      !shouldFlushSelectionChangeAfterKeyDownPolicy({
+        decision,
+        inputController,
+      })
+    ) {
+      return
+    }
+
     scheduleOnDOMSelectionChange.flush()
     onDOMSelectionChange.flush()
   },
@@ -226,6 +316,20 @@ export const createRuntimeSelectionImportController = ({
   },
 
   flushSelectionChange() {
+    if (
+      shouldCancelStaleCompositionSelectionChangeFlush({
+        editor,
+        inputController,
+      })
+    ) {
+      cancelRuntimeSelectionChangeFlush({
+        inputController,
+        onDOMSelectionChange,
+        scheduleOnDOMSelectionChange,
+      })
+      return
+    }
+
     scheduleOnDOMSelectionChange.flush()
     onDOMSelectionChange.flush()
   },

@@ -24,6 +24,7 @@ const iterations = Number(process.env.CORE_HUGE_BENCH_ITERATIONS || 3)
 const blocks = Number(process.env.CORE_HUGE_BENCH_BLOCKS || 1000)
 const typeOps = Number(process.env.CORE_HUGE_BENCH_TYPE_OPS || 20)
 const profile = process.env.CORE_HUGE_BENCH_PROFILE === '1'
+const currentOnly = process.env.CORE_HUGE_BENCH_CURRENT_ONLY === '1'
 const replacementText = 'replacement marker'
 
 const benchmarkSource = `
@@ -43,9 +44,21 @@ try {
   } catch {}
 }
 
+let SlateHistory = {};
+
+try {
+  SlateHistory = await import('../../packages/slate-history/src/index.ts');
+} catch {
+  try {
+    SlateHistory = await import('slate-history');
+  } catch {}
+}
+
 const { createEditor } = Slate;
 const Editor = Slate.Editor ?? SlateInternal.Editor;
 const legacyTransforms = Slate.Transforms;
+const historyExtension = SlateHistory.history;
+const legacyWithHistory = SlateHistory.withHistory;
 
 const iterations = Number(process.env.CORE_HUGE_BENCH_ITERATIONS || 3);
 const blocks = Number(process.env.CORE_HUGE_BENCH_BLOCKS || 1000);
@@ -155,6 +168,26 @@ const replaceEditor = (editor, input) => {
   editor.marks = input.marks ?? null;
 };
 
+const createHistoryEditor = () => {
+  if (typeof historyExtension === 'function') {
+    return createEditor({ extensions: [historyExtension()] });
+  }
+
+  const editor = createEditor();
+
+  return typeof legacyWithHistory === 'function'
+    ? legacyWithHistory(editor)
+    : editor;
+};
+
+const subscribeSnapshot = (editor) => {
+  if (typeof Editor.subscribe !== 'function') {
+    return () => {};
+  }
+
+  return Editor.subscribe(editor, () => {});
+};
+
 const getChildren = (editor) =>
   typeof Editor.getChildren === 'function'
       ? Editor.getChildren(editor)
@@ -182,6 +215,17 @@ const select = (editor, target) => {
   legacyTransforms.select(editor, target);
 };
 
+const deleteFragment = (editor) => {
+  if (typeof editor.update === 'function') {
+    editor.update((tx) => {
+      tx.fragment.delete({ direction: 'backward' });
+    });
+    return;
+  }
+
+  legacyTransforms.delete(editor);
+};
+
 const insertText = (editor, text, options) => {
   if (typeof editor.update === 'function') {
     editor.update((tx) => {
@@ -202,6 +246,22 @@ const insertFragment = (editor, fragment) => {
   }
 
   legacyTransforms.insertFragment(editor, fragment);
+};
+
+const undo = (editor) => {
+  if (typeof editor.update === 'function') {
+    editor.update((tx) => {
+      tx.history.undo();
+    });
+    return;
+  }
+
+  if (typeof editor.undo === 'function') {
+    editor.undo();
+    return;
+  }
+
+  throw new Error('Missing history undo adapter');
 };
 
 const measureLane = (setup, run) => {
@@ -333,11 +393,44 @@ const selectAll = () =>
     }
   );
 
+const selectAllDeleteTypeUndo = () =>
+  measureLane(
+    () => {
+      const editor = createHistoryEditor();
+      replaceEditor(editor, {
+        children: createChildren(blocks),
+        selection: null,
+      });
+      subscribeSnapshot(editor);
+      return editor;
+    },
+    (editor) => {
+      const children = getChildren(editor);
+      select(editor, {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: {
+          path: [blocks - 1, 0],
+          offset: children[blocks - 1]?.children[0]?.text.length ?? 0,
+        },
+      });
+      deleteFragment(editor);
+      insertText(editor, 'after');
+      undo(editor);
+      undo(editor);
+
+      const restored = getChildren(editor);
+      assert.equal(restored.length, blocks);
+      assert.equal(restored[0]?.children[0]?.text, 'block-0');
+      assert.equal(restored.at(-1)?.children[0]?.text, \`block-\${blocks - 1}\`);
+    }
+  );
+
 const startBlockTypeMs = typeAtBlock(0);
 const middleBlockTypeMs = typeAtBlock(Math.floor(blocks / 2));
 const replaceFullDocumentWithTextMs = replaceFullDocumentWithText();
 const insertFragmentFullDocumentMs = insertFragmentFullDocument();
 const selectAllMs = selectAll();
+const selectAllDeleteTypeUndoMs = selectAllDeleteTypeUndo();
 
 console.log(JSON.stringify({
   iterations,
@@ -351,15 +444,20 @@ console.log(JSON.stringify({
     replaceFullDocumentWithTextMs,
     insertFragmentFullDocumentMs,
     selectAllMs,
+    selectAllDeleteTypeUndoMs,
   },
 }));
 `
 
 const currentPackageManager = await parsePackageManager(currentRepo)
-const legacyPackageManager = await parsePackageManager(legacyRepo)
+const legacyPackageManager = currentOnly
+  ? null
+  : await parsePackageManager(legacyRepo)
 
 await buildRepo(currentRepo, currentPackageManager, './packages/slate')
-await buildRepo(legacyRepo, legacyPackageManager, './packages/slate')
+if (legacyPackageManager) {
+  await buildRepo(legacyRepo, legacyPackageManager, './packages/slate')
+}
 
 const env = {
   CORE_HUGE_BENCH_ITERATIONS: String(iterations),
@@ -374,12 +472,14 @@ const current = await benchmarkRepo({
   packageManager: currentPackageManager,
   repo: currentRepo,
 })
-const legacy = await benchmarkRepo({
-  benchmarkSource,
-  env,
-  packageManager: legacyPackageManager,
-  repo: legacyRepo,
-})
+const legacy = legacyPackageManager
+  ? await benchmarkRepo({
+      benchmarkSource,
+      env,
+      packageManager: legacyPackageManager,
+      repo: legacyRepo,
+    })
+  : null
 
 const summary = {
   lane: 'core-huge-document-compare-local',
@@ -388,30 +488,39 @@ const summary = {
   iterations,
   config: {
     blocks,
+    currentOnly,
     profile,
     typeOps,
   },
   current: current.lanes,
-  legacy: legacy.lanes,
-  deltaMeanMs: {
-    startBlockTypeMs: round(
-      current.lanes.startBlockTypeMs.mean - legacy.lanes.startBlockTypeMs.mean
-    ),
-    middleBlockTypeMs: round(
-      current.lanes.middleBlockTypeMs.mean - legacy.lanes.middleBlockTypeMs.mean
-    ),
-    replaceFullDocumentWithTextMs: round(
-      current.lanes.replaceFullDocumentWithTextMs.mean -
-        legacy.lanes.replaceFullDocumentWithTextMs.mean
-    ),
-    insertFragmentFullDocumentMs: round(
-      current.lanes.insertFragmentFullDocumentMs.mean -
-        legacy.lanes.insertFragmentFullDocumentMs.mean
-    ),
-    selectAllMs: round(
-      current.lanes.selectAllMs.mean - legacy.lanes.selectAllMs.mean
-    ),
-  },
+  legacy: legacy?.lanes ?? null,
+  deltaMeanMs: legacy
+    ? {
+        startBlockTypeMs: round(
+          current.lanes.startBlockTypeMs.mean -
+            legacy.lanes.startBlockTypeMs.mean
+        ),
+        middleBlockTypeMs: round(
+          current.lanes.middleBlockTypeMs.mean -
+            legacy.lanes.middleBlockTypeMs.mean
+        ),
+        replaceFullDocumentWithTextMs: round(
+          current.lanes.replaceFullDocumentWithTextMs.mean -
+            legacy.lanes.replaceFullDocumentWithTextMs.mean
+        ),
+        insertFragmentFullDocumentMs: round(
+          current.lanes.insertFragmentFullDocumentMs.mean -
+            legacy.lanes.insertFragmentFullDocumentMs.mean
+        ),
+        selectAllMs: round(
+          current.lanes.selectAllMs.mean - legacy.lanes.selectAllMs.mean
+        ),
+        selectAllDeleteTypeUndoMs: round(
+          current.lanes.selectAllDeleteTypeUndoMs.mean -
+            legacy.lanes.selectAllDeleteTypeUndoMs.mean
+        ),
+      }
+    : null,
 }
 
 await writeBenchmarkArtifact(

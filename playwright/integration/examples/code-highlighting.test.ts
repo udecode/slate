@@ -35,6 +35,33 @@ test.describe('code highlighting', () => {
     await expect(languageSelect).toHaveValue('typescript')
   })
 
+  test('retokens edited code after changing the language', async ({ page }) => {
+    const editor = await openExample(page, 'code-highlighting', {
+      ready: {
+        editor: 'visible',
+        text: /const initialValue/,
+      },
+    })
+
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await page.getByTestId('code-block-button').click()
+    await page.getByTestId('language-select').first().selectOption('css')
+    await editor.insertText('body { color: red; }')
+
+    const codeBlock = editor.root.locator('.slate-code-highlighting-block')
+
+    await expect(
+      codeBlock.locator('.selector').filter({ hasText: 'body' })
+    ).toBeVisible()
+    await expect(
+      codeBlock.locator('.property').filter({ hasText: 'color' })
+    ).toBeVisible()
+    await expect(
+      codeBlock.locator('.punctuation').filter({ hasText: '{' })
+    ).toBeVisible()
+  })
+
   test('converts a selected paragraph into a code block with code lines', async ({
     page,
   }) => {
@@ -411,7 +438,7 @@ test.describe('code highlighting', () => {
       runtimeErrors.assertNone()
       await expect(editor.locator.block([1, 13])).toContainText('a')
       await expect.poll(() => editor.get.modelText()).not.toContain('return (')
-      expect(await editor.get.selection()).not.toBe(null)
+      await expect.poll(() => editor.get.selection()).not.toBe(null)
     } finally {
       runtimeErrors.stop()
     }
@@ -449,7 +476,7 @@ test.describe('code highlighting', () => {
 
       runtimeErrors.assertNone()
       await expect.poll(() => editor.get.modelText()).toContain('after')
-      expect(await editor.get.selection()).not.toBe(null)
+      await expect.poll(() => editor.get.selection()).not.toBe(null)
     } finally {
       runtimeErrors.stop()
     }
@@ -516,7 +543,7 @@ test.describe('code highlighting', () => {
 
       runtimeErrors.assertNone()
       await expect.poll(() => editor.get.modelText()).toContain('after')
-      expect(await editor.get.selection()).not.toBe(null)
+      await expect.poll(() => editor.get.selection()).not.toBe(null)
     } finally {
       runtimeErrors.stop()
     }

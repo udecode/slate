@@ -55,7 +55,7 @@ export const SlateInlineVoidShell = ({
   recordSlateReactRender({ kind: 'void' })
 
   return (
-    <SlateElement as="span" contentEditable={false} draggable isInline isVoid>
+    <SlateElement as="span" contentEditable={false} isInline isVoid>
       {anchorBeforeContent ? children : null}
       <span contentEditable={false}>{content}</span>
       {anchorBeforeContent ? null : children}

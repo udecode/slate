@@ -39,6 +39,7 @@ import {
   Editor,
   getEditorCurrentMarks,
   getEditorExtensionRegistry,
+  markInternalOwnedReplayOperation,
   type Editor as RuntimeEditor,
   withOperationRootChildren,
 } from './runtime-editor-api'
@@ -495,6 +496,11 @@ const getConsistentTextMarksInBlocks = (
           sawText = true
           firstMarks = marks
           firstMarksKey = marksKey
+
+          if (marksKey === '') {
+            return null
+          }
+
           continue
         }
 
@@ -1494,28 +1500,36 @@ const applyFullBlockDeleteFragment = (
   editor: RuntimeEditor,
   selection: Range | null
 ) => {
-  const blockPaths = getFullySelectedBlockPaths(editor, selection)
-
-  if (blockPaths) {
-    editor.update((tx) => {
-      for (const blockPath of [...blockPaths].reverse()) {
-        tx.nodes.remove({ at: blockPath })
-      }
-    })
-
-    return true
-  }
-
-  const topLevelBlockPaths = getFullySelectedTopLevelBlockPaths(
-    editor,
-    selection
+  const topLevelBlockPaths = profileEditableMutationDuration(
+    'delete-fragment.full-top-level-paths',
+    () => getFullySelectedTopLevelBlockPaths(editor, selection)
   )
 
   if (!topLevelBlockPaths) {
+    const blockPaths = profileEditableMutationDuration(
+      'delete-fragment.full-block-paths',
+      () => getFullySelectedBlockPaths(editor, selection)
+    )
+
+    if (blockPaths) {
+      profileEditableMutationDuration('delete-fragment.remove-blocks', () => {
+        editor.update((tx) => {
+          for (const blockPath of [...blockPaths].reverse()) {
+            tx.nodes.remove({ at: blockPath })
+          }
+        })
+      })
+
+      return true
+    }
+
     return false
   }
 
-  const marks = getConsistentTextMarksInBlocks(editor, topLevelBlockPaths)
+  const marks = profileEditableMutationDuration(
+    'delete-fragment.consistent-marks',
+    () => getConsistentTextMarksInBlocks(editor, topLevelBlockPaths)
+  )
   const selectionPoint = getPointWithRoot(
     { path: [0, 0], offset: 0 },
     selection?.anchor.root
@@ -1525,29 +1539,36 @@ const applyFullBlockDeleteFragment = (
     children: [marks ? { ...marks, text: '' } : { text: '' }],
   } as Descendant
   const root = selection?.anchor.root
-  const selectedChildren = withProjectedMutationRoot(editor, root, () =>
-    editor.read((state) => [...state.nodes.children()])
+  const selectedChildren = profileEditableMutationDuration(
+    'delete-fragment.selected-children',
+    () =>
+      withProjectedMutationRoot(editor, root, () =>
+        editor.read((state) => [...state.nodes.children()])
+      )
   )
   const nextSelection = { anchor: selectionPoint, focus: selectionPoint }
 
-  editor.update((tx) => {
-    tx.operations.replay([
-      {
-        children: selectedChildren,
-        index: 0,
-        newChildren: [paragraph],
-        newSelection: nextSelection,
-        path: [],
-        ...(root ? { root } : {}),
-        selection,
-        type: 'replace_children',
-      } as Operation,
-    ])
-    if (marks) {
-      for (const [key, value] of Object.entries(marks)) {
-        tx.marks.add(key, value)
+  profileEditableMutationDuration('delete-fragment.replay-replace', () => {
+    editor.update((tx) => {
+      tx.operations.replay([
+        markInternalOwnedReplayOperation({
+          children: selectedChildren,
+          index: 0,
+          newChildren: [paragraph],
+          newSelection: nextSelection,
+          path: [],
+          ...(root ? { root } : {}),
+          selection,
+          type: 'replace_children',
+        } as Operation),
+      ])
+
+      if (marks) {
+        for (const [key, value] of Object.entries(marks)) {
+          tx.marks.add(key, value)
+        }
       }
-    }
+    })
   })
 
   return true
@@ -1828,6 +1849,7 @@ export type EditableRepairRequest =
       forceRender?: boolean
       kind: 'force-render' | 'sync-selection'
       selectionSourceTransition?: EditableSelectionSourceTransition
+      syncDOMSelection?: boolean
     }
   | {
       focus?: boolean
@@ -1965,23 +1987,35 @@ export const applyEditableRepairRequest = ({
         'selectionSourceTransition' in request &&
         request.selectionSourceTransition
       ) {
-        setEditableModelSelectionPreference({
-          inputController,
-          preferModelSelection:
-            request.selectionSourceTransition.preferModelSelection,
-          reason:
-            request.selectionSourceTransition.reason === 'native-selection-move'
-              ? 'native-selection'
-              : request.selectionSourceTransition.reason === 'unknown-selection'
-                ? 'unknown'
-                : request.selectionSourceTransition.reason,
-          selectionSource: request.selectionSourceTransition.selectionSource,
-        })
+        const { selectionSourceTransition } = request
+
+        profileEditableMutationDuration(
+          'repair.selection-source-transition',
+          () => {
+            setEditableModelSelectionPreference({
+              inputController,
+              preferModelSelection:
+                selectionSourceTransition.preferModelSelection,
+              reason:
+                selectionSourceTransition.reason === 'native-selection-move'
+                  ? 'native-selection'
+                  : selectionSourceTransition.reason === 'unknown-selection'
+                    ? 'unknown'
+                    : selectionSourceTransition.reason,
+              selectionSource: selectionSourceTransition.selectionSource,
+            })
+          }
+        )
         if (
-          request.selectionSourceTransition.preferModelSelection &&
-          request.selectionSourceTransition.reason === 'model-command'
+          selectionSourceTransition.preferModelSelection &&
+          selectionSourceTransition.reason === 'model-command'
         ) {
-          armModelOwnedTextInputGuard({ inputController })
+          profileEditableMutationDuration(
+            'repair.model-owned-text-guard',
+            () => {
+              armModelOwnedTextInputGuard({ inputController })
+            }
+          )
         }
       }
 
@@ -1990,14 +2024,34 @@ export const applyEditableRepairRequest = ({
         request.focus &&
         !shouldSkipSelectionFocus(editor)
       ) {
-        ReactEditor.focus(editor)
+        profileEditableMutationDuration('repair.focus-editor', () => {
+          ReactEditor.focus(editor)
+        })
       }
 
       if ('forceRender' in request && request.forceRender) {
-        forceRender()
+        profileEditableMutationDuration('repair.force-render', forceRender)
       }
 
       if (request.kind === 'sync-selection') {
+        const markProgrammaticSelectionUpdate = () => {
+          inputController.state.isUpdatingSelection = true
+          inputController.state.selectionChangeOrigin = 'programmatic-export'
+        }
+
+        if (request.syncDOMSelection === false) {
+          markProgrammaticSelectionUpdate()
+          globalThis.setTimeout?.(() => {
+            if (
+              inputController.state.selectionChangeOrigin ===
+              'programmatic-export'
+            ) {
+              inputController.state.isUpdatingSelection = false
+            }
+          }, 160)
+          return
+        }
+
         const syncProgrammaticDOMSelection = () => {
           const selection = readRuntimeSelection(editor)
 
@@ -2007,8 +2061,7 @@ export const applyEditableRepairRequest = ({
             })
           }
 
-          inputController.state.isUpdatingSelection = true
-          inputController.state.selectionChangeOrigin = 'programmatic-export'
+          markProgrammaticSelectionUpdate()
           syncDOMSelectionToEditor()
         }
 
@@ -2028,12 +2081,16 @@ export const applyEditableRepairRequest = ({
       }
 
       if (request.kind === 'repair-caret') {
-        domRepairQueue.repair(repairPolicy)
+        profileEditableMutationDuration('repair.dom-repair-queue', () => {
+          domRepairQueue.repair(repairPolicy)
+        })
         return
       }
 
       if (request.kind === 'repair-caret-after-text-insert') {
-        domRepairQueue.repair(repairPolicy)
+        profileEditableMutationDuration('repair.dom-repair-queue', () => {
+          domRepairQueue.repair(repairPolicy)
+        })
       }
     },
     repairPolicy,

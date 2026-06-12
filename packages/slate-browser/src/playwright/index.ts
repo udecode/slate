@@ -21,9 +21,12 @@ export {
 } from '../core/plugin-contracts'
 
 import {
+  commitSyntheticCompositionText,
   composeText,
   composeTextDirect,
   enableCompositionKeyEvents,
+  startSyntheticComposition,
+  updateSyntheticComposition,
 } from './ime'
 
 const baseUrl = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3101'
@@ -508,8 +511,18 @@ export type SlateBrowserDOMPathOptions = {
   timeoutMs?: number
 }
 
+export type SlateBrowserTextPathRangeClickOptions =
+  SlateBrowserDOMPathOptions & {
+    endOffset: number
+    xAffinity?: 'center' | 'end' | 'start'
+    path: number[]
+    startOffset: number
+  }
+
 export type SlateBrowserDragTextRangeOptions = {
+  endAffinity?: 'after' | 'inside'
   endOffset: number
+  settleMs?: number
   startOffset: number
   steps?: number
   text: string
@@ -4039,6 +4052,145 @@ const collapseDOMAtTextPath = async (
   await waitForSelectionRange(root)
 }
 
+const clickTextPathRange = async (
+  root: Locator,
+  {
+    align,
+    endOffset,
+    path,
+    startOffset,
+    timeoutMs,
+    xAffinity = 'start',
+  }: SlateBrowserTextPathRangeClickOptions
+) => {
+  if (startOffset >= endOffset) {
+    throw new Error('clickTextPathRange expects startOffset < endOffset')
+  }
+
+  await waitForTextPathMaterialized(root, path, { align, timeoutMs })
+
+  const point = await root.evaluate(
+    (
+      element: HTMLElement,
+      {
+        endOffset,
+        path,
+        startOffset,
+        xAffinity,
+      }: {
+        endOffset: number
+        path: number[]
+        startOffset: number
+        xAffinity: NonNullable<
+          SlateBrowserTextPathRangeClickOptions['xAffinity']
+        >
+      }
+    ) => {
+      const textElement = Array.from(
+        element.querySelectorAll('[data-slate-node="text"]')
+      ).find(
+        (node) =>
+          node.closest('[data-slate-editor="true"]') === element &&
+          node.getAttribute('data-slate-path') === path.join(',')
+      )
+
+      if (!textElement) {
+        throw new Error(`Missing DOM text node for ${path.join('.')}`)
+      }
+
+      const resolveOffset = (offset: number) => {
+        const stringElements = Array.from(
+          textElement.querySelectorAll(
+            '[data-slate-string], [data-slate-zero-width]'
+          )
+        )
+        let start = 0
+        let lastTextNode: Node | null = null
+        let lastTextLength = 0
+
+        for (const stringElement of stringElements) {
+          const textNode =
+            Array.from(stringElement.childNodes).find(
+              (node) => node.nodeType === Node.TEXT_NODE
+            ) ?? null
+
+          if (!textNode) {
+            continue
+          }
+
+          const length = textNode.textContent?.length ?? 0
+          const attr = stringElement.getAttribute('data-slate-length')
+          const trueLength = attr == null ? length : Number.parseInt(attr, 10)
+          const end = start + trueLength
+
+          lastTextNode = textNode
+          lastTextLength = length
+
+          if (
+            stringElement.hasAttribute('data-slate-zero-width') &&
+            offset === start &&
+            length <= 1
+          ) {
+            return {
+              node: textNode,
+              offset: length,
+            }
+          }
+
+          if (offset <= end) {
+            return {
+              node: textNode,
+              offset: Math.min(length, Math.max(0, offset - start)),
+            }
+          }
+
+          start = end
+        }
+
+        if (lastTextNode) {
+          return {
+            node: lastTextNode,
+            offset: lastTextLength,
+          }
+        }
+
+        return {
+          node: textElement,
+          offset: textElement.childNodes.length,
+        }
+      }
+
+      const range = element.ownerDocument.createRange()
+      const start = resolveOffset(startOffset)
+      const end = resolveOffset(endOffset)
+
+      range.setStart(start.node, start.offset)
+      range.setEnd(end.node, end.offset)
+
+      const rect = range.getClientRects()[0] ?? range.getBoundingClientRect()
+
+      if (!rect || rect.width <= 0 || rect.height <= 0) {
+        throw new Error(
+          `Text range has no selectable rect: ${path.join('.')} ${startOffset}-${endOffset}`
+        )
+      }
+
+      return {
+        x:
+          xAffinity === 'center'
+            ? rect.left + rect.width / 2
+            : xAffinity === 'end'
+              ? Math.max(rect.left + 1, rect.right - 1)
+              : rect.left,
+        y: rect.top + rect.height / 2,
+      }
+    },
+    { endOffset, path, startOffset, xAffinity }
+  )
+
+  await root.page().mouse.click(point.x, point.y)
+}
+
 const waitForPendingNativeTextInputRepair = async (
   root: Locator,
   { timeoutMs = READY_TIMEOUT_MS }: { timeoutMs?: number } = {}
@@ -4395,6 +4547,9 @@ export type SlateBrowserEditorHarness = {
     rect: () => Promise<SelectionRectSnapshot | null>
   }
   dom: {
+    clickTextRange: (
+      options: SlateBrowserTextPathRangeClickOptions
+    ) => Promise<void>
     collapseAtTextPath: (
       point: SelectionPoint,
       options?: SlateBrowserDOMPathOptions
@@ -4485,6 +4640,9 @@ export type SlateBrowserEditorHarness = {
   }
   ime: {
     enableKeyEvents: () => Promise<void>
+    startSynthetic: (options?: { text?: string }) => Promise<void>
+    updateSynthetic: (options: { text: string }) => Promise<void>
+    commitSynthetic: (options: { text: string }) => Promise<void>
     compose: (options: {
       text: string
       steps?: readonly string[]
@@ -4512,6 +4670,7 @@ export type SlateBrowserEditorHarness = {
 export type SlateBrowserSelectionContractExpectation = {
   domSelection?: DOMSelectionSnapshotExpectation
   domSelectionTarget?: Partial<DOMSelectionLocationSnapshot>
+  noDoubleSelectionHighlight?: boolean
   selectedText?: string
   selection?: SelectionSnapshotExpectation
 }
@@ -4557,6 +4716,10 @@ export const assertSlateBrowserSelectionContract = async (
 
   if (expected.domSelectionTarget) {
     await editor.assert.domSelectionTarget(expected.domSelectionTarget)
+  }
+
+  if (expected.noDoubleSelectionHighlight) {
+    await editor.assert.noDoubleSelectionHighlight()
   }
 }
 
@@ -5863,7 +6026,9 @@ const dragTextSelection = async (
 const dragTextRange = async (
   root: Locator,
   {
+    endAffinity = 'inside',
     endOffset,
+    settleMs = 0,
     startOffset,
     steps = 16,
     text,
@@ -5874,11 +6039,12 @@ const dragTextRange = async (
     (
       element,
       {
+        endAffinity,
         endOffset,
         startOffset,
         text,
         textNodeIndex,
-      }: Required<Omit<SlateBrowserDragTextRangeOptions, 'steps'>>
+      }: Required<Omit<SlateBrowserDragTextRangeOptions, 'settleMs' | 'steps'>>
     ) => {
       if (startOffset > endOffset) {
         throw new Error('dragTextRange expects startOffset <= endOffset')
@@ -5902,6 +6068,7 @@ const dragTextRange = async (
       if (!textNode) {
         throw new Error(`Text node not found for drag range: ${text}`)
       }
+      const textLength = textNode.textContent?.length ?? 0
 
       const range = ownerDocument.createRange()
 
@@ -5913,20 +6080,27 @@ const dragTextRange = async (
       if (!rect || rect.width <= 0 || rect.height <= 0) {
         throw new Error('Text range has no selectable rect')
       }
+      const shouldEndAfterText =
+        endAffinity === 'after' && endOffset >= textLength
 
       return {
-        endX: Math.max(rect.left + 1, rect.right - 1),
+        endX: shouldEndAfterText
+          ? rect.right + 2
+          : Math.max(rect.left + 1, rect.right - 0.25),
         startX: rect.left + 1,
         y: rect.top + rect.height / 2,
       }
     },
-    { endOffset, startOffset, text, textNodeIndex }
+    { endAffinity, endOffset, startOffset, text, textNodeIndex }
   )
   const page = root.page()
 
   await page.mouse.move(points.startX, points.y)
   await page.mouse.down()
   await page.mouse.move(points.endX, points.y, { steps })
+  if (settleMs > 0) {
+    await page.waitForTimeout(settleMs)
+  }
   await page.mouse.up()
 }
 
@@ -6425,6 +6599,9 @@ const createEditorHarness = (
       rect: async () => getSelectionRect(root),
     },
     dom: {
+      clickTextRange: async (options) => {
+        await clickTextPathRange(root, options)
+      },
       collapseAtTextPath: async (point, options) => {
         await collapseDOMAtTextPath(root, point, options)
       },
@@ -6940,6 +7117,16 @@ const createEditorHarness = (
       enableKeyEvents: async () => {
         await enableCompositionKeyEvents(surface)
       },
+      startSynthetic: async ({ text = '' } = {}) => {
+        await enableCompositionKeyEvents(surface)
+        await startSyntheticComposition(surface, text)
+      },
+      updateSynthetic: async ({ text }) => {
+        await updateSyntheticComposition(surface, text)
+      },
+      commitSynthetic: async ({ text }) => {
+        await commitSyntheticCompositionText(surface, text)
+      },
       compose: async ({
         text,
         steps = [text],
@@ -7262,26 +7449,36 @@ const createEditorHarness = (
                 await harness.assert.kernelTrace(step.trace)
                 break
               case 'assertLastCommit':
-                expect(await harness.get.lastCommit()).toBeTruthy()
+                await expect.poll(() => harness.get.lastCommit()).toBeTruthy()
                 break
               case 'assertLastCommitTags': {
-                const lastCommit = (await harness.get.lastCommit()) as {
-                  tags?: readonly string[]
-                } | null
+                await expect
+                  .poll(async () => {
+                    const lastCommit = (await harness.get.lastCommit()) as {
+                      tags?: readonly string[]
+                    } | null
 
-                expect(lastCommit?.tags).toEqual(step.tags)
+                    return lastCommit?.tags
+                  })
+                  .toEqual(step.tags)
                 break
               }
               case 'assertLastCommitCommand': {
-                const lastCommit = (await harness.get.lastCommit()) as {
-                  command?: { origin?: string; type?: string } | null
-                } | null
+                await expect
+                  .poll(async () => {
+                    const lastCommit = (await harness.get.lastCommit()) as {
+                      command?: { origin?: string; type?: string } | null
+                    } | null
 
-                expect(lastCommit?.command).toEqual(step.command)
+                    return lastCommit?.command
+                  })
+                  .toEqual(step.command)
                 break
               }
               case 'assertModelText':
-                expect(await harness.get.modelText()).toContain(step.text)
+                await expect
+                  .poll(() => harness.get.modelText())
+                  .toContain(step.text)
                 break
               case 'assertLocatorText': {
                 const locator = page.locator(step.selector).first()
@@ -7305,7 +7502,9 @@ const createEditorHarness = (
                   .toMatchObject(step.location)
                 break
               case 'assertSelectedText':
-                expect(await harness.get.selectedText()).toBe(step.text)
+                await expect
+                  .poll(() => harness.get.selectedText())
+                  .toBe(step.text)
                 break
               case 'assertText':
                 await harness.assert.text(step.text)
@@ -7430,9 +7629,9 @@ const createEditorHarness = (
               case 'typeThenUndo': {
                 await harness.type(step.text)
                 await assertDOMCaretExpectation(root, step.caretAfterType)
-                expect(await harness.get.modelText()).toContain(
-                  step.expectedModelTextAfterType
-                )
+                await expect
+                  .poll(() => harness.get.modelText())
+                  .toContain(step.expectedModelTextAfterType)
 
                 const hotkey = await page.evaluate(() =>
                   navigator.userAgent.includes('Mac OS X')
@@ -7442,9 +7641,9 @@ const createEditorHarness = (
 
                 await harness.press(hotkey)
                 await assertDOMCaretExpectation(root, step.caretAfterUndo)
-                expect(await harness.get.modelText()).toContain(
-                  step.expectedModelTextAfterUndo
-                )
+                await expect
+                  .poll(() => harness.get.modelText())
+                  .toContain(step.expectedModelTextAfterUndo)
                 break
               }
               case 'type':
@@ -7452,9 +7651,9 @@ const createEditorHarness = (
                 break
               case 'undo': {
                 if (step.expectedModelTextBefore) {
-                  expect(await harness.get.modelText()).toContain(
-                    step.expectedModelTextBefore
-                  )
+                  await expect
+                    .poll(() => harness.get.modelText())
+                    .toContain(step.expectedModelTextBefore)
                 }
 
                 const hotkey = await page.evaluate(() =>

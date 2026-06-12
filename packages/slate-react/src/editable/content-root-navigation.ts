@@ -159,8 +159,12 @@ const getRegisteredRootViewEditor = (
 
 export const findContentRootOwners = (
   editor: ContentRootNavigationEditor
-): ContentRootOwner[] =>
-  editor.read((state) => {
+): ContentRootOwner[] => {
+  if (!hasContentRootElementSpec(editor)) {
+    return []
+  }
+
+  return editor.read((state) => {
     const owners: ContentRootOwner[] = []
     const { roots } = state.value.get()
 
@@ -193,6 +197,7 @@ export const findContentRootOwners = (
 
     return owners
   })
+}
 
 const isKnownContentRootOwner = (
   owners: readonly ContentRootOwner[],

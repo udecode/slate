@@ -166,21 +166,23 @@ export const readSlateViewSelection = (
 
 export const writeSlateViewSelection = (
   editor: object,
-  selection: SlateViewSelection | null
+  selection: SlateViewSelection | null,
+  options: { notify?: boolean } = {}
 ) => {
   const key = getViewSelectionStoreKey(editor)
   const previous = EDITOR_TO_VIEW_SELECTION.get(key) ?? null
+  const shouldNotify = options.notify !== false
 
   if (!selection) {
     EDITOR_TO_VIEW_SELECTION.delete(key)
-    if (previous) {
+    if (previous && shouldNotify) {
       notifyViewSelectionListeners(key)
     }
     return
   }
 
   EDITOR_TO_VIEW_SELECTION.set(key, selection)
-  if (previous !== selection) {
+  if (previous !== selection && shouldNotify) {
     notifyViewSelectionListeners(key)
   }
 }

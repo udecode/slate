@@ -195,6 +195,7 @@ test.describe('images example', () => {
         query: { case: 'adjacent-voids' },
         ready: {
           editor: 'visible',
+          text: 'Before adjacent images.',
         },
       })
       const images = editor.root.locator('img')
@@ -254,6 +255,7 @@ test.describe('images example', () => {
         query: { case: 'adjacent-voids' },
         ready: {
           editor: 'visible',
+          text: 'Before adjacent images.',
         },
       })
       const images = editor.root.locator('img')
@@ -325,6 +327,7 @@ test.describe('images example', () => {
         query: { case: 'adjacent-voids' },
         ready: {
           editor: 'visible',
+          text: 'Before adjacent images.',
         },
       })
       const images = editor.root.locator('img')
@@ -435,6 +438,7 @@ test.describe('images example', () => {
         query: { case: 'adjacent-voids' },
         ready: {
           editor: 'visible',
+          text: 'Before adjacent images.',
         },
       })
       await page.waitForLoadState('networkidle')
@@ -491,6 +495,7 @@ test.describe('images example', () => {
         query: { case: 'adjacent-voids' },
         ready: {
           editor: 'visible',
+          text: 'Before adjacent images.',
         },
       })
       await page.waitForLoadState('networkidle')
@@ -557,6 +562,7 @@ test.describe('images example', () => {
         query: { case: 'adjacent-voids' },
         ready: {
           editor: 'visible',
+          text: 'Before adjacent images.',
         },
       })
 
@@ -1019,6 +1025,7 @@ test.describe('images example', () => {
       query: { case: 'edge-voids' },
       ready: {
         editor: 'visible',
+        text: 'Between edge images.',
       },
     })
     const isMacBrowser = await editor.root.evaluate(() =>
@@ -1110,6 +1117,7 @@ test.describe('images example', () => {
       query: { case: 'adjacent-voids' },
       ready: {
         editor: 'visible',
+        text: 'Before adjacent images.',
       },
     })
 

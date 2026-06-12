@@ -16,10 +16,8 @@ test.describe('placeholder example', () => {
   test('renders custom placeholder', async ({ page }) => {
     const placeholderElement = page.locator('[data-slate-placeholder=true]')
 
-    expect(await placeholderElement.textContent()).toContain('Type something')
-    expect(await page.locator('pre').textContent()).toContain(
-      'renderPlaceholder'
-    )
+    await expect(placeholderElement).toContainText('Type something')
+    await expect(page.locator('pre')).toContainText('renderPlaceholder')
   })
 
   test('keeps an empty editor value and start selection while showing a placeholder', async ({
@@ -35,7 +33,7 @@ test.describe('placeholder example', () => {
     await editor.focus()
 
     await editor.assert.placeholderVisible(true)
-    expect(await editor.get.modelText()).toBe('')
+    await expect.poll(() => editor.get.modelText()).toBe('')
     await editor.assert.selection({
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 0 },
@@ -85,7 +83,7 @@ test.describe('placeholder example', () => {
     })
 
     await editor.assert.text('abc')
-    expect(await editor.get.modelText()).toBe('abc')
+    await expect.poll(() => editor.get.modelText()).toBe('abc')
     await editor.assert.selection({
       anchor: { path: [0, 0], offset: 'abc'.length },
       focus: { path: [0, 0], offset: 'abc'.length },
@@ -132,7 +130,7 @@ test.describe('placeholder example', () => {
     })
 
     await editor.assert.text('dictated text')
-    expect(await editor.get.modelText()).toBe('dictated text')
+    await expect.poll(() => editor.get.modelText()).toBe('dictated text')
     await editor.assert.placeholderVisible(false)
     await editor.assert.selection({
       anchor: { path: [0, 0], offset: 'dictated text'.length },
@@ -225,7 +223,7 @@ test.describe('placeholder example', () => {
     }
 
     await editor.assert.text('Undo me')
-    expect(await editor.get.modelText()).toBe('Undo me')
+    await expect.poll(() => editor.get.modelText()).toBe('Undo me')
     await editor.assert.placeholderVisible(false)
 
     if (needsSemanticTransport) {
@@ -235,7 +233,7 @@ test.describe('placeholder example', () => {
     }
 
     await expect(editor.root).not.toContainText('Undo me')
-    expect(await editor.get.modelText()).toBe('')
+    await expect.poll(() => editor.get.modelText()).toBe('')
     await editor.assert.placeholderVisible(true)
   })
 
@@ -260,8 +258,8 @@ test.describe('placeholder example', () => {
     await page.waitForTimeout(80)
     await editor.press('Enter')
 
-    expect(await editor.get.blockTexts()).toEqual(['ab', ''])
-    expect(await editor.get.modelText()).toBe('ab')
+    await editor.assert.blockTexts(['ab', ''])
+    await expect.poll(() => editor.get.modelText()).toBe('ab')
     await editor.assert.selection({
       anchor: { path: [1, 0], offset: 0 },
       focus: { path: [1, 0], offset: 0 },

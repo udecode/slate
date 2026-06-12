@@ -17,6 +17,7 @@ import {
 } from '../src/editable/input-controller'
 import {
   applyEditableClick,
+  applyEditableMouseDown,
   syncSelectionForBeforeInput,
   useEditableSelectionReconciler,
 } from '../src/editable/selection-reconciler'
@@ -86,6 +87,53 @@ test('beforeinput preserves pending native text repair selection over mismatched
     domSelection.removeAllRanges()
     vi.restoreAllMocks()
   }
+})
+
+test('mouse down clears stale model-owned text input guards without reclassifying the click', () => {
+  const editor = createReactEditor()
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: createEditableInputControllerState(),
+  })
+  const target = document.createElement('span')
+  const calls: Array<{
+    activeIntent: string | null
+    guard: number
+    preferModelSelection: boolean
+    selectionSource: string
+  }> = []
+
+  inputController.state.activeIntent = 'composition'
+  inputController.state.modelOwnedTextInputGuard = 1
+  inputController.state.selectionSource = 'model-owned'
+
+  applyEditableMouseDown({
+    editor,
+    event: {
+      preventDefault: vi.fn(),
+      target,
+    } as any,
+    inputController,
+    onMouseDown: () => {
+      calls.push({
+        activeIntent: inputController.state.activeIntent,
+        guard: inputController.state.modelOwnedTextInputGuard ?? 0,
+        preferModelSelection:
+          inputController.preferModelSelectionForInputRef.current,
+        selectionSource: inputController.state.selectionSource,
+      })
+    },
+  })
+
+  expect(calls).toEqual([
+    {
+      activeIntent: 'composition',
+      guard: 0,
+      preferModelSelection: false,
+      selectionSource: 'dom-current',
+    },
+  ])
+  expect(inputController.state.selectionChangeOrigin).toBe('native-user')
 })
 
 test('beforeinput returns same-path pending native text repair DOM range without importing it', () => {

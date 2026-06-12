@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { render, renderHook } from '@testing-library/react'
 import { type KeyboardEvent, useMemo, useRef } from 'react'
 import { Editor } from 'slate/internal'
@@ -31,6 +32,12 @@ import { createReactEditor } from '../src/plugin/with-react'
 const DEFERRED_NATIVE_TEXT_INPUT_REPAIR_IDLE_MS = 8
 
 const cancelable = () => ({ cancel: () => {} })
+
+test('DOM input trace keeps an outer event handler duration bucket', () => {
+  const source = readFileSync('src/editable/input-router.ts', 'utf8')
+
+  expect(source).toContain("profileDOMInputDuration('dom-input-total'")
+})
 
 const RootRefProbe = ({
   onDOMBeforeInput,
@@ -366,6 +373,7 @@ test('pending native text input repair corrects model selection before boundary 
     anchor: { path: [0, 0], offset: 4 },
     focus: { path: [0, 0], offset: 4 },
   })
+  expect(inputController.state.modelOwnedTextInputGuard).toBeGreaterThan(0)
 })
 
 test('pending native text input repair does not move selection when expected text is stale', () => {
@@ -2191,6 +2199,7 @@ test('read-only input capture does not schedule model-owning DOM input repair', 
         requestEditableRepair: vi.fn(),
       } as any,
       rootRef: { current: root },
+      syncDOMSelectionToEditor: vi.fn(),
       trace: {
         getCurrentKernelFrameId: () => 1,
         recordKernelEventTrace: vi.fn(),
@@ -2242,6 +2251,7 @@ test('deferred runtime input capture leaves native text repair to DOM input hand
           requestEditableRepair: vi.fn(),
         } as any,
         rootRef: { current: root },
+        syncDOMSelectionToEditor: vi.fn(),
         trace: {
           getCurrentKernelFrameId: () => 1,
           recordKernelEventTrace: vi.fn(),
@@ -2301,6 +2311,7 @@ test('runtime input capture repair prevents duplicate bubble repair for the same
           requestEditableRepair,
         } as any,
         rootRef: { current: root },
+        syncDOMSelectionToEditor: vi.fn(),
         trace: {
           getCurrentKernelFrameId: () => 1,
           recordKernelEventTrace: vi.fn(),

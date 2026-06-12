@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import {
   createEditorRuntime,
   createEditorView,
@@ -24,6 +25,7 @@ import {
 import {
   createSlateViewSelection,
   readSlateViewSelection,
+  subscribeSlateViewSelection,
   writeSlateViewSelection,
 } from '../src/view-selection'
 
@@ -195,6 +197,16 @@ const writeAmbiguousRepeatedSelection = (
 }
 
 describe('projected editable commands', () => {
+  it('keeps full delete-fragment profiler buckets for huge-document attribution', () => {
+    const source = readFileSync('src/editable/mutation-controller.ts', 'utf8')
+
+    expect(source).toContain('delete-fragment.full-top-level-paths')
+    expect(source).toContain('delete-fragment.consistent-marks')
+    expect(source).toContain('delete-fragment.selected-children')
+    expect(source).toContain('delete-fragment.replay-replace')
+    expect(source).toContain('markInternalOwnedReplayOperation')
+  })
+
   it('typing over a projected selection replaces the visible span across roots in one commit', () => {
     const { editor, graph } = createFixture()
 
@@ -975,6 +987,37 @@ describe('projected editable commands', () => {
     ).toEqual(['replace_children'])
   })
 
+  it('delete-fragment over mixed top-level marks keeps no active marks when the first text is unmarked', () => {
+    const runtime = createEditorRuntime({
+      initialValue: [
+        paragraph('plain'),
+        {
+          type: 'paragraph',
+          children: [{ bold: true, text: 'bold' }],
+        },
+      ],
+    })
+    const editor = createEditorView(runtime) as unknown as ReactRuntimeEditor
+
+    expect(
+      applyEditableCommand({
+        command: {
+          kind: 'delete-fragment',
+          selection: {
+            anchor: { path: [0, 0], offset: 0 },
+            focus: { path: [1, 0], offset: 'bold'.length },
+          },
+        },
+        editor,
+      })
+    ).toBe(true)
+
+    expect(editor.read((state) => state.marks.get())).toEqual({})
+    expect(editor.read((state) => state.value.get().roots.main)).toEqual([
+      paragraph(''),
+    ])
+  })
+
   it('insert-text over a whole text block with inline children preserves the block', () => {
     const runtime = createEditorRuntime({
       extensions: [dom(), inlineLinkExtension],
@@ -1098,6 +1141,36 @@ describe('projected editable commands', () => {
       },
     })
     expect(readSlateViewSelection(editor)).toBe(null)
+  })
+
+  it('notifies view-selection subscribers when document history restores sidecars', () => {
+    const { editor, graph } = createFixture()
+
+    writeForwardProjectedSelection(editor, graph)
+    const projectedSelection = readSlateViewSelection(editor)
+
+    expect(projectedSelection).not.toBe(null)
+    applyEditableCommand({
+      command: { inputType: 'insertText', kind: 'insert-text', text: 'X' },
+      editor,
+    })
+    expect(readSlateViewSelection(editor)).toBe(null)
+
+    const events: unknown[] = []
+    const unsubscribe = subscribeSlateViewSelection(editor, () => {
+      events.push(readSlateViewSelection(editor))
+    })
+
+    try {
+      expect(applyModelOwnedHistoryIntent({ direction: 'undo', editor })).toBe(
+        true
+      )
+    } finally {
+      unsubscribe()
+    }
+
+    expect(readSlateViewSelection(editor)).toEqual(projectedSelection)
+    expect(events).toEqual([projectedSelection])
   })
 
   it('keeps model-owned history undo from normalizing the outer command transaction', () => {

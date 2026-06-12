@@ -622,7 +622,7 @@ test.describe('synced blocks example', () => {
         anchor: { path: [0, 0], offset: 1 },
         focus: { path: [0, 0], offset: 1 },
       })
-    expect(await getNativeSelectionText(page)).not.toBe('\n')
+    await expect.poll(() => getNativeSelectionText(page)).not.toBe('\n')
     await expect
       .poll(() => getViewSelection(outerEditor))
       .toMatchObject({
@@ -665,7 +665,7 @@ test.describe('synced blocks example', () => {
         anchor: { path: [6, 0], offset: 0 },
         focus: { path: [6, 0], offset: 0 },
       })
-    expect(await getNativeSelectionText(page)).not.toBe('\n')
+    await expect.poll(() => getNativeSelectionText(page)).not.toBe('\n')
     await expect
       .poll(() => getViewSelection(outerEditor))
       .toMatchObject({
@@ -1332,7 +1332,9 @@ test.describe('synced blocks example', () => {
         segments: { backward: false },
       })
     await expect.poll(() => getNativeSelectionText(page)).not.toBe('\n')
-    expect(await getNativeSelectionText(page)).not.toContain('Editing original')
+    await expect
+      .poll(() => getNativeSelectionText(page))
+      .not.toContain('Editing original')
 
     await setViewSelection(outerEditor, null)
     await dragFromLocatorToLocator({
@@ -1354,7 +1356,9 @@ test.describe('synced blocks example', () => {
         segments: { backward: false },
       })
     await expect.poll(() => getNativeSelectionText(page)).not.toBe('\n')
-    expect(await getNativeSelectionText(page)).not.toContain('Editing original')
+    await expect
+      .poll(() => getNativeSelectionText(page))
+      .not.toContain('Editing original')
   })
 
   test('mouse drag from a synced content root into the owner document selects both sides', async ({
@@ -1410,7 +1414,9 @@ test.describe('synced blocks example', () => {
     await expect
       .poll(() => getRenderedViewSelectionText(page))
       .toContain('Between')
-    expect(await getNativeSelectionText(page)).not.toContain('Editing original')
+    await expect
+      .poll(() => getNativeSelectionText(page))
+      .not.toContain('Editing original')
   })
 
   test('mouse drag from an existing synced root text selection into the owner document selects both sides', async ({
@@ -1481,7 +1487,9 @@ test.describe('synced blocks example', () => {
     await expect
       .poll(() => getRenderedViewSelectionText(page))
       .toContain('Between')
-    expect(await getNativeSelectionText(page)).not.toContain('Editing original')
+    await expect
+      .poll(() => getNativeSelectionText(page))
+      .not.toContain('Editing original')
   })
 
   test('mouse drag can select from p1 through repeated synced roots to p2', async ({

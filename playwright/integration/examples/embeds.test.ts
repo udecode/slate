@@ -328,7 +328,7 @@ test.describe('embeds example', () => {
 
   test('keeps the editor editable after a quick click on a draggable custom void', async ({
     page,
-  }) => {
+  }, testInfo) => {
     const runtimeErrors = await recordSlateBrowserRuntimeErrors(page)
 
     try {
@@ -407,7 +407,11 @@ test.describe('embeds example', () => {
         anchor: { path: [2, 0], offset: 0 },
         focus: { path: [2, 0], offset: 0 },
       })
-      await page.keyboard.type('Editable ')
+      if (testInfo.project.name === 'mobile') {
+        await editor.insertText('Editable ')
+      } else {
+        await page.keyboard.type('Editable ')
+      }
       await expect
         .poll(() => editor.get.modelBlockTexts())
         .toEqual([introText, '', `Editable ${targetText}`])
@@ -420,7 +424,7 @@ test.describe('embeds example', () => {
 
   test('deselects a selected draggable custom void when clicking back into text', async ({
     page,
-  }) => {
+  }, testInfo) => {
     const runtimeErrors = await recordSlateBrowserRuntimeErrors(page)
 
     try {
@@ -463,7 +467,11 @@ test.describe('embeds example', () => {
         })
         .toBe(true)
 
-      await page.keyboard.type('Deselect ')
+      if (testInfo.project.name === 'mobile') {
+        await editor.insertText('Deselect ')
+      } else {
+        await page.keyboard.type('Deselect ')
+      }
       await expect
         .poll(async () => {
           const blockTexts = await editor.get.modelBlockTexts()

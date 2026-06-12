@@ -751,4 +751,60 @@ describe('DOM coverage boundaries', () => {
       }).map((boundary) => boundary.boundaryId)
     ).toEqual(['hidden-200'])
   })
+
+  test('keeps exact DOM coordinate APIs separate from virtualized boundaries', () => {
+    withDom((document) => {
+      const editor = createLargeEditor(500)
+      const hiddenPoint = { path: [200, 0], offset: 3 }
+      const hiddenRange: Range = {
+        anchor: hiddenPoint,
+        focus: hiddenPoint,
+      }
+
+      mountEditorRoot(editor, document)
+      DOMCoverage.registerBoundary(editor, {
+        boundaryId: 'virtualized-200',
+        anchor: { type: 'placeholder', runtimeId: getRuntimeId(editor, [200]) },
+        copyPolicy: 'model',
+        coveredPathRanges: [{ anchor: [200, 0], focus: [200, 0] }],
+        coveredRuntimeRanges: [],
+        findPolicy: 'native',
+        ownerPath: [200],
+        ownerRuntimeId: getRuntimeId(editor, [200]),
+        reason: 'viewport-virtualization',
+        selectionPolicy: 'materialize',
+        state: 'virtualized',
+        version: 1,
+      })
+
+      expect(editor.api.dom.resolveDOMPoint(hiddenPoint)).toBeNull()
+      expect(editor.api.dom.resolveDOMRange(hiddenRange)).toBeNull()
+      expect(editor.api.dom.resolveRangeRect(hiddenRange)).toBeNull()
+      expect(() => editor.api.dom.assertDOMPoint(hiddenPoint)).toThrow(
+        /Cannot resolve a DOM node from Slate node/
+      )
+      expect(
+        DOMCoverage.resolveDOMPointOrBoundary(editor, hiddenPoint)
+      ).toMatchObject({
+        boundary: {
+          boundaryId: 'virtualized-200',
+          reason: 'viewport-virtualization',
+          state: 'virtualized',
+        },
+        type: 'boundary',
+      })
+      expect(
+        DOMCoverage.resolveDOMRangeOrBoundary(editor, hiddenRange)
+      ).toMatchObject({
+        boundaries: [
+          {
+            boundaryId: 'virtualized-200',
+            reason: 'viewport-virtualization',
+            state: 'virtualized',
+          },
+        ],
+        type: 'boundary-range',
+      })
+    })
+  })
 })

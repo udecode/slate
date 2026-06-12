@@ -97,6 +97,7 @@ type TransactionSnapshot = {
   implicitTarget: Selection
   implicitTargetResolved: boolean
   previousIndex: RuntimeIndexLike | null
+  previousLiveIndex: LiveRuntimeIndex | null
   previousSnapshot: EditorSnapshot | null
   previousVersion: number
   command: EditorCommitCommand | null
@@ -198,11 +199,24 @@ const LAST_COMMIT = new WeakMap<Editor, EditorCommit | null>()
 const BASE_APPLY = new WeakMap<Editor, (operation: Operation) => void>()
 const OPERATIONS = new WeakMap<Editor, Operation[]>()
 const PUBLIC_OPERATIONS = new WeakMap<Editor, readonly Operation[]>()
+const INTERNAL_OWNED_REPLAY_OPERATIONS = new WeakSet<Operation>()
 const TARGET_RUNTIME = new WeakMap<Editor, EditorTargetRuntime>()
 const TARGET_RUNTIME_ACTIVE = new WeakSet<Editor>()
 const RUNTIME_INDEX_CACHE = new WeakMap<
   Editor,
   { index: LiveRuntimeIndex; version: number }
+>()
+const FULL_ROOT_REPLACE_CHILDREN_INDEX_CACHE = new WeakMap<
+  readonly Descendant[],
+  SnapshotIndex
+>()
+const FULL_ROOT_REPLACE_CHILDREN_LIVE_INDEX_CACHE = new WeakMap<
+  readonly Descendant[],
+  LiveRuntimeIndex
+>()
+const FULL_ROOT_REPLACE_CHILDREN_SNAPSHOT_CHILDREN_CACHE = new WeakMap<
+  readonly Descendant[],
+  EditorSnapshot['children']
 >()
 const RUNTIME_INDEX_VERSION = new WeakMap<Editor, number>()
 const SNAPSHOT_CACHE = new WeakMap<Editor, EditorSnapshot>()
@@ -851,7 +865,7 @@ const withRootLifecycleDefaults = (
   }
 }
 
-const profileCoreDuration = <T>(id: string, callback: () => T): T => {
+export const profileCoreDuration = <T>(id: string, callback: () => T): T => {
   const profiler = (
     globalThis as typeof globalThis & {
       __SLATE_REACT_RENDER_PROFILER__?: {
@@ -918,7 +932,18 @@ const deepFreeze = <T>(value: T): T => {
   return value
 }
 
-const pathKey = (path: Path) => path.join('.')
+const pathKey = (path: Path) => {
+  switch (path.length) {
+    case 0:
+      return ''
+    case 1:
+      return String(path[0])
+    case 2:
+      return `${path[0]}.${path[1]}`
+    default:
+      return path.join('.')
+  }
+}
 
 const bumpRuntimeIndexVersion = (editor: Editor) => {
   RUNTIME_INDEX_VERSION.set(
@@ -1185,6 +1210,231 @@ const buildSnapshotIndex = (
     idToPath: Object.freeze(idToPath),
     pathToId: Object.freeze(pathToId),
   })
+}
+
+const buildSnapshotIndexWithLiveRuntimeIndex = (
+  editor: Editor,
+  children: readonly Descendant[]
+): {
+  liveIndex: LiveRuntimeIndex
+  snapshotIndex: SnapshotIndex
+} => {
+  const liveIdToPath = new Map<RuntimeId, Path>()
+  const livePathToId = new Map<string, RuntimeId>()
+  const snapshotIdToPath = {} as Record<RuntimeId, Path>
+  const snapshotPathToId = {} as Record<string, RuntimeId>
+
+  const visit = (nodes: readonly Descendant[], pathPrefix: Path) => {
+    nodes.forEach((node, index) => {
+      const path = Object.freeze([...pathPrefix, index]) as Path
+      const id = getOrCreateRuntimeId(node, editor)
+      const key = pathKey(path)
+
+      liveIdToPath.set(id, path)
+      livePathToId.set(key, id)
+      snapshotIdToPath[id] = path
+      snapshotPathToId[key] = id
+
+      if ('children' in node && Array.isArray(node.children)) {
+        visit(node.children, path)
+      }
+    })
+  }
+
+  visit(children, [])
+
+  return {
+    liveIndex: {
+      idToPath: liveIdToPath,
+      pathToId: livePathToId,
+    },
+    snapshotIndex: Object.freeze({
+      idToPath: Object.freeze(snapshotIdToPath),
+      pathToId: Object.freeze(snapshotPathToId),
+    }),
+  }
+}
+
+const buildLiveRuntimeIndexFromSnapshotIndex = (
+  snapshotIndex: SnapshotIndex
+): LiveRuntimeIndex => {
+  const idToPath = new Map<RuntimeId, Path>()
+  const pathToId = new Map<string, RuntimeId>()
+
+  for (const [id, path] of Object.entries(snapshotIndex.idToPath)) {
+    idToPath.set(id as RuntimeId, path)
+  }
+
+  for (const [key, id] of Object.entries(snapshotIndex.pathToId)) {
+    pathToId.set(key, id as RuntimeId)
+  }
+
+  return { idToPath, pathToId }
+}
+
+const isFullRootReplaceOperation = (
+  operation: Operation,
+  root: string
+): operation is Extract<Operation, { type: 'replace_children' }> =>
+  operation.type === 'replace_children' &&
+  operation.path.length === 0 &&
+  operation.index === 0 &&
+  getOperationRoot(operation) === root
+
+const getSingleFullRootReplaceOperation = (
+  operations: readonly Operation[],
+  root: string
+): Extract<Operation, { type: 'replace_children' }> | null => {
+  const contentOperations = operations.filter(
+    (operation) => operation.type !== 'set_selection'
+  )
+
+  if (contentOperations.length !== 1) {
+    return null
+  }
+
+  const operation = contentOperations[0]!
+
+  return isFullRootReplaceOperation(operation, root) ? operation : null
+}
+
+const cacheFullRootReplaceSnapshotIndexes = (
+  operations: readonly Operation[],
+  previousSnapshot: EditorSnapshot,
+  previousLiveIndex: LiveRuntimeIndex | null,
+  nextSnapshot: EditorSnapshot,
+  nextLiveIndex: LiveRuntimeIndex | null,
+  root: string
+) => {
+  const operation = getSingleFullRootReplaceOperation(operations, root)
+
+  if (!operation) {
+    return
+  }
+
+  if (operation.children.length === previousSnapshot.children.length) {
+    FULL_ROOT_REPLACE_CHILDREN_INDEX_CACHE.set(
+      operation.children,
+      previousSnapshot.index
+    )
+    FULL_ROOT_REPLACE_CHILDREN_SNAPSHOT_CHILDREN_CACHE.set(
+      operation.children,
+      previousSnapshot.children
+    )
+
+    if (previousLiveIndex) {
+      FULL_ROOT_REPLACE_CHILDREN_LIVE_INDEX_CACHE.set(
+        operation.children,
+        previousLiveIndex
+      )
+    }
+  }
+
+  if (operation.newChildren.length === nextSnapshot.children.length) {
+    FULL_ROOT_REPLACE_CHILDREN_INDEX_CACHE.set(
+      operation.newChildren,
+      nextSnapshot.index
+    )
+    FULL_ROOT_REPLACE_CHILDREN_SNAPSHOT_CHILDREN_CACHE.set(
+      operation.newChildren,
+      nextSnapshot.children
+    )
+
+    if (nextLiveIndex) {
+      FULL_ROOT_REPLACE_CHILDREN_LIVE_INDEX_CACHE.set(
+        operation.newChildren,
+        nextLiveIndex
+      )
+    }
+  }
+}
+
+const getFullRootReplaceSnapshotIndex = (
+  operation: Extract<Operation, { type: 'replace_children' }>,
+  liveChildren: readonly Descendant[]
+): SnapshotIndex | null => {
+  if (operation.newChildren.length !== liveChildren.length) {
+    return null
+  }
+
+  const first = liveChildren[0]
+  const last = liveChildren.at(-1)
+
+  if (
+    operation.newChildren.length > 0 &&
+    (first !== operation.newChildren[0] ||
+      last !== operation.newChildren.at(-1))
+  ) {
+    return null
+  }
+
+  return (
+    FULL_ROOT_REPLACE_CHILDREN_INDEX_CACHE.get(operation.newChildren) ?? null
+  )
+}
+
+export const hasCachedFullRootReplaceSnapshotIndex = (
+  operation: Operation
+): operation is Extract<Operation, { type: 'replace_children' }> =>
+  operation.type === 'replace_children' &&
+  operation.path.length === 0 &&
+  operation.index === 0 &&
+  FULL_ROOT_REPLACE_CHILDREN_INDEX_CACHE.has(operation.newChildren)
+
+const getFullRootReplaceCachedSnapshot = (
+  editor: Editor,
+  operations: readonly Operation[],
+  root: string
+): EditorSnapshot | null => {
+  const operation = getSingleFullRootReplaceOperation(operations, root)
+
+  if (!operation) {
+    return null
+  }
+
+  const liveChildren = getEditorDocumentRoots(editor)[root] ?? []
+  const index = getFullRootReplaceSnapshotIndex(operation, liveChildren)
+
+  if (!index) {
+    return null
+  }
+
+  if (root === MAIN_ROOT_KEY) {
+    const cachedLiveIndex = FULL_ROOT_REPLACE_CHILDREN_LIVE_INDEX_CACHE.get(
+      operation.newChildren
+    )
+    const liveIndex =
+      cachedLiveIndex ??
+      profileCoreDuration('snapshot-reuse-live-runtime-index', () =>
+        buildLiveRuntimeIndexFromSnapshotIndex(index)
+      )
+
+    RUNTIME_INDEX_CACHE.set(editor, {
+      index: liveIndex,
+      version: getRuntimeIndexVersion(editor),
+    })
+  }
+
+  const selectionRoot = getCurrentSelectionRoot(editor)
+  const children =
+    FULL_ROOT_REPLACE_CHILDREN_SNAPSHOT_CHILDREN_CACHE.get(
+      operation.newChildren
+    ) ??
+    profileCoreDuration('snapshot-reuse-clone-children', () =>
+      cloneFrozen(liveChildren)
+    )
+
+  return Object.freeze({
+    children,
+    index,
+    marks: getRootScopedMarks(getCurrentMarks(editor), selectionRoot, root),
+    selection: getRootScopedSelection(
+      getCurrentSelection(editor),
+      selectionRoot,
+      root
+    ),
+    version: getVersion(editor),
+  }) as unknown as EditorSnapshot
 }
 
 const getVersion = (editor: Editor) => SNAPSHOT_VERSION.get(editor) ?? 0
@@ -2415,7 +2665,19 @@ const getUpdateView = <
         withUpdateTagContext(editor, normalizeUpdateTags(options.tag), () => {
           for (const operation of operations) {
             assertKnownReplayOperation(operation)
-            applyOperation(editor, cloneValue(operation))
+            const isInternalOwnedReplay =
+              INTERNAL_OWNED_REPLAY_OPERATIONS.has(operation)
+            const replayOperation = isInternalOwnedReplay
+              ? operation
+              : operation.type === 'replace_children'
+                ? profileCoreDuration(
+                    'operation-replay-clone:replace_children',
+                    () => cloneValue(operation)
+                  )
+                : cloneValue(operation)
+
+            INTERNAL_OWNED_REPLAY_OPERATIONS.delete(operation)
+            applyOperation(editor, replayOperation)
           }
         })
       },
@@ -3156,6 +3418,14 @@ export const getLatestContentOperation = (
 export const getOperationCount = (editor: Editor) =>
   getLiveOperations(editor).length
 
+export const markInternalOwnedReplayOperation = <T extends Operation>(
+  operation: T
+): T => {
+  INTERNAL_OWNED_REPLAY_OPERATIONS.add(operation)
+
+  return operation
+}
+
 export const hasInternalEditorState = (value: unknown): value is Editor =>
   typeof value === 'object' &&
   value !== null &&
@@ -3371,12 +3641,31 @@ const getCurrentRootSnapshot = (
   editor: Editor,
   root: string
 ): EditorSnapshot => {
-  const children = getEditorDocumentRoots(editor)[root] ?? []
+  const liveChildren = getEditorDocumentRoots(editor)[root] ?? []
   const selectionRoot = getCurrentSelectionRoot(editor)
+  const children = profileCoreDuration('snapshot-clone-children', () =>
+    cloneFrozen(liveChildren)
+  )
+  const index =
+    root === MAIN_ROOT_KEY
+      ? profileCoreDuration('snapshot-build-index', () => {
+          const { liveIndex, snapshotIndex } =
+            buildSnapshotIndexWithLiveRuntimeIndex(editor, liveChildren)
+
+          RUNTIME_INDEX_CACHE.set(editor, {
+            index: liveIndex,
+            version: getRuntimeIndexVersion(editor),
+          })
+
+          return snapshotIndex
+        })
+      : profileCoreDuration('snapshot-build-index', () =>
+          buildSnapshotIndex(editor, liveChildren)
+        )
 
   return Object.freeze({
-    children: cloneFrozen(children),
-    index: buildSnapshotIndex(editor, children),
+    children,
+    index,
     marks: getRootScopedMarks(getCurrentMarks(editor), selectionRoot, root),
     selection: getRootScopedSelection(
       getCurrentSelection(editor),
@@ -4354,6 +4643,16 @@ const getNodeImpactRuntimeIds = ({
 
   if (
     changeClass === 'structural' &&
+    operations.some(
+      (operation) =>
+        operation.type === 'replace_children' && operation.path.length === 0
+    )
+  ) {
+    return null
+  }
+
+  if (
+    changeClass === 'structural' &&
     operations.some(operationChangesTopLevelOrder)
   ) {
     return getTopLevelOrderNodeImpactRuntimeIds(
@@ -4401,13 +4700,18 @@ export const buildSnapshotChange = ({
   statePatches?: readonly EditorStatePatch[]
   tags?: readonly EditorUpdateTag[]
 }): SnapshotChange => {
-  const hasTextOperation = operations.some(
-    (op) => op.type === 'insert_text' || op.type === 'remove_text'
+  const hasTextOperation = profileCoreDuration(
+    'build-snapshot-change:classify-text',
+    () =>
+      operations.some(
+        (op) => op.type === 'insert_text' || op.type === 'remove_text'
+      )
   )
-  const hasReplaceFragmentOperation = operations.some(
-    (op) => op.type === 'replace_fragment'
+  const hasReplaceFragmentOperation = profileCoreDuration(
+    'build-snapshot-change:classify-fragment',
+    () => operations.some((op) => op.type === 'replace_fragment')
   )
-  const classes =
+  const classes = profileCoreDuration('build-snapshot-change:classes', () =>
     reason === 'replace' || hasReplaceFragmentOperation
       ? (['replace'] as const)
       : operations.length > 0 &&
@@ -4426,69 +4730,92 @@ export const buildSnapshotChange = ({
             : statePatches.length > 0
               ? (['state'] as const)
               : (['mark'] as const)
+  )
 
-  const marksChanged =
-    JSON.stringify(previousSnapshot.marks) !==
-    JSON.stringify(nextSnapshot.marks)
-  const selectionChanged =
-    JSON.stringify(previousSnapshot.selection) !==
-    JSON.stringify(nextSnapshot.selection)
+  const marksChanged = profileCoreDuration(
+    'build-snapshot-change:marks-changed',
+    () =>
+      JSON.stringify(previousSnapshot.marks) !==
+      JSON.stringify(nextSnapshot.marks)
+  )
+  const selectionChanged = profileCoreDuration(
+    'build-snapshot-change:selection-changed',
+    () =>
+      JSON.stringify(previousSnapshot.selection) !==
+      JSON.stringify(nextSnapshot.selection)
+  )
   const selectionImpactRuntimeIds =
     classes[0] === 'replace'
       ? null
-      : getSelectionImpactRuntimeIds({
-          nextIndex: nextSnapshot.index,
-          previousIndex: previousSnapshot.index,
-          selectionAfter: nextSnapshot.selection,
-          selectionBefore: previousSnapshot.selection,
-        })
+      : profileCoreDuration('build-snapshot-change:selection-impact', () =>
+          getSelectionImpactRuntimeIds({
+            nextIndex: nextSnapshot.index,
+            previousIndex: previousSnapshot.index,
+            selectionAfter: nextSnapshot.selection,
+            selectionBefore: previousSnapshot.selection,
+          })
+        )
 
   const childrenChanged =
     classes[0] === 'replace' ||
     classes[0] === 'text' ||
     classes[0] === 'structural'
 
-  const dirtyPaths =
-    classes[0] === 'text'
-      ? uniqPaths(
-          operations.flatMap((op) =>
-            'path' in op && Array.isArray(op.path)
-              ? [[], op.path.slice(0, -1), op.path]
-              : []
-          )
-        )
-      : []
-
-  const touchedRuntimeIds =
-    classes[0] === 'replace'
-      ? null
-      : classes[0] === 'selection' || classes[0] === 'mark'
-        ? []
-        : uniqPaths(
+  const dirtyPaths = profileCoreDuration(
+    'build-snapshot-change:dirty-paths',
+    () =>
+      classes[0] === 'text'
+        ? uniqPaths(
             operations.flatMap((op) =>
-              'path' in op && Array.isArray(op.path) ? [op.path] : []
+              'path' in op && Array.isArray(op.path)
+                ? [[], op.path.slice(0, -1), op.path]
+                : []
             )
-          ).map(
-            (path) =>
-              previousSnapshot.index.pathToId[pathKey(path)] ??
-              nextSnapshot.index.pathToId[pathKey(path)]
           )
-  const decorationImpactRuntimeIds = getDecorationImpactRuntimeIds({
-    classes,
-    dirtyPaths,
-    nextIndex: nextSnapshot.index,
-    previousIndex: previousSnapshot.index,
-    selectionImpactRuntimeIds,
-    touchedRuntimeIds,
-  })
-  const nodeImpactRuntimeIds = getNodeImpactRuntimeIds({
-    classes,
-    dirtyPaths,
-    nextIndex: nextSnapshot.index,
-    operations,
-    previousIndex: previousSnapshot.index,
-    touchedRuntimeIds,
-  })
+        : []
+  )
+
+  const touchedRuntimeIds = profileCoreDuration(
+    'build-snapshot-change:touched-runtime-ids',
+    () =>
+      classes[0] === 'replace'
+        ? null
+        : classes[0] === 'selection' || classes[0] === 'mark'
+          ? []
+          : uniqPaths(
+              operations.flatMap((op) =>
+                'path' in op && Array.isArray(op.path) ? [op.path] : []
+              )
+            ).map(
+              (path) =>
+                previousSnapshot.index.pathToId[pathKey(path)] ??
+                nextSnapshot.index.pathToId[pathKey(path)]
+            )
+  )
+  const decorationImpactRuntimeIds = profileCoreDuration(
+    'build-snapshot-change:decoration-impact',
+    () =>
+      getDecorationImpactRuntimeIds({
+        classes,
+        dirtyPaths,
+        nextIndex: nextSnapshot.index,
+        previousIndex: previousSnapshot.index,
+        selectionImpactRuntimeIds,
+        touchedRuntimeIds,
+      })
+  )
+  const nodeImpactRuntimeIds = profileCoreDuration(
+    'build-snapshot-change:node-impact',
+    () =>
+      getNodeImpactRuntimeIds({
+        classes,
+        dirtyPaths,
+        nextIndex: nextSnapshot.index,
+        operations,
+        previousIndex: previousSnapshot.index,
+        touchedRuntimeIds,
+      })
+  )
   const dirtyScope =
     classes[0] === 'replace'
       ? 'all'
@@ -4498,9 +4825,10 @@ export const buildSnapshotChange = ({
         ? 'none'
         : 'paths'
 
-  return completeCommit(
-    {
-      ...buildCommitRuntimeDirtiness({
+  const runtimeDirtiness = profileCoreDuration(
+    'build-snapshot-change:runtime-dirtiness',
+    () =>
+      buildCommitRuntimeDirtiness({
         classes,
         decorationImpactRuntimeIds,
         dirtyPaths,
@@ -4511,36 +4839,43 @@ export const buildSnapshotChange = ({
         previousIndex: previousSnapshot.index,
         selectionImpactRuntimeIds,
         touchedRuntimeIds,
-      }),
-      childrenChanged,
-      classes,
-      command: cloneValue(command),
-      decorationImpactRuntimeIds,
-      dirtyPaths,
-      dirtyScope,
-      dirtyStateKeys: Object.freeze(statePatches.map((patch) => patch.key)),
-      marksAfter: cloneValue(nextSnapshot.marks),
-      marksBefore: cloneValue(previousSnapshot.marks),
-      marksChanged,
-      metadata: cloneUpdateMetadata(metadata),
-      nodeImpactRuntimeIds,
-      operations: Object.freeze([...operations]),
-      replaceEpoch: classes[0] === 'replace' ? 1 : 0,
-      selectionAfter: cloneValue(nextSnapshot.selection),
-      selectionBefore: cloneValue(previousSnapshot.selection),
-      selectionChanged,
-      selectionImpactRuntimeIds,
-      statePatches: Object.freeze(cloneValue([...statePatches])),
-      tags: Object.freeze([...tags]),
-      touchedRuntimeIds:
-        touchedRuntimeIds == null
-          ? null
-          : Object.freeze(touchedRuntimeIds.filter(Boolean) as RuntimeId[]),
-    },
-    {
-      previousVersion: previousSnapshot.version,
-      version: nextSnapshot.version,
-    }
+      })
+  )
+
+  return profileCoreDuration('build-snapshot-change:complete-commit', () =>
+    completeCommit(
+      {
+        ...runtimeDirtiness,
+        childrenChanged,
+        classes,
+        command: cloneValue(command),
+        decorationImpactRuntimeIds,
+        dirtyPaths,
+        dirtyScope,
+        dirtyStateKeys: Object.freeze(statePatches.map((patch) => patch.key)),
+        marksAfter: cloneValue(nextSnapshot.marks),
+        marksBefore: cloneValue(previousSnapshot.marks),
+        marksChanged,
+        metadata: cloneUpdateMetadata(metadata),
+        nodeImpactRuntimeIds,
+        operations: Object.freeze([...operations]),
+        replaceEpoch: classes[0] === 'replace' ? 1 : 0,
+        selectionAfter: cloneValue(nextSnapshot.selection),
+        selectionBefore: cloneValue(previousSnapshot.selection),
+        selectionChanged,
+        selectionImpactRuntimeIds,
+        statePatches: Object.freeze(cloneValue([...statePatches])),
+        tags: Object.freeze([...tags]),
+        touchedRuntimeIds:
+          touchedRuntimeIds == null
+            ? null
+            : Object.freeze(touchedRuntimeIds.filter(Boolean) as RuntimeId[]),
+      },
+      {
+        previousVersion: previousSnapshot.version,
+        version: nextSnapshot.version,
+      }
+    )
   )
 }
 
@@ -4904,6 +5239,7 @@ export const runEditorTransaction = (
   if (isOuter) {
     const needsPreviousSnapshot = hasListeners(editor)
     const needsFullPreviousSnapshot = hasSnapshotListeners(editor)
+    const childrenRoot = getCurrentChildrenRoot(editor)
     const previousSnapshot = needsPreviousSnapshot
       ? profileCoreDuration('transaction-previous-snapshot', () =>
           needsFullPreviousSnapshot ? getSnapshot(editor) : null
@@ -4917,7 +5253,10 @@ export const runEditorTransaction = (
             getLiveRuntimeIndex(editor)
           )
         : null)
-    const childrenRoot = getCurrentChildrenRoot(editor)
+    const previousLiveIndex =
+      previousSnapshot && childrenRoot === MAIN_ROOT_KEY
+        ? (RUNTIME_INDEX_CACHE.get(editor)?.index ?? null)
+        : null
     const roots = getEditorDocumentRoots(editor)
     const rootIndexes: Record<string, RuntimeIndexLike> = {}
     const transactionRoots = profileCoreDuration(
@@ -4946,6 +5285,7 @@ export const runEditorTransaction = (
       metadata: cloneUpdateMetadata(options.metadata),
       operationStart: getLiveOperations(editor).length,
       previousIndex,
+      previousLiveIndex,
       previousSnapshot,
       previousVersion,
       reason: null,
@@ -5129,7 +5469,31 @@ export const runEditorTransaction = (
                           previousSnapshotForChange,
                           operations,
                           changeRoot!
-                        ) ?? getCurrentRootSnapshot(editor, changeRoot!)
+                        ) ??
+                        getFullRootReplaceCachedSnapshot(
+                          editor,
+                          operations,
+                          changeRoot!
+                        ) ??
+                        getCurrentRootSnapshot(editor, changeRoot!)
+                    )
+                    const cachedRuntimeIndex =
+                      changeRoot === MAIN_ROOT_KEY
+                        ? RUNTIME_INDEX_CACHE.get(editor)
+                        : null
+                    const nextLiveIndex =
+                      cachedRuntimeIndex?.version ===
+                      getRuntimeIndexVersion(editor)
+                        ? cachedRuntimeIndex.index
+                        : null
+
+                    cacheFullRootReplaceSnapshotIndexes(
+                      operations,
+                      previousSnapshotForChange,
+                      snapshot.previousLiveIndex,
+                      nextSnapshot,
+                      nextLiveIndex,
+                      changeRoot!
                     )
 
                     if (changeRoot === snapshot.childrenRoot) {

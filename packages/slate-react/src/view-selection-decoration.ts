@@ -1,16 +1,22 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
-import type { Descendant, Path, Range, RootKey } from 'slate'
+import type { Descendant, EditorSnapshot, Path, Range, RootKey } from 'slate'
 import { RangeApi } from 'slate'
 
 import {
   createDecorationSource,
   type SlateDecoration,
   type SlateDecorationSource,
+  type SlateDecorationSourceReadContext,
 } from './decoration-source'
 import { useIsomorphicLayoutEffect } from './hooks/use-isomorphic-layout-effect'
 import type { ReactRuntimeEditor } from './plugin/react-editor'
-import type { SlateSourceDirtiness } from './projection-store'
+import type {
+  SlateProjectionRuntimeScope,
+  SlateSourceDirtiness,
+} from './projection-store'
 import {
+  getSlateBoundaryPoint,
+  getSlateDescendantAtPath,
   resolveSlateViewBoundarySegmentEndpoint,
   type SlateViewBoundaryOwner,
   type SlateViewBoundaryRangeEndpoint,
@@ -39,6 +45,10 @@ export type SlateViewSelectionDecorationData = Readonly<{
   slateViewSelection: true
   owner: SlateViewSelectionDecorationOwner | null
   root: RootKey
+}>
+
+export type SlateViewSelectionDecorationSourceOptions = Readonly<{
+  runtimeScope?: SlateProjectionRuntimeScope
 }>
 
 const MAIN_ROOT_KEY: RootKey = 'main'
@@ -109,8 +119,8 @@ export const hasVisibleSlateViewSelectionDecoration = (
   })
 }
 
-const getRangeKey = (range: Range, index: number) =>
-  `${SLATE_VIEW_SELECTION_DECORATION_SOURCE_ID}:${range.anchor.root ?? MAIN_ROOT_KEY}:${range.anchor.path.join('.')}:${range.anchor.offset}:${range.focus.root ?? MAIN_ROOT_KEY}:${range.focus.path.join('.')}:${range.focus.offset}:${index}`
+const getRangeKey = (segment: SlateViewBoundaryRangeSegment, index: number) =>
+  `${SLATE_VIEW_SELECTION_DECORATION_SOURCE_ID}:${segment.root}:${segment.ownerKey ?? 'main'}:${index}`
 
 const rootPointForSegment = (
   point: Range['anchor'],
@@ -133,8 +143,106 @@ const resolveSlateViewSelectionDecorationEndpoint = (
   return resolveSlateViewBoundarySegmentEndpoint(roots(), segment, endpoint)
 }
 
+const createSlateViewSelectionDecoration = (
+  segment: SlateViewBoundaryRangeSegment,
+  index: number,
+  range: Range,
+  keySuffix = ''
+): SlateDecoration<SlateViewSelectionDecorationData> => ({
+  data: {
+    slateViewSelection: true,
+    owner: cloneOwner(segment.owner),
+    root: segment.root,
+  },
+  key: `${getRangeKey(segment, index)}${keySuffix}`,
+  range,
+})
+
+const isScopedSegment = (segment: SlateViewBoundaryRangeSegment) =>
+  segment.root === MAIN_ROOT_KEY && !segment.owner
+
+const getScopedNodeRange = (
+  snapshot: EditorSnapshot,
+  path: Path
+): Range | null => {
+  const node = getSlateDescendantAtPath(snapshot.children, path)
+
+  if (!node) {
+    return null
+  }
+
+  const anchor = getSlateBoundaryPoint(node, path, 'start')
+  const focus = getSlateBoundaryPoint(node, path, 'end')
+
+  return anchor && focus ? { anchor, focus } : null
+}
+
+const readScopedSlateViewSelectionDecorations = (
+  segment: SlateViewBoundaryRangeSegment,
+  index: number,
+  range: Range,
+  context: SlateDecorationSourceReadContext
+): readonly SlateDecoration<SlateViewSelectionDecorationData>[] | null => {
+  if (!context.runtimeScope || !isScopedSegment(segment)) {
+    return null
+  }
+
+  const decorations: SlateDecoration<SlateViewSelectionDecorationData>[] = []
+  const visitedPathKeys = new Set<string>()
+  const scopedPaths: Path[] = []
+
+  context.runtimeScope.forEach((runtimeId) => {
+    const path = context.snapshot.index.idToPath[runtimeId]
+
+    if (!path) {
+      return
+    }
+
+    scopedPaths.push(path)
+  })
+
+  ;[range.anchor, range.focus].forEach((point) => {
+    const topLevelIndex = point.path[0]
+
+    if (typeof topLevelIndex === 'number') {
+      scopedPaths.push([topLevelIndex] as Path)
+    }
+  })
+
+  scopedPaths.forEach((path) => {
+    const pathKey = path.join('.')
+
+    if (visitedPathKeys.has(pathKey)) {
+      return
+    }
+
+    visitedPathKeys.add(pathKey)
+
+    const scopedRange = getScopedNodeRange(context.snapshot, path)
+    const intersection = scopedRange
+      ? RangeApi.intersection(range, scopedRange)
+      : null
+
+    if (!intersection || RangeApi.isCollapsed(intersection)) {
+      return
+    }
+
+    decorations.push(
+      createSlateViewSelectionDecoration(
+        segment,
+        index,
+        intersection,
+        `:${pathKey}`
+      )
+    )
+  })
+
+  return decorations
+}
+
 const readSlateViewSelectionDecorations = (
-  editor: ReactRuntimeEditor<any>
+  editor: ReactRuntimeEditor<any>,
+  context: SlateDecorationSourceReadContext
 ): readonly SlateDecoration<SlateViewSelectionDecorationData>[] => {
   const viewSelection = readSlateViewSelection(editor)
 
@@ -172,27 +280,33 @@ const readSlateViewSelectionDecorations = (
       return
     }
 
-    decorations.push({
-      data: {
-        slateViewSelection: true,
-        owner: cloneOwner(segment.owner),
-        root: segment.root,
-      },
-      key: getRangeKey(range, index),
+    const scopedDecorations = readScopedSlateViewSelectionDecorations(
+      segment,
+      index,
       range,
-    })
+      context
+    )
+
+    if (scopedDecorations) {
+      decorations.push(...scopedDecorations)
+      return
+    }
+
+    decorations.push(createSlateViewSelectionDecoration(segment, index, range))
   })
 
   return decorations.length === 0 ? EMPTY_DECORATIONS : decorations
 }
 
 export const createSlateViewSelectionDecorationSource = (
-  editor: ReactRuntimeEditor<any>
+  editor: ReactRuntimeEditor<any>,
+  options: SlateViewSelectionDecorationSourceOptions = {}
 ): SlateDecorationSource<SlateViewSelectionDecorationData> =>
   createDecorationSource<SlateViewSelectionDecorationData>(editor, {
     dirtiness: SLATE_VIEW_SELECTION_DECORATION_DIRTINESS,
     id: SLATE_VIEW_SELECTION_DECORATION_SOURCE_ID,
-    read: () => readSlateViewSelectionDecorations(editor),
+    read: (context) => readSlateViewSelectionDecorations(editor, context),
+    runtimeScope: options.runtimeScope,
   })
 
 export const useSlateViewSelectionPresence = (editor: object) =>
@@ -204,15 +318,19 @@ export const useSlateViewSelectionPresence = (editor: object) =>
 
 export const useSlateViewSelectionDecorationSource = (
   editor: ReactRuntimeEditor<any>,
-  enabled: boolean
+  enabled: boolean,
+  options: SlateViewSelectionDecorationSourceOptions = {}
 ): SlateDecorationSource<SlateViewSelectionDecorationData> | null => {
+  const runtimeScope = options.runtimeScope
   const source = useMemo(() => {
     if (!enabled) {
       return null
     }
 
-    return createSlateViewSelectionDecorationSource(editor)
-  }, [editor, enabled])
+    return createSlateViewSelectionDecorationSource(editor, {
+      runtimeScope,
+    })
+  }, [editor, enabled, runtimeScope])
 
   useEffect(() => () => source?.destroy(), [source])
   useIsomorphicLayoutEffect(() => {

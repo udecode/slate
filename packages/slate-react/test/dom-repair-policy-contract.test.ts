@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { Editor } from 'slate/internal'
 import {
   EDITOR_TO_ELEMENT,
@@ -78,6 +79,21 @@ const mountEditorRoot = (editor: ReturnType<typeof createReactEditor>) => {
 
   return root
 }
+
+test('DOM repair exposes focused profiler buckets for huge-document attribution', () => {
+  const source = readFileSync('src/editable/dom-repair-queue.ts', 'utf8')
+
+  expect(source).toContain("'collapsed-selection'")
+  expect(source).toContain("'lookup-text-host'")
+  expect(source).toContain("'set-dom-selection'")
+  expect(source).toContain("'scroll-text-host'")
+  expect(source).toContain("'scroll-current-selection'")
+  expect(source).toContain("'read-current-frame'")
+  expect(source).toContain("'read-runtime-selection'")
+  expect(source).toContain("'record-kernel-trace'")
+  expect(source).toContain('operations: []')
+  expect(source).toContain('selectionAfter: selectionBefore')
+})
 
 test('repair frame state rejects work scheduled by an older frame', () => {
   const state = createDOMRepairFrameState()
@@ -1546,12 +1562,15 @@ test('text insert caret repair waits until rendered text matches the model', () 
   const text = document.createTextNode(originalText)
   const range = document.createRange()
   const selection = window.getSelection()
-  const requestAnimationFrameSpy = vi
-    .spyOn(window, 'requestAnimationFrame')
-    .mockImplementation(() => 1)
-  const setTimeoutSpy = vi
-    .spyOn(window, 'setTimeout')
-    .mockImplementation(() => 1)
+  const repairRequestAnimationFrame = vi.fn(() => 1)
+  const repairSetTimeout = vi.fn(() => 1)
+  const repairQueueMicrotask = vi.fn((callback: () => void) => callback())
+
+  EDITOR_TO_WINDOW.set(editor, {
+    queueMicrotask: repairQueueMicrotask,
+    requestAnimationFrame: repairRequestAnimationFrame,
+    setTimeout: repairSetTimeout,
+  } as unknown as Window)
 
   Editor.replace(editor, {
     children: [
@@ -1591,9 +1610,11 @@ test('text insert caret repair waits until rendered text matches the model', () 
     expect(selection?.anchorOffset).toBe(0)
     expect(inputController.preferModelSelectionForInputRef.current).toBe(true)
     expect(inputController.state.selectionSource).toBe('model-owned')
+    expect(repairQueueMicrotask).toHaveBeenCalled()
+    expect(repairRequestAnimationFrame).toHaveBeenCalled()
+    expect(repairSetTimeout).toHaveBeenCalled()
   } finally {
-    requestAnimationFrameSpy.mockRestore()
-    setTimeoutSpy.mockRestore()
+    EDITOR_TO_WINDOW.set(editor, window)
     root.remove()
   }
 })

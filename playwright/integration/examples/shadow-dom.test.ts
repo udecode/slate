@@ -146,9 +146,10 @@ test.describe('shadow-dom example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Mobile semantic-handle proof does not exercise native shadow DOM ranges'
+    )
     test.skip(
       browserName === 'webkit',
       'WebKit drops programmatic native ranges inside nested shadow DOM'
@@ -177,9 +178,10 @@ test.describe('shadow-dom example', () => {
   test('keeps shadow DOM ArrowLeft movement model-owned inside the shadow root', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Mobile semantic-handle proof does not exercise native shadow DOM keyboard ranges'
+    )
 
     const outerShadow = page.locator('[data-cy="outer-shadow-root"]')
     const innerShadow = outerShadow.locator('> div')
@@ -196,31 +198,38 @@ test.describe('shadow-dom example', () => {
         anchor: { path: [0, 0], offset: 50 },
         focus: { path: [0, 0], offset: 50 },
       })
-    expect(await editor.get.kernelTrace()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          command: expect.objectContaining({
-            axis: 'horizontal',
-            kind: 'move-selection',
+    await expect
+      .poll(() => editor.get.kernelTrace())
+      .toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            command: expect.objectContaining({
+              axis: 'horizontal',
+              kind: 'move-selection',
+            }),
+            eventFamily: 'keydown',
+            movement: expect.objectContaining({
+              axis: 'horizontal',
+              ownership: 'model-owned',
+              reason: 'model-horizontal-inline-void',
+            }),
           }),
-          eventFamily: 'keydown',
-          movement: expect.objectContaining({
-            axis: 'horizontal',
-            ownership: 'model-owned',
-            reason: 'model-horizontal-inline-void',
-          }),
-        }),
-      ])
-    )
+        ])
+      )
   })
 
   test('deletes RTL text with Backspace inside shadow DOM', async ({
     browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Mobile semantic-handle proof does not exercise native shadow DOM keyboard ranges'
+    )
+    test.skip(
+      browserName !== 'chromium',
+      'Cross-browser RTL shadow DOM deletion needs a native selection oracle before widening'
+    )
 
     const outerShadow = page.locator('[data-cy="outer-shadow-root"]')
     const innerShadow = outerShadow.locator('> div')
@@ -296,6 +305,6 @@ test.describe('shadow-dom example', () => {
     expect(pageErrors, 'Page errors occurred').toEqual([])
 
     await expect(textbox).toContainText('New line text')
-    expect(await editor.get.text()).toContain('New line text')
+    await expect.poll(() => editor.get.text()).toContain('New line text')
   })
 })

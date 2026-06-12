@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { createEditor } from 'slate'
 
 import {
@@ -43,6 +44,28 @@ const createBaseTrace = () =>
     stateBefore: 'idle' as const,
     targetOwner: 'editor' as const,
   }) satisfies Parameters<typeof createEditableKernelResult>[0]['trace']
+
+test('runtime keydown traces stay compact for huge document commands', () => {
+  const source = readFileSync('src/editable/runtime-kernel-trace.ts', 'utf8')
+
+  expect(source).toContain('operations: []')
+  expect(source).toContain('recordKeyDownTrace')
+})
+
+test('runtime browser event traces stay compact for huge document commands', () => {
+  const source = readFileSync('src/editable/runtime-kernel-trace.ts', 'utf8')
+  const recordKernelEventTraceSource = source.slice(
+    source.indexOf('const recordKernelEventTrace'),
+    source.indexOf('const repairDOMInputWithTrace')
+  )
+  const repairDOMInputWithTraceSource = source.slice(
+    source.indexOf('const repairDOMInputWithTrace'),
+    source.indexOf('const getCurrentKernelFrameId')
+  )
+
+  expect(recordKernelEventTraceSource).toContain('operations: []')
+  expect(repairDOMInputWithTraceSource).toContain('operations: []')
+})
 
 test('kernel results expose explicit selection and repair policies', () => {
   const editor = createEditor()

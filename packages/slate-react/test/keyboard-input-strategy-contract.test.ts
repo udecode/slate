@@ -15,6 +15,7 @@ import {
   applyEditableKeyDown,
   shouldDeferBackspaceToNativeInput,
 } from '../src/editable/keyboard-input-strategy'
+import { applyEditableCommand } from '../src/editable/mutation-controller'
 import { isNativeVerticalKeyFastPathFullyMounted } from '../src/editable/runtime-keyboard-events'
 import { ReactEditor } from '../src/plugin/react-editor'
 import { createSlateProjectionGraph } from '../src/projection-graph'
@@ -242,6 +243,11 @@ describe('keyboard input strategy', () => {
       })
 
       expect(result.handled).toBe(true)
+      expect(result.repair).toMatchObject({
+        forceRender: false,
+        kind: 'sync-selection',
+        syncDOMSelection: false,
+      })
       expect(event.preventDefault).toHaveBeenCalled()
       expect(editor.read((state) => state.selection.get())).toEqual({
         anchor: { offset: 2, path: [0, 0] },
@@ -299,6 +305,11 @@ describe('keyboard input strategy', () => {
       })
 
       expect(result.handled).toBe(true)
+      expect(result.repair).toMatchObject({
+        forceRender: false,
+        kind: 'sync-selection',
+        syncDOMSelection: false,
+      })
       expect(event.preventDefault).toHaveBeenCalled()
       expect(editor.read((state) => state.selection.get())).toEqual({
         anchor: { offset: 2, path: [0, 0] },
@@ -948,6 +959,62 @@ describe('keyboard input strategy', () => {
         focus: { path: [0, 0], offset: 'body'.length },
       })
       expect(headerEditor.read((state) => state.selection.get())).toBe(null)
+    } finally {
+      hasEditableTarget.mockRestore()
+      isComposing.mockRestore()
+    }
+  })
+
+  it('skips caret DOM repair when history restores an expanded view selection', () => {
+    const runtime = createEditorRuntime({
+      extensions: [history()],
+      initialValue: [paragraph('Before'), paragraph('After')],
+    })
+    const editor = createEditorView(runtime, {
+      root: 'main',
+    }) as ReactEditorType
+    const graph = createSlateProjectionGraph([
+      { path: [0], root: 'main' },
+      { path: [1], root: 'main' },
+    ])
+    const projectedSelection = createSlateViewSelection(graph, {
+      anchor: { point: { offset: 0, path: [0, 0] } },
+      focus: { point: { offset: 'After'.length, path: [1, 0] } },
+    })
+    const event = reactKeyEvent(keyEvent('z', { ctrlKey: true }))
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(false)
+
+    writeSlateViewSelection(editor, projectedSelection)
+    expect(
+      applyEditableCommand({
+        command: { inputType: 'insertText', kind: 'insert-text', text: 'X' },
+        editor,
+      })
+    ).toBe(true)
+    expect(readSlateViewSelection(editor)).toBe(null)
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: null,
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(result.repair).toEqual({ forceRender: true, kind: 'force-render' })
+      expect(readSlateViewSelection(editor)).toEqual(projectedSelection)
     } finally {
       hasEditableTarget.mockRestore()
       isComposing.mockRestore()

@@ -48,7 +48,7 @@ test.describe('On markdown-shortcuts example', () => {
   test('contains quote', async ({ page }) => {
     const editor = await openMarkdownShortcuts(page)
 
-    expect(await editor.root.locator('blockquote').textContent()).toContain(
+    await expect(editor.root.locator('blockquote')).toContainText(
       'A wise quote.'
     )
   })
@@ -56,9 +56,10 @@ test.describe('On markdown-shortcuts example', () => {
   test('keeps pasted text inside an empty markdown quote', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop markdown shortcut keyboard proof'
+    )
 
     const editor = await openMarkdownShortcuts(page)
     const textbox = editor.root
@@ -76,9 +77,10 @@ test.describe('On markdown-shortcuts example', () => {
   test('keeps a heading when typing an ordered marker at its start', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop markdown shortcut keyboard proof'
+    )
 
     const editor = await openMarkdownShortcuts(page)
     const textbox = editor.root
@@ -99,9 +101,10 @@ test.describe('On markdown-shortcuts example', () => {
   test('treats non-breaking space as markdown shortcut whitespace', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop markdown shortcut keyboard proof'
+    )
 
     const editor = await openMarkdownShortcuts(page)
     const textbox = editor.root
@@ -117,9 +120,10 @@ test.describe('On markdown-shortcuts example', () => {
   test('turns a non-empty paragraph into a heading from its start', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop markdown shortcut keyboard proof'
+    )
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
 
@@ -158,23 +162,18 @@ test.describe('On markdown-shortcuts example', () => {
 
     await expect(page.locator('ul > li')).toHaveCount(3)
 
-    expect(await page.locator('ul > li').nth(0).innerText()).toContain(
-      '1st Item'
-    )
-    expect(await page.locator('ul > li').nth(1).innerText()).toContain(
-      '2nd Item'
-    )
-    expect(await page.locator('ul > li').nth(2).innerText()).toContain(
-      '3rd Item'
-    )
+    await expect(page.locator('ul > li').nth(0)).toContainText('1st Item')
+    await expect(page.locator('ul > li').nth(1)).toContainText('2nd Item')
+    await expect(page.locator('ul > li').nth(2)).toContainText('3rd Item')
   })
 
   test('types a long markdown bullet followed by a paragraph without runtime errors', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop markdown shortcut keyboard proof'
+    )
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
 
@@ -204,9 +203,10 @@ test.describe('On markdown-shortcuts example', () => {
   test('backspaces an empty markdown-created bullet back to a paragraph', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop markdown shortcut keyboard proof'
+    )
 
     const editor = await openMarkdownShortcuts(page)
     const textbox = editor.root
@@ -229,9 +229,10 @@ test.describe('On markdown-shortcuts example', () => {
   test('merges a markdown-created list before an existing list', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop markdown shortcut keyboard proof'
+    )
 
     const editor = await openMarkdownShortcuts(page)
     const textbox = editor.root
@@ -256,9 +257,10 @@ test.describe('On markdown-shortcuts example', () => {
   test('keeps native desktop list continuation text in each list item', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop markdown shortcut keyboard proof'
+    )
 
     const editor = await openMarkdownShortcuts(page)
     const textbox = editor.root
@@ -285,9 +287,10 @@ test.describe('On markdown-shortcuts example', () => {
   test('creates a blank bullet before the first item when Enter starts a list item', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop markdown shortcut keyboard proof'
+    )
 
     const editor = await openMarkdownShortcuts(page)
     const textbox = editor.root
@@ -308,9 +311,10 @@ test.describe('On markdown-shortcuts example', () => {
   test('can create a numbered list with markdown start number', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop markdown shortcut keyboard proof'
+    )
 
     const editor = await openMarkdownShortcuts(page)
     const textbox = editor.root
@@ -330,9 +334,10 @@ test.describe('On markdown-shortcuts example', () => {
   test('keeps ordered marker typing in the current list item', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop markdown shortcut keyboard proof'
+    )
 
     const editor = await openMarkdownShortcuts(page)
     const textbox = editor.root
@@ -353,9 +358,10 @@ test.describe('On markdown-shortcuts example', () => {
   test('creates current markdown shortcuts and can undo and redo a heading shortcut', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop markdown shortcut keyboard proof'
+    )
 
     const shortcutCases = [
       { label: 'Heading one', selector: 'h1', shortcut: '# ' },
@@ -414,9 +420,10 @@ test.describe('On markdown-shortcuts example', () => {
   })
 
   test('can add a h1 item', async ({ page }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop markdown shortcut keyboard proof'
+    )
 
     const editor = await openMarkdownShortcuts(page)
     const textbox = editor.root
@@ -430,15 +437,16 @@ test.describe('On markdown-shortcuts example', () => {
 
     await expect(page.locator('h1')).toHaveCount(1)
 
-    expect(await textbox.locator('h1').textContent()).toContain('Heading')
+    await expect(textbox.locator('h1')).toContainText('Heading')
   })
 
   test('keeps the caret in a heading created above another empty line', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop markdown shortcut keyboard proof'
+    )
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
 
@@ -468,9 +476,10 @@ test.describe('On markdown-shortcuts example', () => {
   test('inserts a paragraph before a heading from the heading start', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop markdown shortcut keyboard proof'
+    )
 
     const editor = await openMarkdownShortcuts(page)
     const textbox = editor.root

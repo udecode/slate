@@ -98,7 +98,7 @@ const inventoryRules: InventoryRule[] = [
       'Changelog entries preserve history and are not primary API guidance.',
   },
   {
-    expected: { primitive: 106, stale: 543 },
+    expected: { primitive: 111, stale: 596 },
     gate: 'browser proof handles must stay explicitly classified as proof transport',
     id: 'browser-proof-rows',
     next: 'explicit-proof-bridge',
@@ -108,7 +108,7 @@ const inventoryRules: InventoryRule[] = [
       'Playwright rows use semantic handles and explicit selection control for proof setup.',
   },
   {
-    expected: { stale: 5 },
+    expected: { stale: 6 },
     gate: 'slate-browser docs describe proof handles, not app runtime API',
     id: 'slate-browser-proof-docs',
     next: 'explicit-proof-bridge',
@@ -157,7 +157,7 @@ const inventoryRules: InventoryRule[] = [
     rationale: 'History contracts guard undo/redo behavior during the rewrite.',
   },
   {
-    expected: { bridge: 45, primitive: 22 },
+    expected: { bridge: 49, primitive: 22 },
     gate: 'React tests may exercise bridges only as contract proof',
     id: 'slate-react-tests',
     next: 'keep-as-contract',

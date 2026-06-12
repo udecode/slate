@@ -122,6 +122,11 @@ const ImagesExample = () => {
       .withDefault('default')
       .withOptions(replaceQueryOptions)
   )
+
+  return <ImagesEditor exampleCase={exampleCase} key={exampleCase} />
+}
+
+const ImagesEditor = ({ exampleCase }: { exampleCase: ImageExampleCase }) => {
   const editor = useSlateEditor({
     extensions: [image()],
     initialValue: createInitialValue(exampleCase),

@@ -80,6 +80,7 @@ import type {
   SlateSourceDirtinessContext,
 } from '../projection-store'
 import { recordSlateReactRender } from '../render-profiler'
+import { useSlateViewSelectionDecorationSource } from '../view-selection-decoration'
 import {
   type DOMCoverageBoundaryMaterializePayload,
   DOMCoverageBoundaryRange,
@@ -1806,20 +1807,26 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     editor,
     hasDecorate,
   ])
-  const projectionStore = React.useMemo(() => {
-    if (!decorateSource) {
-      return upstreamProjectionStore
+  const viewSelectionDecorationSource = useSlateViewSelectionDecorationSource(
+    editor as unknown as ReactRuntimeEditor<any>,
+    true,
+    {
+      runtimeScope: activeDecorateRuntimeScope,
     }
-
-    return composeProjectionSources(
-      upstreamProjectionStore
-        ? [
-            upstreamProjectionStore as SlateOverlayProjectionStore<T>,
-            decorateSource,
-          ]
-        : [decorateSource]
-    )
-  }, [decorateSource, upstreamProjectionStore])
+  )
+  const projectionStore = React.useMemo(() => {
+    return composeProjectionSources<any>([
+      ...(upstreamProjectionStore
+        ? [upstreamProjectionStore as SlateOverlayProjectionStore<any>]
+        : []),
+      ...(decorateSource
+        ? [decorateSource as SlateOverlayProjectionStore<any>]
+        : []),
+      ...(viewSelectionDecorationSource
+        ? [viewSelectionDecorationSource as SlateOverlayProjectionStore<any>]
+        : []),
+    ])
+  }, [decorateSource, upstreamProjectionStore, viewSelectionDecorationSource])
   const [promotedSegmentIndex, setPromotedSegmentIndex] = React.useState<
     number | null
   >(null)
@@ -2301,7 +2308,18 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
         editor as unknown as ReactRuntimeEditor
       ),
     })
-  }, [autoDecorateRuntimeScopeKey, decorateSource, editor])
+    viewSelectionDecorationSource?.refresh({
+      reason: 'external',
+      requiresDOMSelectionExport: ReactEditor.isFocused(
+        editor as unknown as ReactRuntimeEditor
+      ),
+    })
+  }, [
+    autoDecorateRuntimeScopeKey,
+    decorateSource,
+    editor,
+    viewSelectionDecorationSource,
+  ])
   const rootStyle =
     placeholderHeight && !disableDefaultStyles
       ? { minHeight: placeholderHeight, ...style }

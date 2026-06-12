@@ -883,7 +883,7 @@ test('pending native repair selectionchange policy suppresses stale same-path of
   ).toBe('allow')
 })
 
-test('native insertText ignores stale programmatic model preference', () => {
+test('native selection handoff clears stale programmatic text input guards', () => {
   const inputController = createEditableInputController({
     preferModelSelectionForInputRef: { current: true },
     state: {
@@ -917,6 +917,45 @@ test('native insertText ignores stale programmatic model preference', () => {
       inputType: 'deleteContentBackward',
     })
   ).toBe(true)
+})
+
+test('native selection preference preserves short model-owned input guard', () => {
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: true },
+    state: {
+      activeIntent: null,
+      isComposing: false,
+      isDraggingInternally: false,
+      isUpdatingSelection: false,
+      latestElement: null,
+      pendingDOMSelectionImport: false,
+      selectionChangeOrigin: null,
+      selectionSource: 'model-owned',
+    },
+  })
+
+  setEditableModelSelectionPreference({
+    inputController,
+    preferModelSelection: true,
+    reason: 'model-command',
+    selectionSource: 'model-owned',
+  })
+  armModelOwnedTextInputGuard({ inputController })
+
+  setEditableModelSelectionPreference({
+    inputController,
+    preferModelSelection: false,
+    reason: 'native-selection',
+    selectionSource: 'dom-current',
+  })
+
+  expect(inputController.state.modelOwnedTextInputGuard).toBe(0)
+  expect(
+    shouldForceModelOwnedTextInput({
+      inputController,
+      inputType: 'insertText',
+    })
+  ).toBe(false)
 })
 
 test('native insertText preserves explicit model-owned input guards', () => {

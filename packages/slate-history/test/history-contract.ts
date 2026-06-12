@@ -647,6 +647,38 @@ describe('slate-history contract', () => {
     assert.deepEqual(getVisibleState(editor), before)
   })
 
+  it('undoes a full-document fragment deletion as one structural batch', () => {
+    const editor = historyTestEditor()
+    const selection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [2, 0], offset: 'three'.length },
+    }
+
+    replace(
+      editor,
+      [paragraph('one'), paragraph('two'), paragraph('three')],
+      selection
+    )
+    const before = getVisibleState(editor)
+
+    write(editor, (tx) => {
+      tx.fragment.delete({ direction: 'backward' })
+    })
+
+    assert.deepEqual(Editor.getSnapshot(editor).children, [paragraph('')])
+    assert.equal(getHistory(editor).undos.length, 1)
+    assert.deepEqual(
+      getHistory(editor).undos[0]?.operations.map(
+        (operation) => operation.type
+      ),
+      ['replace_children']
+    )
+
+    undo(editor)
+
+    assert.deepEqual(getVisibleState(editor), before)
+  })
+
   it('keeps replace_children undo batches when a remote insert shifts the parent path', () => {
     const editor = historyTestEditor()
     const oldChild = paragraph('old')

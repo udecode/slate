@@ -18,7 +18,10 @@ import type { EditableInputController } from './input-state'
 import type { Editor } from './runtime-editor-api'
 import { readRuntimeText } from './runtime-live-state'
 import { writeRuntimeMarks } from './runtime-mutation-state'
-import { setEditableModelSelectionPreference } from './selection-controller'
+import {
+  armModelOwnedTextInputGuard,
+  setEditableModelSelectionPreference,
+} from './selection-controller'
 
 type EditableCompositionHandler = (
   event: CompositionEvent<HTMLDivElement>
@@ -324,6 +327,7 @@ export const applyEditableCompositionEnd = ({
         reason: 'composition',
         selectionSource: 'model-owned',
       })
+      armModelOwnedTextInputGuard({ inputController })
       inputController.state.selectionChangeOrigin = 'programmatic-export'
     }
   }

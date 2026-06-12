@@ -2,8 +2,11 @@ import type { Operation, Range, SnapshotChange } from 'slate'
 import {
   createEditableInputController,
   createEditableInputControllerState,
+  setEditableModelSelectionPreference,
 } from '../src/editable/input-controller'
 import {
+  cancelRuntimeSelectionChangeFlush,
+  shouldFlushSelectionChangeAfterKeyDownPolicy,
   shouldPreserveDOMRepairQueueDuringSelectionChange,
   shouldRepairPendingNativeTextInputDuringSelectionChange,
 } from '../src/editable/runtime-selection-engine'
@@ -180,6 +183,84 @@ describe('selection runtime', () => {
         }),
         inputController
       )
+    ).toBe(true)
+  })
+
+  test('cancelled selectionchange flush clears pending DOM import', () => {
+    const inputController = createInputController()
+    let onCancelCalls = 0
+    let onFlushCalls = 0
+    let scheduledCancelCalls = 0
+    let scheduledFlushCalls = 0
+    const onDOMSelectionChange = Object.assign(() => {}, {
+      cancel: () => {
+        onCancelCalls += 1
+      },
+      flush: () => {
+        onFlushCalls += 1
+      },
+    })
+    const scheduleOnDOMSelectionChange = Object.assign(() => {}, {
+      cancel: () => {
+        scheduledCancelCalls += 1
+      },
+      flush: () => {
+        scheduledFlushCalls += 1
+      },
+    })
+
+    inputController.state.pendingDOMSelectionImport = true
+
+    cancelRuntimeSelectionChangeFlush({
+      inputController,
+      onDOMSelectionChange,
+      scheduleOnDOMSelectionChange,
+    })
+
+    expect(inputController.state.pendingDOMSelectionImport).toBe(false)
+    expect(onCancelCalls).toBe(1)
+    expect(scheduledCancelCalls).toBe(1)
+    expect(onFlushCalls).toBe(0)
+    expect(scheduledFlushCalls).toBe(0)
+  })
+
+  test('keydown preserves model selection without flushing stale DOM selection', () => {
+    const inputController = createInputController()
+    const preserveModelDecision = {
+      selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
+    } as Parameters<
+      typeof shouldFlushSelectionChangeAfterKeyDownPolicy
+    >[0]['decision']
+
+    expect(
+      shouldFlushSelectionChangeAfterKeyDownPolicy({
+        decision: preserveModelDecision,
+        inputController,
+      })
+    ).toBe(true)
+
+    setEditableModelSelectionPreference({
+      inputController,
+      preferModelSelection: true,
+      reason: 'model-command',
+      selectionSource: 'model-owned',
+    })
+
+    expect(
+      shouldFlushSelectionChangeAfterKeyDownPolicy({
+        decision: preserveModelDecision,
+        inputController,
+      })
+    ).toBe(false)
+    expect(
+      shouldFlushSelectionChangeAfterKeyDownPolicy({
+        decision: {
+          selectionPolicy: { kind: 'import-dom', reason: 'native-selection' },
+        } as Parameters<
+          typeof shouldFlushSelectionChangeAfterKeyDownPolicy
+        >[0]['decision'],
+        inputController,
+      })
     ).toBe(true)
   })
 

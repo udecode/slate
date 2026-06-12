@@ -641,9 +641,9 @@ test.describe('mentions example', () => {
       steps: ['す', 'すし'],
     })
 
-    expect(await editor.get.modelText()).toContain(
-      'Try mentioning characters, like  oすしr !'
-    )
+    await expect
+      .poll(() => editor.get.modelText())
+      .toContain('Try mentioning characters, like  oすしr !')
     await editor.assert.text(' oすしr ')
     await expect(page.locator('[data-cy="mention-R2-D2"]')).toHaveCount(1)
     await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(1)
@@ -933,9 +933,14 @@ test.describe('mentions example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline void drag-selection proof'
+    )
+    test.skip(
+      browserName !== 'chromium',
+      'Chromium inline void drag-selection proof'
+    )
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
 
@@ -1206,9 +1211,9 @@ test.describe('mentions example', () => {
       anchor: boundaryPoint,
       focus: boundaryPoint,
     })
-    expect(await editor.get.modelText()).toContain(
-      'Try mentioning characters, like  or !'
-    )
+    await expect
+      .poll(() => editor.get.modelText())
+      .toContain('Try mentioning characters, like  or !')
   })
 
   test('preserves mention order when Backspace removes a line boundary before them', async ({

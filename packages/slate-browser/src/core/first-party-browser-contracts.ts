@@ -158,6 +158,37 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
   },
   {
     assertions: [
+      'repeated Shift+ArrowDown extends the model focus monotonically',
+      'Shift+ArrowUp reverses the recent focus sequence',
+      'projected selection uses view markers while native selected text stays empty',
+      'native and projected selection do not double-highlight',
+      'vertical movement stays inside the hot-path budget',
+    ],
+    family: 'huge-document-projected-vertical-selection',
+    routes: ['huge-document'],
+  },
+  {
+    assertions: [
+      'virtualized row stacking has no overlap during immediate scrollbar jumps',
+      'settled virtualized rows have no gaps or overlaps after scroll repaint',
+      'native scrollbar drag buffers mounted rows before React commits the next range',
+      'dynamic-height backward scroll stays near the requested offset',
+    ],
+    family: 'huge-document-virtualized-scroll-stability',
+    routes: ['huge-document'],
+  },
+  {
+    assertions: [
+      'beforeinput target ranges replace browser substitution spans',
+      'dirty node maps reject stale target ranges while keeping current runtime ids',
+      'native partial text replacement undo restores text and selection',
+      'mouse-drag typed replacement undo restores DOM and model selection',
+    ],
+    family: 'native-beforeinput-target-range-repair',
+    routes: ['plaintext'],
+  },
+  {
+    assertions: [
       'paste normalizes multiline content',
       'follow-up typing commits',
       'undo replays the last edit',
@@ -168,6 +199,16 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
   },
   {
     assertions: [
+      'ProseMirror list slices import without exposing slice metadata',
+      'ProseMirror text slices paste only visible text',
+      'comment-bounded clipboard HTML imports only the bounded fragment',
+      'external table clipboard HTML preserves rows, cells, and cell-local marks',
+    ],
+    family: 'external-clipboard-slice-context',
+    routes: ['paste-html'],
+  },
+  {
+    assertions: [
       'composition commits through the browser scenario runner',
       'model text includes the composed text',
       'focus remains editor-owned',
@@ -175,6 +216,36 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
     ],
     family: 'selection-repair-ime',
     routes: ['richtext'],
+  },
+  {
+    assertions: [
+      'composition commits inside formatted markup without breaking marks',
+      'active-mark cursor-wrapper composition creates marked text',
+      'composition can replace multiple formatted text nodes once',
+      'WebKit compositionend cleanup deletes expanded rich text selections',
+    ],
+    family: 'ime-composition-formatted-boundaries',
+    routes: ['richtext'],
+  },
+  {
+    assertions: [
+      'rapid consecutive compositions commit in separate rich text blocks',
+      'cross-paragraph native composition replaces the selected range once',
+      'synthetic composition transport does not mutate React-owned expanded DOM ranges',
+      'final model selection lands after the committed composition text',
+    ],
+    family: 'ime-composition-cross-block-repair',
+    routes: ['richtext'],
+  },
+  {
+    assertions: [
+      'synthetic composition can stay open across app-owned decoration refresh',
+      'prop and hook decoration sources refresh while composition remains active',
+      'committed composition text survives the decoration restructure',
+      'model, DOM caret, and final text agree after compositionend',
+    ],
+    family: 'ime-composition-decoration-refresh',
+    routes: ['decorations-async'],
   },
   {
     assertions: [
@@ -294,6 +365,13 @@ export const SLATE_BROWSER_FIRST_PARTY_PLUGIN_CONTRACT_REGISTRY =
     defineSlateBrowserPluginContract({
       plugin: 'core-editing',
       rows: rowsByFamily([
+        'huge-document-projected-vertical-selection',
+        'huge-document-virtualized-scroll-stability',
+        'native-beforeinput-target-range-repair',
+        'ime-composition-formatted-boundaries',
+        'ime-composition-cross-block-repair',
+        'ime-composition-decoration-refresh',
+        'external-clipboard-slice-context',
         'paste-normalize-undo',
         'selection-repair-ime',
         'ime-composition-undo',

@@ -74,6 +74,9 @@ const blocksOptions = [
   50_000, 100_000, 200_000,
 ]
 
+const formatBlocksOption = (blocks: number) =>
+  new Intl.NumberFormat('en-US').format(blocks)
+
 const contentVisibilityModeOptions = ['none', 'element'] as const
 const domStrategyModeOptions = [
   'auto',
@@ -116,6 +119,7 @@ const hugeDocumentUrlKeys = {
 }
 
 const cachedInitialValueBySeed = new Map<string, Value>()
+const maxCachedInitialValueBlocks = 50_000
 
 const getNumericDocumentSeed = (seed: string) =>
   seed === 'default'
@@ -148,6 +152,10 @@ const generateInitialValue = (blocks: number, seed: string) => {
 }
 
 const getInitialValue = (blocks: number, seed: string) => {
+  if (blocks > maxCachedInitialValueBlocks) {
+    return generateInitialValue(blocks, seed)
+  }
+
   const cachedInitialValue = cachedInitialValueBySeed.get(seed)
 
   if (cachedInitialValue && cachedInitialValue.length >= blocks) {
@@ -402,6 +410,13 @@ const PerformanceControls = ({
     keyPressDurations.length === 10
       ? Math.round(keyPressDurations.reduce((total, d) => total + d) / 10)
       : null
+  const visibleBlocksOptions = useMemo(
+    () =>
+      Array.from(new Set([...blocksOptions, config.blocks])).sort(
+        (left, right) => left - right
+      ),
+    [config.blocks]
+  )
 
   useEffect(() => {
     if (!SUPPORTS_EVENT_TIMING) return
@@ -468,9 +483,9 @@ const PerformanceControls = ({
           }
           value={config.blocks}
         >
-          {blocksOptions.map((blocks) => (
+          {visibleBlocksOptions.map((blocks) => (
             <NativeSelectOption key={blocks} value={blocks}>
-              {blocks.toString().replace(/(\d{3})$/, ',$1')}
+              {formatBlocksOption(blocks)}
             </NativeSelectOption>
           ))}
         </NativeSelect>

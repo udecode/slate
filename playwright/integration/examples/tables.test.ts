@@ -183,7 +183,9 @@ test.describe('table example', () => {
     })
 
     await editor.selection.dragTextRange({
+      endAffinity: 'after',
       endOffset: 'Human'.length,
+      settleMs: 25,
       startOffset: 0,
       text: 'Human',
     })

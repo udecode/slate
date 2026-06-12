@@ -470,6 +470,25 @@ describe('core benchmark scripts contract', () => {
     )
   })
 
+  it('keeps the core huge-document history lane subscribed to snapshots', () => {
+    const source = readFileSync(hugeDocumentComparePath, 'utf8')
+
+    assert.match(source, /const selectAllDeleteTypeUndo = \(\) =>/)
+    assert.match(source, /subscribeSnapshot\(editor\)/)
+    assert.match(source, /tx\.history\.undo\(\)/)
+    assert.match(source, /selectAllDeleteTypeUndoMs/)
+    assert.match(source, /current\.lanes\.selectAllDeleteTypeUndoMs\.mean/)
+  })
+
+  it('allows current-only huge-document core profiling without legacy compare cost', () => {
+    const source = readFileSync(hugeDocumentComparePath, 'utf8')
+
+    assert.match(source, /CORE_HUGE_BENCH_CURRENT_ONLY/)
+    assert.match(source, /const legacyPackageManager = currentOnly/)
+    assert.match(source, /legacy: legacy\?\.lanes \?\? null/)
+    assert.match(source, /deltaMeanMs: legacy/)
+  })
+
   it('keeps full huge-document core budget evidence separate from legacy ratios', () => {
     const source = readFileSync(hugeDocumentFullPath, 'utf8')
     const legacySource = readFileSync(legacyReactComparePath, 'utf8')
@@ -578,6 +597,20 @@ describe('core benchmark scripts contract', () => {
     assert.match(source, /virtualizedSelectionReadyP95Ms/)
     assert.match(source, /virtualizedMaterializedSelectToPaintP95Ms/)
     assert.match(source, /virtualizedMaterializedSelectionReadyP95Ms/)
+    assert.match(source, /selectMaterializationFramesP95/)
+    assert.match(source, /selectMaterializationScrollDeltaP95/)
+    assert.match(source, /materializedSelectMaterializationFramesP95/)
+    assert.match(source, /materializedSelectMaterializationScrollDeltaP95/)
+    assert.match(source, /virtualizedSelectMaterializationFramesP95/)
+    assert.match(source, /virtualizedSelectMaterializationScrollDeltaP95/)
+    assert.match(
+      source,
+      /virtualizedMaterializedSelectMaterializationFramesP95/
+    )
+    assert.match(
+      source,
+      /virtualizedMaterializedSelectMaterializationScrollDeltaP95/
+    )
     assert.match(source, /react_huge_doc_full_select_to_paint_p95_ms/)
     assert.match(source, /react_huge_doc_full_selection_ready_p95_ms/)
     assert.match(
@@ -603,6 +636,38 @@ describe('core benchmark scripts contract', () => {
     assert.match(
       source,
       /react_huge_doc_full_virtualized_materialized_selection_ready_p95_ms/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_select_materialization_frames_p95/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_select_materialization_scroll_delta_p95_px/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_materialized_select_materialization_frames_p95/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_materialized_select_materialization_scroll_delta_p95_px/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_virtualized_select_materialization_frames_p95/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_virtualized_select_materialization_scroll_delta_p95_px/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_virtualized_materialized_select_materialization_frames_p95/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_full_virtualized_materialized_select_materialization_scroll_delta_p95_px/
     )
     assert.match(source, /partialDOMPromotionSteadyP75Ms/)
     assert.match(source, /metric: 'partialDOMPromotionSteadyP75Ms'/)
@@ -691,6 +756,16 @@ describe('core benchmark scripts contract', () => {
     assert.match(source, /\$\{prefix\}_model_burst_to_paint_per_op_p95_ms/)
     assert.match(source, /selectReadyMs: summarizeMetric/)
     assert.match(source, /materializedSelectReadyMs: summarizeMetric/)
+    assert.match(source, /selectMaterializationFrames: summarizeMetric/)
+    assert.match(source, /selectMaterializationScrollDelta: summarizeMetric/)
+    assert.match(
+      source,
+      /materializedSelectMaterializationFrames: summarizeMetric/
+    )
+    assert.match(
+      source,
+      /materializedSelectMaterializationScrollDelta: summarizeMetric/
+    )
     assert.match(source, /react_huge_doc_selection_ready_p95_ms/)
     assert.match(source, /\$\{prefix\}_selection_ready_p95_ms/)
     assert.match(source, /materializedSelectMs: summarizeMetric/)
@@ -698,6 +773,140 @@ describe('core benchmark scripts contract', () => {
     assert.match(source, /react_huge_doc_materialized_selection_ready_p95_ms/)
     assert.match(source, /\$\{prefix\}_materialized_select_to_paint_p95_ms/)
     assert.match(source, /\$\{prefix\}_materialized_selection_ready_p95_ms/)
+    assert.match(source, /react_huge_doc_select_materialization_frames_p95/)
+    assert.match(
+      source,
+      /react_huge_doc_select_materialization_scroll_delta_p95_px/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_materialized_select_materialization_frames_p95/
+    )
+    assert.match(
+      source,
+      /react_huge_doc_materialized_select_materialization_scroll_delta_p95_px/
+    )
+    assert.match(source, /\$\{prefix\}_select_materialization_frames_p95/)
+    assert.match(
+      source,
+      /\$\{prefix\}_select_materialization_scroll_delta_p95_px/
+    )
+    assert.match(
+      source,
+      /\$\{prefix\}_materialized_select_materialization_frames_p95/
+    )
+    assert.match(
+      source,
+      /\$\{prefix\}_materialized_select_materialization_scroll_delta_p95_px/
+    )
+    assert.match(source, /clickDispatchMs: summarizeMetric/)
+    assert.match(source, /clickMouseMoveMs: summarizeMetric/)
+    assert.match(source, /clickMouseDownMs: summarizeMetric/)
+    assert.match(source, /clickMouseDownPreEventMs: summarizeMetric/)
+    assert.match(source, /clickMouseDownEventMs: summarizeMetric/)
+    assert.match(source, /clickMouseDownPostEventMs: summarizeMetric/)
+    assert.match(source, /clickMouseUpMs: summarizeMetric/)
+    assert.match(source, /clickSelectionWaitMs: summarizeMetric/)
+    assert.match(source, /clickPaintWaitMs: summarizeMetric/)
+    assert.match(source, /react_huge_doc_click_dispatch_p95_ms/)
+    assert.match(source, /react_huge_doc_click_mouse_move_p95_ms/)
+    assert.match(source, /react_huge_doc_click_mouse_down_p95_ms/)
+    assert.match(source, /react_huge_doc_click_mouse_down_pre_event_p95_ms/)
+    assert.match(source, /react_huge_doc_click_mouse_down_event_p95_ms/)
+    assert.match(source, /react_huge_doc_click_mouse_down_post_event_p95_ms/)
+    assert.match(source, /react_huge_doc_click_mouse_down_event_missing_p95/)
+    assert.match(source, /react_huge_doc_root_mousedown_capture_p95_ms/)
+    assert.match(source, /react_huge_doc_root_mousedown_coordinate_p95_ms/)
+    assert.match(source, /react_huge_doc_root_mousedown_start_range_p95_ms/)
+    assert.match(
+      source,
+      /react_huge_doc_root_mousedown_projected_endpoint_p95_ms/
+    )
+    assert.match(source, /react_huge_doc_root_mousedown_apply_selection_p95_ms/)
+    assert.match(source, /react_huge_doc_click_mouse_up_p95_ms/)
+    assert.match(source, /react_huge_doc_click_selection_wait_p95_ms/)
+    assert.match(source, /react_huge_doc_click_paint_wait_p95_ms/)
+    assert.match(source, /\$\{prefix\}_click_dispatch_p95_ms/)
+    assert.match(source, /\$\{prefix\}_click_mouse_move_p95_ms/)
+    assert.match(source, /\$\{prefix\}_click_mouse_down_p95_ms/)
+    assert.match(source, /\$\{prefix\}_click_mouse_down_pre_event_p95_ms/)
+    assert.match(source, /\$\{prefix\}_click_mouse_down_event_p95_ms/)
+    assert.match(source, /\$\{prefix\}_click_mouse_down_post_event_p95_ms/)
+    assert.match(source, /\$\{prefix\}_click_mouse_down_event_missing_p95/)
+    assert.match(source, /\$\{prefix\}_root_mousedown_capture_p95_ms/)
+    assert.match(source, /\$\{prefix\}_root_mousedown_coordinate_p95_ms/)
+    assert.match(source, /\$\{prefix\}_root_mousedown_start_range_p95_ms/)
+    assert.match(
+      source,
+      /\$\{prefix\}_root_mousedown_projected_endpoint_p95_ms/
+    )
+    assert.match(source, /\$\{prefix\}_root_mousedown_apply_selection_p95_ms/)
+    assert.match(source, /\$\{prefix\}_click_mouse_up_p95_ms/)
+    assert.match(source, /SLATE_BROWSER_TRACE_SELECT_ALL_DELETE/)
+    assert.match(source, /SLATE_BROWSER_TRACE_SELECT_ALL_DELETE_ALLOW_FAILURE/)
+    assert.match(source, /SLATE_BROWSER_TRACE_AFTER_DELETE_TEXT/)
+    assert.match(source, /SLATE_BROWSER_TRACE_AFTER_DELETE_INPUT_MODE/)
+    assert.match(source, /page\.keyboard\.insertText\(typeText\)/)
+    assert.match(
+      source,
+      /after-delete-\$\{sanitizeArtifactSegment\(selectAllDeleteInputMode\)\}/
+    )
+    assert.match(
+      source,
+      /after-delete-text-\$\{sanitizeArtifactSegment\(selectAllDeleteTypeText\)\}/
+    )
+    assert.match(source, /measureSelectAllDeleteFlow/)
+    assert.match(source, /\$\{prefix\}_select_all_ready_ms/)
+    assert.match(source, /\$\{prefix\}_delete_ready_ms/)
+    assert.match(source, /\$\{prefix\}_type_after_delete_dispatch_ms/)
+    assert.match(source, /typeAfterDeleteInputMode/)
+    assert.match(source, /\$\{prefix\}_type_after_delete_wait_for_model_ms/)
+    assert.match(source, /\$\{prefix\}_type_after_delete_beforeinput_count/)
+    assert.match(source, /\$\{prefix\}_type_after_delete_beforeinput_span_ms/)
+    assert.match(
+      source,
+      /\$\{prefix\}_type_after_delete_beforeinput_max_gap_ms/
+    )
+    assert.match(
+      source,
+      /\$\{prefix\}_type_after_delete_beforeinput_p95_gap_ms/
+    )
+    assert.match(source, /\$\{prefix\}_type_after_delete_input_count/)
+    assert.match(source, /\$\{prefix\}_type_after_delete_input_span_ms/)
+    assert.match(source, /\$\{prefix\}_type_after_delete_input_max_gap_ms/)
+    assert.match(source, /\$\{prefix\}_type_after_delete_input_p95_gap_ms/)
+    assert.match(source, /\$\{prefix\}_type_after_delete_long_task_count/)
+    assert.match(source, /\$\{prefix\}_type_after_delete_long_task_total_ms/)
+    assert.match(source, /\$\{prefix\}_type_after_delete_long_task_max_ms/)
+    assert.match(
+      source,
+      /\$\{prefix\}_type_after_delete_long_animation_frame_count/
+    )
+    assert.match(
+      source,
+      /\$\{prefix\}_type_after_delete_long_animation_frame_total_ms/
+    )
+    assert.match(
+      source,
+      /\$\{prefix\}_type_after_delete_long_animation_frame_max_ms/
+    )
+    assert.match(source, /\$\{prefix\}_type_after_delete_profiler_duration_ms/)
+    assert.match(source, /typeAfterDeleteBeforeInputEvents/)
+    assert.match(source, /gapsMs: gaps\.slice\(-32\)/)
+    assert.match(source, /timeline: events\.slice\(-32\)/)
+    assert.match(source, /inputSelectionPreferenceReason/)
+    assert.match(source, /modelOwnedTextInputGuard/)
+    assert.match(source, /pendingNativeTextInputRepairPathKey/)
+    assert.match(source, /compactPerformanceAttribution/)
+    assert.match(source, /compactLongAnimationFrameScripts/)
+    assert.match(source, /summarizeAttributionEntries/)
+    assert.match(source, /longTaskAttribution/)
+    assert.match(source, /longAnimationFrameAttribution/)
+    assert.match(source, /forcedStyleAndLayoutDuration/)
+    assert.match(source, /\$\{prefix\}_undo_delete_to_paint_ms/)
+    assert.match(source, /\$\{prefix\}_undo_delete_restored/)
+    assert.match(source, /\$\{prefix\}_click_selection_wait_p95_ms/)
+    assert.match(source, /\$\{prefix\}_click_paint_wait_p95_ms/)
     assert.match(source, /react_huge_doc_core_notify_listeners_p95_ms/)
     assert.match(source, /react_huge_doc_core_notify_listeners_count_p95/)
     assert.match(source, /react_huge_doc_core_notify_commit_listeners_p95_ms/)

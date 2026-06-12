@@ -1191,6 +1191,24 @@ export const getPlainVerticalLargeDocumentExtension = ({
     })
   }
 
+  const currentFocus = getSingleTextPointInTopLevelBlock({
+    blockIndex: focusBlockIndex,
+    editor,
+    offset: selection.focus.offset,
+  })
+
+  if (
+    currentFocus &&
+    PathApi.equals(currentFocus.path, selection.focus.path) &&
+    leavingRenderedLine
+  ) {
+    const adjacentBlockExtension = getAdjacentBlockExtension()
+
+    if (adjacentBlockExtension) {
+      return adjacentBlockExtension
+    }
+  }
+
   const modelLineTarget = measurePlainVerticalPhase(
     'plain-vertical.resolve-model-line-target',
     () =>
@@ -1259,12 +1277,6 @@ export const getPlainVerticalLargeDocumentExtension = ({
         })
       : null
   }
-
-  const currentFocus = getSingleTextPointInTopLevelBlock({
-    blockIndex: focusBlockIndex,
-    editor,
-    offset: selection.focus.offset,
-  })
 
   if (
     !currentFocus ||

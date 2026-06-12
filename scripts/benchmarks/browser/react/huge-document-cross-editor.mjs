@@ -937,6 +937,113 @@ const summarizeNestedMetric = (samples, sampleKey, metricKey) =>
     )
   )
 
+const summarizeNestedProfilerSummary = (samples, sampleKey, summaryKey) => {
+  const buckets = new Map()
+
+  for (const sample of samples) {
+    for (const entry of sample[sampleKey] ?? []) {
+      for (const [key, value] of Object.entries(entry[summaryKey] ?? {})) {
+        const current = buckets.get(key) ?? {
+          count: 0,
+          durationMs: 0,
+        }
+
+        current.count += Number.isFinite(value.count) ? value.count : 0
+        current.durationMs += Number.isFinite(value.durationMs)
+          ? value.durationMs
+          : 0
+        buckets.set(key, current)
+      }
+    }
+  }
+
+  return Object.fromEntries(
+    [...buckets.entries()]
+      .sort(
+        ([leftKey, left], [rightKey, right]) =>
+          right.durationMs - left.durationMs ||
+          right.count - left.count ||
+          leftKey.localeCompare(rightKey)
+      )
+      .slice(0, 12)
+  )
+}
+
+const summarizeNestedReactProfilerSummary = (
+  samples,
+  sampleKey,
+  summaryKey
+) => {
+  const summaries = samples.flatMap((sample) =>
+    (sample[sampleKey] ?? []).map((entry) => entry[summaryKey]).filter(Boolean)
+  )
+
+  return {
+    actualDurationMs: summarize(
+      summaries
+        .map((summary) => summary.actualDurationMs?.p95)
+        .filter(Number.isFinite)
+    ),
+    baseDurationMs: summarize(
+      summaries
+        .map((summary) => summary.baseDurationMs?.p95)
+        .filter(Number.isFinite)
+    ),
+    count: summaries.reduce(
+      (total, summary) =>
+        total + (Number.isFinite(summary.count) ? summary.count : 0),
+      0
+    ),
+    totalActualDurationMs: round(
+      summaries.reduce(
+        (total, summary) =>
+          total +
+          (Number.isFinite(summary.totalActualDurationMs)
+            ? summary.totalActualDurationMs
+            : 0),
+        0
+      )
+    ),
+  }
+}
+
+const summarizeNestedRenderSummary = (samples, sampleKey, summaryKey) => {
+  const byKind = new Map()
+  const topKeys = new Map()
+  let total = 0
+
+  for (const sample of samples) {
+    for (const entry of sample[sampleKey] ?? []) {
+      const summary = entry[summaryKey]
+
+      if (!summary) {
+        continue
+      }
+
+      total += Number.isFinite(summary.total) ? summary.total : 0
+
+      for (const [key, count] of Object.entries(summary.byKind ?? {})) {
+        byKind.set(key, (byKind.get(key) ?? 0) + count)
+      }
+
+      for (const [key, count] of Object.entries(summary.topKeys ?? {})) {
+        topKeys.set(key, (topKeys.get(key) ?? 0) + count)
+      }
+    }
+  }
+
+  const sortCounts = ([leftKey, leftCount], [rightKey, rightCount]) =>
+    rightCount - leftCount || leftKey.localeCompare(rightKey)
+
+  return {
+    byKind: Object.fromEntries([...byKind.entries()].sort(sortCounts)),
+    topKeys: Object.fromEntries(
+      [...topKeys.entries()].sort(sortCounts).slice(0, 16)
+    ),
+    total,
+  }
+}
+
 const summarizeProfilerEvents = (events = []) => {
   const buckets = new Map()
   let selectorCheckCount = 0
@@ -998,6 +1105,24 @@ const isRenderProfilerEvent = (event) =>
   event.kind !== 'dom-text-sync' &&
   event.kind !== 'runtime-time' &&
   event.kind !== 'selector'
+
+const summarizeProjectionProfilerEvents = (events = []) =>
+  summarizeProfilerEvents(
+    events.filter(
+      (event) =>
+        event.kind === 'runtime-time' &&
+        typeof event.id === 'string' &&
+        event.id.startsWith('projection-store.')
+    )
+  )
+
+const summarizeViewSelectionProfilerEvents = (events = []) =>
+  summarizeProfilerEvents(
+    events.filter(
+      (event) =>
+        typeof event.id === 'string' && event.id.includes('view-selection')
+    )
+  )
 
 const summarizeRenderProfilerEvents = (events = []) => {
   const renderEvents = events.filter(isRenderProfilerEvent)
@@ -1252,6 +1377,9 @@ const measureSurface = async ({ page, surface }) => {
           profilerSummary: summarizeProfilerEvents(
             repeatedShiftDownTrace.profilerEvents
           ),
+          projectionProfilerSummary: summarizeProjectionProfilerEvents(
+            repeatedShiftDownTrace.profilerEvents
+          ),
           reactProfilerSummary: summarizeReactProfilerEvents(
             repeatedShiftDownTrace.reactProfilerEvents
           ),
@@ -1262,6 +1390,9 @@ const measureSurface = async ({ page, surface }) => {
             repeatedShiftDownTrace.profilerEvents
           ),
           selectedTextLength: repeatedShiftDownSelectedTextLength,
+          viewSelectionProfilerSummary: summarizeViewSelectionProfilerEvents(
+            repeatedShiftDownTrace.profilerEvents
+          ),
           extended,
           step: step + 1,
           toPaintMs: repeatedShiftDownPaint - repeatedShiftDownStart,
@@ -1477,6 +1608,9 @@ const measureSurface = async ({ page, surface }) => {
           shiftDownProfilerSummary: summarizeProfilerEvents(
             shiftDownTrace.profilerEvents
           ),
+          shiftDownProjectionProfilerSummary: summarizeProjectionProfilerEvents(
+            shiftDownTrace.profilerEvents
+          ),
           shiftDownRenderCount: shiftDownTrace.profilerEvents.filter(
             isRenderProfilerEvent
           ).length,
@@ -1488,6 +1622,8 @@ const measureSurface = async ({ page, surface }) => {
           ),
           shiftDownSelectedTextLength,
           shiftDownToPaintMs: shiftDownPaint - shiftDownStart,
+          shiftDownViewSelectionProfilerSummary:
+            summarizeViewSelectionProfilerEvents(shiftDownTrace.profilerEvents),
           repeatedShiftDownSamples,
           shiftUpLongTaskMaxMs,
           shiftUpSelectedTextLength,
@@ -1571,10 +1707,32 @@ const measureSurface = async ({ page, surface }) => {
         'repeatedShiftDownSamples',
         'paintAfterCommandMs'
       ),
+      repeatedShiftDownProfilerSummary: summarizeNestedProfilerSummary(
+        samples,
+        'repeatedShiftDownSamples',
+        'profilerSummary'
+      ),
+      repeatedShiftDownProjectionProfilerSummary:
+        summarizeNestedProfilerSummary(
+          samples,
+          'repeatedShiftDownSamples',
+          'projectionProfilerSummary'
+        ),
+      repeatedShiftDownReactProfilerSummary:
+        summarizeNestedReactProfilerSummary(
+          samples,
+          'repeatedShiftDownSamples',
+          'reactProfilerSummary'
+        ),
       repeatedShiftDownRenderCount: summarizeNestedMetric(
         samples,
         'repeatedShiftDownSamples',
         'renderCount'
+      ),
+      repeatedShiftDownRenderSummary: summarizeNestedRenderSummary(
+        samples,
+        'repeatedShiftDownSamples',
+        'renderSummary'
       ),
       repeatedShiftDownSelectedTextLength: summarizeNestedMetric(
         samples,
@@ -1586,6 +1744,12 @@ const measureSurface = async ({ page, surface }) => {
         'repeatedShiftDownSamples',
         'toPaintMs'
       ),
+      repeatedShiftDownViewSelectionProfilerSummary:
+        summarizeNestedProfilerSummary(
+          samples,
+          'repeatedShiftDownSamples',
+          'viewSelectionProfilerSummary'
+        ),
       shiftDownSelectedTextLength: summarizeMetric(
         samples,
         'shiftDownSelectedTextLength'
@@ -1613,6 +1777,11 @@ const measureSurface = async ({ page, surface }) => {
 
 const printSurface = (surface, summary) => {
   console.log(`\n${surface}`)
+
+  const formatSummary = (metric) =>
+    `median=${round(metric.median)}, p75=${round(metric.p75)}, p95=${round(
+      metric.p95
+    )}, max=${round(metric.max)}, n=${metric.samples.length}`
 
   for (const [laneName, lane] of Object.entries(summary.lanes)) {
     console.log(
@@ -1644,8 +1813,8 @@ const printSurface = (surface, summary) => {
         lane.shiftDownPaintAfterCommandMs.p95
       )}, shiftDownToPaintMs p95=${round(
         lane.shiftDownToPaintMs.p95
-      )}, repeatedShiftDownToPaintMs p95=${round(
-        lane.repeatedShiftDownToPaintMs.p95
+      )}, repeatedShiftDownToPaintMs ${formatSummary(
+        lane.repeatedShiftDownToPaintMs
       )}, repeatedShiftDownCommandMs p95=${round(
         lane.repeatedShiftDownCommandMs.p95
       )}, shiftUpToPaintMs p95=${round(
@@ -1709,6 +1878,18 @@ try {
     Math.max(
       ...Object.values(surfaceSummary.lanes).map((lane) => lane[metric].p95)
     )
+  const surfaceMetric = (surfaceSummary, metric, field) =>
+    Math.max(
+      ...Object.values(surfaceSummary.lanes).map(
+        (lane) => lane[metric][field] ?? 0
+      )
+    )
+  const surfaceSampleCount = (surfaceSummary, metric) =>
+    Math.max(
+      ...Object.values(surfaceSummary.lanes).map(
+        (lane) => lane[metric].samples.length
+      )
+    )
 
   for (const [surface, surfaceSummary] of Object.entries(surfaces)) {
     for (const [laneName, lane] of Object.entries(surfaceSummary.lanes)) {
@@ -1731,6 +1912,24 @@ try {
         `METRIC react_huge_doc_cross_editor_${surface}_${laneName}_repeated_shift_down_to_paint_p95_ms=${round(
           lane.repeatedShiftDownToPaintMs.p95
         )}`
+      )
+      console.log(
+        `METRIC react_huge_doc_cross_editor_${surface}_${laneName}_repeated_shift_down_to_paint_median_ms=${round(
+          lane.repeatedShiftDownToPaintMs.median
+        )}`
+      )
+      console.log(
+        `METRIC react_huge_doc_cross_editor_${surface}_${laneName}_repeated_shift_down_to_paint_p75_ms=${round(
+          lane.repeatedShiftDownToPaintMs.p75
+        )}`
+      )
+      console.log(
+        `METRIC react_huge_doc_cross_editor_${surface}_${laneName}_repeated_shift_down_to_paint_max_ms=${round(
+          lane.repeatedShiftDownToPaintMs.max
+        )}`
+      )
+      console.log(
+        `METRIC react_huge_doc_cross_editor_${surface}_${laneName}_repeated_shift_down_sample_count=${lane.repeatedShiftDownToPaintMs.samples.length}`
       )
       console.log(
         `METRIC react_huge_doc_cross_editor_${surface}_${laneName}_repeated_shift_down_command_p95_ms=${round(
@@ -1828,6 +2027,25 @@ try {
       surfaceSummary,
       'repeatedShiftDownToPaintMs'
     )
+    const repeatedShiftDownToPaintMedian = surfaceMetric(
+      surfaceSummary,
+      'repeatedShiftDownToPaintMs',
+      'median'
+    )
+    const repeatedShiftDownToPaintP75 = surfaceMetric(
+      surfaceSummary,
+      'repeatedShiftDownToPaintMs',
+      'p75'
+    )
+    const repeatedShiftDownToPaintMax = surfaceMetric(
+      surfaceSummary,
+      'repeatedShiftDownToPaintMs',
+      'max'
+    )
+    const repeatedShiftDownToPaintSampleCount = surfaceSampleCount(
+      surfaceSummary,
+      'repeatedShiftDownToPaintMs'
+    )
     const repeatedShiftDownCommandP95 = surfaceP95(
       surfaceSummary,
       'repeatedShiftDownCommandMs'
@@ -1908,6 +2126,24 @@ try {
       `METRIC react_huge_doc_cross_editor_${surface}_repeated_shift_down_to_paint_p95_ms=${round(
         repeatedShiftDownToPaintP95
       )}`
+    )
+    console.log(
+      `METRIC react_huge_doc_cross_editor_${surface}_repeated_shift_down_to_paint_median_ms=${round(
+        repeatedShiftDownToPaintMedian
+      )}`
+    )
+    console.log(
+      `METRIC react_huge_doc_cross_editor_${surface}_repeated_shift_down_to_paint_p75_ms=${round(
+        repeatedShiftDownToPaintP75
+      )}`
+    )
+    console.log(
+      `METRIC react_huge_doc_cross_editor_${surface}_repeated_shift_down_to_paint_max_ms=${round(
+        repeatedShiftDownToPaintMax
+      )}`
+    )
+    console.log(
+      `METRIC react_huge_doc_cross_editor_${surface}_repeated_shift_down_sample_count=${repeatedShiftDownToPaintSampleCount}`
     )
     console.log(
       `METRIC react_huge_doc_cross_editor_${surface}_repeated_shift_down_command_p95_ms=${round(

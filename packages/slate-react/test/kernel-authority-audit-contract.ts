@@ -904,12 +904,5 @@ test('direct force render calls have explicit runtime owners', () => {
       rationale:
         'Keyboard worker still directly forces render for select-all partial-dom-backed selection before repair/view runtime owns that request.',
     },
-    'packages/slate-react/src/editable/mutation-controller.ts': {
-      count: 1,
-      next: 'central-owner',
-      owner: 'Mutation repair executor',
-      rationale:
-        'Mutation repair executor invokes the root wakeup passed by the runtime repair engine.',
-    },
   })
 })

@@ -47,15 +47,13 @@ test.describe('plaintext example', () => {
     await page.keyboard.insertText(insertedText)
 
     await expect(editor.root).toContainText(insertedText)
-    expect(await editor.get.text()).toContain(insertedText)
+    await expect.poll(() => editor.get.text()).toContain(insertedText)
   })
 
   test('clicking inside selected text collapses the selection', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop pointer proof')
 
     const editor = await openExample(page, 'plaintext', {
       ready: {
@@ -446,9 +444,7 @@ test.describe('plaintext example', () => {
   test('replaces a multi-paragraph selection with typed text', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop selection proof')
 
     const editor = await openExample(page, 'plaintext', {
       ready: {
@@ -672,7 +668,7 @@ test.describe('plaintext example', () => {
       await page.keyboard.press('Control+Backspace')
 
       runtimeErrors.assertNone()
-      expect(await editor.get.selection()).not.toBe(null)
+      await expect.poll(() => editor.get.selection()).not.toBe(null)
     } finally {
       runtimeErrors.stop()
     }
@@ -724,7 +720,7 @@ test.describe('plaintext example', () => {
     await editor.clipboard.pasteText(text)
     const pasteTrace = (await editor.get.kernelTrace()).slice(beforeTraceLength)
 
-    expect(await editor.get.modelText()).toBe(text)
+    await expect.poll(() => editor.get.modelText()).toBe(text)
     expect(
       pasteTrace.some(
         (entry) =>
@@ -764,12 +760,12 @@ test.describe('plaintext example', () => {
     })
     await editor.root.press('ControlOrMeta+C')
 
-    expect(await editor.clipboard.readText()).toBe('editable')
+    await expect.poll(() => editor.clipboard.readText()).toBe('editable')
     await editor.assert.text(originalText)
 
     await editor.root.press('ControlOrMeta+X')
 
-    expect(await editor.clipboard.readText()).toBe('editable')
+    await expect.poll(() => editor.clipboard.readText()).toBe('editable')
     await editor.assert.text('This is  plain text, just like a <textarea>!')
     await editor.assert.selection({
       anchor: { path: [0, 0], offset: selectionStart },
@@ -852,8 +848,8 @@ test.describe('plaintext example', () => {
         anchor: { path: [0, 0], offset: 0 },
         focus: { path: [2, 0], offset: 0 },
       })
-    expect(await editor.get.selectedText()).toContain('one')
-    expect(await editor.get.selectedText()).toContain('two')
+    await expect.poll(() => editor.get.selectedText()).toContain('one')
+    await expect.poll(() => editor.get.selectedText()).toContain('two')
 
     await page.keyboard.press('Backspace')
     await expect.poll(() => editor.get.modelText()).toBe('')
@@ -1176,7 +1172,7 @@ test.describe('plaintext example', () => {
 
     await expect.poll(() => editor.get.selectedText()).toContain('B')
     await expect.poll(() => editor.get.selectedText()).toContain('A')
-    expect(await editor.get.selectedText()).not.toContain('\uFEFF')
+    await expect.poll(() => editor.get.selectedText()).not.toContain('\uFEFF')
   })
 
   test('keeps Shift+ArrowLeft backward selection inside one paragraph', async ({
@@ -1247,7 +1243,7 @@ test.describe('plaintext example', () => {
       anchor: { path: [1, 0], offset: 0 },
       focus: { path: [1, 0], offset: 0 },
     })
-    expect(await editor.get.modelText()).toBe('foobar')
+    await expect.poll(() => editor.get.modelText()).toBe('foobar')
   })
 
   test('supports WebKit hard-line backward delete without command errors', async ({

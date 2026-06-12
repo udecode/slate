@@ -30,6 +30,7 @@ import { SlateEditableRootContext } from '../context'
 import {
   Editor,
   getEditorRuntime,
+  getOperationCount,
   inheritEditorExtensionRegistry,
   inheritEditorTransformRegistry,
   setEditorRuntime,
@@ -370,9 +371,7 @@ export function SlateRuntime<
 >({ children, runtime }: SlateRuntimeProps<V, TExtensions>) {
   const { selectorContext, onChange: handleSelectorChange } =
     useEditorSelectorContext()
-  const lastOperationCountRef = useRef(
-    runtime.read((state) => state.value.operations().length)
-  )
+  const lastOperationCountRef = useRef(getOperationCount(runtime.editor))
   const lastCommitVersionRef = useRef(
     Editor.getLastCommit(runtime.editor)?.version ?? 0
   )

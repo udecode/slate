@@ -20,7 +20,7 @@ import {
   composeProjectionSources,
   type SlateDecorationSource,
 } from '../decoration-source'
-import { Editor } from '../editable/runtime-editor-api'
+import { Editor, getOperationCount } from '../editable/runtime-editor-api'
 import {
   createRootSelectionCache,
   getSelectionRoot,
@@ -55,7 +55,6 @@ import { ProjectionContext } from '../projection-context'
 import { recordSlateReactRender } from '../render-profiler'
 import { REACT_MAJOR_VERSION } from '../utils/environment'
 import { setSlateViewSelectionStoreKey } from '../view-selection'
-import { useSlateViewSelectionDecorationSource } from '../view-selection-decoration'
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
 
@@ -232,24 +231,16 @@ const SlateRuntimeView = <
     onValueChange,
     root: viewRoot,
   })
-  const viewSelectionDecorationSource = useSlateViewSelectionDecorationSource(
-    reactEditor,
-    true
-  )
   const projectionContextValue = useMemo(() => {
-    const sources = viewSelectionDecorationSource
-      ? [...(decorationSources ?? []), viewSelectionDecorationSource]
-      : decorationSources
-
     if (!annotationStore) {
-      return composeDecorationSources(sources)
+      return composeDecorationSources(decorationSources)
     }
 
     return composeProjectionSources([
-      ...(sources ?? []),
+      ...(decorationSources ?? []),
       annotationStore.projectionStore,
     ])
-  }, [annotationStore, decorationSources, viewSelectionDecorationSource])
+  }, [annotationStore, decorationSources])
 
   return (
     <EditorSelectorContext.Provider value={runtimeContext.selectorContext}>
@@ -415,9 +406,7 @@ const SlateSingleEditor = <
   const onChangeRef = useRef(onChange)
   const onSelectionChangeRef = useRef(onSelectionChange)
   const onValueChangeRef = useRef(onValueChange)
-  const lastOperationCountRef = useRef(
-    editor.read((state) => state.value.operations().length)
-  )
+  const lastOperationCountRef = useRef(getOperationCount(editor))
   const lastCommitVersionRef = useRef(
     Editor.getLastCommit(editor)?.version ?? 0
   )
@@ -442,9 +431,7 @@ const SlateSingleEditor = <
 
   if (lastEditorRef.current !== editor) {
     lastEditorRef.current = editor
-    lastOperationCountRef.current = editor.read(
-      (state) => state.value.operations().length
-    )
+    lastOperationCountRef.current = getOperationCount(editor)
     lastCommitVersionRef.current = Editor.getLastCommit(editor)?.version ?? 0
   }
 
@@ -751,24 +738,16 @@ const SlateSingleEditor = <
 
   const [isFocused, setIsFocused] = useState(ReactEditor.isFocused(reactEditor))
   const [focusVersion, setFocusVersion] = useState(0)
-  const viewSelectionDecorationSource = useSlateViewSelectionDecorationSource(
-    reactEditor,
-    true
-  )
   const projectionContextValue = useMemo(() => {
-    const sources = viewSelectionDecorationSource
-      ? [...(decorationSources ?? []), viewSelectionDecorationSource]
-      : decorationSources
-
     if (!annotationStore) {
-      return composeDecorationSources(sources)
+      return composeDecorationSources(decorationSources)
     }
 
     return composeProjectionSources([
-      ...(sources ?? []),
+      ...(decorationSources ?? []),
       annotationStore.projectionStore,
     ])
-  }, [annotationStore, decorationSources, viewSelectionDecorationSource])
+  }, [annotationStore, decorationSources])
 
   useEffect(() => {
     setIsFocused(ReactEditor.isFocused(reactEditor))

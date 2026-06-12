@@ -174,6 +174,32 @@ describe('content root navigation', () => {
     expect(getMountedViewEditor).not.toHaveBeenCalled()
   })
 
+  it('does not scan plain documents when looking for content-root owners', () => {
+    const runtime = createEditorRuntime({
+      initialValue: {
+        roots: {
+          main: Array.from({ length: 5000 }, (_, index) =>
+            paragraph(`Plain ${index}`)
+          ),
+        },
+      },
+    })
+    const mainEditor = createEditorView(runtime, {
+      root: 'main',
+    }) as unknown as ReactRuntimeEditor
+    const read = vi.fn(() => {
+      throw new Error('plain documents should not be scanned')
+    })
+    const editor = Object.create(mainEditor) as ReactRuntimeEditor
+
+    Object.defineProperty(editor, 'read', {
+      value: read,
+    })
+
+    expect(findContentRootOwners(editor)).toEqual([])
+    expect(read).not.toHaveBeenCalled()
+  })
+
   it('does not exit a content root from the start of its last block on ArrowDown', () => {
     const runtime = createEditorRuntime({
       extensions: [contentRootExtension],

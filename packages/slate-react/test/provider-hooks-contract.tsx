@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { act, render, renderHook, waitFor } from '@testing-library/react'
 import _ from 'lodash'
 import { Component, type ReactNode, useLayoutEffect } from 'react'
@@ -58,6 +59,19 @@ class SelectorErrorBoundary extends Component<
 }
 
 describe('slate-react provider hooks contract', () => {
+  test('providers read operation counts without cloning operation payloads', () => {
+    const slateSource = readFileSync('src/components/slate.tsx', 'utf8')
+    const runtimeSource = readFileSync(
+      'src/hooks/use-slate-runtime.tsx',
+      'utf8'
+    )
+
+    expect(slateSource).toContain('getOperationCount(editor)')
+    expect(runtimeSource).toContain('getOperationCount(runtime.editor)')
+    expect(slateSource).not.toContain('value.operations().length')
+    expect(runtimeSource).not.toContain('value.operations().length')
+  })
+
   test('useSlateEditor creates a React editor with initialized value', () => {
     const { result } = renderHook(() =>
       useSlateEditor({

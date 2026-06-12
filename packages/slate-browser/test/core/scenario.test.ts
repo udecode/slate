@@ -164,6 +164,29 @@ describe('scenario helpers', () => {
           ['search-highlighting'],
         ],
         ['selection-ui', 'mouse-selection-toolbar', ['hovering-toolbar']],
+        [
+          'core-editing',
+          'huge-document-projected-vertical-selection',
+          ['huge-document'],
+        ],
+        [
+          'core-editing',
+          'huge-document-virtualized-scroll-stability',
+          ['huge-document'],
+        ],
+        [
+          'core-editing',
+          'native-beforeinput-target-range-repair',
+          ['plaintext'],
+        ],
+        ['core-editing', 'ime-composition-formatted-boundaries', ['richtext']],
+        ['core-editing', 'ime-composition-cross-block-repair', ['richtext']],
+        [
+          'core-editing',
+          'ime-composition-decoration-refresh',
+          ['decorations-async'],
+        ],
+        ['core-editing', 'external-clipboard-slice-context', ['paste-html']],
         ['table', 'table-cell-boundary-navigation', ['tables']],
       ])
     )

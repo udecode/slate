@@ -660,7 +660,7 @@ test.describe('Inlines example', () => {
         (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
       )
       .toContain('Here is a hyperlinktail, and here is')
-    expect(await editor.get.selection()).not.toBe(null)
+    await expect.poll(() => editor.get.selection()).not.toBe(null)
   })
 
   test('replaces selected text adjacent to inline link boundaries with rich content', async ({
@@ -787,7 +787,7 @@ test.describe('Inlines example', () => {
     })
     await editor.root.press('ControlOrMeta+C')
 
-    expect(await editor.clipboard.readText()).toBe('per')
+    await expect.poll(() => editor.clipboard.readText()).toBe('per')
 
     await editor.selection.collapse({ path: [0, 2], offset: 0 })
     await editor.root.press('ControlOrMeta+V')
@@ -898,7 +898,7 @@ test.describe('Inlines example', () => {
       await trailingLink.click()
 
       runtimeErrors.assertNone()
-      expect(await editor.get.selection()).not.toBe(null)
+      await expect.poll(() => editor.get.selection()).not.toBe(null)
       await expect
         .poll(() => page.evaluate(() => window.getSelection()?.rangeCount ?? 0))
         .toBeGreaterThan(0)
@@ -1028,10 +1028,8 @@ test.describe('Inlines example', () => {
     const trailingLink = editor.root
       .locator('a')
       .filter({ hasText: 'Finally, here is our favorite dog video.' })
-    const secondBlockText = (await editor.get.blockTexts())[1]?.replaceAll(
-      '\u00A0',
-      ''
-    )
+    const secondBlockText =
+      (await editor.get.blockTexts())[1]?.replaceAll('\u00A0', '') ?? ''
 
     await expect(trailingLink).toHaveCount(1)
     await page.locator('[data-slate-editor] p').nth(1).click({ clickCount: 3 })
@@ -1076,6 +1074,11 @@ test.describe('Inlines example', () => {
       focus: { path: [1, 2], offset: 0 },
     })
     await editor.assert.noDoubleSelectionHighlight()
+    await expect
+      .poll(async () =>
+        (await editor.get.selectedText()).replaceAll('\u00A0', '')
+      )
+      .toBe(secondBlockText)
 
     await editor.clipboard.pasteText('replacement')
 
@@ -1255,7 +1258,7 @@ test.describe('Inlines example', () => {
         (await editor.get.blockTexts())[0]?.replaceAll('\u00A0', '')
       )
       .not.toContain(', and here is a more unusual inline: a! Here')
-    expect(await editor.get.selection()).not.toBe(null)
+    await expect.poll(() => editor.get.selection()).not.toBe(null)
     await editor.assert.domSelectionTarget({
       isCollapsed: true,
     })
@@ -1287,22 +1290,24 @@ test.describe('Inlines example', () => {
       anchor: { path: [0, 6], offset: 0 },
       focus: { path: [0, 6], offset: 0 },
     })
-    expect(await editor.get.kernelTrace()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          command: expect.objectContaining({
-            axis: 'horizontal',
-            kind: 'move-selection',
+    await expect
+      .poll(() => editor.get.kernelTrace())
+      .toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            command: expect.objectContaining({
+              axis: 'horizontal',
+              kind: 'move-selection',
+            }),
+            eventFamily: 'keydown',
+            movement: expect.objectContaining({
+              axis: 'horizontal',
+              ownership: 'model-owned',
+              reason: 'model-horizontal-inline-void',
+            }),
           }),
-          eventFamily: 'keydown',
-          movement: expect.objectContaining({
-            axis: 'horizontal',
-            ownership: 'model-owned',
-            reason: 'model-horizontal-inline-void',
-          }),
-        }),
-      ])
-    )
+        ])
+      )
   })
 
   test('arrow keys still skip a read-only inline after insert-delete before it', async ({
@@ -1365,7 +1370,7 @@ test.describe('Inlines example', () => {
       }
 
       runtimeErrors.assertNone()
-      expect(await editor.get.selection()).not.toBe(null)
+      await expect.poll(() => editor.get.selection()).not.toBe(null)
     } finally {
       runtimeErrors.stop()
     }
@@ -1391,7 +1396,7 @@ test.describe('Inlines example', () => {
       testInfo.project.name !== 'mobile' &&
       testInfo.project.name !== 'webkit'
     ) {
-      expect(await editor.clipboard.readText()).toBe('hyperlink')
+      await expect.poll(() => editor.clipboard.readText()).toBe('hyperlink')
     }
     await expect(
       editor.root.locator('a').filter({ hasText: 'hyperlink' })
@@ -1399,14 +1404,14 @@ test.describe('Inlines example', () => {
     if (testInfo.project.name === 'mobile') {
       return
     }
-    expect(await editor.get.selection()).not.toBe(null)
+    await expect.poll(() => editor.get.selection()).not.toBe(null)
 
     await editor.type('LINK')
 
     await editor.assert.text(
       /Here is a LINK, and here is a more unusual inline/
     )
-    expect(await editor.get.selection()).not.toBe(null)
+    await expect.poll(() => editor.get.selection()).not.toBe(null)
   })
 
   test('Backspace at an inline link end deletes one character', async ({
@@ -1429,7 +1434,7 @@ test.describe('Inlines example', () => {
     await editor.root.press('Backspace')
 
     await expect(editor.root.locator('a').first()).toHaveText('hyperlin')
-    expect(await editor.get.selection()).not.toBe(null)
+    await expect.poll(() => editor.get.selection()).not.toBe(null)
   })
 
   test('Backspace deletes selected inline link boundary text only', async ({

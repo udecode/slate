@@ -25,7 +25,10 @@ import type { AndroidInputManager } from '../hooks/android-input-manager/android
 import { scheduleSlateReactFocus } from '../hooks/focus-scheduler'
 import { focusSlateEditable } from '../hooks/focus-slate-editable'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
-import { readSlateViewSelection } from '../view-selection'
+import {
+  isSlateViewSelectionCollapsed,
+  readSlateViewSelection,
+} from '../view-selection'
 import { applyEditableCaretMovement } from './caret-engine'
 import {
   applyContentRootNavigation,
@@ -281,6 +284,13 @@ const getModelOwnedHistoryRepair = ({
       focusSlateEditable(focusEditor)
     })
 
+    return forceRender
+      ? { forceRender, kind: 'force-render' }
+      : { kind: 'none' }
+  }
+
+  const viewSelection = readSlateViewSelection(editor)
+  if (viewSelection && !isSlateViewSelectionCollapsed(viewSelection)) {
     return forceRender
       ? { forceRender, kind: 'force-render' }
       : { kind: 'none' }

@@ -52,6 +52,7 @@ import type {
 } from './input-state'
 import { isEditableOutsideFocusBoundarySettling } from './input-state'
 import { readModelSelectionDOMPreference } from './model-selection-dom-preference'
+import { Editor } from './runtime-editor-api'
 import {
   readLiveSelection,
   readRuntimeSelection,
@@ -596,6 +597,23 @@ const restoreScrollOffsets = (
   })
 }
 
+const isStaleCompositionDOMRange = ({
+  inputController,
+  modelSelection,
+  range,
+}: {
+  inputController: EditableInputController
+  modelSelection: Selection
+  range: Range
+}) =>
+  inputController.state.activeIntent === 'composition' &&
+  (inputController.state.modelOwnedTextInputGuard ?? 0) > 0 &&
+  RangeApi.isCollapsed(range) &&
+  RangeApi.isRange(modelSelection) &&
+  RangeApi.isCollapsed(modelSelection) &&
+  PathApi.equals(range.anchor.path, modelSelection.anchor.path) &&
+  range.anchor.offset < modelSelection.anchor.offset
+
 export const syncEditorSelectionFromDOM = ({
   editor,
   ignoreModelSelectionPreference = false,
@@ -658,6 +676,19 @@ export const syncEditorSelectionFromDOM = ({
   }
 
   if (range && (!selection || !RangeApi.equals(selection, range))) {
+    const modelSelection = Editor.getSelection(editor)
+
+    if (
+      modelSelection &&
+      isStaleCompositionDOMRange({
+        inputController,
+        modelSelection,
+        range,
+      })
+    ) {
+      return
+    }
+
     writeSlateViewSelection(editor, null)
     editor.update((tx) => {
       tx.selection.set(range)
@@ -1217,6 +1248,27 @@ export const applyEditableDOMSelectionChange = ({
   }
 
   const currentSelection = readLiveSelection(editor)
+
+  if (
+    selectionChangeOrigin === 'native-user' &&
+    state.activeIntent === 'composition' &&
+    RangeApi.isRange(range) &&
+    RangeApi.isCollapsed(range)
+  ) {
+    const modelSelection = Editor.getSelection(editor)
+
+    if (
+      modelSelection &&
+      isStaleCompositionDOMRange({
+        inputController,
+        modelSelection,
+        range,
+      })
+    ) {
+      return
+    }
+  }
+
   const pendingRepairSelectionChangePolicy =
     getPendingNativeTextInputRepairSelectionChangePolicy({
       activeIntent: state.activeIntent,
