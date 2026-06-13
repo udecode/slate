@@ -38,6 +38,7 @@ const HAS_EXTERNAL_URL = Boolean(
 )
 const SHOULD_START_SERVER =
   process.env.SOAK_START_SERVER !== '0' && !HAS_EXTERNAL_URL
+const SHOULD_FAIL_ON_ISSUES = process.env.SOAK_FAIL_ON_ISSUES === '1'
 
 const PEERS = ['a', 'b', 'c', 'd']
 const ACTIONS = [
@@ -90,6 +91,14 @@ let browser
 let server
 let lastAction = null
 let lastReportAt = Date.now()
+
+function elapsedMs() {
+  return Date.now() - startedAt
+}
+
+function shouldContinue() {
+  return elapsedMs() < DURATION_MS
+}
 
 function write(event) {
   fs.appendFileSync(
@@ -426,6 +435,23 @@ async function runScenario(name, fn) {
   }
 }
 
+async function runScenarioIfTimeRemaining(name, fn) {
+  if (!shouldContinue()) {
+    write({
+      type: 'scenario-skip-timebox',
+      durationMs: DURATION_MS,
+      elapsedMs: elapsedMs(),
+      name,
+    })
+
+    return false
+  }
+
+  await runScenario(name, fn)
+
+  return true
+}
+
 async function scenarioBaselineSplit(name) {
   await navigate(name)
   await click('b', 'split-node', name)
@@ -564,7 +590,6 @@ async function scenarioAwareness(name) {
 }
 
 function writeSummary(final = false) {
-  const elapsedMs = Date.now() - startedAt
   const sortedIssues = [...issues.values()].sort((a, b) => {
     const order = { error: 0, suspect: 1, warning: 2 }
     return (order[a.severity] ?? 9) - (order[b.severity] ?? 9)
@@ -576,7 +601,7 @@ function writeSummary(final = false) {
     `- status: ${final ? 'complete' : 'running'}`,
     `- url: ${TARGET_URL}`,
     `- run_id: ${RUN_ID}`,
-    `- elapsed_ms: ${elapsedMs}`,
+    `- elapsed_ms: ${elapsedMs()}`,
     `- actions: ${metrics.actions}`,
     `- iterations: ${metrics.iterations}`,
     `- hard_resets: ${metrics.hardResets}`,
@@ -584,6 +609,7 @@ function writeSummary(final = false) {
     `- console_errors: ${metrics.consoleErrors}`,
     `- page_errors: ${metrics.pageErrors}`,
     `- issues: ${sortedIssues.length}`,
+    `- fail_on_issues: ${SHOULD_FAIL_ON_ISSUES}`,
     `- log: ${LOG_PATH}`,
     '',
     '## Scenario Counts',
@@ -627,6 +653,7 @@ async function main() {
       OUTPUT_ROOT,
       SHOULD_LAUNCH_BROWSER,
       SHOULD_START_SERVER,
+      SHOULD_FAIL_ON_ISSUES,
       SUMMARY_PATH,
       TARGET_URL,
     },
@@ -660,24 +687,29 @@ async function main() {
   await navigate('initial')
 
   let seed = Number(process.env.SOAK_START_SEED ?? 1)
-  while (Date.now() - startedAt < DURATION_MS) {
-    await runScenario('baseline-split', scenarioBaselineSplit)
-    await runScenario(
-      'offline-undo-remote-split',
-      scenarioOfflineUndoRemoteSplit
-    )
-    await runScenario(
-      'offline-undo-remote-split-redo',
-      scenarioOfflineUndoRemoteSplitRedo
-    )
-    await runScenario('split-merge-loop', scenarioSplitMergeLoop)
-    await runScenario('awareness', scenarioAwareness)
-    await runScenario(`offline-structural-mix-${seed}`, (name) =>
-      scenarioOfflineStructuralMix(name, seed)
-    )
-    await runScenario(`random-control-${seed}`, (name) =>
-      scenarioRandomControl(name, seed)
-    )
+  while (shouldContinue()) {
+    const currentSeed = seed
+    const scenarioQueue = [
+      ['baseline-split', scenarioBaselineSplit],
+      ['offline-undo-remote-split', scenarioOfflineUndoRemoteSplit],
+      ['offline-undo-remote-split-redo', scenarioOfflineUndoRemoteSplitRedo],
+      ['split-merge-loop', scenarioSplitMergeLoop],
+      ['awareness', scenarioAwareness],
+      [
+        `offline-structural-mix-${currentSeed}`,
+        (name) => scenarioOfflineStructuralMix(name, currentSeed),
+      ],
+      [
+        `random-control-${currentSeed}`,
+        (name) => scenarioRandomControl(name, currentSeed),
+      ],
+    ]
+
+    for (const [name, fn] of scenarioQueue) {
+      if (!(await runScenarioIfTimeRemaining(name, fn))) {
+        break
+      }
+    }
 
     seed += 1
 
@@ -685,7 +717,7 @@ async function main() {
       writeSummary(false)
       lastReportAt = Date.now()
       console.log(
-        `[progress] elapsed=${Math.round((Date.now() - startedAt) / 1000)}s actions=${metrics.actions} iterations=${metrics.iterations} issues=${issues.size} summary=${SUMMARY_PATH}`
+        `[progress] elapsed=${Math.round(elapsedMs() / 1000)}s actions=${metrics.actions} iterations=${metrics.iterations} issues=${issues.size} summary=${SUMMARY_PATH}`
       )
     }
   }
@@ -694,6 +726,8 @@ async function main() {
   write({ type: 'complete', metrics, issues: [...issues.values()] })
   console.log(`[complete] summary=${SUMMARY_PATH}`)
   console.log(`[complete] log=${LOG_PATH}`)
+
+  return issues.size
 }
 
 async function cleanup() {
@@ -707,9 +741,9 @@ async function cleanup() {
 }
 
 main()
-  .then(async () => {
+  .then(async (issueCount) => {
     await cleanup()
-    process.exit(0)
+    process.exit(SHOULD_FAIL_ON_ISSUES && issueCount > 0 ? 1 : 0)
   })
   .catch(async (error) => {
     recordIssue(

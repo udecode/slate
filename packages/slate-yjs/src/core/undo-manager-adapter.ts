@@ -24,13 +24,34 @@ const assertStack = (
   value: unknown,
   name: string
 ): YjsUndoManagerStackItem[] => {
-  if (!Array.isArray(value) || value.some((item) => !isStackItem(item))) {
+  if (!Array.isArray(value)) {
     throw new Error(
       `Unsupported Yjs UndoManager ${name} contract. @slate/yjs pins yjs@${SUPPORTED_YJS_UNDO_MANAGER_VERSION}.`
     )
   }
 
+  let index = 0
+
+  while (index < value.length) {
+    const item = value[index]
+
+    if (!isStackItem(item)) {
+      throw new Error(
+        `Unsupported Yjs UndoManager ${name} contract. @slate/yjs pins yjs@${SUPPORTED_YJS_UNDO_MANAGER_VERSION}.`
+      )
+    }
+    index++
+  }
+
   return value
+}
+
+const peekStackItem = (
+  stack: readonly YjsUndoManagerStackItem[]
+): YjsUndoManagerStackItem | null => {
+  const lastIndex = stack.length - 1
+
+  return lastIndex < 0 ? null : (stack[lastIndex] ?? null)
 }
 
 const readUndoManagerStack = (
@@ -80,16 +101,16 @@ export const createYjsUndoManagerAdapter = (
       redo().push(item)
     },
     peekRedo() {
-      return redo().at(-1) ?? null
+      return peekStackItem(redo())
     },
     peekUndo() {
-      return undo().at(-1) ?? null
+      return peekStackItem(undo())
     },
     redoDepth() {
       return redo().length
     },
     storeUndoMeta(key: unknown, value: unknown) {
-      undo().at(-1)?.meta.set(key, value)
+      peekStackItem(undo())?.meta.set(key, value)
     },
   }
 }

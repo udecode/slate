@@ -6,11 +6,16 @@ import {
   getSlateYjsElementType,
   removeSlateYjsAttribute,
   setSlateYjsAttribute,
-  setSlateYjsAttributes,
   type YjsAttributeRecord,
   type YjsNode,
 } from './attributes'
-import { getYjsChildren, getYjsLength } from './document'
+import {
+  assertPublicYjsAttributeCanBeSet,
+  createYjsVisibleChildrenReader,
+  getYjsLength,
+  type YjsVisibleChildrenReader,
+} from './document'
+import { areJsonLikeValuesEqual } from './json-equality'
 import { isRecord } from './record'
 
 type SlateElementLike = {
@@ -21,14 +26,11 @@ type SlateTextLike = {
   readonly text: string
 } & Readonly<Record<string, unknown>>
 
-const areJsonEqual = (left: unknown, right: unknown): boolean =>
-  JSON.stringify(left) === JSON.stringify(right)
-
 export const isNoopSlateOperationForYjs = (operation: Operation): boolean => {
   switch (operation.type) {
     case 'replace_children':
     case 'replace_fragment':
-      return areJsonEqual(operation.children, operation.newChildren)
+      return areJsonLikeValuesEqual(operation.children, operation.newChildren)
     default:
       return false
   }
@@ -40,15 +42,29 @@ const isSlateText = (node: unknown): node is SlateTextLike =>
 const isSlateElement = (node: unknown): node is SlateElementLike =>
   isRecord(node) && Array.isArray(node.children)
 
-const getTextAttributes = ({
-  text: _text,
-  ...attributes
-}: SlateTextLike): YjsAttributeRecord => attributes
+const getTextAttributes = (node: SlateTextLike): YjsAttributeRecord => {
+  const attributes: YjsAttributeRecord = {}
 
-const getElementAttributes = ({
-  children: _children,
-  ...attributes
-}: SlateElementLike): YjsAttributeRecord => attributes
+  for (const key in node) {
+    if (Object.hasOwn(node, key) && key !== 'text') {
+      attributes[key] = node[key]
+    }
+  }
+
+  return attributes
+}
+
+const getElementAttributes = (node: SlateElementLike): YjsAttributeRecord => {
+  const attributes: YjsAttributeRecord = {}
+
+  for (const key in node) {
+    if (Object.hasOwn(node, key) && key !== 'children') {
+      attributes[key] = node[key]
+    }
+  }
+
+  return attributes
+}
 
 const applyTextFormatPatch = (
   text: Y.XmlText,
@@ -63,10 +79,23 @@ const applyTextFormatPatch = (
   formatYjsTextAttributes(text, 0, length, patch)
 }
 
-const assertYjsAttributeCanBeSet = (key: string): void => {
-  if (key === 'children' || key === 'text') {
-    throw new Error(`Cannot set the "${key}" property on a Yjs node.`)
+const copyYjsChildren = (children: readonly YjsNode[]): YjsNode[] => {
+  const copy = new Array<YjsNode>(children.length)
+
+  let index = 0
+
+  while (index < children.length) {
+    const child = children[index]
+
+    if (child === undefined) {
+      throw new Error('Cannot copy a sparse Yjs child array.')
+    }
+
+    copy[index] = child
+    index++
   }
+
+  return copy
 }
 
 export const setYjsNodeAttributes = (
@@ -74,39 +103,64 @@ export const setYjsNodeAttributes = (
   properties: YjsAttributeRecord,
   newProperties: YjsAttributeRecord
 ): void => {
-  const textPatch: YjsAttributeRecord = {}
+  const textNode = node instanceof Y.XmlText ? node : null
+  const textPatch: YjsAttributeRecord | null = textNode === null ? null : {}
+  let hasTextPatch = false
 
-  for (const [key, value] of Object.entries(newProperties)) {
-    assertYjsAttributeCanBeSet(key)
+  for (const key in newProperties) {
+    if (!Object.hasOwn(newProperties, key)) {
+      continue
+    }
+
+    const value = newProperties[key]
+
+    assertPublicYjsAttributeCanBeSet(key)
 
     if (value === null || value === undefined) {
+      if (properties[key] === null || properties[key] === undefined) {
+        continue
+      }
+
       removeSlateYjsAttribute(node, key)
-      textPatch[key] = null
+      if (textPatch !== null) {
+        textPatch[key] = null
+        hasTextPatch = true
+      }
+      continue
+    }
+
+    if (areJsonLikeValuesEqual(properties[key], value)) {
       continue
     }
 
     setSlateYjsAttribute(node, key, value)
 
-    if (node instanceof Y.XmlText) {
+    if (textPatch !== null) {
       textPatch[key] = value
+      hasTextPatch = true
     }
   }
 
-  for (const key of Object.keys(properties)) {
+  for (const key in properties) {
+    if (!Object.hasOwn(properties, key)) {
+      continue
+    }
+
     if (Object.hasOwn(newProperties, key)) {
       continue
     }
-    assertYjsAttributeCanBeSet(key)
+    assertPublicYjsAttributeCanBeSet(key)
 
     removeSlateYjsAttribute(node, key)
 
-    if (node instanceof Y.XmlText) {
+    if (textPatch !== null) {
       textPatch[key] = null
+      hasTextPatch = true
     }
   }
 
-  if (node instanceof Y.XmlText && Object.keys(textPatch).length > 0) {
-    applyTextFormatPatch(node, textPatch)
+  if (textNode !== null && textPatch !== null && hasTextPatch) {
+    applyTextFormatPatch(textNode, textPatch)
   }
 }
 
@@ -115,18 +169,31 @@ export const createSplitElement = (
   properties: YjsAttributeRecord,
   children: readonly YjsNode[]
 ): Y.XmlElement => {
-  const { type: _type, ...attributes } = properties
   const elementType =
     typeof properties.type === 'string'
       ? properties.type
       : getSlateYjsElementType(original)
   const element = new Y.XmlElement(elementType)
 
+  for (const key in properties) {
+    if (!Object.hasOwn(properties, key) || key === 'type') {
+      continue
+    }
+
+    assertPublicYjsAttributeCanBeSet(key)
+  }
   setSlateYjsAttribute(element, 'type', elementType)
-  setSlateYjsAttributes(element, attributes)
+
+  for (const key in properties) {
+    if (!Object.hasOwn(properties, key) || key === 'type') {
+      continue
+    }
+
+    setSlateYjsAttribute(element, key, properties[key])
+  }
 
   if (children.length > 0) {
-    element.insert(0, [...children])
+    element.insert(0, copyYjsChildren(children))
   }
 
   return element
@@ -155,9 +222,15 @@ const getSharedSuffixLength = (
 
   while (
     length < left.length - prefixLength &&
-    length < right.length - prefixLength &&
-    left.at(-1 - length) === right.at(-1 - length)
+    length < right.length - prefixLength
   ) {
+    const leftIndex = left.length - 1 - length
+    const rightIndex = right.length - 1 - length
+
+    if (left[leftIndex] !== right[rightIndex]) {
+      break
+    }
+
     length++
   }
 
@@ -170,38 +243,57 @@ const replaceYjsText = (
   next: string,
   attributes: YjsAttributeRecord
 ): void => {
+  if (previous === next) {
+    return
+  }
+
   const prefixLength = getSharedPrefixLength(previous, next)
   const suffixLength = getSharedSuffixLength(previous, next, prefixLength)
   const removeLength = previous.length - prefixLength - suffixLength
-  const insertText = next.slice(prefixLength, next.length - suffixLength)
+  const insertLength = next.length - prefixLength - suffixLength
 
   if (removeLength > 0) {
     text.delete(prefixLength, removeLength)
   }
 
-  if (insertText.length > 0) {
+  if (insertLength > 0) {
+    const insertText = next.slice(prefixLength, prefixLength + insertLength)
+
     text.insert(prefixLength, insertText, attributes)
   }
 }
 
 const canReplaceCompatibleYjsChildren = (
+  readVisibleChildren: YjsVisibleChildrenReader,
   children: readonly YjsNode[],
   oldChildren: readonly Descendant[],
-  newChildren: readonly Descendant[]
+  newChildren: readonly Descendant[],
+  startIndex = 0
 ): boolean => {
   if (
-    children.length !== oldChildren.length ||
-    children.length !== newChildren.length
+    children.length - startIndex < oldChildren.length ||
+    oldChildren.length !== newChildren.length
   ) {
     return false
   }
 
-  return children.every((child, index) => {
+  let index = 0
+
+  while (index < oldChildren.length) {
+    const child = children[startIndex + index]
     const oldChild = oldChildren[index]
     const newChild = newChildren[index]
 
+    if (child === undefined) {
+      return false
+    }
+
     if (child instanceof Y.XmlText) {
-      return isSlateText(oldChild) && isSlateText(newChild)
+      if (!isSlateText(oldChild) || !isSlateText(newChild)) {
+        return false
+      }
+      index++
+      continue
     }
 
     if (
@@ -209,33 +301,45 @@ const canReplaceCompatibleYjsChildren = (
       isSlateElement(oldChild) &&
       isSlateElement(newChild)
     ) {
-      return canReplaceCompatibleYjsChildren(
-        getYjsChildren(child),
-        oldChild.children,
-        newChild.children
-      )
+      if (
+        !canReplaceCompatibleYjsChildren(
+          readVisibleChildren,
+          readVisibleChildren(child),
+          oldChild.children,
+          newChild.children
+        )
+      ) {
+        return false
+      }
+
+      index++
+      continue
     }
 
     return false
-  })
-}
-
-export const replaceCompatibleYjsChildren = (
-  children: readonly YjsNode[],
-  oldChildren: readonly Descendant[],
-  newChildren: readonly Descendant[]
-): boolean => {
-  if (!canReplaceCompatibleYjsChildren(children, oldChildren, newChildren)) {
-    return false
   }
 
-  children.forEach((child, index) => {
+  return true
+}
+
+const applyCompatibleYjsChildrenReplacement = (
+  readVisibleChildren: YjsVisibleChildrenReader,
+  children: readonly YjsNode[],
+  oldChildren: readonly Descendant[],
+  newChildren: readonly Descendant[],
+  startIndex = 0
+): void => {
+  let index = 0
+
+  while (index < oldChildren.length) {
+    const child = children[startIndex + index]
     const oldChild = oldChildren[index]
     const newChild = newChildren[index]
 
     if (child instanceof Y.XmlText) {
       if (!isSlateText(oldChild) || !isSlateText(newChild)) {
-        return
+        index++
+        continue
       }
 
       const attributes = getTextAttributes(newChild)
@@ -243,7 +347,8 @@ export const replaceCompatibleYjsChildren = (
       setYjsNodeAttributes(child, getTextAttributes(oldChild), attributes)
       replaceYjsText(child, oldChild.text, newChild.text, attributes)
 
-      return
+      index++
+      continue
     }
 
     if (
@@ -256,13 +361,58 @@ export const replaceCompatibleYjsChildren = (
         getElementAttributes(oldChild),
         getElementAttributes(newChild)
       )
-      replaceCompatibleYjsChildren(
-        getYjsChildren(child),
+      applyCompatibleYjsChildrenReplacement(
+        readVisibleChildren,
+        readVisibleChildren(child),
         oldChild.children,
         newChild.children
       )
     }
-  })
+    index++
+  }
+}
+
+const replaceCompatibleYjsChildrenWithReader = (
+  readVisibleChildren: YjsVisibleChildrenReader,
+  children: readonly YjsNode[],
+  oldChildren: readonly Descendant[],
+  newChildren: readonly Descendant[],
+  startIndex = 0
+): boolean => {
+  if (
+    !canReplaceCompatibleYjsChildren(
+      readVisibleChildren,
+      children,
+      oldChildren,
+      newChildren,
+      startIndex
+    )
+  ) {
+    return false
+  }
+
+  applyCompatibleYjsChildrenReplacement(
+    readVisibleChildren,
+    children,
+    oldChildren,
+    newChildren,
+    startIndex
+  )
 
   return true
 }
+
+export const replaceCompatibleYjsChildren = (
+  root: Y.XmlElement,
+  children: readonly YjsNode[],
+  oldChildren: readonly Descendant[],
+  newChildren: readonly Descendant[],
+  startIndex = 0
+): boolean =>
+  replaceCompatibleYjsChildrenWithReader(
+    createYjsVisibleChildrenReader(root),
+    children,
+    oldChildren,
+    newChildren,
+    startIndex
+  )

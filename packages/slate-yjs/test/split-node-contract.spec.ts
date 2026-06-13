@@ -17,6 +17,7 @@ import {
   disconnectAndClearYjsTrace,
   disconnectYjsPeer,
   getPeerTopLevelTexts,
+  getVisibleYjsNodeAt,
   getYjsNodeAt,
   getYjsTrace,
   type Peer,
@@ -140,6 +141,84 @@ describe('@slate/yjs split_node collaboration contract', () => {
     assert.equal(getYjsNodeAt(peer, [0, 0]), leftText)
     assert.deepEqual(getYjsTrace(peer), [
       { mode: 'operation', operationType: 'split_node' },
+      { mode: 'operation', operationType: 'split_node' },
+    ])
+  })
+
+  it('splits virtual moved content by visible child position', () => {
+    const peer = createPeer('b', undefined, [
+      { type: 'quote', children: [] },
+      paragraph('moved'),
+    ])
+
+    peer.editor.update((tx) => {
+      tx.operations.replay([
+        {
+          newPath: [0, 0],
+          path: [1],
+          type: 'move_node',
+        },
+      ])
+    })
+    const movedParagraph = getVisibleYjsNodeAt(peer, [0, 0])
+
+    disconnectAndClearYjsTrace(peer)
+    peer.editor.update((tx) => {
+      tx.operations.replay([
+        {
+          path: [0],
+          position: 0,
+          properties: { type: 'quote' },
+          type: 'split_node',
+        },
+      ])
+    })
+
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['', 'moved'])
+    assert.equal(getVisibleYjsNodeAt(peer, [1, 0]), movedParagraph)
+    assert.deepEqual(getYjsTrace(peer), [
+      { mode: 'operation', operationType: 'split_node' },
+      { mode: 'operation', operationType: 'insert_node' },
+    ])
+  })
+
+  it('splits raw children after a leading virtual moved child', () => {
+    const peer = createPeer('b', undefined, [
+      { type: 'quote', children: [] },
+      paragraph('moved'),
+    ])
+
+    peer.editor.update((tx) => {
+      tx.operations.replay([
+        {
+          newPath: [0, 0],
+          path: [1],
+          type: 'move_node',
+        },
+        {
+          node: paragraph('raw'),
+          path: [0, 1],
+          type: 'insert_node',
+        },
+      ])
+    })
+    const movedParagraph = getVisibleYjsNodeAt(peer, [0, 0])
+
+    disconnectAndClearYjsTrace(peer)
+    peer.editor.update((tx) => {
+      tx.operations.replay([
+        {
+          path: [0],
+          position: 1,
+          properties: { type: 'quote' },
+          type: 'split_node',
+        },
+      ])
+    })
+
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['moved', 'raw'])
+    assert.equal(getVisibleYjsNodeAt(peer, [0, 0]), movedParagraph)
+    assert.deepEqual(getYjsTrace(peer), [
       { mode: 'operation', operationType: 'split_node' },
     ])
   })

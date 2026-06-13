@@ -18,6 +18,7 @@
     "bench:core:history-retained-memory:local": "bun ./scripts/benchmarks/core/current/history-retained-memory.mjs",
     "bench:core:clipboard-large-payload:local": "bun ./scripts/benchmarks/core/current/clipboard-large-payload.mjs",
     "bench:core:collab-readiness:local": "bun ./scripts/benchmarks/core/current/collab-readiness.mjs",
+    "bench:core:yjs-collaboration:local": "bun ./scripts/benchmarks/core/current/yjs-collaboration.mjs",
     "bench:core:normalization:compare:local": "bun ./scripts/benchmarks/core/compare/normalization.mjs",
     "bench:core:observation:compare:local": "bun ./scripts/benchmarks/core/compare/observation.mjs",
     "bench:core:huge-document:compare:local": "bun ./scripts/benchmarks/core/compare/huge-document.mjs",

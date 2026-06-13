@@ -3,13 +3,41 @@ import { describe, it } from 'node:test'
 import type { Operation } from 'slate'
 import * as Y from 'yjs'
 
-import { applySlateOperationToYjs } from '../src/core/operations'
+import {
+  applySlateOperationToYjs,
+  isNoopSlateOperationForYjs,
+} from '../src/core/operations'
 
 // The encoder still needs a runtime guard for operation types newer than this package.
 const futureSlateOperation = (type: string): Operation =>
   ({ type }) as unknown as Operation
 
 describe('@slate/yjs operation encoder exhaustiveness contract', () => {
+  it('treats replace operations with equivalent object attributes as no-ops', () => {
+    const operation: Operation = {
+      children: [
+        {
+          role: 'note',
+          children: [{ text: 'alpha' }],
+          type: 'paragraph',
+        },
+      ],
+      newChildren: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'alpha' }],
+          role: 'note',
+        },
+      ],
+      newSelection: null,
+      path: [],
+      selection: null,
+      type: 'replace_fragment',
+    }
+
+    assert.equal(isNoopSlateOperationForYjs(operation), true)
+  })
+
   it('treats selection operations as document-content no-ops', () => {
     const doc = new Y.Doc()
     const root = doc.get('slate', Y.XmlElement)

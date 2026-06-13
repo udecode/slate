@@ -66,13 +66,6 @@ export type UseYjsRemoteCursorOverlayPositionsOptions<
   readonly deps?: readonly unknown[]
 }
 
-type YjsRemoteCursorRange<
-  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
-> = {
-  readonly cursor: YjsRemoteCursor<TCursorData>
-  readonly range: Range
-}
-
 const DEFAULT_CURSOR_DECORATION_SOURCE_ID = 'yjs-remote-cursors'
 const DOM_RECT_FIELDS = [
   'bottom',
@@ -125,11 +118,22 @@ const createCursorData = <
   TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
 >(
   cursor: YjsRemoteCursor<TCursorData>
-): YjsRemoteCursorDecorationData<TCursorData> => ({
-  clientId: cursor.clientId,
-  cursor,
-  ...(cursor.data === undefined ? {} : { data: cursor.data }),
-})
+): YjsRemoteCursorDecorationData<TCursorData> => {
+  const data: {
+    data?: TCursorData
+    clientId: number
+    cursor: YjsRemoteCursor<TCursorData>
+  } = {
+    clientId: cursor.clientId,
+    cursor,
+  }
+
+  if (cursor.data !== undefined) {
+    data.data = cursor.data
+  }
+
+  return data
+}
 
 const createDefaultCursorData = <
   TCursorData extends YjsRemoteCursorData,
@@ -145,8 +149,22 @@ const isYjsDOMApi = (value: unknown): value is YjsDOMApi =>
     typeof value.resolveRangeRect === 'function')
 
 const isDOMRectLike = (value: unknown): value is DOMRect =>
-  isRecord(value) &&
-  DOM_RECT_FIELDS.every((field) => typeof value[field] === 'number')
+  isRecord(value) && rectFieldsAreNumbers(value)
+
+const rectFieldsAreNumbers = (value: Record<string, unknown>): boolean => {
+  let index = 0
+
+  while (index < DOM_RECT_FIELDS.length) {
+    const field = DOM_RECT_FIELDS[index]
+
+    if (typeof value[field] !== 'number') {
+      return false
+    }
+    index++
+  }
+
+  return true
+}
 
 const getYjsDOMApi = (editor: Editor): YjsDOMApi | undefined => {
   const api = isRecord(editor) ? editor.api : undefined
@@ -191,7 +209,30 @@ const rectsEqual = (a: DOMRect | null, b: DOMRect | null): boolean => {
     return false
   }
 
-  return DOM_RECT_FIELDS.every((field) => a[field] === b[field])
+  let index = 0
+
+  while (index < DOM_RECT_FIELDS.length) {
+    const field = DOM_RECT_FIELDS[index]
+
+    if (a[field] !== b[field]) {
+      return false
+    }
+    index++
+  }
+
+  return true
+}
+
+const countOwnEnumerableKeys = (value: Record<string, unknown>): number => {
+  let count = 0
+
+  for (const key in value) {
+    if (Object.hasOwn(value, key)) {
+      count++
+    }
+  }
+
+  return count
 }
 
 const shallowEqual = (a: unknown, b: unknown): boolean => {
@@ -202,13 +243,84 @@ const shallowEqual = (a: unknown, b: unknown): boolean => {
     return false
   }
 
-  const aKeys = Object.keys(a)
-  const bKeys = Object.keys(b)
+  let keyCount = 0
 
-  return (
-    aKeys.length === bKeys.length &&
-    aKeys.every((key) => Object.is(a[key], b[key]))
-  )
+  for (const key in a) {
+    if (!Object.hasOwn(a, key)) {
+      continue
+    }
+    if (!Object.hasOwn(b, key) || !Object.is(a[key], b[key])) {
+      return false
+    }
+    keyCount++
+  }
+
+  return keyCount === countOwnEnumerableKeys(b)
+}
+
+const isRemoteCursorLike = (value: unknown): value is YjsRemoteCursor => {
+  if (
+    !isRecord(value) ||
+    typeof value.clientId !== 'number' ||
+    !('selection' in value)
+  ) {
+    return false
+  }
+
+  for (const key in value) {
+    if (!Object.hasOwn(value, key)) {
+      continue
+    }
+    if (key !== 'clientId' && key !== 'data' && key !== 'selection') {
+      return false
+    }
+  }
+
+  return true
+}
+
+const remoteCursorsEqual = (a: unknown, b: unknown): boolean =>
+  isRemoteCursorLike(a) &&
+  isRemoteCursorLike(b) &&
+  a.clientId === b.clientId &&
+  shallowEqual(a.data, b.data)
+
+const overlayDataEqual = (a: unknown, b: unknown): boolean => {
+  if (Object.is(a, b)) {
+    return true
+  }
+  if (!isRecord(a) || !isRecord(b)) {
+    return false
+  }
+
+  let keyCount = 0
+
+  for (const key in a) {
+    if (!Object.hasOwn(a, key)) {
+      continue
+    }
+    if (!Object.hasOwn(b, key)) {
+      return false
+    }
+    keyCount++
+    if (key === 'cursor') {
+      if (!remoteCursorsEqual(a.cursor, b.cursor)) {
+        return false
+      }
+      continue
+    }
+    if (key === 'data' && isRecord(a.data) && isRecord(b.data)) {
+      if (!shallowEqual(a.data, b.data)) {
+        return false
+      }
+      continue
+    }
+    if (!Object.is(a[key], b[key])) {
+      return false
+    }
+  }
+
+  return keyCount === countOwnEnumerableKeys(b)
 }
 
 const overlayPositionsEqual = <
@@ -217,42 +329,32 @@ const overlayPositionsEqual = <
 >(
   a: readonly YjsRemoteCursorOverlayPosition<TCursorData, TPositionData>[],
   b: readonly YjsRemoteCursorOverlayPosition<TCursorData, TPositionData>[]
-): boolean =>
-  a.length === b.length &&
-  a.every((position, index) => {
+): boolean => {
+  if (a.length !== b.length) {
+    return false
+  }
+
+  let index = 0
+
+  while (index < a.length) {
+    const position = a[index]
     const next = b[index]
 
-    return (
-      next !== undefined &&
-      position.clientId === next.clientId &&
-      rangesEqual(position.range, next.range) &&
-      rectsEqual(position.rect, next.rect) &&
-      shallowEqual(position.data, next.data)
-    )
-  })
+    if (
+      position === undefined ||
+      next === undefined ||
+      position.clientId !== next.clientId ||
+      !rangesEqual(position.range, next.range) ||
+      !rectsEqual(position.rect, next.rect) ||
+      !overlayDataEqual(position.data, next.data)
+    ) {
+      return false
+    }
+    index++
+  }
 
-const getRemoteCursorRange = <
-  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
->(
-  cursor: YjsRemoteCursor<TCursorData>
-): YjsRemoteCursorRange<TCursorData> | null => {
-  const range = cursor.selection
-
-  return range === null ? null : { cursor, range }
+  return true
 }
-
-const readYjsRemoteCursorRanges = <
-  TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
->(
-  editor: Editor
-): readonly YjsRemoteCursorRange<TCursorData>[] =>
-  readYjsState(editor, (state) =>
-    state.remoteCursors<TCursorData>().flatMap((cursor) => {
-      const range = getRemoteCursorRange(cursor)
-
-      return range === null ? [] : [range]
-    })
-  )
 
 const readYjsRemoteCursorOverlayPositions = <
   TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
@@ -261,19 +363,49 @@ const readYjsRemoteCursorOverlayPositions = <
   editor: Editor,
   options: UseYjsRemoteCursorOverlayPositionsOptions<TCursorData, TPositionData>
 ): readonly YjsRemoteCursorOverlayPosition<TCursorData, TPositionData>[] =>
-  readYjsRemoteCursorRanges<TCursorData>(editor).map(({ cursor, range }) => {
-    const data =
-      options.data === undefined
-        ? createDefaultCursorData<TCursorData, TPositionData>(cursor)
-        : options.data(cursor)
+  readYjsState(editor, (state) => {
+    const cursors = state.remoteCursors<TCursorData>()
+    const positions = new Array<
+      YjsRemoteCursorOverlayPosition<TCursorData, TPositionData>
+    >(cursors.length)
+    let writeIndex = 0
+    let index = 0
 
-    return {
-      clientId: cursor.clientId,
-      cursor,
-      data,
-      range,
-      rect: resolveCursorRect(editor, range),
+    while (index < cursors.length) {
+      const cursor = cursors[index]
+
+      if (cursor === undefined) {
+        throw new Error(
+          'Cannot read overlay positions from a sparse cursor array.'
+        )
+      }
+
+      const range = cursor.selection
+
+      if (range === null) {
+        index++
+        continue
+      }
+
+      const data =
+        options.data === undefined
+          ? createDefaultCursorData<TCursorData, TPositionData>(cursor)
+          : options.data(cursor)
+
+      positions[writeIndex] = {
+        clientId: cursor.clientId,
+        cursor,
+        data,
+        range,
+        rect: resolveCursorRect(editor, range),
+      }
+      writeIndex++
+      index++
     }
+
+    positions.length = writeIndex
+
+    return positions
   })
 
 export const getYjsAwarenessRevision = (editor: Editor): number =>
@@ -351,8 +483,32 @@ export function useYjsRemoteCursorDecorationSource<
       createRangeDecorationSource<TDecorationData>(editor, {
         id,
         read: () =>
-          readYjsRemoteCursorRanges<TCursorData>(editor).map(
-            ({ cursor, range }) => {
+          readYjsState(editor, (state) => {
+            const cursors = state.remoteCursors<TCursorData>()
+            const slices = new Array<{
+              readonly data: TDecorationData
+              readonly key: string
+              readonly range: Range
+            }>(cursors.length)
+            let writeIndex = 0
+            let index = 0
+
+            while (index < cursors.length) {
+              const cursor = cursors[index]
+
+              if (cursor === undefined) {
+                throw new Error(
+                  'Cannot read decoration slices from a sparse cursor array.'
+                )
+              }
+
+              const range = cursor.selection
+
+              if (range === null) {
+                index++
+                continue
+              }
+
               const decorate = optionsRef.current.decorate
               const data =
                 decorate === undefined
@@ -361,13 +517,19 @@ export function useYjsRemoteCursorDecorationSource<
                     )
                   : decorate(cursor)
 
-              return {
+              slices[writeIndex] = {
                 data,
                 key: `${id}:${cursor.clientId}`,
                 range,
               }
+              writeIndex++
+              index++
             }
-          ),
+
+            slices.length = writeIndex
+
+            return slices
+          }),
       }),
     [editor, id]
   )
@@ -413,12 +575,16 @@ export function useYjsRemoteCursorOverlayPositions<
     [editor]
   )
   const [positions, setPositions] = useState(readPositions)
+  const positionsRef = useRef(positions)
   const refresh = useCallback(() => {
     const next = readPositions()
 
-    setPositions((current) =>
-      overlayPositionsEqual(current, next) ? current : next
-    )
+    if (overlayPositionsEqual(positionsRef.current, next)) {
+      return
+    }
+
+    positionsRef.current = next
+    setPositions(next)
   }, [readPositions])
   const cancelScheduledRefresh = useCallback(() => {
     if (typeof window === 'undefined' || animationFrameRef.current === null) {

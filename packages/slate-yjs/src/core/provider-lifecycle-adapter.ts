@@ -13,7 +13,7 @@ import type {
 } from './types'
 
 type YjsProviderLifecycleAdapterOptions = {
-  readonly onConnectedChange: () => void
+  readonly onConnectedChange: (connected: boolean) => void
   readonly onProviderSyncedChange: () => void
   readonly provider?: YjsProviderLike
 }
@@ -37,6 +37,10 @@ const PROVIDER_SYNC_EVENTS = [
 ] as const satisfies readonly YjsProviderEvent[]
 
 const notifySubscribers = (subscribers: ReadonlySet<() => void>): void => {
+  if (subscribers.size === 0) {
+    return
+  }
+
   for (const listener of subscribers) {
     listener()
   }
@@ -64,25 +68,29 @@ export const createYjsProviderLifecycleAdapter = ({
     notifySubscribers(subscribers)
   }
 
-  const setConnected = (nextConnected: boolean): void => {
+  const setConnected = (nextConnected: boolean): boolean => {
     if (connected === nextConnected) {
-      return
+      return false
     }
 
     connected = nextConnected
-    onConnectedChange()
+    onConnectedChange(connected)
+
+    return true
   }
 
   const updateConnectedFromProviderStatus = (
     status: YjsProviderStatus
-  ): void => {
-    setConnected(connectedFromYjsProviderStatus(status, connected))
-  }
+  ): boolean => setConnected(connectedFromYjsProviderStatus(status, connected))
 
   const updateProviderStatus = (status: YjsProviderStatus): void => {
-    updateConnectedFromProviderStatus(status)
+    const connectedChanged = updateConnectedFromProviderStatus(status)
 
     if (providerStatusValue === status) {
+      if (connectedChanged) {
+        updateProviderRevision()
+      }
+
       return
     }
 
@@ -104,6 +112,13 @@ export const createYjsProviderLifecycleAdapter = ({
     const status = normalizeYjsProviderStatus(payload)
 
     if (status !== null) {
+      if (
+        providerStatusValue === status &&
+        isStaleConnectedProviderStatus(status, connected)
+      ) {
+        return
+      }
+
       updateProviderStatus(status)
     }
   }
@@ -131,7 +146,11 @@ export const createYjsProviderLifecycleAdapter = ({
     }
 
     if (providerStatusValue === null) {
-      setConnected(fallbackConnected)
+      const connectedChanged = setConnected(fallbackConnected)
+
+      if (connectedChanged) {
+        updateProviderRevision()
+      }
     }
   }
 
@@ -155,15 +174,25 @@ export const createYjsProviderLifecycleAdapter = ({
 
   const bind = (): void => {
     provider?.on?.('status', providerStatusObserver)
-    for (const event of PROVIDER_SYNC_EVENTS) {
+    let index = 0
+
+    while (index < PROVIDER_SYNC_EVENTS.length) {
+      const event = PROVIDER_SYNC_EVENTS[index]
+
       provider?.on?.(event, providerSyncedObserver)
+      index++
     }
   }
 
   const unbind = (): void => {
     provider?.off?.('status', providerStatusObserver)
-    for (const event of PROVIDER_SYNC_EVENTS) {
+    let index = 0
+
+    while (index < PROVIDER_SYNC_EVENTS.length) {
+      const event = PROVIDER_SYNC_EVENTS[index]
+
       provider?.off?.(event, providerSyncedObserver)
+      index++
     }
   }
 
@@ -176,20 +205,34 @@ export const createYjsProviderLifecycleAdapter = ({
       return result
     }
 
-    setConnected(true)
+    if (setConnected(true)) {
+      updateProviderRevision()
+    }
   }
 
   const disconnect = (): unknown => {
     if (provider !== undefined) {
-      setConnected(false)
+      const providerStatusBefore = providerStatusValue
+      const providerSyncedBefore = providerSyncedValue
+      const connectedChanged = setConnected(false)
       const result = provider.disconnect?.()
 
       syncProviderLifecycleResult(result, false)
 
+      if (
+        connectedChanged &&
+        providerStatusBefore === providerStatusValue &&
+        providerSyncedBefore === providerSyncedValue
+      ) {
+        updateProviderRevision()
+      }
+
       return result
     }
 
-    setConnected(false)
+    if (setConnected(false)) {
+      updateProviderRevision()
+    }
   }
 
   const reconnect = (): void => {

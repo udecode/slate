@@ -1,5 +1,6 @@
 import type { Editor, Operation } from 'slate'
 
+import { areJsonLikeValuesEqual } from './json-equality'
 import { isRecord } from './record'
 
 type HistoryBatchLike = {
@@ -28,33 +29,39 @@ const isHistoryState = (value: unknown): value is HistoryStateView =>
       (value.history.undos === undefined ||
         typeof value.history.undos === 'function')))
 
-const operationSignature = (operation: Operation): string =>
-  JSON.stringify(operation)
-
-const operationMatchesSignature = (
-  signature: string,
-  operation: Operation | undefined
-): boolean =>
-  operation !== undefined && signature === operationSignature(operation)
+const operationsEqual = (
+  left: Operation,
+  right: Operation | undefined
+): boolean => right !== undefined && areJsonLikeValuesEqual(left, right)
 
 const isEmptyHistoryBatch = (batch: HistoryBatchLike): boolean =>
   batch.operations?.length === 0 && (batch.statePatches?.length ?? 0) === 0
 
 const getHistoryBatchOperationSuffixStart = (
   batchOperations: readonly Operation[],
-  operationSignatures: readonly string[]
+  operations: readonly Operation[]
 ): number | null => {
-  if (batchOperations.length < operationSignatures.length) {
+  if (batchOperations.length < operations.length) {
     return null
   }
 
-  const start = batchOperations.length - operationSignatures.length
+  const start = batchOperations.length - operations.length
 
-  const matches = operationSignatures.every((signature, index) =>
-    operationMatchesSignature(signature, batchOperations[start + index])
-  )
+  let index = 0
 
-  return matches ? start : null
+  while (index < operations.length) {
+    const operation = operations[index]
+
+    if (
+      operation === undefined ||
+      !operationsEqual(operation, batchOperations[start + index])
+    ) {
+      return null
+    }
+    index++
+  }
+
+  return start
 }
 
 const readEditorHistory = (editor: Editor): HistoryLike | null =>
@@ -79,11 +86,16 @@ const removeOperationsFromHistoryStack = (
     return
   }
 
-  const operationSignatures = operations.map(operationSignature)
+  let batchIndex = stack.length - 1
 
-  for (let batchIndex = stack.length - 1; batchIndex >= 0; batchIndex -= 1) {
+  while (batchIndex >= 0) {
     const batch = stack[batchIndex]
     const batchOperations = batch?.operations
+
+    if (batch === undefined || batchOperations === undefined) {
+      batchIndex--
+      continue
+    }
 
     if (!Array.isArray(batchOperations)) {
       throw new Error('Cannot remove rejected Yjs operations from history.')
@@ -91,7 +103,7 @@ const removeOperationsFromHistoryStack = (
 
     const start = getHistoryBatchOperationSuffixStart(
       batchOperations,
-      operationSignatures
+      operations
     )
 
     if (start !== null) {
@@ -103,6 +115,7 @@ const removeOperationsFromHistoryStack = (
 
       return
     }
+    batchIndex--
   }
 }
 
@@ -110,6 +123,10 @@ export const removeRejectedYjsOperationsFromHistory = (
   editor: Editor,
   operations: readonly Operation[]
 ): void => {
+  if (operations.length === 0) {
+    return
+  }
+
   const history = readEditorHistory(editor)
 
   if (history === null) {
@@ -124,6 +141,10 @@ export const removeRejectedYjsOperationsFromHistoryAfterCommit = (
   editor: Editor,
   operations: readonly Operation[]
 ): void => {
+  if (operations.length === 0) {
+    return
+  }
+
   const remove = (): void => {
     removeRejectedYjsOperationsFromHistory(editor, operations)
   }

@@ -12,8 +12,17 @@ type YjsAttributeWriter = {
 export const getYjsAttributes = (node: YjsNode): YjsAttributeRecord =>
   toYjsAttributeRecord(node.getAttributes())
 
-export const hasYjsAttributes = (node: YjsNode): boolean =>
-  Object.keys(getYjsAttributes(node)).length > 0
+export const hasYjsAttributes = (node: YjsNode): boolean => {
+  const attributes = node.getAttributes()
+
+  for (const key in attributes) {
+    if (Object.hasOwn(attributes, key)) {
+      return true
+    }
+  }
+
+  return false
+}
 
 export const setYjsAttribute = (
   node: YjsNode,
@@ -28,7 +37,17 @@ export const setYjsAttribute = (
 
 export const toYjsAttributeRecord = (
   attributes: Readonly<Partial<YjsAttributeRecord>>
-): YjsAttributeRecord => ({ ...attributes })
+): YjsAttributeRecord => {
+  const record: YjsAttributeRecord = {}
+
+  for (const key in attributes) {
+    if (Object.hasOwn(attributes, key)) {
+      record[key] = attributes[key]
+    }
+  }
+
+  return record
+}
 
 export const formatYjsTextAttributes = (
   text: Y.XmlText,
@@ -43,8 +62,12 @@ export const setYjsAttributes = (
   node: YjsNode,
   attributes: YjsAttributeRecord
 ): void => {
-  for (const [key, value] of Object.entries(attributes)) {
-    setYjsAttribute(node, key, value)
+  for (const key in attributes) {
+    if (!Object.hasOwn(attributes, key)) {
+      continue
+    }
+
+    setYjsAttribute(node, key, attributes[key])
   }
 }
 
@@ -79,7 +102,11 @@ export const setSlateYjsAttributes = (
   node: YjsNode,
   attributes: YjsAttributeRecord
 ): void => {
-  for (const [key, value] of Object.entries(attributes)) {
-    setSlateYjsAttribute(node, key, value)
+  for (const key in attributes) {
+    if (!Object.hasOwn(attributes, key)) {
+      continue
+    }
+
+    setSlateYjsAttribute(node, key, attributes[key])
   }
 }

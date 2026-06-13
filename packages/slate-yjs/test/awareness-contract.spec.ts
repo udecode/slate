@@ -167,6 +167,27 @@ describe('@slate/yjs awareness contract', () => {
     assert.equal(notifications, 2)
   })
 
+  it('does not notify awareness subscribers for unchanged local cursor payloads', () => {
+    const { peer } = createAwarePeer()
+    const range = selection()
+    let notifications = 0
+    const unsubscribe = subscribeYjsAwareness(peer, () => {
+      notifications += 1
+    })
+
+    runYjsUpdate(peer, (yjs) => {
+      yjs.sendSelection(range, { name: 'Ada' })
+    })
+    notifications = 0
+    runYjsUpdate(peer, (yjs) => {
+      yjs.sendSelection(range, { name: 'Ada' })
+    })
+
+    assert.equal(notifications, 0)
+
+    unsubscribe()
+  })
+
   it('rebases remote selections through virtual moved-node identity', () => {
     const { awareness, peer } = createAwarePeer()
 
@@ -189,6 +210,21 @@ describe('@slate/yjs awareness contract', () => {
       yjs.sendSelection(selection(), { name: 'B' })
       yjs.clearSelection()
     })
+
+    assert.deepEqual(awareness.getLocalState(), {
+      data: { name: 'B' },
+      selection: null,
+    })
+  })
+
+  it('clears standalone awareness selection during editor cleanup', () => {
+    const { awareness, peer } = createAwarePeer()
+
+    runYjsUpdate(peer, (yjs) => {
+      yjs.sendSelection(selection(), { name: 'B' })
+    })
+
+    peer.cleanup()
 
     assert.deepEqual(awareness.getLocalState(), {
       data: { name: 'B' },

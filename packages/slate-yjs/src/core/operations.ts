@@ -8,18 +8,19 @@ import {
   type YjsNode,
 } from './attributes'
 import {
-  cloneVisibleYjsNodes,
   createVirtualYjsMovePlaceholder,
   createYjsNode,
   createYjsNodes,
   createYjsText,
-  getYjsChildren,
+  createYjsVisibleChildrenReader,
   getYjsLength,
   getYjsNode,
   getYjsNodeIf,
   getYjsParent,
-  getYjsTextContent,
-  getYjsVisibleChildren,
+  getYjsTextContentFrom,
+  getYjsVisibleChild,
+  hasMultipleYjsVisibleChildren,
+  hasYjsVisibleChildren,
   hideYjsNode,
   insertYjsChild,
   isVirtualYjsChild,
@@ -28,8 +29,10 @@ import {
   replaceYjsChildren,
   setVirtualYjsMove,
   setVirtualYjsUnwrapMove,
+  splitVisibleYjsChildren,
+  type YjsVisibleChildrenReader,
 } from './document'
-import { pathsEqual } from './path'
+import { lastPathIndex, parentPath, pathsEqual } from './path'
 import { isRecord } from './record'
 import {
   createSplitElement,
@@ -45,19 +48,18 @@ const materializeEmptyYjsText = (
   root: Y.XmlElement,
   path: Path
 ): Y.XmlText | null => {
-  const index = path.at(-1)
+  const index = lastPathIndex(path)
 
   if (index !== 0) {
     return null
   }
 
-  const parentPath = path.slice(0, -1)
-  const parent = getYjsNodeIf(root, parentPath)
+  const parent = getYjsNodeIf(root, parentPath(path))
 
   if (!(parent instanceof Y.XmlElement)) {
     return null
   }
-  if (getYjsVisibleChildren(root, parent).length > 0) {
+  if (hasYjsVisibleChildren(root, parent)) {
     return null
   }
 
@@ -93,7 +95,8 @@ type YjsTextPoint = {
 const resolveYjsTextPoint = (
   root: Y.XmlElement,
   path: Path,
-  offset: number
+  offset: number,
+  readVisibleChildren: YjsVisibleChildrenReader
 ): YjsTextPoint | null => {
   const target = getYjsNode(root, path)
 
@@ -102,10 +105,12 @@ const resolveYjsTextPoint = (
   }
 
   const { index, parent } = getYjsParent(root, path)
-  const children = getYjsVisibleChildren(root, parent)
+  const children = readVisibleChildren(parent)
   let remainingOffset = offset
 
-  for (let childIndex = index; childIndex < children.length; childIndex++) {
+  let childIndex = index
+
+  while (childIndex < children.length) {
     const child = children[childIndex]
 
     if (!(child instanceof Y.XmlText)) {
@@ -119,6 +124,7 @@ const resolveYjsTextPoint = (
     }
 
     remainingOffset -= length
+    childIndex++
   }
 
   return null
@@ -128,9 +134,10 @@ const deleteYjsTextRange = (
   root: Y.XmlElement,
   path: Path,
   offset: number,
-  length: number
+  length: number,
+  readVisibleChildren: YjsVisibleChildrenReader
 ): void => {
-  const point = resolveYjsTextPoint(root, path, offset)
+  const point = resolveYjsTextPoint(root, path, offset, readVisibleChildren)
 
   if (point === null) {
     return
@@ -139,9 +146,10 @@ const deleteYjsTextRange = (
   let childIndex = point.childIndex
   let deleteOffset = point.offset
   let remainingLength = length
+  let children = readVisibleChildren(point.parent)
 
   while (remainingLength > 0) {
-    const child = getYjsVisibleChildren(root, point.parent)[childIndex]
+    const child = children[childIndex]
 
     if (!(child instanceof Y.XmlText)) {
       break
@@ -158,12 +166,15 @@ const deleteYjsTextRange = (
         root,
         point.parent,
         childIndex,
-        child
+        child,
+        readVisibleChildren
       )
     }
 
     if (remainingLength > 0) {
-      if (!removedEmptyText) {
+      if (removedEmptyText) {
+        children = readVisibleChildren(point.parent)
+      } else {
         childIndex++
       }
       deleteOffset = 0
@@ -172,18 +183,19 @@ const deleteYjsTextRange = (
 }
 
 const isEmptyYjsText = (node: YjsNode): boolean =>
-  node instanceof Y.XmlText && getYjsTextContent(node).length === 0
+  node instanceof Y.XmlText && getYjsLength(node) === 0
 
 const removeRedundantEmptyYjsText = (
   root: Y.XmlElement,
   parent: Y.XmlElement,
   index: number,
-  text: Y.XmlText
+  text: Y.XmlText,
+  readVisibleChildren: YjsVisibleChildrenReader
 ): boolean => {
   if (!isEmptyYjsText(text) || hasYjsAttributes(text)) {
     return false
   }
-  if (getYjsVisibleChildren(root, parent).length <= 1) {
+  if (!hasMultipleYjsVisibleChildren(root, parent)) {
     return false
   }
 
@@ -195,40 +207,55 @@ const removeRedundantEmptyYjsText = (
 type YjsElementChildKind = 'element' | 'empty' | 'mixed' | 'text'
 
 const getYjsElementChildKind = (
-  root: Y.XmlElement,
-  element: Y.XmlElement
+  children: readonly YjsNode[]
 ): YjsElementChildKind => {
   let kind: YjsElementChildKind = 'empty'
+  let index = 0
 
-  for (const child of getYjsVisibleChildren(root, element)) {
+  while (index < children.length) {
+    const child = children[index]
+
+    if (child === undefined) {
+      throw new Error('Cannot read child kind from a sparse Yjs child array.')
+    }
+
     const childKind = child instanceof Y.XmlText ? 'text' : 'element'
 
     if (kind === 'empty') {
       kind = childKind
+      index++
       continue
     }
 
     if (kind !== childKind) {
       return 'mixed'
     }
+
+    index++
   }
 
   return kind
 }
 
 const canMergeYjsElements = (
-  root: Y.XmlElement,
   previous: Y.XmlElement,
-  target: Y.XmlElement
+  target: Y.XmlElement,
+  previousChildren: readonly YjsNode[],
+  targetChildren: readonly YjsNode[]
 ): boolean => {
   if (getSlateYjsElementType(previous) !== getSlateYjsElementType(target)) {
     return false
   }
 
-  const previousKind = getYjsElementChildKind(root, previous)
-  const targetKind = getYjsElementChildKind(root, target)
+  const previousKind = getYjsElementChildKind(previousChildren)
 
-  if (previousKind === 'mixed' || targetKind === 'mixed') {
+  if (previousKind === 'mixed') {
+    return false
+  }
+
+  const targetKind = getYjsElementChildKind(targetChildren)
+
+  if (targetKind === 'mixed') {
     return false
   }
 
@@ -287,6 +314,13 @@ export const applySlateOperationToYjs = (
     return null
   }
 
+  let readVisibleChildren: YjsVisibleChildrenReader | undefined
+  const getReadVisibleChildren = (): YjsVisibleChildrenReader => {
+    readVisibleChildren ??= createYjsVisibleChildrenReader(root)
+
+    return readVisibleChildren
+  }
+
   switch (operation.type) {
     case 'insert_text': {
       const text = getYjsTextForInsert(root, operation.path)
@@ -304,7 +338,8 @@ export const applySlateOperationToYjs = (
         root,
         operation.path,
         operation.offset,
-        operation.text.length
+        operation.text.length,
+        getReadVisibleChildren()
       )
 
       return operationTrace(operation)
@@ -334,7 +369,7 @@ export const applySlateOperationToYjs = (
       const { index, parent } = getYjsParent(root, operation.path)
 
       if (target instanceof Y.XmlText) {
-        const rightText = getYjsTextContent(target).slice(operation.position)
+        const rightText = getYjsTextContentFrom(target, operation.position)
 
         if (rightText.length > 0) {
           target.delete(operation.position, rightText.length)
@@ -350,16 +385,11 @@ export const applySlateOperationToYjs = (
         return operationTrace(operation)
       }
 
-      const children = getYjsChildren(target)
-      const rightChildren = cloneVisibleYjsNodes(
+      const rightChildren = splitVisibleYjsChildren(
         root,
-        children.slice(operation.position)
+        target,
+        operation.position
       )
-      const deleteCount = getYjsLength(target) - operation.position
-
-      if (deleteCount > 0) {
-        target.delete(operation.position, deleteCount)
-      }
 
       insertYjsChild(
         root,
@@ -381,7 +411,8 @@ export const applySlateOperationToYjs = (
         throw new Error('Cannot merge the first Yjs child.')
       }
 
-      const children = getYjsVisibleChildren(root, parent)
+      const readVisibleChildren = getReadVisibleChildren()
+      const children = readVisibleChildren(parent)
       const previous = children[index - 1]
       const target = children[index]
 
@@ -398,18 +429,35 @@ export const applySlateOperationToYjs = (
       }
 
       if (previous instanceof Y.XmlElement && target instanceof Y.XmlElement) {
-        if (!canMergeYjsElements(root, previous, target)) {
+        const previousChildren = readVisibleChildren(previous)
+        const targetChildren = readVisibleChildren(target)
+
+        if (
+          !canMergeYjsElements(
+            previous,
+            target,
+            previousChildren,
+            targetChildren
+          )
+        ) {
           return traceableFallback(
             operation,
             'incompatible-structural-merge-elided'
           )
         }
 
-        const previousHasVisibleChildren =
-          getYjsVisibleChildren(root, previous).length > 0
+        const previousHasVisibleChildren = previousChildren.length > 0
+        let targetIndex = 0
 
-        for (const moveTarget of getYjsVisibleChildren(root, target)) {
+        while (targetIndex < targetChildren.length) {
+          const moveTarget = targetChildren[targetIndex]
+
+          if (moveTarget === undefined) {
+            throw new Error('Cannot merge from a sparse Yjs child array.')
+          }
+
           if (previousHasVisibleChildren && isEmptyYjsText(moveTarget)) {
+            targetIndex++
             continue
           }
 
@@ -419,6 +467,7 @@ export const applySlateOperationToYjs = (
             getYjsLength(previous),
             createVirtualYjsMovePlaceholder(moveTarget)
           )
+          targetIndex++
         }
 
         removeYjsVirtualPlaceholderChild(root, parent, index, target)
@@ -436,9 +485,10 @@ export const applySlateOperationToYjs = (
         operation.type
       )
 
-      const children = getYjsChildren(target)
+      const children = getReadVisibleChildren()(target)
       if (
         replaceCompatibleYjsChildren(
+          root,
           children,
           operation.children,
           operation.newChildren
@@ -474,32 +524,53 @@ export const applySlateOperationToYjs = (
         operation.type
       )
 
-      const existingChildren = getYjsVisibleChildren(root, target).slice(
-        operation.index,
-        operation.index + operation.children.length
-      )
-
       if (
         replaceCompatibleYjsChildren(
-          existingChildren,
+          root,
+          getReadVisibleChildren()(target),
           operation.children,
-          operation.newChildren
+          operation.newChildren,
+          operation.index
         )
       ) {
         return operationTrace(operation)
       }
 
-      const removalModes = operation.children.map((child) =>
-        removeYjsChild(root, target, operation.index, child)
-      )
+      let hasVirtualRemoval = false
+      let childIndex = 0
 
-      const newChildren = createYjsNodes(operation.newChildren)
+      while (childIndex < operation.children.length) {
+        const child = operation.children[childIndex]
 
-      newChildren.forEach((child, offset) => {
-        insertYjsChild(root, target, operation.index + offset, child)
-      })
+        if (child === undefined) {
+          throw new Error(
+            'Cannot remove replace_children entries from a sparse child array.'
+          )
+        }
 
-      if (removalModes.some((mode) => mode !== 'visible')) {
+        const removalMode = removeYjsChild(root, target, operation.index, child)
+
+        if (removalMode !== 'visible') {
+          hasVirtualRemoval = true
+        }
+        childIndex++
+      }
+
+      if (operation.newChildren.length > 0) {
+        const newChildren = createYjsNodes(operation.newChildren)
+
+        for (let offset = 0; offset < newChildren.length; offset++) {
+          const child = newChildren[offset]
+
+          if (child === undefined) {
+            continue
+          }
+
+          insertYjsChild(root, target, operation.index + offset, child)
+        }
+      }
+
+      if (hasVirtualRemoval) {
         return traceableFallback(operation, 'replace-children-virtual-removal')
       }
 
@@ -507,16 +578,16 @@ export const applySlateOperationToYjs = (
     }
     case 'move_node': {
       const target = getYjsNodeIf(root, operation.path)
-      const sourceIndex = operation.path.at(-1)
+      const sourceIndex = lastPathIndex(operation.path)
 
       if (target === null) {
         return traceableFallback(operation, 'missing-move-source-elided')
       }
 
-      const sourceParentPath = operation.path.slice(0, -1)
+      const sourceParentPath = parentPath(operation.path)
       const sourceParent = getYjsNodeIf(root, sourceParentPath)
-      const newParentPath = operation.newPath.slice(0, -1)
-      const newIndex = operation.newPath.at(-1)
+      const newParentPath = parentPath(operation.newPath)
+      const newIndex = lastPathIndex(operation.newPath)
       const newParent = getYjsNodeIf(root, newParentPath)
 
       if (
@@ -574,19 +645,26 @@ export const applySlateOperationToYjs = (
           target
         )
       }
-      const newParentChildren = getYjsVisibleChildren(root, newParent)
-      const firstNewParentChild = newParentChildren[0]
+      const firstNewParentChild = getYjsVisibleChild(root, newParent, 0)
+      const hasMultipleNewParentChildren =
+        getYjsVisibleChild(root, newParent, 1) !== undefined
+      let removedEmptyNewParentChild = false
 
       if (
         newIndex === 0 &&
-        newParentChildren.length === 1 &&
-        firstNewParentChild &&
+        !hasMultipleNewParentChildren &&
+        firstNewParentChild !== undefined &&
         isEmptyYjsText(firstNewParentChild)
       ) {
         removeYjsChild(root, newParent, 0)
+        removedEmptyNewParentChild = true
       }
 
-      if (newIndex === 0 && getYjsLength(newParent) === 0) {
+      if (
+        newIndex === 0 &&
+        getYjsLength(newParent) === 0 &&
+        (firstNewParentChild === undefined || removedEmptyNewParentChild)
+      ) {
         setVirtualYjsMove(root, target, newParent)
         removeSourceVirtualPlaceholder()
 

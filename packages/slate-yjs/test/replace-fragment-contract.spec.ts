@@ -10,10 +10,12 @@ import {
   disconnectAndClearYjsTrace,
   disconnectYjsPeer,
   getPeerTopLevelTexts,
+  getVisibleYjsNodeAt,
   getYjsNodeAt,
   getYjsTrace,
   type Peer,
   paragraph,
+  readPeerSlateValue,
   redoYjsPeer,
   redoYjsPeerAndSync,
   syncConnectedPeers,
@@ -38,6 +40,11 @@ const multiLeafValue = (): Descendant[] => [
     children: [{ text: 'alpha' }, { bold: true, text: ' beta' }],
   },
 ]
+
+const quote = (children: readonly Descendant[]): Descendant => ({
+  type: 'quote',
+  children,
+})
 
 const createPeer = (
   clientId: ClientId,
@@ -133,6 +140,48 @@ const replayNoopRootReplaceFragment = (peer: Peer): void => {
   })
 }
 
+const moveParagraphIntoEmptyQuote = (peer: Peer): void => {
+  peer.editor.update((tx) => {
+    tx.operations.replay([
+      {
+        newPath: [1, 0],
+        path: [2],
+        type: 'move_node',
+      },
+    ])
+  })
+}
+
+const replaceMovedQuoteText = (peer: Peer): void => {
+  const operation: Operation = {
+    children: [paragraph('moved')],
+    newChildren: [paragraph('moved!')],
+    newSelection: null,
+    path: [1],
+    selection: null,
+    type: 'replace_fragment',
+  }
+
+  peer.editor.update((tx) => {
+    tx.operations.replay([operation])
+  })
+}
+
+const replaceMovedQuoteChildren = (peer: Peer): void => {
+  const operation: Operation = {
+    children: [paragraph('moved')],
+    newChildren: [paragraph('bravo'), paragraph('charlie')],
+    newSelection: null,
+    path: [1],
+    selection: null,
+    type: 'replace_fragment',
+  }
+
+  peer.editor.update((tx) => {
+    tx.operations.replay([operation])
+  })
+}
+
 describe('@slate/yjs replace_fragment collaboration contract', () => {
   it('applies local offline single-text replace_fragment without replacing the Yjs text node', () => {
     const peer = createPeer('b')
@@ -162,6 +211,51 @@ describe('@slate/yjs replace_fragment collaboration contract', () => {
     assert.equal(getYjsNodeAt(peer, [0, 1]), secondText)
     assert.deepEqual(getYjsTrace(peer), [
       { mode: 'operation', operationType: 'replace_fragment' },
+    ])
+  })
+
+  it('preserves virtual moved-node identity for compatible replace_fragment', () => {
+    const peer = createPeer('b', undefined, [
+      quote([paragraph('left')]),
+      quote([]),
+      paragraph('moved'),
+    ])
+
+    moveParagraphIntoEmptyQuote(peer)
+    const movedParagraph = getVisibleYjsNodeAt(peer, [1, 0])
+
+    clearYjsTrace(peer)
+    replaceMovedQuoteText(peer)
+
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['left', 'moved!'])
+    assert.equal(getVisibleYjsNodeAt(peer, [1, 0]), movedParagraph)
+    assert.deepEqual(getYjsTrace(peer), [
+      { mode: 'operation', operationType: 'replace_fragment' },
+    ])
+  })
+
+  it('replaces virtual moved children instead of appending beside them', () => {
+    const peer = createPeer('b', undefined, [
+      quote([paragraph('left')]),
+      quote([]),
+      paragraph('moved'),
+    ])
+
+    moveParagraphIntoEmptyQuote(peer)
+
+    clearYjsTrace(peer)
+    replaceMovedQuoteChildren(peer)
+
+    assert.deepEqual(readPeerSlateValue(peer), [
+      quote([paragraph('left')]),
+      quote([paragraph('bravo'), paragraph('charlie')]),
+    ])
+    assert.deepEqual(getYjsTrace(peer), [
+      {
+        fallback: 'replace-fragment-scoped-replace-identity-risk',
+        mode: 'traceable-fallback',
+        operationType: 'replace_fragment',
+      },
     ])
   })
 

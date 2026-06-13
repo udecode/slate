@@ -80,9 +80,14 @@ export const yjsRelativeRangeToSlateRange = (
   range: YjsRelativeRange
 ): Range | null => {
   const anchor = yjsRelativePositionToSlatePoint(root, range.anchor)
+
+  if (anchor === null) {
+    return null
+  }
+
   const focus = yjsRelativePositionToSlatePoint(root, range.focus)
 
-  if (anchor === null || focus === null) {
+  if (focus === null) {
     return null
   }
 

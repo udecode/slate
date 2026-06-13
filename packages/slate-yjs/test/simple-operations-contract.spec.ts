@@ -34,9 +34,12 @@ const initialValue = (): Descendant[] => [
   paragraph('gamma'),
 ]
 
-const createPeer = (clientId: ClientId): Peer =>
+const createPeer = (
+  clientId: ClientId,
+  children: readonly Descendant[] = initialValue()
+): Peer =>
   createYjsPeer({
-    children: initialValue(),
+    children,
     clientId,
     numericClientId: clientIds[clientId],
   })
@@ -192,6 +195,35 @@ describe('@slate/yjs simple operation collaboration contract', () => {
     ])
   })
 
+  it('inserts before a leading virtual moved child', () => {
+    const peer = createPeer('b', [
+      { type: 'quote', children: [] },
+      paragraph('moved'),
+    ])
+
+    peer.editor.update((tx) => {
+      tx.operations.replay([
+        {
+          newPath: [0, 0],
+          path: [1],
+          type: 'move_node',
+        },
+      ])
+    })
+    const movedParagraph = getVisibleYjsNodeAt(peer, [0, 0])
+
+    disconnectAndClearYjsTrace(peer)
+    peer.editor.update((tx) => {
+      tx.nodes.insert([paragraph('before')], { at: [0, 0] })
+    })
+
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['beforemoved'])
+    assert.equal(getVisibleYjsNodeAt(peer, [0, 1]), movedParagraph)
+    assert.deepEqual(getYjsTrace(peer), [
+      { mode: 'operation', operationType: 'insert_node' },
+    ])
+  })
+
   it('reconnects, undoes, and redoes insert_node while preserving remote edits', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers
@@ -224,6 +256,90 @@ describe('@slate/yjs simple operation collaboration contract', () => {
     assert.equal(getVisibleYjsNodeAt(peer, [2]), gamma)
     assert.deepEqual(getYjsTrace(peer), [
       { mode: 'operation', operationType: 'replace_children' },
+    ])
+  })
+
+  it('preserves virtual moved-node identity for compatible replace_children', () => {
+    const peer = createPeer('b', [
+      { type: 'quote', children: [paragraph('left')] },
+      { type: 'quote', children: [] },
+      paragraph('moved'),
+    ])
+
+    peer.editor.update((tx) => {
+      tx.operations.replay([
+        {
+          newPath: [1, 0],
+          path: [2],
+          type: 'move_node',
+        },
+      ])
+    })
+    const movedParagraph = getVisibleYjsNodeAt(peer, [1, 0])
+
+    disconnectAndClearYjsTrace(peer)
+    peer.editor.update((tx) => {
+      tx.operations.replay([
+        {
+          children: [paragraph('moved')],
+          index: 0,
+          newChildren: [paragraph('moved!')],
+          newSelection: null,
+          path: [1],
+          selection: null,
+          type: 'replace_children',
+        },
+      ])
+    })
+
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['left', 'moved!'])
+    assert.equal(getVisibleYjsNodeAt(peer, [1, 0]), movedParagraph)
+    assert.deepEqual(getYjsTrace(peer), [
+      { mode: 'operation', operationType: 'replace_children' },
+    ])
+  })
+
+  it('replaces virtual moved children instead of throwing on removal', () => {
+    const peer = createPeer('b', [
+      { type: 'quote', children: [paragraph('left')] },
+      { type: 'quote', children: [] },
+      paragraph('moved'),
+    ])
+
+    peer.editor.update((tx) => {
+      tx.operations.replay([
+        {
+          newPath: [1, 0],
+          path: [2],
+          type: 'move_node',
+        },
+      ])
+    })
+
+    disconnectAndClearYjsTrace(peer)
+    assert.doesNotThrow(() => {
+      peer.editor.update((tx) => {
+        tx.operations.replay([
+          {
+            children: [paragraph('moved')],
+            index: 0,
+            newChildren: [paragraph('bravo'), paragraph('charlie')],
+            newSelection: null,
+            path: [1],
+            selection: null,
+            type: 'replace_children',
+          },
+        ])
+      })
+    })
+
+    assert.deepEqual(getPeerTopLevelTexts(peer), ['left', 'bravocharlie'])
+    assert.deepEqual(getYjsTrace(peer), [
+      {
+        fallback: 'replace-children-virtual-removal',
+        mode: 'traceable-fallback',
+        operationType: 'replace_children',
+      },
     ])
   })
 

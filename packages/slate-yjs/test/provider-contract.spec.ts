@@ -45,6 +45,33 @@ const selection = (): Range => ({
   focus: { path: [0, 0], offset: 3 },
 })
 
+const linkAwareness = (source: FakeProvider, target: FakeProvider): Cleanup => {
+  const syncSourceAwareness = (): void => {
+    const state = source.awareness.getLocalState()
+
+    if (source.status !== 'connected' || state === null) {
+      target.awareness.removeRemoteState(source.awareness.clientID)
+
+      return
+    }
+
+    target.awareness.setRemoteState(source.awareness.clientID, state)
+  }
+  const syncSourceStatus = (): void => {
+    if (source.status !== 'connected') {
+      target.awareness.removeRemoteState(source.awareness.clientID)
+    }
+  }
+
+  source.awareness.on('change', syncSourceAwareness)
+  source.on('status', syncSourceStatus)
+
+  return (): void => {
+    source.awareness.off('change', syncSourceAwareness)
+    source.off('status', syncSourceStatus)
+  }
+}
+
 class DeferredConnectProvider extends FakeProvider {
   override connect(): void {
     this.calls.push('connect')
@@ -235,6 +262,26 @@ describe('@slate/yjs provider contract', () => {
     })
 
     assert.equal(isYjsPeerConnected(peer), true)
+  })
+
+  it('notifies provider subscribers when local connection state changes without a provider', () => {
+    const peer = createYjsPeer({
+      children: initialValue(),
+      clientId: 'a',
+    })
+    const yjs = readEditorYjsState(peer.editor)
+    const seen: boolean[] = []
+    const unsubscribe = yjs.subscribeProvider(() => {
+      seen.push(yjs.connected())
+    })
+
+    runYjsUpdate(peer, (yjs) => {
+      yjs.disconnect()
+      yjs.connect()
+    })
+    unsubscribe()
+
+    assert.deepEqual(seen, [false, true])
   })
 
   it('uses provider doc and awareness as additive defaults', () => {
@@ -592,6 +639,62 @@ describe('@slate/yjs provider contract', () => {
     cleanup()
   })
 
+  it('rebroadcasts local awareness after reconnect when the selected range is unchanged', () => {
+    const doc = new Y.Doc()
+    const providerA = new FakeProvider({
+      awarenessClientId: 101,
+      doc,
+      status: 'connected',
+      synced: true,
+    })
+    const providerB = new FakeProvider({
+      awarenessClientId: 202,
+      doc,
+      status: 'connected',
+      synced: true,
+    })
+    seedProviderDoc(providerA)
+    const peerA = createProviderEditor(providerA)
+    const peerB = createProviderEditor(providerB)
+    const unlink = linkAwareness(providerA, providerB)
+    const range = selection()
+
+    runEditorYjsUpdate(peerA.editor, (yjs) => {
+      yjs.sendSelection(range, { name: 'Ada' })
+    })
+
+    assert.deepEqual(readEditorYjsState(peerB.editor).remoteCursors(), [
+      {
+        clientId: 101,
+        data: { name: 'Ada' },
+        selection: range,
+      },
+    ])
+
+    runEditorYjsUpdate(peerA.editor, (yjs) => {
+      yjs.disconnect()
+    })
+
+    assert.deepEqual(readEditorYjsState(peerB.editor).remoteCursors(), [])
+
+    runEditorYjsUpdate(peerA.editor, (yjs) => {
+      yjs.connect()
+      yjs.sendSelection(range, { name: 'Ada' })
+    })
+
+    assert.deepEqual(readEditorYjsState(peerB.editor).remoteCursors(), [
+      {
+        clientId: 101,
+        data: { name: 'Ada' },
+        selection: range,
+      },
+    ])
+
+    unlink()
+    peerA.cleanup()
+    peerB.cleanup()
+  })
+
   it('does not expose stale cursors while provider connect is pending', () => {
     const provider = new DeferredConnectProvider()
     seedProviderDoc(provider)
@@ -671,6 +774,19 @@ describe('@slate/yjs provider contract', () => {
     assert.deepEqual(provider.calls, ['disconnect'])
     assert.equal(yjs.providerStatus(), 'connected')
     assert.equal(yjs.connected(), false)
+
+    provider.emitStatus('connected')
+
+    assert.equal(yjs.providerStatus(), 'connected')
+    assert.equal(yjs.connected(), false)
+
+    runEditorYjsUpdate(editor, (yjs) => {
+      yjs.connect()
+    })
+
+    assert.deepEqual(provider.calls, ['disconnect', 'connect'])
+    assert.equal(yjs.providerStatus(), 'connected')
+    assert.equal(yjs.connected(), true)
 
     cleanup()
   })

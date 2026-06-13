@@ -199,6 +199,36 @@ describe('@slate/yjs move_node collaboration contract', () => {
     ])
   })
 
+  it('moves a sibling before a leading virtual moved child', () => {
+    const peer = createPeer('b', undefined, [
+      section(),
+      paragraph('moved'),
+      paragraph('before'),
+    ])
+
+    peer.editor.update((tx) => {
+      tx.nodes.move({ at: [1], to: [0, 0] })
+    })
+    const moved = getVisibleYjsNodeAt(peer, [0, 0])
+    const before = getVisibleYjsNodeAt(peer, [1])
+
+    disconnectAndClearYjsTrace(peer)
+    peer.editor.update((tx) => {
+      tx.nodes.move({ at: [1], to: [0, 0] })
+    })
+
+    assert.deepEqual(nestedTexts(peer), [['before', 'moved', '']])
+    assert.equal(getVisibleYjsNodeAt(peer, [0, 0]), before)
+    assert.equal(getVisibleYjsNodeAt(peer, [0, 1]), moved)
+    assert.deepEqual(getYjsTrace(peer), [
+      {
+        fallback: 'virtual-move-placeholder',
+        mode: 'traceable-fallback',
+        operationType: 'move_node',
+      },
+    ])
+  })
+
   it('preserves concurrent remote text when an offline cross-parent move reconnects', () => {
     const peers = createNestedPeers(['a', 'b', 'c'])
     const [a, b] = peers

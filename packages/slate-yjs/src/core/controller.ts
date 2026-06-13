@@ -50,21 +50,63 @@ const notifySubscribers = (subscribers: ReadonlySet<() => void>): void => {
   }
 }
 
-const shouldSendCommitSelection = (
+const copyTraceEntries = (
+  traceEntries: readonly YjsTraceEntry[]
+): YjsTraceEntry[] => {
+  const copy = new Array<YjsTraceEntry>(traceEntries.length)
+
+  let index = 0
+
+  while (index < traceEntries.length) {
+    const entry = traceEntries[index]
+
+    if (entry === undefined) {
+      throw new Error('Cannot copy a sparse Yjs trace array.')
+    }
+
+    copy[index] = entry
+    index++
+  }
+
+  return copy
+}
+
+const collectYjsCommitOperations = (
   commit: EditorCommit,
   autoSendSelection: boolean
-): boolean =>
-  autoSendSelection &&
-  commit.operations.some((operation) => operation.type === 'set_selection')
+): {
+  readonly operations: Operation[]
+  readonly shouldSendSelection: boolean
+} => {
+  const operations = new Array<Operation>(commit.operations.length)
+  let operationCount = 0
+  let shouldSendSelection = false
+  let index = 0
 
-const getYjsCommitOperations = (
-  operations: readonly Operation[]
-): Operation[] =>
-  operations.filter(
-    (operation) =>
-      operation.type !== 'set_selection' &&
-      !isNoopSlateOperationForYjs(operation)
-  )
+  while (index < commit.operations.length) {
+    const operation = commit.operations[index]
+
+    if (operation === undefined) {
+      throw new Error('Cannot collect Yjs operations from a sparse commit.')
+    }
+
+    if (operation.type === 'set_selection') {
+      shouldSendSelection = autoSendSelection || shouldSendSelection
+      index++
+      continue
+    }
+
+    if (!isNoopSlateOperationForYjs(operation)) {
+      operations[operationCount] = operation
+      operationCount++
+    }
+    index++
+  }
+
+  operations.length = operationCount
+
+  return { operations, shouldSendSelection }
+}
 
 export class YjsController {
   private readonly autoSendSelection: boolean
@@ -120,7 +162,12 @@ export class YjsController {
       this.updateAwarenessRevision()
     }
     this.providerLifecycle = createYjsProviderLifecycleAdapter({
-      onConnectedChange: () => this.updateAwarenessRevision(),
+      onConnectedChange: (connected) => {
+        if (!connected) {
+          this.awarenessAdapter.clearSelection()
+        }
+        this.updateAwarenessRevision()
+      },
       onProviderSyncedChange: () => this.reconcileProviderOwnedDocAfterSync(),
       provider: this.provider,
     })
@@ -175,7 +222,7 @@ export class YjsController {
 
   destroy(): void {
     this.unbindExternalEvents()
-    if (this.provider !== undefined) {
+    if (this.awareness !== undefined) {
       this.awarenessAdapter.clearSelection()
     }
     if (this.destroyProviderOnUnmount) {
@@ -200,11 +247,10 @@ export class YjsController {
       return
     }
 
-    const shouldSendSelection = shouldSendCommitSelection(
+    const { operations, shouldSendSelection } = collectYjsCommitOperations(
       commit,
       this.autoSendSelection
     )
-    const operations = getYjsCommitOperations(commit.operations)
 
     if (operations.length === 0) {
       if (shouldSendSelection) {
@@ -231,22 +277,34 @@ export class YjsController {
     }
 
     const splitHistory = this.splitHistory.createFromOperations(operations)
-    const rejectedLocalOperations: Operation[] = []
+    const rejectedLocalOperations = new Array<Operation>(operations.length)
+    let rejectedLocalOperationCount = 0
 
     this.undoManager.stopCapturing()
     this.doc.transact(() => {
-      for (const operation of operations) {
+      let operationIndex = 0
+
+      while (operationIndex < operations.length) {
+        const operation = operations[operationIndex]
+
+        if (operation === undefined) {
+          throw new Error('Cannot apply Yjs operations from a sparse array.')
+        }
+
         const trace = this.applyOperation(operation)
 
         if (this.shouldImportAfterLocalFallback(trace)) {
-          rejectedLocalOperations.push(operation)
+          rejectedLocalOperations[rejectedLocalOperationCount] = operation
+          rejectedLocalOperationCount++
         }
+        operationIndex++
       }
     }, this.localOrigin)
     this.splitHistory.store(splitHistory)
     this.undoManager.stopCapturing()
 
-    if (rejectedLocalOperations.length > 0) {
+    if (rejectedLocalOperationCount > 0) {
+      rejectedLocalOperations.length = rejectedLocalOperationCount
       this.editorAdapter.replaceValue(
         readSlateValueFromYjs(this.root),
         snapshot.selection
@@ -298,7 +356,7 @@ export class YjsController {
       subscribeAwareness: (listener) => this.subscribeAwareness(listener),
       subscribeProvider: (listener) =>
         this.providerLifecycle.subscribe(listener),
-      trace: () => [...this.traceEntries],
+      trace: () => copyTraceEntries(this.traceEntries),
     }
   }
 

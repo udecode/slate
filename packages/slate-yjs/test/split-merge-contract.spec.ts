@@ -8,6 +8,7 @@ import {
   createSeededYjsPeers,
   createYjsPeer,
   getPeerTopLevelTexts,
+  getVisibleYjsNodeAt,
   type Peer,
   paragraph,
   readPeerChildren,
@@ -30,6 +31,11 @@ const paragraphParts = (...texts: readonly string[]): Descendant => ({
 
 const quote = (children: readonly Descendant[]): Descendant => ({
   type: 'quote',
+  children,
+})
+
+const section = (children: readonly Descendant[]): Descendant => ({
+  type: 'section',
   children,
 })
 
@@ -201,5 +207,44 @@ describe('@slate/yjs split and merge collaboration contract', () => {
     assert.deepEqual(readPeerSlateValue(peer), [
       quote([paragraph('left'), paragraph('moved')]),
     ])
+  })
+
+  it('keeps nested parent-level virtual move content when splitting a grandparent element', () => {
+    const peer = createPeer('b', [
+      section([quote([]), paragraph('right')]),
+      paragraph('moved'),
+    ])
+
+    peer.editor.update((tx) => {
+      tx.operations.replay([
+        {
+          newPath: [0, 0, 0],
+          path: [1],
+          type: 'move_node',
+        },
+      ])
+    })
+
+    assert.deepEqual(readPeerSlateValue(peer), [
+      section([quote([paragraph('moved')]), paragraph('right')]),
+    ])
+    const movedParagraph = getVisibleYjsNodeAt(peer, [0, 0, 0])
+
+    peer.editor.update((tx) => {
+      tx.operations.replay([
+        {
+          path: [0],
+          position: 0,
+          properties: { type: 'section' },
+          type: 'split_node',
+        },
+      ])
+    })
+
+    assert.deepEqual(readPeerSlateValue(peer), [
+      section([{ text: '' }]),
+      section([quote([paragraph('moved')]), paragraph('right')]),
+    ])
+    assert.equal(getVisibleYjsNodeAt(peer, [1, 0, 0]), movedParagraph)
   })
 })

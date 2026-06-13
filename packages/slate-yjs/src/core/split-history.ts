@@ -7,10 +7,10 @@ import {
   type YjsNode,
 } from './attributes'
 import {
+  createYjsVisibleChildrenReader,
   getYjsLength,
-  getYjsTextContent,
-  getYjsVisibleChildren,
   SPLIT_UNDO_TEXT_ATTRIBUTE,
+  type YjsVisibleChildrenReader,
 } from './document'
 import { isRecord } from './record'
 import { isNonEmptyYjsTextDeltaPart } from './text-delta'
@@ -49,8 +49,24 @@ type TrailingSplitUndoText = {
 const isSlateIndex = (value: unknown): value is number =>
   typeof value === 'number' && Number.isInteger(value) && value >= 0
 
-const isSlatePath = (value: unknown): value is Path =>
-  Array.isArray(value) && value.every(isSlateIndex)
+const isSlatePath = (value: unknown): value is Path => {
+  if (!Array.isArray(value)) {
+    return false
+  }
+
+  let index = 0
+
+  while (index < value.length) {
+    const pathIndex = value[index]
+
+    if (!isSlateIndex(pathIndex)) {
+      return false
+    }
+    index++
+  }
+
+  return true
+}
 
 const isOptionalBoolean = (value: unknown): value is boolean | undefined =>
   value === undefined || typeof value === 'boolean'
@@ -61,6 +77,50 @@ const createTrailingSplitUndoText = (
 ): TrailingSplitUndoText | null =>
   value.length > 0 ? { length: value.length, offset, value } : null
 
+const hasAttributes = (
+  attributes: Readonly<YjsAttributeRecord> | undefined
+): boolean => {
+  if (attributes === undefined) {
+    return false
+  }
+
+  for (const key in attributes) {
+    if (Object.hasOwn(attributes, key)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+const getTextInsertAttributes = (
+  attributes: YjsAttributeRecord | undefined,
+  extraAttributes: YjsAttributeRecord,
+  extraAttributesHaveKeys = hasAttributes(extraAttributes)
+): YjsAttributeRecord => {
+  if (!extraAttributesHaveKeys) {
+    return attributes ?? {}
+  }
+  if (!hasAttributes(attributes)) {
+    return extraAttributes
+  }
+
+  const merged: YjsAttributeRecord = {}
+
+  for (const key in attributes) {
+    if (Object.hasOwn(attributes, key)) {
+      merged[key] = attributes[key]
+    }
+  }
+  for (const key in extraAttributes) {
+    if (Object.hasOwn(extraAttributes, key)) {
+      merged[key] = extraAttributes[key]
+    }
+  }
+
+  return merged
+}
+
 const appendTextContent = (
   target: Y.XmlText,
   source: Y.XmlText,
@@ -68,18 +128,63 @@ const appendTextContent = (
 ): string => {
   let offset = getYjsLength(target)
   let insertedText = ''
+  const extraAttributesHaveKeys = hasAttributes(extraAttributes)
+  const sourceDelta = source.toDelta()
+  let index = 0
 
-  for (const delta of source.toDelta()) {
+  while (index < sourceDelta.length) {
+    const delta = sourceDelta[index]
+
     if (!isNonEmptyYjsTextDeltaPart(delta)) {
+      index++
       continue
     }
 
-    target.insert(offset, delta.insert, {
-      ...(delta.attributes ?? {}),
-      ...extraAttributes,
-    })
+    target.insert(
+      offset,
+      delta.insert,
+      getTextInsertAttributes(
+        delta.attributes,
+        extraAttributes,
+        extraAttributesHaveKeys
+      )
+    )
     offset += delta.insert.length
     insertedText += delta.insert
+    index++
+  }
+
+  return insertedText
+}
+
+const appendElementTextWithReader = (
+  readVisibleChildren: YjsVisibleChildrenReader,
+  target: Y.XmlText,
+  element: Y.XmlElement,
+  extraAttributes: YjsAttributeRecord = {}
+): string => {
+  let insertedText = ''
+  const children = readVisibleChildren(element)
+  let index = 0
+
+  while (index < children.length) {
+    const child = children[index]
+
+    if (child === undefined) {
+      throw new Error('Cannot append text from a sparse visible child array.')
+    }
+
+    if (child instanceof Y.XmlText) {
+      insertedText += appendTextContent(target, child, extraAttributes)
+    } else {
+      insertedText += appendElementTextWithReader(
+        readVisibleChildren,
+        target,
+        child,
+        extraAttributes
+      )
+    }
+    index++
   }
 
   return insertedText
@@ -90,42 +195,40 @@ export const appendElementText = (
   target: Y.XmlText,
   element: Y.XmlElement,
   extraAttributes: YjsAttributeRecord = {}
-): string => {
-  let insertedText = ''
-
-  for (const child of getYjsVisibleChildren(root, element)) {
-    if (child instanceof Y.XmlText) {
-      insertedText += appendTextContent(target, child, extraAttributes)
-    } else {
-      insertedText += appendElementText(root, target, child, extraAttributes)
-    }
-  }
-
-  return insertedText
-}
+): string =>
+  appendElementTextWithReader(
+    createYjsVisibleChildrenReader(root),
+    target,
+    element,
+    extraAttributes
+  )
 
 const findLastVisibleText = (
-  root: Y.XmlElement,
+  readVisibleChildren: YjsVisibleChildrenReader,
   node: YjsNode
 ): Y.XmlText | null => {
   if (node instanceof Y.XmlText) {
     return node
   }
 
-  const children = getYjsVisibleChildren(root, node)
+  const children = readVisibleChildren(node)
 
-  for (let index = children.length - 1; index >= 0; index--) {
+  let index = children.length - 1
+
+  while (index >= 0) {
     const child = children[index]
 
     if (child === undefined) {
+      index--
       continue
     }
 
-    const text = findLastVisibleText(root, child)
+    const text = findLastVisibleText(readVisibleChildren, child)
 
     if (text !== null) {
       return text
     }
+    index--
   }
 
   return null
@@ -134,17 +237,23 @@ const findLastVisibleText = (
 export const getTrailingSplitUndoText = (
   text: Y.XmlText
 ): TrailingSplitUndoText | null => {
+  const delta = text.toDelta()
   let offset = getYjsLength(text)
   let value = ''
 
-  for (const delta of [...text.toDelta()].reverse()) {
-    if (!isNonEmptyYjsTextDeltaPart(delta)) {
+  let index = delta.length - 1
+
+  while (index >= 0) {
+    const part = delta[index]
+
+    if (!isNonEmptyYjsTextDeltaPart(part)) {
       return createTrailingSplitUndoText(value, offset)
     }
 
-    if (delta.attributes?.[SPLIT_UNDO_TEXT_ATTRIBUTE] === true) {
-      offset -= delta.insert.length
-      value = delta.insert + value
+    if (part.attributes?.[SPLIT_UNDO_TEXT_ATTRIBUTE] === true) {
+      offset -= part.insert.length
+      value = part.insert + value
+      index--
       continue
     }
 
@@ -164,32 +273,112 @@ export const clearSplitUndoTextAttribute = (
   })
 }
 
-export const getVisibleText = (root: Y.XmlElement, node: YjsNode): string => {
-  if (node instanceof Y.XmlText) {
-    return getYjsTextContent(node)
+const visibleTextStartsWithReader = (
+  readVisibleChildren: YjsVisibleChildrenReader,
+  node: YjsNode,
+  prefix: string
+): boolean => {
+  if (prefix.length === 0) {
+    return true
   }
 
-  return getYjsVisibleChildren(root, node)
-    .map((child) => getVisibleText(root, child))
-    .join('')
+  let prefixIndex = 0
+  const visit = (current: YjsNode): boolean => {
+    if (prefixIndex === prefix.length) {
+      return true
+    }
+
+    if (current instanceof Y.XmlText) {
+      const currentDelta = current.toDelta()
+      let deltaIndex = 0
+
+      while (deltaIndex < currentDelta.length) {
+        const part = currentDelta[deltaIndex]
+
+        if (!isNonEmptyYjsTextDeltaPart(part)) {
+          deltaIndex++
+          continue
+        }
+
+        for (
+          let index = 0;
+          index < part.insert.length && prefixIndex < prefix.length;
+          index++
+        ) {
+          if (part.insert[index] !== prefix[prefixIndex]) {
+            return false
+          }
+
+          prefixIndex++
+        }
+
+        if (prefixIndex === prefix.length) {
+          return true
+        }
+        deltaIndex++
+      }
+
+      return true
+    }
+
+    const children = readVisibleChildren(current)
+    let childIndex = 0
+
+    while (childIndex < children.length) {
+      const child = children[childIndex]
+
+      if (child === undefined) {
+        throw new Error(
+          'Cannot compare text from a sparse visible child array.'
+        )
+      }
+
+      if (!visit(child)) {
+        return false
+      }
+      if (prefixIndex === prefix.length) {
+        return true
+      }
+      childIndex++
+    }
+
+    return true
+  }
+
+  return visit(node) && prefixIndex === prefix.length
 }
+
+export const visibleTextStartsWith = (
+  root: Y.XmlElement,
+  node: YjsNode,
+  prefix: string
+): boolean =>
+  visibleTextStartsWithReader(
+    createYjsVisibleChildrenReader(root),
+    node,
+    prefix
+  )
 
 export const findSplitUndoTextRepairs = (
   root: Y.XmlElement
 ): SplitUndoTextRepair[] => {
   const repairs: SplitUndoTextRepair[] = []
+  const readVisibleChildren = createYjsVisibleChildrenReader(root)
 
   const visit = (parent: Y.XmlElement): void => {
-    const children = getYjsVisibleChildren(root, parent)
+    const children = readVisibleChildren(parent)
 
-    for (let index = 0; index < children.length; index++) {
+    let index = 0
+
+    while (index < children.length) {
       const left = children[index]
 
       if (!(left instanceof Y.XmlElement)) {
+        index++
         continue
       }
 
-      const leftText = findLastVisibleText(root, left)
+      const leftText = findLastVisibleText(readVisibleChildren, left)
       const right = children[index + 1]
       const trailing =
         leftText === null ? null : getTrailingSplitUndoText(leftText)
@@ -199,18 +388,28 @@ export const findSplitUndoTextRepairs = (
           hasRemoteSplitBoundary:
             right === undefined
               ? false
-              : getVisibleText(root, right).startsWith(trailing.value),
+              : visibleTextStartsWithReader(
+                  readVisibleChildren,
+                  right,
+                  trailing.value
+                ),
           length: trailing.length,
           offset: trailing.offset,
           text: leftText,
         })
       }
+      index++
     }
 
-    for (const child of children) {
+    let childIndex = 0
+
+    while (childIndex < children.length) {
+      const child = children[childIndex]
+
       if (child instanceof Y.XmlElement) {
         visit(child)
       }
+      childIndex++
     }
   }
 

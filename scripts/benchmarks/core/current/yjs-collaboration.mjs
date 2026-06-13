@@ -218,20 +218,32 @@ const assertNoRootSnapshot = (peer) => {
   )
 }
 
-const measure = (run) => {
-  const samples = []
+const measurePhased = ({ verify, work }) => {
+  const totalSamples = []
+  const verificationSamples = []
+  const workSamples = []
 
   for (let iteration = 0; iteration < iterations + 1; iteration += 1) {
-    const start = performance.now()
-    run()
-    const duration = performance.now() - start
+    const workStart = performance.now()
+    const context = work()
+    const workDuration = performance.now() - workStart
+
+    const verificationStart = performance.now()
+    verify(context)
+    const verificationDuration = performance.now() - verificationStart
 
     if (iteration > 0) {
-      samples.push(duration)
+      workSamples.push(workDuration)
+      verificationSamples.push(verificationDuration)
+      totalSamples.push(workDuration + verificationDuration)
     }
   }
 
-  return summarize(samples)
+  return {
+    total: summarize(totalSamples),
+    verification: summarize(verificationSamples),
+    work: summarize(workSamples),
+  }
 }
 
 const insertDistributedText = (peer, ops, blocks, textPrefix) => {
@@ -246,14 +258,19 @@ const insertDistributedText = (peer, ops, blocks, textPrefix) => {
 }
 
 const measureMultiEditorSync = () =>
-  measure(() => {
-    const peers = createSeededPeers({ blocks: syncBlocks, prefix: 'sync' })
+  measurePhased({
+    verify: ({ peers }) => {
+      assertPeerTexts(peers)
+      assertNoRootSnapshot(peers[0])
+    },
+    work: () => {
+      const peers = createSeededPeers({ blocks: syncBlocks, prefix: 'sync' })
 
-    insertDistributedText(peers[0], syncOps, syncBlocks, 's')
-    syncConnectedPeers(peers)
+      insertDistributedText(peers[0], syncOps, syncBlocks, 's')
+      syncConnectedPeers(peers)
 
-    assertPeerTexts(peers)
-    assertNoRootSnapshot(peers[0])
+      return { peers }
+    },
   })
 
 const broadcastAwareness = (source, targets) => {
@@ -272,77 +289,140 @@ const selection = (blockIndex, offset = 1) => ({
 })
 
 const measureAwarenessUpdates = () =>
-  measure(() => {
-    const blocks = Math.max(1, Math.min(syncBlocks, awarenessUpdates))
-    const peers = createSeededPeers({
-      blocks,
-      prefix: 'awareness',
-      withAwareness: true,
-    })
-
-    for (let index = 0; index < awarenessUpdates; index += 1) {
-      const source = peers[index % peers.length]
-      const targets = peers.filter((peer) => peer !== source)
-
-      runYjsUpdate(source, (yjs) => {
-        yjs.sendSelection(selection(index % blocks), {
-          name: source.id,
-          update: index,
-        })
+  measurePhased({
+    verify: ({ peers }) => {
+      for (const peer of peers) {
+        assert.equal(getYjsState(peer).remoteCursors().length, peerCount - 1)
+      }
+    },
+    work: () => {
+      const blocks = Math.max(1, Math.min(syncBlocks, awarenessUpdates))
+      const peers = createSeededPeers({
+        blocks,
+        prefix: 'awareness',
+        withAwareness: true,
       })
-      broadcastAwareness(source, targets)
-    }
 
-    for (const peer of peers) {
-      assert.equal(getYjsState(peer).remoteCursors().length, peerCount - 1)
-    }
+      for (let index = 0; index < awarenessUpdates; index += 1) {
+        const source = peers[index % peers.length]
+        const targets = peers.filter((peer) => peer !== source)
+
+        runYjsUpdate(source, (yjs) => {
+          yjs.sendSelection(selection(index % blocks), {
+            name: source.id,
+            update: index,
+          })
+        })
+        broadcastAwareness(source, targets)
+      }
+
+      return { peers }
+    },
   })
 
 const measureReconnect = () =>
-  measure(() => {
-    const peers = createSeededPeers({ blocks: syncBlocks, prefix: 'reconnect' })
-    const [online, offline] = peers
+  measurePhased({
+    verify: ({ offline, peers }) => {
+      assertPeerTexts(peers)
+      assertNoRootSnapshot(offline)
+    },
+    work: () => {
+      const peers = createSeededPeers({
+        blocks: syncBlocks,
+        prefix: 'reconnect',
+      })
+      const [online, offline] = peers
 
-    runYjsUpdate(offline, (yjs) => yjs.disconnect())
-    insertDistributedText(offline, reconnectOps, syncBlocks, 'o')
-    insertDistributedText(online, reconnectOps, syncBlocks, 'r')
-    syncConnectedPeers(peers)
+      runYjsUpdate(offline, (yjs) => yjs.disconnect())
+      insertDistributedText(offline, reconnectOps, syncBlocks, 'o')
+      insertDistributedText(online, reconnectOps, syncBlocks, 'r')
+      syncConnectedPeers(peers)
 
-    runYjsUpdate(offline, (yjs) => yjs.connect())
-    syncConnectedPeers(peers)
+      runYjsUpdate(offline, (yjs) => yjs.connect())
+      syncConnectedPeers(peers)
 
-    assertPeerTexts(peers)
-    assertNoRootSnapshot(offline)
+      return { offline, peers }
+    },
   })
 
 const measureLargeDocSync = () =>
-  measure(() => {
-    const peers = createSeededPeers({ blocks: largeBlocks, prefix: 'large' })
+  measurePhased({
+    verify: ({ peers }) => {
+      assertPeerTexts(peers)
+      assertNoRootSnapshot(peers[0])
+    },
+    work: () => {
+      const peers = createSeededPeers({ blocks: largeBlocks, prefix: 'large' })
 
-    insertDistributedText(peers[0], largeOps, largeBlocks, 'l')
-    syncConnectedPeers(peers)
+      insertDistributedText(peers[0], largeOps, largeBlocks, 'l')
+      syncConnectedPeers(peers)
 
-    assertPeerTexts(peers)
-    assertNoRootSnapshot(peers[0])
+      return { peers }
+    },
   })
 
+const measuredLanes = {
+  multiEditorSync: measureMultiEditorSync(),
+  awarenessUpdates: measureAwarenessUpdates(),
+  reconnect: measureReconnect(),
+  largeDocSync: measureLargeDocSync(),
+}
+
 const lanes = {
-  multiEditorSyncMs: measureMultiEditorSync(),
-  awarenessUpdatesMs: measureAwarenessUpdates(),
-  reconnectMs: measureReconnect(),
-  largeDocSyncMs: measureLargeDocSync(),
+  multiEditorSyncMs: measuredLanes.multiEditorSync.total,
+  awarenessUpdatesMs: measuredLanes.awarenessUpdates.total,
+  reconnectMs: measuredLanes.reconnect.total,
+  largeDocSyncMs: measuredLanes.largeDocSync.total,
+}
+
+const workLanes = {
+  multiEditorSyncWorkMs: measuredLanes.multiEditorSync.work,
+  awarenessUpdatesWorkMs: measuredLanes.awarenessUpdates.work,
+  reconnectWorkMs: measuredLanes.reconnect.work,
+  largeDocSyncWorkMs: measuredLanes.largeDocSync.work,
+}
+
+const verificationLanes = {
+  multiEditorSyncVerificationMs: measuredLanes.multiEditorSync.verification,
+  awarenessUpdatesVerificationMs: measuredLanes.awarenessUpdates.verification,
+  reconnectVerificationMs: measuredLanes.reconnect.verification,
+  largeDocSyncVerificationMs: measuredLanes.largeDocSync.verification,
 }
 
 const metrics = {
   yjs_multi_editor_sync_p95_ms: lanes.multiEditorSyncMs.p95,
+  yjs_multi_editor_sync_work_p95_ms: workLanes.multiEditorSyncWorkMs.p95,
+  yjs_multi_editor_sync_verification_p95_ms:
+    verificationLanes.multiEditorSyncVerificationMs.p95,
   yjs_awareness_updates_p95_ms: lanes.awarenessUpdatesMs.p95,
+  yjs_awareness_updates_work_p95_ms: workLanes.awarenessUpdatesWorkMs.p95,
+  yjs_awareness_updates_verification_p95_ms:
+    verificationLanes.awarenessUpdatesVerificationMs.p95,
   yjs_reconnect_p95_ms: lanes.reconnectMs.p95,
+  yjs_reconnect_work_p95_ms: workLanes.reconnectWorkMs.p95,
+  yjs_reconnect_verification_p95_ms:
+    verificationLanes.reconnectVerificationMs.p95,
   yjs_large_doc_sync_p95_ms: lanes.largeDocSyncMs.p95,
+  yjs_large_doc_sync_work_p95_ms: workLanes.largeDocSyncWorkMs.p95,
+  yjs_large_doc_sync_verification_p95_ms:
+    verificationLanes.largeDocSyncVerificationMs.p95,
   yjs_collaboration_worst_p95_ms: Math.max(
     lanes.multiEditorSyncMs.p95,
     lanes.awarenessUpdatesMs.p95,
     lanes.reconnectMs.p95,
     lanes.largeDocSyncMs.p95
+  ),
+  yjs_collaboration_worst_work_p95_ms: Math.max(
+    workLanes.multiEditorSyncWorkMs.p95,
+    workLanes.awarenessUpdatesWorkMs.p95,
+    workLanes.reconnectWorkMs.p95,
+    workLanes.largeDocSyncWorkMs.p95
+  ),
+  yjs_collaboration_worst_verification_p95_ms: Math.max(
+    verificationLanes.multiEditorSyncVerificationMs.p95,
+    verificationLanes.awarenessUpdatesVerificationMs.p95,
+    verificationLanes.reconnectVerificationMs.p95,
+    verificationLanes.largeDocSyncVerificationMs.p95
   ),
   yjs_correctness_failures: 0,
 }
@@ -369,6 +449,10 @@ const result = {
     reconnectConverges: true,
   },
   lanes,
+  phaseLanes: {
+    verification: verificationLanes,
+    work: workLanes,
+  },
   metrics,
   thresholdPolicy: {
     mode: 'calibration-only',

@@ -3,26 +3,28 @@ import * as Y from 'yjs'
 
 import { toYjsAttributeRecord } from './attributes'
 import {
+  getYjsLength,
   getYjsNode,
   getYjsNodeIf,
   getYjsParent,
-  getYjsTextContent,
+  getYjsTextContentFrom,
   removeYjsChild,
   SPLIT_UNDO_TEXT_ATTRIBUTE,
+  yjsTextContentEndsWith,
 } from './document'
 import { applySlateOperationToYjs } from './operations'
-import { nextPath, pathsEqual } from './path'
+import { nextPath, parentPath, pathsEqual } from './path'
 import {
   appendElementText,
   clearSplitUndoTextAttribute,
   findSplitUndoTextRepairs,
   getTrailingSplitUndoText,
-  getVisibleText,
   isSplitHistory,
   type PendingTextSplitHistory,
   SPLIT_HISTORY_META,
   type SplitHistory,
   type SplitUndoTextRepair,
+  visibleTextStartsWith,
 } from './split-history'
 import type {
   YjsUndoManagerAdapter,
@@ -64,9 +66,12 @@ const completeSplitHistory = (
   pendingTextSplitHistory: PendingTextSplitHistory,
   elementSplit: SplitNodeOperation
 ): SplitHistory => ({
-  ...pendingTextSplitHistory,
+  elementPath: pendingTextSplitHistory.elementPath,
   elementPosition: elementSplit.position,
   elementProperties: toYjsAttributeRecord(elementSplit.properties),
+  rightText: pendingTextSplitHistory.rightText,
+  textPath: pendingTextSplitHistory.textPath,
+  textProperties: pendingTextSplitHistory.textProperties,
 })
 
 const peekSplit = (
@@ -93,26 +98,41 @@ export const createYjsSplitHistoryAdapter = ({
 }: YjsSplitHistoryAdapterOptions): YjsSplitHistoryAdapter => {
   let pendingTextSplitHistory: PendingTextSplitHistory | null = null
 
-  const isTextSplitOperation = (
-    operation: Operation
-  ): operation is SplitNodeOperation =>
-    operation.type === 'split_node' &&
-    getYjsNodeIf(root, operation.path) instanceof Y.XmlText
-
-  const isElementSplitOperation = (
-    operation: Operation
-  ): operation is SplitNodeOperation =>
-    operation.type === 'split_node' &&
-    !(
-      operation.path.length > 0 &&
-      getYjsNodeIf(root, operation.path) instanceof Y.XmlText
-    )
-
   const createFromOperations = (
     operations: readonly Operation[]
   ): SplitHistory | null => {
-    const textSplit = operations.find(isTextSplitOperation)
-    const elementSplit = operations.find(isElementSplitOperation)
+    let textSplit: SplitNodeOperation | undefined
+    let elementSplit: SplitNodeOperation | undefined
+    let operationIndex = 0
+
+    while (operationIndex < operations.length) {
+      const operation = operations[operationIndex]
+
+      if (operation === undefined) {
+        throw new Error(
+          'Cannot create split history from a sparse operation array.'
+        )
+      }
+
+      if (operation.type !== 'split_node') {
+        operationIndex++
+        continue
+      }
+
+      const isTextSplit =
+        getYjsNodeIf(root, operation.path) instanceof Y.XmlText
+
+      if (isTextSplit) {
+        textSplit ??= operation
+      } else {
+        elementSplit ??= operation
+      }
+
+      if (textSplit !== undefined && elementSplit !== undefined) {
+        break
+      }
+      operationIndex++
+    }
 
     if (textSplit === undefined) {
       const pending = pendingTextSplitHistory
@@ -130,7 +150,7 @@ export const createYjsSplitHistoryAdapter = ({
       return null
     }
 
-    const elementPath = textSplit.path.slice(0, -1)
+    const elementPath = parentPath(textSplit.path)
     const text = getYjsNode(root, textSplit.path)
 
     if (!(text instanceof Y.XmlText)) {
@@ -139,7 +159,7 @@ export const createYjsSplitHistoryAdapter = ({
 
     const pending: PendingTextSplitHistory = {
       elementPath,
-      rightText: getYjsTextContent(text).slice(textSplit.position),
+      rightText: getYjsTextContentFrom(text, textSplit.position),
       textPath: textSplit.path,
       textProperties: toYjsAttributeRecord(textSplit.properties),
     }
@@ -188,15 +208,14 @@ export const createYjsSplitHistoryAdapter = ({
         throw new Error('Cannot redo split_node because the text node is gone.')
       }
 
-      const textValue = getYjsTextContent(text)
-
-      if (!textValue.endsWith(redo.splitHistory.rightText)) {
+      if (!yjsTextContentEndsWith(text, redo.splitHistory.rightText)) {
         throw new Error(
           'Cannot redo split_node because the right text is no longer at the split boundary.'
         )
       }
 
-      const textPosition = textValue.length - redo.splitHistory.rightText.length
+      const textPosition =
+        getYjsLength(text) - redo.splitHistory.rightText.length
       const textSplit = createSplitNodeOperation(
         redo.splitHistory.textPath,
         textPosition,
@@ -264,15 +283,13 @@ export const createYjsSplitHistoryAdapter = ({
   }
 
   const hasRemoteSplitBoundary = (splitHistory: SplitHistory): boolean => {
-    try {
-      const rightElement = getYjsNode(root, nextPath(splitHistory.elementPath))
+    const rightElement = getYjsNodeIf(root, nextPath(splitHistory.elementPath))
 
-      return getVisibleText(root, rightElement).startsWith(
-        splitHistory.rightText
-      )
-    } catch {
+    if (rightElement === null) {
       return false
     }
+
+    return visibleTextStartsWith(root, rightElement, splitHistory.rightText)
   }
 
   const getSplitUndoTextRepair = (
@@ -282,42 +299,35 @@ export const createYjsSplitHistoryAdapter = ({
       return null
     }
 
-    try {
-      const leftText = getYjsNode(root, splitHistory.textPath)
+    const leftText = getYjsNodeIf(root, splitHistory.textPath)
 
-      if (!(leftText instanceof Y.XmlText)) {
-        return null
-      }
-
-      const trailing = getTrailingSplitUndoText(leftText)
-
-      if (trailing === null || trailing.value !== splitHistory.rightText) {
-        return null
-      }
-
-      return {
-        ...trailing,
-        hasRemoteSplitBoundary: hasRemoteSplitBoundary(splitHistory),
-        text: leftText,
-      }
-    } catch {
+    if (!(leftText instanceof Y.XmlText)) {
       return null
+    }
+
+    const trailing = getTrailingSplitUndoText(leftText)
+
+    if (trailing === null || trailing.value !== splitHistory.rightText) {
+      return null
+    }
+
+    return {
+      length: trailing.length,
+      offset: trailing.offset,
+      hasRemoteSplitBoundary: hasRemoteSplitBoundary(splitHistory),
+      text: leftText,
     }
   }
 
   const leftTextEndsWithSplitRightText = (
     splitHistory: SplitHistory
   ): boolean => {
-    try {
-      const leftText = getYjsNode(root, splitHistory.textPath)
+    const leftText = getYjsNodeIf(root, splitHistory.textPath)
 
-      return (
-        leftText instanceof Y.XmlText &&
-        getYjsTextContent(leftText).endsWith(splitHistory.rightText)
-      )
-    } catch {
-      return false
-    }
+    return (
+      leftText instanceof Y.XmlText &&
+      yjsTextContentEndsWith(leftText, splitHistory.rightText)
+    )
   }
 
   const repairAfterOfflineUndo = (): void => {
@@ -330,7 +340,17 @@ export const createYjsSplitHistoryAdapter = ({
 
     if (repairs.length > 0) {
       doc.transact(() => {
-        for (const repair of repairs) {
+        let repairIndex = 0
+
+        while (repairIndex < repairs.length) {
+          const repair = repairs[repairIndex]
+
+          if (repair === undefined) {
+            throw new Error(
+              'Cannot apply split repair from a sparse repair array.'
+            )
+          }
+
           if (repair.hasRemoteSplitBoundary) {
             repair.text.delete(repair.offset, repair.length)
           } else {
@@ -340,6 +360,7 @@ export const createYjsSplitHistoryAdapter = ({
               repair.length
             )
           }
+          repairIndex++
         }
       }, historyOrigin)
     }

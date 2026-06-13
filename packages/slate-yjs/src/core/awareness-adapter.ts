@@ -7,6 +7,7 @@ import {
   yjsAwarenessSelectionsEqual,
 } from './awareness'
 import { getYjsLength, getYjsNodeIf } from './document'
+import { areJsonLikeValuesEqual } from './json-equality'
 import { isRecord } from './record'
 import type {
   YjsAwarenessLike,
@@ -46,8 +47,30 @@ export type YjsAwarenessAdapter = {
 }
 
 const getSortedAwarenessClientIds = (
-  awareness: YjsAwarenessLike
-): readonly number[] => [...awareness.getStates().keys()].sort((a, b) => a - b)
+  awareness: YjsAwarenessLike,
+  localClientId: number
+): readonly number[] => {
+  const states = awareness.getStates()
+  const clientIds = new Array<number>(states.size)
+  let writeIndex = 0
+
+  for (const clientId of states.keys()) {
+    if (clientId === localClientId) {
+      continue
+    }
+
+    clientIds[writeIndex] = clientId
+    writeIndex++
+  }
+
+  clientIds.length = writeIndex
+
+  if (clientIds.length > 1) {
+    clientIds.sort((a, b) => a - b)
+  }
+
+  return clientIds
+}
 
 const readRemoteCursorRecordData = <
   TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
@@ -90,7 +113,8 @@ export const createYjsAwarenessAdapter = ({
   }
 
   const sanitizeYjsSelection = (range: Range): Range | null =>
-    ([range.anchor, range.focus] as const).every(isValidYjsSelectionPoint)
+    isValidYjsSelectionPoint(range.anchor) &&
+    isValidYjsSelectionPoint(range.focus)
       ? range
       : null
 
@@ -110,16 +134,13 @@ export const createYjsAwarenessAdapter = ({
     }
   }
 
-  const remoteCursor = <
+  const readRemoteCursor = <
     TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
   >(
-    remoteClientId: number
+    remoteClientId: number,
+    localClientId: number
   ): YjsRemoteCursor<TCursorData> | null => {
-    if (
-      awareness === undefined ||
-      !isConnected() ||
-      remoteClientId === getLocalAwarenessClientId()
-    ) {
+    if (awareness === undefined || remoteClientId === localClientId) {
       return null
     }
 
@@ -134,14 +155,38 @@ export const createYjsAwarenessAdapter = ({
       awarenessDataField
     )
 
-    return {
+    const cursor: {
+      data?: TCursorData
+      clientId: number
+      selection: Range | null
+    } = {
       clientId: remoteClientId,
-      ...(data === undefined ? {} : { data }),
       selection: readYjsAwarenessSelection(
         root,
         state[awarenessSelectionField]
       ),
     }
+
+    if (data !== undefined) {
+      cursor.data = data
+    }
+
+    return cursor
+  }
+
+  const remoteCursor = <
+    TCursorData extends YjsRemoteCursorData = YjsRemoteCursorData,
+  >(
+    remoteClientId: number
+  ): YjsRemoteCursor<TCursorData> | null => {
+    if (awareness === undefined || !isConnected()) {
+      return null
+    }
+
+    return readRemoteCursor<TCursorData>(
+      remoteClientId,
+      getLocalAwarenessClientId()
+    )
   }
 
   const remoteCursors = <
@@ -151,15 +196,63 @@ export const createYjsAwarenessAdapter = ({
       return []
     }
 
-    return getSortedAwarenessClientIds(awareness).flatMap((remoteClientId) => {
-      const cursor = remoteCursor<TCursorData>(remoteClientId)
+    const localClientId = getLocalAwarenessClientId()
+    const remoteClientIds = getSortedAwarenessClientIds(
+      awareness,
+      localClientId
+    )
+    const cursors = new Array<YjsRemoteCursor<TCursorData>>(
+      remoteClientIds.length
+    )
+    let writeIndex = 0
+    let index = 0
 
-      return cursor === null ? [] : [cursor]
-    })
+    while (index < remoteClientIds.length) {
+      const remoteClientId = remoteClientIds[index]
+
+      if (typeof remoteClientId !== 'number') {
+        throw new Error(
+          'Cannot read remote cursors from a sparse client id array.'
+        )
+      }
+
+      const cursor = readRemoteCursor<TCursorData>(
+        remoteClientId,
+        localClientId
+      )
+
+      if (cursor !== null) {
+        cursors[writeIndex] = cursor
+        writeIndex++
+      }
+      index++
+    }
+
+    cursors.length = writeIndex
+
+    return cursors
+  }
+
+  const setLocalStateFieldIfChanged = (field: string, value: unknown): void => {
+    if (awareness === undefined) {
+      return
+    }
+
+    const localState = awareness.getLocalState()
+
+    if (
+      localState !== null &&
+      field in localState &&
+      areJsonLikeValuesEqual(localState[field], value)
+    ) {
+      return
+    }
+
+    awareness.setLocalStateField(field, value)
   }
 
   const sendCursorData = (data: YjsRemoteCursorData | null): void => {
-    awareness?.setLocalStateField(awarenessDataField, data)
+    setLocalStateFieldIfChanged(awarenessDataField, data)
   }
 
   const sendSelection = (

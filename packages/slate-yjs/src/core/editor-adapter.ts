@@ -4,7 +4,7 @@ import { Editor as EditorApi } from 'slate/internal'
 
 export type YjsEditorAdapter = {
   readonly importing: () => boolean
-  readonly readChildren: () => readonly Element[]
+  readonly readChildren: () => Element[]
   readonly readChildrenBeforeOperations: (
     operations: readonly Operation[]
   ) => Element[]
@@ -25,10 +25,24 @@ const remoteImportOptions = {
 
 const SELECTION_ROOT_TYPE = 'slate-yjs-selection-root'
 
-const rangePoints = (
-  range: Range
-): readonly [Range['anchor'], Range['focus']] =>
-  [range.anchor, range.focus] as const
+const copyReadonlyArray = <T>(items: readonly T[]): T[] => {
+  const copy = new Array<T>(items.length)
+
+  let index = 0
+
+  while (index < items.length) {
+    const item = items[index]
+
+    if (item === undefined) {
+      throw new Error('Cannot copy a sparse array.')
+    }
+
+    copy[index] = item
+    index++
+  }
+
+  return copy
+}
 
 const sanitizeImportSelection = (
   children: readonly Descendant[],
@@ -38,11 +52,13 @@ const sanitizeImportSelection = (
     return null
   }
 
-  const root: Element = { children: [...children], type: SELECTION_ROOT_TYPE }
+  const root: Element = {
+    children: copyReadonlyArray(children),
+    type: SELECTION_ROOT_TYPE,
+  }
 
-  return rangePoints(selection).every((point) =>
-    isValidImportSelectionPoint(root, point)
-  )
+  return isValidImportSelectionPoint(root, selection.anchor) &&
+    isValidImportSelectionPoint(root, selection.focus)
     ? selection
     : null
 }
@@ -64,8 +80,8 @@ const isValidImportSelectionPoint = (
 export const createYjsEditorAdapter = (editor: Editor): YjsEditorAdapter => {
   let importing = false
 
-  const readChildren = (): readonly Element[] =>
-    editor.read((state) => [...state.value.get().roots.main])
+  const readChildren = (): Element[] =>
+    editor.read((state) => copyReadonlyArray(state.value.get().roots.main))
 
   const readChildrenBeforeOperations = (
     operations: readonly Operation[]
@@ -73,12 +89,29 @@ export const createYjsEditorAdapter = (editor: Editor): YjsEditorAdapter => {
     const baselineEditor = createEditor()
 
     EditorApi.replace(baselineEditor, {
-      children: [...readChildren()],
+      children: readChildren(),
       marks: null,
       selection: null,
     })
     baselineEditor.update((tx) => {
-      tx.operations.replay([...operations].reverse().map(OperationApi.inverse))
+      const inverseOperations = new Array<Operation>(operations.length)
+      let inverseOperationCount = 0
+
+      let index = operations.length - 1
+
+      while (index >= 0) {
+        const operation = operations[index]
+
+        if (operation !== undefined) {
+          inverseOperations[inverseOperationCount] =
+            OperationApi.inverse(operation)
+          inverseOperationCount++
+        }
+        index--
+      }
+
+      inverseOperations.length = inverseOperationCount
+      tx.operations.replay(inverseOperations)
     })
 
     return EditorApi.getSnapshot(baselineEditor).children
@@ -95,7 +128,7 @@ export const createYjsEditorAdapter = (editor: Editor): YjsEditorAdapter => {
     try {
       editor.update((tx) => {
         tx.value.replace({
-          children: [...children],
+          children: copyReadonlyArray(children),
           marks: null,
           selection: nextSelection,
         })
