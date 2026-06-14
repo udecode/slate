@@ -178,34 +178,58 @@ const runYjsUpdate = (peer, fn) => {
   })
 }
 
-const getParagraphTexts = (peer) =>
-  Editor.getSnapshot(peer.editor).children.map((_, index) =>
-    Editor.string(peer.editor, [index])
-  )
+const getParagraphTexts = (peer) => {
+  const children = Editor.getSnapshot(peer.editor).children
+  const texts = new Array(children.length)
+  let index = 0
 
-const syncConnectedPeers = (peers) => {
-  for (const source of peers) {
-    if (!getYjsState(source).connected()) {
+  while (index < children.length) {
+    texts[index] = Editor.string(peer.editor, [index])
+    index++
+  }
+
+  return texts
+}
+
+const encodePeerUpdateForTarget = (source, target) =>
+  Y.encodeStateAsUpdate(source.doc, Y.encodeStateVector(target.doc))
+
+const syncPeerToConnectedPeers = (source, peers) => {
+  if (!getYjsState(source).connected()) {
+    return
+  }
+
+  for (const target of peers) {
+    if (source === target || !getYjsState(target).connected()) {
       continue
     }
 
-    const update = Y.encodeStateAsUpdate(source.doc)
+    const update = encodePeerUpdateForTarget(source, target)
 
-    for (const target of peers) {
-      if (source === target || !getYjsState(target).connected()) {
-        continue
-      }
+    Y.applyUpdate(target.doc, update, source)
+  }
+}
 
-      Y.applyUpdate(target.doc, update, source)
-    }
+const syncConnectedPeers = (peers) => {
+  for (const source of peers) {
+    syncPeerToConnectedPeers(source, peers)
   }
 }
 
 const assertPeerTexts = (peers) => {
-  const expected = getParagraphTexts(peers[0])
+  const firstPeer = peers[0]
 
-  for (const peer of peers) {
+  assert(firstPeer)
+
+  const expected = getParagraphTexts(firstPeer)
+  let index = 1
+
+  while (index < peers.length) {
+    const peer = peers[index]
+
+    assert(peer)
     assert.deepEqual(getParagraphTexts(peer), expected)
+    index++
   }
 }
 
@@ -218,14 +242,21 @@ const assertNoRootSnapshot = (peer) => {
   )
 }
 
-const measurePhased = ({ verify, work }) => {
+const assertPeersNoRootSnapshot = (peers) => {
+  for (const peer of peers) {
+    assertNoRootSnapshot(peer)
+  }
+}
+
+const measurePhased = ({ setup, verify, work }) => {
   const totalSamples = []
   const verificationSamples = []
   const workSamples = []
 
   for (let iteration = 0; iteration < iterations + 1; iteration += 1) {
+    const setupContext = setup?.()
     const workStart = performance.now()
-    const context = work()
+    const context = work(setupContext)
     const workDuration = performance.now() - workStart
 
     const verificationStart = performance.now()
@@ -259,26 +290,31 @@ const insertDistributedText = (peer, ops, blocks, textPrefix) => {
 
 const measureMultiEditorSync = () =>
   measurePhased({
+    setup: () => ({
+      peers: createSeededPeers({ blocks: syncBlocks, prefix: 'sync' }),
+    }),
     verify: ({ peers }) => {
       assertPeerTexts(peers)
-      assertNoRootSnapshot(peers[0])
+      assertPeersNoRootSnapshot(peers)
     },
-    work: () => {
-      const peers = createSeededPeers({ blocks: syncBlocks, prefix: 'sync' })
-
+    work: ({ peers }) => {
       insertDistributedText(peers[0], syncOps, syncBlocks, 's')
-      syncConnectedPeers(peers)
+      syncPeerToConnectedPeers(peers[0], peers)
 
       return { peers }
     },
   })
 
-const broadcastAwareness = (source, targets) => {
+const broadcastAwareness = (source, peers) => {
   const state = source.awareness.getLocalState()
 
   assert(state)
 
-  for (const target of targets) {
+  for (const target of peers) {
+    if (target === source) {
+      continue
+    }
+
     target.awareness.setRemoteState(source.doc.clientID, state)
   }
 }
@@ -290,12 +326,7 @@ const selection = (blockIndex, offset = 1) => ({
 
 const measureAwarenessUpdates = () =>
   measurePhased({
-    verify: ({ peers }) => {
-      for (const peer of peers) {
-        assert.equal(getYjsState(peer).remoteCursors().length, peerCount - 1)
-      }
-    },
-    work: () => {
+    setup: () => {
       const blocks = Math.max(1, Math.min(syncBlocks, awarenessUpdates))
       const peers = createSeededPeers({
         blocks,
@@ -303,9 +334,16 @@ const measureAwarenessUpdates = () =>
         withAwareness: true,
       })
 
+      return { blocks, peers }
+    },
+    verify: ({ peers }) => {
+      for (const peer of peers) {
+        assert.equal(getYjsState(peer).remoteCursors().length, peerCount - 1)
+      }
+    },
+    work: ({ blocks, peers }) => {
       for (let index = 0; index < awarenessUpdates; index += 1) {
         const source = peers[index % peers.length]
-        const targets = peers.filter((peer) => peer !== source)
 
         runYjsUpdate(source, (yjs) => {
           yjs.sendSelection(selection(index % blocks), {
@@ -313,7 +351,7 @@ const measureAwarenessUpdates = () =>
             update: index,
           })
         })
-        broadcastAwareness(source, targets)
+        broadcastAwareness(source, peers)
       }
 
       return { peers }
@@ -322,15 +360,17 @@ const measureAwarenessUpdates = () =>
 
 const measureReconnect = () =>
   measurePhased({
-    verify: ({ offline, peers }) => {
-      assertPeerTexts(peers)
-      assertNoRootSnapshot(offline)
-    },
-    work: () => {
-      const peers = createSeededPeers({
+    setup: () => ({
+      peers: createSeededPeers({
         blocks: syncBlocks,
         prefix: 'reconnect',
-      })
+      }),
+    }),
+    verify: ({ offline, peers }) => {
+      assertPeerTexts(peers)
+      assertPeersNoRootSnapshot(peers)
+    },
+    work: ({ peers }) => {
       const [online, offline] = peers
 
       runYjsUpdate(offline, (yjs) => yjs.disconnect())
@@ -347,15 +387,16 @@ const measureReconnect = () =>
 
 const measureLargeDocSync = () =>
   measurePhased({
+    setup: () => ({
+      peers: createSeededPeers({ blocks: largeBlocks, prefix: 'large' }),
+    }),
     verify: ({ peers }) => {
       assertPeerTexts(peers)
-      assertNoRootSnapshot(peers[0])
+      assertPeersNoRootSnapshot(peers)
     },
-    work: () => {
-      const peers = createSeededPeers({ blocks: largeBlocks, prefix: 'large' })
-
+    work: ({ peers }) => {
       insertDistributedText(peers[0], largeOps, largeBlocks, 'l')
-      syncConnectedPeers(peers)
+      syncPeerToConnectedPeers(peers[0], peers)
 
       return { peers }
     },

@@ -27,6 +27,7 @@ import {
   removeYjsChild,
   removeYjsVirtualPlaceholderChild,
   replaceYjsChildren,
+  resolveYjsTextPoint,
   setVirtualYjsMove,
   setVirtualYjsUnwrapMove,
   splitVisibleYjsChildren,
@@ -84,50 +85,6 @@ const getYjsTextForInsert = (
   }
 
   return materializeEmptyYjsText(root, path)
-}
-
-type YjsTextPoint = {
-  readonly childIndex: number
-  readonly offset: number
-  readonly parent: Y.XmlElement
-}
-
-const resolveYjsTextPoint = (
-  root: Y.XmlElement,
-  path: Path,
-  offset: number,
-  readVisibleChildren: YjsVisibleChildrenReader
-): YjsTextPoint | null => {
-  const target = getYjsNode(root, path)
-
-  if (!(target instanceof Y.XmlText)) {
-    throw new Error('remove_text target is not a Y.XmlText.')
-  }
-
-  const { index, parent } = getYjsParent(root, path)
-  const children = readVisibleChildren(parent)
-  let remainingOffset = offset
-
-  let childIndex = index
-
-  while (childIndex < children.length) {
-    const child = children[childIndex]
-
-    if (!(child instanceof Y.XmlText)) {
-      break
-    }
-
-    const length = getYjsLength(child)
-
-    if (remainingOffset <= length) {
-      return { childIndex, offset: remainingOffset, parent }
-    }
-
-    remainingOffset -= length
-    childIndex++
-  }
-
-  return null
 }
 
 const deleteYjsTextRange = (
@@ -329,7 +286,18 @@ export const applySlateOperationToYjs = (
         throw new Error('insert_text target is not a Y.XmlText.')
       }
 
-      text.insert(operation.offset, operation.text)
+      const point = resolveYjsTextPoint(
+        root,
+        operation.path,
+        operation.offset,
+        getReadVisibleChildren()
+      )
+
+      if (point === null) {
+        return operationTrace(operation)
+      }
+
+      point.text.insert(point.offset, operation.text)
 
       return operationTrace(operation)
     }
@@ -369,16 +337,36 @@ export const applySlateOperationToYjs = (
       const { index, parent } = getYjsParent(root, operation.path)
 
       if (target instanceof Y.XmlText) {
-        const rightText = getYjsTextContentFrom(target, operation.position)
+        const readVisibleChildren = getReadVisibleChildren()
+        const point = resolveYjsTextPoint(
+          root,
+          operation.path,
+          operation.position,
+          readVisibleChildren
+        )
+
+        if (point === null) {
+          return operationTrace(operation)
+        }
+
+        const children = readVisibleChildren(point.parent)
+        const nextChild = children[point.childIndex + 1]
+        const textLength = getYjsLength(point.text)
+
+        if (point.offset === textLength && nextChild instanceof Y.XmlText) {
+          return operationTrace(operation)
+        }
+
+        const rightText = getYjsTextContentFrom(point.text, point.offset)
 
         if (rightText.length > 0) {
-          target.delete(operation.position, rightText.length)
+          point.text.delete(point.offset, rightText.length)
         }
 
         insertYjsChild(
           root,
-          parent,
-          index + 1,
+          point.parent,
+          point.childIndex + 1,
           createYjsText(rightText, toYjsAttributeRecord(operation.properties))
         )
 

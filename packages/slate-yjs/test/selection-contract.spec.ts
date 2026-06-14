@@ -118,6 +118,36 @@ describe('@slate/yjs selection relative-position contract', () => {
     )
   })
 
+  it('keeps adjacent text boundary positions distinct', () => {
+    const peer = createYjsPeer({
+      children: [
+        {
+          children: [{ text: 'alpha' }, { bold: true, text: 'beta' }],
+          type: 'paragraph',
+        },
+      ],
+      clientId: 'b',
+      numericClientId: clientIds.b,
+    })
+    const endOfLeft = { path: [0, 0], offset: 'alpha'.length }
+    const startOfRight = { path: [0, 1], offset: 0 }
+
+    assert.deepEqual(
+      yjsRelativePositionToSlatePoint(
+        getYjsRoot(peer),
+        slatePointToYjsRelativePosition(getYjsRoot(peer), endOfLeft)
+      ),
+      endOfLeft
+    )
+    assert.deepEqual(
+      yjsRelativePositionToSlatePoint(
+        getYjsRoot(peer),
+        slatePointToYjsRelativePosition(getYjsRoot(peer), startOfRight)
+      ),
+      startOfRight
+    )
+  })
+
   it('rebases a stored point across a concurrent text insert', () => {
     const peers = createPeers(['a', 'b', 'c'])
     const [a, b] = peers

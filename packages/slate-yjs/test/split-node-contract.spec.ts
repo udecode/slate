@@ -22,6 +22,7 @@ import {
   getYjsTrace,
   type Peer,
   paragraph,
+  readPeerChildren,
   redoYjsPeer,
   redoYjsPeerAndSync,
   syncConnectedPeers,
@@ -142,6 +143,30 @@ describe('@slate/yjs split_node collaboration contract', () => {
     assert.deepEqual(getYjsTrace(peer), [
       { mode: 'operation', operationType: 'split_node' },
       { mode: 'operation', operationType: 'split_node' },
+    ])
+  })
+
+  it('splits a block at a text leaf boundary without materializing empty text', () => {
+    const peer = createPeer('b', undefined, [
+      {
+        children: [{ text: 'alpha' }, { bold: true, text: 'beta' }],
+        type: 'paragraph',
+      },
+    ])
+
+    peer.editor.update((tx) => {
+      tx.nodes.split({ at: { path: [0, 0], offset: 'alpha'.length } })
+    })
+
+    assert.deepEqual(readPeerChildren(peer), [
+      {
+        children: [{ text: 'alpha' }],
+        type: 'paragraph',
+      },
+      {
+        children: [{ bold: true, text: 'beta' }],
+        type: 'paragraph',
+      },
     ])
   })
 

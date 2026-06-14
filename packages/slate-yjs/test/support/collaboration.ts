@@ -329,12 +329,15 @@ export const syncConnectedPeers = (peers: readonly Peer[]): void => {
       continue
     }
 
-    const update = Y.encodeStateAsUpdate(source.doc)
-
     for (const target of peers) {
       if (source === target || !isYjsPeerConnected(target)) {
         continue
       }
+
+      const update = Y.encodeStateAsUpdate(
+        source.doc,
+        Y.encodeStateVector(target.doc)
+      )
 
       Y.applyUpdate(target.doc, update, source)
     }

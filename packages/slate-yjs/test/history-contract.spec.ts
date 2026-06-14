@@ -68,4 +68,29 @@ describe('@slate/yjs history contract', () => {
 
     assert.deepEqual(history.undos, [])
   })
+
+  it('removes rejected operation suffixes from redo history', () => {
+    const keepOperation: Operation = {
+      offset: 0,
+      path: [0, 0],
+      text: 'a',
+      type: 'insert_text',
+    }
+    const rejectedOperation: Operation = {
+      offset: 1,
+      path: [0, 0],
+      text: '!',
+      type: 'insert_text',
+    }
+    const history = {
+      redos: [{ operations: [keepOperation, rejectedOperation] }],
+      undos: [],
+    }
+
+    removeRejectedYjsOperationsFromHistory(createHistoryEditor(history), [
+      rejectedOperation,
+    ])
+
+    assert.deepEqual(history.redos, [{ operations: [keepOperation] }])
+  })
 })

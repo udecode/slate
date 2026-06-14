@@ -93,6 +93,20 @@ class AsyncDisconnectProvider extends FakeProvider {
   }
 }
 
+class AsyncRejectDisconnectProvider extends FakeProvider {
+  rejectDisconnect: (() => void) | null = null
+
+  override disconnect(): Promise<void> {
+    this.calls.push('disconnect')
+
+    return new Promise<void>((_resolve, reject) => {
+      this.rejectDisconnect = () => {
+        reject(new Error('disconnect failed'))
+      }
+    })
+  }
+}
+
 class StatusOnlyProvider extends FakeProvider {
   override connect(): void {
     this.calls.push('connect')
@@ -327,6 +341,33 @@ describe('@slate/yjs provider contract', () => {
       ['connecting', false],
       ['connecting', true],
       ['connected', true],
+      ['connected', false],
+      ['connected', true],
+    ])
+
+    cleanup()
+  })
+
+  it('does not notify provider subscribers for unchanged status or sync events', () => {
+    const provider = new FakeProvider()
+    const { cleanup, editor } = createProviderEditor(provider)
+    const yjs = readEditorYjsState(editor)
+    const seen: [YjsProviderStatus | null, boolean | null][] = []
+    const unsubscribe = yjs.subscribeProvider(() => {
+      seen.push([yjs.providerStatus(), yjs.providerSynced()])
+    })
+
+    provider.emitStatus('disconnected')
+    provider.emitSync(false)
+    provider.emitSynced(false)
+    provider.emitStatus('connected')
+    provider.emitStatus('connected')
+    provider.emitSynced(true)
+    provider.emitSync(true)
+
+    unsubscribe()
+
+    assert.deepEqual(seen, [
       ['connected', false],
       ['connected', true],
     ])
@@ -820,6 +861,25 @@ describe('@slate/yjs provider contract', () => {
     await Promise.resolve()
 
     assert.deepEqual(provider.calls, ['disconnect', 'connect'])
+
+    cleanup()
+  })
+
+  it('does not reconnect when async provider disconnect rejects', async () => {
+    const provider = new AsyncRejectDisconnectProvider()
+    const { cleanup, editor } = createProviderEditor(provider)
+
+    runEditorYjsUpdate(editor, (yjs) => {
+      yjs.reconnect()
+    })
+
+    assert.deepEqual(provider.calls, ['disconnect'])
+
+    provider.rejectDisconnect?.()
+    await Promise.resolve()
+
+    assert.deepEqual(provider.calls, ['disconnect'])
+    assert.equal(readEditorYjsState(editor).connected(), false)
 
     cleanup()
   })

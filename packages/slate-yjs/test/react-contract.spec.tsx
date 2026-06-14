@@ -378,6 +378,46 @@ describe('@slate/yjs react contract', () => {
     peer.cleanup()
   })
 
+  it('refreshes overlay positions when a remote cursor selection changes', () => {
+    const awareness = new FakeAwareness(10)
+    const peer = createYjsPeer({
+      awareness,
+      children: initialValue(),
+      clientId: 'j',
+      numericClientId: 10,
+    })
+
+    setEditorDomApi(peer.editor, { resolveRangeRect: () => null })
+
+    const OverlayProbe = ({ editor }: EditorProbeProps): React.ReactElement => {
+      const [positions] = useYjsRemoteCursorOverlayPositions(editor)
+      const anchor = positions[0]?.range.anchor
+
+      return (
+        <output>
+          {anchor?.path.join('.') ?? 'none'}:{anchor?.offset}
+        </output>
+      )
+    }
+
+    const view = render(<OverlayProbe editor={peer.editor} />)
+
+    act(() => {
+      sendRemoteSelection(peer, awareness, selection([0, 0], 1))
+    })
+
+    assert.equal(view.container.textContent, '0.0:1')
+
+    act(() => {
+      sendRemoteSelection(peer, awareness, selection([2, 0], 2))
+    })
+
+    assert.equal(view.container.textContent, '2.0:2')
+
+    view.unmount()
+    peer.cleanup()
+  })
+
   it('refreshes remote cursor overlay data when overlay deps change', () => {
     const awareness = new FakeAwareness(5)
     const peer = createYjsPeer({
@@ -469,6 +509,54 @@ describe('@slate/yjs react contract', () => {
     })
 
     assert.equal(view.container.textContent, 'Grace')
+
+    view.unmount()
+    peer.cleanup()
+  })
+
+  it('keeps custom cursor-named overlay data stable across unrelated editor updates', () => {
+    const awareness = new FakeAwareness(11)
+    const peer = createYjsPeer({
+      awareness,
+      children: initialValue(),
+      clientId: 'k',
+      numericClientId: 11,
+    })
+    let renders = 0
+
+    setEditorDomApi(peer.editor, { resolveRangeRect: () => null })
+
+    const OverlayProbe = ({ editor }: EditorProbeProps): React.ReactElement => {
+      const [positions] = useYjsRemoteCursorOverlayPositions<
+        { color: string; name: string },
+        { cursor: { clientId: number; label: string } }
+      >(editor, {
+        data: (cursor) => ({
+          cursor: { clientId: cursor.clientId, label: cursor.data.name },
+        }),
+      })
+
+      renders += 1
+
+      return <output>{positions[0]?.data.cursor.label}</output>
+    }
+
+    const view = render(<OverlayProbe editor={peer.editor} />)
+
+    act(() => {
+      sendRemoteSelection(peer, awareness, selection([1, 0], 1))
+    })
+
+    const rendersAfterRemoteSelection = renders
+
+    act(() => {
+      peer.editor.update((tx) => {
+        tx.text.insert('!', { at: { path: [2, 0], offset: 'gamma'.length } })
+      })
+    })
+
+    assert.equal(view.container.textContent, 'Ada')
+    assert.equal(renders, rendersAfterRemoteSelection)
 
     view.unmount()
     peer.cleanup()

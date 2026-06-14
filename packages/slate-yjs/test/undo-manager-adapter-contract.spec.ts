@@ -40,6 +40,52 @@ describe('@slate/yjs UndoManager adapter contract', () => {
     doc.destroy()
   })
 
+  it('rejects moving non-top private Yjs stack items', () => {
+    const doc = new Y.Doc()
+    const root = doc.get('slate', Y.XmlElement)
+    const origin = {}
+    const undoManager = new Y.UndoManager(root, {
+      trackedOrigins: new Set([origin]),
+    })
+    const adapter = createYjsUndoManagerAdapter(undoManager)
+
+    doc.transact(() => {
+      root.insert(0, [new Y.XmlText()])
+    }, origin)
+    undoManager.stopCapturing()
+    const firstUndoItem = adapter.peekUndo()
+
+    doc.transact(() => {
+      root.insert(1, [new Y.XmlText()])
+    }, origin)
+    undoManager.stopCapturing()
+    const secondUndoItem = adapter.peekUndo()
+
+    assert.ok(firstUndoItem)
+    assert.ok(secondUndoItem)
+    assert.throws(
+      () => adapter.moveUndoToRedo(firstUndoItem),
+      /Cannot move a non-top undo item/
+    )
+
+    adapter.moveUndoToRedo(secondUndoItem)
+    adapter.moveUndoToRedo(firstUndoItem)
+
+    assert.throws(
+      () => adapter.moveRedoToUndo(secondUndoItem),
+      /Cannot move a non-top redo item/
+    )
+    assert.equal(adapter.peekRedo(), firstUndoItem)
+    assert.equal(adapter.redoDepth(), 2)
+
+    adapter.moveRedoToUndo(firstUndoItem)
+    adapter.moveRedoToUndo(secondUndoItem)
+    assert.equal(adapter.peekUndo(), secondUndoItem)
+
+    undoManager.destroy()
+    doc.destroy()
+  })
+
   it('pins Yjs private stack usage to one adapter file and a fixed version', () => {
     const controllerSource = readFileSync(
       new URL('../src/core/controller.ts', import.meta.url),

@@ -308,12 +308,15 @@ const createExampleNetwork = (): ExampleNetwork => {
             continue
           }
 
-          const update = Y.encodeStateAsUpdate(source.doc)
-
           for (const target of peers) {
             if (source === target || !target.connected) {
               continue
             }
+
+            const update = Y.encodeStateAsUpdate(
+              source.doc,
+              Y.encodeStateVector(target.doc)
+            )
 
             Y.applyUpdate(target.doc, update, source.doc)
           }

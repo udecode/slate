@@ -304,7 +304,19 @@ const overlayDataEqual = (a: unknown, b: unknown): boolean => {
     }
     keyCount++
     if (key === 'cursor') {
-      if (!remoteCursorsEqual(a.cursor, b.cursor)) {
+      if (isRemoteCursorLike(a.cursor) || isRemoteCursorLike(b.cursor)) {
+        if (!remoteCursorsEqual(a.cursor, b.cursor)) {
+          return false
+        }
+        continue
+      }
+      if (isRecord(a.cursor) && isRecord(b.cursor)) {
+        if (!shallowEqual(a.cursor, b.cursor)) {
+          return false
+        }
+        continue
+      }
+      if (!Object.is(a.cursor, b.cursor)) {
         return false
       }
       continue

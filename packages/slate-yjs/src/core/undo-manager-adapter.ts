@@ -72,11 +72,13 @@ const popExpectedStackItem = (
   item: YjsUndoManagerStackItem,
   message: string
 ): void => {
-  const popped = stack.pop()
+  const lastIndex = stack.length - 1
 
-  if (popped !== item) {
+  if (lastIndex < 0 || stack[lastIndex] !== item) {
     throw new Error(message)
   }
+
+  stack.pop()
 }
 
 export const createYjsUndoManagerAdapter = (

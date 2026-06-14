@@ -13,6 +13,7 @@ import {
   getYjsTrace,
   type Peer,
   paragraph,
+  readEditorYjsState,
   runYjsUpdate,
   subscribeYjsAwareness,
 } from './support/collaboration'
@@ -144,6 +145,25 @@ describe('@slate/yjs awareness contract', () => {
     assert.equal(getYjsRemoteCursors(peer).length, 1)
   })
 
+  it('gates single remote cursor reads by connection and local client id', () => {
+    const { awareness, peer } = createAwarePeer()
+    const range = selection([1, 0], 3)
+    const yjs = readEditorYjsState(peer.editor)
+
+    sendRemoteSelection(peer, awareness, range)
+
+    assert.deepEqual(yjs.remoteCursor(101), {
+      clientId: 101,
+      data: { name: 'Ada' },
+      selection: range,
+    })
+    assert.equal(yjs.remoteCursor(2), null)
+
+    disconnectYjsPeer(peer)
+
+    assert.equal(yjs.remoteCursor(101), null)
+  })
+
   it('increments awareness revision on remote changes', () => {
     const { awareness, peer } = createAwarePeer()
     const before = getYjsAwarenessRevision(peer)
@@ -181,6 +201,35 @@ describe('@slate/yjs awareness contract', () => {
     notifications = 0
     runYjsUpdate(peer, (yjs) => {
       yjs.sendSelection(range, { name: 'Ada' })
+    })
+
+    assert.equal(notifications, 0)
+
+    unsubscribe()
+  })
+
+  it('does not notify awareness subscribers for equivalent nested cursor payloads', () => {
+    const { peer } = createAwarePeer()
+    const range = selection()
+    let notifications = 0
+    const unsubscribe = subscribeYjsAwareness(peer, () => {
+      notifications += 1
+    })
+
+    runYjsUpdate(peer, (yjs) => {
+      yjs.sendSelection(range, {
+        name: 'Ada',
+        palette: ['tomato', 'white'],
+        profile: { role: 'reviewer', accent: undefined },
+      })
+    })
+    notifications = 0
+    runYjsUpdate(peer, (yjs) => {
+      yjs.sendSelection(range, {
+        name: 'Ada',
+        palette: ['tomato', 'white'],
+        profile: { role: 'reviewer' },
+      })
     })
 
     assert.equal(notifications, 0)

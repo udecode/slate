@@ -538,6 +538,13 @@ export const getYjsVisibleChildren = (
 
 export type YjsVisibleChildrenReader = (node: Y.XmlElement) => YjsNode[]
 
+export type YjsTextPoint = {
+  readonly childIndex: number
+  readonly offset: number
+  readonly parent: Y.XmlElement
+  readonly text: Y.XmlText
+}
+
 const getYjsVisibleChildrenWithResolver = (
   root: Y.XmlElement,
   node: Y.XmlElement,
@@ -568,6 +575,44 @@ export const createYjsVisibleChildrenReader = (
 
   return (node) =>
     getYjsVisibleChildrenWithResolver(root, node, resolveNodeById)
+}
+
+export const resolveYjsTextPoint = (
+  root: Y.XmlElement,
+  path: Path,
+  offset: number,
+  readVisibleChildren: YjsVisibleChildrenReader
+): YjsTextPoint | null => {
+  const target = getYjsNode(root, path)
+
+  if (!(target instanceof Y.XmlText)) {
+    throw new Error('text operation target is not a Y.XmlText.')
+  }
+
+  const { index, parent } = getYjsParent(root, path)
+  const children = readVisibleChildren(parent)
+  let remainingOffset = offset
+
+  let childIndex = index
+
+  while (childIndex < children.length) {
+    const child = children[childIndex]
+
+    if (!(child instanceof Y.XmlText)) {
+      break
+    }
+
+    const length = getYjsLength(child)
+
+    if (remainingOffset <= length) {
+      return { childIndex, offset: remainingOffset, parent, text: child }
+    }
+
+    remainingOffset -= length
+    childIndex++
+  }
+
+  return null
 }
 
 export const getYjsVisiblePath = (
@@ -798,37 +843,6 @@ const yjsAttributeRecordsEqual = (
   return true
 }
 
-const getUniformTextAttributes = (node: Y.XmlText): YjsAttributeRecord => {
-  const delta = node.toDelta()
-  let attributes: YjsAttributeRecord | undefined
-  let index = 0
-
-  while (index < delta.length) {
-    const part = delta[index]
-
-    if (!isNonEmptyYjsTextDeltaPart(part)) {
-      index++
-      continue
-    }
-
-    const partAttributes = getPublicAttributes(part.attributes)
-
-    if (attributes === undefined) {
-      attributes = partAttributes
-      index++
-      continue
-    }
-
-    if (!yjsAttributeRecordsEqual(attributes, partAttributes)) {
-      return {}
-    }
-
-    index++
-  }
-
-  return attributes ?? {}
-}
-
 const getPublicAttributes = (
   attributes?: Readonly<YjsAttributeRecord>
 ): YjsAttributeRecord => {
@@ -852,6 +866,46 @@ const getPublicAttributes = (
   return publicAttributes
 }
 
+const readYjsTextForSlate = (
+  node: Y.XmlText
+): { readonly attributes: YjsAttributeRecord; readonly text: string } => {
+  if (getYjsLength(node) === 0) {
+    return { attributes: {}, text: '' }
+  }
+
+  const delta = node.toDelta()
+  let attributes: YjsAttributeRecord | undefined
+  let attributesAreUniform = true
+  let text = ''
+  let index = 0
+
+  while (index < delta.length) {
+    const part = delta[index]
+
+    if (part === undefined) {
+      index++
+      continue
+    }
+
+    text += getYjsTextDeltaPartText(part)
+
+    if (attributesAreUniform && isNonEmptyYjsTextDeltaPart(part)) {
+      const partAttributes = getPublicAttributes(part.attributes)
+
+      if (attributes === undefined) {
+        attributes = partAttributes
+      } else if (!yjsAttributeRecordsEqual(attributes, partAttributes)) {
+        attributes = {}
+        attributesAreUniform = false
+      }
+    }
+
+    index++
+  }
+
+  return { attributes: attributes ?? {}, text }
+}
+
 const getPublicYjsAttributes = (node: YjsNode): YjsAttributeRecord =>
   getPublicAttributes(getYjsAttributes(node))
 
@@ -872,11 +926,12 @@ const readSlateNodeFromYjs = (
 ): Descendant => {
   if (node instanceof Y.XmlText) {
     const attributes = getPublicYjsAttributes(node)
+    const readback = readYjsTextForSlate(node)
     const slateText: YjsAttributeRecord = {}
 
     copyRecordAttributes(slateText, attributes)
-    copyRecordAttributes(slateText, getUniformTextAttributes(node))
-    slateText.text = getYjsTextContent(node)
+    copyRecordAttributes(slateText, readback.attributes)
+    slateText.text = readback.text
 
     return slateText as Descendant
   }
@@ -936,7 +991,10 @@ const cloneYjsNodeWithRoot = (
     const clone = new Y.XmlText()
 
     setYjsAttributes(clone, attributes)
-    clone.applyDelta(node.toDelta(), { sanitize: false })
+
+    if (getYjsLength(node) > 0) {
+      clone.applyDelta(node.toDelta(), { sanitize: false })
+    }
 
     return clone
   }
@@ -1491,9 +1549,12 @@ const matchesSlateNodeContent = (
   }
 
   if ('text' in slateNode) {
+    const text = String(slateNode.text)
+
     return (
       yjsNode instanceof Y.XmlText &&
-      getYjsTextContent(yjsNode) === String(slateNode.text)
+      getYjsLength(yjsNode) === text.length &&
+      getYjsTextContent(yjsNode) === text
     )
   }
 

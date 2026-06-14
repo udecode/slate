@@ -126,6 +126,10 @@ const appendTextContent = (
   source: Y.XmlText,
   extraAttributes: YjsAttributeRecord = {}
 ): string => {
+  if (getYjsLength(source) === 0) {
+    return ''
+  }
+
   let offset = getYjsLength(target)
   let insertedText = ''
   const extraAttributesHaveKeys = hasAttributes(extraAttributes)
@@ -237,6 +241,10 @@ const findLastVisibleText = (
 export const getTrailingSplitUndoText = (
   text: Y.XmlText
 ): TrailingSplitUndoText | null => {
+  if (getYjsLength(text) === 0) {
+    return null
+  }
+
   const delta = text.toDelta()
   let offset = getYjsLength(text)
   let value = ''
@@ -289,6 +297,10 @@ const visibleTextStartsWithReader = (
     }
 
     if (current instanceof Y.XmlText) {
+      if (getYjsLength(current) === 0) {
+        return true
+      }
+
       const currentDelta = current.toDelta()
       let deltaIndex = 0
 

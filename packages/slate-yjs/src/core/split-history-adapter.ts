@@ -3,12 +3,14 @@ import * as Y from 'yjs'
 
 import { toYjsAttributeRecord } from './attributes'
 import {
+  createYjsVisibleChildrenReader,
   getYjsLength,
   getYjsNode,
   getYjsNodeIf,
   getYjsParent,
   getYjsTextContentFrom,
   removeYjsChild,
+  resolveYjsTextPoint,
   SPLIT_UNDO_TEXT_ATTRIBUTE,
   yjsTextContentEndsWith,
 } from './document'
@@ -73,6 +75,21 @@ const completeSplitHistory = (
   textPath: pendingTextSplitHistory.textPath,
   textProperties: pendingTextSplitHistory.textProperties,
 })
+
+const readSplitRightText = (
+  root: Y.XmlElement,
+  path: SplitNodeOperation['path'],
+  position: SplitNodeOperation['position']
+): string => {
+  const point = resolveYjsTextPoint(
+    root,
+    path,
+    position,
+    createYjsVisibleChildrenReader(root)
+  )
+
+  return point === null ? '' : getYjsTextContentFrom(point.text, point.offset)
+}
 
 const peekSplit = (
   item: YjsUndoManagerStackItem | null
@@ -159,7 +176,7 @@ export const createYjsSplitHistoryAdapter = ({
 
     const pending: PendingTextSplitHistory = {
       elementPath,
-      rightText: getYjsTextContentFrom(text, textSplit.position),
+      rightText: readSplitRightText(root, textSplit.path, textSplit.position),
       textPath: textSplit.path,
       textProperties: toYjsAttributeRecord(textSplit.properties),
     }

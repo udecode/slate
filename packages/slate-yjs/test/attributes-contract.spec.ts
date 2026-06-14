@@ -14,6 +14,15 @@ import {
   setYjsNodeAttributes,
 } from '../src/core/replacement'
 
+const internalYjsAttributeKeys = [
+  'slate:yjs-hidden',
+  'slate:yjs-id',
+  'slate:type',
+  'slate:yjs-split-undo-text',
+  'slate:yjs-virtual-child-id',
+  'slate:yjs-virtual-placeholder',
+] as const
+
 describe('@slate/yjs attribute contract', () => {
   it('writes non-string Yjs attributes through the interop boundary', () => {
     const doc = new Y.Doc()
@@ -55,6 +64,40 @@ describe('@slate/yjs attribute contract', () => {
     ])
   })
 
+  it('preserves attributes on empty Yjs text nodes', () => {
+    const doc = new Y.Doc()
+    const root = doc.get('slate', Y.XmlElement)
+    const paragraph = new Y.XmlElement('paragraph')
+    const text = new Y.XmlText()
+
+    setSlateYjsAttribute(paragraph, 'type', 'paragraph')
+    setYjsAttribute(text, 'bold', true)
+    root.insert(0, [paragraph])
+    paragraph.insert(0, [text])
+
+    assert.deepEqual(readSlateValueFromYjs(root), [
+      {
+        children: [{ bold: true, text: '' }],
+        type: 'paragraph',
+      },
+    ])
+  })
+
+  it('preserves null-valued text attributes through readback', () => {
+    const doc = new Y.Doc()
+    const root = doc.get('slate', Y.XmlElement)
+    const paragraph = new Y.XmlElement('paragraph')
+    const [text] = createYjsNodes([{ color: null, text: 'alpha' }])
+
+    setSlateYjsAttribute(paragraph, 'type', 'paragraph')
+    root.insert(0, [paragraph])
+    paragraph.insert(0, [text])
+
+    assert.deepEqual(readSlateValueFromYjs(root), [
+      { children: [{ color: null, text: 'alpha' }], type: 'paragraph' },
+    ])
+  })
+
   it('does not rewrite semantically unchanged object attributes', () => {
     const doc = new Y.Doc()
     const root = doc.get('slate', Y.XmlElement)
@@ -77,15 +120,20 @@ describe('@slate/yjs attribute contract', () => {
   })
 
   it('rejects Slate-authored attributes reserved for internal Yjs state', () => {
-    for (const key of ['slate:yjs-hidden', 'slate:type']) {
-      const node = {
+    for (const key of internalYjsAttributeKeys) {
+      const element = {
         children: [{ text: 'alpha' }],
         [key]: true,
         type: 'paragraph',
       } as unknown as Descendant
+      const text = { [key]: true, text: 'alpha' } as unknown as Descendant
 
       assert.throws(
-        () => createYjsNodes([node]),
+        () => createYjsNodes([element]),
+        new RegExp(`Cannot set internal Yjs attribute "${key}"`)
+      )
+      assert.throws(
+        () => createYjsNodes([text]),
         new RegExp(`Cannot set internal Yjs attribute "${key}"`)
       )
     }
