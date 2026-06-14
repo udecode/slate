@@ -1,5 +1,6 @@
 import { type FormEvent, type RefObject, useCallback } from 'react'
 import { PathApi, type Range, RangeApi } from 'slate'
+import { getSelection } from 'slate-dom'
 import type {
   EditableDOMBeforeInputContext,
   EditableDOMBeforeInputHandler,
@@ -8,6 +9,7 @@ import { focusSlateEditable } from '../hooks/focus-slate-editable'
 import { useOptionalSlateRuntimeContext } from '../hooks/use-slate-runtime'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
+import { getInputEventTargetRanges } from './dom-input-event'
 import { completeDuplicateEditableEditingEpochCommand } from './editing-epoch-kernel'
 import { prepareEditableBeforeInputKernel } from './editing-kernel'
 import {
@@ -152,6 +154,27 @@ export const shouldFlushSelectionChangeBeforeDOMBeforeInput = ({
     inputController,
     inputType,
   })
+
+export const shouldIgnoreDOMBeforeInputWithoutSelection = ({
+  event,
+  nativeRangeCount,
+}: {
+  event: InputEvent
+  nativeRangeCount: number | null
+}) =>
+  nativeRangeCount === 0 &&
+  (event.inputType.startsWith('delete') ||
+    event.inputType.startsWith('insert')) &&
+  getInputEventTargetRanges(event).length === 0
+
+export const shouldAllowBeforeInputSelectionImport = ({
+  event,
+  selectionPolicyAllowsDOMImport,
+}: {
+  event: InputEvent
+  selectionPolicyAllowsDOMImport: boolean
+}) =>
+  selectionPolicyAllowsDOMImport || getInputEventTargetRanges(event).length > 0
 
 export const useRuntimeBeforeInputEvents = ({
   androidInputManagerRef,
@@ -313,6 +336,17 @@ export const useRuntimeBeforeInputEvents = ({
         )
 
         if (!readOnly && editableTarget) {
+          if (
+            profileBeforeInputDuration('beforeinput-without-selection', () =>
+              shouldIgnoreDOMBeforeInputWithoutSelection({
+                event,
+                nativeRangeCount: getSelection(root)?.rangeCount ?? null,
+              })
+            )
+          ) {
+            return
+          }
+
           handledDOMBeforeInputRef.current = true
           const shouldFlushSelectionChange = profileBeforeInputDuration(
             'beforeinput-should-flush-selection',
@@ -475,11 +509,15 @@ export const useRuntimeBeforeInputEvents = ({
 
           const beforeInputSelection = profileBeforeInputDuration(
             'beforeinput-sync-selection',
-            () =>
-              syncSelectionForBeforeInput({
-                allowDOMSelectionImport: selection.allowDOMSelectionImport(
-                  decision.selectionPolicy
-                ),
+            () => {
+              const selectionPolicyAllowsDOMImport =
+                selection.allowDOMSelectionImport(decision.selectionPolicy)
+
+              return syncSelectionForBeforeInput({
+                allowDOMSelectionImport: shouldAllowBeforeInputSelectionImport({
+                  event,
+                  selectionPolicyAllowsDOMImport,
+                }),
                 data,
                 editor,
                 editorElement: el,
@@ -498,8 +536,11 @@ export const useRuntimeBeforeInputEvents = ({
                     inputType: type,
                   }) || forceModelOwnedTextInput,
                 root,
+                selectionChangeOrigin:
+                  inputController.state.selectionChangeOrigin,
                 selection: currentSelection,
               })
+            }
           )
           native = beforeInputSelection.native
           currentSelection = beforeInputSelection.selection

@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer'
 
 import { expect, type Locator, test } from '@playwright/test'
 import {
+  attachSlateBrowserJsonArtifact,
   installSlateReactRenderProfiler,
   openExample,
   recordSlateBrowserRuntimeErrors,
@@ -23,6 +24,9 @@ const getBrowserUndoHotkey = async (root: Locator) =>
     .evaluate(() =>
       /Mac OS X/.test(navigator.userAgent) ? 'Meta+Z' : 'Control+Z'
     )
+
+const MENTIONS_FIREFOX_SELECT_ALL_DIAGNOSTIC =
+  process.env.SLATE_MENTIONS_FIREFOX_SELECT_ALL_DIAGNOSTIC === '1'
 
 const parseSlateFragmentFromHtml = (html: string | null) => {
   if (!html) {
@@ -175,31 +179,123 @@ test.describe('mentions example', () => {
   test('keyboard undo restores select-all replacement content', async ({
     page,
   }, testInfo) => {
+    if (MENTIONS_FIREFOX_SELECT_ALL_DIAGNOSTIC) {
+      test.setTimeout(60_000)
+    }
     test.skip(
       testInfo.project.name === 'mobile',
       'Desktop select-all undo repro'
     )
-    test.skip(
-      testInfo.project.name === 'firefox',
-      'Firefox native select-all replacement differs'
-    )
-
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
     const editor = await openExample(page, 'mentions', {
       ready: {
         editor: 'visible',
       },
     })
     const originalModelText = await editor.get.modelText()
+    const captureDiagnostic = async (label: string) => ({
+      bodyText: await page
+        .locator('body')
+        .innerText()
+        .catch((error) => `body unavailable: ${String(error)}`),
+      domSelection: await editor.selection
+        .dom()
+        .catch((error) => `dom selection unavailable: ${String(error)}`),
+      kernelTrace: (await editor.get.kernelTrace().catch(() => [])).slice(-12),
+      label,
+      lastCommit: await editor.get
+        .lastCommit()
+        .catch((error) => `last commit unavailable: ${String(error)}`),
+      modelSelection: await editor.selection
+        .get()
+        .catch((error) => `model selection unavailable: ${String(error)}`),
+      modelText: await editor.get
+        .modelText()
+        .catch((error) => `model text unavailable: ${String(error)}`),
+      runtimeErrors: runtimeErrors.errors,
+      windowSelection: await page
+        .evaluate(() => {
+          const selection = window.getSelection()
 
-    await editor.selection.selectAll()
-    await page.keyboard.insertText('Z')
-    await editor.assert.text('Z')
+          if (!selection) {
+            return null
+          }
 
-    await editor.root.press(await getBrowserUndoHotkey(editor.root))
+          return {
+            anchorNodeText: selection.anchorNode?.textContent ?? null,
+            anchorOffset: selection.anchorOffset,
+            focusNodeText: selection.focusNode?.textContent ?? null,
+            focusOffset: selection.focusOffset,
+            rangeCount: selection.rangeCount,
+            text: selection.toString(),
+          }
+        })
+        .catch((error) => `window selection unavailable: ${String(error)}`),
+    })
 
-    await expect.poll(() => editor.get.modelText()).toBe(originalModelText)
-    await expect(page.locator('[data-cy="mention-R2-D2"]')).toHaveCount(1)
-    await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(1)
+    try {
+      if (MENTIONS_FIREFOX_SELECT_ALL_DIAGNOSTIC) {
+        await attachSlateBrowserJsonArtifact(
+          testInfo,
+          'mentions-firefox-select-all-before',
+          await captureDiagnostic('before-select-all')
+        )
+      }
+
+      await editor.selection.selectAll()
+
+      if (MENTIONS_FIREFOX_SELECT_ALL_DIAGNOSTIC) {
+        await attachSlateBrowserJsonArtifact(
+          testInfo,
+          'mentions-firefox-select-all-after-select-all',
+          await captureDiagnostic('after-select-all')
+        )
+      }
+
+      await editor.root.press('Z')
+      if (MENTIONS_FIREFOX_SELECT_ALL_DIAGNOSTIC) {
+        await page.waitForTimeout(500)
+        await attachSlateBrowserJsonArtifact(
+          testInfo,
+          'mentions-firefox-select-all-after-insert',
+          await captureDiagnostic('after-insert')
+        )
+        const errorBoundaryCount = await page
+          .getByText('An error was thrown by one of the example')
+          .count()
+          .catch(() => 0)
+
+        if (errorBoundaryCount > 0) {
+          throw new Error(
+            'Firefox select-all replacement crashed the mentions route'
+          )
+        }
+      }
+      await editor.assert.text('Z')
+
+      await editor.root.press(await getBrowserUndoHotkey(editor.root))
+
+      await expect.poll(() => editor.get.modelText()).toBe(originalModelText)
+      await expect(page.locator('[data-cy="mention-R2-D2"]')).toHaveCount(1)
+      await expect(page.locator('[data-cy="mention-Mace-Windu"]')).toHaveCount(
+        1
+      )
+      runtimeErrors.assertNone()
+    } catch (error) {
+      if (MENTIONS_FIREFOX_SELECT_ALL_DIAGNOSTIC) {
+        await attachSlateBrowserJsonArtifact(
+          testInfo,
+          'mentions-firefox-select-all-failure',
+          {
+            ...(await captureDiagnostic('failure')),
+            error: error instanceof Error ? error.stack : String(error),
+          }
+        )
+      }
+      throw error
+    } finally {
+      runtimeErrors.stop()
+    }
   })
 
   test('keeps a mention atomic when CJK composition starts after it', async ({
@@ -497,9 +593,10 @@ test.describe('mentions example', () => {
   })
 
   test('shows list of mentions', async ({ page }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop mention portal proof'
+    )
 
     await getEditor(page).click()
     await selectMentionInsertionPoint(page)
@@ -510,9 +607,10 @@ test.describe('mentions example', () => {
   test('keeps mention portal closed for plain text without trigger', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop mention portal proof'
+    )
 
     await getEditor(page).click()
     await selectMentionInsertionPoint(page)
@@ -522,9 +620,10 @@ test.describe('mentions example', () => {
   })
 
   test('inserts from list', async ({ page }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop mention portal proof'
+    )
 
     await getEditor(page).click()
     await selectMentionInsertionPoint(page)
@@ -705,9 +804,10 @@ test.describe('mentions example', () => {
   test('arrow keys select mentions atomically from both sides', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop mention keyboard proof'
+    )
 
     const editor = await openExample(page, 'mentions', {
       ready: {
@@ -825,9 +925,10 @@ test.describe('mentions example', () => {
   test('Backspace after typing between adjacent inline mentions removes typed text only', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop mention editing proof'
+    )
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
 
@@ -846,7 +947,7 @@ test.describe('mentions example', () => {
       await editor.deleteFragment()
       await editor.selection.collapse({ path: [1, 2], offset: 0 })
       await editor.focus()
-      await page.keyboard.insertText('x')
+      await page.keyboard.type('x')
       await editor.root.press('Backspace')
 
       runtimeErrors.assertNone()
@@ -874,12 +975,12 @@ test.describe('mentions example', () => {
   })
 
   test('selects the last character after a leading inline mention and space', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop mention selection proof'
+    )
 
     const editor = await openExample(page, 'mentions', {
       ready: {
@@ -930,18 +1031,12 @@ test.describe('mentions example', () => {
   })
 
   test('drag-selects across leading inline mentions atomically', async ({
-    browserName,
     page,
   }, testInfo) => {
     test.skip(
       testInfo.project.name === 'mobile',
       'Desktop inline void drag-selection proof'
     )
-    test.skip(
-      browserName !== 'chromium',
-      'Chromium inline void drag-selection proof'
-    )
-
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
 
     try {
@@ -1094,12 +1189,12 @@ test.describe('mentions example', () => {
   })
 
   test('typing two spaces after an inline mention does not insert a dot', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop mention text input proof'
+    )
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
 
@@ -1177,9 +1272,10 @@ test.describe('mentions example', () => {
   test('preserves a leading mention when Backspace removes its line boundary', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop mention editing proof'
+    )
 
     const editor = await openExample(page, 'mentions', {
       ready: {
@@ -1219,9 +1315,10 @@ test.describe('mentions example', () => {
   test('preserves mention order when Backspace removes a line boundary before them', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop mention editing proof'
+    )
 
     const editor = await openExample(page, 'mentions', {
       ready: {

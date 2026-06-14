@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
+import { shouldReplayMouseUpDOMSelection } from '../src/editable/root-interaction-controller'
 import {
   resolveRootInteractionMouseDown,
   resolveRootInteractionMouseUp,
@@ -249,5 +250,43 @@ describe('root interaction resolver', () => {
 
     expect(target.kind).toBe('interactive-descendant')
     expect(resolveRootInteractionMouseDown({ target }).type).toBe('ignore')
+  })
+
+  test('replays Firefox mouseup DOM selection only for moved native selections', () => {
+    expect(
+      shouldReplayMouseUpDOMSelection({
+        hasExpandedDOMRange: true,
+        isFirefox: true,
+        nativeSelectedTextClick: false,
+        pointerMoved: true,
+      })
+    ).toBe(true)
+
+    expect(
+      shouldReplayMouseUpDOMSelection({
+        hasExpandedDOMRange: true,
+        isFirefox: true,
+        nativeSelectedTextClick: false,
+        pointerMoved: false,
+      })
+    ).toBe(false)
+
+    expect(
+      shouldReplayMouseUpDOMSelection({
+        hasExpandedDOMRange: true,
+        isFirefox: true,
+        nativeSelectedTextClick: true,
+        pointerMoved: true,
+      })
+    ).toBe(false)
+
+    expect(
+      shouldReplayMouseUpDOMSelection({
+        hasExpandedDOMRange: true,
+        isFirefox: false,
+        nativeSelectedTextClick: false,
+        pointerMoved: true,
+      })
+    ).toBe(false)
   })
 })

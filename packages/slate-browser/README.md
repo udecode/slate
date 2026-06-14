@@ -22,6 +22,9 @@ Stable package surface:
   - selected-text getter
   - displayed-selection getter for native and projected selection proof
   - screenshot attachment helper for visual proof artifacts
+  - file-backed JSON attachment helper for replayable proof artifacts
+  - native event trace helpers for `selectionchange`, `beforeinput`, `input`,
+    composition, target ranges, DOM deltas, and anomaly labels
   - block-text getter and assertion helpers
   - snapshot helper for aggregated editor state
   - selection namespace for semantic selection actions and setup
@@ -33,6 +36,10 @@ Stable package surface:
   - normalized html equality assertions
   - iframe and scoped-surface support
   - block/text locator helpers
+  - replayable scenario steps, including direct DOM text mutation import for
+    contenteditable repair proof
+  - replayable selection-contract assertions for model, native selected text,
+    DOM endpoints, visible selection, and double-highlight proof
 
 Secondary public surface:
 
@@ -40,6 +47,7 @@ Secondary public surface:
   - `ReadyOptions`
   - `EditorSurfaceOptions`
   - selection and clipboard snapshot types
+  - native event trace snapshot and anomaly types
 - `withExclusiveClipboardAccess(...)`
 - `slate-browser/transports`
   - browser-mobile transport descriptors
@@ -60,11 +68,51 @@ Freeze rule:
   human soft-keyboard, glide typing, or voice input proof
 
 Use the `ready` contract for maintained callsites and examples.
+For editor surfaces, do not use Playwright `locator.fill()` as proof. Slate
+owns model input through `beforeinput`, selection import, and editor commands;
+`fill()` can bypass or mis-model that path, especially in Firefox. Use
+`editor.type(...)` or `page.keyboard.type(...)` when the claim is real keyboard
+behavior: typing, selected-text replacement, undoable key input, focus/caret
+routing, Enter follow-up text, or visual caret proof. Use
+`page.keyboard.insertText(...)` only when the row deliberately bypasses keydown:
+native `beforeinput` / `targetRange` traces, IME or CDP input, Unicode/layout
+insertion that Playwright cannot key-dispatch consistently, direct browser DOM
+mutation import, undo grouping as one text insertion, or model-latency probes.
+Every remaining `insertText` call in non-pagination example specs is classified
+by `packages/slate-browser/test/core/keyboard-oracle-audit.test.ts`.
+Then assert model text, native selection, and native event trace when the
+behavior depends on browser input.
+Native event traces are browser contracts, not one-size-fits-all strings:
+Chromium/WebKit `insertText` may produce only `beforeinput`, while Firefox can
+report `insertCompositionText` and a trailing `input` event for the same
+Playwright call.
+Clipboard helpers prove delivery path and editor ownership, not feature
+semantics by themselves. `editor.clipboard.pasteHtml(...)` writes a rich
+clipboard payload and triggers the browser paste path; the route-specific test
+must still assert the expected parser behavior. Do not treat it as proof that a
+surface supports every rich HTML mark, element, sanitizer, or table policy.
+Use replayable scenario steps for generated stress. For direct browser DOM
+mutation/import proof, use `mutateTextDOM` so the artifact stays replayable;
+do not hide DOM mutation work in a `custom` step unless the packet is explicitly
+non-replayable.
+Generated stress artifacts carry reduction candidates. Replay the full artifact
+with `STRESS_REPLAY=<artifact> bun test:stress:replay:<project>`. Replay one
+candidate with
+`STRESS_REPLAY=<artifact> STRESS_REDUCTION=<label> bun test:stress:replay:<project>`.
+Reduced replays write a separate `.reduction-<label>.result.json` trace beside
+the full replay result.
 
 Example:
 
 ```ts
-import { attachPageScreenshot, openExample } from 'slate-browser/playwright'
+import {
+  attachSlateBrowserJsonArtifact,
+  attachPageScreenshot,
+  openExample,
+  startSlateBrowserNativeEventTrace,
+  stopSlateBrowserNativeEventTrace,
+  takeSlateBrowserNativeEventTrace,
+} from 'slate-browser/playwright'
 
 const editor = await openExample(page, 'placeholder', {
   ready: {
@@ -88,6 +136,15 @@ expect(await editor.get.selectedText()).toBe('Hello')
 expect((await editor.selection.displayed()).source).toBe('native')
 await editor.assert.noDoubleSelectionHighlight()
 await attachPageScreenshot(page, testInfo, 'selection-proof.png')
+
+await startSlateBrowserNativeEventTrace(editor.root)
+await editor.type('!')
+const nativeTrace = await takeSlateBrowserNativeEventTrace(editor.root)
+expect(nativeTrace.entries.some((entry) => entry.type === 'beforeinput')).toBe(
+  true
+)
+await stopSlateBrowserNativeEventTrace(editor.root)
+
 await editor.assert.htmlContains('data-slate-string="true"')
 await editor.assert.selection({
   anchor: { path: [0, 0], offset: [0, 1] },
@@ -105,6 +162,7 @@ await editor.assert.htmlEquals(
 
 const snapshot = await editor.snapshot()
 expect(snapshot.selection).not.toBeNull()
+await attachSlateBrowserJsonArtifact(testInfo, 'editor-snapshot-proof', snapshot)
 
 const secondBlock = editor.locator.block([1])
 await secondBlock.click({ clickCount: 3 })
@@ -113,6 +171,33 @@ await editor.selection.doubleClickDragTextRange({
   endOffset: 'This is editable plain'.length,
   text: 'This is editable plain text, just like a <textarea>!',
 })
+await editor.selection.dragTextRange({
+  endOffset: 5,
+  endText: ' text, ',
+  startOffset: 8,
+  text: 'This is editable ',
+})
+await editor.selection.dragTextRange({
+  direction: 'backward',
+  endOffset: 'hyperlink'.length,
+  startOffset: 0,
+  text: 'hyperlink',
+})
+await editor.scenario.run([
+  {
+    expectation: {
+      domSelection: {
+        anchorNodeText: 'This is editable ',
+        anchorOffset: 8,
+        focusNodeText: ' text, ',
+        focusOffset: 5,
+      },
+      noDoubleSelectionHighlight: true,
+      selectedText: 'editable rich text',
+    },
+    kind: 'assertSelectionContract',
+  },
+])
 
 const bookmark = await editor.selection.capture({ affinity: 'inward' })
 await editor.selection.restore(bookmark)

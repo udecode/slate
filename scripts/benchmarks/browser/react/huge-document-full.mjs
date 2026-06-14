@@ -39,21 +39,8 @@ const runArtifactPath = `${[
   `ops-${typeOps}`,
   smoke ? 'smoke' : 'full',
 ].join('-')}.json`
-
-const sanitizeArtifactSegment = (value) =>
-  String(value)
-    .replace(/[^a-zA-Z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 180) || 'default'
-
-const browserTraceArtifactPath = (surfaces) =>
-  `${[
-    'tmp/slate-react-huge-document-browser-trace-benchmark',
-    `surfaces-${sanitizeArtifactSegment(surfaces.split(',').join('-'))}`,
-    `blocks-${blocks}`,
-    `iters-${traceIterations}`,
-    `ops-${typeOps}`,
-  ].join('-')}.json`
+const browserTraceLatestArtifactPath =
+  'tmp/slate-react-huge-document-browser-trace-benchmark.json'
 
 const childLinePattern = /^[a-zA-Z][\w-]*: /
 const lineBreakPattern = /\r?\n/
@@ -961,7 +948,7 @@ const steps = [
     id: 'react-huge-document-legacy-compare',
   },
   {
-    artifactPath: browserTraceArtifactPath('defaultAuto'),
+    artifactPath: browserTraceLatestArtifactPath,
     command: 'bun run bench:react:huge-document:browser-trace:local',
     env: {
       SLATE_BROWSER_TRACE_BLOCKS: blocks,
@@ -973,9 +960,7 @@ const steps = [
     id: 'react-huge-document-browser-trace',
   },
   {
-    artifactPath: browserTraceArtifactPath(
-      'stagedActiveDOMGroup,stagedContentVisibility'
-    ),
+    artifactPath: browserTraceLatestArtifactPath,
     command: 'bun run bench:react:huge-document:browser-trace:local',
     env: {
       SLATE_BROWSER_TRACE_BLOCKS: blocks,
@@ -988,7 +973,7 @@ const steps = [
     id: 'react-huge-document-staged-diagnostic-trace',
   },
   {
-    artifactPath: browserTraceArtifactPath('virtualized'),
+    artifactPath: browserTraceLatestArtifactPath,
     command: 'bun run bench:react:huge-document:browser-trace:local',
     env: {
       SLATE_BROWSER_TRACE_BLOCKS: blocks,

@@ -11,17 +11,15 @@ One of Slate's core principles is that, unlike most other editors, it does **not
 
 For the most part, this leads to increased flexibility without many downsides, but there are certain cases where you have to do a bit more work. Pasting is one of those cases.
 
-Since Slate knows nothing about your domain, it can't know how to parse pasted HTML content \(or other content\). So, by default whenever a user pastes content into a Slate editor, it will parse it as plain text. If you want it to be smarter about pasted content, you need to override the `insert_data` command and deserialize the `DataTransfer` object's `text/html` data as you wish.
+Since Slate knows nothing about your domain, it can't know how to parse pasted HTML content \(or other content\). So, by default whenever a user pastes content into a Slate editor, it will parse it as plain text. If you want it to be smarter about pasted content, add a `clipboard.insertData` extension handler that deserializes the `DataTransfer` object's `text/html` data and returns `true` when it handles the paste.
 
 ## What browsers and devices does Slate support?
 
-Slate's goal is to support all the modern browsers on both desktop and mobile devices.
+Slate targets modern browsers on desktop and mobile devices.
 
-Slate is in beta and is community-driven and so its support is not as robust as it could be.
+On desktop, Slate focuses on current Chrome, Edge, Firefox, and Safari. Internet Explorer is unsupported.
 
-On the desktop, it's currently tested against the latest few versions of Chrome, Edge, Firefox and Safari on desktops. And it does not work in Internet Explorer.
-
-On mobile, iOS devices are supported but not regularly tested. Chrome on Android was until recently unsupported except for in older versions of Slate (0.47) but has recently been added. For clarity, due to the differences in Android's support of the `beforeInput` event, Android input uses compositions and mutations which is different from other browsers. This means that Android support progresses separately from other browsers and due to it being new, may have more bugs.
+Mobile support has a different proof shape from desktop support. iOS is supported but not part of every routine local verification pass. Android input uses composition and mutation paths because its `beforeInput` support differs from desktop browsers, so Android behavior needs dedicated proof instead of desktop assumptions.
 
 If you want to add or improve browser or device support, we'd love for you to submit a pull request! Or in the case of incompatible browsers, build a plugin.
 

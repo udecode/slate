@@ -9,6 +9,7 @@ import {
   shouldFlushSelectionChangeAfterKeyDownPolicy,
   shouldPreserveDOMRepairQueueDuringSelectionChange,
   shouldRepairPendingNativeTextInputDuringSelectionChange,
+  shouldSkipModelOwnedRepairSelectionChange,
 } from '../src/editable/runtime-selection-engine'
 import {
   isTextInputSelectionHandledByCaretRepair,
@@ -262,6 +263,73 @@ describe('selection runtime', () => {
         inputController,
       })
     ).toBe(true)
+  })
+
+  test('model-owned repair selectionchange skips stale DOM import work only after model-owned repair', () => {
+    expect(
+      shouldSkipModelOwnedRepairSelectionChange({
+        activeIntent: 'history',
+        modelSelectionPreferred: true,
+        selectionChangeOrigin: 'repair-induced',
+        selectionSource: 'model-owned',
+      })
+    ).toBe(true)
+    expect(
+      shouldSkipModelOwnedRepairSelectionChange({
+        activeIntent: 'text-insert',
+        modelSelectionPreferred: true,
+        pendingNativeTextInputRepairPathKey: null,
+        pendingNativeTextInputRepairSuppressedDOMSelection: false,
+        selectionChangeOrigin: null,
+        selectionSource: 'model-owned',
+      })
+    ).toBe(true)
+    expect(
+      shouldSkipModelOwnedRepairSelectionChange({
+        activeIntent: 'text-insert',
+        modelSelectionPreferred: true,
+        pendingNativeTextInputRepairPathKey: null,
+        pendingNativeTextInputRepairSuppressedDOMSelection: false,
+        selectionChangeOrigin: 'repair-induced',
+        selectionSource: 'model-owned',
+      })
+    ).toBe(true)
+    expect(
+      shouldSkipModelOwnedRepairSelectionChange({
+        activeIntent: 'text-insert',
+        modelSelectionPreferred: true,
+        pendingNativeTextInputRepairPathKey: '0,0',
+        pendingNativeTextInputRepairSuppressedDOMSelection: false,
+        selectionChangeOrigin: 'repair-induced',
+        selectionSource: 'model-owned',
+      })
+    ).toBe(false)
+    expect(
+      shouldSkipModelOwnedRepairSelectionChange({
+        activeIntent: 'text-insert',
+        modelSelectionPreferred: true,
+        pendingNativeTextInputRepairPathKey: null,
+        pendingNativeTextInputRepairSuppressedDOMSelection: true,
+        selectionChangeOrigin: 'repair-induced',
+        selectionSource: 'model-owned',
+      })
+    ).toBe(false)
+    expect(
+      shouldSkipModelOwnedRepairSelectionChange({
+        activeIntent: 'history',
+        modelSelectionPreferred: true,
+        selectionChangeOrigin: 'native-user',
+        selectionSource: 'model-owned',
+      })
+    ).toBe(false)
+    expect(
+      shouldSkipModelOwnedRepairSelectionChange({
+        activeIntent: 'history',
+        modelSelectionPreferred: false,
+        selectionChangeOrigin: 'repair-induced',
+        selectionSource: 'model-owned',
+      })
+    ).toBe(false)
   })
 
   test('wires selector listener to DOM export policy', () => {

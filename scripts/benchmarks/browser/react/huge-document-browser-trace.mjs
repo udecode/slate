@@ -35,6 +35,8 @@ const selectAllDeleteTypeText =
 const selectAllDeleteInputMode =
   process.env.SLATE_BROWSER_TRACE_AFTER_DELETE_INPUT_MODE || 'type'
 const selectAllDeleteInputModes = new Set(['insertText', 'type'])
+const runLabel = process.env.SLATE_BROWSER_TRACE_RUN_LABEL || ''
+const runStartedAt = new Date().toISOString()
 
 if (!selectAllDeleteInputModes.has(selectAllDeleteInputMode)) {
   throw new Error(
@@ -54,11 +56,31 @@ const selectedSurfaces = new Set(
 const latestArtifactPath =
   'tmp/slate-react-huge-document-browser-trace-benchmark.json'
 
-const sanitizeArtifactSegment = (value) =>
-  String(value)
-    .replace(/[^a-zA-Z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 180) || 'default'
+const hashArtifactSegment = (value) => {
+  let hash = 5381
+
+  for (const char of value) {
+    hash = (hash * 33) ^ char.charCodeAt(0)
+  }
+
+  return (hash >>> 0).toString(36)
+}
+
+const sanitizeArtifactSegment = (value, maxLength = 40) => {
+  const segment =
+    String(value)
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'default'
+
+  if (segment.length <= maxLength) {
+    return segment
+  }
+
+  const suffix = hashArtifactSegment(segment)
+  const prefixLength = Math.max(1, maxLength - suffix.length - 1)
+
+  return `${segment.slice(0, prefixLength)}-${suffix}`
+}
 
 const runArtifactPath = `${[
   'tmp/slate-react-huge-document-browser-trace-benchmark',
@@ -68,6 +90,7 @@ const runArtifactPath = `${[
   `ops-${typeOps}`,
   `after-delete-${sanitizeArtifactSegment(selectAllDeleteInputMode)}`,
   `after-delete-text-${sanitizeArtifactSegment(selectAllDeleteTypeText)}`,
+  `run-${sanitizeArtifactSegment([runLabel, runStartedAt].filter(Boolean).join('-'))}`,
 ].join('-')}.json`
 
 const typeText = 'X'.repeat(typeOps)
@@ -204,6 +227,7 @@ const installTraceObserver = async (page) => {
       inputEvents: [],
       mouseDownEvents: [],
       profilerEvents: [],
+      timerEvents: [],
       reset() {
         this.beforeInputEvents.length = 0
         this.inputEvents.length = 0
@@ -211,6 +235,7 @@ const installTraceObserver = async (page) => {
         this.longTasks.length = 0
         this.mouseDownEvents.length = 0
         this.profilerEvents.length = 0
+        this.timerEvents.length = 0
       },
       snapshot() {
         return {
@@ -220,6 +245,7 @@ const installTraceObserver = async (page) => {
           longTasks: this.longTasks.slice(),
           mouseDownEvents: this.mouseDownEvents.slice(),
           profilerEvents: this.profilerEvents.slice(),
+          timerEvents: this.timerEvents.slice(),
         }
       },
     }
@@ -230,6 +256,50 @@ const installTraceObserver = async (page) => {
       record(event) {
         trace.profilerEvents.push(event)
       },
+    }
+    const originalSetTimeout = target.setTimeout?.bind(target)
+    const compactTimerStack = (stack) =>
+      String(stack ?? '')
+        .split('\n')
+        .slice(2, 8)
+        .map((line) => line.trim())
+        .filter(Boolean)
+
+    if (originalSetTimeout) {
+      target.setTimeout = (callback, delay, ...args) => {
+        if (typeof callback !== 'function') {
+          return originalSetTimeout(callback, delay, ...args)
+        }
+
+        const scheduledAt = performance.now()
+        const scheduledStack = compactTimerStack(
+          new Error('Scheduled benchmark timer').stack
+        )
+        const timerDelay = Number(delay) || 0
+
+        return originalSetTimeout(
+          function slateTraceTimerCallback(...timerArgs) {
+            const startedAt = performance.now()
+
+            try {
+              return callback.apply(this, timerArgs)
+            } finally {
+              const endedAt = performance.now()
+
+              trace.timerEvents.push({
+                callbackName: callback.name || null,
+                delay: timerDelay,
+                duration: endedAt - startedAt,
+                scheduledAt,
+                scheduledStack,
+                startedAt,
+              })
+            }
+          },
+          delay,
+          ...args
+        )
+      }
     }
     const getInputEventTargetSnapshot = (event) => {
       const targetElement =
@@ -755,6 +825,42 @@ const summarizeTraceEvents = (events = []) => {
   }
 }
 
+const summarizeTimerEvents = (events = []) => {
+  const buckets = new Map()
+
+  for (const event of events) {
+    const topStackFrame = event.scheduledStack?.[0] ?? null
+    const key = [
+      `delay=${event.delay ?? 0}`,
+      event.callbackName || 'anonymous',
+      topStackFrame,
+    ]
+      .filter(Boolean)
+      .join('|')
+    const current = buckets.get(key) ?? {
+      count: 0,
+      durationMs: 0,
+      key,
+      maxDurationMs: 0,
+    }
+    const duration = Number.isFinite(event.duration) ? event.duration : 0
+
+    current.count += 1
+    current.durationMs += duration
+    current.maxDurationMs = Math.max(current.maxDurationMs, duration)
+    buckets.set(key, current)
+  }
+
+  return Array.from(buckets.values())
+    .sort((left, right) => right.durationMs - left.durationMs)
+    .slice(0, 20)
+    .map((event) => ({
+      ...event,
+      durationMs: round(event.durationMs),
+      maxDurationMs: round(event.maxDurationMs),
+    }))
+}
+
 const summarizeAttributionEntries = (entries, readParts) => {
   const buckets = new Map()
 
@@ -800,6 +906,68 @@ const summarizeAttributionEntries = (entries, readParts) => {
         bucket.forcedStyleAndLayoutDurationMs
       ),
     }))
+}
+
+const summarizeAttributionTotals = (entries, readParts) => {
+  let attributionCount = 0
+  let durationMs = 0
+  let forcedStyleAndLayoutDurationMs = 0
+
+  for (const entry of entries) {
+    for (const attribution of readParts(entry) ?? []) {
+      attributionCount += 1
+      durationMs += Number.isFinite(attribution.duration)
+        ? attribution.duration
+        : 0
+      forcedStyleAndLayoutDurationMs += Number.isFinite(
+        attribution.forcedStyleAndLayoutDuration
+      )
+        ? attribution.forcedStyleAndLayoutDuration
+        : 0
+    }
+  }
+
+  return {
+    attributionCount,
+    durationMs: round(durationMs),
+    forcedStyleAndLayoutDurationMs: round(forcedStyleAndLayoutDurationMs),
+  }
+}
+
+const summarizeLongTaskAttributionTotals = (entries) => {
+  const totalDurationMs = entries.reduce(
+    (total, entry) =>
+      total + (Number.isFinite(entry.duration) ? entry.duration : 0),
+    0
+  )
+  const attributionTotals = summarizeAttributionTotals(
+    entries,
+    (entry) => entry.attribution ?? []
+  )
+  const attributedDurationMs = Math.min(
+    totalDurationMs,
+    attributionTotals.durationMs
+  )
+  const unattributedDurationMs = Math.max(
+    0,
+    totalDurationMs - attributedDurationMs
+  )
+  let attributionClaimWidth = 'attributed'
+
+  if (totalDurationMs === 0) {
+    attributionClaimWidth = 'none'
+  } else if (attributedDurationMs === 0) {
+    attributionClaimWidth = 'unattributed'
+  } else if (unattributedDurationMs > 0) {
+    attributionClaimWidth = 'partial'
+  }
+
+  return {
+    longTaskAttributionClaimWidth: attributionClaimWidth,
+    longTaskAttributionEntryCount: attributionTotals.attributionCount,
+    longTaskAttributedDurationMs: round(attributedDurationMs),
+    longTaskUnattributedDurationMs: round(unattributedDurationMs),
+  }
 }
 
 const readBlockText = async (page, blockIndex) =>
@@ -1127,6 +1295,7 @@ const measureHandleUndoRestore = async (page, expected, context) => {
 const summarizeTracePhase = async (page) => {
   const trace = await getTraceSnapshot(page)
   const profilerEvents = trace?.profilerEvents ?? []
+  const longTasks = trace?.longTasks ?? []
   const profilerDurationMs = profilerEvents.reduce(
     (total, event) =>
       total +
@@ -1144,15 +1313,14 @@ const summarizeTracePhase = async (page) => {
       0,
       ...(trace?.longAnimationFrames ?? []).map((entry) => entry.duration)
     ),
-    longTaskDurationMs: (trace?.longTasks ?? []).reduce(
+    longTaskDurationMs: longTasks.reduce(
       (total, entry) => total + entry.duration,
       0
     ),
-    longTaskMaxMs: Math.max(
-      0,
-      ...(trace?.longTasks ?? []).map((entry) => entry.duration)
-    ),
+    longTaskMaxMs: Math.max(0, ...longTasks.map((entry) => entry.duration)),
   }
+  const longTaskAttributionTotals =
+    summarizeLongTaskAttributionTotals(longTasks)
 
   return {
     beforeInputCount: trace?.beforeInputEvents?.length ?? 0,
@@ -1165,14 +1333,27 @@ const summarizeTracePhase = async (page) => {
     ),
     longAnimationFrameCount: trace?.longAnimationFrames?.length ?? 0,
     longTaskAttribution: summarizeAttributionEntries(
-      trace?.longTasks ?? [],
+      longTasks,
       (entry) => entry.attribution ?? []
     ),
-    longTaskCount: trace?.longTasks?.length ?? 0,
+    longTaskCount: longTasks.length,
     mouseDownCount: trace?.mouseDownEvents?.length ?? 0,
     profiler: summarizeProfilerEvents(trace?.profilerEvents),
     profilerEventCount: trace?.profilerEvents?.length ?? 0,
     profilerDurationMs,
+    timerDurationMs: round(
+      (trace?.timerEvents ?? []).reduce(
+        (total, event) =>
+          total +
+          (typeof event.duration === 'number' && Number.isFinite(event.duration)
+            ? event.duration
+            : 0),
+        0
+      )
+    ),
+    timerEventCount: trace?.timerEvents?.length ?? 0,
+    timers: summarizeTimerEvents(trace?.timerEvents ?? []),
+    ...longTaskAttributionTotals,
     ...durations,
   }
 }
@@ -1933,6 +2114,14 @@ const measureInteraction = async (page, lane, context) => {
   const afterText = await readBlockText(page, lane.blockIndex)
   const modelPaintTime = paintTime
   const trace = await getTraceSnapshot(page)
+  const longTasks = trace?.longTasks ?? []
+  const longTaskDurationMs = longTasks.reduce(
+    (total, entry) =>
+      total + (Number.isFinite(entry.duration) ? entry.duration : 0),
+    0
+  )
+  const longTaskAttributionTotals =
+    summarizeLongTaskAttributionTotals(longTasks)
   const memory = await getMemoryAndDomTags(page)
   const lastInputAt = Math.max(
     0,
@@ -1972,11 +2161,10 @@ const measureInteraction = async (page, lane, context) => {
       0,
       ...(trace?.longAnimationFrames ?? []).map((entry) => entry.duration)
     ),
-    longTaskCount: trace?.longTasks?.length ?? 0,
-    longTaskMaxMs: Math.max(
-      0,
-      ...(trace?.longTasks ?? []).map((entry) => entry.duration)
-    ),
+    longTaskCount: longTasks.length,
+    longTaskDurationMs,
+    longTaskMaxMs: Math.max(0, ...longTasks.map((entry) => entry.duration)),
+    ...longTaskAttributionTotals,
     materializedSelectReadyMs:
       materializedSelectTiming.readyTime - materializedSelectStart,
     materializedSelectMs: materializedSelectPaint - materializedSelectStart,
@@ -2050,7 +2238,20 @@ const summarizeLane = (samples) => ({
   longAnimationFrameCount: summarizeMetric(samples, 'longAnimationFrameCount'),
   longAnimationFrameMaxMs: summarizeMetric(samples, 'longAnimationFrameMaxMs'),
   longTaskCount: summarizeMetric(samples, 'longTaskCount'),
+  longTaskDurationMs: summarizeMetric(samples, 'longTaskDurationMs'),
   longTaskMaxMs: summarizeMetric(samples, 'longTaskMaxMs'),
+  longTaskAttributedDurationMs: summarizeMetric(
+    samples,
+    'longTaskAttributedDurationMs'
+  ),
+  longTaskAttributionEntryCount: summarizeMetric(
+    samples,
+    'longTaskAttributionEntryCount'
+  ),
+  longTaskUnattributedDurationMs: summarizeMetric(
+    samples,
+    'longTaskUnattributedDurationMs'
+  ),
   profiler: summarizeProfilerBuckets(samples),
   burstToPaintMs: summarizeMetric(samples, 'burstToPaintMs'),
   burstToPaintPerOpMs: summarizeMetric(samples, 'burstToPaintPerOpMs'),
@@ -2128,6 +2329,7 @@ const measureSurface = async ({ browser, baseUrl, surface }) => {
   const laneSamples = Object.fromEntries(lanes.map((lane) => [lane.key, []]))
   const nativeSurfaceSamples = []
   let selectAllDeleteSample = null
+  let selectAllDeleteSurfaceState = null
 
   try {
     for (let iteration = 0; iteration < iterations + 1; iteration += 1) {
@@ -2157,6 +2359,7 @@ const measureSurface = async ({ browser, baseUrl, surface }) => {
       await selectAllPage.goto(url, { waitUntil: 'networkidle' })
       await waitForEditorReady(selectAllPage)
       await installTraceObserver(selectAllPage)
+      selectAllDeleteSurfaceState = await waitForNativeSurface(selectAllPage)
       selectAllDeleteSample = await measureSelectAllDeleteFlow(
         selectAllPage,
         surface.key
@@ -2190,13 +2393,28 @@ const measureSurface = async ({ browser, baseUrl, surface }) => {
         nativeSurfaceSamples.slice(1),
         'observedBlocks'
       ),
+      samples: nativeSurfaceSamples.slice(1).map((sample) => ({
+        bounded: sample.bounded,
+        complete: sample.complete,
+        editorTextNodeCount: sample.editorTextNodeCount,
+        effectiveStrategy: sample.effectiveStrategy,
+        mountedTopLevelCount: sample.mountedTopLevelCount,
+        observedBlocks: sample.observedBlocks,
+        pendingTopLevelCount: sample.pendingTopLevelCount,
+        requestedStrategy: sample.requestedStrategy,
+      })),
       timeoutCount: nativeSurfaceSamples
         .slice(1)
         .filter((sample) => !sample.complete && !sample.bounded).length,
       timeoutMs: nativeSurfaceTimeoutMs,
     },
     path: surface.path,
-    selectAllDelete: selectAllDeleteSample,
+    selectAllDelete: selectAllDeleteSample
+      ? {
+          ...selectAllDeleteSample,
+          surfaceState: selectAllDeleteSurfaceState,
+        }
+      : null,
   }
 }
 
@@ -2221,6 +2439,8 @@ const run = async () => {
         browser: 'chromium',
         headless,
         iterations,
+        runLabel: runLabel || null,
+        runStartedAt,
         selectAllDelete: selectAllDeleteEnabled,
         typeOps,
       },
@@ -2246,7 +2466,7 @@ const run = async () => {
 
       for (const [laneKey, lane] of Object.entries(surface.lanes)) {
         console.log(
-          `${laneKey}: selectionReadyMs p95=${lane.selectReadyMs.p95}, selectToPaintMs p95=${lane.selectMs.p95}, selectMaterializationFrames p95=${lane.selectMaterializationFrames.p95}, selectMaterializationScrollDelta p95=${lane.selectMaterializationScrollDelta.p95}, materializedSelectionReadyMs p95=${lane.materializedSelectReadyMs.p95}, materializedSelectToPaintMs p95=${lane.materializedSelectMs.p95}, materializedSelectMaterializationFrames p95=${lane.materializedSelectMaterializationFrames.p95}, materializedSelectMaterializationScrollDelta p95=${lane.materializedSelectMaterializationScrollDelta.p95}, clickDispatchMs p95=${lane.clickDispatchMs.p95}, clickMouseMoveMs p95=${lane.clickMouseMoveMs.p95}, clickMouseDownMs p95=${lane.clickMouseDownMs.p95}, clickMouseDownPreEventMs p95=${lane.clickMouseDownPreEventMs.p95}, clickMouseDownEventMs p95=${lane.clickMouseDownEventMs.p95}, clickMouseDownPostEventMs p95=${lane.clickMouseDownPostEventMs.p95}, clickMouseUpMs p95=${lane.clickMouseUpMs.p95}, clickSelectionWaitMs p95=${lane.clickSelectionWaitMs.p95}, clickPaintWaitMs p95=${lane.clickPaintWaitMs.p95}, clickToSelectionReadyMs p95=${lane.clickToSelectionReadyMs.p95}, clickToPaintMs p95=${lane.clickToPaintMs.p95}, interactionSequenceToPaintMs p95=${lane.interactionSequenceToPaintMs.p95}, typeToPaintMs p95=${lane.typeToPaintMs.p95}, modelTypeToReadyMs p95=${lane.modelTypeToReadyMs.p95}, modelTypeToPaintMs p95=${lane.modelTypeToPaintMs.p95}, burstToPaintMs p95=${lane.burstToPaintMs.p95}, burstToPaintPerOpMs p95=${lane.burstToPaintPerOpMs.p95}, modelBurstToPaintPerOpMs p95=${lane.modelBurstToPaintPerOpMs.p95}, longTaskMaxMs p95=${lane.longTaskMaxMs.p95}, domNodes p95=${lane.domTags.domNodeCount.p95}, heapMB p95=${round(lane.domTags.jsHeapUsedMB.p95)}`
+          `${laneKey}: selectionReadyMs p95=${lane.selectReadyMs.p95}, selectToPaintMs p95=${lane.selectMs.p95}, selectMaterializationFrames p95=${lane.selectMaterializationFrames.p95}, selectMaterializationScrollDelta p95=${lane.selectMaterializationScrollDelta.p95}, materializedSelectionReadyMs p95=${lane.materializedSelectReadyMs.p95}, materializedSelectToPaintMs p95=${lane.materializedSelectMs.p95}, materializedSelectMaterializationFrames p95=${lane.materializedSelectMaterializationFrames.p95}, materializedSelectMaterializationScrollDelta p95=${lane.materializedSelectMaterializationScrollDelta.p95}, clickDispatchMs p95=${lane.clickDispatchMs.p95}, clickMouseMoveMs p95=${lane.clickMouseMoveMs.p95}, clickMouseDownMs p95=${lane.clickMouseDownMs.p95}, clickMouseDownPreEventMs p95=${lane.clickMouseDownPreEventMs.p95}, clickMouseDownEventMs p95=${lane.clickMouseDownEventMs.p95}, clickMouseDownPostEventMs p95=${lane.clickMouseDownPostEventMs.p95}, clickMouseUpMs p95=${lane.clickMouseUpMs.p95}, clickSelectionWaitMs p95=${lane.clickSelectionWaitMs.p95}, clickPaintWaitMs p95=${lane.clickPaintWaitMs.p95}, clickToSelectionReadyMs p95=${lane.clickToSelectionReadyMs.p95}, clickToPaintMs p95=${lane.clickToPaintMs.p95}, interactionSequenceToPaintMs p95=${lane.interactionSequenceToPaintMs.p95}, typeToPaintMs p95=${lane.typeToPaintMs.p95}, modelTypeToReadyMs p95=${lane.modelTypeToReadyMs.p95}, modelTypeToPaintMs p95=${lane.modelTypeToPaintMs.p95}, burstToPaintMs p95=${lane.burstToPaintMs.p95}, burstToPaintPerOpMs p95=${lane.burstToPaintPerOpMs.p95}, modelBurstToPaintPerOpMs p95=${lane.modelBurstToPaintPerOpMs.p95}, longTaskMaxMs p95=${lane.longTaskMaxMs.p95}, longTaskTotalMs p95=${lane.longTaskDurationMs.p95}, longTaskAttributedMs p95=${lane.longTaskAttributedDurationMs.p95}, longTaskUnattributedMs p95=${lane.longTaskUnattributedDurationMs.p95}, domNodes p95=${lane.domTags.domNodeCount.p95}, heapMB p95=${round(lane.domTags.jsHeapUsedMB.p95)}`
         )
       }
 
@@ -2259,7 +2479,7 @@ const run = async () => {
           typeAfterDeleteTrace?.inputEvents ?? {}
 
         console.log(
-          `selectAllDelete: selectAllReadyMs=${round(proof.selectAllReadyMs)}, selectAllToPaintMs=${round(proof.selectAllToPaintMs)}, deleteReadyMs=${round(proof.deleteReadyMs)}, deleteToPaintMs=${round(proof.deleteToPaintMs)}, typeAfterDeleteInputMode=${proof.typeAfterDeleteInputMode}, typeAfterDeleteToPaintMs=${round(proof.typeAfterDeleteToPaintMs)}, typeAfterDeleteDispatchMs=${round(proof.typeAfterDeleteDispatchMs)}, typeAfterDeleteWaitForModelMs=${round(proof.typeAfterDeleteWaitForModelMs)}, typeAfterDeleteBeforeInputSpanMs=${round(typeAfterDeleteBeforeInputEvents.spanMs ?? 0)}, typeAfterDeleteBeforeInputMaxGapMs=${round(typeAfterDeleteBeforeInputEvents.maxGapMs ?? 0)}, typeAfterDeleteInputSpanMs=${round(typeAfterDeleteInputEvents.spanMs ?? 0)}, typeAfterDeleteInputMaxGapMs=${round(typeAfterDeleteInputEvents.maxGapMs ?? 0)}, typeAfterDeleteLongTaskMaxMs=${round(typeAfterDeleteTrace?.longTaskMaxMs ?? 0)}, typeAfterDeleteProfilerDurationMs=${round(typeAfterDeleteTrace?.profilerDurationMs ?? 0)}, undoTypeToPaintMs=${round(proof.undoTypeToPaintMs)}, undoDeleteReadyMs=${round(proof.undoDeleteReadyMs)}, undoDeleteToPaintMs=${round(proof.undoDeleteToPaintMs)}, undoDeleteRestored=${proof.undoDeleteRestored}, afterSelectAllDomNodes=${proof.afterSelectAllDomNodes}, afterDeleteDomNodes=${proof.afterDeleteDomNodes}, afterUndoDeleteDomNodes=${proof.afterUndoDeleteDomNodes}`
+          `selectAllDelete: selectAllReadyMs=${round(proof.selectAllReadyMs)}, selectAllToPaintMs=${round(proof.selectAllToPaintMs)}, deleteReadyMs=${round(proof.deleteReadyMs)}, deleteToPaintMs=${round(proof.deleteToPaintMs)}, typeAfterDeleteInputMode=${proof.typeAfterDeleteInputMode}, typeAfterDeleteToPaintMs=${round(proof.typeAfterDeleteToPaintMs)}, typeAfterDeleteDispatchMs=${round(proof.typeAfterDeleteDispatchMs)}, typeAfterDeleteWaitForModelMs=${round(proof.typeAfterDeleteWaitForModelMs)}, typeAfterDeleteBeforeInputSpanMs=${round(typeAfterDeleteBeforeInputEvents.spanMs ?? 0)}, typeAfterDeleteBeforeInputMaxGapMs=${round(typeAfterDeleteBeforeInputEvents.maxGapMs ?? 0)}, typeAfterDeleteInputSpanMs=${round(typeAfterDeleteInputEvents.spanMs ?? 0)}, typeAfterDeleteInputMaxGapMs=${round(typeAfterDeleteInputEvents.maxGapMs ?? 0)}, typeAfterDeleteLongTaskMaxMs=${round(typeAfterDeleteTrace?.longTaskMaxMs ?? 0)}, typeAfterDeleteLongTaskAttributedMs=${round(typeAfterDeleteTrace?.longTaskAttributedDurationMs ?? 0)}, typeAfterDeleteLongTaskUnattributedMs=${round(typeAfterDeleteTrace?.longTaskUnattributedDurationMs ?? 0)}, typeAfterDeleteLongTaskClaim=${typeAfterDeleteTrace?.longTaskAttributionClaimWidth ?? 'none'}, typeAfterDeleteProfilerDurationMs=${round(typeAfterDeleteTrace?.profilerDurationMs ?? 0)}, undoTypeToPaintMs=${round(proof.undoTypeToPaintMs)}, undoDeleteReadyMs=${round(proof.undoDeleteReadyMs)}, undoDeleteToPaintMs=${round(proof.undoDeleteToPaintMs)}, undoDeleteRestored=${proof.undoDeleteRestored}, afterSelectAllDomNodes=${proof.afterSelectAllDomNodes}, afterDeleteDomNodes=${proof.afterDeleteDomNodes}, afterUndoDeleteDomNodes=${proof.afterUndoDeleteDomNodes}`
         )
       }
     }
@@ -2300,6 +2520,9 @@ const run = async () => {
     )
     const maxClickToPaintP95Ms = Math.max(
       ...laneSummaries.map((lane) => lane.clickToPaintMs.p95)
+    )
+    const maxInteractionSequenceToPaintP95Ms = Math.max(
+      ...laneSummaries.map((lane) => lane.interactionSequenceToPaintMs.p95)
     )
     const maxClickToSelectionReadyP95Ms = Math.max(
       ...laneSummaries.map((lane) => lane.clickToSelectionReadyMs.p95)
@@ -2354,6 +2577,15 @@ const run = async () => {
     )
     const maxLongTaskP95Ms = Math.max(
       ...laneSummaries.map((lane) => lane.longTaskMaxMs.p95)
+    )
+    const maxLongTaskTotalP95Ms = Math.max(
+      ...laneSummaries.map((lane) => lane.longTaskDurationMs.p95)
+    )
+    const maxLongTaskAttributedP95Ms = Math.max(
+      ...laneSummaries.map((lane) => lane.longTaskAttributedDurationMs.p95)
+    )
+    const maxLongTaskUnattributedP95Ms = Math.max(
+      ...laneSummaries.map((lane) => lane.longTaskUnattributedDurationMs.p95)
     )
     const maxRootMouseDownCaptureP95Ms = Math.max(
       ...laneSummaries.map((lane) =>
@@ -2441,6 +2673,11 @@ const run = async () => {
       const maxSurfaceClickToPaintP95Ms = Math.max(
         ...surfaceLaneSummaries.map((lane) => lane.clickToPaintMs.p95)
       )
+      const maxSurfaceInteractionSequenceToPaintP95Ms = Math.max(
+        ...surfaceLaneSummaries.map(
+          (lane) => lane.interactionSequenceToPaintMs.p95
+        )
+      )
       const maxSurfaceClickToSelectionReadyP95Ms = Math.max(
         ...surfaceLaneSummaries.map((lane) => lane.clickToSelectionReadyMs.p95)
       )
@@ -2498,6 +2735,19 @@ const run = async () => {
       )
       const maxSurfaceLongTaskP95Ms = Math.max(
         ...surfaceLaneSummaries.map((lane) => lane.longTaskMaxMs.p95)
+      )
+      const maxSurfaceLongTaskTotalP95Ms = Math.max(
+        ...surfaceLaneSummaries.map((lane) => lane.longTaskDurationMs.p95)
+      )
+      const maxSurfaceLongTaskAttributedP95Ms = Math.max(
+        ...surfaceLaneSummaries.map(
+          (lane) => lane.longTaskAttributedDurationMs.p95
+        )
+      )
+      const maxSurfaceLongTaskUnattributedP95Ms = Math.max(
+        ...surfaceLaneSummaries.map(
+          (lane) => lane.longTaskUnattributedDurationMs.p95
+        )
       )
       const maxSurfaceCoreNotifyListenersP95Ms = Math.max(
         ...surfaceLaneSummaries.map((lane) =>
@@ -2651,6 +2901,11 @@ const run = async () => {
         )}`
       )
       console.log(
+        `METRIC ${prefix}_interaction_sequence_to_paint_p95_ms=${round(
+          maxSurfaceInteractionSequenceToPaintP95Ms
+        )}`
+      )
+      console.log(
         `METRIC ${prefix}_click_to_selection_ready_p95_ms=${round(
           maxSurfaceClickToSelectionReadyP95Ms
         )}`
@@ -2757,6 +3012,21 @@ const run = async () => {
       console.log(
         `METRIC ${prefix}_long_task_max_p95_ms=${round(
           maxSurfaceLongTaskP95Ms
+        )}`
+      )
+      console.log(
+        `METRIC ${prefix}_long_task_total_p95_ms=${round(
+          maxSurfaceLongTaskTotalP95Ms
+        )}`
+      )
+      console.log(
+        `METRIC ${prefix}_long_task_attributed_p95_ms=${round(
+          maxSurfaceLongTaskAttributedP95Ms
+        )}`
+      )
+      console.log(
+        `METRIC ${prefix}_long_task_unattributed_p95_ms=${round(
+          maxSurfaceLongTaskUnattributedP95Ms
         )}`
       )
       console.log(
@@ -2883,6 +3153,12 @@ const run = async () => {
           `METRIC ${prefix}_type_after_delete_long_task_max_ms=${round(typeAfterDeleteTrace?.longTaskMaxMs ?? 0)}`
         )
         console.log(
+          `METRIC ${prefix}_type_after_delete_long_task_attributed_ms=${round(typeAfterDeleteTrace?.longTaskAttributedDurationMs ?? 0)}`
+        )
+        console.log(
+          `METRIC ${prefix}_type_after_delete_long_task_unattributed_ms=${round(typeAfterDeleteTrace?.longTaskUnattributedDurationMs ?? 0)}`
+        )
+        console.log(
           `METRIC ${prefix}_type_after_delete_long_animation_frame_count=${round(typeAfterDeleteTrace?.longAnimationFrameCount ?? 0)}`
         )
         console.log(
@@ -2964,6 +3240,11 @@ const run = async () => {
     console.log(
       `METRIC react_huge_doc_click_to_paint_p95_ms=${round(
         maxClickToPaintP95Ms
+      )}`
+    )
+    console.log(
+      `METRIC react_huge_doc_interaction_sequence_to_paint_p95_ms=${round(
+        maxInteractionSequenceToPaintP95Ms
       )}`
     )
     console.log(
@@ -3070,6 +3351,21 @@ const run = async () => {
     console.log(`METRIC react_huge_doc_heap_mb_p95=${round(maxHeapMBP95)}`)
     console.log(
       `METRIC react_huge_doc_long_task_max_p95_ms=${round(maxLongTaskP95Ms)}`
+    )
+    console.log(
+      `METRIC react_huge_doc_long_task_total_p95_ms=${round(
+        maxLongTaskTotalP95Ms
+      )}`
+    )
+    console.log(
+      `METRIC react_huge_doc_long_task_attributed_p95_ms=${round(
+        maxLongTaskAttributedP95Ms
+      )}`
+    )
+    console.log(
+      `METRIC react_huge_doc_long_task_unattributed_p95_ms=${round(
+        maxLongTaskUnattributedP95Ms
+      )}`
     )
     console.log(
       `METRIC react_huge_doc_core_notify_listeners_p95_ms=${round(

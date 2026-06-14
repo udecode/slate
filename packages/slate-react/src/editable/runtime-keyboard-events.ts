@@ -135,6 +135,16 @@ export const shouldApplyKeyDownSelectionPolicy = (
   }
 
   if (
+    decision.intent === 'text-insert' &&
+    inputController.state.selectionSource === 'model-owned' &&
+    event.key.length === 1 &&
+    !hasCommandModifier &&
+    !isTextShortcutBoundary
+  ) {
+    return false
+  }
+
+  if (
     decision.intent !== 'text-insert' ||
     (!inputController.state.pendingNativeTextInputRepairPathKey &&
       (inputController.state.modelOwnedTextInputGuard ?? 0) === 0)

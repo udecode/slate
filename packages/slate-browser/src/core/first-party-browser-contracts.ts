@@ -66,6 +66,7 @@ export const SLATE_BROWSER_FIRST_PARTY_OPERATION_FAMILY_CONTRACTS = [
     assertions: [
       'editable island visible content stays inside a runtime-owned block void',
       'internal input focus remains native-owned',
+      'internal input range selection stays visible without becoming editor selection',
       'outer editor selection is preserved while the native control edits',
       'follow-up editor typing records a legal insert-text transition',
     ],

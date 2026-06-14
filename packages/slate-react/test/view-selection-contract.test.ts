@@ -85,6 +85,7 @@ describe('slate view selection', () => {
     const scopeEffect = source.slice(scopeEffectStart, scopeEffectEnd)
 
     expect(scopeEffectStart).toBeGreaterThanOrEqual(0)
+    expect(source).not.toContain('shouldBoundAutoDecorateRuntimeScopeRef')
     expect(scopeEffect).toContain('autoDecorateRuntimeScopeKey')
     expect(scopeEffect).toContain('decorateSource?.refresh')
     expect(scopeEffect).toContain('viewSelectionDecorationSource?.refresh')

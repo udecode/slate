@@ -3,6 +3,57 @@ export type NativeTextInsertDelta = {
   text: string
 }
 
+const getPureInsertDelta = ({
+  inputText,
+  slateText,
+  textHostText,
+}: {
+  inputText: string
+  slateText: string
+  textHostText: string
+}): NativeTextInsertDelta | null => {
+  if (textHostText.length <= slateText.length) {
+    return null
+  }
+
+  let start = 0
+
+  while (
+    start < slateText.length &&
+    start < textHostText.length &&
+    slateText[start] === textHostText[start]
+  ) {
+    start += 1
+  }
+
+  let slateEnd = slateText.length
+  let textHostEnd = textHostText.length
+
+  while (
+    slateEnd > start &&
+    textHostEnd > start &&
+    slateText[slateEnd - 1] === textHostText[textHostEnd - 1]
+  ) {
+    slateEnd -= 1
+    textHostEnd -= 1
+  }
+
+  const insertedText = textHostText.slice(start, textHostEnd)
+
+  if (
+    slateEnd === start &&
+    insertedText.length > 0 &&
+    insertedText === inputText
+  ) {
+    return {
+      offset: start,
+      text: insertedText,
+    }
+  }
+
+  return null
+}
+
 export const getNativeTextInsertDelta = ({
   inputText,
   selectionOffset,
@@ -33,6 +84,16 @@ export const getNativeTextInsertDelta = ({
         text: insertedText,
       }
     }
+  }
+
+  const pureInsert = getPureInsertDelta({
+    inputText,
+    slateText,
+    textHostText,
+  })
+
+  if (pureInsert) {
+    return pureInsert
   }
 
   return {

@@ -652,6 +652,48 @@ describe('DOM coverage native bridge', () => {
     }
   })
 
+  test('paste uses clipboard data mutated by an unhandled app paste callback', () => {
+    const editor = createReactEditor()
+
+    Editor.replace(editor, {
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Original text' }],
+        },
+      ],
+      selection: {
+        anchor: { offset: 0, path: [0, 0] },
+        focus: { offset: 'Original text'.length, path: [0, 0] },
+      },
+    })
+
+    const root = mountEditorRoot(editor)
+    const clipboard = new FakeDataTransfer()
+    const event = createClipboardEvent(root, clipboard)
+
+    clipboard.setData('text/plain', 'Old text')
+
+    try {
+      const result = applyEditablePaste({
+        editor,
+        event,
+        onPaste: (pasteEvent) => {
+          pasteEvent.clipboardData.setData('text/plain', 'New text')
+          return false
+        },
+        readOnly: false,
+        partialDOMBackedSelection: false,
+      })
+
+      expect(event.preventDefault).toHaveBeenCalled()
+      expect(result.command).toMatchObject({ kind: 'insert-data' })
+      expect(Editor.string(editor, [])).toBe('New text')
+    } finally {
+      cleanupEditorRoot(editor, root)
+    }
+  })
+
   test('copy over a pending staged root group materializes the coverage boundary and writes model data', () => {
     const editor = createStagedSelectionEditor()
     const root = mountEditorRoot(editor)

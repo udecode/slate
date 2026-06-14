@@ -218,6 +218,10 @@ const FULL_ROOT_REPLACE_CHILDREN_SNAPSHOT_CHILDREN_CACHE = new WeakMap<
   readonly Descendant[],
   EditorSnapshot['children']
 >()
+const FULL_ROOT_REPLACE_CHILDREN_TOP_LEVEL_RUNTIME_IDS_CACHE = new WeakMap<
+  readonly Descendant[],
+  readonly RuntimeId[]
+>()
 const RUNTIME_INDEX_VERSION = new WeakMap<Editor, number>()
 const SNAPSHOT_CACHE = new WeakMap<Editor, EditorSnapshot>()
 const SNAPSHOT_VERSION = new WeakMap<Editor, number>()
@@ -1380,6 +1384,65 @@ export const hasCachedFullRootReplaceSnapshotIndex = (
   operation.path.length === 0 &&
   operation.index === 0 &&
   FULL_ROOT_REPLACE_CHILDREN_INDEX_CACHE.has(operation.newChildren)
+
+const getTopLevelRuntimeIdsForIndex = (
+  index: RuntimeIndexLike
+): readonly RuntimeId[] => {
+  const pathToId = index.pathToId
+  const runtimeIds: RuntimeId[] = []
+
+  for (let topLevelIndex = 0; ; topLevelIndex++) {
+    const runtimeId =
+      pathToId instanceof Map
+        ? pathToId.get(String(topLevelIndex))
+        : pathToId[String(topLevelIndex)]
+
+    if (!runtimeId) {
+      break
+    }
+
+    runtimeIds.push(runtimeId)
+  }
+
+  return Object.freeze(runtimeIds)
+}
+
+export const getCachedFullRootReplaceTopLevelRuntimeIds = (
+  operation: Operation
+): readonly RuntimeId[] | null => {
+  if (
+    operation.type !== 'replace_children' ||
+    operation.path.length !== 0 ||
+    operation.index !== 0
+  ) {
+    return null
+  }
+
+  const cachedRuntimeIds =
+    FULL_ROOT_REPLACE_CHILDREN_TOP_LEVEL_RUNTIME_IDS_CACHE.get(
+      operation.newChildren
+    )
+
+  if (cachedRuntimeIds) {
+    return cachedRuntimeIds
+  }
+
+  const index =
+    FULL_ROOT_REPLACE_CHILDREN_INDEX_CACHE.get(operation.newChildren) ?? null
+
+  if (!index) {
+    return null
+  }
+
+  const runtimeIds = getTopLevelRuntimeIdsForIndex(index)
+
+  FULL_ROOT_REPLACE_CHILDREN_TOP_LEVEL_RUNTIME_IDS_CACHE.set(
+    operation.newChildren,
+    runtimeIds
+  )
+
+  return runtimeIds
+}
 
 const getFullRootReplaceCachedSnapshot = (
   editor: Editor,

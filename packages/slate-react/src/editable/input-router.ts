@@ -50,7 +50,7 @@ type DeferredTextInputRepair = {
   target: DOMInputRepairTarget | null
 }
 
-const DEFERRED_NATIVE_TEXT_INPUT_REPAIR_IDLE_MS = 8
+const DEFERRED_NATIVE_TEXT_INPUT_REPAIR_IDLE_MS = 1
 const DEFERRED_NATIVE_TEXT_INPUT_REPAIR_MAX_MS = 120
 
 const now = () => globalThis.performance?.now?.() ?? Date.now()
@@ -634,8 +634,12 @@ const shouldPreferRuntimeTextInputRepairTarget = ({
     recentEcho.pathKey === pathKey &&
     recentEcho.selectionOffset === selection.anchor.offset &&
     recentEcho.text === text
+  const modelOwnsTextInput =
+    (inputController.state.modelOwnedTextInputGuard ?? 0) > 0 ||
+    (inputController.preferModelSelectionForInputRef.current &&
+      inputController.state.selectionSource === 'model-owned')
 
-  return pendingRepairMatches || recentEchoMatches
+  return modelOwnsTextInput || pendingRepairMatches || recentEchoMatches
 }
 
 export const getDOMInputRepairTarget = (
@@ -688,10 +692,7 @@ export const getDOMInputRepairTarget = (
       selection: runtimeSelection,
     })
 
-    if (
-      runtimeTarget &&
-      (!canUseDOMTarget || runtimeTarget.path.join(',') === path?.join(','))
-    ) {
+    if (runtimeTarget) {
       return runtimeTarget
     }
   }
@@ -1291,7 +1292,13 @@ export const useEditableDOMInputHandler = ({
           typeof nativeInput.data === 'string'
         ) {
           let pathKey = target?.path.join(',') ?? null
-          if ((inputController?.state.modelOwnedTextInputGuard ?? 0) > 0) {
+          const modelOwnsTextInput =
+            (inputController?.state.modelOwnedTextInputGuard ?? 0) > 0 ||
+            (inputController?.preferModelSelectionForInputRef.current ===
+              true &&
+              inputController.state.selectionSource === 'model-owned')
+
+          if (modelOwnsTextInput) {
             if (inputController) {
               inputController.state.pendingNativeTextInputRepairOffset = null
               inputController.state.pendingNativeTextInputRepairPathKey = null

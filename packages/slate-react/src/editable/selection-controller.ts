@@ -597,22 +597,48 @@ const restoreScrollOffsets = (
   })
 }
 
-const isStaleCompositionDOMRange = ({
-  inputController,
+export const isStaleModelOwnedTextInputDOMRange = ({
+  activeIntent,
+  modelOwnedTextInputGuard = 0,
   modelSelection,
   range,
+  recentTextInputRepairEcho,
+  selectionSource,
 }: {
-  inputController: EditableInputController
+  activeIntent?: InputIntent | null
+  modelOwnedTextInputGuard?: number
   modelSelection: Selection
   range: Range
-}) =>
-  inputController.state.activeIntent === 'composition' &&
-  (inputController.state.modelOwnedTextInputGuard ?? 0) > 0 &&
-  RangeApi.isCollapsed(range) &&
-  RangeApi.isRange(modelSelection) &&
-  RangeApi.isCollapsed(modelSelection) &&
-  PathApi.equals(range.anchor.path, modelSelection.anchor.path) &&
-  range.anchor.offset < modelSelection.anchor.offset
+  recentTextInputRepairEcho?: EditableInputController['state']['recentTextInputRepairEcho']
+  selectionSource?: SelectionSource
+}) => {
+  const modelOwnsTextInput =
+    activeIntent === 'composition' ||
+    activeIntent === 'text-insert' ||
+    selectionSource === 'model-owned'
+  const recentRepairEchoOwnsSelection =
+    activeIntent === 'text-insert' &&
+    !!recentTextInputRepairEcho &&
+    RangeApi.isRange(modelSelection) &&
+    RangeApi.isCollapsed(modelSelection) &&
+    recentTextInputRepairEcho.pathKey ===
+      modelSelection.anchor.path.join(',') &&
+    recentTextInputRepairEcho.selectionOffset === modelSelection.anchor.offset
+  const hasModelOwnedSelectionAuthority =
+    modelOwnedTextInputGuard > 0 ||
+    selectionSource === 'model-owned' ||
+    recentRepairEchoOwnsSelection
+
+  return (
+    modelOwnsTextInput &&
+    hasModelOwnedSelectionAuthority &&
+    RangeApi.isCollapsed(range) &&
+    RangeApi.isRange(modelSelection) &&
+    RangeApi.isCollapsed(modelSelection) &&
+    PathApi.equals(range.anchor.path, modelSelection.anchor.path) &&
+    range.anchor.offset < modelSelection.anchor.offset
+  )
+}
 
 export const syncEditorSelectionFromDOM = ({
   editor,
@@ -664,13 +690,11 @@ export const syncEditorSelectionFromDOM = ({
   const selection = readRuntimeSelection(editor)
 
   if (
-    (inputController.state.activeIntent === 'model-selection-move' ||
-      inputController.state.activeIntent === 'native-selection-move') &&
-    range &&
-    selection &&
-    RangeApi.isExpanded(selection) &&
-    RangeApi.isCollapsed(range) &&
-    !PointApi.equals(range.focus, selection.focus)
+    shouldSuppressCollapsedSelectionMoveDOMRange({
+      activeIntent: inputController.state.activeIntent,
+      currentSelection: selection,
+      nextSelection: range,
+    })
   ) {
     return
   }
@@ -680,10 +704,15 @@ export const syncEditorSelectionFromDOM = ({
 
     if (
       modelSelection &&
-      isStaleCompositionDOMRange({
-        inputController,
+      isStaleModelOwnedTextInputDOMRange({
+        activeIntent: inputController.state.activeIntent,
         modelSelection,
+        modelOwnedTextInputGuard:
+          inputController.state.modelOwnedTextInputGuard ?? 0,
         range,
+        recentTextInputRepairEcho:
+          inputController.state.recentTextInputRepairEcho,
+        selectionSource: inputController.state.selectionSource,
       })
     ) {
       return
@@ -925,6 +954,19 @@ export const getPendingNativeTextInputRepairSelectionChangePolicy = ({
   selectionChangeOrigin: SelectionChangeOrigin
 }): 'allow' | 'clear-and-allow' | 'suppress' => {
   if (
+    selectionChangeOrigin === 'repair-induced' &&
+    activeIntent === 'text-insert' &&
+    range &&
+    RangeApi.isCollapsed(range) &&
+    currentSelection &&
+    RangeApi.isCollapsed(currentSelection) &&
+    range.anchor.path.join(',') === currentSelection.anchor.path.join(',') &&
+    range.anchor.offset < currentSelection.anchor.offset
+  ) {
+    return 'suppress'
+  }
+
+  if (
     selectionChangeOrigin === 'native-user' &&
     activeIntent === 'text-insert' &&
     range &&
@@ -990,6 +1032,29 @@ export const getPendingNativeTextInputRepairSelectionChangePolicy = ({
   }
 
   return 'allow'
+}
+
+export const shouldSuppressCollapsedSelectionMoveDOMRange = ({
+  activeIntent,
+  currentSelection,
+  nextSelection,
+}: {
+  activeIntent?: EditableInputController['state']['activeIntent']
+  currentSelection: Range | null | undefined
+  nextSelection: Range | null
+}) => {
+  if (
+    (activeIntent !== 'model-selection-move' &&
+      activeIntent !== 'native-selection-move') ||
+    !currentSelection ||
+    !RangeApi.isExpanded(currentSelection) ||
+    !RangeApi.isRange(nextSelection) ||
+    !RangeApi.isCollapsed(nextSelection)
+  ) {
+    return false
+  }
+
+  return !RangeApi.includes(currentSelection, nextSelection.focus)
 }
 
 export const resolveEditableImplicitTarget = ({
@@ -1181,6 +1246,22 @@ export const applyEditableDOMSelectionChange = ({
     return
   }
 
+  if (selectionChangeOrigin === 'repair-induced' && domSelection.isCollapsed) {
+    if (
+      state.activeIntent === 'text-insert' ||
+      state.recentTextInputRepairEcho
+    ) {
+      setEditableModelSelectionPreference({
+        inputController,
+        preferModelSelection: true,
+        reason: 'model-command',
+        selectionSource: 'model-owned',
+      })
+      armModelOwnedTextInputGuard({ inputController })
+    }
+    return
+  }
+
   if (
     activeElement !== editorElement &&
     isDOMNode(activeElement) &&
@@ -1249,20 +1330,18 @@ export const applyEditableDOMSelectionChange = ({
 
   const currentSelection = readLiveSelection(editor)
 
-  if (
-    selectionChangeOrigin === 'native-user' &&
-    state.activeIntent === 'composition' &&
-    RangeApi.isRange(range) &&
-    RangeApi.isCollapsed(range)
-  ) {
+  if (selectionChangeOrigin === 'native-user' && RangeApi.isRange(range)) {
     const modelSelection = Editor.getSelection(editor)
 
     if (
       modelSelection &&
-      isStaleCompositionDOMRange({
-        inputController,
+      isStaleModelOwnedTextInputDOMRange({
+        activeIntent: state.activeIntent,
         modelSelection,
+        modelOwnedTextInputGuard: state.modelOwnedTextInputGuard ?? 0,
         range,
+        recentTextInputRepairEcho: state.recentTextInputRepairEcho,
+        selectionSource: state.selectionSource,
       })
     ) {
       return
@@ -1286,6 +1365,18 @@ export const applyEditableDOMSelectionChange = ({
     })
 
   if (pendingRepairSelectionChangePolicy === 'suppress') {
+    if (
+      selectionChangeOrigin === 'repair-induced' &&
+      state.activeIntent === 'text-insert'
+    ) {
+      setEditableModelSelectionPreference({
+        inputController,
+        preferModelSelection: true,
+        reason: 'model-command',
+        selectionSource: 'model-owned',
+      })
+      armModelOwnedTextInputGuard({ inputController })
+    }
     if (pendingNativeTextInputRepairPathKey) {
       state.pendingNativeTextInputRepairSuppressedDOMSelection = true
     }
@@ -1299,14 +1390,11 @@ export const applyEditableDOMSelectionChange = ({
 
   if (
     selectionChangeOrigin === 'native-user' &&
-    (state.activeIntent === 'model-selection-move' ||
-      state.activeIntent === 'native-selection-move') &&
-    currentSelection &&
-    RangeApi.isExpanded(currentSelection) &&
-    RangeApi.isRange(range) &&
-    RangeApi.isCollapsed(range) &&
-    !PointApi.equals(range.focus, currentSelection.focus) &&
-    !PointApi.equals(range.focus, currentSelection.anchor)
+    shouldSuppressCollapsedSelectionMoveDOMRange({
+      activeIntent: state.activeIntent,
+      currentSelection,
+      nextSelection: range,
+    })
   ) {
     return
   }

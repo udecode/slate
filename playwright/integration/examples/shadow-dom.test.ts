@@ -21,6 +21,28 @@ const focusTextboxEnd = async (textbox: Locator) => {
   })
 }
 
+const getShadowNativeSelection = async (textbox: Locator) =>
+  textbox.evaluate((element: Element) => {
+    const root = element.getRootNode() as Document | ShadowRoot
+    const selection =
+      'getSelection' in root
+        ? root.getSelection()
+        : element.ownerDocument.getSelection()
+    const anchorNode = selection?.anchorNode ?? null
+    const focusNode = selection?.focusNode ?? null
+
+    return {
+      anchorOffset: selection?.anchorOffset ?? null,
+      anchorText: anchorNode?.textContent ?? null,
+      containsAnchor: !!anchorNode && element.contains(anchorNode),
+      containsFocus: !!focusNode && element.contains(focusNode),
+      focusOffset: selection?.focusOffset ?? null,
+      focusText: focusNode?.textContent ?? null,
+      isCollapsed: selection?.isCollapsed ?? null,
+      text: selection?.toString() ?? null,
+    }
+  })
+
 const selectEnd = async (
   editor: ReturnType<typeof createSlateBrowserEditorHarness>
 ) => {
@@ -227,8 +249,8 @@ test.describe('shadow-dom example', () => {
       'Mobile semantic-handle proof does not exercise native shadow DOM keyboard ranges'
     )
     test.skip(
-      browserName !== 'chromium',
-      'Cross-browser RTL shadow DOM deletion needs a native selection oracle before widening'
+      testInfo.project.name === 'webkit',
+      'WebKit shadow DOM selectAll handle does not sync selection for RTL delete proof'
     )
 
     const outerShadow = page.locator('[data-cy="outer-shadow-root"]')
@@ -250,6 +272,18 @@ test.describe('shadow-dom example', () => {
     await editor.assert.text(rtlText)
 
     await editor.selection.collapse({ path: [0, 0], offset: rtlText.length })
+    await expect
+      .poll(() => getShadowNativeSelection(textbox))
+      .toMatchObject({
+        anchorOffset: rtlText.length,
+        anchorText: rtlText,
+        containsAnchor: true,
+        containsFocus: true,
+        focusOffset: rtlText.length,
+        focusText: rtlText,
+        isCollapsed: true,
+        text: '',
+      })
     await editor.press('Backspace')
 
     await editor.assert.text('שלו')
@@ -257,6 +291,18 @@ test.describe('shadow-dom example', () => {
       anchor: { path: [0, 0], offset: rtlText.length - 1 },
       focus: { path: [0, 0], offset: rtlText.length - 1 },
     })
+    await expect
+      .poll(() => getShadowNativeSelection(textbox))
+      .toMatchObject({
+        anchorOffset: rtlText.length - 1,
+        anchorText: 'שלו',
+        containsAnchor: true,
+        containsFocus: true,
+        focusOffset: rtlText.length - 1,
+        focusText: 'שלו',
+        isCollapsed: true,
+        text: '',
+      })
   })
 
   test('user can type add a new line in editor inside shadow DOM', async ({

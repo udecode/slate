@@ -208,6 +208,12 @@ describe('scenario helpers', () => {
       'playwright/stress/generated-editing.test.ts'
     )
     expect(scripts['test:stress']).toContain('PLAYWRIGHT_RETRIES=0')
+    expect(scripts['test:stress:desktop']).toContain(
+      'playwright/stress/generated-editing.test.ts'
+    )
+    expect(scripts['test:stress:desktop']).toContain(
+      'scripts/stress/project-args.mjs desktop'
+    )
     expect(scripts['test:release-proof']).toContain('test:persistent-soak')
     expect(scripts['test:release-proof']).not.toContain(
       'test:mobile-device-proof:raw'
@@ -260,10 +266,95 @@ describe('scenario helpers', () => {
     expect(scripts['test:integration-local']).toContain('bun run playwright')
     expect(scripts['test:stress']).toContain('bun --filter slate-browser build')
     expect(scripts['test:stress']).toContain('playwright test')
+    expect(scripts['test:stress:audit']).toContain(
+      'scripts/stress/audit-artifacts.mjs'
+    )
+    expect(scripts['test:stress:audit']).toContain(
+      'STRESS_AUDIT_EXPECTED_PER_PROJECT=24'
+    )
+    const stressAuditSource = readFileSync(
+      fileURLToPath(
+        new URL(
+          '../../../../scripts/stress/audit-artifacts.mjs',
+          import.meta.url
+        )
+      ),
+      'utf8'
+    )
+
+    expect(stressAuditSource).toContain(
+      'expectedPerProject === null\n    ? 30\n    : null'
+    )
+    expect(stressAuditSource).toContain(
+      "import { getDesktopProjects } from './desktop-projects.mjs'"
+    )
+    expect(stressAuditSource).toContain("getDesktopProjects().join(',')")
+    expect(stressAuditSource).toContain('.slice(0, expectedPerProject)')
+    expect(stressAuditSource).toContain('getBunScript(artifact.replayCommand)')
+    expect(stressAuditSource).toContain(
+      "getEnvAssignment(candidate.replayCommand, 'STRESS_REDUCTION')"
+    )
+    expect(scripts['test:stress:desktop']).toContain(
+      'bun --filter slate-browser build'
+    )
+    expect(scripts['test:stress:desktop']).toContain(
+      'scripts/stress/project-args.mjs desktop'
+    )
+    const stressProjectArgsSource = readFileSync(
+      fileURLToPath(
+        new URL('../../../../scripts/stress/project-args.mjs', import.meta.url)
+      ),
+      'utf8'
+    )
+    const stressDesktopProjectsSource = readFileSync(
+      fileURLToPath(
+        new URL(
+          '../../../../scripts/stress/desktop-projects.mjs',
+          import.meta.url
+        )
+      ),
+      'utf8'
+    )
+
+    expect(stressProjectArgsSource).toContain(
+      "import { getDesktopProjects } from './desktop-projects.mjs'"
+    )
+    expect(stressProjectArgsSource).toContain('getDesktopProjects()')
+    expect(stressDesktopProjectsSource).toContain("os.type() === 'Darwin'")
+    expect(scripts['test:stress:desktop']).toContain('playwright test')
     expect(scripts['test:stress:replay']).toContain(
       'bun --filter slate-browser build'
     )
     expect(scripts['test:stress:replay']).toContain('playwright test')
+    expect(scripts['test:stress:replay:desktop']).toContain(
+      'bun --filter slate-browser build'
+    )
+    expect(scripts['test:stress:replay:desktop']).toContain(
+      'scripts/stress/project-args.mjs desktop'
+    )
+    expect(scripts['test:stress:replay:firefox']).toContain('--project=firefox')
+    expect(scripts['test:stress:replay:webkit']).toContain('--project=webkit')
+  })
+
+  test('keeps stress artifacts reducible before a scenario succeeds', () => {
+    const sourcePath = fileURLToPath(
+      new URL('../../../../playwright/stress/stress-utils.ts', import.meta.url)
+    )
+    const readmePath = fileURLToPath(
+      new URL('../../README.md', import.meta.url)
+    )
+    const source = readFileSync(sourcePath, 'utf8')
+    const readme = readFileSync(readmePath, 'utf8')
+
+    expect(source).toContain('createScenarioReductionCandidates')
+    expect(source).toContain('summarizeScenarioReductionCandidate')
+    expect(source).toContain('reductionCandidates ??')
+    expect(source).toContain('reductionCandidates: artifactReductionCandidates')
+    expect(source).toContain('STRESS_REDUCTION=')
+    expect(source).toContain('artifactStepsToScenarioSteps = (')
+    expect(source).toContain('reductionLabel')
+    expect(readme).toContain('STRESS_REDUCTION=<label>')
+    expect(readme).toContain('.reduction-<label>.result.json')
   })
 
   test('keeps generic HTML assertion exact instead of substring-only', () => {
@@ -307,6 +398,8 @@ describe('scenario helpers', () => {
     expect(summarizeScenarioReductionCandidate(candidate)).toEqual({
       kind: 'prefix',
       label: 'prefix:1',
+      removedStepLabels: ['type-step'],
+      removedStepSummaries: ['type-step: type "A" len=1'],
       removedRange: { end: 2, start: 1 },
       replay: {
         replayable: false,
@@ -315,6 +408,7 @@ describe('scenario helpers', () => {
             kind: 'custom',
             label: 'custom-step',
             replayable: false,
+            summary: 'custom-step: custom non-replayable',
             value: {
               kind: 'custom',
               label: 'custom-step',
@@ -323,6 +417,7 @@ describe('scenario helpers', () => {
         ],
       },
       stepLabels: ['custom-step'],
+      stepSummaries: ['custom-step: custom non-replayable'],
     })
   })
 
@@ -343,6 +438,7 @@ describe('scenario helpers', () => {
       kind: 'select',
       label: 'select-word',
       replayable: true,
+      summary: 'select-word: select 0.0:1 -> 0.0:5',
       value: {
         iteration: 2,
         kind: 'select',
@@ -354,6 +450,36 @@ describe('scenario helpers', () => {
         warmLoop: 'warm-toolbar',
       },
       warmLoop: 'warm-toolbar',
+    })
+  })
+
+  test('serializes DOM text mutation steps for replay', () => {
+    const step: SlateBrowserScenarioStep = {
+      data: 'imported',
+      inputType: 'insertText',
+      kind: 'mutateTextDOM',
+      label: 'import-dom-text',
+      path: [0, 0],
+      selectionOffset: 13,
+      text: 'This imported',
+    }
+
+    expect(serializeScenarioStepForReplay(step, 0)).toEqual({
+      iteration: undefined,
+      kind: 'mutateTextDOM',
+      label: 'import-dom-text',
+      replayable: true,
+      summary: 'import-dom-text: mutateTextDOM 0.0 "This imported" len=13',
+      value: {
+        data: 'imported',
+        inputType: 'insertText',
+        kind: 'mutateTextDOM',
+        label: 'import-dom-text',
+        path: [0, 0],
+        selectionOffset: 13,
+        text: 'This imported',
+      },
+      warmLoop: undefined,
     })
   })
 
@@ -379,6 +505,7 @@ describe('scenario helpers', () => {
       kind: 'assertRenderedDOMShape',
       label: 'assert-first-block-dom-shape',
       replayable: true,
+      summary: 'assert-first-block-dom-shape: assertRenderedDOMShape',
       value: {
         kind: 'assertRenderedDOMShape',
         label: 'assert-first-block-dom-shape',
@@ -485,6 +612,24 @@ describe('scenario helpers', () => {
         notEmpty: true,
       },
       {
+        expectation: {
+          domSelection: {
+            anchorNodeText: 'alpha',
+            anchorOffset: 0,
+            focusNodeText: 'alpha',
+            focusOffset: 5,
+          },
+          noDoubleSelectionHighlight: true,
+          selectedText: 'alpha',
+          selection: {
+            anchor: { path: [0, 0], offset: 0 },
+            focus: { path: [0, 0], offset: 5 },
+          },
+        },
+        kind: 'assertSelectionContract',
+        label: 'assert-selection-contract',
+      },
+      {
         budget: {
           byKind: {
             editable: { max: 0 },
@@ -516,6 +661,7 @@ describe('scenario helpers', () => {
       'assertCapturedRuntimeIdPath',
       'assertLastCommitTags',
       'assertWindowSelectionText',
+      'assertSelectionContract',
       'assertRenderBudget',
       'resetRenderProfiler',
     ])
@@ -535,23 +681,29 @@ describe('scenario helpers', () => {
       replayable: false,
       steps: [
         {
+          iteration: undefined,
           kind: 'custom',
           label: 'custom-step',
           replayable: false,
+          summary: 'custom-step: custom non-replayable',
           value: {
             kind: 'custom',
             label: 'custom-step',
           },
+          warmLoop: undefined,
         },
         {
+          iteration: undefined,
           kind: 'type',
           label: 'type-step',
           replayable: true,
+          summary: 'type-step: type "A" len=1',
           value: {
             kind: 'type',
             label: 'type-step',
             text: 'A',
           },
+          warmLoop: undefined,
         },
       ],
     })

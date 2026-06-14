@@ -1028,6 +1028,130 @@ test('text insert caret repair keeps model authority in virtualized DOM', () => 
   root.remove()
 })
 
+test('text insert caret repair keeps model authority for projected DOM sync', () => {
+  const editor = createReactEditor()
+  const root = mountEditorRoot(editor)
+  const inputController = {
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  }
+
+  inputController.state.selectionSource = 'dom-current'
+  inputController.state.pendingNativeTextInputRepairOffset = 2
+  inputController.state.pendingNativeTextInputRepairPathKey = '0,0'
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'aXbc' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 2 },
+    },
+  })
+
+  const textHost = document.createElement('span')
+  const string = document.createElement('span')
+  const text = document.createTextNode('aXbc')
+  const range = document.createRange()
+  const selection = window.getSelection()
+  const queue = createDOMRepairQueue({
+    editor,
+    inputController,
+    scrollSelectionIntoView: () => {},
+    syncDOMSelectionToEditor: () => {},
+  })
+
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-path', '0,0')
+  textHost.setAttribute('data-slate-projected-dom-sync', 'true')
+  string.setAttribute('data-slate-string', 'true')
+  string.append(text)
+  textHost.append(string)
+  root.append(textHost)
+
+  range.setStart(text, 0)
+  range.collapse(true)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+
+  queue.repairCaretAfterModelTextInsert()
+
+  expect(selection?.anchorOffset).toBe(2)
+  expect(inputController.preferModelSelectionForInputRef.current).toBe(true)
+  expect(inputController.state.selectionSource).toBe('model-owned')
+  expect(inputController.state.modelOwnedTextInputGuard).toBeGreaterThan(0)
+  expect(inputController.state.pendingNativeTextInputRepairOffset).toBe(null)
+  expect(inputController.state.pendingNativeTextInputRepairPathKey).toBe(null)
+
+  root.remove()
+})
+
+test('text insert caret repair keeps existing model authority for plain DOM text', () => {
+  const editor = createReactEditor()
+  const root = mountEditorRoot(editor)
+  const inputController = {
+    preferModelSelectionForInputRef: { current: true },
+    state: createEditableInputControllerState(),
+  }
+
+  inputController.state.selectionSource = 'model-owned'
+  inputController.state.pendingNativeTextInputRepairOffset = 2
+  inputController.state.pendingNativeTextInputRepairPathKey = '0,0'
+
+  Editor.replace(editor, {
+    children: [
+      {
+        type: 'paragraph',
+        children: [{ text: 'aXbc' }],
+      },
+    ],
+    selection: {
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 2 },
+    },
+  })
+
+  const textHost = document.createElement('span')
+  const string = document.createElement('span')
+  const text = document.createTextNode('aXbc')
+  const range = document.createRange()
+  const selection = window.getSelection()
+  const queue = createDOMRepairQueue({
+    editor,
+    inputController,
+    scrollSelectionIntoView: () => {},
+    syncDOMSelectionToEditor: () => {},
+  })
+
+  textHost.setAttribute('data-slate-node', 'text')
+  textHost.setAttribute('data-slate-path', '0,0')
+  string.setAttribute('data-slate-string', 'true')
+  string.append(text)
+  textHost.append(string)
+  root.append(textHost)
+
+  range.setStart(text, 0)
+  range.collapse(true)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+
+  queue.repairCaretAfterModelTextInsert()
+
+  expect(selection?.anchorOffset).toBe(2)
+  expect(inputController.preferModelSelectionForInputRef.current).toBe(true)
+  expect(inputController.state.selectionSource).toBe('model-owned')
+  expect(inputController.state.modelOwnedTextInputGuard).toBeGreaterThan(0)
+  expect(inputController.state.pendingNativeTextInputRepairOffset).toBe(null)
+  expect(inputController.state.pendingNativeTextInputRepairPathKey).toBe(null)
+  expect(inputController.state.recentTextInputRepairEcho).toBe(null)
+
+  root.remove()
+})
+
 test('virtualized text insert caret repair ignores stale frame cancellation when pending matches', () => {
   const editor = createReactEditor()
   const root = mountEditorRoot(editor)

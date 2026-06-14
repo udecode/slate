@@ -33,7 +33,7 @@ import type {
   CustomValue,
 } from './custom-types.d'
 import { isMarkActive, toggleMark } from './mark-utils'
-import { deserialize } from './paste-html-import'
+import { deserialize, isPlainTextClipboardHtml } from './paste-html-import'
 
 const HOTKEYS: Record<string, CustomTextKey> = {
   'mod+b': 'bold',
@@ -317,11 +317,8 @@ const richText = () =>
         const hasPlainText = Array.from(data.types).includes('text/plain')
         const text = hasPlainText ? data.getData('text/plain') : ''
 
-        if (text && html === text) {
-          editor.update((tx) => {
-            tx.text.insert(text)
-          })
-          return true
+        if (isPlainTextClipboardHtml(html, text)) {
+          return next()
         }
 
         const parsed = new DOMParser().parseFromString(html, 'text/html')

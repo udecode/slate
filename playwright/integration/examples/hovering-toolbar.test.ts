@@ -149,7 +149,7 @@ test.describe('hovering toolbar example', () => {
         )
         .toBe('bold')
 
-      await page.keyboard.insertText('plain')
+      await page.keyboard.type('plain')
 
       runtimeErrors.assertNone()
       await expect(editor.root).toContainText('plain')
@@ -164,7 +164,7 @@ test.describe('hovering toolbar example', () => {
   test('native format beforeinput routes through the semantic command handler', async ({
     page,
   }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium', 'Chromium native proof')
+    test.skip(testInfo.project.name === 'mobile', 'Desktop native proof')
 
     const editor = await openExample(page, 'hovering-toolbar', {
       ready: {
@@ -173,10 +173,9 @@ test.describe('hovering toolbar example', () => {
       },
     })
 
-    await editor.click()
-    await page.keyboard.press('ControlOrMeta+A')
-    await page.keyboard.press('Backspace')
-    await page.keyboard.insertText('hello')
+    await editor.selectAll()
+    await editor.deleteFragment()
+    await editor.insertText('hello')
     await editor.selection.selectDOM({
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 5 },

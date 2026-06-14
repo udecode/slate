@@ -7,8 +7,10 @@ import {
 } from '../src/editable/input-controller'
 import {
   getDeferredNativeTextInputRepairPathKey,
+  shouldAllowBeforeInputSelectionImport,
   shouldFlushPendingNativeTextInputBeforeDOMBeforeInput,
   shouldFlushSelectionChangeBeforeDOMBeforeInput,
+  shouldIgnoreDOMBeforeInputWithoutSelection,
 } from '../src/editable/runtime-before-input-events'
 
 const collapsedSelection: Range = {
@@ -139,6 +141,72 @@ test('beforeinput skips pending DOM selection flush for model-preferred insertTe
       inputType: 'insertText',
     })
   ).toBe(false)
+})
+
+test('beforeinput ignores browser events with no selection and no target ranges', () => {
+  expect(
+    shouldIgnoreDOMBeforeInputWithoutSelection({
+      event: {
+        getTargetRanges: () => [],
+        inputType: 'insertText',
+      } as unknown as InputEvent,
+      nativeRangeCount: 0,
+    })
+  ).toBe(true)
+  expect(
+    shouldIgnoreDOMBeforeInputWithoutSelection({
+      event: {
+        getTargetRanges: () => [],
+        inputType: 'insertText',
+      } as unknown as InputEvent,
+      nativeRangeCount: 1,
+    })
+  ).toBe(false)
+  expect(
+    shouldIgnoreDOMBeforeInputWithoutSelection({
+      event: {
+        getTargetRanges: () => [{} as StaticRange],
+        inputType: 'insertText',
+      } as unknown as InputEvent,
+      nativeRangeCount: 0,
+    })
+  ).toBe(false)
+  expect(
+    shouldIgnoreDOMBeforeInputWithoutSelection({
+      event: {
+        getTargetRanges: () => [],
+        inputType: 'formatBold',
+      } as unknown as InputEvent,
+      nativeRangeCount: 0,
+    })
+  ).toBe(false)
+})
+
+test('beforeinput target ranges can import even when live DOM selection policy is model-owned', () => {
+  expect(
+    shouldAllowBeforeInputSelectionImport({
+      event: {
+        getTargetRanges: () => [{} as StaticRange],
+      } as unknown as InputEvent,
+      selectionPolicyAllowsDOMImport: false,
+    })
+  ).toBe(true)
+  expect(
+    shouldAllowBeforeInputSelectionImport({
+      event: {
+        getTargetRanges: () => [],
+      } as unknown as InputEvent,
+      selectionPolicyAllowsDOMImport: false,
+    })
+  ).toBe(false)
+  expect(
+    shouldAllowBeforeInputSelectionImport({
+      event: {
+        getTargetRanges: () => [],
+      } as unknown as InputEvent,
+      selectionPolicyAllowsDOMImport: true,
+    })
+  ).toBe(true)
 })
 
 test('beforeinput still flushes pending DOM selection for native-owned input', () => {

@@ -803,15 +803,25 @@ export const createDOMRepairQueue = ({
 
           const isProjectedTextHost =
             textHost.getAttribute('data-slate-dom-sync-reason') === 'projection'
+          const isProjectedDOMSyncTextHost =
+            textHost.getAttribute('data-slate-projected-dom-sync') === 'true'
           const isVirtualizedTextHost = isInsideVirtualizedDOM(textHost)
-          const isVirtualizedTextInsertRepair =
-            kind === 'repair-caret-after-text-insert' && isVirtualizedTextHost
+          const shouldRetainModelOwnedTextInsert =
+            kind === 'repair-caret-after-text-insert' &&
+            (inputController.preferModelSelectionForInputRef.current ||
+              inputController.state.selectionSource === 'model-owned')
+          const isModelOwnedTextInsertRepair =
+            kind === 'repair-caret-after-text-insert' &&
+            (isVirtualizedTextHost ||
+              isProjectedTextHost ||
+              isProjectedDOMSyncTextHost ||
+              shouldRetainModelOwnedTextInsert)
           const pendingTextInsertRepairMatches =
             pendingTextInputRepairPathKey === path.join(',') &&
             pendingTextInputRepairOffset === slateOffset
 
           if (
-            isVirtualizedTextInsertRepair &&
+            isModelOwnedTextInsertRepair &&
             hasPendingTextInsertRepair &&
             !pendingTextInsertRepairMatches
           ) {
@@ -821,7 +831,10 @@ export const createDOMRepairQueue = ({
           const shouldScrollTextHost =
             kind !== 'repair-caret-after-text-insert' || !isVirtualizedTextHost
           const shouldReleaseTextInsertSelectionToDOM =
-            !isVirtualizedTextHost && !isProjectedTextHost
+            !isVirtualizedTextHost &&
+            !isProjectedTextHost &&
+            !isProjectedDOMSyncTextHost &&
+            !shouldRetainModelOwnedTextInsert
           let root: Document | ShadowRoot
 
           try {
@@ -871,7 +884,7 @@ export const createDOMRepairQueue = ({
               domRange.setEnd(domNode, domOffset)
 
               armRepairInducedSelectionOriginGuard()
-              if (isVirtualizedTextInsertRepair) {
+              if (isModelOwnedTextInsertRepair) {
                 setEditableModelSelectionPreference({
                   inputController,
                   preferModelSelection: true,

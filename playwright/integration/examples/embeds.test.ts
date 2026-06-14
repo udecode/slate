@@ -50,9 +50,10 @@ test.describe('embeds example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop embed navigation proof'
+    )
 
     const editor = await openExample(page, 'embeds', {
       ready: {

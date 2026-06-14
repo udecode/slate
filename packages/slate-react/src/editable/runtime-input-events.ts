@@ -200,7 +200,17 @@ export const useRuntimeInputEvents = ({
 
       const target =
         inputType === 'insertText'
-          ? getDOMInputRepairTarget(editor, rootElement, { data, inputType })
+          ? getDOMInputRepairTarget(
+              editor,
+              rootElement,
+              { data, inputType },
+              {
+                preferRuntimeSelection:
+                  (inputController.state.modelOwnedTextInputGuard ?? 0) > 0 ||
+                  (inputController.preferModelSelectionForInputRef.current &&
+                    inputController.state.selectionSource === 'model-owned'),
+              }
+            )
           : null
 
       markHandledDOMInput(event.nativeEvent)

@@ -92,6 +92,16 @@ const getElementAlign = (el: HTMLElement) => {
   return ELEMENT_ALIGN_VALUES.has(value) ? value : undefined
 }
 
+export const isPlainTextClipboardHtml = (html: string, text: string) => {
+  if (!text || html === text) {
+    return !!text
+  }
+
+  const parsed = new DOMParser().parseFromString(html, 'text/html')
+
+  return parsed.body.textContent === text && parsed.body.children.length === 0
+}
+
 const elementAttributes = (
   attrs: ElementAttributes,
   el: HTMLElement
@@ -608,12 +618,9 @@ const insertHtmlData = (editor: CustomEditor, data: DataTransfer) => {
   const hasPlainText = Array.from(data.types).includes('text/plain')
   const text = hasPlainText ? data.getData('text/plain') : ''
 
-  // iOS word prediction/autocorrect can send identical HTML and plain text.
-  if (text && html === text) {
-    editor.update((tx) => {
-      tx.text.insert(text)
-    })
-    return true
+  // Prediction/autocorrect paste can carry plain text as identical or wrapper-only HTML.
+  if (isPlainTextClipboardHtml(html, text)) {
+    return false
   }
 
   const parsed = new DOMParser().parseFromString(html, 'text/html')

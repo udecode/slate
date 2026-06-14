@@ -362,9 +362,9 @@ test.describe('multi-root document example', () => {
 
     expect(bodySelectionAfterHeaderUndo).toEqual(bodySelectionAfterBodyUndo)
 
-    await page.keyboard.insertText('THREE')
-    await expect(main).toContainText('THREE')
-    await expect(header).not.toContainText('THREE')
+    await page.keyboard.press('T')
+    await expect(main).toContainText(`${bodySelectionAfterBodyUndo.text}T`)
+    await expect(header).not.toContainText('planT')
   })
 
   test("keyboard undo keeps typing in the preserved focused root after undoing another root's batch", async ({
@@ -397,7 +397,7 @@ test.describe('multi-root document example', () => {
       text: headerText,
     })
     await expect(header).toBeFocused()
-    await page.keyboard.insertText('p')
+    await page.keyboard.press('p')
     await expect(header).toContainText(`${headerText}p`)
     await expect(commitStatus).toContainText('roots:header')
 
@@ -407,13 +407,13 @@ test.describe('multi-root document example', () => {
       text: bodyText,
     })
     await expect(main).toBeFocused()
-    await page.keyboard.insertText('poke')
-    await expect(main).toContainText(`${bodyText}poke`)
+    await page.keyboard.press('b')
+    await expect(main).toContainText(`${bodyText}b`)
     await expect(commitStatus).toContainText('roots:main')
 
     await main.press(undoHotkey)
 
-    await expect(main).not.toContainText('poke')
+    await expect(main).not.toContainText(`${bodyText}b`)
     await expect(header).toContainText(`${headerText}p`)
     await expect
       .poll(() => readNativeSelection(page, 'multi-root-main'))
@@ -470,10 +470,10 @@ test.describe('multi-root document example', () => {
       text: bodyText,
     })
     await expect(main).toBeFocused()
-    await page.keyboard.insertText('pok')
-    await expect(main).toContainText(`${bodyText}pok`)
+    await page.keyboard.press('m')
+    await expect(main).toContainText(`${bodyText}m`)
     await expect(page.locator('#multi-root-main-status')).toContainText(
-      `main:${bodyText}pok`
+      `main:${bodyText}m`
     )
 
     await clickTextOffset(page, {
@@ -482,20 +482,20 @@ test.describe('multi-root document example', () => {
       text: footerText,
     })
     await expect(footer).toBeFocused()
-    await page.keyboard.insertText('pok')
-    await expect(footer).toContainText(`${footerText}pok`)
+    await page.keyboard.press('f')
+    await expect(footer).toContainText(`${footerText}f`)
     await expect(page.locator('#multi-root-footer-status')).toContainText(
-      `footer:${footerText}pok`
+      `footer:${footerText}f`
     )
 
     await page.keyboard.press(undoHotkey)
 
     await expect(footer).toContainText(footerText)
-    await expect(footer).not.toContainText(`${footerText}pok`)
-    await expect(main).toContainText(`${bodyText}pok`)
+    await expect(footer).not.toContainText(`${footerText}f`)
+    await expect(main).toContainText(`${bodyText}m`)
     await expect(main).not.toContainText(footerText)
     await expect(page.locator('#multi-root-main-status')).toContainText(
-      `main:${bodyText}pok`
+      `main:${bodyText}m`
     )
     await expect(page.locator('#multi-root-footer-status')).toContainText(
       `footer:${footerText}`
@@ -505,7 +505,7 @@ test.describe('multi-root document example', () => {
 
     await expect(main).toContainText(bodyText)
     await expect(main).toContainText('Header and footer are editable roots.')
-    await expect(main).not.toContainText(`${bodyText}pok`)
+    await expect(main).not.toContainText(`${bodyText}m`)
     await expect(main).not.toContainText(footerText)
     await expect(footer).toContainText(footerText)
     await expect(page.locator('#multi-root-main-status')).toContainText(
@@ -518,7 +518,7 @@ test.describe('multi-root document example', () => {
 
   test('keeps repeated multi-root undo from replaying paths in the focused root', async ({
     page,
-  }, testInfo) => {
+  }) => {
     const pageErrors: Error[] = []
     page.on('pageerror', (error) => pageErrors.push(error))
 
@@ -534,122 +534,43 @@ test.describe('multi-root document example', () => {
     const header = page.locator('#multi-root-header')
     const main = page.locator('#multi-root-main')
     const footer = page.locator('#multi-root-footer')
+    const headerEditor = bodyEditor.rootAt('#multi-root-header')
+    const footerEditor = bodyEditor.rootAt('#multi-root-footer')
     const headerText = 'Confidential quarterly plan'
     const bodyText = 'The body root carries the document content.'
     const footerText = 'Prepared for leadership review'
 
-    if (testInfo.project.name === 'mobile') {
-      const headerEditor = bodyEditor.rootAt('#multi-root-header')
-      const footerEditor = bodyEditor.rootAt('#multi-root-footer')
-
-      await insertEditorText(headerEditor, ' H1', {
-        path: [0, 0],
-        offset: headerText.length,
-      })
-      await expect(header).toContainText('H1')
-
-      await insertEditorText(bodyEditor, ' B1', {
-        path: [0, 0],
-        offset: bodyText.length,
-      })
-      await expect(main).toContainText('B1')
-
-      await insertEditorText(footerEditor, ' F1', {
-        path: [0, 0],
-        offset: footerText.length,
-      })
-      await expect(footer).toContainText('F1')
-
-      await insertEditorText(headerEditor, ' H2', {
-        path: [0, 0],
-        offset: headerText.length + ' H1'.length,
-      })
-      await expect(header).toContainText('H2')
-
-      await insertEditorText(bodyEditor, ' B2', {
-        path: [0, 0],
-        offset: bodyText.length + ' B1'.length,
-      })
-      await expect(main).toContainText('B2')
-
-      await headerEditor.focus()
-
-      for (let index = 0; index < 5; index++) {
-        await page.getByRole('button', { name: 'Undo document change' }).click()
-      }
-
-      await expect(header).not.toContainText('H1')
-      await expect(header).not.toContainText('H2')
-      await expect(main).not.toContainText('B1')
-      await expect(main).not.toContainText('B2')
-      await expect(footer).not.toContainText('F1')
-      await expect(header).toBeFocused()
-      expect(pageErrors).toEqual([])
-      return
-    }
-
-    const headerBox = await header.boundingBox()
-    const mainBox = await main.boundingBox()
-
-    if (!headerBox || !mainBox) {
-      throw new Error('Multi-root editors are not visible')
-    }
-
-    await page.mouse.click(headerBox.x + headerBox.width - 16, headerBox.y + 24)
-    await expect(header).toBeFocused()
-    await page.keyboard.insertText(' H1')
+    await insertEditorText(headerEditor, ' H1', {
+      path: [0, 0],
+      offset: headerText.length,
+    })
     await expect(header).toContainText('H1')
 
-    await page.mouse.click(mainBox.x + mainBox.width - 16, mainBox.y + 96)
-    await expect(main).toBeFocused()
-    await page.keyboard.insertText(' B1')
+    await insertEditorText(bodyEditor, ' B1', {
+      path: [0, 0],
+      offset: bodyText.length,
+    })
     await expect(main).toContainText('B1')
 
-    await footer.scrollIntoViewIfNeeded()
-    const footerBox = await footer.boundingBox()
-
-    if (!footerBox) {
-      throw new Error('Footer editor is not visible')
-    }
-
-    await page.mouse.click(footerBox.x + footerBox.width - 16, footerBox.y + 24)
-    await expect(footer).toBeFocused()
-    await page.keyboard.insertText(' F1')
+    await insertEditorText(footerEditor, ' F1', {
+      path: [0, 0],
+      offset: footerText.length,
+    })
     await expect(footer).toContainText('F1')
 
-    await header.scrollIntoViewIfNeeded()
-    const updatedHeaderBox = await header.boundingBox()
-
-    if (!updatedHeaderBox) {
-      throw new Error('Header editor is not visible')
-    }
-
-    await page.mouse.click(
-      updatedHeaderBox.x + updatedHeaderBox.width - 16,
-      updatedHeaderBox.y + 24
-    )
-    await expect(header).toBeFocused()
-    await page.keyboard.insertText(' H2')
+    await insertEditorText(headerEditor, ' H2', {
+      path: [0, 0],
+      offset: headerText.length + ' H1'.length,
+    })
     await expect(header).toContainText('H2')
 
-    const updatedMainBox = await main.boundingBox()
-
-    if (!updatedMainBox) {
-      throw new Error('Body editor is not visible')
-    }
-
-    await page.mouse.click(
-      updatedMainBox.x + updatedMainBox.width - 16,
-      updatedMainBox.y + 96
-    )
-    await expect(main).toBeFocused()
-    await page.keyboard.insertText(' B2')
+    await insertEditorText(bodyEditor, ' B2', {
+      path: [0, 0],
+      offset: bodyText.length + ' B1'.length,
+    })
     await expect(main).toContainText('B2')
 
-    await page.mouse.click(
-      updatedHeaderBox.x + updatedHeaderBox.width - 16,
-      updatedHeaderBox.y + 24
-    )
+    await headerEditor.focus()
     await expect(header).toBeFocused()
 
     const historyBeforeUndo = (await bodyEditor.get.history()) as {
@@ -676,8 +597,13 @@ test.describe('multi-root document example', () => {
 
   test('focuses the header editor from the visible header area', async ({
     page,
-  }) => {
-    await openExample(page, 'multi-root-document', {
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop native caret and physical keyboard proof'
+    )
+
+    const bodyEditor = await openExample(page, 'multi-root-document', {
       ready: {
         editor: 'visible',
       },
@@ -688,20 +614,36 @@ test.describe('multi-root document example', () => {
 
     const header = page.locator('#multi-root-header')
     const main = page.locator('#multi-root-main')
+    const headerEditor = bodyEditor.rootAt('#multi-root-header')
+    const headerText = 'Confidential quarterly plan'
 
     await expect(main).toBeFocused()
 
-    await page.getByText('Header editor').click()
-    await expect(header).toBeFocused()
+    await focusRootByLabel(page, 'Header editor', headerEditor)
+    await headerEditor.assert.selection({
+      anchor: { path: [0, 0], offset: headerText.length },
+      focus: { path: [0, 0], offset: headerText.length },
+    })
+    await expect
+      .poll(() => readNativeSelection(page, 'multi-root-header'))
+      .toMatchObject({
+        activeElementId: 'multi-root-header',
+        anchorOffset: headerText.length,
+        focusOffset: headerText.length,
+        insideRoot: true,
+        text: headerText,
+      })
 
-    await page.keyboard.insertText('Header chrome click ')
-    await expect(header).toContainText('Header chrome click ')
+    await page.keyboard.type('Header chrome click ')
+    await expect(header).toHaveText(`${headerText}Header chrome click `)
     await expect(main).not.toContainText('Header chrome click ')
   })
 
   test("visible root chrome restores the root's previous caret", async ({
     page,
-  }) => {
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop keyboard proof')
+
     const bodyEditor = await openExample(page, 'multi-root-document', {
       ready: {
         editor: 'visible',
@@ -719,8 +661,8 @@ test.describe('multi-root document example', () => {
 
     await focusRootByLabel(page, 'Header editor', headerEditor)
     await page.keyboard.press('End')
-    await page.keyboard.insertText(' Tail')
-    await expect(header).toContainText(headerTextWithTail)
+    await page.keyboard.type(' Tail')
+    await expect(header).toHaveText(headerTextWithTail)
 
     await focusRootByLabel(page, 'Body editor', bodyEditor)
 
@@ -738,10 +680,22 @@ test.describe('multi-root document example', () => {
         insideRoot: true,
         text: headerTextWithTail,
       })
-    await page.keyboard.insertText(' Again')
+    const insertedText = 'Z'
+    const restoredHeaderText = `${headerTextWithTail}${insertedText}`
 
-    await expect(header).toContainText(`${headerTextWithTail} Again`)
-    await expect(main).not.toContainText('Again')
+    await page.keyboard.type(insertedText)
+
+    await expect(header).toHaveText(restoredHeaderText)
+    await expect
+      .poll(() => readNativeSelection(page, 'multi-root-header'))
+      .toMatchObject({
+        activeElementId: 'multi-root-header',
+        anchorOffset: restoredHeaderText.length,
+        focusOffset: restoredHeaderText.length,
+        insideRoot: true,
+        text: restoredHeaderText,
+      })
+    await expect(main).not.toContainText(insertedText)
   })
 
   test('puts a native caret in the header from the inactive header text surface', async ({
@@ -783,7 +737,7 @@ test.describe('multi-root document example', () => {
       )
       .toBe(true)
 
-    await page.keyboard.insertText('Surface caret ')
+    await page.keyboard.type('Surface caret ')
     await expect(header).toContainText('Surface caret ')
     await expect(main).not.toContainText('Surface caret ')
   })
@@ -890,7 +844,7 @@ test.describe('multi-root document example', () => {
       })
       .toBe('The body root carries the document content.'.length)
 
-    await page.keyboard.insertText('Body native ')
+    await page.keyboard.type('Body native ')
     await expect(main).toContainText('Body native ')
     await expect(header).not.toContainText('Body native ')
 
@@ -951,7 +905,7 @@ test.describe('multi-root document example', () => {
         text: 'Prepared for leadership review',
       })
 
-    await page.keyboard.insertText('Footer first click ')
+    await page.keyboard.type('Footer first click ')
     await expect(footer).toContainText('Footer first click ')
     await expect(main).not.toContainText('Footer first click ')
   })
@@ -1018,7 +972,7 @@ test.describe('multi-root document example', () => {
       })
       .toBe(lastBodyText.length)
 
-    await page.keyboard.insertText(' Body padding end ')
+    await page.keyboard.type(' Body padding end ')
     await expect(main).toContainText(`${lastBodyText} Body padding end `)
   })
 

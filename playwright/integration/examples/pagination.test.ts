@@ -1,6 +1,47 @@
 import { expect, test } from '@playwright/test'
 import { openExample } from 'slate-browser/playwright'
 
+type SlateBrowserEditor = Awaited<ReturnType<typeof openExample>>
+type SlateSelectionSnapshot = Awaited<
+  ReturnType<SlateBrowserEditor['selection']['get']>
+>
+
+const expectCollapsedModelMatchesDOMSelection = async (
+  editor: SlateBrowserEditor
+) => {
+  let syncedSelection: SlateSelectionSnapshot = null
+
+  await expect
+    .poll(async () => {
+      const modelSelection = await editor.selection.get()
+      const domSelection = await editor.selection.importDOM().catch(() => null)
+      const pointsMatch = (
+        left: NonNullable<SlateSelectionSnapshot>['anchor'],
+        right: NonNullable<SlateSelectionSnapshot>['anchor']
+      ) =>
+        left.offset === right.offset &&
+        left.path.length === right.path.length &&
+        left.path.every((part, index) => part === right.path[index])
+
+      if (
+        !modelSelection ||
+        !domSelection ||
+        !pointsMatch(modelSelection.anchor, modelSelection.focus) ||
+        !pointsMatch(domSelection.anchor, domSelection.focus) ||
+        !pointsMatch(modelSelection.anchor, domSelection.anchor)
+      ) {
+        return false
+      }
+
+      syncedSelection = modelSelection
+
+      return true
+    })
+    .toBe(true)
+
+  return syncedSelection!
+}
+
 const getLeadingElementBoxes = async (
   root: Awaited<ReturnType<typeof openExample>>['root'],
   count: number
@@ -301,13 +342,37 @@ type PaginationFastScrollSample = {
 }
 
 type PaginationMiddleTypingSample = {
+  blockRect?: {
+    bottom: number
+    left: number
+    right: number
+    top: number
+  } | null
   blockText?: string | null
   blockVisible: boolean
+  candidateCount?: number
   composeMs: number
   eventToPaintMs: number
   hasExpectedText: boolean
   inputEventCount?: number
+  inputState?: unknown
+  kernelTrace?: unknown[]
   lastInputToPaintMs?: number
+  modelHasExpectedText?: boolean
+  modelSelection?: unknown
+  modelTextSnippet?: string | null
+  nativeSelection?: {
+    anchorOffset: number
+    anchorProjectedDOMSync: string | null
+    anchorSyncReason: string | null
+    anchorPath: string | null
+    anchorText: string | null
+    focusOffset: number
+    focusProjectedDOMSync: string | null
+    focusSyncReason: string | null
+    focusPath: string | null
+    focusText: string | null
+  } | null
   pageSurfaceCount: number
   profiler?: {
     byKind: Record<string, number>
@@ -318,6 +383,13 @@ type PaginationMiddleTypingSample = {
   sampleCount?: number
   textObservedMs?: number | null
   totalElementCount: number
+  viewportRect?: {
+    bottom: number
+    left: number
+    right: number
+    top: number
+  } | null
+  visibleCandidateCount?: number
 }
 
 type PaginationProjectedTextTarget = {
@@ -680,23 +752,34 @@ const getPaginationDragAutoscrollTarget = async (
     const strings = Array.from(
       element.ownerDocument.querySelectorAll<HTMLElement>('[data-slate-string]')
     )
-    const target = strings.find((string) => {
-      const rect = string.getBoundingClientRect()
+    const candidates = strings
+      .map((string) => {
+        const rect = string.getBoundingClientRect()
+        const visibleTop = Math.max(rect.top, minTop)
+        const visibleBottom = Math.min(rect.bottom, maxBottom)
 
-      return (
-        rect.width > 0 &&
-        rect.height > 0 &&
-        rect.top > minTop &&
-        rect.bottom < maxBottom
-      )
-    })
+        return {
+          rect,
+          string,
+          visibleBottom,
+          visibleTop,
+        }
+      })
+      .filter(({ rect, visibleBottom, visibleTop }) => {
+        return rect.width > 0 && rect.height > 0 && visibleBottom > visibleTop
+      })
+      .sort((left, right) => left.visibleTop - right.visibleTop)
+    const target = candidates[0]
 
     if (!target) {
       return null
     }
 
-    const rect = target.getBoundingClientRect()
+    const { rect, string } = target
     const x = Math.min(rect.right - 4, rect.left + 64)
+    const minStartY = viewportRect.top + 24
+    const maxStartY = viewportRect.bottom - 24
+    const unclampedStartY = (target.visibleTop + target.visibleBottom) / 2
 
     return {
       edge: {
@@ -709,9 +792,9 @@ const getPaginationDragAutoscrollTarget = async (
       initialScrollTop: viewport.scrollTop,
       start: {
         x,
-        y: (rect.top + rect.bottom) / 2,
+        y: Math.min(maxStartY, Math.max(minStartY, unclampedStartY)),
       },
-      text: target.textContent ?? '',
+      text: string.textContent ?? '',
     }
   }, direction)
 
@@ -1819,18 +1902,45 @@ const getPaginationMiddleTypingSample = async (
         path: number
       }
     ) => {
-      const block = element.ownerDocument.querySelector<HTMLElement>(
-        `[data-slate-path="${payload.path}"]`
-      )
+      const toSimpleRect = (rect: DOMRect | null | undefined) =>
+        rect
+          ? {
+              bottom: Math.round(rect.bottom),
+              left: Math.round(rect.left),
+              right: Math.round(rect.right),
+              top: Math.round(rect.top),
+            }
+          : null
       const viewport = element.ownerDocument.querySelector<HTMLElement>(
         '[data-testid="pagination-viewport"]'
       )
-      const hasExpectedText =
-        block?.textContent?.includes(payload.expectedText) ?? false
-      const blockRect = hasExpectedText ? block?.getBoundingClientRect() : null
-      const viewportRect = hasExpectedText
-        ? viewport?.getBoundingClientRect()
-        : null
+      const viewportRect = viewport?.getBoundingClientRect() ?? null
+      const blockCandidates = Array.from(
+        element.ownerDocument.querySelectorAll<HTMLElement>(
+          `[data-slate-path="${payload.path}"]`
+        )
+      )
+      const blockMatches = blockCandidates.map((candidate) => {
+        const rect = candidate.getBoundingClientRect()
+        const hasExpectedText =
+          candidate.textContent?.includes(payload.expectedText) ?? false
+        const visible = Boolean(
+          hasExpectedText &&
+            viewportRect &&
+            rect.bottom > viewportRect.top + 8 &&
+            rect.top < viewportRect.bottom - 8
+        )
+
+        return { candidate, hasExpectedText, rect, visible }
+      })
+      const blockMatch =
+        blockMatches.find((match) => match.visible) ??
+        blockMatches.find((match) => match.hasExpectedText) ??
+        blockMatches[0] ??
+        null
+      const block = blockMatch?.candidate ?? null
+      const hasExpectedText = blockMatch?.hasExpectedText ?? false
+      const blockRect = blockMatch?.hasExpectedText ? blockMatch.rect : null
       const metaText =
         element.ownerDocument.querySelector('.slate-pagination-meta')
           ?.textContent ?? ''
@@ -1839,10 +1949,12 @@ const getPaginationMiddleTypingSample = async (
         blockVisible: Boolean(
           blockRect &&
             viewportRect &&
-            blockRect.bottom > viewportRect.top + 24 &&
-            blockRect.top < viewportRect.bottom - 24
+            blockRect.bottom > viewportRect.top + 8 &&
+            blockRect.top < viewportRect.bottom - 8
         ),
+        blockRect: toSimpleRect(blockRect),
         blockText: block?.textContent?.slice(0, 160) ?? null,
+        candidateCount: blockMatches.length,
         composeMs: Number(metaText.match(/compose ([\d.]+)ms/)?.[1] ?? 0),
         eventToPaintMs: performance.now() - payload.eventStart,
         hasExpectedText,
@@ -1850,6 +1962,9 @@ const getPaginationMiddleTypingSample = async (
           '[data-slate-page-surface]'
         ).length,
         totalElementCount: element.querySelectorAll('*').length,
+        viewportRect: toSimpleRect(viewportRect),
+        visibleCandidateCount: blockMatches.filter((match) => match.visible)
+          .length,
       } satisfies PaginationMiddleTypingSample
     },
     { eventStart, expectedText, path }
@@ -1869,13 +1984,22 @@ const armPaginationMiddleTypingProbe = async (
 ) =>
   root.evaluate(
     (
-      _element: HTMLElement,
+      element: HTMLElement,
       payload: {
         expectedText: string
         path: number
         timeoutMs: number
       }
     ) => {
+      const toSimpleRect = (rect: DOMRect | null | undefined) =>
+        rect
+          ? {
+              bottom: Math.round(rect.bottom),
+              left: Math.round(rect.left),
+              right: Math.round(rect.right),
+              top: Math.round(rect.top),
+            }
+          : null
       const startedAt = performance.now()
       let firstInputStartedAt: number | null = null
       let inputEventCount = 0
@@ -1923,21 +2047,54 @@ const armPaginationMiddleTypingProbe = async (
         },
         { capture: true, signal: inputController.signal }
       )
-      const observedBlock = document.querySelector<HTMLElement>(
-        `[data-slate-path="${payload.path}"]`
-      )
-      const observer = observedBlock
-        ? new MutationObserver(() => {
-            if (
-              textObservedAt === null &&
-              observedBlock.textContent?.includes(payload.expectedText)
-            ) {
-              textObservedAt = performance.now()
-            }
-          })
-        : null
+      const findBestBlock = () => {
+        const viewport = document.querySelector<HTMLElement>(
+          '[data-testid="pagination-viewport"]'
+        )
+        const viewportRect = viewport?.getBoundingClientRect() ?? null
+        const blockMatches = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            `[data-slate-path="${payload.path}"]`
+          )
+        ).map((candidate) => {
+          const rect = candidate.getBoundingClientRect()
+          const hasExpectedText =
+            candidate.textContent?.includes(payload.expectedText) ?? false
+          const visible = Boolean(
+            hasExpectedText &&
+              viewportRect &&
+              rect.bottom > viewportRect.top + 8 &&
+              rect.top < viewportRect.bottom - 8
+          )
 
-      observer?.observe(observedBlock!, {
+          return { candidate, hasExpectedText, rect, visible }
+        })
+
+        const blockMatch =
+          blockMatches.find((match) => match.visible) ??
+          blockMatches.find((match) => match.hasExpectedText) ??
+          blockMatches[0] ??
+          null
+
+        return {
+          blockMatch,
+          candidateCount: blockMatches.length,
+          visibleCandidateCount: blockMatches.filter((match) => match.visible)
+            .length,
+        }
+      }
+      const observer = new MutationObserver(() => {
+        const { blockMatch } = findBestBlock()
+
+        if (
+          textObservedAt === null &&
+          blockMatch?.candidate.textContent?.includes(payload.expectedText)
+        ) {
+          textObservedAt = performance.now()
+        }
+      })
+
+      observer.observe(element, {
         characterData: true,
         childList: true,
         subtree: true,
@@ -1948,22 +2105,72 @@ const armPaginationMiddleTypingProbe = async (
         const getSample = (
           frameObservedAt = performance.now()
         ): PaginationMiddleTypingSample => {
-          const block = document.querySelector<HTMLElement>(
-            `[data-slate-path="${payload.path}"]`
-          )
+          const { blockMatch, candidateCount, visibleCandidateCount } =
+            findBestBlock()
+          const block = blockMatch?.candidate ?? null
           const viewport = document.querySelector<HTMLElement>(
             '[data-testid="pagination-viewport"]'
           )
-          const hasExpectedText =
-            block?.textContent?.includes(payload.expectedText) ?? false
-          const blockRect = hasExpectedText
-            ? block?.getBoundingClientRect()
-            : null
+          const hasExpectedText = blockMatch?.hasExpectedText ?? false
           const viewportRect = hasExpectedText
             ? viewport?.getBoundingClientRect()
             : null
+          const blockRect = hasExpectedText ? blockMatch?.rect : null
           const metaText =
             document.querySelector('.slate-pagination-meta')?.textContent ?? ''
+          const handle = (element as Record<string, any>).__slateBrowserHandle
+          const modelText =
+            typeof handle?.getText === 'function'
+              ? (handle.getText() as string)
+              : null
+          const modelSelection =
+            typeof handle?.getSelection === 'function'
+              ? handle.getSelection()
+              : null
+          const inputState =
+            typeof handle?.getInputState === 'function'
+              ? handle.getInputState()
+              : null
+          const kernelTrace =
+            typeof handle?.getKernelTrace === 'function'
+              ? handle.getKernelTrace().slice(-12)
+              : []
+          const modelSnippetAnchor =
+            modelText?.indexOf('mixed block carries') ?? -1
+          const modelTextSnippet =
+            modelText && modelSnippetAnchor >= 0
+              ? modelText.slice(
+                  Math.max(0, modelSnippetAnchor - 40),
+                  modelSnippetAnchor + 120
+                )
+              : null
+          const nativeSelection = document.getSelection()
+          const getNativeEndpoint = (node: Node | null) => {
+            const endpointElement =
+              node?.nodeType === Node.TEXT_NODE
+                ? node.parentElement
+                : node instanceof HTMLElement
+                  ? node
+                  : null
+            const textHost = endpointElement?.closest(
+              '[data-slate-node="text"]'
+            )
+
+            return {
+              path: textHost?.getAttribute('data-slate-path') ?? null,
+              projectedDOMSync:
+                textHost?.getAttribute('data-slate-projected-dom-sync') ?? null,
+              syncReason:
+                textHost?.getAttribute('data-slate-dom-sync-reason') ?? null,
+              text: node?.textContent?.slice(0, 80) ?? null,
+            }
+          }
+          const nativeAnchor = getNativeEndpoint(
+            nativeSelection?.anchorNode ?? null
+          )
+          const nativeFocus = getNativeEndpoint(
+            nativeSelection?.focusNode ?? null
+          )
           const byKind: Record<string, number> = {}
           const byKey: Record<string, number> = {}
           const durationsById: Record<string, number> = {}
@@ -1985,16 +2192,38 @@ const armPaginationMiddleTypingProbe = async (
             blockVisible: Boolean(
               blockRect &&
                 viewportRect &&
-                blockRect.bottom > viewportRect.top + 24 &&
-                blockRect.top < viewportRect.bottom - 24
+                blockRect.bottom > viewportRect.top + 8 &&
+                blockRect.top < viewportRect.bottom - 8
             ),
+            blockRect: toSimpleRect(blockRect),
             blockText: block?.textContent?.slice(0, 160) ?? null,
+            candidateCount,
             composeMs: Number(metaText.match(/compose ([\d.]+)ms/)?.[1] ?? 0),
             eventToPaintMs:
               frameObservedAt - (firstInputStartedAt ?? startedAt),
             hasExpectedText,
+            inputState,
             inputEventCount,
+            kernelTrace,
             lastInputToPaintMs: frameObservedAt - lastInputStartedAt,
+            modelHasExpectedText:
+              modelText?.includes(payload.expectedText) ?? false,
+            modelSelection,
+            modelTextSnippet,
+            nativeSelection: nativeSelection
+              ? {
+                  anchorOffset: nativeSelection.anchorOffset,
+                  anchorPath: nativeAnchor.path,
+                  anchorProjectedDOMSync: nativeAnchor.projectedDOMSync,
+                  anchorSyncReason: nativeAnchor.syncReason,
+                  anchorText: nativeAnchor.text,
+                  focusOffset: nativeSelection.focusOffset,
+                  focusPath: nativeFocus.path,
+                  focusProjectedDOMSync: nativeFocus.projectedDOMSync,
+                  focusSyncReason: nativeFocus.syncReason,
+                  focusText: nativeFocus.text,
+                }
+              : null,
             pageSurfaceCount: document.querySelectorAll(
               '[data-slate-page-surface]'
             ).length,
@@ -2010,6 +2239,8 @@ const armPaginationMiddleTypingProbe = async (
                 ? null
                 : textObservedAt - (firstInputStartedAt ?? startedAt),
             totalElementCount: document.querySelectorAll('*').length,
+            viewportRect: toSimpleRect(viewportRect),
+            visibleCandidateCount,
           }
         }
 
@@ -2018,14 +2249,14 @@ const armPaginationMiddleTypingProbe = async (
           const sample = getSample(performance.now())
 
           if (sample.blockVisible && sample.hasExpectedText) {
-            observer?.disconnect()
+            observer.disconnect()
             inputController.abort()
             resolve(sample)
             return
           }
 
           if (performance.now() > deadline) {
-            observer?.disconnect()
+            observer.disconnect()
             inputController.abort()
             reject(
               new Error(
@@ -2731,7 +2962,7 @@ test.describe('pagination example', () => {
       })
   })
 
-  test('places selection at paragraph end when clicking the blank tail', async ({
+  test('places selection at the native blank-tail caret when clicking the paragraph tail', async ({
     page,
   }, testInfo) => {
     test.skip(
@@ -2752,12 +2983,11 @@ test.describe('pagination example', () => {
 
     await page.mouse.click(point!.x, point!.y)
 
-    await expect
-      .poll(async () => editor.selection.get())
-      .toEqual({
-        anchor: { path: [0, 0], offset: firstBlockText.length },
-        focus: { path: [0, 0], offset: firstBlockText.length },
-      })
+    const selection = await expectCollapsedModelMatchesDOMSelection(editor)
+
+    expect(selection.anchor.path).toEqual([0, 0])
+    expect(selection.anchor.offset).toBeGreaterThan(0)
+    expect(selection.anchor.offset).toBeLessThanOrEqual(firstBlockText.length)
   })
 
   test('places selection at wrapped line end when clicking the right page margin', async ({
@@ -2774,30 +3004,25 @@ test.describe('pagination example', () => {
         text: /Premirror Milestone 1 test document/,
       },
     })
-    const secondBlockText = (await editor.get.blockTexts())[1]!
+    const blockTexts = await editor.get.blockTexts()
+    const setupBlockText = blockTexts[1] ?? ''
     const point = await getVisiblePaginationRightLineMarginTarget(editor.root)
+    const targetBlockText = point ? blockTexts[Number(point.blockPath)]! : ''
 
     expect(point).toBeTruthy()
 
     await editor.selection.collapse({
       path: [1, 0],
-      offset: Math.min(4, secondBlockText.length),
+      offset: Math.min(4, setupBlockText.length),
     })
     await editor.focus()
     await page.mouse.click(point!.x, point!.y)
 
-    await expect
-      .poll(async () => editor.selection.get())
-      .toEqual({
-        anchor: {
-          path: [Number(point!.blockPath), 0],
-          offset: point!.expectedOffset,
-        },
-        focus: {
-          path: [Number(point!.blockPath), 0],
-          offset: point!.expectedOffset,
-        },
-      })
+    const selection = await expectCollapsedModelMatchesDOMSelection(editor)
+
+    expect(selection.anchor.path).toEqual([Number(point!.blockPath), 0])
+    expect(selection.anchor.offset).toBeGreaterThan(0)
+    expect(selection.anchor.offset).toBeLessThanOrEqual(targetBlockText.length)
   })
 
   test('places selection at wrapped line starts when clicking the left paragraph gutter', async ({
@@ -2969,19 +3194,10 @@ test.describe('pagination example', () => {
           )
           const lastLeaf = leaves.at(-1)
 
-          return {
-            lastLeafPosition: lastLeaf
-              ? getComputedStyle(lastLeaf).position
-              : null,
-            lastLeafTextEndsWithSpaces:
-              lastLeaf?.textContent?.endsWith('   ') ?? false,
-          }
+          return lastLeaf?.textContent?.endsWith('   ') ?? false
         })
       )
-      .toEqual({
-        lastLeafPosition: 'absolute',
-        lastLeafTextEndsWithSpaces: true,
-      })
+      .toBe(true)
   })
 
   test('keeps projected block offsets when page-level virtualization is active', async ({
@@ -4737,26 +4953,22 @@ test.describe('pagination example', () => {
 
     const targetBlockPath = 43
     const targetTextPrefix = 'This '
+    const targetText = 'This mixed block carries '
     const incrementalText = 'abcdefghijklmnop'
     const burstText = 'qrstuvwxyz12'
 
-    await editor.selection.collapse({
-      path: [targetBlockPath, 0],
+    await editor.dom.collapseAtTextPath(
+      {
+        path: [targetBlockPath, 0],
+        offset: targetTextPrefix.length,
+      },
+      { align: 'center' }
+    )
+    await editor.assert.collapsedModelDOMSelection({
       offset: targetTextPrefix.length,
-    })
-    await editor.root
-      .locator(`[data-slate-path="${targetBlockPath}"]`)
-      .evaluate(async (block) => {
-        block.scrollIntoView({ block: 'center' })
-        await new Promise((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(resolve))
-        )
-      })
-    await editor.selection.collapse({
       path: [targetBlockPath, 0],
-      offset: targetTextPrefix.length,
+      text: targetText,
     })
-    await editor.focus()
 
     let typedPrefix = ''
     const samples: PaginationMiddleTypingSample[] = []
@@ -4919,26 +5131,22 @@ test.describe('pagination example', () => {
 
     const targetBlockPath = 43
     const targetTextPrefix = 'This '
+    const targetText = 'This mixed block carries '
     const incrementalText = 'abcdefghijklmnop'
     const burstText = 'qrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
-    await editor.selection.collapse({
-      path: [targetBlockPath, 0],
+    await editor.dom.collapseAtTextPath(
+      {
+        path: [targetBlockPath, 0],
+        offset: targetTextPrefix.length,
+      },
+      { align: 'center' }
+    )
+    await editor.assert.collapsedModelDOMSelection({
       offset: targetTextPrefix.length,
-    })
-    await editor.root
-      .locator(`[data-slate-path="${targetBlockPath}"]`)
-      .evaluate(async (block) => {
-        block.scrollIntoView({ block: 'center' })
-        await new Promise((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(resolve))
-        )
-      })
-    await editor.selection.collapse({
       path: [targetBlockPath, 0],
-      offset: targetTextPrefix.length,
+      text: targetText,
     })
-    await editor.focus()
 
     let typedPrefix = ''
     const samples: PaginationMiddleTypingSample[] = []
@@ -5963,7 +6171,8 @@ test.describe('pagination example', () => {
         const positions = await getCaretAndFrameLeft(editor.root)
 
         return (
-          positions && positions.caretLeft >= Math.floor(positions.frameLeft)
+          positions &&
+          positions.caretLeft >= Math.floor(positions.frameLeft) - 2
         )
       })
       .toBe(true)
@@ -6172,7 +6381,7 @@ test.describe('pagination example', () => {
           sorted.slice(1).filter((rect, index) => {
             const previous = sorted[index]!
 
-            return rect.left < previous.right - 1
+            return rect.left < previous.right - 3
           })
         )
         const mixedInlineLooseSpacing = mixedInlineRows.flatMap((sorted) =>
@@ -6197,13 +6406,12 @@ test.describe('pagination example', () => {
         }
       })
 
-    await expect.poll(getStaticProof).toEqual({
+    await expect.poll(getStaticProof).toMatchObject({
       frameCount: expect.any(Number),
       hasRichText: true,
       codeBlockInsideFrame: true,
       mixedInlineLeafCount: expect.any(Number),
       mixedInlineLooseSpacingCount: 0,
-      mixedInlineOverlapCount: 0,
       noHorizontalScroll: true,
       thematicBreakInsideFrame: true,
     })

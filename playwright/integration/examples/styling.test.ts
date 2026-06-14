@@ -112,7 +112,7 @@ test.describe('styling example', () => {
   test('mouse drag undo restores typed selected text replacement', async ({
     page,
   }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium', 'Chromium reporter path')
+    test.skip(testInfo.project.name === 'mobile', 'Desktop native drag proof')
 
     const editor = await openExample(page, 'styling', {
       ready: {

@@ -267,6 +267,30 @@ describe('slate-react surface contract', () => {
     expect(violations).toEqual([])
   })
 
+  test('projection store uses the source snapshot when projecting ranges', () => {
+    const contents = readFileSync(
+      resolve(repoRoot, 'packages/slate-react/src/projection-store.ts'),
+      'utf8'
+    )
+
+    expect(contents).toMatch(/projectRangeInSnapshot\(snapshot,/)
+    expect(contents).not.toMatch(/Editor\.projectRange/)
+  })
+
+  test('root runtime-id selector can reuse cached full-root replace indexes', () => {
+    const contents = readFileSync(
+      resolve(
+        repoRoot,
+        'packages/slate-react/src/editable/root-selector-sources.ts'
+      ),
+      'utf8'
+    )
+
+    expect(contents).toMatch(/getCachedFullRootReplaceTopLevelRuntimeIds/)
+    expect(contents).toMatch(/selectRootRuntimeIds\(editor, root, operations\)/)
+    expect(contents).toMatch(/useEditorSelector\(\s*selector,/)
+  })
+
   test('runtime package-private imports pin peer floors to sibling runtime packages', () => {
     const slateReactPackage = readPackageJson('slate-react')
     const runtimeSources = [

@@ -142,11 +142,15 @@ export const applyEditableInput = ({
   const nativeInput = event.nativeEvent as InputEvent
   const isModelOwnedTextInputGuardActive =
     (inputController.state.modelOwnedTextInputGuard ?? 0) > 0
+  const modelOwnsTextInput =
+    isModelOwnedTextInputGuardActive ||
+    (inputController.preferModelSelectionForInputRef.current &&
+      inputController.state.selectionSource === 'model-owned')
 
   if (
     !skipNativeTextInputRepair &&
     !hadDeferredOperations &&
-    !isModelOwnedTextInputGuardActive &&
+    !modelOwnsTextInput &&
     nativeInput.inputType === 'insertText' &&
     typeof nativeInput.data === 'string' &&
     nativeInput.data.length > 0 &&

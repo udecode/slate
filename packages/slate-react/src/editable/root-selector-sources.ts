@@ -6,6 +6,7 @@ import { useEditor } from '../hooks/use-editor'
 import { useEditorSelector } from '../hooks/use-editor-selector'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { recordSlateReactRender } from '../render-profiler'
+import { getCachedFullRootReplaceTopLevelRuntimeIds } from './runtime-editor-api'
 
 export type DOMStrategyRootConfig = {
   overscan: number
@@ -129,6 +130,32 @@ const hasNoOperations = (operations: readonly Operation[] | undefined) =>
 
 const getOperationRoot = (operation: Operation) =>
   ((operation as { root?: string }).root ?? 'main') as string
+
+const getSingleFullRootReplaceOperation = (
+  operations: readonly Operation[] | undefined,
+  root: string
+) => {
+  if (!operations || operations.length === 0) {
+    return null
+  }
+
+  const contentOperations = operations.filter(
+    (operation) => operation.type !== 'set_selection'
+  )
+
+  if (contentOperations.length !== 1) {
+    return null
+  }
+
+  const operation = contentOperations[0]
+
+  return operation?.type === 'replace_children' &&
+    operation.path.length === 0 &&
+    operation.index === 0 &&
+    getOperationRoot(operation) === root
+    ? operation
+    : null
+}
 
 const getChangedOperations = (
   operations?: readonly Operation[],
@@ -267,7 +294,20 @@ const sameRuntimeIds = (
   left.length === right.length &&
   left.every((runtimeId, index) => runtimeId === right[index])
 
-const selectRootRuntimeIds = (editor: ReactRuntimeEditor) => {
+const selectRootRuntimeIds = (
+  editor: ReactRuntimeEditor,
+  root: string,
+  operations?: readonly Operation[]
+) => {
+  const fullRootReplace = getSingleFullRootReplaceOperation(operations, root)
+  const cachedRuntimeIds = fullRootReplace
+    ? getCachedFullRootReplaceTopLevelRuntimeIds(fullRootReplace)
+    : null
+
+  if (cachedRuntimeIds) {
+    return cachedRuntimeIds
+  }
+
   return editor.read((state) => {
     return state.nodes
       .children()
@@ -283,6 +323,11 @@ const selectRootRuntimeIds = (editor: ReactRuntimeEditor) => {
 export const useRootRuntimeIds = () => {
   const editor = useEditor<ReactRuntimeEditor>()
   const root = editor.read((state) => state.view.root())
+  const selector = useCallback(
+    (editor: ReactRuntimeEditor, operations?: readonly Operation[]) =>
+      selectRootRuntimeIds(editor, root, operations),
+    [root]
+  )
   const shouldUpdate = useCallback(
     (operations?: readonly Operation[], change?: SnapshotChange) =>
       shouldUpdateRootRuntimeIds(root, operations, change),
@@ -290,7 +335,7 @@ export const useRootRuntimeIds = () => {
   )
 
   return useEditorSelector(
-    selectRootRuntimeIds,
+    selector,
     (left, right) => {
       return left != null && sameRuntimeIds(left as RuntimeId[], right)
     },

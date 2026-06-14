@@ -270,7 +270,13 @@ export const attachEditableSelectionChangeListener = ({
   targetDocument,
 }: {
   scheduleOnDOMSelectionChange: () => void
-  state: { pendingDOMSelectionImport: boolean }
+  state: {
+    activeIntent?: EditableInputController['state']['activeIntent']
+    modelSelectionPreference?: EditableInputController['state']['modelSelectionPreference']
+    pendingDOMSelectionImport: boolean
+    selectionChangeOrigin?: EditableInputController['state']['selectionChangeOrigin']
+    selectionSource?: EditableInputController['state']['selectionSource']
+  }
   targetDocument: Document
 }) => {
   const HTMLElementConstructor = targetDocument.defaultView?.HTMLElement
@@ -286,6 +292,14 @@ export const attachEditableSelectionChangeListener = ({
         : null
     const targetTagName = targetElement?.tagName
     if (targetTagName === 'INPUT' || targetTagName === 'TEXTAREA') {
+      return
+    }
+    if (
+      state.activeIntent === 'history' &&
+      state.selectionChangeOrigin === 'repair-induced' &&
+      state.selectionSource === 'model-owned' &&
+      state.modelSelectionPreference?.preferModelSelection === true
+    ) {
       return
     }
     state.pendingDOMSelectionImport = true
@@ -834,6 +848,7 @@ export const syncSelectionForBeforeInput = ({
   pendingNativeTextInputRepairPathKey = null,
   preferModelSelectionForInput,
   root,
+  selectionChangeOrigin = null,
   selection,
 }: {
   allowDOMSelectionImport?: boolean
@@ -849,6 +864,7 @@ export const syncSelectionForBeforeInput = ({
   pendingNativeTextInputRepairPathKey?: string | null
   preferModelSelectionForInput: boolean
   root: Document | ShadowRoot
+  selectionChangeOrigin?: SelectionChangeOrigin | null
   selection: Range | null
 }): {
   native: boolean
@@ -928,7 +944,8 @@ export const syncSelectionForBeforeInput = ({
   let didUseBeforeInputTargetRange = false
   if (allowDOMSelectionImport) {
     const nodeMapDirty = IS_NODE_MAP_DIRTY.get(editor)
-    const [targetRange] = getInputEventTargetRanges(event)
+    const targetRanges = getInputEventTargetRanges(event)
+    const targetRange = targetRanges.length === 1 ? targetRanges[0] : null
     const textHostRange = targetRange
       ? resolveSlateRangeFromDOMTextRange(editor, targetRange, {
           requireCurrentRuntimeBinding: nodeMapDirty,
@@ -955,8 +972,17 @@ export const syncSelectionForBeforeInput = ({
               exactMatch: false,
             }))
       const range = resolvedRange
+      const staleBackwardInsertTextTargetRange =
+        type === 'insertText' &&
+        range &&
+        RangeApi.isCollapsed(range) &&
+        nextSelection &&
+        RangeApi.isCollapsed(nextSelection) &&
+        PathApi.equals(range.anchor.path, nextSelection.anchor.path) &&
+        range.anchor.offset < nextSelection.anchor.offset
       const shouldUseTargetRange =
         range &&
+        !staleBackwardInsertTextTargetRange &&
         !(
           shouldPreferModelSelectionForInput &&
           type === 'insertText' &&
@@ -1028,16 +1054,22 @@ export const syncSelectionForBeforeInput = ({
       pendingNativeTextInputRepairOffset != null &&
       pendingNativeTextInputRepairDOMOffset !==
         pendingNativeTextInputRepairOffset
-    const staleBackwardTextInputDOMSelection =
-      pendingNativeTextInputRepairOwnsSelection &&
+    const staleBackwardSamePathTextInputDOMSelection =
       !!range &&
       RangeApi.isCollapsed(range) &&
       !!nextSelection &&
       RangeApi.isCollapsed(nextSelection) &&
       PathApi.equals(range.anchor.path, nextSelection.anchor.path) &&
       range.anchor.offset < nextSelection.anchor.offset
+    const staleBackwardTextInputDOMSelection =
+      pendingNativeTextInputRepairOwnsSelection &&
+      staleBackwardSamePathTextInputDOMSelection
+    const staleRepairInducedTextInputDOMSelection =
+      selectionChangeOrigin === 'repair-induced' &&
+      staleBackwardSamePathTextInputDOMSelection
 
     if (
+      staleRepairInducedTextInputDOMSelection ||
       pendingNativeTextInputRepairOwnsDifferentPath ||
       pendingNativeTextInputRepairOwnsDifferentOffset ||
       staleBackwardTextInputDOMSelection

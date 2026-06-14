@@ -20,6 +20,7 @@ export {
 export {
   applyOperation,
   applyStatePatches,
+  getCachedFullRootReplaceTopLevelRuntimeIds,
   getCurrentMarks as getEditorCurrentMarks,
   getCurrentSelectionRoot as getEditorSelectionRoot,
   getEditorOperationRoot,
@@ -41,6 +42,7 @@ export {
   getEditorTransformRegistry,
   setEditorTransformRegistry,
 } from '../core/transform-registry'
+export { projectRangeInSnapshot } from '../range-projection'
 export { formatDebugValue } from '../utils/format-debug-value'
 export {
   getOperationRoot,

@@ -862,6 +862,42 @@ describe('slate-history contract', () => {
     assert.equal(Editor.string(editor, [0]), 'Yabcdef')
   })
 
+  it('drops saved undo batches deleted by local withoutSaving edits', () => {
+    const editor = historyTestEditor()
+
+    replace(editor, [paragraph('ab')], {
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
+
+    write(editor, (tx) => {
+      tx.text.insert('X')
+    })
+
+    assert.equal(Editor.string(editor, [0]), 'aXb')
+    assert.equal(getHistory(editor).undos.length, 1)
+
+    editor.api.history.withoutSaving(() => {
+      write(editor, (tx) => {
+        tx.text.delete({
+          at: {
+            anchor: { path: [0, 0], offset: 0 },
+            focus: { path: [0, 0], offset: 2 },
+          },
+        })
+      })
+    })
+
+    assert.equal(Editor.string(editor, [0]), 'b')
+    assert.equal(getHistory(editor).undos.length, 0)
+
+    undo(editor)
+
+    assert.equal(Editor.string(editor, [0]), 'b')
+    assert.equal(getHistory(editor).undos.length, 0)
+    assert.equal(getHistory(editor).redos.length, 0)
+  })
+
   it('rebases saved non-main split positions across withoutSaving text edits', () => {
     const editor = createEditor({
       extensions: [history()],

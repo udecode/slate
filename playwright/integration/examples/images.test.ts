@@ -112,7 +112,10 @@ test.describe('images example', () => {
   })
 
   test('pastes image files from clipboard data', async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium', 'Chromium file paste proof')
+    test.skip(
+      testInfo.project.name === 'firefox',
+      'Firefox synthetic ClipboardEvent file data does not insert an image'
+    )
 
     const editor = await openExample(page, 'images', {
       ready: {
@@ -154,12 +157,12 @@ test.describe('images example', () => {
   })
 
   test('deletes a clicked selected image with Backspace', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'firefox' || testInfo.project.name === 'mobile',
+      'Chromium/WebKit vertical image ArrowDown proof; Firefox moves after the image to [2,0] offset 20'
+    )
 
     const editor = await openExample(page, 'images', {
       ready: {
@@ -793,9 +796,10 @@ test.describe('images example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'firefox' || testInfo.project.name === 'mobile',
+      'Chromium/WebKit vertical image ArrowDown proof; Firefox moves after the image to [2,0] offset 20'
+    )
 
     const editor = await openExample(page, 'images', {
       ready: {
@@ -845,9 +849,7 @@ test.describe('images example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop image proof')
 
     const editor = await openExample(page, 'images', {
       ready: {
@@ -877,9 +879,7 @@ test.describe('images example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop image proof')
 
     const editor = await openExample(page, 'images', {
       ready: {
@@ -896,7 +896,7 @@ test.describe('images example', () => {
       })
 
     await page.keyboard.press('Enter')
-    await page.keyboard.insertText('after image')
+    await page.keyboard.type('after image')
 
     await expect.poll(() => editor.get.blockTexts()).toContain('after image')
     await editor.assert.domCaret({
@@ -908,9 +908,7 @@ test.describe('images example', () => {
   test('inserts a paragraph after a clicked selected image on Shift+Enter', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop image proof')
 
     const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
     const editor = await openExample(page, 'images', {
@@ -929,7 +927,7 @@ test.describe('images example', () => {
         })
 
       await page.keyboard.press('Shift+Enter')
-      await page.keyboard.insertText('after shifted image')
+      await page.keyboard.type('after shifted image')
 
       runtimeErrors.assertNone()
       await expect
@@ -946,12 +944,12 @@ test.describe('images example', () => {
   })
 
   test('copies selected image with visible external HTML payload', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'webkit' || testInfo.project.name === 'mobile',
+      'Chromium/Firefox native clipboard.read HTML payload proof; WebKit blocks navigator.clipboard.read() in Playwright'
+    )
 
     const editor = await openExample(page, 'images', {
       ready: {
@@ -977,18 +975,18 @@ test.describe('images example', () => {
   })
 
   test('selects image editor text content from text focus with keyboard select all', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop image proof')
 
     const editor = await openExample(page, 'images', {
       ready: {
         editor: 'visible',
       },
     })
+    const expectedSelectedLines = await editor.root
+      .locator('p')
+      .allTextContents()
 
     await editor.selection.selectDOM({
       anchor: { path: [0, 0], offset: 10 },
@@ -998,28 +996,52 @@ test.describe('images example', () => {
     await page.keyboard.press('ControlOrMeta+A')
 
     await expect
-      .poll(() => editor.selection.get())
-      .toEqual({
-        anchor: { path: [0, 0], offset: 0 },
-        focus: { path: [3, 0], offset: 78 },
+      .poll(async () => {
+        const selection = await editor.selection.get()
+
+        if (!selection) {
+          return false
+        }
+
+        const points = [selection.anchor, selection.focus].map((point) => ({
+          offset: point.offset,
+          path: point.path.join(','),
+        }))
+        const hasTextStart = points.some(
+          (point) => point.path === '0,0' && point.offset === 0
+        )
+        const hasTextOrVoidEnd = points.some(
+          (point) =>
+            (point.path === '3,0' && point.offset === 78) ||
+            (point.path === '4,0' && point.offset === 0)
+        )
+
+        return hasTextStart && hasTextOrVoidEnd
       })
+      .toBe(true)
+    await expect
+      .poll(async () =>
+        (await editor.get.selectedText())
+          .split('\n')
+          .filter((line) => line.length > 0)
+      )
+      .toEqual(expectedSelectedLines)
     await expect
       .poll(() =>
         editor.root
           .locator('img')
-          .first()
-          .evaluate((element) => getComputedStyle(element).boxShadow)
+          .evaluateAll((elements) =>
+            elements.map((element) => getComputedStyle(element).boxShadow)
+          )
       )
-      .toBe('none')
+      .toEqual(['none', 'none'])
   })
 
   test('keeps select-all and document-edge navigation synchronized with edge images', async ({
     browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop image proof')
 
     const editor = await openExample(page, 'images', {
       query: { case: 'edge-voids' },
@@ -1109,9 +1131,7 @@ test.describe('images example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop image proof')
 
     const editor = await openExample(page, 'images', {
       query: { case: 'adjacent-voids' },
@@ -1205,9 +1225,7 @@ test.describe('images example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop image proof')
 
     const editor = await openExample(page, 'images', {
       ready: {
@@ -1249,9 +1267,7 @@ test.describe('images example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop image proof')
 
     const editor = await openExample(page, 'images', {
       ready: {
@@ -1351,12 +1367,12 @@ test.describe('images example', () => {
   })
 
   test('keeps vertical arrow movement into an image synchronized', async ({
-    browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'firefox' || testInfo.project.name === 'mobile',
+      'Chromium/WebKit vertical image ArrowDown proof; Firefox moves after the image to [2,0] offset 20'
+    )
 
     const editor = await openExample(page, 'images', {
       ready: {
@@ -1396,9 +1412,7 @@ test.describe('images example', () => {
     browserName,
     page,
   }, testInfo) => {
-    if (browserName !== 'chromium' || testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(testInfo.project.name === 'mobile', 'Desktop image proof')
 
     const editor = await openExample(page, 'images', {
       ready: {

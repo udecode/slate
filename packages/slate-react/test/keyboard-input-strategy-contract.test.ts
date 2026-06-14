@@ -899,6 +899,46 @@ describe('keyboard input strategy', () => {
     isComposing.mockRestore()
   })
 
+  it('keeps Enter during active composition browser-owned', () => {
+    const editor = createEditor({
+      initialValue: [{ children: [{ text: 'test' }] }],
+    }) as ReactEditorType
+    const event = reactKeyEvent({
+      ...keyEvent('Enter'),
+      isComposing: true,
+    } as KeyboardEvent)
+    const hasEditableTarget = vi
+      .spyOn(ReactEditor, 'hasEditableTarget')
+      .mockReturnValue(true)
+    const isComposing = vi
+      .spyOn(ReactEditor, 'isComposing')
+      .mockReturnValue(true)
+
+    try {
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: null,
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(event.preventDefault).not.toHaveBeenCalled()
+      expect(editor.read((state) => state.value.get().roots.main)).toEqual([
+        { children: [{ text: 'test' }] },
+      ])
+    } finally {
+      hasEditableTarget.mockRestore()
+      isComposing.mockRestore()
+    }
+  })
+
   it("repairs history focus to the preserved selection root when undoing another root's batch", () => {
     const runtime = createEditorRuntime({
       extensions: [history()],
@@ -2221,6 +2261,100 @@ describe('keyboard input strategy', () => {
       expect(event.preventDefault).toHaveBeenCalled()
       expect(applyEditableCommand).toHaveBeenCalledWith({
         command: { inputType: 'insertText', kind: 'insert-text', text: 'a' },
+        editor,
+      })
+
+      hasEditableTarget.mockRestore()
+      isComposing.mockRestore()
+    } finally {
+      vi.doUnmock('slate-dom')
+      vi.doUnmock('../src/editable/mutation-controller')
+      vi.resetModules()
+    }
+  })
+
+  it('routes printable expanded inline-void replacement through the model with beforeinput support', async () => {
+    vi.resetModules()
+
+    const applyEditableCommand = vi.fn(() => true)
+
+    vi.doMock('slate-dom', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('slate-dom')>()
+
+      return {
+        ...actual,
+        HAS_BEFORE_INPUT_SUPPORT: true,
+      }
+    })
+    vi.doMock('../src/editable/mutation-controller', async (importOriginal) => {
+      const actual =
+        await importOriginal<
+          typeof import('../src/editable/mutation-controller')
+        >()
+
+      return {
+        ...actual,
+        applyEditableCommand,
+      }
+    })
+
+    try {
+      const [
+        { createEditor, defineEditorExtension },
+        { ReactEditor },
+        { applyEditableKeyDown },
+      ] = await Promise.all([
+        import('slate'),
+        import('../src/plugin/react-editor'),
+        import('../src/editable/keyboard-input-strategy'),
+      ])
+      const editor = createEditor({
+        extensions: [
+          defineEditorExtension({
+            elements: [{ type: 'mention', void: 'markable-inline' }],
+            name: 'keyboard-input-strategy-inline-void-test',
+          }),
+        ],
+        initialSelection: {
+          anchor: { path: [0, 0], offset: 1 },
+          focus: { path: [0, 2], offset: 1 },
+        },
+        initialValue: [
+          {
+            type: 'paragraph',
+            children: [
+              { text: 'a' },
+              { character: 'R2-D2', type: 'mention', children: [{ text: '' }] },
+              { text: 'b' },
+            ],
+          },
+        ],
+      }) as ReactEditorType
+      const event = reactKeyEvent(keyEvent('Z'))
+      const hasEditableTarget = vi
+        .spyOn(ReactEditor, 'hasEditableTarget')
+        .mockReturnValue(true)
+      const isComposing = vi
+        .spyOn(ReactEditor, 'isComposing')
+        .mockReturnValue(false)
+
+      const result = applyEditableKeyDown({
+        androidInputManagerRef: { current: null },
+        editor,
+        event,
+        forceRender: vi.fn(),
+        inputController: {} as any,
+        readOnly: false,
+        domStrategyRuntime: null,
+        setComposing: vi.fn(),
+        setExplicitPartialDOMBackedSelection: vi.fn(),
+        partialDOMBackedSelection: false,
+      })
+
+      expect(result.handled).toBe(true)
+      expect(event.preventDefault).toHaveBeenCalled()
+      expect(applyEditableCommand).toHaveBeenCalledWith({
+        command: { inputType: 'insertText', kind: 'insert-text', text: 'Z' },
         editor,
       })
 

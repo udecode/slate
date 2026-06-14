@@ -28,6 +28,8 @@ Current live family owners:
 
 - rerender breadth
 - huge-document overlays
+- huge-document browser trace
+- huge-document full gate wrapper
 - huge-document legacy compare
 - huge-document cross-editor browser comparison
 
@@ -117,6 +119,10 @@ Current artifact owners:
 - `tmp/slate-clipboard-large-payload-benchmark.json`
 - `tmp/slate-react-huge-document-legacy-compare-benchmark.json`
 - `tmp/slate-react-huge-document-cross-editor-benchmark.json`
+- `tmp/slate-react-huge-document-cross-editor-benchmark-*.json`
+- `tmp/slate-react-huge-document-browser-trace-benchmark.json`
+- `tmp/slate-react-huge-document-browser-trace-benchmark-*.json`
+- `tmp/slate-react-huge-document-full-benchmark.json`
 - `tmp/slate-normalization-benchmark.json`
 - `tmp/slate-query-ref-observation-benchmark.json`
 - `tmp/slate-node-transform-benchmark.json`
@@ -172,6 +178,26 @@ check/notify/subscription count metrics so listener fanout has a
 machine-readable target before any architecture work.
 The route trace also records model-backed ready, type-to-paint, and burst/op
 metrics; DOM-visible typing alone is not enough proof for virtualized editors.
+Do not collapse huge-document DOM budget to `domNodeCount`. Use
+`mountedTopLevelCount` and `pendingTopLevelCount` for the viewport-like mounted
+range, `domCoverageBoundaryCount` and `viewportVirtualizationBoundaryCount` for
+hidden/projected range boundaries, and `selectMaterializationFrames` plus
+`materializedSelect*` metrics for endpoint materialization cost. Visual
+selection rows also record projected selection marker counts; those are the
+proof surface for "rendered selection exists" and "native and projected
+selection did not double-render the same range."
+`interactionSequenceToPaintMs` is the whole scripted packet from cold selection
+through materialized selection, click, and typing. It is a soak/sequence
+diagnostic, not a direct click latency budget. Use `clickToSelectionReadyMs`,
+`clickToPaintMs`, `selectionReadyMs`, and `selectToPaintMs` for user-facing
+selection decisions.
+For select-all/delete follow-up typing, `SLATE_BROWSER_TRACE_AFTER_DELETE_INPUT_MODE=type`
+measures native browser plus Playwright per-character dispatch. Use it when the
+question is real keyboard-event behavior. Use `insertText` when the question is
+Slate/model latency after the editor receives one text insertion. Do not treat a
+slow `typeAfterDeleteDispatchMs` or long `beforeinput`/`input` span in `type`
+mode as a Slate hot path unless the same problem appears in `insertText` or in
+model-ready/profiler metrics.
 
 The cross-editor huge-document benchmark compares Slate auto, Slate virtualized,
 ProseMirror, and Lexical on the same large-document browser packet. It emits
@@ -179,6 +205,11 @@ type-to-paint p95, cold select-to-paint p95, materialized select-to-paint p95,
 burst/op p95, DOM p95, and long-task p95 metrics per surface. Cold select
 includes any first-time virtualized materialization; materialized select isolates
 paint-settled latency after the target block exists in the editor surface.
+Treat `selectCommandMs` as harness/programmatic setup cost. It can include
+browser-bridge, scroll/materialization, and editor-handle selection setup, so it
+must be attributed with the route browser trace before runtime optimization.
+Do not use cross-editor `selectCommandMs` alone as a user-facing selection
+budget.
 
 The large clipboard payload lane defaults to a bounded local stress size. To run
 the exact #5945/#5992 issue-size gate:

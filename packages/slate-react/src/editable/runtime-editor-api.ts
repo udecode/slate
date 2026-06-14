@@ -7,6 +7,7 @@ import {
 
 export {
   Editor,
+  getCachedFullRootReplaceTopLevelRuntimeIds,
   getEditorCurrentMarks,
   getEditorExtensionRegistry,
   getEditorLiveNode,
@@ -17,6 +18,7 @@ export {
   getOperationCount,
   hasEditorTransformMiddleware,
   markInternalOwnedReplayOperation,
+  projectRangeInSnapshot,
   setEditorMarks,
   setEditorRuntime,
   setEditorSelection,

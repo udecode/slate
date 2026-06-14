@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test'
 import {
-  attachPageScreenshot,
+  attachSlateBrowserJsonArtifact,
+  attachSlateBrowserSelectionScreenshot,
   openExample,
   type SlateBrowserEditorHarness,
 } from 'slate-browser/playwright'
@@ -225,16 +226,13 @@ const getViewSelectionSummary = async (editor: SlateBrowserEditorHarness) =>
   (await editor.selection.displayed()).view
 
 const editorSelectionProof = async (editor: SlateBrowserEditorHarness) => {
-  const selection = await editor.selection.get()
-  const nativeSelection = await getNativeSelectionSummary(editor)
-  const viewSelection = await getViewSelectionSummary(editor)
+  const displayedSelection = await editor.selection.displayed()
 
   return {
-    hasVisibleSelection:
-      nativeSelection.textLength > 0 || viewSelection.markerCount > 0,
-    nativeSelection,
-    selection,
-    viewSelection,
+    hasVisibleSelection: displayedSelection.hasVisibleEditorSelection,
+    nativeSelection: displayedSelection.native,
+    selection: displayedSelection.model,
+    viewSelection: displayedSelection.view,
   }
 }
 
@@ -615,8 +613,10 @@ test.describe('huge document example', () => {
   test('renders huge document without child-count chunking', async ({
     page,
   }) => {
-    await page.goto('/examples/huge-document', {
-      waitUntil: 'commit',
+    await openExample(page, 'huge-document', {
+      ready: {
+        editor: 'visible',
+      },
     })
     await expect(page.getByLabel('Blocks')).toHaveValue('10000')
     await expect(page.getByRole('textbox')).toBeVisible({
@@ -826,8 +826,8 @@ test.describe('huge document example', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium keyboard/perf proof for staged huge-document vertical selection'
+      testInfo.project.name === 'mobile',
+      'Desktop keyboard/perf proof for staged huge-document vertical selection'
     )
 
     const editor = await openSmallHugeDocument(page, {
@@ -883,10 +883,11 @@ test.describe('huge document example', () => {
       focus: { path: [5000, 0], offset: 3 },
     })
 
-    await testInfo.attach('staged-vertical-selection-10k-proof', {
-      body: JSON.stringify({ downMs, upMs }, null, 2),
-      contentType: 'application/json',
-    })
+    await attachSlateBrowserJsonArtifact(
+      testInfo,
+      'staged-vertical-selection-10k-proof',
+      { downMs, upMs }
+    )
 
     expect(Math.max(...downMs)).toBeLessThan(600)
     expect(Math.max(...upMs)).toBeLessThan(600)
@@ -953,12 +954,163 @@ test.describe('huge document example', () => {
       proofs.push({ down, strategy, up })
     }
 
-    await testInfo.attach(
+    await attachSlateBrowserJsonArtifact(
+      testInfo,
       'huge-document-cross-browser-vertical-selection-proof',
-      {
-        body: JSON.stringify(proofs, null, 2),
-        contentType: 'application/json',
+      proofs
+    )
+  })
+
+  test('keeps staged and virtualized select-all delete typing and undo coherent across browsers', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop select-all delete proof'
+    )
+
+    const strategies = ['staged', 'virtualized'] as const
+    const proofs: Array<{
+      afterSelectAllNative: Awaited<
+        ReturnType<typeof getNativeSelectionSummary>
+      >
+      afterSelectAllView: Awaited<ReturnType<typeof getViewSelectionSummary>>
+      deleteMs: number
+      selectAllMs: number
+      strategy: (typeof strategies)[number]
+      undoDeleteMs: number
+      undoTypeMs: number
+    }> = []
+
+    for (const strategy of strategies) {
+      const editor = await openSmallHugeDocument(page, {
+        blocks: 1200,
+        editor_height: 420,
+        estimated_block_size: 48,
+        overscan: 0,
+        strategy,
+        threshold: 1,
+      })
+
+      await expect
+        .poll(() =>
+          page.getByTestId('huge-document-effective-strategy').textContent()
+        )
+        .toBe(strategy)
+
+      await selectTextBlockOffsetDOM(editor, 0, 0)
+
+      const beforeModelBlockTexts = await editor.get.modelBlockTexts()
+      const beforeBoundary = {
+        first: beforeModelBlockTexts[0],
+        last: beforeModelBlockTexts.at(-1),
+        length: beforeModelBlockTexts.length,
       }
+
+      expect(beforeBoundary.length).toBe(1200)
+
+      const selectAllMs = await pressKeyboardWithTiming(
+        page,
+        await getBrowserSelectAllHotkey(editor),
+        8000
+      )
+
+      await editor.assert.selection({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: {
+          path: [beforeBoundary.length - 1, 0],
+          offset: beforeBoundary.last!.length,
+        },
+      })
+      await editor.assert.noDoubleSelectionHighlight()
+
+      const afterSelectAllNative = await getNativeSelectionSummary(editor)
+      const afterSelectAllView = await getViewSelectionSummary(editor)
+      const deleteMs = await pressKeyboardWithTiming(page, 'Delete', 8000)
+
+      await expect
+        .poll(async () => ({
+          selection: await editor.selection.get(),
+          texts: await editor.get.modelBlockTexts(),
+        }))
+        .toEqual({
+          selection: {
+            anchor: { path: [0, 0], offset: 0 },
+            focus: { path: [0, 0], offset: 0 },
+          },
+          texts: [''],
+        })
+
+      const typeText = `${strategy} replacement`
+
+      await page.keyboard.type(typeText, { delay: 0 })
+
+      await expect
+        .poll(async () => ({
+          selection: await editor.selection.get(),
+          texts: await editor.get.modelBlockTexts(),
+        }))
+        .toEqual({
+          selection: {
+            anchor: { path: [0, 0], offset: typeText.length },
+            focus: { path: [0, 0], offset: typeText.length },
+          },
+          texts: [typeText],
+        })
+
+      const undoHotkey = await getBrowserUndoHotkey(editor)
+      const undoTypeMs = await pressKeyboardWithTiming(page, undoHotkey, 8000)
+
+      await expect.poll(() => editor.get.modelBlockTexts()).toEqual([''])
+      await editor.assert.selection({
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      })
+
+      const undoDeleteMs = await pressKeyboardWithTiming(
+        page,
+        undoHotkey,
+        15_000
+      )
+
+      await expect
+        .poll(async () => {
+          const nextModelBlockTexts = await editor.get.modelBlockTexts()
+
+          return {
+            first: nextModelBlockTexts[0],
+            last: nextModelBlockTexts.at(-1),
+            length: nextModelBlockTexts.length,
+            selection: await editor.selection.get(),
+          }
+        })
+        .toEqual({
+          ...beforeBoundary,
+          selection: {
+            anchor: { path: [0, 0], offset: 0 },
+            focus: {
+              path: [beforeBoundary.length - 1, 0],
+              offset: beforeBoundary.last!.length,
+            },
+          },
+        })
+      await editor.assert.noDoubleSelectionHighlight()
+
+      proofs.push({
+        afterSelectAllNative,
+        afterSelectAllView,
+        deleteMs,
+        selectAllMs,
+        strategy,
+        undoDeleteMs,
+        undoTypeMs,
+      })
+    }
+
+    await attachSlateBrowserJsonArtifact(
+      testInfo,
+      'huge-document-cross-browser-select-all-delete-proof',
+      proofs
     )
   })
 
@@ -966,8 +1118,8 @@ test.describe('huge document example', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium keyboard/perf proof for video-sized staged huge-document selection'
+      testInfo.project.name === 'mobile',
+      'Desktop keyboard/perf proof for video-sized staged huge-document selection'
     )
 
     await page.setViewportSize({ height: 2106, width: 1548 })
@@ -1040,11 +1192,19 @@ test.describe('huge document example', () => {
     expect(afterDownViewSelection.markerPaths).toContain(
       afterDownSelection!.focus.path.join(',')
     )
+    expect(afterDownViewSelection.markerRects).toHaveLength(
+      afterDownViewSelection.markerCount
+    )
+    expect(
+      afterDownViewSelection.markerRects.some(
+        (rect) => rect.width > 0 && rect.height > 0
+      )
+    ).toBe(true)
     expect(afterDownViewSelection.textLength).toBeGreaterThan(100)
     expect(afterDownNative.textLength).toBe(0)
     await editor.assert.noDoubleSelectionHighlight()
-    await attachPageScreenshot(
-      page,
+    await attachSlateBrowserSelectionScreenshot(
+      editor,
       testInfo,
       'staged-repeated-shift-down-projected-selection.png'
     )
@@ -1070,28 +1230,25 @@ test.describe('huge document example', () => {
       afterDownViewSelection.markerCount
     )
     await editor.assert.noDoubleSelectionHighlight()
-    await attachPageScreenshot(
-      page,
+    await attachSlateBrowserSelectionScreenshot(
+      editor,
       testInfo,
       'staged-repeated-shift-up-projected-selection.png'
     )
 
-    await testInfo.attach('staged-repeated-vertical-selection-10k-proof', {
-      body: JSON.stringify(
-        {
-          afterDownNative,
-          afterDownSelection,
-          afterDownViewSelection,
-          afterUpSelection,
-          afterUpViewSelection,
-          downMs,
-          downSnapshots,
-        },
-        null,
-        2
-      ),
-      contentType: 'application/json',
-    })
+    await attachSlateBrowserJsonArtifact(
+      testInfo,
+      'staged-repeated-vertical-selection-10k-proof',
+      {
+        afterDownNative,
+        afterDownSelection,
+        afterDownViewSelection,
+        afterUpSelection,
+        afterUpViewSelection,
+        downMs,
+        downSnapshots,
+      }
+    )
 
     expect(Math.max(...downMs)).toBeLessThan(800)
   })
@@ -1101,7 +1258,7 @@ test.describe('huge document example', () => {
   }, testInfo) => {
     test.skip(
       testInfo.project.name !== 'chromium',
-      'Chromium native/full-DOM parity proof for staged vertical selection'
+      'Chromium exact full-DOM parity proof; Firefox/WebKit line-wrap offsets differ by one'
     )
 
     const collectSteps = async (strategy: 'full' | 'staged') => {
@@ -1168,18 +1325,19 @@ test.describe('huge document example', () => {
       finalStagedStep.selection!.focus.path.join(',')
     )
 
-    await testInfo.attach('staged-full-dom-vertical-selection-proof', {
-      body: JSON.stringify({ fullSteps, stagedSteps }, null, 2),
-      contentType: 'application/json',
-    })
+    await attachSlateBrowserJsonArtifact(
+      testInfo,
+      'staged-full-dom-vertical-selection-proof',
+      { fullSteps, stagedSteps }
+    )
   })
 
   test('keeps staged 10k select-all delete, typing, paste, and undo bounded', async ({
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium keyboard/perf proof for staged huge-document select-all delete'
+      testInfo.project.name === 'mobile',
+      'Desktop keyboard/perf proof for staged huge-document select-all delete'
     )
 
     const editor = await openSmallHugeDocument(page, {
@@ -1303,22 +1461,19 @@ test.describe('huge document example', () => {
       focus: { path: [0, 0], offset: 'staged paste replacement'.length },
     })
 
-    await testInfo.attach('staged-select-all-delete-10k-proof', {
-      body: JSON.stringify(
-        {
-          afterSelectAllCounts,
-          beforeCounts,
-          deleteMs,
-          nativeAfterSelectAll,
-          selectAllMs,
-          undoDeleteMs,
-          undoTypeMs,
-        },
-        null,
-        2
-      ),
-      contentType: 'application/json',
-    })
+    await attachSlateBrowserJsonArtifact(
+      testInfo,
+      'staged-select-all-delete-10k-proof',
+      {
+        afterSelectAllCounts,
+        beforeCounts,
+        deleteMs,
+        nativeAfterSelectAll,
+        selectAllMs,
+        undoDeleteMs,
+        undoTypeMs,
+      }
+    )
 
     expect(deleteMs).toBeLessThan(5000)
     expect(undoDeleteMs).toBeLessThan(15_000)
@@ -1378,12 +1533,7 @@ test.describe('huge document example', () => {
 
   test('keeps auto partial-dom select-all paste and undo bounded', async ({
     page,
-  }, testInfo) => {
-    test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium clipboard/select-all partial-dom proof'
-    )
-
+  }) => {
     const editor = await openSmallHugeDocument(page, {
       blocks: 5000,
       strategy: 'auto',
@@ -1459,12 +1609,7 @@ test.describe('huge document example', () => {
 
   test('keeps auto partial-dom 20k select-all paste and undo bounded', async ({
     page,
-  }, testInfo) => {
-    test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium clipboard/select-all 20k partial-dom proof'
-    )
-
+  }) => {
     const editor = await openSmallHugeDocument(page, {
       blocks: 20_000,
       strategy: 'auto',
@@ -1663,8 +1808,8 @@ test.describe('huge document example', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium keyboard/select-all proof for virtualized huge-document editing'
+      testInfo.project.name === 'mobile',
+      'Desktop keyboard/select-all proof for virtualized huge-document editing'
     )
 
     const editor = await openSmallHugeDocument(page, {
@@ -1808,21 +1953,18 @@ test.describe('huge document example', () => {
         texts: [''],
       })
 
-    await testInfo.attach('virtualized-select-all-delete-redo-proof', {
-      body: JSON.stringify(
-        {
-          afterSelectAllCounts,
-          afterSelectAllNative,
-          afterSelectAllView,
-          deleteMs,
-          selectAllMs,
-          undoDeleteMs,
-        },
-        null,
-        2
-      ),
-      contentType: 'application/json',
-    })
+    await attachSlateBrowserJsonArtifact(
+      testInfo,
+      'virtualized-select-all-delete-redo-proof',
+      {
+        afterSelectAllCounts,
+        afterSelectAllNative,
+        afterSelectAllView,
+        deleteMs,
+        selectAllMs,
+        undoDeleteMs,
+      }
+    )
 
     expect(deleteMs).toBeLessThan(5000)
     expect(undoDeleteMs).toBeLessThan(15_000)
@@ -1830,12 +1972,7 @@ test.describe('huge document example', () => {
 
   test('replaces a huge select-all range with pasted text and undo restores it', async ({
     page,
-  }, testInfo) => {
-    test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium clipboard/select-all huge-document smoke'
-    )
-
+  }) => {
     const editor = await openSmallHugeDocument(page, {
       blocks: 300,
       strategy: 'full',
@@ -1972,8 +2109,8 @@ test.describe('huge document example', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium proof for virtualized overscan-zero burst typing'
+      testInfo.project.name === 'mobile',
+      'Desktop proof for virtualized overscan-zero burst typing'
     )
 
     const blockIndex = 2500
@@ -2023,8 +2160,8 @@ test.describe('huge document example', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium keyboard/perf proof for virtualized huge-document vertical selection'
+      testInfo.project.name === 'mobile',
+      'Desktop keyboard/perf proof for virtualized huge-document vertical selection'
     )
 
     const collectShiftDownProof = async (
@@ -2166,10 +2303,18 @@ test.describe('huge document example', () => {
         expect(afterDownViewSelection.markerPaths).toContain(
           afterDownSelection!.focus.path.join(',')
         )
+        expect(afterDownViewSelection.markerRects).toHaveLength(
+          afterDownViewSelection.markerCount
+        )
+        expect(
+          afterDownViewSelection.markerRects.some(
+            (rect) => rect.width > 0 && rect.height > 0
+          )
+        ).toBe(true)
         expect(afterDownNative.textLength).toBe(0)
         await editor.assert.noDoubleSelectionHighlight()
-        await attachPageScreenshot(
-          page,
+        await attachSlateBrowserSelectionScreenshot(
+          editor,
           testInfo,
           `${strategy}-repeated-shift-down-projected-selection.png`
         )
@@ -2259,17 +2404,14 @@ test.describe('huge document example', () => {
     expect(virtualizedProof.focusSteps).toEqual(stagedProof.focusSteps)
     expect(virtualizedProof.upFocusSteps).toEqual(stagedProof.upFocusSteps)
 
-    await testInfo.attach('virtualized-repeated-vertical-selection-proof', {
-      body: JSON.stringify(
-        {
-          stagedProof,
-          virtualizedProof,
-        },
-        null,
-        2
-      ),
-      contentType: 'application/json',
-    })
+    await attachSlateBrowserJsonArtifact(
+      testInfo,
+      'virtualized-repeated-vertical-selection-proof',
+      {
+        stagedProof,
+        virtualizedProof,
+      }
+    )
 
     expect(Math.max(...stagedProof.keyMs)).toBeLessThan(400)
     expect(Math.max(...virtualizedProof.keyMs)).toBeLessThan(400)
@@ -2358,8 +2500,8 @@ test.describe('huge document example', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium-only proof for large virtualized materialization'
+      testInfo.project.name === 'mobile',
+      'Desktop proof for large virtualized materialization'
     )
 
     const blockIndex = 10_000
@@ -2436,8 +2578,8 @@ test.describe('huge document example', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium-only proof for virtualized insert-break burst routing'
+      testInfo.project.name === 'mobile',
+      'Desktop virtualized insert-break burst proof'
     )
 
     const blockIndex = 0
@@ -2489,18 +2631,15 @@ test.describe('huge document example', () => {
         },
       })
 
-    await testInfo.attach('huge-document-insert-break-burst-proof', {
-      body: JSON.stringify(
-        {
-          expectedFirstBlock,
-          expectedSecondBlock,
-          offset,
-        },
-        null,
-        2
-      ),
-      contentType: 'application/json',
-    })
+    await attachSlateBrowserJsonArtifact(
+      testInfo,
+      'huge-document-insert-break-burst-proof',
+      {
+        expectedFirstBlock,
+        expectedSecondBlock,
+        offset,
+      }
+    )
   })
 
   test('keeps virtualized backward scroll stable over dynamic block heights', async ({
@@ -2576,8 +2715,8 @@ test.describe('huge document example', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium proof for virtualized internal-scrollbar row stacking'
+      testInfo.project.name === 'mobile',
+      'Desktop proof for virtualized internal-scrollbar row stacking'
     )
 
     const editor = await openSmallHugeDocument(page, {
@@ -2630,18 +2769,19 @@ test.describe('huge document example', () => {
       proofs.push({ immediate, settled, targetScrollTop: scrollTop })
     }
 
-    await testInfo.attach('virtualized-scrollbar-row-stacking-proof', {
-      body: JSON.stringify(proofs, null, 2),
-      contentType: 'application/json',
-    })
+    await attachSlateBrowserJsonArtifact(
+      testInfo,
+      'virtualized-scrollbar-row-stacking-proof',
+      proofs
+    )
   })
 
   test('keeps virtualized rows buffered during native scrollbar drag before React repaint', async ({
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium proof for native-scrollbar virtualized drag buffering'
+      testInfo.project.name === 'mobile',
+      'Desktop proof for native-scrollbar virtualized drag buffering'
     )
 
     const editor = await openSmallHugeDocument(page, {
@@ -2678,10 +2818,11 @@ test.describe('huge document example', () => {
       'left'
     )
 
-    await testInfo.attach('virtualized-scrollbar-drag-buffer-proof', {
-      body: JSON.stringify({ leftProof, proof }, null, 2),
-      contentType: 'application/json',
-    })
+    await attachSlateBrowserJsonArtifact(
+      testInfo,
+      'virtualized-scrollbar-drag-buffer-proof',
+      { leftProof, proof }
+    )
 
     expect(leftProof.mountedRowCount).toBeGreaterThan(0)
     expect(leftProof.visibleRows.length).toBeGreaterThan(0)
@@ -2692,8 +2833,8 @@ test.describe('huge document example', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium-only proof for drag-selection autoscroll direction'
+      testInfo.project.name === 'mobile',
+      'Desktop proof for drag-selection autoscroll direction'
     )
 
     await page.setViewportSize({ height: 900, width: 900 })
@@ -2802,19 +2943,16 @@ test.describe('huge document example', () => {
         blockIndex === 0
     )
 
-    await testInfo.attach('huge-document-downward-drag-autoscroll', {
-      body: JSON.stringify(
-        {
-          focusBlockIndexes,
-          maxBackwardScrollStep,
-          samples,
-          scrollTops,
-        },
-        null,
-        2
-      ),
-      contentType: 'application/json',
-    })
+    await attachSlateBrowserJsonArtifact(
+      testInfo,
+      'huge-document-downward-drag-autoscroll',
+      {
+        focusBlockIndexes,
+        maxBackwardScrollStep,
+        samples,
+        scrollTops,
+      }
+    )
 
     expect(Math.max(...scrollTops)).toBeGreaterThan(24)
     expect(maxBackwardScrollStep).toBeLessThanOrEqual(4)
@@ -2842,8 +2980,8 @@ test.describe('huge document example', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Chromium-only proof for blank-gap drag selection geometry'
+      testInfo.project.name === 'mobile' || testInfo.project.name === 'firefox',
+      'Chromium/WebKit blank-gap drag proof; Firefox does not create native selection for this virtualized gap gesture'
     )
 
     await page.setViewportSize({ height: 700, width: 900 })
@@ -2983,10 +3121,11 @@ test.describe('huge document example', () => {
 
     await page.mouse.up()
 
-    await testInfo.attach('huge-document-blank-gap-drag-selection', {
-      body: JSON.stringify({ samples }, null, 2),
-      contentType: 'application/json',
-    })
+    await attachSlateBrowserJsonArtifact(
+      testInfo,
+      'huge-document-blank-gap-drag-selection',
+      { samples }
+    )
 
     expect(samples.some((sample) => sample.nativeLength > 0)).toBe(true)
     expect(samples.some((sample) => sample.focusPath?.[0] === 2)).toBe(true)
@@ -3002,18 +3141,26 @@ test.describe('huge document example', () => {
 
   test('keeps repeated typing visible after manual scroll-away', async ({
     page,
-  }) => {
+  }, testInfo) => {
     const editor = await openSmallHugeDocument(page, {
       strategy: 'full',
     })
     const blockTexts = await editor.get.blockTexts()
     const lastBlockIndex = blockTexts.length - 1
+    const typeVisibleText = async (text: string) => {
+      if (testInfo.project.name === 'mobile') {
+        await editor.insertText(text)
+        return
+      }
+
+      await page.keyboard.type(text)
+    }
 
     await scrollBlockIntoView(editor, lastBlockIndex)
     await clickTextBlock(editor, lastBlockIndex)
 
     await scrollContainersAwayFromCaret(editor)
-    await page.keyboard.insertText(' first-scroll')
+    await typeVisibleText(' first-scroll')
     await expect
       .poll(async () =>
         (await getScrollableParentState(editor)).some(
@@ -3024,7 +3171,7 @@ test.describe('huge document example', () => {
     await editor.assert.caretVisibleInScrollableParent()
 
     await scrollContainersAwayFromCaret(editor)
-    await page.keyboard.insertText(' second-scroll')
+    await typeVisibleText(' second-scroll')
     await expect
       .poll(async () =>
         (await getScrollableParentState(editor)).some(

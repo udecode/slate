@@ -3,6 +3,9 @@ import {
   assertSlateBrowserSelectionContract,
   openExample,
   recordSlateBrowserRuntimeErrors,
+  startSlateBrowserNativeEventTrace,
+  stopSlateBrowserNativeEventTrace,
+  takeSlateBrowserNativeEventTrace,
 } from 'slate-browser/playwright'
 
 const getBrowserUndoHotkey = async (root: Locator) =>
@@ -28,6 +31,15 @@ const getBrowserWordForwardHotkey = async (root: Locator) =>
         : 'Control+ArrowRight'
     )
 
+const getBrowserWordBackwardHotkey = async (root: Locator) =>
+  root
+    .page()
+    .evaluate(() =>
+      /Mac OS X/.test(navigator.userAgent)
+        ? 'Alt+ArrowLeft'
+        : 'Control+ArrowLeft'
+    )
+
 const isMacBrowser = async (root: Locator) =>
   root.page().evaluate(() => /Mac OS X/.test(navigator.userAgent))
 
@@ -44,10 +56,68 @@ test.describe('plaintext example', () => {
 
     await editor.click()
     await editor.press('End')
-    await page.keyboard.insertText(insertedText)
+    await page.keyboard.type(insertedText)
 
     await expect(editor.root).toContainText(insertedText)
     await expect.poll(() => editor.get.text()).toContain(insertedText)
+  })
+
+  test('captures native beforeinput trace while inserting text', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop native input proof')
+
+    const insertedText = ' trace'
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+    const editor = await openExample(page, 'plaintext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    try {
+      await editor.click()
+      await editor.press('End')
+      await startSlateBrowserNativeEventTrace(editor.root, {
+        events: ['beforeinput', 'input'],
+      })
+      await page.keyboard.insertText(insertedText)
+
+      await expect.poll(() => editor.get.text()).toContain(insertedText)
+
+      const trace = await takeSlateBrowserNativeEventTrace(editor.root)
+      const beforeinput = trace.entries.find(
+        (entry) => entry.type === 'beforeinput'
+      )
+      const inputEntries = trace.entries.filter(
+        (entry) => entry.type === 'input'
+      )
+      const expectedInputType =
+        testInfo.project.name === 'firefox'
+          ? 'insertCompositionText'
+          : 'insertText'
+
+      expect(trace.anomalies).toEqual([])
+      expect(trace.entries.at(0)?.type).toBe('beforeinput')
+      expect(beforeinput).toMatchObject({
+        data: insertedText,
+        inputType: expectedInputType,
+      })
+      expect(beforeinput?.selection.selectedText).toBe('')
+      if (testInfo.project.name === 'firefox') {
+        expect(inputEntries).toHaveLength(1)
+        expect(inputEntries[0]).toMatchObject({
+          data: insertedText,
+          inputType: expectedInputType,
+        })
+      } else {
+        expect(inputEntries).toEqual([])
+      }
+      runtimeErrors.assertNone()
+    } finally {
+      await stopSlateBrowserNativeEventTrace(editor.root).catch(() => {})
+      runtimeErrors.stop()
+    }
   })
 
   test('clicking inside selected text collapses the selection', async ({
@@ -115,6 +185,123 @@ test.describe('plaintext example', () => {
           : false
       })
       .toBe(true)
+  })
+
+  test('Shift+click extends a collapsed text selection', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop modifier/click proof'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'plaintext', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+      const anchorOffset = 'This is '.length
+      const focusOffset = 'This is editable plain'.length
+      const selectedText = 'editable plain'
+
+      await editor.selection.collapse({ path: [0, 0], offset: anchorOffset })
+      await page.keyboard.down('Shift')
+      await editor.dom.clickTextOffset({
+        offset: focusOffset,
+        path: [0, 0],
+        waitForSelectionSync: false,
+      })
+      await page.keyboard.up('Shift')
+
+      await expect.poll(() => editor.get.selectedText()).toBe(selectedText)
+      await expect
+        .poll(() => page.evaluate(() => window.getSelection()?.toString()))
+        .toBe(selectedText)
+      await editor.assert.selection({
+        anchor: { path: [0, 0], offset: anchorOffset },
+        focus: { path: [0, 0], offset: focusOffset },
+      })
+      await editor.assert.noDoubleSelectionHighlight()
+      runtimeErrors.assertNone()
+    } finally {
+      await page.keyboard.up('Shift').catch(() => {})
+      runtimeErrors.stop()
+    }
+  })
+
+  test('click selection moves through editable user-select overrides', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop CSS user-select pointer proof'
+    )
+
+    const runtimeErrors = recordSlateBrowserRuntimeErrors(page)
+
+    try {
+      const editor = await openExample(page, 'plaintext', {
+        ready: {
+          editor: 'visible',
+        },
+      })
+      const targetOffset = 'This is editable'.length
+      const values =
+        testInfo.project.name === 'firefox'
+          ? (['auto', 'text'] as const)
+          : (['auto', 'text', 'none', 'contain', 'all'] as const)
+
+      if (testInfo.project.name === 'firefox') {
+        testInfo.annotations.push({
+          description:
+            'Firefox keeps CSS user-select override hit testing browser-owned for contenteditable; Chromium/WebKit cover none/contain/all.',
+          type: 'proof-width',
+        })
+      }
+
+      for (const value of values) {
+        await editor.root.evaluate(
+          (element: HTMLElement, userSelect: string) => {
+            element.style.userSelect = userSelect
+          },
+          value
+        )
+        await editor.selection.collapse({ path: [0, 0], offset: 0 })
+        await editor.dom.clickTextOffset({
+          offset: targetOffset,
+          path: [0, 0],
+        })
+
+        const expectedSelection = {
+          anchor: { path: [0, 0], offset: targetOffset },
+          focus: { path: [0, 0], offset: targetOffset },
+        }
+
+        await expect
+          .poll(() => editor.selection.get())
+          .toEqual(expectedSelection)
+        await expect
+          .poll(() => editor.selection.dom())
+          .toEqual({
+            anchorNodeText:
+              'This is editable plain text, just like a <textarea>!',
+            anchorOffset: targetOffset,
+            focusNodeText:
+              'This is editable plain text, just like a <textarea>!',
+            focusOffset: targetOffset,
+          })
+      }
+
+      await editor.root.evaluate((element: HTMLElement) => {
+        element.style.userSelect = ''
+      })
+      runtimeErrors.assertNone()
+    } finally {
+      runtimeErrors.stop()
+    }
   })
 
   test('pastes at the clicked caret after Shift state is released', async ({
@@ -427,7 +614,7 @@ test.describe('plaintext example', () => {
         path: [0, 0],
         offset: initialText.length,
       })
-      await page.keyboard.insertText(' still interactive')
+      await page.keyboard.type(' still interactive')
 
       await editor.assert.text(`${movedText} still interactive`)
       await editor.assert.selection({
@@ -529,6 +716,32 @@ test.describe('plaintext example', () => {
     })
   })
 
+  test('strips rich clipboard markup when pasting into plaintext', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop clipboard proof')
+    test.skip(
+      testInfo.project.name === 'firefox',
+      'Firefox blocks privileged HTML clipboard data in Playwright'
+    )
+
+    const editor = await openExample(page, 'plaintext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+
+    await editor.selection.selectAll()
+    await editor.clipboard.pasteHtml('<b>abc</b>', 'abc')
+
+    await editor.assert.blockTexts(['abc'])
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 3 },
+      focus: { path: [0, 0], offset: 3 },
+    })
+    await expect(editor.root.locator('b, strong, i, em')).toHaveCount(0)
+  })
+
   test('creates a new plain text block on Enter before follow-up typing', async ({
     page,
   }, testInfo) => {
@@ -541,9 +754,9 @@ test.describe('plaintext example', () => {
     })
 
     await editor.selection.selectAll()
-    await page.keyboard.insertText('Hello')
+    await page.keyboard.type('Hello')
     await page.keyboard.press('Enter')
-    await page.keyboard.insertText('world')
+    await page.keyboard.type('world')
 
     await editor.assert.blockTexts(['Hello', 'world'])
     await editor.assert.selection({
@@ -569,7 +782,7 @@ test.describe('plaintext example', () => {
       })
 
       await editor.selection.selectAll()
-      await page.keyboard.insertText('start')
+      await page.keyboard.type('start')
 
       for (let i = 0; i < 12; i += 1) {
         await page.keyboard.press('Enter')
@@ -581,7 +794,7 @@ test.describe('plaintext example', () => {
         focus: { path: [12, 0], offset: 0 },
       })
 
-      await page.keyboard.insertText('tail')
+      await page.keyboard.type('tail')
       await editor.assert.blockTexts([
         'start',
         ...new Array(11).fill(''),
@@ -614,9 +827,9 @@ test.describe('plaintext example', () => {
       let second = 'bottom'
 
       await editor.selection.selectAll()
-      await page.keyboard.insertText(first)
+      await page.keyboard.type(first)
       await page.keyboard.press('Enter')
-      await page.keyboard.insertText(second)
+      await page.keyboard.type(second)
 
       for (let i = 0; i < 6; i += 1) {
         const topInsert = String(i)
@@ -626,14 +839,14 @@ test.describe('plaintext example', () => {
           anchor: { path: [0, 0], offset: first.length },
           focus: { path: [0, 0], offset: first.length },
         })
-        await page.keyboard.insertText(topInsert)
+        await page.keyboard.type(topInsert)
         first += topInsert
 
         await editor.selection.selectDOM({
           anchor: { path: [1, 0], offset: second.length },
           focus: { path: [1, 0], offset: second.length },
         })
-        await page.keyboard.insertText(bottomInsert)
+        await page.keyboard.type(bottomInsert)
         second += bottomInsert
       }
 
@@ -663,7 +876,7 @@ test.describe('plaintext example', () => {
       })
 
       await editor.selection.selectAll()
-      await page.keyboard.insertText('alpha beta')
+      await page.keyboard.type('alpha beta')
       await page.keyboard.press('Control+Enter')
       await page.keyboard.press('Control+Backspace')
 
@@ -689,8 +902,8 @@ test.describe('plaintext example', () => {
       })
 
       await editor.selection.selectAll()
-      await page.keyboard.insertText('<')
-      await page.keyboard.insertText('>')
+      await page.keyboard.type('<')
+      await page.keyboard.type('>')
 
       await editor.assert.blockTexts(['<>'])
       await editor.assert.selection({
@@ -706,7 +919,7 @@ test.describe('plaintext example', () => {
   test('does not fallback insert after same-text native paste', async ({
     page,
   }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium', 'Chromium clipboard proof')
+    test.skip(testInfo.project.name === 'mobile', 'Desktop clipboard proof')
 
     const editor = await openExample(page, 'plaintext', {
       ready: {
@@ -922,12 +1135,11 @@ test.describe('plaintext example', () => {
   })
 
   test('keeps browser line-end movement within the current block', async ({
-    browserName,
     page,
   }, testInfo) => {
     test.skip(
-      browserName !== 'chromium' || testInfo.project.name === 'mobile',
-      'Desktop Chromium line-end keyboard proof'
+      testInfo.project.name === 'mobile' || testInfo.project.name === 'webkit',
+      'Desktop Chromium/Firefox line-end proof'
     )
 
     const editor = await openExample(page, 'plaintext', {
@@ -962,13 +1174,9 @@ test.describe('plaintext example', () => {
   })
 
   test('moves ArrowRight out of an empty leading block', async ({
-    browserName,
     page,
   }, testInfo) => {
-    test.skip(
-      browserName !== 'chromium' || testInfo.project.name === 'mobile',
-      'Desktop Chromium arrow-key proof'
-    )
+    test.skip(testInfo.project.name === 'mobile', 'Desktop arrow-key proof')
 
     const editor = await openExample(page, 'plaintext', {
       ready: {
@@ -999,13 +1207,9 @@ test.describe('plaintext example', () => {
   })
 
   test('moves ArrowRight and ArrowLeft into a middle empty block', async ({
-    browserName,
     page,
   }, testInfo) => {
-    test.skip(
-      browserName !== 'chromium' || testInfo.project.name === 'mobile',
-      'Desktop Chromium arrow-key proof'
-    )
+    test.skip(testInfo.project.name === 'mobile', 'Desktop arrow-key proof')
 
     const editor = await openExample(page, 'plaintext', {
       ready: {
@@ -1042,12 +1246,11 @@ test.describe('plaintext example', () => {
   })
 
   test('moves word forward out of an empty leading block', async ({
-    browserName,
     page,
   }, testInfo) => {
     test.skip(
-      browserName !== 'chromium' || testInfo.project.name === 'mobile',
-      'Desktop Chromium word-navigation proof'
+      testInfo.project.name === 'mobile',
+      'Desktop word-navigation proof'
     )
 
     const editor = await openExample(page, 'plaintext', {
@@ -1079,14 +1282,49 @@ test.describe('plaintext example', () => {
     await editor.assert.domCaret({ offset: 0, text: 'Hello' })
   })
 
-  test('moves ArrowLeft through ligature-prone repeated letters', async ({
-    browserName,
+  test('keeps surrounding symbols in browser word movement', async ({
     page,
   }, testInfo) => {
     test.skip(
-      browserName !== 'chromium' || testInfo.project.name === 'mobile',
-      'Desktop Chromium ligature-prone arrow-key proof'
+      testInfo.project.name === 'mobile',
+      'Desktop word-navigation proof'
     )
+
+    const editor = await openExample(page, 'plaintext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const text = '~>>>>>p+++'
+
+    await editor.selection.selectAll()
+    await page.keyboard.insertText(text)
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: text.indexOf('p') },
+      focus: { path: [0, 0], offset: text.indexOf('p') },
+    })
+    await page.keyboard.press(await getBrowserWordBackwardHotkey(editor.root))
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    })
+
+    await editor.selection.selectDOM({
+      anchor: { path: [0, 0], offset: text.indexOf('p') + 1 },
+      focus: { path: [0, 0], offset: text.indexOf('p') + 1 },
+    })
+    await page.keyboard.press(await getBrowserWordForwardHotkey(editor.root))
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: text.length },
+      focus: { path: [0, 0], offset: text.length },
+    })
+  })
+
+  test('moves ArrowLeft through ligature-prone repeated letters', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'Desktop arrow-key proof')
 
     const editor = await openExample(page, 'plaintext', {
       ready: {
@@ -1115,13 +1353,9 @@ test.describe('plaintext example', () => {
   })
 
   test('deletes backward between identical adjacent characters', async ({
-    browserName,
     page,
   }, testInfo) => {
-    test.skip(
-      browserName !== 'chromium' || testInfo.project.name === 'mobile',
-      'Desktop Chromium same-character delete proof'
-    )
+    test.skip(testInfo.project.name === 'mobile', 'Desktop delete proof')
 
     const editor = await openExample(page, 'plaintext', {
       ready: {
@@ -1627,6 +1861,129 @@ test.describe('plaintext example', () => {
     })
   })
 
+  test('applies delete target ranges over preserved repeated spaces exactly', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'firefox',
+      'Firefox lacks compatible synthetic StaticRange beforeinput dispatch'
+    )
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop synthetic beforeinput target range proof'
+    )
+
+    const editor = await openExample(page, 'plaintext', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const sourceText = 'A  B'
+
+    const dispatchDeleteSpaceTargetRange = async ({
+      caretOffset,
+      endOffset,
+      inputType,
+      startOffset,
+    }: {
+      caretOffset: number
+      endOffset: number
+      inputType: 'deleteContentBackward' | 'deleteContentForward'
+      startOffset: number
+    }) => {
+      await editor.root.evaluate(
+        (
+          element: HTMLElement,
+          {
+            caretOffset,
+            endOffset,
+            inputType,
+            sourceText,
+            startOffset,
+          }: {
+            caretOffset: number
+            endOffset: number
+            inputType: 'deleteContentBackward' | 'deleteContentForward'
+            sourceText: string
+            startOffset: number
+          }
+        ) => {
+          element.style.whiteSpace = 'pre-wrap'
+
+          const walker = element.ownerDocument.createTreeWalker(
+            element,
+            NodeFilter.SHOW_TEXT
+          )
+          let textNode: Node | null = null
+
+          while (walker.nextNode()) {
+            if (walker.currentNode.textContent?.includes(sourceText)) {
+              textNode = walker.currentNode
+              break
+            }
+          }
+
+          if (!textNode) {
+            throw new Error('delete spaces target text node not found')
+          }
+
+          const selection = element.ownerDocument.getSelection()
+          const range = element.ownerDocument.createRange()
+          range.setStart(textNode, caretOffset)
+          range.collapse(true)
+          selection?.removeAllRanges()
+          selection?.addRange(range)
+
+          const event = new InputEvent('beforeinput', {
+            bubbles: true,
+            cancelable: true,
+            data: null,
+            inputType,
+          }) as InputEvent & { getTargetRanges: () => StaticRange[] }
+
+          event.getTargetRanges = () => [
+            new StaticRange({
+              endContainer: textNode,
+              endOffset,
+              startContainer: textNode,
+              startOffset,
+            }),
+          ]
+          element.dispatchEvent(event)
+        },
+        { caretOffset, endOffset, inputType, sourceText, startOffset }
+      )
+    }
+
+    await editor.selection.selectAll()
+    await page.keyboard.insertText(sourceText)
+    await dispatchDeleteSpaceTargetRange({
+      caretOffset: 1,
+      endOffset: 2,
+      inputType: 'deleteContentForward',
+      startOffset: 1,
+    })
+    await editor.assert.text('A B')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 1 },
+      focus: { path: [0, 0], offset: 1 },
+    })
+
+    await editor.selection.selectAll()
+    await page.keyboard.insertText(sourceText)
+    await dispatchDeleteSpaceTargetRange({
+      caretOffset: 3,
+      endOffset: 3,
+      inputType: 'deleteContentBackward',
+      startOffset: 2,
+    })
+    await editor.assert.text('A B')
+    await editor.assert.selection({
+      anchor: { path: [0, 0], offset: 2 },
+      focus: { path: [0, 0], offset: 2 },
+    })
+  })
+
   test('applies beforeinput target ranges for browser text substitutions', async ({
     page,
   }, testInfo) => {
@@ -1860,11 +2217,6 @@ test.describe('plaintext example', () => {
     page,
   }, testInfo) => {
     test.skip(testInfo.project.name === 'mobile', 'Desktop keyboard undo repro')
-    test.skip(
-      testInfo.project.name === 'firefox',
-      'Firefox native partial replacement selection differs'
-    )
-
     const editor = await openExample(page, 'plaintext', {
       ready: {
         editor: 'visible',
@@ -1878,10 +2230,8 @@ test.describe('plaintext example', () => {
       anchor: { path: [0, 0], offset: selectionStart },
       focus: { path: [0, 0], offset: selectionEnd },
     })
-    await page.keyboard.insertText('simple')
-    await editor.assert.text(
-      'This is editable simpletext, just like a <textarea>!'
-    )
+    await editor.root.press('s')
+    await editor.assert.text('This is editable stext, just like a <textarea>!')
 
     await page.keyboard.press(await getBrowserUndoHotkey(editor.root))
 
@@ -1895,7 +2245,7 @@ test.describe('plaintext example', () => {
   test('mouse drag undo restores manual typed replacement', async ({
     page,
   }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium', 'Chromium reporter path')
+    test.skip(testInfo.project.name === 'mobile', 'Desktop native drag proof')
 
     const editor = await openExample(page, 'plaintext', {
       ready: {

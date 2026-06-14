@@ -1704,12 +1704,13 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
     null
   )
   const activeDecorateRuntimeScope = React.useCallback(
-    (context: SlateSourceDirtinessContext) =>
-      mergeMountedRuntimeScope(
+    (context: SlateSourceDirtinessContext) => {
+      return mergeMountedRuntimeScope(
         context.snapshot,
         resolveProjectionRuntimeScope(decorateRuntimeScope, context),
         autoDecorateRuntimeScopeRef.current
-      ),
+      )
+    },
     [decorateRuntimeScope]
   )
   const hasDecorate = Boolean(decorate)

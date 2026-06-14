@@ -198,6 +198,66 @@ test.describe('editable voids', () => {
     await expect(inputElement).toHaveValue('helloello')
   })
 
+  test('keeps focused editable void input range selection native-owned', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Native input range-selection proof needs desktop keyboard input'
+    )
+
+    const outerEditor = page.locator('[data-slate-editor="true"]').first()
+    const inputElement = page.locator(input)
+    const outer = createSlateBrowserEditorHarness(
+      page,
+      'editable-voids-outer',
+      outerEditor
+    )
+    const outerSelection = {
+      anchor: { path: [0, 0], offset: 0 },
+      focus: { path: [0, 0], offset: 0 },
+    }
+
+    await outer.selection.select(outerSelection)
+    await inputElement.fill('Typing')
+    await inputElement.evaluate((element: HTMLInputElement) => {
+      element.focus()
+      element.setSelectionRange(1, 5)
+    })
+
+    await expect(inputElement).toBeFocused()
+    await expect
+      .poll(() =>
+        inputElement.evaluate((element: HTMLInputElement) => ({
+          selectedText: element.value.slice(
+            element.selectionStart ?? 0,
+            element.selectionEnd ?? 0
+          ),
+          selectionEnd: element.selectionEnd,
+          selectionStart: element.selectionStart,
+        }))
+      )
+      .toEqual({
+        selectedText: 'ypin',
+        selectionEnd: 5,
+        selectionStart: 1,
+      })
+
+    await expect
+      .poll(() => outer.selection.displayed())
+      .toMatchObject({
+        doubleHighlighted: false,
+        hasVisibleEditorSelection: false,
+        hasVisibleSelection: true,
+        source: 'none',
+      })
+    await expect.poll(() => outer.selection.get()).toEqual(outerSelection)
+
+    await page.keyboard.type('!')
+    await expect(inputElement).toHaveValue('T!g')
+    await expect.poll(() => outer.selection.get()).toEqual(outerSelection)
+  })
+
   test('restores outer editor selection after editing input inside editable void', async ({
     page,
   }, testInfo) => {
@@ -246,11 +306,6 @@ test.describe('editable voids', () => {
   test('runs generated internal-control gauntlet without illegal kernel transitions', async ({
     page,
   }, testInfo) => {
-    test.skip(
-      testInfo.project.name === 'webkit',
-      'WebKit event routing differs'
-    )
-
     const editor = await openExample(page, 'editable-voids', {
       ready: {
         editor: 'visible',
@@ -513,8 +568,8 @@ test.describe('editable voids', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Issue 18 covers desktop Chrome mouse caret behavior'
+      testInfo.project.name === 'mobile',
+      'Desktop child-root mouse caret proof uses native click and key events'
     )
 
     const childEditor = page
@@ -615,7 +670,7 @@ test.describe('editable voids', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
+      testInfo.project.name === 'mobile',
       'Desktop child-root arrow navigation proof uses native click and key events'
     )
 
@@ -784,8 +839,8 @@ test.describe('editable voids', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Desktop vertical content-root proof uses Chromium caret geometry'
+      testInfo.project.name === 'mobile',
+      'Desktop vertical content-root proof'
     )
 
     const outerEditor = page.locator('[data-slate-editor="true"]').first()
@@ -863,8 +918,8 @@ test.describe('editable voids', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
-      'Desktop projected selection proof uses Chromium keyboard events'
+      testInfo.project.name === 'mobile',
+      'Desktop projected selection proof'
     )
 
     const outerEditor = page.locator('[data-slate-editor="true"]').first()
@@ -986,7 +1041,7 @@ test.describe('editable voids', () => {
     page,
   }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium',
+      testInfo.project.name === 'mobile',
       'Desktop child-root unfocus proof uses real mouse clicks'
     )
 

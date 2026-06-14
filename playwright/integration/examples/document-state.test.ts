@@ -30,7 +30,7 @@ const appendInputText = async (page: Page, input: Locator, text: string) => {
       inputElement.value.length
     )
   })
-  await page.keyboard.insertText(text)
+  await page.keyboard.type(text)
 }
 
 const insertAtBodyEnd = async (editor: EditorHarness, text: string) => {
@@ -96,7 +96,7 @@ test.describe('document state example', () => {
     await expect(editor.root).toBeFocused()
     await expect.poll(() => editor.selection.get()).toEqual(bodyStartSelection)
 
-    await page.keyboard.insertText('edited ')
+    await page.keyboard.type('edited ')
 
     await expect(editor.root).toContainText(
       'The edited body is still normal Slate content.'
@@ -248,7 +248,7 @@ test.describe('document state example', () => {
       .toEqual(focusMutationSelection)
     runtimeErrors.assertNone()
 
-    await page.keyboard.insertText('typed ')
+    await page.keyboard.type('typed ')
 
     await expect(editor.root).toContainText(
       'Focus mutation: The typed body is still normal Slate content.'
@@ -456,7 +456,7 @@ test.describe('document state example', () => {
     await titleInput.press(
       process.platform === 'darwin' ? 'Meta+A' : 'Control+A'
     )
-    await page.keyboard.insertText('Typed title')
+    await page.keyboard.type('Typed title')
 
     await expect(titleInput).toHaveValue('Typed title')
     await expect(editor.root).toContainText('Body prefix: ')

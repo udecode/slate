@@ -310,6 +310,41 @@ describe('slate-dom bridge', () => {
     })
   })
 
+  it('preserves backward native selection direction when resolving Slate ranges', () => {
+    withDom(({ document }) => {
+      const editor = createParagraphEditor('abcd')
+      const root = mountEditorRoot(editor, document)
+      const owner = document.createElement('span')
+      const leaf = document.createElement('span')
+      const string = document.createElement('span')
+      const domText = document.createTextNode('abcd')
+      const domSelection = document.getSelection()
+
+      if (!domSelection) {
+        throw new Error('Expected DOM selection')
+      }
+
+      leaf.setAttribute('data-slate-leaf', 'true')
+      string.setAttribute('data-slate-string', 'true')
+      string.appendChild(domText)
+      leaf.appendChild(string)
+      owner.appendChild(leaf)
+      root.appendChild(owner)
+      bindTextOwner(editor, [0, 0], owner)
+
+      domSelection.setBaseAndExtent(domText, 3, domText, 1)
+
+      expect(
+        editor.api.dom.resolveSlateRange(domSelection, {
+          exactMatch: false,
+        })
+      ).toEqual({
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 1 },
+      })
+    })
+  })
+
   it('resolves recoverable DOM bridge gaps to null while strict APIs still throw', () => {
     const editor = createParagraphEditor()
     const [textNode] = editor.read((state) => state.nodes.get([0, 0]))

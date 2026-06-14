@@ -101,6 +101,7 @@ type PendingRootInteraction = {
   clientY: number
   coordinateDragSelection: boolean
   currentRange: Range | null
+  nativeSelectedTextClick: boolean
   placementDOMPoint: SlateStringPlacementDOMPoint | null
   preventNativeSelection: boolean
   startRange: Range | null
@@ -203,6 +204,95 @@ const hasExpandedDOMSelectionInTarget = (target: HTMLElement) => {
   )
 }
 
+const FIREFOX_USER_AGENT_RE = /\bFirefox\//
+
+type ExpandedDOMSelectionSnapshot = {
+  anchorNode: Node
+  anchorOffset: number
+  focusNode: Node
+  focusOffset: number
+}
+
+const getExpandedDOMSelectionInTarget = (
+  target: HTMLElement
+): ExpandedDOMSelectionSnapshot | null => {
+  const rootNode = target.getRootNode() as Document | ShadowRoot
+  const selection =
+    'getSelection' in rootNode
+      ? rootNode.getSelection()
+      : target.ownerDocument.getSelection()
+
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    return null
+  }
+
+  const { anchorNode, focusNode } = selection
+
+  if (
+    !anchorNode ||
+    !focusNode ||
+    !target.contains(anchorNode) ||
+    !target.contains(focusNode)
+  ) {
+    return null
+  }
+
+  return {
+    anchorNode,
+    anchorOffset: selection.anchorOffset,
+    focusNode,
+    focusOffset: selection.focusOffset,
+  }
+}
+
+const restoreDOMSelectionInTarget = (
+  target: HTMLElement,
+  snapshot: ExpandedDOMSelectionSnapshot
+) => {
+  if (
+    !target.contains(snapshot.anchorNode) ||
+    !target.contains(snapshot.focusNode)
+  ) {
+    return
+  }
+
+  const rootNode = target.getRootNode() as Document | ShadowRoot
+  const selection =
+    'getSelection' in rootNode
+      ? rootNode.getSelection()
+      : target.ownerDocument.getSelection()
+
+  if (!selection) {
+    return
+  }
+
+  selection.removeAllRanges()
+  selection.setBaseAndExtent(
+    snapshot.anchorNode,
+    snapshot.anchorOffset,
+    snapshot.focusNode,
+    snapshot.focusOffset
+  )
+}
+
+const needsMouseUpDOMSelectionReplay = (target: HTMLElement) =>
+  FIREFOX_USER_AGENT_RE.test(
+    target.ownerDocument.defaultView?.navigator.userAgent ?? ''
+  )
+
+export const shouldReplayMouseUpDOMSelection = ({
+  hasExpandedDOMRange,
+  isFirefox,
+  nativeSelectedTextClick,
+  pointerMoved,
+}: {
+  hasExpandedDOMRange: boolean
+  isFirefox: boolean
+  nativeSelectedTextClick: boolean
+  pointerMoved: boolean
+}) =>
+  hasExpandedDOMRange && isFirefox && pointerMoved && !nativeSelectedTextClick
+
 const isPointInsideDOMSelection = ({
   clientX,
   clientY,
@@ -246,6 +336,7 @@ const ignoreInteraction = (): PendingRootInteraction => ({
   clientY: 0,
   coordinateDragSelection: false,
   currentRange: null,
+  nativeSelectedTextClick: false,
   placementDOMPoint: null,
   preventNativeSelection: false,
   startRange: null,
@@ -1065,6 +1156,7 @@ const applyProjectedDragSelectionFromEvent = ({
         clientY: projectedDrag.clientY,
         coordinateDragSelection: false,
         currentRange: null,
+        nativeSelectedTextClick: false,
         placementDOMPoint: null,
         preventNativeSelection: false,
         startRange: null,
@@ -1515,13 +1607,21 @@ export const useRootInteractionController = ({
           !!target.target.closest(NATIVE_EDITABLE_TEXT_TARGET)
         const nativeEditableMultiClick =
           nativeEditableTextTarget && event.detail > 1
+        const nativeEditableSelectedTextTarget =
+          nativeEditableTextTarget &&
+          isPointInsideDOMSelection({
+            clientX: event.clientX,
+            clientY: event.clientY,
+            target: event.currentTarget,
+          })
 
-        if (nativeEditableMultiClick) {
+        if (nativeEditableMultiClick || nativeEditableSelectedTextTarget) {
           action = { type: 'ignore' }
         }
 
         const shouldResolveRootChromeFromCoordinates =
           !nativeEditableMultiClick &&
+          !nativeEditableSelectedTextTarget &&
           (action.type === 'place-editable-root' ||
             target.kind === 'editable-root' ||
             target.kind === 'native-editable' ||
@@ -1677,6 +1777,7 @@ export const useRootInteractionController = ({
           clientY: event.clientY,
           coordinateDragSelection: coordinateDragRootChromePlacement,
           currentRange: startRange,
+          nativeSelectedTextClick: nativeEditableSelectedTextTarget,
           placementDOMPoint,
           preventNativeSelection,
           startRange,
@@ -1844,21 +1945,37 @@ export const useRootInteractionController = ({
       }
 
       if (pendingAction.type === 'ignore') {
+        const currentTarget = event.currentTarget
         const target = resolveRootInteractionTarget({
-          currentTarget: event.currentTarget,
+          currentTarget,
           target: event.target,
         })
         const nativeEditableTextTarget =
           target.kind === 'native-editable' &&
           !!target.target.closest(NATIVE_EDITABLE_TEXT_TARGET)
+        const expandedDOMSelection =
+          getExpandedDOMSelectionInTarget(currentTarget)
+        const pointerMoved = hasPointerMoved(pendingInteraction, event)
 
-        if (
-          !disabled &&
-          (nativeEditableTextTarget ||
-            hasExpandedDOMSelectionInTarget(event.currentTarget))
-        ) {
+        if (!disabled && (nativeEditableTextTarget || expandedDOMSelection)) {
           selectionBridge?.importDOMSelection()
-          if (nativeEditableTextTarget) {
+          if (
+            expandedDOMSelection &&
+            shouldReplayMouseUpDOMSelection({
+              hasExpandedDOMRange: true,
+              isFirefox: needsMouseUpDOMSelectionReplay(currentTarget),
+              nativeSelectedTextClick:
+                pendingInteraction.nativeSelectedTextClick,
+              pointerMoved,
+            })
+          ) {
+            scheduleSlateReactFocus(() => {
+              if (!hasExpandedDOMSelectionInTarget(currentTarget)) {
+                restoreDOMSelectionInTarget(currentTarget, expandedDOMSelection)
+                selectionBridge?.importDOMSelection()
+              }
+            })
+          } else if (nativeEditableTextTarget) {
             scheduleSlateReactFocus(() => {
               selectionBridge?.importDOMSelection()
             })

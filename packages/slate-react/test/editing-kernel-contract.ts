@@ -8,6 +8,7 @@ import {
   EDITABLE_KERNEL_TRACE_LIMIT,
   getCurrentEditableEventFrame,
   getEditableCommandDefinition,
+  getEditableCommandFromBeforeInput,
   getEditableCommandFromBeforeInputType,
   getEditableCommandFromKeyDown,
   getEditableKernelTrace,
@@ -340,6 +341,22 @@ test('beforeinput data transfer commands preserve the browser payload', () => {
   }
 })
 
+test('beforeinput insertFromPaste prefers contenteditable dataTransfer over event data', () => {
+  class DataTransfer {}
+
+  const dataTransfer = new DataTransfer()
+  const command = getEditableCommandFromBeforeInput({
+    event: {
+      data: 'textarea-style paste text',
+      dataTransfer,
+      inputType: 'insertFromPaste',
+    } as unknown as InputEvent,
+    selection: null,
+  })
+
+  expect(command).toEqual({ data: dataTransfer, kind: 'insert-data' })
+})
+
 test('repair kernel results preserve model selection by default', () => {
   const result = createEditableKernelResult({
     editor: createEditor(),
@@ -554,6 +571,50 @@ test('keyboard structural commands keep model selection after delayed text repai
     intent: 'insert-break',
     ownership: 'model-owned',
     selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
+    shouldForceDOMImport: false,
+  })
+})
+
+test('keyboard history commands preserve model selection before DOM import', () => {
+  const editor = createEditor() as any
+  const inputController = createEditableInputController({
+    preferModelSelectionForInputRef: { current: false },
+    state: createEditableInputControllerState(),
+  })
+  inputController.state.selectionChangeOrigin = null
+  inputController.state.selectionSource = 'dom-current'
+
+  const decision = prepareEditableKeyDownKernel({
+    editor,
+    event: {
+      nativeEvent: {
+        altKey: false,
+        code: 'KeyZ',
+        ctrlKey: true,
+        key: 'z',
+        metaKey: false,
+        shiftKey: false,
+        which: 90,
+      },
+      target: null,
+    } as any,
+    inputController,
+    domStrategyRuntime: {
+      mountedTopLevelRuntimeIds: new Set(),
+      type: 'staged',
+    },
+  })
+
+  expect(decision).toMatchObject({
+    command: { direction: 'undo', kind: 'history' },
+    intent: 'history',
+    ownership: 'model-owned',
+    selectionPolicy: { kind: 'preserve-model', reason: 'model-owned' },
+    selectionSourceTransition: {
+      preferModelSelection: true,
+      reason: 'model-command',
+      selectionSource: 'model-owned',
+    },
     shouldForceDOMImport: false,
   })
 })

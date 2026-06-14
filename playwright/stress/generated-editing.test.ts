@@ -23,7 +23,7 @@ import {
 } from './stress-utils'
 
 // Focus with STRESS_ROUTES/STRESS_FAMILIES/STRESS_SEED. Replay any emitted
-// artifact with STRESS_REPLAY=<artifact.json> bun test:stress:replay.
+// artifact with its replayCommand.
 test.describe.configure({ mode: 'serial' })
 
 const enabledValues = (envName: string) =>
@@ -1024,6 +1024,101 @@ const webkitBackwardSelection = (): StressCase => {
   })
 }
 
+const domMutationImport = (): StressCase => {
+  const prefix = 'This is '
+  const insertedText = 'DOM imported '
+  const originalText = `${prefix}editable `
+  const importedText = `${prefix}${insertedText}editable `
+  const followUpText = `${prefix}${insertedText}!editable `
+  const selectionOffset = prefix.length + insertedText.length
+
+  return createStressCase({
+    family: 'dom-mutation-import',
+    route: 'richtext',
+    steps: [
+      {
+        kind: 'selectDOM',
+        label: 'select-dom-import-point',
+        selection: collapsedSelection([0, 0], prefix.length),
+      },
+      {
+        data: insertedText,
+        inputType: 'insertText',
+        kind: 'mutateTextDOM',
+        label: 'mutate-first-leaf-dom-text',
+        path: [0, 0],
+        selectionOffset,
+        text: importedText,
+      },
+      {
+        kind: 'assertModelText',
+        label: 'assert-dom-mutation-imported-to-model',
+        text: importedText,
+      },
+      {
+        kind: 'assertSelection',
+        label: 'assert-model-selection-after-dom-import',
+        selection: collapsedSelection([0, 0], selectionOffset),
+      },
+      {
+        kind: 'assertDOMSelection',
+        label: 'assert-native-selection-after-dom-import',
+        selection: {
+          anchorNodeText: importedText,
+          anchorOffset: selectionOffset,
+          focusNodeText: importedText,
+          focusOffset: selectionOffset,
+        },
+      },
+      { kind: 'assertLastCommit', label: 'assert-dom-import-commit' },
+      { focusOwner: 'editor', kind: 'assertFocusOwner', label: 'assert-focus' },
+      { kind: 'type', label: 'type-after-dom-import', text: '!' },
+      {
+        kind: 'assertKernelTrace',
+        label: 'assert-follow-up-type-command-trace',
+        trace: {
+          commandKind: 'insert-text',
+          eventFamily: 'beforeinput',
+          transition: { allowed: true },
+        },
+      },
+      {
+        kind: 'assertModelText',
+        label: 'assert-follow-up-type-after-dom-import',
+        text: followUpText,
+      },
+      {
+        kind: 'assertSelectionLocation',
+        label: 'assert-follow-up-selection-after-dom-import',
+        location: {
+          anchorOffset: selectionOffset + 1,
+          anchorPath: [0, 0],
+          isCollapsed: true,
+        },
+      },
+      {
+        expectedModelTextBefore: followUpText,
+        kind: 'undo',
+        label: 'undo-follow-up-type-after-dom-import',
+      },
+      {
+        kind: 'assertKernelTrace',
+        label: 'assert-undo-command-trace',
+        trace: {
+          commandKind: 'history',
+          eventFamily: 'keydown',
+          transition: { allowed: true },
+        },
+      },
+      {
+        kind: 'assertModelText',
+        label: 'assert-typing-batch-undo-restores-original-text',
+        text: originalText,
+      },
+    ],
+  })
+}
+
 const selectionRepairIme = (): StressCase =>
   createStressCase({
     family: 'selection-repair-ime',
@@ -1183,6 +1278,7 @@ const stressCases: StressCase[] = [
   overlayMixedUpdate(),
   mouseSelectionToolbar(),
   webkitBackwardSelection(),
+  domMutationImport(),
   hugeDocumentCut(),
   ...['plaintext', 'richtext', 'forced-layout'].map(pasteNormalizeUndo),
   selectionRepairIme(),

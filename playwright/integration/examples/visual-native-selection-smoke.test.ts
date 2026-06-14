@@ -1,19 +1,16 @@
 import { expect, test } from '@playwright/test'
 import {
   assertSlateBrowserSelectionContract,
-  attachPageScreenshot,
+  attachSlateBrowserSelectionScreenshot,
   openExample,
 } from 'slate-browser/playwright'
 
-const attachSelectionScreenshot = async (
-  page: Parameters<typeof attachPageScreenshot>[0],
-  testInfo: Parameters<typeof attachPageScreenshot>[1],
-  name: string
-) => {
-  await attachPageScreenshot(page, testInfo, name, {
-    fullPage: false,
-  })
-}
+const normalizeInlineSelectionText = (text: string) =>
+  text
+    .replaceAll('\u00A0', ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([,!.])/g, '$1')
+    .trim()
 
 test.describe('visual native selection smoke', () => {
   test('richtext click typing leaves one collapsed displayed caret', async ({
@@ -30,7 +27,7 @@ test.describe('visual native selection smoke', () => {
     await editor.click()
     await page.keyboard.press('ControlOrMeta+A')
     await page.keyboard.press('Backspace')
-    await page.keyboard.insertText('abcdef')
+    await page.keyboard.type('abcdef')
     await editor.assert.blockTexts(['abcdef'])
 
     await editor.dom.clickTextRange({
@@ -39,7 +36,7 @@ test.describe('visual native selection smoke', () => {
       startOffset: 2,
     })
 
-    await page.keyboard.insertText('X')
+    await page.keyboard.type('X')
 
     await editor.assert.blockTexts(['abXcdef'])
     await editor.assert.collapsedModelDOMSelection({
@@ -48,8 +45,8 @@ test.describe('visual native selection smoke', () => {
       text: 'abXcdef',
     })
     await editor.assert.noDoubleSelectionHighlight()
-    await attachSelectionScreenshot(
-      page,
+    await attachSlateBrowserSelectionScreenshot(
+      editor,
       testInfo,
       'richtext-collapsed-caret.png'
     )
@@ -73,7 +70,13 @@ test.describe('visual native selection smoke', () => {
       focus: { path: [0, 2], offset: ' text'.length },
     }
 
-    await editor.selection.selectDOM(selection)
+    await editor.selection.dragTextRange({
+      endOffset: ' text'.length,
+      endText: ' text, ',
+      settleMs: 25,
+      startOffset: 'This is edit'.length,
+      text: 'This is editable ',
+    })
 
     await assertSlateBrowserSelectionContract(editor, {
       domSelection: {
@@ -86,8 +89,8 @@ test.describe('visual native selection smoke', () => {
       selectedText: 'able rich text',
       selection,
     })
-    await attachSelectionScreenshot(
-      page,
+    await attachSlateBrowserSelectionScreenshot(
+      editor,
       testInfo,
       'richtext-multi-leaf-selection.png'
     )
@@ -109,7 +112,7 @@ test.describe('visual native selection smoke', () => {
     const text = 'abcdef'
 
     await editor.selection.selectAll()
-    await page.keyboard.insertText(text)
+    await page.keyboard.type(text)
     await editor.selection.select({
       anchor: { path: [0, 0], offset: text.length },
       focus: { path: [0, 0], offset: text.length },
@@ -133,8 +136,8 @@ test.describe('visual native selection smoke', () => {
         focus: { path: [0, 0], offset: text.length - 3 },
       },
     })
-    await attachSelectionScreenshot(
-      page,
+    await attachSlateBrowserSelectionScreenshot(
+      editor,
       testInfo,
       'plaintext-backward-selection.png'
     )
@@ -161,22 +164,17 @@ test.describe('visual native selection smoke', () => {
       text: '',
     })
     await editor.assert.noDoubleSelectionHighlight()
-    await attachSelectionScreenshot(
-      page,
+    await attachSlateBrowserSelectionScreenshot(
+      editor,
       testInfo,
       'custom-placeholder-collapsed-caret.png'
     )
   })
 
   test('hidden DOM boundary drag selection avoids native plus projected double highlight', async ({
-    browserName,
     page,
   }, testInfo) => {
     test.skip(testInfo.project.name === 'mobile', 'Desktop boundary drag proof')
-    test.skip(
-      browserName === 'firefox',
-      'Firefox does not extend native drag selections into contentEditable=false placeholders'
-    )
 
     const pageErrors: string[] = []
 
@@ -208,9 +206,16 @@ test.describe('visual native selection smoke', () => {
 
     await expect.poll(() => pageErrors).toEqual([])
     await expect.poll(() => editor.selection.get()).not.toBeNull()
+    const selection = await editor.selection.get()
+    const selectedPaths = [
+      selection?.anchor.path.join('.'),
+      selection?.focus.path.join('.'),
+    ].sort()
+
+    expect(selectedPaths).toEqual(['1.0', '2.1.0'])
     await editor.assert.noDoubleSelectionHighlight()
-    await attachSelectionScreenshot(
-      page,
+    await attachSlateBrowserSelectionScreenshot(
+      editor,
       testInfo,
       'hidden-dom-boundary-drag-selection.png'
     )
@@ -263,21 +268,16 @@ test.describe('visual native selection smoke', () => {
       anchorPath: [3, 0],
       isCollapsed: true,
     })
-    await attachSelectionScreenshot(
-      page,
+    await attachSlateBrowserSelectionScreenshot(
+      editor,
       testInfo,
       'images-adjacent-void-selected.png'
     )
   })
 
   test('inline triple-click paragraph selection matches native text', async ({
-    browserName,
     page,
   }, testInfo) => {
-    test.skip(
-      browserName === 'firefox',
-      'Firefox exposes paragraph triple-click selection differently'
-    )
     test.skip(
       testInfo.project.name === 'mobile',
       'Desktop triple-click visual proof'
@@ -288,8 +288,9 @@ test.describe('visual native selection smoke', () => {
         editor: 'visible',
       },
     })
-    const secondBlockText =
-      (await editor.get.blockTexts())[1]?.replaceAll('\u00A0', '') ?? ''
+    const secondBlockText = normalizeInlineSelectionText(
+      (await editor.get.blockTexts())[1] ?? ''
+    )
 
     await page.locator('[data-slate-editor] p').nth(1).click({ clickCount: 3 })
 
@@ -300,13 +301,79 @@ test.describe('visual native selection smoke', () => {
     await editor.assert.noDoubleSelectionHighlight()
     await expect
       .poll(async () =>
-        (await editor.get.selectedText()).replaceAll('\u00A0', '')
+        normalizeInlineSelectionText(await editor.get.selectedText())
       )
       .toBe(secondBlockText)
-    await attachSelectionScreenshot(
-      page,
+    await attachSlateBrowserSelectionScreenshot(
+      editor,
       testInfo,
       'inlines-triple-click-paragraph-selection.png'
+    )
+  })
+
+  test('inline link drag selection has one native highlight', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop inline link drag visual proof'
+    )
+
+    const editor = await openExample(page, 'inlines', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const text = 'hyperlink'
+
+    if (testInfo.project.name === 'firefox') {
+      await editor.dom.collapseAtTextPath({
+        offset: text.length,
+        path: [0, 1, 0],
+      })
+    }
+
+    await editor.selection.dragTextRange({
+      direction: testInfo.project.name === 'firefox' ? 'backward' : 'forward',
+      endOffset: text.length,
+      settleMs: 25,
+      startOffset: 0,
+      text,
+    })
+
+    const expectedSelection =
+      testInfo.project.name === 'firefox'
+        ? {
+            anchor: { path: [0, 1, 0], offset: text.length },
+            domAnchorOffset: text.length,
+            domFocusOffset: 0,
+            focus: { path: [0, 1, 0], offset: 0 },
+          }
+        : {
+            anchor: { path: [0, 1, 0], offset: 0 },
+            domAnchorOffset: 0,
+            domFocusOffset: text.length,
+            focus: { path: [0, 1, 0], offset: text.length },
+          }
+
+    await assertSlateBrowserSelectionContract(editor, {
+      domSelection: {
+        anchorNodeText: text,
+        anchorOffset: expectedSelection.domAnchorOffset,
+        focusNodeText: text,
+        focusOffset: expectedSelection.domFocusOffset,
+      },
+      noDoubleSelectionHighlight: true,
+      selectedText: text,
+      selection: {
+        anchor: expectedSelection.anchor,
+        focus: expectedSelection.focus,
+      },
+    })
+    await attachSlateBrowserSelectionScreenshot(
+      editor,
+      testInfo,
+      'inlines-link-drag-selection.png'
     )
   })
 
@@ -341,8 +408,8 @@ test.describe('visual native selection smoke', () => {
         focus: { path: [1, 0, 1, 0], offset: 'Human'.length },
       },
     })
-    await attachSelectionScreenshot(
-      page,
+    await attachSlateBrowserSelectionScreenshot(
+      editor,
       testInfo,
       'tables-human-cell-drag-selection.png'
     )

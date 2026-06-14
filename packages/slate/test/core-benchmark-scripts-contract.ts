@@ -550,23 +550,23 @@ describe('core benchmark scripts contract', () => {
     assert.match(source, /partialDOMPromotionThenTypeP95Ms/)
     assert.match(source, /legacyComparePartialDOMPromotionThenTypeP95Ms/)
     assert.match(source, /existsSync,\s*rmSync/)
-    assert.match(source, /const browserTraceArtifactPath = \(surfaces\) =>/)
+    assert.match(
+      source,
+      /const browserTraceLatestArtifactPath =\s*'tmp\/slate-react-huge-document-browser-trace-benchmark\.json'/
+    )
     assert.match(
       source,
       /rmSync\(step\.artifactPath,\s*\{\s*force:\s*true\s*\}\)/
     )
     assert.match(
       source,
-      /artifactPath: browserTraceArtifactPath\('defaultAuto'\)/
+      /artifactPath: browserTraceLatestArtifactPath,\s*command: 'bun run bench:react:huge-document:browser-trace:local'/
     )
     assert.match(
       source,
-      /artifactPath: browserTraceArtifactPath\(\s*'stagedActiveDOMGroup,stagedContentVisibility'\s*\)/
+      /SLATE_BROWSER_TRACE_SURFACES:\s*'stagedActiveDOMGroup,stagedContentVisibility'/
     )
-    assert.match(
-      source,
-      /artifactPath: browserTraceArtifactPath\('virtualized'\)/
-    )
+    assert.match(source, /SLATE_BROWSER_TRACE_SURFACES:\s*'virtualized'/)
     assert.match(source, /react-huge-document-staged-diagnostic-trace/)
     assert.match(source, /stagedDiagnosticBurstToPaintPerOpP95Ms/)
     assert.match(
@@ -737,6 +737,73 @@ describe('core benchmark scripts contract', () => {
     assert.match(source, /strictBudget && budgetFailures\.length > 0/)
   })
 
+  it('keeps browser long-task attribution claim width explicit', () => {
+    const source = readFileSync(hugeDocumentBrowserTracePath, 'utf8')
+    const helperSource = extractConstFunctionSource(
+      source,
+      'summarizeLongTaskAttributionTotals',
+      'summarizeAttributionTotals'
+    )
+    const round = (value: number) => Number(value.toFixed(2))
+    const summarizeLongTaskAttributionTotals = Function(
+      'round',
+      `${helperSource}; return summarizeLongTaskAttributionTotals`
+    )(round) as (
+      entries: Array<{
+        attribution?: Array<{
+          duration?: number
+          forcedStyleAndLayoutDuration?: number
+        }>
+        duration?: number
+      }>
+    ) => {
+      longTaskAttributionClaimWidth: string
+      longTaskAttributionEntryCount: number
+      longTaskAttributedDurationMs: number
+      longTaskUnattributedDurationMs: number
+    }
+
+    assert.deepEqual(
+      summarizeLongTaskAttributionTotals([
+        {
+          attribution: [{ duration: 0 }],
+          duration: 119.2,
+        },
+      ]),
+      {
+        longTaskAttributionClaimWidth: 'unattributed',
+        longTaskAttributionEntryCount: 1,
+        longTaskAttributedDurationMs: 0,
+        longTaskUnattributedDurationMs: 119.2,
+      }
+    )
+    assert.deepEqual(
+      summarizeLongTaskAttributionTotals([
+        {
+          attribution: [{ duration: 20 }],
+          duration: 50,
+        },
+      ]),
+      {
+        longTaskAttributionClaimWidth: 'partial',
+        longTaskAttributionEntryCount: 1,
+        longTaskAttributedDurationMs: 20,
+        longTaskUnattributedDurationMs: 30,
+      }
+    )
+    assert.match(source, /longTaskAttributionClaimWidth/)
+    assert.match(source, /longTaskAttributedDurationMs/)
+    assert.match(source, /longTaskUnattributedDurationMs/)
+    assert.match(
+      source,
+      /\$\{prefix\}_type_after_delete_long_task_attributed_ms/
+    )
+    assert.match(
+      source,
+      /\$\{prefix\}_type_after_delete_long_task_unattributed_ms/
+    )
+  })
+
   it('keeps huge-document burst typing normalized per operation', () => {
     const source = readFileSync(hugeDocumentBrowserTracePath, 'utf8')
 
@@ -846,6 +913,17 @@ describe('core benchmark scripts contract', () => {
     assert.match(source, /SLATE_BROWSER_TRACE_SELECT_ALL_DELETE_ALLOW_FAILURE/)
     assert.match(source, /SLATE_BROWSER_TRACE_AFTER_DELETE_TEXT/)
     assert.match(source, /SLATE_BROWSER_TRACE_AFTER_DELETE_INPUT_MODE/)
+    assert.match(source, /SLATE_BROWSER_TRACE_RUN_LABEL/)
+    assert.match(source, /runStartedAt/)
+    assert.match(source, /selectAllDeleteSurfaceState/)
+    assert.match(source, /surfaceState: selectAllDeleteSurfaceState/)
+    assert.match(source, /effectiveStrategy: sample\.effectiveStrategy/)
+    assert.match(source, /mountedTopLevelCount: sample\.mountedTopLevelCount/)
+    assert.match(source, /timerEvents: \[\]/)
+    assert.match(source, /slateTraceTimerCallback/)
+    assert.match(source, /summarizeTimerEvents/)
+    assert.match(source, /timerDurationMs/)
+    assert.match(source, /timerEventCount/)
     assert.match(source, /page\.keyboard\.insertText\(typeText\)/)
     assert.match(
       source,
@@ -854,6 +932,10 @@ describe('core benchmark scripts contract', () => {
     assert.match(
       source,
       /after-delete-text-\$\{sanitizeArtifactSegment\(selectAllDeleteTypeText\)\}/
+    )
+    assert.match(
+      source,
+      /run-\$\{sanitizeArtifactSegment\(\[runLabel, runStartedAt\]/
     )
     assert.match(source, /measureSelectAllDeleteFlow/)
     assert.match(source, /\$\{prefix\}_select_all_ready_ms/)
@@ -880,6 +962,14 @@ describe('core benchmark scripts contract', () => {
     assert.match(source, /\$\{prefix\}_type_after_delete_long_task_max_ms/)
     assert.match(
       source,
+      /\$\{prefix\}_type_after_delete_long_task_attributed_ms/
+    )
+    assert.match(
+      source,
+      /\$\{prefix\}_type_after_delete_long_task_unattributed_ms/
+    )
+    assert.match(
+      source,
       /\$\{prefix\}_type_after_delete_long_animation_frame_count/
     )
     assert.match(
@@ -900,7 +990,24 @@ describe('core benchmark scripts contract', () => {
     assert.match(source, /compactPerformanceAttribution/)
     assert.match(source, /compactLongAnimationFrameScripts/)
     assert.match(source, /summarizeAttributionEntries/)
+    assert.match(source, /summarizeLongTaskAttributionTotals/)
     assert.match(source, /longTaskAttribution/)
+    assert.match(source, /longTaskAttributionClaimWidth/)
+    assert.match(source, /longTaskDurationMs: summarizeMetric/)
+    assert.match(source, /longTaskAttributedDurationMs: summarizeMetric/)
+    assert.match(source, /longTaskAttributionEntryCount: summarizeMetric/)
+    assert.match(source, /longTaskUnattributedDurationMs: summarizeMetric/)
+    assert.match(source, /longTaskAttributedDurationMs/)
+    assert.match(source, /longTaskUnattributedDurationMs/)
+    assert.match(source, /interactionSequenceToPaintMs: summarizeMetric/)
+    assert.match(source, /react_huge_doc_interaction_sequence_to_paint_p95_ms/)
+    assert.match(source, /\$\{prefix\}_interaction_sequence_to_paint_p95_ms/)
+    assert.match(source, /react_huge_doc_long_task_total_p95_ms/)
+    assert.match(source, /react_huge_doc_long_task_attributed_p95_ms/)
+    assert.match(source, /react_huge_doc_long_task_unattributed_p95_ms/)
+    assert.match(source, /\$\{prefix\}_long_task_total_p95_ms/)
+    assert.match(source, /\$\{prefix\}_long_task_attributed_p95_ms/)
+    assert.match(source, /\$\{prefix\}_long_task_unattributed_p95_ms/)
     assert.match(source, /longAnimationFrameAttribution/)
     assert.match(source, /forcedStyleAndLayoutDuration/)
     assert.match(source, /\$\{prefix\}_undo_delete_to_paint_ms/)

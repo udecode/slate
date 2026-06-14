@@ -337,7 +337,11 @@ const restorePreservedEmptyStartBlock = (
   })
 }
 
-type DeleteOptions = NonNullable<Parameters<TextMutationMethods['delete']>[1]>
+type DeleteOptions = NonNullable<
+  Parameters<TextMutationMethods['delete']>[1]
+> & {
+  preserveInlineEdge?: boolean
+}
 type DeleteUnit = NonNullable<DeleteOptions['unit']>
 type DeletePoint = import('../interfaces').Point
 type DeleteRange = import('../interfaces').Range
@@ -368,6 +372,7 @@ type DeleteRangePlan = {
   startNonEditable: ReturnType<typeof getHighestNonEditable>
   endNonEditable: ReturnType<typeof getHighestNonEditable>
   preserveEndBlock: boolean
+  preserveInlineEdge: boolean
   preserveEmptyStartBlockPath: Path | null
   preservedEmptyStartBlock: SlateElement | null
   startMergeBlockPath: Path | null
@@ -660,6 +665,94 @@ const moveTrailingTextPointIntoFollowingInline = (
   return livePoint
 }
 
+const moveExpandedInlineEdgeDeletePointOutsideInline = (
+  editor: Editor,
+  plan: DeleteRangePlan,
+  point: DeletePoint | null | undefined
+) => {
+  const livePoint = getLivePoint(editor, point)
+
+  if (
+    !livePoint ||
+    plan.isCollapsed ||
+    plan.isAcrossBlocks ||
+    plan.preserveInlineEdge ||
+    livePoint.path.length < 2
+  ) {
+    return livePoint
+  }
+
+  const parentPath = livePoint.path.slice(0, -1) as Path
+
+  if (!EditorApi.hasPath(editor, parentPath)) {
+    return livePoint
+  }
+
+  const originalStartParentPath = plan.start.path.slice(0, -1) as Path
+  const originalEndParentPath = plan.end.path.slice(0, -1) as Path
+
+  if (
+    !PathApi.equals(originalStartParentPath, parentPath) ||
+    !PathApi.equals(originalEndParentPath, parentPath)
+  ) {
+    return livePoint
+  }
+
+  const parent = getCurrentNode(editor, parentPath)
+
+  if (
+    !NodeApi.isElement(parent) ||
+    !getEditorSchema(editor).isInline(parent) ||
+    getEditorSchema(editor).isVoid(parent)
+  ) {
+    return livePoint
+  }
+
+  const currentText = NodeApi.string(parent)
+
+  if (currentText.length === 0) {
+    return livePoint
+  }
+
+  const parentStart = EditorApi.point(editor, parentPath, { edge: 'start' })
+  const parentEnd = EditorApi.point(editor, parentPath, { edge: 'end' })
+
+  if (plan.start.offset === 0 && PointApi.equals(livePoint, parentStart)) {
+    const previousSiblingPath =
+      parentPath.at(-1) === 0 ? null : PathApi.previous(parentPath)
+
+    if (previousSiblingPath && EditorApi.hasPath(editor, previousSiblingPath)) {
+      const previousSibling = getCurrentNode(editor, previousSiblingPath)
+
+      if (isTextNode(previousSibling)) {
+        return EditorApi.point(editor, previousSiblingPath, { edge: 'end' })
+      }
+    }
+  }
+
+  const deletedLength = plan.end.offset - plan.start.offset
+  const removedThroughInlineEnd = plan.start.offset >= currentText.length
+
+  if (
+    deletedLength > 0 &&
+    removedThroughInlineEnd &&
+    PointApi.equals(livePoint, parentEnd)
+  ) {
+    const nextSiblingPath =
+      parentPath.at(-1) == null ? null : PathApi.next(parentPath)
+
+    if (nextSiblingPath && EditorApi.hasPath(editor, nextSiblingPath)) {
+      const nextSibling = getCurrentNode(editor, nextSiblingPath)
+
+      if (isTextNode(nextSibling)) {
+        return EditorApi.point(editor, nextSiblingPath, { edge: 'start' })
+      }
+    }
+  }
+
+  return livePoint
+}
+
 const shouldKeepSplitTextAfterInteriorElementRemoval = (
   editor: Editor,
   start: DeletePoint,
@@ -813,6 +906,7 @@ const resolveDeleteTarget = (
     reverse = false,
     unit = 'character',
     distance = 1,
+    preserveInlineEdge = false,
     voids = false,
   } = options
   let { at = resolvedAt ?? getCurrentSelection(editor), hanging = false } =
@@ -1055,6 +1149,7 @@ const resolveDeleteTarget = (
     startNonEditable,
     endNonEditable,
     preserveEndBlock,
+    preserveInlineEdge,
     preserveEmptyStartBlockPath,
     preservedEmptyStartBlock,
     startMergeBlockPath: startMergeBlock?.[1] ?? null,
@@ -1412,6 +1507,8 @@ const resolveDeleteSelection = (
     point = movePointToFollowingInline(editor, point)
   }
 
+  point = moveExpandedInlineEdgeDeletePointOutsideInline(editor, plan, point)
+
   if (
     plan.reverse &&
     plan.unit === 'character' &&
@@ -1504,6 +1601,12 @@ const resolveDeleteSelection = (
         normalizedSelectionPoint
       )
     }
+
+    normalizedSelectionPoint = moveExpandedInlineEdgeDeletePointOutsideInline(
+      editor,
+      plan,
+      normalizedSelectionPoint
+    )
 
     if (
       normalizedSelectionPoint &&

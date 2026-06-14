@@ -1114,6 +1114,105 @@ describe('slate-dom clipboard boundary', () => {
     ).toEqual({ text: 'hello' })
   })
 
+  it('applies collapsed active marks to plain text fallback', () => {
+    const editor = createClipboardEditor(createChildren(), {
+      anchor: { path: [1, 0], offset: 4 },
+      focus: { path: [1, 0], offset: 4 },
+    })
+    const clipboard = new FakeDataTransfer()
+
+    Editor.addMark(editor, 'bold', true)
+    clipboard.setData('text/plain', 'hello')
+
+    editor.update(() => {
+      editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
+    })
+
+    expect(
+      (Editor.getSnapshot(editor).children[1] as SlateElement).children
+    ).toEqual([{ text: 'beta' }, { bold: true, text: 'hello' }])
+    expect(Editor.getSnapshot(editor).selection).toEqual({
+      anchor: { path: [1, 1], offset: 'hello'.length },
+      focus: { path: [1, 1], offset: 'hello'.length },
+    })
+  })
+
+  it('applies collapsed active marks to multiline plain text fallback', () => {
+    const editor = createClipboardEditor(
+      [
+        {
+          type: 'paragraph',
+          children: [{ text: 'Hello ' }],
+        },
+      ],
+      {
+        anchor: { path: [0, 0], offset: 'Hello '.length },
+        focus: { path: [0, 0], offset: 'Hello '.length },
+      }
+    )
+    const clipboard = new FakeDataTransfer()
+
+    Editor.addMark(editor, 'bold', true)
+    clipboard.setData('text/plain', 'world\nNext')
+
+    editor.update(() => {
+      editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
+    })
+
+    expect(Editor.getSnapshot(editor).children).toEqual([
+      {
+        type: 'paragraph',
+        children: [{ text: 'Hello ' }, { bold: true, text: 'world' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ bold: true, text: 'Next' }],
+      },
+    ])
+    expect(Editor.getSnapshot(editor).selection).toEqual({
+      anchor: { path: [1, 0], offset: 'Next'.length },
+      focus: { path: [1, 0], offset: 'Next'.length },
+    })
+  })
+
+  it('applies collapsed active marks to multiline plain text replacing an empty block', () => {
+    const editor = createClipboardEditor(
+      [
+        {
+          type: 'paragraph',
+          children: [{ text: '' }],
+        },
+      ],
+      {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      }
+    )
+    const clipboard = new FakeDataTransfer()
+
+    Editor.addMark(editor, 'bold', true)
+    clipboard.setData('text/plain', 'One\nTwo')
+
+    editor.update(() => {
+      editor.api.clipboard.insertData(clipboard as unknown as DataTransfer)
+    })
+
+    expect(Editor.getSnapshot(editor).children).toEqual([
+      {
+        type: 'paragraph',
+        children: [{ bold: true, text: 'One' }],
+      },
+      {
+        type: 'paragraph',
+        children: [{ bold: true, text: 'Two' }],
+      },
+    ])
+    expect(Editor.getSnapshot(editor).selection).toEqual({
+      anchor: { path: [1, 0], offset: 'Two'.length },
+      focus: { path: [1, 0], offset: 'Two'.length },
+    })
+  })
+
   it('keeps plain-text fallback outside selected inline text', () => {
     const editor = createClipboardEditor(
       [

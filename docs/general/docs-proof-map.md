@@ -13,8 +13,8 @@ source should be code, tests, or a browser contract row.
 | Extension helpers are grouped under `state` and `tx`, not added as adapter namespaces on the editor object. | `concepts/08-plugins.md`, `walkthroughs/07-enabling-collaborative-editing.md` | `packages/slate/test/extension-namespaces-contract.ts`, `packages/slate/test/editor-foundation-contract.ts`, `packages/slate/src/core/editor-extension.ts` |
 | React and history setup use `createReactEditor`, `react()`, and `history()` instead of mutating plugin wrappers. | `libraries/slate-react/react-editor-setup.md`, `libraries/slate-history/history-extension-setup.md`, `libraries/slate-history/history-editor.md` | `packages/slate-react/src/plugin/with-react.ts`, `packages/slate-history/src/index.ts`, `packages/slate-react/test/generic-react-editor-contract.tsx`, `packages/slate-history/test/generic-history-contract.ts` |
 | Debug value scrubbing uses `setDebugValueScrubber` before default text redaction. | `api/scrubber.md` | `packages/slate/src/utils/format-debug-value.ts`, `packages/slate/test/format-debug-value-contract.ts` |
-| Schema behavior describes inline, void, selectable, and markable void nodes. | `api/nodes/editor.md`, `api/nodes/element.md`, `concepts/08-plugins.md` | `packages/slate/test/extension-contract.ts`, `packages/slate/test/editor-foundation-contract.ts`, `packages/slate/src/interfaces/editor.ts` |
-| Slate React owns void shells, hidden anchors, editable roots, and DOM repair. App void renderers return visible content. | `api/nodes/element.md`, `libraries/slate-react/editable.md` | `packages/slate-react/src/components/slate-void-shell.tsx`, `packages/slate-react/test/shell-runtime-contract.test.tsx`, `packages/slate-react/test/rendered-dom-shape-contract.test.tsx` |
+| Schema behavior describes inline, void, selectable, and markable void nodes. | `api/nodes/editor.md`, `api/nodes/element.md`, `concepts/08-plugins.md` | `packages/slate/test/schema-contract.ts`, `packages/slate/test/public-element-void-kind-contract.ts`, `packages/slate/test/editor-foundation-contract.ts`, `packages/slate/src/interfaces/editor.ts` |
+| Slate React owns void shells, hidden anchors, editable roots, and DOM repair. App void renderers return visible content. | `api/nodes/element.md`, `libraries/slate-react/editable.md` | `packages/slate-react/src/components/slate-void-shell.tsx`, `packages/slate-react/test/slate-void-shell-contract.test.tsx`, `packages/slate-react/test/rendered-dom-shape-contract.test.tsx` |
 | Element selection UI is target-scoped instead of subscribed through the whole editor. | `api/nodes/element.md`, `concepts/09-rendering.md`, `libraries/slate-react/editable.md` | `packages/slate-react/src/hooks/use-editor-selection.tsx`, `packages/slate-react/src/components/editable-text-blocks.tsx`, `packages/slate-react/test/projections-and-selection-contract.test.tsx` |
 | Slate React root exports expose the current hook names only. | `libraries/slate-react/hooks.md`, `libraries/slate-react/react-editor.md` | `packages/slate-react/src/index.ts`, `packages/slate-react/test/generic-react-editor-contract.tsx`, `packages/slate-react/test/surface-contract.tsx` |
 | Decorations and annotations use projection stores and source-scoped subscriptions. | `libraries/slate-react/slate.md`, `libraries/slate-react/annotations.md`, `libraries/slate-react/editable.md`, `concepts/09-rendering.md` | `packages/slate-react/src/decoration-source.ts`, `packages/slate-react/src/annotation-store.ts`, `packages/slate-react/test/annotation-store-contract.test.tsx` |
@@ -25,6 +25,7 @@ source should be code, tests, or a browser contract row.
 | Document roots keep one editor runtime across `main`, named roots, content roots, and rooted operations. | `concepts/13-roots.md`, `api/nodes/editor.md`, `api/locations/point.md`, `api/operations/operation.md` | `packages/slate/src/interfaces/editor.ts`, `packages/slate/test/rooted-operation-contract.ts`, `packages/slate-react/test/content-root-navigation-contract.test.ts`, `site/examples/ts/multi-root-document.tsx`, `site/examples/ts/synced-blocks.tsx` |
 | DOM coverage boundaries model hidden same-root content with selection, copy, find, and materialization policies. | `libraries/slate-react/dom-coverage-boundaries.md`, `libraries/slate-react/editable.md`, `libraries/slate-react/experimental-virtualized-rendering.md` | `packages/slate-dom/src/plugin/dom-coverage.ts`, `packages/slate-react/src/components/dom-coverage-boundary.tsx`, `packages/slate-react/test/dom-coverage-boundary-contract.tsx`, `playwright/integration/examples/hidden-content-blocks.test.ts` |
 | Page layout derives paginated geometry and page-level mount plans outside the document tree. | `libraries/slate-layout/README.md`, `walkthroughs/09-performance.md` | `packages/slate-layout/src/index.ts`, `packages/slate-layout/src/react.tsx`, `packages/slate-layout/test/page-layout-contract.test.ts`, `site/examples/ts/pagination.tsx` |
+| Pasted HTML is plain text by default unless an extension-owned `clipboard.insertData` handler consumes the `DataTransfer`. | `general/faq.md`, `libraries/slate-react/react-editor.md`, `Introduction.md` | `packages/slate-dom/src/plugin/dom-clipboard-runtime.ts`, `site/examples/ts/paste-html-import.ts`, `playwright/integration/examples/paste-html.test.ts` |
 
 ## Browser Contract Map
 
@@ -45,7 +46,9 @@ or one-off manual checks.
 | Annotation anchor rebase | `comment-mode`, `persistent-annotation-anchors` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
 | Mouse selection toolbar | `hovering-toolbar` | `packages/slate-browser/src/core/first-party-browser-contracts.ts` |
 | Paste, normalize, undo | `richtext`, `plaintext`, `forced-layout` | `playwright/stress/generated-editing.test.ts` |
+| DOM text mutation import | `richtext` | `playwright/stress/generated-editing.test.ts`, `packages/slate-browser/src/playwright/index.ts`, `packages/slate-react/test/dom-repair-policy-contract.test.ts` |
 | Selection repair and IME | `richtext` | `playwright/stress/generated-editing.test.ts`, `packages/slate-browser/src/playwright/ime.ts` |
+| Keyboard input oracle discipline | non-pagination example specs | `packages/slate-browser/test/core/keyboard-oracle-audit.test.ts` |
 | Hidden same-root content | `hidden-content-blocks`, `dom-coverage-boundaries` | `playwright/integration/examples/hidden-content-blocks.test.ts`, `playwright/integration/examples/dom-coverage-boundaries.test.ts` |
 | Multi-root and content-root selection | `multi-root-document`, `synced-blocks` | `playwright/integration/examples/multi-root-document.test.ts`, `playwright/integration/examples/synced-blocks.test.ts`, `packages/slate-react/test/content-root-navigation-contract.test.ts` |
 | Paginated editor layout | `pagination` | `playwright/integration/examples/pagination.test.ts`, `packages/slate-layout/test/page-layout-contract.test.ts` |
@@ -64,10 +67,17 @@ Use the browser contract registry when a browser-sensitive claim changes.
 bun run test:slate-browser
 ```
 
-Use stress replay for generated operation families.
+Use Chromium stress for fast generated operation proof. Use desktop stress when
+the claim needs browser-wide generated operation proof.
 
 ```bash
 bun test:stress
+bun test:stress:desktop
+bun test:stress:audit
+STRESS_REPLAY=<chromium-artifact.json> bun test:stress:replay
+STRESS_REPLAY=<firefox-artifact.json> bun test:stress:replay:firefox
+STRESS_REPLAY=<webkit-artifact.json> bun test:stress:replay:webkit
+STRESS_REPLAY=<firefox-artifact.json> STRESS_REDUCTION=<candidate-label> bun test:stress:replay:firefox
 ```
 
 Keep `bun check` fast. Full browser sweeps belong to the release-quality gate,

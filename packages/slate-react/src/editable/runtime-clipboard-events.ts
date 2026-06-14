@@ -20,6 +20,7 @@ type ClipboardHandler = (
 export const useRuntimeClipboardEvents = ({
   editor,
   inputController,
+  flushPendingNativeTextInput,
   onCopy,
   onCut,
   onPaste,
@@ -31,6 +32,7 @@ export const useRuntimeClipboardEvents = ({
 }: {
   editor: ReactRuntimeEditor
   inputController: EditableInputController
+  flushPendingNativeTextInput?: () => void
   onCopy?: ClipboardHandler
   onCut?: ClipboardHandler
   onPaste?: ClipboardHandler
@@ -42,6 +44,7 @@ export const useRuntimeClipboardEvents = ({
 }) => {
   const handlePaste = useCallback(
     (event: ClipboardEvent<HTMLDivElement>) => {
+      flushPendingNativeTextInput?.()
       const decision = prepareEditableClipboardKernel({
         editor,
         event,
@@ -78,6 +81,7 @@ export const useRuntimeClipboardEvents = ({
     },
     [
       editor,
+      flushPendingNativeTextInput,
       inputController,
       onPaste,
       readOnly,
@@ -91,6 +95,7 @@ export const useRuntimeClipboardEvents = ({
 
   const handleCopy = useCallback(
     (event: ClipboardEvent<HTMLDivElement>) => {
+      flushPendingNativeTextInput?.()
       const decision = prepareEditableClipboardKernel({
         editor,
         event,
@@ -109,7 +114,7 @@ export const useRuntimeClipboardEvents = ({
         onCopy,
       })
     },
-    [editor, inputController, onCopy, trace]
+    [editor, flushPendingNativeTextInput, inputController, onCopy, trace]
   )
   const onRuntimeCopy = useEditableClipboardHandler({
     handleClipboard: handleCopy,
@@ -117,6 +122,7 @@ export const useRuntimeClipboardEvents = ({
 
   const handleCut = useCallback(
     (event: ClipboardEvent<HTMLDivElement>) => {
+      flushPendingNativeTextInput?.()
       const decision = prepareEditableClipboardKernel({
         editor,
         event,
@@ -145,7 +151,15 @@ export const useRuntimeClipboardEvents = ({
         target: event.target,
       })
     },
-    [editor, inputController, onCut, readOnly, repair, trace]
+    [
+      editor,
+      flushPendingNativeTextInput,
+      inputController,
+      onCut,
+      readOnly,
+      repair,
+      trace,
+    ]
   )
   const onRuntimeCut = useEditableClipboardHandler({
     handleClipboard: handleCut,

@@ -1209,14 +1209,36 @@ const transformRange = (
   range == null ? null : RangeApi.transform(cloneRange(range, root)!, operation)
 
 const transformTextOperation = <V extends Value>(
-  operation: Operation<V> & {
-    offset: number
-    path: Path
-  },
+  operation: Extract<Operation<V>, { type: 'insert_text' | 'remove_text' }>,
   applied: Operation
 ): Operation<V> | null => {
   if (!isSameOperationRoot(operation, applied)) {
     return operation
+  }
+
+  let text = operation.text
+
+  if (
+    operation.type === 'insert_text' &&
+    applied.type === 'remove_text' &&
+    PathApi.equals(operation.path, applied.path)
+  ) {
+    const operationStart = operation.offset
+    const operationEnd = operation.offset + operation.text.length
+    const appliedStart = applied.offset
+    const appliedEnd = applied.offset + applied.text.length
+    const overlapStart = Math.max(operationStart, appliedStart)
+    const overlapEnd = Math.min(operationEnd, appliedEnd)
+
+    if (overlapStart < overlapEnd) {
+      text =
+        operation.text.slice(0, overlapStart - operationStart) +
+        operation.text.slice(overlapEnd - operationStart)
+
+      if (text.length === 0) {
+        return null
+      }
+    }
   }
 
   const point = PointApi.transform(
@@ -1236,6 +1258,7 @@ const transformTextOperation = <V extends Value>(
     ...operation,
     path: point.path,
     offset: point.offset,
+    text,
   } as Operation<V>
 }
 

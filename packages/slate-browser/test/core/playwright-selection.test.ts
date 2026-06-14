@@ -77,6 +77,35 @@ describe('playwright selection snapshots', () => {
     await expectZeroWidthOffset(br, 0)
   })
 
+  test('reports no visible selection without native text or projected markers', async () => {
+    document.body.innerHTML = `
+      <div data-slate-editor="true">
+        <span data-slate-node="text" data-slate-path="0,0">
+          <span data-slate-string="true">hello</span>
+        </span>
+      </div>
+    `
+
+    window.getSelection()?.removeAllRanges()
+
+    expect(
+      await takeDisplayedSelectionSnapshotForRoot(
+        createRootLocator(
+          document.querySelector<HTMLElement>('[data-slate-editor]')!
+        )
+      )
+    ).toMatchObject({
+      displayed: null,
+      doubleHighlighted: false,
+      hasVisibleEditorSelection: false,
+      hasVisibleSelection: false,
+      source: 'none',
+      view: {
+        markerCount: 0,
+      },
+    })
+  })
+
   test('captures the native selection as the displayed selection', async () => {
     document.body.innerHTML = `
       <div data-slate-editor="true">
@@ -106,6 +135,8 @@ describe('playwright selection snapshots', () => {
         focus: { offset: 4, path: [0, 0] },
       },
       doubleHighlighted: false,
+      hasVisibleEditorSelection: true,
+      hasVisibleSelection: true,
       native: {
         textLength: 3,
       },
@@ -142,6 +173,15 @@ describe('playwright selection snapshots', () => {
     }
     window.getSelection()?.removeAllRanges()
 
+    const markers = document.querySelectorAll<HTMLElement>(
+      '[data-slate-view-selection="true"]'
+    )
+
+    markers.forEach((marker, index) => {
+      marker.getBoundingClientRect = () =>
+        new DOMRect(index * 10, index * 5, 10 + index, 8 + index)
+    })
+
     expect(
       await takeDisplayedSelectionSnapshotForRoot(createRootLocator(root))
     ).toMatchObject({
@@ -150,10 +190,16 @@ describe('playwright selection snapshots', () => {
         focus: { offset: 3, path: [1, 0] },
       },
       doubleHighlighted: false,
+      hasVisibleEditorSelection: true,
+      hasVisibleSelection: true,
       source: 'view',
       view: {
         markerCount: 2,
         markerPaths: ['0,0', '1,0'],
+        markerRects: [
+          { height: 8, width: 10, x: 0, y: 0 },
+          { height: 9, width: 11, x: 10, y: 5 },
+        ],
         textLength: 10,
       },
     })
@@ -183,6 +229,8 @@ describe('playwright selection snapshots', () => {
       await takeDisplayedSelectionSnapshotForRoot(createRootLocator(root))
     ).toMatchObject({
       doubleHighlighted: true,
+      hasVisibleEditorSelection: true,
+      hasVisibleSelection: true,
       native: {
         textLength: 5,
       },

@@ -106,6 +106,30 @@ const getOwnerlessViewSelectionRange = (
 const isPlainTextKeyboardInput = (event: KeyboardEvent) =>
   event.key.length === 1 && !event.altKey && !event.ctrlKey && !event.metaKey
 
+const selectionSpansNativeTextInputBoundary = ({
+  editor,
+  selection,
+}: {
+  editor: ReactRuntimeEditor
+  selection: Range | null
+}) => {
+  if (!selection || !RangeApi.isExpanded(selection)) {
+    return false
+  }
+
+  return editor.read((state) =>
+    state.nodes.some({
+      at: selection,
+      match: (node) =>
+        NodeApi.isElement(node) &&
+        (Editor.isInline(editor, node) ||
+          Editor.isVoid(editor, node) ||
+          Editor.isElementReadOnly(editor, node)),
+      voids: true,
+    })
+  )
+}
+
 const MAIN_ROOT_KEY: RootKey = 'main'
 
 const getSelectionRootKey = (selection: Range | null): RootKey =>
@@ -701,6 +725,22 @@ export const applyEditableKeyDown = ({
         }
       })
       return keyDownHandled()
+    }
+
+    if (
+      selectionSpansNativeTextInputBoundary({ editor, selection }) &&
+      isPlainTextKeyboardInput(nativeEvent)
+    ) {
+      event.preventDefault()
+      applyEditableCommand({
+        command: {
+          inputType: 'insertText',
+          kind: 'insert-text',
+          text: nativeEvent.key,
+        },
+        editor,
+      })
+      return keyDownHandled(DEFAULT_MODEL_COMMAND_REPAIR)
     }
 
     const children = editor.read((state) => state.nodes.children())

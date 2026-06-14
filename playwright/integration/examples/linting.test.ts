@@ -34,7 +34,7 @@ test.describe('linting', () => {
       anchor: { path: [0, 0], offset: 0 },
       focus: { path: [0, 0], offset: 0 },
     })
-    await page.keyboard.insertText('Prefix ')
+    await page.keyboard.type('Prefix ')
 
     await expect(
       page.locator('[data-lint-rule="style-filler-word"]')

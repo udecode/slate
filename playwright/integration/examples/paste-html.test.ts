@@ -364,7 +364,6 @@ test.describe('paste html example', () => {
         anchor: { path: [0, 0], offset: 'Hello Bold'.length },
         focus: { path: [0, 0], offset: 'Hello Bold'.length },
       })
-      return
     }
     await expect.poll(() => editor.get.selection()).not.toBe(null)
 
@@ -503,7 +502,11 @@ test.describe('paste html example', () => {
   test('does not fallback insert after same-plain-text native HTML paste', async ({
     page,
   }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium', 'Chromium clipboard proof')
+    test.skip(testInfo.project.name === 'mobile', 'Desktop clipboard proof')
+    test.skip(
+      testInfo.project.name === 'webkit',
+      'WebKit synthetic HTML paste does not expose the same beforeinput insert-data trace'
+    )
 
     const editor = await openExample(page, 'paste-html', {
       ready: {
@@ -582,7 +585,7 @@ test.describe('paste html example', () => {
       },
     })
     const copiedText =
-      "Try it out for yourself! Copy and paste some rendered HTML rich text content (not the source code) from another site into this editor and it's formatting should be preserved."
+      'Try it out for yourself! Copy and paste some rendered HTML rich text content (not the source code) from another site into this editor and its formatting should be preserved.'
     const firstParagraphRemainder =
       " default, pasting content into a Slate editor will use the clipboard's 'text/plain' data. That's okay for some use cases, but sometimes you want users to be able to paste in content and have it maintain its formatting. To do this, your editor needs to handle 'text/html' data. "
 
@@ -1589,6 +1592,38 @@ test.describe('paste html example', () => {
     await expect(editor.root).not.toContainText('meta charset')
   })
 
+  test('pastes ProseMirror table row slices without exposing slice metadata', async ({
+    page,
+  }, testInfo) => {
+    const editor = await openExample(page, 'paste-html', {
+      ready: {
+        editor: 'visible',
+      },
+    })
+    const html = `<meta charset="utf-8"><table data-pm-slice="2 2 -2 [&quot;table&quot;,null,&quot;tbody&quot;,null]"><tbody><tr><td><p>alpha</p></td><td><p>beta</p></td></tr></tbody></table>`
+    const text = 'alpha\tbeta'
+
+    await editor.selection.selectAll()
+    if (testInfo.project.name === 'mobile') {
+      await insertDataWithHandle(editor, { html, text })
+    } else {
+      await editor.clipboard.pasteHtml(html, text)
+    }
+
+    await editor.assert.text('alphabeta')
+    await expect(editor.root).not.toContainText('data-pm-slice')
+    await expect(editor.root).not.toContainText('meta charset')
+    await expect(editor.root.locator('table')).toHaveCount(1)
+    await expect(editor.root.locator('tr')).toHaveCount(1)
+    await expect(editor.root.locator('td')).toHaveCount(2)
+    await expect(editor.root.locator('td').nth(0).locator('p')).toHaveText(
+      'alpha'
+    )
+    await expect(editor.root.locator('td').nth(1).locator('p')).toHaveText(
+      'beta'
+    )
+  })
+
   test('wraps orphan pasted list items in a list parent', async ({
     page,
   }, testInfo) => {
@@ -2054,9 +2089,10 @@ test.describe('paste html example', () => {
   test('runs generated clipboard paste gauntlet without illegal kernel transitions', async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name === 'mobile') {
-      return
-    }
+    test.skip(
+      testInfo.project.name === 'mobile',
+      'Desktop clipboard gauntlet proof'
+    )
 
     const editor = await openExample(page, 'paste-html', {
       ready: {

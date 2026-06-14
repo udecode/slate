@@ -237,6 +237,7 @@ export const useEditableEventRuntime = ({
   })
   const clipboardHandlers = useRuntimeClipboardEvents({
     editor,
+    flushPendingNativeTextInput: inputHandlers.flushPendingNativeTextInput,
     inputController,
     onCopy: callbacks.onCopy,
     onCut: callbacks.onCut,

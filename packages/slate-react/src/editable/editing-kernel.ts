@@ -1216,8 +1216,11 @@ export const prepareEditableKeyDownKernel = ({
     inputController,
   })
   const shouldPreserveModelSelection =
-    authoritativeModelSelection &&
-    (ownership === 'model-owned' || intent === 'text-insert' || intent === null)
+    intent === 'history' ||
+    (authoritativeModelSelection &&
+      (ownership === 'model-owned' ||
+        intent === 'text-insert' ||
+        intent === null))
   const shouldApplyForcedDOMImport =
     shouldForceDOMImport && !shouldPreserveModelSelection
 
@@ -1248,7 +1251,13 @@ export const prepareEditableKeyDownKernel = ({
             reason: 'native-selection-move',
             selectionSource: 'dom-current',
           }
-        : null,
+        : intent === 'history' && shouldPreserveModelSelection
+          ? {
+              preferModelSelection: true,
+              reason: 'model-command',
+              selectionSource: 'model-owned',
+            }
+          : null,
     shouldForceDOMImport: shouldApplyForcedDOMImport,
     stateBefore: mapSelectionSourceToKernelState(
       inputController.state.selectionSource

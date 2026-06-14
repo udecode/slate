@@ -70,6 +70,40 @@ export const shouldRepairPendingNativeTextInputDuringSelectionChange = ({
   pendingNativeTextInputRepairPathKey?: string | null
 }) => activeIntent === 'text-insert' && !!pendingNativeTextInputRepairPathKey
 
+export const shouldSkipModelOwnedRepairSelectionChange = ({
+  activeIntent,
+  modelSelectionPreferred,
+  pendingNativeTextInputRepairPathKey,
+  pendingNativeTextInputRepairSuppressedDOMSelection,
+  selectionChangeOrigin,
+  selectionSource,
+}: {
+  activeIntent: EditableInputController['state']['activeIntent']
+  modelSelectionPreferred: boolean
+  pendingNativeTextInputRepairPathKey?: string | null
+  pendingNativeTextInputRepairSuppressedDOMSelection?: boolean
+  selectionChangeOrigin: EditableInputController['state']['selectionChangeOrigin']
+  selectionSource: EditableInputController['state']['selectionSource']
+}) => {
+  if (selectionSource !== 'model-owned' || !modelSelectionPreferred) {
+    return false
+  }
+
+  if (
+    activeIntent === 'text-insert' &&
+    !pendingNativeTextInputRepairPathKey &&
+    !pendingNativeTextInputRepairSuppressedDOMSelection
+  ) {
+    return true
+  }
+
+  if (selectionChangeOrigin !== 'repair-induced') {
+    return false
+  }
+
+  return activeIntent === 'history'
+}
+
 const shouldCancelStaleCompositionSelectionChangeFlush = ({
   editor,
   inputController,
@@ -128,9 +162,29 @@ export const createRuntimeSelectionChangeHandler = ({
   let onDOMSelectionChange: RuntimeSelectionChangeHandler
 
   onDOMSelectionChange = throttle(() => {
-    const selectionBefore = readLiveSelection(editor)
     const selectionChangeOrigin =
       inputController.state.selectionChangeOrigin ?? 'native-user'
+    const modelSelectionPreferred =
+      isEditableModelSelectionPreferred(inputController)
+
+    if (
+      shouldSkipModelOwnedRepairSelectionChange({
+        activeIntent: inputController.state.activeIntent,
+        modelSelectionPreferred,
+        pendingNativeTextInputRepairPathKey:
+          inputController.state.pendingNativeTextInputRepairPathKey,
+        pendingNativeTextInputRepairSuppressedDOMSelection:
+          inputController.state
+            .pendingNativeTextInputRepairSuppressedDOMSelection,
+        selectionChangeOrigin,
+        selectionSource: inputController.state.selectionSource,
+      })
+    ) {
+      inputController.state.pendingDOMSelectionImport = false
+      return
+    }
+
+    const selectionBefore = readLiveSelection(editor)
 
     if (selectionChangeOrigin === 'repair-induced') {
       const preference = inputController.state.modelSelectionPreference
@@ -161,8 +215,7 @@ export const createRuntimeSelectionChangeHandler = ({
     const preserveDOMRepairQueue =
       shouldPreserveDOMRepairQueueDuringSelectionChange({
         activeIntent: inputController.state.activeIntent,
-        modelSelectionPreferred:
-          isEditableModelSelectionPreferred(inputController),
+        modelSelectionPreferred,
         pendingNativeTextInputRepairPathKey:
           inputController.state.pendingNativeTextInputRepairPathKey,
         selectionChangeOrigin,
