@@ -22,9 +22,8 @@
   "dependencies": {
     "@juggle/resize-observer": "^3.4.0",
     "@tanstack/react-virtual": "^3.13.25",
-    "direction": "^1.0.4",
     "lodash": "^4.17.21",
-    "slate-history": "workspace:*"
+    "slate-history": ">=0.115.0"
   },
   "scripts": {
     "build": "tsdown --config ../../config/tsdown.config.mts --log-level warn",

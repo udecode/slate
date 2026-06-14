@@ -12,8 +12,7 @@ Once the packages are installed, import the editor factory from `slate` and the 
 
 ```tsx
 import { useState } from 'react'
-import { createEditor, type Value } from 'slate'
-import { Editable, Slate, createReactEditor } from 'slate-react'
+import { Editable, Slate, createReactEditor, type SlateChange } from 'slate-react'
 ```
 
 Before we render anything, let's define the document shape for this editor.
@@ -31,13 +30,11 @@ const initialValue: CustomValue = [
 ]
 ```
 
-`CustomValue` is the TypeScript shape of this editor's document. Passing it to `createEditor` keeps element and text types attached to the editor API.
+`CustomValue` is the TypeScript shape of this editor's main root. Passing it
+to `createReactEditor` keeps element and text types attached to the editor API.
 
-```tsx
-const [editor] = useState(() => createReactEditor<CustomValue>({ initialValue }))
-```
-
-We create the editor inside `useState` so React keeps the same editor object for the lifetime of the component.
+Create the editor inside `useState` so React keeps the same editor object for
+the lifetime of the component.
 
 Now we can render the editor with `<Slate>` and `<Editable>`.
 
@@ -65,7 +62,10 @@ Most applications save the document value somewhere. Pass `onChange` to `<Slate>
 const App = () => {
   const [editor] = useState(() => createReactEditor<CustomValue>({ initialValue }))
 
-  const handleChange = (nextValue: Value, change: SlateChange) => {
+  const handleChange = (
+    nextValue: CustomValue,
+    change: SlateChange<CustomValue>
+  ) => {
     if (!change.valueChanged) return
 
     localStorage.setItem('content', JSON.stringify(nextValue))
@@ -86,4 +86,5 @@ Use `initialValue` as the initial document. If your app needs to replace the who
 
 ## Next steps
 
-The editor is rendering plain text. Next, we'll add event handlers so the editor can respond to keyboard shortcuts.
+The editor is rendering plain text. Next, add event handlers so the editor can
+respond to keyboard shortcuts.

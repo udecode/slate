@@ -1,5 +1,5 @@
-import debounce from 'lodash/debounce'
-import throttle from 'lodash/throttle'
+import debounce from 'lodash/debounce.js'
+import throttle from 'lodash/throttle.js'
 import type { RefObject } from 'react'
 import { RangeApi } from 'slate'
 import { getSelection } from 'slate-dom'

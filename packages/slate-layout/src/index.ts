@@ -35,11 +35,13 @@ export type SlatePageMargins =
       top: number
     }
 
+/** Page size and margins used by Slate page-layout readers. */
 export type SlatePageSettings = {
   margins: SlatePageMargins
   preset: SlatePagePreset
 }
 
+/** Rectangle in layout coordinates. */
 export type SlatePageRect = {
   height: number
   left: number
@@ -414,6 +416,7 @@ export type SlatePageSettingsSource<
   TSettings extends SlatePageSettings = SlatePageSettings,
 > = EditorStateField<TSettings> | TSettings
 
+/** Simplified layout options that choose a built-in engine when possible. */
 export type SlateLayoutOptions<
   TSettings extends SlatePageSettings = SlatePageSettings,
 > = {
@@ -437,6 +440,7 @@ export type SlatePageLayoutTextChangeRefresh =
   | 'deferred'
   | SlatePageLayoutDeferredTextChangeRefresh
 
+/** Full page-layout options for callers that own the measurement engine. */
 export type SlatePageLayoutOptions<
   TSettings extends SlatePageSettings = SlatePageSettings,
 > = {
@@ -454,6 +458,7 @@ export type SlatePageLayoutProjectRangeOptions =
     root?: RootKey
   }
 
+/** Live derived layout reader. It owns subscriptions, not document content. */
 export type SlatePageLayout = {
   destroy: () => void
   getFragments: (path: Path) => readonly SlatePageLayoutFragment[]
@@ -778,6 +783,7 @@ const normalizeMargins = (margins: SlatePageMargins) =>
 export const getSlatePagePresetSize = (preset: SlatePagePreset) =>
   PAGE_PRESETS[preset]
 
+/** Normalize page settings without resolving shorthand margins. */
 export const normalizeSlatePageSettings = (
   settings: SlatePageSettings
 ): SlatePageSettings => ({
@@ -785,6 +791,7 @@ export const normalizeSlatePageSettings = (
   preset: settings.preset,
 })
 
+/** Create one page rectangle and its content box from settings. */
 export const createSlatePage = (
   settings: SlatePageSettings,
   index = 0
@@ -805,6 +812,7 @@ export const createSlatePage = (
   }
 }
 
+/** Compute page placements for single-page or spread rendering. */
 export const getSlatePageLayoutGeometry = (
   pages: readonly SlatePageLayoutPage[],
   {
@@ -864,6 +872,7 @@ export const getSlatePageLayoutGeometry = (
   return { height, pagePlacements, width }
 }
 
+/** Stable key for layout maps keyed by Slate path. */
 export const getSlatePageLayoutPathKey = (path: Path) => path.join('.')
 
 const getRunId = (path: Path, start: number, end: number) =>
@@ -1083,6 +1092,7 @@ export const getSlatePageLayoutProjection = (
   }
 }
 
+/** Convert projected line runs into Slate decorations keyed by path. */
 export const getSlatePageLayoutDecorations = <TData = unknown>(
   projection: SlatePageLayoutProjection,
   options: SlatePageLayoutDecorationOptions<TData> = {}
@@ -2852,6 +2862,7 @@ export const paginateSlatePageLayoutBlocks = ({
   return { fragments, pages }
 }
 
+/** Create a page-layout reader with an explicit measurement engine. */
 export const createSlatePageLayout = <
   TSettings extends SlatePageSettings = SlatePageSettings,
 >(
@@ -3158,6 +3169,7 @@ export const createSlatePageLayout = <
   }
 }
 
+/** Create a layout reader with the built-in browser or estimated engine. */
 export const createSlateLayout = <
   TSettings extends SlatePageSettings = SlatePageSettings,
 >(

@@ -4,7 +4,7 @@
 from a Slate editor. Use it for pagination experiments, print-like surfaces,
 and page virtualization that still keeps Slate as the document model.
 
-The package is experimental. Keep product releases behind explicit flags until
+The package is experimental. Keep production use behind explicit flags until
 your browser, export, table, image, and collaboration requirements are proven.
 
 ## Page Layout

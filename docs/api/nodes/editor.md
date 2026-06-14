@@ -6,10 +6,16 @@ its path is `[]`.
 The public editor object is intentionally small:
 
 ```typescript
-interface Editor {
+interface Editor<TExtensions extends readonly unknown[] = []> {
+  api: Readonly<InstalledApiGroups<TExtensions>>
+  getApi(extension: EditorExtension): unknown
   read<T>(fn: (state: EditorState) => T): T
-  update(fn: (tx: EditorTransaction) => void, options?: EditorUpdateOptions): void
   subscribe(listener: EditorListener): () => void
+  subscribeCommit(listener: EditorCommitListener): () => void
+  update(
+    fn: (tx: EditorTransaction, context: EditorUpdateContext) => void,
+    options?: EditorUpdateOptions
+  ): void
   extend(extension: EditorExtension | EditorExtension[]): () => void
 }
 ```
@@ -20,6 +26,7 @@ interface Editor {
 - [Document roots](editor.md#document-roots)
 - [Document state](editor.md#document-state)
 - [Schema behavior](editor.md#schema-behavior)
+- [Runtime APIs](editor.md#runtime-apis)
 - [Subscribing to commits](editor.md#subscribing-to-commits)
 - [Extending the editor](editor.md#extending-the-editor)
 - [Pure node and location helpers](editor.md#pure-node-and-location-helpers)
@@ -112,6 +119,18 @@ editor.update(
 
 `tag` is the cheap lifecycle label. `metadata` is the typed policy channel for
 history, collaboration, and model/DOM selection behavior.
+
+The update callback also receives a context object for local post-commit hooks:
+
+```javascript
+editor.update((tx, { afterCommit }) => {
+  tx.text.insert('Saved')
+
+  afterCommit((change) => {
+    analytics.track('editor-change', change.source)
+  })
+})
+```
 
 ## Document roots
 
@@ -261,19 +280,49 @@ element fields. Reading a default does not write that property into the
 document. The Slate value remains plain JSON until your transaction writes a
 field.
 
+## Runtime APIs
+
+Extensions expose mounted host handles through `editor.api`.
+
+```javascript
+editor.api.dom.focus()
+editor.api.clipboard.insertTextData(dataTransfer)
+editor.api.history.withoutSaving(() => {
+  editor.update((tx) => {
+    tx.text.insert('Imported')
+  })
+})
+```
+
+Use `editor.getApi(extension)` when the call site owns the extension token and
+needs the typed API for that extension.
+
 ## Subscribing to commits
 
 #### `editor.subscribe(listener) => () => void`
 
-Subscribe to committed editor changes. The listener receives the current
-snapshot and commit metadata.
+Subscribe to editor snapshots. The listener receives the current snapshot and an
+optional change summary.
 
 ```javascript
-const unsubscribe = editor.subscribe((_snapshot, commit) => {
-  if (commit.childrenChanged || commit.dirtyStateKeys.length > 0) {
+const unsubscribe = editor.subscribe((_snapshot, change) => {
+  if (change?.childrenChanged || change?.dirtyStateKeys.length) {
     const documentValue = editor.read((state) => state.value.get())
 
     save(documentValue)
+  }
+})
+```
+
+#### `editor.subscribeCommit(listener) => () => void`
+
+Subscribe only to committed changes. The listener receives the change summary
+for each commit.
+
+```javascript
+const unsubscribe = editor.subscribeCommit((change) => {
+  if (change.selectionChanged) {
+    syncSelection(change.selection)
   }
 })
 ```

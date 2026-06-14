@@ -144,8 +144,6 @@ export interface DOMEditor<V extends Value = Value> extends SlateEditor<V> {
 }
 
 export interface DOMEditorCapability {
-  androidPendingDiffs: () => TextDiff[] | undefined
-  androidScheduleFlush: () => void
   blur: () => void
   deselect: () => void
   findDocumentOrShadowRoot: () => Document | ShadowRoot
@@ -282,12 +280,12 @@ export interface DOMEditorClipboardInterface {
 
 export interface DOMEditorInterface {
   /**
-   * Experimental and android specific: Get pending diffs
+   * Android text-repair internal: return pending text diffs.
    */
   androidPendingDiffs: (editor: SlateEditor<any>) => TextDiff[] | undefined
 
   /**
-   * Experimental and android specific: Flush all pending diffs and cancel composition at the next possible time.
+   * Android text-repair internal: flush pending diffs and end composition.
    */
   androidScheduleFlush: (editor: SlateEditor<any>) => void
 
@@ -317,7 +315,7 @@ export interface DOMEditorInterface {
   findKey: (editor: DOMEditor<any>, node: Node) => Key
 
   /**
-   * Find the path of Slate node.
+   * Find the path of a Slate node.
    */
   assertPath: (editor: DOMEditor<any>, node: Node) => Path
 
@@ -349,12 +347,12 @@ export interface DOMEditorInterface {
   ) => target is DOMNode
 
   /**
-   *
+   * Check if every point in a Slate range maps to mounted DOM.
    */
   hasRange: (editor: DOMEditor<any>, range: Range) => boolean
 
   /**
-   * Check if the target can be selectable
+   * Check if the target can be selected.
    */
   hasSelectableTarget: (
     editor: DOMEditor<any>,
@@ -387,7 +385,7 @@ export interface DOMEditorInterface {
   isReadOnly: (editor: DOMEditor<any>) => boolean
 
   /**
-   * Check if the target is inside void and in an non-readonly editor.
+   * Check if the target is inside a void in a writable editor.
    */
   isTargetInsideNonReadonlyVoid: (
     editor: DOMEditor<any>,
@@ -2658,8 +2656,6 @@ export const createDOMEditorCapability = (
   editor: DOMEditor<any>
 ): DOMEditorCapability => {
   const capability: DOMEditorCapability = {
-    androidPendingDiffs: () => DOMEditor.androidPendingDiffs(editor),
-    androidScheduleFlush: () => DOMEditor.androidScheduleFlush(editor),
     blur: () => DOMEditor.blur(editor),
     deselect: () => DOMEditor.deselect(editor),
     findDocumentOrShadowRoot: () => DOMEditor.findDocumentOrShadowRoot(editor),

@@ -1,5 +1,7 @@
 # Slate React Hooks
 
+## Editor Hooks
+
 #### `useEditor(): Editor`
 
 Get the current editor object from React context.
@@ -92,6 +94,111 @@ const latestOperationCount = useEditorSelector((_editor, operations) => {
 })
 ```
 
+#### `useSlateHistory(options?): SlateHistoryController`
+
+Create undo/redo commands and keyboard handling for the active root.
+
+```tsx
+const history = useSlateHistory()
+
+return (
+  <button disabled={!history.canUndo} onClick={history.undo}>
+    Undo
+  </button>
+)
+```
+
+Pass `options.root` to bind history controls to one root. Pass
+`focusPolicy: 'preserve-dom'` when undo/redo is controlled from external UI and
+DOM focus should stay outside the editor.
+
+## Runtime And Root Hooks
+
+Use these when one editor owns multiple roots or external chrome.
+
+- Runtime hooks read the whole editor runtime.
+- View hooks read one root view.
+- Root editor hooks return a command-capable editor view for one root.
+
+Prefer `useSlateRootEditor(root)` when UI knows its root. Use
+`useSlateActiveEditor()` only for UI that should follow the current selection.
+
+#### `useSlateRuntime(options?): SlateRuntimeValue`
+
+Create a React runtime value, or read the nearest runtime from `SlateRuntime`.
+Most app code should use `Slate` directly.
+
+#### `useSlateRuntimeState<T>(selector, options?): T`
+
+Subscribe to whole-runtime editor state. The selector runs in a read view and
+re-renders only when the selected value changes.
+
+#### `useSlateViewState<T>(root, selector, options?): T`
+
+Subscribe to one root view's state. The selector skips commits that cannot
+affect that root.
+
+#### `useSlateActiveRoot(): RootKey`
+
+Read the root key that owns the current selection.
+
+#### `useSlateRootEditor(root?, options?): SlateRootEditor`
+
+Create a command-capable editor view for one root.
+
+Use this for root-specific toolbar or sidebar commands. Pass `{ readOnly:
+true }` when the view should only read state.
+
+#### `useSlateActiveEditor(): SlateRootEditor`
+
+Create a command-capable editor view for the root that owns the selection.
+
+#### `useSlateRootChrome(root?, options?): SlateRootChromeController`
+
+Create root chrome props for mouse interaction outside the editable content,
+such as margin clicks and drag selection around a root.
+
+```tsx
+const chrome = useSlateRootChrome('body')
+
+return <div {...chrome.props}>{children}</div>
+```
+
+Pass `selection: 'end'` for chrome that should place the caret at the end of a
+root when clicked.
+
+#### `useSlateContentRoot(element?, options?): SlateContentRootController`
+
+Resolve a schema-owned child content root and its chrome controller.
+
+Use this inside an element renderer for editable voids or nested editor
+surfaces.
+
+#### `useSlateChildRoot(element?, slot?): RootKey`
+
+Resolve the stable child-root key for an element and slot.
+
+Prefer persisted `childRoots[slot]` when the child root is part of document
+data. The runtime fallback is for ephemeral editor islands.
+
+#### `useSlateViewEffect(effect, options?)`
+
+Run after Slate flushes mounted root views. Use this when a command or
+measurement needs the live root editor.
+
+#### `useSlateCommandCallback(callback, options?): (...args) => result`
+
+Create a stable callback that resolves the mounted root editor at call time.
+
+```tsx
+const toggleTitle = useSlateCommandCallback(editor => {
+  editor.update(tx => tx.text.insert('Title'))
+})
+```
+
+Pass `focus: 'restore-root'` when the command should move focus back to the
+editor root before running.
+
 #### `useElement(): Element`
 
 Get the current element object inside an element renderer.
@@ -160,7 +267,7 @@ return (
 )
 ```
 
-#### `useSlateAnnotationStore<TData, TProjection>(editor, annotations): SlateAnnotationStore<TData, TProjection>`
+#### `useSlateAnnotationStore<TData, TProjection>(editor, annotationsOrOptions): SlateAnnotationStore<TData, TProjection>`
 
 Create an annotation store for durable anchored ranges such as comments,
 suggestions, diagnostics, or external review markers.
@@ -168,23 +275,57 @@ suggestions, diagnostics, or external review markers.
 Pass the store to `Slate` so `Editable`, sidebars, and widget UI read one
 annotation snapshot.
 
+Pass an array for simple static annotation lists. Pass a projector when
+annotations are derived from React state and should refresh from explicit
+dependencies.
+
+```tsx
+const annotationStore = useSlateAnnotationStore(editor, {
+  deps: [comments],
+  project: () =>
+    comments.map(comment => ({
+      anchor: comment.anchor,
+      data: comment,
+      id: comment.id,
+      projection: { tone: comment.tone },
+    })),
+})
+```
+
 #### `useSlateAnnotations<TData, TProjection>(store?): SlateAnnotationSnapshot<TData, TProjection>`
 
 Read the current annotation snapshot. Without an explicit store, the hook reads
 the store from the nearest `Slate` provider.
 
-#### `useSlateAnnotation<TData, TProjection>(id, store?): SlateAnnotationEntry<TData, TProjection> | null`
+#### `useSlateAnnotation<TData, TProjection>(id, store?): SlateResolvedAnnotation<TData, TProjection> | null`
 
 Read one annotation by id.
 
-#### `useSlateWidgetStore<TWidget, TAnnotation>(editor, widgets, annotationStore?): SlateWidgetStore<TWidget, TAnnotation>`
+#### `useSlateWidgetStore<TWidget, TAnnotation>(editor, widgetsOrOptions, annotationStore?): SlateWidgetStore<TWidget, TAnnotation>`
 
 Create a widget store for UI anchored to nodes, selections, or annotations.
+
+Pass an array for simple static widget lists. Pass a projector when widget
+creation depends on React state and should refresh from explicit dependencies.
+
+```tsx
+const widgetStore = useSlateWidgetStore(editor, {
+  annotationStore,
+  deps: [commentId],
+  project: () => [
+    {
+      anchor: { annotationId: commentId, type: 'annotation' },
+      data: { label: 'Comment' },
+      id: 'comment-widget',
+    },
+  ],
+})
+```
 
 #### `useSlateWidgets<TWidget, TAnnotation>(store): SlateWidgetSnapshot<TWidget, TAnnotation>`
 
 Read every widget in a widget store.
 
-#### `useSlateWidget<TWidget, TAnnotation>(store, id): SlateWidgetEntry<TWidget, TAnnotation> | null`
+#### `useSlateWidget<TWidget, TAnnotation>(store, id): SlateResolvedWidget<TWidget, TAnnotation> | null`
 
 Read one widget by id.

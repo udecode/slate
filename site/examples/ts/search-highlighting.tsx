@@ -20,7 +20,7 @@ import {
 import { cn } from '@/utils/cn'
 
 import { Toolbar } from './components'
-import type { CustomText } from './custom-types.d'
+import type { CustomText, CustomValue } from './custom-types.d'
 import { replaceQueryOptions } from './query-controls'
 
 const SearchHighlightingExample = () => {
@@ -28,7 +28,7 @@ const SearchHighlightingExample = () => {
     'q',
     parseAsString.withDefault('').withOptions(replaceQueryOptions)
   )
-  const editor = useSlateEditor({
+  const editor = useSlateEditor<CustomValue>({
     initialValue: [
       {
         type: 'paragraph',
@@ -93,7 +93,7 @@ const SearchHighlightingEditor = memo(
     editor,
     searchSource,
   }: {
-    editor: ReactEditor<any>
+    editor: ReactEditor<CustomValue>
     searchSource: SlateDecorationSource<{ highlight: true }>
   }) => (
     <Slate decorationSources={[searchSource]} editor={editor}>

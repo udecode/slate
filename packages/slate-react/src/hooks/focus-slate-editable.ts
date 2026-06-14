@@ -1,5 +1,6 @@
 import { type Node, RangeApi } from 'slate'
-import { getSelection, IS_FOCUSED } from 'slate-dom'
+import { getSelection } from 'slate-dom'
+import { IS_FOCUSED } from 'slate-dom/internal'
 
 import { readModelSelectionDOMPreference } from '../editable/model-selection-dom-preference'
 import { readRuntimeSelection } from '../editable/runtime-selection-state'

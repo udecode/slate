@@ -1,45 +1,76 @@
 # Slate React Event Handling
 
-By default, the `Editable` component comes with a set of event handlers that handle typical rich-text editing behaviors (for example, it implements its own `onCopy`, `onPaste`, `onDrop`, and `onKeyDown` handlers).
+`Editable` owns the default browser event handlers for rich-text editing,
+including copy, paste, drop, keyboard, native input, selection, focus, and drag
+events.
 
-In some cases you may want to extend or override Slate's default behavior, which can be done by passing your own event handler(s) to the `Editable` component.
+Pass event handlers to `Editable` when app UI needs to run before Slate's
+default behavior.
 
-Your custom event handler can control whether or not Slate should execute its own event handling for a given event after your handler runs depending on the return value of your event handler as described below.
+Handler return values control whether Slate continues with its own handling:
 
-```jsx
-import {Editable} from 'slate-react';
+- Return `true` to mark the event handled and skip Slate's default handler.
+- Return `false` to force Slate's default handler to run.
+- Return nothing to let Slate continue unless the event is default-prevented or
+  propagation-stopped.
 
-function MyEditor() {
-  const onClick = event => {
-    // Implement custom event logic...
+```tsx
+import type { DragEvent, MouseEvent } from 'react'
+import { Editable } from 'slate-react'
 
-    // When no value is returned, Slate will execute its own event handler when
-    // neither isDefaultPrevented nor isPropagationStopped was set on the event
-  };
+const MyEditor = () => {
+  const onClick = (event: MouseEvent<HTMLDivElement>) => {
+    trackEditorClick(event)
 
-  const onDrop = event => {
-    // Implement custom event logic...
+    // Slate runs its click handler unless this handler prevents default,
+    // stops propagation, or returns true.
+  }
 
-    // No matter the state of the event, treat it as being handled by returning
-    // true here, Slate will skip its own event handler
-    return true;
-  };
+  const onDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (!isAppOwnedDrop(event)) return false
 
-  const onDragStart = event => {
-    // Implement custom event logic...
+    insertAppOwnedDrop(event)
 
-    // No matter the status of the event, treat event as *not* being handled by
-    // returning false, Slate will execute its own event handler afterward
-    return false;
-  };
+    return true
+  }
+
+  const onDragStart = (event: DragEvent<HTMLDivElement>) => {
+    annotateDragPayload(event)
+
+    return false
+  }
 
   return (
     <Editable
       onClick={onClick}
       onDrop={onDrop}
       onDragStart={onDragStart}
-      {/*...*/}
     />
   )
 }
+```
+
+Use `onKeyDown` and `onDOMBeforeInput` when a handler needs editor context:
+
+```tsx
+<Editable
+  onDOMBeforeInput={(event, { editor, inputType }) => {
+    if (inputType !== 'formatBold') return false
+
+    editor.update((tx) => {
+      tx.marks.toggle('bold')
+    })
+
+    return true
+  }}
+  onKeyDown={(event, { editor }) => {
+    if (!(event.metaKey && event.key === 'k')) return false
+
+    editor.update((tx) => {
+      tx.text.insert('link')
+    })
+
+    return true
+  }}
+/>
 ```

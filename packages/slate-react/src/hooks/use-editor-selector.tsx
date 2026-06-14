@@ -194,6 +194,12 @@ export function useEditorSelector<T, TEditor extends Editor<any> = Editor<any>>(
   return selectedState
 }
 
+/**
+ * Reads from the immutable editor state view and re-renders only when the
+ * selected value changes.
+ *
+ * Pass `deps` when the selector closes over changing values.
+ */
 export function useEditorState<T, TEditor extends Editor<any> = Editor<any>>(
   selector: (state: EditorStateView<ValueOf<TEditor>>) => T,
   {

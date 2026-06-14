@@ -4,12 +4,8 @@ import {
   type Descendant,
   type Operation,
 } from 'slate'
-import {
-  EDITOR_TO_PENDING_DIFFS,
-  mergeStringDiffs,
-  normalizeStringDiff,
-  type StringDiff,
-} from '../src'
+import { mergeStringDiffs, normalizeStringDiff, type StringDiff } from '../src'
+import { EDITOR_TO_PENDING_DIFFS } from '../src/internal'
 import {
   transformPendingPoint,
   transformTextDiff,

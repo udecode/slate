@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { describe, it } from 'node:test'
 
 import * as Slate from '../src'
@@ -32,12 +32,49 @@ const primaryExampleFiles = collectExampleFiles(
   resolve(repoRoot, 'site/examples')
 )
 const extensionExampleFiles = primaryExampleFiles
+const primaryExampleRoutes = [
+  ...readFileSync(
+    resolve(repoRoot, 'site/constants/examples.ts'),
+    'utf8'
+  ).matchAll(/\['[^']+', '([^']+)'/g),
+]
+  .map((match) => match[1])
+  .sort()
+const browserExampleSpecRoutes = collectFiles(
+  resolve(repoRoot, 'playwright/integration/examples'),
+  /\.test\.ts$/
+).map((relativePath) =>
+  relativePath
+    .replace(/^playwright\/integration\/examples\//, '')
+    .replace(/\.test\.ts$/, '')
+)
+const exampleBrowserProofAliases = new Map([
+  [
+    'android-tests',
+    [
+      'query-controls',
+      'hidden Android manual-test route is covered by URL-control load proof',
+    ],
+  ],
+  [
+    'custom-placeholder',
+    [
+      'placeholder',
+      'custom-placeholder route has a shorter placeholder spec name',
+    ],
+  ],
+] as const)
 const publicDocumentationFiles = [
   ...collectMarkdownFiles(resolve(repoRoot, 'docs/api')),
   ...collectMarkdownFiles(resolve(repoRoot, 'docs/concepts')),
   ...collectMarkdownFiles(resolve(repoRoot, 'docs/libraries')),
   ...collectMarkdownFiles(resolve(repoRoot, 'docs/walkthroughs')),
 ]
+const publicMarkdownFiles = [
+  'Readme.md',
+  ...publicDocumentationFiles,
+  ...collectMarkdownFiles(resolve(repoRoot, 'docs/general')),
+].sort()
 const publicAuthoringFiles = [
   ...collectExampleFiles(resolve(repoRoot, 'site/examples')),
   ...collectExampleFiles(resolve(repoRoot, 'docs/api')),
@@ -85,10 +122,50 @@ const bannedPublicSurface = [
   },
 ]
 
+const bannedPublicExampleTypeSlop = [
+  {
+    pattern: /\bReactEditor<any>\b/,
+    reason: 'public examples should carry the actual editor value type',
+  },
+  {
+    pattern: /\bas never\b/,
+    reason: 'public examples should not use impossible casts to appease types',
+  },
+  {
+    pattern: /@ts-expect-error/,
+    reason: 'public examples should model missing platform types explicitly',
+  },
+]
+
 const bannedPublicDocumentationSurface = [
   {
-    pattern: /\bon(ValueChange|SelectionChange|SnapshotChange|KeyCommand)\b/,
-    reason: 'normal React docs must teach onChange/onCommit only',
+    pattern: /A root-level `Editor` node/,
+    reason:
+      'node docs must teach roots/state persistence, not legacy editor-child storage',
+  },
+  {
+    pattern: /The top-level node in a Slate document is the `Editor` itself/,
+    reason:
+      'node docs must separate the runtime editor from persisted document roots',
+  },
+  {
+    pattern: /\beditor\.children\b/,
+    reason:
+      'public docs must read document content through roots and state.value.get()',
+  },
+  {
+    pattern: /editor has other properties too/,
+    reason: 'public docs must not teach placeholder legacy editor shapes',
+  },
+  {
+    pattern: /We'll cover its functionality later/,
+    reason:
+      'public docs must be direct current-state reference, not old tutorial prose',
+  },
+  {
+    pattern: /\bon(SnapshotChange|KeyCommand)\b/,
+    reason:
+      'normal React docs must teach current Slate callbacks, not removed callback names',
   },
   {
     pattern: /\buseSlateStatic\b/,
@@ -126,6 +203,11 @@ const bannedPublicDocumentationSurface = [
     pattern: /contentEditable=\{false\}/,
     reason: 'normal void docs must not make app renderers own the void shell',
   },
+  {
+    pattern: /^const \[editor\] = useState\(/m,
+    reason:
+      'public React docs must not show top-level hook calls outside a component',
+  },
 ]
 
 const bannedPublicSnapshotAndRangeSurface = [
@@ -139,7 +221,49 @@ const bannedPublicSnapshotAndRangeSurface = [
     reason:
       'public docs/examples must use editor.read state groups instead of the internal Editor namespace',
   },
+  {
+    pattern: /resources used by the \w+RefApi|refs current value|unrefed/,
+    reason: 'location ref docs must use current public wording',
+  },
 ]
+
+const bannedPublicInternalImportPattern =
+  /from\s+['"](?:slate|slate-dom)\/internal['"]/g
+
+const markdownLinkPattern = /\[[^\]]*]\(([^)\s#]*)(#[^)\s]+)?\)/g
+const markdownHeadingPattern = /^(#{1,6})\s+(.+)$/gm
+
+const slugifyMarkdownHeading = (text: string) =>
+  text
+    .trim()
+    .toLowerCase()
+    .replace(/`/g, '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, '-')
+
+const collectMarkdownAnchors = (relativePath: string): Set<string> => {
+  const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+  const anchors = new Set<string>()
+  const counts = new Map<string, number>()
+
+  for (const match of source.matchAll(markdownHeadingPattern)) {
+    const base = slugifyMarkdownHeading(match[2] ?? '')
+    const count = counts.get(base) ?? 0
+
+    counts.set(base, count + 1)
+    anchors.add(count === 0 ? base : `${base}-${count}`)
+  }
+
+  return anchors
+}
+
+const markdownAnchorsByFile = new Map(
+  publicMarkdownFiles.map((relativePath) => [
+    relativePath,
+    collectMarkdownAnchors(relativePath),
+  ])
+)
 
 const renamedDataHelperValues = [
   'Element',
@@ -187,10 +311,41 @@ const collectBareDataHelperValueImports = (source: string): string[] => {
 }
 
 describe('primary public surface examples', () => {
+  it('keeps every example route covered by browser proof', () => {
+    const specRoutes = new Set(browserExampleSpecRoutes)
+    const failures = primaryExampleRoutes.flatMap((route) => {
+      const alias = exampleBrowserProofAliases.get(route)?.[0]
+
+      if (specRoutes.has(route) || (alias && specRoutes.has(alias))) {
+        return []
+      }
+
+      return [route]
+    })
+    const staleAliases = [...exampleBrowserProofAliases].flatMap(
+      ([route, [alias]]) =>
+        primaryExampleRoutes.includes(route) && specRoutes.has(alias)
+          ? []
+          : [`${route} -> ${alias}`]
+    )
+
+    assert.deepEqual(failures, [])
+    assert.deepEqual(staleAliases, [])
+  })
+
   for (const relativePath of primaryExampleFiles) {
     it(`${relativePath} does not teach stale editor APIs`, () => {
       const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
       const failures = bannedPublicSurface
+        .filter(({ pattern }) => pattern.test(source))
+        .map(({ pattern, reason }) => `${pattern}: ${reason}`)
+
+      assert.deepEqual(failures, [])
+    })
+
+    it(`${relativePath} does not teach avoidable type slop`, () => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+      const failures = bannedPublicExampleTypeSlop
         .filter(({ pattern }) => pattern.test(source))
         .map(({ pattern, reason }) => `${pattern}: ${reason}`)
 
@@ -229,6 +384,100 @@ describe('public data helper namespace examples', () => {
       assert.deepEqual(helperMembers, [])
     })
   }
+})
+
+describe('primary public internal import boundaries', () => {
+  for (const relativePath of [
+    ...publicAuthoringFiles,
+    ...publicDocumentationFiles,
+  ]) {
+    it(`${relativePath} does not import internal package paths`, () => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+      const matches = [...source.matchAll(bannedPublicInternalImportPattern)]
+        .map((match) => match[0])
+        .sort()
+
+      assert.deepEqual(matches, [])
+    })
+  }
+})
+
+describe('primary public markdown links', () => {
+  for (const relativePath of publicMarkdownFiles) {
+    it(`${relativePath} links to existing markdown files and anchors`, () => {
+      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
+      const failures: string[] = []
+
+      for (const match of source.matchAll(markdownLinkPattern)) {
+        const rawTarget = match[1] ?? ''
+        const rawHash = match[2] ?? ''
+
+        if (/^[a-z]+:/.test(rawTarget) || rawTarget.startsWith('/')) {
+          continue
+        }
+
+        const targetPath = rawTarget
+          ? resolve(dirname(resolve(repoRoot, relativePath)), rawTarget)
+          : resolve(repoRoot, relativePath)
+
+        if (rawTarget && !statSync(targetPath, { throwIfNoEntry: false })) {
+          failures.push(`missing file: ${rawTarget}`)
+          continue
+        }
+
+        if (
+          rawHash &&
+          (rawTarget === '' ||
+            targetPath.endsWith('.md') ||
+            targetPath.endsWith('Readme.md'))
+        ) {
+          const targetRelativePath = relative(repoRoot, targetPath).replaceAll(
+            '\\',
+            '/'
+          )
+          const anchors = markdownAnchorsByFile.get(targetRelativePath)
+          const anchor = decodeURIComponent(rawHash.slice(1))
+
+          if (anchors && !anchors.has(anchor)) {
+            failures.push(`missing anchor: ${rawTarget}${rawHash}`)
+          }
+        }
+      }
+
+      assert.deepEqual(failures, [])
+    })
+  }
+})
+
+describe('slate-react public docs', () => {
+  it('documents Slate component props without treating initialValue as a prop', () => {
+    const source = readFileSync(
+      resolve(repoRoot, 'docs/libraries/slate-react/slate.md'),
+      'utf8'
+    )
+
+    assert.equal(/### `initialValue`/.test(source), false)
+    assert.match(source, /onSelectionChange\?:/)
+    assert.match(source, /onValueChange\?:/)
+    assert.match(source, /<Slate>` does\s+not take an `initialValue` prop/)
+  })
+})
+
+describe('slate-hyperscript public docs', () => {
+  it('documents fixture-only usage, built-in tags, and custom element shorthands', () => {
+    const source = readFileSync(
+      resolve(repoRoot, 'docs/libraries/slate-hyperscript.md'),
+      'utf8'
+    )
+
+    assert.match(source, /Keep hyperscript in tests and fixtures/)
+    assert.match(source, /<editor>/)
+    assert.match(source, /<cursor \/>/)
+    assert.match(source, /<anchor \/>/)
+    assert.match(source, /<focus \/>/)
+    assert.match(source, /createHyperscript/)
+    assert.match(source, /elements:\s*\{[\s\S]*paragraph/)
+  })
 })
 
 describe('primary slate package surface', () => {

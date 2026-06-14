@@ -14,6 +14,7 @@ editor.api.dom.focus()
 - [Checks](react-editor.md#checks)
 - [Focus And Selection](react-editor.md#focus-and-selection)
 - [DOM Translation](react-editor.md#dom-translation)
+- [DOM Environment](react-editor.md#dom-environment)
 - [DataTransfer](react-editor.md#datatransfer)
 
 ## Checks
@@ -29,6 +30,18 @@ Check if the editor is focused.
 #### `editor.api.react.isReadOnly(): boolean`
 
 Check if the editor is in read-only mode.
+
+#### `editor.api.dom.isComposing(): boolean`
+
+Check if the user is currently composing inside the editor from the DOM bridge.
+
+#### `editor.api.dom.isFocused(): boolean`
+
+Check if the DOM editor is focused.
+
+#### `editor.api.dom.isReadOnly(): boolean`
+
+Check if the DOM editor is in read-only mode.
 
 ## Focus And Selection
 
@@ -102,6 +115,11 @@ Assert a native DOM range from a Slate range.
 Resolve a native DOM range from a Slate range. Returns `null` when the Slate
 range is not currently mappable.
 
+#### `editor.api.dom.resolveRangeRect(range: Range): DOMRect | null`
+
+Resolve the bounding rect for a Slate range. Returns `null` when the range is
+not currently mappable to mounted DOM.
+
 #### `editor.api.dom.assertSlateNode(domNode: DOMNode): Node`
 
 Assert a Slate node from a native DOM node.
@@ -137,6 +155,24 @@ Assert a Slate range from a DOM range or selection.
 
 Resolve a Slate range from a DOM range or selection. Returns `null` when the DOM
 range is not currently mappable.
+
+## DOM Environment
+
+#### `editor.api.dom.findDocumentOrShadowRoot(): Document | ShadowRoot`
+
+Return the document or shadow root that owns the editor.
+
+#### `editor.api.dom.getWindow(): Window`
+
+Return the window that owns the editor.
+
+#### `editor.api.dom.hasRange(range: Range): boolean`
+
+Check whether a Slate range can currently be mapped to DOM.
+
+#### `editor.api.dom.isTargetInsideNonReadonlyVoid(target: EventTarget | null): boolean`
+
+Check whether a DOM event target is inside a non-read-only void element.
 
 ## DataTransfer
 

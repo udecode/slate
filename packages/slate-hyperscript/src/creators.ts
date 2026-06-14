@@ -210,8 +210,7 @@ export function createText(
     The <text> hyperscript tag can only contain text content as children.`)
   }
 
-  // COMPAT: If they used the <text> tag we want to guarantee that it won't be
-  // merge with other string children.
+  // Explicit <text> tags stay distinct from adjacent string children.
   STRINGS.delete(node)
 
   Object.assign(node, attributes)

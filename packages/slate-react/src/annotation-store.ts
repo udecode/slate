@@ -11,10 +11,13 @@ import type {
 } from './hooks/use-slate-projections'
 
 export interface SlateAnnotationAnchor {
+  /** Resolve the annotation against the current committed editor snapshot. */
   resolve: () => Range | null
+  /** Release local anchor resources when the application removes it. */
   unref?: () => Range | null
 }
 
+/** A durable, identified range owned by app or collaboration state. */
 export interface SlateAnnotation<
   TData = unknown,
   TProjection extends Record<string, unknown> = Record<string, unknown>,
@@ -25,6 +28,7 @@ export interface SlateAnnotation<
   projection?: TProjection
 }
 
+/** The latest resolved form of one annotation. */
 export interface SlateResolvedAnnotation<
   TData = unknown,
   TProjection extends Record<string, unknown> = Record<string, unknown>,
@@ -35,6 +39,7 @@ export interface SlateResolvedAnnotation<
   range: Range | null
 }
 
+/** Ordered annotation ids plus resolved annotations by id. */
 export interface SlateAnnotationSnapshot<
   TData = unknown,
   TProjection extends Record<string, unknown> = Record<string, unknown>,
@@ -49,6 +54,7 @@ export type SlateAnnotationProjectionData<
   annotationId: string
 }
 
+/** Refresh all annotations, no annotations, or a known subset of ids. */
 export type SlateAnnotationRefreshOptions = Readonly<{
   ids?: readonly string[]
   reason?: 'annotation' | 'external' | 'refresh'
@@ -68,6 +74,10 @@ export type SlateAnnotationStoreMetrics = Readonly<{
   runtimeSubscriberWakeCount: number
 }>
 
+/**
+ * Store that resolves app-owned annotations and exposes both sidebar snapshots
+ * and text projection data.
+ */
 export interface SlateAnnotationStore<
   TData = unknown,
   TProjection extends Record<string, unknown> = Record<string, unknown>,

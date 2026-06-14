@@ -19,4 +19,19 @@ describe('package scripts', () => {
       'vitest run --config ./vitest.config.ts --project browser'
     )
   })
+
+  test('keeps core proof helper exports free of proof-suffixed aliases', () => {
+    const coreIndexPath = fileURLToPath(
+      new URL('../../src/core/index.ts', import.meta.url)
+    )
+    const coreIndex = readFileSync(coreIndexPath, 'utf8')
+
+    expect(coreIndex).not.toMatch(/\bas\s+\w+Proof\b/)
+    expect(coreIndex).not.toContain('evaluateImeInputProof')
+    expect(coreIndex).not.toContain('evaluatePlaceholderInputProof')
+    expect(coreIndex).not.toContain('extractAgentBrowserDebugSnapshotProof')
+    expect(coreIndex).not.toContain('extractAppiumDebugSnapshotProof')
+    expect(coreIndex).not.toContain('parseAgentBrowserBatchProof')
+    expect(coreIndex).not.toContain('parseDebugSnapshotProof')
+  })
 })

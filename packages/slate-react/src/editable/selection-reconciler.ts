@@ -17,24 +17,26 @@ import {
   containsShadowAware,
   type DOMElement,
   type DOMRange,
-  EDITOR_TO_ELEMENT,
-  EDITOR_TO_USER_SELECTION,
-  EDITOR_TO_WINDOW,
-  ELEMENT_TO_NODE,
   getDefaultView,
   getSelection,
   IS_ANDROID,
   IS_FIREFOX,
-  IS_FOCUSED,
-  IS_NODE_MAP_DIRTY,
   IS_WEBKIT,
   isDOMElement,
   isDOMNode,
   isDOMText,
-  NODE_TO_ELEMENT,
   TRIPLE_CLICK,
 } from 'slate-dom'
-import { DOMCoverage } from 'slate-dom/internal'
+import {
+  DOMCoverage,
+  EDITOR_TO_ELEMENT,
+  EDITOR_TO_USER_SELECTION,
+  EDITOR_TO_WINDOW,
+  ELEMENT_TO_NODE,
+  IS_FOCUSED,
+  IS_NODE_MAP_DIRTY,
+  NODE_TO_ELEMENT,
+} from 'slate-dom/internal'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'

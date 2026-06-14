@@ -37,14 +37,15 @@ type HyperscriptCreators<T = any> = Record<
 
 /**
  * `HyperscriptShorthands` are dictionaries of properties applied to specific
- * kind of object, keyed by tag name. They allow you to easily define custom
- * hyperscript tags for your domain.
+ * object kinds, keyed by tag name. Use them to define domain-specific fixture
+ * tags.
  */
 
 type HyperscriptShorthands = Record<string, Record<string, any>>
 
 /**
- * Create a Slate hyperscript function with `options`.
+ * Create a Slate hyperscript factory with optional custom creators and element
+ * shorthands.
  */
 
 const createHyperscript = (
@@ -66,7 +67,7 @@ const createHyperscript = (
 }
 
 /**
- * Create a Slate hyperscript function with `options`.
+ * Create the callable JSX factory from a normalized creator map.
  */
 
 const createFactory = <T extends HyperscriptCreators>(creators: T) => {
@@ -112,7 +113,7 @@ const normalizeElements = (elements: HyperscriptShorthands) => {
 
     if (typeof props !== 'object') {
       throw new Error(
-        `Properties specified for a hyperscript shorthand should be an object, but for the custom element <${tagName}>  tag you passed: ${props}`
+        `Properties specified for a hyperscript shorthand should be an object, but for the custom element <${tagName}> tag you passed: ${props}`
       )
     }
 

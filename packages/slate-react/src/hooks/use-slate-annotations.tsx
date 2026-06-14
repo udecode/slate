@@ -41,6 +41,7 @@ const useResolvedSlateAnnotationStore = <
   > | null
 }
 
+/** Read one resolved annotation by id. */
 export function useSlateAnnotation<
   TData = unknown,
   TProjection extends Record<string, unknown> = Record<string, unknown>,
@@ -64,6 +65,7 @@ export function useSlateAnnotation<
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
+/** Read the current annotation snapshot from an explicit or provider store. */
 export function useSlateAnnotations<
   TData = unknown,
   TProjection extends Record<string, unknown> = Record<string, unknown>,

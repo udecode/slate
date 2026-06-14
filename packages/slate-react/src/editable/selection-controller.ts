@@ -16,17 +16,19 @@ import {
 import {
   containsShadowAware,
   type DOMRange,
-  ELEMENT_TO_NODE,
   getSelection,
   IS_ANDROID,
-  IS_FOCUSED,
-  IS_NODE_MAP_DIRTY,
   IS_WEBKIT,
   isDOMElement,
   isDOMNode,
   isDOMText,
 } from 'slate-dom'
-import { DOMCoverage } from 'slate-dom/internal'
+import {
+  DOMCoverage,
+  ELEMENT_TO_NODE,
+  IS_FOCUSED,
+  IS_NODE_MAP_DIRTY,
+} from 'slate-dom/internal'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { getSlateNodePathFromDOMElement } from '../hooks/use-slate-node-ref'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'

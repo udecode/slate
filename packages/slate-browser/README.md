@@ -1,6 +1,6 @@
 # slate-browser
 
-Browser proof harness for the production Slate replacement stack.
+Browser proof harness for Slate editor behavior.
 
 `slate-browser` owns browser proof lanes. It is proof infrastructure, not the
 product surface of Slate itself.

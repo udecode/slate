@@ -1263,7 +1263,7 @@ test.describe('Inlines example', () => {
       },
     })
     const text =
-      'There are two ways to add links. You can either add a link via the toolbar icon above, or if you want in on a little secret, copy a URL to your keyboard and paste it while a range of text is selected. '
+      'There are two ways to add links. You can either add a link via the toolbar icon above, or if you want in on a little secret, copy a URL to your clipboard and paste it while a range of text is selected. '
     const selectionStart = 'There are two ways to add '.length
     const selectionEnd = selectionStart + 'links'.length
 

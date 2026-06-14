@@ -85,7 +85,7 @@ const create = (key: string) => {
 
 export { isHotkey } from './hotkey-match'
 
-export default {
+export const Hotkeys = {
   isBold: create('bold'),
   isCompose: create('compose'),
   isMoveBackward: create('moveBackward'),

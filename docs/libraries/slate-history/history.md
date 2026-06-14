@@ -26,6 +26,8 @@ editor.api.history.withoutSaving(() => {
 ## History Object
 
 ```typescript
+import type { EditorStatePatch, Operation, Range } from 'slate'
+
 export interface History {
   redos: Batch[]
   undos: Batch[]
@@ -34,6 +36,8 @@ export interface History {
 interface Batch {
   operations: Operation[]
   selectionBefore: Range | null
+  selectionBeforeRoot?: string
+  statePatches: EditorStatePatch[]
 }
 ```
 

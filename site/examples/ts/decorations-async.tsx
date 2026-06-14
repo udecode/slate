@@ -26,7 +26,7 @@ const ASYNC_DECORATION_DELAY_MS = 500
 const decorationModes = ['prop', 'hook'] as const
 
 const getDocumentText = (value: readonly Descendant[]) =>
-  NodeApi.string({ children: value } as never)
+  NodeApi.string({ children: value } as Ancestor)
 
 const createRange = (path: Path, start: number, end: number): Range => ({
   anchor: { path, offset: start },

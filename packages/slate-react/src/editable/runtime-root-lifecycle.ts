@@ -1,10 +1,6 @@
 import type { RefObject } from 'react'
-import {
-  containsShadowAware,
-  getSelection,
-  IS_FOCUSED,
-  isDOMNode,
-} from 'slate-dom'
+import { containsShadowAware, getSelection, isDOMNode } from 'slate-dom'
+import { IS_FOCUSED } from 'slate-dom/internal'
 
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'

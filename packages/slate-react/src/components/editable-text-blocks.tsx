@@ -14,18 +14,16 @@ import type {
 } from 'slate'
 import { NodeApi } from 'slate'
 import {
-  EDITOR_TO_PLACEHOLDER_ELEMENT,
-  IS_NODE_MAP_DIRTY,
-  NODE_TO_INDEX,
-  NODE_TO_PARENT,
-} from 'slate-dom'
-import {
   DOMCoverage,
   type DOMCoverageBoundary,
   type DOMCoverageCopyPolicy,
   type DOMCoverageFindPolicy,
   type DOMCoverageReason,
   type DOMCoverageSelectionPolicy,
+  EDITOR_TO_PLACEHOLDER_ELEMENT,
+  IS_NODE_MAP_DIRTY,
+  NODE_TO_INDEX,
+  NODE_TO_PARENT,
 } from 'slate-dom/internal'
 import {
   ElementContext,
@@ -97,10 +95,10 @@ import {
 import { EditableElement } from './editable-element'
 import {
   EditableText,
-  type EditableTextLeafProps,
-  type EditableTextRenderPlaceholderProps,
-  type EditableTextRenderTextProps,
   type EditableTextSegment,
+  type RenderLeafProps,
+  type RenderPlaceholderProps,
+  type RenderTextProps,
 } from './editable-text'
 import { Slate } from './slate'
 import { SlateInlineVoidShell, SlateVoidShell } from './slate-void-shell'
@@ -362,7 +360,7 @@ const EditableRenderedElement = <
   renderElement,
 }: {
   path: Path
-  props: EditableRenderElementProps<TElement>
+  props: RenderElementProps<TElement>
   renderElement: RenderElementRenderer<TElement>
 }) => {
   const editor = useEditor<ReactRuntimeEditor>()
@@ -492,13 +490,13 @@ type EditableContentRootSlotRenderers<
   TElement extends SlateElementNode = any,
 > = {
   renderElement?: RenderElementRenderer<TElement>
-  renderLeaf?: (props: EditableTextLeafProps<T>) => ReactNode
-  renderPlaceholder?: (props: EditableTextRenderPlaceholderProps) => ReactNode
+  renderLeaf?: (props: RenderLeafProps<T>) => ReactNode
+  renderPlaceholder?: (props: RenderPlaceholderProps) => ReactNode
   renderSegment?: (
     segment: EditableTextSegment<T>,
     children: ReactNode
   ) => ReactNode
-  renderText?: (props: EditableTextRenderTextProps) => ReactNode
+  renderText?: (props: RenderTextProps) => ReactNode
   renderVoid?: RenderVoidRenderer<TElement>
 }
 
@@ -537,13 +535,13 @@ const createEditableElementSlots = <
     element: TElement
     renderElement?: RenderElementRenderer<TElement>
     renderChildren: (from?: number, to?: number) => ReactNode
-    renderLeaf?: (props: EditableTextLeafProps<T>) => ReactNode
-    renderPlaceholder?: (props: EditableTextRenderPlaceholderProps) => ReactNode
+    renderLeaf?: (props: RenderLeafProps<T>) => ReactNode
+    renderPlaceholder?: (props: RenderPlaceholderProps) => ReactNode
     renderSegment?: (
       segment: EditableTextSegment<T>,
       children: ReactNode
     ) => ReactNode
-    renderText?: (props: EditableTextRenderTextProps) => ReactNode
+    renderText?: (props: RenderTextProps) => ReactNode
     renderVoid?: RenderVoidRenderer<TElement>
     ownerPath: Path
     runtimeId: RuntimeId
@@ -810,7 +808,7 @@ function EditableContentRootView({
       suppressContentEditableWarning
     >
       <SlateContentRootOwnerContext.Provider value={contentRootOwner}>
-        <EditableTextBlocksInner
+        <EditableInner
           aria-label={ariaLabel}
           className={className}
           disableDefaultStyles={disableDefaultStyles}
@@ -854,35 +852,34 @@ const EditableRenderedVoid = <
   )
 }
 
-export type EditableRenderElementProps<
-  TElement extends SlateElementNode = any,
-> = TElement extends SlateElementNode
-  ? {
-      attributes: {
-        'data-slate-inline'?: true
-        'data-slate-node': 'element'
-        'data-slate-path': string
-        'data-slate-runtime-id': RuntimeId
-        'data-slate-void'?: true
-        ref: React.RefCallback<HTMLElement>
+export type RenderElementProps<TElement extends SlateElementNode = any> =
+  TElement extends SlateElementNode
+    ? {
+        attributes: {
+          'data-slate-inline'?: true
+          'data-slate-node': 'element'
+          'data-slate-path': string
+          'data-slate-runtime-id': RuntimeId
+          'data-slate-void'?: true
+          ref: React.RefCallback<HTMLElement>
+        }
+        children: ReactNode
+        element: TElement
+        isInline: boolean
+        slots: EditableElementSlots
       }
-      children: ReactNode
-      element: TElement
-      isInline: boolean
-      slots: EditableElementSlots
-    }
-  : never
+    : never
 
 export type RenderElementRenderer<TElement extends SlateElementNode = any> = (
-  props: EditableRenderElementProps<TElement>
+  props: RenderElementProps<TElement>
 ) => ReactNode
 
-export type EditableRenderVoidProps<TElement extends SlateElementNode = any> = {
+export type RenderVoidProps<TElement extends SlateElementNode = any> = {
   element: TElement
 }
 
 export type RenderVoidRenderer<TElement extends SlateElementNode = any> = (
-  props: EditableRenderVoidProps<TElement>
+  props: RenderVoidProps<TElement>
 ) => ReactNode
 
 export type EditableDecoration<T = unknown> = Omit<
@@ -907,7 +904,7 @@ export type EditableLayout = {
     | null
 }
 
-export type EditableTextBlocksProps<
+export type EditableProps<
   T = unknown,
   TElement extends SlateElementNode = any,
 > = {
@@ -941,13 +938,13 @@ export type EditableTextBlocksProps<
   placeholder?: ReactNode
   readOnly?: boolean
   renderElement?: RenderElementRenderer<TElement>
-  renderLeaf?: (props: EditableTextLeafProps<T>) => ReactNode
-  renderPlaceholder?: (props: EditableTextRenderPlaceholderProps) => ReactNode
+  renderLeaf?: (props: RenderLeafProps<T>) => ReactNode
+  renderPlaceholder?: (props: RenderPlaceholderProps) => ReactNode
   renderSegment?: (
     segment: EditableTextSegment<T>,
     children: ReactNode
   ) => ReactNode
-  renderText?: (props: EditableTextRenderTextProps) => ReactNode
+  renderText?: (props: RenderTextProps) => ReactNode
   renderVoid?: RenderVoidRenderer<TElement>
   root?: RootKey
   scrollSelectionIntoView?: (editor: Editor, domRange: globalThis.Range) => void
@@ -982,13 +979,13 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
   placeholder?: ReactNode
   placeholderRef?: React.RefCallback<HTMLElement>
   renderElement?: RenderElementRenderer<TElement>
-  renderLeaf?: (props: EditableTextLeafProps<T>) => ReactNode
-  renderPlaceholder?: (props: EditableTextRenderPlaceholderProps) => ReactNode
+  renderLeaf?: (props: RenderLeafProps<T>) => ReactNode
+  renderPlaceholder?: (props: RenderPlaceholderProps) => ReactNode
   renderSegment?: (
     segment: EditableTextSegment<T>,
     children: ReactNode
   ) => ReactNode
-  renderText?: (props: EditableTextRenderTextProps) => ReactNode
+  renderText?: (props: RenderTextProps) => ReactNode
   renderVoid?: RenderVoidRenderer<TElement>
   runtimeId: RuntimeId
 }) => {
@@ -1208,7 +1205,7 @@ const EditableDescendantNodeInner = <T, TElement extends SlateElementNode>({
         ownerPath: path,
         runtimeId,
       }),
-    } as unknown as EditableRenderElementProps<TElement>
+    } as unknown as RenderElementProps<TElement>
 
     return (
       <NodeRuntimeIdContext.Provider key={runtimeId} value={runtimeId}>
@@ -1452,13 +1449,13 @@ const EditableRootGroupInner = <T, TElement extends SlateElementNode>({
   placeholder?: ReactNode
   placeholderRef?: React.RefCallback<HTMLElement>
   renderElement?: RenderElementRenderer<TElement>
-  renderLeaf?: (props: EditableTextLeafProps<T>) => ReactNode
-  renderPlaceholder?: (props: EditableTextRenderPlaceholderProps) => ReactNode
+  renderLeaf?: (props: RenderLeafProps<T>) => ReactNode
+  renderPlaceholder?: (props: RenderPlaceholderProps) => ReactNode
   renderSegment?: (
     segment: EditableTextSegment<T>,
     children: ReactNode
   ) => ReactNode
-  renderText?: (props: EditableTextRenderTextProps) => ReactNode
+  renderText?: (props: RenderTextProps) => ReactNode
   renderVoid?: RenderVoidRenderer<TElement>
   runtimeIds: readonly RuntimeId[]
   startIndex: number
@@ -1657,7 +1654,7 @@ const createVirtualizedTopLevelItemGroups = (
   return groups
 }
 
-const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
+const EditableInner = <T, TElement extends SlateElementNode>({
   autoFocus,
   className,
   decorate,
@@ -1685,7 +1682,7 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   spellCheck,
   style,
   ...attributes
-}: EditableTextBlocksProps<T, TElement> & {
+}: EditableProps<T, TElement> & {
   enableVirtualizedRendering?: boolean
 }) => {
   const domStrategyOptions = domStrategy
@@ -2699,25 +2696,25 @@ const EditableTextBlocksInner = <T, TElement extends SlateElementNode>({
   )
 }
 
-const EditableTextBlocksVirtualized = <T, TElement extends SlateElementNode>(
-  props: EditableTextBlocksProps<T, TElement>
-) => <EditableTextBlocksInner {...props} enableVirtualizedRendering />
+const EditableVirtualized = <T, TElement extends SlateElementNode>(
+  props: EditableProps<T, TElement>
+) => <EditableInner {...props} enableVirtualizedRendering />
 
-const EditableTextBlocksNonVirtualized = <T, TElement extends SlateElementNode>(
-  props: EditableTextBlocksProps<T, TElement>
-) => <EditableTextBlocksInner {...props} />
+const EditableNonVirtualized = <T, TElement extends SlateElementNode>(
+  props: EditableProps<T, TElement>
+) => <EditableInner {...props} />
 
-export const EditableTextBlocks = <T, TElement extends SlateElementNode>(
-  props: EditableTextBlocksProps<T, TElement>
+export const Editable = <T, TElement extends SlateElementNode>(
+  props: EditableProps<T, TElement>
 ) => {
   const { root, ...editableProps } = props
   const inheritedReadOnly = useEditorReadOnly()
   const rootReadOnly = props.readOnly || inheritedReadOnly
   const editable =
     getDOMStrategyType(props.domStrategy) === 'virtualized' ? (
-      <EditableTextBlocksVirtualized {...editableProps} />
+      <EditableVirtualized {...editableProps} />
     ) : (
-      <EditableTextBlocksNonVirtualized {...editableProps} />
+      <EditableNonVirtualized {...editableProps} />
     )
 
   return root === undefined ? (

@@ -6,12 +6,8 @@ import {
   type EditorExtensionSetupContext,
   type Value,
 } from 'slate'
-import {
-  type DOMApi,
-  type DOMEditorOptions,
-  EDITOR_TO_PENDING_SELECTION,
-} from 'slate-dom'
-import { installDOM } from 'slate-dom/internal'
+import type { DOMApi, DOMEditorOptions } from 'slate-dom'
+import { EDITOR_TO_PENDING_SELECTION, installDOM } from 'slate-dom/internal'
 import { history } from 'slate-history'
 import {
   getEditorTransformRegistry,
@@ -80,6 +76,10 @@ const createReactApi = (domApi: DOMApi): ReactApi =>
     isReadOnly: () => domApi.isReadOnly(),
   })
 
+/**
+ * Installs the DOM bridge and exposes React focus, read-only, and composition
+ * APIs through the editor extension system.
+ */
 export const react = (options: ReactEditorOptions = {}) =>
   defineEditorExtension({
     conflicts: ['dom'],
@@ -110,6 +110,10 @@ export function createReactEditor<
   options?: CreateReactEditorOptions<V, TExtensions>
 ): ReactEditor<V, TExtensions>
 
+/**
+ * Creates a React editor with the React bridge and history extension installed
+ * before any custom extensions.
+ */
 export function createReactEditor<
   V extends Value = Value,
   const TExtensions extends readonly unknown[] = readonly [],

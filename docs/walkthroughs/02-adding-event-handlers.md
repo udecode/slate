@@ -1,14 +1,14 @@
 # Adding Event Handlers
 
-Okay, so you've got Slate installed and rendered on the page, and when you type in it, you can see the changes reflected. But you want to do more than just type a plaintext string.
+`Editable` accepts React event handlers. Use them for UI-local shortcuts and
+small input policies that belong to one editor surface.
 
-What makes Slate great is how easy it is to customize. Just like other React components you're used to, Slate allows you to pass in handlers that are triggered on certain events.
+This is the editor from the install walkthrough:
 
-Let's use the `onKeyDown` handler to change the editor's content when we press a key.
+```tsx
+import { useState } from 'react'
+import { Editable, Slate, createReactEditor } from 'slate-react'
 
-Here's our app from earlier:
-
-```jsx
 const initialValue = [
   {
     type: 'paragraph',
@@ -27,24 +27,18 @@ const App = () => {
 }
 ```
 
-Now we add an `onKeyDown` handler:
+## Read The Native Event
 
-```jsx
-const initialValue = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'A line of text in a paragraph.' }],
-  },
-]
+Pass `onKeyDown` when you only need to observe the browser event.
 
+```tsx
 const App = () => {
   const [editor] = useState(() => createReactEditor({ initialValue }))
 
   return (
     <Slate editor={editor}>
       <Editable
-        // Define a new handler which prints the key that was pressed.
-        onKeyDown={event => {
+        onKeyDown={(event) => {
           console.log(event.key)
         }}
       />
@@ -53,35 +47,26 @@ const App = () => {
 }
 ```
 
-Cool, now when a key is pressed in the editor, its corresponding keycode is logged in the console.
+## Write Through The Editor
 
-Now we want to make it actually change the content. For the purposes of our example, let's implement turning all ampersand, `&`, keystrokes into the word `and` upon being typed.
+Prevent the browser default when Slate should own the edit, then write inside
+`editor.update(...)`.
 
-Our `onKeyDown` handler might look like this:
-
-```jsx
-const initialValue = [
-  {
-    type: 'paragraph',
-    children: [{ text: 'A line of text in a paragraph.' }],
-  },
-]
-
+```tsx
 const App = () => {
   const [editor] = useState(() => createReactEditor({ initialValue }))
 
   return (
     <Slate editor={editor}>
       <Editable
-        onKeyDown={event => {
-          if (event.key === '&') {
-            // Prevent the ampersand character from being inserted.
-            event.preventDefault()
-            // Execute the transaction text method when the event occurs.
-            editor.update((tx) => {
-              tx.text.insert('and')
-            })
-          }
+        onKeyDown={(event) => {
+          if (event.key !== '&') return
+
+          event.preventDefault()
+
+          editor.update((tx) => {
+            tx.text.insert('and')
+          })
         }}
       />
     </Slate>
@@ -89,6 +74,8 @@ const App = () => {
 }
 ```
 
-With that added, try typing `&`, and you should see it suddenly become `and` instead!
+Typing `&` now inserts `and` instead.
 
-This offers a sense of what can be done with Slate's event handlers. Each one will be called with the `event` object, and you can use your `editor` to perform commands in response. Simple!
+Keep reusable behavior in commands or extensions once it is shared by keyboard
+shortcuts, toolbar buttons, menus, tests, or programmatic calls. See
+[Executing Commands](05-executing-commands.md).

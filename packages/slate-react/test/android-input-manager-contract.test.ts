@@ -5,7 +5,7 @@ import {
   EDITOR_TO_PENDING_DIFFS,
   EDITOR_TO_PENDING_INSERTION_MARKS,
   IS_COMPOSING,
-} from 'slate-dom'
+} from 'slate-dom/internal'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   clearExpiredTextInputRepairEcho,

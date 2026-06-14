@@ -11,15 +11,6 @@ import {
 } from 'slate'
 import {
   applyStringDiff,
-  EDITOR_TO_FORCE_RENDER,
-  EDITOR_TO_PENDING_ACTION,
-  EDITOR_TO_PENDING_DIFFS,
-  EDITOR_TO_PENDING_INSERTION_MARKS,
-  EDITOR_TO_PENDING_SELECTION,
-  EDITOR_TO_PLACEHOLDER_ELEMENT,
-  EDITOR_TO_USER_MARKS,
-  IS_COMPOSING,
-  IS_NODE_MAP_DIRTY,
   isDOMElement,
   isDOMSelection,
   isDOMText,
@@ -32,6 +23,17 @@ import {
   targetRange,
   verifyDiffState,
 } from 'slate-dom'
+import {
+  EDITOR_TO_FORCE_RENDER,
+  EDITOR_TO_PENDING_ACTION,
+  EDITOR_TO_PENDING_DIFFS,
+  EDITOR_TO_PENDING_INSERTION_MARKS,
+  EDITOR_TO_PENDING_SELECTION,
+  EDITOR_TO_PLACEHOLDER_ELEMENT,
+  EDITOR_TO_USER_MARKS,
+  IS_COMPOSING,
+  IS_NODE_MAP_DIRTY,
+} from 'slate-dom/internal'
 import {
   getInputEventData,
   getInputEventTargetRanges,
@@ -63,12 +65,12 @@ const RESOLVE_DELAY = 25
 // Time with no user interaction before the current user action is considered as done.
 const FLUSH_DELAY = 200
 
-// Replace with `const debug = console.log` to debug
-const debug = (..._: unknown[]) => {}
-
-// Type guard to check if a value is a DataTransfer
-const isDataTransfer = (value: any): value is DataTransfer =>
-  value?.constructor.name === 'DataTransfer'
+const isDataTransfer = (value: unknown): value is DataTransfer =>
+  typeof value === 'object' &&
+  value !== null &&
+  'constructor' in value &&
+  (value as { constructor?: { name?: string } }).constructor?.name ===
+    'DataTransfer'
 
 const clonePoint = (point: Point): Point => ({
   path: [...point.path],
@@ -137,8 +139,6 @@ export function createAndroidInputManager({
     if (pendingSelection) {
       const selection = readRuntimeSelection(editor)
       const normalized = normalizeRange(editor, pendingSelection)
-
-      debug('apply pending selection', pendingSelection, normalized)
 
       if (
         normalized &&
@@ -213,12 +213,6 @@ export function createAndroidInputManager({
       editor.read((state) => state.marks.get())
     )
 
-    debug(
-      'flush',
-      EDITOR_TO_PENDING_ACTION.get(editor),
-      EDITOR_TO_PENDING_DIFFS.get(editor)
-    )
-
     let scheduleSelectionChange = hasPendingDiffs()
 
     while (true) {
@@ -233,7 +227,6 @@ export function createAndroidInputManager({
 
       if (pendingMarks && insertPositionHint === false) {
         insertPositionHint = null
-        debug('insert after mark placeholder')
       }
 
       const recentEcho = inputController.state.recentTextInputRepairEcho
@@ -297,7 +290,6 @@ export function createAndroidInputManager({
       )
 
       if (!verifyDiffState(editor, diff)) {
-        debug('invalid diff state')
         scheduleSelectionChange = false
         EDITOR_TO_PENDING_ACTION.delete(editor)
         EDITOR_TO_USER_MARKS.delete(editor)
@@ -333,7 +325,6 @@ export function createAndroidInputManager({
     // so we have to manually schedule it to ensure we don't 'throw away' the selection
     // while rendering if we have pending changes.
     if (scheduleSelectionChange) {
-      debug('scheduleOnDOMSelectionChange pending changes')
       scheduleOnDOMSelectionChange()
     }
 
@@ -367,8 +358,6 @@ export function createAndroidInputManager({
   const handleCompositionStart = (
     _event: React.CompositionEvent<HTMLDivElement>
   ) => {
-    debug('composition start')
-
     IS_COMPOSING.set(editor, true)
 
     if (compositionEndTimeoutId) {
@@ -396,8 +385,6 @@ export function createAndroidInputManager({
     inputController.state.selectionChangeOrigin === 'native-user'
 
   const storeDiff = (path: Path, diff: StringDiff) => {
-    debug('storeDiff', path, diff)
-
     const pendingDiffs = EDITOR_TO_PENDING_DIFFS.get(editor) ?? []
     EDITOR_TO_PENDING_DIFFS.set(editor, pendingDiffs)
 
@@ -566,7 +553,6 @@ export function createAndroidInputManager({
     if (!preserveInsertPositionHint) {
       insertPositionHint = false
     }
-    debug('scheduleAction', { at, run })
 
     EDITOR_TO_PENDING_SELECTION.delete(editor)
     scheduleOnDOMSelectionChange.cancel()
@@ -976,7 +962,6 @@ export function createAndroidInputManager({
               diff.end ===
                 insertPositionHint.start + insertPositionHint.text.length
             ) {
-              debug('adjusting swiftKey insert position using hint')
               diff.start -= 1
               insertPositionHint = null
               scheduleFlush()
@@ -1117,7 +1102,6 @@ export function createAndroidInputManager({
         inputController.state.selectionChangeOrigin === 'repair-induced')
 
     if (hasPendingAction() || !hasPendingDiffs() || shouldFlushPendingDiffs) {
-      debug('flush input')
       flush()
     }
   }

@@ -11,8 +11,8 @@ import {
   EDITOR_TO_WINDOW,
   ELEMENT_TO_NODE,
   NODE_TO_ELEMENT,
-} from 'slate-dom'
-import { setDOMClipboardFormatKey } from 'slate-dom/internal'
+  setDOMClipboardFormatKey,
+} from 'slate-dom/internal'
 import { describe, expect, it, vi } from 'vitest'
 
 import { applyEditableCut } from '../src/editable/clipboard-input-strategy'

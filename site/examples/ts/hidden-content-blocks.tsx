@@ -8,7 +8,7 @@ import {
 import type {
   DOMCoverageCopyPolicy,
   DOMCoverageSelectionPolicy,
-} from 'slate-dom/internal'
+} from 'slate-dom'
 import {
   Editable,
   type EditableDOMStrategyMetrics,

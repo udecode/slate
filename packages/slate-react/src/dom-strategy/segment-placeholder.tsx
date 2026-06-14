@@ -8,12 +8,11 @@ import type {
   Editor as SlateEditor,
   SnapshotChange,
 } from 'slate'
-import { IS_COMPOSING } from 'slate-dom'
 import type {
   DOMCoverageReason,
   DOMCoverageSelectionPolicy,
 } from 'slate-dom/internal'
-import { DOMCoverage } from 'slate-dom/internal'
+import { DOMCoverage, IS_COMPOSING } from 'slate-dom/internal'
 import { Editor } from '../editable/runtime-editor-api'
 
 import { readRuntimeNode } from '../editable/runtime-live-state'

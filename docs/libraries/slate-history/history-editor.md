@@ -56,7 +56,7 @@ Read the current saving flag.
 ## Types
 
 ```typescript
-import type { History } from 'slate-history'
+import type { EditorStatePatch, Operation, Range } from 'slate'
 
 type History = {
   redos: Batch[]
@@ -66,5 +66,7 @@ type History = {
 type Batch = {
   operations: Operation[]
   selectionBefore: Range | null
+  selectionBeforeRoot?: string
+  statePatches: EditorStatePatch[]
 }
 ```

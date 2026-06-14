@@ -8,8 +8,8 @@ import {
 } from 'slate'
 import { Editor } from 'slate/internal'
 
+import { dom } from '../src/index'
 import {
-  dom,
   EDITOR_TO_ELEMENT,
   EDITOR_TO_KEY_TO_ELEMENT,
   EDITOR_TO_WINDOW,
@@ -19,7 +19,7 @@ import {
   NODE_TO_INDEX,
   NODE_TO_PARENT,
   NODE_TO_RUNTIME_ID,
-} from '../src/index'
+} from '../src/internal'
 
 const createParagraphEditor = (text = 'alpha beta') => {
   const editor = createEditor({ extensions: [dom()] })

@@ -24,6 +24,9 @@ export type SlateRootChromeController = {
   root: RootKey
 }
 
+/**
+ * Create props for root-level mouse interaction outside editable content.
+ */
 export function useSlateRootChrome(
   root: RootKey = MAIN_ROOT_KEY,
   { disabled = false, selection = 'restore' }: UseSlateRootChromeOptions = {}

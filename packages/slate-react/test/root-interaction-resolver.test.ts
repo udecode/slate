@@ -188,6 +188,28 @@ describe('root interaction resolver', () => {
     })
   })
 
+  test('places focused native text targets from mouseup coordinates', () => {
+    const editable = document.createElement('div')
+    const text = document.createElement('span')
+
+    editable.dataset.slateEditor = 'true'
+    text.dataset.slateString = 'true'
+    editable.append(text)
+
+    const target = resolveRootInteractionTarget({
+      currentTarget: editable,
+      target: text,
+    })
+
+    expect(target.kind).toBe('native-editable')
+    expect(
+      resolveRootInteractionMouseDown({
+        editableRootFocused: true,
+        target,
+      })
+    ).toEqual({ type: 'place-native-editable' })
+  })
+
   test('lets root chrome ignore editable descendants', () => {
     const root = createRootChrome()
     const editable = document.createElement('div')

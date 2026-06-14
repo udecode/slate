@@ -696,6 +696,12 @@ export function SlateRuntime<
   )
 }
 
+/**
+ * Subscribe to a selected value from the root runtime editor state.
+ *
+ * Use this for toolbar, sidebar, and shell UI that reads the whole editor
+ * runtime. Use `useSlateViewState` for root-scoped UI in multi-root editors.
+ */
 export function useSlateRuntimeState<
   T,
   TRuntime extends SlateRuntimeValue<any> = SlateRuntimeValue<any>,
@@ -740,6 +746,12 @@ export function useSlateRuntimeState<
   return selectedState
 }
 
+/**
+ * Subscribe to a selected value from one root view.
+ *
+ * A view is a root-bound editor view. Root-scoped selectors skip commits that
+ * cannot affect the requested root.
+ */
 export function useSlateViewState<
   T,
   TRuntime extends SlateRuntimeValue<any> = SlateRuntimeValue<any>,
@@ -794,8 +806,7 @@ export function useSlateViewState<
   return selectedState
 }
 
-export const useSlateRootState = useSlateViewState
-
+/** Read the root key that currently owns the editor selection. */
 export function useSlateActiveRoot(): RootKey {
   return useSlateRuntimeState(selectActiveRoot, {
     deps: [],
@@ -813,6 +824,11 @@ export type SlateRootEditor<
   ReactRuntimeEditor<V> &
   Omit<EditorView<V, TExtensions>, 'api' | 'getApi' | 'read' | 'update'>
 
+/**
+ * Create a command-capable editor view for one root.
+ *
+ * The returned object is stable for the requested root and read-only option.
+ */
 export function useSlateRootEditor<
   V extends Value = Value,
   const TExtensions extends readonly unknown[] = readonly [],
@@ -836,6 +852,11 @@ export function useSlateRootEditor<
   }, [getView, options.readOnly, root, runtime.editor])
 }
 
+/**
+ * Create a command-capable editor view for the active root.
+ *
+ * Prefer `useSlateRootEditor(root)` when the caller already knows the root.
+ */
 export function useSlateActiveEditor<
   V extends Value = Value,
   const TExtensions extends readonly unknown[] = readonly [],
@@ -874,6 +895,10 @@ const useLatestCallbackCell = <T extends (...args: any[]) => any>(
   return cell
 }
 
+/**
+ * Run an effect with the mounted editor view for a root after Slate view
+ * effects flush.
+ */
 export function useSlateViewEffect<
   V extends Value = Value,
   const TExtensions extends readonly unknown[] = readonly [],
@@ -931,6 +956,9 @@ export function useSlateViewEffect<
   )
 }
 
+/**
+ * Create a stable callback that resolves the mounted root editor at call time.
+ */
 export function useSlateCommandCallback<
   TArgs extends unknown[],
   TResult,

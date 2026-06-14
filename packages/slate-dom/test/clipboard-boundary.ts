@@ -9,8 +9,9 @@ import {
 import { Editor } from 'slate/internal'
 import { history } from 'slate-history'
 
+import { dom } from '../src/index'
 import {
-  dom,
+  DOMCoverage,
   EDITOR_TO_ELEMENT,
   EDITOR_TO_KEY_TO_ELEMENT,
   EDITOR_TO_WINDOW,
@@ -18,8 +19,7 @@ import {
   NODE_TO_ELEMENT,
   NODE_TO_INDEX,
   NODE_TO_PARENT,
-} from '../src/index'
-import { DOMCoverage } from '../src/internal'
+} from '../src/internal'
 
 class FakeDataTransfer {
   private readonly store = new Map<string, string>()

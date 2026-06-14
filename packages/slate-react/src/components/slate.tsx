@@ -225,7 +225,7 @@ const SlateRuntimeView = <
     [reactEditor, registerViewEditor, viewRoot]
   )
   useSlateChangeCallbacks({
-    editor: editor as unknown as ReactRuntimeEditor<V>,
+    editor: reactEditor,
     onChange,
     onSelectionChange,
     onValueChange,
@@ -275,10 +275,7 @@ const useSlateChangeCallbacks = <V extends Value>({
   onValueChange,
   root,
 }: {
-  editor: {
-    api: ReactRuntimeEditor<V>['api']
-    subscribe: (listener: (...args: any[]) => void) => () => void
-  }
+  editor: ReactRuntimeEditor<V>
   onChange?: (value: V, change: SlateChange<V>) => void
   onSelectionChange?: (
     selection: EditorSnapshot<V>['selection'],
@@ -292,14 +289,14 @@ const useSlateChangeCallbacks = <V extends Value>({
   const onValueChangeRef = useRef(onValueChange)
   const editorBaseline = useMemo(
     () => ({
-      commitVersion: Editor.getLastCommit(editor as any)?.version ?? 0,
-      snapshot: Editor.getSnapshot(editor as any),
+      commitVersion: Editor.getLastCommit(editor)?.version ?? 0,
+      snapshot: Editor.getSnapshot(editor),
     }),
     [editor]
   )
-  const lastSnapshotRef = useRef(Editor.getSnapshot(editor as any))
+  const lastSnapshotRef = useRef(Editor.getSnapshot(editor))
   const lastCommitVersionRef = useRef(
-    Editor.getLastCommit(editor as any)?.version ?? 0
+    Editor.getLastCommit(editor)?.version ?? 0
   )
   const hasCallbacks = !!(onChange || onSelectionChange || onValueChange)
 
@@ -317,14 +314,10 @@ const useSlateChangeCallbacks = <V extends Value>({
       return
     }
 
-    const onContextChange = (
-      ...[_snapshot, commit]: [EditorSnapshot<V>, EditorCommit<V> | undefined]
-    ) => {
-      if (!commit) {
-        return
-      }
-
-      const snapshot = Editor.getSnapshot(editor as any) as EditorSnapshot<V>
+    const onContextChange: Parameters<
+      ReactRuntimeEditor<V>['subscribeCommit']
+    >[0] = (commit) => {
+      const snapshot = Editor.getSnapshot(editor)
       const previousSnapshot = lastSnapshotRef.current as EditorSnapshot<V>
       const valueChanged =
         isRootValueChanged(root, commit) &&
@@ -365,14 +358,11 @@ const useSlateChangeCallbacks = <V extends Value>({
       }
     }
 
-    const unsubscribe = editor.subscribe(onContextChange)
-    const latestCommit = Editor.getLastCommit(editor as any)
+    const unsubscribe = editor.subscribeCommit(onContextChange)
+    const latestCommit = Editor.getLastCommit(editor)
 
     if (latestCommit && latestCommit.version > lastCommitVersionRef.current) {
-      onContextChange(
-        Editor.getSnapshot(editor as any),
-        latestCommit as EditorCommit<V>
-      )
+      onContextChange(latestCommit)
     }
 
     return unsubscribe

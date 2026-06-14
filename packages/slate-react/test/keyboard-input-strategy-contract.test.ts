@@ -13,6 +13,7 @@ import { isSelectAllHotkey } from '../src/dom-strategy/dom-strategy-commands'
 import { resolveHistoryFocusEditor } from '../src/editable/history-focus'
 import {
   applyEditableKeyDown,
+  getTextDirection,
   shouldDeferBackspaceToNativeInput,
 } from '../src/editable/keyboard-input-strategy'
 import { applyEditableCommand } from '../src/editable/mutation-controller'
@@ -78,6 +79,16 @@ const contentCard = (bodyRoot = 'card:body') =>
     childRoots: { body: bodyRoot },
     children: [{ text: '' }],
   }) satisfies Descendant
+
+it('detects first-strong keyboard text direction for modern RTL scripts', () => {
+  expect(getTextDirection(`123 ${String.fromCodePoint(0x08_a0)}`)).toBe('rtl')
+  expect(getTextDirection(`123 ${String.fromCodePoint(0x1_e9_00)}`)).toBe('rtl')
+  expect(getTextDirection('abc \u05d0')).toBe('ltr')
+  expect(getTextDirection('123 \u05d0')).toBe('rtl')
+  expect(getTextDirection('123 456')).toBe('neutral')
+  expect(getTextDirection('\u0661\u0662\u0663')).toBe('neutral')
+  expect(getTextDirection('\u06f1\u06f2\u06f3 abc')).toBe('ltr')
+})
 
 const domRect = ({
   bottom,

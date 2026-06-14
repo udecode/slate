@@ -15,13 +15,12 @@ import {
 } from 'react'
 import { type Path, type Range, RangeApi } from 'slate'
 import {
-  EDITOR_TO_ELEMENT,
   getSelection,
   HAS_BEFORE_INPUT_SUPPORT,
   isDOMElement,
   isDOMText,
-  NODE_TO_ELEMENT,
 } from 'slate-dom'
+import { EDITOR_TO_ELEMENT, NODE_TO_ELEMENT } from 'slate-dom/internal'
 import {
   getSlateNodeElementByPath,
   getSlateNodePathFromDOMElement,

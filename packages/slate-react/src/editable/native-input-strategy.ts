@@ -1,5 +1,6 @@
 import { NodeApi, type Range, RangeApi } from 'slate'
-import { type DOMText, IS_NODE_MAP_DIRTY } from 'slate-dom'
+import type { DOMText } from 'slate-dom'
+import { IS_NODE_MAP_DIRTY } from 'slate-dom/internal'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import { getInputEventData } from './dom-input-event'
 import { Editor } from './runtime-editor-api'

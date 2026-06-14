@@ -14,6 +14,7 @@ export type UseElementSelectedOptions = {
   mode?: UseElementSelectedMode
 }
 
+/** Subscribe to whether an element path intersects the current selection. */
 export const useElementSelected = ({
   at: path,
   mode = 'intersects',

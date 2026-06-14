@@ -22,6 +22,9 @@ export type SlateContentRootController = {
   root: RootKey
 }
 
+/**
+ * Resolve a schema-owned child content root and its root chrome controller.
+ */
 export function useSlateContentRoot(
   element?: Element | null,
   options: UseSlateContentRootOptions = {}

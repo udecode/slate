@@ -29,26 +29,38 @@ import {
 import type { Batch, History } from './history'
 
 export type HistoryStateApi<V extends Value = Value> = {
+  /** Read the complete undo/redo history object. */
   get: () => History<V>
+  /** Read the redo stack. */
   redos: () => readonly Batch<V>[]
+  /** Read the undo stack. */
   undos: () => readonly Batch<V>[]
 }
 
 export type HistoryTxApi = {
+  /** Redo the next history batch inside the current transaction. */
   redo: () => void
+  /** Undo the previous history batch inside the current transaction. */
   undo: () => void
 }
 
 export type HistoryControlApi = {
+  /** Read whether new operations are currently merging into a previous batch. */
   isMerging: () => boolean | undefined
+  /** Read whether new operations are currently saved to history. */
   isSaving: () => boolean | undefined
+  /** Run updates that merge into the previous history batch. */
   withMerging: (fn: () => void) => void
+  /** Run updates whose first operation starts a fresh history batch. */
   withNewBatch: (fn: () => void) => void
+  /** Run updates that do not merge into the previous history batch. */
   withoutMerging: (fn: () => void) => void
+  /** Run updates without saving operations or state patches to history. */
   withoutSaving: (fn: () => void) => void
 }
 
 export type HistoryOptions<TEnabled extends boolean | undefined = undefined> = {
+  /** Disable history for an editor that installs history through a preset. */
   enabled?: TEnabled
 }
 
@@ -264,6 +276,9 @@ const applyUndo = <V extends Value>(editor: Editor<V>) => {
   history.undos.pop()
 }
 
+/**
+ * Create the undo/redo history extension.
+ */
 export const history = <const TEnabled extends boolean | undefined = undefined>(
   options: HistoryOptions<TEnabled> = {}
 ) => {

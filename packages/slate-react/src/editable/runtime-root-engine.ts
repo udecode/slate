@@ -8,7 +8,8 @@ import {
   useState,
 } from 'react'
 import type { Range } from 'slate'
-import { type DOMRange, IS_READ_ONLY } from 'slate-dom'
+import type { DOMRange } from 'slate-dom'
+import { IS_READ_ONLY } from 'slate-dom/internal'
 import type {
   EditableDOMBeforeInputHandler,
   EditableDOMStrategyRuntime,

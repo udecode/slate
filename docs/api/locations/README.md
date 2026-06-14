@@ -8,6 +8,7 @@ type Location = Path | Point | Range
 
 - [Location](./location.md)
 - [Path](./path.md)
+- [Bookmark](./bookmark.md)
 - [PathRef](./path-ref.md)
 - [Point](./point.md)
 - [PointEntry](./point-entry.md)

@@ -1,7 +1,7 @@
 import { parseAsBoolean, useQueryStates } from 'nuqs'
 import React, { useCallback, useMemo, useState } from 'react'
 import { NodeApi, type Element as SlateElement } from 'slate'
-import { DOMCoverage } from 'slate-dom/internal'
+import { DOMCoverage } from 'slate-dom'
 import {
   Editable,
   EditableElement,

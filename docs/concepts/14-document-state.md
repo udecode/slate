@@ -43,10 +43,10 @@ commits and edits in other roots are observed.
 
 ```tsx
 useEffect(() => {
-  return editor.subscribe((_snapshot, commit) => {
-    if (!commit) return
+  return editor.subscribe((_snapshot, change) => {
+    if (!change) return
 
-    if (!commit.childrenChanged && commit.dirtyStateKeys.length === 0) {
+    if (!change.childrenChanged && change.dirtyStateKeys.length === 0) {
       return
     }
 

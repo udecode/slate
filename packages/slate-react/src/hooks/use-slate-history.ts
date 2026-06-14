@@ -166,6 +166,9 @@ const getHistoryUpdateOptions = (
   skipNormalize: true,
 })
 
+/**
+ * Create undo/redo commands and keyboard handling for the active or fixed root.
+ */
 export function useSlateHistory({
   focusPolicy = 'restore-root',
   root: fixedRoot,

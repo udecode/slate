@@ -1,7 +1,6 @@
 // Components
 
 // Utils
-export { NODE_TO_INDEX, NODE_TO_PARENT } from 'slate-dom'
 export {
   createSlateAnnotationStore,
   type SlateAnnotation,
@@ -33,9 +32,9 @@ export {
 } from './components/editable'
 export { EditableElement } from './components/editable-element'
 export type {
-  EditableTextLeafProps as RenderLeafProps,
-  EditableTextRenderPlaceholderProps as RenderPlaceholderProps,
-  EditableTextRenderTextProps as RenderTextProps,
+  RenderLeafProps,
+  RenderPlaceholderProps,
+  RenderTextProps,
 } from './components/editable-text'
 export { EditableText } from './components/editable-text'
 export type {
@@ -47,15 +46,11 @@ export type {
   EditableDOMCoverageBoundaryScope,
   EditableElementSlots,
   EditableLayout,
-  EditableRenderElementProps as RenderElementProps,
-  EditableRenderVoidProps as RenderVoidProps,
-  EditableTextBlocksProps as EditableProps,
-  EditableTextBlocksProps,
+  EditableProps,
+  RenderElementProps,
+  RenderVoidProps,
 } from './components/editable-text-blocks'
-export {
-  EditableTextBlocks as Editable,
-  EditableTextBlocks,
-} from './components/editable-text-blocks'
+export { Editable } from './components/editable-text-blocks'
 export { Slate, type SlateChange, type SlateProps } from './components/slate'
 export { SlateElement } from './components/slate-element'
 export { SlateLeaf } from './components/slate-leaf'
@@ -167,7 +162,6 @@ export {
   useSlateActiveRoot,
   useSlateCommandCallback,
   useSlateRootEditor,
-  useSlateRootState,
   useSlateRuntime,
   useSlateRuntimeState,
   useSlateViewEffect,

@@ -1,8 +1,6 @@
 import { type CompositionEvent, type RefObject, useEffect } from 'react'
 import { type EditorMarks, NodeApi, RangeApi, type Text, TextApi } from 'slate'
 import {
-  EDITOR_TO_PENDING_INSERTION_MARKS,
-  EDITOR_TO_USER_MARKS,
   IS_ANDROID,
   IS_IOS,
   IS_UC_MOBILE,
@@ -10,6 +8,10 @@ import {
   IS_WECHATBROWSER,
   isDOMNode,
 } from 'slate-dom'
+import {
+  EDITOR_TO_PENDING_INSERTION_MARKS,
+  EDITOR_TO_USER_MARKS,
+} from 'slate-dom/internal'
 import type { AndroidInputManager } from '../hooks/android-input-manager/android-input-manager'
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import type { EditableCompositionStateSetter } from './input-controller'

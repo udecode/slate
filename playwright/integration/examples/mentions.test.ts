@@ -1057,18 +1057,23 @@ test.describe('mentions example', () => {
       const secondMention = page
         .locator('[data-cy="mention-Mace-Windu"]')
         .first()
+      const lastText = editor.root
+        .locator('[data-slate-node="text"][data-slate-path="1,4"]')
+        .locator('[data-slate-string]')
+        .first()
       const firstBox = await firstMention.boundingBox()
       const secondBox = await secondMention.boundingBox()
+      const lastTextBox = await lastText.boundingBox()
 
-      if (!firstBox || !secondBox) {
+      if (!firstBox || !secondBox || !lastTextBox) {
         throw new Error('Missing mention boxes for leading inline drag proof')
       }
 
       const y = firstBox.y + firstBox.height / 2
 
-      await page.mouse.move(firstBox.x + 2, y)
+      await page.mouse.move(lastTextBox.x + 1, y)
       await page.mouse.down()
-      await page.mouse.move(secondBox.x + secondBox.width - 2, y, {
+      await page.mouse.move(firstBox.x - 2, y, {
         steps: 12,
       })
       await page.mouse.up()

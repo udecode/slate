@@ -116,6 +116,7 @@ export type UseSlateLayoutOptions<
   TSettings extends SlatePageSettings = SlatePageSettings,
 > = SlateLayoutOptions<TSettings>
 
+/** Create and subscribe a derived layout reader with the default engine. */
 export const useSlateLayout = <
   TSettings extends SlatePageSettings = SlatePageSettings,
 >(
@@ -158,6 +159,7 @@ export const useSlateLayout = <
   return layout
 }
 
+/** Create and subscribe a derived layout reader with an explicit engine. */
 export const useSlatePageLayout = <
   TSettings extends SlatePageSettings = SlatePageSettings,
 >(
@@ -200,11 +202,13 @@ export const useSlatePageLayout = <
   return layout
 }
 
+/** Read a `SlatePageLayout` snapshot with React external-store semantics. */
 export const useSlatePageLayoutSnapshot = (
   layout: SlatePageLayout
 ): SlatePageLayoutSnapshot =>
   useSyncExternalStore(layout.subscribe, layout.getSnapshot, layout.getSnapshot)
 
+/** Read a `SlateLayout` snapshot with React external-store semantics. */
 export const useSlateLayoutSnapshot = (
   layout: SlateLayout
 ): SlateLayoutSnapshot =>
@@ -545,6 +549,7 @@ const createPagedEditableTopLevelLayoutItems = ({
     }))
 }
 
+/** Render an `Editable` through page surfaces derived from `slate-layout`. */
 export const PagedEditable = ({
   layout,
   pageGap,

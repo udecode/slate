@@ -701,7 +701,11 @@ test.describe('On richtext example', () => {
 
     await editor.click()
     await page.keyboard.press('ControlOrMeta+A')
+    await expect
+      .poll(() => editor.get.selectedText())
+      .toContain('This is editable rich text')
     await page.keyboard.press('Backspace')
+    await editor.assert.modelBlockTexts([''])
 
     const modifier = await editor.root.evaluate(() =>
       /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
@@ -780,7 +784,11 @@ test.describe('On richtext example', () => {
 
     await editor.click()
     await page.keyboard.press('ControlOrMeta+A')
+    await expect
+      .poll(() => editor.get.selectedText())
+      .toContain('This is editable rich text')
     await page.keyboard.press('Backspace')
+    await editor.assert.modelBlockTexts([''])
 
     const modifier = await editor.root.evaluate(() =>
       /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
@@ -915,7 +923,11 @@ test.describe('On richtext example', () => {
 
     await editor.click()
     await page.keyboard.press('ControlOrMeta+A')
+    await expect
+      .poll(() => editor.get.selectedText())
+      .toContain('This is editable rich text')
     await page.keyboard.press('Backspace')
+    await editor.assert.modelBlockTexts([''])
 
     const modifier = await editor.root.evaluate(() =>
       /Mac OS X/.test(navigator.userAgent) ? 'Meta' : 'Control'
@@ -4102,6 +4114,21 @@ test.describe('On richtext example', () => {
           },
         },
         {
+          kind: 'assertSelectionLocation',
+          label: 'assert-dom-after-arrow-right-after-down',
+          location: {
+            anchorOffset: 1,
+            anchorPath: [1, 0],
+            anchorText:
+              "Since it's rich text, you can do things like turn a selection of text ",
+            isCollapsed: true,
+          },
+        },
+        {
+          kind: 'settle',
+          label: 'settle-native-caret-before-arrow-up',
+        },
+        {
           key: 'ArrowUp',
           kind: 'press',
           label: 'navigate-arrow-up',
@@ -4262,6 +4289,8 @@ test.describe('On richtext example', () => {
       'assert-after-arrow-down',
       'navigate-arrow-right-after-down',
       'assert-after-arrow-right-after-down',
+      'assert-dom-after-arrow-right-after-down',
+      'settle-native-caret-before-arrow-up',
       'navigate-arrow-up',
       'assert-after-arrow-up',
       'navigate-arrow-right-after-up',

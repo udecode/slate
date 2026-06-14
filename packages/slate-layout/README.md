@@ -1,0 +1,27 @@
+# slate-layout
+
+Experimental page layout helpers for Slate editors.
+
+`slate-layout` derives page geometry, line fragments, and page mount plans from
+Slate documents. Use it for pagination experiments, print-like surfaces, and
+page virtualization that keeps Slate as the document model.
+
+```tsx
+import { createSlateLayout } from 'slate-layout'
+
+const layout = createSlateLayout(editor, () => ({
+  page: {
+    margins: 72,
+    preset: 'letter',
+  },
+}))
+```
+
+For React page surfaces, use `slate-layout/react`.
+
+```tsx
+import { PagedEditable, useSlateLayout } from 'slate-layout/react'
+```
+
+Keep production use behind explicit product proof for browser geometry, export,
+tables, images, collaboration, and selection behavior.

@@ -2,14 +2,14 @@ import { act, render } from '@testing-library/react'
 import { useRef } from 'react'
 import { Editor } from 'slate/internal'
 import {
+  DOMCoverage,
   EDITOR_TO_ELEMENT,
   EDITOR_TO_KEY_TO_ELEMENT,
   EDITOR_TO_WINDOW,
   ELEMENT_TO_NODE,
   IS_NODE_MAP_DIRTY,
   NODE_TO_ELEMENT,
-} from 'slate-dom'
-import { DOMCoverage } from 'slate-dom/internal'
+} from 'slate-dom/internal'
 import { applyDOMCoverageSelectionPolicy } from '../src/editable/dom-coverage-selection'
 import {
   createEditableInputController,

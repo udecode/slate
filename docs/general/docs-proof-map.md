@@ -80,5 +80,5 @@ STRESS_REPLAY=<webkit-artifact.json> bun test:stress:replay:webkit
 STRESS_REPLAY=<firefox-artifact.json> STRESS_REDUCTION=<candidate-label> bun test:stress:replay:firefox
 ```
 
-Keep `bun check` fast. Full browser sweeps belong to the release-quality gate,
-not the normal docs edit loop.
+Keep `bun check` fast. Full browser sweeps belong to the full browser proof
+gate, not the normal docs edit loop.

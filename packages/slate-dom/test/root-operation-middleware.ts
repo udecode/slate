@@ -2,11 +2,11 @@ import { createEditorRuntime, createEditorView, type Descendant } from 'slate'
 import { Editor } from 'slate/internal'
 import { history } from 'slate-history'
 
+import { dom } from '../src'
 import {
-  dom,
   EDITOR_TO_ROOT_VIEW_EDITORS,
   EDITOR_TO_USER_SELECTION,
-} from '../src'
+} from '../src/internal'
 
 const paragraph = (text: string) =>
   ({

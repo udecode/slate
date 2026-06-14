@@ -5,7 +5,7 @@ import {
   EDITOR_TO_WINDOW,
   ELEMENT_TO_NODE,
   NODE_TO_ELEMENT,
-} from 'slate-dom'
+} from 'slate-dom/internal'
 import {
   isInteractiveInternalTarget,
   isNestedEditableDOMTarget,

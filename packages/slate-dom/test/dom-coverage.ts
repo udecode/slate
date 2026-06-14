@@ -2,8 +2,9 @@ import { JSDOM } from 'jsdom'
 import { createEditor, type Descendant, type Range } from 'slate'
 import { Editor } from 'slate/internal'
 
+import { dom } from '../src/index'
 import {
-  dom,
+  DOMCoverage,
   EDITOR_TO_ELEMENT,
   EDITOR_TO_KEY_TO_ELEMENT,
   EDITOR_TO_WINDOW,
@@ -12,8 +13,7 @@ import {
   IS_FOCUSED,
   IS_NODE_MAP_DIRTY,
   NODE_TO_ELEMENT,
-} from '../src/index'
-import { DOMCoverage } from '../src/internal'
+} from '../src/internal'
 
 type DOMTestEditor = ReturnType<typeof createNestedEditor>
 

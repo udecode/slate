@@ -1,5 +1,6 @@
 import { type RefObject, useEffect, useState } from 'react'
-import { EDITOR_TO_SCHEDULE_FLUSH, IS_ANDROID } from 'slate-dom'
+import { IS_ANDROID } from 'slate-dom'
+import { EDITOR_TO_SCHEDULE_FLUSH } from 'slate-dom/internal'
 import type { ReactRuntimeEditor } from '../../plugin/react-editor'
 import { useEditor } from '../use-editor'
 import { useMutationObserver } from '../use-mutation-observer'

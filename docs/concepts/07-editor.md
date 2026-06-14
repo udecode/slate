@@ -45,8 +45,8 @@ should use narrow state groups like `state.value`, `state.selection`, and
 extension-owned state.
 
 ```javascript
-const unsubscribe = editor.subscribe((_snapshot, commit) => {
-  if (commit?.childrenChanged || commit?.dirtyStateKeys.length) {
+const unsubscribe = editor.subscribe((_snapshot, change) => {
+  if (change?.childrenChanged || change?.dirtyStateKeys.length) {
     const documentValue = editor.read((state) => state.value.get())
 
     saveDocument(documentValue)
@@ -95,7 +95,10 @@ the document.
 
 ## Extending The Editor
 
-Extensions package reusable behavior without mutating random fields onto the editor object. They can register read namespaces with `state`, write namespaces with `tx`, schema specs, commit listeners, operation middleware, normalizer entries, and optional runtime registration.
+Extensions package reusable behavior without mutating random fields onto the
+editor object. They can register read namespaces with `state`, write namespaces
+with `tx`, schema specs, commit listeners, operation middleware, normalizer
+entries, and optional runtime registration.
 
 Here's a small extension that adds a table namespace:
 
@@ -106,12 +109,12 @@ const tables = defineEditorExtension({
   name: 'tables',
   state: {
     table(state) {
-        return {
-          rowCount() {
-            return state.nodes.children().length
-          },
-        }
-      },
+      return {
+        rowCount() {
+          return state.nodes.children().length
+        },
+      }
+    },
   },
   tx: {
     table(tx) {
@@ -162,7 +165,7 @@ const point = editor.read(state => state.points.start([0, 0]))
 const text = editor.read(state => state.text.string(range))
 
 for (const [node, path] of editor.read(state =>
-  state.nodes.match({ at: range })
+  state.nodes.entries({ at: range })
 )) {
   // ...
 }

@@ -177,7 +177,7 @@ export const resolveRootInteractionMouseDown = ({
   }
 
   if (target.kind === 'native-editable') {
-    if (target.editableRoot && editableRootFocused === false) {
+    if (target.editableRoot) {
       return { type: 'place-native-editable' }
     }
 

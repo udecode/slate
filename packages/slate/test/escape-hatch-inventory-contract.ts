@@ -78,16 +78,6 @@ const escapeHatchPatterns: Record<EscapeHatchKind, RegExp> = {
 
 const inventoryRules: InventoryRule[] = [
   {
-    expected: { stale: 21 },
-    gate: 'source inventory must classify generated package output separately',
-    id: 'generated-package-output',
-    next: 'generated-output',
-    owner: 'generated-output',
-    path: /^packages\/[^/]+\/lib\//,
-    rationale:
-      'Generated lib output is not hand-edited, but it remains visible to package consumers until rebuilt.',
-  },
-  {
     expected: { stale: 37 },
     gate: 'historical docs are not the current API contract',
     id: 'historical-changelog',

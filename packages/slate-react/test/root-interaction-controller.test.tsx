@@ -51,27 +51,39 @@ const rangeDescriptor = Object.getOwnPropertyDescriptor(
 )
 
 const createMouseCaptureEvent = ({
+  altKey = false,
   clientX,
   clientY,
+  ctrlKey = false,
   currentTarget,
   detail = 1,
+  metaKey = false,
+  shiftKey = false,
   target,
 }: {
+  altKey?: boolean
   clientX: number
   clientY: number
+  ctrlKey?: boolean
   currentTarget: HTMLElement
   detail?: number
+  metaKey?: boolean
+  shiftKey?: boolean
   target: Element
 }) =>
   ({
+    altKey,
     buttons: 1,
     clientX,
     clientY,
+    ctrlKey,
     currentTarget,
     defaultPrevented: false,
     detail,
+    metaKey,
     nativeEvent: {},
     preventDefault: vi.fn(),
+    shiftKey,
     target,
   }) as unknown as React.MouseEvent<HTMLElement>
 
@@ -299,6 +311,94 @@ describe('root interaction controller', () => {
     expect(fireEvent.mouseDown(string!, { clientX: 8, clientY: 10 })).toBe(
       false
     )
+  })
+
+  test('leaves modified native text clicks browser-owned in layout mode', () => {
+    const editable = document.createElement('div')
+    const block = document.createElement('div')
+    const textHost = document.createElement('span')
+    const string = document.createElement('span')
+    const update = vi.fn()
+    const resolveEventRange = vi.fn(() => ({
+      anchor: { offset: 2, path: [0, 0] },
+      focus: { offset: 2, path: [0, 0] },
+    }))
+
+    editable.dataset.slateEditor = 'true'
+    editable.dataset.slateRoot = 'main'
+    block.dataset.slateNode = 'element'
+    textHost.dataset.slateNode = 'text'
+    textHost.setAttribute('data-slate-path', '0,0')
+    string.dataset.slateString = 'true'
+    string.textContent = 'body'
+    textHost.append(string)
+    block.append(textHost)
+    editable.append(block)
+    document.body.append(editable)
+
+    const editor = {
+      api: {
+        dom: {
+          assertDOMNode: () => editable,
+          focus: vi.fn(),
+          resolveDOMNode: () => editable,
+          resolveEventRange,
+        },
+      },
+      read: (reader: (state: unknown) => unknown) =>
+        reader({
+          nodes: {
+            get: () => [{ text: 'body' }],
+            hasPath: () => true,
+          },
+          points: {
+            end: () => ({ path: [0, 0], offset: 4 }),
+          },
+          schema: {
+            getElementSpec: () => null,
+          },
+          selection: {
+            get: () => null,
+          },
+          value: {
+            get: () => ({
+              roots: {
+                main: [paragraph('body')],
+              },
+            }),
+          },
+        }),
+      update,
+    }
+
+    const { result, unmount } = renderHook(() =>
+      useRootInteractionController({
+        disabled: false,
+        editor: editor as never,
+        getLastSelectionForRoot: () => null,
+        getMountedViewEditor: () => editor as never,
+        ignoreBlankEditableRootClicks: true,
+        root: 'main',
+        selection: 'restore',
+      })
+    )
+    const mouseDown = createMouseCaptureEvent({
+      clientX: 20,
+      clientY: 10,
+      currentTarget: editable,
+      shiftKey: true,
+      target: string,
+    })
+
+    act(() => {
+      result.current.onMouseDownCapture(mouseDown)
+    })
+
+    expect(mouseDown.preventDefault).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+
+    unmount()
+    editable.remove()
   })
 
   test('ignores layout root chrome descendants that only resolve through root-edge placement', () => {

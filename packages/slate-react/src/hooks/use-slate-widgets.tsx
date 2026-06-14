@@ -1,54 +1,11 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from 'react'
-import type { Editor } from 'slate'
-import type { SlateAnnotationStore } from '../annotation-store'
-import {
-  createSlateWidgetStore,
-  type SlateResolvedWidget,
-  type SlateWidget,
-  type SlateWidgetSnapshot,
-  type SlateWidgetStore,
+import { useCallback, useSyncExternalStore } from 'react'
+import type {
+  SlateResolvedWidget,
+  SlateWidgetSnapshot,
+  SlateWidgetStore,
 } from '../widget-store'
 
-export function useSlateWidgetStore<
-  T extends Record<string, unknown>,
-  TAnnotation extends Record<string, unknown>,
->(
-  editor: Editor,
-  widgets: readonly SlateWidget<T>[],
-  annotationStore?: SlateAnnotationStore<TAnnotation> | null
-): SlateWidgetStore<T, TAnnotation> {
-  const [widgetsCell] = useState(() => ({ current: widgets }))
-
-  const store = useMemo(
-    () =>
-      createSlateWidgetStore(
-        editor,
-        () => widgetsCell.current,
-        annotationStore
-      ),
-    [annotationStore, editor, widgetsCell]
-  )
-
-  useEffect(() => {
-    widgetsCell.current = widgets
-    store.refresh()
-  }, [store, widgets, widgetsCell])
-
-  useEffect(() => {
-    return () => {
-      store.destroy()
-    }
-  }, [store])
-
-  return store
-}
-
+/** Read one resolved widget by id. */
 export function useSlateWidget<
   T extends Record<string, unknown>,
   TAnnotation extends Record<string, unknown>,
@@ -65,6 +22,7 @@ export function useSlateWidget<
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
+/** Read the current widget snapshot from a widget store. */
 export function useSlateWidgets<
   T extends Record<string, unknown>,
   TAnnotation extends Record<string, unknown>,

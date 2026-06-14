@@ -18,6 +18,8 @@ type SlateBaseProps = {
   children: React.ReactNode
   decorationSources?: readonly SlateDecorationSource[] | null
   onChange?: (value: Descendant[], change: SlateChange) => void
+  onSelectionChange?: (selection: Range | null, change: SlateChange) => void
+  onValueChange?: (value: Descendant[], change: SlateChange) => void
   readOnly?: boolean
 }
 
@@ -47,22 +49,20 @@ context to another root.
 Pass the editor created with `createReactEditor` or `useSlateEditor`.
 
 ```tsx
-const [editor] = useState(() =>
-  createReactEditor<CustomValue>({ initialValue })
-)
+const MyEditor = () => {
+  const [editor] = useState(() =>
+    createReactEditor<CustomValue>({ initialValue })
+  )
+
+  return <Slate editor={editor}>...</Slate>
+}
 ```
 
-### `initialValue`
+Seed the editor with `initialValue` when the editor is created. `<Slate>` does
+not take an `initialValue` prop.
 
-Pass the document used to seed the editor when the provider mounts.
-
-```tsx
-<Slate editor={editor}>
-  <Editable />
-</Slate>
-```
-
-Use editor APIs for later document replacement. `initialValue` is not a controlled value prop.
+Use editor APIs for later document replacement. `initialValue` is not a
+controlled value prop.
 
 ### `children`
 
@@ -77,9 +77,9 @@ Render `Editable` and any editor UI inside the provider.
 
 ### `onChange`
 
-Use `onChange` when React UI needs current-root value, selection, or marks
-changes. Use `editor.subscribe(...)` for state-field changes, operation replay,
-and persistence services.
+Use `onChange` when React UI needs current-root value, selection, marks, or the
+full `SlateChange` object. Use `editor.subscribe(...)` for state-field changes,
+operation replay, and persistence services.
 
 ```tsx
 <Slate
@@ -98,7 +98,20 @@ and persistence services.
 </Slate>
 ```
 
-Use `editor.subscribe(...)` for low-level commit subscribers that do not belong in React render props.
+Use `editor.subscribeCommit(...)` for low-level commit subscribers that do not
+belong in React render props.
+
+Use `onValueChange` when a React component only cares about provider-root value
+changes.
+
+```tsx
+<Slate
+  editor={editor}
+  onValueChange={(value) => updateCurrentRootPreview(value)}
+>
+  <Editable />
+</Slate>
+```
 
 ### Saving Provider Root Changes
 
@@ -126,10 +139,10 @@ you need named roots or persistent state fields.
 
 ```tsx
 useEffect(() => {
-  return editor.subscribe((_snapshot, commit) => {
-    if (!commit) return
+  return editor.subscribe((_snapshot, change) => {
+    if (!change) return
 
-    if (!commit.childrenChanged && commit.dirtyStateKeys.length === 0) {
+    if (!change.childrenChanged && change.dirtyStateKeys.length === 0) {
       return
     }
 
@@ -145,16 +158,12 @@ persistence shape.
 
 ### Selection Changes
 
-Use `onChange` and `change.selectionChanged` for UI that follows the model selection.
+Use `onSelectionChange` when React UI only cares about model selection changes.
 
 ```tsx
 <Slate
   editor={editor}
-  onChange={(_, change) => {
-    if (!change.selectionChanged) return
-
-    updateToolbar(change.selection)
-  }}
+  onSelectionChange={(selection) => updateToolbar(selection)}
 >
   <Editable />
 </Slate>

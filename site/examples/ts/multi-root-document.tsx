@@ -8,7 +8,7 @@ import {
   useSlateEditor,
   useSlateHistory,
   useSlateRootChrome,
-  useSlateRootState,
+  useSlateViewState,
   useStateFieldValue,
 } from 'slate-react'
 import { Badge } from '@/components/ui/badge'
@@ -63,7 +63,7 @@ const formatCommit = (commit: EditorCommit | null) => {
 }
 
 const RootStatus = ({ id, root }: { id: string; root: string }) => {
-  const text = useSlateRootState(root, rootText)
+  const text = useSlateViewState(root, rootText)
 
   return (
     <Badge

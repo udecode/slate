@@ -8,15 +8,18 @@ import {
 } from 'slate'
 
 export interface Batch<V extends Value = Value> {
+  /** Operations captured in one undo or redo unit. */
   operations: Operation<V>[]
+  /** Selection before the batch was applied. */
   selectionBefore: Range | null
+  /** Root owning `selectionBefore` when the batch belongs to a non-main root. */
   selectionBeforeRoot?: string
+  /** State-field patches captured in the same undo or redo unit. */
   statePatches: EditorStatePatch[]
 }
 
 /**
- * `History` objects hold all of the operations that are applied to a value, so
- * they can be undone or redone as necessary.
+ * Undo and redo stacks for editor operations and state-field patches.
  */
 
 export interface History<V extends Value = Value> {

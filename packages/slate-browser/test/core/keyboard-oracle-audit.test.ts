@@ -120,6 +120,29 @@ const classifiedInsertText = {
   },
 } as const
 
+const classifiedProjectGatedReturns = {
+  'huge-document.test.ts': {
+    'keeps repeated typing visible after manual scroll-away': {
+      "if (testInfo.project.name === 'mobile') {":
+        'mobile branch uses semantic insertText fallback before the same visibility assertions',
+    },
+  },
+  'richtext.test.ts': {
+    'does not duplicate native input handling after route remount': {
+      "if (testInfo.project.name === 'mobile') {":
+        'mobile branch uses semantic insertText fallback before the same remount assertions',
+    },
+  },
+  'shadow-dom.test.ts': {
+    __module_helper__: {
+      "if (projectName === 'mobile') {":
+        'mobile branch uses keyboard.type and rejoins the same shadow-DOM assertions',
+      "if (browserName === 'webkit') {":
+        'WebKit branch uses pressSequentially and rejoins the same shadow-DOM assertions',
+    },
+  },
+} as const
+
 const testTitlePattern = /\btest\((['"`])([^'"`]+?)\1/
 
 const findInsertTextUsages = () => {
@@ -157,6 +180,182 @@ const findInsertTextUsages = () => {
   return usages
 }
 
+const readIfBlock = (lines: string[], index: number) => {
+  let block = ''
+  let depth = 0
+  let inString: string | null = null
+  let escaped = false
+  let seenOpen = false
+
+  for (let lineIndex = index; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex]
+
+    block += `${line}\n`
+
+    for (const character of line) {
+      if (inString) {
+        if (escaped) {
+          escaped = false
+        } else if (character === '\\') {
+          escaped = true
+        } else if (character === inString) {
+          inString = null
+        }
+
+        continue
+      }
+
+      if (character === '"' || character === "'" || character === '`') {
+        inString = character
+      } else if (character === '{') {
+        depth += 1
+        seenOpen = true
+      } else if (character === '}') {
+        depth -= 1
+
+        if (seenOpen && depth === 0) {
+          return block
+        }
+      }
+    }
+  }
+
+  return block
+}
+
+const hasProjectGatedReturn = (lines: string[], index: number) => {
+  const branchBlock = readIfBlock(lines, index)
+
+  return branchBlock.includes('test.skip')
+    ? false
+    : /\breturn\b/.test(branchBlock)
+}
+
+const findProjectGatedReturns = () => {
+  const usages: Array<{
+    file: string
+    line: number
+    source: string
+    title: string
+  }> = []
+
+  for (const file of readdirSync(examplesDir).sort()) {
+    if (!file.endsWith('.test.ts') || file === 'pagination.test.ts') continue
+
+    const lines = readFileSync(join(examplesDir, file), 'utf8').split('\n')
+    let title = '__module_helper__'
+
+    lines.forEach((source, index) => {
+      const match = source.match(testTitlePattern)
+
+      if (match) {
+        title = match[2]
+      }
+
+      if (
+        !/^\s*if\s*\(/.test(source) ||
+        !/(testInfo\.project\.name|browserName|projectName)/.test(source)
+      ) {
+        return
+      }
+
+      if (!hasProjectGatedReturn(lines, index)) {
+        return
+      }
+
+      usages.push({
+        file,
+        line: index + 1,
+        source: source.trim(),
+        title,
+      })
+    })
+  }
+
+  return usages
+}
+
+const readSkipCall = (lines: string[], index: number) => {
+  let call = ''
+  let depth = 0
+  let inString: string | null = null
+  let escaped = false
+  let seenOpen = false
+
+  for (let lineIndex = index; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex]
+    const start = lineIndex === index ? line.indexOf('test.skip') : 0
+    const slice = line.slice(start)
+
+    call += `${slice}\n`
+
+    for (const character of slice) {
+      if (inString) {
+        if (escaped) {
+          escaped = false
+        } else if (character === '\\') {
+          escaped = true
+        } else if (character === inString) {
+          inString = null
+        }
+
+        continue
+      }
+
+      if (character === '"' || character === "'" || character === '`') {
+        inString = character
+      } else if (character === '(') {
+        depth += 1
+        seenOpen = true
+      } else if (character === ')') {
+        depth -= 1
+
+        if (seenOpen && depth === 0) {
+          return call
+        }
+      }
+    }
+  }
+
+  return call
+}
+
+const findWeakSkipReasons = () => {
+  const skipReasonPattern = /test\.skip\s*\([\s\S]*?,\s*(['"`])([^'"`]+)\1/
+  const weakReasonPattern =
+    /\b(flaky|todo|fixme|temporary|temporar(?:y|ily)?|broken|fails?|disabled|workaround|skip for now)\b/i
+  const issues: Array<{
+    file: string
+    line: number
+    reason: string
+    source: string
+  }> = []
+
+  for (const file of readdirSync(examplesDir).sort()) {
+    if (!file.endsWith('.test.ts') || file === 'pagination.test.ts') continue
+
+    const lines = readFileSync(join(examplesDir, file), 'utf8').split('\n')
+
+    lines.forEach((source, index) => {
+      if (!source.includes('test.skip')) return
+
+      const call = readSkipCall(lines, index)
+      const reason = call.match(skipReasonPattern)?.[2]
+
+      if (!reason || weakReasonPattern.test(reason)) {
+        issues.push({
+          file,
+          line: index + 1,
+          reason: reason ?? '<missing literal reason>',
+          source: call.replace(/\s+/g, ' ').trim(),
+        })
+      }
+    })
+  }
+
+  return issues
+}
+
 describe('keyboard oracle audit', () => {
   test('classifies every low-level Playwright text insertion in example specs', () => {
     const unclassified = findInsertTextUsages().filter(
@@ -183,5 +382,67 @@ describe('keyboard oracle audit', () => {
     )
 
     expect(stale).toEqual([])
+  })
+
+  test('classifies every project-gated return branch in example specs', () => {
+    const unclassified = findProjectGatedReturns().filter(
+      ({ file, source, title }) =>
+        !(
+          file in classifiedProjectGatedReturns &&
+          title in
+            classifiedProjectGatedReturns[
+              file as keyof typeof classifiedProjectGatedReturns
+            ] &&
+          source in
+            classifiedProjectGatedReturns[
+              file as keyof typeof classifiedProjectGatedReturns
+            ][
+              title as keyof (typeof classifiedProjectGatedReturns)[keyof typeof classifiedProjectGatedReturns]
+            ]
+        )
+    )
+
+    expect(unclassified).toEqual([])
+  })
+
+  test('detects project-gated returns after longer branch setup', () => {
+    expect(
+      hasProjectGatedReturn(
+        [
+          "if (testInfo.project.name === 'mobile') {",
+          "  await editor.assert.text('same setup')",
+          '  await editor.selection.select({',
+          '    anchor: { path: [0, 0], offset: 0 },',
+          '    focus: { path: [0, 0], offset: 0 },',
+          '  })',
+          "  await editor.insertText('x')",
+          '  return',
+          '}',
+        ],
+        0
+      )
+    ).toBe(true)
+  })
+
+  test('keeps project-gated return classifications tied to live branches', () => {
+    const liveKeys = new Set(
+      findProjectGatedReturns().map(
+        ({ file, source, title }) => `${file} :: ${title} :: ${source}`
+      )
+    )
+    const stale = Object.entries(classifiedProjectGatedReturns).flatMap(
+      ([file, titles]) =>
+        Object.entries(titles).flatMap(([title, sources]) =>
+          Object.keys(sources)
+            .map((source) => `${file} :: ${title} :: ${source}`)
+            .filter((key) => !liveKeys.has(key))
+        )
+    )
+
+    expect(stale).toEqual([])
+  })
+
+  test('keeps example spec skips scoped and explicitly justified', () => {
+    expect(findWeakSkipReasons()).toEqual([])
   })
 })

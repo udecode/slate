@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { act, renderHook } from '@testing-library/react'
 import { createEditor, defineStateField } from 'slate'
@@ -70,6 +71,31 @@ const pageSettings = defineStateField<SlatePageSettings>({
   history: 'push',
   initial: () => ({ margins: 96, preset: 'a4' }),
   persist: true,
+})
+
+describe('slate-layout public docs', () => {
+  it('keeps package and library docs experimental and proof-gated', () => {
+    const packageReadme = readFileSync(
+      new URL('../README.md', import.meta.url),
+      'utf8'
+    )
+    const libraryReadme = readFileSync(
+      new URL(
+        '../../../docs/libraries/slate-layout/README.md',
+        import.meta.url
+      ),
+      'utf8'
+    )
+
+    expect(packageReadme).toContain('Experimental page layout helpers')
+    expect(packageReadme).toContain('explicit product proof')
+    expect(packageReadme).toContain(
+      "import { PagedEditable, useSlateLayout } from 'slate-layout/react'"
+    )
+    expect(libraryReadme).toContain('The package is experimental')
+    expect(libraryReadme).toContain('explicit flags')
+    expect(libraryReadme).toContain('authoritative page breaks')
+  })
 })
 
 describe('createSlatePageLayout', () => {

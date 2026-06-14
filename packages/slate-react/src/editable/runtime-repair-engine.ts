@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useReducer } from 'react'
-import { EDITOR_TO_FORCE_RENDER } from 'slate-dom'
+import { EDITOR_TO_FORCE_RENDER } from 'slate-dom/internal'
 import { useIsomorphicLayoutEffect } from '../hooks/use-isomorphic-layout-effect'
 import type { ReactRuntimeEditor } from '../plugin/react-editor'
 import { createDOMRepairQueue } from './dom-repair-queue'

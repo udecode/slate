@@ -11,14 +11,16 @@ A command is just reusable editor logic. Keep command reads in
 
 Start by moving the bold and code-block logic into plain functions:
 
-```jsx
-const isBoldActive = editor => {
+```tsx
+import { ElementApi, type Editor } from 'slate'
+
+const isBoldActive = (editor: Editor) => {
   return editor.read(state => state.marks.get()?.bold === true)
 }
 
-const isCodeBlockActive = editor => {
+const isCodeBlockActive = (editor: Editor) => {
   return editor.read(state => {
-    const [match] = state.nodes.match({
+    const match = state.nodes.find({
       match: node => ElementApi.isElement(node) && node.type === 'code',
     })
 
@@ -26,13 +28,13 @@ const isCodeBlockActive = editor => {
   })
 }
 
-const toggleBold = editor => {
+const toggleBold = (editor: Editor) => {
   editor.update(tx => {
     tx.marks.toggle('bold')
   })
 }
 
-const toggleCodeBlock = editor => {
+const toggleCodeBlock = (editor: Editor) => {
   const isActive = isCodeBlockActive(editor)
 
   editor.update(tx => {
@@ -53,7 +55,10 @@ functions that receive an editor.
 
 Use `Editable onKeyDown` for keyboard shortcuts that belong to one editor UI:
 
-```jsx
+```tsx
+import { useState } from 'react'
+import { Editable, Slate, createReactEditor } from 'slate-react'
+
 const App = () => {
   const [editor] = useState(() => createReactEditor({ initialValue }))
 
@@ -85,7 +90,7 @@ Use extension `transforms` for behavior that maps to Slate transform names.
 That keeps model behavior available to keyboard input, native input, toolbar
 logic, programmatic calls, and tests.
 
-```jsx
+```tsx
 import { defineEditorExtension, ElementApi, PointApi, RangeApi } from 'slate'
 
 const markdownBlocks = defineEditorExtension({
@@ -102,7 +107,8 @@ const markdownBlocks = defineEditorExtension({
         const blockEntry = editor.read(state =>
           state.nodes.above({
             at: selection,
-            match: node => ElementApi.isElement(node) && state.nodes.isBlock(node),
+            match: node =>
+              ElementApi.isElement(node) && state.nodes.isBlock(node),
           })
         )
 
@@ -139,7 +145,8 @@ const markdownBlocks = defineEditorExtension({
         const blockEntry = editor.read(state =>
           state.nodes.above({
             at: selection,
-            match: node => ElementApi.isElement(node) && state.nodes.isBlock(node),
+            match: node =>
+              ElementApi.isElement(node) && state.nodes.isBlock(node),
           })
         )
 
@@ -193,7 +200,7 @@ const App = () => {
 
 The same functions can be called from toolbar buttons:
 
-```jsx
+```tsx
 const Toolbar = ({ editor }) => {
   return (
     <div>

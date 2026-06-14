@@ -4607,11 +4607,85 @@ const clickTextOffset = async (
     { offset, path }
   )
 
+  const clickCount = options.clickCount
+
+  const readClickPointState = () =>
+    root.evaluate(
+      (
+        element: HTMLElement,
+        point: {
+          x: number
+          y: number
+        }
+      ) => {
+        const describeElement = (node: Element | null) => {
+          if (!node) {
+            return null
+          }
+
+          return {
+            ariaLabel: node.getAttribute('aria-label'),
+            path: node.getAttribute('data-slate-path'),
+            role: node.getAttribute('role'),
+            slateNode: node.getAttribute('data-slate-node'),
+            tagName: node.tagName,
+            text: node.textContent?.slice(0, 80) ?? '',
+          }
+        }
+        const resolveSlatePoint = (node: Node | null, offset: number) => {
+          const owner =
+            node?.nodeType === 1
+              ? (node as Element).closest('[data-slate-node="text"]')
+              : node?.parentElement?.closest('[data-slate-node="text"]')
+          const path = owner
+            ?.getAttribute('data-slate-path')
+            ?.split(',')
+            .map((part) => Number.parseInt(part, 10))
+
+          return {
+            offset,
+            ownerText: owner?.textContent?.slice(0, 80) ?? null,
+            path: path?.every(Number.isInteger) ? path : null,
+          }
+        }
+        const documentWithCaret = element.ownerDocument as Document & {
+          caretPositionFromPoint?: (
+            x: number,
+            y: number
+          ) => { offset: number; offsetNode: Node } | null
+          caretRangeFromPoint?: (x: number, y: number) => Range | null
+        }
+        const caretPosition = documentWithCaret.caretPositionFromPoint?.(
+          point.x,
+          point.y
+        )
+        const caretRange =
+          caretPosition == null
+            ? documentWithCaret.caretRangeFromPoint?.(point.x, point.y)
+            : null
+        const caretNode =
+          caretPosition?.offsetNode ?? caretRange?.startContainer ?? null
+        const caretOffset =
+          caretPosition?.offset ?? caretRange?.startOffset ?? null
+        const hit = element.ownerDocument.elementFromPoint(point.x, point.y)
+
+        return {
+          caret:
+            caretNode && caretOffset != null
+              ? resolveSlatePoint(caretNode, caretOffset)
+              : null,
+          hit: describeElement(hit),
+          point,
+        }
+      },
+      point
+    )
+
   await root.page().mouse.click(point.x, point.y, {
-    clickCount: options.clickCount,
+    clickCount,
   })
   if (options.waitForSelectionSync ?? true) {
-    const isSingleClick = (options.clickCount ?? 1) === 1
+    const isSingleClick = (clickCount ?? 1) === 1
     await waitForSelectionSync(
       root,
       isSingleClick
@@ -4620,7 +4694,20 @@ const clickTextOffset = async (
             focus: { offset, path },
           }
         : undefined
-    )
+    ).catch(async (error: unknown) => {
+      const clickPointState = await readClickPointState().catch(
+        (stateError: unknown) => ({
+          error:
+            stateError instanceof Error
+              ? stateError.message
+              : String(stateError),
+        })
+      )
+
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\nClick point state:\n${JSON.stringify(clickPointState, null, 2)}`
+      )
+    })
   }
 }
 
@@ -6279,200 +6366,204 @@ const waitForSelectionSync = async (
   root: Locator,
   expectedSelection?: SelectionSnapshot
 ) => {
-  await expect
-    .poll(() =>
-      root.evaluate(
-        (
-          element: HTMLElement,
-          {
-            expectedSelection,
-            key,
-          }: { expectedSelection?: SelectionSnapshot; key: string }
-        ) => {
-          const pointsEqual = (
-            left: SelectionPoint | null | undefined,
-            right: SelectionPoint | null | undefined
-          ) =>
-            !!left &&
-            !!right &&
-            left.offset === right.offset &&
-            left.path.length === right.path.length &&
-            left.path.every((part, index) => part === right.path[index])
-          const selectionsEqual = (
-            left: SelectionSnapshot | null | undefined,
-            right: SelectionSnapshot | null | undefined
-          ) =>
-            !!left &&
-            !!right &&
-            pointsEqual(left.anchor, right.anchor) &&
-            pointsEqual(left.focus, right.focus)
-          const rootNode = element.getRootNode() as Document | ShadowRoot
-          const selection =
-            'getSelection' in rootNode
-              ? rootNode.getSelection()
-              : element.ownerDocument.getSelection()
-          const nativeSelectionInRoot = Boolean(
-            selection?.rangeCount &&
-              selection.anchorNode &&
-              selection.focusNode &&
-              element.contains(selection.anchorNode) &&
-              element.contains(selection.focusNode)
-          )
-          const getNativeSelectionSnapshot = () => {
-            if (
-              !selection?.rangeCount ||
-              !selection.anchorNode ||
-              !selection.focusNode ||
-              !element.contains(selection.anchorNode) ||
-              !element.contains(selection.focusNode)
-            ) {
+  const readSyncState = () =>
+    root.evaluate(
+      (
+        element: HTMLElement,
+        {
+          expectedSelection,
+          key,
+        }: { expectedSelection?: SelectionSnapshot; key: string }
+      ) => {
+        const pointsEqual = (
+          left: SelectionPoint | null | undefined,
+          right: SelectionPoint | null | undefined
+        ) =>
+          !!left &&
+          !!right &&
+          left.offset === right.offset &&
+          left.path.length === right.path.length &&
+          left.path.every((part, index) => part === right.path[index])
+        const selectionsEqual = (
+          left: SelectionSnapshot | null | undefined,
+          right: SelectionSnapshot | null | undefined
+        ) =>
+          !!left &&
+          !!right &&
+          pointsEqual(left.anchor, right.anchor) &&
+          pointsEqual(left.focus, right.focus)
+        const rootNode = element.getRootNode() as Document | ShadowRoot
+        const selection =
+          'getSelection' in rootNode
+            ? rootNode.getSelection()
+            : element.ownerDocument.getSelection()
+        const nativeSelectionInRoot = Boolean(
+          selection?.rangeCount &&
+            selection.anchorNode &&
+            selection.focusNode &&
+            element.contains(selection.anchorNode) &&
+            element.contains(selection.focusNode)
+        )
+        const getNativeSelectionSnapshot = () => {
+          if (
+            !selection?.rangeCount ||
+            !selection.anchorNode ||
+            !selection.focusNode ||
+            !element.contains(selection.anchorNode) ||
+            !element.contains(selection.focusNode)
+          ) {
+            return null
+          }
+
+          const getTextSegments = (owner: Element) =>
+            Array.from(
+              owner.querySelectorAll(
+                '[data-slate-string], [data-slate-zero-width]'
+              )
+            ).map((segment) => {
+              const leafNode = segment.firstChild
+              const domLength = leafNode?.textContent?.length ?? 0
+              const attr = segment.getAttribute('data-slate-length')
+              const trueLength =
+                attr == null ? domLength : Number.parseInt(attr, 10)
+
+              return {
+                segment,
+                trueLength,
+              }
+            })
+
+          const findZeroWidthMarker = (node: Node | null) => {
+            const markerElement =
+              node?.nodeType === 1 ? (node as Element) : node?.parentElement
+
+            return markerElement?.closest('[data-slate-zero-width]') ?? null
+          }
+
+          const toEditorOffset = (node: Node | null, offset: number) => {
+            const owner =
+              node?.nodeType === 1
+                ? (node as Element).closest('[data-slate-node="text"]')
+                : node?.parentElement?.closest('[data-slate-node="text"]')
+            const segment =
+              node?.nodeType === 1
+                ? (node as Element).closest(
+                    '[data-slate-string], [data-slate-zero-width]'
+                  )
+                : node?.parentElement?.closest(
+                    '[data-slate-string], [data-slate-zero-width]'
+                  )
+
+            const localOffset = findZeroWidthMarker(node) ? 0 : offset
+
+            if (!owner || !segment) {
+              return localOffset
+            }
+
+            const segments = getTextSegments(owner)
+            const segmentIndex = segments.findIndex(
+              (entry) => entry.segment === segment
+            )
+
+            if (segmentIndex <= 0) {
+              return localOffset
+            }
+
+            return (
+              segments
+                .slice(0, segmentIndex)
+                .reduce((total, entry) => total + entry.trueLength, 0) +
+              localOffset
+            )
+          }
+
+          const getPath = (node: Node | null) => {
+            const owner =
+              node?.nodeType === 1
+                ? (node as Element).closest('[data-slate-node="text"]')
+                : node?.parentElement?.closest('[data-slate-node="text"]')
+
+            if (!owner || !element.contains(owner)) {
               return null
             }
 
-            const getTextSegments = (owner: Element) =>
-              Array.from(
-                owner.querySelectorAll(
-                  '[data-slate-string], [data-slate-zero-width]'
-                )
-              ).map((segment) => {
-                const leafNode = segment.firstChild
-                const domLength = leafNode?.textContent?.length ?? 0
-                const attr = segment.getAttribute('data-slate-length')
-                const trueLength =
-                  attr == null ? domLength : Number.parseInt(attr, 10)
+            const path = owner
+              .getAttribute('data-slate-path')
+              ?.split(',')
+              .map((part) => Number.parseInt(part, 10))
 
-                return {
-                  segment,
-                  trueLength,
-                }
-              })
-
-            const findZeroWidthMarker = (node: Node | null) => {
-              const markerElement =
-                node?.nodeType === 1 ? (node as Element) : node?.parentElement
-
-              return markerElement?.closest('[data-slate-zero-width]') ?? null
-            }
-
-            const toEditorOffset = (node: Node | null, offset: number) => {
-              const owner =
-                node?.nodeType === 1
-                  ? (node as Element).closest('[data-slate-node="text"]')
-                  : node?.parentElement?.closest('[data-slate-node="text"]')
-              const segment =
-                node?.nodeType === 1
-                  ? (node as Element).closest(
-                      '[data-slate-string], [data-slate-zero-width]'
-                    )
-                  : node?.parentElement?.closest(
-                      '[data-slate-string], [data-slate-zero-width]'
-                    )
-
-              const localOffset = findZeroWidthMarker(node) ? 0 : offset
-
-              if (!owner || !segment) {
-                return localOffset
-              }
-
-              const segments = getTextSegments(owner)
-              const segmentIndex = segments.findIndex(
-                (entry) => entry.segment === segment
-              )
-
-              if (segmentIndex <= 0) {
-                return localOffset
-              }
-
-              return (
-                segments
-                  .slice(0, segmentIndex)
-                  .reduce((total, entry) => total + entry.trueLength, 0) +
-                localOffset
-              )
-            }
-
-            const getPath = (node: Node | null) => {
-              const owner =
-                node?.nodeType === 1
-                  ? (node as Element).closest('[data-slate-node="text"]')
-                  : node?.parentElement?.closest('[data-slate-node="text"]')
-
-              if (!owner || !element.contains(owner)) {
-                return null
-              }
-
-              const path = owner
-                .getAttribute('data-slate-path')
-                ?.split(',')
-                .map((part) => Number.parseInt(part, 10))
-
-              return path?.every(Number.isInteger) ? path : null
-            }
-
-            const anchorPath = getPath(selection.anchorNode)
-            const focusPath = getPath(selection.focusNode)
-
-            if (!anchorPath || !focusPath) {
-              return null
-            }
-
-            return {
-              anchor: {
-                offset: toEditorOffset(
-                  selection.anchorNode,
-                  selection.anchorOffset
-                ),
-                path: anchorPath,
-              },
-              focus: {
-                offset: toEditorOffset(
-                  selection.focusNode,
-                  selection.focusOffset
-                ),
-                path: focusPath,
-              },
-            }
+            return path?.every(Number.isInteger) ? path : null
           }
 
-          const handle = (element as Record<string, any>)[key]
-          const handleSelection =
-            typeof handle?.getSelection === 'function'
-              ? handle.getSelection()
-              : null
+          const anchorPath = getPath(selection.anchorNode)
+          const focusPath = getPath(selection.focusNode)
 
-          if (expectedSelection) {
-            const nativeSelection = getNativeSelectionSnapshot()
-            const modelBackedSelection =
-              element.getAttribute('data-slate-dom-strategy-selection') ===
-                'partial-dom-backed' ||
-              !!element.querySelector('[data-slate-view-selection="true"]')
-
-            if (handle?.getSelection) {
-              return (
-                selectionsEqual(handleSelection, expectedSelection) &&
-                (modelBackedSelection ||
-                  selectionsEqual(nativeSelection, expectedSelection))
-              )
-            }
-
-            return selectionsEqual(nativeSelection, expectedSelection)
+          if (!anchorPath || !focusPath) {
+            return null
           }
 
-          if (nativeSelectionInRoot) {
-            return true
+          return {
+            anchor: {
+              offset: toEditorOffset(
+                selection.anchorNode,
+                selection.anchorOffset
+              ),
+              path: anchorPath,
+            },
+            focus: {
+              offset: toEditorOffset(
+                selection.focusNode,
+                selection.focusOffset
+              ),
+              path: focusPath,
+            },
           }
+        }
 
-          return (
-            (element.getAttribute('data-slate-dom-strategy-selection') ===
-              'partial-dom-backed' ||
-              !!element.querySelector('[data-slate-view-selection="true"]')) &&
-            !!handleSelection
-          )
-        },
-        { expectedSelection, key: SLATE_BROWSER_HANDLE_KEY }
-      )
+        const handle = (element as Record<string, any>)[key]
+        const handleSelection =
+          typeof handle?.getSelection === 'function'
+            ? handle.getSelection()
+            : null
+
+        const nativeSelection = getNativeSelectionSnapshot()
+        const modelBackedSelection =
+          element.getAttribute('data-slate-dom-strategy-selection') ===
+            'partial-dom-backed' ||
+          !!element.querySelector('[data-slate-view-selection="true"]')
+        const synced = expectedSelection
+          ? handle?.getSelection
+            ? selectionsEqual(handleSelection, expectedSelection) &&
+              (modelBackedSelection ||
+                selectionsEqual(nativeSelection, expectedSelection))
+            : selectionsEqual(nativeSelection, expectedSelection)
+          : nativeSelectionInRoot || (modelBackedSelection && !!handleSelection)
+
+        return {
+          expectedSelection,
+          handleSelection,
+          modelBackedSelection,
+          nativeSelection,
+          nativeSelectionInRoot,
+          synced,
+        }
+      },
+      { expectedSelection, key: SLATE_BROWSER_HANDLE_KEY }
     )
-    .toBe(true)
+
+  await expect
+    .poll(() => readSyncState())
+    .toMatchObject({ synced: true })
+    .catch(async (error: unknown) => {
+      const state = await readSyncState().catch((stateError: unknown) => ({
+        error:
+          stateError instanceof Error ? stateError.message : String(stateError),
+      }))
+
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\nSelection sync state:\n${JSON.stringify(state, null, 2)}`
+      )
+    })
   await root.page().waitForTimeout(100)
 }
 
@@ -7022,7 +7113,7 @@ const dragTextRange = async (
         return {
           x: shouldEndAfterText
             ? rect.right + 2
-            : Math.max(rect.left + 1, rect.right - 0.25),
+            : Math.max(rect.left + 1, rect.right - 1),
           y: rect.top + rect.height / 2,
         }
       }

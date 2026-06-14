@@ -161,6 +161,13 @@ type NoExtraEditorExtensionProperties<
   TShape extends EditorExtension<any, any>,
 > = TExtension & Record<Exclude<keyof TExtension, keyof TShape>, never>
 
+/**
+ * Defines an editor extension while preserving literal names, typed setup
+ * output, and compile-time rejection of unsupported extension keys.
+ *
+ * Use the curried form to bind an extension to a specific editor type before
+ * passing the descriptor.
+ */
 export const defineEditorExtension = ((
   extension?: EditorExtension<any, any>
 ) =>

@@ -1,11 +1,6 @@
 import { type Path, PathApi, RangeApi } from 'slate'
-import {
-  type DOMRange,
-  EDITOR_TO_WINDOW,
-  getSelection,
-  isDOMElement,
-  isDOMText,
-} from 'slate-dom'
+import { type DOMRange, getSelection, isDOMElement, isDOMText } from 'slate-dom'
+import { EDITOR_TO_WINDOW } from 'slate-dom/internal'
 import {
   getSlateNodeElementByPath,
   getSlateNodePathFromDOMElement,

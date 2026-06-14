@@ -9,6 +9,7 @@ import {
   type Range,
   RangeApi,
   type RootKey,
+  type Node as SlateNode,
 } from 'slate'
 import { Hotkeys } from 'slate-dom'
 import { EDITOR_TO_ROOT_VIEW_EDITORS } from 'slate-dom/internal'
@@ -142,7 +143,7 @@ const getRegisteredRootViewEditor = (
   editor: ReactRuntimeEditor,
   root: RootKey
 ): ReactRuntimeEditor | null => {
-  const viewEditors = EDITOR_TO_ROOT_VIEW_EDITORS.get(editor as any)
+  const viewEditors = EDITOR_TO_ROOT_VIEW_EDITORS.get(editor)
 
   if (!viewEditors) {
     return null
@@ -825,7 +826,7 @@ const getPathElement = (
     }
   })
 
-  return node ? editor.api.dom.resolveDOMNode(node as any) : null
+  return node ? editor.api.dom.resolveDOMNode(node as SlateNode) : null
 }
 
 const getSlateLineRects = (element: HTMLElement): DOMRect[] => {

@@ -1614,14 +1614,22 @@ export const useRootInteractionController = ({
             clientY: event.clientY,
             target: event.currentTarget,
           })
+        const nativeEditableModifiedClick =
+          nativeEditableTextTarget &&
+          (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey)
 
-        if (nativeEditableMultiClick || nativeEditableSelectedTextTarget) {
+        if (
+          nativeEditableMultiClick ||
+          nativeEditableSelectedTextTarget ||
+          nativeEditableModifiedClick
+        ) {
           action = { type: 'ignore' }
         }
 
         const shouldResolveRootChromeFromCoordinates =
           !nativeEditableMultiClick &&
           !nativeEditableSelectedTextTarget &&
+          !nativeEditableModifiedClick &&
           (action.type === 'place-editable-root' ||
             target.kind === 'editable-root' ||
             target.kind === 'native-editable' ||
@@ -1647,6 +1655,7 @@ export const useRootInteractionController = ({
           !target.target.closest(NATIVE_EDITABLE_TEXT_TARGET)
         const focusedNativeEditableCoordinateTarget =
           !nativeEditableMultiClick &&
+          !nativeEditableModifiedClick &&
           ignoreBlankEditableRootClicks &&
           action.type === 'ignore' &&
           target.kind === 'native-editable'

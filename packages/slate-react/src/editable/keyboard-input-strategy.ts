@@ -1,5 +1,3 @@
-// @ts-expect-error -- direction does not publish TypeScript declarations.
-import getDirection from 'direction'
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react'
 import {
   NodeApi,
@@ -73,6 +71,77 @@ const keyDownHandled = (
   repair?: EditableRepairRequest | null
 ): EditableKeyDownResult => ({ handled: true, repair })
 const keyDownUnhandled = (): EditableKeyDownResult => ({ handled: false })
+
+type TextDirection = 'ltr' | 'neutral' | 'rtl'
+
+const RTL_SCRIPT_NAMES = [
+  'Adlam',
+  'Arabic',
+  'Avestan',
+  'Chorasmian',
+  'Elymaic',
+  'Hanifi_Rohingya',
+  'Hatran',
+  'Hebrew',
+  'Imperial_Aramaic',
+  'Inscriptional_Pahlavi',
+  'Inscriptional_Parthian',
+  'Lydian',
+  'Mandaic',
+  'Manichaean',
+  'Mende_Kikakui',
+  'Meroitic_Cursive',
+  'Meroitic_Hieroglyphs',
+  'Nabataean',
+  'Nko',
+  'Old_Hungarian',
+  'Old_North_Arabian',
+  'Old_Sogdian',
+  'Old_South_Arabian',
+  'Old_Uyghur',
+  'Palmyrene',
+  'Phoenician',
+  'Psalter_Pahlavi',
+  'Samaritan',
+  'Sogdian',
+  'Syriac',
+  'Thaana',
+  'Yezidi',
+]
+
+const createUnicodePropertyMatcher = (property: string) => {
+  try {
+    return new RegExp(`\\p{${property}}`, 'u')
+  } catch {
+    return null
+  }
+}
+
+const RTL_SCRIPT_MATCHERS = RTL_SCRIPT_NAMES.map((script) =>
+  createUnicodePropertyMatcher(`Script=${script}`)
+).filter((matcher): matcher is RegExp => matcher !== null)
+
+const LETTER_MATCHER = createUnicodePropertyMatcher('L')
+
+const isRTLScriptCharacter = (character: string) =>
+  RTL_SCRIPT_MATCHERS.some((matcher) => matcher.test(character))
+
+const isStrongLetterCharacter = (character: string) =>
+  LETTER_MATCHER?.test(character) ?? false
+
+export const getTextDirection = (value: string): TextDirection => {
+  for (const character of value) {
+    if (isStrongLetterCharacter(character) && isRTLScriptCharacter(character)) {
+      return 'rtl'
+    }
+
+    if (isStrongLetterCharacter(character)) {
+      return 'ltr'
+    }
+  }
+
+  return 'neutral'
+}
 
 const DEFAULT_MODEL_COMMAND_REPAIR: EditableRepairRequest = {
   focus: true,
@@ -526,7 +595,7 @@ export const applyEditableKeyDown = ({
           ? NodeApi.parent(focusEditor, focusSelection.focus.path)
           : null
       const isRTL = focusNode
-        ? getDirection(NodeApi.string(focusNode)) === 'rtl'
+        ? getTextDirection(NodeApi.string(focusNode)) === 'rtl'
         : false
       const contentRootViewSelectionResult = applyContentRootViewSelection({
         editor,
@@ -745,7 +814,7 @@ export const applyEditableKeyDown = ({
 
     const children = editor.read((state) => state.nodes.children())
     const element = children[selection === null ? 0 : selection.focus.path[0]]
-    const isRTL = getDirection(NodeApi.string(element)) === 'rtl'
+    const isRTL = getTextDirection(NodeApi.string(element)) === 'rtl'
 
     // COMPAT: Since we prevent the default behavior on
     // `beforeinput` events, the browser doesn't think there's ever

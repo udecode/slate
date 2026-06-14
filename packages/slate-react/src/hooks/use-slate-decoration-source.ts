@@ -46,6 +46,11 @@ const useStableDirtiness = (dirtiness: SlateSourceDirtiness | undefined) => {
 const isReactEditorFocused = (editor: SlateEditor) =>
   ReactEditor.isFocused(editor as unknown as ReactRuntimeEditor)
 
+/**
+ * Creates and owns a decoration source for computed editor decorations.
+ *
+ * Pass `deps` when the source options close over changing values.
+ */
 export const useSlateDecorationSource = <T = unknown>(
   editor: SlateEditor,
   options: UseSlateDecorationSourceOptions<T>
@@ -92,6 +97,10 @@ export const useSlateDecorationSource = <T = unknown>(
   return source
 }
 
+/**
+ * Creates and owns a decoration source from Slate ranges, converting them into
+ * keyed decorations for the projection store.
+ */
 export const useSlateRangeDecorationSource = <T = unknown>(
   editor: SlateEditor,
   options: UseSlateRangeDecorationSourceOptions<T>

@@ -17,6 +17,12 @@ const defineKind = <T>(
   options: ElementPropertyOptions<T> = {}
 ) => define<T>({ ...options, kind })
 
+/**
+ * Factory helpers for schema-backed element properties.
+ *
+ * Use the scalar helpers for built-in property kinds, or `define` for a custom
+ * descriptor.
+ */
 export const elementProperty = Object.freeze({
   boolean: (options: ElementPropertyOptions<boolean> = {}) =>
     defineKind('boolean', options),

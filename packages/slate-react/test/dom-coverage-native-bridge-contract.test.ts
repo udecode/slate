@@ -2,12 +2,12 @@ import type { ClipboardEvent, DragEvent } from 'react'
 import { type Descendant } from 'slate'
 import { Editor } from 'slate/internal'
 import {
+  DOMCoverage,
   EDITOR_TO_ELEMENT,
   EDITOR_TO_WINDOW,
   ELEMENT_TO_NODE,
   NODE_TO_ELEMENT,
-} from 'slate-dom'
-import { DOMCoverage } from 'slate-dom/internal'
+} from 'slate-dom/internal'
 
 import { createReactEditor } from '../src'
 import {

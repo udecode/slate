@@ -17,8 +17,7 @@ import {
   EDITOR_TO_PENDING_ACTION,
   EDITOR_TO_PENDING_DIFFS,
   EDITOR_TO_PENDING_SELECTION,
-} from 'slate-dom'
-
+} from 'slate-dom/internal'
 import {
   createReactEditor,
   Editable,
@@ -31,7 +30,6 @@ import {
   useSlateChildRoot,
   useSlateContentRoot,
   useSlateRootEditor,
-  useSlateRootState,
   useSlateRuntime,
   useSlateRuntimeState,
   useSlateViewState,
@@ -131,7 +129,7 @@ describe('SlateRuntime provider contract', () => {
 
     const IslandBody = ({ element }: { element: Element }) => {
       const root = useSlateChildRoot(element, 'body')
-      const text = useSlateRootState(root, rootText)
+      const text = useSlateViewState(root, rootText)
 
       childEditor = useSlateRootEditor(root)
 
@@ -196,7 +194,7 @@ describe('SlateRuntime provider contract', () => {
 
     const ContentRoot = ({ element }: { element: Element }) => {
       const { chrome, root } = useSlateContentRoot(element)
-      const text = useSlateRootState(root, rootText)
+      const text = useSlateViewState(root, rootText)
 
       contentRootEditor = useSlateRootEditor(root)
 
@@ -272,7 +270,7 @@ describe('SlateRuntime provider contract', () => {
 
     const Probe = () => {
       const activeRoot = useSlateActiveRoot()
-      const headerText = useSlateRootState('header', rootText)
+      const headerText = useSlateViewState('header', rootText)
 
       headerEditor = useSlateRootEditor('header')
       headerValues.push(headerText)

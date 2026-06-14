@@ -64,6 +64,16 @@ type RenderConfig = {
 
 type SetConfig = (partialConfig: Partial<Config>) => void
 
+type EventTimingEntry = PerformanceEntry & {
+  processingEnd: number
+  processingStart: number
+}
+
+type EventTimingObserverInit = PerformanceObserverInit & {
+  durationThreshold: number
+  type: 'event'
+}
+
 const RenderConfigContext = React.createContext<RenderConfig>({
   contentVisibility: false,
   showSelectedHeadings: false,
@@ -351,9 +361,21 @@ const Heading = ({
   showSelectedHeadings: boolean
   ref?: React.Ref<HTMLHeadingElement>
 }) => {
-  // Fine since the editor is remounted if the config changes
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const selected = showSelectedHeadings ? useElementSelected() : false
+  if (showSelectedHeadings) {
+    return <SelectedHeading ref={ref} style={styleProp} {...props} />
+  }
+
+  return <h1 ref={ref} {...props} aria-selected={false} style={styleProp} />
+}
+
+const SelectedHeading = ({
+  style: styleProp,
+  ref,
+  ...props
+}: React.ComponentProps<'h1'> & {
+  ref?: React.Ref<HTMLHeadingElement>
+}) => {
+  const selected = useElementSelected()
   const style = { ...styleProp, color: selected ? 'green' : undefined }
   return <h1 ref={ref} {...props} aria-selected={selected} style={style} />
 }
@@ -424,9 +446,9 @@ const PerformanceControls = ({
     const observer = new PerformanceObserver((list) => {
       list.getEntries().forEach((entry) => {
         if (entry.name === 'keypress') {
+          const eventEntry = entry as EventTimingEntry
           const duration = Math.round(
-            // @ts-expect-error Entry type is missing processingStart and processingEnd
-            entry.processingEnd - entry.processingStart
+            eventEntry.processingEnd - eventEntry.processingStart
           )
           setKeyPressDurations((durations) => [
             duration,
@@ -436,8 +458,10 @@ const PerformanceControls = ({
       })
     })
 
-    // @ts-expect-error Options type is missing durationThreshold
-    observer.observe({ type: 'event', durationThreshold: 16 })
+    observer.observe({
+      durationThreshold: 16,
+      type: 'event',
+    } as EventTimingObserverInit)
 
     return () => observer.disconnect()
   }, [])

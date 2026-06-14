@@ -9,9 +9,9 @@ import { Editor } from '../../../../packages/slate/src/internal/index.ts'
 import {
   createReactEditor,
   Editable,
-  type EditableRenderElementProps,
-  type EditableTextLeafProps,
-  type EditableTextRenderTextProps,
+  type RenderElementProps,
+  type RenderLeafProps,
+  type RenderTextProps,
   Slate,
 } from '../../../../packages/slate-react/src/index.ts'
 import { mountApp, now, summarizeMetrics } from '../../shared/react-benchmark'
@@ -51,7 +51,7 @@ const createRenderers = (counts: Counts) => {
     attributes,
     children,
     element,
-  }: EditableRenderElementProps<SlateElement>) => {
+  }: RenderElementProps<SlateElement>) => {
     counts.elementRenders += 1
     return React.createElement(
       element.type === 'heading-one' ? 'h1' : 'p',
@@ -60,18 +60,12 @@ const createRenderers = (counts: Counts) => {
     )
   }
 
-  const renderText = ({
-    attributes,
-    children,
-  }: EditableTextRenderTextProps) => {
+  const renderText = ({ attributes, children }: RenderTextProps) => {
     counts.textRenders += 1
     return React.createElement('span', attributes, children)
   }
 
-  const renderLeaf = ({
-    attributes,
-    children,
-  }: EditableTextLeafProps<unknown>) => {
+  const renderLeaf = ({ attributes, children }: RenderLeafProps<unknown>) => {
     counts.leafRenders += 1
     return React.createElement('span', attributes, children)
   }

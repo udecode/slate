@@ -4,13 +4,17 @@ Create React-backed editors with `createReactEditor`.
 
 ```tsx
 import { useState } from 'react'
-import { createReactEditor } from 'slate-react'
+import { Slate, createReactEditor } from 'slate-react'
 
-const [editor] = useState(() =>
-  createReactEditor({
-    initialValue: [{ type: 'paragraph', children: [{ text: '' }] }],
-  })
-)
+const MyEditor = () => {
+  const [editor] = useState(() =>
+    createReactEditor({
+      initialValue: [{ type: 'paragraph', children: [{ text: '' }] }],
+    })
+  )
+
+  return <Slate editor={editor}>...</Slate>
+}
 ```
 
 `createReactEditor` installs React, DOM, clipboard, and default history

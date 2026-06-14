@@ -302,13 +302,26 @@ describe('slate-react surface contract', () => {
       .join('\n')
 
     expect(runtimeSources).toContain("from 'slate/internal'")
-    expect(runtimeSources).toContain("from 'slate-dom'")
+    expect(runtimeSources).toContain("from 'slate-dom/internal'")
     expect(runtimeSources).toContain("from 'slate'")
     expect(slateReactPackage.peerDependencies?.slate).toBe(
       expectedRuntimePeerFloor('slate')
     )
     expect(slateReactPackage.peerDependencies?.['slate-dom']).toBe(
       expectedRuntimePeerFloor('slate-dom')
+    )
+  })
+
+  test('runtime lodash subpath imports stay resolvable from built ESM', () => {
+    const runtimeSelectionEngine = readFileSync(
+      resolve(packageRoot, 'src/editable/runtime-selection-engine.ts'),
+      'utf8'
+    )
+
+    expect(runtimeSelectionEngine).toContain("from 'lodash/debounce.js'")
+    expect(runtimeSelectionEngine).toContain("from 'lodash/throttle.js'")
+    expect(runtimeSelectionEngine).not.toMatch(
+      /from 'lodash\/(?:debounce|throttle)'/
     )
   })
 
@@ -497,8 +510,14 @@ describe('slate-react surface contract', () => {
     expect(docs.slate).toMatch(/\buseSlateDecorationSource\b/)
     expect(docs.annotations).toMatch(/\buseSlateAnnotationStore\b/)
     expect(docs.annotations).toMatch(/\buseSlateAnnotations\b/)
+    expect(docs.annotations).toMatch(/\bdeps: \[comments\]/)
+    expect(docs.annotations).toMatch(/\btype SlateWidgetAnchor\b/)
+    expect(docs.annotations).toMatch(/\buseSlateWidgetStore\b/)
+    expect(docs.annotations).toMatch(/\buseSlateWidgets\(store\)/)
     expect(docs.hooks).toMatch(/\buseSlateWidgetStore\b/)
     expect(docs.hooks).toMatch(/\buseSlateWidgets\b/)
+    expect(docs.hooks).toMatch(/\bannotationsOrOptions\b/)
+    expect(docs.hooks).toContain('project: () =>')
     expect(joinedDocs).not.toMatch(
       /(?:createSlateProjectionStore|ProjectionContext|from 'slate-react\/src)/
     )
@@ -528,6 +547,38 @@ describe('slate-react surface contract', () => {
     expect(typeof SlateReact.createReactEditor).toBe('function')
   })
 
+  test('weak-map runtime state stays out of the public root at runtime', () => {
+    for (const name of [
+      'EDITOR_TO_ELEMENT',
+      'EDITOR_TO_FORCE_RENDER',
+      'EDITOR_TO_KEY_TO_ELEMENT',
+      'EDITOR_TO_PENDING_ACTION',
+      'EDITOR_TO_PENDING_DIFFS',
+      'EDITOR_TO_PENDING_INSERTION_MARKS',
+      'EDITOR_TO_PENDING_SELECTION',
+      'EDITOR_TO_PLACEHOLDER_ELEMENT',
+      'EDITOR_TO_ROOT_VIEW_EDITORS',
+      'EDITOR_TO_SCHEDULE_FLUSH',
+      'EDITOR_TO_USER_MARKS',
+      'EDITOR_TO_USER_SELECTION',
+      'EDITOR_TO_WINDOW',
+      'ELEMENT_TO_NODE',
+      'IS_COMPOSING',
+      'IS_FOCUSED',
+      'IS_NODE_MAP_DIRTY',
+      'IS_READ_ONLY',
+      'MARK_PLACEHOLDER_SYMBOL',
+      'NODE_TO_ELEMENT',
+      'NODE_TO_INDEX',
+      'NODE_TO_KEY',
+      'NODE_TO_PARENT',
+      'NODE_TO_RUNTIME_ID',
+      'PLACEHOLDER_SYMBOL',
+    ]) {
+      expect(name in SlateReact).toBe(false)
+    }
+  })
+
   test('React hook aliases stay out of the public root at runtime', () => {
     for (const name of [
       'useComposing',
@@ -538,6 +589,7 @@ describe('slate-react surface contract', () => {
       'useSlateSelection',
       'useSlateSelector',
       'useSlateStatic',
+      'useSlateRootState',
     ]) {
       expect(name in SlateReact).toBe(false)
     }
@@ -552,6 +604,43 @@ describe('slate-react surface contract', () => {
       'useElement',
       'useElementSelected',
     ]) {
+      expect(typeof SlateReact[name as keyof typeof SlateReact]).toBe(
+        'function'
+      )
+    }
+  })
+
+  test('hook docs explain runtime, view, and root editor names without aliases', () => {
+    const hooks = readFileSync(
+      resolve(repoRoot, 'docs/libraries/slate-react/hooks.md'),
+      'utf8'
+    )
+
+    expect(hooks).toContain('Runtime hooks read the whole editor runtime.')
+    expect(hooks).toContain('View hooks read one root view.')
+    expect(hooks).toContain(
+      'Root editor hooks return a command-capable editor view for one root.'
+    )
+    expect(hooks).toContain('Prefer `useSlateRootEditor(root)`')
+    expect(hooks).not.toContain('useSlateRootState')
+  })
+
+  test('public root exports canonical Editable and render prop names without aliases', () => {
+    const packageIndex = readFileSync(
+      resolve(packageRoot, 'src/index.ts'),
+      'utf8'
+    )
+
+    expect(packageIndex).not.toMatch(/\bas\s+(?:Editable|Render|EditableProps)/)
+    expect(packageIndex).not.toMatch(
+      /\b(?:EditableTextBlocks|EditableTextBlocksProps|EditableRenderElementProps|EditableRenderVoidProps|EditableTextLeafProps|EditableTextRenderTextProps|EditableTextRenderPlaceholderProps)\b/
+    )
+
+    for (const name of ['EditableTextBlocks', 'useSlateRootState']) {
+      expect(name in SlateReact).toBe(false)
+    }
+
+    for (const name of ['Editable', 'useSlateViewState']) {
       expect(typeof SlateReact[name as keyof typeof SlateReact]).toBe(
         'function'
       )
@@ -632,6 +721,21 @@ describe('slate-react surface contract', () => {
     expect(editableRootSource).toContain('aggressiveDomCoverageBoundaryCount')
     expect(packageIndex).toContain('EditableDOMStrategyMetrics')
     expect(packageIndex).not.toContain('EditableRenderingStrategy')
+  })
+
+  test('Editable docs expose current component props and render-element shape', () => {
+    const docs = readFileSync(
+      resolve(repoRoot, 'docs/libraries/slate-react/editable.md'),
+      'utf8'
+    )
+
+    expect(docs).toContain('decorateDirtiness?: SlateSourceDirtiness')
+    expect(docs).toContain('decorateRuntimeScope?: SlateProjectionRuntimeScope')
+    expect(docs).toContain('layout?: EditableLayout | null')
+    expect(docs).toContain("type: 'virtualized'")
+    expect(docs).toContain("'data-slate-runtime-id': RuntimeId")
+    expect(docs).toContain('isInline: boolean')
+    expect(docs).toContain('slots: EditableElementSlots')
   })
 
   test('Editable DOM strategy option objects normalize through primitive fields', () => {

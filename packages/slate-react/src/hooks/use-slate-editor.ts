@@ -11,6 +11,11 @@ export type UseSlateEditorOptions<
   TExtensions extends readonly unknown[] = readonly [],
 > = CreateReactEditorOptions<V, TExtensions>
 
+/**
+ * Creates one React editor instance for the component lifetime.
+ *
+ * Pass the same options accepted by `createReactEditor`.
+ */
 export const useSlateEditor = <
   V extends Value = Value,
   const TExtensions extends readonly unknown[] = readonly [],

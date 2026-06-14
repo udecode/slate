@@ -5,7 +5,8 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 import type { Editor } from 'slate'
-import { Hotkeys, IS_COMPOSING, isDOMElement, isDOMText } from 'slate-dom'
+import { Hotkeys, isDOMElement, isDOMText } from 'slate-dom'
+import { IS_COMPOSING } from 'slate-dom/internal'
 
 import { ReactEditor, type ReactRuntimeEditor } from '../plugin/react-editor'
 import {

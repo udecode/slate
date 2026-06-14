@@ -4,7 +4,7 @@ import {
   EDITOR_TO_WINDOW,
   ELEMENT_TO_NODE,
   NODE_TO_ELEMENT,
-} from 'slate-dom'
+} from 'slate-dom/internal'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   readModelSelectionDOMPreference,

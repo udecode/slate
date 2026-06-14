@@ -100,9 +100,21 @@ Read the fragment at `options.at` or the current selection.
 
 Insert a fragment at `options.at` or the transaction target.
 
+Options:
+
+- `at?: Location`: Where to insert. Defaults to the transaction target.
+- `hanging?: boolean`: Preserve hanging range edges instead of un-hanging first.
+- `voids?: boolean`: Allow insertion into void elements.
+
 #### `tx.fragment.delete(options?)`
 
 Delete the fragment at `options.at` or the transaction target.
+
+Options:
+
+- `at?: Location`: Location to delete. Defaults to the transaction target.
+- `hanging?: boolean`: Preserve hanging range edges instead of un-hanging first.
+- `voids?: boolean`: Allow deletion inside void elements.
 
 ## Text methods
 
@@ -110,9 +122,33 @@ Delete the fragment at `options.at` or the transaction target.
 
 Insert text at `options.at` or the transaction target.
 
+Options:
+
+- `at?: Location`: Where to insert. Defaults to the transaction target.
+- `voids?: boolean`: Allow insertion into void elements.
+
+When `at` is an expanded range, the inserted text replaces the range and the
+selection moves after the inserted text.
+
 #### `tx.text.delete(options?)`
 
 Delete text at `options.at` or the transaction target.
+
+Options:
+
+- `at?: Location`: Location to delete from. Defaults to the transaction target.
+- `distance?: number`: Number of units to delete. Defaults to one unit.
+- `unit?: 'character' | 'word' | 'line' | 'block'`: Unit used for collapsed
+  deletion.
+- `reverse?: boolean`: Delete before the target instead of after it.
+- `hanging?: boolean`: Preserve hanging range edges instead of un-hanging first.
+- `voids?: boolean`: Allow deletion inside void elements.
+
+```javascript
+editor.update(tx => {
+  tx.text.delete({ reverse: true, unit: 'word' })
+})
+```
 
 ## Selection methods
 

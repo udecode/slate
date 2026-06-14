@@ -1,13 +1,13 @@
 import { useCallback, useContext, useRef } from 'react'
 import type { Operation, Path, RuntimeId, Node as SlateNode } from 'slate'
+import type { DOMEditor } from 'slate-dom/internal'
 import {
   EDITOR_TO_KEY_TO_ELEMENT,
   ELEMENT_TO_NODE,
   IS_COMPOSING,
   NODE_TO_ELEMENT,
   NODE_TO_RUNTIME_ID,
-} from 'slate-dom'
-import type { DOMEditor } from 'slate-dom/internal'
+} from 'slate-dom/internal'
 import { EditorContext } from '../context'
 import {
   Editor,

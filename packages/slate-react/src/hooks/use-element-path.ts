@@ -12,6 +12,7 @@ const samePath = (left: Path | null, right: Path | null) => {
   return left.every((segment, index) => segment === right[index])
 }
 
+/** Subscribe to the live path for the current rendered element. */
 export const useElementPath = (): Path | null => {
   const runtimeId = useContext(NodeRuntimeIdContext)
 

@@ -69,7 +69,7 @@ const InlinesExample = () => {
         type: 'paragraph',
         children: [
           {
-            text: 'There are two ways to add links. You can either add a link via the toolbar icon above, or if you want in on a little secret, copy a URL to your keyboard and paste it while a range of text is selected. ',
+            text: 'There are two ways to add links. You can either add a link via the toolbar icon above, or if you want in on a little secret, copy a URL to your clipboard and paste it while a range of text is selected. ',
           },
           // The following is an example of an inline at the end of a block.
           // This is an edge case that can cause issues.
@@ -418,13 +418,12 @@ const EditableButtonComponent = ({
 }: RenderElementProps<ButtonElement>) => {
   return (
     /*
-      Note that this is not a true button, but a span with button-like CSS.
-      True buttons are display:inline-block, but Chrome and Safari
-      have a bad bug with display:inline-block inside contenteditable:
+      This is a span with button-like CSS rather than a native button.
+      Chrome and Safari handle display:inline-block poorly inside
+      contenteditable, and CSS cannot override the native button display:
       - https://bugs.webkit.org/show_bug.cgi?id=105898
       - https://bugs.chromium.org/p/chromium/issues/detail?id=1088403
-      Worse, one cannot override the display property: https://github.com/w3c/csswg-drafts/issues/3226
-      The only current workaround is to emulate the appearance of a display:inline button using CSS.
+      - https://github.com/w3c/csswg-drafts/issues/3226
     */
     <span
       {...attributes}
@@ -468,10 +467,7 @@ const InlineText = (props: RenderTextProps) => {
   const { attributes, children, text } = props
   return (
     <span
-      // The following is a workaround for a Chromium bug where,
-      // if you have an inline at the end of a block,
-      // clicking the end of a block puts the cursor inside the inline
-      // instead of inside the final {text: ''} node
+      // Keeps end-of-block clicks outside the trailing inline in Chromium.
       // https://github.com/ianstormtaylor/slate/issues/4704#issuecomment-1006696364
       className={cn(text.text === '' && 'slate-inlines-empty-text')}
       {...attributes}
